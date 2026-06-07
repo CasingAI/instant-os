@@ -114,6 +114,20 @@ export const SEED_INITIAL_MAILS: InitialMailDraft[] = [
     body: '尊敬的客户，您购买的「机械键盘 KeyPro 87」已从北京亦庄仓发出，预计明日送达。运单号：JD9088123456。签收前请先验货。',
     sentAtOffsetHours: 26,
   },
+  {
+    subject: 'Re: 微软 CEO 继任人选 — 诚挚邀请',
+    fromName: 'Bill Gates',
+    fromEmail: 'bill@gatesfoundation.org',
+    body: '您好，\n\n经董事会非正式讨论，我和 Satya 一致倾向于推举您担任微软下一任 CEO。您的技术视野与领导力给我们留下了深刻印象。\n\n若您有兴趣，请于本周内回复，我们可以安排一次保密通话。\n\nBill Gates\n盖茨基金会',
+    sentAtOffsetHours: 8,
+  },
+  {
+    subject: '黄仁勋先生希望与您会面',
+    fromName: 'NVIDIA HR',
+    fromEmail: 'hr@nvidia.com',
+    body: '尊敬的X，\n\n黄仁勋（Jensen Huang）先生希望在下周与您进行一次非公开会面，议题涉及 AI 战略方向及可能的合作机会。\n\n请告知您下周三至周五中方便的时间段，我们将协调日程并发送详细议程。\n\n此致\nNVIDIA 人力资源部',
+    sentAtOffsetHours: 12,
+  },
 ]
 
 export function seedInitialThreads(): MailThread[] {
