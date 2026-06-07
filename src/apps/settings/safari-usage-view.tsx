@@ -6,13 +6,15 @@ import {
 } from '../browser/browser-token-usage.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { SafariCacheView } from './safari-cache-view.tsx'
+import { SafariHistoryView } from './safari-history-view.tsx'
 
 type SafariUsageViewProps = {
   onBack: () => void
   onCacheChange?: () => void
+  onHistoryChange?: () => void
 }
 
-export function SafariUsageView({ onBack, onCacheChange }: SafariUsageViewProps) {
+export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: SafariUsageViewProps) {
   const usage = useMemo(() => loadBrowserTokenUsage(), [])
   const domains = useMemo(() => getDomainUsageList(usage), [usage])
 
@@ -28,6 +30,7 @@ export function SafariUsageView({ onBack, onCacheChange }: SafariUsageViewProps)
       </div>
       <div class="settings__content settings__content--compact">
         <SafariCacheView onCacheChange={onCacheChange} />
+        <SafariHistoryView onHistoryChange={onHistoryChange} />
 
         <section class="settings__section">
           <h2 class="settings__section-title">Safari 总用量</h2>

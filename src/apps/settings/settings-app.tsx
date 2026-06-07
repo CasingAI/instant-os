@@ -127,6 +127,7 @@ export function SettingsApp() {
       <SafariUsageView
         onBack={() => setRoute({ view: 'root' })}
         onCacheChange={() => setCacheRevision((value) => value + 1)}
+        onHistoryChange={() => setCacheRevision((value) => value + 1)}
       />
     )
   }

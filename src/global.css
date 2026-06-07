@@ -15,7 +15,13 @@ body,
 }
 
 body {
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family:
+    'Helvetica Neue',
+    Helvetica,
+    'PingFang SC',
+    'Microsoft YaHei',
+    'Apple Color Emoji',
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }

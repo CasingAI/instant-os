@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -45,6 +45,8 @@ import {
 import { SafariTabPane } from './safari-tab-pane.tsx'
 import { isEmbeddedAppOrigin, isSameDocumentUrl } from './resolve-browser-navigation-url.ts'
 import { SafariHistoryPanel } from './safari-history-panel.tsx'
+import { SafariAddressSuggestions } from './safari-address-suggestions.tsx'
+import { searchBrowserHistory } from './search-browser-history.ts'
 import { SafariTabBar } from './safari-tab-bar.tsx'
 import {
   SafariBookmarksBar,
@@ -135,6 +137,7 @@ export function BrowserApp() {
   const [tabs, setTabs] = useState<SafariTab[]>(() => [createSafariTab()])
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '')
   const [addressFocused, setAddressFocused] = useState(false)
+  const [addressSuggestionIndex, setAddressSuggestionIndex] = useState(-1)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyRevision, setHistoryRevision] = useState(0)
   const [bookmarksRevision, setBookmarksRevision] = useState(0)
@@ -150,6 +153,11 @@ export function BrowserApp() {
   const generationSeqRef = useRef<Record<string, number>>({})
   const pageHtmlByTabRef = useRef<Record<string, string>>({})
   const lastPageNavByTabRef = useRef<Record<string, { url: string; at: number }>>({})
+  const safariRootRef = useRef<HTMLDivElement>(null)
+  const addressWrapRef = useRef<HTMLFormElement>(null)
+  const [suggestionAnchor, setSuggestionAnchor] = useState<
+    { top: number; left: number; width: number } | undefined
+  >(undefined)
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
   const current = activeTab?.history[activeTab.historyIndex] ?? INITIAL_ENTRY
@@ -515,6 +523,91 @@ export function BrowserApp() {
     [activeTabId, navigate],
   )
 
+  const addressSuggestions = useMemo(() => {
+    if (!addressFocused || !inputUrl.trim()) {
+      return []
+    }
+    return searchBrowserHistory(inputUrl)
+  }, [addressFocused, inputUrl, historyRevision])
+
+  const selectAddressSuggestion = useCallback(
+    (url: string) => {
+      navigateActive(url)
+      setAddressFocused(false)
+      setAddressSuggestionIndex(-1)
+    },
+    [navigateActive],
+  )
+
+  useEffect(() => {
+    setAddressSuggestionIndex(-1)
+  }, [inputUrl])
+
+  const handleAddressKeyDown = (event: KeyboardEvent) => {
+    if (addressSuggestions.length === 0) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setAddressSuggestionIndex((index) => {
+        const next = index + 1
+        return next >= addressSuggestions.length ? addressSuggestions.length - 1 : next
+      })
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setAddressSuggestionIndex((index) => (index <= 0 ? -1 : index - 1))
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setAddressSuggestionIndex(-1)
+    }
+  }
+
+  const showAddressSuggestions =
+    addressFocused && inputUrl.trim().length > 0 && addressSuggestions.length > 0
+
+  const updateSuggestionAnchor = useCallback(() => {
+    if (!showAddressSuggestions || !addressWrapRef.current || !safariRootRef.current) {
+      setSuggestionAnchor(undefined)
+      return
+    }
+
+    const wrapRect = addressWrapRef.current.getBoundingClientRect()
+    const rootRect = safariRootRef.current.getBoundingClientRect()
+    setSuggestionAnchor({
+      top: wrapRect.bottom - rootRect.top + 6,
+      left: wrapRect.left - rootRect.left,
+      width: wrapRect.width,
+    })
+  }, [showAddressSuggestions])
+
+  useLayoutEffect(() => {
+    updateSuggestionAnchor()
+  }, [
+    updateSuggestionAnchor,
+    inputUrl,
+    addressSuggestions.length,
+    bookmarksBarVisible,
+    showProgress,
+    tabs.length,
+  ])
+
+  useEffect(() => {
+    if (!showAddressSuggestions) {
+      return
+    }
+
+    const handleLayoutChange = () => updateSuggestionAnchor()
+    window.addEventListener('resize', handleLayoutChange)
+    return () => window.removeEventListener('resize', handleLayoutChange)
+  }, [showAddressSuggestions, updateSuggestionAnchor])
+
   const navigateFromPageForTab = useCallback(
     (tabId: string, rawUrl: string) => {
       const url = normalizeBrowserUrl(rawUrl)
@@ -611,7 +704,14 @@ export function BrowserApp() {
 
   const submitUrl = (event: Event) => {
     event.preventDefault()
+    const selected = addressSuggestions[addressSuggestionIndex]
+    if (selected) {
+      selectAddressSuggestion(selected.url)
+      return
+    }
     navigateActive(inputUrl.trim() ? inputUrl : START_PAGE_URL)
+    setAddressFocused(false)
+    setAddressSuggestionIndex(-1)
   }
 
   const addTab = () => {
@@ -1058,7 +1158,7 @@ export function BrowserApp() {
   useAppMenuBar('browser', menuBar)
 
   return (
-    <div class="safari">
+    <div class="safari" ref={safariRootRef}>
       <header class="safari__chrome">
         <SafariTabBar
           tabs={tabSummaries}
@@ -1090,7 +1190,7 @@ export function BrowserApp() {
             </button>
           </div>
 
-          <form class="safari__address-wrap" onSubmit={submitUrl}>
+          <form class="safari__address-wrap" ref={addressWrapRef} onSubmit={submitUrl}>
             <div
               class={`safari__address ${addressFocused ? 'safari__address--focused' : ''} ${showProgress ? 'safari__address--loading' : ''}`}
             >
@@ -1108,18 +1208,28 @@ export function BrowserApp() {
                 placeholder="搜索或输入网站名称"
                 onFocus={() => {
                   setAddressFocused(true)
+                  setAddressSuggestionIndex(-1)
                   updateTab(activeTabId, (tab) => ({
                     ...tab,
                     inputUrl: displayUrl(current.url),
                   }))
                 }}
                 onBlur={() => setAddressFocused(false)}
+                onKeyDown={handleAddressKeyDown}
                 onInput={(event) => {
                   const value = (event.currentTarget as HTMLInputElement).value
                   updateTab(activeTabId, (tab) => ({ ...tab, inputUrl: value }))
                 }}
                 spellcheck={false}
                 aria-label="地址栏"
+                aria-expanded={showAddressSuggestions}
+                aria-autocomplete="list"
+                aria-controls={showAddressSuggestions ? 'safari-address-suggestions' : undefined}
+                aria-activedescendant={
+                  showAddressSuggestions && addressSuggestionIndex >= 0
+                    ? `safari-address-suggestion-${addressSuggestionIndex}`
+                    : undefined
+                }
               />
               {statusHint && !addressFocused && (
                 <span class="safari__address-status">{statusHint}</span>
@@ -1179,6 +1289,24 @@ export function BrowserApp() {
           </div>
         )}
       </header>
+
+      {showAddressSuggestions && suggestionAnchor && (
+        <div
+          class="safari-address-suggestions-anchor"
+          style={{
+            top: `${suggestionAnchor.top}px`,
+            left: `${suggestionAnchor.left}px`,
+            width: `${suggestionAnchor.width}px`,
+          }}
+        >
+          <SafariAddressSuggestions
+            suggestions={addressSuggestions}
+            activeIndex={addressSuggestionIndex}
+            onSelect={selectAddressSuggestion}
+            onHover={setAddressSuggestionIndex}
+          />
+        </div>
+      )}
 
       <main class="safari__viewport">
         {tabs.map((tab) => {
