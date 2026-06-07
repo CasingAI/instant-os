@@ -8,9 +8,8 @@
 Instant OS 是一个在浏览器中运行的 AI 原生桌面环境。它复刻熟悉的桌面交互——菜单栏、图标、Dock、可拖拽窗口——但底层逻辑是：**内容不存在于安装包或服务器里，只存在于每一次生成之中。**
 
 <p align="center">
-  <img src="public/instant-logo.svg" alt="Instant OS" width="88" />
+  <img src="public/favicon.svg" alt="Instant OS" width="64" />
 </p>
-
 
 ## 核心理念
 

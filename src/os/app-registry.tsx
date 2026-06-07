@@ -43,8 +43,8 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'photos',
     name: '照片',
     icon: PhotosIcon,
-    dock: true,
-    desktop: true,
+    dock: false,
+    desktop: false,
   }),
   withAbout({
     id: 'settings',
