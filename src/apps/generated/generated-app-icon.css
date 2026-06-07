@@ -1,0 +1,83 @@
+.generated-app-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.generated-app-icon__base {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+}
+
+.generated-app-icon--downloading .generated-app-icon__base {
+  filter: grayscale(1) brightness(0.82);
+}
+
+.generated-app-icon__emoji {
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+.download-progress {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.download-progress__dim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 22%;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.download-progress__length {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.download-progress__bar {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #3a3a3a 0%, #1a1a1a 100%);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.download-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #b8b8b8 0%, #8e8e8e 45%, #6d6d6d 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: width 0.6s ease;
+}
+
+.download-progress__check {
+  position: relative;
+  z-index: 2;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}

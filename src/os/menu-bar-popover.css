@@ -1,0 +1,155 @@
+.menu-bar__popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 240px;
+  padding: 10px 0 6px;
+  color: #1d1d1f;
+  text-shadow: none;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.18),
+    0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(20px);
+}
+
+.menu-bar__popover--right {
+  left: auto;
+  right: 0;
+}
+
+.menu-bar__popover--center {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.menu-bar__popover-heading {
+  margin: 0 0 6px;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #666;
+}
+
+.menu-bar__popover-empty {
+  margin: 0;
+  padding: 4px 14px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #666;
+}
+
+.menu-bar__popover-empty--compact {
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+
+.menu-bar__popover-separator {
+  height: 1px;
+  margin: 6px 0;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.menu-bar__popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.menu-bar__popover-row-label {
+  color: #666;
+}
+
+.menu-bar__popover-row-value {
+  font-weight: 600;
+  color: #1d1d1f;
+  text-align: right;
+}
+
+.menu-bar__popover-app {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 10px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.menu-bar__popover-app:hover {
+  background: #007aff;
+  color: #fff;
+}
+
+.menu-bar__popover-app--active {
+  background: rgba(0, 122, 255, 0.08);
+}
+
+.menu-bar__popover-app--active:hover {
+  background: #007aff;
+  color: #fff;
+}
+
+.menu-bar__popover-app-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.menu-bar__popover-app-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.menu-bar__popover-app-name {
+  display: block;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-bar__popover-app-status {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.menu-bar__popover-app:hover .menu-bar__popover-app-status {
+  opacity: 0.85;
+}
+
+.menu-bar__popover-datetime {
+  padding: 2px 14px 8px;
+  text-align: center;
+}
+
+.menu-bar__popover-date {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.menu-bar__popover-time {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}

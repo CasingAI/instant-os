@@ -1,0 +1,75 @@
+import type { ComponentChildren } from 'preact'
+import { createContext } from 'preact'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { AppId } from './types.ts'
+import type { MenuDefinition } from './menu-bar-types.ts'
+
+type MenuBarContextValue = {
+  menusByApp: Record<string, MenuDefinition[]>
+  registerAppMenus: (appId: AppId, menus: MenuDefinition[]) => void
+  unregisterAppMenus: (appId: AppId) => void
+}
+
+const MenuBarContext = createContext<MenuBarContextValue | undefined>(undefined)
+
+function menuSignature(menus: MenuDefinition[]): string {
+  return JSON.stringify(
+    menus.map((menu) => ({
+      label: menu.label,
+      items: menu.items.map((item) =>
+        item.type === 'separator'
+          ? '|'
+          : [item.label, item.disabled ?? false, item.shortcut ?? ''],
+      ),
+    })),
+  )
+}
+
+export function MenuBarProvider({ children }: { children: ComponentChildren }) {
+  const [menusByApp, setMenusByApp] = useState<Record<string, MenuDefinition[]>>({})
+
+  const registerAppMenus = useCallback((appId: AppId, menus: MenuDefinition[]) => {
+    const signature = menuSignature(menus)
+    setMenusByApp((current) => {
+      if (current[appId] && menuSignature(current[appId]) === signature) {
+        return current
+      }
+      return { ...current, [appId]: menus }
+    })
+  }, [])
+
+  const unregisterAppMenus = useCallback((appId: AppId) => {
+    setMenusByApp((current) => {
+      const next = { ...current }
+      delete next[appId]
+      return next
+    })
+  }, [])
+
+  const value = useMemo(
+    () => ({ menusByApp, registerAppMenus, unregisterAppMenus }),
+    [menusByApp, registerAppMenus, unregisterAppMenus],
+  )
+
+  return <MenuBarContext.Provider value={value}>{children}</MenuBarContext.Provider>
+}
+
+export function useMenuBar() {
+  const context = useContext(MenuBarContext)
+  if (!context) {
+    throw new Error('useMenuBar must be used within MenuBarProvider')
+  }
+  return context
+}
+
+export function useAppMenuBar(appId: AppId, menus: MenuDefinition[]) {
+  const { registerAppMenus, unregisterAppMenus } = useMenuBar()
+  const menusRef = useRef(menus)
+  menusRef.current = menus
+  const signature = menuSignature(menus)
+
+  useEffect(() => {
+    registerAppMenus(appId, menusRef.current)
+    return () => unregisterAppMenus(appId)
+  }, [appId, signature, registerAppMenus, unregisterAppMenus])
+}

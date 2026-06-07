@@ -1,0 +1,83 @@
+.dock {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 900;
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.dock--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(120%);
+}
+
+.dock__plate {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 8px 16px 10px;
+  border-radius: 18px;
+  background: rgba(20, 20, 20, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.dock__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.18s ease;
+}
+
+.dock__item:hover {
+  transform: translateY(-8px) scale(1.08);
+}
+
+.dock__item:active {
+  transform: translateY(-2px) scale(0.95);
+}
+
+.dock__icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.dock__icon .app-icon-tile__tile {
+  display: block;
+  border-radius: 13px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.dock__indicator {
+  position: absolute;
+  bottom: -6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+}
+
+.dock__item--running .dock__icon .app-icon-tile__tile {
+  animation: dock-bounce 0.45s ease;
+}
+
+@keyframes dock-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-10px);
+  }
+}

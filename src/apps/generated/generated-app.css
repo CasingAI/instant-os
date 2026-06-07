@@ -1,0 +1,19 @@
+.generated-app {
+  height: 100%;
+  background: #ececec;
+}
+
+.generated-app__frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.generated-app--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6d6d72;
+  font-size: 14px;
+}
