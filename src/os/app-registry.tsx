@@ -27,7 +27,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
   withAbout({
     id: 'browser',
-    name: 'Safari',
+    name: '网络浏览器',
     icon: BrowserIcon,
     dock: true,
     desktop: true,
@@ -48,7 +48,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
   withAbout({
     id: 'settings',
-    name: '系统偏好设置',
+    name: '系统设置',
     icon: SettingsIcon,
     dock: true,
     desktop: false,

@@ -6,14 +6,10 @@ type IconProps = {
 
 export function BrowserIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#1a78d6" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <circle cx="32" cy="32" r="22" fill="none" stroke="#fff" stroke-width="2.5" opacity="0.95" />
-        <circle cx="32" cy="32" r="17" fill="none" stroke="#fff" stroke-width="1.2" opacity="0.35" />
-        <path d="M32 14 L35.5 42 L32 37.5 L28.5 42 Z" fill="#ff453a" />
-        <path d="M32 37.5 L35.5 42 L28.5 42 Z" fill="#fff" opacity="0.9" />
-        <circle cx="32" cy="32" r="2.5" fill="#fff" />
-      </svg>
+    <AppIconTile color="#4285f4" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🌐
+      </span>
     </AppIconTile>
   )
 }
@@ -21,10 +17,9 @@ export function BrowserIcon({ size = 64 }: IconProps) {
 export function MailIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#2b8fd9" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="12" y="18" width="40" height="28" rx="4" fill="#fff" />
-        <path d="M12 22 L32 36 L52 22" fill="none" stroke="#2b8fd9" stroke-width="2.5" />
-      </svg>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        📧
+      </span>
     </AppIconTile>
   )
 }
@@ -56,30 +51,73 @@ export function SettingsIcon({ size = 64 }: IconProps) {
 }
 
 export function AppStoreIcon({ size = 64 }: IconProps) {
+  const stroke = 6
+  const leftLeg = 'M17 47 L32 13'
+  const rightLeg = 'M47 47 L32 13'
+  const crossbar = 'M21 35 H43'
+
   return (
     <AppIconTile color="#0a84ff" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <g transform="translate(1.5, 2.5)" opacity="0.28">
+          <path d={leftLeg} fill="none" stroke="#001a33" stroke-width={stroke + 1} stroke-linecap="round" />
+          <path d={rightLeg} fill="none" stroke="#001a33" stroke-width={stroke + 1} stroke-linecap="round" />
+          <path d={crossbar} fill="none" stroke="#001a33" stroke-width={stroke + 1} stroke-linecap="round" />
+        </g>
         <path
-          d="M17 47 L32 13"
+          d={leftLeg}
           fill="none"
-          stroke="#fff"
-          stroke-width="6"
+          stroke="url(#appstore-stroke-depth)"
+          stroke-width={stroke}
           stroke-linecap="round"
         />
         <path
-          d="M47 47 L32 13"
+          d={rightLeg}
           fill="none"
-          stroke="#fff"
-          stroke-width="6"
+          stroke="url(#appstore-stroke-depth)"
+          stroke-width={stroke}
           stroke-linecap="round"
         />
         <path
-          d="M21 35 H43"
+          d={crossbar}
           fill="none"
-          stroke="#fff"
-          stroke-width="6"
+          stroke="url(#appstore-stroke-depth)"
+          stroke-width={stroke}
           stroke-linecap="round"
         />
+        <path
+          d={leftLeg}
+          fill="none"
+          stroke="url(#appstore-stroke-face)"
+          stroke-width={stroke - 1.2}
+          stroke-linecap="round"
+        />
+        <path
+          d={rightLeg}
+          fill="none"
+          stroke="url(#appstore-stroke-face)"
+          stroke-width={stroke - 1.2}
+          stroke-linecap="round"
+        />
+        <path
+          d={crossbar}
+          fill="none"
+          stroke="url(#appstore-stroke-face)"
+          stroke-width={stroke - 1.2}
+          stroke-linecap="round"
+        />
+        <defs>
+          <linearGradient id="appstore-stroke-depth" x1="32" y1="13" x2="32" y2="47" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#b8d4f0" />
+            <stop offset="45%" stop-color="#6aabf0" />
+            <stop offset="100%" stop-color="#2a6db8" />
+          </linearGradient>
+          <linearGradient id="appstore-stroke-face" x1="32" y1="13" x2="32" y2="47" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#fff" />
+            <stop offset="55%" stop-color="#eef5ff" />
+            <stop offset="100%" stop-color="#c8ddf5" />
+          </linearGradient>
+        </defs>
       </svg>
     </AppIconTile>
   )

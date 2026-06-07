@@ -36,7 +36,7 @@ export function ListingGrid({
   onSelect,
 }: ListingGridProps) {
   if (!apiReady) {
-    return <EmptyState message="请在系统偏好设置 → 账户中配置 API Key" />
+    return <EmptyState message="请在系统设置 → 账户中配置 API Key" />
   }
 
   if (loading && listings.length === 0) {

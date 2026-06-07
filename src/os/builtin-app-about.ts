@@ -23,7 +23,7 @@ export const INSTANT_ABOUT: AboutAppContent = {
   icon: InstantLogoIcon,
   paragraphs: [
     'Instant OS 是一个在浏览器中运行的 AI 桌面操作系统。它复刻经典 macOS / iOS 的视觉与交互，让你无需安装即可体验完整的「桌面 + 应用」环境。',
-    '平台定位：以 AI 实时生成为核心——Safari 可还原任意网页，App Store 可现场创作并安装微应用，一切即开即用、即时可用。',
+    '平台定位：以 AI 实时生成为核心——网络浏览器可还原任意网页，App Store 可现场创作并安装微应用，一切即开即用、即时可用。',
   ],
 }
 
@@ -38,7 +38,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   browser: {
     version: 'AI 网页浏览器',
     paragraphs: [
-      'Safari 是 Instant OS 内置浏览器。输入任意网址或搜索词，AI 会实时生成对应页面，在标签页中浏览。',
+      '网络浏览器是 Instant OS 内置浏览器。输入任意网址或搜索词，AI 会实时生成对应页面，在标签页中浏览。',
       '支持多标签、历史记录、前进后退与重新加载，体验接近真实浏览器。',
     ],
   },
@@ -56,7 +56,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   settings: {
     version: '系统管理',
     paragraphs: [
-      '系统偏好设置用于查看存储用量、管理已安装应用，以及调整 Safari 缓存与 AI 用量等系统选项。',
+      '系统设置用于查看存储用量、管理已安装应用，以及调整网络浏览器缓存与 AI 用量等系统选项。',
     ],
   },
 }

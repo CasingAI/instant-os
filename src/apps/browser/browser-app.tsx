@@ -324,7 +324,7 @@ export function BrowserApp() {
           html: '',
           rawText: '',
           pageTokens: undefined,
-          error: '缺少 API Key，无法生成网页。请在系统偏好设置 → 账户中配置。',
+          error: '缺少 API Key，无法生成网页。请在系统设置 → 账户中配置。',
         })
         return
       }
@@ -1063,12 +1063,12 @@ export function BrowserApp() {
 
     return [
       {
-        label: 'Safari',
+        label: '网络浏览器',
         items: [
-          ...aboutAppMenuPrefix('关于 Safari', () => showBuiltinAbout('browser')),
-          { type: 'action', label: '隐藏 Safari', shortcut: '⌘H', onClick: () => run('hideSafari') },
+          ...aboutAppMenuPrefix('关于网络浏览器', () => showBuiltinAbout('browser')),
+          { type: 'action', label: '隐藏网络浏览器', shortcut: '⌘H', onClick: () => run('hideSafari') },
           { type: 'separator' },
-          { type: 'action', label: '退出 Safari', shortcut: '⌘Q', onClick: () => run('quitSafari') },
+          { type: 'action', label: '退出网络浏览器', shortcut: '⌘Q', onClick: () => run('quitSafari') },
         ],
       },
       {

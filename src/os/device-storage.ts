@@ -15,6 +15,7 @@ export const DEVICE_STORAGE_KEYS = {
   mail: 'instant-os-mail',
   windowSizes: 'instant-os:window-sizes',
   accountSettings: 'instant-os-account-settings',
+  displaySettings: 'instant-os-display-settings',
 } as const
 
 const ACCOUNTED_KEYS: ReadonlySet<string> = new Set([

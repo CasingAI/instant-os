@@ -225,7 +225,7 @@ export function AppStoreApp() {
 
       {!apiReady && (
         <div class="appstore__notice appstore__notice--warn">
-          请在「系统偏好设置 → 账户」中配置 API Key。
+          请在「系统设置 → 账户」中配置 API Key。
         </div>
       )}
 

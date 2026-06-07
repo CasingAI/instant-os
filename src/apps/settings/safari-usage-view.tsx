@@ -33,7 +33,7 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
         <SafariHistoryView onHistoryChange={onHistoryChange} />
 
         <section class="settings__section">
-          <h2 class="settings__section-title">Safari 总用量</h2>
+          <h2 class="settings__section-title">网络浏览器总用量</h2>
           <div class="settings__box">
             <dl class="settings__form-row">
               <dt>累计 Tokens</dt>
@@ -57,7 +57,7 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
         <section class="settings__section">
           <h2 class="settings__section-title">按域名统计</h2>
           {domains.length === 0 ? (
-            <div class="settings__box settings__empty">暂无 Safari 网页生成记录</div>
+            <div class="settings__box settings__empty">暂无网络浏览器网页生成记录</div>
           ) : (
             <div class="settings__list">
               <div class="settings__list-head settings__list-head--tokens">
@@ -76,9 +76,6 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
               </div>
             </div>
           )}
-          <p class="settings__section-footnote">
-            统计每次在 Safari 中由 AI 生成的网页所消耗的 Token，按目标 URL 域名汇总。
-          </p>
         </section>
       </div>
     </div>

@@ -55,7 +55,7 @@ export function AppStoreSearch({
   }
 
   const emptyMessage = !apiReady
-    ? '请在系统偏好设置 → 账户中配置 API Key'
+    ? '请在系统设置 → 账户中配置 API Key'
     : activeQuery
       ? loading
         ? 'AI 正在想象搜索结果…'

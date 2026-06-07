@@ -56,7 +56,7 @@ export function AccountView({ onBack }: AccountViewProps) {
             <AccountSettingsForm draft={draft} onChange={handleChange} layout="settings" />
           </div>
           <p class="settings__section-footnote">
-            配置将保存在本机 localStorage，供 App Store、Safari 等 AI 功能使用。
+            配置将保存在本机 localStorage，供 App Store、网络浏览器等 AI 功能使用。
           </p>
         </section>
 
@@ -76,18 +76,3 @@ export function AccountView({ onBack }: AccountViewProps) {
   )
 }
 
-function AccountPaneIcon() {
-  return (
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
-      <circle cx="17" cy="12" r="6" fill="#8ec96a" stroke="#5a9a3a" stroke-width="1" />
-      <path
-        d="M8 28 C8 22 12 19 17 19 C22 19 26 22 26 28"
-        fill="#6aa3e8"
-        stroke="#2f6fd0"
-        stroke-width="1"
-      />
-    </svg>
-  )
-}
-
-export { AccountPaneIcon }

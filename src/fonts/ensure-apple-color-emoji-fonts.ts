@@ -1,3 +1,5 @@
+import { loadDisplaySettings, type EmojiFontMode } from '../os/display-settings-storage.ts'
+
 /** True when the OS already provides Apple Color Emoji (no web fallback needed). */
 export function systemHasAppleColorEmoji(): boolean {
   const platform = navigator.platform ?? ''
@@ -16,12 +18,34 @@ export function systemHasAppleColorEmoji(): boolean {
 
 let webFontsEnsured = false
 
-/** Loads chunked web fonts only when the system font is unavailable. */
-export async function ensureAppleColorEmojiFonts(): Promise<void> {
-  if (webFontsEnsured || systemHasAppleColorEmoji()) {
+function shouldLoadBundledEmojiFonts(mode: EmojiFontMode): boolean {
+  if (mode === 'on') {
+    return true
+  }
+  if (mode === 'off') {
+    return false
+  }
+  return !systemHasAppleColorEmoji()
+}
+
+/** Applies emoji font mode at runtime: updates document state and loads bundled fonts when needed. */
+export async function applyEmojiFontMode(mode?: EmojiFontMode): Promise<void> {
+  const resolvedMode = mode ?? loadDisplaySettings().emojiFontMode
+  const useBundled = shouldLoadBundledEmojiFonts(resolvedMode)
+  const useBundledMetrics = useBundled && !systemHasAppleColorEmoji()
+  document.documentElement.dataset.emojiFontMode = resolvedMode
+  document.documentElement.dataset.emojiFontBundled = useBundledMetrics ? 'true' : 'false'
+
+  if (!useBundled || webFontsEnsured) {
     return
   }
 
   webFontsEnsured = true
   await import('./apple-color-emoji.css')
+  await document.fonts.ready
+}
+
+/** Loads bundled emoji web fonts according to display settings and system availability. */
+export async function ensureAppleColorEmojiFonts(): Promise<void> {
+  await applyEmojiFontMode()
 }

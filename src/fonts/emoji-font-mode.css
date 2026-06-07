@@ -1,0 +1,40 @@
+/* Off: skip Apple Color Emoji and use the platform emoji stack instead. */
+
+html[data-emoji-font-mode='off'] body {
+  font-family:
+    'Helvetica Neue',
+    Helvetica,
+    'PingFang SC',
+    'Microsoft YaHei',
+    'Segoe UI Emoji',
+    'Noto Color Emoji',
+    sans-serif;
+}
+
+html[data-emoji-font-mode='off'] .mail,
+html[data-emoji-font-mode='off'] .safari {
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'Helvetica Neue',
+    'PingFang SC',
+    'Segoe UI Emoji',
+    'Noto Color Emoji',
+    sans-serif;
+}
+
+html[data-emoji-font-mode='off'] .settings__emoji-preview-glyph {
+  font-family: 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+html:not([data-emoji-font-mode='off']) .settings__emoji-preview-glyph {
+  font-family: 'Apple Color Emoji', sans-serif;
+}
+
+/* Web-bundled emoji only: TTF metrics sit high in the em box; nudge down for icon centering. */
+html[data-emoji-font-bundled='true'] .generated-app-icon__emoji,
+html[data-emoji-font-bundled='true'] .app-icon-tile__emoji,
+html[data-emoji-font-bundled='true'] .settings__emoji-preview-glyph {
+  transform: translateY(0.04em);
+}

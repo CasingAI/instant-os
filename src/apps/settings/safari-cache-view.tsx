@@ -38,36 +38,36 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
   }
 
   return (
-    <section class="settings__section">
-      <h2 class="settings__section-title">网页缓存</h2>
-      <div class="settings__box">
-        <dl class="settings__form-row">
-          <dt>缓存占用</dt>
-          <dd>{formatStorageSize(cacheBytes)}</dd>
-        </dl>
-        <dl class="settings__form-row">
-          <dt>已缓存页面</dt>
-          <dd>{pageCount.toLocaleString('zh-CN')} 页</dd>
-        </dl>
-      </div>
-
-      {pageCount > 0 && (
-        <div class="settings__actions">
-          <button
-            type="button"
-            class="settings__btn settings__btn--danger"
-            onClick={() => setConfirmClearAll(true)}
-          >
-            清空全部网页缓存
-          </button>
+    <>
+      <section class="settings__section">
+        <h2 class="settings__section-title">网页缓存</h2>
+        <div class="settings__box">
+          <dl class="settings__form-row">
+            <dt>缓存占用</dt>
+            <dd>{formatStorageSize(cacheBytes)}</dd>
+          </dl>
+          <dl class="settings__form-row">
+            <dt>已缓存页面</dt>
+            <dd>{pageCount.toLocaleString('zh-CN')} 页</dd>
+          </dl>
         </div>
-      )}
 
-      <section class="settings__section settings__section--nested">
-        <h3 class="settings__section-subtitle">按网站</h3>
-        {sites.length === 0 ? (
-          <div class="settings__box settings__empty">暂无已缓存网页</div>
-        ) : (
+        {pageCount > 0 && (
+          <div class="settings__actions settings__actions--inline">
+            <button
+              type="button"
+              class="settings__btn settings__btn--danger"
+              onClick={() => setConfirmClearAll(true)}
+            >
+              清空全部网页缓存
+            </button>
+          </div>
+        )}
+      </section>
+
+      {sites.length > 0 && (
+        <section class="settings__section">
+          <h2 class="settings__section-title">按网站</h2>
           <div class="settings__list">
             <div class="settings__list-head settings__list-head--cache">
               <span>域名</span>
@@ -92,17 +92,13 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
               ))}
             </div>
           </div>
-        )}
-        <p class="settings__section-footnote">
-          已生成的网页会保存在本地，再次访问同一 URL 时直接加载缓存，无需重新调用 AI。
-          缓存占用计入 Safari 在「用量」中的文稿与数据。
-        </p>
-      </section>
+        </section>
+      )}
 
       {confirmClearAll && (
         <ConfirmSheet
           title="清空全部网页缓存？"
-          message="所有已缓存的 Safari 网页将被删除，下次访问需重新生成。"
+          message="所有已缓存的网络浏览器网页将被删除，下次访问需重新生成。"
           confirmLabel="清空"
           onCancel={() => setConfirmClearAll(false)}
           onConfirm={handleClearAll}
@@ -118,7 +114,7 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
           onConfirm={() => handleClearSite(pendingSite)}
         />
       )}
-    </section>
+    </>
   )
 }
 

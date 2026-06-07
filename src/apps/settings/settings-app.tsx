@@ -18,17 +18,30 @@ import {
 } from './app-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 import { SafariUsageView } from './safari-usage-view.tsx'
-import { AccountPaneIcon, AccountView } from './account-view.tsx'
+import { AccountView } from './account-view.tsx'
+import { DisplayView } from './display-view.tsx'
+import { EmojiSettingsView } from './emoji-settings-view.tsx'
+import {
+  AccountPaneIcon,
+  DisplayPaneIcon,
+  SafariUsagePaneIcon,
+  UsagePaneIcon,
+} from './settings-pane-icons.tsx'
+import '../../icons/app-icon-tile.css'
 import './settings.css'
 
 type SettingsRoute =
   | { view: 'root' }
   | { view: 'usage' }
   | { view: 'account' }
+  | { view: 'display' }
+  | { view: 'display-emoji' }
   | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId }
   | { view: 'safari-usage' }
 
-const ROOT_TITLE = '系统偏好设置'
+const ROOT_TITLE = '系统设置'
+
+const INSTALLED_APPS_PREVIEW_COUNT = 10
 
 function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | undefined): string {
   if (route.view === 'app-detail' && selectedApp) {
@@ -40,8 +53,14 @@ function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | unde
   if (route.view === 'account') {
     return '账户'
   }
+  if (route.view === 'display') {
+    return '显示'
+  }
+  if (route.view === 'display-emoji') {
+    return '表情符号'
+  }
   if (route.view === 'safari-usage') {
-    return 'Safari'
+    return '网络浏览器'
   }
   return ROOT_TITLE
 }
@@ -74,19 +93,19 @@ export function SettingsApp() {
 
     return [
       {
-        label: '系统偏好设置',
+        label: '系统设置',
         items: [
-          ...aboutAppMenuPrefix('关于系统偏好设置', () => showBuiltinAbout('settings')),
+          ...aboutAppMenuPrefix('关于系统设置', () => showBuiltinAbout('settings')),
           {
             type: 'action',
-            label: '隐藏系统偏好设置',
+            label: '隐藏系统设置',
             shortcut: '⌘H',
             onClick: () => settingsWindow && minimizeWindow(settingsWindow.id),
           },
           { type: 'separator' },
           {
             type: 'action',
-            label: '退出系统偏好设置',
+            label: '退出系统设置',
             shortcut: '⌘Q',
             onClick: () => closeWindowsForApp('settings'),
           },
@@ -100,6 +119,18 @@ export function SettingsApp() {
             label: '显示全部',
             onClick: () => setRoute({ view: 'root' }),
             disabled: route.view === 'root',
+          },
+          {
+            type: 'action',
+            label: '显示…',
+            onClick: () => setRoute({ view: 'display' }),
+            disabled: route.view === 'display',
+          },
+          {
+            type: 'action',
+            label: '表情符号…',
+            onClick: () => setRoute({ view: 'display-emoji' }),
+            disabled: route.view === 'display-emoji',
           },
         ],
       },
@@ -134,6 +165,19 @@ export function SettingsApp() {
 
   if (route.view === 'account') {
     return <AccountView onBack={() => setRoute({ view: 'root' })} />
+  }
+
+  if (route.view === 'display-emoji') {
+    return <EmojiSettingsView onBack={() => setRoute({ view: 'display' })} />
+  }
+
+  if (route.view === 'display') {
+    return (
+      <DisplayView
+        onBack={() => setRoute({ view: 'root' })}
+        onOpenEmoji={() => setRoute({ view: 'display-emoji' })}
+      />
+    )
   }
 
   if (route.view === 'usage') {
@@ -176,19 +220,24 @@ export function SettingsApp() {
           <button
             type="button"
             class="settings__pane"
+            onClick={() => setRoute({ view: 'display' })}
+          >
+            <span class="settings__pane-icon" aria-hidden="true">
+              <DisplayPaneIcon />
+            </span>
+            <span class="settings__pane-label">显示</span>
+          </button>
+          <button
+            type="button"
+            class="settings__pane"
             onClick={() => setRoute({ view: 'safari-usage' })}
           >
             <span class="settings__pane-icon" aria-hidden="true">
               <SafariUsagePaneIcon />
             </span>
-            <span class="settings__pane-label">Safari</span>
+            <span class="settings__pane-label">网络浏览器</span>
           </button>
         </div>
-        <p class="settings__hint">
-          查看 localStorage 用量与各应用占用，并卸载不再需要的 AI 应用。
-          <br />
-          当前已用 {formatStorageSize(summary.usedBytes)}。
-        </p>
       </div>
     </div>
   )
@@ -239,7 +288,7 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
             </div>
             <div class="settings__meter-legend">
               <span>AI 应用 {formatStorageSize(summary.appsBytes)}</span>
-              <span>Safari 缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
+              <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
               <span>邮件 {formatStorageSize(summary.mailDataBytes)}</span>
               <span>其他 {formatStorageSize(summary.otherBytes)}</span>
               <span>剩余 {formatStorageSize(summary.availableBytes)}</span>
@@ -256,7 +305,7 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
             </div>
             <div class="settings__list-body">
               <StorageCategoryRow label="AI 应用" bytes={summary.appsBytes} />
-              <StorageCategoryRow label="Safari 缓存" bytes={summary.safariCacheBytes} />
+              <StorageCategoryRow label="网络浏览器缓存" bytes={summary.safariCacheBytes} />
               <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
               <StorageCategoryRow label="其他" bytes={summary.otherBytes} hint="未归类的 localStorage 键" />
             </div>
@@ -268,21 +317,7 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
           {summary.entries.length === 0 ? (
             <div class="settings__box settings__empty">暂无已安装应用</div>
           ) : (
-            <div class="settings__list">
-              <div class="settings__list-head">
-                <span>名称</span>
-                <span>大小</span>
-              </div>
-              <div class="settings__list-body">
-                {summary.entries.map((entry) => (
-                  <AppListRow
-                    key={entry.id}
-                    entry={entry}
-                    onClick={() => onSelectApp(entry.id)}
-                  />
-                ))}
-              </div>
-            </div>
+            <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
           <p class="settings__section-footnote">
             AI 应用的用户数据通过 localStorage 桥接按应用独立存储；「文稿与数据」即此类内容。
@@ -290,6 +325,43 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
             上限 5 MB 为硬限制，空间不足时无法继续写入。
           </p>
         </section>
+      </div>
+    </div>
+  )
+}
+
+type InstalledAppsListProps = {
+  entries: ManagedAppEntry[]
+  onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
+}
+
+function InstalledAppsList({ entries, onSelectApp }: InstalledAppsListProps) {
+  const [expanded, setExpanded] = useState(false)
+  const canExpand = entries.length > INSTALLED_APPS_PREVIEW_COUNT
+  const showExpandTrigger = canExpand && !expanded
+  const visibleEntries = showExpandTrigger
+    ? entries.slice(0, INSTALLED_APPS_PREVIEW_COUNT)
+    : entries
+
+  return (
+    <div class="settings__list">
+      <div class="settings__list-head">
+        <span>名称</span>
+        <span>大小</span>
+      </div>
+      <div class="settings__list-body settings__list-body--apps">
+        {visibleEntries.map((entry) => (
+          <AppListRow key={entry.id} entry={entry} onClick={() => onSelectApp(entry.id)} />
+        ))}
+        {showExpandTrigger && (
+          <button
+            type="button"
+            class="settings__row settings__row--show-all"
+            onClick={() => setExpanded(true)}
+          >
+            显示全部应用
+          </button>
+        )}
       </div>
     </div>
   )
@@ -440,7 +512,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings }: AppDetailViewProps
         {app.id === 'browser' && onOpenSafariSettings && (
           <div class="settings__actions">
             <button type="button" class="settings__btn" onClick={onOpenSafariSettings}>
-              管理 Safari 缓存与用量
+              管理网络浏览器缓存与用量
             </button>
           </div>
         )}
@@ -518,32 +590,6 @@ function AppIcon({ entry, size }: AppIconProps) {
     <span class="settings__app-icon">
       <Icon size={size} />
     </span>
-  )
-}
-
-function UsagePaneIcon() {
-  return (
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
-      <rect x="5" y="20" width="5" height="9" rx="1" fill="#6aa3e8" />
-      <rect x="14" y="14" width="5" height="15" rx="1" fill="#8ec96a" />
-      <rect x="23" y="8" width="5" height="21" rx="1" fill="#f0b84d" />
-    </svg>
-  )
-}
-
-function SafariUsagePaneIcon() {
-  return (
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
-      <circle cx="17" cy="17" r="13" fill="#4d90fe" stroke="#2f6fd0" stroke-width="1" />
-      <path
-        d="M17 9 L17 17 L23 17"
-        fill="none"
-        stroke="#fff"
-        stroke-width="2"
-        stroke-linecap="round"
-      />
-      <circle cx="17" cy="17" r="2" fill="#fff" />
-    </svg>
   )
 }
 

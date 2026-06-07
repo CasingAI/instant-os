@@ -49,7 +49,7 @@ export function mergeOpenAiConfig(
 
   if (!apiKey) {
     throw new Error(
-      '缺少 API Key。请在「系统偏好设置 → 账户」中配置。',
+      '缺少 API Key。请在「系统设置 → 账户」中配置。',
     )
   }
 

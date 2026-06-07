@@ -42,7 +42,7 @@ export function SafariHistoryView({ onHistoryChange }: SafariHistoryViewProps) {
       </div>
 
       {visitCount > 0 && (
-        <div class="settings__actions">
+        <div class="settings__actions settings__actions--inline">
           <button
             type="button"
             class="settings__btn settings__btn--danger"
@@ -53,14 +53,10 @@ export function SafariHistoryView({ onHistoryChange }: SafariHistoryViewProps) {
         </div>
       )}
 
-      <p class="settings__section-footnote">
-        浏览历史记录你访问过的网页地址与标题，用于地址栏联想与历史面板。清空后无法恢复。
-      </p>
-
       {confirmClearAll && (
         <ConfirmSheet
           title="清空浏览历史？"
-          message="所有 Safari 浏览历史将被删除，地址栏联想与历史面板将不再显示这些记录。"
+          message="所有网络浏览器浏览历史将被删除，地址栏联想与历史面板将不再显示这些记录。"
           confirmLabel="清空"
           onCancel={() => setConfirmClearAll(false)}
           onConfirm={handleClearAll}
