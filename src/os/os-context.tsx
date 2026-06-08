@@ -10,7 +10,7 @@ import {
   getSnapBounds,
   type SnapTarget,
 } from '../window/window-snap.ts'
-import type { AppId, GeneratedAppId, WindowState, WindowRestoredBounds } from './types.ts'
+import type { AppId, BuiltinAppId, GeneratedAppId, WindowState, WindowRestoredBounds } from './types.ts'
 import { isGeneratedAppId } from './types.ts'
 
 type OsContextValue = {
@@ -39,7 +39,21 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   settings: { title: '系统设置', width: 520, height: 480 },
   photos: { title: '照片', width: 720, height: 620 },
   mail: { title: '邮件', width: 900, height: 640 },
-  appstore: { title: 'App Store', width: 820, height: 720 },
+  appstore: { title: '应用集市', width: 820, height: 720 },
+  'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
+}
+
+const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {
+  appstore: ['App Store'],
+}
+
+function resolveBuiltinWindowTitle(appId: BuiltinAppId, title: string): string {
+  const currentTitle = DEFAULT_WINDOWS[appId]?.title
+  const legacyTitles = LEGACY_BUILTIN_WINDOW_TITLES[appId]
+  if (currentTitle && legacyTitles?.includes(title)) {
+    return currentTitle
+  }
+  return title
 }
 
 const GENERATED_APP_DEFAULTS = { width: 480, height: 640 }
@@ -78,6 +92,18 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const [windows, setWindows] = useState<WindowState[]>([])
   const [activeWindowId, setActiveWindowId] = useState<string | undefined>(undefined)
 
+  useEffect(() => {
+    setWindows((current) =>
+      current.map((window) => {
+        if (isGeneratedAppId(window.appId)) {
+          return window
+        }
+        const title = resolveBuiltinWindowTitle(window.appId as BuiltinAppId, window.title)
+        return title === window.title ? window : { ...window, title }
+      }),
+    )
+  }, [])
+
   const openApp = useCallback((appId: AppId) => {
     if (isGeneratedAppId(appId)) {
       throw new Error('请使用 openGeneratedApp 打开 AI 生成的应用')
@@ -86,9 +112,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     const existing = windows.find((window) => window.appId === appId && !window.minimized)
     if (existing) {
       zCounter += 1
+      const title = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
       setWindows((current) =>
         current.map((window) =>
-          window.id === existing.id ? { ...window, zIndex: zCounter, minimized: false } : window,
+          window.id === existing.id
+            ? { ...window, zIndex: zCounter, minimized: false, title }
+            : window,
         ),
       )
       setActiveWindowId(existing.id)
@@ -98,9 +127,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     const minimized = windows.find((window) => window.appId === appId && window.minimized)
     if (minimized) {
       zCounter += 1
+      const title = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
       setWindows((current) =>
         current.map((window) =>
-          window.id === minimized.id ? { ...window, zIndex: zCounter, minimized: false } : window,
+          window.id === minimized.id
+            ? { ...window, zIndex: zCounter, minimized: false, title }
+            : window,
         ),
       )
       setActiveWindowId(minimized.id)

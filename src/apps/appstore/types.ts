@@ -1,3 +1,5 @@
+import type { AppCapabilityTag } from './app-capability-tags.ts'
+
 export type StoreListing = {
   slug: string
   name: string
@@ -5,6 +7,7 @@ export type StoreListing = {
   category: string
   iconEmoji: string
   themeColor: string
+  tags: AppCapabilityTag[]
 }
 
 export type StoreListingDetail = {
@@ -38,6 +41,7 @@ export type GeneratedAppRecord = {
   category: string
   iconEmoji: string
   themeColor: string
+  tags?: AppCapabilityTag[]
   html: string
   version?: string
   pendingUpdate?: boolean

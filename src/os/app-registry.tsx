@@ -1,6 +1,7 @@
 import type { ComponentType } from 'preact'
 import { useMemo } from 'preact/hooks'
-import { AppStoreApp } from '../apps/appstore/appstore-app.tsx'
+import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
+import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
 import { BrowserApp } from '../apps/browser/browser-app.tsx'
 import { MailApp } from '../apps/mail/mail-app.tsx'
 import { SettingsApp } from '../apps/settings/settings-app.tsx'
@@ -9,7 +10,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, AppStoreIcon, MailIcon, PhotosIcon, SettingsIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, PhotosIcon, Scene3dLabIcon, SettingsIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -20,8 +21,8 @@ function withAbout(app: AppDefinition): AppDefinition {
 export const APP_REGISTRY: AppDefinition[] = [
   withAbout({
     id: 'appstore',
-    name: 'App Store',
-    icon: AppStoreIcon,
+    name: '应用集市',
+    icon: MarketplaceIcon,
     dock: true,
     desktop: true,
   }),
@@ -47,6 +48,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: false,
   }),
   withAbout({
+    id: 'scene3d-lab',
+    name: '3D 实验室',
+    icon: Scene3dLabIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
     id: 'settings',
     name: '系统设置',
     icon: SettingsIcon,
@@ -56,10 +64,11 @@ export const APP_REGISTRY: AppDefinition[] = [
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
-  appstore: AppStoreApp,
+  appstore: MarketplaceApp,
   browser: BrowserApp,
   mail: MailApp,
   photos: PlaceholderApp('photos', '照片'),
+  'scene3d-lab': Scene3dLabApp,
   settings: SettingsApp,
 }
 

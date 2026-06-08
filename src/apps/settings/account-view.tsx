@@ -7,7 +7,6 @@ import {
   saveAccountSettings,
   type AccountSettings,
 } from '../../os/account-settings-storage.ts'
-
 type AccountViewProps = {
   onBack: () => void
 }
@@ -56,7 +55,7 @@ export function AccountView({ onBack }: AccountViewProps) {
             <AccountSettingsForm draft={draft} onChange={handleChange} layout="settings" />
           </div>
           <p class="settings__section-footnote">
-            配置将保存在本机 localStorage，供 App Store、网络浏览器等 AI 功能使用。
+            配置将保存在本机 localStorage，供应用集市、网络浏览器等 AI 功能使用。
           </p>
         </section>
 

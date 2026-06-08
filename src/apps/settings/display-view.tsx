@@ -1,7 +1,6 @@
 import { useMemo } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
 import { emojiFontLabel, loadDisplaySettings } from '../../os/display-settings-storage.ts'
-
 type DisplayViewProps = {
   onBack: () => void
   onOpenEmoji: () => void

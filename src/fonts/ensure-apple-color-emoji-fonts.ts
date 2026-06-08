@@ -5,20 +5,15 @@ export function systemHasAppleColorEmoji(): boolean {
   const platform = navigator.platform ?? ''
   const ua = navigator.userAgent ?? ''
 
-  if (/Mac|iPhone|iPad|iPod/i.test(platform) || /Macintosh|iPhone|iPad/i.test(ua)) {
-    return true
-  }
-
-  try {
-    return document.fonts.check('32px "Apple Color Emoji"')
-  } catch {
-    return false
-  }
+  // Only Apple platforms ship this font. Do not use document.fonts.check() here:
+  // per spec it returns true for non-web font names even when the face is absent
+  // (e.g. on Windows), which would skip bundled emoji loading in auto mode.
+  return /Mac|iPhone|iPad|iPod/i.test(platform) || /Macintosh|iPhone|iPad/i.test(ua)
 }
 
 let webFontsEnsured = false
 
-function shouldLoadBundledEmojiFonts(mode: EmojiFontMode): boolean {
+export function shouldLoadBundledEmojiFonts(mode: EmojiFontMode): boolean {
   if (mode === 'on') {
     return true
   }

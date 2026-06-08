@@ -6,17 +6,17 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
-import { AppStoreSearch } from './appstore-search.tsx'
+import { MarketplaceSearch } from './appstore-search.tsx'
 import { InstalledGrid, ListingGrid } from './listing-grid.tsx'
 import { ListingDetail } from './listing-detail.tsx'
 import { recordToStoreListing, toGeneratedAppId } from './store-agent.ts'
 import type { GeneratedAppRecord, StoreListing } from './types.ts'
 import './appstore.css'
 
-type AppStoreTab = 'discover' | 'installed'
-type AppStoreScreen = 'main' | 'search' | 'detail'
+type MarketplaceTab = 'discover' | 'installed'
+type MarketplaceScreen = 'main' | 'search' | 'detail'
 
-export function AppStoreApp() {
+export function MarketplaceApp() {
   const { windows, closeWindowsForApp, minimizeWindow } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const {
@@ -29,14 +29,14 @@ export function AppStoreApp() {
     installListing,
     openInstalledApp,
     hasPendingUpdate,
-    pendingAppStoreDetailSlug,
-    clearPendingAppStoreDetail,
+    pendingMarketplaceDetailSlug,
+    clearPendingMarketplaceDetail,
   } = useGeneratedApps()
-  const [screen, setScreen] = useState<AppStoreScreen>('main')
-  const [tab, setTab] = useState<AppStoreTab>('discover')
+  const [screen, setScreen] = useState<MarketplaceScreen>('main')
+  const [tab, setTab] = useState<MarketplaceTab>('discover')
   const [detailSlug, setDetailSlug] = useState<string | undefined>(undefined)
   const [detailListings, setDetailListings] = useState<StoreListing[]>([])
-  const [returnScreen, setReturnScreen] = useState<AppStoreScreen>('main')
+  const [returnScreen, setReturnScreen] = useState<MarketplaceScreen>('main')
   const apiReady = useOpenAiReady()
   const wasVisibleRef = useRef(false)
 
@@ -60,22 +60,22 @@ export function AppStoreApp() {
   }, [windows, apiReady, listings.length, listingsLoading, refreshListings])
 
   useEffect(() => {
-    if (!pendingAppStoreDetailSlug) {
+    if (!pendingMarketplaceDetailSlug) {
       return
     }
 
     const installedApp = installedApps.find(
-      (app) => app.id === toGeneratedAppId(pendingAppStoreDetailSlug),
+      (app) => app.id === toGeneratedAppId(pendingMarketplaceDetailSlug),
     )
     const pendingInstall = pendingInstalls.find(
-      (item) => item.listing.slug === pendingAppStoreDetailSlug,
+      (item) => item.listing.slug === pendingMarketplaceDetailSlug,
     )
     const listing = installedApp
       ? recordToStoreListing(installedApp)
       : pendingInstall?.listing
 
     if (!listing) {
-      clearPendingAppStoreDetail()
+      clearPendingMarketplaceDetail()
       return
     }
 
@@ -87,16 +87,16 @@ export function AppStoreApp() {
 
     setTab(installedApp ? 'installed' : 'discover')
     setDetailListings(sourceListings)
-    setDetailSlug(pendingAppStoreDetailSlug)
+    setDetailSlug(pendingMarketplaceDetailSlug)
     setReturnScreen('main')
     setScreen('detail')
-    clearPendingAppStoreDetail()
+    clearPendingMarketplaceDetail()
   }, [
-    pendingAppStoreDetailSlug,
+    pendingMarketplaceDetailSlug,
     installedApps,
     pendingInstalls,
     installedListings,
-    clearPendingAppStoreDetail,
+    clearPendingMarketplaceDetail,
   ])
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -104,19 +104,19 @@ export function AppStoreApp() {
 
     return [
       {
-        label: 'App Store',
+        label: '应用集市',
         items: [
-          ...aboutAppMenuPrefix('关于 App Store', () => showBuiltinAbout('appstore')),
+          ...aboutAppMenuPrefix('关于应用集市', () => showBuiltinAbout('appstore')),
           {
             type: 'action',
-            label: '隐藏 App Store',
+            label: '隐藏应用集市',
             shortcut: '⌘H',
             onClick: () => appWindow && minimizeWindow(appWindow.id),
           },
           { type: 'separator' },
           {
             type: 'action',
-            label: '退出 App Store',
+            label: '退出应用集市',
             shortcut: '⌘Q',
             onClick: () => closeWindowsForApp('appstore'),
           },
@@ -192,7 +192,7 @@ export function AppStoreApp() {
   if (screen === 'search') {
     return (
       <div class="appstore appstore--search">
-        <AppStoreSearch
+        <MarketplaceSearch
           installedApps={installedApps}
           getPendingBySlug={getPendingBySlug}
           hasPendingUpdate={hasPendingUpdate}
@@ -209,7 +209,7 @@ export function AppStoreApp() {
       <header class="appstore__hero">
         <div>
           <p class="appstore__eyebrow">Instant OS</p>
-          <h1 class="appstore__title">App Store</h1>
+          <h1 class="appstore__title">应用集市</h1>
           <p class="appstore__subtitle">所有应用均由 AI 现场生成</p>
         </div>
         <button

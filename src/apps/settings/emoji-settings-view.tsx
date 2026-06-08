@@ -7,7 +7,6 @@ import {
   saveDisplaySettings,
   type EmojiFontMode,
 } from '../../os/display-settings-storage.ts'
-
 type EmojiSettingsViewProps = {
   onBack: () => void
 }

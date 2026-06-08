@@ -15,7 +15,7 @@ import './dock.css'
 
 export function Dock() {
   const { windows, openApp, restoreWindow } = useOs()
-  const { installedApps, openInstalledApp, openAppStoreDetail, pendingUpdateCount } =
+  const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
     useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const dockApps = APP_REGISTRY.filter((app) => app.dock)
@@ -88,7 +88,7 @@ export function Dock() {
                   event,
                   buildGeneratedIconContextMenuItems({
                     onOpen: handleOpen,
-                    onViewInAppStore: () => openAppStoreDetail(slug),
+                    onViewInMarketplace: () => openMarketplaceDetail(slug),
                   }),
                 )
               }}

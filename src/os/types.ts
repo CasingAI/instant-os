@@ -1,7 +1,7 @@
 import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about.ts'
 
-export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'mail' | 'appstore'
+export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'mail' | 'appstore' | 'scene3d-lab'
 export type GeneratedAppId = `gen:${string}`
 export type AppId = BuiltinAppId | GeneratedAppId
 

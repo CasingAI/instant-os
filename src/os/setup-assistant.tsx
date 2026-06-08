@@ -83,7 +83,7 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
             <h1 class="setup-assistant__title">欢迎使用 Instant OS</h1>
             <p class="setup-assistant__subtitle">
               这是一个由 AI 驱动的桌面环境。开始之前，需要先配置 AI
-              账户，以便使用 App Store、网络浏览器等功能。
+              账户，以便使用应用集市、网络浏览器等功能。
             </p>
           </div>
         )}

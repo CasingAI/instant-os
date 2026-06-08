@@ -58,9 +58,9 @@ type GeneratedAppsContextValue = {
   getAppVersionCount: (slug: string) => number
   rollbackAppVersion: (slug: string) => boolean
   pruneAppVersionHistory: (appId: GeneratedAppId) => boolean
-  openAppStoreDetail: (slug: string) => void
-  pendingAppStoreDetailSlug: string | undefined
-  clearPendingAppStoreDetail: () => void
+  openMarketplaceDetail: (slug: string) => void
+  pendingMarketplaceDetailSlug: string | undefined
+  clearPendingMarketplaceDetail: () => void
   installListing: (listing: StoreListing, detail?: Partial<StoreListingDetail>) => Promise<void>
   openInstalledApp: (appId: GeneratedAppId) => void
   uninstallApp: (appId: GeneratedAppId) => void
@@ -132,7 +132,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   )
   const listingDetailPromisesRef = useRef(new Map<string, Promise<StoreListingDetail>>())
   const listingReviewPromisesRef = useRef(new Map<string, Promise<StoreReview[]>>())
-  const [pendingAppStoreDetailSlug, setPendingAppStoreDetailSlug] = useState<string | undefined>(
+  const [pendingMarketplaceDetailSlug, setPendingMarketplaceDetailSlug] = useState<string | undefined>(
     undefined,
   )
   const [appDataRevisions, setAppDataRevisions] = useState<Record<string, number>>({})
@@ -146,7 +146,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
 
   useEffect(() => {
     if (!saveStoreListings(listings)) {
-      setListingsError('设备存储空间已满（5 MB 上限），无法保存应用商店列表。')
+      setListingsError('设备存储空间已满（5 MB 上限），无法保存应用集市列表。')
     }
   }, [listings])
 
@@ -457,6 +457,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
           category: listing.category,
           iconEmoji: listing.iconEmoji,
           themeColor: listing.themeColor,
+          tags: listing.tags,
           html,
           version: targetVersion,
           versions,
@@ -574,16 +575,16 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     [installedApps],
   )
 
-  const openAppStoreDetail = useCallback(
+  const openMarketplaceDetail = useCallback(
     (slug: string) => {
       openApp('appstore')
-      setPendingAppStoreDetailSlug(slug)
+      setPendingMarketplaceDetailSlug(slug)
     },
     [openApp],
   )
 
-  const clearPendingAppStoreDetail = useCallback(() => {
-    setPendingAppStoreDetailSlug(undefined)
+  const clearPendingMarketplaceDetail = useCallback(() => {
+    setPendingMarketplaceDetailSlug(undefined)
   }, [])
 
   const value = useMemo(
@@ -605,9 +606,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       getAppVersionCount: getAppVersionCountBySlug,
       rollbackAppVersion,
       pruneAppVersionHistory,
-      openAppStoreDetail,
-      pendingAppStoreDetailSlug,
-      clearPendingAppStoreDetail,
+      openMarketplaceDetail,
+      pendingMarketplaceDetailSlug,
+      clearPendingMarketplaceDetail,
       installListing,
       openInstalledApp,
       uninstallApp,
@@ -636,9 +637,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       getAppVersionCountBySlug,
       rollbackAppVersion,
       pruneAppVersionHistory,
-      openAppStoreDetail,
-      pendingAppStoreDetailSlug,
-      clearPendingAppStoreDetail,
+      openMarketplaceDetail,
+      pendingMarketplaceDetailSlug,
+      clearPendingMarketplaceDetail,
       installListing,
       openInstalledApp,
       uninstallApp,

@@ -7,6 +7,8 @@ import {
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import type { GeneratedAppRecord, StoreListing, StoreListingDetail, StoreReview } from './types.ts'
 import { DEFAULT_APP_VERSION, normalizeAppVersion } from './app-version.ts'
+import { ensureListingTags } from './listing-tags.ts'
+import { appCapabilityTagsForPrompt } from './app-capability-tags.ts'
 
 const LISTING_FIELDS = {
   slug: '英文小写连字符 id，如 daily-quotes',
@@ -15,6 +17,7 @@ const LISTING_FIELDS = {
   category: '分类，如 工具/娱乐/生活/效率/创意',
   iconEmoji: '一个 emoji 作为图标',
   themeColor: '十六进制主题色，如 #4a90e2',
+  tags: `能力标签数组，2~4 个，只能从白名单选取：${appCapabilityTagsForPrompt()}；3D 类必须含 3d`,
 } as const
 
 const LISTING_LINE_EXAMPLE = JSON.stringify({
@@ -24,12 +27,13 @@ const LISTING_LINE_EXAMPLE = JSON.stringify({
   category: '生活',
   iconEmoji: '💬',
   themeColor: '#4a90e2',
+  tags: ['utility', 'creative', 'interactive'],
 })
 
-const STORE_CURATOR_PROMPT = `你是 Instant OS 应用商店的策展 AI。
+const STORE_CURATOR_PROMPT = `你是 Instant OS 应用集市的策展 AI。
 Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在其中安装轻量微应用。
 
-你的任务：根据用户提示，现场生成一批应用商店列表条目（不是真实存在的应用，而是创意微应用概念）。
+你的任务：根据用户提示，现场生成一批应用集市列表条目（不是真实存在的应用，而是创意微应用概念）。
 只需生成列表卡片展示所需的最基本信息，不要生成详情页内容。
 
 必须采用 NDJSON 格式：每行一个完整 JSON 对象，不要数组包裹，不要 markdown，不要解释。
@@ -40,13 +44,14 @@ Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在�
 要求：
 - 每次生成 6 个互不重复、有创意的微应用，逐行输出
 - slug 必须唯一、URL 安全
+- 每个应用必须包含 tags 数组，至少 2 个标签；3D 类应用 tags 必须含 3d
 - 应用应适合在 320~860px 宽的窗口中运行
 - 生成完一个就立刻输出一行，不要等全部完成再输出`
 
-const STORE_SEARCHER_PROMPT = `你是 Instant OS 应用商店的搜索 AI。
+const STORE_SEARCHER_PROMPT = `你是 Instant OS 应用集市的搜索 AI。
 Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在其中安装轻量微应用。
 
-用户会输入搜索关键词，你需要现场想象并生成与之相关的应用商店搜索结果（不是真实存在的应用，而是创意微应用概念）。
+用户会输入搜索关键词，你需要现场想象并生成与之相关的应用集市搜索结果（不是真实存在的应用，而是创意微应用概念）。
 只需生成列表卡片展示所需的最基本信息。
 
 必须采用 NDJSON 格式：每行一个完整 JSON 对象，不要数组包裹，不要 markdown，不要解释。
@@ -55,13 +60,14 @@ Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在�
 要求：
 - 每次生成 4~8 个与搜索词相关、有创意的微应用，逐行输出
 - slug 必须唯一、URL 安全
+- 每个应用必须包含 tags 数组，至少 2 个标签；搜索词含 3D/三维/立体 时 tags 必须含 3d
 - 结果应贴合用户搜索意图，可以发挥想象力
 - 生成完一个就立刻输出一行，不要等全部完成再输出`
 
-const LISTING_DETAIL_PROMPT = `你是 Instant OS 应用商店的详情页撰写 AI。
+const LISTING_DETAIL_PROMPT = `你是 Instant OS 应用集市的详情页撰写 AI。
 Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在其中安装轻量微应用。
 
-用户会提供一个应用的基本信息，你需要为这个微应用概念撰写完整的 App Store 详情页内容。
+用户会提供一个应用的基本信息，你需要为这个微应用概念撰写完整的应用集市详情页内容。
 
 必须只返回 JSON 对象，不要 markdown，不要解释。格式：
 {
@@ -74,7 +80,7 @@ Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在�
 
 要求：
 - 内容应与提供的基本信息一致，并在此基础上展开想象
-- 语气专业、像真实的 App Store 详情页
+- 语气专业、像真实的应用集市详情页
 - 强调这是适合在 320~860px 宽窗口中使用的轻量微应用
 - 按字段顺序输出：先 tagline，再 longDescription，再 developer、compatibility、language`
 
@@ -93,10 +99,10 @@ const REVIEW_LINE_EXAMPLE = JSON.stringify({
   version: 'V1',
 })
 
-const LISTING_REVIEWS_PROMPT = `你是 Instant OS 应用商店的评论撰写 AI。
+const LISTING_REVIEWS_PROMPT = `你是 Instant OS 应用集市的评论撰写 AI。
 Instant OS 是一个 iOS 6 风格的网页桌面操作系统，用户可以在其中安装轻量微应用。
 
-用户会提供一个应用的基本信息，你需要为这个微应用概念撰写 4~6 条虚构的用户评论，像真实 App Store 评论区一样。
+用户会提供一个应用的基本信息，你需要为这个微应用概念撰写 4~6 条虚构的用户评论，像真实应用集市评论区一样。
 
 必须采用 NDJSON 格式：每行一个完整 JSON 对象，不要数组包裹，不要 markdown，不要解释。
 每行格式：${REVIEW_LINE_EXAMPLE}
@@ -117,7 +123,7 @@ export async function generateStoreListingsStreaming(
   topic?: string,
 ): Promise<StoreListing[]> {
   const hint = topic?.trim() || '生成一批适合 Instant OS 的创意微应用'
-  return streamListings(STORE_CURATOR_PROMPT, hint, onListing)
+  return streamListings(STORE_CURATOR_PROMPT, hint, onListing, topic?.trim())
 }
 
 export async function searchStoreListingsStreaming(
@@ -129,7 +135,7 @@ export async function searchStoreListingsStreaming(
     throw new Error('请输入搜索关键词')
   }
 
-  return streamListings(STORE_SEARCHER_PROMPT, `搜索：${trimmed}`, onListing)
+  return streamListings(STORE_SEARCHER_PROMPT, `搜索：${trimmed}`, onListing, trimmed)
 }
 
 export async function generateListingDetailStreaming(
@@ -224,13 +230,14 @@ async function streamListings(
   system: string,
   user: string,
   onListing: (listing: StoreListing) => void,
+  tagHint?: string,
 ): Promise<StoreListing[]> {
   const listings: StoreListing[] = []
   const seenSlugs = new Set<string>()
   const feed = createNdjsonLineFeed((line) => {
     try {
       const raw = parseNdjsonLine<StoreListing>(line)
-      const listing = normalizeListing(raw)
+      const listing = normalizeListing(raw, tagHint)
       if (seenSlugs.has(listing.slug)) {
         return
       }
@@ -259,7 +266,7 @@ async function streamListings(
     }
 
     for (const raw of fallback) {
-      const listing = normalizeListing(raw)
+      const listing = normalizeListing(raw, tagHint)
       if (seenSlugs.has(listing.slug)) {
         continue
       }
@@ -297,14 +304,20 @@ function normalizeGeneratedReview(
   }
 }
 
-function normalizeListing(raw: StoreListing): StoreListing {
-  return {
+function normalizeListing(raw: StoreListing, tagHint?: string): StoreListing {
+  const base = {
     slug: raw.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'),
     name: raw.name.trim(),
     description: raw.description.trim(),
     category: raw.category.trim(),
     iconEmoji: raw.iconEmoji.trim(),
     themeColor: raw.themeColor.trim(),
+    tags: raw.tags,
+  }
+
+  return {
+    ...base,
+    tags: ensureListingTags(base, tagHint),
   }
 }
 
@@ -324,5 +337,6 @@ export function recordToStoreListing(app: GeneratedAppRecord): StoreListing {
     category: app.category,
     iconEmoji: app.iconEmoji,
     themeColor: app.themeColor,
+    tags: app.tags ?? ensureListingTags(app),
   }
 }

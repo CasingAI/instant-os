@@ -16,6 +16,8 @@ export const DEVICE_STORAGE_KEYS = {
   windowSizes: 'instant-os:window-sizes',
   accountSettings: 'instant-os-account-settings',
   displaySettings: 'instant-os-display-settings',
+  scene3dLabArchives: 'instant-os-scene3d-lab-archives',
+  scene3dLabPrefs: 'instant-os-scene3d-lab-prefs',
 } as const
 
 const ACCOUNTED_KEYS: ReadonlySet<string> = new Set([

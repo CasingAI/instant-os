@@ -35,6 +35,16 @@ export function PhotosIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function Scene3dLabIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#5856d6" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🧊
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function SettingsIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#6d737c" size={size}>
@@ -50,7 +60,7 @@ export function SettingsIcon({ size = 64 }: IconProps) {
   )
 }
 
-export function AppStoreIcon({ size = 64 }: IconProps) {
+export function MarketplaceIcon({ size = 64 }: IconProps) {
   const stroke = 6
   const leftLeg = 'M17 47 L32 13'
   const rightLeg = 'M47 47 L32 13'

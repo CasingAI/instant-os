@@ -64,7 +64,7 @@ function GeneratedDesktopIcon({
   progress,
   textLength,
 }: GeneratedDesktopIconProps) {
-  const { openInstalledApp, openAppStoreDetail } = useGeneratedApps()
+  const { openInstalledApp, openMarketplaceDetail } = useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const downloading = progress !== undefined && progress < 100
   const slug = generatedAppIdToSlug(appId)
@@ -86,7 +86,7 @@ function GeneratedDesktopIcon({
           event,
           buildGeneratedIconContextMenuItems({
             onOpen: handleOpen,
-            onViewInAppStore: () => openAppStoreDetail(slug),
+            onViewInMarketplace: () => openMarketplaceDetail(slug),
             openDisabled: downloading,
           }),
         )

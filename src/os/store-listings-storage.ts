@@ -1,4 +1,5 @@
 import type { StoreListing } from '../apps/appstore/types.ts'
+import { ensureListingTags } from '../apps/appstore/listing-tags.ts'
 import {
   DEVICE_STORAGE_KEYS,
   getLocalStorageKeyBytes,
@@ -19,7 +20,7 @@ export function loadStoreListings(): StoreListing[] {
       return []
     }
 
-    return parsed.filter(isValidStoreListing)
+    return parsed.map(normalizeStoredListing).filter((listing): listing is StoreListing => listing !== undefined)
   } catch {
     return []
   }
@@ -33,18 +34,35 @@ export function getStoreListingsStorageBytes(): number {
   return getLocalStorageKeyBytes(STORAGE_KEY)
 }
 
-function isValidStoreListing(value: unknown): value is StoreListing {
+function normalizeStoredListing(value: unknown): StoreListing | undefined {
   if (typeof value !== 'object' || value === undefined) {
-    return false
+    return undefined
   }
 
   const record = value as Record<string, unknown>
-  return (
-    typeof record.slug === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.description === 'string' &&
-    typeof record.category === 'string' &&
-    typeof record.iconEmoji === 'string' &&
-    typeof record.themeColor === 'string'
-  )
+  if (
+    typeof record.slug !== 'string' ||
+    typeof record.name !== 'string' ||
+    typeof record.description !== 'string' ||
+    typeof record.category !== 'string' ||
+    typeof record.iconEmoji !== 'string' ||
+    typeof record.themeColor !== 'string'
+  ) {
+    return undefined
+  }
+
+  const listing = {
+    slug: record.slug,
+    name: record.name,
+    description: record.description,
+    category: record.category,
+    iconEmoji: record.iconEmoji,
+    themeColor: record.themeColor,
+    tags: record.tags,
+  }
+
+  return {
+    ...listing,
+    tags: ensureListingTags(listing),
+  }
 }

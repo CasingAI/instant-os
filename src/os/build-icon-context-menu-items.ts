@@ -6,12 +6,12 @@ export function buildBuiltinIconContextMenuItems(onOpen: () => void): IconContex
 
 export function buildGeneratedIconContextMenuItems(options: {
   onOpen: () => void
-  onViewInAppStore: () => void
+  onViewInMarketplace: () => void
   openDisabled?: boolean
 }): IconContextMenuItem[] {
   return [
     { type: 'action', label: '打开', disabled: options.openDisabled, onClick: options.onOpen },
     { type: 'separator' },
-    { type: 'action', label: '在 App Store 中查看', onClick: options.onViewInAppStore },
+    { type: 'action', label: '在应用集市中查看', onClick: options.onViewInMarketplace },
   ]
 }

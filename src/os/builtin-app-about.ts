@@ -10,7 +10,7 @@ export const FINDER_ABOUT: AboutAppContent = {
   paragraphs: ['访达是 Instant OS 的桌面入口，帮助你浏览和管理整个系统。快速上手：'],
   list: [
     '点击桌面图标或底部 Dock 栏中的图标，打开内置应用',
-    '在 App Store 浏览、搜索并安装 AI 生成的微应用，安装完成后会出现在桌面',
+    '在应用集市浏览、搜索并安装 AI 生成的微应用，安装完成后会出现在桌面',
     '拖动窗口标题栏移动位置，拖拽边缘调整大小；双击标题栏可最大化',
     '顶部菜单栏会随当前激活的应用切换；无窗口时显示访达菜单',
     '点击左上角 Instant 图标，可查看平台介绍',
@@ -23,15 +23,15 @@ export const INSTANT_ABOUT: AboutAppContent = {
   icon: InstantLogoIcon,
   paragraphs: [
     'Instant OS 是一个在浏览器中运行的 AI 桌面操作系统。它复刻经典 macOS / iOS 的视觉与交互，让你无需安装即可体验完整的「桌面 + 应用」环境。',
-    '平台定位：以 AI 实时生成为核心——网络浏览器可还原任意网页，App Store 可现场创作并安装微应用，一切即开即用、即时可用。',
+    '平台定位：以 AI 实时生成为核心——网络浏览器可还原任意网页，应用集市可现场创作并安装微应用，一切即开即用、即时可用。',
   ],
 }
 
 export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   appstore: {
-    version: 'AI 微应用商店',
+    version: 'AI 微应用集市',
     paragraphs: [
-      'App Store 让你发现、搜索并安装由 AI 即时生成的微应用。浏览推荐与分类，查看详情后即可一键安装到桌面。',
+      '应用集市让你发现、搜索并安装由 AI 即时生成的微应用。浏览推荐与分类，查看详情后即可一键安装到桌面。',
       '安装完成后，应用会出现在桌面与 Dock，像原生应用一样在独立窗口中运行。',
     ],
   },
@@ -57,6 +57,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: '系统管理',
     paragraphs: [
       '系统设置用于查看存储用量、管理已安装应用，以及调整网络浏览器缓存与 AI 用量等系统选项。',
+    ],
+  },
+  'scene3d-lab': {
+    version: '3D 素材测试',
+    paragraphs: [
+      '3D 实验室用于测试 Instant3D 内置 CC0 模型与 AI 场景生成。输入场景描述后，AI 会生成使用内置 modelId 的 Three.js 页面。',
+      '此应用独立于应用集市的微应用生成流程，便于验证素材目录与运行时注入是否正常。',
     ],
   },
 }

@@ -1,0 +1,42 @@
+Third-Party 3D Assets (CC0 1.0 Universal)
+============================================
+
+The following asset packs are bundled under public/assets/3d/models for Instant3D
+runtime testing. Each pack is licensed under Creative Commons Zero (CC0 1.0).
+Attribution is not required; copies of each pack's LICENSE file are kept under
+public/assets/3d/licenses/.
+
+KayKit Furniture Bits
+- Source: https://github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0
+- Author: Kay Lousberg (KayKit)
+- License: CC0 1.0 — see KayKit-Furniture-Bits-LICENSE.txt
+
+KayKit City Builder Bits
+- Source: https://github.com/KayKit-Game-Assets/KayKit-City-Builder-Bits-1.0
+- Author: Kay Lousberg (KayKit)
+- License: CC0 1.0 — see KayKit-City-Builder-Bits-LICENSE.txt
+
+KayKit Restaurant Bits
+- Source: https://github.com/KayKit-Game-Assets/KayKit-Restaurant-Bits-1.0
+- Author: Kay Lousberg (KayKit)
+- License: CC0 1.0 — see KayKit-Restaurant-Bits-LICENSE.txt
+
+KayKit Space Base Bits
+- Source: https://github.com/KayKit-Game-Assets/KayKit-Space-Base-Bits-1.0
+- Author: Kay Lousberg (KayKit)
+- License: CC0 1.0 — see KayKit-Space-Base-Bits-LICENSE.txt
+
+KayKit Halloween Bits
+- Source: https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0
+- Author: Kay Lousberg (KayKit)
+- License: CC0 1.0 — see KayKit-Halloween-Bits-LICENSE.txt
+
+Tiny Treats Homely House
+- Source: https://github.com/TinyTreats-Game-Assets/Tiny-Treats-Homely-House-1.0
+- Author: Isa Lousberg (Tiny Treats)
+- License: CC0 1.0 — see Tiny-Treats-Homely-House-LICENSE.txt
+
+Three.js is used as a runtime dependency (MIT License) and is vendored under
+public/vendor/three/ for iframe import maps.
+
+Instant OS application code remains under the MIT License (see /LICENSE).

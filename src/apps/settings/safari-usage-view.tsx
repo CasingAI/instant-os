@@ -7,7 +7,6 @@ import {
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { SafariCacheView } from './safari-cache-view.tsx'
 import { SafariHistoryView } from './safari-history-view.tsx'
-
 type SafariUsageViewProps = {
   onBack: () => void
   onCacheChange?: () => void

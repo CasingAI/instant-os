@@ -5,7 +5,7 @@ import { searchStoreListingsStreaming } from './store-agent.ts'
 import type { GeneratedAppRecord, PendingInstall, StoreListing } from './types.ts'
 import { ListingGrid } from './listing-grid.tsx'
 
-type AppStoreSearchProps = {
+type MarketplaceSearchProps = {
   installedApps: GeneratedAppRecord[]
   getPendingBySlug: (slug: string) => PendingInstall | undefined
   hasPendingUpdate: (slug: string) => boolean
@@ -14,14 +14,14 @@ type AppStoreSearchProps = {
   onSelect: (slug: string, listings: StoreListing[]) => void
 }
 
-export function AppStoreSearch({
+export function MarketplaceSearch({
   installedApps,
   getPendingBySlug,
   hasPendingUpdate,
   onBack,
   onInstall,
   onSelect,
-}: AppStoreSearchProps) {
+}: MarketplaceSearchProps) {
   const apiReady = useOpenAiReady()
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
@@ -69,7 +69,7 @@ export function AppStoreSearch({
           <span class="appstore-search__back-icon" aria-hidden="true">
             <BackIcon size={13} />
           </span>
-          App Store
+          应用集市
         </button>
       </header>
 

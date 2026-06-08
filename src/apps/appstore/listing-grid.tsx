@@ -2,6 +2,7 @@ import { useMemo } from 'preact/hooks'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { toGeneratedAppId } from './store-agent.ts'
 import type { GeneratedAppRecord, PendingInstall, StoreListing } from './types.ts'
+import { ListingMixedTagsRow } from './listing-tags-view.tsx'
 
 export type ListingGridProps = {
   listings: StoreListing[]
@@ -119,7 +120,7 @@ function ListingCard({
         <div class="appstore__meta">
           <h3>{listing.name}</h3>
           <p>{listing.description}</p>
-          <span class="appstore__category">{listing.category}</span>
+          <ListingMixedTagsRow category={listing.category} tags={listing.tags} />
         </div>
       </button>
       <button
@@ -205,7 +206,7 @@ export function InstalledGrid({
               <div class="appstore__meta">
                 <h3>{app.name}</h3>
                 <p>{app.description}</p>
-                <span class="appstore__category">{app.category}</span>
+                <ListingMixedTagsRow category={app.category} tags={app.tags ?? []} />
               </div>
             </button>
             <button

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'preact/hooks'
 const CORE_FEATURES = [
   {
     id: 'appstore',
-    title: 'App Store',
+    title: '应用集市',
     description: '搜索、生成并使用专属于你的 AI 应用',
   },
   {

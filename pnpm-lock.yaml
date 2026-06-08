@@ -14,6 +14,9 @@ importers:
       preact:
         specifier: ^10.29.1
         version: 10.29.2
+      three:
+        specifier: ^0.184.0
+        version: 0.184.0
     devDependencies:
       '@preact/preset-vite':
         specifier: ^2.10.5
@@ -549,6 +552,9 @@ packages:
   stack-trace@1.0.0:
     resolution: {integrity: sha512-H6D7134xi6qONvh7ZHKgviXf+rd3vhGBSvebPZCaUkd8zvQ+7PtDw6CljPTe4cXWNf2IKZGNqw6VJXSb9IgBpA==}
     engines: {node: '>=20.0.0'}
+
+  three@0.184.0:
+    resolution: {integrity: sha512-wtTRjG92pM5eUg/KuUnHsqSAlPM296brTOcLgMRqEeylYTh/CdtvKUvCyyCQTzFuStieWxvZb8mVTMvdPyUpxg==}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -1113,6 +1119,8 @@ snapshots:
   source-map@0.7.6: {}
 
   stack-trace@1.0.0: {}
+
+  three@0.184.0: {}
 
   tinyglobby@0.2.17:
     dependencies:

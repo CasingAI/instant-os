@@ -1,0 +1,526 @@
+.scene3d-lab {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: #ececec;
+  color: #1d1d1f;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.scene3d-lab__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid #d2d2d7;
+  background: #f5f5f7;
+}
+
+.scene3d-lab__toolbar-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scene3d-lab__prompt {
+  flex: 1 1 180px;
+  min-width: 0;
+  min-height: 32px;
+  max-height: 72px;
+  padding: 6px 10px;
+  border: 1px solid #c7c7cc;
+  border-radius: 8px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  background: #fff;
+}
+
+.scene3d-lab__toolbar-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 4px;
+}
+
+.scene3d-lab__runtime-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid #c7c7cc;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.scene3d-lab__runtime-label {
+  padding: 0 6px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6e6e73;
+}
+
+.scene3d-lab__runtime-option {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6e6e73;
+  background: transparent;
+  cursor: pointer;
+}
+
+.scene3d-lab__runtime-option--active {
+  color: #fff;
+  background: #0a84ff;
+}
+
+.scene3d-lab__runtime-option:hover:not(.scene3d-lab__runtime-option--active) {
+  background: #f0f0f2;
+}
+
+.scene3d-lab__samples-wrap {
+  margin-top: 0;
+}
+
+.scene3d-lab__samples-wrap summary {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6e6e73;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.scene3d-lab__samples-wrap summary::-webkit-details-marker {
+  display: none;
+}
+
+.scene3d-lab__samples-wrap[open] summary {
+  margin-bottom: 4px;
+}
+
+.scene3d-lab__samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scene3d-lab__sample {
+  border: 1px solid #c7c7cc;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.scene3d-lab__sample:hover {
+  background: #eef4ff;
+  border-color: #0a84ff;
+}
+
+.scene3d-lab__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scene3d-lab__generate,
+.scene3d-lab__secondary,
+.scene3d-lab__ghost,
+.scene3d-lab__panel-action {
+  border-radius: 7px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.scene3d-lab__generate {
+  border: none;
+  font-weight: 600;
+  color: #fff;
+  background: #0a84ff;
+}
+
+.scene3d-lab__generate:disabled,
+.scene3d-lab__secondary:disabled,
+.scene3d-lab__panel-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.scene3d-lab__secondary {
+  border: 1px solid #0a84ff;
+  color: #0a84ff;
+  background: #fff;
+  font-weight: 600;
+}
+
+.scene3d-lab__ghost {
+  border: 1px solid #c7c7cc;
+  color: #6e6e73;
+  background: #fff;
+}
+
+.scene3d-lab__meta {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: #6e6e73;
+  white-space: nowrap;
+}
+
+.scene3d-lab__meta-sep {
+  opacity: 0.55;
+}
+
+.scene3d-lab__status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene3d-lab__tokens {
+  font-variant-numeric: tabular-nums;
+}
+
+.scene3d-lab__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+}
+
+.scene3d-lab__body--preview-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.scene3d-lab__preview {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  background: #111;
+  border-right: 1px solid #d2d2d7;
+}
+
+.scene3d-lab__body--preview-only .scene3d-lab__preview {
+  border-right: none;
+}
+
+.scene3d-lab__frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #111;
+}
+
+.scene3d-lab__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8e8e93;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.scene3d-lab__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 14px;
+  z-index: 1;
+}
+
+.scene3d-lab__error {
+  margin: 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffecec;
+  color: #b00020;
+  font-size: 12px;
+}
+
+.scene3d-lab__inspector {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fafafa;
+}
+
+.scene3d-lab__inspector-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scene3d-lab__panel[hidden] {
+  display: none !important;
+}
+
+.scene3d-lab__frame--hidden {
+  visibility: hidden;
+}
+
+.scene3d-lab__inspector-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid #d2d2d7;
+  background: #f5f5f7;
+}
+
+.scene3d-lab__tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6e6e73;
+  background: transparent;
+  cursor: pointer;
+}
+
+.scene3d-lab__tab--active {
+  color: #1d1d1f;
+  background: #fafafa;
+  border-color: #d2d2d7;
+}
+
+.scene3d-lab__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scene3d-lab__panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #ececec;
+  font-size: 11px;
+  color: #6e6e73;
+}
+
+.scene3d-lab__panel-action {
+  border: 1px solid #0a84ff;
+  color: #0a84ff;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.scene3d-lab__editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #1d1d1f;
+  background: #fafafa;
+}
+
+.scene3d-lab__editor--readonly {
+  color: #424245;
+  background: #f0f0f2;
+}
+
+.scene3d-lab__token-panel {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+.scene3d-lab__token-stats {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.scene3d-lab__token-stats div {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.scene3d-lab__token-stats dt {
+  margin: 0;
+  font-size: 12px;
+  color: #6e6e73;
+}
+
+.scene3d-lab__token-stats dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.scene3d-lab__panel--archives {
+  min-height: 0;
+}
+
+.scene3d-lab__archive-save {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #d2d2d7;
+  background: #fbfbfc;
+}
+
+.scene3d-lab__archive-title {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #c7c7cc;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.scene3d-lab__panel-action--danger {
+  color: #b42318;
+}
+
+.scene3d-lab__archive-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.scene3d-lab__archive-empty {
+  margin: 0;
+  padding: 12px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6e6e73;
+}
+
+.scene3d-lab__archive-item {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.scene3d-lab__archive-item--active .scene3d-lab__archive-load {
+  border-color: #0a84ff;
+  background: #eef4ff;
+}
+
+.scene3d-lab__archive-load {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scene3d-lab__archive-load:hover {
+  border-color: #0a84ff;
+  background: #f7faff;
+}
+
+.scene3d-lab__archive-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.scene3d-lab__archive-meta {
+  font-size: 11px;
+  color: #6e6e73;
+  font-variant-numeric: tabular-nums;
+}
+
+.scene3d-lab__archive-prompt {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #555;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.scene3d-lab__archive-delete {
+  flex: 0 0 auto;
+  width: 32px;
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  background: #fff;
+  color: #6e6e73;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.scene3d-lab__archive-delete:hover {
+  color: #b42318;
+  border-color: #f2c6c1;
+  background: #fff5f5;
+}
+
+@media (max-width: 900px) {
+  .scene3d-lab__toolbar-main {
+    flex-wrap: wrap;
+  }
+
+  .scene3d-lab__meta {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .scene3d-lab__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(220px, 1fr) minmax(240px, 0.95fr);
+  }
+
+  .scene3d-lab__preview {
+    border-right: none;
+    border-bottom: 1px solid #d2d2d7;
+  }
+}

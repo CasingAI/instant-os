@@ -6,6 +6,7 @@ import { normalizeAppVersion } from './app-version.ts'
 import { normalizeVersionSnapshots } from './generated-app-versions.ts'
 import { EditableDetailField } from './editable-detail-field.tsx'
 import { ListingReviewsSection } from './listing-reviews-section.tsx'
+import { ListingMixedTagsRow } from './listing-tags-view.tsx'
 import { ReviewBrowseModal } from './review-browse-modal.tsx'
 import { ReviewComposeModal } from './review-compose-modal.tsx'
 import { resolveListingDetailContext } from './resolve-listing-detail-context.ts'
@@ -208,7 +209,7 @@ export function ListingDetail({
           <span class="appstore-detail__back-icon" aria-hidden="true">
             <BackIcon size={13} />
           </span>
-          App Store
+          应用集市
         </button>
       </header>
 
@@ -224,7 +225,11 @@ export function ListingDetail({
             />
           </div>
           <div class="appstore-detail__hero-meta">
-            <p class="appstore-detail__eyebrow">{listing.category}</p>
+            <ListingMixedTagsRow
+              category={listing.category}
+              tags={listing.tags}
+              categoryClassName="appstore-detail__eyebrow appstore-detail__eyebrow--inline"
+            />
             <h2 class="appstore-detail__name">{listing.name}</h2>
             {!detail?.tagline && detailStreaming ? (
               <div class="appstore-detail__skeleton appstore-detail__skeleton--tagline" />

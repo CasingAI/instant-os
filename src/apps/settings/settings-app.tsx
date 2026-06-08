@@ -21,12 +21,21 @@ import { SafariUsageView } from './safari-usage-view.tsx'
 import { AccountView } from './account-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
+import { ResourcesView } from './resources-view.tsx'
+import { Resources3dView } from './resources-3d-view.tsx'
+import {
+  Resources3dDetailView,
+  resources3dDetailWindowTitle,
+  type Resources3dDetailTarget,
+} from './resources-3d-detail-view.tsx'
 import {
   AccountPaneIcon,
   DisplayPaneIcon,
+  ResourcesPaneIcon,
   SafariUsagePaneIcon,
   UsagePaneIcon,
 } from './settings-pane-icons.tsx'
+import { SettingsKeepLayer } from './settings-keep-layer.tsx'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
@@ -36,6 +45,9 @@ type SettingsRoute =
   | { view: 'account' }
   | { view: 'display' }
   | { view: 'display-emoji' }
+  | { view: 'resources' }
+  | { view: 'resources-3d' }
+  | { view: 'resources-3d-detail'; target: Resources3dDetailTarget }
   | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId }
   | { view: 'safari-usage' }
 
@@ -58,6 +70,15 @@ function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | unde
   }
   if (route.view === 'display-emoji') {
     return '表情符号'
+  }
+  if (route.view === 'resources') {
+    return '资源'
+  }
+  if (route.view === 'resources-3d') {
+    return '3D 资源'
+  }
+  if (route.view === 'resources-3d-detail') {
+    return resources3dDetailWindowTitle(route.target)
   }
   if (route.view === 'safari-usage') {
     return '网络浏览器'
@@ -139,106 +160,154 @@ export function SettingsApp() {
 
   useAppMenuBar('settings', menuBar)
 
-  if (route.view === 'app-detail' && selectedApp) {
-    return (
-      <AppDetailView
-        app={selectedApp}
-        onBack={() => setRoute({ view: 'usage' })}
-        onOpenSafariSettings={
-          selectedApp.id === 'browser'
-            ? () => setRoute({ view: 'safari-usage' })
-            : undefined
-        }
-      />
-    )
-  }
-
-  if (route.view === 'safari-usage') {
-    return (
-      <SafariUsageView
-        onBack={() => setRoute({ view: 'root' })}
-        onCacheChange={() => setCacheRevision((value) => value + 1)}
-        onHistoryChange={() => setCacheRevision((value) => value + 1)}
-      />
-    )
-  }
-
-  if (route.view === 'account') {
-    return <AccountView onBack={() => setRoute({ view: 'root' })} />
-  }
-
-  if (route.view === 'display-emoji') {
-    return <EmojiSettingsView onBack={() => setRoute({ view: 'display' })} />
-  }
-
-  if (route.view === 'display') {
-    return (
-      <DisplayView
-        onBack={() => setRoute({ view: 'root' })}
-        onOpenEmoji={() => setRoute({ view: 'display-emoji' })}
-      />
-    )
-  }
-
-  if (route.view === 'usage') {
-    return (
-      <UsageView
-        summary={summary}
-        onBack={() => setRoute({ view: 'root' })}
-        onSelectApp={(appId) => setRoute({ view: 'app-detail', appId })}
-      />
-    )
-  }
+  const view = route.view
+  const showRoot = view === 'root'
+  const showUsage = view === 'usage'
+  const keepUsage = showUsage || view === 'app-detail'
+  const showAppDetail = view === 'app-detail' && selectedApp
+  const showAccount = view === 'account'
+  const showDisplay = view === 'display'
+  const keepDisplay = showDisplay || view === 'display-emoji'
+  const showEmoji = view === 'display-emoji'
+  const showSafari = view === 'safari-usage'
+  const showResources = view === 'resources'
+  const keepResources =
+    showResources || view === 'resources-3d' || view === 'resources-3d-detail'
+  const showResources3d = view === 'resources-3d'
+  const keepResources3d = showResources3d || view === 'resources-3d-detail'
+  const showResources3dDetail = view === 'resources-3d-detail'
 
   return (
-    <div class="settings">
-      <div class="settings__content">
-        <div class="settings__panes">
-          <button
-            type="button"
-            class="settings__pane"
-            onClick={() => {
-              setCacheRevision((value) => value + 1)
-              setRoute({ view: 'usage' })
-            }}
-          >
-            <span class="settings__pane-icon" aria-hidden="true">
-              <UsagePaneIcon />
-            </span>
-            <span class="settings__pane-label">用量</span>
-          </button>
-          <button
-            type="button"
-            class="settings__pane"
-            onClick={() => setRoute({ view: 'account' })}
-          >
-            <span class="settings__pane-icon" aria-hidden="true">
-              <AccountPaneIcon />
-            </span>
-            <span class="settings__pane-label">账户</span>
-          </button>
-          <button
-            type="button"
-            class="settings__pane"
-            onClick={() => setRoute({ view: 'display' })}
-          >
-            <span class="settings__pane-icon" aria-hidden="true">
-              <DisplayPaneIcon />
-            </span>
-            <span class="settings__pane-label">显示</span>
-          </button>
-          <button
-            type="button"
-            class="settings__pane"
-            onClick={() => setRoute({ view: 'safari-usage' })}
-          >
-            <span class="settings__pane-icon" aria-hidden="true">
-              <SafariUsagePaneIcon />
-            </span>
-            <span class="settings__pane-label">网络浏览器</span>
-          </button>
+    <div class="settings-host">
+      <SettingsKeepLayer show={showRoot} keep={showRoot}>
+        <div class="settings">
+          <div class="settings__content">
+            <div class="settings__panes">
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => {
+                  setCacheRevision((value) => value + 1)
+                  setRoute({ view: 'usage' })
+                }}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <UsagePaneIcon />
+                </span>
+                <span class="settings__pane-label">用量</span>
+              </button>
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => setRoute({ view: 'account' })}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <AccountPaneIcon />
+                </span>
+                <span class="settings__pane-label">账户</span>
+              </button>
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => setRoute({ view: 'display' })}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <DisplayPaneIcon />
+                </span>
+                <span class="settings__pane-label">显示</span>
+              </button>
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => setRoute({ view: 'resources' })}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <ResourcesPaneIcon />
+                </span>
+                <span class="settings__pane-label">资源</span>
+              </button>
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => setRoute({ view: 'safari-usage' })}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <SafariUsagePaneIcon />
+                </span>
+                <span class="settings__pane-label">网络浏览器</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showUsage} keep={keepUsage}>
+        <UsageView
+          summary={summary}
+          onBack={() => setRoute({ view: 'root' })}
+          onSelectApp={(appId) => setRoute({ view: 'app-detail', appId })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={Boolean(showAppDetail)} keep={Boolean(showAppDetail)}>
+        {selectedApp && (
+          <AppDetailView
+            app={selectedApp}
+            onBack={() => setRoute({ view: 'usage' })}
+            onOpenSafariSettings={
+              selectedApp.id === 'browser'
+                ? () => setRoute({ view: 'safari-usage' })
+                : undefined
+            }
+          />
+        )}
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showAccount} keep={showAccount}>
+        <AccountView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showDisplay} keep={keepDisplay}>
+        <DisplayView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpenEmoji={() => setRoute({ view: 'display-emoji' })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showEmoji} keep={showEmoji}>
+        <EmojiSettingsView onBack={() => setRoute({ view: 'display' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showSafari} keep={showSafari}>
+        <SafariUsageView
+          onBack={() => setRoute({ view: 'root' })}
+          onCacheChange={() => setCacheRevision((value) => value + 1)}
+          onHistoryChange={() => setCacheRevision((value) => value + 1)}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showResources} keep={keepResources}>
+        <ResourcesView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpen3d={() => setRoute({ view: 'resources-3d' })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showResources3d} keep={keepResources3d}>
+        <Resources3dView
+          onBack={() => setRoute({ view: 'resources' })}
+          onOpenDetail={(target) => setRoute({ view: 'resources-3d-detail', target })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showResources3dDetail} keep={showResources3dDetail}>
+        {showResources3dDetail && (
+          <Resources3dDetailView
+            target={route.target}
+            onBack={() => setRoute({ view: 'resources-3d' })}
+          />
+        )}
+      </SettingsKeepLayer>
     </div>
   )
 }
