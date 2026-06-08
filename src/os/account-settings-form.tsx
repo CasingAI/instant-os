@@ -59,8 +59,8 @@ export function AccountSettingsForm({
           }
         >
           {modelOptions.map((model) => (
-            <option key={model} value={model}>
-              {model}
+            <option key={model.id} value={model.id}>
+              {model.name}
             </option>
           ))}
         </select>

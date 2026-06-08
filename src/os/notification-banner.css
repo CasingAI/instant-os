@@ -129,9 +129,18 @@
   background: rgba(0, 0, 0, 0.08);
 }
 
-.notification-banner__progress-fill {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, #6eb6ff 0%, #007aff 100%);
-  transition: width 0.2s ease;
+.notification-banner--warning {
+  border-color: rgba(230, 140, 20, 0.45);
+}
+
+.notification-banner--warning .notification-banner__title {
+  color: #8a5200;
+}
+
+.notification-banner--warning .notification-banner__subtitle {
+  color: #7a5a20;
+}
+
+.notification-banner-host--storage-warning {
+  top: calc(28px + var(--storage-warning-banner-offset, 0px));
 }

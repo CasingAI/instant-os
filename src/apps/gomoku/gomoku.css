@@ -1,0 +1,1072 @@
+/* 五子棋 — iOS 6 拟物风 */
+
+.gomoku-app {
+  --gk-bg: #c8b89a;
+  --gk-wood-light: #e8d4b0;
+  --gk-wood-mid: #c9a96e;
+  --gk-wood-dark: #8b6914;
+  --gk-ink: #2a2418;
+  --gk-ink-muted: #6a5c48;
+  --gk-surface: #f5f0e6;
+  --gk-border: #a89070;
+  --gk-radius: 8px;
+  --gk-line-count: 14;
+  --gk-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  background:
+    radial-gradient(ellipse 100% 60% at 50% -10%, #fff8ee 0%, transparent 50%),
+    linear-gradient(180deg, #ddd0bc 0%, var(--gk-bg) 100%);
+  color: var(--gk-ink);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'Helvetica Neue',
+    'PingFang SC',
+    sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.gomoku-app__sidebar-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gomoku-app__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.gomoku-app__subtitle {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--gk-ink-muted);
+  text-align: center;
+}
+
+.gomoku-app__subtitle-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.gomoku-app__subtitle-model {
+  font-size: 10px;
+  font-weight: 700;
+  color: #3a6cb0;
+}
+
+.gomoku-app__model-name {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.gomoku-app__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gomoku-app__sidebar .gomoku-app__btn {
+  width: 100%;
+  font-size: 11px;
+}
+
+.gomoku-app__btn {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--gk-radius);
+  border: 1px solid #9a8870;
+  background: linear-gradient(180deg, #fff 0%, #e8e0d4 100%);
+  box-shadow: var(--gk-shadow);
+  color: var(--gk-ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.1s ease, transform 0.1s ease;
+}
+
+.gomoku-app__btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.gomoku-app__btn:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.96);
+}
+
+.gomoku-app__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.gomoku-app__btn--primary {
+  border-color: #1a6b4a;
+  background: linear-gradient(180deg, #3ecf96 0%, #1a9a6a 100%);
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+.gomoku-app__body {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  overflow: hidden;
+}
+
+.gomoku-app__board-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  container-type: size;
+}
+
+.gomoku-app__board-frame {
+  position: relative;
+  width: min(100cqw, 100cqh);
+  aspect-ratio: 1;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #a08040 0%, #6b4e18 50%, #4a3410 100%);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.2) inset,
+    inset 0 -3px 8px rgba(0, 0, 0, 0.3);
+  transition:
+    filter 0.45s ease,
+    opacity 0.45s ease;
+}
+
+.gomoku-app__board-frame::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.gomoku-app__board-frame--idle {
+  filter: saturate(0.04) brightness(0.86) contrast(0.9);
+  opacity: 0.78;
+}
+
+.gomoku-app__board-frame--thinking {
+  filter: saturate(0.72) brightness(0.94);
+}
+
+.gomoku-app__thinking-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 14, 8, 0.22);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.gomoku-app__thinking-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(88%, 280px);
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(240, 230, 210, 0.96) 100%);
+  border: 1px solid rgba(120, 90, 40, 0.35);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.gomoku-app__thinking-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(90, 70, 40, 0.2);
+  border-top-color: #c87820;
+  animation: gomoku-thinking-spin 0.75s linear infinite;
+}
+
+.gomoku-app__thinking-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gk-ink);
+}
+
+.gomoku-app__thinking-model {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gk-ink-muted);
+  text-align: left;
+}
+
+@keyframes gomoku-thinking-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.gomoku-app__board {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 3px,
+      rgba(0, 0, 0, 0.025) 3px,
+      rgba(0, 0, 0, 0.025) 4px
+    ),
+    linear-gradient(160deg, var(--gk-wood-light) 0%, var(--gk-wood-mid) 45%, #b89858 100%);
+  border-radius: 4px;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.gomoku-app__grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.gomoku-app__grid line {
+  stroke: #1f1404;
+  stroke-opacity: 0.92;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.gomoku-app__star {
+  position: absolute;
+  left: calc(var(--col) * 100% / var(--gk-line-count));
+  top: calc(var(--row) * 100% / var(--gk-line-count));
+  width: 2.8%;
+  height: 2.8%;
+  margin: -1.4% 0 0 -1.4%;
+  border-radius: 50%;
+  background: #2a1c08;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gomoku-app__cell {
+  position: absolute;
+  left: calc(var(--col) * 100% / var(--gk-line-count));
+  top: calc(var(--row) * 100% / var(--gk-line-count));
+  width: calc(100% / var(--gk-line-count) * 0.88);
+  height: calc(100% / var(--gk-line-count) * 0.88);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0;
+  z-index: 2;
+}
+
+.gomoku-app__cell:hover:not(:disabled) .gomoku-app__hover-hint {
+  opacity: 0.35;
+  transform: scale(1);
+}
+
+.gomoku-app__cell:disabled {
+  cursor: default;
+}
+
+.gomoku-app__hover-hint {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  pointer-events: none;
+}
+
+.gomoku-app__hover-hint--black {
+  background: radial-gradient(circle at 35% 30%, #666 0%, #111 70%);
+}
+
+.gomoku-app__hover-hint--white {
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #ccc 70%);
+}
+
+.gomoku-app__stone {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: gomoku-stone-drop 0.22s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.gomoku-app__stone--black {
+  background: radial-gradient(circle at 32% 28%, #5a5a5a 0%, #1a1a1a 45%, #000 100%);
+  box-shadow:
+    0 3px 4px rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    inset 0 -2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.gomoku-app__stone--white {
+  background: radial-gradient(circle at 32% 28%, #fff 0%, #f0f0f0 40%, #c8c8c8 100%);
+  box-shadow:
+    0 3px 4px rgba(0, 0, 0, 0.3),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    inset 0 -2px 3px rgba(0, 0, 0, 0.12);
+}
+
+.gomoku-app__stone--last::after {
+  content: '';
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 80, 60, 0.85);
+  box-shadow: 0 0 6px rgba(255, 80, 60, 0.5);
+  animation: gomoku-last-pulse 1.2s ease-in-out infinite;
+}
+
+.gomoku-app__stone--win {
+  z-index: 2;
+  animation: gomoku-win-glow 0.6s ease-in-out infinite alternate;
+}
+
+.gomoku-app__board--win-reveal::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 4px;
+  background: rgba(16, 10, 4, 0.28);
+  pointer-events: none;
+  animation: gomoku-match-fade-in 0.35s ease-out both;
+}
+
+.gomoku-app__board--win-reveal .gomoku-app__cell:not(.gomoku-app__cell--win) {
+  opacity: 0.38;
+  filter: saturate(0.35) brightness(0.9);
+  transition: opacity 0.35s ease, filter 0.35s ease;
+}
+
+.gomoku-app__board--win-reveal .gomoku-app__cell--win {
+  z-index: 4;
+}
+
+.gomoku-app__board--win-settled .gomoku-app__cell:not(.gomoku-app__cell--win) {
+  opacity: 0.72;
+  filter: saturate(0.65);
+}
+
+.gomoku-app__win-line {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.gomoku-app__win-line line {
+  stroke: rgba(255, 210, 60, 0.88);
+  stroke-width: 0.14;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(255, 200, 40, 0.75));
+  animation: gomoku-win-line-pulse 0.75s ease-in-out infinite alternate;
+}
+
+.gomoku-app__win-line--intense line {
+  stroke: #ffe566;
+  stroke-width: 0.18;
+  filter: drop-shadow(0 0 10px rgba(255, 220, 60, 0.95));
+}
+
+.gomoku-app__sparkle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #ffd700 50%, transparent 100%);
+  animation: gomoku-sparkle 1.4s ease-out infinite;
+}
+
+.gomoku-app__fullscreen-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 14, 8, 0.48);
+  backdrop-filter: blur(3px);
+  animation: gomoku-match-fade-in 0.35s ease-out both;
+  pointer-events: all;
+  cursor: default;
+}
+
+.gomoku-app__fullscreen-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 440px);
+  padding: 22px 20px 18px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffaf2 0%, #efe4d0 100%);
+  border: 2px solid #c8a850;
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.85) inset;
+  text-align: center;
+  animation: gomoku-banner-pop 0.45s cubic-bezier(0.34, 1.5, 0.64, 1) both;
+}
+
+.gomoku-app__win-celebration {
+  overflow: hidden;
+}
+
+.gomoku-app__win-sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.gomoku-app__win-celebration-card {
+  width: min(100%, 480px);
+  padding: 28px 24px 22px;
+}
+
+.gomoku-app__win-celebration-kicker {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__win-celebration-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.gomoku-app__win-celebration-stone {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+}
+
+.gomoku-app__win-celebration-stone--black {
+  background: radial-gradient(circle at 32% 28%, #5a5a5a 0%, #1a1a1a 45%, #000 100%);
+}
+
+.gomoku-app__win-celebration-stone--white {
+  background: radial-gradient(circle at 32% 28%, #fff 0%, #f0f0f0 40%, #c8c8c8 100%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.gomoku-app__win-celebration-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.gomoku-app__win-celebration-model {
+  font-size: clamp(18px, 4.5vw, 26px);
+  font-weight: 800;
+  color: #3a6cb0;
+}
+
+.gomoku-app__win-celebration-title-suffix {
+  font-size: clamp(28px, 6vw, 40px);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  background: linear-gradient(180deg, #ff8c00 0%, #d43820 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 8px rgba(212, 56, 32, 0.25));
+}
+
+.gomoku-app__win-celebration-sub-model {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3a6cb0;
+}
+
+.gomoku-app__win-celebration-sub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__overlay-dismiss-btn {
+  margin-top: 18px;
+  min-width: 132px;
+  height: 34px;
+  padding: 0 18px;
+  border-radius: var(--gk-radius);
+  border: 1px solid #9a8870;
+  background: linear-gradient(180deg, #fff 0%, #e8e0d4 100%);
+  box-shadow: var(--gk-shadow);
+  color: var(--gk-ink);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.1s ease, transform 0.1s ease;
+}
+
+.gomoku-app__overlay-dismiss-btn:hover {
+  filter: brightness(1.04);
+}
+
+.gomoku-app__overlay-dismiss-btn:active {
+  transform: translateY(1px);
+  filter: brightness(0.96);
+}
+
+.gomoku-app__draw-celebration-card {
+  width: min(100%, 420px);
+  padding: 26px 22px 20px;
+}
+
+.gomoku-app__draw-celebration-kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__draw-celebration-title {
+  margin: 0;
+  font-size: clamp(26px, 5.5vw, 36px);
+  font-weight: 900;
+  color: var(--gk-ink);
+  letter-spacing: 0.08em;
+}
+
+.gomoku-app__draw-celebration-sub {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--gk-ink-muted);
+  line-height: 1.45;
+}
+
+.gomoku-app__match-banner-kicker {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__match-banner-versus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.gomoku-app__match-banner-player {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.gomoku-app__match-banner-stone {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gomoku-app__match-banner-stone--black {
+  background: radial-gradient(circle at 32% 28%, #5a5a5a 0%, #111 100%);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+}
+
+.gomoku-app__match-banner-stone--white {
+  background: radial-gradient(circle at 32% 28%, #fff 0%, #ddd 100%);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+}
+
+.gomoku-app__match-banner-name {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.gomoku-app__match-banner-name.gomoku-app__model-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #3a6cb0;
+}
+
+.gomoku-app__match-banner-role {
+  font-size: 11px;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__match-banner-vs {
+  flex-shrink: 0;
+  font-size: 22px;
+  font-weight: 900;
+  font-style: italic;
+  color: #c43820;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.gomoku-app__match-banner-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__match-banner-hint-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gomoku-app__lottery {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.gomoku-app__lottery-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border-radius: 10px;
+  border: 2px solid #c4b5a0;
+  background: linear-gradient(180deg, #fff 0%, #ebe2d4 100%);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+  transform: scale(0.96);
+  opacity: 0.72;
+}
+
+.gomoku-app__lottery-card--active {
+  transform: scale(1.04);
+  opacity: 1;
+  border-color: #d4a820;
+  box-shadow:
+    0 0 0 3px rgba(255, 215, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.gomoku-app__lottery-card--winner {
+  transform: scale(1.06);
+  opacity: 1;
+  border-color: #c43820;
+  box-shadow:
+    0 0 0 3px rgba(255, 140, 60, 0.35),
+    0 6px 16px rgba(0, 0, 0, 0.22);
+  animation: gomoku-lottery-win 0.5s ease-out both;
+}
+
+.gomoku-app__lottery-stone {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gomoku-app__lottery-stone--black {
+  background: radial-gradient(circle at 32% 28%, #5a5a5a 0%, #111 100%);
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.35);
+}
+
+.gomoku-app__lottery-stone--white {
+  background: radial-gradient(circle at 32% 28%, #fff 0%, #ddd 100%);
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.2);
+}
+
+.gomoku-app__lottery-stone--pending {
+  background: radial-gradient(circle at 32% 28%, #d8d0c4 0%, #9a9084 100%);
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.18);
+  border: 2px dashed rgba(60, 48, 24, 0.22);
+}
+
+.gomoku-app__lottery-stone--shaking {
+  animation: gomoku-lottery-shake 0.12s ease-in-out;
+}
+
+.gomoku-app__lottery-name {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  width: 100%;
+}
+
+.gomoku-app__lottery-name.gomoku-app__model-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #3a6cb0;
+}
+
+.gomoku-app__lottery-role {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gk-ink-muted);
+  text-align: center;
+}
+
+.gomoku-app__lottery-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+}
+
+.gomoku-app__lottery-divider-icon {
+  font-size: 20px;
+  animation: gomoku-lottery-shake 0.45s ease-in-out infinite;
+}
+
+.gomoku-app__lottery-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 14px 0 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #c43820;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: gomoku-match-fade-in 0.35s ease-out both;
+}
+
+.gomoku-app__lottery-result .gomoku-app__model-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3a6cb0;
+  text-shadow: none;
+}
+
+@keyframes gomoku-lottery-shake {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes gomoku-lottery-win {
+  0% {
+    transform: scale(0.92);
+  }
+  60% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1.06);
+  }
+}
+
+.gomoku-app__sidebar {
+  flex-shrink: 0;
+  width: 136px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.gomoku-app__panel {
+  padding: 8px 9px;
+  border-radius: var(--gk-radius);
+  background: linear-gradient(180deg, var(--gk-surface) 0%, #ebe4d8 100%);
+  border: 1px solid var(--gk-border);
+  box-shadow: var(--gk-shadow);
+}
+
+.gomoku-app__panel-title {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__turn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.gomoku-app__turn-stone {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gomoku-app__turn-stone--black {
+  background: radial-gradient(circle at 32% 28%, #5a5a5a 0%, #111 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.gomoku-app__turn-stone--white {
+  background: radial-gradient(circle at 32% 28%, #fff 0%, #ddd 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.gomoku-app__turn-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.gomoku-app__turn-prefix {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gk-ink-muted);
+  letter-spacing: 0.06em;
+}
+
+.gomoku-app__turn-model {
+  font-size: 11px;
+  font-weight: 700;
+  color: #3a6cb0;
+}
+
+.gomoku-app__status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--gk-ink-muted);
+  line-height: 1.35;
+  text-align: center;
+}
+
+.gomoku-app__status .gomoku-app__model-name {
+  font-size: 10px;
+  font-weight: 700;
+  color: #3a6cb0;
+}
+
+.gomoku-app__status--win {
+  color: #c43820;
+  font-weight: 700;
+}
+
+.gomoku-app__status--draw {
+  color: #5a6a78;
+  font-weight: 700;
+}
+
+.gomoku-app__debug-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  color: var(--gk-ink-muted);
+}
+
+.gomoku-app__debug-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.gomoku-app__debug-list strong {
+  color: var(--gk-ink);
+  font-weight: 600;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.gomoku-app__debug-list-item--model strong {
+  display: block;
+  width: 100%;
+}
+
+.gomoku-app__debug-model {
+  font-size: 10px;
+  font-weight: 700;
+  color: #3a6cb0;
+  text-align: left;
+}
+
+@keyframes gomoku-stone-drop {
+  0% {
+    transform: scale(1.6) translateY(-8px);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes gomoku-last-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes gomoku-win-glow {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(255, 215, 0, 0.7),
+      0 3px 4px rgba(0, 0, 0, 0.35);
+  }
+  100% {
+    box-shadow:
+      0 0 12px 4px rgba(255, 215, 0, 0.6),
+      0 3px 4px rgba(0, 0, 0, 0.35);
+  }
+}
+
+@keyframes gomoku-win-line-pulse {
+  0% {
+    stroke-opacity: 0.72;
+  }
+  100% {
+    stroke-opacity: 1;
+  }
+}
+
+@keyframes gomoku-sparkle {
+  0% {
+    opacity: 0;
+    transform: scale(0) translateY(0);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.3) translateY(-40px);
+  }
+}
+
+@keyframes gomoku-banner-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes gomoku-match-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .gomoku-app__body {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .gomoku-app__sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .gomoku-app__panel {
+    flex: 1;
+    min-width: 120px;
+  }
+}

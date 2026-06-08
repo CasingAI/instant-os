@@ -442,6 +442,40 @@ export function CatGptIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function GomokuIcon({ size = 64 }: IconProps) {
+  const gridLines = [16, 32, 48]
+
+  return (
+    <AppIconTile color="#8b6914" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="gomoku-board-face" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#f0dca0" />
+            <stop offset="100%" stop-color="#c9a050" />
+          </linearGradient>
+          <radialGradient id="gomoku-black-stone" cx="35%" cy="30%" r="65%">
+            <stop offset="0%" stop-color="#666" />
+            <stop offset="100%" stop-color="#111" />
+          </radialGradient>
+          <radialGradient id="gomoku-white-stone" cx="35%" cy="30%" r="65%">
+            <stop offset="0%" stop-color="#fff" />
+            <stop offset="100%" stop-color="#ccc" />
+          </radialGradient>
+        </defs>
+        <rect x="0" y="0" width="64" height="64" fill="url(#gomoku-board-face)" />
+        {gridLines.map((line) => (
+          <g key={line} stroke={line === 32 ? 'rgba(50, 35, 10, 0.65)' : 'rgba(50, 35, 10, 0.4)'} stroke-width={line === 32 ? 1.2 : 0.7}>
+            <line x1={line} y1="0" x2={line} y2="64" />
+            <line x1="0" y1={line} x2="64" y2={line} />
+          </g>
+        ))}
+        <circle cx="16" cy="16" r="7.25" fill="url(#gomoku-black-stone)" />
+        <circle cx="48" cy="48" r="7.25" fill="url(#gomoku-white-stone)" stroke="rgba(0,0,0,0.12)" stroke-width="0.6" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function TranslateIcon({ size = 64 }: IconProps) {
   const fontSize = size * (22 / 72)
 

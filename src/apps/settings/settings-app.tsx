@@ -45,6 +45,7 @@ import {
   UsagePaneIcon,
 } from './settings-pane-icons.tsx'
 import { SettingsKeepLayer } from './settings-keep-layer.tsx'
+import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
@@ -121,6 +122,16 @@ export function SettingsApp() {
   useEffect(() => {
     setAppWindowTitle('settings', settingsWindowTitle)
   }, [settingsWindowTitle, setAppWindowTitle])
+
+  useEffect(() => {
+    const handleOpenUsage = () => {
+      setCacheRevision((value) => value + 1)
+      setRoute({ view: 'usage' })
+    }
+
+    window.addEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
+    return () => window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
+  }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const settingsWindow = windows.find((window) => window.appId === 'settings' && !window.minimized)

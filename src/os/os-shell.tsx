@@ -1,6 +1,7 @@
 import { Desktop } from '../desktop/desktop.tsx'
 import { Dock } from '../dock/dock.tsx'
 import { IconContextMenuProvider } from './icon-context-menu-context.tsx'
+import { LauncherLayoutProvider } from './launcher-layout-context.tsx'
 import { AboutAppProvider } from './about-app-context.tsx'
 import { GeneratedAppsProvider } from './generated-apps-context.tsx'
 import { MenuBarProvider } from './menu-bar-context.tsx'
@@ -28,9 +29,11 @@ export function OsShell() {
         <AboutAppProvider>
           <GeneratedAppsProvider>
             <NotificationCenterProvider>
-              <IconContextMenuProvider>
-                <OsShellContent />
-              </IconContextMenuProvider>
+              <LauncherLayoutProvider>
+                <IconContextMenuProvider>
+                  <OsShellContent />
+                </IconContextMenuProvider>
+              </LauncherLayoutProvider>
             </NotificationCenterProvider>
           </GeneratedAppsProvider>
         </AboutAppProvider>

@@ -2,6 +2,7 @@ import {
   DEFAULT_AI_PROVIDER_ID,
   findAiProviderPreset,
   getDefaultThinkingEnabled,
+  isKnownModel,
   normalizeStoredModel,
   resolveProviderBaseURL,
   type AiProviderId,
@@ -146,7 +147,7 @@ export function mergeAccountSettings(
   return {
     providerId,
     apiKey: base.apiKey,
-    model: preset?.models.includes(model) ? model : preset?.defaultModel ?? model,
+    model: preset && isKnownModel(providerId, model) ? model : preset?.defaultModel ?? model,
     thinkingEnabled: base.thinkingEnabled,
   }
 }

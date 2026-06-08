@@ -1,15 +1,70 @@
 .desktop {
   position: absolute;
   inset: 22px 0 96px;
-  padding: 28px 36px;
+  padding: 16px 0 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.desktop--measuring {
+  visibility: hidden;
+}
+
+.desktop__pager {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.desktop__pages {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+}
+
+.desktop__pages--animating {
+  transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desktop__page {
+  flex: 0 0 auto;
+  height: 100%;
+}
+
+.desktop__page-center {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .desktop__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 96px);
-  gap: 28px 24px;
-  max-width: 720px;
+  position: relative;
+}
+
+.desktop-icon-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 96px;
+}
+
+.desktop--reordering .desktop-icon-wrap:not(.desktop-icon-wrap--source) {
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.desktop-icon-wrap--source {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.desktop--reordering .desktop-icon-wrap:not(.desktop-icon-wrap--source) .desktop-icon {
+  animation: desktop-icon-wiggle 0.42s ease-in-out infinite alternate;
+  animation-delay: calc(var(--wiggle-index, 0) * 0.045s);
 }
 
 .desktop-icon {
@@ -20,11 +75,13 @@
   width: 96px;
   color: #fff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  transition: transform 0.15s ease;
+  user-select: none;
+  touch-action: none;
 }
 
 .desktop-icon:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.94);
+  transition: transform 0.12s ease;
 }
 
 .desktop-icon:disabled {
@@ -42,4 +99,50 @@
   font-weight: 500;
   line-height: 1.2;
   text-align: center;
+}
+
+.desktop__drag-ghost {
+  position: fixed;
+  z-index: 850;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 96px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(1.12);
+  filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.42));
+}
+
+.desktop__page-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.desktop__page-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease;
+}
+
+.desktop__page-dot--active {
+  background: rgba(255, 255, 255, 0.92);
+  transform: scale(1.15);
+}
+
+@keyframes desktop-icon-wiggle {
+  0% {
+    transform: rotate(-2deg);
+  }
+  100% {
+    transform: rotate(2deg);
+  }
 }

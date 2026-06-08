@@ -1,5 +1,5 @@
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../os/account-settings-storage.ts'
-import { getDefaultThinkingEnabled, type AiProviderId } from './ai-providers.ts'
+import { getDefaultThinkingEnabled, resolveModelFriendlyName, type AiProviderId } from './ai-providers.ts'
 import { notifyOpenAiConfigChange, subscribeOpenAiConfig } from './openai-config-events.ts'
 
 export type OpenAiConfig = {
@@ -73,4 +73,18 @@ export function hasOpenAiApiKey(): boolean {
     return true
   }
   return Boolean(import.meta.env.VITE_OPENAI_API_KEY?.trim())
+}
+
+export function readDefaultModelId(): string {
+  const stored = loadAccountSettings()
+  if (stored?.model) {
+    return stored.model
+  }
+  return import.meta.env.VITE_OPENAI_MODEL?.trim() || DEFAULT_MODEL
+}
+
+export function readDefaultModelFriendlyName(): string {
+  const stored = loadAccountSettings()
+  const modelId = readDefaultModelId()
+  return resolveModelFriendlyName(modelId, stored?.providerId)
 }

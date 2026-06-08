@@ -29,6 +29,11 @@ import type {
 import { DeviceStorageFullError } from './device-storage.ts'
 import { clearGeneratedAppData } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
+import {
+  loadLauncherLayout,
+  removeAppFromLauncherLayout,
+  saveLauncherLayout,
+} from './launcher-layout-storage.ts'
 import { clearPendingInstallStream, setPendingInstallStream } from './pending-install-stream.ts'
 import { loadListingDetails, saveListingDetails } from './listing-details-storage.ts'
 import { loadListingReviews as loadStoredListingReviews, saveListingReviews } from './listing-reviews-storage.ts'
@@ -633,6 +638,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         delete next[appId]
         return next
       })
+      saveLauncherLayout(removeAppFromLauncherLayout(loadLauncherLayout(), appId))
       closeWindowsForApp(appId)
     },
     [closeWindowsForApp, dismissFailedInstall],

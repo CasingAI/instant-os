@@ -3,6 +3,7 @@ import { createContext } from 'preact'
 import { useCallback, useContext, useMemo, useState } from 'preact/hooks'
 import { NotificationBannerHost } from './notification-banner-host.tsx'
 import { NotificationCenterPanel } from './notification-center-panel.tsx'
+import { StorageWarningBannerHost } from './storage-warning-banner.tsx'
 
 type NotificationPanelScreen = 'list' | 'detail'
 
@@ -80,6 +81,7 @@ export function NotificationCenterProvider({ children }: { children: ComponentCh
     <NotificationCenterContext.Provider value={value}>
       {children}
       <NotificationBannerHost />
+      <StorageWarningBannerHost />
       <NotificationCenterPanel open={isOpen} onClose={closePanel} />
     </NotificationCenterContext.Provider>
   )

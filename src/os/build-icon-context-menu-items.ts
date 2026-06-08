@@ -1,7 +1,41 @@
 import type { IconContextMenuItem } from './icon-context-menu.tsx'
 
-export function buildBuiltinIconContextMenuItems(onOpen: () => void): IconContextMenuItem[] {
-  return [{ type: 'action', label: '打开', onClick: onOpen }]
+type DockContextMenuOptions = {
+  isPinnedToDock: boolean
+  onPinToDock?: () => void
+  onUnpinFromDock?: () => void
+}
+
+function appendDockContextMenuItems(
+  items: IconContextMenuItem[],
+  options: DockContextMenuOptions | undefined,
+): IconContextMenuItem[] {
+  if (!options) {
+    return items
+  }
+
+  const dockItems: IconContextMenuItem[] = [{ type: 'separator' }]
+
+  if (options.isPinnedToDock) {
+    if (options.onUnpinFromDock) {
+      dockItems.push({ type: 'action', label: '从程序坞中移除', onClick: options.onUnpinFromDock })
+    }
+  } else if (options.onPinToDock) {
+    dockItems.push({ type: 'action', label: '保留在程序坞中', onClick: options.onPinToDock })
+  }
+
+  if (dockItems.length === 1) {
+    return items
+  }
+
+  return [...items, ...dockItems]
+}
+
+export function buildBuiltinIconContextMenuItems(
+  onOpen: () => void,
+  dockOptions?: DockContextMenuOptions,
+): IconContextMenuItem[] {
+  return appendDockContextMenuItems([{ type: 'action', label: '打开', onClick: onOpen }], dockOptions)
 }
 
 export function buildGeneratedIconContextMenuItems(options: {
@@ -9,6 +43,9 @@ export function buildGeneratedIconContextMenuItems(options: {
   onViewInMarketplace: () => void
   onUninstall?: () => void
   openDisabled?: boolean
+  isPinnedToDock?: boolean
+  onPinToDock?: () => void
+  onUnpinFromDock?: () => void
 }): IconContextMenuItem[] {
   const items: IconContextMenuItem[] = [
     { type: 'action', label: '打开', disabled: options.openDisabled, onClick: options.onOpen },
@@ -16,12 +53,18 @@ export function buildGeneratedIconContextMenuItems(options: {
     { type: 'action', label: '在应用集市中查看', onClick: options.onViewInMarketplace },
   ]
 
+  const withDock = appendDockContextMenuItems(items, {
+    isPinnedToDock: options.isPinnedToDock ?? false,
+    onPinToDock: options.onPinToDock,
+    onUnpinFromDock: options.onUnpinFromDock,
+  })
+
   if (options.onUninstall) {
-    items.push(
+    withDock.push(
       { type: 'separator' },
       { type: 'action', label: '卸载', destructive: true, onClick: options.onUninstall },
     )
   }
 
-  return items
+  return withDock
 }

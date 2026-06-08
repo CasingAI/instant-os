@@ -46,6 +46,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   catgpt: { title: 'CatGPT', width: 860, height: 640 },
   appstore: { title: '应用集市', width: 820, height: 720 },
   'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
+  gomoku: { title: '五子棋', width: 760, height: 680 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {

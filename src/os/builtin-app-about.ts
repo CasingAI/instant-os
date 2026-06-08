@@ -102,4 +102,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '喵与喵之间或有符号与 emoji。对话记录保存在本地，随时续上与神的交流。',
     ],
   },
+  gomoku: {
+    version: '调试版',
+    paragraphs: [
+      '经典五子棋，15×15 棋盘，先连成五子者胜。当前为调试版：黑白双方均由你操控，便于验证胜负判定逻辑。',
+      '支持撤销、新局与调试信息面板。落子、获胜均有音效与视觉特效。',
+    ],
+  },
 }

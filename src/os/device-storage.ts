@@ -1,6 +1,8 @@
 /** localStorage 硬上限 5 MB */
 export const DEVICE_CAPACITY_BYTES = 5 * 1024 * 1024
 
+export const STORAGE_CHANGED_EVENT = 'instant-os:storage-changed'
+
 export const GENERATED_APP_DATA_KEY_PREFIX = 'instant-os-generated-app-data:'
 
 export const DEVICE_STORAGE_KEYS = {
@@ -24,6 +26,8 @@ export const DEVICE_STORAGE_KEYS = {
   weather: 'instant-os-weather',
   stocks: 'instant-os-stocks',
   catgpt: 'instant-os-catgpt',
+  gomoku: 'instant-os-gomoku',
+  launcherLayout: 'instant-os-launcher-layout',
 } as const
 
 const ACCOUNTED_KEYS: ReadonlySet<string> = new Set([
@@ -137,6 +141,7 @@ export function writeLocalStorageItem(key: string, value: string): boolean {
 
   try {
     localStorage.setItem(key, value)
+    window.dispatchEvent(new CustomEvent(STORAGE_CHANGED_EVENT))
     return true
   } catch {
     return false
