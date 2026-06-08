@@ -7,7 +7,19 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { pickAiMove } from './gomoku-agent.ts'
+import {
+  GOMOKU_HEURISTIC_AI_NAME,
+  gomokuAiDegradeBannerMessage,
+  gomokuAiDegradeOpponentLabel,
+  gomokuAiThinkingStatusText,
+  pickAiMove,
+  pickHeuristicMove,
+  probeGomokuAiServiceReachable,
+  type GomokuAiDegradeReason,
+  type GomokuAiMoveResult,
+  type GomokuAiThinkingLabel,
+} from './gomoku-agent.ts'
+import { GomokuAiAlertBanner } from './gomoku-ai-alert-banner.tsx'
 import {
   applyMove,
   BOARD_SIZE,
@@ -117,6 +129,8 @@ function menuCheckPrefix(active: boolean): string {
 
 const GRID_SPAN = BOARD_SIZE - 1
 const AI_MOVE_MIN_MS = 480
+const HEURISTIC_MOVE_MIN_MS = 2000
+const AI_RECOVERY_PROBE_MS = 12_000
 const WIN_LINE_REVEAL_MS = 3000
 
 function countUndoMoves(moves: MoveRecord[], gameMode: GomokuGameMode, humanPlayer: Player): number {
@@ -145,6 +159,74 @@ function rebuildStateAfterUndo(prev: GameState, moves: MoveRecord[]): GameState 
   }
 }
 
+function renderAiThinkingStatus(
+  label: GomokuAiThinkingLabel,
+  usingRemoteAi: boolean,
+  opponentFriendlyName: string,
+  modelClass?: string,
+): ComponentChild {
+  if (!usingRemoteAi) {
+    return '本地 AI 思考中…'
+  }
+  return (
+    <>
+      <span>{gomokuAiThinkingStatusText(label)}</span>
+      <GomokuModelName name={opponentFriendlyName} class={modelClass} />
+    </>
+  )
+}
+
+function renderAivaiThinkingStatus(
+  currentPlayer: Player,
+  heuristicPlayer: Player,
+  label: GomokuAiThinkingLabel,
+  usingRemoteModel: boolean,
+  opponentFriendlyName: string,
+  modelClass?: string,
+): ComponentChild {
+  if (currentPlayer === heuristicPlayer) {
+    return `${GOMOKU_HEURISTIC_AI_NAME} 思考中…`
+  }
+  if (usingRemoteModel) {
+    return renderAiThinkingStatus(label, true, opponentFriendlyName, modelClass)
+  }
+  return `${GOMOKU_HEURISTIC_AI_NAME} 思考中…`
+}
+
+function renderAivaiTurnLabel(
+  currentPlayer: Player,
+  heuristicPlayer: Player,
+  usingRemoteModel: boolean,
+  opponentFriendlyName: string,
+  aiDegradeReason: GomokuAiDegradeReason | undefined,
+): ComponentChild {
+  if (currentPlayer === heuristicPlayer) {
+    return GOMOKU_HEURISTIC_AI_NAME
+  }
+  if (usingRemoteModel) {
+    return (
+      <>
+        <span class="gomoku-app__turn-prefix">对手</span>
+        <GomokuModelName name={opponentFriendlyName} class="gomoku-app__turn-model" />
+      </>
+    )
+  }
+  return aiDegradeReasonLabel(aiDegradeReason)
+}
+
+function aiDegradeReasonLabel(reason: GomokuAiDegradeReason | undefined): string {
+  if (reason) {
+    return gomokuAiDegradeOpponentLabel(reason)
+  }
+  return GOMOKU_HEURISTIC_AI_NAME
+}
+
+function gomokuModeLabel(gameMode: GomokuGameMode): string {
+  if (gameMode === 'pvp') return '人人对战'
+  if (gameMode === 'aivai') return '双 AI 对战'
+  return '人机对战'
+}
+
 export function GomokuApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
@@ -153,6 +235,8 @@ export function GomokuApp() {
   const [game, setGame] = useState<GameState>(createInitialState)
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('idle')
   const [aiThinking, setAiThinking] = useState(false)
+  const [aiThinkingLabel, setAiThinkingLabel] = useState<GomokuAiThinkingLabel>('default')
+  const [aiDegradeReason, setAiDegradeReason] = useState<GomokuAiDegradeReason | undefined>(undefined)
   const [winCelebrationReady, setWinCelebrationReady] = useState(false)
   const [winCelebrationDismissed, setWinCelebrationDismissed] = useState(false)
   const [drawCelebrationDismissed, setDrawCelebrationDismissed] = useState(false)
@@ -160,10 +244,14 @@ export function GomokuApp() {
 
   const lastMove = game.moves.at(-1)
   const aiConfigured = hasOpenAiApiKey()
+  const usingRemoteAi = aiConfigured && aiDegradeReason === undefined
   const boardPlayable = sessionPhase === 'active' && !aiThinking
   const matchIntroActive = sessionPhase === 'intro'
-  const aiPlayer = getOpponent(game.humanPlayer)
-  const isHumanTurn = gameMode === 'pvp' || game.currentPlayer === game.humanPlayer
+  const heuristicPlayer = game.humanPlayer
+  const modelPlayer = getOpponent(heuristicPlayer)
+  const aiPlayer = modelPlayer
+  const isHumanTurn = gameMode === 'pvp' || (gameMode === 'pve' && game.currentPlayer === game.humanPlayer)
+  const usingRemoteModel = aiConfigured && aiDegradeReason === undefined
 
   const resetEndgamePresentation = useCallback(() => {
     setWinCelebrationReady(false)
@@ -176,6 +264,8 @@ export function GomokuApp() {
     saveGomokuGameMode(mode)
     setGameMode(mode)
     setAiThinking(false)
+    setAiThinkingLabel('default')
+    setAiDegradeReason(undefined)
     resetEndgamePresentation()
     setSessionPhase('idle')
     setGame(createInitialState())
@@ -183,12 +273,15 @@ export function GomokuApp() {
 
   const startNewGame = useCallback(() => {
     setAiThinking(false)
+    setAiThinkingLabel('default')
+    setAiDegradeReason(undefined)
     resetEndgamePresentation()
     setSessionPhase('intro')
   }, [resetEndgamePresentation])
 
   const handleIntroComplete = useCallback((humanPlayer: Player) => {
     resetEndgamePresentation()
+    setAiDegradeReason(undefined)
     setGame(createInitialState(humanPlayer))
     setSessionPhase('active')
   }, [resetEndgamePresentation])
@@ -236,6 +329,11 @@ export function GomokuApp() {
             label: `${menuCheckPrefix(gameMode === 'pve')}人类对战 AI`,
             onClick: () => selectGameMode('pve'),
           },
+          {
+            type: 'action',
+            label: `${menuCheckPrefix(gameMode === 'aivai')}AI 对战 AI`,
+            onClick: () => selectGameMode('aivai'),
+          },
         ],
       },
       {
@@ -251,6 +349,7 @@ export function GomokuApp() {
                 playUndoSound()
                 aiTurnRef.current += 1
                 setAiThinking(false)
+                setAiThinkingLabel('default')
                 const removeCount = countUndoMoves(prev.moves, gameMode, prev.humanPlayer)
                 const moves = prev.moves.slice(0, -removeCount)
                 return rebuildStateAfterUndo(prev, moves)
@@ -286,6 +385,7 @@ export function GomokuApp() {
   const handleCellClick = useCallback(
     (row: number, col: number) => {
       if (!boardPlayable || game.phase !== 'playing') return
+      if (gameMode === 'aivai') return
       if (gameMode === 'pve' && game.currentPlayer !== game.humanPlayer) return
       if (!isValidMove(game.board, row, col)) {
         playInvalidSound()
@@ -320,20 +420,33 @@ export function GomokuApp() {
     const turnId = aiTurnRef.current + 1
     aiTurnRef.current = turnId
     let cancelled = false
+    setAiThinkingLabel('default')
     setAiThinking(true)
 
     const minDelay = new Promise<void>((resolve) => {
       setTimeout(resolve, AI_MOVE_MIN_MS)
     })
 
-    void Promise.all([pickAiMove(game.board, aiPlayer), minDelay])
-      .then(([coord]) => {
+    void Promise.all([
+      pickAiMove(game.board, aiPlayer, {
+        lastMove: game.moves.at(-1),
+        onThinkingLabel: (label) => {
+          if (!cancelled && turnId === aiTurnRef.current) {
+            setAiThinkingLabel(label)
+          }
+        },
+      }),
+      minDelay,
+    ])
+      .then(([result]) => {
         if (cancelled || turnId !== aiTurnRef.current) return
-        applyMoveAt(coord.row, coord.col, aiPlayer)
+        setAiDegradeReason(result.degradeReason)
+        applyMoveAt(result.row, result.col, aiPlayer)
       })
       .finally(() => {
         if (!cancelled && turnId === aiTurnRef.current) {
           setAiThinking(false)
+          setAiThinkingLabel('default')
         }
       })
 
@@ -342,17 +455,96 @@ export function GomokuApp() {
     }
   }, [aiPlayer, applyMoveAt, game.board, game.currentPlayer, game.phase, game.moves.length, gameMode, sessionPhase])
 
+  useEffect(() => {
+    if (gameMode !== 'aivai' || sessionPhase !== 'active' || game.phase !== 'playing') return
+
+    const currentPlayer = game.currentPlayer
+    const isHeuristicTurn = currentPlayer === heuristicPlayer
+    const turnId = aiTurnRef.current + 1
+    aiTurnRef.current = turnId
+    let cancelled = false
+    setAiThinkingLabel(isHeuristicTurn ? 'default' : 'retry-thinking')
+    setAiThinking(true)
+
+    const minDelay = new Promise<void>((resolve) => {
+      setTimeout(resolve, isHeuristicTurn ? HEURISTIC_MOVE_MIN_MS : AI_MOVE_MIN_MS)
+    })
+
+    const movePromise: Promise<GomokuAiMoveResult> = isHeuristicTurn
+      ? Promise.resolve(pickHeuristicMove(game.board, heuristicPlayer))
+      : pickAiMove(game.board, modelPlayer, {
+          lastMove: game.moves.at(-1),
+          thinkingMode: true,
+          onThinkingLabel: (label) => {
+            if (!cancelled && turnId === aiTurnRef.current) {
+              setAiThinkingLabel(label)
+            }
+          },
+        })
+
+    void Promise.all([movePromise, minDelay])
+      .then(([result]) => {
+        if (cancelled || turnId !== aiTurnRef.current) return
+        if (!isHeuristicTurn) {
+          setAiDegradeReason(result.degradeReason)
+        }
+        applyMoveAt(result.row, result.col, currentPlayer)
+      })
+      .finally(() => {
+        if (!cancelled && turnId === aiTurnRef.current) {
+          setAiThinking(false)
+          setAiThinkingLabel('default')
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    applyMoveAt,
+    game.board,
+    game.currentPlayer,
+    game.moves.length,
+    game.phase,
+    gameMode,
+    heuristicPlayer,
+    modelPlayer,
+    sessionPhase,
+  ])
+
+  useEffect(() => {
+    if (aiDegradeReason !== 'offline' || !aiConfigured || (gameMode !== 'pve' && gameMode !== 'aivai') || sessionPhase !== 'active') {
+      return
+    }
+
+    let cancelled = false
+    const probe = () => {
+      void probeGomokuAiServiceReachable().then((available) => {
+        if (!cancelled && available) {
+          setAiDegradeReason(undefined)
+        }
+      })
+    }
+
+    const interval = window.setInterval(probe, AI_RECOVERY_PROBE_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [aiConfigured, aiDegradeReason, gameMode, sessionPhase])
+
   const handleUndo = useCallback(() => {
     if (!boardPlayable || game.moves.length === 0) return
     playUndoSound()
     aiTurnRef.current += 1
     setAiThinking(false)
+    setAiThinkingLabel('default')
     const removeCount = countUndoMoves(game.moves, gameMode, game.humanPlayer)
     const moves = game.moves.slice(0, -removeCount)
     setGame((prev) => rebuildStateAfterUndo(prev, moves))
   }, [boardPlayable, game.humanPlayer, game.moves, gameMode])
 
-  const modeLabel = gameMode === 'pvp' ? '人人对战' : '人机对战'
+  const modeLabel = gomokuModeLabel(gameMode)
   const showWinLine =
     game.phase === 'won' && game.winResult !== undefined && sessionPhase === 'active'
   const winLineRevealActive = showWinLine && !winCelebrationReady
@@ -369,18 +561,36 @@ export function GomokuApp() {
       return '抽签决定先手…'
     }
     if (aiThinking) {
-      if (gameMode === 'pve' && aiConfigured) {
-        return (
-          <>
-            <span>思考中…</span>
-            <GomokuModelName name={opponentFriendlyName} />
-          </>
+      if (gameMode === 'aivai') {
+        return renderAivaiThinkingStatus(
+          game.currentPlayer,
+          heuristicPlayer,
+          aiThinkingLabel,
+          usingRemoteModel,
+          opponentFriendlyName,
         )
       }
-      return gameMode === 'pve' ? '本地 AI 思考中…' : '思考中…'
+      if (gameMode === 'pve') {
+        return renderAiThinkingStatus(aiThinkingLabel, usingRemoteAi, opponentFriendlyName)
+      }
+      return '思考中…'
     }
     if (game.phase === 'won' && game.winResult) {
-      if (gameMode === 'pve' && game.winResult.player !== game.humanPlayer && aiConfigured) {
+      if (gameMode === 'aivai') {
+        if (game.winResult.player === heuristicPlayer) {
+          return `${GOMOKU_HEURISTIC_AI_NAME} 五连获胜！`
+        }
+        if (usingRemoteModel) {
+          return (
+            <>
+              <GomokuModelName name={opponentFriendlyName} />
+              <span>五连获胜！</span>
+            </>
+          )
+        }
+        return `${aiDegradeReasonLabel(aiDegradeReason)} 五连获胜！`
+      }
+      if (gameMode === 'pve' && game.winResult.player !== game.humanPlayer && usingRemoteAi) {
         return (
           <>
             <GomokuModelName name={opponentFriendlyName} />
@@ -400,7 +610,7 @@ export function GomokuApp() {
       return '棋盘已满，平局。'
     }
     if (gameMode === 'pve') {
-      if (!aiConfigured) {
+      if (!usingRemoteAi) {
         return isHumanTurn ? '轮到你落子' : '本地 AI 思考中…'
       }
       if (isHumanTurn) {
@@ -413,21 +623,44 @@ export function GomokuApp() {
         </>
       )
     }
+    if (gameMode === 'aivai') {
+      if (game.currentPlayer === heuristicPlayer) {
+        return `轮到 ${GOMOKU_HEURISTIC_AI_NAME}`
+      }
+      if (usingRemoteModel) {
+        return (
+          <>
+            <span>轮到</span>
+            <GomokuModelName name={opponentFriendlyName} />
+          </>
+        )
+      }
+      return `轮到 ${aiDegradeReasonLabel(aiDegradeReason)}`
+    }
     return `轮到${playerLabel(game.currentPlayer)}落子`
   }, [
-    aiConfigured,
+    aiDegradeReason,
     aiThinking,
+    aiThinkingLabel,
+    game.currentPlayer,
     game.humanPlayer,
     game.phase,
     game.winResult,
     gameMode,
+    heuristicPlayer,
     isHumanTurn,
     opponentFriendlyName,
     sessionPhase,
+    usingRemoteAi,
+    usingRemoteModel,
   ])
+
+  const showAiDegradedBanner = aiDegradeReason !== undefined && aiConfigured && (gameMode === 'pve' || gameMode === 'aivai')
+  const aiDegradedBannerMessage = aiDegradeReason ? gomokuAiDegradeBannerMessage(aiDegradeReason) : ''
 
   return (
     <div class="gomoku-app">
+      <GomokuAiAlertBanner show={showAiDegradedBanner} message={aiDegradedBannerMessage} />
       {matchIntroActive && (
         <GomokuMatchIntro
           opponentFriendlyName={opponentFriendlyName}
@@ -522,19 +755,26 @@ export function GomokuApp() {
                 <GomokuWinLineHighlight winResult={game.winResult} intense={winLineRevealActive} />
               )}
 
-              {aiThinking && gameMode === 'pve' && (
+              {aiThinking && (gameMode === 'pve' || gameMode === 'aivai') && (
                 <div class="gomoku-app__thinking-overlay" role="status" aria-live="polite">
                   <div class="gomoku-app__thinking-card">
                     <span class="gomoku-app__thinking-spinner" aria-hidden="true" />
                     <span class="gomoku-app__thinking-label">
-                      {aiConfigured ? (
-                        <>
-                          <span>思考中…</span>
-                          <GomokuModelName name={opponentFriendlyName} class="gomoku-app__thinking-model" />
-                        </>
-                      ) : (
-                        '本地 AI 思考中…'
-                      )}
+                      {gameMode === 'aivai'
+                        ? renderAivaiThinkingStatus(
+                            game.currentPlayer,
+                            heuristicPlayer,
+                            aiThinkingLabel,
+                            usingRemoteModel,
+                            opponentFriendlyName,
+                            'gomoku-app__thinking-model',
+                          )
+                        : renderAiThinkingStatus(
+                            aiThinkingLabel,
+                            usingRemoteAi,
+                            opponentFriendlyName,
+                            'gomoku-app__thinking-model',
+                          )}
                     </span>
                   </div>
                 </div>
@@ -551,9 +791,16 @@ export function GomokuApp() {
               <span class="gomoku-app__subtitle-mode">{modeLabel}</span>
               {gameMode === 'pve' && (
                 <GomokuModelName
-                  name={aiConfigured ? opponentFriendlyName : '本地 AI'}
+                  name={usingRemoteAi ? opponentFriendlyName : '本地 AI'}
                   class="gomoku-app__subtitle-model"
                 />
+              )}
+              {gameMode === 'aivai' && (
+                <>
+                  <span class="gomoku-app__subtitle-heuristic">{GOMOKU_HEURISTIC_AI_NAME}</span>
+                  <span class="gomoku-app__subtitle-vs">VS</span>
+                  <GomokuModelName name={opponentFriendlyName} class="gomoku-app__subtitle-model" />
+                </>
               )}
             </div>
             <div class="gomoku-app__toolbar">
@@ -583,13 +830,21 @@ export function GomokuApp() {
                   {gameMode === 'pve' ? (
                     isHumanTurn ? (
                       '你'
-                    ) : aiConfigured ? (
+                    ) : usingRemoteAi ? (
                       <>
                         <span class="gomoku-app__turn-prefix">对手</span>
                         <GomokuModelName name={opponentFriendlyName} class="gomoku-app__turn-model" />
                       </>
                     ) : (
                       '本地 AI'
+                    )
+                  ) : gameMode === 'aivai' ? (
+                    renderAivaiTurnLabel(
+                      game.currentPlayer,
+                      heuristicPlayer,
+                      usingRemoteModel,
+                      opponentFriendlyName,
+                      aiDegradeReason,
                     )
                   ) : (
                     playerLabel(game.currentPlayer)
@@ -615,22 +870,26 @@ export function GomokuApp() {
                 <span>模式</span>
                 <strong>{modeLabel}</strong>
               </li>
-              <li>
-                <span>我方</span>
-                <strong>
-                  {sessionPhase === 'active'
-                    ? sideLabel(game.humanPlayer, 1)
-                    : '—'}
-                </strong>
-              </li>
+              {gameMode === 'pve' && (
+                <li>
+                  <span>我方</span>
+                  <strong>
+                    {sessionPhase === 'active'
+                      ? sideLabel(game.humanPlayer, 1)
+                      : '—'}
+                  </strong>
+                </li>
+              )}
               {gameMode === 'pve' && (
                 <li class="gomoku-app__debug-list-item--model">
                   <span>对手</span>
                   <strong>
-                    {aiConfigured ? (
+                    {usingRemoteAi ? (
                       <GomokuModelName name={opponentFriendlyName} class="gomoku-app__debug-model" />
+                    ) : aiDegradeReason ? (
+                      gomokuAiDegradeOpponentLabel(aiDegradeReason)
                     ) : (
-                      '本地启发式 AI'
+                      GOMOKU_HEURISTIC_AI_NAME
                     )}
                   </strong>
                 </li>
@@ -640,6 +899,30 @@ export function GomokuApp() {
                   <span>对手棋子</span>
                   <strong>{sideLabel(aiPlayer, 1)}</strong>
                 </li>
+              )}
+              {gameMode === 'aivai' && sessionPhase === 'active' && (
+                <>
+                  <li>
+                    <span>{GOMOKU_HEURISTIC_AI_NAME}</span>
+                    <strong>{sideLabel(heuristicPlayer, 1)}</strong>
+                  </li>
+                  <li class="gomoku-app__debug-list-item--model">
+                    <span>模型 AI</span>
+                    <strong>
+                      {usingRemoteModel ? (
+                        <GomokuModelName name={opponentFriendlyName} class="gomoku-app__debug-model" />
+                      ) : aiDegradeReason ? (
+                        gomokuAiDegradeOpponentLabel(aiDegradeReason)
+                      ) : (
+                        GOMOKU_HEURISTIC_AI_NAME
+                      )}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>模型棋子</span>
+                    <strong>{sideLabel(modelPlayer, 1)}</strong>
+                  </li>
+                </>
               )}
               <li>
                 <span>步数</span>

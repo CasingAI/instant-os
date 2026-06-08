@@ -1,4 +1,5 @@
 import { playerLabel, type Player, type WinResult } from './gomoku-logic.ts'
+import { GOMOKU_HEURISTIC_AI_NAME } from './gomoku-agent.ts'
 import { GomokuModelName } from './gomoku-model-name.tsx'
 import type { GomokuGameMode } from './gomoku-storage.ts'
 
@@ -45,6 +46,8 @@ export function GomokuWinCelebration({
 }: GomokuWinCelebrationProps) {
   const winnerStone = winResult.player === 1 ? 'black' : 'white'
   const aiWon = gameMode === 'pve' && winResult.player !== humanPlayer
+  const heuristicWon = gameMode === 'aivai' && winResult.player === humanPlayer
+  const modelWon = gameMode === 'aivai' && winResult.player !== humanPlayer
 
   return (
     <div class="gomoku-app__fullscreen-overlay gomoku-app__win-celebration" role="status" aria-live="polite">
@@ -63,7 +66,16 @@ export function GomokuWinCelebration({
         <div class="gomoku-app__win-celebration-hero">
           <span class={`gomoku-app__win-celebration-stone gomoku-app__win-celebration-stone--${winnerStone}`} />
           <div class="gomoku-app__win-celebration-title">
-            {aiWon ? (
+            {modelWon ? (
+              <>
+                <GomokuModelName name={opponentFriendlyName} class="gomoku-app__win-celebration-model" />
+                <span class="gomoku-app__win-celebration-title-suffix">获胜！</span>
+              </>
+            ) : heuristicWon ? (
+              <>
+                <span class="gomoku-app__win-celebration-title-suffix">{GOMOKU_HEURISTIC_AI_NAME}获胜！</span>
+              </>
+            ) : aiWon ? (
               <>
                 <GomokuModelName name={opponentFriendlyName} class="gomoku-app__win-celebration-model" />
                 <span class="gomoku-app__win-celebration-title-suffix">获胜！</span>
@@ -78,10 +90,14 @@ export function GomokuWinCelebration({
           </div>
         </div>
         <div class="gomoku-app__win-celebration-sub">
-          {aiWon && <GomokuModelName name={opponentFriendlyName} class="gomoku-app__win-celebration-sub-model" />}
+          {(aiWon || modelWon) && (
+            <GomokuModelName name={opponentFriendlyName} class="gomoku-app__win-celebration-sub-model" />
+          )}
           <span>
             {gameMode === 'pvp' && `${playerLabel(winResult.player)} · `}
             {gameMode === 'pve' && winResult.player === humanPlayer && '你 · '}
+            {gameMode === 'aivai' && heuristicWon && `${GOMOKU_HEURISTIC_AI_NAME} · `}
+            {gameMode === 'aivai' && modelWon && `${opponentFriendlyName} · `}
             {winResult.cells.length} 连 · {directionLabel(winResult.direction)}
           </span>
         </div>

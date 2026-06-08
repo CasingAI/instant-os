@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { Player } from './gomoku-logic.ts'
+import { GOMOKU_HEURISTIC_AI_NAME } from './gomoku-agent.ts'
 import { GomokuModelName } from './gomoku-model-name.tsx'
 import type { GomokuGameMode } from './gomoku-storage.ts'
 import { playLotteryRevealSound, playLotteryTickSound } from './gomoku-sounds.ts'
@@ -70,11 +71,14 @@ export function GomokuMatchIntro({ opponentFriendlyName, gameMode, onComplete }:
   const opponentRole = humanFirst ? '白棋 · 后手' : '黑棋 · 先手'
 
   const isPvp = gameMode === 'pvp'
-  const leftName = isPvp ? '人类一' : '你'
+  const isAivai = gameMode === 'aivai'
+  const leftName = isPvp ? '人类一' : isAivai ? GOMOKU_HEURISTIC_AI_NAME : '你'
   const rightName = isPvp ? '人类二' : opponentFriendlyName
   const showStoneColors = phase === 'reveal'
   const leftStoneColor = showStoneColors ? (humanFirst ? 'black' : 'white') : 'pending'
   const rightStoneColor = showStoneColors ? (humanFirst ? 'white' : 'black') : 'pending'
+  const leftUsesModelName = isAivai
+  const rightUsesModelName = !isPvp
 
   return (
     <div class="gomoku-app__fullscreen-overlay" role="status" aria-live="polite">
@@ -85,12 +89,12 @@ export function GomokuMatchIntro({ opponentFriendlyName, gameMode, onComplete }:
             <div class="gomoku-app__match-banner-versus">
               <div class="gomoku-app__match-banner-player">
                 <span class="gomoku-app__match-banner-stone gomoku-app__match-banner-stone--black" />
-                <span class="gomoku-app__match-banner-name">{leftName}</span>
+                <span class={`gomoku-app__match-banner-name${leftUsesModelName ? ' gomoku-app__model-name' : ''}`}>{leftName}</span>
               </div>
               <span class="gomoku-app__match-banner-vs">VS</span>
               <div class="gomoku-app__match-banner-player">
                 <span class="gomoku-app__match-banner-stone gomoku-app__match-banner-stone--white" />
-                <span class={`gomoku-app__match-banner-name${isPvp ? '' : ' gomoku-app__model-name'}`}>{rightName}</span>
+                <span class={`gomoku-app__match-banner-name${rightUsesModelName ? ' gomoku-app__model-name' : ''}`}>{rightName}</span>
               </div>
             </div>
           </>
@@ -106,7 +110,7 @@ export function GomokuMatchIntro({ opponentFriendlyName, gameMode, onComplete }:
                 <span
                   class={`gomoku-app__lottery-stone gomoku-app__lottery-stone--${leftStoneColor}${phase === 'shuffle' && activeSide === 'human' ? ' gomoku-app__lottery-stone--shaking' : ''}`}
                 />
-                <span class="gomoku-app__lottery-name">{leftName}</span>
+                <span class={`gomoku-app__lottery-name${leftUsesModelName ? ' gomoku-app__model-name' : ''}`}>{leftName}</span>
                 <span class="gomoku-app__lottery-role">{phase === 'reveal' ? humanRole : '…'}</span>
               </div>
 
@@ -120,7 +124,7 @@ export function GomokuMatchIntro({ opponentFriendlyName, gameMode, onComplete }:
                 <span
                   class={`gomoku-app__lottery-stone gomoku-app__lottery-stone--${rightStoneColor}${phase === 'shuffle' && activeSide === 'opponent' ? ' gomoku-app__lottery-stone--shaking' : ''}`}
                 />
-                <span class={`gomoku-app__lottery-name${isPvp ? '' : ' gomoku-app__model-name'}`}>{rightName}</span>
+                <span class={`gomoku-app__lottery-name${rightUsesModelName ? ' gomoku-app__model-name' : ''}`}>{rightName}</span>
                 <span class="gomoku-app__lottery-role">{phase === 'reveal' ? opponentRole : '…'}</span>
               </div>
             </div>
@@ -128,9 +132,21 @@ export function GomokuMatchIntro({ opponentFriendlyName, gameMode, onComplete }:
             {phase === 'reveal' && (
               <div class="gomoku-app__lottery-result">
                 {humanFirst ? (
-                  <span>{leftName}执黑先手！</span>
+                  isAivai ? (
+                    <>
+                      <span class="gomoku-app__model-name">{GOMOKU_HEURISTIC_AI_NAME}</span>
+                      <span>执黑先手！</span>
+                    </>
+                  ) : (
+                    <span>{leftName}执黑先手！</span>
+                  )
                 ) : isPvp ? (
                   <span>{rightName}执黑先手！</span>
+                ) : isAivai ? (
+                  <>
+                    <GomokuModelName name={rightName} />
+                    <span>执黑先手！</span>
+                  </>
                 ) : (
                   <>
                     <GomokuModelName name={rightName} />
@@ -146,6 +162,13 @@ export function GomokuMatchIntro({ opponentFriendlyName, gameMode, onComplete }:
           <div class="gomoku-app__match-banner-hint">
             {gameMode === 'pvp' ? (
               <span>人人对战 · 双方均由你操控</span>
+            ) : gameMode === 'aivai' ? (
+              <>
+                <span>双 AI 对战</span>
+                <span class="gomoku-app__match-banner-hint-label">{GOMOKU_HEURISTIC_AI_NAME}</span>
+                <span>VS</span>
+                <GomokuModelName name={opponentFriendlyName} />
+              </>
             ) : (
               <>
                 <span>人机对战</span>

@@ -12,8 +12,11 @@
   --gk-radius: 8px;
   --gk-line-count: 14;
   --gk-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  --gk-ai-alert-height: 32px;
 
   position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   background:
@@ -65,6 +68,19 @@
   white-space: nowrap;
 }
 
+.gomoku-app__subtitle-heuristic {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gk-ink);
+}
+
+.gomoku-app__subtitle-vs {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--gk-ink-muted);
+}
+
 .gomoku-app__subtitle-model {
   font-size: 10px;
   font-weight: 700;
@@ -85,6 +101,42 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.gomoku-app__ai-alert {
+  flex-shrink: 0;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+  z-index: 6;
+  transition: height 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.gomoku-app__ai-alert--expanded {
+  height: var(--gk-ai-alert-height);
+}
+
+.gomoku-app__ai-alert-text {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--gk-ai-alert-height);
+  margin: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  background: linear-gradient(180deg, #e04840 0%, #c62828 55%, #a82020 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 8px rgba(120, 20, 20, 0.35);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
 }
 
 .gomoku-app__sidebar .gomoku-app__btn {
@@ -128,7 +180,7 @@
 }
 
 .gomoku-app__body {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   display: flex;
   gap: 10px;
@@ -186,8 +238,9 @@
   inset: 0;
   z-index: 12;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 10px 12px;
   background: rgba(20, 14, 8, 0.22);
   border-radius: 8px;
   pointer-events: none;

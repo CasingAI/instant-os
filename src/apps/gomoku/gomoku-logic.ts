@@ -125,6 +125,20 @@ export function listValidMoves(board: Board): Array<{ row: number; col: number }
   return moves
 }
 
+export function formatOccupiedCoordsList(board: Board): string {
+  const coords: string[] = []
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      const stone = board[row][col]
+      if (stone !== 0) {
+        const stoneMark = stone === 1 ? 'X' : 'O'
+        coords.push(`${formatCoord(row, col)}(${playerLabel(stone)}/${stoneMark})`)
+      }
+    }
+  }
+  return coords.join('、')
+}
+
 export function boardToAscii(board: Board): string {
   const header = `    ${Array.from({ length: BOARD_SIZE }, (_, index) => String.fromCharCode(65 + index)).join(' ')}`
   const rows = board.map((line, row) => {

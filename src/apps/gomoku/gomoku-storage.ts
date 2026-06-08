@@ -1,6 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 
-export type GomokuGameMode = 'pvp' | 'pve'
+export type GomokuGameMode = 'pvp' | 'pve' | 'aivai'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.gomoku
 
@@ -9,7 +9,9 @@ type GomokuPrefs = {
 }
 
 function normalizeGameMode(value: unknown): GomokuGameMode {
-  return value === 'pve' ? 'pve' : 'pvp'
+  if (value === 'pve') return 'pve'
+  if (value === 'aivai') return 'aivai'
+  return 'pvp'
 }
 
 export function loadGomokuGameMode(): GomokuGameMode {
