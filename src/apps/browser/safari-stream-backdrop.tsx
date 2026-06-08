@@ -1,28 +1,20 @@
-import { useLayoutEffect, useRef } from 'preact/hooks'
+import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 
 type SafariStreamBackdropProps = {
-  text: string
+  reasoningText?: string
+  contentText?: string
 }
 
-export function SafariStreamBackdrop({ text }: SafariStreamBackdropProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useLayoutEffect(() => {
-    const container = containerRef.current
-    if (!container) {
-      return
-    }
-
-    container.scrollTop = container.scrollHeight
-  }, [text])
-
-  if (!text) {
+export function SafariStreamBackdrop({ reasoningText = '', contentText = '' }: SafariStreamBackdropProps) {
+  if (!reasoningText && !contentText) {
     return undefined
   }
 
   return (
-    <div ref={containerRef} class="safari__stream-backdrop" aria-hidden="true">
-      <pre class="safari__stream-text">{text}</pre>
-    </div>
+    <AiStreamPreview
+      reasoningText={reasoningText}
+      contentText={contentText}
+      variant="safari"
+    />
   )
 }

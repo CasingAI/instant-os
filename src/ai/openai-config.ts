@@ -1,10 +1,13 @@
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../os/account-settings-storage.ts'
+import { getDefaultThinkingEnabled, type AiProviderId } from './ai-providers.ts'
 import { notifyOpenAiConfigChange, subscribeOpenAiConfig } from './openai-config-events.ts'
 
 export type OpenAiConfig = {
   apiKey: string
   baseURL?: string
   defaultModel: string
+  providerId: AiProviderId
+  thinkingEnabled: boolean
 }
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
@@ -46,6 +49,8 @@ export function mergeOpenAiConfig(
   const baseURL = overrides?.baseURL ?? stored?.baseURL ?? env.baseURL
   const defaultModel =
     overrides?.defaultModel ?? stored?.defaultModel ?? env.defaultModel ?? DEFAULT_MODEL
+  const providerId = overrides?.providerId ?? stored?.providerId ?? 'deepseek'
+  const thinkingEnabled = overrides?.thinkingEnabled ?? stored?.thinkingEnabled ?? getDefaultThinkingEnabled(providerId)
 
   if (!apiKey) {
     throw new Error(
@@ -57,6 +62,8 @@ export function mergeOpenAiConfig(
     apiKey,
     baseURL: baseURL || undefined,
     defaultModel,
+    providerId,
+    thinkingEnabled,
   }
 }
 

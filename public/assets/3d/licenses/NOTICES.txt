@@ -1,7 +1,7 @@
 Third-Party 3D Assets (CC0 1.0 Universal)
 ============================================
 
-The following asset packs are bundled under public/assets/3d/models for Instant3D
+The following asset packs are bundled under public/assets/3d/models for Three.js
 runtime testing. Each pack is licensed under Creative Commons Zero (CC0 1.0).
 Attribution is not required; copies of each pack's LICENSE file are kept under
 public/assets/3d/licenses/.

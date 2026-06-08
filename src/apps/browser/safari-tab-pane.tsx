@@ -14,6 +14,7 @@ type SafariTabPaneProps = {
   loading: boolean
   streaming: boolean
   rawText: string
+  reasoningText: string
   error: string | undefined
   bookmarksRevision: number
   onStartPageNavigate: (url: string) => void
@@ -33,6 +34,7 @@ export function SafariTabPane({
   loading,
   streaming,
   rawText,
+  reasoningText,
   error,
   bookmarksRevision,
   onStartPageNavigate,
@@ -43,7 +45,7 @@ export function SafariTabPane({
 }: SafariTabPaneProps) {
   const onStartPage = isStartPageUrl(url)
   const showProgress = loading || streaming
-  const showStreamBackdrop = showProgress && Boolean(rawText)
+  const showStreamBackdrop = showProgress && Boolean(rawText || reasoningText)
 
   return (
     <div
@@ -66,8 +68,11 @@ export function SafariTabPane({
         </div>
       ) : (
         <div class="safari__content-stack">
-          <SafariStreamBackdrop text={showStreamBackdrop ? rawText : ''} />
-          {loading && !rawText && (
+          <SafariStreamBackdrop
+            reasoningText={showStreamBackdrop ? reasoningText : ''}
+            contentText={showStreamBackdrop ? rawText : ''}
+          />
+          {loading && !rawText && !reasoningText && (
             <div class="safari__loading-overlay">
               <div class="safari__loading-spinner" />
               <p>正在连接 {pageTitleFromUrl(url)}</p>

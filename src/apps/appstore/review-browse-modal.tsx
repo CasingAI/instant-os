@@ -5,9 +5,10 @@ import type { StoreReview } from './types.ts'
 type ReviewBrowseModalProps = {
   reviews: StoreReview[]
   onClose: () => void
+  onDeleteUserReview?: (reviewId: string) => void
 }
 
-export function ReviewBrowseModal({ reviews, onClose }: ReviewBrowseModalProps) {
+export function ReviewBrowseModal({ reviews, onClose, onDeleteUserReview }: ReviewBrowseModalProps) {
   const [index, setIndex] = useState(0)
   const total = reviews.length
   const review = reviews[index]
@@ -44,7 +45,14 @@ export function ReviewBrowseModal({ reviews, onClose }: ReviewBrowseModalProps) 
         </header>
 
         <div class="appstore-modal__body appstore-modal__body--browse">
-          <ReviewCard review={review} />
+          <ReviewCard
+            review={review}
+            onDelete={
+              review.isUser && onDeleteUserReview
+                ? () => onDeleteUserReview(review.id)
+                : undefined
+            }
+          />
         </div>
 
         <footer class="appstore-modal__footer appstore-modal__footer--browse">

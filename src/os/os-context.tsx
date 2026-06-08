@@ -39,6 +39,11 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   settings: { title: '系统设置', width: 520, height: 480 },
   photos: { title: '照片', width: 720, height: 620 },
   mail: { title: '邮件', width: 900, height: 640 },
+  news: { title: '新闻', width: 920, height: 620 },
+  weather: { title: '天气', width: 410, height: 680 },
+  stocks: { title: '股票', width: 410, height: 680 },
+  translate: { title: '翻译', width: 680, height: 520 },
+  catgpt: { title: 'CatGPT', width: 860, height: 640 },
   appstore: { title: '应用集市', width: 820, height: 720 },
   'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
 }

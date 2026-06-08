@@ -14,6 +14,8 @@ import {
   getOtherStorageBytes,
   getTotalLocalStorageBytes,
 } from '../../os/device-storage.ts'
+import { getNewsStorageBytes } from '../news/news-storage.ts'
+import { getCatGptStorageBytes } from '../catgpt/catgpt-storage.ts'
 
 export type ManagedAppKind = 'builtin' | 'generated'
 
@@ -58,6 +60,12 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
   }
   if (appId === 'mail') {
     return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.mail)
+  }
+  if (appId === 'news') {
+    return getNewsStorageBytes()
+  }
+  if (appId === 'catgpt') {
+    return getCatGptStorageBytes()
   }
   return 0
 }
@@ -105,6 +113,7 @@ export function getStorageSummary(installedApps: GeneratedAppRecord[]) {
     getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.generatedApps) + getAllGeneratedAppDataBytes()
   const safariCacheBytes = getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.safariPageCache)
   const mailDataBytes = getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.mail)
+  const newsDataBytes = getNewsStorageBytes()
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
   const availableBytes = Math.max(0, DEVICE_CAPACITY_BYTES - usedBytes)
@@ -114,6 +123,7 @@ export function getStorageSummary(installedApps: GeneratedAppRecord[]) {
     appsBytes,
     safariCacheBytes,
     mailDataBytes,
+    newsDataBytes,
     otherBytes,
     usedBytes,
     availableBytes,

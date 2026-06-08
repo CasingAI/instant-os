@@ -10,6 +10,7 @@ type ListingReviewsSectionProps = {
   installed: boolean
   onOpenBrowse: () => void
   onOpenCompose: () => void
+  onDeleteUserReview?: (reviewId: string) => void
 }
 
 export function ListingReviewsSection({
@@ -19,6 +20,7 @@ export function ListingReviewsSection({
   installed,
   onOpenBrowse,
   onOpenCompose,
+  onDeleteUserReview,
 }: ListingReviewsSectionProps) {
   const sortedReviews = useMemo(() => sortReviewsForDisplay(reviews), [reviews])
   const canBrowse = sortedReviews.length > 1
@@ -48,7 +50,16 @@ export function ListingReviewsSection({
       ) : (
         <div class="appstore-detail__reviews-rail" tabindex={0}>
           {sortedReviews.map((review) => (
-            <ReviewCard key={review.id} review={review} compact />
+            <ReviewCard
+              key={review.id}
+              review={review}
+              compact
+              onDelete={
+                review.isUser && onDeleteUserReview
+                  ? () => onDeleteUserReview(review.id)
+                  : undefined
+              }
+            />
           ))}
           {reviewsStreaming && (
             <div class="appstore-review-card appstore-review-card--compact appstore-review-card--skeleton" />

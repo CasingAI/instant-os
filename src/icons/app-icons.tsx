@@ -354,6 +354,21 @@ export function FinderIcon({ size = 64 }: IconProps) {
   )
 }
 
+type NotificationCenterIconProps = {
+  size?: number
+}
+
+export function NotificationCenterIcon({ size = 18 }: NotificationCenterIconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 1.5a5.25 5.25 0 0 0-5.25 5.25v.38a2.63 2.63 0 0 0-1.88 2.5v3.12A2.63 2.63 0 0 0 4.5 15.25h9a2.63 2.63 0 0 0 2.63-2.62V9.63A2.63 2.63 0 0 0 14.25 7.1V6.75A5.25 5.25 0 0 0 9 1.5Zm0 1.5a3.75 3.75 0 0 1 3.75 3.75v.38H5.25V6.75A3.75 3.75 0 0 1 9 3Zm-3.75 5.25h7.5a1.13 1.13 0 0 1 1.13 1.13v3.12a1.13 1.13 0 0 1-1.13 1.12h-7.5a1.13 1.13 0 0 1-1.12-1.12V9.63A1.13 1.13 0 0 1 5.25 8.38Z"
+      />
+    </svg>
+  )
+}
+
 type BatteryIconProps = {
   levelPercent?: number
   charging?: boolean
@@ -394,5 +409,178 @@ export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
         </>
       )}
     </svg>
+  )
+}
+
+export function NewsIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#c43c2e" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        📰
+      </span>
+    </AppIconTile>
+  )
+}
+
+export function WeatherIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#147efb" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🌤
+      </span>
+    </AppIconTile>
+  )
+}
+
+export function CatGptIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#10a37f" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🐱
+      </span>
+    </AppIconTile>
+  )
+}
+
+export function TranslateIcon({ size = 64 }: IconProps) {
+  const fontSize = size * (22 / 72)
+
+  return (
+    <AppIconTile color="#30b0c7" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <text
+          x="14"
+          y="38"
+          fill="#fff"
+          font-size={fontSize}
+          font-weight="700"
+          font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
+        >
+          文
+        </text>
+        <text
+          x="36"
+          y="44"
+          fill="#fff"
+          font-size={fontSize * 0.92}
+          font-weight="700"
+          font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        >
+          A
+        </text>
+        <path
+          d="M18 46 Q32 54 46 46"
+          fill="none"
+          stroke="#fff"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          opacity="0.85"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+type CandlestickProps = {
+  bodyX: number
+  bodyY: number
+  bodyW: number
+  bodyH: number
+  wickX: number
+  wickTop: number
+  wickBottom: number
+}
+
+function Candlestick({ bodyX, bodyY, bodyW, bodyH, wickX, wickTop, wickBottom }: CandlestickProps) {
+  return (
+    <g>
+      <g transform="translate(0.5, 1)" opacity="0.2">
+        <line
+          x1={wickX}
+          y1={wickTop}
+          x2={wickX}
+          y2={wickBottom}
+          stroke="#120000"
+          stroke-width="1.4"
+          stroke-linecap="butt"
+        />
+      </g>
+      <line
+        x1={wickX}
+        y1={wickTop}
+        x2={wickX}
+        y2={wickBottom}
+        stroke="url(#stocks-wick-face)"
+        stroke-width="1.8"
+        stroke-linecap="butt"
+      />
+      <rect x={bodyX} y={bodyY} width={bodyW} height={bodyH} rx="1" fill="url(#stocks-candle-face)" />
+      <circle cx={wickX + 0.5} cy={wickTop + 1} r="1.1" fill="#120000" opacity="0.18" />
+      <circle cx={wickX + 0.5} cy={wickBottom + 1} r="1.1" fill="#120000" opacity="0.18" />
+      <circle cx={wickX} cy={wickTop} r="1.5" fill="#fff" stroke="rgba(40, 0, 0, 0.32)" stroke-width="0.8" />
+      <circle cx={wickX} cy={wickBottom} r="1.5" fill="#fff" stroke="rgba(40, 0, 0, 0.32)" stroke-width="0.8" />
+    </g>
+  )
+}
+
+export function StocksIcon({ size = 64 }: IconProps) {
+  const trendLine = 'M6 48 L14 42 L22 46 L30 32 L38 36 L46 20 L54 14 L58 12'
+  const gridLines = [0, 8, 16, 24, 32, 40, 48, 56, 64]
+  const candles: CandlestickProps[] = [
+    { bodyX: 11, bodyY: 38, bodyW: 5, bodyH: 10, wickX: 13.5, wickTop: 34, wickBottom: 51 },
+    { bodyX: 25, bodyY: 28, bodyW: 5, bodyH: 12, wickX: 27.5, wickTop: 22, wickBottom: 44 },
+    { bodyX: 39, bodyY: 18, bodyW: 5, bodyH: 14, wickX: 41.5, wickTop: 12, wickBottom: 36 },
+  ]
+
+  return (
+    <AppIconTile color="#ff3b30" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="stocks-candle-face" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fff" />
+            <stop offset="100%" stop-color="#ffe8e8" />
+          </linearGradient>
+          <linearGradient id="stocks-wick-face" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fff" />
+            <stop offset="100%" stop-color="#ffd6d6" />
+          </linearGradient>
+          <linearGradient id="stocks-line-face" x1="32" y1="12" x2="32" y2="48" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#fff" />
+            <stop offset="55%" stop-color="#fff5f5" />
+            <stop offset="100%" stop-color="#ffd6d6" />
+          </linearGradient>
+        </defs>
+        <g opacity="0.18" stroke="#fff" stroke-width="0.9">
+          {gridLines.map((offset) => (
+            <line key={`h-${offset}`} x1="0" y1={offset} x2="64" y2={offset} />
+          ))}
+          {gridLines.map((offset) => (
+            <line key={`v-${offset}`} x1={offset} y1="0" x2={offset} y2="64" />
+          ))}
+        </g>
+        <path
+          d={trendLine}
+          fill="none"
+          stroke="#2a0000"
+          stroke-width="6.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.42"
+        />
+        <path
+          d={trendLine}
+          fill="none"
+          stroke="url(#stocks-line-face)"
+          stroke-width="3.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="59.5" cy="13.5" r="3.6" fill="#120000" opacity="0.45" />
+        <circle cx="58" cy="12" r="3.2" fill="#fff" stroke="rgba(40, 0, 0, 0.3)" stroke-width="1" />
+        {candles.map((candle) => (
+          <Candlestick key={`${candle.wickX}-${candle.bodyY}`} {...candle} />
+        ))}
+      </svg>
+    </AppIconTile>
   )
 }

@@ -58,7 +58,7 @@ export function MarketplaceSearch({
     ? '请在系统设置 → 账户中配置 API Key'
     : activeQuery
       ? loading
-        ? 'AI 正在想象搜索结果…'
+        ? '正在加载'
         : '没有找到相关应用，试试其他关键词'
       : '输入关键词，AI 将为你现场生成搜索结果'
 

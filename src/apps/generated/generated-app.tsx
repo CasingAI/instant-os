@@ -11,7 +11,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
-import { injectInstant3dBridge } from '../../assets/3d/inject-instant3d-bridge.ts'
+import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
 import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
 import { generatedAppNeeds3d } from './generated-app-tags.ts'
@@ -24,10 +24,12 @@ type GeneratedAppProps = {
 }
 
 export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
-  const { focusWindow, closeWindowsForApp, minimizeWindow, windows } = useOs()
-  const { getInstalledApp, getAppDataRevision } = useGeneratedApps()
+  const { focusWindow, closeWindow, closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { getInstalledApp, getAppDataRevision, getFailedInstall, installListing, dismissFailedInstall } =
+    useGeneratedApps()
   const { showAbout } = useAboutApp()
   const app = getInstalledApp(appId)
+  const failedInstall = getFailedInstall(appId)
   const dataRevision = getAppDataRevision(appId)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [emojiFontEpoch, setEmojiFontEpoch] = useState(0)
@@ -64,7 +66,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     let html = injectGeneratedAppStorageBridge(app.html, appId, initialData)
     html = injectIframeEmojiFonts(html)
     if (needs3d) {
-      html = injectInstant3dBridge(html)
+      html = injectScene3dBridge(html)
     }
     return html
   }, [app, appId, dataRevision, emojiFontEpoch, needs3d])
@@ -150,7 +152,39 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   if (!app) {
     return (
       <div class="generated-app generated-app--empty">
-        <p>应用内容尚未生成</p>
+        <div class="generated-app__empty-card">
+          <p class="generated-app__empty-title">
+            {failedInstall
+              ? failedInstall.isUpdate
+                ? '应用更新失败'
+                : '应用生成失败'
+              : '应用不可用'}
+          </p>
+          <p class="generated-app__empty-message">
+            {failedInstall?.error ?? '该应用尚未安装或已被移除。'}
+          </p>
+          <div class="generated-app__empty-actions">
+            {failedInstall && (
+              <button
+                type="button"
+                class="generated-app__empty-action generated-app__empty-action--primary"
+                onClick={() => {
+                  dismissFailedInstall(appId)
+                  void installListing(failedInstall.listing)
+                }}
+              >
+                重试
+              </button>
+            )}
+            <button
+              type="button"
+              class="generated-app__empty-action"
+              onClick={() => closeWindow(windowId)}
+            >
+              关闭窗口
+            </button>
+          </div>
+        </div>
       </div>
     )
   }

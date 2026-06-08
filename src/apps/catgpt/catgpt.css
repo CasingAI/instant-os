@@ -1,0 +1,499 @@
+/* CatGPT — iOS 6 拟物风 */
+
+.catgpt-app {
+  --cg-bg: #e8e3da;
+  --cg-surface: #faf6ee;
+  --cg-paper: #f7f1e6;
+  --cg-ink: #2a241f;
+  --cg-ink-muted: #6a5f54;
+  --cg-border: #c4b5a0;
+  --cg-border-light: #ddd2c2;
+  --cg-accent: #10a37f;
+  --cg-accent-dark: #0d7a5f;
+  --cg-accent-gloss: linear-gradient(180deg, #1ec99a 0%, #0d8f6c 100%);
+  --cg-sidebar: linear-gradient(180deg, #2d3338 0%, #1a1f24 100%);
+  --cg-sidebar-border: #0f1215;
+  --cg-radius: 7px;
+  --cg-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset, 0 1px 3px rgba(0, 0, 0, 0.14);
+  --cg-shadow-deep: 0 2px 6px rgba(0, 0, 0, 0.16), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -30%, #fff8ef 0%, transparent 55%),
+    linear-gradient(180deg, #efe9df 0%, var(--cg-bg) 100%);
+  color: var(--cg-ink);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'Helvetica Neue',
+    'PingFang SC',
+    'Apple Color Emoji',
+    sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.catgpt-app__sidebar {
+  flex-shrink: 0;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--cg-sidebar);
+  border-right: 1px solid var(--cg-sidebar-border);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.18);
+  color: #ece8e0;
+}
+
+.catgpt-app__sidebar-head {
+  flex-shrink: 0;
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.catgpt-app__logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.catgpt-app__logo-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--cg-accent-gloss);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 2px 4px rgba(0, 0, 0, 0.3);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.catgpt-app__logo-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f2f0eb;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  letter-spacing: -0.02em;
+}
+
+.catgpt-app__new-chat {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--cg-radius);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  color: #ece8e0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.catgpt-app__new-chat:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.catgpt-app__new-chat:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.catgpt-app__session-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 8px 12px;
+}
+
+.catgpt-app__session-empty {
+  padding: 12px 8px;
+  font-size: 11px;
+  color: rgba(236, 232, 224, 0.45);
+  text-align: center;
+}
+
+.catgpt-app__session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(236, 232, 224, 0.82);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.catgpt-app__session:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.catgpt-app__session--active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.catgpt-app__session-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.catgpt-app__session-emoji {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.catgpt-app__session--active .catgpt-app__session-emoji {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.catgpt-app__session-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(236, 232, 224, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catgpt-app__session--active .catgpt-app__session-label {
+  color: #f8f6f2;
+}
+
+.catgpt-app__session-delete {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(236, 232, 224, 0.4);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, background 0.1s ease;
+}
+
+.catgpt-app__session:hover .catgpt-app__session-delete,
+.catgpt-app__session--active .catgpt-app__session-delete {
+  opacity: 1;
+}
+
+.catgpt-app__session-delete:hover {
+  background: rgba(255, 80, 80, 0.2);
+  color: #ffb4b4;
+}
+
+.catgpt-app__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.catgpt-app__toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #f5efe4 0%, #e7dfd1 100%);
+  border-bottom: 1px solid var(--cg-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+}
+
+.catgpt-app__toolbar-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cg-accent-dark);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.catgpt-app__toolbar-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--cg-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catgpt-app__chat {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 16px 12px;
+}
+
+.catgpt-app__welcome {
+  max-width: 520px;
+  margin: 48px auto 0;
+  text-align: center;
+}
+
+.catgpt-app__welcome-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: 14px;
+  background: var(--cg-accent-gloss);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: var(--cg-shadow-deep);
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+}
+
+.catgpt-app__welcome-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--cg-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.catgpt-app__welcome-sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--cg-ink-muted);
+  line-height: 1.5;
+}
+
+.catgpt-app__samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.catgpt-app__sample {
+  padding: 8px 14px;
+  border-radius: var(--cg-radius);
+  border: 1px solid var(--cg-border);
+  background: linear-gradient(180deg, #fffdf8 0%, var(--cg-paper) 100%);
+  box-shadow: var(--cg-shadow);
+  color: var(--cg-ink);
+  font-size: 12px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.catgpt-app__sample:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+.catgpt-app__sample:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.catgpt-app__messages {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.catgpt-app__message {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.catgpt-app__message--user {
+  flex-direction: row-reverse;
+}
+
+.catgpt-app__avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.catgpt-app__message--assistant .catgpt-app__avatar {
+  background: var(--cg-accent-gloss);
+}
+
+.catgpt-app__message--user .catgpt-app__avatar {
+  background: linear-gradient(180deg, #6eb5f0 0%, #3a8fd4 100%);
+}
+
+.catgpt-app__bubble {
+  max-width: min(100%, 560px);
+  padding: 10px 14px;
+  border-radius: 10px;
+  line-height: 1.55;
+  font-size: 13px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.catgpt-app__message--assistant .catgpt-app__bubble {
+  background: linear-gradient(180deg, #fffdf8 0%, var(--cg-paper) 100%);
+  border: 1px solid var(--cg-border-light);
+  box-shadow: var(--cg-shadow);
+  color: var(--cg-ink);
+}
+
+.catgpt-app__message--user .catgpt-app__bubble {
+  background: linear-gradient(180deg, #dff5ec 0%, #c8ebdc 100%);
+  border: 1px solid #9fd4bc;
+  box-shadow: var(--cg-shadow);
+  color: #1a3d30;
+}
+
+.catgpt-app__bubble--streaming::after {
+  content: '▍';
+  display: inline;
+  animation: catgpt-cursor 0.9s step-end infinite;
+  color: var(--cg-accent);
+  margin-left: 1px;
+}
+
+@keyframes catgpt-cursor {
+  50% {
+    opacity: 0;
+  }
+}
+
+.catgpt-app__composer-wrap {
+  flex-shrink: 0;
+  padding: 12px 16px 16px;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.03) 100%);
+}
+
+.catgpt-app__composer {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 8px 8px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--cg-border);
+  background: linear-gradient(180deg, #fffdf8 0%, var(--cg-surface) 100%);
+  box-shadow: var(--cg-shadow-deep);
+}
+
+.catgpt-app__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 22px;
+  max-height: 120px;
+  margin: 0;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  color: var(--cg-ink);
+  font: inherit;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.catgpt-app__input::placeholder {
+  color: var(--cg-ink-muted);
+  opacity: 0.7;
+}
+
+.catgpt-app__send {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: var(--cg-accent-gloss);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 2px 4px rgba(0, 0, 0, 0.18);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.catgpt-app__send:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.catgpt-app__send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.catgpt-app__error {
+  max-width: 720px;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  border-radius: var(--cg-radius);
+  border: 1px solid #e8a0a0;
+  background: linear-gradient(180deg, #fff5f5 0%, #fde8e8 100%);
+  color: #8b3030;
+  font-size: 12px;
+  text-align: center;
+}
+
+.catgpt-app__api-hint {
+  max-width: 720px;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  border-radius: var(--cg-radius);
+  border: 1px solid var(--cg-border-light);
+  background: linear-gradient(180deg, #fffdf8 0%, var(--cg-paper) 100%);
+  color: var(--cg-ink-muted);
+  font-size: 11px;
+  text-align: center;
+}

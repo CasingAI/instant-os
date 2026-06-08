@@ -35,6 +35,15 @@
   cursor: default;
 }
 
+.os-icon-context-menu__item--destructive {
+  color: #ff3b30;
+}
+
+.os-icon-context-menu__item--destructive:hover:not(:disabled) {
+  background: #ff3b30;
+  color: #fff;
+}
+
 .os-icon-context-menu__separator {
   height: 1px;
   margin: 5px 0;

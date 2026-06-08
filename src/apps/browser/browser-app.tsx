@@ -71,6 +71,7 @@ type PageState = {
   streaming: boolean
   html: string
   rawText: string
+  reasoningText: string
   pageTokens: number | undefined
   error: string | undefined
 }
@@ -102,6 +103,7 @@ function createInitialPageState(): PageState {
     streaming: false,
     html: '',
     rawText: '',
+    reasoningText: '',
     pageTokens: undefined,
     error: undefined,
   }
@@ -277,6 +279,7 @@ export function BrowserApp() {
         streaming: false,
         html: cached.html,
         rawText: '',
+        reasoningText: '',
         pageTokens: cached.pageTokens,
         error: undefined,
       })
@@ -310,8 +313,9 @@ export function BrowserApp() {
           loading: false,
           streaming: false,
           html: cachedHtml,
-          rawText: '',
-          pageTokens: undefined,
+    rawText: '',
+    reasoningText: '',
+    pageTokens: undefined,
           error: undefined,
         })
         return
@@ -322,8 +326,9 @@ export function BrowserApp() {
           loading: false,
           streaming: false,
           html: '',
-          rawText: '',
-          pageTokens: undefined,
+    rawText: '',
+    reasoningText: '',
+    pageTokens: undefined,
           error: '缺少 API Key，无法生成网页。请在系统设置 → 账户中配置。',
         })
         return
@@ -333,8 +338,9 @@ export function BrowserApp() {
         loading: true,
         streaming: false,
         html: '',
-        rawText: '',
-        pageTokens: undefined,
+    rawText: '',
+    reasoningText: '',
+    pageTokens: undefined,
         error: undefined,
       })
 
@@ -353,10 +359,11 @@ export function BrowserApp() {
             }
 
             setTabPageState(tabId, {
-              loading: update.html.length === 0,
-              streaming: update.html.length > 0,
+              loading: update.html.length === 0 && update.reasoningText.length === 0,
+              streaming: update.html.length > 0 || update.reasoningText.length > 0 || update.rawText.length > 0,
               html: update.html,
               rawText: update.rawText,
+              reasoningText: update.reasoningText,
               pageTokens: update.usage.totalTokens,
               error: undefined,
             })
@@ -392,6 +399,7 @@ export function BrowserApp() {
           streaming: false,
           html,
           rawText: '',
+          reasoningText: '',
           pageTokens,
           error: undefined,
         })
@@ -405,8 +413,9 @@ export function BrowserApp() {
           loading: false,
           streaming: false,
           html: '',
-          rawText: '',
-          pageTokens: undefined,
+    rawText: '',
+    reasoningText: '',
+    pageTokens: undefined,
           error: error instanceof Error ? error.message : '网页生成失败',
         })
       }
@@ -435,6 +444,7 @@ export function BrowserApp() {
           streaming: false,
           html: entry.html,
           rawText: '',
+          reasoningText: '',
           pageTokens: entry.pageTokens,
           error: undefined,
         })
@@ -760,6 +770,7 @@ export function BrowserApp() {
                 streaming: false,
                 html: cachedHtml,
                 rawText: '',
+                reasoningText: '',
                 pageTokens: persisted?.pageTokens,
                 error: undefined,
               }
@@ -767,8 +778,9 @@ export function BrowserApp() {
                 loading: true,
                 streaming: false,
                 html: '',
-                rawText: '',
-                pageTokens: undefined,
+    rawText: '',
+    reasoningText: '',
+    pageTokens: undefined,
                 error: undefined,
               },
         },
@@ -1326,6 +1338,7 @@ export function BrowserApp() {
               loading={tabPageState.loading}
               streaming={tabPageState.streaming}
               rawText={tabPageState.rawText}
+              reasoningText={tabPageState.reasoningText}
               error={tabPageState.error}
               bookmarksRevision={bookmarksRevision}
               onStartPageNavigate={(url) => navigate(tab.id, url)}

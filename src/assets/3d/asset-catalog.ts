@@ -124,59 +124,6 @@ export function formatPlacementPrompt(entry: Instant3dCatalogEntry): string | un
   return parts.join('；')
 }
 
-export function buildCatalogPromptLine(entry: Instant3dCatalogEntry): string {
-  const size = formatSizeMeters(entry.appearance.sizeMeters)
-  const keywords = entry.keywords.slice(0, 5).join('、')
-  const placement = formatPlacementPrompt(entry)
-  const placementSuffix = placement ? ` | 摆放 ${placement}` : ''
-  return `- ${entry.id} | ${entry.label} | 尺寸 ${size}${placementSuffix} | ${keywords}`
-}
-
-export function buildCatalogPromptSection(): string {
-  const lines: string[] = [
-    '【Instant3D 摆放与比例规则】',
-    '- 坐标系：X 右、Y 上、Z 前；尺寸为包围盒 宽×高×深（米）',
-    '- 模型按 1:1 真实比例加载；除非用户明确要求缩放，否则不要设置 scale',
-    '- position 为模型原点；家具/道具通常 position: [x, 0, z] 让底面落在地面',
-    '- 水平间距：相邻物体中心距离 ≥ (两者宽度之和)/2 + 0.3m，避免重叠',
-    '- 地面 plane 的 width/depth 应覆盖全部物体并留 ≥1m 边距',
-    '- 参考尺度：椅子高约 0.8–1.3m，餐桌高约 0.7–0.8m，沙发宽约 1.5–2.5m，建筑可达 3–8m',
-    '',
-    '【方向与拼接规则】',
-    '- 目录中带「摆放」字段的模型具有方向/接口语义，须按 hint 理解默认朝向与拼接方式',
-    '- tile：按 tileStepMeters 网格铺设，相邻块中心间距 = 步长；接口边对齐拼接',
-    '- linear：沿 forward 轴延伸；多段首尾相接，必要时 rotation.y 调整方向',
-    '- corner：默认弯折方向见 connects；rotation.y 以 90° 为步进旋转',
-    '- junction：多向交叉口；按 connects 与相邻 tile/linear 对齐',
-    '- wall：沿 forward 延伸，face 为正面朝向；墙体应围成闭合或连续立面',
-    '- 改变朝向用 rotation: [0, 弧度, 0]；90° = Math.PI/2，180° = Math.PI',
-    '',
-    '【Instant3D 内置模型目录】只能使用下列 modelId，禁止编造不存在的 id。',
-    '格式：modelId | 名称 | 尺寸 | 关键词。按素材包分组，优先选语义最接近的包：',
-  ]
-
-  for (const pack of INSTANT3D_SOURCE_PACKS) {
-    const packEntries = catalogEntriesForSource(pack.id)
-    if (packEntries.length === 0) continue
-
-    lines.push(
-      '',
-      `■ ${pack.title}（前缀 ${packEntries[0]?.id.split('.')[0]}.*，${packEntries[0]?.appearance.style}，共 ${packEntries.length} 个）`,
-    )
-    for (const entry of packEntries) {
-      lines.push(buildCatalogPromptLine(entry))
-    }
-  }
-
-  lines.push(
-    '',
-    '【Instant3D 内置几何基元】primitive 参数 type 只能取：',
-    ...INSTANT3D_PRIMITIVES.map((kind) => `- ${kind}`),
-    '- plane 用于地面/地毯；width、depth 按场景实际跨度设置（通常 6–20m）',
-  )
-
-  return lines.join('\n')
-}
 
 export function buildThreejsCatalogPromptSection(): string {
   const lines: string[] = [

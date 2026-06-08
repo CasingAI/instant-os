@@ -14,6 +14,57 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px;
   color: #6d6d72;
   font-size: 14px;
+}
+
+.generated-app__empty-card {
+  max-width: 320px;
+  padding: 20px 22px;
+  text-align: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fafafa 0%, #efefef 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.generated-app__empty-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #333;
+}
+
+.generated-app__empty-message {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #666;
+}
+
+.generated-app__empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.generated-app__empty-action {
+  min-width: 88px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff 0%, #ececec 100%);
+}
+
+.generated-app__empty-action--primary {
+  color: #fff;
+  border-color: #0069d9;
+  background: linear-gradient(180deg, #4da3ff 0%, #007aff 100%);
 }

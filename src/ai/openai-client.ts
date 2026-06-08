@@ -10,7 +10,7 @@ export function clearOpenAiClientCache(): void {
 }
 
 function configCacheKey(config: OpenAiConfig): string {
-  return `${config.apiKey}|${config.baseURL ?? ''}|${config.defaultModel}`
+  return `${config.apiKey}|${config.baseURL ?? ''}|${config.defaultModel}|${config.providerId}|${config.thinkingEnabled}`
 }
 
 export function createOpenAiClient(configOverrides?: Partial<OpenAiConfig>): OpenAI {

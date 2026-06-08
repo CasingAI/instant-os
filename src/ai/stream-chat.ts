@@ -1,3 +1,4 @@
+import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
 import { mergeOpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 
@@ -19,18 +20,22 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       { role: 'system', content: options.system },
       { role: 'user', content: options.user },
     ],
+    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
   })
 
   let text = ''
 
   for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content ?? ''
-    if (!delta) {
+    const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
+    if (reasoning) {
+      continue
+    }
+    if (!content) {
       continue
     }
 
-    text += delta
-    options.onChunk(delta, text)
+    text += content
+    options.onChunk(content, text)
   }
 
   if (!text.trim()) {

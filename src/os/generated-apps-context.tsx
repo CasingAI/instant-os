@@ -19,6 +19,7 @@ import {
   toGeneratedAppId,
 } from '../apps/appstore/store-agent.ts'
 import type {
+  FailedInstall,
   GeneratedAppRecord,
   PendingInstall,
   StoreListing,
@@ -28,6 +29,7 @@ import type {
 import { DeviceStorageFullError } from './device-storage.ts'
 import { clearGeneratedAppData } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
+import { clearPendingInstallStream, setPendingInstallStream } from './pending-install-stream.ts'
 import { loadListingDetails, saveListingDetails } from './listing-details-storage.ts'
 import { loadListingReviews as loadStoredListingReviews, saveListingReviews } from './listing-reviews-storage.ts'
 import { loadStoreListings, saveStoreListings } from './store-listings-storage.ts'
@@ -38,6 +40,7 @@ type GeneratedAppsContextValue = {
   listings: StoreListing[]
   installedApps: GeneratedAppRecord[]
   pendingInstalls: PendingInstall[]
+  failedInstalls: FailedInstall[]
   listingsLoading: boolean
   listingsError: string | undefined
   refreshListings: (topic?: string) => Promise<void>
@@ -53,6 +56,7 @@ type GeneratedAppsContextValue = {
   ) => Promise<StoreReview[]>
   getCachedListingReviews: (slug: string) => StoreReview[]
   addUserReview: (slug: string, body: string, rating?: number) => boolean
+  removeUserReview: (slug: string, reviewId: string) => boolean
   hasPendingUpdate: (slug: string) => boolean
   canRollbackApp: (slug: string) => boolean
   getAppVersionCount: (slug: string) => number
@@ -69,18 +73,21 @@ type GeneratedAppsContextValue = {
   storageRevision: number
   getInstalledApp: (appId: GeneratedAppId) => GeneratedAppRecord | undefined
   getPendingInstall: (appId: GeneratedAppId) => PendingInstall | undefined
+  getFailedInstall: (appId: GeneratedAppId) => FailedInstall | undefined
+  dismissFailedInstall: (appId: GeneratedAppId) => void
   pendingUpdateCount: number
 }
 
 const GeneratedAppsContext = createContext<GeneratedAppsContextValue | undefined>(undefined)
 
-function createPendingInstall(appId: GeneratedAppId, listing: StoreListing): PendingInstall {
+function createPendingInstall(appId: GeneratedAppId, listing: StoreListing, isUpdate = false): PendingInstall {
   return {
     id: appId,
     listing,
     progress: 0,
     textLength: 0,
     phase: 'waiting',
+    isUpdate,
   }
 }
 
@@ -122,6 +129,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const [listings, setListings] = useState<StoreListing[]>(() => loadStoreListings())
   const [installedApps, setInstalledApps] = useState<GeneratedAppRecord[]>(() => loadInstalledApps())
   const [pendingInstalls, setPendingInstalls] = useState<PendingInstall[]>([])
+  const [failedInstalls, setFailedInstalls] = useState<FailedInstall[]>([])
   const [listingsLoading, setListingsLoading] = useState(false)
   const [listingsError, setListingsError] = useState<string | undefined>(undefined)
   const [listingDetailsCache, setListingDetailsCache] = useState<Record<string, StoreListingDetail>>(
@@ -343,6 +351,50 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     [installedApps],
   )
 
+  const removeUserReview = useCallback(
+    (slug: string, reviewId: string): boolean => {
+      const appId = toGeneratedAppId(slug)
+      const app = installedApps.find((item) => item.id === appId)
+      let removed = false
+      let nextReviews: StoreReview[] = []
+
+      setListingReviewsCache((current) => {
+        const cached = current[slug]
+        if (!cached) {
+          return current
+        }
+
+        const review = cached.find((item) => item.id === reviewId)
+        if (!review?.isUser) {
+          return current
+        }
+
+        removed = true
+        nextReviews = cached.filter((item) => item.id !== reviewId)
+        return { ...current, [slug]: nextReviews }
+      })
+
+      if (!removed) {
+        return false
+      }
+
+      if (app?.pendingUpdate) {
+        const currentVersion = normalizeAppVersion(app.version)
+        const hasFeedbackForVersion = nextReviews.some(
+          (item) => item.isUser && normalizeAppVersion(item.version) === currentVersion,
+        )
+        if (!hasFeedbackForVersion) {
+          setInstalledApps((current) =>
+            current.map((item) => (item.id === appId ? { ...item, pendingUpdate: false } : item)),
+          )
+        }
+      }
+
+      return true
+    },
+    [installedApps],
+  )
+
   const rollbackAppVersion = useCallback(
     (slug: string): boolean => {
       const appId = toGeneratedAppId(slug)
@@ -393,6 +445,21 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     [pendingInstalls],
   )
 
+  const getFailedInstall = useCallback(
+    (appId: GeneratedAppId) => failedInstalls.find((item) => item.id === appId),
+    [failedInstalls],
+  )
+
+  const dismissFailedInstall = useCallback((appId: GeneratedAppId) => {
+    setFailedInstalls((current) => {
+      const failed = current.find((item) => item.id === appId)
+      if (failed) {
+        clearPendingInstallStream(failed.listing.slug)
+      }
+      return current.filter((item) => item.id !== appId)
+    })
+  }, [])
+
   const updatePendingInstall = useCallback((slug: string, patch: Partial<PendingInstall>) => {
     setPendingInstalls((current) =>
       current.map((item) => (item.listing.slug === slug ? { ...item, ...patch } : item)),
@@ -420,7 +487,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         }
 
         setListingsError(undefined)
-        setPendingInstalls((current) => [...current, createPendingInstall(appId, listing)])
+        setFailedInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
+        setPendingInstallStream(listing.slug, { reasoningText: '', rawText: '' })
+        setPendingInstalls((current) => [...current, createPendingInstall(appId, listing, isUpdate)])
 
         const userFeedback = reviews.filter(
           (review) => review.isUser && normalizeAppVersion(review.version) === currentVersion,
@@ -472,31 +541,43 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
           assertNewInstallAllowed(loadInstalledApps(), appId)
         }
 
-        const nextApps = replaceInstalledApp(installedApps, appId, record)
+        const nextApps = replaceInstalledApp(loadInstalledApps(), appId, record)
         if (!saveInstalledApps(nextApps)) {
           throw new DeviceStorageFullError()
         }
 
         setInstalledApps(nextApps)
+        clearPendingInstallStream(listing.slug)
         setPendingInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
         openGeneratedApp(appId, listing.name)
       } catch (error) {
         setPendingInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
+        closeWindowsForApp(appId)
         if (error instanceof DuplicateAppInstallError) {
           return
         }
-        setListingsError(
+        const message =
           error instanceof DeviceStorageFullError
             ? error.message
             : error instanceof Error
               ? error.message
               : isUpdate
                 ? '更新应用失败'
-                : '生成应用失败',
-        )
+                : '生成应用失败'
+        setListingsError(message)
+        setFailedInstalls((current) => [
+          ...current.filter((item) => item.id !== appId),
+          {
+            id: appId,
+            listing,
+            error: message,
+            isUpdate,
+            failedAt: Date.now(),
+          },
+        ])
       }
     },
-    [installedApps, pendingInstalls, openGeneratedApp, updatePendingInstall],
+    [installedApps, pendingInstalls, closeWindowsForApp, openGeneratedApp, updatePendingInstall],
   )
 
   const installListing = useCallback(
@@ -545,6 +626,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const uninstallApp = useCallback(
     (appId: GeneratedAppId) => {
       setInstalledApps((current) => current.filter((app) => app.id !== appId))
+      dismissFailedInstall(appId)
       clearGeneratedAppData(appId)
       setAppDataRevisions((current) => {
         const next = { ...current }
@@ -553,7 +635,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       })
       closeWindowsForApp(appId)
     },
-    [closeWindowsForApp],
+    [closeWindowsForApp, dismissFailedInstall],
   )
 
   const clearAppData = useCallback((appId: GeneratedAppId) => {
@@ -592,6 +674,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       listings,
       installedApps,
       pendingInstalls,
+      failedInstalls,
       listingsLoading,
       listingsError,
       refreshListings,
@@ -601,6 +684,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       loadListingReviews,
       getCachedListingReviews,
       addUserReview,
+      removeUserReview,
       hasPendingUpdate,
       canRollbackApp: canRollbackAppBySlug,
       getAppVersionCount: getAppVersionCountBySlug,
@@ -617,12 +701,15 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       storageRevision,
       getInstalledApp,
       getPendingInstall,
+      getFailedInstall,
+      dismissFailedInstall,
       pendingUpdateCount,
     }),
     [
       listings,
       installedApps,
       pendingInstalls,
+      failedInstalls,
       listingsLoading,
       listingsError,
       refreshListings,
@@ -632,6 +719,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       loadListingReviews,
       getCachedListingReviews,
       addUserReview,
+      removeUserReview,
       hasPendingUpdate,
       canRollbackAppBySlug,
       getAppVersionCountBySlug,
@@ -648,6 +736,8 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       storageRevision,
       getInstalledApp,
       getPendingInstall,
+      getFailedInstall,
+      dismissFailedInstall,
       pendingUpdateCount,
     ],
   )

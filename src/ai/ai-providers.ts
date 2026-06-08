@@ -64,3 +64,7 @@ export function normalizeStoredModel(providerId: AiProviderId, model: string): s
 
   return trimmed
 }
+
+export function getDefaultThinkingEnabled(_providerId: AiProviderId): boolean {
+  return false
+}

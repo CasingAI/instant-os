@@ -1,6 +1,6 @@
 .menu-bar {
   position: relative;
-  z-index: 1000;
+  z-index: 1950;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;

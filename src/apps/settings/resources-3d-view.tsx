@@ -98,7 +98,7 @@ export function Resources3dView({ onBack, onOpenDetail }: Resources3dViewProps) 
             </dl>
             <dl class="settings__form-row">
               <dt>运行时</dt>
-              <dd>Instant3D · Three.js</dd>
+              <dd>Three.js · Rapier</dd>
             </dl>
             <dl class="settings__form-row">
               <dt>许可证</dt>

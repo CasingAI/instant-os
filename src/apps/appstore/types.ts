@@ -53,5 +53,14 @@ export type PendingInstall = {
   listing: StoreListing
   progress: number
   textLength: number
-  phase: 'waiting' | 'generating'
+  phase: 'waiting' | 'thinking' | 'generating'
+  isUpdate?: boolean
+}
+
+export type FailedInstall = {
+  id: `gen:${string}`
+  listing: StoreListing
+  error: string
+  isUpdate?: boolean
+  failedAt: number
 }

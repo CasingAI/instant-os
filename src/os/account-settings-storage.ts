@@ -1,6 +1,7 @@
 import {
   DEFAULT_AI_PROVIDER_ID,
   findAiProviderPreset,
+  getDefaultThinkingEnabled,
   normalizeStoredModel,
   resolveProviderBaseURL,
   type AiProviderId,
@@ -18,6 +19,7 @@ export type AccountSettings = {
   providerId: AiProviderId
   apiKey: string
   model: string
+  thinkingEnabled: boolean
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.accountSettings
@@ -43,10 +45,14 @@ function normalizeAccountSettings(raw: unknown): AccountSettings | undefined {
     return undefined
   }
 
+  const thinkingEnabled =
+    typeof record.thinkingEnabled === 'boolean' ? record.thinkingEnabled : getDefaultThinkingEnabled(providerId)
+
   return {
     providerId,
     apiKey,
     model: normalizeStoredModel(providerId, modelRaw),
+    thinkingEnabled,
   }
 }
 
@@ -67,6 +73,7 @@ export function saveAccountSettings(settings: AccountSettings): boolean {
     providerId: settings.providerId,
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
+    thinkingEnabled: settings.thinkingEnabled,
   }
 
   if (!payload.apiKey || !payload.model) {
@@ -107,6 +114,8 @@ export function accountSettingsToOpenAiConfig(
     apiKey: settings.apiKey,
     baseURL: resolveProviderBaseURL(settings.providerId),
     defaultModel: settings.model,
+    providerId: settings.providerId,
+    thinkingEnabled: settings.thinkingEnabled,
   }
 }
 
@@ -118,6 +127,7 @@ export function defaultAccountSettings(
     providerId,
     apiKey: '',
     model: preset?.defaultModel ?? '',
+    thinkingEnabled: getDefaultThinkingEnabled(providerId),
   }
 }
 
@@ -137,5 +147,6 @@ export function mergeAccountSettings(
     providerId,
     apiKey: base.apiKey,
     model: preset?.models.includes(model) ? model : preset?.defaultModel ?? model,
+    thinkingEnabled: base.thinkingEnabled,
   }
 }

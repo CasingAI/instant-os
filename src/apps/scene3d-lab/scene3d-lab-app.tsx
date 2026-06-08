@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { flushSync } from 'preact/compat'
 import type { LiveTokenUsage } from '../browser/estimate-token-usage.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
+import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { injectInstant3dBridge } from '../../assets/3d/inject-instant3d-bridge.ts'
+import { THREEJS_PHYSICS_DEMO_HTML } from '../../assets/3d/threejs-physics-demo-html.ts'
+import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
 import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 import {
   formatScene3dOutboundPrompt,
@@ -19,8 +21,7 @@ import {
 } from './generate-scene3d-stream.ts'
 import {
   loadScene3dLabPrefs,
-  saveScene3dLabRuntimeMode,
-  type Scene3dRuntimeMode,
+  saveScene3dLabPhysicsEnabled,
 } from './scene3d-lab-prefs.ts'
 import {
   clearScene3dLabArchives,
@@ -41,6 +42,9 @@ function phaseLabel(
 ): string {
   if (phase === 'waiting') {
     return streamConnected ? '已连接，等待首个 token…' : '连接 AI…'
+  }
+  if (phase === 'thinking') {
+    return streamConnected ? `思考中 ${Math.round(progress)}%` : '连接 AI…'
   }
   if (phase === 'generating') {
     return `生成中 ${Math.round(progress)}%`
@@ -70,6 +74,8 @@ export function Scene3dLabApp() {
   const [hasPreview, setHasPreview] = useState(false)
   const [htmlCode, setHtmlCode] = useState('')
   const [rawText, setRawText] = useState('')
+  const [reasoningText, setReasoningText] = useState('')
+  const [streamContentText, setStreamContentText] = useState('')
   const [usage, setUsage] = useState<LiveTokenUsage>(EMPTY_USAGE)
   const [codeDirty, setCodeDirty] = useState(false)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('code')
@@ -82,20 +88,28 @@ export function Scene3dLabApp() {
   const [archiveTitle, setArchiveTitle] = useState('')
   const [archiveRevision, setArchiveRevision] = useState(0)
   const [activeArchiveId, setActiveArchiveId] = useState<string | undefined>()
-  const [runtimeMode, setRuntimeMode] = useState<Scene3dRuntimeMode>(
-    () => loadScene3dLabPrefs().runtimeMode,
+  const [physicsEnabled, setPhysicsEnabled] = useState<boolean>(
+    () => loadScene3dLabPrefs().physicsEnabled,
   )
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const codeEditorRef = useRef<HTMLTextAreaElement>(null)
   const rawEditorRef = useRef<HTMLTextAreaElement>(null)
   const outboundPrompt = useMemo(
-    () => formatScene3dOutboundPrompt(prompt, runtimeMode),
-    [prompt, runtimeMode],
+    () => formatScene3dOutboundPrompt(prompt, physicsEnabled),
+    [prompt, physicsEnabled],
   )
   const archives = useMemo(() => loadScene3dLabArchives(), [archiveRevision])
 
-  useEffect(() => {
-    ensureIframeBlankDocument(iframeRef.current)
+  const applyStreamPreview = useCallback((html: string) => {
+    const trimmed = html.trim()
+    if (!trimmed) {
+      return
+    }
+    const bridged = injectScene3dBridge(trimmed)
+    const wrote = writeHtmlToIframe(iframeRef.current, bridged)
+    if (wrote) {
+      setHasPreview(true)
+    }
   }, [])
 
   const applyStreamUpdate = useCallback((update: Scene3dGenerationUpdate) => {
@@ -105,6 +119,8 @@ export function Scene3dLabApp() {
       }
       setPhase(update.phase)
       setProgress(update.progress)
+      setReasoningText(update.reasoningText)
+      setStreamContentText(update.contentText)
       setRawText(update.rawText)
       if (!codeDirty) {
         setHtmlCode(update.html)
@@ -122,6 +138,19 @@ export function Scene3dLabApp() {
       codeEditorRef.current.value = update.html
     }
   }, [codeDirty])
+
+  useEffect(() => {
+    ensureIframeBlankDocument(iframeRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (!generating || codeDirty || !htmlCode.trim()) {
+      return
+    }
+    applyStreamPreview(htmlCode)
+  }, [applyStreamPreview, codeDirty, generating, htmlCode])
+
+  const showStreamPreview = generating && Boolean(reasoningText || streamContentText)
 
   useEffect(() => {
     setAppWindowTitle('scene3d-lab', '3D 实验室')
@@ -177,7 +206,7 @@ export function Scene3dLabApp() {
       return
     }
     setError(undefined)
-    const bridged = injectInstant3dBridge(trimmed)
+    const bridged = injectScene3dBridge(trimmed)
     const wrote = writeHtmlToIframe(iframeRef.current, bridged)
     if (!wrote) {
       setError('无法写入预览 iframe')
@@ -243,11 +272,17 @@ export function Scene3dLabApp() {
     setStreamConnected(false)
     setProgress(0)
     setRawText('')
+    setReasoningText('')
+    setStreamContentText('')
+    setHtmlCode('')
+    setHasPreview(false)
     setActiveArchiveId(undefined)
     setInspectorTab('raw')
 
     try {
-      const result = await generateScene3dHtmlStreaming(trimmed, applyStreamUpdate, { runtimeMode })
+      const result = await generateScene3dHtmlStreaming(trimmed, applyStreamUpdate, {
+        physicsEnabled,
+      })
       setHtmlCode(result.html)
       setRawText(result.rawText)
       setUsage(result.usage)
@@ -262,12 +297,31 @@ export function Scene3dLabApp() {
       setStreamConnected(false)
       setPhase(undefined)
     }
-  }, [applyPreview, applyStreamUpdate, generating, prompt, runtimeMode])
+  }, [applyPreview, applyStreamUpdate, generating, prompt, physicsEnabled])
 
-  const onRuntimeModeChange = useCallback((mode: Scene3dRuntimeMode) => {
-    setRuntimeMode(mode)
-    saveScene3dLabRuntimeMode(mode)
+  const onPhysicsEnabledChange = useCallback((enabled: boolean) => {
+    setPhysicsEnabled(enabled)
+    saveScene3dLabPhysicsEnabled(enabled)
   }, [])
+
+  const onLoadPhysicsDemo = useCallback(() => {
+    const demoHtml = THREEJS_PHYSICS_DEMO_HTML
+    setPhysicsEnabled(true)
+    saveScene3dLabPhysicsEnabled(true)
+    setPrompt('物理演示：大地面上空一排彩色箱子，再叠两层，启动后自然掉落堆叠')
+    setHtmlCode(demoHtml)
+    setRawText('')
+    setCodeDirty(false)
+    setActiveArchiveId(undefined)
+    setError(undefined)
+    applyPreview(demoHtml)
+    if (codeEditorRef.current) {
+      codeEditorRef.current.value = demoHtml
+    }
+    if (rawEditorRef.current) {
+      rawEditorRef.current.value = ''
+    }
+  }, [applyPreview])
 
   useEffect(() => {
     const editor = inspectorTab === 'code' ? codeEditorRef.current : rawEditorRef.current
@@ -331,21 +385,22 @@ export function Scene3dLabApp() {
           </div>
         </div>
         <div class="scene3d-lab__toolbar-secondary">
-          <div class="scene3d-lab__runtime-mode" role="group" aria-label="3D 运行时">
-            <span class="scene3d-lab__runtime-label">运行时</span>
+          <div class="scene3d-lab__runtime-mode scene3d-lab__physics-toggle" role="group" aria-label="物理模拟">
+            <span class="scene3d-lab__runtime-label">物理</span>
             <button
               type="button"
-              class={`scene3d-lab__runtime-option${runtimeMode === 'instant3d' ? ' scene3d-lab__runtime-option--active' : ''}`}
-              onClick={() => onRuntimeModeChange('instant3d')}
+              class={`scene3d-lab__runtime-option${physicsEnabled ? ' scene3d-lab__runtime-option--active' : ''}`}
+              onClick={() => onPhysicsEnabledChange(!physicsEnabled)}
             >
-              Instant3D
+              Rapier
             </button>
             <button
               type="button"
-              class={`scene3d-lab__runtime-option${runtimeMode === 'threejs' ? ' scene3d-lab__runtime-option--active' : ''}`}
-              onClick={() => onRuntimeModeChange('threejs')}
+              class="scene3d-lab__runtime-option scene3d-lab__runtime-option--demo"
+              disabled={generating}
+              onClick={onLoadPhysicsDemo}
             >
-              Three.js
+              Demo
             </button>
           </div>
           <details class="scene3d-lab__samples-wrap">
@@ -373,16 +428,26 @@ export function Scene3dLabApp() {
           {!hasPreview && !generating && (
             <div class="scene3d-lab__empty">输入提示词并点击「生成 3D 场景」开始测试</div>
           )}
-          {generating && !hasPreview && (
+          {generating && !showStreamPreview && (
             <div class="scene3d-lab__overlay">{phaseLabel(phase, progress, streamConnected)}</div>
           )}
-          <iframe
-            ref={iframeRef}
-            class={`scene3d-lab__frame${hasPreview ? '' : ' scene3d-lab__frame--hidden'}`}
-            title="3D 场景预览"
-            sandbox="allow-scripts allow-same-origin"
-            src="about:blank"
-          />
+          <div class="scene3d-lab__preview-stack">
+            {showStreamPreview && (
+              <AiStreamPreview
+                reasoningText={reasoningText}
+                contentText={streamContentText}
+                variant="scene3d-lab"
+                emptyLabel={phaseLabel(phase, progress, streamConnected)}
+              />
+            )}
+            <iframe
+              ref={iframeRef}
+              class={`scene3d-lab__frame${hasPreview ? '' : ' scene3d-lab__frame--hidden'}${showStreamPreview && hasPreview ? ' scene3d-lab__frame--streaming' : ''}`}
+              title="3D 场景预览"
+              sandbox="allow-scripts allow-same-origin"
+              src="about:blank"
+            />
+          </div>
         </div>
 
         {inspectorOpen && (

@@ -28,9 +28,18 @@ import {
   resources3dDetailWindowTitle,
   type Resources3dDetailTarget,
 } from './resources-3d-detail-view.tsx'
+import { NewsManagementView } from './news-management-view.tsx'
+import { formatTokenCount } from '../browser/format-token-count.ts'
+import {
+  getNewsCommentStats,
+  getNewsStorageBytes,
+  readNewsStore,
+} from '../news/news-storage.ts'
+import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import {
   AccountPaneIcon,
   DisplayPaneIcon,
+  NewsPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
   UsagePaneIcon,
@@ -50,6 +59,7 @@ type SettingsRoute =
   | { view: 'resources-3d-detail'; target: Resources3dDetailTarget }
   | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId }
   | { view: 'safari-usage' }
+  | { view: 'news' }
 
 const ROOT_TITLE = '系统设置'
 
@@ -82,6 +92,9 @@ function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | unde
   }
   if (route.view === 'safari-usage') {
     return '网络浏览器'
+  }
+  if (route.view === 'news') {
+    return '新闻'
   }
   return ROOT_TITLE
 }
@@ -155,6 +168,17 @@ export function SettingsApp() {
           },
         ],
       },
+      {
+        label: '内容',
+        items: [
+          {
+            type: 'action',
+            label: '新闻…',
+            onClick: () => setRoute({ view: 'news' }),
+            disabled: route.view === 'news',
+          },
+        ],
+      },
     ]
   }, [closeWindowsForApp, minimizeWindow, route.view, showBuiltinAbout, windows])
 
@@ -176,6 +200,7 @@ export function SettingsApp() {
   const showResources3d = view === 'resources-3d'
   const keepResources3d = showResources3d || view === 'resources-3d-detail'
   const showResources3dDetail = view === 'resources-3d-detail'
+  const showNews = view === 'news'
 
   return (
     <div class="settings-host">
@@ -236,6 +261,16 @@ export function SettingsApp() {
                 </span>
                 <span class="settings__pane-label">网络浏览器</span>
               </button>
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => setRoute({ view: 'news' })}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <NewsPaneIcon />
+                </span>
+                <span class="settings__pane-label">新闻</span>
+              </button>
             </div>
           </div>
         </div>
@@ -258,6 +293,9 @@ export function SettingsApp() {
               selectedApp.id === 'browser'
                 ? () => setRoute({ view: 'safari-usage' })
                 : undefined
+            }
+            onOpenNewsSettings={
+              selectedApp.id === 'news' ? () => setRoute({ view: 'news' }) : undefined
             }
           />
         )}
@@ -308,6 +346,13 @@ export function SettingsApp() {
           />
         )}
       </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showNews} keep={showNews}>
+        <NewsManagementView
+          onBack={() => setRoute({ view: 'root' })}
+          onDataChange={() => setCacheRevision((value) => value + 1)}
+        />
+      </SettingsKeepLayer>
     </div>
   )
 }
@@ -338,6 +383,8 @@ type UsageViewProps = {
 
 function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
   const usedPercent = Math.min(100, (summary.usedBytes / DEVICE_CAPACITY_BYTES) * 100)
+  const newsCommentStats = useMemo(() => getNewsCommentStats(readNewsStore()), [])
+  const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
 
   return (
     <div class="settings">
@@ -359,6 +406,7 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
               <span>AI 应用 {formatStorageSize(summary.appsBytes)}</span>
               <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
               <span>邮件 {formatStorageSize(summary.mailDataBytes)}</span>
+              <span>新闻 {formatStorageSize(summary.newsDataBytes)}</span>
               <span>其他 {formatStorageSize(summary.otherBytes)}</span>
               <span>剩余 {formatStorageSize(summary.availableBytes)}</span>
             </div>
@@ -376,6 +424,11 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
               <StorageCategoryRow label="AI 应用" bytes={summary.appsBytes} />
               <StorageCategoryRow label="网络浏览器缓存" bytes={summary.safariCacheBytes} />
               <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
+              <StorageCategoryRow
+                label="新闻"
+                bytes={summary.newsDataBytes}
+                hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`}
+              />
               <StorageCategoryRow label="其他" bytes={summary.otherBytes} hint="未归类的 localStorage 键" />
             </div>
           </div>
@@ -475,9 +528,10 @@ type AppDetailViewProps = {
   app: ManagedAppEntry
   onBack: () => void
   onOpenSafariSettings?: () => void
+  onOpenNewsSettings?: () => void
 }
 
-function AppDetailView({ app, onBack, onOpenSafariSettings }: AppDetailViewProps) {
+function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }: AppDetailViewProps) {
   const { uninstallApp, pruneAppVersionHistory, getAppVersionCount, clearAppData } =
     useGeneratedApps()
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -486,6 +540,9 @@ function AppDetailView({ app, onBack, onOpenSafariSettings }: AppDetailViewProps
   const totalBytes = app.appSizeBytes + app.documentsBytes + app.versionHistoryBytes
   const versionCount = isGeneratedAppId(app.id) ? getAppVersionCount(generatedAppIdToSlug(app.id)) : 0
   const archivedVersionCount = Math.max(0, versionCount - 1)
+  const newsStore = app.id === 'news' ? readNewsStore() : undefined
+  const newsCommentStats = newsStore ? getNewsCommentStats(newsStore) : undefined
+  const newsTokenUsage = app.id === 'news' ? loadNewsTokenUsage() : undefined
 
   const handleDelete = () => {
     if (!isGeneratedAppId(app.id)) {
@@ -536,7 +593,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings }: AppDetailViewProps
             {app.documentsBytes > 0 && (
               <dl class="settings__form-row">
                 <dt>
-                  {app.id === 'browser' ? '网页缓存' : app.id === 'mail' ? '邮件数据' : '文稿与数据'}
+                  {app.id === 'browser' ? '网页缓存' : app.id === 'mail' ? '邮件数据' : app.id === 'news' ? '新闻存档' : '文稿与数据'}
                 </dt>
                 <dd>{formatStorageSize(app.documentsBytes)}</dd>
               </dl>
@@ -556,6 +613,32 @@ function AppDetailView({ app, onBack, onOpenSafariSettings }: AppDetailViewProps
                 <dt>可回滚版本</dt>
                 <dd>{archivedVersionCount} 个</dd>
               </dl>
+            )}
+            {app.id === 'news' && newsStore && newsCommentStats && (
+              <>
+                <dl class="settings__form-row">
+                  <dt>报道篇数</dt>
+                  <dd>{newsStore.articles.length.toLocaleString('zh-CN')} 篇</dd>
+                </dl>
+                <dl class="settings__form-row">
+                  <dt>评论数据</dt>
+                  <dd>
+                    {newsCommentStats.threadCount} 篇已开评 · {newsCommentStats.totalComments} 条
+                  </dd>
+                </dl>
+                <dl class="settings__form-row">
+                  <dt>你的发言 / 已举报</dt>
+                  <dd>
+                    {newsCommentStats.userComments} / {newsCommentStats.reportedCount}
+                  </dd>
+                </dl>
+                {newsTokenUsage && (
+                  <dl class="settings__form-row">
+                    <dt>AI 累计 Tokens</dt>
+                    <dd>{formatTokenCount(newsTokenUsage.totalTokens)}</dd>
+                  </dl>
+                )}
+              </>
             )}
           </div>
         </section>
@@ -583,6 +666,18 @@ function AppDetailView({ app, onBack, onOpenSafariSettings }: AppDetailViewProps
             <button type="button" class="settings__btn" onClick={onOpenSafariSettings}>
               管理网络浏览器缓存与用量
             </button>
+          </div>
+        )}
+
+        {app.id === 'news' && onOpenNewsSettings && (
+          <div class="settings__actions">
+            <button type="button" class="settings__btn" onClick={onOpenNewsSettings}>
+              管理新闻存档与评论区
+            </button>
+            <p class="settings__hint">
+              含报道、评论、点赞/举报记录及 AI 用量统计（当前占用{' '}
+              {formatStorageSize(getNewsStorageBytes())}）。
+            </p>
           </div>
         )}
 

@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
 import {
-  buildInstant3dModelPreviewHtml,
-  buildInstant3dPrimitivePreviewHtml,
-} from '../../assets/3d/build-instant3d-preview-html.ts'
+  buildScene3dModelPreviewHtml,
+  buildScene3dPrimitivePreviewHtml,
+} from '../../assets/3d/build-scene3d-preview-html.ts'
 import {
   catalogEntryById,
   colorModeLabel,
@@ -12,7 +12,7 @@ import {
   placementKindLabel,
   type Instant3dPrimitiveKind,
 } from '../../assets/3d/asset-catalog.ts'
-import { injectInstant3dBridge } from '../../assets/3d/inject-instant3d-bridge.ts'
+import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
 import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 export type Resources3dDetailTarget =
   | { type: 'model'; modelId: string }
@@ -87,9 +87,9 @@ function titleForTarget(target: Resources3dDetailTarget): string {
 
 function previewHtmlForTarget(target: Resources3dDetailTarget): string {
   if (target.type === 'primitive') {
-    return buildInstant3dPrimitivePreviewHtml(target.kind)
+    return buildScene3dPrimitivePreviewHtml(target.kind)
   }
-  return buildInstant3dModelPreviewHtml(target.modelId)
+  return buildScene3dModelPreviewHtml(target.modelId)
 }
 
 export function resources3dDetailWindowTitle(target: Resources3dDetailTarget): string {
@@ -108,7 +108,7 @@ export function Resources3dDetailView({ target, onBack }: Resources3dDetailViewP
 
   useEffect(() => {
     ensureIframeBlankDocument(iframeRef.current)
-    const html = injectInstant3dBridge(previewHtmlForTarget(target))
+    const html = injectScene3dBridge(previewHtmlForTarget(target))
     writeHtmlToIframe(iframeRef.current, html)
   }, [targetKey])
 
@@ -276,7 +276,7 @@ export function Resources3dDetailView({ target, onBack }: Resources3dDetailViewP
                 </dl>
                 <dl class="settings__form-row">
                   <dt>用途</dt>
-                  <dd>Instant3D.addPrimitive 内置几何体，无需加载外部模型</dd>
+                  <dd>Three.js 内置几何体，无需加载外部模型</dd>
                 </dl>
               </>
             ) : (

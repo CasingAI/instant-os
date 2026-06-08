@@ -1,4 +1,4 @@
-import { BrowserIcon } from '../../icons/app-icons.tsx'
+import { BrowserIcon, NewsIcon } from '../../icons/app-icons.tsx'
 import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 
 const PANE_ICON_SIZE = 52
@@ -64,4 +64,8 @@ export function ResourcesPaneIcon() {
       </svg>
     </AppIconTile>
   )
+}
+
+export function NewsPaneIcon() {
+  return <NewsIcon size={PANE_ICON_SIZE} />
 }

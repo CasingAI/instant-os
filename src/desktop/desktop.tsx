@@ -1,4 +1,5 @@
 import type { ComponentType } from 'preact'
+import { useState } from 'preact/hooks'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
@@ -7,6 +8,7 @@ import {
   buildBuiltinIconContextMenuItems,
   buildGeneratedIconContextMenuItems,
 } from '../os/build-icon-context-menu-items.ts'
+import { AppUninstallConfirmSheet } from '../os/app-uninstall-confirm-sheet.tsx'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useOs } from '../os/os-context.tsx'
@@ -64,10 +66,12 @@ function GeneratedDesktopIcon({
   progress,
   textLength,
 }: GeneratedDesktopIconProps) {
-  const { openInstalledApp, openMarketplaceDetail } = useGeneratedApps()
+  const { openInstalledApp, openMarketplaceDetail, uninstallApp } = useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
+  const [uninstallConfirmOpen, setUninstallConfirmOpen] = useState(false)
   const downloading = progress !== undefined && progress < 100
   const slug = generatedAppIdToSlug(appId)
+  const canUninstall = !downloading
 
   const handleOpen = () => {
     if (!downloading) {
@@ -75,34 +79,50 @@ function GeneratedDesktopIcon({
     }
   }
 
+  const handleConfirmUninstall = () => {
+    uninstallApp(appId)
+    setUninstallConfirmOpen(false)
+  }
+
   return (
-    <button
-      type="button"
-      class="desktop-icon"
-      disabled={downloading}
-      onClick={handleOpen}
-      onContextMenu={(event) => {
-        showIconContextMenu(
-          event,
-          buildGeneratedIconContextMenuItems({
-            onOpen: handleOpen,
-            onViewInMarketplace: () => openMarketplaceDetail(slug),
-            openDisabled: downloading,
-          }),
-        )
-      }}
-    >
-      <span class="desktop-icon__image">
-        <GeneratedAppIcon
-          emoji={emoji}
-          themeColor={themeColor}
-          size={72}
-          progress={progress}
-          textLength={textLength}
+    <>
+      <button
+        type="button"
+        class="desktop-icon"
+        disabled={downloading}
+        onClick={handleOpen}
+        onContextMenu={(event) => {
+          showIconContextMenu(
+            event,
+            buildGeneratedIconContextMenuItems({
+              onOpen: handleOpen,
+              onViewInMarketplace: () => openMarketplaceDetail(slug),
+              onUninstall: canUninstall ? () => setUninstallConfirmOpen(true) : undefined,
+              openDisabled: downloading,
+            }),
+          )
+        }}
+      >
+        <span class="desktop-icon__image">
+          <GeneratedAppIcon
+            emoji={emoji}
+            themeColor={themeColor}
+            size={72}
+            progress={progress}
+            textLength={textLength}
+          />
+        </span>
+        <span class="desktop-icon__label">{name}</span>
+      </button>
+
+      {uninstallConfirmOpen && (
+        <AppUninstallConfirmSheet
+          appName={name}
+          onCancel={() => setUninstallConfirmOpen(false)}
+          onConfirm={handleConfirmUninstall}
         />
-      </span>
-      <span class="desktop-icon__label">{name}</span>
-    </button>
+      )}
+    </>
   )
 }
 

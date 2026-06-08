@@ -81,6 +81,18 @@
   background: #0a84ff;
 }
 
+.scene3d-lab__runtime-option--demo {
+  color: #0a84ff;
+}
+
+.scene3d-lab__physics-toggle--disabled {
+  opacity: 0.45;
+}
+
+.scene3d-lab__physics-toggle--disabled .scene3d-lab__runtime-label {
+  color: #aeaeb2;
+}
+
 .scene3d-lab__runtime-option:hover:not(.scene3d-lab__runtime-option--active) {
   background: #f0f0f2;
 }
@@ -217,16 +229,35 @@
   border-right: 1px solid #d2d2d7;
 }
 
+.scene3d-lab__preview-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 .scene3d-lab__body--preview-only .scene3d-lab__preview {
   border-right: none;
 }
 
 .scene3d-lab__frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
   background: #111;
+}
+
+.scene3d-lab__frame--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.scene3d-lab__frame--streaming {
+  background: transparent;
 }
 
 .scene3d-lab__empty {
@@ -279,10 +310,6 @@
 
 .scene3d-lab__panel[hidden] {
   display: none !important;
-}
-
-.scene3d-lab__frame--hidden {
-  visibility: hidden;
 }
 
 .scene3d-lab__inspector-tabs {

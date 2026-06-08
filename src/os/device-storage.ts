@@ -13,11 +13,17 @@ export const DEVICE_STORAGE_KEYS = {
   safariBookmarks: 'instant-os-safari-bookmarks',
   safariTokenUsage: 'instant-os-safari-token-usage',
   mail: 'instant-os-mail',
+  news: 'instant-os-news',
+  newsTokenUsage: 'instant-os-news-token-usage',
   windowSizes: 'instant-os:window-sizes',
   accountSettings: 'instant-os-account-settings',
   displaySettings: 'instant-os-display-settings',
   scene3dLabArchives: 'instant-os-scene3d-lab-archives',
   scene3dLabPrefs: 'instant-os-scene3d-lab-prefs',
+  notificationCenterWidgets: 'instant-os-notification-center-widgets',
+  weather: 'instant-os-weather',
+  stocks: 'instant-os-stocks',
+  catgpt: 'instant-os-catgpt',
 } as const
 
 const ACCOUNTED_KEYS: ReadonlySet<string> = new Set([
@@ -27,6 +33,8 @@ const ACCOUNTED_KEYS: ReadonlySet<string> = new Set([
   DEVICE_STORAGE_KEYS.storeListings,
   DEVICE_STORAGE_KEYS.safariPageCache,
   DEVICE_STORAGE_KEYS.mail,
+  DEVICE_STORAGE_KEYS.news,
+  DEVICE_STORAGE_KEYS.newsTokenUsage,
   DEVICE_STORAGE_KEYS.accountSettings,
 ])
 

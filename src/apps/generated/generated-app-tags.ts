@@ -1,7 +1,6 @@
 import {
   APP_CAPABILITY_TAG_3D,
   filterAppCapabilityTags,
-  mergeAppCapabilityTags,
 } from '../appstore/app-capability-tags.ts'
 
 export const GENERATED_APP_TAGS_META = 'instant-app-tags'
@@ -77,11 +76,7 @@ export function hasGeneratedAppTag(html: string, tag: string): boolean {
   return parseGeneratedAppTags(html).includes(normalized)
 }
 
-const INSTANT3D_CONTENT_MARKERS = [
-  /Instant3DReady/i,
-  /Instant3D\.createScene/i,
-  /Instant3D\.addModel/i,
-  /Instant3D\.addPrimitive/i,
+const THREEJS_CONTENT_MARKERS = [
   /from\s+['"]three['"]/i,
   /THREE\.WebGLRenderer/i,
   /getContext\(\s*['"]webgl2?['"]\s*\)/i,
@@ -99,10 +94,6 @@ export type GeneratedAppTagContext = {
 }
 
 const THREE_D_CONTEXT_PATTERN = /3\s*d|三维|立体|three\s*-?\s*d/i
-const GAME_CONTEXT_PATTERN = /游戏|赛车|竞速|racing|game/i
-const AUDIO_CONTEXT_PATTERN = /音乐|音效|乐器|audio|music|sound/i
-const CREATIVE_CONTEXT_PATTERN = /创意|绘画|设计|艺术|creative|art/i
-const PRODUCTIVITY_CONTEXT_PATTERN = /效率|笔记|待办|日程|工具|productivity|utility|tool/i
 
 function joinAppContextText(context: GeneratedAppTagContext): string {
   return [context.name, context.description, context.category, context.tagline, context.longDescription]
@@ -117,32 +108,11 @@ export function inferTagsFromAppContext(context: GeneratedAppTagContext): string
     return []
   }
 
-  const inferred: string[] = []
-
   if (THREE_D_CONTEXT_PATTERN.test(text)) {
-    inferred.push(APP_CAPABILITY_TAG_3D)
+    return [APP_CAPABILITY_TAG_3D]
   }
 
-  if (GAME_CONTEXT_PATTERN.test(text)) {
-    inferred.push('game')
-  }
-
-  if (AUDIO_CONTEXT_PATTERN.test(text)) {
-    inferred.push('audio')
-  }
-
-  if (CREATIVE_CONTEXT_PATTERN.test(text)) {
-    inferred.push('creative')
-  }
-
-  if (PRODUCTIVITY_CONTEXT_PATTERN.test(text)) {
-    inferred.push('utility')
-    inferred.push('productivity')
-  }
-
-  inferred.push('interactive')
-
-  return filterAppCapabilityTags(inferred)
+  return []
 }
 
 export function appContextSuggests3d(context: GeneratedAppTagContext): boolean {
@@ -150,25 +120,11 @@ export function appContextSuggests3d(context: GeneratedAppTagContext): boolean {
 }
 
 export function inferGeneratedAppTags(html: string): string[] {
-  const inferred: string[] = []
-
-  if (INSTANT3D_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
-    inferred.push(APP_CAPABILITY_TAG_3D)
+  if (THREEJS_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
+    return [APP_CAPABILITY_TAG_3D]
   }
 
-  if (/\bWeb\s*Audio\b|AudioContext|createOscillator/i.test(html)) {
-    inferred.push('audio')
-  }
-
-  if (/localStorage\.|getItem\(|setItem\(/i.test(html)) {
-    inferred.push('persistent')
-  }
-
-  if (/<canvas\b/i.test(html) && !inferred.includes(APP_CAPABILITY_TAG_3D)) {
-    inferred.push('canvas')
-  }
-
-  return filterAppCapabilityTags(inferred)
+  return []
 }
 
 export function generatedAppNeeds3d(html: string, context: GeneratedAppTagContext = {}): boolean {
@@ -231,19 +187,10 @@ export function upsertGeneratedAppTagsMeta(html: string, tags: string[]): string
 export function ensureGeneratedAppTags(
   html: string,
   context: GeneratedAppTagContext = {},
-  fallbackTags: string[] = ['utility', 'interactive'],
 ): string {
-  const declared = parseGeneratedAppTags(html)
-  const fromHtml = inferGeneratedAppTags(html)
-  const fromContext = inferTagsFromAppContext(context)
-  const fromListing = context.tags ?? []
-  const merged = mergeAppCapabilityTags(
-    declared,
-    fromHtml,
-    fromContext,
-    fromListing,
-    fallbackTags,
-  )
+  if (!generatedAppNeeds3d(html, context)) {
+    return html
+  }
 
-  return upsertGeneratedAppTagsMeta(html, merged)
+  return upsertGeneratedAppTagsMeta(html, [APP_CAPABILITY_TAG_3D])
 }

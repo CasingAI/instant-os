@@ -59,5 +59,15 @@ export function resolveWindowDimensions(
   defaults: SavedWindowSize,
 ): SavedWindowSize {
   const saved = loadSavedWindowSize(appId)
-  return saved ?? clampFloatingSize(defaults.width, defaults.height)
+  if (!saved) {
+    return clampFloatingSize(defaults.width, defaults.height)
+  }
+  // 如果持久化的尺寸接近绝对最小值（很可能是之前因为缺少默认尺寸导致的“迷你窗口”），
+  // 则忽略旧存档，直接采用本次传入的建议尺寸。这样新增内置应用后，已有小窗口的用户下次打开能自动恢复合理大小。
+  // 真正的用户缩小操作一般不会正好卡在 300x200 这个阈值附近。
+  const isLikelyBogusFloor = saved.width <= 300 && saved.height <= 200
+  if (isLikelyBogusFloor) {
+    return clampFloatingSize(defaults.width, defaults.height)
+  }
+  return saved
 }

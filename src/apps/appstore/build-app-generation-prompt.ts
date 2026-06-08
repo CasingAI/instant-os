@@ -1,7 +1,10 @@
-import { appContextSuggests3d } from '../generated/generated-app-tags.ts'
-import { formatListingTagsForPrompt, listingSuggests3d } from './listing-tags.ts'
+import { formatListingTagsForPrompt } from './listing-tags.ts'
 import type { StoreListing, StoreListingDetail, StoreReview } from './types.ts'
 import { normalizeAppVersion } from './app-version.ts'
+import {
+  buildApp3dUserPromptSection,
+  resolveApp3dGenerationOptions,
+} from './app-3d-generation-prompt.ts'
 
 export type AppGenerationContext = {
   detail?: Partial<StoreListingDetail>
@@ -84,29 +87,18 @@ function appendUpdateLines(
   lines.push('', '【当前版本完整 HTML 源码】', update.existingHtml.trim())
 }
 
-function append3dRequirementLines(lines: string[], listing: StoreListing, detail?: Partial<StoreListingDetail>) {
-  const suggests3d =
-    listingSuggests3d(listing) ||
-    appContextSuggests3d({
-      name: listing.name,
-      description: listing.description,
-      category: listing.category,
-      tagline: detail?.tagline,
-      longDescription: detail?.longDescription,
-    })
-
-  if (!suggests3d) {
+function append3dRequirementLines(
+  lines: string[],
+  listing: StoreListing,
+  detail: Partial<StoreListingDetail> | undefined,
+  existingHtml: string | undefined,
+) {
+  const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, detail, existingHtml)
+  if (!is3d) {
     return
   }
 
-  lines.push(
-    '',
-    '【重要：此为 3D 应用】',
-    '应用名称/描述已表明这是 3D 应用（如 3D 赛车、三维展示等）。你必须：',
-    '- instant-app-tags 必须包含 3d，并配合 game / creative / interactive 等类型标签（例如 content="3d,game,interactive"）',
-    '- 主界面必须使用 Instant3D API 实现真正的 3D 场景，不要用 2D canvas 或 CSS 伪 3D 代替',
-    '- 赛车/竞速类：用 Instant3D 搭建赛道、车辆与场景，支持视角或操控交互',
-  )
+  lines.push('', buildApp3dUserPromptSection(physicsEnabled))
 }
 
 export function buildAppGenerationPrompt(
@@ -129,7 +121,7 @@ export function buildAppGenerationPrompt(
     appendReviewLines(lines, context.reviews)
   }
 
-  append3dRequirementLines(lines, listing, context.detail)
+  append3dRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
 
   if (context.update) {
     appendUpdateLines(lines, context.update)

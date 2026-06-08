@@ -1,6 +1,7 @@
 import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
 import { toChatCompletionTool } from './agent-tool.ts'
+import { buildThinkingRequestExtras } from './ai-thinking.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 
@@ -76,6 +77,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       model,
       messages,
       tools: chatTools,
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
     })
 
     const choice = response.choices[0]

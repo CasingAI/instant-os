@@ -56,6 +56,7 @@ export function ListingDetail({
     loadListingReviews,
     getCachedListingReviews,
     addUserReview,
+    removeUserReview,
     hasPendingUpdate,
     canRollbackApp,
     getAppVersionCount,
@@ -166,6 +167,12 @@ export function ListingDetail({
     setReviews(getCachedListingReviews(listing.slug))
   }, [listing.slug, getCachedListingReviews, pendingUpdate])
 
+  useEffect(() => {
+    if (browseOpen && reviews.length <= 1) {
+      setBrowseOpen(false)
+    }
+  }, [browseOpen, reviews.length])
+
   const saveField = useCallback(
     (field: DetailField, value: string) => {
       saveListingDetail(listing.slug, { [field]: value })
@@ -194,6 +201,13 @@ export function ListingDetail({
       return ok
     },
     [addUserReview, listing.slug],
+  )
+
+  const handleDeleteUserReview = useCallback(
+    (reviewId: string) => {
+      removeUserReview(listing.slug, reviewId)
+    },
+    [listing.slug, removeUserReview],
   )
 
   const handleConfirmRollback = useCallback(() => {
@@ -300,6 +314,7 @@ export function ListingDetail({
           installed={installed}
           onOpenBrowse={() => setBrowseOpen(true)}
           onOpenCompose={() => setComposeOpen(true)}
+          onDeleteUserReview={handleDeleteUserReview}
         />
 
         <section class="appstore-detail__section">
@@ -380,7 +395,11 @@ export function ListingDetail({
       </div>
 
       {browseOpen && (
-        <ReviewBrowseModal reviews={sortedReviews} onClose={() => setBrowseOpen(false)} />
+        <ReviewBrowseModal
+          reviews={sortedReviews}
+          onClose={() => setBrowseOpen(false)}
+          onDeleteUserReview={handleDeleteUserReview}
+        />
       )}
 
       {composeOpen && (

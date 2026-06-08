@@ -1,17 +1,11 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 
-export type Scene3dRuntimeMode = 'instant3d' | 'threejs'
-
 type Scene3dLabPrefs = {
-  runtimeMode: Scene3dRuntimeMode
+  physicsEnabled: boolean
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.scene3dLabPrefs
-const DEFAULT_PREFS: Scene3dLabPrefs = { runtimeMode: 'instant3d' }
-
-function isRuntimeMode(value: unknown): value is Scene3dRuntimeMode {
-  return value === 'instant3d' || value === 'threejs'
-}
+const DEFAULT_PREFS: Scene3dLabPrefs = { physicsEnabled: false }
 
 export function loadScene3dLabPrefs(): Scene3dLabPrefs {
   try {
@@ -20,15 +14,18 @@ export function loadScene3dLabPrefs(): Scene3dLabPrefs {
       return DEFAULT_PREFS
     }
     const parsed = JSON.parse(raw) as Partial<Scene3dLabPrefs>
-    if (!isRuntimeMode(parsed.runtimeMode)) {
-      return DEFAULT_PREFS
+    return {
+      physicsEnabled: parsed.physicsEnabled === true,
     }
-    return { runtimeMode: parsed.runtimeMode }
   } catch {
     return DEFAULT_PREFS
   }
 }
 
-export function saveScene3dLabRuntimeMode(runtimeMode: Scene3dRuntimeMode): void {
-  writeLocalStorageItem(STORAGE_KEY, JSON.stringify({ runtimeMode }))
+export function saveScene3dLabPrefs(prefs: Scene3dLabPrefs): void {
+  writeLocalStorageItem(STORAGE_KEY, JSON.stringify(prefs))
+}
+
+export function saveScene3dLabPhysicsEnabled(physicsEnabled: boolean): void {
+  saveScene3dLabPrefs({ ...loadScene3dLabPrefs(), physicsEnabled })
 }

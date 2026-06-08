@@ -148,6 +148,24 @@
     0 0 0 3px rgba(59, 130, 246, 0.2);
 }
 
+.setup-form__checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.setup-form__checkbox input {
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+
+.setup-form__checkbox-label {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #475569;
+}
+
 .setup-assistant__footnote {
   margin: 16px 0 0;
   font-size: 12px;

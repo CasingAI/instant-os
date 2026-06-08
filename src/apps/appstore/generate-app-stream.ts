@@ -1,15 +1,24 @@
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
+import {
+  buildThinkingRequestExtras,
+  readStreamDelta,
+  resolveAppGenerationPhase,
+  resolveAppGenerationThinkingEnabled,
+  totalStreamTextLength,
+} from '../../ai/ai-thinking.ts'
+import { setPendingInstallStream } from '../../os/pending-install-stream.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
+import {
+  buildApp3dSystemPromptExtension,
+  resolveApp3dGenerationOptions,
+} from './app-3d-generation-prompt.ts'
 import {
   buildAppGenerationPrompt,
   type AppGenerationContext,
 } from './build-app-generation-prompt.ts'
 import { ensureGeneratedAppTags } from '../generated/generated-app-tags.ts'
-import { buildGeneratedAppTagPromptSection } from './generated-app-tag-prompt.ts'
 import type { StoreListing } from './types.ts'
-
-const GENERATED_APP_TAG_PROMPT = buildGeneratedAppTagPromptSection()
 
 const APP_BUILDER_PROMPT = `你是 Instant OS 的微应用生成器。
 根据应用名称、描述及可选的应用集市详情页信息，生成一个完整、可交互的单页 HTML 应用。
@@ -30,9 +39,7 @@ const APP_BUILDER_PROMPT = `你是 Instant OS 的微应用生成器。
 - 不使用 alert/confirm/prompt
 - 中文界面
 - 需要持久化的用户数据（设置、列表、进度等）请使用 localStorage（键名自定，值必须是字符串，可用 JSON.stringify）
-- 背景色或渐变应铺满整个视口，与 Instant OS 窗口内容区协调（如浅灰或与应用主题一致），不要留一圈未使用的画布边距
-
-${GENERATED_APP_TAG_PROMPT}`
+- 背景色或渐变应铺满整个视口，与 Instant OS 窗口内容区协调（如浅灰或与应用主题一致），不要留一圈未使用的画布边距`
 
 const APP_UPDATE_PROMPT = `你是 Instant OS 的微应用迭代工程师。
 用户已安装某一版本的微应用，并提交了新的反馈。你需要在现有 HTML 源码基础上生成改进后的新版本。
@@ -53,16 +60,33 @@ const APP_UPDATE_PROMPT = `你是 Instant OS 的微应用迭代工程师。
 - 不使用 alert/confirm/prompt
 - 中文界面
 - 需要持久化的用户数据请继续使用 localStorage（键名自定，值必须是字符串）
-- 更新时保留或正确维护 <head> 中的 instant-app-tags；若改为 3D 界面须加 3d，若不再是 3D 须移除 3d
+- 若改为 3D 界面，可在 head 加 <meta name="instant-app-tags" content="3d">；若不再是 3D 须移除该 meta`
 
-${GENERATED_APP_TAG_PROMPT}`
+function buildAppGenerationSystemPrompt(
+  listing: StoreListing,
+  context: AppGenerationContext,
+  isUpdate: boolean,
+): string {
+  const basePrompt = isUpdate ? APP_UPDATE_PROMPT : APP_BUILDER_PROMPT
+  const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(
+    listing,
+    context.detail,
+    context.update?.existingHtml,
+  )
+  if (!is3d) {
+    return basePrompt
+  }
 
-/** 约 18K 字符时进度接近 92%，使进度条移动更平缓 */
-const EXPECTED_MAX_CHARS = 18 * 1000
+  return `${basePrompt}\n\n${buildApp3dSystemPromptExtension(physicsEnabled)}`
+}
+
+/** 约达到该字符数时进度接近 92%，使进度条移动更平缓 */
+const EXPECTED_MAX_CHARS_2D = 36 * 1000
+const EXPECTED_MAX_CHARS_3D = 108 * 1000
 const PROGRESS_START = 10
 const PROGRESS_CAP = 92
 
-export type AppGenerationPhase = 'waiting' | 'generating'
+export type AppGenerationPhase = 'waiting' | 'thinking' | 'generating'
 
 export type AppGenerationUpdate = {
   phase: AppGenerationPhase
@@ -70,7 +94,14 @@ export type AppGenerationUpdate = {
   textLength: number
 }
 
-export function progressFromTextLength(textLength: number, generating: boolean): number {
+const METADATA_EMIT_INTERVAL_MS = 280
+const STREAM_EMIT_INTERVAL_MS = 120
+
+export function progressFromTextLength(
+  textLength: number,
+  generating: boolean,
+  is3d = false,
+): number {
   if (!generating) {
     return 0
   }
@@ -79,7 +110,8 @@ export function progressFromTextLength(textLength: number, generating: boolean):
     return PROGRESS_START
   }
 
-  const ratio = Math.min(1, textLength / EXPECTED_MAX_CHARS)
+  const expectedMaxChars = is3d ? EXPECTED_MAX_CHARS_3D : EXPECTED_MAX_CHARS_2D
+  const ratio = Math.min(1, textLength / expectedMaxChars)
   return PROGRESS_START + ratio * (PROGRESS_CAP - PROGRESS_START)
 }
 
@@ -92,58 +124,88 @@ export async function generateAppHtmlStreaming(
   const client = getOpenAiClient(config)
   const model = config.defaultModel
   const isUpdate = context.update !== undefined
+  const { is3d } = resolveApp3dGenerationOptions(
+    listing,
+    context.detail,
+    context.update?.existingHtml,
+  )
 
   onUpdate({ phase: 'waiting', progress: 0, textLength: 0 })
+  setPendingInstallStream(listing.slug, { reasoningText: '', rawText: '' })
 
   const stream = await client.chat.completions.create({
     model,
     stream: true,
     messages: [
-      { role: 'system', content: isUpdate ? APP_UPDATE_PROMPT : APP_BUILDER_PROMPT },
+      { role: 'system', content: buildAppGenerationSystemPrompt(listing, context, isUpdate) },
       {
         role: 'user',
         content: buildAppGenerationPrompt(listing, context),
       },
     ],
+    ...buildThinkingRequestExtras(
+      config.providerId,
+      resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled),
+    ),
   })
 
-  let text = ''
-  let generating = false
-  let lastEmitAt = 0
+  let contentText = ''
+  let reasoningText = ''
+  let streamStarted = false
+  let lastMetadataEmitAt = 0
+  let lastStreamEmitAt = 0
 
   const emit = (force = false) => {
     const now = Date.now()
-    if (!force && generating && now - lastEmitAt < 150) {
+    const phase = resolveAppGenerationPhase(reasoningText, contentText, streamStarted)
+    const textLength = totalStreamTextLength(reasoningText, contentText)
+    const generating = phase !== 'waiting'
+
+    const streamDue = force || now - lastStreamEmitAt >= STREAM_EMIT_INTERVAL_MS
+    const metadataDue = force || now - lastMetadataEmitAt >= METADATA_EMIT_INTERVAL_MS
+
+    if (streamDue) {
+      lastStreamEmitAt = now
+      setPendingInstallStream(listing.slug, {
+        reasoningText,
+        rawText: contentText,
+      })
+    }
+
+    if (!metadataDue) {
       return
     }
-    lastEmitAt = now
+
+    lastMetadataEmitAt = now
     onUpdate({
-      phase: generating ? 'generating' : 'waiting',
-      progress: progressFromTextLength(text.length, generating),
-      textLength: text.length,
+      phase,
+      progress: progressFromTextLength(textLength, generating, is3d),
+      textLength,
     })
   }
 
   for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content ?? ''
-    if (!delta) {
+    streamStarted = true
+    const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
+    if (reasoning) {
+      reasoningText += reasoning
+      emit()
+      continue
+    }
+    if (!content) {
       continue
     }
 
-    if (!generating) {
-      generating = true
-    }
-
-    text += delta
+    contentText += content
     emit()
   }
 
-  if (!text.trim()) {
+  if (!contentText.trim()) {
     throw new Error('AI 未返回任何代码')
   }
 
   emit(true)
-  return ensureGeneratedAppTags(extractHtmlFromAiText(text), {
+  return ensureGeneratedAppTags(extractHtmlFromAiText(contentText), {
     name: listing.name,
     description: listing.description,
     category: listing.category,

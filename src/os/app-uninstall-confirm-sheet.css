@@ -1,0 +1,96 @@
+.os-uninstall-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.os-uninstall-confirm {
+  width: min(100%, 360px);
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.os-uninstall-confirm__body {
+  display: flex;
+  gap: 14px;
+  padding: 18px 18px 14px;
+}
+
+.os-uninstall-confirm__icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ff9a95 0%, #e34b3f 100%);
+  border: 1px solid #a12622;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.os-uninstall-confirm__copy {
+  min-width: 0;
+}
+
+.os-uninstall-confirm__title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.os-uninstall-confirm__message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #636366;
+}
+
+.os-uninstall-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.os-uninstall-confirm__btn {
+  min-width: 72px;
+  padding: 4px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  background: linear-gradient(180deg, #fefefe 0%, #e8e8e8 100%);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.os-uninstall-confirm__btn:hover {
+  background: linear-gradient(180deg, #fff 0%, #efefef 100%);
+}
+
+.os-uninstall-confirm__btn--danger {
+  color: #fff;
+  background: linear-gradient(180deg, #c9302a 0%, #e34b3f 100%);
+  border-color: #a12622;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.os-uninstall-confirm__btn--danger:hover {
+  background: linear-gradient(180deg, #d7352f 0%, #eb5a50 100%);
+}

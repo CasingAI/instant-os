@@ -585,6 +585,26 @@
   gap: 8px;
 }
 
+.appstore-review-card__head-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.appstore-review-card__delete {
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ff3b30;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.appstore-review-card__delete:hover {
+  color: #d70015;
+}
+
 .appstore-review-card__author {
   min-width: 0;
   font-size: 12px;

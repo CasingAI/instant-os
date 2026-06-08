@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import './icon-context-menu.css'
 
 export type IconContextMenuItem =
-  | { type: 'action'; label: string; disabled?: boolean; onClick: () => void }
+  | { type: 'action'; label: string; disabled?: boolean; destructive?: boolean; onClick: () => void }
   | { type: 'separator' }
 
 type IconContextMenuProps = {
@@ -75,7 +75,7 @@ export function IconContextMenu({ x, y, items, onClose }: IconContextMenuProps) 
           <button
             key={item.label}
             type="button"
-            class="os-icon-context-menu__item"
+            class={`os-icon-context-menu__item${item.destructive ? ' os-icon-context-menu__item--destructive' : ''}`}
             role="menuitem"
             disabled={item.disabled}
             onClick={() => {

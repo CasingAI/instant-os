@@ -4,6 +4,7 @@ import { IconContextMenuProvider } from './icon-context-menu-context.tsx'
 import { AboutAppProvider } from './about-app-context.tsx'
 import { GeneratedAppsProvider } from './generated-apps-context.tsx'
 import { MenuBarProvider } from './menu-bar-context.tsx'
+import { NotificationCenterProvider } from './notification-center-context.tsx'
 import { MenuBar } from './menu-bar.tsx'
 import { OsProvider } from './os-context.tsx'
 import { WindowManager } from '../window/window-frame.tsx'
@@ -26,9 +27,11 @@ export function OsShell() {
       <MenuBarProvider>
         <AboutAppProvider>
           <GeneratedAppsProvider>
-            <IconContextMenuProvider>
-              <OsShellContent />
-            </IconContextMenuProvider>
+            <NotificationCenterProvider>
+              <IconContextMenuProvider>
+                <OsShellContent />
+              </IconContextMenuProvider>
+            </NotificationCenterProvider>
           </GeneratedAppsProvider>
         </AboutAppProvider>
       </MenuBarProvider>

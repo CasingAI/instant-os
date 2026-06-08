@@ -1,4 +1,5 @@
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
+import { buildThinkingRequestExtras, readStreamDelta } from '../../ai/ai-thinking.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { TokenUsageSnapshot } from './browser-token-usage.ts'
@@ -112,6 +113,7 @@ export type PageGenerationContext = {
 export type PageGenerationUpdate = {
   html: string
   rawText: string
+  reasoningText: string
   title: string | undefined
   textLength: number
   usage: LiveTokenUsage
@@ -246,6 +248,7 @@ export async function generatePageHtmlStreaming(
   const promptTokenEstimate = estimatePromptTokens(PAGE_BUILDER_PROMPT, userPrompt)
 
   let text = ''
+  let reasoningText = ''
   let lastHtml = ''
   let lastHtmlEmitAt = 0
   let lastRawEmitAt = 0
@@ -287,8 +290,9 @@ export async function generatePageHtmlStreaming(
     onUpdate({
       html: lastHtml,
       rawText: text,
+      reasoningText,
       title: lastHtml ? extractTitleFromPartialHtml(lastHtml) : undefined,
-      textLength: text.length,
+      textLength: text.length + reasoningText.length,
       usage: liveUsage,
     })
   }
@@ -296,6 +300,7 @@ export async function generatePageHtmlStreaming(
   onUpdate({
     html: '',
     rawText: '',
+    reasoningText: '',
     title: undefined,
     textLength: 0,
     usage: liveUsage,
@@ -312,25 +317,32 @@ export async function generatePageHtmlStreaming(
         { role: 'system', content: PAGE_BUILDER_PROMPT },
         { role: 'user', content: userPrompt },
       ],
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
     })
 
     for await (const chunk of stream) {
       const choice = chunk.choices[0]
-      const delta = choice?.delta?.content ?? ''
+      const { reasoning, content } = readStreamDelta(choice?.delta)
 
       if (chunk.usage) {
         usage = snapshotFromUsage(chunk.usage)
       }
 
-      if (!delta) {
+      if (reasoning) {
+        reasoningText += reasoning
+        emit()
+        continue
+      }
+
+      if (!content) {
         if (choice?.finish_reason) {
           log.finish(choice.finish_reason)
         }
         continue
       }
 
-      log.delta(delta)
-      text += delta
+      log.delta(content)
+      text += content
       emit()
     }
 
@@ -344,8 +356,9 @@ export async function generatePageHtmlStreaming(
     onUpdate({
       html,
       rawText: text,
+      reasoningText,
       title: extractTitleFromPartialHtml(html) ?? undefined,
-      textLength: text.length,
+      textLength: text.length + reasoningText.length,
       usage: liveUsage,
     })
     log.complete(text, html, usage ?? {

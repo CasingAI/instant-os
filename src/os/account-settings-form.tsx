@@ -82,6 +82,25 @@ export function AccountSettingsForm({
           }
         />
       </label>
+
+      {layout === 'settings' && draft.providerId === 'deepseek' && (
+        <label class={fieldClass}>
+          <span class={labelClass}>思考模式</span>
+          <span class="settings__checkbox">
+            <input
+              type="checkbox"
+              checked={draft.thinkingEnabled}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  thinkingEnabled: (event.currentTarget as HTMLInputElement).checked,
+                })
+              }
+            />
+            <span class="settings__checkbox-label">开启思考链</span>
+          </span>
+        </label>
+      )}
     </>
   )
 }
