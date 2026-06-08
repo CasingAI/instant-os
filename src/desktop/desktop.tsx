@@ -12,7 +12,10 @@ import { AppUninstallConfirmSheet } from '../os/app-uninstall-confirm-sheet.tsx'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
-import { reconcileDesktopIconOrder } from '../os/launcher-layout-storage.ts'
+import {
+  isPermanentlyPinnedToDock,
+  reconcileDesktopIconOrder,
+} from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
 import type { AppId, BuiltinAppId, GeneratedAppId } from '../os/types.ts'
 import {
@@ -102,7 +105,8 @@ function DesktopIcon({
           buildBuiltinIconContextMenuItems(handleOpen, {
             isPinnedToDock: pinned,
             onPinToDock: () => pinToDock(appId),
-            onUnpinFromDock: () => unpinFromDock(appId),
+            onUnpinFromDock:
+              pinned && !isPermanentlyPinnedToDock(appId) ? () => unpinFromDock(appId) : undefined,
           }),
         )
       }}

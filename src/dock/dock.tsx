@@ -9,6 +9,7 @@ import {
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
+import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
 import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
 import '../icons/app-icon-tile.css'
@@ -69,7 +70,8 @@ export function Dock() {
             buildBuiltinIconContextMenuItems(handleOpen, {
               isPinnedToDock: pinned,
               onPinToDock: () => pinToDock(app.id),
-              onUnpinFromDock: () => unpinFromDock(app.id),
+              onUnpinFromDock:
+                pinned && !isPermanentlyPinnedToDock(app.id) ? () => unpinFromDock(app.id) : undefined,
             }),
           )
         }}

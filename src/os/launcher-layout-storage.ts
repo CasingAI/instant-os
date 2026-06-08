@@ -1,6 +1,6 @@
 import { APP_REGISTRY } from './app-registry.tsx'
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
-import type { AppId } from './types.ts'
+import type { AppId, BuiltinAppId } from './types.ts'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.launcherLayout
 
@@ -32,8 +32,26 @@ export type LauncherLayoutState = {
 
 const DEFAULT_DOCK_PINNED_BUILTIN_COUNT = 4
 
+/** 始终保留在程序坞固定区，不可移除。 */
+export const PERMANENTLY_PINNED_DOCK_APP_IDS: readonly BuiltinAppId[] = ['settings']
+
+export function isPermanentlyPinnedToDock(appId: AppId): boolean {
+  return PERMANENTLY_PINNED_DOCK_APP_IDS.includes(appId as BuiltinAppId)
+}
+
+export function reconcilePinnedDockAppIds(pinnedDockAppIds: AppId[]): AppId[] {
+  const ordered = [...pinnedDockAppIds]
+  for (const appId of PERMANENTLY_PINNED_DOCK_APP_IDS) {
+    if (!ordered.includes(appId)) {
+      ordered.push(appId)
+    }
+  }
+  return ordered
+}
+
 export function getDefaultPinnedDockAppIds(): AppId[] {
-  return APP_REGISTRY.slice(0, DEFAULT_DOCK_PINNED_BUILTIN_COUNT).map((app) => app.id)
+  const leading = APP_REGISTRY.slice(0, DEFAULT_DOCK_PINNED_BUILTIN_COUNT).map((app) => app.id)
+  return reconcilePinnedDockAppIds(leading)
 }
 
 export function getDefaultDesktopIconOrder(): AppId[] {
@@ -98,31 +116,31 @@ function readLauncherLayout(): LauncherLayoutState {
     }
 
     const parsed = JSON.parse(raw) as Partial<LauncherLayoutState> & LegacyLauncherLayoutState
-    const pinnedDockAppIds = Array.isArray(parsed.pinnedDockAppIds)
+    const storedPinnedDockAppIds = Array.isArray(parsed.pinnedDockAppIds)
       ? parsed.pinnedDockAppIds.filter((id): id is AppId => typeof id === 'string')
       : getDefaultPinnedDockAppIds()
+    const pinnedDockAppIds = reconcilePinnedDockAppIds(storedPinnedDockAppIds)
 
+    let desktopIconOrder: AppId[] = []
     if (Array.isArray(parsed.desktopIconOrder)) {
-      return {
-        pinnedDockAppIds,
-        desktopIconOrder: parsed.desktopIconOrder.filter((id): id is AppId => typeof id === 'string'),
-      }
+      desktopIconOrder = parsed.desktopIconOrder.filter((id): id is AppId => typeof id === 'string')
+    } else if (parsed.desktopPositions && typeof parsed.desktopPositions === 'object') {
+      desktopIconOrder = migratePositionsToOrder(
+        parsed.desktopPositions,
+        getDefaultDesktopIconOrder(),
+      )
     }
 
-    if (parsed.desktopPositions && typeof parsed.desktopPositions === 'object') {
-      return {
-        pinnedDockAppIds,
-        desktopIconOrder: migratePositionsToOrder(
-          parsed.desktopPositions,
-          getDefaultDesktopIconOrder(),
-        ),
-      }
+    const state: LauncherLayoutState = { pinnedDockAppIds, desktopIconOrder }
+    const pinsMigrated = pinnedDockAppIds.some(
+      (appId, index) => storedPinnedDockAppIds[index] !== appId,
+    ) || pinnedDockAppIds.length !== storedPinnedDockAppIds.length
+
+    if (pinsMigrated) {
+      writeLauncherLayout(state)
     }
 
-    return {
-      pinnedDockAppIds,
-      desktopIconOrder: [],
-    }
+    return state
   } catch {
     return getDefaultLauncherLayout()
   }
@@ -156,6 +174,10 @@ export function pinAppToDock(state: LauncherLayoutState, appId: AppId): Launcher
 }
 
 export function unpinAppFromDock(state: LauncherLayoutState, appId: AppId): LauncherLayoutState {
+  if (isPermanentlyPinnedToDock(appId)) {
+    return state
+  }
+
   return {
     ...state,
     pinnedDockAppIds: state.pinnedDockAppIds.filter((id) => id !== appId),

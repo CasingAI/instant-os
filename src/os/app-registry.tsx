@@ -107,7 +107,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     name: '系统设置',
     icon: SettingsIcon,
     dock: true,
-    desktop: false,
+    desktop: true,
   }),
 ]
 
