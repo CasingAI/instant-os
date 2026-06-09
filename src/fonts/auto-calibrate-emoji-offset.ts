@@ -1,6 +1,6 @@
 import { applyEmojiFontMode, ensureAppleColorEmojiFonts } from './ensure-apple-color-emoji-fonts.ts'
+import { EMOJI_CALIBRATION_GLYPHS } from './emoji-calibration-glyphs.ts'
 import { applyEmojiOffsetVariables } from './emoji-offset.ts'
-import { EMOJI_PREVIEW_GLYPHS } from './emoji-preview-glyphs.ts'
 import {
   ensureEmojiPreviewFontsLoaded,
   measureIconEmojiOffsetEm,
@@ -9,8 +9,8 @@ import {
 import { loadDisplaySettings, patchDisplaySettings } from '../os/display-settings-storage.ts'
 
 const ICON_TILE_SIZE_PX = 72
-const OFFSET_CLAMP_MIN = -0.15
-const OFFSET_CLAMP_MAX = 0.15
+const OFFSET_CLAMP_MIN = -0.3
+const OFFSET_CLAMP_MAX = 0.3
 const FONT_READY_MAX_ATTEMPTS = 3
 const FONT_READY_RETRY_DELAY_MS = 2000
 
@@ -48,11 +48,11 @@ async function waitForMeasurementFonts(): Promise<boolean> {
 
   for (let attempt = 0; attempt < FONT_READY_MAX_ATTEMPTS; attempt += 1) {
     await applyEmojiFontMode()
-    await ensureEmojiPreviewFontsLoaded(EMOJI_PREVIEW_GLYPHS, fontFamily, ICON_TILE_SIZE_PX)
+    await ensureEmojiPreviewFontsLoaded(EMOJI_CALIBRATION_GLYPHS, fontFamily, ICON_TILE_SIZE_PX)
 
     const fontSizePx = ICON_TILE_SIZE_PX * (50 / 72)
     const primaryFamily = fontFamily.split(',')[0]?.trim().replace(/^['"]|['"]$/g, '') ?? fontFamily
-    const probeEmoji = EMOJI_PREVIEW_GLYPHS[0] ?? '😀'
+    const probeEmoji = EMOJI_CALIBRATION_GLYPHS[0] ?? '🎆'
     const faceReady = document.fonts.check(`${fontSizePx}px "${primaryFamily}"`, probeEmoji)
 
     if (faceReady) {
@@ -90,7 +90,7 @@ export async function autoCalibrateEmojiOffsetIfNeeded(): Promise<boolean> {
     await waitForMeasurementFonts()
 
     const measured = await measureIconEmojiOffsetEm(
-      EMOJI_PREVIEW_GLYPHS,
+      EMOJI_CALIBRATION_GLYPHS,
       resolveActiveEmojiFontFamily(),
       ICON_TILE_SIZE_PX,
     )

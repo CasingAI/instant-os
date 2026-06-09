@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
 import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import { applyEmojiFontMode } from '../../fonts/ensure-apple-color-emoji-fonts.ts'
+import { EMOJI_CALIBRATION_GLYPHS } from '../../fonts/emoji-calibration-glyphs.ts'
 import { EMOJI_MIXED_PREVIEW_LINES } from '../../fonts/emoji-mixed-preview-lines.ts'
-import { EMOJI_PREVIEW_GLYPHS } from '../../fonts/emoji-preview-glyphs.ts'
 import {
   applyEmojiOffsetVariables,
   formatEmojiOffsetPercent,
@@ -27,8 +27,8 @@ type EmojiCalibrationViewProps = {
 }
 
 const ICON_PREVIEW_TILE_SIZE = 48
-const OFFSET_SLIDER_MIN = -0.15
-const OFFSET_SLIDER_MAX = 0.15
+const OFFSET_SLIDER_MIN = -0.3
+const OFFSET_SLIDER_MAX = 0.3
 const OFFSET_SLIDER_STEP = 0.0025
 
 type CalibrationSlot = {
@@ -37,7 +37,7 @@ type CalibrationSlot = {
   offsetEm?: number
 }
 
-type CalibrationStage = 'idle' | 'running' | 'aggregating' | 'complete' | 'error'
+type CalibrationStage = 'idle' | 'running' | 'complete' | 'error'
 
 function clampOffsetEm(value: number): number {
   return Math.min(OFFSET_SLIDER_MAX, Math.max(OFFSET_SLIDER_MIN, value))
@@ -48,7 +48,7 @@ function roundOffsetEm(value: number): number {
 }
 
 function createInitialSlots(showIcons = true): CalibrationSlot[] {
-  return EMOJI_PREVIEW_GLYPHS.map((emoji) => ({
+  return EMOJI_CALIBRATION_GLYPHS.map((emoji) => ({
     emoji,
     phase: showIcons ? ('done' as const) : ('pending' as const),
   }))
@@ -123,7 +123,7 @@ export function EmojiCalibrationView({ onBack }: EmojiCalibrationViewProps) {
       setStatusMessage('逐个加载图标…')
 
       const measured = await measureIconEmojiOffsetWithCalibrationProgress(
-        EMOJI_PREVIEW_GLYPHS,
+        EMOJI_CALIBRATION_GLYPHS,
         resolveActiveEmojiFontFamily(),
         ICON_PREVIEW_TILE_SIZE,
         undefined,
@@ -167,16 +167,6 @@ export function EmojiCalibrationView({ onBack }: EmojiCalibrationViewProps) {
         return
       }
 
-      setStage('aggregating')
-      setStatusMessage('计算平均偏移…')
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 720)
-      })
-
-      if (calibrationRunRef.current !== runId) {
-        return
-      }
-
       if (measured === undefined) {
         setStage('error')
         setCalibrationError('偏移测量失败，请确认内置字体已加载后重试。')
@@ -198,7 +188,7 @@ export function EmojiCalibrationView({ onBack }: EmojiCalibrationViewProps) {
     }
   }
 
-  const calibrating = stage === 'running' || stage === 'aggregating'
+  const calibrating = stage === 'running'
 
   return (
     <div class="settings">
@@ -229,7 +219,7 @@ export function EmojiCalibrationView({ onBack }: EmojiCalibrationViewProps) {
                   class={`settings__emoji-calibration-slot settings__emoji-calibration-slot--${slot.phase}`}
                 >
                   <div class="settings__emoji-calibration-slot-icon">
-                    <AppIconTile color="#8e8e93" size={ICON_PREVIEW_TILE_SIZE}>
+                    <AppIconTile color="#8e8e93" size={ICON_PREVIEW_TILE_SIZE} showDesignGrid>
                       <span
                         class="app-icon-tile__emoji"
                         style={{ fontSize: `${ICON_PREVIEW_TILE_SIZE * (50 / 72)}px` }}
@@ -249,13 +239,6 @@ export function EmojiCalibrationView({ onBack }: EmojiCalibrationViewProps) {
                 </div>
               ))}
             </div>
-
-            {stage === 'aggregating' && (
-              <div class="settings__emoji-calibration-aggregate" aria-hidden="true">
-                <span class="settings__emoji-calibration-aggregate-spinner" />
-                <span>汇总测量结果…</span>
-              </div>
-            )}
           </div>
 
           <button

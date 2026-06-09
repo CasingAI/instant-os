@@ -1,9 +1,11 @@
 import type { ComponentChildren } from 'preact'
+import { AppIconDesignGrid } from './app-icon-design-grid.tsx'
 import './app-icon-tile.css'
 
 type AppIconTileProps = {
   color: string
   size?: number
+  showDesignGrid?: boolean
   children: ComponentChildren
 }
 
@@ -11,7 +13,7 @@ export function appIconBackground(color: string): string {
   return `linear-gradient(180deg, color-mix(in srgb, ${color} 70%, white) 0%, ${color} 48%, color-mix(in srgb, ${color} 65%, black) 100%)`
 }
 
-export function AppIconTile({ color, size = 72, children }: AppIconTileProps) {
+export function AppIconTile({ color, size = 72, showDesignGrid = false, children }: AppIconTileProps) {
   const radius = Math.round(size * 0.22)
   const glossHeight = Math.round(size * 0.4375)
 
@@ -33,7 +35,10 @@ export function AppIconTile({ color, size = 72, children }: AppIconTileProps) {
             borderRadius: `${radius}px ${radius}px 0 0`,
           }}
         />
-        <span class="app-icon-tile__content">{children}</span>
+        <span class="app-icon-tile__content">
+          {showDesignGrid && <AppIconDesignGrid class="app-icon-tile__design-grid" />}
+          <span class="app-icon-tile__content-foreground">{children}</span>
+        </span>
       </span>
     </span>
   )

@@ -34,6 +34,22 @@
   height: 100%;
 }
 
+.app-icon-tile__design-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.92);
+  pointer-events: none;
+}
+
+.app-icon-tile__content-foreground {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .app-icon-tile__content svg {
   display: block;
 }
