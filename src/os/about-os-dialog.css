@@ -75,6 +75,20 @@
   margin-bottom: 0;
 }
 
+.about-os-dialog__links {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.about-os-dialog__link {
+  color: #0066cc;
+  text-decoration: none;
+}
+
+.about-os-dialog__link:hover {
+  text-decoration: underline;
+}
+
 .about-os-dialog__actions {
   display: flex;
   justify-content: center;

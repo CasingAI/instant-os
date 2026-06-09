@@ -19,12 +19,13 @@ export const FINDER_ABOUT: AboutAppContent = {
 
 export const INSTANT_ABOUT: AboutAppContent = {
   title: 'Instant OS',
-  version: '版本 1.0.2',
+  version: '版本 1.0.3',
   icon: InstantLogoIcon,
   paragraphs: [
     'Instant OS 是一个在浏览器中运行的 AI 桌面操作系统。它复刻经典 macOS / iOS 的视觉与交互，让你无需安装即可体验完整的「桌面 + 应用」环境。',
     '平台定位：以 AI 实时生成为核心——网络浏览器可还原任意网页，应用集市可现场创作并安装微应用，一切即开即用、即时可用。',
   ],
+  links: [{ href: 'https://github.com/CasingAI/instant-os', label: 'GitHub：CasingAI/instant-os' }],
 }
 
 export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {

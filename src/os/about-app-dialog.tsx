@@ -2,6 +2,11 @@ import type { ComponentType } from 'preact'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import './about-os-dialog.css'
 
+export type AboutAppLink = {
+  href: string
+  label: string
+}
+
 export type AboutAppContent = {
   title: string
   version?: string
@@ -10,6 +15,7 @@ export type AboutAppContent = {
   themeColor?: string
   paragraphs?: string[]
   list?: string[]
+  links?: AboutAppLink[]
 }
 
 type AboutAppDialogProps = AboutAppContent & {
@@ -24,6 +30,7 @@ export function AboutAppDialog({
   themeColor,
   paragraphs,
   list,
+  links,
   onClose,
 }: AboutAppDialogProps) {
   const dialogId = `about-${title.replace(/\s+/g, '-').toLowerCase()}-title`
@@ -48,7 +55,7 @@ export function AboutAppDialog({
             {title}
           </h2>
           {version && <p class="about-os-dialog__version">{version}</p>}
-          {(paragraphs?.length || list?.length) && (
+          {(paragraphs?.length || list?.length || links?.length) && (
             <div class="about-os-dialog__copy">
               {paragraphs?.map((paragraph) => (
                 <p key={paragraph}>{paragraph}</p>
@@ -59,6 +66,21 @@ export function AboutAppDialog({
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
+              )}
+              {links && links.length > 0 && (
+                <p class="about-os-dialog__links">
+                  {links.map((link) => (
+                    <a
+                      key={link.href}
+                      class="about-os-dialog__link"
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {link.label}
+                    </a>
+                  ))}
+                </p>
               )}
             </div>
           )}
