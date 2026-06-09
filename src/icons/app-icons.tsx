@@ -414,10 +414,10 @@ export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
       <rect x="0.5" y="0.5" width="22" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1" />
       <rect x="23" y="3.5" width="2.5" height="5" rx="1" fill="currentColor" />
       {levelPercent === undefined ? (
-        <rect x="2" y="2" width="17" height="8" rx="1" fill="currentColor" />
+        <rect x="2" y="2" width="17" height="8" rx="1" fill="currentColor" class="battery-icon__fill" />
       ) : (
         <>
-          <rect x="2" y="2" width={fillWidth} height="8" rx="1" fill="currentColor" />
+          <rect x="2" y="2" width={fillWidth} height="8" rx="1" fill="currentColor" class="battery-icon__fill" />
           {charging && (
             <path
               d="M12.2 1.2 9.4 6.2h2.1L10.8 10.8l4.4-5.4h-2.1L12.2 1.2Z"

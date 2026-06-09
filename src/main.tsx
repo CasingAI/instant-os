@@ -5,7 +5,7 @@ import { ensureAppleColorEmojiFonts } from './fonts/ensure-apple-color-emoji-fon
 import './global.css'
 import { App } from './app.tsx'
 
-function CrashTestThrow() {
+function CrashTestThrow(): null {
   throw new Error('[instant_crash] 模拟 React 组件崩溃（react）')
 }
 

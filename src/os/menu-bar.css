@@ -67,6 +67,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+.battery-icon--charging .battery-icon__fill {
+  fill: #34c759;
+}
+
+.battery-icon--charging .battery-icon__bolt {
+  fill: #fff;
+}
+
 .menu-bar__menu--brand {
   margin-right: 2px;
 }
