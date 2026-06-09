@@ -1,10 +1,42 @@
 import { render } from 'preact'
+import { BootErrorBoundary, getCrashTestMode, reportCrash } from './boot/crash-guard.ts'
 import { scheduleEmojiOffsetAutoCalibration } from './fonts/auto-calibrate-emoji-offset.ts'
 import { ensureAppleColorEmojiFonts } from './fonts/ensure-apple-color-emoji-fonts.ts'
 import './global.css'
 import { App } from './app.tsx'
 
-void ensureAppleColorEmojiFonts().then(() => {
-  render(<App />, document.getElementById('app')!)
-  scheduleEmojiOffsetAutoCalibration()
-})
+function CrashTestThrow() {
+  throw new Error('[instant_crash] 模拟 React 组件崩溃（react）')
+}
+
+const appRoot = document.getElementById('app')
+const crashTestMode = getCrashTestMode()
+
+if (!appRoot) {
+  reportCrash('boot.missing-root', '找不到 #app 挂载节点')
+} else {
+  void ensureAppleColorEmojiFonts()
+    .then(() => {
+      if (crashTestMode === 'font') {
+        reportCrash('instant_crash.font', new Error('[instant_crash] 模拟字体初始化后崩溃（font）'))
+        return
+      }
+
+      const tree =
+        crashTestMode === 'react' ? (
+          <BootErrorBoundary>
+            <CrashTestThrow />
+          </BootErrorBoundary>
+        ) : (
+          <BootErrorBoundary>
+            <App />
+          </BootErrorBoundary>
+        )
+
+      render(tree, appRoot)
+      scheduleEmojiOffsetAutoCalibration()
+    })
+    .catch((error) => {
+      reportCrash('boot.font-init', error)
+    })
+}
