@@ -41,7 +41,7 @@ export type ICodeInternalProject = {
   html: string
   appData: GeneratedAppDataStore
   chat: ICodeChatMessage[]
-  /** 关联的正式应用 ID：从正式应用导入或发布成功后写入，用于下次发布时更新 */
+  /** 创建时写入，对应桌面应用 ID，编辑时自动同步 */
   linkedAppId?: GeneratedAppId
   createdAt: number
   updatedAt: number

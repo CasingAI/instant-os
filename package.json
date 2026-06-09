@@ -16,6 +16,7 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
     "fflate": "^0.8.3",
+    "frimousse": "^0.3.0",
     "monaco-editor": "^0.55.1",
     "openai": "^6.42.0",
     "preact": "^10.29.1",

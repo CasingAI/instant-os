@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsSwitch } from './settings-switch.tsx'
 import {
   loadExperimentalSettings,
   patchExperimentalSettings,
@@ -43,26 +44,19 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
         <section class="settings__section">
           <h2 class="settings__section-title">开发者</h2>
           <p class="settings__section-subtitle">面向内部开发与调试的工具。</p>
-          <div class="settings__box">
-            <label class="settings__form-row settings__form-row--toggle">
-              <span>
-                <span class="settings__row-name">启用 iCode</span>
-                <span class="settings__section-subtitle settings__section-subtitle--inline">
-                  在桌面与程序坞显示 iCode 内部开发环境。
-                </span>
-              </span>
-              <span class="settings__checkbox">
-                <input
-                  type="checkbox"
-                  checked={icodeEnabled}
-                  onChange={(event) =>
-                    handleToggleIcode((event.currentTarget as HTMLInputElement).checked)
-                  }
-                />
-                <span class="settings__checkbox-label">{icodeEnabled ? '已启用' : '已关闭'}</span>
-              </span>
-            </label>
+          <div class="settings__list">
+            <div class="settings__toggle-row">
+              <span class="settings__toggle-row-label">启用 iCode</span>
+              <SettingsSwitch
+                checked={icodeEnabled}
+                label="启用 iCode"
+                onChange={handleToggleIcode}
+              />
+            </div>
           </div>
+          <p class="settings__section-footnote">
+            在桌面与程序坞显示 iCode 内部开发环境。
+          </p>
           {saveError && (
             <p class="settings__section-footnote settings__section-footnote--error">
               无法保存设置，设备存储空间可能已满。

@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import {
   catalogEntriesForSource,
   INSTANT3D_CATALOG,
@@ -36,9 +37,10 @@ function PackModelsList({ entries, onOpenDetail }: PackModelsListProps) {
 
   return (
     <div class="settings__list">
-      <div class="settings__list-head">
+      <div class="settings__list-head settings__list-head--nav">
         <span>名称</span>
         <span>modelId</span>
+        <span />
       </div>
       <div class="settings__list-body settings__list-body--apps">
         {visibleEntries.map((entry) => (
@@ -50,9 +52,7 @@ function PackModelsList({ entries, onOpenDetail }: PackModelsListProps) {
           >
             <span class="settings__row-name">{entry.label}</span>
             <span class="settings__row-size settings__mono">{entry.id}</span>
-            <span class="settings__row-disclosure" aria-hidden="true">
-              ›
-            </span>
+            <SettingsDisclosureIcon />
           </button>
         ))}
         {showExpandTrigger && (
@@ -110,9 +110,10 @@ export function Resources3dView({ onBack, onOpenDetail }: Resources3dViewProps) 
         <section class="settings__section">
           <h2 class="settings__section-title">几何基元</h2>
           <div class="settings__list">
-            <div class="settings__list-head">
+            <div class="settings__list-head settings__list-head--nav">
               <span>类型</span>
               <span>说明</span>
+              <span />
             </div>
             <div class="settings__list-body settings__list-body--apps">
               {INSTANT3D_PRIMITIVES.map((kind) => (
@@ -124,9 +125,7 @@ export function Resources3dView({ onBack, onOpenDetail }: Resources3dViewProps) 
                 >
                   <span class="settings__row-name settings__mono">{kind}</span>
                   <span class="settings__row-size">{PRIMITIVE_LABELS[kind]}</span>
-                  <span class="settings__row-disclosure" aria-hidden="true">
-                    ›
-                  </span>
+                  <SettingsDisclosureIcon />
                 </button>
               ))}
             </div>

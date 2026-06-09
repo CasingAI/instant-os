@@ -4,6 +4,7 @@ import { SetupAssistant } from './os/setup-assistant.tsx'
 import { useOpenAiReady } from './ai/use-openai-ready.ts'
 import './os/boot-transition.css'
 
+const DOCUMENT_TITLE = 'Instant OS'
 const ENTER_DESKTOP_MS = 1050
 
 type BootPhase = 'setup' | 'entering' | 'desktop'
@@ -11,6 +12,10 @@ type BootPhase = 'setup' | 'entering' | 'desktop'
 export function App() {
   const apiReady = useOpenAiReady()
   const [bootPhase, setBootPhase] = useState<BootPhase>(() => (apiReady ? 'desktop' : 'setup'))
+
+  useEffect(() => {
+    document.title = DOCUMENT_TITLE
+  }, [])
 
   useEffect(() => {
     if (bootPhase !== 'entering') {

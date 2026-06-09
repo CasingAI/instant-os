@@ -1,12 +1,13 @@
 import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { nextAppVersion, normalizeAppVersion } from '../apps/appstore/app-version.ts'
+import { nextAppVersion, normalizeAppVersion, DEFAULT_APP_VERSION } from '../apps/appstore/app-version.ts'
 import {
   appendVersionSnapshot,
   canRollbackApp,
   getAppVersionCount,
   migrateAppRecord,
+  normalizeVersionSnapshots,
   pruneArchivedVersions,
   rollbackAppRecord,
 } from '../apps/appstore/generated-app-versions.ts'
@@ -26,6 +27,7 @@ import type {
   StoreListingDetail,
   StoreReview,
 } from '../apps/appstore/types.ts'
+import type { AppCapabilityTag } from '../apps/appstore/app-capability-tags.ts'
 import { DeviceStorageFullError } from './device-storage.ts'
 import {
   clearGeneratedAppData,
@@ -95,6 +97,18 @@ type GeneratedAppsContextValue = {
     html: string
     appData: GeneratedAppDataStore
   }) => { version: string } | undefined
+  syncAppFromIcode: (input: {
+    appId: GeneratedAppId
+    icodeProjectId: string
+    name: string
+    description: string
+    category: string
+    iconEmoji: string
+    themeColor: string
+    tags?: AppCapabilityTag[]
+    html: string
+    appData: GeneratedAppDataStore
+  }) => boolean
 }
 
 const GeneratedAppsContext = createContext<GeneratedAppsContextValue | undefined>(undefined)
@@ -747,6 +761,73 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     [installedApps],
   )
 
+  const syncAppFromIcode = useCallback(
+    (input: {
+      appId: GeneratedAppId
+      icodeProjectId: string
+      name: string
+      description: string
+      category: string
+      iconEmoji: string
+      themeColor: string
+      tags?: AppCapabilityTag[]
+      html: string
+      appData: GeneratedAppDataStore
+    }): boolean => {
+      const existing = installedApps.find((item) => item.id === input.appId)
+      const html = input.html.trim() || existing?.html || ''
+
+      const record: GeneratedAppRecord = existing
+        ? migrateAppRecord({
+            ...existing,
+            name: input.name,
+            description: input.description,
+            category: input.category,
+            iconEmoji: input.iconEmoji,
+            themeColor: input.themeColor,
+            tags: input.tags,
+            html,
+            icodeProjectId: input.icodeProjectId,
+            versions: normalizeVersionSnapshots(existing).map((snapshot, index, snapshots) =>
+              index === snapshots.length - 1 ? { ...snapshot, html } : snapshot,
+            ),
+          })
+        : migrateAppRecord({
+            id: input.appId,
+            name: input.name,
+            description: input.description,
+            category: input.category,
+            iconEmoji: input.iconEmoji,
+            themeColor: input.themeColor,
+            tags: input.tags,
+            html,
+            version: DEFAULT_APP_VERSION,
+            icodeProjectId: input.icodeProjectId,
+            pendingUpdate: false,
+            versions: [{ version: DEFAULT_APP_VERSION, html, savedAt: Date.now() }],
+          })
+
+      const nextApps = existing
+        ? replaceInstalledApp(installedApps, input.appId, record)
+        : [...installedApps, record]
+
+      if (!saveInstalledApps(nextApps)) {
+        setListingsError('设备存储空间已满（5 MB 上限），无法同步应用。')
+        return false
+      }
+
+      if (!saveGeneratedAppData(input.appId, input.appData)) {
+        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+        return false
+      }
+
+      setInstalledApps(nextApps)
+      setStorageRevision((revision) => revision + 1)
+      return true
+    },
+    [installedApps],
+  )
+
   const updateInstalledAppFromIcode = useCallback(
     (appId: GeneratedAppId, patch: { html: string; version: string }): boolean => {
       const app = installedApps.find((item) => item.id === appId)
@@ -812,6 +893,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       pendingUpdateCount,
       updateInstalledAppFromIcode,
       publishAppFromIcode,
+      syncAppFromIcode,
     }),
     [
       listings,
@@ -849,6 +931,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       pendingUpdateCount,
       updateInstalledAppFromIcode,
       publishAppFromIcode,
+      syncAppFromIcode,
     ],
   )
 

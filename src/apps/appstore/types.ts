@@ -46,6 +46,8 @@ export type GeneratedAppRecord = {
   version?: string
   pendingUpdate?: boolean
   versions?: GeneratedAppVersionSnapshot[]
+  /** 由 iCode 管理时，对应内部项目 ID（如 icode-1738…） */
+  icodeProjectId?: string
 }
 
 export type PendingInstall = {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import { applyEmojiFontMode } from '../../fonts/ensure-apple-color-emoji-fonts.ts'
 import { EMOJI_MIXED_PREVIEW_LINES } from '../../fonts/emoji-mixed-preview-lines.ts'
@@ -129,9 +130,7 @@ export function EmojiSettingsView({ onBack, onOpenCalibration }: EmojiSettingsVi
             >
               <span class="settings__row-name">垂直偏移校正</span>
               <span class="settings__row-size">{formatEmojiOffsetPercent(offsetEm)}</span>
-              <span class="settings__row-disclosure" aria-hidden="true">
-                ›
-              </span>
+              <SettingsDisclosureIcon />
             </button>
           </div>
           <p class="settings__section-footnote">

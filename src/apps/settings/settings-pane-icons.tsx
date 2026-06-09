@@ -4,15 +4,16 @@ import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 const PANE_ICON_SIZE = 52
 const paneSvg = (base: number) => Math.round(base * (PANE_ICON_SIZE / 32))
 
-export function UsagePaneIcon() {
-  const svgSize = paneSvg(20)
+export function StoragePaneIcon() {
   return (
-    <AppIconTile color="#8c8c91" size={PANE_ICON_SIZE}>
-      <svg width={svgSize} height={svgSize} viewBox="0 0 20 20" aria-hidden="true">
-        <rect x="2" y="11" width="3.5" height="7" rx="0.6" fill="#fff" opacity="0.92" />
-        <rect x="8" y="7" width="3.5" height="11" rx="0.6" fill="#fff" opacity="0.92" />
-        <rect x="14" y="3" width="3.5" height="15" rx="0.6" fill="#fff" opacity="0.92" />
-      </svg>
+    <AppIconTile color="#6d7d8f" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        💾
+      </span>
     </AppIconTile>
   )
 }

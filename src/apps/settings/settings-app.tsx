@@ -26,11 +26,7 @@ import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { ExperimentalSettingsView } from './experimental-settings-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
-import {
-  Resources3dDetailView,
-  resources3dDetailWindowTitle,
-  type Resources3dDetailTarget,
-} from './resources-3d-detail-view.tsx'
+import { Resources3dDetailView } from './resources-3d-detail-view.tsx'
 import { NewsManagementView } from './news-management-view.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import {
@@ -39,87 +35,27 @@ import {
   readNewsStore,
 } from '../news/news-storage.ts'
 import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
-import {
-  AccountPaneIcon,
-  DisplayPaneIcon,
-  ExperimentalPaneIcon,
-  NewsPaneIcon,
-  ResourcesPaneIcon,
-  SafariUsagePaneIcon,
-  UsagePaneIcon,
-} from './settings-pane-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { SettingsKeepLayer } from './settings-keep-layer.tsx'
+import {
+  isNestedSettingsRoute,
+  paneIdForRoute,
+  SETTINGS_DEFAULT_ROUTE,
+  SETTINGS_PANES,
+  type SettingsRoute,
+} from './settings-panes.ts'
 import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
-type SettingsRoute =
-  | { view: 'root' }
-  | { view: 'usage' }
-  | { view: 'account' }
-  | { view: 'display' }
-  | { view: 'display-emoji' }
-  | { view: 'display-emoji-calibration' }
-  | { view: 'resources' }
-  | { view: 'resources-3d' }
-  | { view: 'resources-3d-detail'; target: Resources3dDetailTarget }
-  | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId }
-  | { view: 'safari-usage' }
-  | { view: 'news' }
-  | { view: 'experimental' }
-  | { view: 'experimental-developer' }
-
-const ROOT_TITLE = '系统设置'
+const SETTINGS_WINDOW_TITLE = '系统设置'
 
 const INSTALLED_APPS_PREVIEW_COUNT = 10
-
-function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | undefined): string {
-  if (route.view === 'app-detail' && selectedApp) {
-    return selectedApp.name
-  }
-  if (route.view === 'usage') {
-    return '用量'
-  }
-  if (route.view === 'account') {
-    return '账户'
-  }
-  if (route.view === 'display') {
-    return '显示'
-  }
-  if (route.view === 'display-emoji') {
-    return '表情符号'
-  }
-  if (route.view === 'display-emoji-calibration') {
-    return '垂直偏移校正'
-  }
-  if (route.view === 'resources') {
-    return '资源'
-  }
-  if (route.view === 'resources-3d') {
-    return '3D 资源'
-  }
-  if (route.view === 'resources-3d-detail') {
-    return resources3dDetailWindowTitle(route.target)
-  }
-  if (route.view === 'safari-usage') {
-    return '网络浏览器'
-  }
-  if (route.view === 'news') {
-    return '新闻'
-  }
-  if (route.view === 'experimental') {
-    return '实验性特性'
-  }
-  if (route.view === 'experimental-developer') {
-    return '开发者'
-  }
-  return ROOT_TITLE
-}
 
 export function SettingsApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const [route, setRoute] = useState<SettingsRoute>({ view: 'root' })
+  const [route, setRoute] = useState<SettingsRoute>(SETTINGS_DEFAULT_ROUTE)
   const [cacheRevision, setCacheRevision] = useState(0)
   const { installedApps, storageRevision } = useGeneratedApps()
   const summary = useMemo(
@@ -130,14 +66,9 @@ export function SettingsApp() {
   const selectedApp =
     route.view === 'app-detail' ? findManagedApp(summary.entries, route.appId) : undefined
 
-  const settingsWindowTitle = useMemo(
-    () => titleForRoute(route, selectedApp),
-    [route.view, route.view === 'app-detail' ? route.appId : '', selectedApp?.name],
-  )
-
   useEffect(() => {
-    setAppWindowTitle('settings', settingsWindowTitle)
-  }, [settingsWindowTitle, setAppWindowTitle])
+    setAppWindowTitle('settings', SETTINGS_WINDOW_TITLE)
+  }, [setAppWindowTitle])
 
   useEffect(() => {
     const handleOpenUsage = () => {
@@ -172,42 +103,8 @@ export function SettingsApp() {
           },
         ],
       },
-      {
-        label: '显示',
-        items: [
-          {
-            type: 'action',
-            label: '显示全部',
-            onClick: () => setRoute({ view: 'root' }),
-            disabled: route.view === 'root',
-          },
-          {
-            type: 'action',
-            label: '显示…',
-            onClick: () => setRoute({ view: 'display' }),
-            disabled: route.view === 'display',
-          },
-          {
-            type: 'action',
-            label: '表情符号…',
-            onClick: () => setRoute({ view: 'display-emoji' }),
-            disabled: route.view === 'display-emoji',
-          },
-        ],
-      },
-      {
-        label: '内容',
-        items: [
-          {
-            type: 'action',
-            label: '新闻…',
-            onClick: () => setRoute({ view: 'news' }),
-            disabled: route.view === 'news',
-          },
-        ],
-      },
     ]
-  }, [closeWindowsForApp, minimizeWindow, route.view, showBuiltinAbout, windows])
+  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
 
   useAppMenuBar('settings', menuBar)
 
@@ -233,92 +130,77 @@ export function SettingsApp() {
   const showExperimental = view === 'experimental'
   const keepExperimental = showExperimental || view === 'experimental-developer'
   const showExperimentalDeveloper = view === 'experimental-developer'
+  const activePaneId = paneIdForRoute(route)
+  const nestedRoute = isNestedSettingsRoute(route)
+
+  const navigatePane = (nextRoute: SettingsRoute) => {
+    if (nextRoute.view === 'usage') {
+      setCacheRevision((value) => value + 1)
+    }
+    setRoute(nextRoute)
+  }
 
   return (
-    <div class="settings-host">
-      <SettingsKeepLayer show={showRoot} keep={showRoot}>
-        <div class="settings">
-          <div class="settings__content">
-            <div class="settings__panes">
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => {
-                  setCacheRevision((value) => value + 1)
-                  setRoute({ view: 'usage' })
-                }}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <UsagePaneIcon />
-                </span>
-                <span class="settings__pane-label">用量</span>
-              </button>
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => setRoute({ view: 'account' })}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <AccountPaneIcon />
-                </span>
-                <span class="settings__pane-label">账户</span>
-              </button>
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => setRoute({ view: 'display' })}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <DisplayPaneIcon />
-                </span>
-                <span class="settings__pane-label">显示</span>
-              </button>
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => setRoute({ view: 'resources' })}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <ResourcesPaneIcon />
-                </span>
-                <span class="settings__pane-label">资源</span>
-              </button>
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => setRoute({ view: 'safari-usage' })}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <SafariUsagePaneIcon />
-                </span>
-                <span class="settings__pane-label">网络浏览器</span>
-              </button>
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => setRoute({ view: 'news' })}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <NewsPaneIcon />
-                </span>
-                <span class="settings__pane-label">新闻</span>
-              </button>
-              <button
-                type="button"
-                class="settings__pane"
-                onClick={() => setRoute({ view: 'experimental' })}
-              >
-                <span class="settings__pane-icon" aria-hidden="true">
-                  <ExperimentalPaneIcon />
-                </span>
-                <span class="settings__pane-label">实验性特性</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </SettingsKeepLayer>
+    <div
+      class="settings-host"
+      data-settings-nested={nestedRoute ? 'true' : undefined}
+    >
+      <div class="settings__shell">
+        <nav class="settings__sidebar" aria-label="设置分类">
+          <ul class="settings__sidebar-list">
+            {SETTINGS_PANES.map((pane) => {
+              const Icon = pane.Icon
+              const selected = activePaneId === pane.id
+              return (
+                <li key={pane.id}>
+                  <button
+                    type="button"
+                    class={`settings__sidebar-item${selected ? ' settings__sidebar-item--active' : ''}`}
+                    aria-current={selected ? 'page' : undefined}
+                    onClick={() => navigatePane(pane.route)}
+                  >
+                    <span class="settings__sidebar-icon" aria-hidden="true">
+                      <Icon />
+                    </span>
+                    <span class="settings__sidebar-label">{pane.label}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
 
-      <SettingsKeepLayer show={showUsage} keep={keepUsage}>
+        <div class="settings__main">
+          <SettingsKeepLayer show={showRoot} keep={showRoot}>
+            <div class="settings">
+              <div class="settings__content">
+                <div class="settings__welcome" aria-hidden={!showRoot}>
+                  <h2 class="settings__welcome-title">系统设置</h2>
+                  <p class="settings__welcome-text">从左侧列表中选择要更改的设置。</p>
+                </div>
+                <div class="settings__panes" aria-label="设置分类">
+                  {SETTINGS_PANES.map((pane) => {
+                    const Icon = pane.Icon
+                    return (
+                      <button
+                        key={pane.id}
+                        type="button"
+                        class="settings__pane"
+                        onClick={() => navigatePane(pane.route)}
+                      >
+                        <span class="settings__pane-icon" aria-hidden="true">
+                          <Icon />
+                        </span>
+                        <span class="settings__pane-label">{pane.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </SettingsKeepLayer>
+
+          <SettingsKeepLayer show={showUsage} keep={keepUsage}>
         <UsageView
           summary={summary}
           onBack={() => setRoute({ view: 'root' })}
@@ -410,9 +292,11 @@ export function SettingsApp() {
         />
       </SettingsKeepLayer>
 
-      <SettingsKeepLayer show={showExperimentalDeveloper} keep={showExperimentalDeveloper}>
-        <DeveloperSettingsView onBack={() => setRoute({ view: 'experimental' })} />
-      </SettingsKeepLayer>
+          <SettingsKeepLayer show={showExperimentalDeveloper} keep={showExperimentalDeveloper}>
+            <DeveloperSettingsView onBack={() => setRoute({ view: 'experimental' })} />
+          </SettingsKeepLayer>
+        </div>
+      </div>
     </div>
   )
 }
@@ -450,63 +334,67 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
     <div class="settings">
       <ContentNav label="显示全部" onBack={onBack} />
       <div class="settings__content settings__content--compact">
-        <section class="settings__section">
-          <h2 class="settings__section-title">localStorage 用量</h2>
-          <div class="settings__box" aria-label="存储用量">
-            <div class="settings__meter-row">
-              <span>
-                已用 <strong>{formatStorageSize(summary.usedBytes)}</strong>
-              </span>
-              <span>上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}</span>
-            </div>
-            <div class="settings__meter-bar">
-              <div class="settings__meter-fill" style={{ width: `${usedPercent}%` }} />
-            </div>
-            <div class="settings__meter-legend">
-              <span>AI 应用 {formatStorageSize(summary.appsBytes)}</span>
-              <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
-              <span>邮件 {formatStorageSize(summary.mailDataBytes)}</span>
-              <span>新闻 {formatStorageSize(summary.newsDataBytes)}</span>
-              <span>其他 {formatStorageSize(summary.otherBytes)}</span>
-              <span>剩余 {formatStorageSize(summary.availableBytes)}</span>
-            </div>
-          </div>
-        </section>
+        <div class="settings__content-body">
+          <div class="settings__content-columns">
+            <section class="settings__section">
+              <h2 class="settings__section-title">localStorage 用量</h2>
+              <div class="settings__box" aria-label="存储用量">
+                <div class="settings__meter-row">
+                  <span>
+                    已用 <strong>{formatStorageSize(summary.usedBytes)}</strong>
+                  </span>
+                  <span>上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}</span>
+                </div>
+                <div class="settings__meter-bar">
+                  <div class="settings__meter-fill" style={{ width: `${usedPercent}%` }} />
+                </div>
+                <div class="settings__meter-legend">
+                  <span>AI 应用 {formatStorageSize(summary.appsBytes)}</span>
+                  <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
+                  <span>邮件 {formatStorageSize(summary.mailDataBytes)}</span>
+                  <span>新闻 {formatStorageSize(summary.newsDataBytes)}</span>
+                  <span>其他 {formatStorageSize(summary.otherBytes)}</span>
+                  <span>剩余 {formatStorageSize(summary.availableBytes)}</span>
+                </div>
+              </div>
+            </section>
 
-        <section class="settings__section">
-          <h2 class="settings__section-title">存储分类</h2>
-          <div class="settings__list">
-            <div class="settings__list-head">
-              <span>分类</span>
-              <span>大小</span>
-            </div>
-            <div class="settings__list-body">
-              <StorageCategoryRow label="AI 应用" bytes={summary.appsBytes} />
-              <StorageCategoryRow label="网络浏览器缓存" bytes={summary.safariCacheBytes} />
-              <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
-              <StorageCategoryRow
-                label="新闻"
-                bytes={summary.newsDataBytes}
-                hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`}
-              />
-              <StorageCategoryRow label="其他" bytes={summary.otherBytes} hint="未归类的 localStorage 键" />
-            </div>
+            <section class="settings__section">
+              <h2 class="settings__section-title">存储分类</h2>
+              <div class="settings__list">
+                <div class="settings__list-head">
+                  <span>分类</span>
+                  <span>大小</span>
+                </div>
+                <div class="settings__list-body">
+                  <StorageCategoryRow label="AI 应用" bytes={summary.appsBytes} />
+                  <StorageCategoryRow label="网络浏览器缓存" bytes={summary.safariCacheBytes} />
+                  <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
+                  <StorageCategoryRow
+                    label="新闻"
+                    bytes={summary.newsDataBytes}
+                    hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`}
+                  />
+                  <StorageCategoryRow label="其他" bytes={summary.otherBytes} hint="未归类的 localStorage 键" />
+                </div>
+              </div>
+            </section>
           </div>
-        </section>
 
-        <section class="settings__section">
+          <section class="settings__section">
           <h2 class="settings__section-title">已安装的应用</h2>
           {summary.entries.length === 0 ? (
             <div class="settings__box settings__empty">暂无已安装应用</div>
           ) : (
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
-          <p class="settings__section-footnote">
-            AI 应用的用户数据通过 localStorage 桥接按应用独立存储；「文稿与数据」即此类内容。
-            「其他」统计未归类的 localStorage 键（如浏览记录、窗口尺寸）。
-            上限 5 MB 为硬限制，空间不足时无法继续写入。
-          </p>
-        </section>
+            <p class="settings__section-footnote">
+              AI 应用的用户数据通过 localStorage 桥接按应用独立存储；「文稿与数据」即此类内容。
+              「其他」统计未归类的 localStorage 键（如浏览记录、窗口尺寸）。
+              上限 5 MB 为硬限制，空间不足时无法继续写入。
+            </p>
+          </section>
+        </div>
       </div>
     </div>
   )
@@ -575,11 +463,12 @@ function AppListRow({ entry, onClick }: AppListRowProps) {
   return (
     <button type="button" class="settings__row settings__row--button" onClick={onClick}>
       <AppIcon entry={entry} size={24} />
-      <span class="settings__row-name">{entry.name}</span>
-      <span class="settings__row-size">{formatStorageSize(totalBytes)}</span>
-      <span class="settings__row-disclosure" aria-hidden="true">
-        ›
+      <span class="settings__row-name">
+        {entry.name}
+        {entry.icodeManaged && <span class="settings__row-badge">iCode</span>}
       </span>
+      <span class="settings__row-size">{formatStorageSize(totalBytes)}</span>
+      <SettingsDisclosureIcon />
     </button>
   )
 }
@@ -631,14 +520,18 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
 
   return (
     <div class="settings">
-      <ContentNav label="用量" onBack={onBack} />
+      <ContentNav label="存储空间" onBack={onBack} />
       <div class="settings__content settings__content--compact">
         <header class="settings__detail-header">
           <AppIcon entry={app} size={48} />
           <div class="settings__detail-meta">
             <h2 class="settings__detail-name">{app.name}</h2>
             <p class="settings__detail-kind">
-              {app.removable ? 'AI 应用 · 可卸载' : '系统应用 · 不可卸载'}
+              {app.icodeManaged
+                ? 'iCode 应用 · 可卸载'
+                : app.removable
+                  ? 'AI 应用 · 可卸载'
+                  : '系统应用 · 不可卸载'}
             </p>
           </div>
         </header>

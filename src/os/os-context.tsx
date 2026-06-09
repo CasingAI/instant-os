@@ -36,7 +36,7 @@ const OsContext = createContext<OsContextValue | undefined>(undefined)
 
 const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'height'>> = {
   browser: { title: '网络浏览器', width: 880, height: 720 },
-  settings: { title: '系统设置', width: 520, height: 480 },
+  settings: { title: '系统设置', width: 780, height: 540 },
   photos: { title: '照片', width: 720, height: 620 },
   mail: { title: '邮件', width: 900, height: 640 },
   news: { title: '新闻', width: 920, height: 620 },

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { BackIcon, ICodeIcon } from '../../icons/app-icons.tsx'
+import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { isGeneratedAppStorageMessage } from '../../os/generated-app-data-storage.ts'
@@ -25,7 +26,9 @@ import {
 } from './icode-backup.ts'
 import { generateInternalAppHtml } from './icode-generation.ts'
 import {
-  buildStoreListingFromProject,
+  buildIcodeSyncInput,
+  findProjectNameConflict,
+  formatProjectNameConflictMessage,
   resolvePublishAppId,
 } from './icode-publish.ts'
 import { generatedAppNeeds3d } from '../generated/generated-app-tags.ts'
@@ -35,6 +38,7 @@ import {
   getInternalProject,
   loadInternalProjects,
   previewAppIdForInternal,
+  removeInternalProject,
   updateInternalProject,
 } from './icode-storage.ts'
 import { appendConsoleEntry, isIcodeConsoleMessage } from './icode-console.ts'
@@ -45,6 +49,7 @@ import type {
   ICodeInternalProject,
 } from './icode-types.ts'
 import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
+import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import './icode.css'
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
@@ -103,7 +108,7 @@ function previewAppIdForSession(session: EditorSession): GeneratedAppId {
 export function ICodeApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const { installedApps, publishAppFromIcode } = useGeneratedApps()
+  const { installedApps, syncAppFromIcode } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
   const [session, setSession] = useState<EditorSession | undefined>()
@@ -114,7 +119,9 @@ export function ICodeApp() {
   const [error, setError] = useState<string | undefined>()
   const [showNewProject, setShowNewProject] = useState(false)
   const [showImportPicker, setShowImportPicker] = useState(false)
-  const [publishStatus, setPublishStatus] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<
+    { projectId: string; name: string; linkedAppId?: GeneratedAppId } | undefined
+  >()
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDescription, setNewProjectDescription] = useState('')
   const [previewEpoch, setPreviewEpoch] = useState(0)
@@ -129,6 +136,49 @@ export function ICodeApp() {
   const previewBootstrapDataRef = useRef<Record<string, string>>({})
 
   const internalProjects = useMemo(() => loadInternalProjects(), [projectRevision])
+
+  const syncProjectToDesktop = useCallback(
+    (project: ICodeInternalProject): boolean => {
+      const appId = resolvePublishAppId(project)
+      const linkedProject = project.linkedAppId ? project : { ...project, linkedAppId: appId }
+      if (!project.linkedAppId) {
+        updateInternalProject(project.id, { linkedAppId: appId })
+      }
+      return syncAppFromIcode(buildIcodeSyncInput(linkedProject))
+    },
+    [syncAppFromIcode],
+  )
+
+  const migratedProjectsRef = useRef(false)
+  useEffect(() => {
+    if (migratedProjectsRef.current) {
+      return
+    }
+    migratedProjectsRef.current = true
+
+    let changed = false
+    for (const project of loadInternalProjects()) {
+      const appId = resolvePublishAppId(project)
+      let current = project
+      if (!project.linkedAppId) {
+        const patched = updateInternalProject(project.id, { linkedAppId: appId })
+        if (patched) {
+          current = patched
+          changed = true
+        }
+      }
+
+      const installed = installedApps.find((app) => app.id === resolvePublishAppId(current))
+      if (!installed || installed.icodeProjectId !== current.id) {
+        syncProjectToDesktop(current)
+        changed = true
+      }
+    }
+
+    if (changed) {
+      setProjectRevision((value) => value + 1)
+    }
+  }, [installedApps, syncProjectToDesktop])
 
   const previewAppId = session ? previewAppIdForSession(session) : undefined
   const codeDirty = session !== undefined && draftHtml !== session.html
@@ -296,21 +346,27 @@ export function ICodeApp() {
     return () => window.cancelAnimationFrame(frame)
   }, [editorTab, session?.chat])
 
-  const persistSession = useCallback((next: EditorSession) => {
-    updateInternalProject(next.projectId, {
-      name: next.name,
-      description: next.description,
-      category: next.category,
-      iconEmoji: next.iconEmoji,
-      themeColor: next.themeColor,
-      tags: next.tags,
-      html: next.html,
-      appData: next.appData,
-      chat: next.chat,
-      linkedAppId: next.linkedAppId,
-    })
-    setProjectRevision((value) => value + 1)
-  }, [])
+  const persistSession = useCallback(
+    (next: EditorSession) => {
+      const updated = updateInternalProject(next.projectId, {
+        name: next.name,
+        description: next.description,
+        category: next.category,
+        iconEmoji: next.iconEmoji,
+        themeColor: next.themeColor,
+        tags: next.tags,
+        html: next.html,
+        appData: next.appData,
+        chat: next.chat,
+        linkedAppId: next.linkedAppId,
+      })
+      setProjectRevision((value) => value + 1)
+      if (updated) {
+        syncProjectToDesktop(updated)
+      }
+    },
+    [syncProjectToDesktop],
+  )
 
   const updateSessionMeta = useCallback(
     (patch: Partial<Pick<EditorSession, 'name' | 'description' | 'category' | 'iconEmoji' | 'themeColor' | 'tags'>>) => {
@@ -318,15 +374,27 @@ export function ICodeApp() {
         return
       }
 
+      if (patch.name !== undefined) {
+        const conflict = findProjectNameConflict(installedApps, internalProjects, patch.name, {
+          excludeProjectId: session.projectId,
+          excludeAppId: session.linkedAppId,
+        })
+        if (conflict) {
+          setError(formatProjectNameConflictMessage(conflict))
+          return
+        }
+      }
+
       const updated: EditorSession = { ...session, ...patch }
       setSession(updated)
       persistSession(updated)
+      setError(undefined)
 
       if (patch.tags !== undefined) {
         setPreviewEpoch((epoch) => epoch + 1)
       }
     },
-    [persistSession, session],
+    [installedApps, internalProjects, persistSession, session],
   )
 
   const onRunDraft = useCallback(() => {
@@ -351,7 +419,6 @@ export function ICodeApp() {
     setPrompt('')
     setError(undefined)
     setGenerationStatus('')
-    setPublishStatus('')
   }, [persistSession, session])
 
   const openInternal = useCallback((projectId: string) => {
@@ -365,23 +432,73 @@ export function ICodeApp() {
     setError(undefined)
   }, [])
 
+  const requestDeleteProject = useCallback((projectId: string) => {
+    const project = getInternalProject(projectId)
+    if (!project) {
+      return
+    }
+
+    setDeleteTarget({
+      projectId: project.id,
+      name: project.name,
+      linkedAppId: project.linkedAppId,
+    })
+  }, [])
+
+  const confirmDeleteProject = useCallback(() => {
+    if (!deleteTarget) {
+      return
+    }
+
+    const removed = removeInternalProject(deleteTarget.projectId)
+    if (!removed) {
+      setError('删除失败，项目可能已被移除')
+      setDeleteTarget(undefined)
+      return
+    }
+
+    if (session?.projectId === deleteTarget.projectId) {
+      setSession(undefined)
+      setDraftHtml('')
+      setPrompt('')
+      setGenerationStatus('')
+    }
+
+    setProjectRevision((value) => value + 1)
+    setDeleteTarget(undefined)
+    setError(undefined)
+  }, [deleteTarget, session?.projectId])
+
   const importFromInstalled = useCallback(
     (record: GeneratedAppRecord) => {
-      const imported = createInternalProject(`${record.name}（副本）`, record.description)
+      const importName = `${record.name}（副本）`
+      const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
+      if (conflict) {
+        setError(formatProjectNameConflictMessage(conflict))
+        return
+      }
+
+      const imported = createInternalProject(importName, record.description)
       updateInternalProject(imported.id, {
         html: record.html,
         appData: loadFormalAppData(record.id),
-        category: record.category,
         iconEmoji: record.iconEmoji,
         themeColor: record.themeColor,
         tags: record.tags ?? [],
-        linkedAppId: record.id,
       })
+      const synced = getInternalProject(imported.id)
+      if (!synced || !syncProjectToDesktop(synced)) {
+        removeInternalProject(imported.id)
+        setError('导入失败，请检查存储空间')
+        return
+      }
+
       setProjectRevision((value) => value + 1)
       setShowImportPicker(false)
+      setError(undefined)
       openInternal(imported.id)
     },
-    [openInternal],
+    [installedApps, internalProjects, openInternal, syncProjectToDesktop],
   )
 
   const exportCurrentProject = useCallback(() => {
@@ -411,68 +528,40 @@ export function ICodeApp() {
     )
   }, [session])
 
-  const publishCurrentProject = useCallback(() => {
-    if (!session || !session.html.trim()) {
-      setError('请先完成应用开发再发布')
-      return
-    }
-
-    const project = getInternalProject(session.projectId)
-    if (!project) {
-      return
-    }
-
-    const mergedProject: ICodeInternalProject = {
-      ...project,
-      name: session.name,
-      description: session.description,
-      category: session.category,
-      iconEmoji: session.iconEmoji,
-      themeColor: session.themeColor,
-      tags: session.tags,
-      html: session.html,
-      appData: session.appData,
-      linkedAppId: session.linkedAppId,
-    }
-
-    const appId = resolvePublishAppId(mergedProject)
-    const listing = buildStoreListingFromProject(mergedProject)
-    const result = publishAppFromIcode({
-      appId,
-      listing,
-      html: session.html,
-      appData: session.appData,
-    })
-
-    if (!result) {
-      setError('发布失败，请检查存储空间')
-      return
-    }
-
-    const updated: EditorSession = { ...session, linkedAppId: appId }
-    setSession(updated)
-    persistSession(updated)
-    setPublishStatus(`已发布 ${listing.name} ${result.version}`)
-    setError(undefined)
-  }, [persistSession, publishAppFromIcode, session])
-
   const importBundle = useCallback(
     async (bundle: ICodeExportBundle) => {
+      const registerImportedProject = (importName: string, description: string, patch: Parameters<typeof updateInternalProject>[1]) => {
+        const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
+        if (conflict) {
+          setError(formatProjectNameConflictMessage(conflict))
+          return undefined
+        }
+
+        const imported = createInternalProject(importName, description)
+        updateInternalProject(imported.id, patch)
+        const synced = getInternalProject(imported.id)
+        if (!synced || !syncProjectToDesktop(synced)) {
+          removeInternalProject(imported.id)
+          setError('导入失败，请检查存储空间')
+          return undefined
+        }
+
+        setProjectRevision((value) => value + 1)
+        setError(undefined)
+        openInternal(imported.id)
+        return imported
+      }
+
       if (bundle.kind === 'internal') {
         const project = bundle.project as ICodeInternalProject
-        const imported = createInternalProject(project.name, project.description)
-        updateInternalProject(imported.id, {
+        registerImportedProject(project.name, project.description, {
           html: project.html,
           appData: bundle.appData,
           chat: project.chat ?? [],
-          category: project.category,
           iconEmoji: project.iconEmoji,
           themeColor: project.themeColor,
           tags: project.tags,
-          linkedAppId: project.linkedAppId,
         })
-        setProjectRevision((value) => value + 1)
-        openInternal(imported.id)
         return
       }
 
@@ -487,23 +576,15 @@ export function ICodeApp() {
         tags?: AppCapabilityTag[]
       }
 
-      const imported = createInternalProject(
-        `${formalProject.name}（导入）`,
-        formalProject.description,
-      )
-      updateInternalProject(imported.id, {
+      registerImportedProject(`${formalProject.name}（导入）`, formalProject.description, {
         html: formalProject.html,
         appData: bundle.appData,
-        category: formalProject.category,
         iconEmoji: formalProject.iconEmoji,
         themeColor: formalProject.themeColor,
         tags: formalProject.tags ?? [],
-        linkedAppId: formalProject.appId,
       })
-      setProjectRevision((value) => value + 1)
-      openInternal(imported.id)
     },
-    [openInternal],
+    [installedApps, internalProjects, openInternal, syncProjectToDesktop],
   )
 
   const onImportFile = useCallback(
@@ -524,13 +605,39 @@ export function ICodeApp() {
   )
 
   const onCreateProject = useCallback(() => {
+    const trimmedName = newProjectName.trim()
+    if (!trimmedName) {
+      setError('请输入项目名称')
+      return
+    }
+
+    const conflict = findProjectNameConflict(installedApps, internalProjects, trimmedName)
+    if (conflict) {
+      setError(formatProjectNameConflictMessage(conflict))
+      return
+    }
+
     const project = createInternalProject(newProjectName, newProjectDescription)
+    if (!syncProjectToDesktop(project)) {
+      removeInternalProject(project.id)
+      setError('创建失败，请检查存储空间')
+      return
+    }
+
     setProjectRevision((value) => value + 1)
     setShowNewProject(false)
     setNewProjectName('')
     setNewProjectDescription('')
+    setError(undefined)
     openInternal(project.id)
-  }, [newProjectDescription, newProjectName, openInternal])
+  }, [
+    installedApps,
+    internalProjects,
+    newProjectDescription,
+    newProjectName,
+    openInternal,
+    syncProjectToDesktop,
+  ])
 
   const onSendPrompt = useCallback(async () => {
     const instruction = prompt.trim()
@@ -612,11 +719,6 @@ export function ICodeApp() {
           { type: 'separator' as const },
           {
             type: 'action' as const,
-            label: session.linkedAppId ? '发布更新…' : '发布到应用集市…',
-            onClick: publishCurrentProject,
-          },
-          {
-            type: 'action' as const,
             label: '导出压缩包…',
             onClick: exportCurrentProject,
           },
@@ -669,7 +771,6 @@ export function ICodeApp() {
     closeWindowsForApp,
     exportCurrentProject,
     minimizeWindow,
-    publishCurrentProject,
     session,
     showBuiltinAbout,
     windows,
@@ -684,6 +785,37 @@ export function ICodeApp() {
 
     return JSON.stringify(session.appData, undefined, 2)
   }, [session?.appData])
+
+  const deleteConfirmModal = deleteTarget ? (
+    <div class="icode__modal-backdrop">
+      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-delete-title">
+        <div class="icode__modal-header">
+          <h3 id="icode-delete-title">删除内部项目</h3>
+        </div>
+        <div class="icode__modal-body">
+          <p class="icode__modal-hint">
+            确定删除「{deleteTarget.name}」吗？此操作不可恢复。桌面上的应用入口不会被卸载。
+          </p>
+        </div>
+        <div class="icode__modal-actions">
+          <button
+            type="button"
+            class="icode__button icode__button--secondary"
+            onClick={() => setDeleteTarget(undefined)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="icode__button icode__button--danger"
+            onClick={confirmDeleteProject}
+          >
+            删除
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : undefined
 
   if (!session) {
     return (
@@ -704,12 +836,12 @@ export function ICodeApp() {
           <header class="icode__hero">
             <div class="icode__hero-top">
               <div class="icode__hero-icon" aria-hidden="true">
-                {'</>'}
+                <ICodeIcon size={52} />
               </div>
               <div class="icode__hero-copy">
                 <h1 class="icode__picker-title">iCode</h1>
                 <p class="icode__picker-subtitle">
-                  在系统内开发、调试 AI 微应用。编辑仅在内部副本中进行；发布后会出现在应用集市与桌面。
+                  在系统内开发、调试 AI 微应用。每个项目创建后自动出现在桌面，编辑会实时同步。
                 </p>
               </div>
             </div>
@@ -757,7 +889,11 @@ export function ICodeApp() {
                       onClick={() => openInternal(project.id)}
                     >
                       <span class="icode__row-icon" aria-hidden="true">
-                        {project.iconEmoji || '📦'}
+                        <GeneratedAppIcon
+                          emoji={project.iconEmoji || '📦'}
+                          themeColor={project.themeColor}
+                          size={36}
+                        />
                       </span>
                       <span class="icode__row-main">
                         <span class="icode__row-name">{project.name}</span>
@@ -765,10 +901,7 @@ export function ICodeApp() {
                           <span class="icode__row-desc">{project.description}</span>
                         )}
                         <span class="icode__row-meta">
-                          <span class="icode__badge">内部</span>
-                          {project.linkedAppId && (
-                            <span class="icode__badge icode__badge--formal">已关联正式应用</span>
-                          )}
+                          <span class="icode__badge">iCode</span>
                           <span>
                             {formatProjectDate(project.updatedAt)}
                             {project.html.trim()
@@ -785,7 +918,7 @@ export function ICodeApp() {
                 )}
               </div>
               <p class="icode__section-footnote">
-                内部项目不会直接修改桌面应用。可从已安装应用导入副本，或通过「发布」推送到应用集市。
+                每个项目会自动在桌面创建入口。从已安装应用导入时会创建独立副本，不会修改原应用。
               </p>
             </section>
           </div>
@@ -799,7 +932,7 @@ export function ICodeApp() {
               </div>
               <div class="icode__modal-body icode__modal-body--list">
                 <p class="icode__modal-hint">
-                  将创建内部副本进行编辑，不会直接修改桌面上的正式应用。
+                  将创建独立的 iCode 副本进行编辑，与原应用无关联，也不会修改桌面上的原应用。
                 </p>
                 <div class="icode__list">
                   {installedApps.map((app) => (
@@ -810,17 +943,18 @@ export function ICodeApp() {
                       onClick={() => importFromInstalled(app)}
                     >
                       <span class="icode__row-icon" aria-hidden="true">
-                        {app.iconEmoji}
+                        <GeneratedAppIcon
+                          emoji={app.iconEmoji}
+                          themeColor={app.themeColor}
+                          size={36}
+                        />
                       </span>
                       <span class="icode__row-main">
                         <span class="icode__row-name">{app.name}</span>
                         {app.description && <span class="icode__row-desc">{app.description}</span>}
                         <span class="icode__row-meta">
                           <span class="icode__badge icode__badge--formal">正式</span>
-                          <span>
-                            {app.category}
-                            {app.version ? ` · ${app.version}` : ''}
-                          </span>
+                          <span>{app.version ? app.version : '已安装'}</span>
                         </span>
                       </span>
                       <span class="icode__row-disclosure" aria-hidden="true">
@@ -894,6 +1028,8 @@ export function ICodeApp() {
             </div>
           </div>
         )}
+
+        {deleteConfirmModal}
       </div>
     )
   }
@@ -921,7 +1057,12 @@ export function ICodeApp() {
             项目
           </button>
           <span class="icode__nav-title">
-            {session.iconEmoji} {session.name}
+            <GeneratedAppIcon
+              emoji={session.iconEmoji || '📦'}
+              themeColor={session.themeColor}
+              size={22}
+            />
+            <span class="icode__nav-title-text">{session.name}</span>
           </span>
           <div class="icode__nav-actions">
             {codeDirty && (
@@ -934,9 +1075,7 @@ export function ICodeApp() {
                 运行
               </button>
             )}
-            <span class={`icode__kind-pill${session.linkedAppId ? ' icode__kind-pill--formal' : ''}`}>
-              {session.linkedAppId ? '可发布更新' : '内部草稿'}
-            </span>
+            <span class="icode__kind-pill">iCode</span>
             <span
               class={`icode__nav-status${codeDirty ? ' icode__nav-status--dirty' : ''}`}
             >
@@ -954,8 +1093,6 @@ export function ICodeApp() {
             源码已修改，与左侧预览不一致。点击顶部「运行」或切换到「源码」面板运行。
           </p>
         )}
-
-        {publishStatus && <p class="icode__publish-banner">{publishStatus}</p>}
 
         {error && <p class="icode__error">{error}</p>}
 
@@ -1166,31 +1303,34 @@ export function ICodeApp() {
                       />
                     </div>
                     <div class="icode__config-field">
-                      <label for="icode-config-category">分类</label>
+                      <label for="icode-config-internal-id">内部标识</label>
                       <input
-                        id="icode-config-category"
+                        id="icode-config-internal-id"
                         type="text"
-                        value={session.category}
-                        onInput={(event) =>
-                          updateSessionMeta({
-                            category: (event.currentTarget as HTMLInputElement).value,
-                          })
-                        }
+                        class="icode__config-readonly"
+                        value={session.projectId}
+                        readOnly
                       />
+                      <p class="icode__config-field-hint">
+                        创建时自动生成，用于区分应用，不可修改。上方「应用名称」可随时更改。
+                      </p>
                     </div>
-                    <div class="icode__config-field">
-                      <label for="icode-config-emoji">图标</label>
-                      <input
-                        id="icode-config-emoji"
-                        type="text"
-                        value={session.iconEmoji}
-                        maxLength={4}
-                        onInput={(event) =>
-                          updateSessionMeta({
-                            iconEmoji: (event.currentTarget as HTMLInputElement).value,
-                          })
-                        }
-                      />
+                    <div class="icode__config-field icode__config-field--icon">
+                      <label>图标</label>
+                      <div class="icode__config-icon-row">
+                        <span class="icode__config-icon-preview" aria-hidden="true">
+                          <GeneratedAppIcon
+                            emoji={session.iconEmoji || '📦'}
+                            themeColor={session.themeColor}
+                            size={48}
+                          />
+                        </span>
+                        <EmojiPickerPopover
+                          value={session.iconEmoji || '📦'}
+                          triggerLabel="选择表情"
+                          onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1216,11 +1356,19 @@ export function ICodeApp() {
                     </label>
                   </div>
 
-                  {session.linkedAppId && (
-                    <p class="icode__config-footnote">
-                      此项目关联正式应用，发布时将作为版本更新推送到应用集市与桌面。
+                  <div class="icode__config-group icode__config-group--danger">
+                    <h4 class="icode__config-title">删除项目</h4>
+                    <p class="icode__config-danger-hint">
+                      永久删除此 iCode 项目的源码、聊天记录与本地数据。桌面上的应用入口不会被卸载。
                     </p>
-                  )}
+                    <button
+                      type="button"
+                      class="icode__button icode__button--danger icode__button--block"
+                      onClick={() => requestDeleteProject(session.projectId)}
+                    >
+                      删除此项目…
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1272,6 +1420,8 @@ export function ICodeApp() {
           </aside>
         </div>
       </div>
+
+      {deleteConfirmModal}
     </div>
   )
 }

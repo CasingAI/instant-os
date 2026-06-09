@@ -1,5 +1,5 @@
 import { BackIcon } from '../../icons/app-icons.tsx'
-import { useMemo } from 'preact/hooks'
+import { useMemo, useState } from 'preact/hooks'
 import {
   getDomainUsageList,
   loadBrowserTokenUsage,
@@ -7,6 +7,8 @@ import {
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { SafariCacheView } from './safari-cache-view.tsx'
 import { SafariHistoryView } from './safari-history-view.tsx'
+const DOMAIN_USAGE_PREVIEW_COUNT = 10
+
 type SafariUsageViewProps = {
   onBack: () => void
   onCacheChange?: () => void
@@ -16,6 +18,12 @@ type SafariUsageViewProps = {
 export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: SafariUsageViewProps) {
   const usage = useMemo(() => loadBrowserTokenUsage(), [])
   const domains = useMemo(() => getDomainUsageList(usage), [usage])
+  const [domainsExpanded, setDomainsExpanded] = useState(false)
+  const canExpandDomains = domains.length > DOMAIN_USAGE_PREVIEW_COUNT
+  const showExpandDomains = canExpandDomains && !domainsExpanded
+  const visibleDomains = showExpandDomains
+    ? domains.slice(0, DOMAIN_USAGE_PREVIEW_COUNT)
+    : domains
 
   return (
     <div class="settings">
@@ -64,14 +72,23 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
                 <span>页面</span>
                 <span>Tokens</span>
               </div>
-              <div class="settings__list-body">
-                {domains.map((entry) => (
+              <div class="settings__list-body settings__list-body--apps">
+                {visibleDomains.map((entry) => (
                   <div key={entry.hostname} class="settings__row settings__row--tokens">
                     <span class="settings__row-name">{entry.hostname}</span>
                     <span class="settings__row-count">{entry.pageCount}</span>
                     <span class="settings__row-size">{formatTokenCount(entry.totalTokens)}</span>
                   </div>
                 ))}
+                {showExpandDomains && (
+                  <button
+                    type="button"
+                    class="settings__row settings__row--show-all"
+                    onClick={() => setDomainsExpanded(true)}
+                  >
+                    显示全部网站
+                  </button>
+                )}
               </div>
             </div>
           )}

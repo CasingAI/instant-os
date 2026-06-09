@@ -2,6 +2,7 @@ import type { ComponentType } from 'preact'
 import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import type { GeneratedAppRecord } from '../appstore/types.ts'
+import { loadInternalProjects } from '../icode/icode-storage.ts'
 import { normalizeVersionSnapshots } from '../appstore/generated-app-versions.ts'
 import {
   getAllGeneratedAppDataBytes,
@@ -30,6 +31,7 @@ export type ManagedAppEntry = {
   documentsBytes: number
   versionHistoryBytes: number
   removable: boolean
+  icodeManaged?: boolean
 }
 
 export { DEVICE_CAPACITY_BYTES }
@@ -71,6 +73,12 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
 }
 
 export function buildManagedAppList(installedApps: GeneratedAppRecord[]): ManagedAppEntry[] {
+  const icodeProjectIds = new Set(
+    loadInternalProjects()
+      .map((project) => project.linkedAppId)
+      .filter((appId): appId is GeneratedAppId => appId !== undefined),
+  )
+
   const builtins: ManagedAppEntry[] = APP_REGISTRY.map((app) => ({
     id: app.id,
     kind: 'builtin',
@@ -94,6 +102,7 @@ export function buildManagedAppList(installedApps: GeneratedAppRecord[]): Manage
       documentsBytes,
       versionHistoryBytes,
       removable: true,
+      icodeManaged: app.icodeProjectId !== undefined || icodeProjectIds.has(app.id),
     }
   })
 

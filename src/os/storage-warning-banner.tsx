@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { UsagePaneIcon } from '../apps/settings/settings-pane-icons.tsx'
+import { StoragePaneIcon } from '../apps/settings/settings-pane-icons.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { useOs } from './os-context.tsx'
 import {
@@ -37,7 +37,7 @@ function StorageWarningBanner({
     >
       <button type="button" class="notification-banner__body" onClick={onOpen}>
         <span class="notification-banner__icon">
-          <UsagePaneIcon />
+          <StoragePaneIcon />
         </span>
         <span class="notification-banner__copy">
           <span class="notification-banner__title">{title}</span>

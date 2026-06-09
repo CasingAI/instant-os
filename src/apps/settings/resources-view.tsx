@@ -1,4 +1,5 @@
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { INSTANT3D_CATALOG } from '../../assets/3d/asset-catalog.ts'
 
 type ResourcesViewProps = {
@@ -30,9 +31,7 @@ export function ResourcesView({ onBack, onOpen3d }: ResourcesViewProps) {
             >
               <span class="settings__row-name">3D 资源</span>
               <span class="settings__row-size">{modelCount} 个模型</span>
-              <span class="settings__row-disclosure" aria-hidden="true">
-                ›
-              </span>
+              <SettingsDisclosureIcon />
             </button>
           </div>
           <p class="settings__section-footnote">

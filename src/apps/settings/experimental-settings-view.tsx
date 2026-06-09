@@ -1,4 +1,5 @@
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 
 type ExperimentalSettingsViewProps = {
   onBack: () => void
@@ -27,9 +28,7 @@ export function ExperimentalSettingsView({ onBack, onOpenDeveloper }: Experiment
               onClick={onOpenDeveloper}
             >
               <span class="settings__row-name">开发者</span>
-              <span class="settings__row-disclosure" aria-hidden="true">
-                ›
-              </span>
+              <SettingsDisclosureIcon />
             </button>
           </div>
         </section>

@@ -70,7 +70,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   icode: {
     version: '微应用开发环境',
     paragraphs: [
-      'iCode 是 Instant OS 的微应用开发工具。可编辑内部开发项目，或修改已安装到系统的正式 AI 微应用。',
+      'iCode 是 Instant OS 的微应用开发工具。创建项目后自动在桌面生成入口，编辑会实时同步。',
       '左侧实时预览应用，右侧通过对话让 AI 生成或迭代源码，并可查看源代码与应用存储数据。支持导出、导入压缩包以备份或分享项目。',
     ],
   },

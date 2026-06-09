@@ -1,5 +1,6 @@
 import { useMemo } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { emojiFontLabel, loadDisplaySettings } from '../../os/display-settings-storage.ts'
 type DisplayViewProps = {
   onBack: () => void
@@ -30,9 +31,7 @@ export function DisplayView({ onBack, onOpenEmoji }: DisplayViewProps) {
             >
               <span class="settings__row-name">表情符号</span>
               <span class="settings__row-size">{emojiFontLabel(emojiFontMode)}</span>
-              <span class="settings__row-disclosure" aria-hidden="true">
-                ›
-              </span>
+              <SettingsDisclosureIcon />
             </button>
           </div>
         </section>

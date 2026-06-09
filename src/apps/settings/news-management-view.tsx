@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import {
   clearAllCommentThreads,
@@ -179,34 +180,34 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
               <dd>{tokenUsage.replyGenCount.toLocaleString('zh-CN')} 次</dd>
             </dl>
           </div>
-          <div class="settings__actions">
+          <div class="news-mgmt__toolbar">
             <button type="button" class="settings__btn" onClick={handleClearTokenUsage}>
               清零用量统计
             </button>
-            <p class="settings__hint">仅清除统计数字，不影响已保存的新闻与评论。</p>
+            <p class="news-mgmt__toolbar-note">仅清除统计数字，不影响已保存的新闻与评论。</p>
           </div>
         </section>
 
-        <section class="settings__section">
+        <section class="settings__section news-mgmt__archive">
           <h2 class="settings__section-title">新闻存档</h2>
-          <p class="settings__section-footnote">
+          <p class="settings__section-footnote news-mgmt__archive-intro">
             所有新闻与评论均为 AI 即时生成并本地保存。可精确删除单篇报道、整日版面或仅清除评论区。
           </p>
 
           {commentStats.threadCount > 0 && (
-            <div class="settings__actions">
+            <div class="news-mgmt__toolbar">
               <button type="button" class="settings__btn settings__btn--danger" onClick={handleClearAllComments}>
                 清除全部评论区
               </button>
-              <p class="settings__hint">删除所有报道下的评论数据，报道正文保留。</p>
+              <p class="news-mgmt__toolbar-note">删除所有报道下的评论数据，报道正文保留。</p>
             </div>
           )}
 
           {dates.length === 0 ? (
             <div class="settings__box settings__empty">暂无已生成的新闻</div>
           ) : (
-            <div class="settings__list">
-              <div class="settings__list-head">
+            <div class="settings__list news-mgmt__list">
+              <div class="settings__list-head settings__list-head--nav">
                 <span>日期版面</span>
                 <span>篇数</span>
                 <span />
@@ -224,9 +225,7 @@ export function NewsManagementView({ onBack, onDataChange }: NewsManagementViewP
                       >
                         <span class="settings__row-name">{formatEditionDateLabel(date)}</span>
                         <span class="settings__row-size">{arts.length} 篇</span>
-                        <span class="settings__row-disclosure" aria-hidden="true">
-                          {isOpen ? '⌄' : '›'}
-                        </span>
+                        <SettingsDisclosureIcon expanded={isOpen} />
                       </button>
 
                       <div class="news-mgmt__day-actions">

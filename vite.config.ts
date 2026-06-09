@@ -5,7 +5,7 @@ import preact from '@preact/preset-vite'
 export default defineConfig({
   plugins: [preact()],
   optimizeDeps: {
-    include: ['monaco-editor'],
+    include: ['monaco-editor', 'frimousse'],
   },
   server: {
     port: 6173,

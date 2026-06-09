@@ -1,5 +1,7 @@
 import { writeLocalStorageItem } from '../../os/device-storage.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
+import type { GeneratedAppId } from '../../os/types.ts'
+import { toGeneratedAppId } from '../appstore/store-agent.ts'
 import type { ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
 
 const STORAGE_KEY = 'instant-os-icode-internal-projects'
@@ -75,8 +77,9 @@ function saveInternalProjects(projects: ICodeInternalProject[]): boolean {
 
 export function createInternalProject(name: string, description: string): ICodeInternalProject {
   const now = Date.now()
+  const id = `icode-${now}`
   const project: ICodeInternalProject = {
-    id: `icode-${now}`,
+    id,
     name: name.trim() || '未命名项目',
     description: description.trim() || '在 iCode 中开发的内部微应用',
     category: '内部开发',
@@ -86,6 +89,7 @@ export function createInternalProject(name: string, description: string): ICodeI
     html: '',
     appData: {},
     chat: [],
+    linkedAppId: toGeneratedAppId(id) as GeneratedAppId,
     createdAt: now,
     updatedAt: now,
   }

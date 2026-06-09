@@ -8,6 +8,8 @@ import {
 } from '../browser/browser-page-cache.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
+const SITE_CACHE_PREVIEW_COUNT = 10
+
 type SafariCacheViewProps = {
   onCacheChange?: () => void
 }
@@ -19,6 +21,7 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
   const sites = useMemo(() => getSiteCacheSummaries(), [revision])
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [pendingSite, setPendingSite] = useState<string | undefined>(undefined)
+  const [sitesExpanded, setSitesExpanded] = useState(false)
 
   const bump = () => {
     setRevision((value) => value + 1)
@@ -66,33 +69,12 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
       </section>
 
       {sites.length > 0 && (
-        <section class="settings__section">
-          <h2 class="settings__section-title">按网站</h2>
-          <div class="settings__list">
-            <div class="settings__list-head settings__list-head--cache">
-              <span>域名</span>
-              <span>页面</span>
-              <span>占用</span>
-              <span />
-            </div>
-            <div class="settings__list-body">
-              {sites.map((entry) => (
-                <div key={entry.hostname} class="settings__row settings__row--cache">
-                  <span class="settings__row-name">{entry.hostname}</span>
-                  <span class="settings__row-count">{entry.pageCount}</span>
-                  <span class="settings__row-size">{formatStorageSize(entry.bytes)}</span>
-                  <button
-                    type="button"
-                    class="settings__row-action"
-                    onClick={() => setPendingSite(entry.hostname)}
-                  >
-                    清空
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+        <SiteCacheList
+          sites={sites}
+          expanded={sitesExpanded}
+          onExpand={() => setSitesExpanded(true)}
+          onClearSite={(hostname) => setPendingSite(hostname)}
+        />
       )}
 
       {confirmClearAll && (
@@ -115,6 +97,54 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
         />
       )}
     </>
+  )
+}
+
+type SiteCacheListProps = {
+  sites: ReturnType<typeof getSiteCacheSummaries>
+  expanded: boolean
+  onExpand: () => void
+  onClearSite: (hostname: string) => void
+}
+
+function SiteCacheList({ sites, expanded, onExpand, onClearSite }: SiteCacheListProps) {
+  const canExpand = sites.length > SITE_CACHE_PREVIEW_COUNT
+  const showExpandTrigger = canExpand && !expanded
+  const visibleSites = showExpandTrigger ? sites.slice(0, SITE_CACHE_PREVIEW_COUNT) : sites
+
+  return (
+    <section class="settings__section">
+      <h2 class="settings__section-title">按网站</h2>
+      <div class="settings__list">
+        <div class="settings__list-head settings__list-head--cache">
+          <span>域名</span>
+          <span>页面</span>
+          <span>占用</span>
+          <span />
+        </div>
+        <div class="settings__list-body settings__list-body--apps">
+          {visibleSites.map((entry) => (
+            <div key={entry.hostname} class="settings__row settings__row--cache">
+              <span class="settings__row-name">{entry.hostname}</span>
+              <span class="settings__row-count">{entry.pageCount}</span>
+              <span class="settings__row-size">{formatStorageSize(entry.bytes)}</span>
+              <button
+                type="button"
+                class="settings__row-action"
+                onClick={() => onClearSite(entry.hostname)}
+              >
+                清空
+              </button>
+            </div>
+          ))}
+          {showExpandTrigger && (
+            <button type="button" class="settings__row settings__row--show-all" onClick={onExpand}>
+              显示全部网站
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
 

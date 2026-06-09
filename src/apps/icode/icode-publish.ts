@@ -1,5 +1,6 @@
 import { generatedAppIdToSlug, toGeneratedAppId } from '../appstore/store-agent.ts'
 import type { StoreListing } from '../appstore/types.ts'
+import type { GeneratedAppRecord } from '../appstore/types.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import type { ICodeInternalProject } from './icode-types.ts'
@@ -21,7 +22,7 @@ export function buildStoreListingFromProject(project: ICodeInternalProject): Sto
   return {
     slug: listingSlugForInternalProject(project),
     name: project.name.trim() || '未命名应用',
-    description: project.description.trim() || '由 iCode 发布的微应用',
+    description: project.description.trim() || '由 iCode 开发的微应用',
     category: project.category.trim() || '开发者',
     iconEmoji: project.iconEmoji.trim() || '📱',
     themeColor: project.themeColor.trim() || '#007aff',
@@ -37,8 +38,126 @@ export function resolvePublishAppId(project: ICodeInternalProject): GeneratedApp
   return toGeneratedAppId(listingSlugForInternalProject(project))
 }
 
+export function placeholderHtmlForIcodeApp(name: string): string {
+  const title = name.trim() || '未命名应用'
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #f5f7fb 0%, #e8edf5 100%);
+      color: #3c3c43;
+    }
+    main {
+      text-align: center;
+      padding: 24px;
+      max-width: 320px;
+    }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { margin: 0; font-size: 14px; line-height: 1.5; color: #636366; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${title}</h1>
+    <p>应用开发中。请在 iCode 中继续编辑，保存后会自动同步到此入口。</p>
+  </main>
+</body>
+</html>`
+}
+
+export function resolveDesktopHtml(project: Pick<ICodeInternalProject, 'html' | 'name'>): string {
+  return project.html.trim() || placeholderHtmlForIcodeApp(project.name)
+}
+
+export type ProjectNameConflict =
+  | { source: 'installed'; record: GeneratedAppRecord }
+  | { source: 'internal'; project: ICodeInternalProject }
+
+export function findProjectNameConflict(
+  installedApps: GeneratedAppRecord[],
+  internalProjects: ICodeInternalProject[],
+  name: string,
+  options?: { excludeProjectId?: string; excludeAppId?: GeneratedAppId },
+): ProjectNameConflict | undefined {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const installedConflict = installedApps.find(
+    (app) => app.name.trim() === trimmed && app.id !== options?.excludeAppId,
+  )
+  if (installedConflict) {
+    return { source: 'installed', record: installedConflict }
+  }
+
+  const internalConflict = internalProjects.find(
+    (project) => project.name.trim() === trimmed && project.id !== options?.excludeProjectId,
+  )
+  if (internalConflict) {
+    return { source: 'internal', project: internalConflict }
+  }
+
+  return undefined
+}
+
+export function formatProjectNameConflictMessage(conflict: ProjectNameConflict): string {
+  const name =
+    conflict.source === 'installed' ? conflict.record.name : conflict.project.name
+  return `已有同名应用「${name}」，请换一个名称（例如加上「二」「三」等后缀）`
+}
+
+export function buildIcodeSyncInput(project: ICodeInternalProject): {
+  appId: GeneratedAppId
+  icodeProjectId: string
+  name: string
+  description: string
+  category: string
+  iconEmoji: string
+  themeColor: string
+  tags: ICodeInternalProject['tags']
+  html: string
+  appData: GeneratedAppDataStore
+} {
+  return {
+    appId: resolvePublishAppId(project),
+    icodeProjectId: project.id,
+    name: project.name.trim() || '未命名应用',
+    description: project.description.trim() || '在 iCode 中开发的内部微应用',
+    category: project.category.trim() || '开发者',
+    iconEmoji: project.iconEmoji.trim() || '📱',
+    themeColor: project.themeColor.trim() || '#007aff',
+    tags: project.tags,
+    html: resolveDesktopHtml(project),
+    appData: project.appData,
+  }
+}
+
 export type IcodePublishInput = {
   project: ICodeInternalProject
   html: string
   appData: GeneratedAppDataStore
+}
+
+/** @deprecated 使用 findProjectNameConflict */
+export function findPublishNameConflict(
+  installedApps: GeneratedAppRecord[],
+  name: string,
+  publishAppId: GeneratedAppId,
+): GeneratedAppRecord | undefined {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  return installedApps.find((app) => app.name.trim() === trimmed && app.id !== publishAppId)
 }
