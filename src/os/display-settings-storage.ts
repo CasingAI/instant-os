@@ -4,6 +4,8 @@ export type EmojiFontMode = 'auto' | 'on' | 'off'
 
 export type DisplaySettings = {
   emojiFontMode: EmojiFontMode
+  /** User override: emoji vertical offset in em (unitless, relative to font-size). */
+  emojiOffsetEm?: number
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.displaySettings
@@ -19,15 +21,38 @@ function normalizeEmojiFontMode(value: unknown): EmojiFontMode {
   return 'auto'
 }
 
+function normalizeEmojiOffsetEm(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined
+  }
+
+  if (value < -0.5 || value > 0.5) {
+    return undefined
+  }
+
+  return value
+}
+
 function normalizeDisplaySettings(raw: unknown): DisplaySettings {
   if (!raw || typeof raw !== 'object') {
     return DEFAULT_SETTINGS
   }
 
   const record = raw as Record<string, unknown>
-  return {
+  const settings: DisplaySettings = {
     emojiFontMode: normalizeEmojiFontMode(record.emojiFontMode),
   }
+
+  const unifiedOffset = normalizeEmojiOffsetEm(record.emojiOffsetEm)
+  const legacyIconOffset = normalizeEmojiOffsetEm(record.emojiOffsetIconEm)
+  const legacyTextOffset = normalizeEmojiOffsetEm(record.emojiOffsetTextEm)
+  const resolvedOffset = unifiedOffset ?? legacyIconOffset ?? legacyTextOffset
+
+  if (resolvedOffset !== undefined) {
+    settings.emojiOffsetEm = resolvedOffset
+  }
+
+  return settings
 }
 
 export function loadDisplaySettings(): DisplaySettings {
@@ -46,8 +71,17 @@ export function saveDisplaySettings(settings: DisplaySettings): boolean {
   const payload: DisplaySettings = {
     emojiFontMode: settings.emojiFontMode,
   }
+
+  if (settings.emojiOffsetEm !== undefined) {
+    payload.emojiOffsetEm = settings.emojiOffsetEm
+  }
+
   const serialized = JSON.stringify(payload)
   return writeLocalStorageItem(STORAGE_KEY, serialized)
+}
+
+export function patchDisplaySettings(patch: Partial<DisplaySettings>): boolean {
+  return saveDisplaySettings({ ...loadDisplaySettings(), ...patch })
 }
 
 export function emojiFontLabel(mode: EmojiFontMode): string {

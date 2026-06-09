@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import {
+  bootstrapStocksStoreFromWidgetCache,
+  ensureDefaultWatchFromNotification,
+  getWidgetDisplaySnapshot,
+  readStocksStore,
+} from '../apps/stocks/stocks-storage.ts'
+import {
   bootstrapWeatherStoreFromWidgetCache,
   ensureMyLocationFromNotification,
   getWidgetDisplayWeather,
@@ -31,6 +37,15 @@ function applyWeatherDisplay(weather: NotificationWeather): void {
   saveNotificationCenterWidgetsCache({ weather })
 }
 
+function resolveStocksFromStore(): NotificationStockSnapshot | undefined {
+  return getWidgetDisplaySnapshot(readStocksStore())
+}
+
+function applyStocksDisplay(stocks: NotificationStockSnapshot): void {
+  stocksCache = stocks
+  saveNotificationCenterWidgetsCache({ stocks })
+}
+
 type WidgetCache = {
   weather: NotificationWeather | undefined
   weatherState: WidgetLoadState
@@ -44,7 +59,9 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
   const [weather, setWeather] = useState<NotificationWeather | undefined>(() =>
     resolveWeatherFromStore() ?? weatherCache,
   )
-  const [stocks, setStocks] = useState<NotificationStockSnapshot | undefined>(stocksCache)
+  const [stocks, setStocks] = useState<NotificationStockSnapshot | undefined>(
+    () => resolveStocksFromStore() ?? stocksCache,
+  )
   const [weatherState, setWeatherState] = useState<WidgetLoadState>('idle')
   const [stocksState, setStocksState] = useState<WidgetLoadState>('idle')
   const [weatherError, setWeatherError] = useState<string | undefined>(undefined)
@@ -60,6 +77,16 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
     }
   }, [])
 
+  const syncStocksFromStore = useCallback(() => {
+    const next = resolveStocksFromStore()
+    if (next) {
+      applyStocksDisplay(next)
+      setStocks(next)
+      setStocksState('idle')
+      setStocksError(undefined)
+    }
+  }, [])
+
   useEffect(() => {
     const onWeatherChanged = () => syncWeatherFromStore()
     window.addEventListener('instant-os:weather-widget-changed', onWeatherChanged)
@@ -69,6 +96,16 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
       window.removeEventListener('instant-os:weather-store-changed', onWeatherChanged)
     }
   }, [syncWeatherFromStore])
+
+  useEffect(() => {
+    const onStocksChanged = () => syncStocksFromStore()
+    window.addEventListener('instant-os:stocks-widget-changed', onStocksChanged)
+    window.addEventListener('instant-os:stocks-store-changed', onStocksChanged)
+    return () => {
+      window.removeEventListener('instant-os:stocks-widget-changed', onStocksChanged)
+      window.removeEventListener('instant-os:stocks-store-changed', onStocksChanged)
+    }
+  }, [syncStocksFromStore])
 
   const loadWeatherIfNeeded = useCallback(async () => {
     const fromStore = resolveWeatherFromStore()
@@ -108,8 +145,21 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
   }, [])
 
   const loadStocksIfNeeded = useCallback(async () => {
+    bootstrapStocksStoreFromWidgetCache(stocksCache)
+    const fromStore = resolveStocksFromStore()
+    if (fromStore) {
+      applyStocksDisplay(fromStore)
+      setStocks(fromStore)
+      setStocksState('idle')
+      return
+    }
+
     if (stocksCache) {
-      setStocks(stocksCache)
+      ensureDefaultWatchFromNotification(stocksCache)
+      const synced = getWidgetDisplaySnapshot(readStocksStore()) ?? stocksCache
+      applyStocksDisplay(synced)
+      setStocks(synced)
+      setStocksState('idle')
       return
     }
 
@@ -118,9 +168,10 @@ export function useNotificationCenterWidgets(enabled: boolean): WidgetCache {
 
     try {
       const data = await generateFakeStockSnapshot()
-      stocksCache = data
-      saveNotificationCenterWidgetsCache({ stocks: data })
-      setStocks(data)
+      ensureDefaultWatchFromNotification(data)
+      const synced = getWidgetDisplaySnapshot(readStocksStore()) ?? data
+      applyStocksDisplay(synced)
+      setStocks(synced)
       setStocksState('idle')
     } catch (error) {
       setStocksState('error')

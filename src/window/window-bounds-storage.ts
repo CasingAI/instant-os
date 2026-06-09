@@ -69,5 +69,13 @@ export function resolveWindowDimensions(
   if (isLikelyBogusFloor) {
     return clampFloatingSize(defaults.width, defaults.height)
   }
+
+  const isUndersizedWideDefault =
+    defaults.width >= 1000 &&
+    (saved.width < defaults.width * 0.75 || saved.height < defaults.height * 0.75)
+  if (isUndersizedWideDefault) {
+    return clampFloatingSize(defaults.width, defaults.height)
+  }
+
   return saved
 }

@@ -1,5 +1,6 @@
 import { loadDisplaySettings, type EmojiFontMode } from '../os/display-settings-storage.ts'
 import { appendBundledEmojiFontFaceMetrics, buildBundledEmojiLayoutMetricsCss } from './bundled-emoji-font-metrics.ts'
+import { buildEmojiOffsetVariablesCss } from './emoji-offset.ts'
 import appleColorEmojiCss from './apple-color-emoji.css?raw'
 import {
   shouldApplyBundledEmojiMetrics,
@@ -45,9 +46,8 @@ export function buildIframeEmojiFontBodyInjection(mode?: EmojiFontMode): string 
   const resolvedMode = mode ?? loadDisplaySettings().emojiFontMode
   const emojiStack = emojiFontStackForMode(resolvedMode)
   const fontFamily = buildTextFontFamilyRule(emojiStack)
-  const layoutMetrics = shouldApplyBundledEmojiMetrics(resolvedMode)
-    ? `\n${buildBundledEmojiLayoutMetricsCss()}`
-    : ''
+  const layoutMetrics = `\n${buildBundledEmojiLayoutMetricsCss()}`
+  const offsetVariables = `\n${buildEmojiOffsetVariablesCss()}`
 
   return `<style id="instant-os-emoji-fonts">
 html,
@@ -64,7 +64,7 @@ pre,
 kbd,
 samp {
   font-family: ${MONO_FONT_STACK} !important;
-}${layoutMetrics}
+}${offsetVariables}${layoutMetrics}
 </style>`
 }
 

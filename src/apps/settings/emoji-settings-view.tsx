@@ -1,30 +1,40 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { BackIcon } from '../../icons/app-icons.tsx'
+import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import { applyEmojiFontMode } from '../../fonts/ensure-apple-color-emoji-fonts.ts'
+import { EMOJI_MIXED_PREVIEW_LINES } from '../../fonts/emoji-mixed-preview-lines.ts'
+import { EMOJI_PREVIEW_GLYPHS } from '../../fonts/emoji-preview-glyphs.ts'
+import { formatEmojiOffsetPercent, resolveEmojiOffsetEm } from '../../fonts/emoji-offset.ts'
 import {
   emojiFontLabel,
   loadDisplaySettings,
-  saveDisplaySettings,
+  patchDisplaySettings,
   type EmojiFontMode,
 } from '../../os/display-settings-storage.ts'
+
 type EmojiSettingsViewProps = {
   onBack: () => void
+  onOpenCalibration: () => void
 }
 
 const EMOJI_FONT_OPTIONS: EmojiFontMode[] = ['auto', 'on', 'off']
+const ICON_PREVIEW_TILE_SIZE = 48
 
-const PREVIEW_EMOJIS = ['😀', '🎉', '📧', '🌐', '⚙️'] as const
-
-export function EmojiSettingsView({ onBack }: EmojiSettingsViewProps) {
+export function EmojiSettingsView({ onBack, onOpenCalibration }: EmojiSettingsViewProps) {
   const [mode, setMode] = useState<EmojiFontMode>(() => loadDisplaySettings().emojiFontMode)
+  const [offsetEm, setOffsetEm] = useState(() => resolveEmojiOffsetEm())
   const [saveError, setSaveError] = useState(false)
+
+  useEffect(() => {
+    setOffsetEm(resolveEmojiOffsetEm())
+  }, [mode])
 
   const handleSelect = async (next: EmojiFontMode) => {
     if (next === mode) {
       return
     }
 
-    if (!saveDisplaySettings({ emojiFontMode: next })) {
+    if (!patchDisplaySettings({ emojiFontMode: next })) {
       setSaveError(true)
       return
     }
@@ -32,6 +42,7 @@ export function EmojiSettingsView({ onBack }: EmojiSettingsViewProps) {
     setSaveError(false)
     await applyEmojiFontMode(next)
     setMode(next)
+    setOffsetEm(resolveEmojiOffsetEm({ ...loadDisplaySettings(), emojiFontMode: next }))
   }
 
   return (
@@ -78,13 +89,54 @@ export function EmojiSettingsView({ onBack }: EmojiSettingsViewProps) {
 
         <section class="settings__section">
           <h2 class="settings__section-title">预览</h2>
-          <div class="settings__box settings__emoji-preview" aria-hidden="true">
-            {PREVIEW_EMOJIS.map((emoji) => (
-              <span key={emoji} class="settings__emoji-preview-glyph">
-                {emoji}
-              </span>
-            ))}
+          <div class="settings__emoji-offset-block">
+            <h3 class="settings__emoji-offset-subtitle">应用图标</h3>
+            <div class="settings__box settings__emoji-offset-icon-preview" aria-hidden="true">
+              {EMOJI_PREVIEW_GLYPHS.map((emoji) => (
+                <AppIconTile key={emoji} color="#8e8e93" size={ICON_PREVIEW_TILE_SIZE}>
+                  <span
+                    class="app-icon-tile__emoji"
+                    style={{ fontSize: `${ICON_PREVIEW_TILE_SIZE * (50 / 72)}px` }}
+                  >
+                    {emoji}
+                  </span>
+                </AppIconTile>
+              ))}
+            </div>
           </div>
+
+          <div class="settings__emoji-offset-block">
+            <h3 class="settings__emoji-offset-subtitle">文字混排</h3>
+            <div class="settings__box settings__emoji-mixed-preview" aria-hidden="true">
+              {EMOJI_MIXED_PREVIEW_LINES.map((line) => (
+                <p key={line.emoji} class="settings__emoji-mixed-line">
+                  {line.before}
+                  <span class="settings__emoji-preview-glyph">{line.emoji}</span>
+                  {line.after}
+                </p>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section class="settings__section">
+          <h2 class="settings__section-title">校正</h2>
+          <div class="settings__list">
+            <button
+              type="button"
+              class="settings__row settings__row--button settings__row--nav"
+              onClick={onOpenCalibration}
+            >
+              <span class="settings__row-name">垂直偏移校正</span>
+              <span class="settings__row-size">{formatEmojiOffsetPercent(offsetEm)}</span>
+              <span class="settings__row-disclosure" aria-hidden="true">
+                ›
+              </span>
+            </button>
+          </div>
+          <p class="settings__section-footnote">
+            逐个加载图标并测量垂直偏移，也可手动微调。偏移按字号比例（em）应用。
+          </p>
         </section>
       </div>
     </div>

@@ -2,6 +2,8 @@ import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.t
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
+import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
+import { useExperimentalSettings } from '../os/use-experimental-settings.ts'
 import {
   buildBuiltinIconContextMenuItems,
   buildGeneratedIconContextMenuItems,
@@ -16,6 +18,7 @@ import '../icons/app-icon-tile.css'
 import './dock.css'
 
 export function Dock() {
+  useExperimentalSettings()
   const { windows, openApp, restoreWindow, closeWindowsForApp } = useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
     useGeneratedApps()
@@ -41,7 +44,7 @@ export function Dock() {
     }
 
     const app = getAppDefinition(appId)
-    if (!app) {
+    if (!app || !isBuiltinAppVisibleOnDock(app)) {
       return undefined
     }
 

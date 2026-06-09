@@ -20,7 +20,10 @@ import { formatStorageSize } from './format-storage-size.ts'
 import { SafariUsageView } from './safari-usage-view.tsx'
 import { AccountView } from './account-view.tsx'
 import { DisplayView } from './display-view.tsx'
+import { DeveloperSettingsView } from './developer-settings-view.tsx'
+import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
+import { ExperimentalSettingsView } from './experimental-settings-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
 import {
@@ -39,6 +42,7 @@ import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import {
   AccountPaneIcon,
   DisplayPaneIcon,
+  ExperimentalPaneIcon,
   NewsPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
@@ -55,12 +59,15 @@ type SettingsRoute =
   | { view: 'account' }
   | { view: 'display' }
   | { view: 'display-emoji' }
+  | { view: 'display-emoji-calibration' }
   | { view: 'resources' }
   | { view: 'resources-3d' }
   | { view: 'resources-3d-detail'; target: Resources3dDetailTarget }
   | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId }
   | { view: 'safari-usage' }
   | { view: 'news' }
+  | { view: 'experimental' }
+  | { view: 'experimental-developer' }
 
 const ROOT_TITLE = '系统设置'
 
@@ -82,6 +89,9 @@ function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | unde
   if (route.view === 'display-emoji') {
     return '表情符号'
   }
+  if (route.view === 'display-emoji-calibration') {
+    return '垂直偏移校正'
+  }
   if (route.view === 'resources') {
     return '资源'
   }
@@ -96,6 +106,12 @@ function titleForRoute(route: SettingsRoute, selectedApp: ManagedAppEntry | unde
   }
   if (route.view === 'news') {
     return '新闻'
+  }
+  if (route.view === 'experimental') {
+    return '实验性特性'
+  }
+  if (route.view === 'experimental-developer') {
+    return '开发者'
   }
   return ROOT_TITLE
 }
@@ -202,8 +218,10 @@ export function SettingsApp() {
   const showAppDetail = view === 'app-detail' && selectedApp
   const showAccount = view === 'account'
   const showDisplay = view === 'display'
-  const keepDisplay = showDisplay || view === 'display-emoji'
-  const showEmoji = view === 'display-emoji'
+  const keepDisplay =
+    showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
+  const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
+  const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
   const showResources = view === 'resources'
   const keepResources =
@@ -212,6 +230,9 @@ export function SettingsApp() {
   const keepResources3d = showResources3d || view === 'resources-3d-detail'
   const showResources3dDetail = view === 'resources-3d-detail'
   const showNews = view === 'news'
+  const showExperimental = view === 'experimental'
+  const keepExperimental = showExperimental || view === 'experimental-developer'
+  const showExperimentalDeveloper = view === 'experimental-developer'
 
   return (
     <div class="settings-host">
@@ -282,6 +303,16 @@ export function SettingsApp() {
                 </span>
                 <span class="settings__pane-label">新闻</span>
               </button>
+              <button
+                type="button"
+                class="settings__pane"
+                onClick={() => setRoute({ view: 'experimental' })}
+              >
+                <span class="settings__pane-icon" aria-hidden="true">
+                  <ExperimentalPaneIcon />
+                </span>
+                <span class="settings__pane-label">实验性特性</span>
+              </button>
             </div>
           </div>
         </div>
@@ -323,8 +354,15 @@ export function SettingsApp() {
         />
       </SettingsKeepLayer>
 
-      <SettingsKeepLayer show={showEmoji} keep={showEmoji}>
-        <EmojiSettingsView onBack={() => setRoute({ view: 'display' })} />
+      <SettingsKeepLayer show={showEmoji && !showEmojiCalibration} keep={showEmoji}>
+        <EmojiSettingsView
+          onBack={() => setRoute({ view: 'display' })}
+          onOpenCalibration={() => setRoute({ view: 'display-emoji-calibration' })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showEmojiCalibration} keep={showEmojiCalibration}>
+        <EmojiCalibrationView onBack={() => setRoute({ view: 'display-emoji' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showSafari} keep={showSafari}>
@@ -363,6 +401,17 @@ export function SettingsApp() {
           onBack={() => setRoute({ view: 'root' })}
           onDataChange={() => setCacheRevision((value) => value + 1)}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showExperimental} keep={keepExperimental}>
+        <ExperimentalSettingsView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpenDeveloper={() => setRoute({ view: 'experimental-developer' })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showExperimentalDeveloper} keep={showExperimentalDeveloper}>
+        <DeveloperSettingsView onBack={() => setRoute({ view: 'experimental' })} />
       </SettingsKeepLayer>
     </div>
   )

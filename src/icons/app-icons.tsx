@@ -45,6 +45,26 @@ export function Scene3dLabIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function ICodeIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#147efb" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <text
+          x="32"
+          y="40"
+          text-anchor="middle"
+          fill="#fff"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          font-size="22"
+          font-weight="700"
+        >
+          {'</>'}
+        </text>
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SettingsIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#6d737c" size={size}>

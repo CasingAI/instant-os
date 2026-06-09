@@ -69,3 +69,17 @@ export function ResourcesPaneIcon() {
 export function NewsPaneIcon() {
   return <NewsIcon size={PANE_ICON_SIZE} />
 }
+
+export function ExperimentalPaneIcon() {
+  return (
+    <AppIconTile color="#8a7bb8" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        🧪
+      </span>
+    </AppIconTile>
+  )
+}

@@ -27,7 +27,11 @@ import type {
   StoreReview,
 } from '../apps/appstore/types.ts'
 import { DeviceStorageFullError } from './device-storage.ts'
-import { clearGeneratedAppData } from './generated-app-data-storage.ts'
+import {
+  clearGeneratedAppData,
+  saveGeneratedAppData,
+} from './generated-app-data-storage.ts'
+import type { GeneratedAppDataStore } from './generated-app-data-storage.ts'
 import { loadInstalledApps, saveInstalledApps } from './generated-apps-storage.ts'
 import {
   loadLauncherLayout,
@@ -81,6 +85,16 @@ type GeneratedAppsContextValue = {
   getFailedInstall: (appId: GeneratedAppId) => FailedInstall | undefined
   dismissFailedInstall: (appId: GeneratedAppId) => void
   pendingUpdateCount: number
+  updateInstalledAppFromIcode: (
+    appId: GeneratedAppId,
+    patch: { html: string; version: string },
+  ) => boolean
+  publishAppFromIcode: (input: {
+    appId: GeneratedAppId
+    listing: StoreListing
+    html: string
+    appData: GeneratedAppDataStore
+  }) => { version: string } | undefined
 }
 
 const GeneratedAppsContext = createContext<GeneratedAppsContextValue | undefined>(undefined)
@@ -675,6 +689,92 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     setPendingMarketplaceDetailSlug(undefined)
   }, [])
 
+  const publishAppFromIcode = useCallback(
+    (input: {
+      appId: GeneratedAppId
+      listing: StoreListing
+      html: string
+      appData: GeneratedAppDataStore
+    }): { version: string } | undefined => {
+      const existing = installedApps.find((item) => item.id === input.appId)
+      const currentVersion = normalizeAppVersion(existing?.version)
+      const targetVersion = existing ? nextAppVersion(currentVersion) : currentVersion
+      const versions = appendVersionSnapshot(existing, targetVersion, input.html)
+
+      const record: GeneratedAppRecord = migrateAppRecord({
+        id: input.appId,
+        name: input.listing.name,
+        description: input.listing.description,
+        category: input.listing.category,
+        iconEmoji: input.listing.iconEmoji,
+        themeColor: input.listing.themeColor,
+        tags: input.listing.tags,
+        html: input.html,
+        version: targetVersion,
+        versions,
+        pendingUpdate: false,
+      })
+
+      const nextApps = existing
+        ? replaceInstalledApp(installedApps, input.appId, record)
+        : [...installedApps, record]
+
+      if (!saveInstalledApps(nextApps)) {
+        setListingsError('设备存储空间已满（5 MB 上限），无法发布应用。')
+        return undefined
+      }
+
+      if (!saveGeneratedAppData(input.appId, input.appData)) {
+        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+        return undefined
+      }
+
+      setInstalledApps(nextApps)
+
+      setListings((current) => {
+        const index = current.findIndex((listing) => listing.slug === input.listing.slug)
+        if (index < 0) {
+          return [...current, input.listing]
+        }
+
+        const next = [...current]
+        next[index] = input.listing
+        return next
+      })
+
+      return { version: targetVersion }
+    },
+    [installedApps],
+  )
+
+  const updateInstalledAppFromIcode = useCallback(
+    (appId: GeneratedAppId, patch: { html: string; version: string }): boolean => {
+      const app = installedApps.find((item) => item.id === appId)
+      if (!app) {
+        return false
+      }
+
+      const versions = appendVersionSnapshot(app, patch.version, patch.html)
+      const record: GeneratedAppRecord = migrateAppRecord({
+        ...app,
+        html: patch.html,
+        version: patch.version,
+        versions,
+        pendingUpdate: false,
+      })
+
+      const nextApps = replaceInstalledApp(installedApps, appId, record)
+      if (!saveInstalledApps(nextApps)) {
+        setListingsError('设备存储空间已满（5 MB 上限），无法保存应用数据。')
+        return false
+      }
+
+      setInstalledApps(nextApps)
+      return true
+    },
+    [installedApps],
+  )
+
   const value = useMemo(
     () => ({
       listings,
@@ -710,6 +810,8 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       getFailedInstall,
       dismissFailedInstall,
       pendingUpdateCount,
+      updateInstalledAppFromIcode,
+      publishAppFromIcode,
     }),
     [
       listings,
@@ -745,6 +847,8 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       getFailedInstall,
       dismissFailedInstall,
       pendingUpdateCount,
+      updateInstalledAppFromIcode,
+      publishAppFromIcode,
     ],
   )
 

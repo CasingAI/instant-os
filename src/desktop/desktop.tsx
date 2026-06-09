@@ -16,7 +16,9 @@ import {
   isPermanentlyPinnedToDock,
   reconcileDesktopIconOrder,
 } from '../os/launcher-layout-storage.ts'
+import { isBuiltinAppVisibleOnDesktop } from '../os/launcher-app-visibility.ts'
 import { useOs } from '../os/os-context.tsx'
+import { useExperimentalSettings } from '../os/use-experimental-settings.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId } from '../os/types.ts'
 import {
   buildPreviewOrder,
@@ -272,7 +274,8 @@ export function Desktop() {
   const [previewOrder, setPreviewOrder] = useState<AppId[] | undefined>(undefined)
   const previewOrderRef = useRef<AppId[] | undefined>(undefined)
 
-  const desktopApps = APP_REGISTRY.filter((app) => app.desktop)
+  useExperimentalSettings()
+  const desktopApps = APP_REGISTRY.filter((app) => isBuiltinAppVisibleOnDesktop(app))
   const installedDesktopApps = installedApps.filter(
     (app) => !pendingInstalls.some((item) => item.id === app.id),
   )

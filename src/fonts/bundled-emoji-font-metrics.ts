@@ -1,8 +1,4 @@
-const BUNDLED_EMOJI_FONT_FACE_METRICS = `ascent-override: 100%;
-  descent-override: 0%;
-  line-gap-override: 0%;`
-
-const BUNDLED_EMOJI_LAYOUT_METRIC_SELECTORS = [
+export const EMOJI_OFFSET_SELECTORS = [
   '.generated-app-icon__emoji',
   '.app-icon-tile__emoji',
   '.settings__emoji-preview-glyph',
@@ -12,6 +8,10 @@ const BUNDLED_EMOJI_LAYOUT_METRIC_SELECTORS = [
   '.weather-app__city-chip-emoji',
   '.notification-center__weather-emoji',
 ].join(',\n')
+
+const BUNDLED_EMOJI_FONT_FACE_METRICS = `ascent-override: 100%;
+  descent-override: 0%;
+  line-gap-override: 0%;`
 
 /** Patch @font-face blocks so bundled TTF glyphs align with surrounding text metrics. */
 export function appendBundledEmojiFontFaceMetrics(css: string): string {
@@ -23,11 +23,11 @@ export function appendBundledEmojiFontFaceMetrics(css: string): string {
 
 export function buildBundledEmojiLayoutMetricsCss(scopeSelector?: string): string {
   const selector = scopeSelector
-    ? `${scopeSelector} ${BUNDLED_EMOJI_LAYOUT_METRIC_SELECTORS.split(',\n').join(`,\n${scopeSelector} `)}`
-    : BUNDLED_EMOJI_LAYOUT_METRIC_SELECTORS
+    ? `${scopeSelector} ${EMOJI_OFFSET_SELECTORS.split(',\n').join(`,\n${scopeSelector} `)}`
+    : EMOJI_OFFSET_SELECTORS
 
-  return `/* Web-bundled emoji on non-Apple platforms: fine-tune flex/grid centered glyphs. */
+  return `/* Emoji vertical offset from display settings (em × font-size). */
 ${selector} {
-  transform: translateY(-0.02em);
+  transform: translateY(calc(var(--emoji-offset-em, 0) * 1em));
 }`
 }

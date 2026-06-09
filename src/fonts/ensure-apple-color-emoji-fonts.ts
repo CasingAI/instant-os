@@ -1,6 +1,7 @@
 import { loadDisplaySettings, type EmojiFontMode } from '../os/display-settings-storage.ts'
 import appleColorEmojiCss from './apple-color-emoji.css?raw'
 import { appendBundledEmojiFontFaceMetrics } from './bundled-emoji-font-metrics.ts'
+import { applyEmojiOffsetVariables } from './emoji-offset.ts'
 
 const BUNDLED_EMOJI_STYLE_ID = 'instant-os-bundled-emoji-faces'
 
@@ -54,8 +55,12 @@ export async function applyEmojiFontMode(mode?: EmojiFontMode): Promise<void> {
   const useBundledMetrics = shouldApplyBundledEmojiMetrics(resolvedMode)
   document.documentElement.dataset.emojiFontMode = resolvedMode
   document.documentElement.dataset.emojiFontBundled = useBundledMetrics ? 'true' : 'false'
+  applyEmojiOffsetVariables()
 
   if (!useBundled || webFontsEnsured) {
+    if (useBundled) {
+      await document.fonts.ready
+    }
     return
   }
 

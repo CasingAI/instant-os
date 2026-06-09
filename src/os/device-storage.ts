@@ -20,6 +20,7 @@ export const DEVICE_STORAGE_KEYS = {
   windowSizes: 'instant-os:window-sizes',
   accountSettings: 'instant-os-account-settings',
   displaySettings: 'instant-os-display-settings',
+  experimentalSettings: 'instant-os-experimental-settings',
   scene3dLabArchives: 'instant-os-scene3d-lab-archives',
   scene3dLabPrefs: 'instant-os-scene3d-lab-prefs',
   notificationCenterWidgets: 'instant-os-notification-center-widgets',

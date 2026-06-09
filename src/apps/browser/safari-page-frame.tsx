@@ -53,7 +53,7 @@ export function SafariPageFrame({
 
     observer.observe(root, {
       attributes: true,
-      attributeFilter: ['data-emoji-font-mode', 'data-emoji-font-bundled'],
+      attributeFilter: ['data-emoji-font-mode', 'data-emoji-font-bundled', 'data-emoji-offset'],
     })
 
     return () => observer.disconnect()

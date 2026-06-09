@@ -32,14 +32,14 @@ html:not([data-emoji-font-mode='off']) .settings__emoji-preview-glyph {
   font-family: 'Apple Color Emoji', sans-serif;
 }
 
-/* Web-bundled emoji on non-Apple platforms: see bundled-emoji-font-metrics.ts for @font-face tuning. */
-html[data-emoji-font-bundled='true'] .generated-app-icon__emoji,
-html[data-emoji-font-bundled='true'] .app-icon-tile__emoji,
-html[data-emoji-font-bundled='true'] .settings__emoji-preview-glyph,
-html[data-emoji-font-bundled='true'] .catgpt-app__session-emoji,
-html[data-emoji-font-bundled='true'] .weather-app__hero-emoji,
-html[data-emoji-font-bundled='true'] .weather-app__hourly-emoji,
-html[data-emoji-font-bundled='true'] .weather-app__city-chip-emoji,
-html[data-emoji-font-bundled='true'] .notification-center__weather-emoji {
-  transform: translateY(-0.02em);
+/* Emoji vertical offset: see bundled-emoji-font-metrics.ts and emoji-offset.ts. */
+.generated-app-icon__emoji,
+.app-icon-tile__emoji,
+.settings__emoji-preview-glyph,
+.catgpt-app__session-emoji,
+.weather-app__hero-emoji,
+.weather-app__hourly-emoji,
+.weather-app__city-chip-emoji,
+.notification-center__weather-emoji {
+  transform: translateY(calc(var(--emoji-offset-em, 0) * 1em));
 }

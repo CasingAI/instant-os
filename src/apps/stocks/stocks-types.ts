@@ -38,7 +38,12 @@ export type StockWatchEntry = {
   detail: StockDetail | undefined
 }
 
+export type StocksDefaultDisplay = 'default-watch' | 'market-board' | string
+
 export type StocksStore = {
+  defaultWatchId: string | undefined
+  defaultDisplay: StocksDefaultDisplay
+  marketBoard: StockBoard | undefined
   watchlist: StockWatchEntry[]
   activeWatchId: string | undefined
 }

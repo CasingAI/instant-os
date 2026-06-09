@@ -1,5 +1,6 @@
 import { APP_REGISTRY } from './app-registry.tsx'
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
+import { isBuiltinAppVisibleOnDesktop } from './launcher-app-visibility.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.launcherLayout
@@ -55,7 +56,7 @@ export function getDefaultPinnedDockAppIds(): AppId[] {
 }
 
 export function getDefaultDesktopIconOrder(): AppId[] {
-  return APP_REGISTRY.filter((app) => app.desktop).map((app) => app.id)
+  return APP_REGISTRY.filter((app) => isBuiltinAppVisibleOnDesktop(app)).map((app) => app.id)
 }
 
 export function getDefaultLauncherLayout(): LauncherLayoutState {

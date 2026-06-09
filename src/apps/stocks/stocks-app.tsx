@@ -3,14 +3,20 @@ import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import { loadNotificationCenterWidgetsCache } from '../../os/notification-center-widgets-storage.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateStockBoard, generateStockDetail } from './stocks-agent.ts'
 import { StocksSearchSheet } from './stocks-search-sheet.tsx'
 import {
+  bootstrapStocksStoreFromWidgetCache,
+  clearActiveWatch,
   getActiveWatch,
+  isWidgetDefaultWatch,
   readStocksStore,
   removeWatchEntry,
   setActiveWatch,
+  setDefaultDisplay,
+  updateMarketBoard,
   updateWatchDetail,
   upsertWatchEntry,
   writeStocksStore,
@@ -57,12 +63,24 @@ function StockQuoteRow({ symbol, name, price, change, changePercent }: StockQuot
 
 type StockDetailPanelProps = {
   detail: StockDetail
+  isDefaultWatch: boolean
+  isWidgetDefault: boolean
+  onSetWidgetDefault: () => void
 }
 
-function StockDetailPanel({ detail }: StockDetailPanelProps) {
+function StockDetailPanel({
+  detail,
+  isDefaultWatch,
+  isWidgetDefault,
+  onSetWidgetDefault,
+}: StockDetailPanelProps) {
   return (
     <div class="stocks-app__detail-card">
-      <span class="stocks-app__badge">自选</span>
+      <div class="stocks-app__detail-badges">
+        {isDefaultWatch && <span class="stocks-app__badge">默认股票</span>}
+        {!isDefaultWatch && <span class="stocks-app__badge">自选</span>}
+        {isWidgetDefault && <span class="stocks-app__badge stocks-app__badge--widget">通知中心</span>}
+      </div>
       <div class="stocks-app__detail-header">
         <div>
           <h2 class="stocks-app__detail-symbol">{detail.symbol}</h2>
@@ -70,17 +88,55 @@ function StockDetailPanel({ detail }: StockDetailPanelProps) {
             {detail.name} · {detail.exchange}
           </p>
         </div>
-        <div>
-          <div class="stocks-app__detail-price">{detail.price.toFixed(2)}</div>
-          <span
-            class={
-              detail.change >= 0
-                ? 'stocks-app__stock-change stocks-app__stock-change--up'
-                : 'stocks-app__stock-change stocks-app__stock-change--down'
-            }
-          >
-            {formatSigned(detail.change)} ({formatSigned(detail.changePercent)}%)
-          </span>
+        <div class="stocks-app__detail-quote">
+          <div>
+            <div class="stocks-app__detail-price">{detail.price.toFixed(2)}</div>
+            <span
+              class={
+                detail.change >= 0
+                  ? 'stocks-app__stock-change stocks-app__stock-change--up'
+                  : 'stocks-app__stock-change stocks-app__stock-change--down'
+              }
+            >
+              {formatSigned(detail.change)} ({formatSigned(detail.changePercent)}%)
+            </span>
+          </div>
+          {!isWidgetDefault && (
+            <button
+              type="button"
+              class="stocks-app__widget-pin"
+              aria-label="设为通知中心显示"
+              title="设为通知中心显示"
+              onClick={onSetWidgetDefault}
+            >
+              <svg
+                class="stocks-app__widget-pin-icon"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <rect
+                  x="4"
+                  y="4"
+                  width="16"
+                  height="16"
+                  rx="3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                />
+                <path
+                  d="M8 9.5h8M8 12.5h5.5M12 16.5V21M9.5 19h5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
       <div class="stocks-app__detail-grid">
@@ -118,8 +174,11 @@ export function StocksApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
 
-  const [store, setStore] = useState<StocksStore>(() => readStocksStore())
-  const [board, setBoard] = useState<StockBoard | undefined>(undefined)
+  const widgetCache = useMemo(() => loadNotificationCenterWidgetsCache(), [])
+  const [store, setStore] = useState<StocksStore>(() =>
+    bootstrapStocksStoreFromWidgetCache(widgetCache.stocks),
+  )
+  const [board, setBoard] = useState<StockBoard | undefined>(() => readStocksStore().marketBoard)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSheetOpen, setSearchSheetOpen] = useState(false)
   const [searchSheetQuery, setSearchSheetQuery] = useState('')
@@ -136,16 +195,37 @@ export function StocksApp() {
   }, [setAppWindowTitle])
 
   useEffect(() => {
-    const onChanged = () => setStore(readStocksStore())
+    const next = bootstrapStocksStoreFromWidgetCache(widgetCache.stocks)
+    setStore(next)
+    if (next.marketBoard) {
+      setBoard(next.marketBoard)
+    }
+  }, [widgetCache.stocks])
+
+  useEffect(() => {
+    const onChanged = () => {
+      const next = readStocksStore()
+      setStore(next)
+      if (next.marketBoard) {
+        setBoard(next.marketBoard)
+      }
+    }
     window.addEventListener('instant-os:stocks-store-changed', onChanged)
     return () => window.removeEventListener('instant-os:stocks-store-changed', onChanged)
   }, [])
 
-  const loadBoard = useCallback(async () => {
+  const loadBoard = useCallback(async (force = false) => {
+    if (!force && readStocksStore().marketBoard) {
+      setBoard(readStocksStore().marketBoard)
+      return
+    }
+
     setLoadingBoard(true)
     setError(undefined)
     try {
       const data = await generateStockBoard()
+      const next = updateMarketBoard(data)
+      setStore(next)
       setBoard(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : '行情生成失败')
@@ -211,8 +291,27 @@ export function StocksApp() {
     setStore(setActiveWatch(watchId))
   }, [])
 
+  const handleSelectBoard = useCallback(() => {
+    setStore(clearActiveWatch())
+  }, [])
+
   const handleRemoveWatch = useCallback((watchId: string) => {
     setStore(removeWatchEntry(watchId))
+  }, [])
+
+  const handleSetWidgetDefault = useCallback(() => {
+    if (!activeWatch) {
+      return
+    }
+    const next =
+      activeWatch.id === store.defaultWatchId
+        ? setDefaultDisplay('default-watch')
+        : setDefaultDisplay(activeWatch.id)
+    setStore(next)
+  }, [activeWatch, store.defaultWatchId])
+
+  const handleSetMarketBoardDefault = useCallback(() => {
+    setStore(setDefaultDisplay('market-board'))
   }, [])
 
   const handleRefresh = useCallback(async () => {
@@ -220,7 +319,7 @@ export function StocksApp() {
       await refreshWatchDetail(activeWatch.id, `${activeWatch.symbol} ${activeWatch.name}`)
       return
     }
-    await loadBoard()
+    await loadBoard(true)
   }, [activeWatch, refreshWatchDetail, loadBoard])
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -291,10 +390,30 @@ export function StocksApp() {
         </button>
       </div>
 
-      {store.watchlist.length > 0 && (
-        <div class="stocks-app__watch-bar" role="tablist" aria-label="自选股">
+      {(board || store.watchlist.length > 0) && (
+        <div class="stocks-app__watch-bar" role="tablist" aria-label="行情视图">
+          {board && (
+            <div
+              class={`stocks-app__watch-chip-wrap${!store.activeWatchId ? ' stocks-app__watch-chip-wrap--active' : ''}`}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!store.activeWatchId}
+                class={`stocks-app__watch-chip stocks-app__watch-chip--board${!store.activeWatchId ? ' stocks-app__watch-chip--active' : ''}`}
+                onClick={handleSelectBoard}
+              >
+                <span class="stocks-app__watch-chip-symbol">看板</span>
+                <span class="stocks-app__watch-chip-copy">
+                  <span class="stocks-app__watch-chip-name">{board.marketName}</span>
+                  <span class="stocks-app__watch-chip-change">市场概览</span>
+                </span>
+              </button>
+            </div>
+          )}
           {store.watchlist.map((item) => {
             const selected = item.id === store.activeWatchId
+            const isDefaultWatch = item.id === store.defaultWatchId
             const price = item.detail?.price
             const change = item.detail?.change
             return (
@@ -319,19 +438,22 @@ export function StocksApp() {
                           : 'stocks-app__watch-chip-change stocks-app__watch-chip-change--down'
                       }
                     >
-                      {price !== undefined ? price.toFixed(2) : '—'}
+                      {isDefaultWatch ? '默认股票' : '自选'}
+                      {price !== undefined ? ` · ${price.toFixed(2)}` : ''}
                       {change !== undefined ? ` · ${formatSigned(change)}` : ''}
                     </span>
                   </span>
                 </button>
-                <button
-                  type="button"
-                  class="stocks-app__watch-remove"
-                  aria-label={`移除 ${item.symbol}`}
-                  onClick={() => handleRemoveWatch(item.id)}
-                >
-                  ×
-                </button>
+                {!isDefaultWatch && (
+                  <button
+                    type="button"
+                    class="stocks-app__watch-remove"
+                    aria-label={`移除 ${item.symbol}`}
+                    onClick={() => handleRemoveWatch(item.id)}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             )
           })}
@@ -347,13 +469,62 @@ export function StocksApp() {
         )}
         {error && <p class="stocks-app__error">{error}</p>}
 
-        {activeWatch?.detail && <StockDetailPanel detail={activeWatch.detail} />}
+        {activeWatch?.detail && (
+          <StockDetailPanel
+            detail={activeWatch.detail}
+            isDefaultWatch={activeWatch.id === store.defaultWatchId}
+            isWidgetDefault={isWidgetDefaultWatch(store, activeWatch.id)}
+            onSetWidgetDefault={handleSetWidgetDefault}
+          />
+        )}
 
         {!activeWatch && board && (
           <>
             <div class="stocks-app__market-head">
-              <p class="stocks-app__market-name">{board.marketName}</p>
-              <p class="stocks-app__market-headline">{board.headline}</p>
+              <div class="stocks-app__market-head-row">
+                <div>
+                  <p class="stocks-app__market-name">{board.marketName}</p>
+                  <p class="stocks-app__market-headline">{board.headline}</p>
+                </div>
+                {store.defaultDisplay === 'market-board' ? (
+                  <span class="stocks-app__badge stocks-app__badge--widget">通知中心</span>
+                ) : (
+                  <button
+                    type="button"
+                    class="stocks-app__widget-pin"
+                    aria-label="设为通知中心显示"
+                    title="设为通知中心显示"
+                    onClick={handleSetMarketBoardDefault}
+                  >
+                    <svg
+                      class="stocks-app__widget-pin-icon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <rect
+                        x="4"
+                        y="4"
+                        width="16"
+                        height="16"
+                        rx="3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                      />
+                      <path
+                        d="M8 9.5h8M8 12.5h5.5M12 16.5V21M9.5 19h5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
             {board.indices.length > 0 && (
               <div class="stocks-app__indices">
@@ -387,7 +558,7 @@ export function StocksApp() {
         )}
 
         {!activeWatch && !board && !loadingBoard && (
-          <p class="stocks-app__hint">搜索股票并加入自选，或浏览 AI 生成的市场看板。</p>
+          <p class="stocks-app__hint">搜索股票并加入自选，或在通知中心生成默认行情看板。</p>
         )}
       </div>
 
