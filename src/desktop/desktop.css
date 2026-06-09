@@ -91,6 +91,10 @@
 .desktop-icon__image {
   position: relative;
   display: flex;
+}
+
+/* Drop shadow on the tile itself — parent filter breaks border-radius clipping in WebKit (iPadOS). */
+.desktop-icon__image .app-icon-tile__tile {
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
 }
 
@@ -113,6 +117,9 @@
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   transform: translate(-50%, -50%) scale(1.12);
+}
+
+.desktop__drag-ghost .app-icon-tile__tile {
   filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.42));
 }
 
