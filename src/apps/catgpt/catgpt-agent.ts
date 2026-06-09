@@ -10,15 +10,6 @@ const MEOW_SYSTEM_PROMPT = `你是猫咪之神，通过 CatGPT 与凡人对话�
 - 回复长度通常 8～80 个字符，可略长；保持可爱、荒诞、一本正经地胡说八道
 - 不要 markdown，不要 JSON，不要前言后语，只输出一行喵喵文本`
 
-const FALLBACK_MEOWS = [
-  '喵～喵！喵？🐱',
-  '喵…喵喵 ✨喵～',
-  '🐾 喵！喵喵喵 ～',
-  '喵？喵～喵！😺',
-  '喵喵…喵！🐱✨',
-  '～喵 喵喵喵 🐾',
-] as const
-
 function buildConversationTranscript(messages: CatGptMessage[]): string {
   return messages
     .map((message) => {
@@ -31,13 +22,9 @@ function buildConversationTranscript(messages: CatGptMessage[]): string {
 function sanitizeMeowReply(text: string): string {
   const trimmed = text.trim().replace(/\n+/g, ' ')
   if (!trimmed) {
-    return pickFallbackMeow()
+    throw new Error('AI 未返回任何内容')
   }
   return trimmed
-}
-
-function pickFallbackMeow(): string {
-  return FALLBACK_MEOWS[Math.floor(Math.random() * FALLBACK_MEOWS.length)]
 }
 
 export async function generateMeowReply(
@@ -47,14 +34,10 @@ export async function generateMeowReply(
   const transcript = buildConversationTranscript(messages)
   const latestUser = [...messages].reverse().find((message) => message.role === 'user')
 
-  try {
-    const text = await streamChatCompletion({
-      system: MEOW_SYSTEM_PROMPT,
-      user: `对话记录：\n${transcript}\n\n请针对用户最新消息回复（只许喵喵）：\n${latestUser?.content ?? ''}`,
-      onChunk: (delta, accumulated) => onChunk?.(delta, accumulated),
-    })
-    return sanitizeMeowReply(text)
-  } catch {
-    return pickFallbackMeow()
-  }
+  const text = await streamChatCompletion({
+    system: MEOW_SYSTEM_PROMPT,
+    user: `对话记录：\n${transcript}\n\n请针对用户最新消息回复（只许喵喵）：\n${latestUser?.content ?? ''}`,
+    onChunk: (delta, accumulated) => onChunk?.(delta, accumulated),
+  })
+  return sanitizeMeowReply(text)
 }

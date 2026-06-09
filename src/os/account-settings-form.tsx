@@ -1,6 +1,7 @@
 import {
   AI_PROVIDER_PRESETS,
   findAiProviderPreset,
+  isCustomProvider,
   type AiProviderId,
 } from '../ai/ai-providers.ts'
 import { mergeAccountSettings, type AccountSettings } from './account-settings-storage.ts'
@@ -16,6 +17,7 @@ export function AccountSettingsForm({
   onChange,
   layout = 'settings',
 }: AccountSettingsFormProps) {
+  const isCustom = isCustomProvider(draft.providerId)
   const preset = findAiProviderPreset(draft.providerId)
   const modelOptions = preset?.models ?? []
   const fieldClass = layout === 'setup' ? 'setup-form__field' : 'settings__field'
@@ -46,24 +48,59 @@ export function AccountSettingsForm({
         </select>
       </label>
 
+      {isCustom && (
+        <label class={fieldClass}>
+          <span class={labelClass}>Base URL</span>
+          <input
+            class={inputClass}
+            type="url"
+            value={draft.baseURL ?? ''}
+            placeholder="https://api.example.com/v1"
+            autoComplete="off"
+            onInput={(event) =>
+              onChange({
+                ...draft,
+                baseURL: (event.currentTarget as HTMLInputElement).value,
+              })
+            }
+          />
+        </label>
+      )}
+
       <label class={fieldClass}>
         <span class={labelClass}>模型</span>
-        <select
-          class={selectClass}
-          value={draft.model}
-          onChange={(event) =>
-            onChange({
-              ...draft,
-              model: (event.currentTarget as HTMLSelectElement).value,
-            })
-          }
-        >
-          {modelOptions.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.name}
-            </option>
-          ))}
-        </select>
+        {isCustom ? (
+          <input
+            class={inputClass}
+            type="text"
+            value={draft.model}
+            placeholder="model-name"
+            autoComplete="off"
+            onInput={(event) =>
+              onChange({
+                ...draft,
+                model: (event.currentTarget as HTMLInputElement).value,
+              })
+            }
+          />
+        ) : (
+          <select
+            class={selectClass}
+            value={draft.model}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                model: (event.currentTarget as HTMLSelectElement).value,
+              })
+            }
+          >
+            {modelOptions.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        )}
       </label>
 
       <label class={fieldClass}>

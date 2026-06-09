@@ -531,7 +531,7 @@
   background: #fff5f5;
 }
 
-@media (max-width: 900px) {
+@container app-window (max-width: 900px) {
   .scene3d-lab__toolbar-main {
     flex-wrap: wrap;
   }
@@ -549,5 +549,26 @@
   .scene3d-lab__preview {
     border-right: none;
     border-bottom: 1px solid #d2d2d7;
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .scene3d-lab__toolbar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .scene3d-lab__toolbar-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scene3d-lab__actions {
+    flex-wrap: wrap;
+  }
+
+  .scene3d-lab__toolbar-secondary {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }

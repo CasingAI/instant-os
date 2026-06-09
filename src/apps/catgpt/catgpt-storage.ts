@@ -108,12 +108,17 @@ export function createSession(title = '新对话'): CatGptSession {
   }
 }
 
-export function createMessage(role: CatGptMessage['role'], content: string): CatGptMessage {
+export function createMessage(
+  role: CatGptMessage['role'],
+  content: string,
+  options?: { isError?: boolean },
+): CatGptMessage {
   return {
     id: createMessageId(),
     role,
     content: content.trim(),
     createdAt: Date.now(),
+    isError: options?.isError,
   }
 }
 

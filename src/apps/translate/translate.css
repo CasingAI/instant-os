@@ -378,7 +378,7 @@
 }
 
 /* 中等窗口：收紧间距 */
-@media (max-width: 720px) {
+@container app-window (max-width: 720px) {
   .translate-app__body {
     padding: 12px;
     gap: 10px;
@@ -394,7 +394,7 @@
 }
 
 /* 窄窗口：纵向堆叠 */
-@media (max-width: 540px) {
+@container app-window (max-width: 540px) {
   .translate-app__lang-bar {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -412,21 +412,23 @@
 
   .translate-app__workspace {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    flex: none;
     min-height: 0;
   }
 
   .translate-app__panel {
-    min-height: 160px;
+    min-height: 0;
   }
 
   .translate-app__textarea {
-    min-height: 120px;
+    min-height: 96px;
     font-size: 14px;
   }
 }
 
 /* 极窄窗口 */
-@media (max-width: 360px) {
+@container app-window (max-width: 380px) {
   .translate-app__toolbar {
     padding: 0 8px;
   }

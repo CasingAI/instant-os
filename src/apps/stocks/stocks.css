@@ -548,3 +548,43 @@
   font-size: 12px;
   color: var(--sa-text-muted);
 }
+
+@container app-window (max-width: 720px) {
+  .stocks-app__indices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .stocks-app__body {
+    padding: 12px;
+  }
+
+  .stocks-app__indices {
+    grid-template-columns: 1fr;
+  }
+
+  .stocks-app__detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stocks-app__detail-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stocks-app__detail-price {
+    text-align: left;
+    font-size: 24px;
+  }
+
+  .stocks-app__watch-chip {
+    min-width: 108px;
+  }
+}
+
+@container app-window (max-width: 380px) {
+  .stocks-app__brand {
+    display: none;
+  }
+}

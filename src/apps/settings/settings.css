@@ -890,6 +890,73 @@
   display: block;
 }
 
+@container app-window (max-width: 720px) {
+  .settings__content {
+    padding: 16px 18px 20px;
+  }
+
+  .settings__panes {
+    gap: 12px;
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .settings__content,
+  .settings__content--compact {
+    padding: 10px 14px 16px;
+  }
+
+  .settings__pane-label {
+    white-space: normal;
+  }
+
+  .settings__form-row,
+  .settings__field {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .settings__form-row dd {
+    text-align: left;
+  }
+
+  .settings__list-head--tokens,
+  .settings__row--tokens {
+    grid-template-columns: 1fr 44px 56px;
+  }
+
+  .settings__list-head--cache,
+  .settings__row--cache {
+    grid-template-columns: 1fr 44px 56px 36px;
+  }
+
+  .settings__row--3d,
+  .settings__row--3d-nav,
+  .settings__list-head--3d {
+    grid-template-columns: 1fr;
+  }
+
+  .settings__detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .settings__sheet-backdrop {
+    padding: 16px;
+  }
+}
+
+@container app-window (max-width: 380px) {
+  .settings__row {
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+  }
+
+  .settings__row-disclosure {
+    display: none;
+  }
+}
+
 /* News management nested rows */
 .news-mgmt__day {
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);

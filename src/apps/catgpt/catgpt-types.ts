@@ -5,6 +5,7 @@ export type CatGptMessage = {
   role: CatGptRole
   content: string
   createdAt: number
+  isError?: boolean
 }
 
 export type CatGptSession = {

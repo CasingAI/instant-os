@@ -34,9 +34,10 @@
 
 /* Toolbar — 老式金属/塑料质感 */
 .news__toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
   height: 46px;
   padding: 0 10px 0 12px;
@@ -45,10 +46,15 @@
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
 }
 
-.news__toolbar-left {
+.news__toolbar-side--start {
   display: flex;
   align-items: center;
-  min-width: 64px;
+  min-width: 0;
+  justify-self: start;
+}
+
+.news__toolbar-side--end {
+  justify-self: end;
 }
 
 .news__brand {
@@ -64,8 +70,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
-  justify-content: center;
+  justify-self: center;
 }
 
 .news__date-nav {
@@ -862,4 +867,83 @@
 .news-report-sheet__btn--danger:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.news__toolbar-back {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 4px 0;
+  border-radius: 5px;
+  color: var(--news-accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.news__toolbar-back:hover {
+  background: rgba(178, 58, 46, 0.08);
+}
+
+@container app-window (max-width: 720px) {
+  .news__date-label {
+    min-width: 0;
+  }
+
+  .news__list {
+    width: 240px;
+  }
+
+  .news__reader {
+    padding: 14px 16px 20px;
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .news__toolbar {
+    gap: 6px;
+    padding: 0 8px 0 10px;
+  }
+
+  .news__brand {
+    display: none;
+  }
+
+  .news__list {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .news__reader {
+    display: none;
+  }
+
+  .news--reader-open .news__toolbar-back {
+    display: flex;
+  }
+
+  .news--reader-open .news__list {
+    display: none;
+  }
+
+  .news--reader-open .news__reader {
+    display: block;
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+@container app-window (max-width: 380px) {
+  .news__date-label {
+    padding: 0 6px;
+    font-size: 12px;
+  }
+
+  .news__article-head {
+    padding-bottom: 12px;
+  }
+
+  .news__article-title {
+    font-size: 20px;
+  }
 }

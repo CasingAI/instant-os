@@ -304,7 +304,7 @@
   color: #6d6256;
 }
 
-@media (max-width: 380px) {
+@container app-window (max-width: 380px) {
   .news-date-picker {
     padding: 8px;
   }
@@ -327,7 +327,7 @@
   }
 }
 
-@media (min-width: 720px) {
+@container app-window (min-width: 720px) {
   .news-date-picker__panel {
     width: min(100%, 460px);
   }

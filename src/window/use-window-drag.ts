@@ -21,6 +21,14 @@ type DragSession = {
   offsetX: number
   offsetY: number
   dragBounds: WindowBounds
+  frameEl: HTMLElement
+  lastX: number
+  lastY: number
+}
+
+function applyPositionToFrame(frameEl: HTMLElement, x: number, y: number) {
+  frameEl.style.left = `${x}px`
+  frameEl.style.top = `${y}px`
 }
 
 export function useWindowDrag(
@@ -44,6 +52,11 @@ export function useWindowDrag(
       const target = event.target as HTMLElement
       if (target.closest('.window-frame__control')) return
 
+      const frameEl = (event.currentTarget as HTMLElement).closest('.window-frame')
+      if (!(frameEl instanceof HTMLElement)) {
+        return
+      }
+
       onFocus(windowId)
 
       if (isAnchored) {
@@ -54,6 +67,9 @@ export function useWindowDrag(
           offsetX: 0,
           offsetY: 0,
           dragBounds: getDragBounds(),
+          frameEl,
+          lastX: getDragBounds().x,
+          lastY: getDragBounds().y,
         }
       } else {
         const dragBounds = getDragBounds()
@@ -64,6 +80,9 @@ export function useWindowDrag(
           offsetX: event.clientX - dragBounds.x,
           offsetY: event.clientY - dragBounds.y,
           dragBounds,
+          frameEl,
+          lastX: dragBounds.x,
+          lastY: dragBounds.y,
         }
         setDragging(true)
       }
@@ -86,8 +105,12 @@ export function useWindowDrag(
           offsetX: moveEvent.clientX - dragBounds.x,
           offsetY: moveEvent.clientY - dragBounds.y,
           dragBounds,
+          frameEl: session.frameEl,
+          lastX: dragBounds.x,
+          lastY: dragBounds.y,
         }
         dragStateRef.current = nextSession
+        applyPositionToFrame(nextSession.frameEl, dragBounds.x, dragBounds.y)
         setDragging(true)
         return nextSession
       }
@@ -99,7 +122,9 @@ export function useWindowDrag(
         const nextX = moveEvent.clientX - session.offsetX
         const nextY = moveEvent.clientY - session.offsetY
         const clamped = clampFloatingPosition(nextX, nextY, session.dragBounds.width)
-        onMove(windowId, clamped.x, clamped.y)
+        session.lastX = clamped.x
+        session.lastY = clamped.y
+        applyPositionToFrame(session.frameEl, clamped.x, clamped.y)
         setSnapPreview(detectSnapTarget(moveEvent.clientX, moveEvent.clientY))
       }
 
@@ -109,6 +134,8 @@ export function useWindowDrag(
           const snapTarget = detectSnapTarget(upEvent.clientX, upEvent.clientY)
           if (snapTarget) {
             onSnap(windowId, snapTarget)
+          } else {
+            onMove(windowId, session.lastX, session.lastY)
           }
         }
 

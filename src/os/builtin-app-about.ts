@@ -60,7 +60,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   'scene3d-lab': {
-    version: '3D 素材测试',
+    version: 'AI 3D 场景生成',
     paragraphs: [
       '3D 实验室用于测试内置 CC0 模型与 AI 场景生成。输入场景描述后，AI 会生成使用 Three.js 与内置模型 url 的 3D 页面。',
       '已集成 Rapier 物理引擎：可开启「物理 · Rapier」并在 Demo 按钮加载物理示例。',
@@ -103,10 +103,10 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   gomoku: {
-    version: '调试版',
+    version: 'AI 智能对弈',
     paragraphs: [
-      '经典五子棋，15×15 棋盘，先连成五子者胜。当前为调试版：黑白双方均由你操控，便于验证胜负判定逻辑。',
-      '支持撤销、新局与调试信息面板。落子、获胜均有音效与视觉特效。',
+      '15×15 经典五子棋，先连成五子者胜。支持人人对战、人机对战与双 AI 对战三种模式。',
+      '人机模式下由当前配置的 AI 模型分析局面并落子；双 AI 模式下本地启发式 AI 与模型 AI 自动对弈。含开局抽签、撤销、对局信息面板，以及落子与胜负的音效与视觉特效。',
     ],
   },
 }

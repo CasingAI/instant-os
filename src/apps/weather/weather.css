@@ -552,3 +552,49 @@
   font-size: 12px;
   color: var(--wa-text-muted);
 }
+
+@container app-window (max-width: 720px) {
+  .weather-app__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .weather-app__body {
+    padding: 12px;
+  }
+
+  .weather-app__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .weather-app__daily-row {
+    grid-template-columns: 44px 24px 1fr 40px 40px;
+    gap: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .weather-app__city-chip {
+    min-width: 108px;
+  }
+
+  .weather-app__hero-temp {
+    font-size: 48px;
+  }
+}
+
+@container app-window (max-width: 380px) {
+  .weather-app__brand {
+    display: none;
+  }
+
+  .weather-app__daily-condition {
+    display: none;
+  }
+
+  .weather-app__search-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}

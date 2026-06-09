@@ -1105,7 +1105,7 @@
   }
 }
 
-@media (max-width: 560px) {
+@container app-window (max-width: 560px) {
   .gomoku-app__body {
     flex-direction: column;
     overflow: auto;
@@ -1121,5 +1121,28 @@
   .gomoku-app__panel {
     flex: 1;
     min-width: 120px;
+  }
+
+  .gomoku-app__match-banner-versus {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .gomoku-app__match-banner-vs {
+    font-size: 18px;
+  }
+
+  .gomoku-app__lottery {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .gomoku-app__lottery-divider {
+    transform: rotate(90deg);
+  }
+
+  .gomoku-app__fullscreen-card {
+    width: min(100%, 320px);
+    padding: 18px 14px;
   }
 }

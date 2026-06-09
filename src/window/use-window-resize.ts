@@ -14,7 +14,16 @@ type ResizeSession = {
   startX: number
   startY: number
   startBounds: WindowBounds
+  frameEl: HTMLElement
+  lastBounds: WindowBounds
   moved: boolean
+}
+
+function applyBoundsToFrame(frameEl: HTMLElement, bounds: WindowBounds) {
+  frameEl.style.left = `${bounds.x}px`
+  frameEl.style.top = `${bounds.y}px`
+  frameEl.style.width = `${bounds.width}px`
+  frameEl.style.height = `${bounds.height}px`
 }
 
 export function useWindowResize(
@@ -36,12 +45,19 @@ export function useWindowResize(
       event.stopPropagation()
       onFocus(windowId)
 
+      const frameEl = (event.currentTarget as HTMLElement).closest('.window-frame')
+      if (!(frameEl instanceof HTMLElement)) {
+        return
+      }
+
       const startBounds = getBounds()
       resizeStateRef.current = {
         direction,
         startX: event.clientX,
         startY: event.clientY,
         startBounds,
+        frameEl,
+        lastBounds: startBounds,
         moved: false,
       }
       setResizing(true)
@@ -66,12 +82,16 @@ export function useWindowResize(
           deltaX,
           deltaY,
         )
-        onResize(windowId, nextBounds)
+        session.lastBounds = nextBounds
+        applyBoundsToFrame(session.frameEl, nextBounds)
       }
 
       const onPointerUp = () => {
         const session = resizeStateRef.current
         suppressClickRef.current = session?.moved ?? false
+        if (session?.moved) {
+          onResize(windowId, session.lastBounds)
+        }
         resizeStateRef.current = undefined
         setResizing(false)
         document.body.style.cursor = ''

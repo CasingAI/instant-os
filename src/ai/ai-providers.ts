@@ -1,4 +1,4 @@
-export type AiProviderId = 'openai' | 'deepseek'
+export type AiProviderId = 'openai' | 'deepseek' | 'custom'
 
 export type AiModelPreset = {
   id: string
@@ -40,6 +40,13 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     ],
     defaultModel: 'gpt-5.4-mini',
   },
+  {
+    id: 'custom',
+    name: '自定义',
+    baseURL: '',
+    models: [],
+    defaultModel: '',
+  },
 ] as const
 
 export const DEFAULT_AI_PROVIDER_ID: AiProviderId = 'deepseek'
@@ -65,6 +72,10 @@ export function resolveModelFriendlyName(
   modelId: string,
   providerId?: AiProviderId,
 ): string {
+  if (providerId && isCustomProvider(providerId)) {
+    return modelId
+  }
+
   if (providerId) {
     const match = findAiModelPreset(providerId, modelId)
     if (match) {
@@ -86,8 +97,15 @@ export function resolveProviderBaseURL(providerId: AiProviderId): string | undef
   return findAiProviderPreset(providerId)?.baseURL
 }
 
+export function isCustomProvider(providerId: AiProviderId): boolean {
+  return providerId === 'custom'
+}
+
 export function normalizeStoredModel(providerId: AiProviderId, model: string): string {
   const trimmed = model.trim()
+  if (providerId === 'custom') {
+    return trimmed
+  }
   if (providerId === 'deepseek') {
     if (trimmed === 'deepseek-chat') {
       return 'deepseek-v4-flash'

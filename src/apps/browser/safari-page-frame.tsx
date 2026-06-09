@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import {
   attachSafariFrameNavigation,
   type SafariFrameContextMenuRequest,
@@ -31,6 +31,7 @@ export function SafariPageFrame({
   onContextMenu,
 }: SafariPageFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [emojiFontEpoch, setEmojiFontEpoch] = useState(0)
   const pendingHtmlRef = useRef('')
   const timerRef = useRef<number | undefined>(undefined)
   const lastWrittenRef = useRef('')
@@ -43,6 +44,20 @@ export function SafariPageFrame({
   onNavigateRef.current = onNavigate
   onFocusRef.current = onFocus
   onContextMenuRef.current = onContextMenu
+
+  useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => {
+      setEmojiFontEpoch((epoch) => epoch + 1)
+    })
+
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ['data-emoji-font-mode', 'data-emoji-font-bundled'],
+    })
+
+    return () => observer.disconnect()
+  }, [])
 
   const pageUrlRef = useRef(pageUrl)
   pageUrlRef.current = pageUrl
@@ -202,6 +217,14 @@ export function SafariPageFrame({
       }
     }
   }, [html, writeToIframe])
+
+  useLayoutEffect(() => {
+    if (!html || !lastWrittenRef.current) {
+      return
+    }
+
+    writeToIframe(html, true)
+  }, [emojiFontEpoch, html, writeToIframe])
 
   useLayoutEffect(() => {
     if (streaming || !html) {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { BackIcon } from '../../icons/app-icons.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -285,9 +286,18 @@ export function NewsApp() {
   }
 
   return (
-    <div class="news">
+    <div class={`news${selectedArticle ? ' news--reader-open' : ''}`}>
       <header class="news__toolbar">
-        <div class="news__toolbar-left">
+        <div class="news__toolbar-side news__toolbar-side--start">
+          <button
+            type="button"
+            class="news__toolbar-back"
+            onClick={() => setSelectedId(undefined)}
+            aria-label="返回报道列表"
+          >
+            <BackIcon size={14} />
+            <span>报道</span>
+          </button>
           <span class="news__brand">新闻</span>
         </div>
 
@@ -323,6 +333,7 @@ export function NewsApp() {
           </button>
         </div>
 
+        <div class="news__toolbar-side news__toolbar-side--end" aria-hidden="true" />
       </header>
 
       <NewsDatePicker

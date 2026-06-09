@@ -558,7 +558,7 @@
   overflow: hidden;
 }
 
-@media (min-width: 520px) {
+@container app-window (min-width: 520px) {
   .appstore-review-card--compact {
     flex-basis: calc(33.333% - 7px);
     min-width: calc(33.333% - 7px);
@@ -1141,4 +1141,48 @@
   min-height: 0;
   overflow: auto;
   padding: 16px;
+}
+
+@container app-window (max-width: 720px) {
+  .appstore__hero {
+    align-items: center;
+    padding: 16px 16px 10px;
+  }
+
+  .appstore__title {
+    font-size: 24px;
+  }
+
+  .appstore-detail__hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .appstore-detail__icon-wrap {
+    width: 88px;
+    height: 88px;
+  }
+
+  .appstore-detail__name {
+    font-size: 20px;
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .appstore__toolbar {
+    padding: 10px 12px;
+  }
+
+  .appstore__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .appstore-card {
+    min-height: 0;
+  }
+
+  .appstore-detail__scroll {
+    padding: 0 14px 20px;
+  }
 }

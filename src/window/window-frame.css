@@ -184,6 +184,8 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: app-window;
 }
 
 .window-frame__focus-catcher {

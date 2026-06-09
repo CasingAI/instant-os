@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { BackIcon } from '../../icons/app-icons.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -178,12 +179,10 @@ export function MailApp() {
       setSelectedThreadId(undefined)
       return
     }
-    const stillVisible = selectedThreadId && threads.some((thread) => thread.id === selectedThreadId)
-    if (!stillVisible) {
-      const firstUnread = mailbox === 'inbox' ? threads.find((thread) => thread.unread) : undefined
-      setSelectedThreadId((firstUnread ?? threads[0]).id)
+    if (selectedThreadId && !threads.some((thread) => thread.id === selectedThreadId)) {
+      setSelectedThreadId(undefined)
     }
-  }, [threads, mailbox, selectedThreadId])
+  }, [threads, selectedThreadId])
 
   useEffect(() => {
     if (store.initialized) {
@@ -338,8 +337,20 @@ export function MailApp() {
   }
 
   return (
-    <div class="mail">
+    <div class={`mail${selectedThreadId ? ' mail--detail-open' : ''}`}>
       <header class="mail__toolbar">
+        <button
+          type="button"
+          class="mail__toolbar-back"
+          onClick={() => {
+            setSelectedThreadId(undefined)
+            setReplyDraft('')
+          }}
+          aria-label="返回邮件列表"
+        >
+          <BackIcon size={14} />
+          <span>邮件</span>
+        </button>
         <button
           type="button"
           class="mail__compose-btn"
@@ -349,6 +360,32 @@ export function MailApp() {
         >
           <ComposeIcon />
         </button>
+        <div class="mail__toolbar-mailboxes" role="tablist" aria-label="邮箱">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mailbox === 'inbox'}
+            class={`mail__toolbar-mailbox${mailbox === 'inbox' ? ' mail__toolbar-mailbox--active' : ''}`}
+            onClick={() => {
+              setMailbox('inbox')
+              setSelectedThreadId(undefined)
+            }}
+          >
+            收件箱{unreadCount > 0 ? ` (${unreadCount})` : ''}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mailbox === 'sent'}
+            class={`mail__toolbar-mailbox${mailbox === 'sent' ? ' mail__toolbar-mailbox--active' : ''}`}
+            onClick={() => {
+              setMailbox('sent')
+              setSelectedThreadId(undefined)
+            }}
+          >
+            已发送
+          </button>
+        </div>
         <span class="mail__toolbar-title">
           {mailbox === 'inbox' ? '收件箱' : '已发送'}
         </span>

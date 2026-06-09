@@ -31,17 +31,37 @@ function appendDockContextMenuItems(
   return [...items, ...dockItems]
 }
 
+function appendForceQuitItem(
+  items: IconContextMenuItem[],
+  onForceQuit: (() => void) | undefined,
+): IconContextMenuItem[] {
+  if (!onForceQuit) {
+    return items
+  }
+
+  return [
+    ...items,
+    { type: 'separator' },
+    { type: 'action', label: '退出', destructive: true, onClick: onForceQuit },
+  ]
+}
+
 export function buildBuiltinIconContextMenuItems(
   onOpen: () => void,
   dockOptions?: DockContextMenuOptions,
+  options?: { onForceQuit?: () => void },
 ): IconContextMenuItem[] {
-  return appendDockContextMenuItems([{ type: 'action', label: '打开', onClick: onOpen }], dockOptions)
+  return appendDockContextMenuItems(
+    appendForceQuitItem([{ type: 'action', label: '打开', onClick: onOpen }], options?.onForceQuit),
+    dockOptions,
+  )
 }
 
 export function buildGeneratedIconContextMenuItems(options: {
   onOpen: () => void
   onViewInMarketplace: () => void
   onUninstall?: () => void
+  onForceQuit?: () => void
   openDisabled?: boolean
   isPinnedToDock?: boolean
   onPinToDock?: () => void
@@ -53,7 +73,9 @@ export function buildGeneratedIconContextMenuItems(options: {
     { type: 'action', label: '在应用集市中查看', onClick: options.onViewInMarketplace },
   ]
 
-  const withDock = appendDockContextMenuItems(items, {
+  const withForceQuit = appendForceQuitItem(items, options.onForceQuit)
+
+  const withDock = appendDockContextMenuItems(withForceQuit, {
     isPinnedToDock: options.isPinnedToDock ?? false,
     onPinToDock: options.onPinToDock,
     onUnpinFromDock: options.onUnpinFromDock,

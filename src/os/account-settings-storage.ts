@@ -2,6 +2,7 @@ import {
   DEFAULT_AI_PROVIDER_ID,
   findAiProviderPreset,
   getDefaultThinkingEnabled,
+  isCustomProvider,
   isKnownModel,
   normalizeStoredModel,
   resolveProviderBaseURL,
@@ -20,13 +21,14 @@ export type AccountSettings = {
   providerId: AiProviderId
   apiKey: string
   model: string
+  baseURL?: string
   thinkingEnabled: boolean
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.accountSettings
 
 function normalizeProviderId(value: unknown): AiProviderId {
-  if (value === 'openai' || value === 'deepseek') {
+  if (value === 'openai' || value === 'deepseek' || value === 'custom') {
     return value
   }
   return DEFAULT_AI_PROVIDER_ID
@@ -41,9 +43,23 @@ function normalizeAccountSettings(raw: unknown): AccountSettings | undefined {
   const providerId = normalizeProviderId(record.providerId)
   const apiKey = typeof record.apiKey === 'string' ? record.apiKey.trim() : ''
   const modelRaw = typeof record.model === 'string' ? record.model.trim() : ''
+  const baseURL = typeof record.baseURL === 'string' ? record.baseURL.trim() : ''
 
   if (!apiKey || !modelRaw) {
     return undefined
+  }
+
+  if (isCustomProvider(providerId)) {
+    if (!baseURL) {
+      return undefined
+    }
+    return {
+      providerId,
+      apiKey,
+      model: modelRaw,
+      baseURL,
+      thinkingEnabled: false,
+    }
   }
 
   const thinkingEnabled =
@@ -70,15 +86,18 @@ export function loadAccountSettings(): AccountSettings | undefined {
 }
 
 export function saveAccountSettings(settings: AccountSettings): boolean {
+  if (!isAccountSettingsValid(settings)) {
+    return false
+  }
+
   const payload: AccountSettings = {
     providerId: settings.providerId,
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
     thinkingEnabled: settings.thinkingEnabled,
-  }
-
-  if (!payload.apiKey || !payload.model) {
-    return false
+    ...(isCustomProvider(settings.providerId)
+      ? { baseURL: settings.baseURL?.trim() }
+      : {}),
   }
 
   const serialized = JSON.stringify(payload)
@@ -111,9 +130,13 @@ export function clearAccountSettings(): void {
 export function accountSettingsToOpenAiConfig(
   settings: AccountSettings,
 ): Partial<OpenAiConfig> {
+  const baseURL = isCustomProvider(settings.providerId)
+    ? settings.baseURL?.trim()
+    : resolveProviderBaseURL(settings.providerId)
+
   return {
     apiKey: settings.apiKey,
-    baseURL: resolveProviderBaseURL(settings.providerId),
+    baseURL: baseURL || undefined,
     defaultModel: settings.model,
     providerId: settings.providerId,
     thinkingEnabled: settings.thinkingEnabled,
@@ -123,6 +146,16 @@ export function accountSettingsToOpenAiConfig(
 export function defaultAccountSettings(
   providerId: AiProviderId = DEFAULT_AI_PROVIDER_ID,
 ): AccountSettings {
+  if (isCustomProvider(providerId)) {
+    return {
+      providerId,
+      apiKey: '',
+      model: '',
+      baseURL: '',
+      thinkingEnabled: false,
+    }
+  }
+
   const preset = findAiProviderPreset(providerId)
   return {
     providerId,
@@ -133,7 +166,11 @@ export function defaultAccountSettings(
 }
 
 export function isAccountSettingsValid(settings: AccountSettings): boolean {
-  return Boolean(settings.apiKey.trim() && settings.model.trim())
+  const hasCredentials = Boolean(settings.apiKey.trim() && settings.model.trim())
+  if (isCustomProvider(settings.providerId)) {
+    return hasCredentials && Boolean(settings.baseURL?.trim())
+  }
+  return hasCredentials
 }
 
 export function mergeAccountSettings(
@@ -141,6 +178,18 @@ export function mergeAccountSettings(
   providerId: AiProviderId,
 ): AccountSettings {
   const base = stored ?? defaultAccountSettings(providerId)
+
+  if (isCustomProvider(providerId)) {
+    const wasCustom = isCustomProvider(base.providerId)
+    return {
+      providerId,
+      apiKey: base.apiKey,
+      model: wasCustom ? base.model : '',
+      baseURL: wasCustom ? (base.baseURL ?? '') : '',
+      thinkingEnabled: false,
+    }
+  }
+
   const preset = findAiProviderPreset(providerId)
   const model = normalizeStoredModel(providerId, base.model)
 

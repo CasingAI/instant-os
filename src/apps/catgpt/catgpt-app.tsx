@@ -24,14 +24,21 @@ const SAMPLE_PROMPTS = [
   '能赐我一句神谕吗？',
 ] as const
 
+function formatCatGptError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message
+  }
+  return '猫咪之神暂时无法回应，请稍后再试'
+}
+
 export function CatGptApp() {
   const { closeWindowsForApp, minimizeWindow, setAppWindowTitle, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const [store, setStore] = useState<CatGptStore>(() => readCatGptStore())
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [streamingText, setStreamingText] = useState('')
-  const [error, setError] = useState<string | undefined>()
   const chatEndRef = useRef<HTMLDivElement | null>(null)
 
   const activeSession = useMemo(
@@ -47,8 +54,8 @@ export function CatGptApp() {
   const selectSession = useCallback(
     (sessionId: string) => {
       persistStore({ ...store, activeSessionId: sessionId })
-      setError(undefined)
       setStreamingText('')
+      setSidebarOpen(false)
     },
     [persistStore, store],
   )
@@ -60,14 +67,12 @@ export function CatGptApp() {
       activeSessionId: session.id,
     })
     setDraft('')
-    setError(undefined)
     setStreamingText('')
   }, [persistStore, store.sessions])
 
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
       persistStore(removeSession(store, sessionId))
-      setError(undefined)
       setStreamingText('')
     },
     [persistStore, store],
@@ -84,7 +89,6 @@ export function CatGptApp() {
         return
       }
 
-      setError(undefined)
       setDraft('')
 
       let session = activeSession
@@ -131,7 +135,21 @@ export function CatGptApp() {
           ),
         )
       } catch (err) {
-        setError(err instanceof Error ? err.message : '猫咪之神暂时不愿回应，请稍后再试')
+        const errorMessage = createMessage('assistant', formatCatGptError(err), { isError: true })
+        const finalMessages = [...pendingMessages, errorMessage]
+        const finalSession: CatGptSession = {
+          ...pendingSession,
+          messages: finalMessages,
+          title: deriveSessionTitle(finalMessages),
+          updatedAt: Date.now(),
+        }
+
+        persistStore(
+          upsertSession(
+            { ...store, activeSessionId: session.id },
+            finalSession,
+          ),
+        )
       } finally {
         setStreaming(false)
         setStreamingText('')
@@ -205,7 +223,15 @@ export function CatGptApp() {
   const showWelcome = !activeSession || activeSession.messages.length === 0
 
   return (
-    <div class="catgpt-app">
+    <div class={`catgpt-app${sidebarOpen ? ' catgpt-app--sidebar-open' : ''}`}>
+      {sidebarOpen && (
+        <button
+          type="button"
+          class="catgpt-app__sidebar-backdrop"
+          aria-label="关闭对话列表"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <aside class="catgpt-app__sidebar">
         <div class="catgpt-app__sidebar-head">
           <div class="catgpt-app__logo">
@@ -260,6 +286,15 @@ export function CatGptApp() {
 
       <div class="catgpt-app__main">
         <header class="catgpt-app__toolbar">
+          <button
+            type="button"
+            class="catgpt-app__sidebar-toggle"
+            onClick={() => setSidebarOpen((open) => !open)}
+            aria-label="对话列表"
+            aria-expanded={sidebarOpen}
+          >
+            ☰
+          </button>
           <span class="catgpt-app__toolbar-title">CatGPT</span>
           <span class="catgpt-app__toolbar-hint">
             {activeSession
@@ -299,12 +334,16 @@ export function CatGptApp() {
               {activeSession?.messages.map((message) => (
                 <div
                   key={message.id}
-                  class={`catgpt-app__message catgpt-app__message--${message.role}`}
+                  class={`catgpt-app__message catgpt-app__message--${message.role}${message.isError ? ' catgpt-app__message--error' : ''}`}
                 >
                   <span class="catgpt-app__avatar" aria-hidden="true">
-                    {message.role === 'assistant' ? '🐱' : '🙂'}
+                    {message.isError ? '⚠️' : message.role === 'assistant' ? '🐱' : '🙂'}
                   </span>
-                  <div class="catgpt-app__bubble">{message.content}</div>
+                  <div
+                    class={`catgpt-app__bubble${message.isError ? ' catgpt-app__bubble--error' : ''}`}
+                  >
+                    {message.content}
+                  </div>
                 </div>
               ))}
 
@@ -332,7 +371,6 @@ export function CatGptApp() {
         </div>
 
         <div class="catgpt-app__composer-wrap">
-          {error && <p class="catgpt-app__error">{error}</p>}
           <div class="catgpt-app__composer">
             <textarea
               class="catgpt-app__input"

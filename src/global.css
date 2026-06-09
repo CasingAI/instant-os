@@ -65,3 +65,15 @@ code {
 .placeholder-app span {
   font-size: 14px;
 }
+
+@container app-window (max-width: 380px) {
+  .placeholder-app p {
+    font-size: 18px;
+  }
+
+  .placeholder-app span {
+    font-size: 13px;
+    padding: 0 16px;
+    text-align: center;
+  }
+}

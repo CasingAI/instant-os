@@ -16,7 +16,7 @@ import '../icons/app-icon-tile.css'
 import './dock.css'
 
 export function Dock() {
-  const { windows, openApp, restoreWindow } = useOs()
+  const { windows, openApp, restoreWindow, closeWindowsForApp } = useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
     useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
@@ -67,12 +67,18 @@ export function Dock() {
         onContextMenu={(event) => {
           showIconContextMenu(
             event,
-            buildBuiltinIconContextMenuItems(handleOpen, {
-              isPinnedToDock: pinned,
-              onPinToDock: () => pinToDock(app.id),
-              onUnpinFromDock:
-                pinned && !isPermanentlyPinnedToDock(app.id) ? () => unpinFromDock(app.id) : undefined,
-            }),
+            buildBuiltinIconContextMenuItems(
+              handleOpen,
+              {
+                isPinnedToDock: pinned,
+                onPinToDock: () => pinToDock(app.id),
+                onUnpinFromDock:
+                  pinned && !isPermanentlyPinnedToDock(app.id) ? () => unpinFromDock(app.id) : undefined,
+              },
+              {
+                onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+              },
+            ),
           )
         }}
       >
@@ -115,6 +121,7 @@ export function Dock() {
               isPinnedToDock: pinned,
               onPinToDock: () => pinToDock(app.id),
               onUnpinFromDock: () => unpinFromDock(app.id),
+              onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
             }),
           )
         }}

@@ -1089,3 +1089,45 @@
   margin: 5px 0;
   background: rgba(0, 0, 0, 0.12);
 }
+
+@container app-window (max-width: 720px) {
+  .safari__address-status {
+    display: none;
+  }
+
+  .safari__tab {
+    max-width: 160px;
+  }
+}
+
+@container app-window (max-width: 540px) {
+  .safari__tabs-row {
+    padding: 6px 8px 0;
+    gap: 4px;
+  }
+
+  .safari__toolbar {
+    gap: 6px;
+    padding: 4px 8px 8px;
+  }
+
+  .safari__address {
+    height: 34px;
+    padding: 0 10px;
+  }
+
+  .safari-start__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
+@container app-window (max-width: 380px) {
+  .safari__tab {
+    max-width: 120px;
+  }
+
+  .safari__tab-title {
+    font-size: 11px;
+  }
+}

@@ -1,9 +1,16 @@
 import { loadDisplaySettings, type EmojiFontMode } from '../os/display-settings-storage.ts'
+import { appendBundledEmojiFontFaceMetrics, buildBundledEmojiLayoutMetricsCss } from './bundled-emoji-font-metrics.ts'
 import appleColorEmojiCss from './apple-color-emoji.css?raw'
-import { shouldLoadBundledEmojiFonts } from './ensure-apple-color-emoji-fonts.ts'
+import {
+  shouldApplyBundledEmojiMetrics,
+  shouldLoadBundledEmojiFonts,
+} from './ensure-apple-color-emoji-fonts.ts'
 
 const TEXT_FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei'"
+
+const MONO_FONT_STACK =
+  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
 
 function emojiFontStackForMode(mode: EmojiFontMode): string {
   if (mode === 'off') {
@@ -13,30 +20,67 @@ function emojiFontStackForMode(mode: EmojiFontMode): string {
   return "'Apple Color Emoji'"
 }
 
-export function buildIframeEmojiFontInjection(mode?: EmojiFontMode): string {
+function buildTextFontFamilyRule(emojiStack: string): string {
+  return `${TEXT_FONT_STACK}, ${emojiStack}, sans-serif`
+}
+
+export function buildIframeEmojiFontHeadInjection(mode?: EmojiFontMode): string {
   const resolvedMode = mode ?? loadDisplaySettings().emojiFontMode
   const useBundled = shouldLoadBundledEmojiFonts(resolvedMode)
-  const emojiStack = emojiFontStackForMode(resolvedMode)
-  const fontFaces = useBundled ? appleColorEmojiCss : ''
+  if (!useBundled) {
+    return ''
+  }
 
-  return `<style id="instant-os-emoji-fonts">
+  const useMetrics = shouldApplyBundledEmojiMetrics(resolvedMode)
+  const fontFaces = useMetrics
+    ? appendBundledEmojiFontFaceMetrics(appleColorEmojiCss)
+    : appleColorEmojiCss
+
+  return `<style id="instant-os-emoji-font-faces">
 ${fontFaces}
-html,
-body {
-  font-family: ${TEXT_FONT_STACK}, ${emojiStack}, sans-serif;
-}
 </style>`
 }
 
-export function injectIframeEmojiFonts(html: string, mode?: EmojiFontMode): string {
-  if (!html.trim()) {
-    return html
+export function buildIframeEmojiFontBodyInjection(mode?: EmojiFontMode): string {
+  const resolvedMode = mode ?? loadDisplaySettings().emojiFontMode
+  const emojiStack = emojiFontStackForMode(resolvedMode)
+  const fontFamily = buildTextFontFamilyRule(emojiStack)
+  const layoutMetrics = shouldApplyBundledEmojiMetrics(resolvedMode)
+    ? `\n${buildBundledEmojiLayoutMetricsCss()}`
+    : ''
+
+  return `<style id="instant-os-emoji-fonts">
+html,
+body,
+button,
+input,
+textarea,
+select,
+* {
+  font-family: ${fontFamily} !important;
+}
+code,
+pre,
+kbd,
+samp {
+  font-family: ${MONO_FONT_STACK} !important;
+}${layoutMetrics}
+</style>`
+}
+
+function injectBeforeClosingTag(html: string, tagName: string, injection: string): string | undefined {
+  const pattern = new RegExp(`<\\/${tagName}>`, 'i')
+  if (!pattern.test(html)) {
+    return undefined
   }
 
-  const injection = buildIframeEmojiFontInjection(mode)
+  return html.replace(pattern, `${injection}\n</${tagName}>`)
+}
 
-  if (/<\/head>/i.test(html)) {
-    return html.replace(/<\/head>/i, `${injection}\n</head>`)
+function injectInHead(html: string, injection: string): string {
+  const beforeHeadClose = injectBeforeClosingTag(html, 'head', injection)
+  if (beforeHeadClose) {
+    return beforeHeadClose
   }
 
   if (/<head[\s>]/i.test(html)) {
@@ -48,4 +92,34 @@ export function injectIframeEmojiFonts(html: string, mode?: EmojiFontMode): stri
   }
 
   return `<head>${injection}</head>\n${html}`
+}
+
+function injectAtDocumentEnd(html: string, injection: string): string {
+  const beforeBodyClose = injectBeforeClosingTag(html, 'body', injection)
+  if (beforeBodyClose) {
+    return beforeBodyClose
+  }
+
+  const beforeHtmlClose = injectBeforeClosingTag(html, 'html', injection)
+  if (beforeHtmlClose) {
+    return beforeHtmlClose
+  }
+
+  return `${html}\n${injection}`
+}
+
+export function injectIframeEmojiFonts(html: string, mode?: EmojiFontMode): string {
+  if (!html.trim()) {
+    return html
+  }
+
+  const headInjection = buildIframeEmojiFontHeadInjection(mode)
+  const bodyInjection = buildIframeEmojiFontBodyInjection(mode)
+
+  let result = html
+  if (headInjection) {
+    result = injectInHead(result, headInjection)
+  }
+
+  return injectAtDocumentEnd(result, bodyInjection)
 }
