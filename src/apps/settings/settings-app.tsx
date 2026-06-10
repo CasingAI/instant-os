@@ -722,7 +722,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
               <dl class="settings__form-row">
                 <dt>
                   {app.kind === 'builtin'
-                    ? builtinDocumentsLabel(app.id)
+                    ? builtinDocumentsLabel(app.id as BuiltinAppId)
                     : '文稿与数据'}
                 </dt>
                 <dd>{formatStorageSize(app.documentsBytes)}</dd>

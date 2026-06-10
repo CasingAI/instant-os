@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy'
-import type { HierarchyNode } from 'd3-hierarchy'
 import { BackIcon } from '../../icons/app-icons.tsx'
 import type { ManagedAppEntry } from './app-storage.ts'
 import { getManagedAppTotalBytes } from './app-storage.ts'
@@ -120,13 +119,13 @@ function computeTreemapTiles(slices: ChartSlice[], width: number, height: number
     .sum((datum) => datum.value ?? 0)
     .sort((left, right) => (right.value ?? 0) - (left.value ?? 0))
 
-  treemap<TreemapHierarchyDatum>()
+  const layoutRoot = treemap<TreemapHierarchyDatum>()
     .tile(treemapSquarify)
     .size([width, height])
     .paddingInner(2)
     .round(true)(root)
 
-  return root.leaves().flatMap((node: HierarchyNode<TreemapHierarchyDatum>) => {
+  return layoutRoot.leaves().flatMap((node) => {
     const { slice } = node.data
     if (!slice) {
       return []
