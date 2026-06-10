@@ -408,7 +408,7 @@ export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
     levelPercent === undefined
       ? '电池'
       : charging
-        ? `电池 ${levelPercent}%，正在充电`
+        ? `电池 ${levelPercent}%，已连接电源`
         : `电池 ${levelPercent}%`
 
   return (

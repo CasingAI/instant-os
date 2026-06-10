@@ -32,7 +32,7 @@ export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPan
   const levelLabel = battery ? `${battery.levelPercent}%` : '未知'
   const statusLabel = battery
     ? battery.charging
-      ? '正在充电'
+      ? '已连接电源'
       : '使用电池'
     : '无法读取'
 

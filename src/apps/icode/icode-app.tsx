@@ -44,6 +44,7 @@ import {
   findProjectNameConflict,
   formatProjectNameConflictMessage,
   resolvePublishAppId,
+  resolveUniqueCopyName,
 } from './icode-publish.ts'
 import { generatedAppNeeds3d } from '../generated/generated-app-tags.ts'
 import { prepareIcodePreviewHtml } from './prepare-icode-preview-html.ts'
@@ -244,6 +245,19 @@ export function ICodeApp() {
       return syncAppFromIcode(buildIcodeSyncInput(linkedProject))
     },
     [syncAppFromIcode],
+  )
+
+  const ensureDesktopPlaceholder = useCallback(
+    (project: ICodeInternalProject): ICodeInternalProject => {
+      const appId = resolvePublishAppId(project)
+      if (installedApps.some((app) => app.id === appId)) {
+        return project
+      }
+
+      syncPlaceholderToDesktop(project)
+      return getInternalProject(project.id) ?? project
+    },
+    [installedApps, syncPlaceholderToDesktop],
   )
 
   const migratedProjectsRef = useRef(false)
@@ -597,9 +611,13 @@ export function ICodeApp() {
         linkedAppId: project.linkedAppId,
       })
       setProjectRevision((value) => value + 1)
-      return updated
+      if (!updated) {
+        return undefined
+      }
+
+      return ensureDesktopPlaceholder(updated)
     },
-    [],
+    [ensureDesktopPlaceholder],
   )
 
   const publishSessionDraft = useCallback(
@@ -848,11 +866,12 @@ export function ICodeApp() {
 
   const openInternal = useCallback(
     (projectId: string) => {
-      const project = getInternalProject(projectId)
-      if (!project) {
+      const stored = getInternalProject(projectId)
+      if (!stored) {
         return
       }
 
+      const project = ensureDesktopPlaceholder(stored)
       const nextSession = sessionFromInternal(project)
       setSession(nextSession)
       setPublishedSnapshot(
@@ -861,7 +880,7 @@ export function ICodeApp() {
       setEditorTab('chat')
       setError(undefined)
     },
-    [installedApps],
+    [ensureDesktopPlaceholder, installedApps],
   )
 
   const requestDeleteProject = useCallback((projectId: string) => {
@@ -903,15 +922,7 @@ export function ICodeApp() {
 
   const importFromInstalled = useCallback(
     (record: GeneratedAppRecord) => {
-      const importName = `${record.name}（副本）`
-      const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
-      if (conflict) {
-        setImportAlert({
-          title: '无法创建副本',
-          message: formatProjectNameConflictMessage(conflict),
-        })
-        return
-      }
+      const importName = resolveUniqueCopyName(record.name, installedApps, internalProjects)
 
       const imported = createInternalProject(importName, record.description)
       updateInternalProject(imported.id, {

@@ -116,6 +116,39 @@ export function formatProjectNameConflictMessage(conflict: ProjectNameConflict):
   return `已有同名应用「${name}」，请换一个名称（例如加上「二」「三」等后缀）`
 }
 
+const COPY_NAME_SUFFIX_PATTERN = /（副本(?:[二三四五六七八九十百千万\d]+)?）$/
+
+export function stripCopyNameSuffix(name: string): string {
+  return name.trim().replace(COPY_NAME_SUFFIX_PATTERN, '')
+}
+
+const COPY_SUFFIX_NUMERALS = ['二', '三', '四', '五', '六', '七', '八', '九', '十'] as const
+
+function copyNameSuffix(index: number): string {
+  if (index === 0) {
+    return '（副本）'
+  }
+  if (index <= COPY_SUFFIX_NUMERALS.length) {
+    return `（副本${COPY_SUFFIX_NUMERALS[index - 1]}）`
+  }
+  return `（副本${index + 1}）`
+}
+
+export function resolveUniqueCopyName(
+  sourceName: string,
+  installedApps: GeneratedAppRecord[],
+  internalProjects: ICodeInternalProject[],
+): string {
+  const baseName = stripCopyNameSuffix(sourceName)
+  for (let index = 0; index < 100; index++) {
+    const candidate = `${baseName}${copyNameSuffix(index)}`
+    if (!findProjectNameConflict(installedApps, internalProjects, candidate)) {
+      return candidate
+    }
+  }
+  return `${baseName}（副本${Date.now()}）`
+}
+
 export function buildIcodeSyncInput(project: ICodeInternalProject): {
   appId: GeneratedAppId
   icodeProjectId: string

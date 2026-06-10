@@ -209,7 +209,7 @@ export function MenuBar() {
             aria-expanded={openMenuLabel === STATUS_BATTERY_LABEL}
             aria-label={
               battery
-                ? `电池 ${battery.levelPercent}%${battery.charging ? '，正在充电' : ''}`
+                ? `电池 ${battery.levelPercent}%${battery.charging ? '，已连接电源' : ''}`
                 : '电池状态'
             }
             onClick={() => toggleMenu(STATUS_BATTERY_LABEL)}
