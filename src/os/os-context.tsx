@@ -40,6 +40,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   photos: { title: '照片', width: 720, height: 620 },
   mail: { title: '邮件', width: 900, height: 640 },
   news: { title: '新闻', width: 920, height: 620 },
+  books: { title: '书架', width: 920, height: 620 },
   weather: { title: '天气', width: 410, height: 680 },
   stocks: { title: '股票', width: 410, height: 680 },
   translate: { title: '翻译', width: 680, height: 520 },

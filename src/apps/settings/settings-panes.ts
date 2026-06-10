@@ -29,7 +29,9 @@ export type SettingsRoute =
   | { view: 'resources' }
   | { view: 'resources-3d' }
   | { view: 'resources-3d-detail'; target: import('./resources-3d-detail-view.tsx').Resources3dDetailTarget }
-  | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId }
+  | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId; from?: 'usage' | 'apps-storage' }
+  | { view: 'apps-storage' }
+  | { view: 'other-storage' }
   | { view: 'safari-usage' }
   | { view: 'news' }
   | { view: 'experimental' }
@@ -70,6 +72,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return undefined
     case 'usage':
     case 'app-detail':
+    case 'apps-storage':
+    case 'other-storage':
       return 'usage'
     case 'account':
       return 'account'

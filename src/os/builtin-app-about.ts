@@ -40,7 +40,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: 'AI 网页浏览器',
     paragraphs: [
       '网络浏览器是 Instant OS 内置浏览器。输入任意网址或搜索词，AI 会实时生成对应页面，在标签页中浏览。',
-      '支持多标签、历史记录、前进后退与重新加载，体验接近真实浏览器。',
+      '支持多标签、历史记录、前进后退与重新加载，体验接近真实浏览器。已生成的网页缓存保存在数据空间（IndexedDB），可在系统设置中管理。',
     ],
   },
   mail: {
@@ -80,6 +80,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       '新闻应用提供可调整日期的 AI 生成中文新闻版面。支持将日期调至过去或未来，查看「未来新闻」。',
       '生成时会参考邻近日的标题，保持事件与叙事的连贯性。所有内容本地持久化保存，可在系统设置的「新闻」栏目中精确删除单篇或整日新闻。',
+    ],
+  },
+  books: {
+    version: 'AI 书架',
+    paragraphs: [
+      '书架应用仿 iBooks iOS 6 拟物风格，提供书架、书城与阅读器。所有书籍均为 AI 虚构网文，涵盖系统、末日囤货、都市、玄幻、离谱指南等分类。',
+      '书籍索引保存在系统空间，章节正文保存在数据空间（IndexedDB）。加入书架后 AI 流式撰写章节，全部章节下载完成后方可阅读。',
     ],
   },
   weather: {

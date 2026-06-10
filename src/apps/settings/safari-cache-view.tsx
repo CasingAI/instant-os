@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
+import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
 import {
   clearAllPageCache,
   clearSitePageCache,
   getBrowserPageCacheStorageBytes,
   getCachedPageCount,
   getSiteCacheSummaries,
+  initBrowserPageCache,
 } from '../browser/browser-page-cache.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
@@ -16,6 +18,16 @@ type SafariCacheViewProps = {
 
 export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
   const [revision, setRevision] = useState(0)
+
+  useEffect(() => {
+    const refresh = () => {
+      void initBrowserPageCache().then(() => setRevision((value) => value + 1))
+    }
+    refresh()
+    window.addEventListener(DATA_STORAGE_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(DATA_STORAGE_CHANGED_EVENT, refresh)
+  }, [])
+
   const cacheBytes = useMemo(() => getBrowserPageCacheStorageBytes(), [revision])
   const pageCount = useMemo(() => getCachedPageCount(), [revision])
   const sites = useMemo(() => getSiteCacheSummaries(), [revision])

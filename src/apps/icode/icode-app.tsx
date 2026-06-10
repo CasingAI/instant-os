@@ -25,6 +25,7 @@ import {
   readBundleFromZipFile,
 } from './icode-backup.ts'
 import { generateInternalAppHtml } from './icode-generation.ts'
+import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import {
   buildIcodeSyncInput,
   findProjectNameConflict,
@@ -53,6 +54,30 @@ import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import './icode.css'
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
+
+const ICODE_THEME_COLOR_PRESETS = [
+  '#007aff',
+  '#5856d6',
+  '#34c759',
+  '#ff9500',
+  '#ff3b30',
+  '#af52de',
+  '#5ac8fa',
+  '#ff2d55',
+] as const
+
+function generationStatusLabel(phase: AppGenerationPhase | undefined, progress: number): string {
+  if (phase === 'waiting') {
+    return '连接 AI…'
+  }
+  if (phase === 'thinking') {
+    return `思考中 ${Math.round(progress)}%`
+  }
+  if (phase === 'generating') {
+    return `生成中 ${Math.round(progress)}%`
+  }
+  return '处理中…'
+}
 
 const CONSOLE_LEVEL_LABELS: Record<ICodeConsoleEntry['level'], string> = {
   log: 'LOG',
@@ -116,6 +141,8 @@ export function ICodeApp() {
   const [prompt, setPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
   const [generationStatus, setGenerationStatus] = useState('')
+  const [streamReasoningText, setStreamReasoningText] = useState('')
+  const [streamContentText, setStreamContentText] = useState('')
   const [error, setError] = useState<string | undefined>()
   const [showNewProject, setShowNewProject] = useState(false)
   const [showImportPicker, setShowImportPicker] = useState(false)
@@ -182,6 +209,7 @@ export function ICodeApp() {
 
   const previewAppId = session ? previewAppIdForSession(session) : undefined
   const codeDirty = session !== undefined && draftHtml !== session.html
+  const showStreamOutput = generating && Boolean(streamReasoningText || streamContentText)
 
   useEffect(() => {
     if (!session) {
@@ -419,6 +447,8 @@ export function ICodeApp() {
     setPrompt('')
     setError(undefined)
     setGenerationStatus('')
+    setStreamReasoningText('')
+    setStreamContentText('')
   }, [persistSession, session])
 
   const openInternal = useCallback((projectId: string) => {
@@ -657,6 +687,8 @@ export function ICodeApp() {
     setPrompt('')
     setGenerating(true)
     setGenerationStatus('连接 AI…')
+    setStreamReasoningText('')
+    setStreamContentText('')
     setError(undefined)
 
     try {
@@ -678,7 +710,9 @@ export function ICodeApp() {
         },
         instruction,
         (update) => {
-          setGenerationStatus(update.contentText ?? '')
+          setStreamReasoningText(update.reasoningText)
+          setStreamContentText(update.contentText)
+          setGenerationStatus(generationStatusLabel(update.phase, update.progress))
         },
       )
 
@@ -698,9 +732,13 @@ export function ICodeApp() {
       setSession(updated)
       persistSession(updated)
       setGenerationStatus('')
+      setStreamReasoningText('')
+      setStreamContentText('')
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : '生成失败')
       setGenerationStatus('')
+      setStreamReasoningText('')
+      setStreamContentText('')
     } finally {
       setGenerating(false)
     }
@@ -1112,14 +1150,15 @@ export function ICodeApp() {
                   </span>
                 </div>
               )}
-              {generating && (
+              {generating && !showStreamOutput && (
                 <div class="icode__preview-overlay">{generationStatus || '生成中…'}</div>
               )}
               {generating && (
                 <AiStreamPreview
-                  reasoningText=""
-                  contentText={generationStatus}
-                  variant="scene3d-lab"
+                  reasoningText={showStreamOutput ? streamReasoningText : ''}
+                  contentText={showStreamOutput ? streamContentText : ''}
+                  variant="safari"
+                  emptyLabel={generationStatus || '连接 AI…'}
                   className="icode__stream-preview"
                 />
               )}
@@ -1220,6 +1259,17 @@ export function ICodeApp() {
                       </div>
                     ))
                   )}
+                  {generating && (
+                    <div class="icode__chat-bubble icode__chat-bubble--assistant icode__chat-bubble--streaming">
+                      <AiStreamPreview
+                        reasoningText={streamReasoningText}
+                        contentText={streamContentText}
+                        variant="notification"
+                        emptyLabel={generationStatus || '连接 AI…'}
+                        className="icode__chat-stream"
+                      />
+                    </div>
+                  )}
                 </div>
                 <div class="icode__chat-compose">
                   <div class="icode__chat-compose-row">
@@ -1275,100 +1325,136 @@ export function ICodeApp() {
 
               <div class="icode__tab-pane" hidden={editorTab !== 'config'}>
                 <div class="icode__config">
-                  <div class="icode__config-group">
-                    <h4 class="icode__config-title">基本信息</h4>
-                    <div class="icode__config-field">
-                      <label for="icode-config-name">应用名称</label>
-                      <input
-                        id="icode-config-name"
-                        type="text"
-                        value={session.name}
-                        onInput={(event) =>
-                          updateSessionMeta({
-                            name: (event.currentTarget as HTMLInputElement).value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div class="icode__config-field icode__config-field--stacked">
-                      <label for="icode-config-desc">应用描述</label>
-                      <textarea
-                        id="icode-config-desc"
-                        value={session.description}
-                        onInput={(event) =>
-                          updateSessionMeta({
-                            description: (event.currentTarget as HTMLTextAreaElement).value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div class="icode__config-field">
-                      <label for="icode-config-internal-id">内部标识</label>
-                      <input
-                        id="icode-config-internal-id"
-                        type="text"
-                        class="icode__config-readonly"
-                        value={session.projectId}
-                        readOnly
-                      />
-                      <p class="icode__config-field-hint">
-                        创建时自动生成，用于区分应用，不可修改。上方「应用名称」可随时更改。
-                      </p>
-                    </div>
-                    <div class="icode__config-field icode__config-field--icon">
-                      <label>图标</label>
-                      <div class="icode__config-icon-row">
-                        <span class="icode__config-icon-preview" aria-hidden="true">
-                          <GeneratedAppIcon
-                            emoji={session.iconEmoji || '📦'}
-                            themeColor={session.themeColor}
-                            size={48}
-                          />
-                        </span>
-                        <EmojiPickerPopover
-                          value={session.iconEmoji || '📦'}
-                          triggerLabel="选择表情"
-                          onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
+                  <section class="icode__config-section">
+                    <h4 class="icode__config-heading">基本信息</h4>
+                    <div class="icode__config-inset">
+                      <div class="icode__config-item">
+                        <label for="icode-config-name">应用名称</label>
+                        <input
+                          id="icode-config-name"
+                          type="text"
+                          value={session.name}
+                          onInput={(event) =>
+                            updateSessionMeta({
+                              name: (event.currentTarget as HTMLInputElement).value,
+                            })
+                          }
                         />
                       </div>
+                      <div class="icode__config-item">
+                        <label for="icode-config-desc">应用描述</label>
+                        <textarea
+                          id="icode-config-desc"
+                          value={session.description}
+                          onInput={(event) =>
+                            updateSessionMeta({
+                              description: (event.currentTarget as HTMLTextAreaElement).value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div class="icode__config-item">
+                        <label for="icode-config-internal-id">内部标识</label>
+                        <input
+                          id="icode-config-internal-id"
+                          type="text"
+                          class="icode__config-readonly"
+                          value={session.projectId}
+                          readOnly
+                        />
+                        <p class="icode__config-note">
+                          创建时自动生成，用于区分应用，不可修改。上方「应用名称」可随时更改。
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  </section>
 
-                  <div class="icode__config-group">
-                    <h4 class="icode__config-title">运行时能力</h4>
-                    <label class="icode__config-toggle">
-                      <input
-                        type="checkbox"
-                        checked={hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_3D)}
-                        onChange={(event) => {
-                          const enabled = (event.currentTarget as HTMLInputElement).checked
-                          const baseTags = filterAppCapabilityTags(session.tags)
-                          const tags = enabled
-                            ? [...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_3D), APP_CAPABILITY_TAG_3D]
-                            : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_3D)
-                          updateSessionMeta({ tags })
-                        }}
-                      />
-                      <span class="icode__config-toggle-copy">
-                        <strong>启用 3D SDK</strong>
-                        <span>为预览注入 Three.js 桥接与 WebGL 运行时支持</span>
-                      </span>
-                    </label>
-                  </div>
+                  <section class="icode__config-section">
+                    <h4 class="icode__config-heading">外观</h4>
+                    <div class="icode__config-inset">
+                      <div class="icode__config-item icode__config-item--appearance">
+                        <div class="icode__config-appearance">
+                          <span class="icode__config-icon-preview" aria-hidden="true">
+                            <GeneratedAppIcon
+                              emoji={session.iconEmoji || '📦'}
+                              themeColor={session.themeColor}
+                              size={52}
+                            />
+                          </span>
+                          <div class="icode__config-appearance-copy">
+                            <span class="icode__config-item-label">图标</span>
+                            <EmojiPickerPopover
+                              value={session.iconEmoji || '📦'}
+                              triggerLabel="选择表情"
+                              onChange={(emoji) => updateSessionMeta({ iconEmoji: emoji })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div class="icode__config-item">
+                        <span class="icode__config-item-label">主题色</span>
+                        <div class="icode__config-colors" role="radiogroup" aria-label="主题色">
+                          {ICODE_THEME_COLOR_PRESETS.map((color) => {
+                            const selected = session.themeColor.toLowerCase() === color
+                            return (
+                              <button
+                                key={color}
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                aria-label={color}
+                                class={`icode__config-color${selected ? ' icode__config-color--selected' : ''}`}
+                                style={{ backgroundColor: color }}
+                                onClick={() => updateSessionMeta({ themeColor: color })}
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
 
-                  <div class="icode__config-group icode__config-group--danger">
-                    <h4 class="icode__config-title">删除项目</h4>
-                    <p class="icode__config-danger-hint">
-                      永久删除此 iCode 项目的源码、聊天记录与本地数据。桌面上的应用入口不会被卸载。
-                    </p>
-                    <button
-                      type="button"
-                      class="icode__button icode__button--danger icode__button--block"
-                      onClick={() => requestDeleteProject(session.projectId)}
-                    >
-                      删除此项目…
-                    </button>
-                  </div>
+                  <section class="icode__config-section">
+                    <h4 class="icode__config-heading">运行时能力</h4>
+                    <div class="icode__config-inset">
+                      <label class="icode__config-toggle-row">
+                        <span class="icode__config-toggle-copy">
+                          <strong>启用 3D SDK</strong>
+                          <span>为预览注入 Three.js 桥接与 WebGL 运行时支持</span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_3D)}
+                          onChange={(event) => {
+                            const enabled = (event.currentTarget as HTMLInputElement).checked
+                            const baseTags = filterAppCapabilityTags(session.tags)
+                            const tags = enabled
+                              ? [...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_3D), APP_CAPABILITY_TAG_3D]
+                              : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_3D)
+                            updateSessionMeta({ tags })
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section class="icode__config-section icode__config-section--danger">
+                    <h4 class="icode__config-heading">删除项目</h4>
+                    <div class="icode__config-inset icode__config-inset--danger">
+                      <p class="icode__config-danger-copy">
+                        永久删除此 iCode 项目的源码、聊天记录与本地数据。桌面上的应用入口不会被卸载。
+                      </p>
+                      <div class="icode__config-item icode__config-item--action">
+                        <button
+                          type="button"
+                          class="icode__button icode__button--danger icode__button--block"
+                          onClick={() => requestDeleteProject(session.projectId)}
+                        >
+                          删除此项目…
+                        </button>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
 

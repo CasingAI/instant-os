@@ -1,10 +1,10 @@
-import { writeLocalStorageItem } from '../../os/device-storage.ts'
+import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { toGeneratedAppId } from '../appstore/store-agent.ts'
 import type { ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
 
-const STORAGE_KEY = 'instant-os-icode-internal-projects'
+const STORAGE_KEY = DEVICE_STORAGE_KEYS.icodeInternalProjects
 
 function isStringRecord(value: unknown): value is GeneratedAppDataStore {
   if (typeof value !== 'object' || value === undefined) {

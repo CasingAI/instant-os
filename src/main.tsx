@@ -3,6 +3,7 @@ import { BootErrorBoundary, getCrashTestMode, reportCrash } from './boot/crash-g
 import { scheduleEmojiOffsetAutoCalibration } from './fonts/auto-calibrate-emoji-offset.ts'
 import { ensureAppleColorEmojiFonts } from './fonts/ensure-apple-color-emoji-fonts.ts'
 import './global.css'
+import { initBrowserPageCache } from './apps/browser/browser-page-cache.ts'
 import { App } from './app.tsx'
 
 function CrashTestThrow(): null {
@@ -34,6 +35,7 @@ if (!appRoot) {
         )
 
       render(tree, appRoot)
+      void initBrowserPageCache()
       scheduleEmojiOffsetAutoCalibration()
     })
     .catch((error) => {

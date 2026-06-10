@@ -33,7 +33,7 @@ import {
 } from './browser-bookmarks.ts'
 import { formatTokenCount } from './format-token-count.ts'
 import { buildPageGenerationContext } from './build-page-generation-context.ts'
-import { getCachedPage, saveCachedPage } from './browser-page-cache.ts'
+import { getCachedPage, initBrowserPageCache, saveCachedPage } from './browser-page-cache.ts'
 import {
   displayUrl,
   hostnameFromUrl,
@@ -177,6 +177,10 @@ export function BrowserApp() {
     showProgress && pageState.pageTokens !== undefined
       ? tokenUsage.totalTokens + pageState.pageTokens
       : tokenUsage.totalTokens
+
+  useEffect(() => {
+    void initBrowserPageCache()
+  }, [])
 
   const bumpBookmarksRevision = useCallback(() => {
     setBookmarksRevision((value) => value + 1)

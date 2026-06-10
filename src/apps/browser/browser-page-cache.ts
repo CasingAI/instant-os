@@ -1,8 +1,11 @@
 import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
+  clearAllSafariPageCache,
+  clearSafariPageCacheByHostname,
+  deleteSafariPageCacheRecord,
+  getAllSafariPageCacheRecords,
+  getSafariPageCacheBytes,
+  putSafariPageCacheRecord,
+} from '../../os/device-data-storage.ts'
 import {
   hostnameFromUrl,
   isStartPageUrl,
@@ -28,7 +31,10 @@ export type SiteCacheSummary = {
   bytes: number
 }
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.safariPageCache
+let memoryStore: PageCacheStore = emptyStore()
+let ready = false
+let readyPromise: Promise<void> | undefined
+let reportedCacheBytes = 0
 
 function emptyStore(): PageCacheStore {
   return { pages: {} }
@@ -38,93 +44,140 @@ function cacheKey(url: string): string {
   return normalizeBrowserUrl(url)
 }
 
-function migratePageCacheStore(store: PageCacheStore): PageCacheStore {
+function normalizeHostname(hostname: string): string {
+  return hostname.replace(/^www\./, '')
+}
+
+function canonicalizePageCacheStore(store: PageCacheStore): PageCacheStore {
   const nextPages: Record<string, CachedPageRecord> = {}
-  let changed = false
 
   for (const [key, record] of Object.entries(store.pages)) {
     const canonicalKey = cacheKey(key)
-    if (canonicalKey !== key) {
-      changed = true
-    }
-
     const existing = nextPages[canonicalKey]
     if (!existing || record.cachedAt > existing.cachedAt) {
       nextPages[canonicalKey] = { ...record, url: canonicalKey }
     }
   }
 
-  if (!changed) {
-    return store
-  }
-
-  saveStore({ pages: nextPages })
   return { pages: nextPages }
 }
 
-function loadStore(): PageCacheStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    const parsed = JSON.parse(raw) as PageCacheStore
-    if (!parsed.pages || typeof parsed.pages !== 'object') {
-      return emptyStore()
-    }
-    return migratePageCacheStore(parsed)
-  } catch {
-    return emptyStore()
+function recordFromStoreEntry(record: CachedPageRecord): Parameters<typeof putSafariPageCacheRecord>[0] {
+  return {
+    url: record.url,
+    hostname: normalizeHostname(hostnameFromUrl(record.url)),
+    title: record.title,
+    html: record.html,
+    pageTokens: record.pageTokens,
+    cachedAt: record.cachedAt,
   }
 }
 
-function saveStore(store: PageCacheStore): boolean {
-  return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
+async function loadStoreFromIndexedDb(): Promise<PageCacheStore> {
+  const records = await getAllSafariPageCacheRecords()
+  const pages: Record<string, CachedPageRecord> = {}
+  for (const record of records) {
+    pages[record.url] = {
+      url: record.url,
+      title: record.title,
+      html: record.html,
+      pageTokens: record.pageTokens,
+      cachedAt: record.cachedAt,
+    }
+  }
+  return canonicalizePageCacheStore({ pages })
+}
+
+async function hydratePageCacheStore(): Promise<void> {
+  memoryStore = await loadStoreFromIndexedDb()
+  reportedCacheBytes = await getSafariPageCacheBytes()
+  ready = true
+}
+
+export function initBrowserPageCache(): Promise<void> {
+  if (ready) {
+    return Promise.resolve()
+  }
+  if (!readyPromise) {
+    readyPromise = hydratePageCacheStore().catch((error) => {
+      readyPromise = undefined
+      throw error
+    })
+  }
+  return readyPromise
+}
+
+function ensureReadyForSyncRead(): void {
+  if (!ready && !readyPromise) {
+    void initBrowserPageCache()
+  }
+}
+
+async function persistPage(record: CachedPageRecord): Promise<boolean> {
+  const ok = await putSafariPageCacheRecord(recordFromStoreEntry(record))
+  if (ok) {
+    reportedCacheBytes = await getSafariPageCacheBytes()
+  } else {
+    delete memoryStore.pages[record.url]
+  }
+  return ok
 }
 
 export function getCachedPage(url: string): CachedPageRecord | undefined {
   if (isStartPageUrl(url)) {
     return undefined
   }
-  return loadStore().pages[cacheKey(url)]
+  ensureReadyForSyncRead()
+  return memoryStore.pages[cacheKey(url)]
 }
 
-export function saveCachedPage(record: Omit<CachedPageRecord, 'cachedAt'> & { cachedAt?: number }): boolean {
+export function saveCachedPage(
+  record: Omit<CachedPageRecord, 'cachedAt'> & { cachedAt?: number },
+): boolean {
   if (isStartPageUrl(record.url)) {
     return true
   }
 
-  const store = loadStore()
+  ensureReadyForSyncRead()
   const key = cacheKey(record.url)
-  store.pages[key] = {
+  const nextRecord: CachedPageRecord = {
     url: key,
     title: record.title,
     html: record.html,
     pageTokens: record.pageTokens,
     cachedAt: record.cachedAt ?? Date.now(),
   }
-  return saveStore(store)
+  memoryStore.pages[key] = nextRecord
+  void persistPage(nextRecord)
+  return true
 }
 
 export function removeCachedPage(url: string): boolean {
-  const store = loadStore()
-  delete store.pages[cacheKey(url)]
-  return saveStore(store)
+  ensureReadyForSyncRead()
+  delete memoryStore.pages[cacheKey(url)]
+  void deleteSafariPageCacheRecord(cacheKey(url)).then(() =>
+    getSafariPageCacheBytes().then((bytes) => {
+      reportedCacheBytes = bytes
+    }),
+  )
+  return true
 }
 
 export function getBrowserPageCacheStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
+  ensureReadyForSyncRead()
+  return reportedCacheBytes
 }
 
 export function getCachedPageCount(): number {
-  return Object.keys(loadStore().pages).length
+  ensureReadyForSyncRead()
+  return Object.keys(memoryStore.pages).length
 }
 
 export function getSiteCacheSummaries(): SiteCacheSummary[] {
-  const store = loadStore()
+  ensureReadyForSyncRead()
   const byHost = new Map<string, SiteCacheSummary>()
 
-  for (const record of Object.values(store.pages)) {
+  for (const record of Object.values(memoryStore.pages)) {
     const hostname = hostnameFromUrl(record.url)
     const recordBytes = new TextEncoder().encode(JSON.stringify(record)).length
     const existing = byHost.get(hostname) ?? { hostname, pageCount: 0, bytes: 0 }
@@ -145,19 +198,25 @@ export function getCachedSiteRootPage(url: string): CachedPageRecord | undefined
 }
 
 export function clearAllPageCache(): void {
-  saveStore(emptyStore())
+  memoryStore = emptyStore()
+  reportedCacheBytes = 0
+  void clearAllSafariPageCache()
 }
 
 export function clearSitePageCache(hostname: string): void {
-  const normalizedHost = hostname.replace(/^www\./, '')
-  const store = loadStore()
+  const normalizedHost = normalizeHostname(hostname)
   const nextPages: Record<string, CachedPageRecord> = {}
 
-  for (const [key, record] of Object.entries(store.pages)) {
+  for (const [key, record] of Object.entries(memoryStore.pages)) {
     if (hostnameFromUrl(record.url) !== normalizedHost) {
       nextPages[key] = record
     }
   }
 
-  saveStore({ pages: nextPages })
+  memoryStore = { pages: nextPages }
+  void clearSafariPageCacheByHostname(hostname).then(() =>
+    getSafariPageCacheBytes().then((bytes) => {
+      reportedCacheBytes = bytes
+    }),
+  )
 }

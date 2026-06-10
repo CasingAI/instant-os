@@ -14,10 +14,16 @@ import {
   DEVICE_CAPACITY_BYTES,
   findManagedApp,
   getStorageSummary,
+  loadDataStorageBreakdown,
   type ManagedAppEntry,
 } from './app-storage.ts'
+import { DATA_CAPACITY_BYTES, DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
+import { STORAGE_CHANGED_EVENT } from '../../os/device-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
+import { initBrowserPageCache } from '../browser/browser-page-cache.ts'
 import { SafariUsageView } from './safari-usage-view.tsx'
+import { AppsStorageView } from './apps-storage-view.tsx'
+import { OtherStorageView } from './other-storage-view.tsx'
 import { AccountView } from './account-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { DeveloperSettingsView } from './developer-settings-view.tsx'
@@ -57,11 +63,34 @@ export function SettingsApp() {
   const { showBuiltinAbout } = useAboutApp()
   const [route, setRoute] = useState<SettingsRoute>(SETTINGS_DEFAULT_ROUTE)
   const [cacheRevision, setCacheRevision] = useState(0)
+  const [dataStorage, setDataStorage] = useState({
+    totalBytes: 0,
+    safariCacheBytes: 0,
+    booksDataBytes: 0,
+  })
   const { installedApps, storageRevision } = useGeneratedApps()
   const summary = useMemo(
-    () => getStorageSummary(installedApps),
-    [installedApps, cacheRevision, storageRevision],
+    () => getStorageSummary(installedApps, dataStorage),
+    [installedApps, cacheRevision, storageRevision, dataStorage],
   )
+
+  useEffect(() => {
+    const refreshDataBytes = () => {
+      void initBrowserPageCache()
+        .then(() => loadDataStorageBreakdown())
+        .then(setDataStorage)
+    }
+    const refreshSystemBytes = () => {
+      setCacheRevision((value) => value + 1)
+    }
+    refreshDataBytes()
+    window.addEventListener(DATA_STORAGE_CHANGED_EVENT, refreshDataBytes)
+    window.addEventListener(STORAGE_CHANGED_EVENT, refreshSystemBytes)
+    return () => {
+      window.removeEventListener(DATA_STORAGE_CHANGED_EVENT, refreshDataBytes)
+      window.removeEventListener(STORAGE_CHANGED_EVENT, refreshSystemBytes)
+    }
+  }, [cacheRevision, storageRevision])
 
   const selectedApp =
     route.view === 'app-detail' ? findManagedApp(summary.entries, route.appId) : undefined
@@ -111,7 +140,10 @@ export function SettingsApp() {
   const view = route.view
   const showRoot = view === 'root'
   const showUsage = view === 'usage'
-  const keepUsage = showUsage || view === 'app-detail'
+  const keepUsage =
+    showUsage || view === 'app-detail' || view === 'apps-storage' || view === 'other-storage'
+  const showAppsStorage = view === 'apps-storage'
+  const showOtherStorage = view === 'other-storage'
   const showAppDetail = view === 'app-detail' && selectedApp
   const showAccount = view === 'account'
   const showDisplay = view === 'display'
@@ -204,7 +236,27 @@ export function SettingsApp() {
         <UsageView
           summary={summary}
           onBack={() => setRoute({ view: 'root' })}
-          onSelectApp={(appId) => setRoute({ view: 'app-detail', appId })}
+          onSelectApp={(appId) => setRoute({ view: 'app-detail', appId, from: 'usage' })}
+          onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
+          onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showAppsStorage} keep={showAppsStorage}>
+        <AppsStorageView
+          entries={summary.entries}
+          totalBytes={summary.appsBytes}
+          onBack={() => setRoute({ view: 'usage' })}
+          onSelectApp={(entry) =>
+            setRoute({ view: 'app-detail', appId: entry.id, from: 'apps-storage' })
+          }
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showOtherStorage} keep={showOtherStorage}>
+        <OtherStorageView
+          totalBytes={summary.otherBytes}
+          onBack={() => setRoute({ view: 'usage' })}
         />
       </SettingsKeepLayer>
 
@@ -212,7 +264,13 @@ export function SettingsApp() {
         {selectedApp && (
           <AppDetailView
             app={selectedApp}
-            onBack={() => setRoute({ view: 'usage' })}
+            onBack={() =>
+              setRoute(
+                route.view === 'app-detail' && route.from === 'apps-storage'
+                  ? { view: 'apps-storage' }
+                  : { view: 'usage' },
+              )
+            }
             onOpenSafariSettings={
               selectedApp.id === 'browser'
                 ? () => setRoute({ view: 'safari-usage' })
@@ -323,10 +381,19 @@ type UsageViewProps = {
   summary: ReturnType<typeof getStorageSummary>
   onBack: () => void
   onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
+  onOpenAppsStorage: () => void
+  onOpenOtherStorage: () => void
 }
 
-function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
-  const usedPercent = Math.min(100, (summary.usedBytes / DEVICE_CAPACITY_BYTES) * 100)
+function UsageView({
+  summary,
+  onBack,
+  onSelectApp,
+  onOpenAppsStorage,
+  onOpenOtherStorage,
+}: UsageViewProps) {
+  const systemUsedPercent = Math.min(100, (summary.usedBytes / DEVICE_CAPACITY_BYTES) * 100)
+  const dataUsedPercent = Math.min(100, (summary.dataUsedBytes / DATA_CAPACITY_BYTES) * 100)
   const newsCommentStats = useMemo(() => getNewsCommentStats(readNewsStore()), [])
   const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
 
@@ -337,8 +404,9 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
         <div class="settings__content-body">
           <div class="settings__content-columns">
             <section class="settings__section">
-              <h2 class="settings__section-title">localStorage 用量</h2>
-              <div class="settings__box" aria-label="存储用量">
+              <h2 class="settings__section-title">系统空间</h2>
+              <p class="settings__section-subtitle">配置、索引与轻量元数据（localStorage）</p>
+              <div class="settings__box" aria-label="系统空间用量">
                 <div class="settings__meter-row">
                   <span>
                     已用 <strong>{formatStorageSize(summary.usedBytes)}</strong>
@@ -346,13 +414,13 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
                   <span>上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}</span>
                 </div>
                 <div class="settings__meter-bar">
-                  <div class="settings__meter-fill" style={{ width: `${usedPercent}%` }} />
+                  <div class="settings__meter-fill" style={{ width: `${systemUsedPercent}%` }} />
                 </div>
                 <div class="settings__meter-legend">
-                  <span>AI 应用 {formatStorageSize(summary.appsBytes)}</span>
-                  <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
+                  <span>应用程序 {formatStorageSize(summary.appsBytes)}</span>
                   <span>邮件 {formatStorageSize(summary.mailDataBytes)}</span>
                   <span>新闻 {formatStorageSize(summary.newsDataBytes)}</span>
+                  <span>图书索引 {formatStorageSize(summary.booksIndexBytes)}</span>
                   <span>其他 {formatStorageSize(summary.otherBytes)}</span>
                   <span>剩余 {formatStorageSize(summary.availableBytes)}</span>
                 </div>
@@ -360,22 +428,70 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
             </section>
 
             <section class="settings__section">
-              <h2 class="settings__section-title">存储分类</h2>
+              <h2 class="settings__section-title">数据空间</h2>
+              <p class="settings__section-subtitle">大体积正文与媒体（IndexedDB）</p>
+              <div class="settings__box" aria-label="数据空间用量">
+                <div class="settings__meter-row">
+                  <span>
+                    已用 <strong>{formatStorageSize(summary.dataUsedBytes)}</strong>
+                  </span>
+                  <span>上限 {formatStorageSize(DATA_CAPACITY_BYTES)}</span>
+                </div>
+                <div class="settings__meter-bar">
+                  <div
+                    class="settings__meter-fill settings__meter-fill--data"
+                    style={{ width: `${dataUsedPercent}%` }}
+                  />
+                </div>
+                <div class="settings__meter-legend">
+                  <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
+                  <span>图书章节 {formatStorageSize(summary.booksDataBytes)}</span>
+                  <span>剩余 {formatStorageSize(summary.dataAvailableBytes)}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings__section">
+              <h2 class="settings__section-title">系统空间分类</h2>
               <div class="settings__list">
                 <div class="settings__list-head">
                   <span>分类</span>
                   <span>大小</span>
                 </div>
                 <div class="settings__list-body">
-                  <StorageCategoryRow label="AI 应用" bytes={summary.appsBytes} />
-                  <StorageCategoryRow label="网络浏览器缓存" bytes={summary.safariCacheBytes} />
-                  <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
                   <StorageCategoryRow
-                    label="新闻"
-                    bytes={summary.newsDataBytes}
-                    hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`}
+                    label="应用程序"
+                    bytes={summary.appsBytes}
+                    onClick={onOpenAppsStorage}
                   />
-                  <StorageCategoryRow label="其他" bytes={summary.otherBytes} hint="未归类的 localStorage 键" />
+                  <StorageCategoryRow label="邮件" bytes={summary.mailDataBytes} />
+                  <StorageCategoryRow label="新闻" bytes={summary.newsDataBytes} hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`} />
+                  <StorageCategoryRow label="图书索引" bytes={summary.booksIndexBytes} />
+                  <StorageCategoryRow
+                    label="网络浏览器（历史/书签等）"
+                    bytes={summary.browserSystemBytes}
+                    hint="历史、书签与 Token 统计；网页 HTML 缓存在数据空间"
+                  />
+                  <StorageCategoryRow
+                    label="其他"
+                    bytes={summary.otherBytes}
+                    hint="未归类的 localStorage 键"
+                    onClick={onOpenOtherStorage}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section class="settings__section">
+              <h2 class="settings__section-title">数据空间分类</h2>
+              <div class="settings__list">
+                <div class="settings__list-head">
+                  <span>分类</span>
+                  <span>大小</span>
+                </div>
+                <div class="settings__list-body">
+                  <StorageCategoryRow label="网络浏览器网页缓存" bytes={summary.safariCacheBytes} />
+                  <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
                 </div>
               </div>
             </section>
@@ -389,9 +505,9 @@ function UsageView({ summary, onBack, onSelectApp }: UsageViewProps) {
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              AI 应用的用户数据通过 localStorage 桥接按应用独立存储；「文稿与数据」即此类内容。
-              「其他」统计未归类的 localStorage 键（如浏览记录、窗口尺寸）。
-              上限 5 MB 为硬限制，空间不足时无法继续写入。
+              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节等大体积正文（IndexedDB）。
+              应用程序的用户数据通过 localStorage 桥接按应用独立存储。
+              系统空间上限 5 MB、数据空间上限 50 MB，均为硬限制。
             </p>
           </section>
         </div>
@@ -441,9 +557,25 @@ type StorageCategoryRowProps = {
   label: string
   bytes: number
   hint?: string
+  onClick?: () => void
 }
 
-function StorageCategoryRow({ label, bytes, hint }: StorageCategoryRowProps) {
+function StorageCategoryRow({ label, bytes, hint, onClick }: StorageCategoryRowProps) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        class="settings__row settings__row--button settings__row--nav"
+        onClick={onClick}
+        title={hint}
+      >
+        <span class="settings__row-name">{label}</span>
+        <span class="settings__row-size">{formatStorageSize(bytes)}</span>
+        <SettingsDisclosureIcon />
+      </button>
+    )
+  }
+
   return (
     <div class="settings__row settings__row--static" title={hint}>
       <span class="settings__row-name">{label}</span>
@@ -457,8 +589,48 @@ type AppListRowProps = {
   onClick: () => void
 }
 
+function builtinDocumentsLabel(appId: BuiltinAppId): string {
+  switch (appId) {
+    case 'browser':
+      return '历史与书签'
+    case 'mail':
+      return '邮件数据'
+    case 'news':
+      return '新闻存档'
+    case 'books':
+      return '图书索引'
+    case 'weather':
+      return '天气数据'
+    case 'stocks':
+      return '股票数据'
+    case 'catgpt':
+      return '对话记录'
+    case 'gomoku':
+      return '对局偏好'
+    case 'icode':
+      return '项目与对话'
+    case 'scene3d-lab':
+      return '场景存档'
+    case 'appstore':
+      return '商店清单'
+    case 'settings':
+      return '系统配置'
+    default:
+      return '文稿与数据'
+  }
+}
+
 function AppListRow({ entry, onClick }: AppListRowProps) {
-  const totalBytes = entry.appSizeBytes + entry.documentsBytes + entry.versionHistoryBytes
+  const systemBytes =
+    entry.appSizeBytes + entry.documentsBytes + entry.versionHistoryBytes
+  const dataBytes = entry.dataBytes
+  const totalBytes = systemBytes + dataBytes
+  const sizeLabel =
+    dataBytes > 0 && systemBytes > 0
+      ? `系统 ${formatStorageSize(systemBytes)} · 数据 ${formatStorageSize(dataBytes)}`
+      : dataBytes > 0
+        ? `数据 ${formatStorageSize(dataBytes)}`
+        : formatStorageSize(totalBytes)
 
   return (
     <button type="button" class="settings__row settings__row--button" onClick={onClick}>
@@ -467,7 +639,9 @@ function AppListRow({ entry, onClick }: AppListRowProps) {
         {entry.name}
         {entry.icodeManaged && <span class="settings__row-badge">iCode</span>}
       </span>
-      <span class="settings__row-size">{formatStorageSize(totalBytes)}</span>
+      <span class="settings__row-size" title={dataBytes > 0 ? '网页缓存等指标在数据空间' : undefined}>
+        {sizeLabel}
+      </span>
       <SettingsDisclosureIcon />
     </button>
   )
@@ -486,7 +660,8 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
   const [clearDataConfirmOpen, setClearDataConfirmOpen] = useState(false)
-  const totalBytes = app.appSizeBytes + app.documentsBytes + app.versionHistoryBytes
+  const totalBytes =
+    app.appSizeBytes + app.documentsBytes + app.dataBytes + app.versionHistoryBytes
   const versionCount = isGeneratedAppId(app.id) ? getAppVersionCount(generatedAppIdToSlug(app.id)) : 0
   const archivedVersionCount = Math.max(0, versionCount - 1)
   const newsStore = app.id === 'news' ? readNewsStore() : undefined
@@ -546,9 +721,23 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
             {app.documentsBytes > 0 && (
               <dl class="settings__form-row">
                 <dt>
-                  {app.id === 'browser' ? '网页缓存' : app.id === 'mail' ? '邮件数据' : app.id === 'news' ? '新闻存档' : '文稿与数据'}
+                  {app.kind === 'builtin'
+                    ? builtinDocumentsLabel(app.id)
+                    : '文稿与数据'}
                 </dt>
                 <dd>{formatStorageSize(app.documentsBytes)}</dd>
+              </dl>
+            )}
+            {app.dataBytes > 0 && (
+              <dl class="settings__form-row">
+                <dt>
+                  {app.id === 'books'
+                    ? '章节正文'
+                    : app.id === 'browser'
+                      ? '网页缓存'
+                      : '数据空间'}
+                </dt>
+                <dd>{formatStorageSize(app.dataBytes)}</dd>
               </dl>
             )}
             {app.versionHistoryBytes > 0 && (

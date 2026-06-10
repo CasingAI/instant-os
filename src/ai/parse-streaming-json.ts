@@ -26,7 +26,9 @@ export function createNdjsonLineFeed(onLine: (line: string) => void) {
     }
   }
 
-  return { push, flush }
+  const getBuffer = () => buffer
+
+  return { push, flush, getBuffer }
 }
 
 export function parseNdjsonLine<T>(line: string): T {

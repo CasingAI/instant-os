@@ -10,7 +10,6 @@ export const DEVICE_STORAGE_KEYS = {
   listingDetails: 'instant-os-listing-details',
   listingReviews: 'instant-os-listing-reviews',
   storeListings: 'instant-os-store-listings',
-  safariPageCache: 'instant-os-safari-page-cache',
   safariHistory: 'instant-os-safari-history',
   safariBookmarks: 'instant-os-safari-bookmarks',
   safariTokenUsage: 'instant-os-safari-token-usage',
@@ -29,19 +28,21 @@ export const DEVICE_STORAGE_KEYS = {
   catgpt: 'instant-os-catgpt',
   gomoku: 'instant-os-gomoku',
   launcherLayout: 'instant-os-launcher-layout',
+  books: 'instant-os-books',
+  icodeInternalProjects: 'instant-os-icode-internal-projects',
+  icodeProjects: 'instant-os-icode-projects',
 } as const
 
-const ACCOUNTED_KEYS: ReadonlySet<string> = new Set([
-  DEVICE_STORAGE_KEYS.generatedApps,
-  DEVICE_STORAGE_KEYS.listingDetails,
-  DEVICE_STORAGE_KEYS.listingReviews,
-  DEVICE_STORAGE_KEYS.storeListings,
-  DEVICE_STORAGE_KEYS.safariPageCache,
-  DEVICE_STORAGE_KEYS.mail,
-  DEVICE_STORAGE_KEYS.news,
-  DEVICE_STORAGE_KEYS.newsTokenUsage,
-  DEVICE_STORAGE_KEYS.accountSettings,
-])
+/** Frimousse 表情选择器缓存的 localStorage 键前缀 */
+export const FRIMOUSSE_DATA_KEY_PREFIX = 'frimousse/data/'
+
+const ACCOUNTED_STORAGE_KEYS: ReadonlySet<string> = new Set(Object.values(DEVICE_STORAGE_KEYS))
+
+const ACCOUNTED_STORAGE_PREFIXES = [GENERATED_APP_DATA_KEY_PREFIX] as const
+
+const OTHER_STORAGE_LABELS: ReadonlyArray<{ prefix: string; label: string }> = [
+  { prefix: FRIMOUSSE_DATA_KEY_PREFIX, label: 'Emoji键盘' },
+]
 
 export class DeviceStorageFullError extends Error {
   constructor() {
@@ -82,12 +83,23 @@ export function getTotalLocalStorageBytes(): number {
   }
 }
 
-export function getAccountedStorageBytes(): number {
-  let total = 0
-  for (const key of ACCOUNTED_KEYS) {
-    total += getLocalStorageKeyBytes(key)
+export function sumLocalStorageKeys(keys: readonly string[]): number {
+  return keys.reduce((total, key) => total + getLocalStorageKeyBytes(key), 0)
+}
+
+export function sumLocalStorageKeysByPrefix(prefix: string): number {
+  try {
+    let total = 0
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(prefix)) {
+        total += getLocalStorageKeyBytes(key)
+      }
+    }
+    return total
+  } catch {
+    return 0
   }
-  return total
 }
 
 export type UnaccountedStorageEntry = {
@@ -95,12 +107,23 @@ export type UnaccountedStorageEntry = {
   bytes: number
 }
 
-function isAccountedStorageKey(key: string): boolean {
-  if (ACCOUNTED_KEYS.has(key)) {
+export type OtherStorageEntry = {
+  id: string
+  label: string
+  bytes: number
+  detail?: string
+}
+
+function otherStorageLabelForKey(key: string): string | undefined {
+  return OTHER_STORAGE_LABELS.find((item) => key.startsWith(item.prefix))?.label
+}
+
+export function isAccountedStorageKey(key: string): boolean {
+  if (ACCOUNTED_STORAGE_KEYS.has(key)) {
     return true
   }
 
-  return key.startsWith(GENERATED_APP_DATA_KEY_PREFIX)
+  return ACCOUNTED_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
 }
 
 export function listUnaccountedStorageKeys(): UnaccountedStorageEntry[] {
@@ -123,6 +146,38 @@ export function listUnaccountedStorageKeys(): UnaccountedStorageEntry[] {
 
 export function getOtherStorageBytes(): number {
   return listUnaccountedStorageKeys().reduce((total, entry) => total + entry.bytes, 0)
+}
+
+export function listOtherStorageEntries(): OtherStorageEntry[] {
+  const unaccounted = listUnaccountedStorageKeys()
+  const grouped = new Map<string, OtherStorageEntry>()
+
+  for (const entry of unaccounted) {
+    const label = otherStorageLabelForKey(entry.key)
+    if (label) {
+      const existing = grouped.get(label)
+      if (existing) {
+        existing.bytes += entry.bytes
+        existing.detail = existing.detail ? `${existing.detail}, ${entry.key}` : entry.key
+      } else {
+        grouped.set(label, {
+          id: `__other-label:${label}`,
+          label,
+          bytes: entry.bytes,
+          detail: entry.key,
+        })
+      }
+      continue
+    }
+
+    grouped.set(entry.key, {
+      id: entry.key,
+      label: entry.key,
+      bytes: entry.bytes,
+    })
+  }
+
+  return [...grouped.values()].sort((left, right) => right.bytes - left.bytes)
 }
 
 export function projectedStorageBytes(key: string, value: string): number {

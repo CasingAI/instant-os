@@ -92,6 +92,8 @@ export type AppGenerationUpdate = {
   phase: AppGenerationPhase
   progress: number
   textLength: number
+  reasoningText: string
+  contentText: string
 }
 
 const METADATA_EMIT_INTERVAL_MS = 280
@@ -130,7 +132,7 @@ export async function generateAppHtmlStreaming(
     context.update?.existingHtml,
   )
 
-  onUpdate({ phase: 'waiting', progress: 0, textLength: 0 })
+  onUpdate({ phase: 'waiting', progress: 0, textLength: 0, reasoningText: '', contentText: '' })
   setPendingInstallStream(listing.slug, { reasoningText: '', rawText: '' })
 
   const stream = await client.chat.completions.create({
@@ -164,6 +166,10 @@ export async function generateAppHtmlStreaming(
     const streamDue = force || now - lastStreamEmitAt >= STREAM_EMIT_INTERVAL_MS
     const metadataDue = force || now - lastMetadataEmitAt >= METADATA_EMIT_INTERVAL_MS
 
+    if (!streamDue && !metadataDue) {
+      return
+    }
+
     if (streamDue) {
       lastStreamEmitAt = now
       setPendingInstallStream(listing.slug, {
@@ -172,15 +178,16 @@ export async function generateAppHtmlStreaming(
       })
     }
 
-    if (!metadataDue) {
-      return
+    if (metadataDue) {
+      lastMetadataEmitAt = now
     }
 
-    lastMetadataEmitAt = now
     onUpdate({
       phase,
       progress: progressFromTextLength(textLength, generating, is3d),
       textLength,
+      reasoningText,
+      contentText,
     })
   }
 

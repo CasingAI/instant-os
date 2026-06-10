@@ -440,6 +440,22 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
+.settings__meter-fill--data {
+  background: repeating-linear-gradient(
+    -45deg,
+    #ff9500,
+    #ff9500 6px,
+    #ffb84d 6px,
+    #ffb84d 12px
+  );
+}
+
+.settings__section-subtitle {
+  margin: -4px 0 8px;
+  font-size: 11px;
+  color: #666;
+}
+
 .settings__meter-legend {
   display: flex;
   flex-wrap: wrap;
@@ -447,6 +463,234 @@
   margin-top: 8px;
   font-size: 11px;
   color: #666;
+}
+
+.settings__treemap-panel {
+  padding: 8px;
+  overflow: hidden;
+}
+
+.settings--apps-storage {
+  overflow: hidden;
+}
+
+.settings.settings--apps-storage:has(> .settings__nav) > .settings__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings__section--fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings__treemap-panel--fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings__treemap-panel--fill .settings__treemap {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+  height: auto;
+}
+
+.settings__treemap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 220px;
+  overflow: hidden;
+}
+
+.settings__treemap--interactive {
+  cursor: default;
+}
+
+.settings__treemap-tile {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  color: #fff;
+  text-align: left;
+}
+
+.settings__treemap-tile--button {
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  transition:
+    filter 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease;
+}
+
+.settings__treemap-tile--button:hover {
+  filter: brightness(1.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+  z-index: 1;
+}
+
+.settings__treemap-tile--button:active {
+  filter: brightness(0.96);
+  transform: scale(0.995);
+}
+
+.settings__treemap-tile-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  pointer-events: none;
+}
+
+.settings__treemap-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.settings__treemap-tile-size {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.settings__treemap--empty {
+  aspect-ratio: auto;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 12px;
+}
+
+.settings__treemap--empty p {
+  margin: 0;
+}
+
+.settings__apps-table {
+  overflow: hidden;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.settings__apps-table-head,
+.settings__apps-table-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 72px 48px 16px;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.settings__apps-table-head {
+  border-bottom: 1px solid #c8c8c8;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e4e4e4 100%);
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.settings__apps-table-body {
+  max-height: none;
+}
+
+.settings__apps-table-row {
+  border-bottom: 1px solid #ececec;
+}
+
+.settings__apps-table-row:last-child {
+  border-bottom: none;
+}
+
+.settings__apps-table-row--button {
+  cursor: default;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.settings__apps-table-row--button:hover {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+.settings__apps-table-row--button:hover .settings__apps-table-cell--num {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.settings__apps-table-row--button:active {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.settings__apps-table-cell {
+  min-width: 0;
+}
+
+.settings__apps-table-cell--icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings__apps-table-cell--name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__apps-table-cell--num {
+  text-align: right;
+  font-size: 12px;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__apps-table-cell--nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings__apps-table-row--button:hover .settings__disclosure {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.settings__apps-table-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
 /* ── Inset list (table view) ── */
@@ -509,6 +753,26 @@
 .settings__list-body--apps {
   max-height: none;
   overflow: visible;
+}
+
+.settings__list-body--keys {
+  max-height: 360px;
+}
+
+.settings__row-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.settings__row-key-detail {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #888;
 }
 
 .settings__row {

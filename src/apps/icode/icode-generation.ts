@@ -1,16 +1,12 @@
 import {
   generateAppHtmlStreaming,
-  type AppGenerationPhase,
   type AppGenerationUpdate,
 } from '../appstore/generate-app-stream.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import { nextAppVersion } from '../appstore/app-version.ts'
 import type { ICodeInternalProject } from './icode-types.ts'
 
-export type ICodeGenerationUpdate = AppGenerationUpdate & {
-  reasoningText?: string
-  contentText?: string
-}
+export type ICodeGenerationUpdate = AppGenerationUpdate
 
 export type ICodeGenerationResult = {
   html: string
@@ -29,18 +25,6 @@ function listingFromInternal(project: ICodeInternalProject): StoreListing {
   }
 }
 
-function phaseSummary(phase: AppGenerationPhase | undefined, progress: number): string {
-  if (phase === 'waiting') {
-    return '连接 AI…'
-  }
-  if (phase === 'thinking') {
-    return `思考中 ${Math.round(progress)}%`
-  }
-  if (phase === 'generating') {
-    return `生成中 ${Math.round(progress)}%`
-  }
-  return '处理中…'
-}
 
 export async function generateInternalAppHtml(
   project: ICodeInternalProject,
@@ -53,10 +37,7 @@ export async function generateInternalAppHtml(
   const html = await generateAppHtmlStreaming(
     listing,
     (update) => {
-      onUpdate?.({
-        ...update,
-        contentText: phaseSummary(update.phase, update.progress),
-      })
+      onUpdate?.(update)
     },
     hasExisting
       ? {

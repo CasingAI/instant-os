@@ -6,6 +6,7 @@ import { BrowserApp } from '../apps/browser/browser-app.tsx'
 import { MailApp } from '../apps/mail/mail-app.tsx'
 import { SettingsApp } from '../apps/settings/settings-app.tsx'
 import { NewsApp } from '../apps/news/news-app.tsx'
+import { BooksApp } from '../apps/books/books-app.tsx'
 import { WeatherApp } from '../apps/weather/weather-app.tsx'
 import { StocksApp } from '../apps/stocks/stocks-app.tsx'
 import { TranslateApp } from '../apps/translate/translate-app.tsx'
@@ -17,7 +18,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -51,6 +52,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'news',
     name: '新闻',
     icon: NewsIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'books',
+    name: '书架',
+    icon: BooksIcon,
     dock: true,
     desktop: true,
   }),
@@ -124,6 +132,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   browser: BrowserApp,
   mail: MailApp,
   news: NewsApp,
+  books: BooksApp,
   weather: WeatherApp,
   stocks: StocksApp,
   translate: TranslateApp,

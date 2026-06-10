@@ -466,6 +466,83 @@ export function NewsIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function BooksIcon({ size = 64 }: IconProps) {
+  const books = [
+    { x: 11, y: 26, w: 8, h: 16, grad: 'books-icon-spine-red' },
+    { x: 21, y: 22, w: 9, h: 20, grad: 'books-icon-spine-blue' },
+    { x: 32, y: 24, w: 8, h: 18, grad: 'books-icon-spine-green' },
+    { x: 42, y: 20, w: 9, h: 22, grad: 'books-icon-spine-amber' },
+  ] as const
+
+  return (
+    <AppIconTile color="#e8b050" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="books-icon-shelf-face" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#f5dba0" />
+            <stop offset="55%" stop-color="#e8b050" />
+            <stop offset="100%" stop-color="#c4923a" />
+          </linearGradient>
+          <linearGradient id="books-icon-shelf-lip" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#a87830" />
+            <stop offset="100%" stop-color="#8b6914" />
+          </linearGradient>
+          <linearGradient id="books-icon-spine-red" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#7a1818" />
+            <stop offset="45%" stop-color="#d43838" />
+            <stop offset="100%" stop-color="#7a1818" />
+          </linearGradient>
+          <linearGradient id="books-icon-spine-blue" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#1a4a8a" />
+            <stop offset="45%" stop-color="#3a7ad8" />
+            <stop offset="100%" stop-color="#1a4a8a" />
+          </linearGradient>
+          <linearGradient id="books-icon-spine-green" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#1a6030" />
+            <stop offset="45%" stop-color="#3a9850" />
+            <stop offset="100%" stop-color="#1a6030" />
+          </linearGradient>
+          <linearGradient id="books-icon-spine-amber" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#a06010" />
+            <stop offset="45%" stop-color="#ff9500" />
+            <stop offset="100%" stop-color="#a06010" />
+          </linearGradient>
+        </defs>
+        <rect x="7" y="42" width="50" height="5.5" rx="1.2" fill="url(#books-icon-shelf-face)" />
+        <rect x="7" y="47.5" width="50" height="2.5" rx="0.8" fill="url(#books-icon-shelf-lip)" />
+        {books.map((book) => (
+          <g key={book.grad}>
+            <rect
+              x={book.x}
+              y={book.y}
+              width={book.w}
+              height={book.h}
+              rx="1"
+              fill={`url(#${book.grad})`}
+            />
+            <rect
+              x={book.x + 1}
+              y={book.y + 1}
+              width={book.w - 2}
+              height={2}
+              rx="0.5"
+              fill="rgba(255,255,255,0.28)"
+            />
+            <rect
+              x={book.x + book.w - 1.5}
+              y={book.y + 2}
+              width="1"
+              height={book.h - 4}
+              rx="0.5"
+              fill="rgba(0,0,0,0.18)"
+            />
+          </g>
+        ))}
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function WeatherIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#147efb" size={size}>
