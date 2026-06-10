@@ -193,7 +193,9 @@ export function ICodeApp() {
   const [streamVisibleReply, setStreamVisibleReply] = useState('')
   const [streamAppliedEdits, setStreamAppliedEdits] = useState(0)
   const [error, setError] = useState<string | undefined>()
-  const [importErrorMessage, setImportErrorMessage] = useState<string | undefined>()
+  const [importAlert, setImportAlert] = useState<
+    { title: string; message: string } | undefined
+  >()
   const [showNewProject, setShowNewProject] = useState(false)
   const [showImportPicker, setShowImportPicker] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<
@@ -904,7 +906,10 @@ export function ICodeApp() {
       const importName = `${record.name}（副本）`
       const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
       if (conflict) {
-        setError(formatProjectNameConflictMessage(conflict))
+        setImportAlert({
+          title: '无法创建副本',
+          message: formatProjectNameConflictMessage(conflict),
+        })
         return
       }
 
@@ -963,7 +968,10 @@ export function ICodeApp() {
       const registerImportedProject = (importName: string, description: string, patch: Parameters<typeof updateInternalProject>[1]) => {
         const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
         if (conflict) {
-          setImportErrorMessage(formatProjectNameConflictMessage(conflict))
+          setImportAlert({
+            title: '无法导入程序包',
+            message: formatProjectNameConflictMessage(conflict),
+          })
           return undefined
         }
 
@@ -972,12 +980,15 @@ export function ICodeApp() {
         const synced = getInternalProject(imported.id)
         if (!synced || !syncPlaceholderToDesktop(synced)) {
           removeInternalProject(imported.id)
-          setImportErrorMessage('导入失败，请检查存储空间')
+          setImportAlert({
+            title: '无法导入程序包',
+            message: '导入失败，请检查存储空间',
+          })
           return undefined
         }
 
         setProjectRevision((value) => value + 1)
-        setImportErrorMessage(undefined)
+        setImportAlert(undefined)
         openInternal(imported.id)
         return imported
       }
@@ -1026,9 +1037,12 @@ export function ICodeApp() {
       try {
         const bundle = await readBundleFromZipFile(file)
         await importBundle(bundle)
-        setImportErrorMessage(undefined)
+        setImportAlert(undefined)
       } catch (importError) {
-        setImportErrorMessage(importError instanceof Error ? importError.message : '导入失败')
+        setImportAlert({
+          title: '无法导入程序包',
+          message: importError instanceof Error ? importError.message : '导入失败',
+        })
       }
     },
     [importBundle],
@@ -1301,20 +1315,20 @@ export function ICodeApp() {
     </div>
   ) : undefined
 
-  const importErrorModal = importErrorMessage ? (
-    <div class="icode__modal-backdrop">
+  const importErrorModal = importAlert ? (
+    <div class="icode__modal-backdrop icode__modal-backdrop--alert">
       <div class="icode__modal" role="alertdialog" aria-labelledby="icode-import-error-title">
         <div class="icode__modal-header">
-          <h3 id="icode-import-error-title">无法导入程序包</h3>
+          <h3 id="icode-import-error-title">{importAlert.title}</h3>
         </div>
         <div class="icode__modal-body">
-          <p class="icode__modal-hint">{importErrorMessage}</p>
+          <p class="icode__modal-hint">{importAlert.message}</p>
         </div>
         <div class="icode__modal-actions">
           <button
             type="button"
             class="icode__button icode__button--primary"
-            onClick={() => setImportErrorMessage(undefined)}
+            onClick={() => setImportAlert(undefined)}
           >
             好
           </button>

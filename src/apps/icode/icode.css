@@ -316,6 +316,10 @@
   background: rgba(0, 0, 0, 0.28);
 }
 
+.icode__modal-backdrop--alert {
+  z-index: 30;
+}
+
 .icode__modal {
   width: min(100%, 400px);
   overflow: hidden;

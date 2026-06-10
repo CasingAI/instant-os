@@ -211,7 +211,7 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--mail-border-light);
   background: var(--mail-cell);
-  text-align: left;
+  text-align: start;
   transition: background 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -256,17 +256,24 @@
 }
 
 .mail__thread-sender {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--mail-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: start;
+  text-align-last: start;
 }
 
 .mail__thread-date {
   flex-shrink: 0;
   font-size: 11px;
   color: var(--mail-text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  text-align-last: end;
 }
 
 .mail__thread-subject {
@@ -275,6 +282,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: start;
+  text-align-last: start;
 }
 
 .mail__thread-preview {
@@ -283,6 +292,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: start;
+  text-align-last: start;
 }
 
 /* ── Thread detail ── */
@@ -319,11 +330,14 @@
 
 .mail__detail-subject {
   flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   line-height: 1.3;
   color: var(--mail-text);
+  text-align: start;
+  text-align-last: start;
 }
 
 .mail__detail-delete {
@@ -440,6 +454,8 @@
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
+  text-align: start;
+  text-align-last: start;
 }
 
 .mail__typing {

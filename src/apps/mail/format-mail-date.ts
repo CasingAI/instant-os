@@ -1,3 +1,8 @@
+function pad2(value: number): string {
+  return value.toString().padStart(2, '0')
+}
+
+/** 手动拼接日期，避免 Windows 下 Intl 输出 "6/9" 等斜杠格式或数字渲染异常。 */
 export function formatMailListDate(timestamp: number): string {
   const date = new Date(timestamp)
   const now = new Date()
@@ -7,27 +12,22 @@ export function formatMailListDate(timestamp: number): string {
     date.getDate() === now.getDate()
 
   if (sameDay) {
-    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
   }
 
+  const month = date.getMonth() + 1
+  const day = date.getDate()
   const sameYear = date.getFullYear() === now.getFullYear()
   if (sameYear) {
-    return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    return `${month}月${day}日`
   }
 
-  return date.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-  })
+  return `${date.getFullYear()}年${month}月${day}日`
 }
 
 export function formatMailDetailDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const date = new Date(timestamp)
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  return `${date.getFullYear()}年${month}月${day}日 ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 }

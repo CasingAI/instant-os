@@ -40,9 +40,22 @@ function senderLabel(store: MailStore, thread: MailThread): string {
   return last?.from.name || last?.from.email || '未知'
 }
 
+function collapseInlineWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function formatMailBodyForDisplay(body: string): string {
+  return body
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => collapseInlineWhitespace(line))
+    .join('\n')
+    .trim()
+}
+
 function previewText(thread: MailThread): string {
   const last = thread.messages[thread.messages.length - 1]
-  return last?.body.replace(/\s+/g, ' ').trim() || ''
+  return last ? collapseInlineWhitespace(last.body) : ''
 }
 
 function filterThreads(store: MailStore, mailbox: MailMailbox): MailThread[] {
@@ -428,10 +441,12 @@ export function MailApp() {
                   onClick={() => handleSelectThread(thread.id)}
                 >
                   <div class="mail__thread-row-top">
-                    <span class="mail__thread-sender">{senderLabel(store, thread)}</span>
+                    <span class="mail__thread-sender">
+                      {collapseInlineWhitespace(senderLabel(store, thread))}
+                    </span>
                     <span class="mail__thread-date">{formatMailListDate(thread.lastMessageAt)}</span>
                   </div>
-                  <span class="mail__thread-subject">{thread.subject}</span>
+                  <span class="mail__thread-subject">{collapseInlineWhitespace(thread.subject)}</span>
                   <span class="mail__thread-preview">{previewText(thread)}</span>
                 </button>
               ))
@@ -444,7 +459,9 @@ export function MailApp() {
             <>
               <header class="mail__detail-header">
                 <div class="mail__detail-header-top">
-                  <h1 class="mail__detail-subject">{selectedThread.subject}</h1>
+                  <h1 class="mail__detail-subject">
+                    {collapseInlineWhitespace(selectedThread.subject)}
+                  </h1>
                   <button
                     type="button"
                     class="mail__detail-delete"
@@ -494,7 +511,7 @@ export function MailApp() {
                         </button>
                       </div>
                     </div>
-                    <p class="mail__message-body">{message.body}</p>
+                    <p class="mail__message-body">{formatMailBodyForDisplay(message.body)}</p>
                   </article>
                 ))}
               </div>

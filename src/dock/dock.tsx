@@ -3,7 +3,6 @@ import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
-import { useExperimentalSettings } from '../os/use-experimental-settings.ts'
 import {
   buildBuiltinIconContextMenuItems,
   buildGeneratedIconContextMenuItems,
@@ -18,7 +17,6 @@ import '../icons/app-icon-tile.css'
 import './dock.css'
 
 export function Dock() {
-  useExperimentalSettings()
   const { windows, openApp, restoreWindow, closeWindowsForApp, desktopRevealed, toggleDesktopReveal } =
     useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =

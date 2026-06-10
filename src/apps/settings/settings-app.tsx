@@ -26,7 +26,6 @@ import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
 import { AccountView } from './account-view.tsx'
 import { DisplayView } from './display-view.tsx'
-import { DeveloperSettingsView } from './developer-settings-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { ExperimentalSettingsView } from './experimental-settings-view.tsx'
@@ -185,8 +184,6 @@ export function SettingsApp() {
   const showResources3dDetail = view === 'resources-3d-detail'
   const showNews = view === 'news'
   const showExperimental = view === 'experimental'
-  const keepExperimental = showExperimental || view === 'experimental-developer'
-  const showExperimentalDeveloper = view === 'experimental-developer'
   const activePaneId = paneIdForRoute(route)
   const nestedRoute = isNestedSettingsRoute(route)
 
@@ -369,16 +366,9 @@ export function SettingsApp() {
         />
       </SettingsKeepLayer>
 
-      <SettingsKeepLayer show={showExperimental} keep={keepExperimental}>
-        <ExperimentalSettingsView
-          onBack={() => setRoute({ view: 'root' })}
-          onOpenDeveloper={() => setRoute({ view: 'experimental-developer' })}
-        />
+      <SettingsKeepLayer show={showExperimental} keep={showExperimental}>
+        <ExperimentalSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
-
-          <SettingsKeepLayer show={showExperimentalDeveloper} keep={showExperimentalDeveloper}>
-            <DeveloperSettingsView onBack={() => setRoute({ view: 'experimental' })} />
-          </SettingsKeepLayer>
         </div>
       </div>
     </div>

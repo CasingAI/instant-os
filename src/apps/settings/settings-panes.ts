@@ -35,7 +35,6 @@ export type SettingsRoute =
   | { view: 'safari-usage' }
   | { view: 'news' }
   | { view: 'experimental' }
-  | { view: 'experimental-developer' }
 
 export type SettingsPaneDef = {
   id: SettingsPaneId
@@ -97,7 +96,6 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'news':
       return 'news'
     case 'experimental':
-    case 'experimental-developer':
       return 'experimental'
   }
 }
