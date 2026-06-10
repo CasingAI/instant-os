@@ -66,9 +66,9 @@ export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPan
       )}
 
       <div class="menu-bar__popover-separator" />
-      <p class="menu-bar__popover-heading">使用能耗的应用</p>
+      <p class="menu-bar__popover-heading">正在使用的应用</p>
       {runningApps.length === 0 ? (
-        <p class="menu-bar__popover-empty">没有应用在使用显著能耗。</p>
+        <p class="menu-bar__popover-empty">没有应用正在使用。</p>
       ) : (
         runningApps.map((window) => {
           const appId = window.appId as AppId
