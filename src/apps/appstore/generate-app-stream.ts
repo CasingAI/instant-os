@@ -1,3 +1,4 @@
+import { estimatePromptTokens } from '../browser/estimate-token-usage.ts'
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import {
   buildThinkingRequestExtras,
@@ -78,6 +79,26 @@ function buildAppGenerationSystemPrompt(
   }
 
   return `${basePrompt}\n\n${buildApp3dSystemPromptExtension(physicsEnabled)}`
+}
+
+export function estimateAppGenerationContextTokens(
+  listing: StoreListing,
+  context: AppGenerationContext = {},
+): number {
+  return measureAppGenerationContextPayload(listing, context).tokens
+}
+
+export function measureAppGenerationContextPayload(
+  listing: StoreListing,
+  context: AppGenerationContext = {},
+): { characters: number; tokens: number } {
+  const isUpdate = context.update !== undefined
+  const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
+  const userPrompt = buildAppGenerationPrompt(listing, context)
+  return {
+    characters: systemPrompt.length + userPrompt.length + 8,
+    tokens: estimatePromptTokens(systemPrompt, userPrompt),
+  }
 }
 
 /** 约达到该字符数时进度接近 92%，使进度条移动更平缓 */

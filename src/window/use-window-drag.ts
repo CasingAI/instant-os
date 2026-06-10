@@ -143,7 +143,12 @@ export function useWindowDrag(
 
         const nextX = moveEvent.clientX - session.offsetX
         const nextY = moveEvent.clientY - session.offsetY
-        const clamped = clampFloatingPosition(nextX, nextY, session.dragBounds.width)
+        const clamped = clampFloatingPosition(
+          nextX,
+          nextY,
+          session.dragBounds.width,
+          session.dragBounds.height,
+        )
         session.lastX = clamped.x
         session.lastY = clamped.y
         applyPositionToFrame(session.frameEl, clamped.x, clamped.y)

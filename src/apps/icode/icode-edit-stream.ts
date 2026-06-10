@@ -16,6 +16,7 @@ import { formatListingTagsForPrompt } from '../appstore/listing-tags.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import { progressFromTextLength } from '../appstore/generate-app-stream.ts'
+import type { ICodeChatMessage } from './icode-types.ts'
 import {
   addLineNumbers,
   applyStreamEdits,
@@ -108,6 +109,85 @@ function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): str
   return `${ICODE_EDIT_SYSTEM_PROMPT}\n\n${buildApp3dSystemPromptExtension(physicsEnabled)}`
 }
 
+function chatMessageForApi(message: ICodeChatMessage): string {
+  if (message.role === 'user') {
+    return message.content.trim()
+  }
+
+  return (message.fullReply ?? message.content).trim()
+}
+
+type EditApiMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export function buildEditApiMessages(
+  listing: StoreListing,
+  existingHtml: string,
+  instruction: string,
+  priorChat: ICodeChatMessage[] = [],
+): EditApiMessage[] {
+  const messages: EditApiMessage[] = []
+
+  for (const message of priorChat) {
+    const content = chatMessageForApi(message)
+    if (content) {
+      messages.push({ role: message.role, content })
+    }
+  }
+
+  messages.push({
+    role: 'user',
+    content: buildEditUserPrompt(listing, existingHtml, instruction),
+  })
+
+  return messages
+}
+
+const ICODE_CONTEXT_CHARS_PER_TOKEN = 2.5
+
+function estimateIcodeTokensFromText(text: string): number {
+  if (!text) {
+    return 0
+  }
+
+  return Math.max(1, Math.ceil(text.length / ICODE_CONTEXT_CHARS_PER_TOKEN))
+}
+
+export type IcodeContextPayloadStats = {
+  characters: number
+  tokens: number
+}
+
+export function measureIcodeEditContextPayload(
+  listing: StoreListing,
+  existingHtml: string,
+  instruction: string,
+  priorChat: ICodeChatMessage[] = [],
+): IcodeContextPayloadStats {
+  const systemPrompt = buildEditSystemPrompt(listing, existingHtml)
+  const conversation = buildEditApiMessages(listing, existingHtml, instruction, priorChat)
+  let characters = systemPrompt.length + 8
+  let tokens = estimateIcodeTokensFromText(systemPrompt) + 8
+
+  for (const message of conversation) {
+    characters += message.content.length + 4
+    tokens += estimateIcodeTokensFromText(message.content) + 4
+  }
+
+  return { characters, tokens }
+}
+
+export function estimateIcodeEditContextTokens(
+  listing: StoreListing,
+  existingHtml: string,
+  instruction: string,
+  priorChat: ICodeChatMessage[] = [],
+): number {
+  return measureIcodeEditContextPayload(listing, existingHtml, instruction, priorChat).tokens
+}
+
 function looksLikeFullHtml(text: string): boolean {
   const trimmed = text.trim()
   return (
@@ -136,6 +216,7 @@ export async function generateIcodeHtmlEditsStreaming(
   existingHtml: string,
   instruction: string,
   onUpdate?: (update: ICodeEditGenerationUpdate) => void,
+  priorChat: ICodeChatMessage[] = [],
 ): Promise<ICodeEditGenerationResult> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
@@ -157,7 +238,7 @@ export async function generateIcodeHtmlEditsStreaming(
     stream: true,
     messages: [
       { role: 'system', content: buildEditSystemPrompt(listing, existingHtml) },
-      { role: 'user', content: buildEditUserPrompt(listing, existingHtml, instruction) },
+      ...buildEditApiMessages(listing, existingHtml, instruction, priorChat),
     ],
     ...buildThinkingRequestExtras(
       config.providerId,

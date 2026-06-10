@@ -55,6 +55,7 @@ export async function generateInternalAppHtml(
   project: ICodeInternalProject,
   instruction: string,
   onUpdate?: (update: ICodeGenerationUpdate) => void,
+  priorChat: ICodeInternalProject['chat'] = [],
 ): Promise<ICodeGenerationResult> {
   const listing = listingFromInternal(project)
   const hasExisting = project.html.trim().length > 0
@@ -65,6 +66,7 @@ export async function generateInternalAppHtml(
       project.html,
       instruction,
       onUpdate ? (update) => onUpdate(mapEditUpdate(update)) : undefined,
+      priorChat,
     )
 
     return {

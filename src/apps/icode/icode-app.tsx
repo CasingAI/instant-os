@@ -63,7 +63,9 @@ import type {
   ICodeExportBundle,
   ICodeInternalProject,
 } from './icode-types.ts'
+import { formatTokenCount } from '../browser/format-token-count.ts'
 import { IcodeAppDataEditor } from './icode-app-data-editor.tsx'
+import { measureIcodeContextPayload } from './icode-context-tokens.ts'
 import { useIcodeNarrowLayout } from './icode-layout.ts'
 import { appDataRecordsEqual } from './icode-app-data-value.ts'
 import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
@@ -213,6 +215,7 @@ export function ICodeApp() {
   const [consoleLogs, setConsoleLogs] = useState<ICodeConsoleEntry[]>([])
   const [publishedSnapshot, setPublishedSnapshot] = useState<ICodePublishedSnapshot | undefined>()
   const [closePromptOpen, setClosePromptOpen] = useState(false)
+  const [clearChatPromptOpen, setClearChatPromptOpen] = useState(false)
   const closeIntentRef = useRef<'list' | 'window'>('list')
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -308,6 +311,27 @@ export function ICodeApp() {
     Boolean(session && storedProject) &&
     JSON.stringify(session!.chat) !== JSON.stringify(storedProject!.chat)
   const hasUnsavedWork = publishDirty || internalSaveDirty || chatDirty
+  const contextPayload = useMemo(() => {
+    if (!session) {
+      return { characters: 0, tokens: 0 }
+    }
+
+    const html = codeDirty ? draftHtml : session.html
+    return measureIcodeContextPayload(
+      {
+        slug: session.projectId,
+        name: session.name,
+        description: session.description,
+        category: session.category,
+        iconEmoji: session.iconEmoji,
+        themeColor: session.themeColor,
+        tags: session.tags,
+      },
+      html,
+      prompt.trim(),
+      session.chat,
+    )
+  }, [codeDirty, draftHtml, prompt, session, session?.chat])
   const streamEdits = useMemo(
     () => (streamContentText ? parseAiderEditBlocks(streamContentText) : []),
     [streamContentText],
@@ -553,26 +577,42 @@ export function ICodeApp() {
     return () => window.cancelAnimationFrame(frame)
   }, [consoleLogs, editorTab])
 
+  const chatPinnedToBottomRef = useRef(true)
+
   useEffect(() => {
     const container = chatListRef.current
     if (!container || editorTab !== 'chat') {
       return
     }
 
+    const isNearBottom = (threshold = 48) =>
+      container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+
     const scrollToBottom = () => {
       container.scrollTop = container.scrollHeight
+      chatPinnedToBottomRef.current = true
     }
 
+    const scrollToBottomIfPinned = () => {
+      if (chatPinnedToBottomRef.current || isNearBottom()) {
+        scrollToBottom()
+      }
+    }
+
+    const onScroll = () => {
+      chatPinnedToBottomRef.current = isNearBottom()
+    }
+
+    container.addEventListener('scroll', onScroll, { passive: true })
     scrollToBottom()
-    const frame = window.requestAnimationFrame(scrollToBottom)
 
     const resizeObserver = new ResizeObserver(() => {
-      window.requestAnimationFrame(scrollToBottom)
+      window.requestAnimationFrame(scrollToBottomIfPinned)
     })
     resizeObserver.observe(container)
 
     const mutationObserver = new MutationObserver(() => {
-      window.requestAnimationFrame(scrollToBottom)
+      window.requestAnimationFrame(scrollToBottomIfPinned)
     })
     mutationObserver.observe(container, {
       childList: true,
@@ -581,21 +621,11 @@ export function ICodeApp() {
     })
 
     return () => {
-      window.cancelAnimationFrame(frame)
+      container.removeEventListener('scroll', onScroll)
       resizeObserver.disconnect()
       mutationObserver.disconnect()
     }
-  }, [
-    editorTab,
-    session?.chat,
-    session?.projectId,
-    generating,
-    streamReasoningText,
-    streamContentText,
-    streamVisibleReply,
-    streamAppliedEdits,
-    generationPhase,
-  ])
+  }, [editorTab, session?.chat, session?.projectId, generating])
 
   const saveDraftInternal = useCallback(
     (next: EditorSession, draftHtmlValue: string, codeDirtyFlag: boolean) => {
@@ -831,6 +861,24 @@ export function ICodeApp() {
       finishCloseEditor()
     }
   }, [codeDirty, draftHtml, finishCloseEditor, publishSessionDraft, session])
+
+  const requestClearChat = useCallback(() => {
+    if (!session || session.chat.length === 0 || generating) {
+      return
+    }
+
+    setClearChatPromptOpen(true)
+  }, [generating, session])
+
+  const confirmClearChat = useCallback(() => {
+    if (!session) {
+      setClearChatPromptOpen(false)
+      return
+    }
+
+    setSession({ ...session, chat: [] })
+    setClearChatPromptOpen(false)
+  }, [session])
 
   const onSaveDraft = useCallback(() => {
     if (!session) {
@@ -1127,6 +1175,8 @@ export function ICodeApp() {
         throw new Error('内部项目不存在')
       }
 
+      const requestHtml = codeDirty ? draftHtml : session.html
+
       const result = await generateInternalAppHtml(
         {
           ...project,
@@ -1136,7 +1186,7 @@ export function ICodeApp() {
           iconEmoji: session.iconEmoji,
           themeColor: session.themeColor,
           tags: session.tags,
-          html: session.html,
+          html: requestHtml,
         },
         instruction,
         (update) => {
@@ -1157,6 +1207,7 @@ export function ICodeApp() {
             setDraftHtml(update.partialHtml!)
           }
         },
+        session.chat,
       )
 
       const htmlBefore = codeDirty ? draftHtml : session.html
@@ -1344,6 +1395,37 @@ export function ICodeApp() {
             onClick={() => setImportAlert(undefined)}
           >
             好
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : undefined
+
+  const clearChatConfirmModal = clearChatPromptOpen ? (
+    <div class="icode__modal-backdrop">
+      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-clear-chat-title">
+        <div class="icode__modal-header">
+          <h3 id="icode-clear-chat-title">清空对话</h3>
+        </div>
+        <div class="icode__modal-body">
+          <p class="icode__modal-hint">
+            确定清空当前项目的对话记录吗？此操作不会修改源码；保存草稿后才会永久生效。
+          </p>
+        </div>
+        <div class="icode__modal-actions">
+          <button
+            type="button"
+            class="icode__button icode__button--secondary"
+            onClick={() => setClearChatPromptOpen(false)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="icode__button icode__button--danger"
+            onClick={confirmClearChat}
+          >
+            清空
           </button>
         </div>
       </div>
@@ -1775,6 +1857,20 @@ export function ICodeApp() {
 
             <div class="icode__tab-body">
               <div class="icode__tab-pane" hidden={editorTab !== 'chat'}>
+                <div class="icode__panel-toolbar">
+                  <span>
+                    {session.chat.length} 条消息（{formatTokenCount(contextPayload.characters)} 字符 · 约{' '}
+                    {formatTokenCount(contextPayload.tokens)} tokens）
+                  </span>
+                  <button
+                    type="button"
+                    class="icode__panel-action"
+                    disabled={session.chat.length === 0 || generating}
+                    onClick={requestClearChat}
+                  >
+                    清空对话
+                  </button>
+                </div>
                 <div ref={chatListRef} class="icode__chat-messages">
                   {session.chat.length === 0 ? (
                     <p class="icode__chat-empty">
@@ -2072,6 +2168,7 @@ export function ICodeApp() {
       </div>
 
       {deleteConfirmModal}
+      {clearChatConfirmModal}
       {closeConfirmModal}
       {importErrorModal}
     </div>

@@ -7,6 +7,7 @@ import {
   parseIcodeContentSegments,
   type ICodeContentSegment,
 } from './icode-apply-edits.ts'
+import { IcodeChatMarkdown } from './icode-chat-markdown.tsx'
 import type { ICodeChatEditBlock, ICodeChatMessage } from './icode-types.ts'
 
 function previewSnippet(text: string, maxLines = 5): string {
@@ -93,7 +94,6 @@ export function IcodeChatAssistantMessage({
   statusLabel,
   visibleReply,
 }: IcodeChatAssistantMessageProps) {
-  const bubbleRef = useRef<HTMLDivElement>(null)
   const reasoningRef = useRef<HTMLPreElement>(null)
   const hasReasoning = Boolean(reasoningText?.trim())
   const sourceText = outputText ?? ''
@@ -149,27 +149,6 @@ export function IcodeChatAssistantMessage({
     }
   }, [reasoningOpen, reasoningText, streaming])
 
-  useEffect(() => {
-    if (!streaming) {
-      return
-    }
-
-    const bubble = bubbleRef.current
-    if (!bubble) {
-      return
-    }
-
-    const scrollToBottom = () => {
-      bubble.scrollTop = bubble.scrollHeight
-    }
-
-    scrollToBottom()
-    const observer = new MutationObserver(scrollToBottom)
-    observer.observe(bubble, { childList: true, subtree: true, characterData: true })
-
-    return () => observer.disconnect()
-  }, [streaming, reasoningText, outputText, visibleReply, segments.length, phase])
-
   const showStatusOnly =
     streaming && !finalReply && !hasReasoning && segments.length === 0 && (phase === 'waiting' || phase === 'thinking')
 
@@ -179,7 +158,6 @@ export function IcodeChatAssistantMessage({
 
   return (
     <div
-      ref={bubbleRef}
       class={`icode__chat-bubble icode__chat-bubble--assistant${streaming ? ' icode__chat-bubble--streaming-assistant' : ''}`}
     >
       <div class="icode__chat-assistant-flow">
@@ -234,7 +212,7 @@ export function IcodeChatAssistantMessage({
               expanded={expanded}
               onToggle={() => setOpenPreamble((open) => !open)}
             >
-              <pre class="icode__chat-fold-text icode__chat-fold-text--reply">{segment.text}</pre>
+              <IcodeChatMarkdown text={segment.text} class="icode__chat-fold-markdown" />
             </IcodeChatFold>
           )
         })}
@@ -264,7 +242,7 @@ export function IcodeChatAssistantMessage({
         )}
 
         {finalReply && (
-          <p class="icode__chat-summary icode__chat-summary--final">{finalReply}</p>
+          <IcodeChatMarkdown text={finalReply} class="icode__chat-summary icode__chat-summary--final" />
         )}
       </div>
     </div>

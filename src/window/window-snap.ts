@@ -1,6 +1,8 @@
 import { getMaximizedBounds, STATUS_BAR_HEIGHT, type WindowBounds } from './window-metrics.ts'
+import { clampFloatingSize } from './window-resize.ts'
 
 export const SNAP_THRESHOLD = 16
+export const NARROW_WORK_AREA_WIDTH = 640
 
 export type SnapTarget = 'left' | 'right' | 'top'
 
@@ -59,7 +61,43 @@ export function detectSnapTarget(clientX: number, clientY: number): SnapTarget |
   return undefined
 }
 
-export function clampFloatingPosition(x: number, y: number, width: number) {
+export function isNarrowWorkArea(): boolean {
+  return getMaximizedBounds().width < NARROW_WORK_AREA_WIDTH
+}
+
+export function fitFloatingWindowBounds(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): WindowBounds {
+  const work = getMaximizedBounds()
+  const size = clampFloatingSize(width, height)
+  let nextX = x
+  let nextY = y
+
+  if (nextX + size.width > work.x + work.width) {
+    nextX = work.x + work.width - size.width
+  }
+  if (nextY + size.height > work.y + work.height) {
+    nextY = work.y + work.height - size.height
+  }
+  if (nextX < work.x) {
+    nextX = work.x
+  }
+  if (nextY < work.y) {
+    nextY = work.y
+  }
+
+  return { x: nextX, y: nextY, width: size.width, height: size.height }
+}
+
+export function clampFloatingPosition(x: number, y: number, width: number, height: number) {
+  if (isNarrowWorkArea()) {
+    const fitted = fitFloatingWindowBounds(x, y, width, height)
+    return { x: fitted.x, y: fitted.y }
+  }
+
   const minVisible = 48
   const maxX = window.innerWidth - minVisible
   const maxY = window.innerHeight - minVisible

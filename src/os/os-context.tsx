@@ -5,7 +5,9 @@ import { persistWindowSize, resolveWindowDimensions } from '../window/window-bou
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
 import {
   clampFloatingPosition,
+  fitFloatingWindowBounds,
   getSnapBounds,
+  isNarrowWorkArea,
   reanchorSnappedWindow,
   type SnapTarget,
 } from '../window/window-snap.ts'
@@ -102,6 +104,26 @@ function createWindow(
     height: defaults.height,
   })
   const offset = (windowCounter % 6) * 28
+  const cascadeX = 80 + offset
+  const cascadeY = 48 + offset
+
+  if (isNarrowWorkArea()) {
+    const restoredBounds = fitFloatingWindowBounds(cascadeX, cascadeY, width, height)
+    return {
+      id: `${appId}-${windowCounter}`,
+      appId,
+      title: defaults.title,
+      minimized: false,
+      maximized: true,
+      fullscreen: false,
+      zIndex: nextZ,
+      restoredBounds,
+      ...getMaximizedBounds(),
+      enterAnimation: options?.enterAnimation,
+    }
+  }
+
+  const bounds = fitFloatingWindowBounds(cascadeX, cascadeY, width, height)
 
   return {
     id: `${appId}-${windowCounter}`,
@@ -111,10 +133,7 @@ function createWindow(
     maximized: false,
     fullscreen: false,
     zIndex: nextZ,
-    x: 80 + offset,
-    y: 48 + offset,
-    width,
-    height,
+    ...bounds,
     enterAnimation: options?.enterAnimation,
   }
 }
@@ -370,6 +389,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
             clientX - pointerOffsetX,
             clientY - 17,
             restored.width,
+            restored.height,
           )
 
           dragBounds = {
@@ -606,7 +626,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           if (window.fullscreen) return { ...window, ...getFullscreenBounds() }
           if (window.maximized) return { ...window, ...getMaximizedBounds() }
           if (window.snap) return { ...window, ...reanchorSnappedWindow(window) }
-          return window
+          return { ...window, ...fitFloatingWindowBounds(window.x, window.y, window.width, window.height) }
         }),
       )
     }
