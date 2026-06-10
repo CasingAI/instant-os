@@ -5,9 +5,8 @@ import { persistWindowSize, resolveWindowDimensions } from '../window/window-bou
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
 import {
   clampFloatingPosition,
-  getLeftSnapBounds,
-  getRightSnapBounds,
   getSnapBounds,
+  reanchorSnappedWindow,
   type SnapTarget,
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
@@ -341,7 +340,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     setWindows((current) => {
       let resized: WindowState | undefined
       const next = current.map((window) => {
-        if (window.id !== windowId || window.fullscreen || window.maximized || window.snap) {
+        if (window.id !== windowId || window.fullscreen || window.maximized) {
           return window
         }
         resized = { ...window, ...bounds }
@@ -601,14 +600,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           if (window.minimized) {
             if (window.fullscreen) return { ...window, ...getFullscreenBounds() }
             if (window.maximized) return { ...window, ...getMaximizedBounds() }
-            if (window.snap === 'left') return { ...window, ...getLeftSnapBounds() }
-            if (window.snap === 'right') return { ...window, ...getRightSnapBounds() }
+            if (window.snap) return { ...window, ...reanchorSnappedWindow(window) }
             return window
           }
           if (window.fullscreen) return { ...window, ...getFullscreenBounds() }
           if (window.maximized) return { ...window, ...getMaximizedBounds() }
-          if (window.snap === 'left') return { ...window, ...getLeftSnapBounds() }
-          if (window.snap === 'right') return { ...window, ...getRightSnapBounds() }
+          if (window.snap) return { ...window, ...reanchorSnappedWindow(window) }
           return window
         }),
       )

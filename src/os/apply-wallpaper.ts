@@ -1,5 +1,5 @@
 import { loadWallpaperSettings } from './wallpaper-settings-storage.ts'
-import { resolveBuiltinWallpaper, wallpaperPresentationStyle } from './wallpapers.ts'
+import { isLightWallpaper, resolveBuiltinWallpaper, wallpaperPresentationStyle } from './wallpapers.ts'
 
 export function applyWallpaperToElement(
   element: HTMLElement,
@@ -13,4 +13,5 @@ export function applyWallpaperToElement(
   element.style.backgroundPosition = presentation.backgroundPosition ?? ''
   element.style.setProperty('--wallpaper-overlay', wallpaper.overlay ?? 'none')
   element.dataset.wallpaperId = wallpaper.id
+  element.dataset.wallpaperTone = isLightWallpaper(wallpaper) ? 'light' : 'dark'
 }

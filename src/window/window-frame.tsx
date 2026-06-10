@@ -41,7 +41,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
   const isDesktopRevealed = desktopRevealed && !window.minimized
   const canResize =
-    !window.fullscreen && !window.maximized && !window.snap && !window.minimized && !isDesktopRevealed
+    !window.fullscreen && !window.maximized && !window.minimized && !isDesktopRevealed
   const getDragBounds = useCallback(
     () => ({
       x: window.x,
@@ -68,6 +68,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
     resizeWindow,
     focusWindow,
     canResize,
+    window.snap,
   )
   const isAnchoredLayout = window.maximized || !!window.snap || window.fullscreen
   const windowBounds = useMemo(

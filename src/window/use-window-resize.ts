@@ -1,8 +1,11 @@
 import { useCallback, useRef, useState } from 'preact/hooks'
 import type { WindowBounds } from './window-metrics.ts'
+import type { WindowSnap } from '../os/types.ts'
 import {
   computeEdgeExtremeBounds,
   computeResizedBounds,
+  computeSnappedEdgeExtremeBounds,
+  computeSnappedResizedBounds,
   getResizeCursor,
   type ResizeDirection,
 } from './window-resize.ts'
@@ -32,6 +35,7 @@ export function useWindowResize(
   onResize: (windowId: string, bounds: WindowBounds) => void,
   onFocus: (windowId: string) => void,
   enabled = true,
+  snap?: WindowSnap,
 ) {
   const [resizing, setResizing] = useState(false)
   const resizeStateRef = useRef<ResizeSession | undefined>(undefined)
@@ -76,12 +80,20 @@ export function useWindowResize(
           session.moved = true
         }
 
-        const nextBounds = computeResizedBounds(
-          session.startBounds,
-          session.direction,
-          deltaX,
-          deltaY,
-        )
+        const nextBounds = snap
+          ? computeSnappedResizedBounds(
+              session.startBounds,
+              session.direction,
+              deltaX,
+              deltaY,
+              snap,
+            )
+          : computeResizedBounds(
+              session.startBounds,
+              session.direction,
+              deltaX,
+              deltaY,
+            )
         session.lastBounds = nextBounds
         applyBoundsToFrame(session.frameEl, nextBounds)
       }
@@ -103,7 +115,7 @@ export function useWindowResize(
       document.addEventListener('pointermove', onPointerMove)
       document.addEventListener('pointerup', onPointerUp)
     },
-    [windowId, getBounds, onResize, onFocus, enabled],
+    [windowId, getBounds, onResize, onFocus, enabled, snap],
   )
 
   const onResizeHandleDoubleClick = useCallback(
@@ -116,9 +128,15 @@ export function useWindowResize(
       event.preventDefault()
       event.stopPropagation()
       onFocus(windowId)
-      onResize(windowId, computeEdgeExtremeBounds(getBounds(), direction))
+      const bounds = getBounds()
+      onResize(
+        windowId,
+        snap
+          ? computeSnappedEdgeExtremeBounds(bounds, direction, snap)
+          : computeEdgeExtremeBounds(bounds, direction),
+      )
     },
-    [windowId, getBounds, onResize, onFocus, enabled],
+    [windowId, getBounds, onResize, onFocus, enabled, snap],
   )
 
   return { resizing, onResizeHandlePointerDown, onResizeHandleDoubleClick }

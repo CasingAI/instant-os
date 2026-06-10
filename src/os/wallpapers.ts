@@ -8,6 +8,8 @@ export type BuiltinWallpaper = {
   backgroundSize?: string
   backgroundPosition?: string
   overlay?: string
+  /** 浅色背景：桌面图标标签使用深色文字。 */
+  isLight?: boolean
 }
 
 export const DEFAULT_WALLPAPER_ID = 'ocean'
@@ -44,6 +46,7 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     id: 'dawn',
     name: '晨曦',
     kind: 'gradient',
+    isLight: true,
     background:
       'radial-gradient(ellipse 110% 75% at 50% 100%, rgba(255, 200, 220, 0.4) 0%, transparent 55%), linear-gradient(180deg, #ffd1dc 0%, #ffb7c5 38%, #e8a0bf 100%)',
     overlay:
@@ -80,6 +83,7 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     id: 'citrus',
     name: '柑橘',
     kind: 'gradient',
+    isLight: true,
     background:
       'radial-gradient(ellipse 100% 70% at 50% 105%, rgba(255, 240, 150, 0.4) 0%, transparent 55%), linear-gradient(180deg, #f7d794 0%, #f5a623 42%, #e67e22 100%)',
     overlay:
@@ -96,24 +100,28 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     name: '银灰',
     kind: 'solid',
     background: '#c7c7cc',
+    isLight: true,
   },
   {
     id: 'coral',
     name: '珊瑚',
     kind: 'solid',
     background: '#ff6b6b',
+    isLight: true,
   },
   {
     id: 'mint',
     name: '薄荷',
     kind: 'solid',
     background: '#98d8c8',
+    isLight: true,
   },
   {
     id: 'sky',
     name: '晴空',
     kind: 'solid',
     background: '#87ceeb',
+    isLight: true,
   },
   {
     id: 'charcoal',
@@ -126,17 +134,20 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     name: '米白',
     kind: 'solid',
     background: '#f5f0e8',
+    isLight: true,
   },
   {
     id: 'rose',
     name: '玫瑰',
     kind: 'solid',
     background: '#e8a0bf',
+    isLight: true,
   },
   {
     id: 'grid-light',
     name: '浅灰网格',
     kind: 'pattern',
+    isLight: true,
     background:
       'linear-gradient(rgba(0, 0, 0, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.07) 1px, transparent 1px), #e8e8ed',
     backgroundSize: '22px 22px',
@@ -161,6 +172,7 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     id: 'dots-soft',
     name: '柔和圆点',
     kind: 'pattern',
+    isLight: true,
     background:
       'radial-gradient(circle, rgba(0, 0, 0, 0.11) 1.4px, transparent 1.4px), #f2f2f7',
     backgroundSize: '18px 18px',
@@ -170,9 +182,8 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     name: '夜空星点',
     kind: 'pattern',
     background:
-      'radial-gradient(circle, rgba(255, 255, 255, 0.35) 1px, transparent 1px), radial-gradient(circle, rgba(255, 255, 255, 0.15) 1px, transparent 1px), #1a1a2e',
-    backgroundSize: '24px 24px, 24px 24px',
-    backgroundPosition: '0 0, 12px 12px',
+      'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.35) 1px, transparent 1px), radial-gradient(circle at 13px 13px, rgba(255, 255, 255, 0.15) 1px, transparent 1px), #1a1a2e',
+    backgroundSize: '24px 24px',
   },
   {
     id: 'stripes-diagonal',
@@ -189,18 +200,10 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
       'repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.12) 0, rgba(255, 255, 255, 0.12) 3px, transparent 3px, transparent 22px), #6b4fa0',
   },
   {
-    id: 'checker',
-    name: '棋盘格',
-    kind: 'pattern',
-    background:
-      'linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%), linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%), #d4d4d8',
-    backgroundSize: '28px 28px',
-    backgroundPosition: '0 0, 14px 14px',
-  },
-  {
     id: 'crosshatch',
     name: '十字纹',
     kind: 'pattern',
+    isLight: true,
     background:
       'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.06) 0, rgba(0, 0, 0, 0.06) 1px, transparent 1px, transparent 14px), repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.06) 0, rgba(0, 0, 0, 0.06) 1px, transparent 1px, transparent 14px), #f5f0e8',
   },
@@ -208,6 +211,7 @@ export const BUILTIN_WALLPAPERS: BuiltinWallpaper[] = [
     id: 'graph-paper',
     name: '方格纸',
     kind: 'pattern',
+    isLight: true,
     background:
       'linear-gradient(rgba(120, 160, 220, 0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 160, 220, 0.35) 1px, transparent 1px), linear-gradient(rgba(120, 160, 220, 0.55) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 160, 220, 0.55) 1px, transparent 1px), #fffef8',
     backgroundSize: '14px 14px, 14px 14px, 70px 70px, 70px 70px',
@@ -222,6 +226,10 @@ export function getBuiltinWallpaper(id: string): BuiltinWallpaper | undefined {
 
 export function resolveBuiltinWallpaper(id: string): BuiltinWallpaper {
   return getBuiltinWallpaper(id) ?? wallpaperById.get(DEFAULT_WALLPAPER_ID)!
+}
+
+export function isLightWallpaper(wallpaper: BuiltinWallpaper): boolean {
+  return wallpaper.isLight === true
 }
 
 export function wallpaperPresentationStyle(

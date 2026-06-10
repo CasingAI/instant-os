@@ -13,7 +13,7 @@ export function SnapPreview({ target }: SnapPreviewProps) {
 
   return (
     <div
-      class="snap-preview"
+      class={`snap-preview snap-preview--${target}`}
       style={{
         left: `${bounds.x}px`,
         top: `${bounds.y}px`,

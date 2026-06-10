@@ -1,4 +1,5 @@
 import { getMaximizedBounds, type WindowBounds } from './window-metrics.ts'
+import type { WindowSnap } from '../os/types.ts'
 
 export const MIN_WINDOW_WIDTH = 280
 export const MIN_WINDOW_HEIGHT = 160
@@ -133,6 +134,116 @@ export function computeResizedBounds(
 
   width = Math.max(MIN_WINDOW_WIDTH, width)
   height = Math.max(MIN_WINDOW_HEIGHT, height)
+
+  return { x, y, width, height }
+}
+
+function clampSnappedWidth(
+  snap: WindowSnap,
+  x: number,
+  width: number,
+  work: WindowBounds,
+): { x: number; width: number } {
+  if (snap === 'left') {
+    const nextWidth = Math.min(width, work.width)
+    return { x: work.x, width: Math.max(MIN_WINDOW_WIDTH, nextWidth) }
+  }
+
+  const nextWidth = Math.min(width, work.width)
+  const nextX = work.x + work.width - nextWidth
+  return { x: nextX, width: Math.max(MIN_WINDOW_WIDTH, nextWidth) }
+}
+
+function clampSnappedHeight(y: number, height: number, work: WindowBounds): { y: number; height: number } {
+  let nextY = y
+  let nextHeight = height
+
+  if (nextY < work.y) {
+    nextHeight -= work.y - nextY
+    nextY = work.y
+  }
+  if (nextY + nextHeight > work.y + work.height) {
+    nextHeight = work.y + work.height - nextY
+  }
+
+  return {
+    y: nextY,
+    height: Math.max(MIN_WINDOW_HEIGHT, nextHeight),
+  }
+}
+
+export function computeSnappedResizedBounds(
+  startBounds: WindowBounds,
+  direction: ResizeDirection,
+  deltaX: number,
+  deltaY: number,
+  snap: WindowSnap,
+): WindowBounds {
+  let { x, y, width, height } = startBounds
+  const work = getMaximizedBounds()
+
+  if (direction.includes('e')) {
+    width = startBounds.width + deltaX
+  }
+  if (direction.includes('w')) {
+    width = startBounds.width - deltaX
+  }
+  if (direction.includes('s')) {
+    height = startBounds.height + deltaY
+  }
+  if (direction.includes('n')) {
+    height = startBounds.height - deltaY
+    y = startBounds.y + deltaY
+  }
+
+  if (width < MIN_WINDOW_WIDTH) {
+    width = MIN_WINDOW_WIDTH
+  }
+  if (height < MIN_WINDOW_HEIGHT) {
+    if (direction.includes('n')) {
+      y = startBounds.y + startBounds.height - MIN_WINDOW_HEIGHT
+    }
+    height = MIN_WINDOW_HEIGHT
+  }
+
+  const clampedWidth = clampSnappedWidth(snap, x, width, work)
+  x = clampedWidth.x
+  width = clampedWidth.width
+
+  const clampedHeight = clampSnappedHeight(y, height, work)
+  y = clampedHeight.y
+  height = clampedHeight.height
+
+  return { x, y, width, height }
+}
+
+export function computeSnappedEdgeExtremeBounds(
+  current: WindowBounds,
+  direction: ResizeDirection,
+  snap: WindowSnap,
+): WindowBounds {
+  const work = getMaximizedBounds()
+  let { x, y, width, height } = current
+
+  if (direction.includes('n')) {
+    const bottom = y + height
+    y = work.y
+    height = bottom - work.y
+  }
+  if (direction.includes('s')) {
+    height = work.y + work.height - y
+  }
+  if (direction.includes('w') || direction.includes('e')) {
+    width = work.width
+  }
+
+  const clampedWidth = clampSnappedWidth(snap, x, width, work)
+  x = clampedWidth.x
+  width = clampedWidth.width
+
+  const clampedHeight = clampSnappedHeight(y, height, work)
+  y = clampedHeight.y
+  height = clampedHeight.height
 
   return { x, y, width, height }
 }

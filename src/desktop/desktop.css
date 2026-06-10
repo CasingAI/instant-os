@@ -73,8 +73,8 @@
   align-items: center;
   gap: 8px;
   width: 96px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  color: var(--desktop-label-color, #fff);
+  text-shadow: var(--desktop-label-shadow, 0 1px 3px rgba(0, 0, 0, 0.45));
   user-select: none;
   touch-action: none;
 }
@@ -113,8 +113,8 @@
   align-items: center;
   gap: 8px;
   width: 96px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  color: var(--desktop-label-color, #fff);
+  text-shadow: var(--desktop-label-shadow, 0 1px 3px rgba(0, 0, 0, 0.45));
   pointer-events: none;
   transform: translate(-50%, -50%) scale(1.12);
 }

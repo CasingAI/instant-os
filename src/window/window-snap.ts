@@ -36,6 +36,22 @@ export function getSnapBounds(target: SnapTarget): WindowBounds {
   return getMaximizedBounds()
 }
 
+export function reanchorSnappedWindow(window: WindowBounds & { snap?: 'left' | 'right' }): WindowBounds {
+  const work = getMaximizedBounds()
+  const width = Math.min(window.width, work.width)
+  const height = Math.min(window.height, work.height)
+  const y = Math.max(work.y, Math.min(window.y, work.y + work.height - height))
+
+  if (window.snap === 'left') {
+    return { x: work.x, y, width, height }
+  }
+  if (window.snap === 'right') {
+    return { x: work.x + work.width - width, y, width, height }
+  }
+
+  return { x: window.x, y, width, height }
+}
+
 export function detectSnapTarget(clientX: number, clientY: number): SnapTarget | undefined {
   if (clientY <= STATUS_BAR_HEIGHT + SNAP_THRESHOLD) return 'top'
   if (clientX <= SNAP_THRESHOLD) return 'left'
