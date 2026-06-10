@@ -140,7 +140,6 @@ export function computeResizedBounds(
 
 function clampSnappedWidth(
   snap: WindowSnap,
-  x: number,
   width: number,
   work: WindowBounds,
 ): { x: number; width: number } {
@@ -206,7 +205,7 @@ export function computeSnappedResizedBounds(
     height = MIN_WINDOW_HEIGHT
   }
 
-  const clampedWidth = clampSnappedWidth(snap, x, width, work)
+  const clampedWidth = clampSnappedWidth(snap, width, work)
   x = clampedWidth.x
   width = clampedWidth.width
 
@@ -237,7 +236,7 @@ export function computeSnappedEdgeExtremeBounds(
     width = work.width
   }
 
-  const clampedWidth = clampSnappedWidth(snap, x, width, work)
+  const clampedWidth = clampSnappedWidth(snap, width, work)
   x = clampedWidth.x
   width = clampedWidth.width
 
