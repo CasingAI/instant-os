@@ -847,10 +847,21 @@
 
 .settings__actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px 14px;
   margin-top: 18px;
   padding-top: 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.settings__actions .settings__hint {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  max-width: none;
+  text-align: left;
 }
 
 .settings__actions--inline {
@@ -1626,23 +1637,6 @@
 
   .settings__list-body {
     max-height: min(420px, 50vh);
-  }
-
-  .settings__hint {
-    max-width: none;
-    margin-top: 10px;
-    text-align: right;
-  }
-
-  .settings__actions {
-    justify-content: flex-end;
-  }
-
-  .settings__actions .settings__hint {
-    flex: 1;
-    margin-top: 0;
-    text-align: left;
-    align-self: center;
   }
 
   .settings__preview-frame {

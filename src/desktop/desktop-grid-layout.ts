@@ -31,25 +31,58 @@ export function computeDesktopGridPixelSize(cols: number, rows: number) {
   }
 }
 
-export function pointerToGlobalIconIndex(
+const CROSS_PAGE_EDGE_PX = 56
+
+export type PointerIconTarget = {
+  globalIndex: number
+  targetPage: number
+}
+
+export function resolvePointerIconTarget(
   clientX: number,
   clientY: number,
-  gridElement: HTMLElement,
-  pageIndex: number,
+  pagerElement: HTMLElement,
+  placementPage: number,
+  pageCount: number,
   metrics: DesktopGridMetrics,
+  gridPixelSize: { width: number; height: number },
   totalIcons: number,
-): number {
-  const rect = gridElement.getBoundingClientRect()
+): PointerIconTarget {
+  const pagerRect = pagerElement.getBoundingClientRect()
+  const gridLeft = pagerRect.left + (pagerRect.width - gridPixelSize.width) / 2
+  const gridTop = pagerRect.top + (pagerRect.height - gridPixelSize.height) / 2
+
+  let targetPage = placementPage
+  if (clientX < pagerRect.left + CROSS_PAGE_EDGE_PX && placementPage > 0) {
+    targetPage = placementPage - 1
+  } else if (clientX > pagerRect.right - CROSS_PAGE_EDGE_PX && placementPage < pageCount - 1) {
+    targetPage = placementPage + 1
+  }
+
   const stepX = DESKTOP_ICON_WIDTH + DESKTOP_ICON_GAP_X
   const stepY = DESKTOP_ICON_HEIGHT + DESKTOP_ICON_GAP_Y
-  const offsetX = clientX - rect.left
-  const offsetY = clientY - rect.top
-  const col = Math.max(0, Math.min(metrics.cols - 1, Math.floor(offsetX / stepX)))
-  const row = Math.max(0, Math.min(metrics.rows - 1, Math.floor(offsetY / stepY)))
+  const offsetX = clientX - gridLeft
+  const offsetY = clientY - gridTop
+  const col = Math.max(
+    0,
+    Math.min(metrics.cols - 1, Math.floor((offsetX + stepX / 2) / stepX)),
+  )
+  const row = Math.max(
+    0,
+    Math.min(metrics.rows - 1, Math.floor((offsetY + stepY / 2) / stepY)),
+  )
   const slotOnPage = row * metrics.cols + col
-  const globalIndex = pageIndex * metrics.iconsPerPage + slotOnPage
+  const maxSlotOnPage = Math.min(
+    metrics.iconsPerPage - 1,
+    Math.max(0, totalIcons - 1 - targetPage * metrics.iconsPerPage),
+  )
+  const clampedSlot = Math.min(slotOnPage, maxSlotOnPage)
+  const clampedGlobalIndex = targetPage * metrics.iconsPerPage + clampedSlot
 
-  return Math.max(0, Math.min(globalIndex, Math.max(0, totalIcons - 1)))
+  return {
+    globalIndex: Math.max(0, Math.min(clampedGlobalIndex, Math.max(0, totalIcons - 1))),
+    targetPage,
+  }
 }
 
 export function chunkDesktopPages<T>(items: T[], pageSize: number): T[][] {

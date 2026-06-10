@@ -1,4 +1,4 @@
-import type { AiProviderId } from './ai-providers.ts'
+import { isMimoUltraSpeedModel, type AiProviderId } from './ai-providers.ts'
 
 export type StreamTextDelta = {
   reasoning: string
@@ -21,27 +21,35 @@ export function totalStreamTextLength(reasoningText: string, contentText: string
   return reasoningText.length + contentText.length
 }
 
-export type DeepSeekThinkingParam = {
+export type ThinkingRequestParam = {
   thinking: { type: 'enabled' | 'disabled' }
 }
 
-/** 微应用生成时 DeepSeek 始终启用思维链，不受账户设置影响。 */
+function supportsThinkingParam(providerId: AiProviderId | undefined): boolean {
+  return providerId === 'deepseek' || providerId === 'mimo'
+}
+
+/** 微应用生成时 DeepSeek / MiMo 始终启用思维链，不受账户设置影响；UltraSpeed 尊重用户设置以保留极速优势。 */
 export function resolveAppGenerationThinkingEnabled(
   providerId: AiProviderId | undefined,
   thinkingEnabled: boolean,
+  modelId?: string,
 ): boolean {
-  if (providerId === 'deepseek') {
+  if (modelId && isMimoUltraSpeedModel(modelId)) {
+    return thinkingEnabled
+  }
+  if (providerId === 'deepseek' || providerId === 'mimo') {
     return true
   }
   return thinkingEnabled
 }
 
-/** DeepSeek V4 要求 thinking 作为请求体顶层字段；Python SDK 的 extra_body 在 TS SDK 中无效。 */
+/** DeepSeek / MiMo 要求 thinking 作为请求体顶层字段；Python SDK 的 extra_body 在 TS SDK 中无效。 */
 export function buildThinkingRequestExtras(
   providerId: AiProviderId | undefined,
   thinkingEnabled: boolean,
-): DeepSeekThinkingParam | Record<string, never> {
-  if (providerId !== 'deepseek') {
+): ThinkingRequestParam | Record<string, never> {
+  if (!supportsThinkingParam(providerId)) {
     return {}
   }
 

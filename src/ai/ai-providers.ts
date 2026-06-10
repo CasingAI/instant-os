@@ -1,4 +1,4 @@
-export type AiProviderId = 'openai' | 'deepseek' | 'custom'
+export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'custom'
 
 export type AiModelPreset = {
   id: string
@@ -39,6 +39,20 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
       { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
     ],
     defaultModel: 'gpt-5.4-mini',
+  },
+  {
+    id: 'mimo',
+    name: '小米 MiMo',
+    baseURL: 'https://api.xiaomimimo.com/v1',
+    models: [
+      { id: 'mimo-v2.5-pro', name: 'MiMo V2.5 Pro' },
+      { id: 'mimo-v2.5-pro-ultraspeed', name: 'MiMo V2.5 Pro UltraSpeed' },
+      { id: 'mimo-v2-pro', name: 'MiMo V2 Pro' },
+      { id: 'mimo-v2.5', name: 'MiMo V2.5' },
+      { id: 'mimo-v2-omni', name: 'MiMo V2 Omni' },
+      { id: 'mimo-v2-flash', name: 'MiMo V2 Flash' },
+    ],
+    defaultModel: 'mimo-v2-flash',
   },
   {
     id: 'custom',
@@ -101,6 +115,10 @@ export function isCustomProvider(providerId: AiProviderId): boolean {
   return providerId === 'custom'
 }
 
+export function isMimoUltraSpeedModel(modelId: string): boolean {
+  return modelId.trim() === 'mimo-v2.5-pro-ultraspeed'
+}
+
 export function normalizeStoredModel(providerId: AiProviderId, model: string): string {
   const trimmed = model.trim()
   if (providerId === 'custom') {
@@ -114,7 +132,6 @@ export function normalizeStoredModel(providerId: AiProviderId, model: string): s
       return 'deepseek-v4-pro'
     }
   }
-
   const preset = findAiProviderPreset(providerId)
   if (preset && !isKnownModel(providerId, trimmed)) {
     return preset.defaultModel

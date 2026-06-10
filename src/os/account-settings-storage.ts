@@ -28,7 +28,7 @@ export type AccountSettings = {
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.accountSettings
 
 function normalizeProviderId(value: unknown): AiProviderId {
-  if (value === 'openai' || value === 'deepseek' || value === 'custom') {
+  if (value === 'openai' || value === 'deepseek' || value === 'mimo' || value === 'custom') {
     return value
   }
   return DEFAULT_AI_PROVIDER_ID

@@ -142,7 +142,7 @@ Instant OS 是一个在浏览器中运行的 AI 原生桌面环境。它复刻�
 | 框架 | [Preact](https://preactjs.com/) |
 | 构建 | [Vite](https://vite.dev/) |
 | 语言 | TypeScript |
-| AI 接入 | [OpenAI SDK](https://github.com/openai/openai-node)（兼容 OpenAI、DeepSeek 等 OpenAI 兼容 API） |
+| AI 接入 | [OpenAI SDK](https://github.com/openai/openai-node)（兼容 OpenAI、DeepSeek、小米 MiMo 等 OpenAI 兼容 API） |
 | 3D 渲染 | [Three.js](https://threejs.org/) |
 | 物理引擎 | [Rapier](https://rapier.rs/)（`@dimforge/rapier3d-compat`） |
 | 代码编辑器 | [Monaco Editor](https://microsoft.github.io/monaco-editor/)（iCode） |
@@ -191,6 +191,7 @@ pnpm preview   # 默认 http://localhost:6174
 |--------|---------------|--------------|
 | DeepSeek | `https://api.deepseek.com/v1` | DeepSeek V4 Flash、DeepSeek V4 Pro |
 | OpenAI | `https://api.openai.com/v1` | GPT-5.4 Mini、GPT-4o 等 |
+| 小米 MiMo | `https://api.xiaomimimo.com/v1` | MiMo V2.5 Pro、MiMo V2.5 Pro UltraSpeed、MiMo V2 Flash 等 |
 
 ## 数据与隐私
 

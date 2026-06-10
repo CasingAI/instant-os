@@ -145,7 +145,7 @@ export async function generateAppHtmlStreaming(
     ],
     ...buildThinkingRequestExtras(
       config.providerId,
-      resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled),
+      resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
     ),
   })
 

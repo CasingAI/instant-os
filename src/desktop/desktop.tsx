@@ -29,7 +29,7 @@ import {
   chunkDesktopPages,
   computeDesktopGridMetrics,
   computeDesktopGridPixelSize,
-  pointerToGlobalIconIndex,
+  resolvePointerIconTarget,
 } from './desktop-grid-layout.ts'
 import { useDesktopIconReorder } from './use-desktop-icon-reorder.ts'
 import { useDesktopPagePager } from './use-desktop-page-pager.ts'
@@ -273,6 +273,7 @@ export function Desktop() {
   >(undefined)
   const [previewOrder, setPreviewOrder] = useState<AppId[] | undefined>(undefined)
   const previewOrderRef = useRef<AppId[] | undefined>(undefined)
+  const reorderPlacementPageRef = useRef(0)
 
   useExperimentalSettings()
   const desktopApps = APP_REGISTRY.filter((app) => isBuiltinAppVisibleOnDesktop(app))
@@ -380,6 +381,7 @@ export function Desktop() {
   const onReorderStart = useCallback(
     (appId: AppId, globalIndex: number, clientX: number, clientY: number) => {
       cancelPageInteraction()
+      reorderPlacementPageRef.current = currentPage
       previewOrderRef.current = orderedAppIds
       setPreviewOrder(orderedAppIds)
       setReorderSession({
@@ -389,29 +391,36 @@ export function Desktop() {
         hoverIndex: globalIndex,
       })
     },
-    [cancelPageInteraction, orderedAppIds],
+    [cancelPageInteraction, currentPage, orderedAppIds],
   )
 
   const onReorderMove = useCallback(
     (clientX: number, clientY: number) => {
-      const grid = gridRef.current
-      if (!grid) {
+      const pager = pagerRef.current
+      if (!pager) {
         return
+      }
+
+      const { globalIndex: hoverIndex, targetPage } = resolvePointerIconTarget(
+        clientX,
+        clientY,
+        pager,
+        reorderPlacementPageRef.current,
+        pageCount,
+        gridMetrics,
+        gridPixelSize,
+        orderedAppIds.length,
+      )
+
+      if (targetPage !== reorderPlacementPageRef.current) {
+        reorderPlacementPageRef.current = targetPage
+        goToPage(targetPage)
       }
 
       setReorderSession((session) => {
         if (!session) {
           return session
         }
-
-        const hoverIndex = pointerToGlobalIconIndex(
-          clientX,
-          clientY,
-          grid,
-          currentPage,
-          gridMetrics,
-          orderedAppIds.length,
-        )
 
         const base = previewOrderRef.current ?? orderedAppIds
         const nextPreview = buildPreviewOrder(base, session.appId, hoverIndex)
@@ -426,7 +435,7 @@ export function Desktop() {
         }
       })
     },
-    [currentPage, gridMetrics, orderedAppIds],
+    [goToPage, gridMetrics, gridPixelSize, orderedAppIds, pageCount],
   )
 
   const onReorderEnd = useCallback(() => {
@@ -437,6 +446,7 @@ export function Desktop() {
     previewOrderRef.current = undefined
     setPreviewOrder(undefined)
     setReorderSession(undefined)
+    reorderPlacementPageRef.current = 0
     cancelPageInteraction()
   }, [cancelPageInteraction, updateDesktopIconOrder])
 
@@ -461,14 +471,33 @@ export function Desktop() {
       return
     }
 
+    let frameId: number | undefined
+
     const updateSize = () => {
-      setPagerSize({ width: pager.clientWidth, height: pager.clientHeight })
+      if (frameId !== undefined) {
+        return
+      }
+      frameId = requestAnimationFrame(() => {
+        frameId = undefined
+        const width = pager.clientWidth
+        const height = pager.clientHeight
+        setPagerSize((prev) =>
+          prev.width === width && prev.height === height
+            ? prev
+            : { width, height },
+        )
+      })
     }
 
     updateSize()
     const observer = new ResizeObserver(updateSize)
     observer.observe(pager)
-    return () => observer.disconnect()
+    return () => {
+      if (frameId !== undefined) {
+        cancelAnimationFrame(frameId)
+      }
+      observer.disconnect()
+    }
   }, [])
 
   const layoutReady = pagerSize.width > 0 && pagerSize.height > 0

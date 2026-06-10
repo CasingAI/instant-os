@@ -120,7 +120,7 @@ export function AccountSettingsForm({
         />
       </label>
 
-      {layout === 'settings' && draft.providerId === 'deepseek' && (
+      {layout === 'settings' && (draft.providerId === 'deepseek' || draft.providerId === 'mimo') && (
         <label class={fieldClass}>
           <span class={labelClass}>思考模式</span>
           <span class="settings__checkbox">

@@ -1,6 +1,8 @@
 ;(function () {
   var MAX_CONSOLE_ENTRIES = 120
   var MAX_ERROR_ENTRIES = 32
+  var CRASH_OVERLAY_ID = 'instant-os-crash-overlay'
+  var CRASH_DISMISS_EVENT = 'instant-os-crash-dismiss'
 
   function nowIso() {
     try {
@@ -65,11 +67,94 @@
     }
   }
 
+  function readWebGLRenderer() {
+    try {
+      var canvas = document.createElement('canvas')
+      var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
+      if (!gl) {
+        return ''
+      }
+      var ext = gl.getExtension('WEBGL_debug_renderer_info')
+      if (!ext) {
+        return ''
+      }
+      return String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '').trim()
+    } catch (_e) {
+      return ''
+    }
+  }
+
+  function formatOsName(nav) {
+    if (nav.userAgentData && nav.userAgentData.platform) {
+      return nav.userAgentData.platform
+    }
+    var ua = nav.userAgent || ''
+    if (/Macintosh|Mac OS X/i.test(ua)) {
+      return 'macOS'
+    }
+    if (/Windows/i.test(ua)) {
+      return 'Windows'
+    }
+    if (/Android/i.test(ua)) {
+      return 'Android'
+    }
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+      return 'iOS'
+    }
+    return nav.platform || '未知'
+  }
+
+  function inferCpuArchitecture(gpuRenderer, platform) {
+    var appleChip = gpuRenderer.match(/Apple M[^,]+/i)
+    if (appleChip) {
+      return 'Apple Silicon · ' + appleChip[0]
+    }
+    if (/Intel/i.test(gpuRenderer)) {
+      return 'Intel'
+    }
+    if (platform === 'MacIntel' && gpuRenderer === 'Apple GPU') {
+      return '未能识别（Safari 会隐藏 GPU 型号）'
+    }
+    return '未能识别'
+  }
+
+  function enrichCpuArchitectureAsync(nav, elementId, env) {
+    if (!nav.userAgentData || typeof nav.userAgentData.getHighEntropyValues !== 'function') {
+      return
+    }
+    nav.userAgentData
+      .getHighEntropyValues(['architecture', 'bitness'])
+      .then(function (values) {
+        var arch = values.architecture || ''
+        if (!arch) {
+          return
+        }
+        var label = arch
+        if (values.bitness) {
+          label += ' (' + values.bitness + '-bit)'
+        }
+        if (arch === 'arm') {
+          label += ' · Apple Silicon'
+        }
+        env.cpuArchitecture = label
+        var el = document.getElementById(elementId)
+        if (el) {
+          el.textContent = label
+        }
+      })
+      .catch(function () {})
+  }
+
   function collectEnvironment() {
     var nav = typeof navigator !== 'undefined' ? navigator : {}
+    var platform = nav.platform || ''
+    var gpuRenderer = readWebGLRenderer()
     return {
       userAgent: nav.userAgent || '',
-      platform: nav.platform || '',
+      platform: platform,
+      osName: formatOsName(nav),
+      cpuArchitecture: inferCpuArchitecture(gpuRenderer, platform),
+      gpuRenderer: gpuRenderer,
       language: nav.language || '',
       viewport:
         typeof window !== 'undefined'
@@ -82,9 +167,19 @@
     }
   }
 
+  function removeCrashOverlay() {
+    var overlay = document.getElementById(CRASH_OVERLAY_ID)
+    if (overlay) {
+      overlay.remove()
+    }
+  }
+
   function renderCrashScreen(primaryMessage) {
-    var root = document.getElementById('app') || document.body
-    if (!root) return
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    removeCrashOverlay()
 
     var env = collectEnvironment()
     var styleId = 'instant-os-crash-screen-style'
@@ -136,12 +231,14 @@
         '</li>'
     }
 
-    root.innerHTML =
+    var overlay = document.createElement('div')
+    overlay.id = CRASH_OVERLAY_ID
+    overlay.innerHTML =
       '<div class="instant-os-crash" role="alert" aria-live="assertive">' +
       '<div class="instant-os-crash__panel">' +
       '<div class="instant-os-crash__face" aria-hidden="true">:(</div>' +
-      '<h1 class="instant-os-crash__title">Instant OS 启动失败</h1>' +
-      '<p class="instant-os-crash__subtitle">系统遇到未恢复错误，已进入诊断界面。</p>' +
+      '<h1 class="instant-os-crash__title">系统遇到异常</h1>' +
+      '<p class="instant-os-crash__subtitle">已进入诊断界面。多数错误不会阻断系统，可查看详情后忽略并继续运行。</p>' +
       '<section class="instant-os-crash__section">' +
       '<h2>主要错误</h2>' +
       '<div class="instant-os-crash__primary">' +
@@ -170,11 +267,21 @@
       '<li><div class="instant-os-crash__meta">URL</div>' +
       escapeHtml(env.url) +
       '</li>' +
+      '<li><div class="instant-os-crash__meta">操作系统</div>' +
+      escapeHtml(env.osName) +
+      '</li>' +
+      '<li><div class="instant-os-crash__meta">CPU 架构</div>' +
+      '<span id="instant-os-crash-cpu-arch">' +
+      escapeHtml(env.cpuArchitecture) +
+      '</span>' +
+      '</li>' +
+      (env.gpuRenderer
+        ? '<li><div class="instant-os-crash__meta">GPU 渲染器</div>' +
+          escapeHtml(env.gpuRenderer) +
+          '</li>'
+        : '') +
       '<li><div class="instant-os-crash__meta">User Agent</div>' +
       escapeHtml(env.userAgent) +
-      '</li>' +
-      '<li><div class="instant-os-crash__meta">Platform</div>' +
-      escapeHtml(env.platform) +
       '</li>' +
       '<li><div class="instant-os-crash__meta">Viewport</div>' +
       escapeHtml(env.viewport) +
@@ -190,20 +297,22 @@
       '</ul>' +
       '</section>' +
       '<div class="instant-os-crash__actions">' +
+      '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-dismiss">忽略此错误</button>' +
       '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-reload">重新加载</button>' +
       '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-copy">复制诊断信息</button>' +
       '</div>' +
       '</div>' +
       '</div>'
+    document.body.appendChild(overlay)
 
-    var reloadBtn = document.getElementById('instant-os-crash-reload')
+    var reloadBtn = overlay.querySelector('#instant-os-crash-reload')
     if (reloadBtn) {
       reloadBtn.addEventListener('click', function () {
         location.reload()
       })
     }
 
-    var copyBtn = document.getElementById('instant-os-crash-copy')
+    var copyBtn = overlay.querySelector('#instant-os-crash-copy')
     if (copyBtn) {
       copyBtn.addEventListener('click', function () {
         var payload = buildDiagnosticText(primaryMessage, env)
@@ -216,6 +325,19 @@
         window.prompt('复制以下诊断信息：', payload)
       })
     }
+
+    var dismissBtn = overlay.querySelector('#instant-os-crash-dismiss')
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', function () {
+        dismiss()
+      })
+    }
+
+    enrichCpuArchitectureAsync(
+      typeof navigator !== 'undefined' ? navigator : {},
+      'instant-os-crash-cpu-arch',
+      env,
+    )
   }
 
   function escapeHtml(text) {
@@ -233,8 +355,10 @@
       '',
       'Environment:',
       'URL: ' + env.url,
+      'OS: ' + env.osName,
+      'CPU: ' + env.cpuArchitecture,
+      'GPU: ' + (env.gpuRenderer || 'n/a'),
       'UA: ' + env.userAgent,
-      'Platform: ' + env.platform,
       'Viewport: ' + env.viewport,
       '',
       'Errors:',
@@ -265,6 +389,14 @@
     renderCrashScreen(message)
   }
 
+  function dismiss() {
+    state.activated = false
+    removeCrashOverlay()
+    try {
+      window.dispatchEvent(new CustomEvent(CRASH_DISMISS_EVENT))
+    } catch (_e) {}
+  }
+
   function installConsoleCapture() {
     ;['error', 'warn', 'log', 'info', 'debug'].forEach(function (level) {
       var original = console[level]
@@ -290,6 +422,13 @@
     return false
   }
 
+  function isBenignBrowserNoise(message) {
+    if (!message || typeof message !== 'string') {
+      return false
+    }
+    return message.indexOf('ResizeObserver loop') !== -1
+  }
+
   function onWindowError(event) {
     var target = event.target
     if (target && target !== window && target !== document) {
@@ -304,6 +443,10 @@
     }
 
     var message = event.message || 'Script error'
+    if (isBenignBrowserNoise(message)) {
+      pushConsole('debug', ['[已忽略] ' + message])
+      return
+    }
     var detail = message
     if (event.filename) {
       detail += '\n@ ' + event.filename
@@ -378,6 +521,7 @@
     pushError: pushError,
     pushConsole: pushConsole,
     activate: activate,
+    dismiss: dismiss,
     renderCrashScreen: renderCrashScreen,
     safeString: safeString,
   }

@@ -21,9 +21,12 @@ type CrashGuardGlobal = {
   pushError: (source: string, detail: string) => void
   pushConsole: (level: string, args: IArguments | unknown[]) => void
   activate: (primaryReason: unknown) => void
+  dismiss: () => void
   renderCrashScreen: (primaryMessage?: string) => void
   safeString: (value: unknown) => string
 }
+
+const CRASH_DISMISS_EVENT = 'instant-os-crash-dismiss'
 
 declare global {
   interface Window {
@@ -77,6 +80,10 @@ export function isCrashScreenActive(): boolean {
   return getCrashGuard()?.state.activated === true
 }
 
+export function dismissCrashScreen(): void {
+  getCrashGuard()?.dismiss()
+}
+
 type ErrorBoundaryProps = {
   children: ComponentChildren
 }
@@ -88,13 +95,27 @@ type ErrorBoundaryState = {
 export class BootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false }
 
+  private handleCrashDismiss = () => {
+    if (this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  componentDidMount() {
+    window.addEventListener(CRASH_DISMISS_EVENT, this.handleCrashDismiss)
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener(CRASH_DISMISS_EVENT, this.handleCrashDismiss)
+  }
+
   componentDidCatch(error: unknown, errorInfo: { componentStack?: string }) {
     this.setState({ hasError: true })
     reportCrash('react.error-boundary', error, errorInfo.componentStack)
   }
 
   render() {
-    if (this.state.hasError || isCrashScreenActive()) {
+    if (this.state.hasError) {
       return undefined
     }
 

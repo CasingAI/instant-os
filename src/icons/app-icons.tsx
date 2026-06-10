@@ -388,13 +388,22 @@ export function NotificationCenterIcon({ size = 18 }: NotificationCenterIconProp
   )
 }
 
+const BATTERY_FILL_X = 2
+const BATTERY_FILL_Y = 2
+const BATTERY_FILL_HEIGHT = 8
+const BATTERY_FILL_MAX_WIDTH = 19
+
 type BatteryIconProps = {
   levelPercent?: number
   charging?: boolean
 }
 
 export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
-  const fillWidth = levelPercent === undefined ? 17 : Math.max(0, Math.min(18, (levelPercent / 100) * 18))
+  const fillWidth =
+    levelPercent === undefined
+      ? BATTERY_FILL_MAX_WIDTH
+      : Math.max(0, Math.min(BATTERY_FILL_MAX_WIDTH, (levelPercent / 100) * BATTERY_FILL_MAX_WIDTH))
+  const fillFull = fillWidth >= BATTERY_FILL_MAX_WIDTH
   const label =
     levelPercent === undefined
       ? '电池'
@@ -414,10 +423,26 @@ export function BatteryIcon({ levelPercent, charging }: BatteryIconProps) {
       <rect x="0.5" y="0.5" width="22" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1" />
       <rect x="23" y="3.5" width="2.5" height="5" rx="1" fill="currentColor" />
       {levelPercent === undefined ? (
-        <rect x="2" y="2" width="17" height="8" rx="1" fill="currentColor" class="battery-icon__fill" />
+        <rect
+          x={BATTERY_FILL_X}
+          y={BATTERY_FILL_Y}
+          width={BATTERY_FILL_MAX_WIDTH}
+          height={BATTERY_FILL_HEIGHT}
+          rx="0"
+          fill="currentColor"
+          class="battery-icon__fill"
+        />
       ) : (
         <>
-          <rect x="2" y="2" width={fillWidth} height="8" rx="1" fill="currentColor" class="battery-icon__fill" />
+          <rect
+            x={BATTERY_FILL_X}
+            y={BATTERY_FILL_Y}
+            width={fillWidth}
+            height={BATTERY_FILL_HEIGHT}
+            rx={fillFull ? 0 : 1}
+            fill="currentColor"
+            class="battery-icon__fill"
+          />
           {charging && (
             <path
               d="M12.2 1.2 9.4 6.2h2.1L10.8 10.8l4.4-5.4h-2.1L12.2 1.2Z"
