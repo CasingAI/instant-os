@@ -64,6 +64,7 @@ import type {
   ICodeInternalProject,
 } from './icode-types.ts'
 import { IcodeAppDataEditor } from './icode-app-data-editor.tsx'
+import { useIcodeNarrowLayout } from './icode-layout.ts'
 import { appDataRecordsEqual } from './icode-app-data-value.ts'
 import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
 import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
@@ -220,6 +221,7 @@ export function ICodeApp() {
   const consoleListRef = useRef<HTMLDivElement>(null)
   const chatListRef = useRef<HTMLDivElement>(null)
   const previewBootstrapDataRef = useRef<Record<string, string>>({})
+  const { hostRef, narrowLayout } = useIcodeNarrowLayout()
 
   const internalProjects = useMemo(() => loadInternalProjects(), [projectRevision])
 
@@ -1393,7 +1395,7 @@ export function ICodeApp() {
 
   if (!session) {
     return (
-      <div class="icode">
+      <div ref={hostRef} class="icode">
         <input
           ref={importInputRef}
           class="icode__hidden-input"
@@ -1610,7 +1612,7 @@ export function ICodeApp() {
   }
 
   return (
-    <div class="icode">
+    <div ref={hostRef} class="icode">
       <input
         ref={importInputRef}
         class="icode__hidden-input"
@@ -2009,6 +2011,7 @@ export function ICodeApp() {
                   onChange={onDraftAppDataChange}
                   active={editorTab === 'data'}
                   onInvalidChange={setDataEditInvalid}
+                  narrowLayout={narrowLayout}
                 />
               </div>
 

@@ -538,7 +538,7 @@
 
 /* ── Responsive editor ── */
 
-@media (max-width: 720px) {
+@container app-window (max-width: 720px) {
   .icode__nav {
     grid-template-columns: 1fr auto;
     grid-template-areas:
@@ -572,7 +572,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@container app-window (max-width: 640px) {
   .icode__editor-body {
     grid-template-columns: 1fr;
   }
@@ -838,6 +838,7 @@
   overflow: auto;
   padding: 10px;
   background: linear-gradient(180deg, #f8f8f8 0%, #f0f0f0 100%);
+  user-select: text;
 }
 
 .icode__chat-empty {
@@ -873,6 +874,20 @@
     0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
+.icode__chat-bubble--user::selection,
+.icode__chat-bubble--user *::selection {
+  background: #fff;
+  color: #2f87e2;
+  text-shadow: none;
+}
+
+.icode__chat-bubble--user ::-moz-selection,
+.icode__chat-bubble--user *::-moz-selection {
+  background: #fff;
+  color: #2f87e2;
+  text-shadow: none;
+}
+
 .icode__chat-bubble--assistant {
   color: #222;
   background: linear-gradient(180deg, #fff 0%, #ececec 100%);
@@ -881,6 +896,18 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.icode__chat-bubble--assistant::selection,
+.icode__chat-bubble--assistant *::selection {
+  background: #2f87e2;
+  color: #fff;
+}
+
+.icode__chat-bubble--assistant ::-moz-selection,
+.icode__chat-bubble--assistant *::-moz-selection {
+  background: #2f87e2;
+  color: #fff;
 }
 
 .icode__chat-bubble--streaming-assistant {
@@ -951,6 +978,7 @@
   font-size: 11px;
   text-align: left;
   cursor: pointer;
+  user-select: none;
 }
 
 .icode__chat-fold-trigger:hover {
@@ -1127,7 +1155,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(120px, 38%) minmax(0, 1fr);
+  grid-template-columns: minmax(140px, 36%) minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -1283,6 +1311,10 @@
   line-height: 1.45;
 }
 
+.icode__data-detail-back {
+  flex-shrink: 0;
+}
+
 .icode__data-detail-header {
   display: flex;
   align-items: center;
@@ -1291,6 +1323,40 @@
   padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: #252526;
+}
+
+/* 窄屏布局（与底部预览/编辑 dock 同断点）：键列表与详情分两屏 */
+.icode__data-editor--narrow {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.icode__data-editor--narrow .icode__data-keys {
+  border-right: none;
+}
+
+.icode__data-editor--narrow .icode__data-detail {
+  display: none;
+}
+
+.icode__data-editor--narrow.icode__data-editor--detail-open .icode__data-keys {
+  display: none;
+}
+
+.icode__data-editor--narrow.icode__data-editor--detail-open .icode__data-detail {
+  display: flex;
+}
+
+.icode__data-editor--narrow.icode__data-editor--detail-open .icode__data-detail-header {
+  flex-wrap: wrap;
+}
+
+.icode__data-editor--narrow.icode__data-editor--detail-open .icode__data-detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.icode__data-editor--narrow.icode__data-editor--detail-open .icode__panel-action--danger {
+  flex-shrink: 0;
 }
 
 .icode__data-detail-title {

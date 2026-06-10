@@ -16,6 +16,10 @@ import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.t
 import '../icons/app-icon-tile.css'
 import './dock.css'
 
+function DockTooltip({ name }: { name: string }) {
+  return <span class="dock__tooltip">{name}</span>
+}
+
 export function Dock() {
   const { windows, openApp, restoreWindow, closeWindowsForApp, desktopRevealed, toggleDesktopReveal } =
     useOs()
@@ -84,6 +88,7 @@ export function Dock() {
           )
         }}
       >
+        <DockTooltip name={app.name} />
         <span class="dock__icon">
           <app.icon size={56} />
           {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
@@ -128,6 +133,7 @@ export function Dock() {
           )
         }}
       >
+        <DockTooltip name={app.name} />
         <span class="dock__icon">
           <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={56} />
         </span>

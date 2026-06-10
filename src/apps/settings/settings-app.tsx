@@ -29,6 +29,7 @@ import { DisplayView } from './display-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { ExperimentalSettingsView } from './experimental-settings-view.tsx'
+import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
 import { Resources3dDetailView } from './resources-3d-detail-view.tsx'
@@ -173,6 +174,7 @@ export function SettingsApp() {
   const showDisplay = view === 'display'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
+  const showWallpaper = view === 'wallpaper'
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
   const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
@@ -315,6 +317,10 @@ export function SettingsApp() {
           onBack={() => setRoute({ view: 'root' })}
           onOpenEmoji={() => setRoute({ view: 'display-emoji' })}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showWallpaper} keep={showWallpaper}>
+        <WallpaperView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showEmoji && !showEmojiCalibration} keep={showEmoji}>

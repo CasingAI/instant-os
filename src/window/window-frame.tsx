@@ -114,8 +114,8 @@ export function WindowFrame({ window }: WindowFrameProps) {
             setIsEntering(false)
           }
         }}
-        onMouseDown={() => {
-          if (isDesktopRevealed) {
+        onPointerDownCapture={(event) => {
+          if (isDesktopRevealed || event.button !== 0) {
             return
           }
           focusWindow(window.id)
@@ -147,23 +147,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
           </div>
           <span class="window-frame__title">{window.title}</span>
         </header>
-        <div
-          class="window-frame__content"
-          onMouseDown={() => {
-            if (isDesktopRevealed) {
-              return
-            }
-            focusWindow(window.id)
-          }}
-        >
+        <div class="window-frame__content">
           {!isActive && !isDesktopRevealed && (
-            <div
-              class="window-frame__focus-catcher"
-              onMouseDown={(event) => {
-                event.preventDefault()
-                focusWindow(window.id)
-              }}
-            />
+            <div class="window-frame__focus-catcher" aria-hidden="true" />
           )}
           {isGeneratedAppId(window.appId) ? (
             <GeneratedApp appId={window.appId} windowId={window.id} />

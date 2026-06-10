@@ -118,6 +118,7 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
     return sumLocalStorageKeys([
       DEVICE_STORAGE_KEYS.accountSettings,
       DEVICE_STORAGE_KEYS.displaySettings,
+      DEVICE_STORAGE_KEYS.wallpaperSettings,
       DEVICE_STORAGE_KEYS.experimentalSettings,
       DEVICE_STORAGE_KEYS.windowSizes,
       DEVICE_STORAGE_KEYS.launcherLayout,

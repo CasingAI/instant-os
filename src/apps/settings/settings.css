@@ -2070,3 +2070,76 @@
   background: linear-gradient(180deg, #f7e4e1 0%, #e8c9c3 100%);
   color: #8f2f27;
 }
+
+/* ── Wallpaper picker ── */
+
+.settings__wallpaper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 12px;
+}
+
+.settings__wallpaper-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: transparent;
+  transition:
+    border-color 90ms ease,
+    background 90ms ease,
+    box-shadow 90ms ease;
+}
+
+.settings__wallpaper-tile:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.settings__wallpaper-tile--selected {
+  border-color: #2f87e2;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.settings__wallpaper-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+.settings__wallpaper-name {
+  font-size: 11px;
+  line-height: 1.2;
+  color: #222;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.settings__wallpaper-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2f87e2;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}

@@ -266,7 +266,7 @@
 .window-frame__focus-catcher {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 1000;
   cursor: default;
 }
 

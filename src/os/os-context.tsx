@@ -83,13 +83,18 @@ const GENERATED_APP_DEFAULTS = { width: 480, height: 640 }
 let windowCounter = 0
 let zCounter = 10
 
+function bumpZIndex(): number {
+  zCounter += 1
+  return zCounter
+}
+
 function createWindow(
   appId: AppId,
   titleOverride?: string,
   options?: { enterAnimation?: WindowState['enterAnimation'] },
 ): WindowState {
   windowCounter += 1
-  zCounter += 1
+  const nextZ = bumpZIndex()
   const defaults = isGeneratedAppId(appId)
     ? { title: titleOverride ?? '微应用', ...GENERATED_APP_DEFAULTS }
     : { ...DEFAULT_WINDOWS[appId], title: titleOverride ?? DEFAULT_WINDOWS[appId]?.title ?? '应用' }
@@ -106,7 +111,7 @@ function createWindow(
     minimized: false,
     maximized: false,
     fullscreen: false,
-    zIndex: zCounter,
+    zIndex: nextZ,
     x: 80 + offset,
     y: 48 + offset,
     width,
@@ -174,12 +179,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     const existing = windows.find((window) => window.appId === appId && !window.minimized)
     if (existing) {
-      zCounter += 1
+      const nextZ = bumpZIndex()
       const title = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
       setWindows((current) =>
         current.map((window) =>
           window.id === existing.id
-            ? { ...window, zIndex: zCounter, minimized: false, title }
+            ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
         ),
       )
@@ -189,12 +194,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     const minimized = windows.find((window) => window.appId === appId && window.minimized)
     if (minimized) {
-      zCounter += 1
+      const nextZ = bumpZIndex()
       const title = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
       setWindows((current) =>
         current.map((window) =>
           window.id === minimized.id
-            ? { ...window, zIndex: zCounter, minimized: false, title }
+            ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
         ),
       )
@@ -212,11 +217,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     const existing = windows.find((window) => window.appId === appId && !window.minimized)
     if (existing) {
-      zCounter += 1
+      const nextZ = bumpZIndex()
       setWindows((current) =>
         current.map((window) =>
           window.id === existing.id
-            ? { ...window, zIndex: zCounter, minimized: false, title }
+            ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
         ),
       )
@@ -226,11 +231,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     const minimized = windows.find((window) => window.appId === appId && window.minimized)
     if (minimized) {
-      zCounter += 1
+      const nextZ = bumpZIndex()
       setWindows((current) =>
         current.map((window) =>
           window.id === minimized.id
-            ? { ...window, zIndex: zCounter, minimized: false, title }
+            ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
         ),
       )
@@ -313,10 +318,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   const focusWindow = useCallback((windowId: string) => {
     startDesktopRestore()
-    zCounter += 1
+    const nextZ = bumpZIndex()
     setWindows((current) =>
       current.map((window) =>
-        window.id === windowId ? { ...window, zIndex: zCounter } : window,
+        window.id === windowId ? { ...window, zIndex: nextZ } : window,
       ),
     )
     setActiveWindowId(windowId)
@@ -398,11 +403,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [])
 
   const applyWindowSnap = useCallback((windowId: string, target: SnapTarget) => {
+    const nextZ = bumpZIndex()
     setWindows((current) => {
       const targetWindow = current.find((window) => window.id === windowId)
       if (!targetWindow || targetWindow.minimized || targetWindow.fullscreen) return current
 
-      zCounter += 1
       const bounds = getSnapBounds(target)
 
       return current.map((window) => {
@@ -426,7 +431,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
             ...bounds,
             maximized: true,
             snap: undefined,
-            zIndex: zCounter,
+            zIndex: nextZ,
           }
         }
 
@@ -436,7 +441,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           ...bounds,
           maximized: false,
           snap: target,
-          zIndex: zCounter,
+          zIndex: nextZ,
         }
       })
     })
@@ -444,11 +449,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [])
 
   const toggleMaximize = useCallback((windowId: string) => {
+    const nextZ = bumpZIndex()
     setWindows((current) => {
       const target = current.find((window) => window.id === windowId)
       if (!target || target.minimized || target.fullscreen) return current
-
-      zCounter += 1
 
       if (target.maximized) {
         const restored = target.restoredBounds ?? {
@@ -466,7 +470,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
                 maximized: false,
                 snap: undefined,
                 restoredBounds: undefined,
-                zIndex: zCounter,
+                zIndex: nextZ,
               }
             : window,
         )
@@ -486,7 +490,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
               ...bounds,
               maximized: true,
               snap: undefined,
-              zIndex: zCounter,
+              zIndex: nextZ,
             }
           : window,
       )
@@ -495,11 +499,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [])
 
   const toggleFullscreen = useCallback((windowId: string) => {
+    const nextZ = bumpZIndex()
     setWindows((current) => {
       const target = current.find((window) => window.id === windowId)
       if (!target || target.minimized) return current
-
-      zCounter += 1
 
       if (target.fullscreen) {
         const restored = target.restoredBounds ?? {
@@ -518,7 +521,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
                 maximized: false,
                 snap: undefined,
                 restoredBounds: undefined,
-                zIndex: zCounter,
+                zIndex: nextZ,
               }
             : window,
         )
@@ -541,7 +544,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
             fullscreen: true,
             maximized: false,
             snap: undefined,
-            zIndex: zCounter,
+            zIndex: nextZ,
           }
         }
 
@@ -572,10 +575,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   const restoreWindow = useCallback((windowId: string) => {
     startDesktopRestore()
-    zCounter += 1
+    const nextZ = bumpZIndex()
     setWindows((current) =>
       current.map((window) =>
-        window.id === windowId ? { ...window, minimized: false, zIndex: zCounter } : window,
+        window.id === windowId ? { ...window, minimized: false, zIndex: nextZ } : window,
       ),
     )
     setActiveWindowId(windowId)

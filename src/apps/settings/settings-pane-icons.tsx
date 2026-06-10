@@ -71,6 +71,31 @@ export function NewsPaneIcon() {
   return <NewsIcon size={PANE_ICON_SIZE} />
 }
 
+export function WallpaperPaneIcon() {
+  return (
+    <AppIconTile color="#5a9fd4" size={PANE_ICON_SIZE}>
+      <svg width={paneSvg(22)} height={paneSvg(22)} viewBox="0 0 22 22" aria-hidden="true">
+        <defs>
+          <linearGradient id="wallpaper-pane-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#7ec8ff" />
+            <stop offset="100%" stop-color="#2f76c0" />
+          </linearGradient>
+        </defs>
+        <rect x="3" y="3" width="16" height="16" rx="2" fill="url(#wallpaper-pane-grad)" />
+        <circle cx="8" cy="8" r="2.2" fill="rgba(255,255,255,0.55)" />
+        <path
+          d="M4 16 L9 11 L13 14 L18 9"
+          fill="none"
+          stroke="rgba(255,255,255,0.7)"
+          stroke-width="1.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function ExperimentalPaneIcon() {
   return (
     <AppIconTile color="#8a7bb8" size={PANE_ICON_SIZE}>

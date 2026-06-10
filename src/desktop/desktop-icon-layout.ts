@@ -3,6 +3,7 @@ import {
   DESKTOP_ICON_GAP_Y,
   DESKTOP_ICON_HEIGHT,
   DESKTOP_ICON_WIDTH,
+  moveDesktopIconInOrder,
 } from '../os/launcher-layout-storage.ts'
 import type { AppId } from '../os/types.ts'
 
@@ -33,12 +34,8 @@ export function buildPreviewOrder(
     return order
   }
 
-  const clampedHover = Math.max(0, Math.min(hoverIndex, order.length - 1))
-  const next = [...order]
-  const [moved] = next.splice(fromIndex, 1)
-  const insertIndex = fromIndex < clampedHover ? clampedHover - 1 : clampedHover
-  next.splice(insertIndex, 0, moved)
-  return next
+  const toIndex = Math.max(0, Math.min(hoverIndex, order.length - 1))
+  return moveDesktopIconInOrder(order, fromIndex, toIndex)
 }
 
 export function getPageSlice(order: AppId[], pageIndex: number, iconsPerPage: number): AppId[] {

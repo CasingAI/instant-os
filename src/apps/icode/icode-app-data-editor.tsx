@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import {
   decodeStorageValue,
   encodeStorageValue,
@@ -13,6 +14,7 @@ type IcodeAppDataEditorProps = {
   onChange: (value: Record<string, string>) => void
   active: boolean
   onInvalidChange: (invalid: boolean) => void
+  narrowLayout: boolean
 }
 
 export function IcodeAppDataEditor({
@@ -20,6 +22,7 @@ export function IcodeAppDataEditor({
   onChange,
   active,
   onInvalidChange,
+  narrowLayout,
 }: IcodeAppDataEditorProps) {
   const sortedKeys = useMemo(() => Object.keys(value).sort(), [value])
   const [selectedKey, setSelectedKey] = useState<string | undefined>()
@@ -28,7 +31,18 @@ export function IcodeAppDataEditor({
   const [editInvalid, setEditInvalid] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyError, setNewKeyError] = useState<string | undefined>()
+  const [detailOpen, setDetailOpen] = useState(false)
   const editingRef = useRef(false)
+  const prevNarrowLayoutRef = useRef(narrowLayout)
+
+  useEffect(() => {
+    const wasNarrow = prevNarrowLayoutRef.current
+    prevNarrowLayoutRef.current = narrowLayout
+
+    if (!wasNarrow && narrowLayout && selectedKey) {
+      setDetailOpen(true)
+    }
+  }, [narrowLayout, selectedKey])
 
   useEffect(() => {
     if (sortedKeys.length === 0) {
@@ -119,7 +133,10 @@ export function IcodeAppDataEditor({
       [trimmed]: '',
     })
     setSelectedKey(trimmed)
-  }, [newKeyName, onChange, value])
+    if (narrowLayout) {
+      setDetailOpen(true)
+    }
+  }, [narrowLayout, newKeyName, onChange, value])
 
   const handleDeleteKey = useCallback(() => {
     if (!selectedKey) {
@@ -137,7 +154,9 @@ export function IcodeAppDataEditor({
   const selectedRaw = selectedKey ? value[selectedKey] : undefined
 
   return (
-    <div class="icode__data-editor">
+    <div
+      class={`icode__data-editor${narrowLayout ? ' icode__data-editor--narrow' : ''}${narrowLayout && detailOpen ? ' icode__data-editor--detail-open' : ''}`}
+    >
       <div class="icode__data-keys">
         <div class="icode__data-keys-scroll">
           {sortedKeys.length === 0 ? (
@@ -153,6 +172,9 @@ export function IcodeAppDataEditor({
                   onClick={() => {
                     editingRef.current = false
                     setSelectedKey(key)
+                    if (narrowLayout) {
+                      setDetailOpen(true)
+                    }
                   }}
                 >
                   <span class="icode__data-key-name">{key}</span>
@@ -197,6 +219,14 @@ export function IcodeAppDataEditor({
         ) : (
           <>
             <div class="icode__data-detail-header">
+              {narrowLayout && (
+                <IosNavBackButton
+                  class="icode__data-detail-back"
+                  label="键列表"
+                  aria-label="返回键列表"
+                  onClick={() => setDetailOpen(false)}
+                />
+              )}
               <div class="icode__data-detail-title">
                 <span class="icode__data-detail-key">{selectedKey}</span>
                 <span class={`icode__data-kind icode__data-kind--${editKind}`}>

@@ -8,12 +8,14 @@ import {
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
   StoragePaneIcon,
+  WallpaperPaneIcon,
 } from './settings-pane-icons.tsx'
 
 export type SettingsPaneId =
   | 'usage'
   | 'account'
   | 'display'
+  | 'wallpaper'
   | 'resources'
   | 'safari'
   | 'news'
@@ -24,6 +26,7 @@ export type SettingsRoute =
   | { view: 'usage' }
   | { view: 'account' }
   | { view: 'display' }
+  | { view: 'wallpaper' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
   | { view: 'resources' }
@@ -53,6 +56,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'usage', label: '存储空间', Icon: StoragePaneIcon, route: { view: 'usage' } },
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' } },
   { id: 'display', label: '显示', Icon: DisplayPaneIcon, route: { view: 'display' } },
+  { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
   {
     id: 'safari',
@@ -87,6 +91,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'display-emoji':
     case 'display-emoji-calibration':
       return 'display'
+    case 'wallpaper':
+      return 'wallpaper'
     case 'resources':
     case 'resources-3d':
     case 'resources-3d-detail':
@@ -106,6 +112,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'usage':
     case 'account':
     case 'display':
+    case 'wallpaper':
     case 'resources':
     case 'safari-usage':
     case 'news':
