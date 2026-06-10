@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsSwitch } from './settings-switch.tsx'
 import {
   loadExperimentalSettings,
@@ -33,12 +33,7 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   return (
     <div class="settings">
       <div class="settings__nav">
-        <button type="button" class="settings__nav-back" onClick={onBack}>
-          <span class="settings__nav-back-icon" aria-hidden="true">
-            <BackIcon size={13} />
-          </span>
-          实验性特性
-        </button>
+        <IosNavBackButton label="实验性特性" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

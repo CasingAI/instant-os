@@ -1,4 +1,6 @@
+@import './fonts/app-text-font-stack.css';
 @import './fonts/emoji-font-mode.css';
+@import './ui/ios-nav-back.css';
 
 *,
 *::before,
@@ -17,13 +19,7 @@ body,
 }
 
 body {
-  font-family:
-    'Helvetica Neue',
-    Helvetica,
-    'PingFang SC',
-    'Microsoft YaHei',
-    'Apple Color Emoji',
-    sans-serif;
+  font-family: var(--app-text-font-family);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }

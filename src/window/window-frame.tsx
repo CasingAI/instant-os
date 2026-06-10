@@ -1,9 +1,11 @@
-import { useCallback, useMemo } from 'preact/hooks'
+import { useCallback, useMemo, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'
 import { isGeneratedAppId } from '../os/types.ts'
 import type { BuiltinAppId, WindowState } from '../os/types.ts'
+import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
+import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
 import { buildMinimizeTransform } from './build-minimize-transform.ts'
 import { SnapPreview } from './window-snap-preview.tsx'
 import { useWindowDrag } from './use-window-drag.ts'
@@ -21,6 +23,7 @@ type WindowFrameProps = {
 export function WindowFrame({ window }: WindowFrameProps) {
   const {
     activeWindowId,
+    desktopRevealed,
     focusWindow,
     moveWindow,
     resizeWindow,
@@ -36,7 +39,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
     : APP_COMPONENTS[window.appId as BuiltinAppId]
   const isActive = activeWindowId === window.id
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
-  const canResize = !window.fullscreen && !window.maximized && !window.snap && !window.minimized
+  const isDesktopRevealed = desktopRevealed && !window.minimized
+  const canResize =
+    !window.fullscreen && !window.maximized && !window.snap && !window.minimized && !isDesktopRevealed
   const getDragBounds = useCallback(
     () => ({
       x: window.x,
@@ -54,7 +59,8 @@ export function WindowFrame({ window }: WindowFrameProps) {
     focusWindow,
     releaseAnchoredWindow,
     applyWindowSnap,
-    !window.fullscreen && !window.minimized,
+    () => toggleMaximize(window.id),
+    !window.fullscreen && !window.minimized && !isDesktopRevealed,
   )
   const { resizing, onResizeHandlePointerDown, onResizeHandleDoubleClick } = useWindowResize(
     window.id,
@@ -64,22 +70,35 @@ export function WindowFrame({ window }: WindowFrameProps) {
     canResize,
   )
   const isAnchoredLayout = window.maximized || !!window.snap || window.fullscreen
-  const minimizeTransform = useMemo(
-    () =>
-      buildMinimizeTransform({
-        x: window.x,
-        y: window.y,
-        width: window.width,
-        height: window.height,
-      }),
+  const windowBounds = useMemo(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
     [window.x, window.y, window.width, window.height],
   )
+  const minimizeTransform = useMemo(
+    () => buildMinimizeTransform(windowBounds),
+    [windowBounds],
+  )
+  const desktopRevealTransform = useMemo(
+    () => buildDesktopRevealTransform(windowBounds),
+    [windowBounds],
+  )
+  const [isEntering, setIsEntering] = useState(window.enterAnimation === 'scale-in')
+  const frameTransform = window.minimized
+    ? minimizeTransform
+    : isDesktopRevealed
+      ? desktopRevealTransform
+      : undefined
 
   return (
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${window.minimized ? ' window-frame--minimized' : ''}`}
+        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${window.minimized ? ' window-frame--minimized' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}`}
         aria-hidden={window.minimized ? true : undefined}
         style={{
           zIndex: window.zIndex,
@@ -87,18 +106,24 @@ export function WindowFrame({ window }: WindowFrameProps) {
           top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
-          transform: window.minimized ? minimizeTransform : undefined,
-          opacity: window.minimized ? 0 : 1,
+          transform: isEntering ? undefined : frameTransform,
+          opacity: window.minimized ? 0 : undefined,
         }}
-        onMouseDown={() => focusWindow(window.id)}
+        onAnimationEnd={(event) => {
+          if (event.animationName === 'window-frame-open') {
+            setIsEntering(false)
+          }
+        }}
+        onMouseDown={() => {
+          if (isDesktopRevealed) {
+            return
+          }
+          focusWindow(window.id)
+        }}
       >
         <header
           class="window-frame__titlebar"
           onPointerDown={onTitlebarPointerDown}
-          onDblClick={(event) => {
-            if ((event.target as HTMLElement).closest('.window-frame__control')) return
-            toggleMaximize(window.id)
-          }}
         >
           <div class="window-frame__controls">
             <button
@@ -124,9 +149,14 @@ export function WindowFrame({ window }: WindowFrameProps) {
         </header>
         <div
           class="window-frame__content"
-          onMouseDown={() => focusWindow(window.id)}
+          onMouseDown={() => {
+            if (isDesktopRevealed) {
+              return
+            }
+            focusWindow(window.id)
+          }}
         >
-          {!isActive && (
+          {!isActive && !isDesktopRevealed && (
             <div
               class="window-frame__focus-catcher"
               onMouseDown={(event) => {
@@ -167,13 +197,17 @@ export function WindowFrame({ window }: WindowFrameProps) {
 }
 
 export function WindowManager() {
-  const { windows } = useOs()
+  const { windows, desktopRevealRestoring } = useOs()
 
   return (
-    <div class="window-manager" aria-live="polite">
+    <div
+      class={`window-manager${desktopRevealRestoring ? ' window-manager--desktop-restore' : ''}`}
+      aria-live="polite"
+    >
       {windows.map((window) => (
         <WindowFrame key={window.id} window={window} />
       ))}
+      <DesktopRevealPeekLayer />
     </div>
   )
 }

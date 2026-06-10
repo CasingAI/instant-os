@@ -19,14 +19,7 @@
   position: relative;
   background: var(--safari-bg);
   color: var(--safari-text);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Helvetica Neue',
-    'PingFang SC',
-    'Apple Color Emoji',
-    sans-serif;
+  font-family: var(--app-text-font-family);
 }
 
 /* ── Chrome ── */

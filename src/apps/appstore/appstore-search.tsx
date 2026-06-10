@@ -1,4 +1,4 @@
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { searchStoreListingsStreaming } from './store-agent.ts'
@@ -65,12 +65,7 @@ export function MarketplaceSearch({
   return (
     <div class="appstore-search">
       <header class="appstore-search__nav">
-        <button type="button" class="appstore-search__back" onClick={onBack}>
-          <span class="appstore-search__back-icon" aria-hidden="true">
-            <BackIcon size={13} />
-          </span>
-          应用集市
-        </button>
+        <IosNavBackButton label="应用集市" onClick={onBack} />
       </header>
 
       <div class="appstore-search__bar">

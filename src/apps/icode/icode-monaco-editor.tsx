@@ -7,9 +7,15 @@ type IcodeMonacoEditorProps = {
   value: string
   onChange: (value: string) => void
   active?: boolean
+  language?: 'html' | 'json'
 }
 
-export function IcodeMonacoEditor({ value, onChange, active = true }: IcodeMonacoEditorProps) {
+export function IcodeMonacoEditor({
+  value,
+  onChange,
+  active = true,
+  language = 'html',
+}: IcodeMonacoEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | undefined>(undefined)
   const onChangeRef = useRef(onChange)
@@ -26,7 +32,7 @@ export function IcodeMonacoEditor({ value, onChange, active = true }: IcodeMonac
 
     const editor = monaco.editor.create(container, {
       value,
-      language: 'html',
+      language,
       theme: 'vs-dark',
       automaticLayout: true,
       minimap: { enabled: false },

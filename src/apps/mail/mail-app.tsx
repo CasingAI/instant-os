@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -339,18 +339,16 @@ export function MailApp() {
   return (
     <div class={`mail${selectedThreadId ? ' mail--detail-open' : ''}`}>
       <header class="mail__toolbar">
-        <button
-          type="button"
+        <IosNavBackButton
           class="mail__toolbar-back"
+          iconSize={14}
+          label="邮件"
+          aria-label="返回邮件列表"
           onClick={() => {
             setSelectedThreadId(undefined)
             setReplyDraft('')
           }}
-          aria-label="返回邮件列表"
-        >
-          <BackIcon size={14} />
-          <span>邮件</span>
-        </button>
+        />
         <button
           type="button"
           class="mail__compose-btn"

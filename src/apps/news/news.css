@@ -19,14 +19,7 @@
   height: 100%;
   background: var(--news-bg);
   color: var(--news-ink);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Helvetica Neue',
-    'PingFang SC',
-    'Apple Color Emoji',
-    sans-serif;
+  font-family: var(--app-text-font-family);
   font-size: 13px;
   overflow: hidden;
   position: relative;
@@ -97,7 +90,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   background: linear-gradient(180deg, #fffdf7 0%, #f4ebdf 100%);
@@ -106,11 +98,6 @@
   box-shadow: var(--news-shadow);
   cursor: pointer;
   user-select: none;
-}
-
-.news__date-caret {
-  font-size: 10px;
-  opacity: 0.6;
 }
 
 /* Body layout */
@@ -871,17 +858,6 @@
 
 .news__toolbar-back {
   display: none;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 8px 4px 0;
-  border-radius: 5px;
-  color: var(--news-accent);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.news__toolbar-back:hover {
-  background: rgba(178, 58, 46, 0.08);
 }
 
 @container app-window (max-width: 720px) {

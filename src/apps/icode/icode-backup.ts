@@ -116,16 +116,16 @@ export async function readBundleFromZipFile(file: File): Promise<ICodeExportBund
   const unzipped = unzipSync(bytes)
   const manifestBytes = unzipped[MANIFEST_NAME]
   if (!manifestBytes) {
-    throw new Error('压缩包中未找到 manifest.json')
+    throw new Error('程序包中未找到 manifest.json')
   }
 
   const bundle = parseBundle(strFromU8(manifestBytes))
   if (!bundle) {
-    throw new Error('无效的 iCode 项目压缩包')
+    throw new Error('无效的 iCode 项目程序包')
   }
 
   if (!isStringRecord(bundle.appData)) {
-    throw new Error('压缩包中的存储数据格式无效')
+    throw new Error('程序包中的存储数据格式无效')
   }
 
   return bundle

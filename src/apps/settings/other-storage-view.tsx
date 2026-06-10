@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import {
   listOtherStorageEntries,
   STORAGE_CHANGED_EVENT,
@@ -41,12 +41,7 @@ export function OtherStorageView({ totalBytes, onBack }: OtherStorageViewProps) 
   return (
     <div class="settings settings--other-storage">
       <div class="settings__nav">
-        <button type="button" class="settings__nav-back" onClick={onBack}>
-          <span class="settings__nav-back-icon" aria-hidden="true">
-            <BackIcon size={13} />
-          </span>
-          存储空间
-        </button>
+        <IosNavBackButton label="存储空间" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

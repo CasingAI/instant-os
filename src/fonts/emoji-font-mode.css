@@ -1,35 +1,7 @@
-/* Off: skip Apple Color Emoji and use the platform emoji stack instead. */
-
-html[data-emoji-font-mode='off'] body {
-  font-family:
-    'Helvetica Neue',
-    Helvetica,
-    'PingFang SC',
-    'Microsoft YaHei',
-    'Segoe UI Emoji',
-    'Noto Color Emoji',
-    sans-serif;
-}
-
-html[data-emoji-font-mode='off'] .mail,
-html[data-emoji-font-mode='off'] .safari {
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Helvetica Neue',
-    'PingFang SC',
-    'Segoe UI Emoji',
-    'Noto Color Emoji',
-    sans-serif;
-}
-
-html[data-emoji-font-mode='off'] .settings__emoji-preview-glyph {
-  font-family: 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
-}
-
-html:not([data-emoji-font-mode='off']) .settings__emoji-preview-glyph {
-  font-family: 'Apple Color Emoji', sans-serif;
+.settings__emoji-preview-glyph,
+.generated-app-icon__emoji,
+.app-icon-tile__emoji {
+  font-family: var(--app-emoji-font-family);
 }
 
 /* Emoji vertical offset: see bundled-emoji-font-metrics.ts and emoji-offset.ts. */

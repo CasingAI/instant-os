@@ -23,13 +23,7 @@
     radial-gradient(ellipse 100% 60% at 50% -10%, #fff8ee 0%, transparent 50%),
     linear-gradient(180deg, #ddd0bc 0%, var(--gk-bg) 100%);
   color: var(--gk-ink);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Helvetica Neue',
-    'PingFang SC',
-    sans-serif;
+  font-family: var(--app-text-font-family);
   font-size: 13px;
   overflow: hidden;
 }

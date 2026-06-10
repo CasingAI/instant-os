@@ -3,14 +3,27 @@ import {
   type AppGenerationUpdate,
 } from '../appstore/generate-app-stream.ts'
 import type { StoreListing } from '../appstore/types.ts'
-import { nextAppVersion } from '../appstore/app-version.ts'
-import type { ICodeInternalProject } from './icode-types.ts'
+import type { ICodeChatEditBlock, ICodeInternalProject } from './icode-types.ts'
+import {
+  generateIcodeHtmlEditsStreaming,
+  type ICodeEditGenerationUpdate,
+} from './icode-edit-stream.ts'
+import { stripAiderEditBlocksFromContent } from './icode-apply-edits.ts'
 
-export type ICodeGenerationUpdate = AppGenerationUpdate
+export type ICodeGenerationUpdate = AppGenerationUpdate & {
+  partialHtml?: string
+  appliedEdits?: number
+  visibleReply?: string
+}
 
 export type ICodeGenerationResult = {
   html: string
   assistantSummary: string
+  appliedEdits?: number
+  reasoningText?: string
+  outputText?: string
+  fullReply?: string
+  edits?: ICodeChatEditBlock[]
 }
 
 function listingFromInternal(project: ICodeInternalProject): StoreListing {
@@ -25,6 +38,18 @@ function listingFromInternal(project: ICodeInternalProject): StoreListing {
   }
 }
 
+function mapEditUpdate(update: ICodeEditGenerationUpdate): ICodeGenerationUpdate {
+  return {
+    phase: update.phase,
+    progress: update.progress,
+    textLength: update.textLength,
+    reasoningText: update.reasoningText,
+    contentText: update.contentText,
+    partialHtml: update.partialHtml,
+    appliedEdits: update.appliedEdits,
+    visibleReply: update.visibleReply,
+  }
+}
 
 export async function generateInternalAppHtml(
   project: ICodeInternalProject,
@@ -34,46 +59,50 @@ export async function generateInternalAppHtml(
   const listing = listingFromInternal(project)
   const hasExisting = project.html.trim().length > 0
 
+  if (hasExisting) {
+    const result = await generateIcodeHtmlEditsStreaming(
+      listing,
+      project.html,
+      instruction,
+      onUpdate ? (update) => onUpdate(mapEditUpdate(update)) : undefined,
+    )
+
+    return {
+      html: result.html,
+      assistantSummary: result.assistantSummary,
+      appliedEdits: result.appliedEdits,
+      reasoningText: result.reasoningText || undefined,
+      outputText: result.outputText || undefined,
+      edits: result.edits.length > 0 ? result.edits : undefined,
+      fullReply: stripAiderEditBlocksFromContent(result.outputText) || undefined,
+    }
+  }
+
+  let reasoningText = ''
+  let outputText = ''
+
   const html = await generateAppHtmlStreaming(
     listing,
     (update) => {
+      reasoningText = update.reasoningText
+      outputText = update.contentText
       onUpdate?.(update)
     },
-    hasExisting
-      ? {
-          update: {
-            existingHtml: project.html,
-            currentVersion: '1.0.0',
-            targetVersion: nextAppVersion('1.0.0'),
-            userFeedback: [
-              {
-                id: `icode-${Date.now()}`,
-                author: '开发者',
-                rating: 5,
-                body: instruction,
-                version: '1.0.0',
-                isUser: true,
-                createdAt: Date.now(),
-              },
-            ],
-          },
-        }
-      : {
-          detail: {
-            tagline: 'iCode 内部开发项目',
-            longDescription: instruction,
-            developer: 'iCode',
-            compatibility: 'Instant OS',
-            language: '中文',
-          },
-        },
+    {
+      detail: {
+        tagline: 'iCode 内部开发项目',
+        longDescription: instruction,
+        developer: 'iCode',
+        compatibility: 'Instant OS',
+        language: '中文',
+      },
+    },
   )
 
   return {
     html,
-    assistantSummary: hasExisting
-      ? '已根据你的修改意见更新应用源码。'
-      : '已根据描述生成新的应用源码，可在左侧预览效果。',
+    assistantSummary: '已根据描述生成新的应用源码，可在左侧预览效果。',
+    reasoningText: reasoningText || undefined,
+    outputText: outputText || undefined,
   }
 }
-

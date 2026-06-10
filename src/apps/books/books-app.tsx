@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -224,17 +224,14 @@ export function BooksApp() {
     return (
       <div class="books">
         <header class="books__toolbar">
-          <button
-            type="button"
-            class="books__toolbar-back"
+          <IosNavBackButton
+            iconSize={14}
+            label="书架"
             onClick={() => {
               setScreen('shelf')
               setReaderBookId(undefined)
             }}
-          >
-            <BackIcon size={14} />
-            书架
-          </button>
+          />
           <span class="books__toolbar-title books__toolbar-title--center">{readerBook.title}</span>
           <span class="books__toolbar-spacer" />
         </header>
@@ -251,17 +248,14 @@ export function BooksApp() {
     return (
       <div class="books">
         <header class="books__toolbar">
-          <button
-            type="button"
-            class="books__toolbar-back"
+          <IosNavBackButton
+            iconSize={14}
+            label="书城"
             onClick={() => {
               setScreen('store')
               setDetailSlug(undefined)
             }}
-          >
-            <BackIcon size={14} />
-            书城
-          </button>
+          />
           <span class="books__toolbar-title books__toolbar-title--center">书籍详情</span>
           <span class="books__toolbar-spacer" />
         </header>
@@ -291,14 +285,7 @@ export function BooksApp() {
     return (
       <div class="books">
         <header class="books__toolbar">
-          <button
-            type="button"
-            class="books__toolbar-back"
-            onClick={() => setScreen('shelf')}
-          >
-            <BackIcon size={14} />
-            书架
-          </button>
+          <IosNavBackButton iconSize={14} label="书架" onClick={() => setScreen('shelf')} />
           <span class="books__toolbar-title books__toolbar-title--center">书城</span>
           <button
             type="button"

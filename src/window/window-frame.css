@@ -26,11 +26,86 @@
     height 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
     border-radius 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
     opacity 0.42s cubic-bezier(0.32, 0, 0.67, 0),
-    transform 0.42s cubic-bezier(0.32, 0, 0.67, 0);
+    transform 0.55s cubic-bezier(0.19, 1, 0.22, 1);
 }
 
 .window-frame--minimized {
   pointer-events: none;
+  transition:
+    box-shadow 0.15s ease,
+    left 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    top 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    width 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-radius 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.42s cubic-bezier(0.32, 0, 0.67, 0),
+    transform 0.42s cubic-bezier(0.32, 0, 0.67, 0);
+}
+
+.window-frame--desktop-revealed {
+  transition:
+    box-shadow 0.15s ease,
+    left 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    top 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    width 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-radius 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.42s cubic-bezier(0.32, 0, 0.67, 0),
+    transform 0.55s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.window-frame--desktop-revealed .window-frame__titlebar,
+.window-frame--desktop-revealed .window-frame__content,
+.window-frame--desktop-revealed .window-frame__resize-layer {
+  pointer-events: none;
+}
+
+.window-manager--desktop-restore .window-frame {
+  transition:
+    box-shadow 0.15s ease,
+    left 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    top 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    width 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-radius 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.42s cubic-bezier(0.32, 0, 0.67, 0),
+    transform 0.85s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.window-frame--entering {
+  animation: window-frame-open 0.26s cubic-bezier(0.19, 1, 0.22, 1) both;
+  transform-origin: 50% 50%;
+}
+
+@keyframes window-frame-open {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.desktop-reveal-peek-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 850;
+  pointer-events: none;
+}
+
+.desktop-reveal-peek-strip {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  pointer-events: auto;
+  cursor: default;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .window-frame--anchored {
@@ -275,5 +350,9 @@
 @media (prefers-reduced-motion: reduce) {
   .window-frame {
     transition-duration: 0.01ms !important;
+  }
+
+  .window-frame--entering {
+    animation-duration: 0.01ms !important;
   }
 }

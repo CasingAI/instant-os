@@ -68,7 +68,7 @@ export function placeholderHtmlForIcodeApp(name: string): string {
 <body>
   <main>
     <h1>${title}</h1>
-    <p>应用开发中。请在 iCode 中继续编辑，保存后会自动同步到此入口。</p>
+    <p>应用开发中。请在 iCode 中编辑并发布，桌面入口才会更新。</p>
   </main>
 </body>
 </html>`
@@ -139,6 +139,16 @@ export function buildIcodeSyncInput(project: ICodeInternalProject): {
     tags: project.tags,
     html: resolveDesktopHtml(project),
     appData: project.appData,
+  }
+}
+
+export function buildIcodePlaceholderSyncInput(
+  project: ICodeInternalProject,
+): ReturnType<typeof buildIcodeSyncInput> {
+  return {
+    ...buildIcodeSyncInput({ ...project, html: '', appData: {} }),
+    html: placeholderHtmlForIcodeApp(project.name),
+    appData: {},
   }
 }
 

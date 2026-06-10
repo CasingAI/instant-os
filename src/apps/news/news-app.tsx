@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -289,15 +289,13 @@ export function NewsApp() {
     <div class={`news${selectedArticle ? ' news--reader-open' : ''}`}>
       <header class="news__toolbar">
         <div class="news__toolbar-side news__toolbar-side--start">
-          <button
-            type="button"
+          <IosNavBackButton
             class="news__toolbar-back"
-            onClick={() => setSelectedId(undefined)}
+            iconSize={14}
+            label="报道"
             aria-label="返回报道列表"
-          >
-            <BackIcon size={14} />
-            <span>报道</span>
-          </button>
+            onClick={() => setSelectedId(undefined)}
+          />
           <span class="news__brand">新闻</span>
         </div>
 
@@ -318,9 +316,6 @@ export function NewsApp() {
             aria-expanded={datePickerOpen}
           >
             {dateLabel}
-            <span class="news__date-caret" aria-hidden="true">
-              ▾
-            </span>
           </button>
           <button
             type="button"

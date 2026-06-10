@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
-import { BackIcon, ICodeIcon } from '../../icons/app-icons.tsx'
+import { ICodeIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -8,7 +9,7 @@ import { isGeneratedAppStorageMessage } from '../../os/generated-app-data-storag
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useOs } from '../../os/os-context.tsx'
+import { useOs, useAppCloseGuard } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 import {
@@ -24,10 +25,22 @@ import {
   loadFormalAppData,
   readBundleFromZipFile,
 } from './icode-backup.ts'
+import {
+  draftFromInternalProject,
+  draftFromSession,
+  draftSnapshotsEqual,
+  isPublishDirty,
+  loadPublishedSnapshot,
+  type ICodePublishedSnapshot,
+} from './icode-draft.ts'
+import { buildIcodeClosePromptHint, buildIcodeEditorNavHint } from './icode-editor-nav-hint.ts'
 import { generateInternalAppHtml } from './icode-generation.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
+import { parseAiderEditBlocks, stripAiderEditBlocksFromContent, extractFinalReplyAfterEdits } from './icode-apply-edits.ts'
+import { IcodeChatAssistantMessage, IcodeChatMessageView } from './icode-chat-message.tsx'
 import {
   buildIcodeSyncInput,
+  buildIcodePlaceholderSyncInput,
   findProjectNameConflict,
   formatProjectNameConflictMessage,
   resolvePublishAppId,
@@ -49,11 +62,14 @@ import type {
   ICodeExportBundle,
   ICodeInternalProject,
 } from './icode-types.ts'
+import { IcodeAppDataEditor } from './icode-app-data-editor.tsx'
+import { appDataRecordsEqual } from './icode-app-data-value.ts'
 import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
 import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
 import './icode.css'
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
+type MobileEditorPane = 'preview' | 'edit'
 
 const ICODE_THEME_COLOR_PRESETS = [
   '#007aff',
@@ -80,10 +96,10 @@ function generationStatusLabel(phase: AppGenerationPhase | undefined, progress: 
 }
 
 const CONSOLE_LEVEL_LABELS: Record<ICodeConsoleEntry['level'], string> = {
-  log: 'LOG',
+  log: '日志',
   info: 'INFO',
-  warn: 'WARN',
-  error: 'ERR',
+  warn: '提示',
+  error: '错误',
   debug: 'DBG',
 }
 
@@ -126,24 +142,58 @@ function sessionFromInternal(project: ICodeInternalProject): EditorSession {
   }
 }
 
+function mergeDraftIntoSession(session: EditorSession, draftHtml: string, codeDirty: boolean): EditorSession {
+  if (!codeDirty) {
+    return session
+  }
+
+  return { ...session, html: draftHtml }
+}
+
+function sessionToInternalProject(session: EditorSession, draftHtml: string, codeDirty: boolean): ICodeInternalProject {
+  const merged = mergeDraftIntoSession(session, draftHtml, codeDirty)
+  const stored = getInternalProject(session.projectId)
+  const now = Date.now()
+  return {
+    id: session.projectId,
+    name: merged.name,
+    description: merged.description,
+    category: merged.category,
+    iconEmoji: merged.iconEmoji,
+    themeColor: merged.themeColor,
+    tags: merged.tags,
+    html: merged.html,
+    appData: { ...merged.appData },
+    chat: merged.chat,
+    linkedAppId: merged.linkedAppId,
+    createdAt: stored?.createdAt ?? now,
+    updatedAt: now,
+  }
+}
+
 function previewAppIdForSession(session: EditorSession): GeneratedAppId {
   return previewAppIdForInternal(session.projectId)
 }
 
 export function ICodeApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const { installedApps, syncAppFromIcode } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
   const [session, setSession] = useState<EditorSession | undefined>()
   const [editorTab, setEditorTab] = useState<EditorTab>('chat')
+  const [mobilePane, setMobilePane] = useState<MobileEditorPane>('edit')
   const [prompt, setPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [generationPhase, setGenerationPhase] = useState<AppGenerationPhase | undefined>()
   const [generationStatus, setGenerationStatus] = useState('')
   const [streamReasoningText, setStreamReasoningText] = useState('')
   const [streamContentText, setStreamContentText] = useState('')
+  const [streamVisibleReply, setStreamVisibleReply] = useState('')
+  const [streamAppliedEdits, setStreamAppliedEdits] = useState(0)
   const [error, setError] = useState<string | undefined>()
+  const [importErrorMessage, setImportErrorMessage] = useState<string | undefined>()
   const [showNewProject, setShowNewProject] = useState(false)
   const [showImportPicker, setShowImportPicker] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<
@@ -153,7 +203,13 @@ export function ICodeApp() {
   const [newProjectDescription, setNewProjectDescription] = useState('')
   const [previewEpoch, setPreviewEpoch] = useState(0)
   const [draftHtml, setDraftHtml] = useState('')
+  const [draftAppData, setDraftAppData] = useState<Record<string, string>>({})
+  const [dataEditInvalid, setDataEditInvalid] = useState(false)
+  const dataDraftEditedRef = useRef(false)
   const [consoleLogs, setConsoleLogs] = useState<ICodeConsoleEntry[]>([])
+  const [publishedSnapshot, setPublishedSnapshot] = useState<ICodePublishedSnapshot | undefined>()
+  const [closePromptOpen, setClosePromptOpen] = useState(false)
+  const closeIntentRef = useRef<'list' | 'window'>('list')
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const previewWindowRef = useRef<Window | null>(null)
@@ -164,7 +220,19 @@ export function ICodeApp() {
 
   const internalProjects = useMemo(() => loadInternalProjects(), [projectRevision])
 
-  const syncProjectToDesktop = useCallback(
+  const syncPlaceholderToDesktop = useCallback(
+    (project: ICodeInternalProject): boolean => {
+      const appId = resolvePublishAppId(project)
+      const linkedProject = project.linkedAppId ? project : { ...project, linkedAppId: appId }
+      if (!project.linkedAppId) {
+        updateInternalProject(project.id, { linkedAppId: appId })
+      }
+      return syncAppFromIcode(buildIcodePlaceholderSyncInput(linkedProject))
+    },
+    [syncAppFromIcode],
+  )
+
+  const publishProjectToDesktop = useCallback(
     (project: ICodeInternalProject): boolean => {
       const appId = resolvePublishAppId(project)
       const linkedProject = project.linkedAppId ? project : { ...project, linkedAppId: appId }
@@ -196,8 +264,8 @@ export function ICodeApp() {
       }
 
       const installed = installedApps.find((app) => app.id === resolvePublishAppId(current))
-      if (!installed || installed.icodeProjectId !== current.id) {
-        syncProjectToDesktop(current)
+      if (!installed) {
+        syncPlaceholderToDesktop(current)
         changed = true
       }
     }
@@ -205,11 +273,98 @@ export function ICodeApp() {
     if (changed) {
       setProjectRevision((value) => value + 1)
     }
-  }, [installedApps, syncProjectToDesktop])
+  }, [installedApps, syncPlaceholderToDesktop])
 
   const previewAppId = session ? previewAppIdForSession(session) : undefined
   const codeDirty = session !== undefined && draftHtml !== session.html
-  const showStreamOutput = generating && Boolean(streamReasoningText || streamContentText)
+  const dataDirty = Boolean(session && !appDataRecordsEqual(draftAppData, session.appData))
+  const currentDraft = session ? draftFromSession(session, draftHtml, codeDirty) : undefined
+  const storedProject = session ? getInternalProject(session.projectId) : undefined
+  const publishDirty =
+    Boolean(session && publishedSnapshot && currentDraft) &&
+    isPublishDirty(currentDraft!, publishedSnapshot!)
+  const internalSaveDirty =
+    Boolean(session && storedProject && currentDraft) &&
+    !draftSnapshotsEqual(currentDraft!, draftFromInternalProject(storedProject!))
+  const chatDirty =
+    Boolean(session && storedProject) &&
+    JSON.stringify(session!.chat) !== JSON.stringify(storedProject!.chat)
+  const hasUnsavedWork = publishDirty || internalSaveDirty || chatDirty
+  const streamEdits = useMemo(
+    () => (streamContentText ? parseAiderEditBlocks(streamContentText) : []),
+    [streamContentText],
+  )
+
+  const codeEditingActive = useMemo(() => {
+    if (!generating || !session) {
+      return false
+    }
+
+    if (!session.html.trim()) {
+      return true
+    }
+
+    return (
+      streamAppliedEdits > 0 ||
+      streamEdits.length > 0 ||
+      streamContentText.includes('<<<<<<< SEARCH')
+    )
+  }, [generating, session, streamAppliedEdits, streamContentText, streamEdits.length])
+
+  const showStreamOutput =
+    codeEditingActive && Boolean(streamReasoningText || streamContentText)
+
+  const editorNavHint = useMemo(
+    () =>
+      buildIcodeEditorNavHint({
+        generating,
+        codeEditing: codeEditingActive,
+        generationStatus,
+        codeDirty,
+        publishDirty,
+        internalSaveDirty,
+        chatDirty,
+        currentDraft,
+        publishedSnapshot,
+        htmlLength: session?.html.length ?? 0,
+      }),
+    [
+      chatDirty,
+      codeDirty,
+      codeEditingActive,
+      currentDraft,
+      generating,
+      generationStatus,
+      internalSaveDirty,
+      publishDirty,
+      publishedSnapshot,
+      session?.html.length,
+    ],
+  )
+  const closePromptHint = useMemo(
+    () =>
+      buildIcodeClosePromptHint({
+        codeDirty,
+        publishDirty,
+        internalSaveDirty,
+        chatDirty,
+        currentDraft,
+        publishedSnapshot,
+      }),
+    [chatDirty, codeDirty, currentDraft, internalSaveDirty, publishDirty, publishedSnapshot],
+  )
+
+  const streamingSummary = useMemo(() => {
+    if (generationPhase === 'thinking') {
+      return '思考中…'
+    }
+    if (generationPhase === 'generating') {
+      return streamEdits.length > 0
+        ? `正在应用修改（${streamEdits.length} 处）…`
+        : '生成中…'
+    }
+    return generationStatus || '连接 AI…'
+  }, [generationPhase, generationStatus, streamEdits.length])
 
   useEffect(() => {
     if (!session) {
@@ -219,6 +374,25 @@ export function ICodeApp() {
 
     setDraftHtml(session.html)
   }, [session?.html, session?.projectId])
+
+  useEffect(() => {
+    dataDraftEditedRef.current = false
+    if (!session) {
+      setDraftAppData({})
+      setDataEditInvalid(false)
+      return
+    }
+
+    setDraftAppData({ ...session.appData })
+  }, [session?.projectId])
+
+  useEffect(() => {
+    if (!session || dataDraftEditedRef.current) {
+      return
+    }
+
+    setDraftAppData({ ...session.appData })
+  }, [session?.appData])
 
   useEffect(() => {
     if (!session?.html.trim()) {
@@ -363,37 +537,109 @@ export function ICodeApp() {
 
   useEffect(() => {
     const container = chatListRef.current
-    if (!container || editorTab !== 'chat' || !session?.chat.length) {
+    if (!container || editorTab !== 'chat') {
       return
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    const scrollToBottom = () => {
       container.scrollTop = container.scrollHeight
+    }
+
+    scrollToBottom()
+    const frame = window.requestAnimationFrame(scrollToBottom)
+
+    const resizeObserver = new ResizeObserver(() => {
+      window.requestAnimationFrame(scrollToBottom)
+    })
+    resizeObserver.observe(container)
+
+    const mutationObserver = new MutationObserver(() => {
+      window.requestAnimationFrame(scrollToBottom)
+    })
+    mutationObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
     })
 
-    return () => window.cancelAnimationFrame(frame)
-  }, [editorTab, session?.chat])
+    return () => {
+      window.cancelAnimationFrame(frame)
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
+    }
+  }, [
+    editorTab,
+    session?.chat,
+    session?.projectId,
+    generating,
+    streamReasoningText,
+    streamContentText,
+    streamVisibleReply,
+    streamAppliedEdits,
+    generationPhase,
+  ])
 
-  const persistSession = useCallback(
-    (next: EditorSession) => {
-      const updated = updateInternalProject(next.projectId, {
-        name: next.name,
-        description: next.description,
-        category: next.category,
-        iconEmoji: next.iconEmoji,
-        themeColor: next.themeColor,
-        tags: next.tags,
-        html: next.html,
-        appData: next.appData,
-        chat: next.chat,
-        linkedAppId: next.linkedAppId,
+  const saveDraftInternal = useCallback(
+    (next: EditorSession, draftHtmlValue: string, codeDirtyFlag: boolean) => {
+      const project = sessionToInternalProject(next, draftHtmlValue, codeDirtyFlag)
+      const updated = updateInternalProject(project.id, {
+        name: project.name,
+        description: project.description,
+        category: project.category,
+        iconEmoji: project.iconEmoji,
+        themeColor: project.themeColor,
+        tags: project.tags,
+        html: project.html,
+        appData: project.appData,
+        chat: project.chat,
+        linkedAppId: project.linkedAppId,
       })
       setProjectRevision((value) => value + 1)
-      if (updated) {
-        syncProjectToDesktop(updated)
-      }
+      return updated
     },
-    [syncProjectToDesktop],
+    [],
+  )
+
+  const publishSessionDraft = useCallback(
+    (next: EditorSession, draftHtmlValue: string, codeDirtyFlag: boolean): boolean => {
+      const saved = saveDraftInternal(next, draftHtmlValue, codeDirtyFlag)
+      if (!saved) {
+        setError('保存草稿失败，请检查存储空间')
+        return false
+      }
+
+      if (!publishProjectToDesktop(saved)) {
+        setError('发布失败，请检查存储空间')
+        return false
+      }
+
+      const merged = mergeDraftIntoSession(next, draftHtmlValue, codeDirtyFlag)
+      setPublishedSnapshot(draftFromSession(merged, merged.html, false))
+      setError(undefined)
+      return true
+    },
+    [publishProjectToDesktop, saveDraftInternal],
+  )
+
+  const revertDraftToPublished = useCallback(
+    (targetSession: EditorSession, snapshot: ICodePublishedSnapshot) => {
+      const stored = getInternalProject(targetSession.projectId)
+      const reverted: EditorSession = {
+        ...targetSession,
+        name: snapshot.name,
+        description: snapshot.description,
+        category: snapshot.category,
+        iconEmoji: snapshot.iconEmoji,
+        themeColor: snapshot.themeColor,
+        tags: [...snapshot.tags],
+        html: snapshot.html,
+        appData: { ...snapshot.appData },
+        chat: stored ? [...stored.chat] : [...targetSession.chat],
+      }
+      saveDraftInternal(reverted, snapshot.html, false)
+      return reverted
+    },
+    [saveDraftInternal],
   )
 
   const updateSessionMeta = useCallback(
@@ -415,14 +661,13 @@ export function ICodeApp() {
 
       const updated: EditorSession = { ...session, ...patch }
       setSession(updated)
-      persistSession(updated)
       setError(undefined)
 
       if (patch.tags !== undefined) {
         setPreviewEpoch((epoch) => epoch + 1)
       }
     },
-    [installedApps, internalProjects, persistSession, session],
+    [installedApps, internalProjects, session],
   )
 
   const onRunDraft = useCallback(() => {
@@ -435,32 +680,187 @@ export function ICodeApp() {
       html: draftHtml,
     }
     setSession(updated)
-    persistSession(updated)
-  }, [draftHtml, persistSession, session])
+    setDraftHtml(updated.html)
+    setPreviewEpoch((epoch) => epoch + 1)
+  }, [draftHtml, session])
 
-  const closeEditor = useCallback(() => {
-    if (session) {
-      persistSession(session)
-    }
-    setSession(undefined)
-    setDraftHtml('')
-    setPrompt('')
-    setError(undefined)
-    setGenerationStatus('')
-    setStreamReasoningText('')
-    setStreamContentText('')
-  }, [persistSession, session])
-
-  const openInternal = useCallback((projectId: string) => {
-    const project = getInternalProject(projectId)
-    if (!project) {
+  const onApplyAppData = useCallback(() => {
+    if (!session || !dataDirty || dataEditInvalid) {
       return
     }
 
-    setSession(sessionFromInternal(project))
-    setEditorTab('chat')
-    setError(undefined)
+    const updated: EditorSession = {
+      ...session,
+      appData: { ...draftAppData },
+    }
+    dataDraftEditedRef.current = false
+    setSession(updated)
+    setDraftAppData({ ...draftAppData })
+    previewBootstrapDataRef.current = { ...draftAppData }
+    setPreviewEpoch((epoch) => epoch + 1)
+  }, [dataDirty, dataEditInvalid, draftAppData, session])
+
+  const onDraftAppDataChange = useCallback((value: Record<string, string>) => {
+    dataDraftEditedRef.current = true
+    setDraftAppData(value)
   }, [])
+
+  const resetEditorUi = useCallback(() => {
+    setSession(undefined)
+    setPublishedSnapshot(undefined)
+    setDraftHtml('')
+    setDraftAppData({})
+    setDataEditInvalid(false)
+    dataDraftEditedRef.current = false
+    setPrompt('')
+    setError(undefined)
+    setGenerationStatus('')
+    setGenerationPhase(undefined)
+    setStreamReasoningText('')
+    setStreamContentText('')
+    setStreamVisibleReply('')
+    setStreamAppliedEdits(0)
+    setClosePromptOpen(false)
+  }, [])
+
+  const finishCloseEditor = useCallback(() => {
+    const shouldCloseWindow = closeIntentRef.current === 'window'
+    closeIntentRef.current = 'list'
+    resetEditorUi()
+    if (shouldCloseWindow) {
+      bypassAppCloseGuard('icode')
+      closeWindowsForApp('icode')
+    }
+  }, [bypassAppCloseGuard, closeWindowsForApp, resetEditorUi])
+
+  const requestCloseEditor = useCallback(() => {
+    closeIntentRef.current = 'list'
+    if (!session) {
+      finishCloseEditor()
+      return
+    }
+
+    if (hasUnsavedWork) {
+      setClosePromptOpen(true)
+      return
+    }
+
+    finishCloseEditor()
+  }, [finishCloseEditor, hasUnsavedWork, session])
+
+  const requestCloseWindow = useCallback(() => {
+    closeIntentRef.current = 'window'
+    if (!session) {
+      return true
+    }
+
+    if (hasUnsavedWork) {
+      setClosePromptOpen(true)
+      return false
+    }
+
+    return true
+  }, [hasUnsavedWork, session])
+
+  useAppCloseGuard('icode', requestCloseWindow)
+
+  const confirmCloseDiscard = useCallback(() => {
+    if (!session) {
+      finishCloseEditor()
+      return
+    }
+
+    const snapshot =
+      publishedSnapshot ??
+      loadPublishedSnapshot(
+        session.linkedAppId ?? resolvePublishAppId(sessionToInternalProject(session, draftHtml, codeDirty)),
+        installedApps,
+        session,
+      )
+    revertDraftToPublished(session, snapshot)
+    finishCloseEditor()
+  }, [
+    codeDirty,
+    draftHtml,
+    finishCloseEditor,
+    installedApps,
+    publishedSnapshot,
+    revertDraftToPublished,
+    session,
+  ])
+
+  const confirmCloseSaveDraft = useCallback(() => {
+    if (!session) {
+      finishCloseEditor()
+      return
+    }
+
+    saveDraftInternal(session, draftHtml, codeDirty)
+    finishCloseEditor()
+  }, [codeDirty, draftHtml, finishCloseEditor, saveDraftInternal, session])
+
+  const confirmClosePublish = useCallback(() => {
+    if (!session) {
+      finishCloseEditor()
+      return
+    }
+
+    if (publishSessionDraft(session, draftHtml, codeDirty)) {
+      finishCloseEditor()
+    }
+  }, [codeDirty, draftHtml, finishCloseEditor, publishSessionDraft, session])
+
+  const onSaveDraft = useCallback(() => {
+    if (!session) {
+      return
+    }
+
+    const saved = saveDraftInternal(session, draftHtml, codeDirty)
+    if (!saved) {
+      setError('保存失败，请检查存储空间')
+      return
+    }
+
+    const merged = mergeDraftIntoSession(session, draftHtml, codeDirty)
+    setSession(merged)
+    setDraftHtml(merged.html)
+    setError(undefined)
+  }, [codeDirty, draftHtml, saveDraftInternal, session])
+
+  const onPublish = useCallback(() => {
+    if (!session) {
+      return
+    }
+
+    if (!publishSessionDraft(session, draftHtml, codeDirty)) {
+      return
+    }
+
+    const merged = mergeDraftIntoSession(session, draftHtml, codeDirty)
+    setSession(merged)
+    setDraftHtml(merged.html)
+    setPublishedSnapshot(draftFromSession(merged, merged.html, false))
+  }, [codeDirty, draftHtml, publishSessionDraft, session])
+
+  const closeEditor = requestCloseEditor
+
+  const openInternal = useCallback(
+    (projectId: string) => {
+      const project = getInternalProject(projectId)
+      if (!project) {
+        return
+      }
+
+      const nextSession = sessionFromInternal(project)
+      setSession(nextSession)
+      setPublishedSnapshot(
+        loadPublishedSnapshot(nextSession.linkedAppId ?? resolvePublishAppId(project), installedApps, project),
+      )
+      setEditorTab('chat')
+      setError(undefined)
+    },
+    [installedApps],
+  )
 
   const requestDeleteProject = useCallback((projectId: string) => {
     const project = getInternalProject(projectId)
@@ -517,7 +917,7 @@ export function ICodeApp() {
         tags: record.tags ?? [],
       })
       const synced = getInternalProject(imported.id)
-      if (!synced || !syncProjectToDesktop(synced)) {
+      if (!synced || !syncPlaceholderToDesktop(synced)) {
         removeInternalProject(imported.id)
         setError('导入失败，请检查存储空间')
         return
@@ -528,7 +928,7 @@ export function ICodeApp() {
       setError(undefined)
       openInternal(imported.id)
     },
-    [installedApps, internalProjects, openInternal, syncProjectToDesktop],
+    [installedApps, internalProjects, openInternal, syncPlaceholderToDesktop],
   )
 
   const exportCurrentProject = useCallback(() => {
@@ -563,21 +963,21 @@ export function ICodeApp() {
       const registerImportedProject = (importName: string, description: string, patch: Parameters<typeof updateInternalProject>[1]) => {
         const conflict = findProjectNameConflict(installedApps, internalProjects, importName)
         if (conflict) {
-          setError(formatProjectNameConflictMessage(conflict))
+          setImportErrorMessage(formatProjectNameConflictMessage(conflict))
           return undefined
         }
 
         const imported = createInternalProject(importName, description)
         updateInternalProject(imported.id, patch)
         const synced = getInternalProject(imported.id)
-        if (!synced || !syncProjectToDesktop(synced)) {
+        if (!synced || !syncPlaceholderToDesktop(synced)) {
           removeInternalProject(imported.id)
-          setError('导入失败，请检查存储空间')
+          setImportErrorMessage('导入失败，请检查存储空间')
           return undefined
         }
 
         setProjectRevision((value) => value + 1)
-        setError(undefined)
+        setImportErrorMessage(undefined)
         openInternal(imported.id)
         return imported
       }
@@ -614,7 +1014,7 @@ export function ICodeApp() {
         tags: formalProject.tags ?? [],
       })
     },
-    [installedApps, internalProjects, openInternal, syncProjectToDesktop],
+    [installedApps, internalProjects, openInternal, syncPlaceholderToDesktop],
   )
 
   const onImportFile = useCallback(
@@ -626,9 +1026,9 @@ export function ICodeApp() {
       try {
         const bundle = await readBundleFromZipFile(file)
         await importBundle(bundle)
-        setError(undefined)
+        setImportErrorMessage(undefined)
       } catch (importError) {
-        setError(importError instanceof Error ? importError.message : '导入失败')
+        setImportErrorMessage(importError instanceof Error ? importError.message : '导入失败')
       }
     },
     [importBundle],
@@ -648,7 +1048,7 @@ export function ICodeApp() {
     }
 
     const project = createInternalProject(newProjectName, newProjectDescription)
-    if (!syncProjectToDesktop(project)) {
+    if (!syncPlaceholderToDesktop(project)) {
       removeInternalProject(project.id)
       setError('创建失败，请检查存储空间')
       return
@@ -666,7 +1066,7 @@ export function ICodeApp() {
     newProjectDescription,
     newProjectName,
     openInternal,
-    syncProjectToDesktop,
+    syncPlaceholderToDesktop,
   ])
 
   const onSendPrompt = useCallback(async () => {
@@ -686,9 +1086,12 @@ export function ICodeApp() {
     setSession({ ...session, chat: nextChat })
     setPrompt('')
     setGenerating(true)
+    setGenerationPhase('waiting')
     setGenerationStatus('连接 AI…')
     setStreamReasoningText('')
     setStreamContentText('')
+    setStreamVisibleReply('')
+    setStreamAppliedEdits(0)
     setError(undefined)
 
     try {
@@ -710,39 +1113,75 @@ export function ICodeApp() {
         },
         instruction,
         (update) => {
+          setGenerationPhase(update.phase)
           setStreamReasoningText(update.reasoningText)
           setStreamContentText(update.contentText)
-          setGenerationStatus(generationStatusLabel(update.phase, update.progress))
+          setStreamVisibleReply(update.visibleReply ?? '')
+          setStreamAppliedEdits(update.appliedEdits ?? 0)
+          const editLabel =
+            update.appliedEdits !== undefined && update.appliedEdits > 0
+              ? ` · 已应用 ${update.appliedEdits} 处修改`
+              : ''
+          setGenerationStatus(`${generationStatusLabel(update.phase, update.progress)}${editLabel}`)
+          if (update.partialHtml) {
+            setSession((current) =>
+              current ? { ...current, html: update.partialHtml! } : current,
+            )
+            setDraftHtml(update.partialHtml!)
+          }
         },
       )
+
+      const htmlBefore = codeDirty ? draftHtml : session.html
+      const fullReply = stripAiderEditBlocksFromContent(result.outputText ?? '') || undefined
+      const displaySummary =
+        result.assistantSummary ||
+        extractFinalReplyAfterEdits(result.outputText ?? '') ||
+        fullReply ||
+        ''
 
       const assistantMessage: ICodeChatMessage = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: result.assistantSummary,
+        content: displaySummary,
         createdAt: Date.now(),
+        reasoningText: result.reasoningText,
+        fullReply,
+        outputText: result.outputText,
+        edits: result.edits,
+        appliedEdits: result.appliedEdits,
       }
 
+      const htmlChanged = result.html !== htmlBefore
       const updated: EditorSession = {
         ...session,
         chat: [...nextChat, assistantMessage],
-        html: result.html,
+        html: htmlChanged ? result.html : session.html,
       }
 
       setSession(updated)
-      persistSession(updated)
+      if (htmlChanged) {
+        setDraftHtml(updated.html)
+        setPreviewEpoch((epoch) => epoch + 1)
+      }
       setGenerationStatus('')
+      setGenerationPhase(undefined)
       setStreamReasoningText('')
       setStreamContentText('')
+      setStreamVisibleReply('')
+      setStreamAppliedEdits(0)
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : '生成失败')
       setGenerationStatus('')
+      setGenerationPhase(undefined)
       setStreamReasoningText('')
       setStreamContentText('')
+      setStreamVisibleReply('')
+      setStreamAppliedEdits(0)
     } finally {
       setGenerating(false)
     }
-  }, [generating, persistSession, prompt, session])
+  }, [codeDirty, draftHtml, generating, prompt, session])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === 'icode' && !window.minimized)
@@ -751,18 +1190,31 @@ export function ICodeApp() {
       ? [
           {
             type: 'action' as const,
+            label: '保存草稿',
+            shortcut: '⌘S',
+            onClick: onSaveDraft,
+          },
+          {
+            type: 'action' as const,
+            label: '发布到桌面',
+            shortcut: '⇧⌘P',
+            onClick: onPublish,
+          },
+          { type: 'separator' as const },
+          {
+            type: 'action' as const,
             label: '关闭项目',
             onClick: closeEditor,
           },
           { type: 'separator' as const },
           {
             type: 'action' as const,
-            label: '导出压缩包…',
+            label: '导出程序包…',
             onClick: exportCurrentProject,
           },
           {
             type: 'action' as const,
-            label: '导入压缩包…',
+            label: '导入程序包…',
             onClick: () => importInputRef.current?.click(),
           },
         ]
@@ -774,7 +1226,7 @@ export function ICodeApp() {
           },
           {
             type: 'action' as const,
-            label: '导入压缩包…',
+            label: '导入程序包…',
             onClick: () => importInputRef.current?.click(),
           },
         ]
@@ -809,20 +1261,14 @@ export function ICodeApp() {
     closeWindowsForApp,
     exportCurrentProject,
     minimizeWindow,
+    onPublish,
+    onSaveDraft,
     session,
     showBuiltinAbout,
     windows,
   ])
 
   useAppMenuBar('icode', menuBar)
-
-  const dataJson = useMemo(() => {
-    if (!session) {
-      return '{}'
-    }
-
-    return JSON.stringify(session.appData, undefined, 2)
-  }, [session?.appData])
 
   const deleteConfirmModal = deleteTarget ? (
     <div class="icode__modal-backdrop">
@@ -855,6 +1301,71 @@ export function ICodeApp() {
     </div>
   ) : undefined
 
+  const importErrorModal = importErrorMessage ? (
+    <div class="icode__modal-backdrop">
+      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-import-error-title">
+        <div class="icode__modal-header">
+          <h3 id="icode-import-error-title">无法导入程序包</h3>
+        </div>
+        <div class="icode__modal-body">
+          <p class="icode__modal-hint">{importErrorMessage}</p>
+        </div>
+        <div class="icode__modal-actions">
+          <button
+            type="button"
+            class="icode__button icode__button--primary"
+            onClick={() => setImportErrorMessage(undefined)}
+          >
+            好
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : undefined
+
+  const closeConfirmModal = closePromptOpen ? (
+    <div class="icode__modal-backdrop">
+      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-close-title">
+        <div class="icode__modal-header">
+          <h3 id="icode-close-title">有未保存的更改</h3>
+        </div>
+        <div class="icode__modal-body">
+          <p class="icode__modal-hint">{closePromptHint}</p>
+        </div>
+        <div class="icode__modal-actions icode__modal-actions--stack">
+          <button
+            type="button"
+            class="icode__button icode__button--primary"
+            onClick={confirmClosePublish}
+          >
+            发布到桌面并关闭
+          </button>
+          <button
+            type="button"
+            class="icode__button icode__button--secondary"
+            onClick={confirmCloseSaveDraft}
+          >
+            保存草稿并关闭
+          </button>
+          <button
+            type="button"
+            class="icode__button icode__button--danger"
+            onClick={confirmCloseDiscard}
+          >
+            放弃更改
+          </button>
+          <button
+            type="button"
+            class="icode__button icode__button--secondary"
+            onClick={() => setClosePromptOpen(false)}
+          >
+            继续编辑
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : undefined
+
   if (!session) {
     return (
       <div class="icode">
@@ -879,7 +1390,7 @@ export function ICodeApp() {
               <div class="icode__hero-copy">
                 <h1 class="icode__picker-title">iCode</h1>
                 <p class="icode__picker-subtitle">
-                  在系统内开发、调试 AI 微应用。每个项目创建后自动出现在桌面，编辑会实时同步。
+                  在系统内开发、调试 AI 微应用。编辑仅在 iCode 内预览，发布后才更新桌面入口。
                 </p>
               </div>
             </div>
@@ -907,7 +1418,7 @@ export function ICodeApp() {
                 class="icode__button icode__button--secondary"
                 onClick={() => importInputRef.current?.click()}
               >
-                导入压缩包…
+                导入程序包…
               </button>
             </div>
 
@@ -956,7 +1467,7 @@ export function ICodeApp() {
                 )}
               </div>
               <p class="icode__section-footnote">
-                每个项目会自动在桌面创建入口。从已安装应用导入时会创建独立副本，不会修改原应用。
+                每个项目会在桌面创建占位入口。在 iCode 中编辑后需「发布到桌面」才会更新外部应用。
               </p>
             </section>
           </div>
@@ -1068,6 +1579,7 @@ export function ICodeApp() {
         )}
 
         {deleteConfirmModal}
+        {importErrorModal}
       </div>
     )
   }
@@ -1088,25 +1600,34 @@ export function ICodeApp() {
 
       <div class="icode__editor">
         <nav class="icode__nav">
-          <button type="button" class="icode__nav-back" onClick={closeEditor}>
-            <span class="icode__nav-back-icon" aria-hidden="true">
-              <BackIcon size={13} />
-            </span>
-            项目
-          </button>
-          <span class="icode__nav-title">
-            <GeneratedAppIcon
-              emoji={session.iconEmoji || '📦'}
-              themeColor={session.themeColor}
-              size={22}
-            />
-            <span class="icode__nav-title-text">{session.name}</span>
-          </span>
+          <IosNavBackButton class="icode__nav-back" label="项目" onClick={closeEditor} />
+          <p
+            class={`icode__nav-hint icode__nav-hint--${editorNavHint.tone}`}
+            title={editorNavHint.message}
+          >
+            {editorNavHint.message}
+          </p>
           <div class="icode__nav-actions">
+            <button
+              type="button"
+              class="icode__button icode__button--secondary icode__nav-save"
+              disabled={!hasUnsavedWork || generating}
+              onClick={onSaveDraft}
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              class="icode__button icode__button--primary icode__nav-publish"
+              disabled={!publishDirty || generating}
+              onClick={onPublish}
+            >
+              发布
+            </button>
             {codeDirty && (
               <button
                 type="button"
-                class="icode__button icode__button--run"
+                class="icode__button icode__button--run icode__nav-run"
                 disabled={!draftHtml.trim() || generating}
                 onClick={onRunDraft}
               >
@@ -1114,46 +1635,31 @@ export function ICodeApp() {
               </button>
             )}
             <span class="icode__kind-pill">iCode</span>
-            <span
-              class={`icode__nav-status${codeDirty ? ' icode__nav-status--dirty' : ''}`}
-            >
-              {generating
-                ? generationStatus || '生成中…'
-                : codeDirty
-                  ? '未运行'
-                  : `${session.html.length.toLocaleString('zh-CN')} 字符`}
-            </span>
           </div>
         </nav>
 
-        {codeDirty && (
-          <p class="icode__draft-banner">
-            源码已修改，与左侧预览不一致。点击顶部「运行」或切换到「源码」面板运行。
-          </p>
-        )}
-
         {error && <p class="icode__error">{error}</p>}
 
-        <div class="icode__editor-body">
+        <div class={`icode__editor-body icode__editor-body--mobile-${mobilePane}`}>
           <div class="icode__preview">
             <p class="icode__preview-label">应用预览</p>
             <div class="icode__preview-screen">
-              {!session.html.trim() && !generating && (
+              {!session.html.trim() && !codeEditingActive && (
                 <div class="icode__preview-empty">
                   <span class="icode__preview-empty-icon" aria-hidden="true">
                     💬
                   </span>
                   <span>
-                    在右侧「对话」中输入提示词，
+                    在「对话」中输入提示词，
                     <br />
                     让 AI 生成或修改此应用。
                   </span>
                 </div>
               )}
-              {generating && !showStreamOutput && (
+              {codeEditingActive && !showStreamOutput && (
                 <div class="icode__preview-overlay">{generationStatus || '生成中…'}</div>
               )}
-              {generating && (
+              {codeEditingActive && (
                 <AiStreamPreview
                   reasoningText={showStreamOutput ? streamReasoningText : ''}
                   contentText={showStreamOutput ? streamContentText : ''}
@@ -1220,7 +1726,7 @@ export function ICodeApp() {
                   type="button"
                   role="tab"
                   aria-selected={editorTab === 'data'}
-                  class={`icode__segment${editorTab === 'data' ? ' icode__segment--active' : ''}`}
+                  class={`icode__segment${editorTab === 'data' ? ' icode__segment--active' : ''}${dataDirty ? ' icode__segment--dirty' : ''}`}
                   onClick={() => setEditorTab('data')}
                 >
                   数据
@@ -1247,57 +1753,54 @@ export function ICodeApp() {
                     <p class="icode__chat-empty">
                       输入提示词开始生成。
                       <br />
-                      首次生成会创建完整应用；之后可继续描述修改需求。
+                      首次生成会创建完整应用；之后可提问或描述修改，AI 会先回复，需要时才会改代码。
                     </p>
                   ) : (
                     session.chat.map((message) => (
-                      <div
-                        key={message.id}
-                        class={`icode__chat-bubble icode__chat-bubble--${message.role}`}
-                      >
-                        {message.content}
-                      </div>
+                      <IcodeChatMessageView key={message.id} message={message} />
                     ))
                   )}
                   {generating && (
-                    <div class="icode__chat-bubble icode__chat-bubble--assistant icode__chat-bubble--streaming">
-                      <AiStreamPreview
-                        reasoningText={streamReasoningText}
-                        contentText={streamContentText}
-                        variant="notification"
-                        emptyLabel={generationStatus || '连接 AI…'}
-                        className="icode__chat-stream"
-                      />
-                    </div>
+                    <IcodeChatAssistantMessage
+                      summary=""
+                      visibleReply={streamVisibleReply || undefined}
+                      reasoningText={streamReasoningText || undefined}
+                      outputText={streamContentText || undefined}
+                      edits={streamEdits.length > 0 ? streamEdits : undefined}
+                      appliedEdits={streamAppliedEdits}
+                      streaming
+                      phase={generationPhase}
+                      statusLabel={generationStatus || streamingSummary}
+                    />
                   )}
                 </div>
                 <div class="icode__chat-compose">
-                  <div class="icode__chat-compose-row">
-                    <textarea
-                      class="icode__chat-input"
-                      value={prompt}
-                      placeholder="描述要生成或修改的内容…"
-                      disabled={generating}
-                      onInput={(event) =>
-                        setPrompt((event.currentTarget as HTMLTextAreaElement).value)
+                  <textarea
+                    class="icode__chat-input"
+                    value={prompt}
+                    placeholder="描述要生成或修改的内容…"
+                    disabled={generating}
+                    onInput={(event) =>
+                      setPrompt((event.currentTarget as HTMLTextAreaElement).value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault()
+                        void onSendPrompt()
                       }
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                          event.preventDefault()
-                          void onSendPrompt()
-                        }
-                      }}
-                    />
+                    }}
+                  />
+                  <div class="icode__chat-compose-actions">
                     <button
                       type="button"
-                      class="icode__button icode__button--primary"
+                      class="icode__button icode__button--primary icode__chat-send"
                       disabled={generating || !prompt.trim()}
                       onClick={() => void onSendPrompt()}
                     >
                       发送
                     </button>
+                    <p class="icode__chat-hint">⌘↵ 发送</p>
                   </div>
-                  <p class="icode__chat-hint">⌘↵ 发送</p>
                 </div>
               </div>
 
@@ -1419,7 +1922,7 @@ export function ICodeApp() {
                     <div class="icode__config-inset">
                       <label class="icode__config-toggle-row">
                         <span class="icode__config-toggle-copy">
-                          <strong>启用 3D SDK</strong>
+                          <strong>启用 3D 模块</strong>
                           <span>为预览注入 Three.js 桥接与 WebGL 运行时支持</span>
                         </span>
                         <input
@@ -1459,14 +1962,28 @@ export function ICodeApp() {
               </div>
 
               <div class="icode__tab-pane" hidden={editorTab !== 'data'}>
-                <div class="icode__panel-toolbar">
-                  <span>{Object.keys(session.appData).length} 个键</span>
+                <div class="icode__panel-toolbar icode__panel-toolbar--source">
+                  <span>{Object.keys(draftAppData).length} 个键</span>
+                  {dataEditInvalid && (
+                    <span class="icode__run-hint">当前键的值格式无效</span>
+                  )}
+                  {!dataEditInvalid && dataDirty && (
+                    <span class="icode__run-hint">数据已修改，点击「应用」更新左侧预览</span>
+                  )}
+                  <button
+                    type="button"
+                    class="icode__button icode__button--run icode__run-button"
+                    disabled={!dataDirty || dataEditInvalid || generating}
+                    onClick={onApplyAppData}
+                  >
+                    应用
+                  </button>
                 </div>
-                <textarea
-                  class="icode__data-viewer"
-                  value={dataJson}
-                  readOnly
-                  spellcheck={false}
+                <IcodeAppDataEditor
+                  value={draftAppData}
+                  onChange={onDraftAppDataChange}
+                  active={editorTab === 'data'}
+                  onInvalidChange={setDataEditInvalid}
                 />
               </div>
 
@@ -1484,7 +2001,7 @@ export function ICodeApp() {
                 </div>
                 <div ref={consoleListRef} class="icode__console-list">
                   {consoleLogs.length === 0 ? (
-                    <p class="icode__console-empty">应用内 console.log / warn / error 等输出将显示在这里。</p>
+                    <p class="icode__console-empty">应用内日志、提示、错误等输出将显示在这里。</p>
                   ) : (
                     consoleLogs.map((entry) => (
                       <div key={entry.id} class={`icode__console-line icode__console-line--${entry.level}`}>
@@ -1505,9 +2022,30 @@ export function ICodeApp() {
             </div>
           </aside>
         </div>
+
+        <nav class="icode__mobile-dock" aria-label="编辑视图">
+          <button
+            type="button"
+            class={`icode__mobile-dock-item${mobilePane === 'preview' ? ' icode__mobile-dock-item--active' : ''}`}
+            aria-current={mobilePane === 'preview' ? 'page' : undefined}
+            onClick={() => setMobilePane('preview')}
+          >
+            预览
+          </button>
+          <button
+            type="button"
+            class={`icode__mobile-dock-item${mobilePane === 'edit' ? ' icode__mobile-dock-item--active' : ''}${codeDirty || dataDirty ? ' icode__mobile-dock-item--dirty' : ''}`}
+            aria-current={mobilePane === 'edit' ? 'page' : undefined}
+            onClick={() => setMobilePane('edit')}
+          >
+            编辑
+          </button>
+        </nav>
       </div>
 
       {deleteConfirmModal}
+      {closeConfirmModal}
+      {importErrorModal}
     </div>
   )
 }

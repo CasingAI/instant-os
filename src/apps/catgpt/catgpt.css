@@ -25,14 +25,7 @@
     radial-gradient(ellipse 120% 80% at 50% -30%, #fff8ef 0%, transparent 55%),
     linear-gradient(180deg, #efe9df 0%, var(--cg-bg) 100%);
   color: var(--cg-ink);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Helvetica Neue',
-    'PingFang SC',
-    'Apple Color Emoji',
-    sans-serif;
+  font-family: var(--app-text-font-family);
   font-size: 13px;
   overflow: hidden;
 }

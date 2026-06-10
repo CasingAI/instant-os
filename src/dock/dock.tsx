@@ -19,7 +19,8 @@ import './dock.css'
 
 export function Dock() {
   useExperimentalSettings()
-  const { windows, openApp, restoreWindow, closeWindowsForApp } = useOs()
+  const { windows, openApp, restoreWindow, closeWindowsForApp, desktopRevealed, toggleDesktopReveal } =
+    useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
     useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
@@ -155,10 +156,32 @@ export function Dock() {
 
   return (
     <nav class={`dock${dockHidden ? ' dock--hidden' : ''}`} aria-label="程序坞">
-      <div class="dock__plate">
-        {pinnedDockItems}
-        {showDivider && <div class="dock__divider" aria-hidden="true" />}
-        {runningDockItems}
+      <div class="dock__row">
+        <button
+          type="button"
+          class="dock__reveal-zone dock__reveal-zone--left"
+          aria-label={desktopRevealed ? '显示窗口' : '显示桌面'}
+          onPointerDown={(event) => {
+            event.preventDefault()
+            toggleDesktopReveal()
+          }}
+        />
+        <div class="dock__plate-anchor">
+          <div class="dock__plate">
+            {pinnedDockItems}
+            {showDivider && <div class="dock__divider" aria-hidden="true" />}
+            {runningDockItems}
+          </div>
+        </div>
+        <button
+          type="button"
+          class="dock__reveal-zone dock__reveal-zone--right"
+          aria-label={desktopRevealed ? '显示窗口' : '显示桌面'}
+          onPointerDown={(event) => {
+            event.preventDefault()
+            toggleDesktopReveal()
+          }}
+        />
       </div>
     </nav>
   )

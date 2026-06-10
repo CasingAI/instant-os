@@ -2,7 +2,7 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-stor
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { toGeneratedAppId } from '../appstore/store-agent.ts'
-import type { ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
+import type { ICodeChatEditBlock, ICodeChatMessage, ICodeInternalProject } from './icode-types.ts'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.icodeInternalProjects
 
@@ -14,17 +14,32 @@ function isStringRecord(value: unknown): value is GeneratedAppDataStore {
   return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string')
 }
 
+function isChatEditBlock(value: unknown): value is ICodeChatEditBlock {
+  if (typeof value !== 'object' || value === undefined) {
+    return false
+  }
+
+  const block = value as Record<string, unknown>
+  return typeof block.search === 'string' && typeof block.replace === 'string'
+}
+
 function isChatMessage(value: unknown): value is ICodeChatMessage {
   if (typeof value !== 'object' || value === undefined) {
     return false
   }
 
   const message = value as Record<string, unknown>
+  const edits = message.edits
   return (
     typeof message.id === 'string' &&
     (message.role === 'user' || message.role === 'assistant') &&
     typeof message.content === 'string' &&
-    typeof message.createdAt === 'number'
+    typeof message.createdAt === 'number' &&
+    (message.reasoningText === undefined || typeof message.reasoningText === 'string') &&
+    (message.fullReply === undefined || typeof message.fullReply === 'string') &&
+    (message.outputText === undefined || typeof message.outputText === 'string') &&
+    (message.appliedEdits === undefined || typeof message.appliedEdits === 'number') &&
+    (edits === undefined || (Array.isArray(edits) && edits.every(isChatEditBlock)))
   )
 }
 

@@ -120,30 +120,6 @@
   padding: 12px 16px;
 }
 
-.settings__nav-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #007aff;
-  background: transparent;
-}
-
-.settings__nav-back:active {
-  color: #0056b3;
-}
-
-.settings__nav-back-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-right: 1px;
-  overflow: visible;
-}
-
 /* ── Main preference panes grid ── */
 
 .settings__content {

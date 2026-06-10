@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { AiStreamPreview } from '../ai/ai-stream-preview.tsx'
+import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
 import { formatTextLengthK } from '../apps/appstore/format-text-length.ts'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { StockWidget, WeatherWidget } from './notification-center-widgets.tsx'
@@ -110,13 +111,10 @@ function FailedNotificationDetail({ item, onBack, onRetry, onDismiss }: FailedNo
   return (
     <div class="notification-center__detail">
       <div class="notification-center__detail-header">
-        <button
-          type="button"
-          class="notification-center__back"
+        <IosNavBackButton
+          label="返回通知"
           onClick={(event) => handleDetailBack(event, onBack)}
-        >
-          ‹ 返回通知
-        </button>
+        />
       </div>
       <div class="notification-center__detail-card notification-center__detail-card--failed">
         <div class="notification-center__detail-hero">
@@ -164,13 +162,10 @@ function NotificationDetail({ item, onBack }: NotificationDetailProps) {
   return (
     <div class="notification-center__detail">
       <div class="notification-center__detail-header">
-        <button
-          type="button"
-          class="notification-center__back"
+        <IosNavBackButton
+          label="返回通知"
           onClick={(event) => handleDetailBack(event, onBack)}
-        >
-          ‹ 返回通知
-        </button>
+        />
       </div>
       <div class="notification-center__detail-card">
         <div class="notification-center__detail-hero">

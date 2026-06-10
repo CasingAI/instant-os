@@ -1,4 +1,4 @@
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useMemo, useState } from 'preact/hooks'
 import {
   getDomainUsageList,
@@ -28,12 +28,7 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
   return (
     <div class="settings">
       <div class="settings__nav">
-        <button type="button" class="settings__nav-back" onClick={onBack}>
-          <span class="settings__nav-back-icon" aria-hidden="true">
-            <BackIcon size={13} />
-          </span>
-          显示全部
-        </button>
+        <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <SafariCacheView onCacheChange={onCacheChange} />

@@ -6,6 +6,8 @@ import {
 } from './window-snap.ts'
 
 const DRAG_THRESHOLD = 5
+const DOUBLE_TAP_MS = 400
+const DOUBLE_TAP_DISTANCE = 24
 
 type WindowBounds = {
   x: number
@@ -24,6 +26,13 @@ type DragSession = {
   frameEl: HTMLElement
   lastX: number
   lastY: number
+  moved: boolean
+}
+
+type LastTap = {
+  time: number
+  x: number
+  y: number
 }
 
 function applyPositionToFrame(frameEl: HTMLElement, x: number, y: number) {
@@ -39,11 +48,13 @@ export function useWindowDrag(
   onFocus: (windowId: string) => void,
   onReleaseAnchored: (windowId: string, clientX: number, clientY: number) => WindowBounds,
   onSnap: (windowId: string, target: SnapTarget) => void,
+  onDoubleActivate?: () => void,
   enabled = true,
 ) {
   const [dragging, setDragging] = useState(false)
   const [snapPreview, setSnapPreview] = useState<SnapTarget | undefined>(undefined)
   const dragStateRef = useRef<DragSession | undefined>(undefined)
+  const lastTapRef = useRef<LastTap | undefined>(undefined)
 
   const onTitlebarPointerDown = useCallback(
     (event: PointerEvent) => {
@@ -70,6 +81,7 @@ export function useWindowDrag(
           frameEl,
           lastX: getDragBounds().x,
           lastY: getDragBounds().y,
+          moved: false,
         }
       } else {
         const dragBounds = getDragBounds()
@@ -83,6 +95,7 @@ export function useWindowDrag(
           frameEl,
           lastX: dragBounds.x,
           lastY: dragBounds.y,
+          moved: false,
         }
         setDragging(true)
       }
@@ -108,6 +121,7 @@ export function useWindowDrag(
           frameEl: session.frameEl,
           lastX: dragBounds.x,
           lastY: dragBounds.y,
+          moved: true,
         }
         dragStateRef.current = nextSession
         applyPositionToFrame(nextSession.frameEl, dragBounds.x, dragBounds.y)
@@ -118,6 +132,14 @@ export function useWindowDrag(
       const onPointerMove = (moveEvent: PointerEvent) => {
         const session = beginDragging(moveEvent) ?? dragStateRef.current
         if (!session || session.phase !== 'dragging') return
+
+        if (!session.moved) {
+          const deltaX = moveEvent.clientX - session.startX
+          const deltaY = moveEvent.clientY - session.startY
+          if (Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
+            session.moved = true
+          }
+        }
 
         const nextX = moveEvent.clientX - session.offsetX
         const nextY = moveEvent.clientY - session.offsetY
@@ -134,8 +156,25 @@ export function useWindowDrag(
           const snapTarget = detectSnapTarget(upEvent.clientX, upEvent.clientY)
           if (snapTarget) {
             onSnap(windowId, snapTarget)
-          } else {
+          } else if (session.moved) {
             onMove(windowId, session.lastX, session.lastY)
+          }
+        }
+
+        if (session && !session.moved && onDoubleActivate) {
+          const lastTap = lastTapRef.current
+          const now = performance.now()
+          const isDoubleTap =
+            !!lastTap &&
+            now - lastTap.time <= DOUBLE_TAP_MS &&
+            Math.hypot(upEvent.clientX - lastTap.x, upEvent.clientY - lastTap.y) <=
+              DOUBLE_TAP_DISTANCE
+
+          if (isDoubleTap) {
+            lastTapRef.current = undefined
+            onDoubleActivate()
+          } else {
+            lastTapRef.current = { time: now, x: upEvent.clientX, y: upEvent.clientY }
           }
         }
 
@@ -150,7 +189,7 @@ export function useWindowDrag(
       document.addEventListener('pointerup', onPointerUp)
       event.preventDefault()
     },
-    [windowId, isAnchored, getDragBounds, onMove, onFocus, onReleaseAnchored, onSnap, enabled],
+    [windowId, isAnchored, getDragBounds, onMove, onFocus, onReleaseAnchored, onSnap, onDoubleActivate, enabled],
   )
 
   return { dragging, snapPreview, onTitlebarPointerDown }

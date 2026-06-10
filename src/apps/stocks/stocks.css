@@ -1,28 +1,51 @@
+/* 股票 App — iOS 6 拟物风（暗色交易厅基调） */
 .stocks-app {
   --sa-bg: #0d1520;
-  --sa-surface: rgba(255, 255, 255, 0.08);
-  --sa-surface-strong: rgba(255, 255, 255, 0.12);
-  --sa-border: rgba(255, 255, 255, 0.14);
+  --sa-bg-mid: #142430;
+  --sa-surface-top: #1e3344;
+  --sa-surface-bottom: #152430;
+  --sa-surface-inset-top: #0a1018;
+  --sa-surface-inset-bottom: #1a2a38;
+  --sa-border-light: rgba(255, 255, 255, 0.2);
+  --sa-border-dark: rgba(0, 0, 0, 0.48);
   --sa-text: #f4f7fb;
-  --sa-text-muted: rgba(244, 247, 251, 0.68);
-  --sa-accent: #5ac8fa;
-  --sa-up: #34c759;
-  --sa-down: #ff453a;
-  --sa-toolbar: linear-gradient(180deg, #1a3344 0%, #142430 100%);
+  --sa-text-muted: #8aa4b8;
+  --sa-accent-top: #7dd8ff;
+  --sa-accent-bottom: #2a9fd6;
+  --sa-up-top: #5de07a;
+  --sa-up-bottom: #28a745;
+  --sa-down-top: #ff7b72;
+  --sa-down-bottom: #d63027;
+  --sa-toolbar-top: #243848;
+  --sa-toolbar-bottom: #1a2a38;
   --sa-radius: 10px;
+  --sa-bevel-up:
+    inset 0 1px 0 var(--sa-border-light),
+    inset 0 -1px 0 var(--sa-border-dark),
+    0 2px 4px rgba(0, 0, 0, 0.35);
+  --sa-bevel-down:
+    inset 0 2px 4px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 0 rgba(255, 255, 255, 0.06);
+  --sa-btn-gloss:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.35);
 
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: radial-gradient(ellipse 120% 80% at 50% -20%, #1a3344 0%, var(--sa-bg) 55%);
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.015) 0,
+      rgba(255, 255, 255, 0.015) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    radial-gradient(ellipse 120% 70% at 50% -15%, #1e3a50 0%, transparent 55%),
+    linear-gradient(180deg, #152028 0%, var(--sa-bg) 40%, #080c12 100%);
   color: var(--sa-text);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Helvetica Neue',
-    'PingFang SC',
-    sans-serif;
+  font-family: var(--app-text-font-family);
   font-size: 13px;
   overflow: hidden;
   position: relative;
@@ -46,38 +69,45 @@
   flex-shrink: 0;
   height: 48px;
   padding: 0 12px;
-  background: var(--sa-toolbar);
-  border-bottom: 1px solid var(--sa-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  background: linear-gradient(180deg, var(--sa-toolbar-top) 0%, var(--sa-toolbar-bottom) 100%);
+  border-bottom: 1px solid var(--sa-border-dark);
+  box-shadow:
+    inset 0 1px 0 var(--sa-border-light),
+    0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 .stocks-app__brand {
   flex-shrink: 0;
   font-size: 15px;
   font-weight: 700;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .stocks-app__search {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   min-width: 0;
-  padding: 0 10px;
+  padding: 3px 3px 3px 10px;
   height: 32px;
+  box-sizing: border-box;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid var(--sa-border);
+  background: linear-gradient(180deg, #080e14 0%, #121c28 100%);
+  border: 1px solid var(--sa-border-dark);
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__search input {
   flex: 1;
   min-width: 0;
+  align-self: center;
   border: none;
   background: transparent;
   color: var(--sa-text);
   font-size: 13px;
   outline: none;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
 }
 
 .stocks-app__search input::placeholder {
@@ -92,12 +122,22 @@
 }
 
 .stocks-app__search-btn {
-  padding: 4px 10px;
-  border: none;
-  background: var(--sa-accent);
-  color: #0d1520;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid #1a6a94;
+  background: linear-gradient(180deg, var(--sa-accent-top) 0%, var(--sa-accent-bottom) 100%);
+  color: #062033;
   font-size: 12px;
   font-weight: 700;
+  box-shadow: var(--sa-btn-gloss);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.stocks-app__search-btn:active {
+  background: linear-gradient(180deg, var(--sa-accent-bottom) 0%, #1e7aaa 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .stocks-app__search-btn:disabled,
@@ -109,11 +149,18 @@
 .stocks-app__refresh {
   width: 32px;
   height: 32px;
-  border: 1px solid var(--sa-border);
+  border: 1px solid var(--sa-border-dark);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
   color: var(--sa-text);
   font-size: 16px;
+  box-shadow: var(--sa-bevel-up);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.stocks-app__refresh:active {
+  background: linear-gradient(180deg, var(--sa-surface-bottom) 0%, var(--sa-surface-top) 100%);
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__body {
@@ -136,9 +183,10 @@
 .stocks-app__loading-spinner {
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--sa-accent);
+  border: 3px solid #1a2a38;
+  border-top-color: var(--sa-accent-top);
   border-radius: 50%;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
   animation: stocks-app-spin 0.8s linear infinite;
 }
 
@@ -152,6 +200,7 @@
 
 .stocks-app__error {
   color: #ff8a80;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .stocks-app__hint {
@@ -181,6 +230,7 @@
   color: var(--sa-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.4px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
 }
 
 .stocks-app__market-headline {
@@ -188,6 +238,7 @@
   font-size: 18px;
   font-weight: 700;
   line-height: 1.35;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
 }
 
 .stocks-app__indices {
@@ -200,8 +251,9 @@
 .stocks-app__index {
   padding: 12px;
   border-radius: var(--sa-radius);
-  background: var(--sa-surface-strong);
-  border: 1px solid var(--sa-border);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
+  border: 1px solid var(--sa-border-dark);
+  box-shadow: var(--sa-bevel-up);
 }
 
 .stocks-app__index-name {
@@ -209,12 +261,14 @@
   margin-bottom: 6px;
   font-size: 11px;
   color: var(--sa-text-muted);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .stocks-app__index-value {
   display: block;
   font-size: 18px;
   font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .stocks-app__section-title {
@@ -224,12 +278,17 @@
   letter-spacing: 0.4px;
   text-transform: uppercase;
   color: var(--sa-text-muted);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
 }
 
 .stocks-app__stock-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
+  border-radius: var(--sa-radius);
+  border: 1px solid var(--sa-border-dark);
+  box-shadow: var(--sa-bevel-up);
+  overflow: hidden;
 }
 
 .stocks-app__stock-row {
@@ -238,9 +297,13 @@
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: var(--sa-radius);
-  background: var(--sa-surface);
-  border: 1px solid var(--sa-border);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
+  border-bottom: 1px solid var(--sa-border-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.stocks-app__stock-row:last-child {
+  border-bottom: none;
 }
 
 .stocks-app__stock-name {
@@ -253,6 +316,7 @@
 .stocks-app__stock-symbol {
   font-weight: 700;
   font-size: 14px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__stock-title {
@@ -271,28 +335,39 @@
   display: block;
   font-size: 16px;
   font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__stock-change {
-  display: block;
+  display: inline-block;
   margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__stock-change--up {
-  color: var(--sa-up);
+  color: #e8fff0;
+  border: 1px solid #1a6a30;
+  background: linear-gradient(180deg, var(--sa-up-top) 0%, var(--sa-up-bottom) 100%);
+  box-shadow: var(--sa-btn-gloss);
 }
 
 .stocks-app__stock-change--down {
-  color: var(--sa-down);
+  color: #fff0ef;
+  border: 1px solid #8a2820;
+  background: linear-gradient(180deg, var(--sa-down-top) 0%, var(--sa-down-bottom) 100%);
+  box-shadow: var(--sa-btn-gloss);
 }
 
 .stocks-app__detail-card {
   padding: 16px;
   border-radius: 12px;
-  background: var(--sa-surface-strong);
-  border: 1px solid var(--sa-border);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
+  border: 1px solid var(--sa-border-dark);
+  box-shadow: var(--sa-bevel-up);
   margin-bottom: 16px;
 }
 
@@ -321,6 +396,7 @@
   margin: 0;
   font-size: 24px;
   font-weight: 800;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
 }
 
 .stocks-app__detail-name {
@@ -332,6 +408,7 @@
   font-size: 28px;
   font-weight: 700;
   text-align: right;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
 }
 
 .stocks-app__detail-grid {
@@ -344,8 +421,9 @@
 .stocks-app__stat {
   padding: 10px 12px;
   border-radius: var(--sa-radius);
-  background: var(--sa-surface);
-  border: 1px solid var(--sa-border);
+  background: linear-gradient(180deg, var(--sa-surface-inset-top) 0%, var(--sa-surface-inset-bottom) 100%);
+  border: 1px solid var(--sa-border-dark);
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__stat-label {
@@ -353,32 +431,44 @@
   margin-bottom: 4px;
   font-size: 11px;
   color: var(--sa-text-muted);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .stocks-app__stat-value {
   font-size: 15px;
   font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__detail-summary {
   margin: 0;
+  padding: 12px 14px;
   line-height: 1.55;
   color: var(--sa-text-muted);
+  border-radius: var(--sa-radius);
+  background: linear-gradient(180deg, var(--sa-surface-inset-top) 0%, var(--sa-surface-inset-bottom) 100%);
+  border: 1px solid var(--sa-border-dark);
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__badge {
   display: inline-block;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(90, 200, 250, 0.18);
-  color: var(--sa-accent);
+  border: 1px solid #1a6a94;
+  background: linear-gradient(180deg, #3a8fc4 0%, #1e6a9a 100%);
+  color: #e8f6ff;
   font-size: 11px;
   font-weight: 700;
+  box-shadow: var(--sa-btn-gloss);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__badge--widget {
-  background: rgba(255, 214, 10, 0.18);
-  color: #ffd60a;
+  border-color: #8a7020;
+  background: linear-gradient(180deg, #ffd84d 0%, #c9a020 100%);
+  color: #3a2800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .stocks-app__widget-pin {
@@ -389,30 +479,32 @@
   width: 34px;
   height: 34px;
   padding: 0;
-  border: 1px solid var(--sa-border);
+  border: 1px solid var(--sa-border-dark);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
   color: var(--sa-text-muted);
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+  box-shadow: var(--sa-bevel-up);
 }
 
 .stocks-app__widget-pin:hover {
-  background: rgba(90, 200, 250, 0.12);
-  border-color: rgba(90, 200, 250, 0.45);
-  color: var(--sa-accent);
+  background: linear-gradient(180deg, #2a4558 0%, #1e3548 100%);
+  border-color: #3a8fc4;
+  color: var(--sa-accent-top);
+}
+
+.stocks-app__widget-pin:active {
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__widget-pin:focus-visible {
-  outline: 2px solid var(--sa-accent);
+  outline: 2px solid var(--sa-accent-top);
   outline-offset: 2px;
 }
 
 .stocks-app__widget-pin-icon {
   display: block;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.4));
 }
 
 .stocks-app__watch-bar {
@@ -421,8 +513,9 @@
   flex-shrink: 0;
   padding: 10px 12px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--sa-border);
-  background: rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid var(--sa-border-dark);
+  background: linear-gradient(180deg, #101820 0%, #0a1018 100%);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__watch-chip-wrap {
@@ -431,8 +524,12 @@
 }
 
 .stocks-app__watch-chip-wrap--active .stocks-app__watch-chip {
-  border-color: rgba(90, 200, 250, 0.65);
-  background: rgba(90, 200, 250, 0.14);
+  border-color: #3a8fc4;
+  background: linear-gradient(180deg, #2a4558 0%, #1e3548 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 0 8px rgba(42, 159, 214, 0.3);
 }
 
 .stocks-app__watch-chip {
@@ -441,17 +538,23 @@
   gap: 4px;
   min-width: 132px;
   padding: 8px 28px 8px 10px;
-  border: 1px solid var(--sa-border);
+  border: 1px solid var(--sa-border-dark);
   border-radius: 10px;
-  background: var(--sa-surface);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
   color: var(--sa-text);
   text-align: left;
   cursor: pointer;
+  box-shadow: var(--sa-bevel-up);
+}
+
+.stocks-app__watch-chip:active {
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__watch-chip-symbol {
   font-size: 14px;
   font-weight: 800;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__watch-chip-copy {
@@ -476,11 +579,13 @@
 }
 
 .stocks-app__watch-chip-change--up {
-  color: var(--sa-up);
+  color: var(--sa-up-top);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .stocks-app__watch-chip-change--down {
-  color: var(--sa-down);
+  color: var(--sa-down-top);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .stocks-app__watch-remove {
@@ -489,17 +594,19 @@
   right: 4px;
   width: 18px;
   height: 18px;
-  border: none;
+  border: 1px solid var(--sa-border-dark);
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #3a2a2a 0%, #1a1010 100%);
   color: var(--sa-text-muted);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+  box-shadow: var(--sa-btn-gloss);
 }
 
 .stocks-app__watch-remove:hover {
   color: #ff8a80;
+  border-color: #8a3030;
 }
 
 .stocks-app__sheet-overlay {
@@ -510,7 +617,7 @@
   align-items: flex-start;
   justify-content: center;
   padding: 24px 16px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.55);
 }
 
 .stocks-app__sheet {
@@ -518,9 +625,12 @@
   max-height: calc(100% - 24px);
   overflow: auto;
   border-radius: 14px;
-  background: linear-gradient(180deg, #1a3344 0%, #101820 100%);
-  border: 1px solid var(--sa-border);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #1e3344 0%, #101820 100%);
+  border: 1px solid var(--sa-border-light);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 18px 48px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__sheet-header {
@@ -529,24 +639,32 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px 8px;
+  border-bottom: 1px solid var(--sa-border-dark);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .stocks-app__sheet-title {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 .stocks-app__sheet-close {
   width: 28px;
   height: 28px;
-  border: none;
+  border: 1px solid var(--sa-border-dark);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
   color: var(--sa-text);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+  box-shadow: var(--sa-bevel-up);
+}
+
+.stocks-app__sheet-close:active {
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__sheet-query {
@@ -579,17 +697,22 @@
   width: 100%;
   padding: 12px;
   margin-bottom: 6px;
-  border: 1px solid transparent;
+  border: 1px solid var(--sa-border-dark);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, var(--sa-surface-top) 0%, var(--sa-surface-bottom) 100%);
   color: var(--sa-text);
   text-align: left;
   cursor: pointer;
+  box-shadow: var(--sa-bevel-up);
 }
 
 .stocks-app__sheet-item:hover:not(:disabled) {
-  border-color: rgba(90, 200, 250, 0.45);
-  background: rgba(90, 200, 250, 0.1);
+  border-color: #3a8fc4;
+  background: linear-gradient(180deg, #2a4558 0%, #1e3548 100%);
+}
+
+.stocks-app__sheet-item:active:not(:disabled) {
+  box-shadow: var(--sa-bevel-down);
 }
 
 .stocks-app__sheet-item:disabled {
@@ -606,6 +729,7 @@
 .stocks-app__sheet-item-symbol {
   font-size: 14px;
   font-weight: 800;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .stocks-app__sheet-item-name {

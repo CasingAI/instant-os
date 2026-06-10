@@ -1,0 +1,18 @@
+/* Shared UI text font stack — text faces first, emoji last (see inject-iframe-emoji-fonts.ts). */
+
+:root {
+  --app-emoji-font-family: 'Apple Color Emoji', sans-serif;
+  --app-text-font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'Helvetica Neue',
+    'PingFang SC',
+    'Microsoft YaHei',
+    'Segoe UI',
+    var(--app-emoji-font-family);
+}
+
+html[data-emoji-font-mode='off'] {
+  --app-emoji-font-family: 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}

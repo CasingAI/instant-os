@@ -1,4 +1,4 @@
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 
 type ExperimentalSettingsViewProps = {
@@ -10,12 +10,7 @@ export function ExperimentalSettingsView({ onBack, onOpenDeveloper }: Experiment
   return (
     <div class="settings">
       <div class="settings__nav">
-        <button type="button" class="settings__nav-back" onClick={onBack}>
-          <span class="settings__nav-back-icon" aria-hidden="true">
-            <BackIcon size={13} />
-          </span>
-          显示全部
-        </button>
+        <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">

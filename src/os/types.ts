@@ -27,6 +27,8 @@ export type WindowRestoredBounds = {
 
 export type WindowSnap = 'left' | 'right'
 
+export type WindowEnterAnimation = 'scale-in'
+
 export type WindowState = {
   id: string
   appId: AppId
@@ -36,6 +38,7 @@ export type WindowState = {
   snap?: WindowSnap
   fullscreen: boolean
   restoredBounds?: WindowRestoredBounds
+  enterAnimation?: WindowEnterAnimation
   zIndex: number
   x: number
   y: number

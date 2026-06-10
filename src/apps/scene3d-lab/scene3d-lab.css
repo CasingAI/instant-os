@@ -5,7 +5,7 @@
   height: 100%;
   background: #ececec;
   color: #1d1d1f;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--app-text-font-family);
 }
 
 .scene3d-lab__toolbar {

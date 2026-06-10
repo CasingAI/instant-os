@@ -4,11 +4,25 @@ import type { GeneratedAppId } from '../../os/types.ts'
 
 export type ICodeProjectKind = 'internal' | 'formal'
 
+export type ICodeChatEditBlock = {
+  search: string
+  replace: string
+}
+
 export type ICodeChatMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
   createdAt: number
+  /** 助手消息：模型思考过程 */
+  reasoningText?: string
+  /** 助手消息：折叠区内的完整自然语言回复（主气泡默认只显示末段） */
+  fullReply?: string
+  /** 助手消息：原始输出（含 SEARCH/REPLACE 块） */
+  outputText?: string
+  /** 助手消息：成功应用的编辑块 */
+  edits?: ICodeChatEditBlock[]
+  appliedEdits?: number
 }
 
 export const ICODE_CONSOLE_MESSAGE_TYPE = 'instant-os-icode-console' as const
@@ -41,7 +55,7 @@ export type ICodeInternalProject = {
   html: string
   appData: GeneratedAppDataStore
   chat: ICodeChatMessage[]
-  /** 创建时写入，对应桌面应用 ID，编辑时自动同步 */
+  /** 创建时写入，对应桌面应用 ID，发布时同步 */
   linkedAppId?: GeneratedAppId
   createdAt: number
   updatedAt: number

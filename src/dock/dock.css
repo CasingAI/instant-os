@@ -1,9 +1,11 @@
 .dock {
   position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 900;
+  height: 96px;
+  padding: 0;
   transition:
     opacity 0.28s ease,
     transform 0.28s ease;
@@ -12,7 +14,34 @@
 .dock--hidden {
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(120%);
+  transform: translateY(120%);
+}
+
+.dock__row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+.dock__reveal-zone {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dock__plate-anchor {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 14px;
+  pointer-events: none;
 }
 
 .dock__plate {
@@ -27,6 +56,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.25),
     0 8px 24px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px) saturate(140%);
+  pointer-events: auto;
 }
 
 .dock__divider {
@@ -67,12 +97,12 @@
 
 .dock__indicator {
   position: absolute;
-  bottom: -6px;
-  width: 5px;
-  height: 5px;
+  bottom: -7px;
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 2px rgba(255, 255, 255, 0.6);
 }
 
 .dock__item--running .dock__icon .app-icon-tile__tile {

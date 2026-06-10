@@ -391,30 +391,10 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.appstore-detail__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #007aff;
-  background: transparent;
-}
-
 .appstore-detail__scroll {
   flex: 1;
   overflow: auto;
   padding: 0 20px 24px;
-}
-
-.appstore-detail__back-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-right: 1px;
-  overflow: visible;
 }
 
 .appstore-detail__hero {
@@ -1052,26 +1032,6 @@
   padding: 12px 16px;
   background: linear-gradient(180deg, #ffffff 0%, #f2f2f7 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.appstore-search__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #007aff;
-  background: transparent;
-}
-
-.appstore-search__back-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-right: 1px;
-  overflow: visible;
 }
 
 .appstore-search__bar {

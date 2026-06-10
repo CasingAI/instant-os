@@ -8,7 +8,7 @@ import {
 } from './ensure-apple-color-emoji-fonts.ts'
 
 const TEXT_FONT_STACK =
-  "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei'"
+  "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI'"
 
 const MONO_FONT_STACK =
   "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"

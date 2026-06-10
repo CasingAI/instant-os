@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import type { ManagedAppEntry } from './app-storage.ts'
 import { getManagedAppTotalBytes } from './app-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
@@ -280,12 +280,7 @@ export function AppsStorageView({ entries, totalBytes, onBack, onSelectApp }: Ap
   return (
     <div class="settings settings--apps-storage">
       <div class="settings__nav">
-        <button type="button" class="settings__nav-back" onClick={onBack}>
-          <span class="settings__nav-back-icon" aria-hidden="true">
-            <BackIcon size={13} />
-          </span>
-          存储空间
-        </button>
+        <IosNavBackButton label="存储空间" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section settings__section--fill">

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
-import { BackIcon } from '../../icons/app-icons.tsx'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -48,6 +48,8 @@ import {
   paneIdForRoute,
   SETTINGS_DEFAULT_ROUTE,
   SETTINGS_PANES,
+  SETTINGS_WIDE_DEFAULT_ROUTE,
+  SETTINGS_WIDE_LAYOUT_MIN_WIDTH,
   type SettingsRoute,
 } from './settings-panes.ts'
 import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
@@ -62,6 +64,7 @@ export function SettingsApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const [route, setRoute] = useState<SettingsRoute>(SETTINGS_DEFAULT_ROUTE)
+  const hostRef = useRef<HTMLDivElement>(null)
   const [cacheRevision, setCacheRevision] = useState(0)
   const [dataStorage, setDataStorage] = useState({
     totalBytes: 0,
@@ -98,6 +101,28 @@ export function SettingsApp() {
   useEffect(() => {
     setAppWindowTitle('settings', SETTINGS_WINDOW_TITLE)
   }, [setAppWindowTitle])
+
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host) {
+      return
+    }
+
+    const syncRouteForLayout = () => {
+      const wide = host.clientWidth >= SETTINGS_WIDE_LAYOUT_MIN_WIDTH
+      setRoute((current) => {
+        if (wide && current.view === 'root') {
+          return SETTINGS_WIDE_DEFAULT_ROUTE
+        }
+        return current
+      })
+    }
+
+    syncRouteForLayout()
+    const observer = new ResizeObserver(syncRouteForLayout)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const handleOpenUsage = () => {
@@ -174,6 +199,7 @@ export function SettingsApp() {
 
   return (
     <div
+      ref={hostRef}
       class="settings-host"
       data-settings-nested={nestedRoute ? 'true' : undefined}
     >
@@ -367,12 +393,7 @@ type ContentNavProps = {
 function ContentNav({ label, onBack }: ContentNavProps) {
   return (
     <div class="settings__nav">
-      <button type="button" class="settings__nav-back" onClick={onBack}>
-        <span class="settings__nav-back-icon" aria-hidden="true">
-          <BackIcon size={13} />
-        </span>
-        {label}
-      </button>
+      <IosNavBackButton label={label} onClick={onBack} />
     </div>
   )
 }

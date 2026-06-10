@@ -1,0 +1,41 @@
+/* iOS 6-style navigation back button — rounded gray chrome, blue label. */
+
+.ios-nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 12px 0 9px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fdfdfd 0%, #f0f0f0 42%, #d8d8d8 100%);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: #007aff;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+.ios-nav-back__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.ios-nav-back:hover {
+  background: linear-gradient(180deg, #fff 0%, #f4f4f4 42%, #dedede 100%);
+}
+
+.ios-nav-back:active {
+  color: #0056b3;
+  background: linear-gradient(180deg, #d6d6d6 0%, #c8c8c8 45%, #bcbcbc 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.18),
+    0 1px 1px rgba(0, 0, 0, 0.1);
+}
