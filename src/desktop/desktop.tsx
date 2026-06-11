@@ -50,7 +50,14 @@ type DesktopEntry =
 type DesktopReorderController = {
   reorderingEnabled: boolean
   draggingAppId: AppId | undefined
-  onReorderStart: (appId: AppId, globalIndex: number, clientX: number, clientY: number) => void
+  onReorderStart: (
+    appId: AppId,
+    globalIndex: number,
+    clientX: number,
+    clientY: number,
+    grabOffsetX: number,
+    grabOffsetY: number,
+  ) => void
   onReorderMove: (clientX: number, clientY: number) => void
   onReorderEnd: () => void
 }
@@ -268,6 +275,8 @@ export function Desktop() {
         appId: AppId
         pointerX: number
         pointerY: number
+        grabOffsetX: number
+        grabOffsetY: number
         hoverIndex: number
       }
     | undefined
@@ -379,7 +388,14 @@ export function Desktop() {
   } = useDesktopPagePager(pageCount, pagerSize.width, reorderSession === undefined)
 
   const onReorderStart = useCallback(
-    (appId: AppId, globalIndex: number, clientX: number, clientY: number) => {
+    (
+      appId: AppId,
+      globalIndex: number,
+      clientX: number,
+      clientY: number,
+      grabOffsetX: number,
+      grabOffsetY: number,
+    ) => {
       cancelPageInteraction()
       reorderPlacementPageRef.current = currentPage
       previewOrderRef.current = orderedAppIds
@@ -388,6 +404,8 @@ export function Desktop() {
         appId,
         pointerX: clientX,
         pointerY: clientY,
+        grabOffsetX,
+        grabOffsetY,
         hoverIndex: globalIndex,
       })
     },
@@ -578,8 +596,9 @@ export function Desktop() {
         <div
           class="desktop__drag-ghost"
           style={{
-            left: `${reorderSession.pointerX}px`,
-            top: `${reorderSession.pointerY}px`,
+            left: `${reorderSession.pointerX - reorderSession.grabOffsetX}px`,
+            top: `${reorderSession.pointerY - reorderSession.grabOffsetY}px`,
+            transformOrigin: `${reorderSession.grabOffsetX}px ${reorderSession.grabOffsetY}px`,
           }}
         >
           {draggingEntry.kind === 'builtin' ? (

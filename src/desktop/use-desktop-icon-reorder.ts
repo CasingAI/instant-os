@@ -11,7 +11,14 @@ type UseDesktopIconReorderOptions = {
   reorderingEnabled: boolean
   didSwipeRef: { current: boolean }
   onOpen: () => void
-  onReorderStart: (appId: AppId, globalIndex: number, clientX: number, clientY: number) => void
+  onReorderStart: (
+    appId: AppId,
+    globalIndex: number,
+    clientX: number,
+    clientY: number,
+    grabOffsetX: number,
+    grabOffsetY: number,
+  ) => void
   onReorderMove: (clientX: number, clientY: number) => void
   onReorderEnd: () => void
 }
@@ -30,6 +37,7 @@ export function useDesktopIconReorder({
   const longPressTimerRef = useRef<number | undefined>(undefined)
   const reorderingRef = useRef(false)
   const startPointRef = useRef({ x: 0, y: 0 })
+  const grabOffsetRef = useRef({ x: 0, y: 0 })
 
   const preventClickRef = useRef(false)
 
@@ -63,6 +71,15 @@ export function useDesktopIconReorder({
       preventClickRef.current = false
       startPointRef.current = { x: event.clientX, y: event.clientY }
 
+      const iconEl = event.currentTarget
+      if (iconEl instanceof HTMLElement) {
+        const rect = iconEl.getBoundingClientRect()
+        grabOffsetRef.current = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        }
+      }
+
       longPressTimerRef.current = window.setTimeout(() => {
         longPressTimerRef.current = undefined
         reorderingRef.current = true
@@ -72,6 +89,8 @@ export function useDesktopIconReorder({
           globalIndex,
           startPointRef.current.x,
           startPointRef.current.y,
+          grabOffsetRef.current.x,
+          grabOffsetRef.current.y,
         )
       }, LONG_PRESS_MS)
 

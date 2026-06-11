@@ -63,7 +63,7 @@
 }
 
 .desktop--reordering .desktop-icon-wrap:not(.desktop-icon-wrap--source) .desktop-icon {
-  animation: desktop-icon-wiggle 0.42s ease-in-out infinite alternate;
+  animation: desktop-icon-wiggle 0.84s ease-in-out infinite;
   animation-delay: calc(var(--wiggle-index, 0) * 0.045s);
 }
 
@@ -116,7 +116,7 @@
   color: var(--desktop-label-color, #fff);
   text-shadow: var(--desktop-label-shadow, 0 1px 3px rgba(0, 0, 0, 0.45));
   pointer-events: none;
-  transform: translate(-50%, -50%) scale(1.12);
+  transform: scale(1.12);
 }
 
 .desktop__drag-ghost .app-icon-tile__tile {
@@ -146,10 +146,14 @@
 }
 
 @keyframes desktop-icon-wiggle {
-  0% {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
     transform: rotate(-2deg);
   }
-  100% {
+  75% {
     transform: rotate(2deg);
   }
 }
