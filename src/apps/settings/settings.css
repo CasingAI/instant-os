@@ -639,15 +639,20 @@
 
 .settings__apps-table-row--button:hover {
   background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  color: #fff;
-}
-
-.settings__apps-table-row--button:hover .settings__apps-table-cell--num {
-  color: rgba(255, 255, 255, 0.85);
 }
 
 .settings__apps-table-row--button:active {
   background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.settings__apps-table-row--button:hover,
+.settings__apps-table-row--button:active {
+  color: #fff;
+}
+
+.settings__apps-table-row--button:hover .settings__apps-table-cell--num,
+.settings__apps-table-row--button:active .settings__apps-table-cell--num {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .settings__apps-table-cell {
@@ -679,7 +684,8 @@
   justify-content: center;
 }
 
-.settings__apps-table-row--button:hover .settings__disclosure {
+.settings__apps-table-row--button:hover .settings__disclosure,
+.settings__apps-table-row--button:active .settings__disclosure {
   color: rgba(255, 255, 255, 0.88);
 }
 
@@ -725,7 +731,8 @@
   white-space: nowrap;
 }
 
-.settings__row--button:hover .settings__row-hint {
+.settings__row--button:hover .settings__row-hint,
+.settings__row--button:active .settings__row-hint {
   color: rgba(255, 255, 255, 0.75);
 }
 
@@ -851,7 +858,8 @@
   transform: rotate(90deg);
 }
 
-.settings__row--button:hover .settings__disclosure {
+.settings__row--button:hover .settings__disclosure,
+.settings__row--button:active .settings__disclosure {
   color: rgba(255, 255, 255, 0.88);
 }
 
@@ -918,16 +926,22 @@
 
 .settings__row--button:hover {
   background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  color: #fff;
-}
-
-.settings__row--button:hover .settings__row-size,
-.settings__row--button:hover .settings__row-count {
-  color: rgba(255, 255, 255, 0.85);
 }
 
 .settings__row--button:active {
   background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.settings__row--button:hover,
+.settings__row--button:active {
+  color: #fff;
+}
+
+.settings__row--button:hover .settings__row-size,
+.settings__row--button:hover .settings__row-count,
+.settings__row--button:active .settings__row-size,
+.settings__row--button:active .settings__row-count {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .settings__row--nav {
@@ -1052,11 +1066,15 @@
 
 .settings__row--show-all:hover {
   background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  color: #fff;
 }
 
 .settings__row--show-all:active {
   background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.settings__row--show-all:hover,
+.settings__row--show-all:active {
+  color: #fff;
 }
 
 .settings__app-icon {
@@ -1475,15 +1493,20 @@
 
 .settings__option-row:hover {
   background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  color: #fff;
-}
-
-.settings__option-row:hover .settings__option-check {
-  color: #fff;
 }
 
 .settings__option-row:active {
   background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+}
+
+.settings__option-row:hover,
+.settings__option-row:active {
+  color: #fff;
+}
+
+.settings__option-row:hover .settings__option-check,
+.settings__option-row:active .settings__option-check {
+  color: #fff;
 }
 
 .settings__option-label {

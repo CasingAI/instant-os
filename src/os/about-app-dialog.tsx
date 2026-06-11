@@ -1,5 +1,7 @@
 import type { ComponentType } from 'preact'
+import { createPortal } from 'preact/compat'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { getFloatingOverlayRoot } from '../ui/floating-overlay-root.ts'
 import './about-os-dialog.css'
 
 export type AboutAppLink = {
@@ -35,7 +37,7 @@ export function AboutAppDialog({
 }: AboutAppDialogProps) {
   const dialogId = `about-${title.replace(/\s+/g, '-').toLowerCase()}-title`
 
-  return (
+  return createPortal(
     <div class="about-os-backdrop" role="presentation" onClick={onClose}>
       <div
         class="about-os-dialog"
@@ -91,6 +93,7 @@ export function AboutAppDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    getFloatingOverlayRoot(),
   )
 }

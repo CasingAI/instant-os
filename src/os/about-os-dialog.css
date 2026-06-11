@@ -18,6 +18,8 @@
   box-shadow:
     0 16px 48px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  text-align: left;
+  word-spacing: normal;
 }
 
 .about-os-dialog__body {
@@ -33,7 +35,7 @@
 }
 
 .about-os-dialog__title {
-  width: fit-content;
+  display: inline-block;
   max-width: 100%;
   margin: 0 0 4px;
   font-size: 18px;
@@ -43,6 +45,7 @@
   text-align: center;
   text-align-last: center;
   text-justify: none;
+  word-spacing: normal;
 }
 
 .about-os-dialog__version {
@@ -61,16 +64,18 @@
   font-size: 12px;
   line-height: 1.55;
   color: #444;
-  text-align: start;
-  text-align-last: start;
+  text-align: left;
+  text-align-last: left;
   text-justify: none;
+  word-spacing: normal;
 }
 
 .about-os-dialog__copy p {
   margin: 0 0 10px;
-  text-align: start;
-  text-align-last: start;
+  text-align: left;
+  text-align-last: left;
   text-justify: none;
+  word-spacing: normal;
 }
 
 .about-os-dialog__copy p:last-child {
@@ -84,9 +89,10 @@
 
 .about-os-dialog__copy li {
   margin-bottom: 6px;
-  text-align: start;
-  text-align-last: start;
+  text-align: left;
+  text-align-last: left;
   text-justify: none;
+  word-spacing: normal;
 }
 
 .about-os-dialog__copy li:last-child {
