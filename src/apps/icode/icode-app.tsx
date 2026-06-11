@@ -82,7 +82,6 @@ import './icode.css'
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
 type MobileEditorPane = 'preview' | 'edit'
 
-const ICODE_DEFAULT_THEME = '#5856d6'
 const ICODE_CHROME_ACCENT = '#2f87e2'
 
 const ICODE_THEME_COLOR_PRESETS = [

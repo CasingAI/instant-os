@@ -69,7 +69,7 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       }
     | undefined
   >(undefined)
-  const promptInputRef = useRef<HTMLInputElement>(undefined)
+  const promptInputRef = useRef<HTMLInputElement | null>(null)
   const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | undefined>(undefined)
 
   const resolveThemeColor = useCallback(
