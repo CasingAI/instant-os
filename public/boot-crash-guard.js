@@ -39,8 +39,8 @@
     return parts.join(' ')
   }
 
-  var BOOT_WATCHDOG_MS = 15000
-  var MAIN_MODULE_SRC = '/src/main.tsx'
+  var BOOT_WATCHDOG_MS = 60000
+  var MAIN_MODULE_SRC = '/src/entry.tsx'
   var MAIN_MODULE_ID = 'instant-os-main-module'
 
   var state = {
