@@ -293,7 +293,11 @@ export function CatGptApp() {
             aria-label="对话列表"
             aria-expanded={sidebarOpen}
           >
-            ☰
+            <span class="catgpt-app__sidebar-toggle-icon" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
           </button>
           <span class="catgpt-app__toolbar-title">CatGPT</span>
           <span class="catgpt-app__toolbar-hint">

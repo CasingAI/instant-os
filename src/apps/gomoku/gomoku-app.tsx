@@ -30,13 +30,13 @@ import {
   isBoardFull,
   isValidMove,
   playerLabel,
-  sideLabel,
   type Board,
   type MoveRecord,
   type Player,
   type WinResult,
 } from './gomoku-logic.ts'
 import { GomokuDrawCelebration } from './gomoku-draw-celebration.tsx'
+import { GomokuInfoPanels } from './gomoku-info-panels.tsx'
 import { GomokuModelName } from './gomoku-model-name.tsx'
 import { GomokuMatchIntro } from './gomoku-match-intro.tsx'
 import { GomokuWinCelebration } from './gomoku-win-celebration.tsx'
@@ -240,6 +240,7 @@ export function GomokuApp() {
   const [winCelebrationReady, setWinCelebrationReady] = useState(false)
   const [winCelebrationDismissed, setWinCelebrationDismissed] = useState(false)
   const [drawCelebrationDismissed, setDrawCelebrationDismissed] = useState(false)
+  const [mobileInfoOpen, setMobileInfoOpen] = useState(false)
   const aiTurnRef = useRef(0)
 
   const lastMove = game.moves.at(-1)
@@ -658,8 +659,67 @@ export function GomokuApp() {
   const showAiDegradedBanner = aiDegradeReason !== undefined && aiConfigured && (gameMode === 'pve' || gameMode === 'aivai')
   const aiDegradedBannerMessage = aiDegradeReason ? gomokuAiDegradeBannerMessage(aiDegradeReason) : ''
 
+  useEffect(() => {
+    if (!mobileInfoOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileInfoOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileInfoOpen])
+
+  const toggleMobileInfo = useCallback(() => {
+    setMobileInfoOpen((open) => !open)
+  }, [])
+
+  const infoPanelsProps = useMemo(
+    () => ({
+      modeLabel,
+      sessionPhase,
+      gameMode,
+      gamePhase: game.phase,
+      currentPlayer: game.currentPlayer,
+      humanPlayer: game.humanPlayer,
+      heuristicPlayer,
+      aiPlayer,
+      modelPlayer,
+      moves: game.moves,
+      lastMove,
+      winResult: game.winResult,
+      usingRemoteAi,
+      usingRemoteModel,
+      aiDegradeReason,
+      isHumanTurn,
+      opponentFriendlyName,
+      statusContent,
+      renderAivaiTurnLabel,
+    }),
+    [
+      aiDegradeReason,
+      aiPlayer,
+      game.currentPlayer,
+      game.humanPlayer,
+      game.moves,
+      game.phase,
+      game.winResult,
+      gameMode,
+      heuristicPlayer,
+      isHumanTurn,
+      lastMove,
+      modeLabel,
+      modelPlayer,
+      opponentFriendlyName,
+      sessionPhase,
+      statusContent,
+      usingRemoteAi,
+      usingRemoteModel,
+    ],
+  )
+
   return (
-    <div class="gomoku-app">
+    <div class={`gomoku-app${mobileInfoOpen ? ' gomoku-app--info-open' : ''}`}>
       <GomokuAiAlertBanner show={showAiDegradedBanner} message={aiDegradedBannerMessage} />
       {matchIntroActive && (
         <GomokuMatchIntro
@@ -684,6 +744,40 @@ export function GomokuApp() {
       )}
 
       <div class="gomoku-app__body">
+        <header
+          class={`gomoku-app__mobile-head${sessionPhase === 'idle' ? ' gomoku-app__mobile-head--idle' : ''}${sessionPhase === 'active' ? ' gomoku-app__mobile-head--active' : ''}`}
+        >
+          <div class="gomoku-app__mobile-head-main">
+            <span class="gomoku-app__mobile-mode-badge">{modeLabel}</span>
+            {gameMode === 'pve' && (
+              <div class="gomoku-app__mobile-opponent">
+                <GomokuModelName
+                  name={usingRemoteAi ? opponentFriendlyName : '本地 AI'}
+                  class="gomoku-app__mobile-opponent-name"
+                />
+              </div>
+            )}
+            {gameMode === 'aivai' && (
+              <div class="gomoku-app__mobile-versus" aria-label={`${GOMOKU_HEURISTIC_AI_NAME} 对战 ${opponentFriendlyName}`}>
+                <span class="gomoku-app__mobile-versus-side">
+                  <span class="gomoku-app__mobile-versus-name">{GOMOKU_HEURISTIC_AI_NAME}</span>
+                </span>
+                <span class="gomoku-app__mobile-versus-divider" aria-hidden="true">VS</span>
+                <span class="gomoku-app__mobile-versus-side">
+                  <GomokuModelName name={opponentFriendlyName} class="gomoku-app__mobile-versus-model" />
+                </span>
+              </div>
+            )}
+          </div>
+          {sessionPhase !== 'idle' && (
+            <div
+              class={`gomoku-app__mobile-snippet${game.phase === 'won' ? ' gomoku-app__mobile-snippet--win' : ''}${game.phase === 'draw' ? ' gomoku-app__mobile-snippet--draw' : ''}`}
+            >
+              {statusContent}
+            </div>
+          )}
+        </header>
+
         <div class="gomoku-app__board-wrap">
           <div
             class={`gomoku-app__board-frame${sessionPhase === 'idle' ? ' gomoku-app__board-frame--idle' : ''}${aiThinking ? ' gomoku-app__board-frame--thinking' : ''}`}
@@ -784,6 +878,24 @@ export function GomokuApp() {
           </div>
         </div>
 
+        <footer class="gomoku-app__mobile-foot">
+          <button type="button" class="gomoku-app__btn gomoku-app__btn--primary" onClick={startNewGame} disabled={matchIntroActive}>
+            {sessionPhase === 'idle' ? '开始新对局' : '新局'}
+          </button>
+          <button type="button" class="gomoku-app__btn" onClick={handleUndo} disabled={!boardPlayable || game.moves.length === 0}>
+            撤销
+          </button>
+          <button
+            type="button"
+            class={`gomoku-app__btn gomoku-app__btn--info${mobileInfoOpen ? ' gomoku-app__btn--info-active' : ''}`}
+            aria-expanded={mobileInfoOpen}
+            aria-controls="gomoku-mobile-info"
+            onClick={toggleMobileInfo}
+          >
+            详情
+          </button>
+        </footer>
+
         <aside class="gomoku-app__sidebar">
           <section class="gomoku-app__panel gomoku-app__sidebar-head">
             <h1 class="gomoku-app__title">五子棋</h1>
@@ -813,172 +925,25 @@ export function GomokuApp() {
             </div>
           </section>
 
-          <section class="gomoku-app__panel">
-            <h2 class="gomoku-app__panel-title">对局</h2>
-            {sessionPhase === 'idle' ? (
-              <div class="gomoku-app__turn">
-                <span class="gomoku-app__turn-label">未开局</span>
-              </div>
-            ) : sessionPhase === 'intro' ? (
-              <div class="gomoku-app__turn">
-                <span class="gomoku-app__turn-label">抽签中</span>
-              </div>
-            ) : game.phase === 'playing' ? (
-              <div class="gomoku-app__turn">
-                <span class={`gomoku-app__turn-stone gomoku-app__turn-stone--${game.currentPlayer === 1 ? 'black' : 'white'}`} />
-                <span class="gomoku-app__turn-label">
-                  {gameMode === 'pve' ? (
-                    isHumanTurn ? (
-                      '你'
-                    ) : usingRemoteAi ? (
-                      <>
-                        <span class="gomoku-app__turn-prefix">对手</span>
-                        <GomokuModelName name={opponentFriendlyName} class="gomoku-app__turn-model" />
-                      </>
-                    ) : (
-                      '本地 AI'
-                    )
-                  ) : gameMode === 'aivai' ? (
-                    renderAivaiTurnLabel(
-                      game.currentPlayer,
-                      heuristicPlayer,
-                      usingRemoteModel,
-                      opponentFriendlyName,
-                      aiDegradeReason,
-                    )
-                  ) : (
-                    playerLabel(game.currentPlayer)
-                  )}
-                </span>
-              </div>
-            ) : (
-              <div class="gomoku-app__turn">
-                <span class="gomoku-app__turn-label">{game.phase === 'won' ? '对局结束' : '平局'}</span>
-              </div>
-            )}
-            <div
-              class={`gomoku-app__status${game.phase === 'won' ? ' gomoku-app__status--win' : ''}${game.phase === 'draw' ? ' gomoku-app__status--draw' : ''}`}
-            >
-              {statusContent}
-            </div>
-          </section>
-
-          <section class="gomoku-app__panel">
-            <h2 class="gomoku-app__panel-title">对局信息</h2>
-            <ul class="gomoku-app__debug-list">
-              <li>
-                <span>模式</span>
-                <strong>{modeLabel}</strong>
-              </li>
-              {gameMode === 'pve' && (
-                <li>
-                  <span>我方</span>
-                  <strong>
-                    {sessionPhase === 'active'
-                      ? sideLabel(game.humanPlayer, 1)
-                      : '—'}
-                  </strong>
-                </li>
-              )}
-              {gameMode === 'pve' && (
-                <li class="gomoku-app__debug-list-item--model">
-                  <span>对手</span>
-                  <strong>
-                    {usingRemoteAi ? (
-                      <GomokuModelName name={opponentFriendlyName} class="gomoku-app__debug-model" />
-                    ) : aiDegradeReason ? (
-                      gomokuAiDegradeOpponentLabel(aiDegradeReason)
-                    ) : (
-                      GOMOKU_HEURISTIC_AI_NAME
-                    )}
-                  </strong>
-                </li>
-              )}
-              {gameMode === 'pve' && sessionPhase === 'active' && (
-                <li>
-                  <span>对手棋子</span>
-                  <strong>{sideLabel(aiPlayer, 1)}</strong>
-                </li>
-              )}
-              {gameMode === 'aivai' && sessionPhase === 'active' && (
-                <>
-                  <li>
-                    <span>{GOMOKU_HEURISTIC_AI_NAME}</span>
-                    <strong>{sideLabel(heuristicPlayer, 1)}</strong>
-                  </li>
-                  <li class="gomoku-app__debug-list-item--model">
-                    <span>模型 AI</span>
-                    <strong>
-                      {usingRemoteModel ? (
-                        <GomokuModelName name={opponentFriendlyName} class="gomoku-app__debug-model" />
-                      ) : aiDegradeReason ? (
-                        gomokuAiDegradeOpponentLabel(aiDegradeReason)
-                      ) : (
-                        GOMOKU_HEURISTIC_AI_NAME
-                      )}
-                    </strong>
-                  </li>
-                  <li>
-                    <span>模型棋子</span>
-                    <strong>{sideLabel(modelPlayer, 1)}</strong>
-                  </li>
-                </>
-              )}
-              <li>
-                <span>步数</span>
-                <strong>{game.moves.length}</strong>
-              </li>
-              <li>
-                <span>末手</span>
-                <strong>{lastMove ? `${playerLabel(lastMove.player)} ${formatCoord(lastMove.row, lastMove.col)}` : '—'}</strong>
-              </li>
-              <li>
-                <span>胜负</span>
-                <strong>
-                  {sessionPhase === 'idle'
-                    ? '未开始'
-                    : sessionPhase === 'intro'
-                      ? '准备中'
-                      : game.phase === 'won'
-                        ? '已判定'
-                        : game.phase === 'draw'
-                          ? '平局'
-                          : '进行中'}
-                </strong>
-              </li>
-              {game.winResult && (
-                <>
-                  <li>
-                    <span>方向</span>
-                    <strong>{directionLabel(game.winResult.direction)}</strong>
-                  </li>
-                  <li>
-                    <span>连子</span>
-                    <strong>{game.winResult.cells.length}</strong>
-                  </li>
-                  <li>
-                    <span>胜线</span>
-                    <strong>{game.winResult.cells.map((c) => formatCoord(c.row, c.col)).join(' ')}</strong>
-                  </li>
-                </>
-              )}
-            </ul>
-          </section>
+          <GomokuInfoPanels {...infoPanelsProps} class="gomoku-app__info-panels--sidebar" />
         </aside>
       </div>
+
+      {mobileInfoOpen && (
+        <div class="gomoku-app__info-layer">
+          <button
+            type="button"
+            class="gomoku-app__mobile-backdrop"
+            aria-label="关闭对局详情"
+            onClick={() => setMobileInfoOpen(false)}
+          />
+          <GomokuInfoPanels
+            {...infoPanelsProps}
+            id="gomoku-mobile-info"
+            class="gomoku-app__info-panels--sheet"
+          />
+        </div>
+      )}
     </div>
   )
-}
-
-function directionLabel(direction: WinResult['direction']): string {
-  switch (direction) {
-    case 'horizontal':
-      return '横'
-    case 'vertical':
-      return '竖'
-    case 'diagonal-main':
-      return '斜 ╲'
-    case 'diagonal-anti':
-      return '斜 ╱'
-  }
 }

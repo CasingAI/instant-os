@@ -120,17 +120,32 @@
 }
 
 .news-date-picker__nav {
+  display: grid;
+  place-items: center;
   align-self: center;
   width: 30px;
   height: 34px;
+  min-width: 30px;
+  min-height: 34px;
+  padding: 0;
+  margin: 0;
   border-radius: 6px;
   border: 1px solid #c4b39c;
   background: linear-gradient(180deg, #fff 0%, #e8dcc8 100%);
   color: #3d342c;
-  font-size: 22px;
-  line-height: 1;
+  font: 0/0 sans-serif;
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.news-date-picker__nav > svg {
+  display: block;
+  margin: 0;
+  padding: 0;
+  grid-area: 1 / 1;
 }
 
 .news-date-picker__nav:active {

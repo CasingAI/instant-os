@@ -153,30 +153,25 @@ export function MarketplaceIcon({ size = 64 }: IconProps) {
   )
 }
 
-const CHEVRON_VIEW_WIDTH = 14
-const CHEVRON_VIEW_HEIGHT = 18
+const CHEVRON_VIEW_SIZE = 12
 
 type ChevronIconProps = {
   size?: number
 }
 
 export function BackIcon({ size = 12 }: ChevronIconProps = {}) {
-  const height = size
-  const width = (size * CHEVRON_VIEW_WIDTH) / CHEVRON_VIEW_HEIGHT
-
   return (
     <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${CHEVRON_VIEW_WIDTH} ${CHEVRON_VIEW_HEIGHT}`}
+      width={size}
+      height={size}
+      viewBox={`0 0 ${CHEVRON_VIEW_SIZE} ${CHEVRON_VIEW_SIZE}`}
       fill="none"
-      overflow="visible"
       aria-hidden="true"
     >
       <path
-        d="M11 2 L3 9 L11 16"
+        d="M8 2.25 L4 6 L8 9.75"
         stroke="currentColor"
-        stroke-width="2"
+        stroke-width="1.75"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
@@ -185,22 +180,18 @@ export function BackIcon({ size = 12 }: ChevronIconProps = {}) {
 }
 
 export function ForwardIcon({ size = 12 }: ChevronIconProps = {}) {
-  const height = size
-  const width = (size * CHEVRON_VIEW_WIDTH) / CHEVRON_VIEW_HEIGHT
-
   return (
     <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${CHEVRON_VIEW_WIDTH} ${CHEVRON_VIEW_HEIGHT}`}
+      width={size}
+      height={size}
+      viewBox={`0 0 ${CHEVRON_VIEW_SIZE} ${CHEVRON_VIEW_SIZE}`}
       fill="none"
-      overflow="visible"
       aria-hidden="true"
     >
       <path
-        d="M3 2 L11 9 L3 16"
+        d="M4 2.25 L8 6 L4 9.75"
         stroke="currentColor"
-        stroke-width="2"
+        stroke-width="1.75"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
@@ -208,9 +199,13 @@ export function ForwardIcon({ size = 12 }: ChevronIconProps = {}) {
   )
 }
 
-export function ReloadIcon() {
+type ReloadIconProps = {
+  size?: number
+}
+
+export function ReloadIcon({ size = 16 }: ReloadIconProps = {}) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" overflow="visible" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M21 2v6h-6"
         stroke="currentColor"

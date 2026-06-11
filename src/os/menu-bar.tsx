@@ -32,6 +32,39 @@ type MenuDropdownProps = {
 }
 
 function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = dropdownRef.current
+    if (!el) return
+
+    const adjustPosition = () => {
+      el.style.marginLeft = '0px'
+
+      let rect = el.getBoundingClientRect()
+      const padding = 8
+      let marginLeft = 0
+
+      if (rect.right > window.innerWidth) {
+        marginLeft -= (rect.right - window.innerWidth + padding)
+      }
+
+      if (marginLeft !== 0) {
+        el.style.marginLeft = `${marginLeft}px`
+        rect = el.getBoundingClientRect()
+      }
+
+      if (rect.left < padding) {
+        marginLeft += (padding - rect.left)
+        el.style.marginLeft = `${marginLeft}px`
+      }
+    }
+
+    adjustPosition()
+    window.addEventListener('resize', adjustPosition)
+    return () => window.removeEventListener('resize', adjustPosition)
+  }, [menu])
+
   const handleItemClick = (item: MenuItem) => {
     if (item.type !== 'action' || item.disabled) {
       return
@@ -41,7 +74,7 @@ function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
   }
 
   return (
-    <div class="menu-bar__dropdown" role="menu" aria-label={menu.label}>
+    <div ref={dropdownRef} class="menu-bar__dropdown" role="menu" aria-label={menu.label}>
       {menu.items.map((item, index) => {
         if (item.type === 'separator') {
           return <div key={`sep-${index}`} class="menu-bar__separator" role="separator" />
@@ -235,9 +268,7 @@ export function MenuBar() {
           }
           onClick={togglePanel}
         >
-          <span class="menu-bar__datetime-calendar">{calendar}</span>
-          <span class="menu-bar__datetime-weekday">{` ${weekday}`}</span>
-          <span class="menu-bar__datetime-time">{time}</span>
+          <span class="menu-bar__datetime-calendar">{calendar}</span><span class="menu-bar__datetime-weekday">{weekday}</span><span class="menu-bar__datetime-time">{time}</span>
         </button>
       </div>
     </header>

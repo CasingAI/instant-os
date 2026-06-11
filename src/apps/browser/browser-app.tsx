@@ -14,7 +14,10 @@ import {
   SidebarIcon,
   StopIcon,
 } from '../../icons/app-icons.tsx'
-import { generatePageHtmlStreaming } from './generate-page-stream.ts'
+import {
+  generatePageHtmlStreaming,
+  type PageGenerationContext,
+} from './generate-page-stream.ts'
 import { extractTitleFromPartialHtml } from './extract-partial-html.ts'
 import {
   loadBrowserTokenUsage,
@@ -32,7 +35,10 @@ import {
   updateBrowserBookmarkTitle,
 } from './browser-bookmarks.ts'
 import { formatTokenCount } from './format-token-count.ts'
-import { buildPageGenerationContext } from './build-page-generation-context.ts'
+import {
+  buildPageGenerationContext,
+  readBrowserViewportSize,
+} from './build-page-generation-context.ts'
 import { getCachedPage, initBrowserPageCache, saveCachedPage } from './browser-page-cache.ts'
 import {
   displayUrl,
@@ -156,6 +162,7 @@ export function BrowserApp() {
   const pageHtmlByTabRef = useRef<Record<string, string>>({})
   const lastPageNavByTabRef = useRef<Record<string, { url: string; at: number }>>({})
   const safariRootRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<HTMLElement>(null)
   const addressWrapRef = useRef<HTMLFormElement>(null)
   const [suggestionAnchor, setSuggestionAnchor] = useState<
     { top: number; left: number; width: number } | undefined
@@ -185,6 +192,17 @@ export function BrowserApp() {
   const bumpBookmarksRevision = useCallback(() => {
     setBookmarksRevision((value) => value + 1)
   }, [])
+
+  const buildGenContext = useCallback(
+    (targetUrl: string, fromUrl?: string, fromHtml?: string) =>
+      buildPageGenerationContext(
+        targetUrl,
+        fromUrl,
+        fromHtml,
+        readBrowserViewportSize(viewportRef.current ?? undefined),
+      ),
+    [],
+  )
 
   const toggleBookmarkForCurrentPage = useCallback(() => {
     if (onStartPage) {
@@ -297,14 +315,9 @@ export function BrowserApp() {
       tabId: string,
       url: string,
       targetIndex: number,
-      options?: {
+      options?: Partial<PageGenerationContext> & {
         cachedHtml?: string
         force?: boolean
-        url?: string
-        referrerUrl?: string
-        referrerHtml?: string
-        siteRootUrl?: string
-        siteRootHtml?: string
       },
     ) => {
       const cachedHtml = options?.cachedHtml
@@ -349,13 +362,12 @@ export function BrowserApp() {
       })
 
       try {
+        const { cachedHtml: _cachedHtml, force: _force, ...generationContext } = options ?? {}
         const result = await generatePageHtmlStreaming(
           {
+            ...generationContext,
             url: pageUrl,
-            referrerUrl: options?.referrerUrl,
-            referrerHtml: options?.referrerHtml,
-            siteRootUrl: options?.siteRootUrl,
-            siteRootHtml: options?.siteRootHtml,
+            userAgent: generationContext.userAgent ?? navigator.userAgent,
           },
           (update) => {
             if (!isGenerationCurrent(tabId, genId)) {
@@ -465,10 +477,10 @@ export function BrowserApp() {
         tabId,
         entry.url,
         index,
-        buildPageGenerationContext(entry.url, undefined, undefined),
+        buildGenContext(entry.url),
       )
     },
-    [applyCachedPage, loadRemotePage, setTabPageState, updateTab],
+    [applyCachedPage, buildGenContext, loadRemotePage, setTabPageState, updateTab],
   )
 
   const navigate = useCallback(
@@ -524,10 +536,10 @@ export function BrowserApp() {
         return
       }
 
-      const genContext = buildPageGenerationContext(url, fromUrl, fromHtml)
+      const genContext = buildGenContext(url, fromUrl, fromHtml)
       void loadRemotePage(tabId, url, targetIndex, genContext)
     },
-    [applyCachedPage, cancelGeneration, loadRemotePage, setTabPageState, tabs],
+    [applyCachedPage, buildGenContext, cancelGeneration, loadRemotePage, setTabPageState, tabs],
   )
 
   const navigateActive = useCallback(
@@ -661,14 +673,10 @@ export function BrowserApp() {
       }
 
       patchHistoryEntry(tabId, tab.historyIndex, { html: undefined, pageTokens: undefined })
-      const genContext = buildPageGenerationContext(
-        entry.url,
-        entry.url,
-        tab.pageState.html || entry.html,
-      )
+      const genContext = buildGenContext(entry.url, entry.url, tab.pageState.html || entry.html)
       void loadRemotePage(tabId, entry.url, tab.historyIndex, { ...genContext, force: true })
     },
-    [loadRemotePage, patchHistoryEntry, tabs],
+    [buildGenContext, loadRemotePage, patchHistoryEntry, tabs],
   )
 
   const goBack = () => {
@@ -699,11 +707,7 @@ export function BrowserApp() {
     }
 
     patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
-    const genContext = buildPageGenerationContext(
-      current.url,
-      current.url,
-      pageState.html || current.html,
-    )
+    const genContext = buildGenContext(current.url, current.url, pageState.html || current.html)
     void loadRemotePage(activeTabId, current.url, historyIndex, { ...genContext, force: true })
   }
 
@@ -801,10 +805,10 @@ export function BrowserApp() {
         return
       }
 
-      const genContext = buildPageGenerationContext(url, fromUrl, undefined)
+      const genContext = buildGenContext(url, fromUrl)
       void loadRemotePage(tabId, url, 0, genContext)
     },
-    [loadRemotePage],
+    [buildGenContext, loadRemotePage],
   )
 
   const copyToClipboard = useCallback(async (text: string) => {
@@ -1324,7 +1328,7 @@ export function BrowserApp() {
         </div>
       )}
 
-      <main class="safari__viewport">
+      <main class="safari__viewport" ref={viewportRef}>
         {tabs.map((tab) => {
           const entry = tab.history[tab.historyIndex] ?? INITIAL_ENTRY
           const isActive = tab.id === activeTabId

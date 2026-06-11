@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { BackIcon, ForwardIcon } from '../../icons/app-icons.tsx'
+import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
@@ -335,9 +335,7 @@ export function NewsApp() {
             aria-label="前一天"
             title={`前一天 ${shortPrev}`}
           >
-            <span class="news__date-nav-icon" aria-hidden="true">
-              <BackIcon size={12} />
-            </span>
+            <BackIcon size={12} />
           </button>
           <button
             type="button"
@@ -354,9 +352,7 @@ export function NewsApp() {
             aria-label="后一天"
             title={`后一天 ${shortNext}`}
           >
-            <span class="news__date-nav-icon" aria-hidden="true">
-              <ForwardIcon size={12} />
-            </span>
+            <ForwardIcon size={12} />
           </button>
         </div>
 
@@ -382,7 +378,7 @@ export function NewsApp() {
                 title="加载更多当天新闻（新生成的会显示在列表前面）"
                 aria-label="刷新加载更多"
               >
-                ↻
+                <ReloadIcon size={12} />
               </button>
             )}
           </div>

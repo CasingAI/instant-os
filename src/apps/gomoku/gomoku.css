@@ -13,12 +13,15 @@
   --gk-line-count: 14;
   --gk-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 1px 0 rgba(255, 255, 255, 0.5) inset;
   --gk-ai-alert-height: 32px;
+  --gk-board-cap: 9999px;
 
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  container-type: size;
+  container-name: gomoku-app;
   background:
     radial-gradient(ellipse 100% 60% at 50% -10%, #fff8ee 0%, transparent 50%),
     linear-gradient(180deg, #ddd0bc 0%, var(--gk-bg) 100%);
@@ -194,28 +197,21 @@
 }
 
 .gomoku-app__board-frame {
+  --gk-frame-radius: 12px;
+  --gk-frame-padding: 14px;
+  --gk-board-radius: max(0px, calc(var(--gk-frame-radius) - var(--gk-frame-padding)));
+
   position: relative;
-  width: min(100cqw, 100cqh);
+  width: min(100cqw, 100cqh, var(--gk-board-cap));
   aspect-ratio: 1;
-  padding: 14px;
-  border-radius: 12px;
+  padding: var(--gk-frame-padding);
+  border-radius: var(--gk-frame-radius);
+  overflow: hidden;
   background: linear-gradient(145deg, #a08040 0%, #6b4e18 50%, #4a3410 100%);
-  box-shadow:
-    0 6px 20px rgba(0, 0, 0, 0.35),
-    0 1px 0 rgba(255, 255, 255, 0.2) inset,
-    inset 0 -3px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
   transition:
     filter 0.45s ease,
     opacity 0.45s ease;
-}
-
-.gomoku-app__board-frame::before {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  pointer-events: none;
 }
 
 .gomoku-app__board-frame--idle {
@@ -236,7 +232,7 @@
   justify-content: flex-start;
   padding: 10px 12px;
   background: rgba(20, 14, 8, 0.22);
-  border-radius: 8px;
+  border-radius: var(--gk-board-radius, 4px);
   pointer-events: none;
 }
 
@@ -286,6 +282,9 @@
 }
 
 .gomoku-app__board {
+  --gk-play-inset: calc(var(--gk-board-radius, 0px) * 0.65);
+  --gk-play-span: calc(100% - 2 * var(--gk-play-inset));
+
   position: relative;
   width: 100%;
   aspect-ratio: 1;
@@ -298,15 +297,16 @@
       rgba(0, 0, 0, 0.025) 4px
     ),
     linear-gradient(160deg, var(--gk-wood-light) 0%, var(--gk-wood-mid) 45%, #b89858 100%);
-  border-radius: 4px;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.18);
+  border-radius: var(--gk-board-radius, 4px);
+  overflow: hidden;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.14);
 }
 
 .gomoku-app__grid {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  inset: var(--gk-play-inset, 0px);
+  width: auto;
+  height: auto;
   pointer-events: none;
 }
 
@@ -319,11 +319,12 @@
 
 .gomoku-app__star {
   position: absolute;
-  left: calc(var(--col) * 100% / var(--gk-line-count));
-  top: calc(var(--row) * 100% / var(--gk-line-count));
-  width: 2.8%;
-  height: 2.8%;
-  margin: -1.4% 0 0 -1.4%;
+  left: calc(var(--gk-play-inset, 0px) + var(--col) * var(--gk-play-span, 100%) / var(--gk-line-count));
+  top: calc(var(--gk-play-inset, 0px) + var(--row) * var(--gk-play-span, 100%) / var(--gk-line-count));
+  width: calc(var(--gk-play-span, 100%) / var(--gk-line-count) * 0.28);
+  height: calc(var(--gk-play-span, 100%) / var(--gk-line-count) * 0.28);
+  margin: 0;
+  transform: translate(-50%, -50%);
   border-radius: 50%;
   background: #2a1c08;
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2);
@@ -333,10 +334,10 @@
 
 .gomoku-app__cell {
   position: absolute;
-  left: calc(var(--col) * 100% / var(--gk-line-count));
-  top: calc(var(--row) * 100% / var(--gk-line-count));
-  width: calc(100% / var(--gk-line-count) * 0.88);
-  height: calc(100% / var(--gk-line-count) * 0.88);
+  left: calc(var(--gk-play-inset, 0px) + var(--col) * var(--gk-play-span, 100%) / var(--gk-line-count));
+  top: calc(var(--gk-play-inset, 0px) + var(--row) * var(--gk-play-span, 100%) / var(--gk-line-count));
+  width: calc(var(--gk-play-span, 100%) / var(--gk-line-count) * 0.88);
+  height: calc(var(--gk-play-span, 100%) / var(--gk-line-count) * 0.88);
   transform: translate(-50%, -50%);
   cursor: pointer;
   border: none;
@@ -415,7 +416,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  border-radius: 4px;
+  border-radius: inherit;
   background: rgba(16, 10, 4, 0.28);
   pointer-events: none;
   animation: gomoku-match-fade-in 0.35s ease-out both;
@@ -438,10 +439,10 @@
 
 .gomoku-app__win-line {
   position: absolute;
-  inset: 0;
+  inset: var(--gk-play-inset, 0px);
   z-index: 5;
-  width: 100%;
-  height: 100%;
+  width: auto;
+  height: auto;
   pointer-events: none;
   overflow: visible;
 }
@@ -888,6 +889,14 @@
   overflow-y: auto;
 }
 
+.gomoku-app__info-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .gomoku-app__panel {
   padding: 8px 9px;
   border-radius: var(--gk-radius);
@@ -1099,22 +1108,295 @@
   }
 }
 
+@keyframes gomoku-sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gomoku-app__mobile-head,
+.gomoku-app__mobile-foot,
+.gomoku-app__info-layer,
+.gomoku-app__info-panels--sheet {
+  display: none;
+}
+
+.gomoku-app__btn--info-active {
+  border-color: #6a5c48;
+  background: linear-gradient(180deg, #ebe4d8 0%, #d8cfc0 100%);
+}
+
 @container app-window (max-width: 560px) {
   .gomoku-app__body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    gap: 0;
+    padding: 2px;
+    overflow: hidden;
+  }
+
+  .gomoku-app__mobile-head,
+  .gomoku-app__board-wrap,
+  .gomoku-app__mobile-foot {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  .gomoku-app__mobile-head {
+    display: flex;
     flex-direction: column;
-    overflow: auto;
+    gap: 5px;
+    align-self: start;
+    justify-self: stretch;
+    z-index: 4;
+    min-width: 0;
+    margin: 4px;
+    padding: 6px 10px;
+    border-radius: var(--gk-radius);
+    background: linear-gradient(180deg, rgba(245, 240, 230, 0.94) 0%, rgba(235, 228, 216, 0.94) 100%);
+    border: 1px solid var(--gk-border);
+    box-shadow: var(--gk-shadow);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+  }
+
+  .gomoku-app__mobile-head > * {
+    pointer-events: auto;
+  }
+
+  .gomoku-app__mobile-head-main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .gomoku-app__mobile-mode-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: rgba(42, 36, 24, 0.07);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--gk-ink-muted);
+    white-space: nowrap;
+  }
+
+  .gomoku-app__mobile-opponent {
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+  }
+
+  .gomoku-app__mobile-opponent-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: #3a6cb0;
+  }
+
+  .gomoku-app__mobile-versus {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .gomoku-app__mobile-versus-side {
+    min-width: 0;
+    text-align: center;
+  }
+
+  .gomoku-app__mobile-versus-name {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--gk-ink);
+    overflow-wrap: anywhere;
+  }
+
+  .gomoku-app__mobile-versus-divider {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 900;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: #c43820;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+
+  .gomoku-app__mobile-versus-model {
+    font-size: 10px;
+    font-weight: 700;
+    color: #3a6cb0;
+  }
+
+  .gomoku-app__mobile-snippet {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    padding-top: 5px;
+    border-top: 1px solid rgba(168, 144, 112, 0.35);
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--gk-ink-muted);
+    text-align: center;
+  }
+
+  .gomoku-app__mobile-snippet .gomoku-app__model-name {
+    display: inline;
+    width: auto;
+    font-size: 10px;
+    font-weight: 700;
+    color: #3a6cb0;
+    text-align: center;
+  }
+
+  .gomoku-app__mobile-snippet--win {
+    color: #c43820;
+    font-weight: 700;
+  }
+
+  .gomoku-app__mobile-snippet--draw {
+    color: #5a6a78;
+    font-weight: 700;
+  }
+
+  .gomoku-app__board-wrap {
+    z-index: 1;
+    min-width: 0;
+    min-height: 0;
+    align-self: stretch;
+    justify-self: stretch;
+  }
+
+  .gomoku-app__board-frame {
+    --gk-frame-radius: 10px;
+    --gk-frame-padding: 4px;
+  }
+
+  .gomoku-app__mobile-foot {
+    display: flex;
+    gap: 6px;
+    align-self: end;
+    justify-self: stretch;
+    z-index: 4;
+    min-width: 0;
+    margin: 4px;
+    padding: 4px;
+    border-radius: var(--gk-radius);
+    background: linear-gradient(180deg, rgba(245, 240, 230, 0.94) 0%, rgba(235, 228, 216, 0.94) 100%);
+    border: 1px solid var(--gk-border);
+    box-shadow: var(--gk-shadow);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+  }
+
+  .gomoku-app__mobile-foot > * {
+    pointer-events: auto;
+  }
+
+  .gomoku-app__mobile-foot .gomoku-app__btn {
+    flex: 1;
+    min-width: 0;
+    padding: 0 8px;
+    white-space: nowrap;
+  }
+
+  .gomoku-app__mobile-foot .gomoku-app__btn--info {
+    flex: 0 0 auto;
+    min-width: 52px;
   }
 
   .gomoku-app__sidebar {
-    width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-    overflow: visible;
+    display: none;
   }
 
-  .gomoku-app__panel {
-    flex: 1;
-    min-width: 120px;
+  .gomoku-app__info-panels--sidebar {
+    display: none;
+  }
+
+  .gomoku-app__info-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 0;
+    pointer-events: none;
+  }
+
+  .gomoku-app__mobile-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border: none;
+    background: rgba(20, 14, 8, 0.48);
+    cursor: default;
+    pointer-events: auto;
+    animation: gomoku-match-fade-in 0.2s ease-out both;
+  }
+
+  .gomoku-app__info-panels--sheet {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 0 1 auto;
+    min-height: 0;
+    margin: 8px;
+    max-height: min(78%, 560px);
+    padding: 10px 10px 12px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #fffaf2 0%, #efe4d0 100%);
+    border: 1px solid var(--gk-border);
+    box-shadow: 0 10px 36px rgba(0, 0, 0, 0.38);
+    overflow-y: auto;
+    pointer-events: auto;
+    animation: gomoku-sheet-rise 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .gomoku-app__info-panels--sheet::before {
+    content: '对局详情';
+    display: block;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: center;
+    color: var(--gk-ink-muted);
+  }
+
+  .gomoku-app__info-panels--sheet .gomoku-app__panel {
+    flex: 0 0 auto;
+    box-shadow: none;
+  }
+
+  .gomoku-app--info-open .gomoku-app__mobile-head,
+  .gomoku-app--info-open .gomoku-app__mobile-foot {
+    opacity: 0;
+    pointer-events: none;
   }
 
   .gomoku-app__match-banner-versus {
@@ -1133,10 +1415,87 @@
 
   .gomoku-app__lottery-divider {
     transform: rotate(90deg);
+    align-self: center;
   }
 
   .gomoku-app__fullscreen-card {
     width: min(100%, 320px);
     padding: 18px 14px;
+  }
+}
+
+@container app-window (min-width: 401px) and (max-width: 560px) {
+  .gomoku-app {
+    --gk-board-cap: 380px;
+  }
+
+  .gomoku-app__body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px;
+    overflow: hidden;
+  }
+
+  .gomoku-app__mobile-head,
+  .gomoku-app__board-wrap,
+  .gomoku-app__mobile-foot {
+    grid-area: auto;
+    align-self: stretch;
+    justify-self: stretch;
+  }
+
+  .gomoku-app__mobile-head {
+    margin: 0;
+    flex-shrink: 0;
+    z-index: auto;
+  }
+
+  .gomoku-app__board-wrap {
+    flex: 1;
+    min-height: 0;
+    z-index: auto;
+  }
+
+  .gomoku-app__mobile-foot {
+    margin: 0;
+    flex-shrink: 0;
+    z-index: auto;
+  }
+
+  .gomoku-app__board-frame {
+    --gk-frame-padding: 8px;
+  }
+}
+
+@container app-window (max-width: 400px) {
+  @container gomoku-app (min-height: 620px) {
+    .gomoku-app__mobile-head--idle .gomoku-app__mobile-opponent,
+    .gomoku-app__mobile-head--idle .gomoku-app__mobile-versus {
+      display: none;
+    }
+
+    .gomoku-app__mobile-head--active .gomoku-app__mobile-opponent,
+    .gomoku-app__mobile-head--active .gomoku-app__mobile-versus {
+      display: none;
+    }
+
+    .gomoku-app__mobile-head--idle {
+      align-self: start;
+      justify-self: center;
+      width: auto;
+      max-width: calc(100% - 8px);
+      margin-top: 6px;
+      padding: 4px 10px;
+    }
+
+    .gomoku-app__mobile-head--active {
+      margin-top: 6px;
+      padding: 5px 10px;
+    }
+
+    .gomoku-app__mobile-foot {
+      margin-bottom: 6px;
+    }
   }
 }

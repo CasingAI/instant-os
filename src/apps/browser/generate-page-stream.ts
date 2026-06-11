@@ -35,7 +35,7 @@ function formatCurrentDateContext(): string {
 const PAGE_BUILDER_PROMPT = `你是 Instant OS 网络浏览器的网页生成器。你的首要目标是**尽可能逼真地还原**目标 URL 在真实浏览器中打开后的页面——让用户一眼就能认出是哪个网站、哪类页面。
 
 ## 运行环境
-Instant OS 内置网络浏览器。你生成的 HTML 渲染在 iframe 内（约 320~900px 宽）。
+Instant OS 内置网络浏览器。你生成的 HTML 渲染在 iframe 内，尺寸以用户消息中的「当前页面视窗」宽高为准。
 浏览器外壳（地址栏、前进后退）由系统提供——不要绘制浏览器 UI。
 
 ## 核心原则：高保真静态快照，不要伪装导航
@@ -103,8 +103,16 @@ Instant OS **从外部**拦截链接与表单，跳转到真实 URL 后由 AI �
 - 页脚版权年份、活动截止日期、天气/季节描述须与当前日期匹配
 - **禁止**使用过时年份或虚构日期；若需显示时间，以用户提供的当前日期为准`
 
+export type PageViewportSize = {
+  width: number
+  height: number
+  devicePixelRatio: number
+}
+
 export type PageGenerationContext = {
   url: string
+  userAgent?: string
+  viewport?: PageViewportSize
   referrerUrl?: string
   referrerHtml?: string
   siteRootUrl?: string
@@ -137,12 +145,43 @@ function truncateReferenceHtml(html: string, maxChars: number): string {
   return `${html.slice(0, maxChars)}\n<!-- 参考 HTML 已截断 -->`
 }
 
+function appendUserAgentLines(lines: string[], userAgent: string | undefined) {
+  const trimmed = userAgent?.trim()
+  if (!trimmed) {
+    return
+  }
+
+  lines.push(`用户浏览器 User Agent：${trimmed}`)
+}
+
+function appendViewportLines(lines: string[], viewport: PageViewportSize | undefined) {
+  if (!viewport || viewport.width <= 0 || viewport.height <= 0) {
+    return
+  }
+
+  lines.push(
+    `当前页面视窗宽度：${viewport.width}px`,
+    `当前页面视窗高度：${viewport.height}px`,
+    `设备像素比：${viewport.devicePixelRatio}`,
+    '请按上述视窗尺寸优化布局与首屏可见区域，避免横向溢出。',
+  )
+}
+
 function buildPageUserPrompt(context: PageGenerationContext): string {
   const url = context.url
   const described = describeBrowserUrl(url)
 
   if (!described) {
-    return `【当前日期与时间】${formatCurrentDateContext()}\n请确保页面日期与当前日期一致。\n\n网址：${url}\n请高保真还原该 URL 在真实浏览器中打开后的页面 HTML，让用户能一眼认出目标网站。`
+    const lines = [
+      `【当前日期与时间】${formatCurrentDateContext()}`,
+      '请确保页面日期与当前日期一致。',
+      '',
+      `网址：${url}`,
+    ]
+    appendUserAgentLines(lines, context.userAgent)
+    appendViewportLines(lines, context.viewport)
+    lines.push('请高保真还原该 URL 在真实浏览器中打开后的页面 HTML，让用户能一眼认出目标网站。')
+    return lines.join('\n')
   }
 
   const lines = [
@@ -171,6 +210,8 @@ function buildPageUserPrompt(context: PageGenerationContext): string {
     `目标站点：${described.hostname}`,
     `请根据你对「${described.hostname}」的真实了解，还原其典型页面视觉与信息架构。`,
   )
+  appendUserAgentLines(lines, context.userAgent)
+  appendViewportLines(lines, context.viewport)
 
   if (context.referrerUrl && context.referrerHtml) {
     lines.push(

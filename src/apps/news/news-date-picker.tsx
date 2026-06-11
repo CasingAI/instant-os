@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { BackIcon, ForwardIcon } from '../../icons/app-icons.tsx'
 import './news-date-picker.css'
 
 export type NewsDatePickerProps = {
@@ -241,7 +242,7 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
         <div class="news-date-picker__content">
           <div class="news-date-picker__nav-row">
             <button type="button" class="news-date-picker__nav" onClick={handlePrev} aria-label="上一页">
-              ‹
+              <BackIcon size={14} />
             </button>
             <div class="news-date-picker__viewport">
               {view.level === 'day' && (
@@ -349,7 +350,7 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
               )}
             </div>
             <button type="button" class="news-date-picker__nav" onClick={handleNext} aria-label="下一页">
-              ›
+              <ForwardIcon size={14} />
             </button>
           </div>
         </div>

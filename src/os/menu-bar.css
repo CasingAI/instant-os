@@ -119,7 +119,9 @@
   font-weight: 600;
 }
 
-.menu-bar__time {
+.menu-bar__datetime {
+  display: flex;
+  align-items: center;
   padding: 1px 8px;
   border-radius: 4px;
   font-size: 12px;
@@ -127,11 +129,36 @@
   font-variant-numeric: tabular-nums;
   color: inherit;
   transition: background 0.12s ease;
+  border: none;
+  background: transparent;
+  cursor: default;
 }
 
-.menu-bar__time:hover,
-.menu-bar__time--open {
+.menu-bar__datetime:hover,
+.menu-bar__datetime--open {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.menu-bar__datetime-weekday {
+  margin-left: 4px;
+}
+
+.menu-bar__datetime-time {
+  margin-left: 4px;
+}
+
+@media (max-width: 600px) {
+  .menu-bar__battery {
+    display: none;
+  }
+
+  .menu-bar__datetime-calendar,
+  .menu-bar__datetime-weekday {
+    display: none;
+  }
+  .menu-bar__datetime-time {
+    margin-left: 0;
+  }
 }
 
 .menu-bar__dropdown {
