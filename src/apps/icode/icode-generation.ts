@@ -1,12 +1,15 @@
+import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import {
   generateAppHtmlStreaming,
   type AppGenerationUpdate,
 } from '../appstore/generate-app-stream.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import type { ICodeChatEditBlock, ICodeInternalProject } from './icode-types.ts'
+import { IcodeGenerationAbortedError } from './icode-generation-abort.ts'
 import {
   generateIcodeHtmlEditsStreaming,
   type ICodeEditGenerationUpdate,
+  type ICodeEditStreamOptions,
 } from './icode-edit-stream.ts'
 import { stripAiderEditBlocksFromContent } from './icode-apply-edits.ts'
 
@@ -51,11 +54,14 @@ function mapEditUpdate(update: ICodeEditGenerationUpdate): ICodeGenerationUpdate
   }
 }
 
+export type ICodeGenerationOptions = ICodeEditStreamOptions
+
 export async function generateInternalAppHtml(
   project: ICodeInternalProject,
   instruction: string,
   onUpdate?: (update: ICodeGenerationUpdate) => void,
   priorChat: ICodeInternalProject['chat'] = [],
+  options: ICodeGenerationOptions = {},
 ): Promise<ICodeGenerationResult> {
   const listing = listingFromInternal(project)
   const hasExisting = project.html.trim().length > 0
@@ -67,6 +73,7 @@ export async function generateInternalAppHtml(
       instruction,
       onUpdate ? (update) => onUpdate(mapEditUpdate(update)) : undefined,
       priorChat,
+      options,
     )
 
     return {
@@ -83,28 +90,36 @@ export async function generateInternalAppHtml(
   let reasoningText = ''
   let outputText = ''
 
-  const html = await generateAppHtmlStreaming(
-    listing,
-    (update) => {
-      reasoningText = update.reasoningText
-      outputText = update.contentText
-      onUpdate?.(update)
-    },
-    {
-      detail: {
-        tagline: 'iCode 内部开发项目',
-        longDescription: instruction,
-        developer: 'iCode',
-        compatibility: 'Instant OS',
-        language: '中文',
+  try {
+    const html = await generateAppHtmlStreaming(
+      listing,
+      (update) => {
+        reasoningText = update.reasoningText
+        outputText = update.contentText
+        onUpdate?.(update)
       },
-    },
-  )
+      {
+        detail: {
+          tagline: 'iCode 内部开发项目',
+          longDescription: instruction,
+          developer: 'iCode',
+          compatibility: 'Instant OS',
+          language: '中文',
+        },
+      },
+      options,
+    )
 
-  return {
-    html,
-    assistantSummary: '已根据描述生成新的应用源码，可在左侧预览效果。',
-    reasoningText: reasoningText || undefined,
-    outputText: outputText || undefined,
+    return {
+      html,
+      assistantSummary: '已根据描述生成新的应用源码，可在左侧预览效果。',
+      reasoningText: reasoningText || undefined,
+      outputText: outputText || undefined,
+    }
+  } catch (error) {
+    if (isStreamAbortError(error, options.signal)) {
+      throw new IcodeGenerationAbortedError()
+    }
+    throw error
   }
 }

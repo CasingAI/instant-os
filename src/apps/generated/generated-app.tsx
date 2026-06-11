@@ -14,7 +14,9 @@ import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
 import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
-import { generatedAppNeeds3d } from './generated-app-tags.ts'
+import { generatedAppRuntimeUses3d } from './generated-app-tags.ts'
+import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
+import { injectGeneratedAppAiBridge } from './inject-generated-app-ai-bridge.ts'
 import { injectGeneratedAppStorageBridge } from './inject-generated-app-storage-bridge.ts'
 import './generated-app.css'
 
@@ -48,14 +50,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     return () => observer.disconnect()
   }, [])
 
-  const needs3d = app
-    ? generatedAppNeeds3d(app.html, {
-        name: app.name,
-        description: app.description,
-        category: app.category,
-        tags: app.tags,
-      })
-    : false
+  const needs3d = app ? generatedAppRuntimeUses3d(app.html) : false
 
   const preparedHtml = useMemo(() => {
     if (!app) {
@@ -68,6 +63,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     if (needs3d) {
       html = injectScene3dBridge(html)
     }
+    html = injectGeneratedAppAiBridge(html, appId)
     return html
   }, [app, appId, dataRevision, emojiFontEpoch, needs3d])
 
@@ -148,6 +144,14 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [appId])
+
+  useEffect(() => {
+    return installGeneratedAppAiHandler({
+      appId,
+      appName: app?.name,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+    })
+  }, [app?.name, appId])
 
   if (!app) {
     return (

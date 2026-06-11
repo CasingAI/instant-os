@@ -5,6 +5,10 @@ import {
   buildApp3dUserPromptSection,
   resolveApp3dGenerationOptions,
 } from './app-3d-generation-prompt.ts'
+import {
+  buildAppAiUserPromptSection,
+  resolveAppAiGenerationOptions,
+} from './app-ai-generation-prompt.ts'
 
 export type AppGenerationContext = {
   detail?: Partial<StoreListingDetail>
@@ -101,6 +105,20 @@ function append3dRequirementLines(
   lines.push('', buildApp3dUserPromptSection(physicsEnabled))
 }
 
+function appendAiRequirementLines(
+  lines: string[],
+  listing: StoreListing,
+  detail: Partial<StoreListingDetail> | undefined,
+  existingHtml: string | undefined,
+) {
+  const { isAi } = resolveAppAiGenerationOptions(listing, detail, existingHtml)
+  if (!isAi) {
+    return
+  }
+
+  lines.push('', buildAppAiUserPromptSection())
+}
+
 export function buildAppGenerationPrompt(
   listing: StoreListing,
   context: AppGenerationContext = {},
@@ -122,6 +140,7 @@ export function buildAppGenerationPrompt(
   }
 
   append3dRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
+  appendAiRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
 
   if (context.update) {
     appendUpdateLines(lines, context.update)

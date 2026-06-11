@@ -36,11 +36,26 @@ type AiUsageViewProps = {
 
 type Screen = 'overview' | 'day' | 'actor'
 
-function resolveActorDisplayName(actor: string, installedApps: GeneratedAppRecord[]): string {
+function resolveActorDisplayName(
+  actor: string,
+  installedApps: GeneratedAppRecord[],
+  storedLabel?: string,
+): string {
   if (isGeneratedAppId(actor as GeneratedAppId)) {
     const app = installedApps.find((entry) => entry.id === actor)
-    return app?.name ?? generatedAppIdToSlug(actor as GeneratedAppId)
+    if (app?.name) {
+      return app.name
+    }
   }
+
+  if (storedLabel && storedLabel !== actor) {
+    return storedLabel
+  }
+
+  if (isGeneratedAppId(actor as GeneratedAppId)) {
+    return generatedAppIdToSlug(actor as GeneratedAppId)
+  }
+
   return actor
 }
 
@@ -48,13 +63,10 @@ function enrichActorLabels(
   actors: ActorTokenUsage[],
   installedApps: GeneratedAppRecord[],
 ): ActorTokenUsage[] {
-  return actors.map((entry) => {
-    const resolved = resolveActorDisplayName(entry.actor, installedApps)
-    return {
-      ...entry,
-      label: resolved === entry.actor ? entry.label : resolved,
-    }
-  })
+  return actors.map((entry) => ({
+    ...entry,
+    label: resolveActorDisplayName(entry.actor, installedApps, entry.label),
+  }))
 }
 
 function enrichDayLabels(days: DayTokenUsage[]): Array<DayTokenUsage & { label: string }> {
@@ -336,7 +348,7 @@ export function AiUsageView({ onBack, installedApps = [] }: AiUsageViewProps) {
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <h2 class="settings__section-title">
-              {resolveActorDisplayName(selectedEntry.actor, installedApps)}
+              {resolveActorDisplayName(selectedEntry.actor, installedApps, selectedEntry.label)}
             </h2>
             <SummaryBox
               promptTokens={selectedEntry.promptTokens}

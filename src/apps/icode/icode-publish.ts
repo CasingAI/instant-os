@@ -82,6 +82,17 @@ export type ProjectNameConflict =
   | { source: 'installed'; record: GeneratedAppRecord }
   | { source: 'internal'; project: ICodeInternalProject }
 
+export function isIcodeManagedInstalledApp(
+  app: GeneratedAppRecord,
+  internalProjects: ICodeInternalProject[],
+): boolean {
+  if (app.icodeProjectId !== undefined) {
+    return true
+  }
+
+  return internalProjects.some((project) => project.linkedAppId === app.id)
+}
+
 export function findProjectNameConflict(
   installedApps: GeneratedAppRecord[],
   internalProjects: ICodeInternalProject[],

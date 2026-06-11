@@ -1262,6 +1262,11 @@
   padding-inline: 12px;
 }
 
+.icode__chat-stop,
+.icode__nav-stop {
+  color: #c9342b;
+}
+
 .icode__chat-input {
   flex: 1;
   min-width: 0;
@@ -1761,6 +1766,14 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.icode__config-section-hint {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+
 .icode__config-inset {
   overflow: hidden;
   border: 1px solid #a8a8a8;
@@ -1874,16 +1887,10 @@
 
 .icode__config-toggle-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  cursor: pointer;
-}
-
-.icode__config-toggle-row input {
-  flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .icode__config-toggle-copy {

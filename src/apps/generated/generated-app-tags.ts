@@ -1,6 +1,8 @@
 import {
   APP_CAPABILITY_TAG_3D,
+  APP_CAPABILITY_TAG_AI,
   filterAppCapabilityTags,
+  mergeAppCapabilityTags,
 } from '../appstore/app-capability-tags.ts'
 
 export const GENERATED_APP_TAGS_META = 'instant-app-tags'
@@ -94,6 +96,8 @@ export type GeneratedAppTagContext = {
 }
 
 const THREE_D_CONTEXT_PATTERN = /3\s*d|三维|立体|three\s*-?\s*d/i
+const AI_CONTEXT_PATTERN =
+  /\bai\b|人工智能|智能助手|大模型|语言模型|gpt|llm|chatgpt|对话生成|ai\s*应用/i
 
 function joinAppContextText(context: GeneratedAppTagContext): string {
   return [context.name, context.description, context.category, context.tagline, context.longDescription]
@@ -119,28 +123,50 @@ export function appContextSuggests3d(context: GeneratedAppTagContext): boolean {
   return inferTagsFromAppContext(context).includes(APP_CAPABILITY_TAG_3D)
 }
 
-export function inferGeneratedAppTags(html: string): string[] {
-  if (THREEJS_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
-    return [APP_CAPABILITY_TAG_3D]
+export function appContextSuggestsAi(context: GeneratedAppTagContext): boolean {
+  const text = joinAppContextText(context)
+  if (!text) {
+    return false
   }
 
-  return []
+  return AI_CONTEXT_PATTERN.test(text)
 }
 
-export function generatedAppNeeds3d(html: string, context: GeneratedAppTagContext = {}): boolean {
-  if (filterAppCapabilityTags(context.tags).includes(APP_CAPABILITY_TAG_3D)) {
-    return true
+const AI_CONTENT_MARKERS = [
+  /instant-os\.local\/v1/i,
+  /__INSTANT_AI_BASE_URL__/i,
+  /new\s+OpenAI\s*\(/i,
+  /chat\.completions\.create/i,
+]
+
+export function inferGeneratedAppTags(html: string): string[] {
+  const tags: string[] = []
+
+  if (THREEJS_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
+    tags.push(APP_CAPABILITY_TAG_3D)
   }
 
+  if (AI_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
+    tags.push(APP_CAPABILITY_TAG_AI)
+  }
+
+  return tags
+}
+
+/** 预览/已安装应用是否需在运行时注入 3D 桥接（仅看 HTML，与项目配置开关无关） */
+export function generatedAppRuntimeUses3d(html: string): boolean {
   if (hasGeneratedAppTag(html, APP_CAPABILITY_TAG_3D)) {
     return true
   }
 
-  if (inferGeneratedAppTags(html).includes(APP_CAPABILITY_TAG_3D)) {
-    return true
-  }
+  return inferGeneratedAppTags(html).includes(APP_CAPABILITY_TAG_3D)
+}
 
-  return appContextSuggests3d(context)
+/**
+ * @deprecated 使用 generatedAppRuntimeUses3d；保留别名以免外部误用配置 tags 触发注入
+ */
+export function generatedAppNeeds3d(html: string, _context: GeneratedAppTagContext = {}): boolean {
+  return generatedAppRuntimeUses3d(html)
 }
 
 export function buildGeneratedAppTagsMeta(tags: string[]): string {
@@ -184,13 +210,16 @@ export function upsertGeneratedAppTagsMeta(html: string, tags: string[]): string
   return `<head>${meta}</head>\n${cleaned}`
 }
 
-export function ensureGeneratedAppTags(
-  html: string,
-  context: GeneratedAppTagContext = {},
-): string {
-  if (!generatedAppNeeds3d(html, context)) {
+export function ensureGeneratedAppTags(html: string, _context: GeneratedAppTagContext = {}): string {
+  const tags = mergeAppCapabilityTags(
+    parseGeneratedAppTags(html),
+    generatedAppRuntimeUses3d(html) ? [APP_CAPABILITY_TAG_3D] : [],
+    inferGeneratedAppTags(html),
+  )
+
+  if (tags.length === 0) {
     return html
   }
 
-  return upsertGeneratedAppTagsMeta(html, [APP_CAPABILITY_TAG_3D])
+  return upsertGeneratedAppTagsMeta(html, tags)
 }

@@ -2,22 +2,15 @@ import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
-import { generatedAppNeeds3d } from '../generated/generated-app-tags.ts'
+import { generatedAppRuntimeUses3d } from '../generated/generated-app-tags.ts'
+import { injectGeneratedAppAiBridge } from '../generated/inject-generated-app-ai-bridge.ts'
 import { injectGeneratedAppStorageBridge } from '../generated/inject-generated-app-storage-bridge.ts'
 import { injectIcodeConsoleBridge } from './inject-icode-console-bridge.ts'
-
-type PreviewMeta = {
-  name: string
-  description: string
-  category: string
-  tags?: string[]
-}
 
 export function prepareIcodePreviewHtml(
   html: string,
   appId: GeneratedAppId,
   initialData: GeneratedAppDataStore,
-  meta: PreviewMeta,
 ): string {
   if (!html.trim()) {
     return ''
@@ -27,16 +20,11 @@ export function prepareIcodePreviewHtml(
   prepared = injectIcodeConsoleBridge(prepared, appId)
   prepared = injectIframeEmojiFonts(prepared)
 
-  if (
-    generatedAppNeeds3d(prepared, {
-      name: meta.name,
-      description: meta.description,
-      category: meta.category,
-      tags: meta.tags,
-    })
-  ) {
+  if (generatedAppRuntimeUses3d(prepared)) {
     prepared = injectScene3dBridge(prepared)
   }
+
+  prepared = injectGeneratedAppAiBridge(prepared, appId)
 
   return prepared
 }

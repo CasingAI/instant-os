@@ -4,6 +4,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'p
 import { persistWindowSize, resolveWindowDimensions } from '../window/window-bounds-storage.ts'
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
 import { DOCK_SETTINGS_CHANGED_EVENT } from '../dock/dock-settings-storage.ts'
+import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from '../dock/use-dock-viewport-fit.ts'
 import {
   clampFloatingPosition,
   fitFloatingWindowBounds,
@@ -634,9 +635,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     window.addEventListener('resize', reflowWindows)
     window.addEventListener(DOCK_SETTINGS_CHANGED_EVENT, reflowWindows)
+    window.addEventListener(DOCK_VIEWPORT_FIT_CHANGED_EVENT, reflowWindows)
     return () => {
       window.removeEventListener('resize', reflowWindows)
       window.removeEventListener(DOCK_SETTINGS_CHANGED_EVENT, reflowWindows)
+      window.removeEventListener(DOCK_VIEWPORT_FIT_CHANGED_EVENT, reflowWindows)
     }
   }, [])
 

@@ -12,6 +12,7 @@ import { scheduleEmojiOffsetAutoCalibration } from './fonts/auto-calibrate-emoji
 import { ensureAppleColorEmojiFonts } from './fonts/ensure-apple-color-emoji-fonts.ts'
 import './global.css'
 import { initBrowserPageCache } from './apps/browser/browser-page-cache.ts'
+import { initializeDockAppearance } from './dock/apply-dock-settings.ts'
 import { App } from './app.tsx'
 
 function CrashTestThrow(): null {
@@ -30,6 +31,8 @@ if (!appRoot) {
         reportCrash('instant_crash.font', new Error('[instant_crash] 模拟字体初始化后崩溃（font）'))
         return
       }
+
+      initializeDockAppearance()
 
       const tree =
         crashTestMode === 'react' ? (

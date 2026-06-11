@@ -16,8 +16,9 @@ import { useOs } from '../os/os-context.tsx'
 import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
 import {
   DOCK_SETTINGS_CHANGED_EVENT,
-  resolveDockIconSizePx,
 } from './dock-settings-storage.ts'
+import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from './use-dock-viewport-fit.ts'
+import { resolveEffectiveDockIconSizePx } from './dock-layout-metrics.ts'
 import '../icons/app-icon-tile.css'
 import './dock.css'
 
@@ -26,15 +27,19 @@ function DockTooltip({ name }: { name: string }) {
 }
 
 function useDockIconSize(): number {
-  const [iconSize, setIconSize] = useState(resolveDockIconSizePx)
+  const [iconSize, setIconSize] = useState(resolveEffectiveDockIconSizePx)
 
   useEffect(() => {
     const syncIconSize = () => {
-      setIconSize(resolveDockIconSizePx())
+      setIconSize(resolveEffectiveDockIconSizePx())
     }
 
     window.addEventListener(DOCK_SETTINGS_CHANGED_EVENT, syncIconSize)
-    return () => window.removeEventListener(DOCK_SETTINGS_CHANGED_EVENT, syncIconSize)
+    window.addEventListener(DOCK_VIEWPORT_FIT_CHANGED_EVENT, syncIconSize)
+    return () => {
+      window.removeEventListener(DOCK_SETTINGS_CHANGED_EVENT, syncIconSize)
+      window.removeEventListener(DOCK_VIEWPORT_FIT_CHANGED_EVENT, syncIconSize)
+    }
   }, [])
 
   return iconSize

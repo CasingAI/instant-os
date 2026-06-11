@@ -10,15 +10,24 @@ import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
+import { forEachStreamChunk, isStreamAbortError, raceWithAbortSignal } from '../../ai/stream-abort.ts'
 import {
   buildApp3dSystemPromptExtension,
   resolveApp3dGenerationOptions,
 } from '../appstore/app-3d-generation-prompt.ts'
+import {
+  buildAppAiSystemPromptExtension,
+  resolveAppAiGenerationOptions,
+} from '../appstore/app-ai-generation-prompt.ts'
 import { formatListingTagsForPrompt } from '../appstore/listing-tags.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import { progressFromTextLength } from '../appstore/generate-app-stream.ts'
 import type { ICodeChatMessage } from './icode-types.ts'
+import {
+  IcodeGenerationAbortedError,
+  throwIfIcodeGenerationAborted,
+} from './icode-generation-abort.ts'
 import {
   addLineNumbers,
   applyStreamEdits,
@@ -104,11 +113,21 @@ function buildEditUserPrompt(
 
 function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): string {
   const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, undefined, existingHtml)
-  if (!is3d) {
+  const { isAi } = resolveAppAiGenerationOptions(listing, undefined, existingHtml)
+
+  const extensions: string[] = []
+  if (is3d) {
+    extensions.push(buildApp3dSystemPromptExtension(physicsEnabled))
+  }
+  if (isAi) {
+    extensions.push(buildAppAiSystemPromptExtension())
+  }
+
+  if (extensions.length === 0) {
     return ICODE_EDIT_SYSTEM_PROMPT
   }
 
-  return `${ICODE_EDIT_SYSTEM_PROMPT}\n\n${buildApp3dSystemPromptExtension(physicsEnabled)}`
+  return `${ICODE_EDIT_SYSTEM_PROMPT}\n\n${extensions.join('\n\n')}`
 }
 
 function chatMessageForApi(message: ICodeChatMessage): string {
@@ -213,12 +232,17 @@ function fallbackReply(appliedCount: number, failedEdits: number): string {
   return failedEdits > 0 ? `${base}（${failedEdits} 处编辑未能匹配）` : base
 }
 
+export type ICodeEditStreamOptions = {
+  signal?: AbortSignal
+}
+
 export async function generateIcodeHtmlEditsStreaming(
   listing: StoreListing,
   existingHtml: string,
   instruction: string,
   onUpdate?: (update: ICodeEditGenerationUpdate) => void,
   priorChat: ICodeChatMessage[] = [],
+  options: ICodeEditStreamOptions = {},
 ): Promise<ICodeEditGenerationResult> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
@@ -238,19 +262,23 @@ export async function generateIcodeHtmlEditsStreaming(
   const systemPrompt = buildEditSystemPrompt(listing, existingHtml)
   const apiMessages = buildEditApiMessages(listing, existingHtml, instruction, priorChat)
 
-  const stream = await client.chat.completions.create({
-    model,
-    stream: true,
-    stream_options: { include_usage: true },
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...apiMessages,
-    ],
-    ...buildThinkingRequestExtras(
-      config.providerId,
-      resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
-    ),
-  })
+  const stream = await raceWithAbortSignal(
+    client.chat.completions.create({
+      model,
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...apiMessages,
+      ],
+      ...buildThinkingRequestExtras(
+        config.providerId,
+        resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
+      ),
+      ...(options.signal ? { signal: options.signal } : {}),
+    }),
+    options.signal,
+  )
 
   let contentText = ''
   let reasoningText = ''
@@ -293,26 +321,43 @@ export async function generateIcodeHtmlEditsStreaming(
     })
   }
 
-  for await (const chunk of stream) {
-    streamStarted = true
-    const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
-    if (chunkUsage) {
-      usage = chunkUsage
-    }
-    const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
-    if (reasoning) {
-      reasoningText += reasoning
-      emit()
-      continue
-    }
-    if (!content) {
-      continue
-    }
+  try {
+    await forEachStreamChunk(
+      stream,
+      (chunk) => {
+        streamStarted = true
+        const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+        if (chunkUsage) {
+          usage = chunkUsage
+        }
+        const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
+        if (reasoning) {
+          reasoningText += reasoning
+          emit()
+          return
+        }
+        if (!content) {
+          return
+        }
 
-    contentText += content
-    blockFeed.push(content)
-    emit()
+        contentText += content
+        blockFeed.push(content)
+        emit()
+      },
+      options.signal,
+    )
+  } catch (error) {
+    if (isStreamAbortError(error, options.signal)) {
+      recordAiTokenUsage(
+        { actor: 'icode', behavior: 'edit-app', behaviorLabel: '编辑应用' },
+        usage,
+      )
+      throw new IcodeGenerationAbortedError()
+    }
+    throw error
   }
+
+  throwIfIcodeGenerationAborted(options.signal)
 
   blockFeed.flush()
 

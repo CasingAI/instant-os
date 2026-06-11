@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'preact/hooks'
+import { useRef } from 'preact/hooks'
 import { Desktop } from '../desktop/desktop.tsx'
 import { Dock } from '../dock/dock.tsx'
-import { ensureDockSettingsApplied } from '../dock/apply-dock-settings.ts'
+import { useDockViewportFit } from '../dock/use-dock-viewport-fit.ts'
 import { IconContextMenuProvider } from './icon-context-menu-context.tsx'
 import { LauncherLayoutProvider } from './launcher-layout-context.tsx'
 import { AboutAppProvider } from './about-app-context.tsx'
@@ -17,10 +17,7 @@ import './os-shell.css'
 function OsShellContent() {
   const shellRef = useRef<HTMLDivElement>(null)
   useWallpaper(shellRef)
-
-  useEffect(() => {
-    ensureDockSettingsApplied()
-  }, [])
+  useDockViewportFit()
 
   return (
     <div class="os-shell" ref={shellRef}>

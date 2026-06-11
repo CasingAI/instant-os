@@ -12,10 +12,15 @@ import {
 import { setPendingInstallStream } from '../../os/pending-install-stream.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
+import { forEachStreamChunk, isStreamAbortError, raceWithAbortSignal } from '../../ai/stream-abort.ts'
 import {
   buildApp3dSystemPromptExtension,
   resolveApp3dGenerationOptions,
 } from './app-3d-generation-prompt.ts'
+import {
+  buildAppAiSystemPromptExtension,
+  resolveAppAiGenerationOptions,
+} from './app-ai-generation-prompt.ts'
 import {
   buildAppGenerationPrompt,
   type AppGenerationContext,
@@ -71,16 +76,23 @@ function buildAppGenerationSystemPrompt(
   isUpdate: boolean,
 ): string {
   const basePrompt = isUpdate ? APP_UPDATE_PROMPT : APP_BUILDER_PROMPT
-  const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(
-    listing,
-    context.detail,
-    context.update?.existingHtml,
-  )
-  if (!is3d) {
+  const existingHtml = context.update?.existingHtml
+  const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, context.detail, existingHtml)
+  const { isAi } = resolveAppAiGenerationOptions(listing, context.detail, existingHtml)
+
+  const extensions: string[] = []
+  if (is3d) {
+    extensions.push(buildApp3dSystemPromptExtension(physicsEnabled))
+  }
+  if (isAi) {
+    extensions.push(buildAppAiSystemPromptExtension())
+  }
+
+  if (extensions.length === 0) {
     return basePrompt
   }
 
-  return `${basePrompt}\n\n${buildApp3dSystemPromptExtension(physicsEnabled)}`
+  return `${basePrompt}\n\n${extensions.join('\n\n')}`
 }
 
 export function estimateAppGenerationContextTokens(
@@ -119,6 +131,10 @@ export type AppGenerationUpdate = {
   contentText: string
 }
 
+export type AppGenerationStreamOptions = {
+  signal?: AbortSignal
+}
+
 const METADATA_EMIT_INTERVAL_MS = 280
 const STREAM_EMIT_INTERVAL_MS = 120
 
@@ -144,6 +160,7 @@ export async function generateAppHtmlStreaming(
   listing: StoreListing,
   onUpdate: (update: AppGenerationUpdate) => void,
   context: AppGenerationContext = {},
+  options: AppGenerationStreamOptions = {},
 ): Promise<string> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
@@ -161,19 +178,23 @@ export async function generateAppHtmlStreaming(
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
 
-  const stream = await client.chat.completions.create({
-    model,
-    stream: true,
-    stream_options: { include_usage: true },
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    ...buildThinkingRequestExtras(
-      config.providerId,
-      resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
-    ),
-  })
+  const stream = await raceWithAbortSignal(
+    client.chat.completions.create({
+      model,
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      ...buildThinkingRequestExtras(
+        config.providerId,
+        resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
+      ),
+      ...(options.signal ? { signal: options.signal } : {}),
+    }),
+    options.signal,
+  )
 
   let contentText = ''
   let reasoningText = ''
@@ -216,24 +237,42 @@ export async function generateAppHtmlStreaming(
     })
   }
 
-  for await (const chunk of stream) {
-    streamStarted = true
-    const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
-    if (chunkUsage) {
-      usage = chunkUsage
-    }
-    const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
-    if (reasoning) {
-      reasoningText += reasoning
-      emit()
-      continue
-    }
-    if (!content) {
-      continue
-    }
+  try {
+    await forEachStreamChunk(
+      stream,
+      (chunk) => {
+        streamStarted = true
+        const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+        if (chunkUsage) {
+          usage = chunkUsage
+        }
+        const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
+        if (reasoning) {
+          reasoningText += reasoning
+          emit()
+          return
+        }
+        if (!content) {
+          return
+        }
 
-    contentText += content
-    emit()
+        contentText += content
+        emit()
+      },
+      options.signal,
+    )
+  } catch (error) {
+    if (isStreamAbortError(error, options.signal)) {
+      recordAiTokenUsage(
+        {
+          actor: 'appstore',
+          behavior: isUpdate ? 'app-update' : 'app-generate',
+          behaviorLabel: isUpdate ? '更新应用' : '生成应用',
+        },
+        usage,
+      )
+    }
+    throw error
   }
 
   if (!contentText.trim()) {
