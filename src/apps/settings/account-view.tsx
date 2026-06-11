@@ -53,9 +53,6 @@ export function AccountView({ onBack }: AccountViewProps) {
     if (screen === 'model' && isCustomProvider(draft.providerId)) {
       setScreen('main')
     }
-    if (screen === 'base-url' && !isCustomProvider(draft.providerId)) {
-      setScreen('main')
-    }
     if (screen === 'model-custom' && !isCustomProvider(draft.providerId)) {
       setScreen('main')
     }
@@ -91,6 +88,20 @@ export function AccountView({ onBack }: AccountViewProps) {
     }
   }
 
+  const handleEditBaseURL = async () => {
+    const baseURL = await modal.prompt({
+      title: 'Base URL',
+      label: '接口地址',
+      placeholder: 'https://api.example.com/v1',
+      initialValue: draft.baseURL ?? '',
+      requireValue: false,
+      confirmLabel: '确定',
+    })
+    if (baseURL !== undefined) {
+      handleChange({ ...draft, baseURL })
+    }
+  }
+
   const preset = findAiProviderPreset(draft.providerId)
   const modelOptions =
     preset?.models.map((model) => ({ id: model.id, label: model.name })) ?? []
@@ -118,19 +129,6 @@ export function AccountView({ onBack }: AccountViewProps) {
             options={modelOptions}
             value={draft.model}
             onChange={(model) => handleChange({ ...draft, model })}
-            onBack={backToMain}
-          />
-        )
-      case 'base-url':
-        return (
-          <AccountTextFieldSubpage
-            title="Base URL"
-            backLabel="AI 账户"
-            fieldLabel="接口地址"
-            type="url"
-            value={draft.baseURL ?? ''}
-            placeholder="https://api.example.com/v1"
-            onChange={(baseURL) => handleChange({ ...draft, baseURL })}
             onBack={backToMain}
           />
         )
@@ -174,6 +172,7 @@ export function AccountView({ onBack }: AccountViewProps) {
             wideLayout={usePopover}
             onOpenSubpage={setScreen}
             onEditApiKey={handleEditApiKey}
+            onEditBaseURL={handleEditBaseURL}
           />
           <p class="settings__section-footnote">
             API Key 仅可由系统访问，其他应用无法读取。

@@ -808,6 +808,11 @@
   border-bottom: none;
 }
 
+/* 包装在 choice-field 等容器内的行仍是 :last-child，需保留底部分隔线 */
+.settings__list > *:not(:last-child) > .settings__row:last-child {
+  border-bottom: 1px solid #ececec;
+}
+
 .settings__row-name {
   min-width: 0;
   overflow: hidden;
@@ -940,12 +945,22 @@
 .settings__row--button:hover .settings__row-size,
 .settings__row--button:hover .settings__row-count,
 .settings__row--button:active .settings__row-size,
-.settings__row--button:active .settings__row-count {
+.settings__row--button:active .settings__row-count,
+.settings__row--button:hover .settings__secret-mask,
+.settings__row--button:active .settings__secret-mask {
   color: rgba(255, 255, 255, 0.85);
 }
 
 .settings__row--nav {
-  grid-template-columns: 1fr auto 16px;
+  grid-template-columns: auto minmax(0, 1fr) 16px;
+}
+
+.settings__row--nav .settings__row-size {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .settings__list-head--nav {
@@ -1374,8 +1389,57 @@
 .settings__row--inline-input {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
-  padding: 6px 12px;
+  padding: 4px 10px;
   cursor: default;
+}
+
+.settings__secret-mask {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  color: #666;
+  -webkit-text-security: disc;
+}
+
+.settings__list--account .settings__input.settings__input--list[type='password'] {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+}
+
+.settings__list--account {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings__list--account .settings__row {
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+
+.settings__list--account .settings__row--inline-input .settings__input.settings__input--list {
+  height: 28px;
+  overflow: hidden;
+}
+
+.settings__list--account .settings__row--switch {
+  grid-template-columns: 1fr auto;
+  padding-left: 10px;
+  padding-right: 12px;
+}
+
+.settings__list--account .settings__row--switch .ios-switch {
+  justify-self: end;
 }
 
 .settings__field {
@@ -2025,7 +2089,12 @@
   }
 
   .settings__row--nav {
-    grid-template-columns: 1fr auto 14px;
+    grid-template-columns: auto minmax(0, 1fr) 14px;
+  }
+
+  .settings__row--switch {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
   }
 }
 

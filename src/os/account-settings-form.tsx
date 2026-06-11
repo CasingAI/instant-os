@@ -11,7 +11,7 @@ import { SettingsNavRow } from '../ui/settings-nav-row.tsx'
 import { SettingsSwitchRow } from '../ui/settings-switch-row.tsx'
 import { mergeAccountSettings, type AccountSettings } from './account-settings-storage.ts'
 
-export type AccountSubpageField = 'provider' | 'model' | 'base-url' | 'model-custom'
+export type AccountSubpageField = 'provider' | 'model' | 'model-custom'
 
 type AccountSettingsFormProps = {
   draft: AccountSettings
@@ -20,19 +20,13 @@ type AccountSettingsFormProps = {
   wideLayout?: boolean
   onOpenSubpage?: (field: AccountSubpageField) => void
   onEditApiKey?: () => void
+  onEditBaseURL?: () => void
 }
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
   id: item.id,
   label: item.name,
 }))
-
-function maskApiKey(apiKey: string): string {
-  if (!apiKey.trim()) {
-    return '未填写'
-  }
-  return '已设置'
-}
 
 function summarizeText(value: string, placeholder = '未填写'): string {
   const trimmed = value.trim()
@@ -52,6 +46,7 @@ export function AccountSettingsForm({
   wideLayout = true,
   onOpenSubpage,
   onEditApiKey,
+  onEditBaseURL,
 }: AccountSettingsFormProps) {
   const isCustom = isCustomProvider(draft.providerId)
   const preset = findAiProviderPreset(draft.providerId)
@@ -99,26 +94,36 @@ export function AccountSettingsForm({
           />
         )}
 
-        {isCustom && (
-          <SettingsNavRow
-            label="Base URL"
-            value={summarizeText(draft.baseURL ?? '')}
-            onClick={() => onOpenSubpage?.('base-url')}
-          />
-        )}
+        {isCustom &&
+          (wideLayout ? (
+            <SettingsInlineInputRow
+              label="Base URL"
+              type="text"
+              value={draft.baseURL ?? ''}
+              placeholder="未填写"
+              onChange={(baseURL) => onChange({ ...draft, baseURL })}
+            />
+          ) : (
+            <SettingsNavRow
+              label="Base URL"
+              value={summarizeText(draft.baseURL ?? '')}
+              onClick={() => onEditBaseURL?.()}
+            />
+          ))}
 
         {wideLayout ? (
           <SettingsInlineInputRow
             label="API Key"
             type="password"
             value={draft.apiKey}
-            placeholder="sk-..."
+            placeholder="未填写"
             onChange={(apiKey) => onChange({ ...draft, apiKey })}
           />
         ) : (
           <SettingsNavRow
             label="API Key"
-            value={maskApiKey(draft.apiKey)}
+            value="未填写"
+            secretLength={draft.apiKey.trim().length || undefined}
             onClick={() => onEditApiKey?.()}
           />
         )}
