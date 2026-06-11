@@ -58,23 +58,11 @@ export async function applyEmojiFontMode(mode?: EmojiFontMode): Promise<void> {
   applyEmojiOffsetVariables()
 
   if (!useBundled || webFontsEnsured) {
-    if (useBundled) {
-      await Promise.race([
-        document.fonts.ready,
-        new Promise((resolve) => setTimeout(resolve, 3000))
-      ])
-    }
     return
   }
 
   webFontsEnsured = true
   injectBundledEmojiFontFaces(useBundledMetrics)
-
-  // Do not block app boot indefinitely if fonts take too long to download
-  await Promise.race([
-    document.fonts.ready,
-    new Promise((resolve) => setTimeout(resolve, 3000))
-  ])
 }
 
 /** Loads bundled emoji web fonts according to display settings and system availability. */
