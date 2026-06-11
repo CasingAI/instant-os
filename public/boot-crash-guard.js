@@ -119,7 +119,7 @@
       if (!state.moduleExecuted) {
         activate(
           '主应用脚本未能执行。\n' +
-            '当前浏览器可能过旧，或不支持 ES Module（需要 Safari 10.1+ / iOS 10.3+）。',
+            '当前浏览器可能过旧，或不支持 ES Module。请尝试升级或更换较新的浏览器。',
         )
         return
       }
@@ -146,7 +146,7 @@
       }
       activate(
         '当前浏览器不支持 ES Module，无法加载 Instant OS。\n' +
-          '请使用 Safari 10.1+ / iOS 10.3+ 或更新的浏览器。',
+          '请尝试升级或更换较新的浏览器。',
       )
       return
     }
