@@ -84,7 +84,7 @@ function DesktopIcon({
 
   const pinned = isPinnedToDock(appId)
 
-  const { onPointerDown } = useDesktopIconReorder({
+  const { onClick, onPointerDown } = useDesktopIconReorder({
     appId,
     globalIndex,
     didSwipeRef,
@@ -99,6 +99,7 @@ function DesktopIcon({
     <button
       type="button"
       class="desktop-icon"
+      onClick={onClick}
       onPointerDown={onPointerDown}
       onContextMenu={(event) => {
         showIconContextMenu(
@@ -158,7 +159,7 @@ function GeneratedDesktopIcon({
 
   const pinned = isPinnedToDock(appId)
 
-  const { onPointerDown } = useDesktopIconReorder({
+  const { onClick, onPointerDown } = useDesktopIconReorder({
     appId,
     globalIndex,
     disabled: downloading,
@@ -181,6 +182,7 @@ function GeneratedDesktopIcon({
         type="button"
         class="desktop-icon"
         disabled={downloading}
+        onClick={onClick}
         onPointerDown={onPointerDown}
         onContextMenu={(event) => {
           showIconContextMenu(

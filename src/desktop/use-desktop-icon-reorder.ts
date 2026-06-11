@@ -31,12 +31,26 @@ export function useDesktopIconReorder({
   const reorderingRef = useRef(false)
   const startPointRef = useRef({ x: 0, y: 0 })
 
+  const preventClickRef = useRef(false)
+
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current !== undefined) {
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = undefined
     }
   }, [])
+
+  const onClick = useCallback(
+    (event: MouseEvent) => {
+      if (preventClickRef.current || didSwipeRef.current || disabled) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      onOpen()
+    },
+    [didSwipeRef, disabled, onOpen],
+  )
 
   const onPointerDown = useCallback(
     (event: PointerEvent) => {
@@ -46,11 +60,13 @@ export function useDesktopIconReorder({
 
       clearLongPressTimer()
       reorderingRef.current = false
+      preventClickRef.current = false
       startPointRef.current = { x: event.clientX, y: event.clientY }
 
       longPressTimerRef.current = window.setTimeout(() => {
         longPressTimerRef.current = undefined
         reorderingRef.current = true
+        preventClickRef.current = true
         onReorderStart(
           appId,
           globalIndex,
@@ -65,6 +81,7 @@ export function useDesktopIconReorder({
 
         if (!reorderingRef.current && Math.hypot(deltaX, deltaY) > TAP_THRESHOLD) {
           clearLongPressTimer()
+          preventClickRef.current = true
         }
 
         if (reorderingRef.current) {
@@ -73,7 +90,7 @@ export function useDesktopIconReorder({
         }
       }
 
-      const onPointerUp = (upEvent: PointerEvent) => {
+      const onPointerUp = () => {
         clearLongPressTimer()
         document.removeEventListener('pointermove', onPointerMove)
         document.removeEventListener('pointerup', onPointerUp)
@@ -85,15 +102,10 @@ export function useDesktopIconReorder({
           return
         }
 
+        // We don't call onOpen() here anymore. It's handled by onClick.
+        // But we need to make sure preventClickRef is correct.
         if (didSwipeRef.current) {
-          return
-        }
-
-        const deltaX = upEvent.clientX - startPointRef.current.x
-        const deltaY = upEvent.clientY - startPointRef.current.y
-        if (Math.hypot(deltaX, deltaY) < TAP_THRESHOLD) {
-          upEvent.stopPropagation()
-          onOpen()
+          preventClickRef.current = true
         }
       }
 
@@ -137,6 +149,7 @@ export function useDesktopIconReorder({
   )
 
   return {
+    onClick,
     onPointerDown,
     onReorderPointerMove,
     onReorderPointerUp,
