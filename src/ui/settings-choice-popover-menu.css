@@ -1,0 +1,52 @@
+.settings-choice-popover {
+  position: fixed;
+  z-index: 2200;
+  width: max-content;
+  min-width: 7.5rem;
+  max-width: min(320px, calc(100vw - 16px));
+  overflow: hidden;
+  padding: 4px 0;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 5px;
+  color: #222;
+  background: linear-gradient(180deg, #fafafa 0%, #ececec 100%);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.settings-choice-popover__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.settings-choice-popover__item:hover,
+.settings-choice-popover__item:focus-visible {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  color: #fff;
+}
+
+.settings-choice-popover__item:hover .settings-choice-popover__check,
+.settings-choice-popover__item:focus-visible .settings-choice-popover__check {
+  color: #fff;
+}
+
+.settings-choice-popover__label {
+  min-width: 0;
+}
+
+.settings-choice-popover__check {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #007aff;
+}

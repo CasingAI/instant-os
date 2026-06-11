@@ -35,8 +35,7 @@ import {
   parseAiderEditBlocks,
   pickLastReplyParagraph,
   stripAiderEditBlocksFromContent,
-  extractFinalReplyAfterEdits,
-  extractLeadingReplyBeforeEdits,
+  extractNaturalLanguageReply,
   type ICodeReplaceEdit,
 } from './icode-apply-edits.ts'
 
@@ -219,7 +218,7 @@ function looksLikeFullHtml(text: string): boolean {
 }
 
 function buildAssistantReply(contentText: string): string {
-  return extractFinalReplyAfterEdits(contentText)
+  return extractNaturalLanguageReply(contentText)
 }
 
 function fallbackReply(appliedCount: number, failedEdits: number): string {
@@ -406,9 +405,7 @@ export async function generateIcodeHtmlEditsStreaming(
     }
 
     if (assistantReply || fullReply) {
-      const trailing = extractFinalReplyAfterEdits(contentText)
-      const leading = extractLeadingReplyBeforeEdits(contentText)
-      const displayReply = trailing || leading || assistantReply
+      const displayReply = extractNaturalLanguageReply(contentText) || assistantReply
       return {
         html: existingHtml,
         assistantSummary: displayReply || pickLastReplyParagraph(fullReply),

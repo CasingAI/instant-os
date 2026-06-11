@@ -157,7 +157,7 @@ export function describePublishDiff(
 
 export function describePublishDiffMessage(diff: ICodePublishDiff): string {
   if (diff.appData && !diff.html && !diff.meta) {
-    return '编辑区运行数据与桌面正式版不同（如分数、进度）。保存草稿或发布后才会同步。'
+    return '编辑区运行数据与桌面正式版不同（如分数、进度）。点击「发布」同步到桌面。'
   }
 
   const changed: string[] = []
@@ -172,12 +172,8 @@ export function describePublishDiffMessage(diff: ICodePublishDiff): string {
   }
 
   if (changed.length === 0) {
-    return '编辑区与桌面正式版不同，发布后才会同步。'
+    return '编辑区与桌面正式版不同，点击「发布」同步到桌面。'
   }
 
-  if (diff.html && diff.appData) {
-    return `编辑区${changed.join('、')}与桌面正式版不同。保存或发布后才会同步。`
-  }
-
-  return `编辑区${changed.join('、')}与桌面正式版不同。点击「发布」后桌面应用才会更新。`
+  return `编辑区${changed.join('、')}与桌面正式版不同。点击「发布」同步到桌面。`
 }

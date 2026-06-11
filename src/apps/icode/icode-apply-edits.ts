@@ -270,6 +270,81 @@ export function extractLeadingReplyBeforeEdits(content: string): string {
     .trim()
 }
 
+export function isAiderEditInProgress(content: string): boolean {
+  if (!content.includes(AIDER_SEARCH_HEAD)) {
+    return false
+  }
+
+  const markerCount = (content.match(/<<<<<<< SEARCH/g) ?? []).length
+  return markerCount > parseAiderEditBlocks(content).length
+}
+
+function looksLikeStreamingCode(text: string): boolean {
+  const trimmed = text.trimStart()
+  return (
+    trimmed.startsWith('<!DOCTYPE') ||
+    trimmed.startsWith('<html') ||
+    trimmed.startsWith('<') ||
+    trimmed.startsWith('```') ||
+    trimmed.includes(AIDER_SEARCH_HEAD)
+  )
+}
+
+/** 提取 AI 输出中尚未完成的代码片段（用于对话区底部实时展示）。 */
+export function extractInProgressCodeOutput(content: string): string {
+  if (!content.trim()) {
+    return ''
+  }
+
+  const normalized = content.replace(/\r\n/g, '\n')
+  const completeBlockPattern =
+    /(?:```(?:html)?\s*\n?)?<<<<<<< SEARCH[\s\S]*?=======[\s\S]*?>>>>>>> REPLACE(?:\s*\n?```)?/g
+  let lastCompleteEnd = 0
+  let match: RegExpExecArray | null = null
+
+  completeBlockPattern.lastIndex = 0
+  while ((match = completeBlockPattern.exec(normalized)) !== null) {
+    lastCompleteEnd = match.index + match[0].length
+  }
+
+  let tail = normalized.slice(lastCompleteEnd).replace(/^\s+/, '')
+  tail = tail.replace(/^```(?:html)?\s*\n?/i, '')
+
+  if (isAiderEditInProgress(normalized) || tail.includes(AIDER_SEARCH_HEAD) || tail.includes(AIDER_DIVIDER)) {
+    return tail.trimEnd()
+  }
+
+  if (!tail) {
+    return looksLikeStreamingCode(normalized) ? normalized.trimEnd() : ''
+  }
+
+  const leadingReply = extractLeadingReplyBeforeEdits(normalized)
+  if (leadingReply && !looksLikeStreamingCode(tail)) {
+    return ''
+  }
+
+  if (looksLikeStreamingCode(tail)) {
+    return tail.trimEnd()
+  }
+
+  return ''
+}
+
+/** 按 AI 输出顺序拼接全部自然语言段落（去掉 SEARCH/REPLACE 块）。 */
+export function extractNaturalLanguageReply(content: string): string {
+  const segments = parseIcodeContentSegments(content)
+  const texts = segments
+    .filter((segment): segment is { type: 'text'; text: string } => segment.type === 'text')
+    .map((segment) => segment.text.trim())
+    .filter(Boolean)
+
+  if (texts.length > 0) {
+    return texts.join('\n\n').trim()
+  }
+
+  return stripAiderEditBlocksFromContent(content).trim()
+}
+
 export function pickLastReplyParagraph(text: string): string {
   const trimmed = text.trim()
   if (!trimmed) {

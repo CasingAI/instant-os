@@ -7,13 +7,18 @@ import {
 } from './generated-app-ai-types.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 
-function buildAiBridgeScript(appId: GeneratedAppId): string {
+type InjectGeneratedAppAiBridgeOptions = {
+  debug?: boolean
+}
+
+function buildAiBridgeScript(appId: GeneratedAppId, debug: boolean): string {
   const appIdJson = JSON.stringify(appId)
   const baseUrlJson = JSON.stringify(GENERATED_APP_AI_BASE_URL)
   const requestTypeJson = JSON.stringify(GENERATED_APP_AI_REQUEST_MESSAGE_TYPE)
   const responseTypeJson = JSON.stringify(GENERATED_APP_AI_RESPONSE_MESSAGE_TYPE)
   const streamTypeJson = JSON.stringify(GENERATED_APP_AI_STREAM_MESSAGE_TYPE)
   const streamEndTypeJson = JSON.stringify(GENERATED_APP_AI_STREAM_END_MESSAGE_TYPE)
+  const debugJson = debug ? 'true' : 'false'
 
   return `<script>
 (function () {
@@ -23,8 +28,24 @@ function buildAiBridgeScript(appId: GeneratedAppId): string {
   var RESPONSE_TYPE = ${responseTypeJson};
   var STREAM_TYPE = ${streamTypeJson};
   var STREAM_END_TYPE = ${streamEndTypeJson};
+  var AI_DEBUG = ${debugJson};
   var pending = Object.create(null);
   var requestSeq = 0;
+  var LOG_PREFIX = '[instant-ai-bridge]';
+
+  function aiDebugLog() {
+    if (!AI_DEBUG) {
+      return;
+    }
+    console.log.apply(console, arguments);
+  }
+
+  function aiDebugWarn() {
+    if (!AI_DEBUG) {
+      return;
+    }
+    console.warn.apply(console, arguments);
+  }
 
   function isAiUrl(url) {
     try {
@@ -104,24 +125,51 @@ function buildAiBridgeScript(appId: GeneratedAppId): string {
     if (data.type === STREAM_TYPE) {
       var streamEntry = pending[data.requestId];
       if (!streamEntry || !streamEntry.controller) {
+        aiDebugWarn(LOG_PREFIX, 'stream chunk dropped (no pending entry)', data.requestId);
         return;
       }
       try {
         streamEntry.controller.enqueue(new TextEncoder().encode(data.chunk));
-      } catch (ignored) {}
+        aiDebugLog(LOG_PREFIX, 'stream chunk enqueued', data.requestId, data.chunk.length);
+      } catch (error) {
+        aiDebugWarn(LOG_PREFIX, 'stream chunk enqueue failed', data.requestId, error);
+      }
       return;
     }
 
     if (data.type === STREAM_END_TYPE) {
+      aiDebugLog(LOG_PREFIX, 'stream end', data.requestId, data.status, data.error || '');
       settleStreamEnd(data.requestId, data.status, data.error);
     }
   });
+
+  function sanitizeCompletionBody(value) {
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+    var copy = Object.assign({}, value);
+    delete copy.model;
+    delete copy.thinking;
+    delete copy.stream_options;
+    return copy;
+  }
+
+  function sanitizeCompletionBodyText(bodyText) {
+    if (!bodyText) {
+      return bodyText;
+    }
+    try {
+      return JSON.stringify(sanitizeCompletionBody(JSON.parse(bodyText)));
+    } catch (ignored) {
+      return bodyText;
+    }
+  }
 
   function proxyFetch(url, init) {
     return new Promise(function (resolve, reject) {
       var requestId = 'ai-' + String(++requestSeq);
       var method = init && init.method ? String(init.method).toUpperCase() : 'GET';
-      var bodyText = init && init.body != null ? String(init.body) : undefined;
+      var bodyText = init && init.body != null ? sanitizeCompletionBodyText(String(init.body)) : undefined;
       var streaming = false;
 
       if (bodyText) {
@@ -147,6 +195,7 @@ function buildAiBridgeScript(appId: GeneratedAppId): string {
       }
 
       try {
+        aiDebugLog(LOG_PREFIX, 'request', requestId, method, resolvePath(url), streaming ? 'stream' : 'json');
         parent.postMessage(
           {
             type: REQUEST_TYPE,
@@ -154,7 +203,8 @@ function buildAiBridgeScript(appId: GeneratedAppId): string {
             requestId: requestId,
             path: resolvePath(url),
             method: method,
-            body: bodyText
+            body: bodyText,
+            debug: AI_DEBUG ? true : undefined
           },
           '*'
         );
@@ -189,7 +239,7 @@ function buildAiBridgeScript(appId: GeneratedAppId): string {
               'Content-Type': 'application/json',
               Authorization: 'Bearer ' + apiKey
             },
-            body: JSON.stringify(params || {})
+            body: JSON.stringify(sanitizeCompletionBody(params || {}))
           }).then(function (response) {
             if (!response.ok) {
               return response.text().then(function (text) {
@@ -283,12 +333,16 @@ function buildAiBridgeScript(appId: GeneratedAppId): string {
 </script>`
 }
 
-export function injectGeneratedAppAiBridge(html: string, appId: GeneratedAppId): string {
+export function injectGeneratedAppAiBridge(
+  html: string,
+  appId: GeneratedAppId,
+  options: InjectGeneratedAppAiBridgeOptions = {},
+): string {
   if (!html.trim()) {
     return html
   }
 
-  const bridge = buildAiBridgeScript(appId)
+  const bridge = buildAiBridgeScript(appId, options.debug === true)
 
   if (/<head[\s>]/i.test(html)) {
     return html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}\n${bridge}`)

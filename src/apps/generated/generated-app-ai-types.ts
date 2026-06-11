@@ -14,6 +14,8 @@ export type GeneratedAppAiRequestMessage = {
   path: string
   method: string
   body?: string
+  /** 仅 iCode 预览注入桥接时为 true，用于开启调试日志 */
+  debug?: boolean
 }
 
 export type GeneratedAppAiResponseMessage = {

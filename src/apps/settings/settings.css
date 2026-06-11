@@ -1361,6 +1361,23 @@
   gap: 10px;
 }
 
+.settings__field--stacked {
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.settings__row--switch {
+  grid-template-columns: 1fr auto;
+  padding: 4px 12px 4px 10px;
+}
+
+.settings__row--inline-input {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 12px;
+  cursor: default;
+}
+
 .settings__field {
   display: grid;
   grid-template-columns: 88px 1fr;
@@ -1409,6 +1426,44 @@
 .settings__input:focus,
 .settings__select:focus {
   outline: none;
+  border-color: #4a90e2;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 2px rgba(74, 144, 226, 0.25);
+}
+
+/* 列表行内输入：未聚焦时伪装成右侧摘要文字（须写在 .settings__input 之后） */
+.settings__input.settings__input--list {
+  height: 28px;
+  text-align: right;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #666;
+  box-shadow: none;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.12s ease;
+}
+
+.settings__input.settings__input--list::placeholder {
+  color: #666;
+}
+
+.settings__input.settings__input--list:hover:not(:focus) {
+  color: #444;
+}
+
+.settings__input.settings__input--list:focus {
+  color: #222;
+  border-color: #a8a8a8;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.settings__input.settings__input--list:focus-visible {
   border-color: #4a90e2;
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.08),
@@ -1832,6 +1887,10 @@
 
   .settings-host:not([data-settings-nested]) .settings__nav {
     display: none;
+  }
+
+  .settings[data-settings-subpage] > .settings__nav {
+    display: block;
   }
 
   .settings__panes {

@@ -16,9 +16,9 @@ import {
   GENERATED_APP_AI_STREAM_END_MESSAGE_TYPE,
   GENERATED_APP_AI_STREAM_MESSAGE_TYPE,
 } from './generated-app-ai-types.ts'
+import { normalizeGeneratedAppChatMessages } from './normalize-generated-app-completion-messages.ts'
 
 type ChatCompletionBody = {
-  model?: string
   messages?: OpenAI.Chat.ChatCompletionMessageParam[]
   stream?: boolean
   temperature?: number
@@ -28,7 +28,66 @@ type ChatCompletionBody = {
 }
 
 type ReplyTarget = {
-  postMessage: (message: unknown) => void
+  postMessage: (message: unknown, targetOrigin: string) => void
+}
+
+const LOG_PREFIX = '[generated-app-ai]'
+
+function aiDebugInfo(debug: boolean | undefined, ...args: unknown[]): void {
+  if (!debug) {
+    return
+  }
+  console.info(...args)
+}
+
+function aiDebugWarn(debug: boolean | undefined, ...args: unknown[]): void {
+  if (!debug) {
+    return
+  }
+  console.warn(...args)
+}
+
+function aiDebugError(debug: boolean | undefined, ...args: unknown[]): void {
+  if (!debug) {
+    return
+  }
+  console.error(...args)
+}
+
+function postToTarget(target: ReplyTarget, message: unknown): void {
+  target.postMessage(message, '*')
+}
+
+function isStreamRequestBody(raw: string | undefined): boolean {
+  if (!raw?.trim()) {
+    return false
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { stream?: boolean }
+    return parsed.stream === true
+  } catch {
+    return false
+  }
+}
+
+function rejectRequest(
+  target: ReplyTarget,
+  appId: GeneratedAppId,
+  requestId: string,
+  status: number,
+  message: string,
+  stream: boolean,
+  debug: boolean | undefined,
+): void {
+  if (stream) {
+    aiDebugWarn(debug, `${LOG_PREFIX} stream error`, { appId, requestId, status, message })
+    postStreamEnd(target, appId, requestId, status, message)
+    return
+  }
+
+  aiDebugWarn(debug, `${LOG_PREFIX} request error`, { appId, requestId, status, message })
+  postResponse(target, appId, requestId, status, openAiErrorBody(message))
 }
 
 function openAiErrorBody(message: string, type = 'instant_os_error'): string {
@@ -80,7 +139,7 @@ function postResponse(
     status,
     body,
   }
-  target.postMessage(message)
+  postToTarget(target, message)
 }
 
 function postStreamChunk(
@@ -95,7 +154,7 @@ function postStreamChunk(
     requestId,
     chunk,
   }
-  target.postMessage(message)
+  postToTarget(target, message)
 }
 
 function postStreamEnd(
@@ -112,7 +171,7 @@ function postStreamEnd(
     status,
     error,
   }
-  target.postMessage(message)
+  postToTarget(target, message)
 }
 
 export async function handleGeneratedAppAiRequest(
@@ -120,76 +179,107 @@ export async function handleGeneratedAppAiRequest(
   target: ReplyTarget,
   appName?: string,
 ): Promise<void> {
-  const { appId, requestId } = request
+  const { appId, requestId, debug } = request
+  const wantsStream = isStreamRequestBody(request.body)
+
+  aiDebugInfo(debug, `${LOG_PREFIX} request`, {
+    appId,
+    requestId,
+    path: request.path,
+    stream: wantsStream,
+    bodyLength: request.body?.length ?? 0,
+  })
 
   if (request.method.toUpperCase() !== 'POST' || request.path !== '/v1/chat/completions') {
-    postResponse(
+    rejectRequest(
       target,
       appId,
       requestId,
       404,
-      openAiErrorBody('仅支持 POST /v1/chat/completions'),
+      '仅支持 POST /v1/chat/completions',
+      wantsStream,
+      debug,
     )
     return
   }
 
   if (!hasOpenAiApiKey()) {
-    postResponse(
+    rejectRequest(
       target,
       appId,
       requestId,
       401,
-      openAiErrorBody('缺少 API Key。请在「系统设置 → 账户」中配置。'),
+      '缺少 API Key。请在「系统设置 → 账户」中配置。',
+      wantsStream,
+      debug,
     )
     return
   }
 
   const body = parseChatCompletionBody(request.body)
   if (body === undefined) {
-    postResponse(target, appId, requestId, 400, openAiErrorBody('请求体必须是 JSON'))
+    rejectRequest(target, appId, requestId, 400, '请求体必须是 JSON', wantsStream, debug)
     return
   }
 
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    postResponse(target, appId, requestId, 400, openAiErrorBody('messages 必须是非空数组'))
+    rejectRequest(target, appId, requestId, 400, 'messages 必须是非空数组', wantsStream, debug)
+    return
+  }
+
+  const messages = normalizeGeneratedAppChatMessages(body.messages)
+  if (!messages) {
+    rejectRequest(
+      target,
+      appId,
+      requestId,
+      400,
+      'messages 格式无效：每条须含 role（system / user / assistant）与非空 content；助手历史勿用 ai/bot 等 role',
+      wantsStream,
+      debug,
+    )
     return
   }
 
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
-  const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : config.defaultModel
   const stream = body.stream === true
   const context = usageContext(appId, appName)
 
   const sharedParams: OpenAI.Chat.ChatCompletionCreateParams = {
-    model,
-    messages: body.messages,
+    model: config.defaultModel,
+    messages,
     temperature: body.temperature,
     max_tokens: body.max_tokens,
     top_p: body.top_p,
     response_format: body.response_format,
-    ...buildThinkingRequestExtras(config.providerId, false),
+    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
   }
 
   try {
     if (stream) {
+      aiDebugInfo(debug, `${LOG_PREFIX} stream start`, { appId, requestId, messageCount: messages.length })
+
       const completionStream = await client.chat.completions.create({
         ...sharedParams,
         stream: true,
         stream_options: { include_usage: true },
       })
 
+      let chunkCount = 0
       for await (const chunk of completionStream) {
         const usage = snapshotFromOpenAiUsage(chunk.usage)
         if (usage) {
           recordAiTokenUsage(context, usage)
         }
 
+        chunkCount += 1
         postStreamChunk(target, appId, requestId, `data: ${JSON.stringify(chunk)}\n\n`)
       }
 
       postStreamChunk(target, appId, requestId, 'data: [DONE]\n\n')
       postStreamEnd(target, appId, requestId, 200)
+      aiDebugInfo(debug, `${LOG_PREFIX} stream end`, { appId, requestId, chunkCount })
       return
     }
 
@@ -197,8 +287,10 @@ export async function handleGeneratedAppAiRequest(
 
     recordOpenAiCompletionUsage(response, context)
     postResponse(target, appId, requestId, 200, JSON.stringify(response))
+    aiDebugInfo(debug, `${LOG_PREFIX} response`, { appId, requestId })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI 请求失败'
+    aiDebugError(debug, `${LOG_PREFIX} failed`, { appId, requestId, stream, message })
     if (stream) {
       postStreamEnd(target, appId, requestId, 500, message)
       return

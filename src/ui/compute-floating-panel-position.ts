@@ -14,13 +14,14 @@ export function computeFloatingPanelPosition(
   anchor: DOMRect,
   panelWidth: number,
   panelHeight: number,
+  align: 'left' | 'right' = 'left',
 ): FloatingPanelPosition {
   const padding = FLOATING_PANEL_VIEWPORT_PADDING
   const maxLeft = window.innerWidth - panelWidth - padding
   const maxTop = window.innerHeight - panelHeight - padding
 
   let top = anchor.bottom + FLOATING_PANEL_GAP
-  let left = anchor.left
+  let left = align === 'right' ? anchor.right - panelWidth : anchor.left
 
   if (top > maxTop) {
     const aboveTop = anchor.top - panelHeight - FLOATING_PANEL_GAP

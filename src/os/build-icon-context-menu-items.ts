@@ -1,9 +1,102 @@
 import type { IconContextMenuItem } from './icon-context-menu.tsx'
+import type { AppId, WindowState } from './types.ts'
 
 type DockContextMenuOptions = {
   isPinnedToDock: boolean
   onPinToDock?: () => void
   onUnpinFromDock?: () => void
+}
+
+export type WindowSubmenuOptions = {
+  onClose: () => void
+  onHide: () => void
+  onMaximize: () => void
+  onFullscreen: () => void
+  hideDisabled?: boolean
+  maximizeDisabled?: boolean
+  fullscreenDisabled?: boolean
+}
+
+type WindowSubmenuActions = {
+  closeWindow: (windowId: string) => void
+  minimizeWindow: (windowId: string) => void
+  toggleMaximize: (windowId: string) => void
+  toggleFullscreen: (windowId: string) => void
+  restoreWindow: (windowId: string) => void
+}
+
+function resolvePrimaryAppWindow(windows: WindowState[], appId: AppId): WindowState | undefined {
+  return windows
+    .filter((window) => window.appId === appId)
+    .sort((left, right) => right.zIndex - left.zIndex)[0]
+}
+
+export function buildDockWindowSubmenuOptions(
+  windows: WindowState[],
+  appId: AppId,
+  actions: WindowSubmenuActions,
+): WindowSubmenuOptions | undefined {
+  const target = resolvePrimaryAppWindow(windows, appId)
+  if (!target) {
+    return undefined
+  }
+
+  const runAfterRestoreIfMinimized = (action: (windowId: string) => void) => {
+    if (target.minimized) {
+      actions.restoreWindow(target.id)
+      window.requestAnimationFrame(() => action(target.id))
+      return
+    }
+    action(target.id)
+  }
+
+  return {
+    onClose: () => actions.closeWindow(target.id),
+    onHide: () => actions.minimizeWindow(target.id),
+    onMaximize: () => runAfterRestoreIfMinimized(actions.toggleMaximize),
+    onFullscreen: () => runAfterRestoreIfMinimized(actions.toggleFullscreen),
+    hideDisabled: target.minimized,
+    maximizeDisabled: target.fullscreen,
+  }
+}
+
+function appendWindowSubmenuItems(
+  items: IconContextMenuItem[],
+  windowSubmenu: WindowSubmenuOptions | undefined,
+): IconContextMenuItem[] {
+  if (!windowSubmenu) {
+    return items
+  }
+
+  return [
+    ...items,
+    { type: 'separator' },
+    {
+      type: 'submenu',
+      label: '窗口',
+      items: [
+        { type: 'action', label: '关闭', onClick: windowSubmenu.onClose },
+        {
+          type: 'action',
+          label: '隐藏',
+          disabled: windowSubmenu.hideDisabled,
+          onClick: windowSubmenu.onHide,
+        },
+        {
+          type: 'action',
+          label: '最大化',
+          disabled: windowSubmenu.maximizeDisabled,
+          onClick: windowSubmenu.onMaximize,
+        },
+        {
+          type: 'action',
+          label: '全屏',
+          disabled: windowSubmenu.fullscreenDisabled,
+          onClick: windowSubmenu.onFullscreen,
+        },
+      ],
+    },
+  ]
 }
 
 function appendDockContextMenuItems(
@@ -49,10 +142,12 @@ function appendForceQuitItem(
 export function buildBuiltinIconContextMenuItems(
   onOpen: () => void,
   dockOptions?: DockContextMenuOptions,
-  options?: { onForceQuit?: () => void },
+  options?: { onForceQuit?: () => void; windowSubmenu?: WindowSubmenuOptions },
 ): IconContextMenuItem[] {
+  const items = appendWindowSubmenuItems([{ type: 'action', label: '打开', onClick: onOpen }], options?.windowSubmenu)
+
   return appendDockContextMenuItems(
-    appendForceQuitItem([{ type: 'action', label: '打开', onClick: onOpen }], options?.onForceQuit),
+    appendForceQuitItem(items, options?.onForceQuit),
     dockOptions,
   )
 }
@@ -66,6 +161,7 @@ export function buildGeneratedIconContextMenuItems(options: {
   isPinnedToDock?: boolean
   onPinToDock?: () => void
   onUnpinFromDock?: () => void
+  windowSubmenu?: WindowSubmenuOptions
 }): IconContextMenuItem[] {
   const items: IconContextMenuItem[] = [
     { type: 'action', label: '打开', disabled: options.openDisabled, onClick: options.onOpen },
@@ -73,7 +169,8 @@ export function buildGeneratedIconContextMenuItems(options: {
     { type: 'action', label: '在应用集市中查看', onClick: options.onViewInMarketplace },
   ]
 
-  const withForceQuit = appendForceQuitItem(items, options.onForceQuit)
+  const withWindowSubmenu = appendWindowSubmenuItems(items, options.windowSubmenu)
+  const withForceQuit = appendForceQuitItem(withWindowSubmenu, options.onForceQuit)
 
   const withDock = appendDockContextMenuItems(withForceQuit, {
     isPinnedToDock: options.isPinnedToDock ?? false,

@@ -76,30 +76,35 @@ export function buildIcodeEditorNavHint(input: BuildIcodeEditorNavHintInput): Ic
   }
 }
 
-export function buildIcodeClosePromptHint(input: {
+export type IcodeClosePrompt = {
+  title: string
+  message: string
+}
+
+export function buildIcodeClosePrompt(input: {
   codeDirty: boolean
-  publishDirty: boolean
   internalSaveDirty: boolean
   chatDirty: boolean
-  currentDraft: ICodeDraftComparable | undefined
-  publishedSnapshot: ICodePublishedSnapshot | undefined
-}): string {
+}): IcodeClosePrompt {
   if (input.codeDirty) {
-    return '源码、预览或运行数据可能尚未保存。你可以发布到桌面、仅保存 iCode 草稿，或放弃所有未保存更改。'
-  }
-
-  if (input.publishDirty && input.currentDraft && input.publishedSnapshot) {
-    const diff = describePublishDiff(input.currentDraft, input.publishedSnapshot)
-    if (diff.appData && !diff.html && !diff.meta) {
-      return '编辑区运行数据与桌面正式版不同。你可以发布到桌面、仅保存 iCode 草稿，或放弃更改并恢复为桌面版本。'
+    return {
+      title: '有未保存的更改',
+      message:
+        '源码已修改但尚未保存。关闭前请先保存，或选择放弃这些更改（将恢复为上次保存的内容）。',
     }
-
-    return `${describePublishDiffMessage(diff)} 你可以发布到桌面、仅保存 iCode 草稿，或放弃所有未保存更改。`
   }
 
-  if (input.internalSaveDirty || input.chatDirty) {
-    return '编辑区有未保存的草稿或对话。你可以保存 iCode 草稿，或放弃所有未保存更改。'
+  if (input.chatDirty && !input.internalSaveDirty) {
+    return {
+      title: '有未保存的更改',
+      message:
+        '对话记录尚未保存。关闭前请先保存，或选择放弃这些更改（将恢复为上次保存的对话）。',
+    }
   }
 
-  return '当前编辑尚未同步到桌面应用。你可以发布到桌面、仅保存 iCode 草稿，或放弃所有未保存更改。'
+  return {
+    title: '有未保存的更改',
+    message:
+      '编辑区还有尚未写入草稿的内容。关闭前请先保存，或选择放弃这些更改（将恢复为上次保存的内容）。',
+  }
 }

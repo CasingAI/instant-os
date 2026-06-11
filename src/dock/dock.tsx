@@ -6,6 +6,7 @@ import { getAppDefinition } from '../os/app-registry.tsx'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
 import {
   buildBuiltinIconContextMenuItems,
+  buildDockWindowSubmenuOptions,
   buildGeneratedIconContextMenuItems,
 } from '../os/build-icon-context-menu-items.ts'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
@@ -46,8 +47,18 @@ function useDockIconSize(): number {
 }
 
 export function Dock() {
-  const { windows, openApp, restoreWindow, closeWindowsForApp, desktopRevealed, toggleDesktopReveal } =
-    useOs()
+  const {
+    windows,
+    openApp,
+    restoreWindow,
+    closeWindow,
+    closeWindowsForApp,
+    minimizeWindow,
+    toggleMaximize,
+    toggleFullscreen,
+    desktopRevealed,
+    toggleDesktopReveal,
+  } = useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
     useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
@@ -57,6 +68,16 @@ export function Dock() {
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
+
+  function buildWindowSubmenu(appId: AppId) {
+    return buildDockWindowSubmenuOptions(windows, appId, {
+      closeWindow,
+      minimizeWindow,
+      toggleMaximize,
+      toggleFullscreen,
+      restoreWindow,
+    })
+  }
 
   function handleGeneratedClick(appId: GeneratedAppId) {
     const minimized = windows.find((window) => window.appId === appId && window.minimized)
@@ -109,6 +130,7 @@ export function Dock() {
               },
               {
                 onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+                windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
               },
             ),
           )
@@ -155,6 +177,7 @@ export function Dock() {
               onPinToDock: () => pinToDock(app.id),
               onUnpinFromDock: () => unpinFromDock(app.id),
               onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+              windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
             }),
           )
         }}

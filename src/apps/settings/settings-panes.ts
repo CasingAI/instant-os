@@ -55,8 +55,7 @@ export type SettingsPaneDef = {
 /** 窄屏手机式布局：打开时显示一级菜单网格。 */
 export const SETTINGS_DEFAULT_ROUTE: SettingsRoute = { view: 'root' }
 
-/** 与 settings.css 中 @container app-window (min-width: 700px) 保持一致。 */
-export const SETTINGS_WIDE_LAYOUT_MIN_WIDTH = 700
+export { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
 
 export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'usage', label: '存储空间', Icon: StoragePaneIcon, route: { view: 'usage' } },

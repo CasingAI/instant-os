@@ -10,6 +10,7 @@ function buildConsoleBridgeScript(appId: GeneratedAppId): string {
   var APP_ID = ${appIdJson};
   var MESSAGE_TYPE = ${messageTypeJson};
   var LEVELS = ['log', 'info', 'warn', 'error', 'debug'];
+  var NATIVES_KEY = '__instantIcodeConsoleNatives';
 
   function serializeArg(value) {
     if (value === undefined) {
@@ -54,7 +55,12 @@ function buildConsoleBridgeScript(appId: GeneratedAppId): string {
     } catch (error) {}
   }
 
-  function installConsoleBridge() {
+  function captureNativeMethods() {
+    var existing = window[NATIVES_KEY];
+    if (existing) {
+      return existing;
+    }
+
     var nativeMethods = Object.create(null);
 
     LEVELS.forEach(function (level) {
@@ -68,6 +74,13 @@ function buildConsoleBridgeScript(appId: GeneratedAppId): string {
         nativeMethods[level] = Function.prototype.bind.call(console.log, console);
       }
     });
+
+    window[NATIVES_KEY] = nativeMethods;
+    return nativeMethods;
+  }
+
+  function installConsoleBridge() {
+    var nativeMethods = captureNativeMethods();
 
     LEVELS.forEach(function (level) {
       var native = nativeMethods[level];
@@ -85,10 +98,10 @@ function buildConsoleBridgeScript(appId: GeneratedAppId): string {
   installConsoleBridge();
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installConsoleBridge);
+    document.addEventListener('DOMContentLoaded', installConsoleBridge, { once: true });
   }
 
-  window.addEventListener('load', installConsoleBridge);
+  window.addEventListener('load', installConsoleBridge, { once: true });
 })();
 </script>`
 }
@@ -110,9 +123,5 @@ export function injectIcodeConsoleBridge(html: string, appId: GeneratedAppId): s
     prepared = `<head>${bridge}</head>\n${prepared}`
   }
 
-  if (/<\/body>/i.test(prepared)) {
-    return prepared.replace(/<\/body>/i, `${bridge}\n</body>`)
-  }
-
-  return `${prepared}\n${bridge}`
+  return prepared
 }

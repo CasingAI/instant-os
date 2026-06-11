@@ -1,19 +1,36 @@
-import { useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
+import { AI_PROVIDER_PRESETS, findAiProviderPreset, isCustomProvider } from '../../ai/ai-providers.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { AccountSettingsForm } from '../../os/account-settings-form.tsx'
+import {
+  AccountSettingsForm,
+  type AccountSubpageField,
+} from '../../os/account-settings-form.tsx'
 import {
   defaultAccountSettings,
   loadAccountSettings,
+  mergeAccountSettings,
   saveAccountSettings,
   type AccountSettings,
 } from '../../os/account-settings-storage.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { AccountTextFieldSubpage } from './account-text-field-subpage.tsx'
+import { SettingsChoicePickerView } from './settings-choice-picker-view.tsx'
+import { useSettingsAccountPopoverLayout } from './settings-layout-breakpoints.ts'
+
 type AccountViewProps = {
   onBack: () => void
 }
 
 type SaveState = 'idle' | 'saved' | 'error'
 
+const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
+  id: item.id,
+  label: item.name,
+}))
+
 export function AccountView({ onBack }: AccountViewProps) {
+  const modal = useWindowModal()
+  const { hostRef, usePopover } = useSettingsAccountPopoverLayout()
   const initial = useMemo(() => {
     const stored = loadAccountSettings()
     if (stored) {
@@ -24,6 +41,25 @@ export function AccountView({ onBack }: AccountViewProps) {
 
   const [draft, setDraft] = useState<AccountSettings>(initial)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [screen, setScreen] = useState<AccountSubpageField | 'main'>('main')
+
+  useEffect(() => {
+    if (usePopover && (screen === 'provider' || screen === 'model')) {
+      setScreen('main')
+    }
+  }, [usePopover, screen])
+
+  useEffect(() => {
+    if (screen === 'model' && isCustomProvider(draft.providerId)) {
+      setScreen('main')
+    }
+    if (screen === 'base-url' && !isCustomProvider(draft.providerId)) {
+      setScreen('main')
+    }
+    if (screen === 'model-custom' && !isCustomProvider(draft.providerId)) {
+      setScreen('main')
+    }
+  }, [draft.providerId, screen])
 
   const handleSave = () => {
     if (saveAccountSettings(draft)) {
@@ -38,19 +74,109 @@ export function AccountView({ onBack }: AccountViewProps) {
     setDraft(next)
   }
 
+  const backToMain = () => setScreen('main')
+
+  const handleEditApiKey = async () => {
+    const apiKey = await modal.prompt({
+      title: 'API Key',
+      label: '密钥',
+      placeholder: 'sk-...',
+      initialValue: draft.apiKey,
+      inputType: 'password',
+      requireValue: false,
+      confirmLabel: '确定',
+    })
+    if (apiKey !== undefined) {
+      handleChange({ ...draft, apiKey })
+    }
+  }
+
+  const preset = findAiProviderPreset(draft.providerId)
+  const modelOptions =
+    preset?.models.map((model) => ({ id: model.id, label: model.name })) ?? []
+
+  const subpageContent = (() => {
+    switch (screen) {
+      case 'provider':
+        return (
+          <SettingsChoicePickerView
+            title="供应商"
+            backLabel="AI 账户"
+            options={PROVIDER_OPTIONS}
+            value={draft.providerId}
+            onChange={(providerId) =>
+              handleChange(mergeAccountSettings(draft, providerId as AccountSettings['providerId']))
+            }
+            onBack={backToMain}
+          />
+        )
+      case 'model':
+        return (
+          <SettingsChoicePickerView
+            title="模型"
+            backLabel="AI 账户"
+            options={modelOptions}
+            value={draft.model}
+            onChange={(model) => handleChange({ ...draft, model })}
+            onBack={backToMain}
+          />
+        )
+      case 'base-url':
+        return (
+          <AccountTextFieldSubpage
+            title="Base URL"
+            backLabel="AI 账户"
+            fieldLabel="接口地址"
+            type="url"
+            value={draft.baseURL ?? ''}
+            placeholder="https://api.example.com/v1"
+            onChange={(baseURL) => handleChange({ ...draft, baseURL })}
+            onBack={backToMain}
+          />
+        )
+      case 'model-custom':
+        return (
+          <AccountTextFieldSubpage
+            title="模型"
+            backLabel="AI 账户"
+            fieldLabel="模型名称"
+            value={draft.model}
+            placeholder="model-name"
+            onChange={(model) => handleChange({ ...draft, model })}
+            onBack={backToMain}
+          />
+        )
+      default:
+        return undefined
+    }
+  })()
+
+  if (subpageContent) {
+    return (
+      <div class="settings" ref={hostRef} data-settings-subpage>
+        {subpageContent}
+      </div>
+    )
+  }
+
   return (
-    <div class="settings">
+    <div class="settings" ref={hostRef}>
       <div class="settings__nav">
         <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           <h2 class="settings__section-title">AI 账户</h2>
-          <div class="settings__box settings__form">
-            <AccountSettingsForm draft={draft} onChange={handleChange} layout="settings" />
-          </div>
+          <AccountSettingsForm
+            draft={draft}
+            onChange={handleChange}
+            layout="settings"
+            wideLayout={usePopover}
+            onOpenSubpage={setScreen}
+            onEditApiKey={handleEditApiKey}
+          />
           <p class="settings__section-footnote">
-            配置将保存在本机 localStorage，供应用集市、网络浏览器等 AI 功能使用。
+            API Key 仅可由系统访问，其他应用无法读取。
           </p>
         </section>
 
@@ -69,4 +195,3 @@ export function AccountView({ onBack }: AccountViewProps) {
     </div>
   )
 }
-

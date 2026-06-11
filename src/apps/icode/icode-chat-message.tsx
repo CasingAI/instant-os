@@ -3,9 +3,9 @@ import type { ComponentChildren } from 'preact'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import {
-  extractFinalReplyAfterEdits,
+  extractInProgressCodeOutput,
+  extractNaturalLanguageReply,
   parseIcodeContentSegments,
-  type ICodeContentSegment,
 } from './icode-apply-edits.ts'
 import { IcodeChatMarkdown } from './icode-chat-markdown.tsx'
 import type { ICodeChatEditBlock, ICodeChatMessage } from './icode-types.ts'
@@ -48,27 +48,44 @@ function IcodeChatFold({ title, expanded, onToggle, children }: IcodeChatFoldPro
   )
 }
 
-function lastEditIndexInSegments(segments: ICodeContentSegment[]): number {
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    if (segments[index]?.type === 'edit') {
-      return index
+function IcodeChatLiveCodePanel({ codeText }: { codeText: string }) {
+  const codeRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    const panel = codeRef.current
+    if (!panel) {
+      return
     }
-  }
-  return -1
-}
 
-function isFinalTextSegment(segments: ICodeContentSegment[], index: number): boolean {
-  const segment = segments[index]
-  if (segment?.type !== 'text') {
-    return false
-  }
+    const scrollToBottom = () => {
+      panel.scrollTop = panel.scrollHeight
+    }
 
-  const lastEditIndex = lastEditIndexInSegments(segments)
-  if (lastEditIndex === -1) {
-    return index === segments.length - 1
-  }
+    scrollToBottom()
+    const frame = window.requestAnimationFrame(scrollToBottom)
+    const observer = new ResizeObserver(scrollToBottom)
+    observer.observe(panel)
 
-  return index > lastEditIndex
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [codeText])
+
+  return (
+    <div class="icode__chat-code-stream">
+      <p class="icode__chat-code-stream-label">
+        <span class="icode__chat-code-stream-dot" aria-hidden="true" />
+        正在编写代码
+      </p>
+      <pre
+        ref={codeRef}
+        class="icode__chat-fold-text icode__chat-fold-text--output icode__chat-code-stream-text"
+      >
+        {codeText}
+      </pre>
+    </div>
+  )
 }
 
 type IcodeChatAssistantMessageProps = {
@@ -77,9 +94,9 @@ type IcodeChatAssistantMessageProps = {
   outputText?: string
   edits?: ICodeChatEditBlock[]
   appliedEdits?: number
+  editStreaming?: boolean
   streaming?: boolean
   phase?: AppGenerationPhase
-  statusLabel?: string
   visibleReply?: string
 }
 
@@ -89,24 +106,31 @@ export function IcodeChatAssistantMessage({
   outputText,
   edits,
   appliedEdits,
+  editStreaming = false,
   streaming = false,
   phase,
-  statusLabel,
   visibleReply,
 }: IcodeChatAssistantMessageProps) {
   const reasoningRef = useRef<HTMLPreElement>(null)
   const hasReasoning = Boolean(reasoningText?.trim())
   const sourceText = outputText ?? ''
   const segments = useMemo(() => parseIcodeContentSegments(sourceText), [sourceText])
-  const lastEditIndex = lastEditIndexInSegments(segments)
-  const hasEditSegments = lastEditIndex >= 0
-
-  const finalReply = streaming
-    ? visibleReply?.trim() || extractFinalReplyAfterEdits(sourceText)
-    : summary.trim() || extractFinalReplyAfterEdits(sourceText)
+  const hasStructuredOutput = segments.some((segment) => segment.type === 'edit')
+  const hasTextSegments = segments.some((segment) => segment.type === 'text')
+  const naturalReply = useMemo(() => extractNaturalLanguageReply(sourceText), [sourceText])
+  const legacySummary = !sourceText.trim() ? summary.trim() : ''
+  const streamingFallback =
+    streaming && !hasTextSegments
+      ? visibleReply?.trim() || naturalReply
+      : ''
+  const liveCodeText = useMemo(
+    () => (streaming && editStreaming ? extractInProgressCodeOutput(sourceText) : ''),
+    [editStreaming, sourceText, streaming],
+  )
+  const showLiveCodePanel =
+    streaming && editStreaming && phase === 'generating' && Boolean(liveCodeText)
 
   const [reasoningOpen, setReasoningOpen] = useState(streaming && phase === 'thinking')
-  const [openPreamble, setOpenPreamble] = useState(false)
   const [openEdits, setOpenEdits] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
@@ -149,8 +173,22 @@ export function IcodeChatAssistantMessage({
     }
   }, [reasoningOpen, reasoningText, streaming])
 
-  const showStatusOnly =
-    streaming && !finalReply && !hasReasoning && segments.length === 0 && (phase === 'waiting' || phase === 'thinking')
+  useEffect(() => {
+    if (!streaming) {
+      return
+    }
+
+    const editIndexes = [
+      ...segments
+        .filter((segment): segment is Extract<typeof segment, { type: 'edit' }> => segment.type === 'edit')
+        .map((segment) => segment.index),
+      ...(edits?.map((_, index) => index) ?? []),
+    ]
+    const latestEditIndex = editIndexes.length > 0 ? Math.max(...editIndexes) : -1
+    if (latestEditIndex >= 0) {
+      setOpenEdits((current) => ({ ...current, [latestEditIndex]: true }))
+    }
+  }, [edits, segments, streaming])
 
   const toggleEdit = (index: number) => {
     setOpenEdits((current) => ({ ...current, [index]: !current[index] }))
@@ -188,11 +226,11 @@ export function IcodeChatAssistantMessage({
               >
                 <div class="icode__chat-edit">
                   <div class="icode__chat-edit-block">
-                    <span class="icode__chat-edit-tag">SEARCH</span>
+                    <span class="icode__chat-edit-tag">旧代码(SEARCH)</span>
                     <pre class="icode__chat-fold-text">{previewSnippet(segment.edit.search)}</pre>
                   </div>
                   <div class="icode__chat-edit-block">
-                    <span class="icode__chat-edit-tag icode__chat-edit-tag--replace">REPLACE</span>
+                    <span class="icode__chat-edit-tag icode__chat-edit-tag--replace">新代码(REPLACE)</span>
                     <pre class="icode__chat-fold-text">{previewSnippet(segment.edit.replace)}</pre>
                   </div>
                 </div>
@@ -200,50 +238,44 @@ export function IcodeChatAssistantMessage({
             )
           }
 
-          if (isFinalTextSegment(segments, index)) {
-            return undefined
-          }
-
-          const expanded = openPreamble || (streaming && !hasEditSegments)
           return (
-            <IcodeChatFold
+            <IcodeChatMarkdown
               key={`text-${index}`}
-              title={hasEditSegments ? '前置说明' : '回复'}
-              expanded={expanded}
-              onToggle={() => setOpenPreamble((open) => !open)}
-            >
-              <IcodeChatMarkdown text={segment.text} class="icode__chat-fold-markdown" />
-            </IcodeChatFold>
+              text={segment.text}
+              class="icode__chat-markdown icode__chat-reply-text"
+            />
           )
         })}
 
-        {!hasEditSegments && edits?.map((edit, index) => (
+        {!hasStructuredOutput && edits?.map((edit, index) => (
           <IcodeChatFold
             key={`legacy-edit-${index}`}
-            title={`代码修改 ${index + 1}`}
+            title={`代码修改 ${index + 1}${appliedEdits !== undefined && index < appliedEdits ? ' · 已应用' : ''}`}
             expanded={Boolean(openEdits[index])}
             onToggle={() => toggleEdit(index)}
           >
             <div class="icode__chat-edit">
               <div class="icode__chat-edit-block">
-                <span class="icode__chat-edit-tag">SEARCH</span>
+                <span class="icode__chat-edit-tag">旧代码(SEARCH)</span>
                 <pre class="icode__chat-fold-text">{previewSnippet(edit.search)}</pre>
               </div>
               <div class="icode__chat-edit-block">
-                <span class="icode__chat-edit-tag icode__chat-edit-tag--replace">REPLACE</span>
+                <span class="icode__chat-edit-tag icode__chat-edit-tag--replace">新代码(REPLACE)</span>
                 <pre class="icode__chat-fold-text">{previewSnippet(edit.replace)}</pre>
               </div>
             </div>
           </IcodeChatFold>
         ))}
 
-        {showStatusOnly && (
-          <p class="icode__chat-stream-placeholder">{statusLabel || '连接 AI…'}</p>
+        {legacySummary && !hasTextSegments && (
+          <IcodeChatMarkdown text={legacySummary} class="icode__chat-markdown icode__chat-reply-text" />
         )}
 
-        {finalReply && (
-          <IcodeChatMarkdown text={finalReply} class="icode__chat-summary icode__chat-summary--final" />
+        {streamingFallback && (
+          <IcodeChatMarkdown text={streamingFallback} class="icode__chat-markdown icode__chat-reply-text" />
         )}
+
+        {showLiveCodePanel && <IcodeChatLiveCodePanel codeText={liveCodeText} />}
       </div>
     </div>
   )

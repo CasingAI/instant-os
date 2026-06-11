@@ -13,6 +13,8 @@ type PromptOptions = {
   label?: string
   placeholder?: string
   initialValue?: string
+  inputType?: 'text' | 'password'
+  requireValue?: boolean
   confirmLabel?: string
   cancelLabel?: string
   themeColor?: string
@@ -205,7 +207,7 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
         key: 'confirm',
         label: promptState.options.confirmLabel ?? '确定',
         tone: 'primary',
-        disabled: !promptState.draft.trim(),
+        disabled: promptState.options.requireValue !== false && !promptState.draft.trim(),
         onClick: () => {
           submitPrompt()
           return false
@@ -274,9 +276,10 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
                   <input
                     ref={promptInputRef}
                     id="window-modal-prompt-input"
-                    type="text"
+                    type={promptState.options.inputType ?? 'text'}
                     value={promptState.draft}
                     placeholder={promptState.options.placeholder}
+                    autoComplete="off"
                     spellcheck={false}
                     onInput={(event) => {
                       const next = (event.currentTarget as HTMLInputElement).value

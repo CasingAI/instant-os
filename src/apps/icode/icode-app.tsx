@@ -35,11 +35,11 @@ import {
   loadPublishedSnapshot,
   type ICodePublishedSnapshot,
 } from './icode-draft.ts'
-import { buildIcodeClosePromptHint, buildIcodeEditorNavHint } from './icode-editor-nav-hint.ts'
+import { buildIcodeClosePrompt, buildIcodeEditorNavHint } from './icode-editor-nav-hint.ts'
 import { generateInternalAppHtml } from './icode-generation.ts'
 import { isIcodeGenerationAbortedError } from './icode-generation-abort.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
-import { parseAiderEditBlocks, stripAiderEditBlocksFromContent, extractFinalReplyAfterEdits } from './icode-apply-edits.ts'
+import { parseAiderEditBlocks, stripAiderEditBlocksFromContent, extractNaturalLanguageReply } from './icode-apply-edits.ts'
 import { IcodeChatAssistantMessage, IcodeChatMessageView } from './icode-chat-message.tsx'
 import {
   buildIcodeSyncInput,
@@ -334,7 +334,7 @@ export function ICodeApp() {
   const chatDirty =
     Boolean(session && storedProject) &&
     JSON.stringify(session!.chat) !== JSON.stringify(storedProject!.chat)
-  const hasUnsavedWork = publishDirty || internalSaveDirty || chatDirty
+  const hasDraftToSave = internalSaveDirty || chatDirty
   const contextPayload = useMemo(() => {
     if (!session) {
       return { characters: 0, tokens: 0 }
@@ -407,30 +407,15 @@ export function ICodeApp() {
       session?.html.length,
     ],
   )
-  const closePromptHint = useMemo(
+  const closePrompt = useMemo(
     () =>
-      buildIcodeClosePromptHint({
+      buildIcodeClosePrompt({
         codeDirty,
-        publishDirty,
         internalSaveDirty,
         chatDirty,
-        currentDraft,
-        publishedSnapshot,
       }),
-    [chatDirty, codeDirty, currentDraft, internalSaveDirty, publishDirty, publishedSnapshot],
+    [chatDirty, codeDirty, internalSaveDirty],
   )
-
-  const streamingSummary = useMemo(() => {
-    if (generationPhase === 'thinking') {
-      return '思考中…'
-    }
-    if (generationPhase === 'generating') {
-      return streamEdits.length > 0
-        ? `正在应用修改（${streamEdits.length} 处）…`
-        : '生成中…'
-    }
-    return generationStatus || '连接 AI…'
-  }, [generationPhase, generationStatus, streamEdits.length])
 
   useEffect(() => {
     if (!session) {
@@ -531,8 +516,9 @@ export function ICodeApp() {
     return installGeneratedAppAiHandler({
       appId: runtimeAppId,
       appName: session?.name,
+      debug: true,
       getContentWindow: () =>
-        previewWindowRef.current ?? iframeRef.current?.contentWindow ?? undefined,
+        iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
     })
   }, [runtimeAppId, session?.name])
 
@@ -696,27 +682,6 @@ export function ICodeApp() {
     [publishProjectToDesktop, saveDraftInternal],
   )
 
-  const revertDraftToPublished = useCallback(
-    (targetSession: EditorSession, snapshot: ICodePublishedSnapshot) => {
-      const stored = getInternalProject(targetSession.projectId)
-      const reverted: EditorSession = {
-        ...targetSession,
-        name: snapshot.name,
-        description: snapshot.description,
-        category: snapshot.category,
-        iconEmoji: snapshot.iconEmoji,
-        themeColor: snapshot.themeColor,
-        tags: [...snapshot.tags],
-        html: snapshot.html,
-        appData: { ...snapshot.appData },
-        chat: stored ? [...stored.chat] : [...targetSession.chat],
-      }
-      saveDraftInternal(reverted, snapshot.html, false)
-      return reverted
-    },
-    [saveDraftInternal],
-  )
-
   const updateSessionMeta = useCallback(
     (patch: Partial<Pick<EditorSession, 'name' | 'description' | 'category' | 'iconEmoji' | 'themeColor' | 'tags'>>) => {
       if (!session) {
@@ -815,13 +780,13 @@ export function ICodeApp() {
       return
     }
 
-    if (hasUnsavedWork) {
+    if (hasDraftToSave) {
       setClosePromptOpen(true)
       return
     }
 
     finishCloseEditor()
-  }, [finishCloseEditor, hasUnsavedWork, session])
+  }, [finishCloseEditor, hasDraftToSave, session])
 
   const requestCloseWindow = useCallback(() => {
     closeIntentRef.current = 'window'
@@ -829,40 +794,19 @@ export function ICodeApp() {
       return true
     }
 
-    if (hasUnsavedWork) {
+    if (hasDraftToSave) {
       setClosePromptOpen(true)
       return false
     }
 
     return true
-  }, [hasUnsavedWork, session])
+  }, [hasDraftToSave, session])
 
   useAppCloseGuard('icode', requestCloseWindow)
 
   const confirmCloseDiscard = useCallback(() => {
-    if (!session) {
-      finishCloseEditor()
-      return
-    }
-
-    const snapshot =
-      publishedSnapshot ??
-      loadPublishedSnapshot(
-        session.linkedAppId ?? resolvePublishAppId(sessionToInternalProject(session, draftHtml, codeDirty)),
-        installedApps,
-        session,
-      )
-    revertDraftToPublished(session, snapshot)
     finishCloseEditor()
-  }, [
-    codeDirty,
-    draftHtml,
-    finishCloseEditor,
-    installedApps,
-    publishedSnapshot,
-    revertDraftToPublished,
-    session,
-  ])
+  }, [finishCloseEditor])
 
   const confirmCloseSaveDraft = useCallback(() => {
     if (!session) {
@@ -874,16 +818,29 @@ export function ICodeApp() {
     finishCloseEditor()
   }, [codeDirty, draftHtml, finishCloseEditor, saveDraftInternal, session])
 
-  const confirmClosePublish = useCallback(() => {
-    if (!session) {
-      finishCloseEditor()
-      return
-    }
-
-    if (publishSessionDraft(session, draftHtml, codeDirty)) {
-      finishCloseEditor()
-    }
-  }, [codeDirty, draftHtml, finishCloseEditor, publishSessionDraft, session])
+  const closePromptActions = useMemo(
+    () => [
+      {
+        key: 'save',
+        label: '保存并关闭',
+        tone: 'primary' as const,
+        onClick: confirmCloseSaveDraft,
+      },
+      {
+        key: 'discard',
+        label: '放弃更改',
+        tone: 'danger' as const,
+        onClick: confirmCloseDiscard,
+      },
+      {
+        key: 'continue',
+        label: '继续编辑',
+        tone: 'secondary' as const,
+        onClick: () => setClosePromptOpen(false),
+      },
+    ],
+    [confirmCloseDiscard, confirmCloseSaveDraft],
+  )
 
   const requestClearChat = useCallback(() => {
     if (!session || session.chat.length === 0 || generating) {
@@ -1191,7 +1148,7 @@ export function ICodeApp() {
       const hasStreamOutput = Boolean(snapshot.contentText.trim() || snapshot.reasoningText.trim())
       const fullReply = stripAiderEditBlocksFromContent(snapshot.contentText) || undefined
       const partialSummary =
-        extractFinalReplyAfterEdits(snapshot.contentText) ||
+        extractNaturalLanguageReply(snapshot.contentText) ||
         fullReply ||
         (snapshot.reasoningText.trim() ? '（已停止生成）' : undefined)
 
@@ -1329,9 +1286,9 @@ export function ICodeApp() {
 
       const fullReply = stripAiderEditBlocksFromContent(result.outputText ?? '') || undefined
       const displaySummary =
-        result.assistantSummary ||
-        extractFinalReplyAfterEdits(result.outputText ?? '') ||
+        extractNaturalLanguageReply(result.outputText ?? '') ||
         fullReply ||
+        result.assistantSummary ||
         ''
 
       const assistantMessage: ICodeChatMessage = {
@@ -1767,7 +1724,7 @@ export function ICodeApp() {
                 <button
                   type="button"
                   class="icode__button icode__button--secondary icode__nav-save"
-                  disabled={!hasUnsavedWork}
+                  disabled={!hasDraftToSave}
                   onClick={onSaveDraft}
                 >
                   保存
@@ -1907,10 +1864,12 @@ export function ICodeApp() {
             <div class="icode__tab-body">
               <div class="icode__tab-pane" hidden={editorTab !== 'chat'}>
                 <div class="icode__panel-toolbar">
-                  <span>
-                    {session.chat.length} 条消息（{formatTokenCount(contextPayload.characters)} 字符 · 约{' '}
-                    {formatTokenCount(contextPayload.tokens)} tokens）
-                  </span>
+                  {!generating && (
+                    <span>
+                      {session.chat.length} 条消息（{formatTokenCount(contextPayload.characters)} 字符 · 约{' '}
+                      {formatTokenCount(contextPayload.tokens)} tokens）
+                    </span>
+                  )}
                   <button
                     type="button"
                     class="icode__panel-action"
@@ -1940,9 +1899,9 @@ export function ICodeApp() {
                       outputText={streamContentText || undefined}
                       edits={streamEdits.length > 0 ? streamEdits : undefined}
                       appliedEdits={streamAppliedEdits}
+                      editStreaming={codeEditingActive}
                       streaming
                       phase={generationPhase}
-                      statusLabel={generationStatus || streamingSummary}
                     />
                   )}
                 </div>
@@ -2100,15 +2059,15 @@ export function ICodeApp() {
                   </section>
 
                   <section class="icode__config-section">
-                    <h4 class="icode__config-heading">AI 对话能力</h4>
+                    <h4 class="icode__config-heading">AI 能力</h4>
                     <p class="icode__config-section-hint">
                       仅影响与 AI 对话时是否告知对应 API；预览与已安装应用始终注入运行时桥接。
                     </p>
                     <div class="icode__config-inset">
                       <div class="icode__config-toggle-row">
                         <div class="icode__config-toggle-copy">
-                          <strong>启用 3D 模块</strong>
-                          <span>对话中向 AI 说明 Three.js 与内置模型目录</span>
+                          <strong>3D 能力</strong>
+                          <span>允许 AI 使用 3D 引擎</span>
                         </div>
                         <IosSwitch
                           label="启用 3D 模块"
@@ -2124,8 +2083,8 @@ export function ICodeApp() {
                       </div>
                       <div class="icode__config-toggle-row">
                         <div class="icode__config-toggle-copy">
-                          <strong>启用 AI 模块</strong>
-                          <span>对话中向 AI 说明 OpenAI 兼容运行时 API（含流式）</span>
+                          <strong>运行时 AI 能力</strong>
+                          <span>AI 可以在他编写的 App 中(运行时)调用 AI 能力</span>
                         </div>
                         <IosSwitch
                           label="启用 AI 模块"
@@ -2301,38 +2260,13 @@ export function ICodeApp() {
 
       <WindowModal
         open={closePromptOpen}
-        title="有未保存的更改"
+        title={closePrompt.title}
         role="alertdialog"
         themeColor={modalTheme}
         onClose={() => setClosePromptOpen(false)}
-        actions={[
-          {
-            key: 'publish',
-            label: '发布到桌面并关闭',
-            tone: 'primary',
-            onClick: confirmClosePublish,
-          },
-          {
-            key: 'save',
-            label: '保存草稿并关闭',
-            tone: 'secondary',
-            onClick: confirmCloseSaveDraft,
-          },
-          {
-            key: 'discard',
-            label: '放弃更改',
-            tone: 'danger',
-            onClick: confirmCloseDiscard,
-          },
-          {
-            key: 'continue',
-            label: '继续编辑',
-            tone: 'secondary',
-            onClick: () => setClosePromptOpen(false),
-          },
-        ]}
+        actions={closePromptActions}
       >
-        <p class="window-modal__message">{closePromptHint}</p>
+        <p class="window-modal__message">{closePrompt.message}</p>
       </WindowModal>
 
       <WindowModal

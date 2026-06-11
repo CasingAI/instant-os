@@ -24,7 +24,7 @@ export function prepareIcodePreviewHtml(
     prepared = injectScene3dBridge(prepared)
   }
 
-  prepared = injectGeneratedAppAiBridge(prepared, appId)
+  prepared = injectGeneratedAppAiBridge(prepared, appId, { debug: true })
 
   return prepared
 }
