@@ -166,7 +166,7 @@
 
 .window-frame__controls {
   position: relative;
-  z-index: 110;
+  z-index: 3100;
   display: flex;
   gap: 8px;
 }
@@ -256,11 +256,19 @@
 
 .window-frame__content {
   position: relative;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   container-type: inline-size;
   container-name: app-window;
+}
+
+.window-frame__content > :not(.window-modal-overlay-root):not(.window-frame__focus-catcher) {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 .window-frame__focus-catcher {
@@ -273,7 +281,7 @@
 .window-frame__resize-layer {
   position: absolute;
   inset: 0;
-  z-index: 100;
+  z-index: 3000;
   pointer-events: none;
 }
 

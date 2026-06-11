@@ -1,6 +1,6 @@
 .desktop {
   position: absolute;
-  inset: 22px 0 96px;
+  inset: 22px 0 var(--dock-reserve, 96px);
   padding: 16px 0 0;
   overflow: hidden;
   display: flex;
@@ -127,7 +127,7 @@
   display: flex;
   justify-content: center;
   gap: 8px;
-  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 .desktop__page-dot {

@@ -4,7 +4,7 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { generateMeowReply } from './catgpt-agent.ts'
+import { generateCatGptReply } from './catgpt-agent.ts'
 import {
   createMessage,
   createSession,
@@ -28,7 +28,7 @@ function formatCatGptError(err: unknown): string {
   if (err instanceof Error) {
     return err.message
   }
-  return '猫咪之神暂时无法回应，请稍后再试'
+  return String(err)
 }
 
 export function CatGptApp() {
@@ -114,7 +114,7 @@ export function CatGptApp() {
       setStreamingText('')
 
       try {
-        const reply = await generateMeowReply(pendingMessages, (_delta, accumulated) => {
+        const reply = await generateCatGptReply(pendingMessages, (_delta, accumulated) => {
           setStreamingText(accumulated)
           scrollToBottom()
         })
@@ -313,7 +313,7 @@ export function CatGptApp() {
               <p class="catgpt-app__welcome-sub">
                 和猫咪之神对话。
                 <br />
-                你写下心声，神以喵喵喵回应；喵与喵之间或有符号与 emoji。
+                正经问题会认真回答，偶尔还会喵一声～
               </p>
               <div class="catgpt-app__samples" aria-label="示例提问">
                 {SAMPLE_PROMPTS.map((prompt) => (
@@ -361,7 +361,7 @@ export function CatGptApp() {
                   <span class="catgpt-app__avatar" aria-hidden="true">
                     🐱
                   </span>
-                  <div class="catgpt-app__bubble catgpt-app__bubble--streaming">喵</div>
+                  <div class="catgpt-app__bubble catgpt-app__bubble--streaming">…</div>
                 </div>
               )}
 

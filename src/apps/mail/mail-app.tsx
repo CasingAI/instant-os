@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -73,9 +74,11 @@ function countUnreadInbox(store: MailStore): number {
 export function MailApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
+  const { hostRef, narrowLayout } = useAppNarrowLayout()
   const [store, setStore] = useState<MailStore>(() => readMailStore())
   const [mailbox, setMailbox] = useState<MailMailbox>('inbox')
   const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>()
+  const [stackedDetailOpen, setStackedDetailOpen] = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)
   const [replyDraft, setReplyDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -89,6 +92,12 @@ export function MailApp() {
   useEffect(() => {
     setAppWindowTitle('mail', '邮件')
   }, [setAppWindowTitle])
+
+  useEffect(() => {
+    if (narrowLayout) {
+      setStackedDetailOpen(false)
+    }
+  }, [narrowLayout])
 
   const updateStore = useCallback((next: MailStore) => {
     writeMailStore(next)
@@ -252,8 +261,17 @@ export function MailApp() {
     [],
   )
 
+  const clearStackedDetail = useCallback(() => {
+    setStackedDetailOpen(false)
+    setSelectedThreadId(undefined)
+    setReplyDraft('')
+  }, [])
+
   const handleSelectThread = (threadId: string) => {
     setSelectedThreadId(threadId)
+    if (narrowLayout) {
+      setStackedDetailOpen(true)
+    }
     setReplyDraft('')
     const next = markThreadRead(store, threadId)
     if (next !== store) {
@@ -322,6 +340,9 @@ export function MailApp() {
     setComposeOpen(false)
     setMailbox('sent')
     setSelectedThreadId(thread.id)
+    if (narrowLayout) {
+      setStackedDetailOpen(true)
+    }
     setSending(false)
 
     setReplyingThreadIds((prev) => new Set(prev).add(thread.id))
@@ -350,17 +371,17 @@ export function MailApp() {
   }
 
   return (
-    <div class={`mail${selectedThreadId ? ' mail--detail-open' : ''}`}>
+    <div
+      ref={hostRef}
+      class={`mail${narrowLayout ? ' mail--narrow' : ''}${narrowLayout && stackedDetailOpen ? ' mail--detail-open' : ''}`}
+    >
       <header class="mail__toolbar">
         <IosNavBackButton
           class="mail__toolbar-back"
           iconSize={14}
           label="邮件"
           aria-label="返回邮件列表"
-          onClick={() => {
-            setSelectedThreadId(undefined)
-            setReplyDraft('')
-          }}
+          onClick={clearStackedDetail}
         />
         <button
           type="button"
@@ -379,7 +400,7 @@ export function MailApp() {
             class={`mail__toolbar-mailbox${mailbox === 'inbox' ? ' mail__toolbar-mailbox--active' : ''}`}
             onClick={() => {
               setMailbox('inbox')
-              setSelectedThreadId(undefined)
+              clearStackedDetail()
             }}
           >
             收件箱{unreadCount > 0 ? ` (${unreadCount})` : ''}
@@ -391,7 +412,7 @@ export function MailApp() {
             class={`mail__toolbar-mailbox${mailbox === 'sent' ? ' mail__toolbar-mailbox--active' : ''}`}
             onClick={() => {
               setMailbox('sent')
-              setSelectedThreadId(undefined)
+              clearStackedDetail()
             }}
           >
             已发送
@@ -410,7 +431,7 @@ export function MailApp() {
             class={`mail__mailbox${mailbox === 'inbox' ? ' mail__mailbox--active' : ''}`}
             onClick={() => {
               setMailbox('inbox')
-              setSelectedThreadId(undefined)
+              clearStackedDetail()
             }}
           >
             <span>收件箱</span>
@@ -421,7 +442,7 @@ export function MailApp() {
             class={`mail__mailbox${mailbox === 'sent' ? ' mail__mailbox--active' : ''}`}
             onClick={() => {
               setMailbox('sent')
-              setSelectedThreadId(undefined)
+              clearStackedDetail()
             }}
           >
             <span>已发送</span>

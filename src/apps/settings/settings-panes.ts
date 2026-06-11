@@ -2,20 +2,24 @@ import type { ComponentChild } from 'preact'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import {
   AccountPaneIcon,
+  AiUsagePaneIcon,
   DisplayPaneIcon,
   ExperimentalPaneIcon,
   NewsPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
   StoragePaneIcon,
+  DockPaneIcon,
   WallpaperPaneIcon,
 } from './settings-pane-icons.tsx'
 
 export type SettingsPaneId =
   | 'usage'
+  | 'ai-usage'
   | 'account'
   | 'display'
   | 'wallpaper'
+  | 'dock'
   | 'resources'
   | 'safari'
   | 'news'
@@ -24,9 +28,11 @@ export type SettingsPaneId =
 export type SettingsRoute =
   | { view: 'root' }
   | { view: 'usage' }
+  | { view: 'ai-usage' }
   | { view: 'account' }
   | { view: 'display' }
   | { view: 'wallpaper' }
+  | { view: 'dock' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
   | { view: 'resources' }
@@ -54,9 +60,11 @@ export const SETTINGS_WIDE_LAYOUT_MIN_WIDTH = 700
 
 export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'usage', label: '存储空间', Icon: StoragePaneIcon, route: { view: 'usage' } },
+  { id: 'ai-usage', label: 'AI 用量', Icon: AiUsagePaneIcon, route: { view: 'ai-usage' } },
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' } },
   { id: 'display', label: '显示', Icon: DisplayPaneIcon, route: { view: 'display' } },
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
+  { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
   {
     id: 'safari',
@@ -85,6 +93,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'apps-storage':
     case 'other-storage':
       return 'usage'
+    case 'ai-usage':
+      return 'ai-usage'
     case 'account':
       return 'account'
     case 'display':
@@ -93,6 +103,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'display'
     case 'wallpaper':
       return 'wallpaper'
+    case 'dock':
+      return 'dock'
     case 'resources':
     case 'resources-3d':
     case 'resources-3d-detail':
@@ -110,9 +122,11 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
   switch (route.view) {
     case 'root':
     case 'usage':
+    case 'ai-usage':
     case 'account':
     case 'display':
     case 'wallpaper':
+    case 'dock':
     case 'resources':
     case 'safari-usage':
     case 'news':

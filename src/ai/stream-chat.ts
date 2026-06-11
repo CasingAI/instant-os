@@ -1,4 +1,7 @@
 import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
+import type { AiUsageContext } from './ai-usage-context.ts'
+import { snapshotFromOpenAiUsage } from './openai-usage.ts'
+import { recordAiTokenUsage } from './ai-token-usage.ts'
 import { mergeOpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 
@@ -15,6 +18,8 @@ export type StreamChatOptions = {
   onStreamActivity?: (kind: StreamChatActivity) => void
   /** 每收到一个流式分片（含空分片）时调用，用于刷新「仍在传输」状态 */
   onAnyStreamChunk?: () => void
+  /** 记录到全局 AI 用量统计 */
+  usageContext?: AiUsageContext
 }
 
 const STREAM_IDLE_ERROR = 'STREAM_IDLE_TIMEOUT'
@@ -56,6 +61,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     const stream = await client.chat.completions.create({
       model,
       stream: true,
+      ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
       messages: [
         { role: 'system', content: options.system },
         { role: 'user', content: options.user },
@@ -67,10 +73,16 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     resetIdleTimer()
 
     let text = ''
+    let usage: ReturnType<typeof snapshotFromOpenAiUsage>
 
     for await (const chunk of stream) {
       resetIdleTimer()
       options.onAnyStreamChunk?.()
+
+      const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+      if (chunkUsage) {
+        usage = chunkUsage
+      }
 
       const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
       if (reasoning) {
@@ -90,7 +102,12 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       throw new Error('AI 未返回任何内容')
     }
 
-    return text.trim()
+    const trimmed = text.trim()
+    if (options.usageContext) {
+      recordAiTokenUsage(options.usageContext, usage)
+    }
+
+    return trimmed
   } catch (error) {
     if (abortController?.signal.aborted && abortController.signal.reason instanceof Error) {
       throw abortController.signal.reason

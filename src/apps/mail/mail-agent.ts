@@ -139,6 +139,7 @@ export async function generateInitialThreads(): Promise<MailThread[]> {
     const text = await streamChatCompletion({
       system: INITIAL_MAILS_PROMPT,
       user: '请生成首批虚拟收件箱邮件。',
+      usageContext: { actor: 'mail', behavior: 'initial-mails', behaviorLabel: '生成初始邮件' },
       onChunk: () => {},
     })
     const drafts = parseJsonFromAiText<InitialMailDraft[]>(text)
@@ -176,6 +177,7 @@ export async function generateThreadReply(context: ReplyContext): Promise<MailMe
   const text = await streamChatCompletion({
     system: REPLY_PROMPT,
     user: `你的身份：${contact.name} <${contact.email}>\n邮件主题：${context.thread.subject}\n\n对话记录：\n${transcript}\n\n请以 ${contact.name} 的身份回复用户最新一封邮件。`,
+    usageContext: { actor: 'mail', behavior: 'thread-reply', behaviorLabel: '回复邮件' },
     onChunk: () => {},
   })
 
@@ -207,6 +209,7 @@ export async function generateNewContactReply(
   const text = await streamChatCompletion({
     system: NEW_CONTACT_PROMPT,
     user: `收件人：${context.recipient.name} <${context.recipient.email}>\n主题：${context.subject}\n用户来信：\n${context.userBody}`,
+    usageContext: { actor: 'mail', behavior: 'new-contact-reply', behaviorLabel: '新联系人回复' },
     onChunk: () => {},
   })
 

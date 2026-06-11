@@ -3,6 +3,7 @@ import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { persistWindowSize, resolveWindowDimensions } from '../window/window-bounds-storage.ts'
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
+import { DOCK_SETTINGS_CHANGED_EVENT } from '../dock/dock-settings-storage.ts'
 import {
   clampFloatingPosition,
   fitFloatingWindowBounds,
@@ -614,7 +615,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [])
 
   useEffect(() => {
-    const onResize = () => {
+    const reflowWindows = () => {
       setWindows((current) =>
         current.map((window) => {
           if (window.minimized) {
@@ -631,8 +632,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       )
     }
 
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    window.addEventListener('resize', reflowWindows)
+    window.addEventListener(DOCK_SETTINGS_CHANGED_EVENT, reflowWindows)
+    return () => {
+      window.removeEventListener('resize', reflowWindows)
+      window.removeEventListener(DOCK_SETTINGS_CHANGED_EVENT, reflowWindows)
+    }
   }, [])
 
   const value = useMemo(

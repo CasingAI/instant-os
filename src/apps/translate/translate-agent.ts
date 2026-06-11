@@ -1,4 +1,6 @@
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import type { AiUsageContext } from '../../ai/ai-usage-context.ts'
+import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import {
@@ -41,7 +43,11 @@ const FICTIONAL_TO_ZH_PROMPT = `你是 Instant OS 翻译应用的宇宙语言「
 - 与输入文本无任何对应关系；不要尝试解读或翻译原文
 - 只输出一条中文句子，不要解释、不要 markdown、不要引号包裹`
 
-async function completeText(system: string, user: string): Promise<string> {
+async function completeText(
+  system: string,
+  user: string,
+  usageContext: AiUsageContext,
+): Promise<string> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
   const response = await client.chat.completions.create({
@@ -58,6 +64,7 @@ async function completeText(system: string, user: string): Promise<string> {
     throw new Error('AI 未返回任何内容')
   }
 
+  recordOpenAiCompletionUsage(response, usageContext)
   return text.replace(/^["「『]|["」』]$/g, '').trim()
 }
 
@@ -81,7 +88,11 @@ export async function generateChineseToFictional(
         '请生成宇宙语言翻译。',
       ].join('\n')
 
-  return completeText(system, user)
+  return completeText(system, user, {
+    actor: 'translate',
+    behavior: 'zh-to-fictional',
+    behaviorLabel: '中文译宇宙语',
+  })
 }
 
 export async function generateFictionalToChinese(fictionalText: string): Promise<string> {
@@ -91,5 +102,9 @@ export async function generateFictionalToChinese(fictionalText: string): Promise
   }
 
   const user = `宇宙语言文本（请忽略其含义，随机返回一条无关中文）：\n${trimmed}`
-  return completeText(FICTIONAL_TO_ZH_PROMPT, user)
+  return completeText(FICTIONAL_TO_ZH_PROMPT, user, {
+    actor: 'translate',
+    behavior: 'fictional-to-zh',
+    behaviorLabel: '宇宙语译中文',
+  })
 }

@@ -1,5 +1,13 @@
 import { render } from 'preact'
-import { BootErrorBoundary, getCrashTestMode, reportCrash } from './boot/crash-guard.ts'
+import {
+  BootErrorBoundary,
+  getCrashTestMode,
+  markBootComplete,
+  markBootModuleExecuted,
+  reportCrash,
+} from './boot/crash-guard.ts'
+
+markBootModuleExecuted()
 import { scheduleEmojiOffsetAutoCalibration } from './fonts/auto-calibrate-emoji-offset.ts'
 import { ensureAppleColorEmojiFonts } from './fonts/ensure-apple-color-emoji-fonts.ts'
 import './global.css'
@@ -35,6 +43,7 @@ if (!appRoot) {
         )
 
       render(tree, appRoot)
+      markBootComplete()
       void initBrowserPageCache()
       scheduleEmojiOffsetAutoCalibration()
     })

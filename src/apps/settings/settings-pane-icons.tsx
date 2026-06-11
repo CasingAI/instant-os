@@ -4,6 +4,20 @@ import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 const PANE_ICON_SIZE = 52
 const paneSvg = (base: number) => Math.round(base * (PANE_ICON_SIZE / 32))
 
+export function AiUsagePaneIcon() {
+  return (
+    <AppIconTile color="#7b6fd6" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        ✨
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function StoragePaneIcon() {
   return (
     <AppIconTile color="#6d7d8f" size={PANE_ICON_SIZE}>
@@ -106,6 +120,50 @@ export function ExperimentalPaneIcon() {
       >
         🧪
       </span>
+    </AppIconTile>
+  )
+}
+
+export function DockPaneIcon() {
+  const svgWidth = paneSvg(22)
+  const svgHeight = paneSvg(10)
+  const iconSize = 4
+  const gap = 1.5
+  const startX = (22 - (iconSize * 3 + gap * 2)) / 2
+  const iconY = 3
+  return (
+    <AppIconTile color="#4a5568" size={PANE_ICON_SIZE}>
+      <svg width={svgWidth} height={svgHeight} viewBox="0 0 22 10" aria-hidden="true">
+        <rect
+          x="2.5"
+          y="1.5"
+          width="17"
+          height="7"
+          rx="3.5"
+          fill="rgba(255,255,255,0.22)"
+          stroke="rgba(255,255,255,0.55)"
+          stroke-width="1"
+        />
+        <rect x={startX} y={iconY} width={iconSize} height={iconSize} rx="1" fill="#fff" opacity="0.95" />
+        <rect
+          x={startX + iconSize + gap}
+          y={iconY}
+          width={iconSize}
+          height={iconSize}
+          rx="1"
+          fill="#fff"
+          opacity="0.85"
+        />
+        <rect
+          x={startX + (iconSize + gap) * 2}
+          y={iconY}
+          width={iconSize}
+          height={iconSize}
+          rx="1"
+          fill="#fff"
+          opacity="0.75"
+        />
+      </svg>
     </AppIconTile>
   )
 }

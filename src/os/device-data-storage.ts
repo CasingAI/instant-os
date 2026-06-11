@@ -4,10 +4,11 @@ export const DATA_CAPACITY_BYTES = 50 * 1024 * 1024
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 3
+export const DATA_DB_VERSION = 4
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
+export const AI_TOKEN_USAGE_STORE = 'ai-token-usage'
 export const DATA_META_STORE = 'data-meta'
 
 export type BookChapterRecord = {
@@ -119,6 +120,11 @@ function openDataDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(SAFARI_PAGE_CACHE_STORE, { keyPath: 'url' })
         store.createIndex('hostname', 'hostname', { unique: false })
       }
+      if (!db.objectStoreNames.contains(AI_TOKEN_USAGE_STORE)) {
+        const store = db.createObjectStore(AI_TOKEN_USAGE_STORE, { keyPath: 'key' })
+        store.createIndex('day', 'day', { unique: false })
+        store.createIndex('kind', 'kind', { unique: false })
+      }
     }
 
     request.onsuccess = () => resolve(request.result)
@@ -131,7 +137,7 @@ function openDataDb(): Promise<IDBDatabase> {
   return dbPromise
 }
 
-function runTransaction<T>(
+export function runDataStoreTransaction<T>(
   storeName: string,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T> | Promise<T>,
@@ -158,7 +164,7 @@ function runTransaction<T>(
 
 async function readByteTotal(): Promise<number> {
   try {
-    const meta = await runTransaction<DataMetaRecord | undefined>(
+    const meta = await runDataStoreTransaction<DataMetaRecord | undefined>(
       DATA_META_STORE,
       'readonly',
       (store) => store.get('byte-total'),
@@ -170,7 +176,7 @@ async function readByteTotal(): Promise<number> {
 }
 
 async function writeByteTotal(totalBytes: number): Promise<void> {
-  await runTransaction(DATA_META_STORE, 'readwrite', (store) =>
+  await runDataStoreTransaction(DATA_META_STORE, 'readwrite', (store) =>
     store.put({ key: 'byte-total', totalBytes } satisfies DataMetaRecord),
   )
 }
@@ -186,7 +192,7 @@ export async function getTotalDataStorageBytes(): Promise<number> {
 }
 
 async function sumStoreBytes(storeName: string): Promise<number> {
-  const records = await runTransaction<Array<{ byteSize?: number }>>(
+  const records = await runDataStoreTransaction<Array<{ byteSize?: number }>>(
     storeName,
     'readonly',
     (store) => store.getAll(),
@@ -200,7 +206,7 @@ export async function getBookChaptersBytes(bookId?: string): Promise<number> {
       return sumStoreBytes(BOOK_CHAPTERS_STORE)
     }
 
-    const records = await runTransaction<BookChapterRecord[]>(
+    const records = await runDataStoreTransaction<BookChapterRecord[]>(
       BOOK_CHAPTERS_STORE,
       'readonly',
       (store) => {
@@ -232,7 +238,7 @@ export async function getBooksContentBytes(): Promise<number> {
 
 export async function getBookDetailRecord(slug: string): Promise<BookDetailRecord | undefined> {
   try {
-    return await runTransaction<BookDetailRecord | undefined>(
+    return await runDataStoreTransaction<BookDetailRecord | undefined>(
       BOOK_DETAILS_STORE,
       'readonly',
       (store) => store.get(slug),
@@ -269,7 +275,7 @@ export async function putBookDetailRecord(input: {
     updatedAt: Date.now(),
   }
 
-  await runTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.put(saved))
+  await runDataStoreTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.put(saved))
   await writeByteTotal(projectedTotal)
   emitDataStorageChanged()
   return true
@@ -282,7 +288,7 @@ export async function deleteBookDetailRecord(slug: string): Promise<void> {
       return
     }
 
-    await runTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.delete(slug))
+    await runDataStoreTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.delete(slug))
     const currentTotal = await readByteTotal()
     await writeByteTotal(Math.max(0, currentTotal - existing.byteSize))
     emitDataStorageChanged()
@@ -301,7 +307,7 @@ export async function getSafariPageCacheBytes(): Promise<number> {
 
 export async function getAllSafariPageCacheRecords(): Promise<SafariPageCacheRecord[]> {
   try {
-    return await runTransaction<SafariPageCacheRecord[]>(
+    return await runDataStoreTransaction<SafariPageCacheRecord[]>(
       SAFARI_PAGE_CACHE_STORE,
       'readonly',
       (store) => store.getAll(),
@@ -315,7 +321,7 @@ export async function getSafariPageCacheRecord(
   url: string,
 ): Promise<SafariPageCacheRecord | undefined> {
   try {
-    return await runTransaction<SafariPageCacheRecord | undefined>(
+    return await runDataStoreTransaction<SafariPageCacheRecord | undefined>(
       SAFARI_PAGE_CACHE_STORE,
       'readonly',
       (store) => store.get(url),
@@ -344,7 +350,7 @@ export async function putSafariPageCacheRecord(input: {
 
   const record: SafariPageCacheRecord = { ...input, byteSize }
 
-  await runTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => store.put(record))
+  await runDataStoreTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => store.put(record))
   await writeByteTotal(projectedTotal)
   emitDataStorageChanged()
   return true
@@ -357,7 +363,7 @@ export async function deleteSafariPageCacheRecord(url: string): Promise<void> {
       return
     }
 
-    await runTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => store.delete(url))
+    await runDataStoreTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => store.delete(url))
     const currentTotal = await readByteTotal()
     await writeByteTotal(Math.max(0, currentTotal - existing.byteSize))
     emitDataStorageChanged()
@@ -374,7 +380,7 @@ export async function clearAllSafariPageCache(): Promise<void> {
     }
 
     const freedBytes = records.reduce((total, record) => total + record.byteSize, 0)
-    await runTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => {
+    await runDataStoreTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => {
       for (const record of records) {
         store.delete(record.url)
       }
@@ -392,7 +398,7 @@ export async function clearAllSafariPageCache(): Promise<void> {
 export async function clearSafariPageCacheByHostname(hostname: string): Promise<void> {
   const normalizedHost = hostname.replace(/^www\./, '')
   try {
-    const records = await runTransaction<SafariPageCacheRecord[]>(
+    const records = await runDataStoreTransaction<SafariPageCacheRecord[]>(
       SAFARI_PAGE_CACHE_STORE,
       'readonly',
       (store) => store.index('hostname').getAll(normalizedHost),
@@ -402,7 +408,7 @@ export async function clearSafariPageCacheByHostname(hostname: string): Promise<
     }
 
     const freedBytes = records.reduce((total, record) => total + record.byteSize, 0)
-    await runTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => {
+    await runDataStoreTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => {
       for (const record of records) {
         store.delete(record.url)
       }
@@ -422,7 +428,7 @@ export async function getBookChapter(
   chapterId: string,
 ): Promise<BookChapterRecord | undefined> {
   try {
-    return await runTransaction<BookChapterRecord | undefined>(BOOK_CHAPTERS_STORE, 'readonly', (store) =>
+    return await runDataStoreTransaction<BookChapterRecord | undefined>(BOOK_CHAPTERS_STORE, 'readonly', (store) =>
       store.get(chapterKey(bookId, chapterId)),
     )
   } catch {
@@ -457,7 +463,7 @@ export async function putBookChapter(input: {
     byteSize,
   }
 
-  await runTransaction(BOOK_CHAPTERS_STORE, 'readwrite', (store) => store.put(record))
+  await runDataStoreTransaction(BOOK_CHAPTERS_STORE, 'readwrite', (store) => store.put(record))
   await writeByteTotal(projectedTotal)
   emitDataStorageChanged()
   return true
@@ -478,7 +484,7 @@ export async function assertBookChapterCapacity(input: {
 
 export async function deleteBookChapters(bookId: string): Promise<void> {
   try {
-    const records = await runTransaction<BookChapterRecord[]>(
+    const records = await runDataStoreTransaction<BookChapterRecord[]>(
       BOOK_CHAPTERS_STORE,
       'readonly',
       (store) => store.index('bookId').getAll(bookId),
@@ -488,7 +494,7 @@ export async function deleteBookChapters(bookId: string): Promise<void> {
     }
 
     const freedBytes = records.reduce((total, record) => total + (record.byteSize ?? 0), 0)
-    await runTransaction(BOOK_CHAPTERS_STORE, 'readwrite', (store) => {
+    await runDataStoreTransaction(BOOK_CHAPTERS_STORE, 'readwrite', (store) => {
       for (const record of records) {
         store.delete(record.key)
       }
@@ -505,12 +511,13 @@ export async function deleteBookChapters(bookId: string): Promise<void> {
 
 export async function rebuildDataByteTotal(): Promise<number> {
   try {
-    const [bookChapterBytes, bookDetailBytes, cacheBytes] = await Promise.all([
+    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes] = await Promise.all([
       sumStoreBytes(BOOK_CHAPTERS_STORE),
       sumStoreBytes(BOOK_DETAILS_STORE),
       sumStoreBytes(SAFARI_PAGE_CACHE_STORE),
+      sumStoreBytes(AI_TOKEN_USAGE_STORE),
     ])
-    const total = bookChapterBytes + bookDetailBytes + cacheBytes
+    const total = bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total

@@ -1,5 +1,7 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import type { AiUsageContext } from '../../ai/ai-usage-context.ts'
+import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { NotificationStockSnapshot } from '../../os/notification-center-widget-types.ts'
@@ -145,7 +147,11 @@ function normalizeStockDetail(raw: StockDetail): StockDetail {
   }
 }
 
-async function completeJson<T>(system: string, user: string): Promise<T> {
+async function completeJson<T>(
+  system: string,
+  user: string,
+  usageContext: AiUsageContext,
+): Promise<T> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
   const response = await client.chat.completions.create({
@@ -162,16 +168,25 @@ async function completeJson<T>(system: string, user: string): Promise<T> {
     throw new Error('AI 未返回任何内容')
   }
 
+  recordOpenAiCompletionUsage(response, usageContext)
   return parseJsonFromAiText<T>(text)
 }
 
 export async function generateFakeStockSnapshot(): Promise<NotificationStockSnapshot> {
-  const raw = await completeJson<NotificationStockSnapshot>(STOCK_PROMPT, '请生成一组虚构的股市快照。')
+  const raw = await completeJson<NotificationStockSnapshot>(
+    STOCK_PROMPT,
+    '请生成一组虚构的股市快照。',
+    { actor: 'stocks', behavior: 'widget-snapshot', behaviorLabel: '小组件快照' },
+  )
   return normalizeStockSnapshot(raw)
 }
 
 export async function generateStockBoard(): Promise<StockBoard> {
-  const raw = await completeJson<StockBoard>(STOCK_BOARD_PROMPT, '请生成一组虚构的完整股市看板。')
+  const raw = await completeJson<StockBoard>(
+    STOCK_BOARD_PROMPT,
+    '请生成一组虚构的完整股市看板。',
+    { actor: 'stocks', behavior: 'stock-board', behaviorLabel: '股市看板' },
+  )
   return normalizeStockBoard(raw)
 }
 
@@ -182,6 +197,7 @@ export async function generateStockDetail(query: string): Promise<StockDetail> {
     trimmed
       ? `搜索词：「${trimmed}」。请先判断这是现实商业概念还是幻想/科幻概念，再生成风格一致的虚构个股详情。`
       : '请生成一条虚构个股详情。',
+    { actor: 'stocks', behavior: 'stock-detail', behaviorLabel: '个股详情' },
   )
   return normalizeStockDetail(raw)
 }
@@ -213,6 +229,7 @@ export async function generateStockSearchSuggestions(query: string): Promise<Sto
   const raw = await completeJson<StockSearchSuggestion[]>(
     STOCK_SEARCH_PROMPT,
     `搜索词：「${trimmed}」。请先判断这是现实商业概念还是幻想/科幻概念，再生成 6~8 个风格一致的建议。`,
+    { actor: 'stocks', behavior: 'stock-search', behaviorLabel: '股票搜索' },
   )
   if (!Array.isArray(raw)) {
     return []

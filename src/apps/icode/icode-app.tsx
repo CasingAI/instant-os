@@ -70,10 +70,15 @@ import { useIcodeNarrowLayout } from './icode-layout.ts'
 import { appDataRecordsEqual } from './icode-app-data-value.ts'
 import { IcodeMonacoEditor } from './icode-monaco-editor.tsx'
 import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'
+import { WindowModal } from '../../window/window-modal.tsx'
+import { WindowModalTheme } from '../../window/window-modal-context.tsx'
 import './icode.css'
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
 type MobileEditorPane = 'preview' | 'edit'
+
+const ICODE_DEFAULT_THEME = '#5856d6'
+const ICODE_CHROME_ACCENT = '#2f87e2'
 
 const ICODE_THEME_COLOR_PRESETS = [
   '#007aff',
@@ -1348,136 +1353,12 @@ export function ICodeApp() {
 
   useAppMenuBar('icode', menuBar)
 
-  const deleteConfirmModal = deleteTarget ? (
-    <div class="icode__modal-backdrop">
-      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-delete-title">
-        <div class="icode__modal-header">
-          <h3 id="icode-delete-title">删除内部项目</h3>
-        </div>
-        <div class="icode__modal-body">
-          <p class="icode__modal-hint">
-            确定删除「{deleteTarget.name}」吗？此操作不可恢复。桌面上的应用入口不会被卸载。
-          </p>
-        </div>
-        <div class="icode__modal-actions">
-          <button
-            type="button"
-            class="icode__button icode__button--secondary"
-            onClick={() => setDeleteTarget(undefined)}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            class="icode__button icode__button--danger"
-            onClick={confirmDeleteProject}
-          >
-            删除
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : undefined
-
-  const importErrorModal = importAlert ? (
-    <div class="icode__modal-backdrop icode__modal-backdrop--alert">
-      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-import-error-title">
-        <div class="icode__modal-header">
-          <h3 id="icode-import-error-title">{importAlert.title}</h3>
-        </div>
-        <div class="icode__modal-body">
-          <p class="icode__modal-hint">{importAlert.message}</p>
-        </div>
-        <div class="icode__modal-actions">
-          <button
-            type="button"
-            class="icode__button icode__button--primary"
-            onClick={() => setImportAlert(undefined)}
-          >
-            好
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : undefined
-
-  const clearChatConfirmModal = clearChatPromptOpen ? (
-    <div class="icode__modal-backdrop">
-      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-clear-chat-title">
-        <div class="icode__modal-header">
-          <h3 id="icode-clear-chat-title">清空对话</h3>
-        </div>
-        <div class="icode__modal-body">
-          <p class="icode__modal-hint">
-            确定清空当前项目的对话记录吗？此操作不会修改源码；保存草稿后才会永久生效。
-          </p>
-        </div>
-        <div class="icode__modal-actions">
-          <button
-            type="button"
-            class="icode__button icode__button--secondary"
-            onClick={() => setClearChatPromptOpen(false)}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            class="icode__button icode__button--danger"
-            onClick={confirmClearChat}
-          >
-            清空
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : undefined
-
-  const closeConfirmModal = closePromptOpen ? (
-    <div class="icode__modal-backdrop">
-      <div class="icode__modal" role="alertdialog" aria-labelledby="icode-close-title">
-        <div class="icode__modal-header">
-          <h3 id="icode-close-title">有未保存的更改</h3>
-        </div>
-        <div class="icode__modal-body">
-          <p class="icode__modal-hint">{closePromptHint}</p>
-        </div>
-        <div class="icode__modal-actions icode__modal-actions--stack">
-          <button
-            type="button"
-            class="icode__button icode__button--primary"
-            onClick={confirmClosePublish}
-          >
-            发布到桌面并关闭
-          </button>
-          <button
-            type="button"
-            class="icode__button icode__button--secondary"
-            onClick={confirmCloseSaveDraft}
-          >
-            保存草稿并关闭
-          </button>
-          <button
-            type="button"
-            class="icode__button icode__button--danger"
-            onClick={confirmCloseDiscard}
-          >
-            放弃更改
-          </button>
-          <button
-            type="button"
-            class="icode__button icode__button--secondary"
-            onClick={() => setClosePromptOpen(false)}
-          >
-            继续编辑
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : undefined
-
   if (!session) {
+    const modalTheme = ICODE_CHROME_ACCENT
+
     return (
       <div ref={hostRef} class="icode">
+        <WindowModalTheme themeColor={modalTheme} />
         <input
           ref={importInputRef}
           class="icode__hidden-input"
@@ -1582,119 +1463,154 @@ export function ICodeApp() {
           </div>
         </div>
 
-        {showImportPicker && (
-          <div class="icode__modal-backdrop">
-            <div class="icode__modal icode__modal--wide" role="dialog" aria-labelledby="icode-import-title">
-              <div class="icode__modal-header">
-                <h3 id="icode-import-title">从已安装应用导入</h3>
-              </div>
-              <div class="icode__modal-body icode__modal-body--list">
-                <p class="icode__modal-hint">
-                  将创建独立的 iCode 副本进行编辑，与原应用无关联，也不会修改桌面上的原应用。
-                </p>
-                <div class="icode__list">
-                  {installedApps.map((app) => (
-                    <button
-                      key={app.id}
-                      type="button"
-                      class="icode__row"
-                      onClick={() => importFromInstalled(app)}
-                    >
-                      <span class="icode__row-icon" aria-hidden="true">
-                        <GeneratedAppIcon
-                          emoji={app.iconEmoji}
-                          themeColor={app.themeColor}
-                          size={36}
-                        />
-                      </span>
-                      <span class="icode__row-main">
-                        <span class="icode__row-name">{app.name}</span>
-                        {app.description && <span class="icode__row-desc">{app.description}</span>}
-                        <span class="icode__row-meta">
-                          <span class="icode__badge icode__badge--formal">正式</span>
-                          <span>{app.version ? app.version : '已安装'}</span>
-                        </span>
-                      </span>
-                      <span class="icode__row-disclosure" aria-hidden="true">
-                        ›
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div class="icode__modal-actions">
-                <button
-                  type="button"
-                  class="icode__button icode__button--secondary"
-                  onClick={() => setShowImportPicker(false)}
-                >
-                  取消
-                </button>
-              </div>
-            </div>
+        <WindowModal
+          open={showImportPicker}
+          title="从已安装应用导入"
+          wide
+          scrollBody
+          themeColor={modalTheme}
+          onClose={() => setShowImportPicker(false)}
+          actions={[
+            {
+              key: 'cancel',
+              label: '取消',
+              tone: 'secondary',
+              onClick: () => setShowImportPicker(false),
+            },
+          ]}
+        >
+          <p class="window-modal__message">
+            将创建独立的 iCode 副本进行编辑，与原应用无关联，也不会修改桌面上的原应用。
+          </p>
+          <div class="icode__list">
+            {installedApps.map((app) => (
+              <button
+                key={app.id}
+                type="button"
+                class="icode__row"
+                onClick={() => importFromInstalled(app)}
+              >
+                <span class="icode__row-icon" aria-hidden="true">
+                  <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={36} />
+                </span>
+                <span class="icode__row-main">
+                  <span class="icode__row-name">{app.name}</span>
+                  {app.description && <span class="icode__row-desc">{app.description}</span>}
+                  <span class="icode__row-meta">
+                    <span class="icode__badge icode__badge--formal">正式</span>
+                    <span>{app.version ? app.version : '已安装'}</span>
+                  </span>
+                </span>
+                <span class="icode__row-disclosure" aria-hidden="true">
+                  ›
+                </span>
+              </button>
+            ))}
           </div>
-        )}
+        </WindowModal>
 
-        {showNewProject && (
-          <div class="icode__modal-backdrop">
-            <div class="icode__modal" role="dialog" aria-labelledby="icode-new-title">
-              <div class="icode__modal-header">
-                <h3 id="icode-new-title">新建内部项目</h3>
-              </div>
-              <div class="icode__modal-body">
-                <div class="icode__field">
-                  <label for="icode-new-name">项目名称</label>
-                  <input
-                    id="icode-new-name"
-                    type="text"
-                    value={newProjectName}
-                    placeholder="例如：待办清单"
-                    onInput={(event) =>
-                      setNewProjectName((event.currentTarget as HTMLInputElement).value)
-                    }
-                  />
-                </div>
-                <div class="icode__field icode__field--stacked">
-                  <label for="icode-new-desc">应用描述</label>
-                  <textarea
-                    id="icode-new-desc"
-                    value={newProjectDescription}
-                    placeholder="描述你想让 AI 生成的应用功能与界面…"
-                    onInput={(event) =>
-                      setNewProjectDescription((event.currentTarget as HTMLTextAreaElement).value)
-                    }
-                  />
-                </div>
-              </div>
-              <div class="icode__modal-actions">
-                <button
-                  type="button"
-                  class="icode__button icode__button--secondary"
-                  onClick={() => setShowNewProject(false)}
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  class="icode__button icode__button--primary"
-                  disabled={!newProjectName.trim()}
-                  onClick={onCreateProject}
-                >
-                  创建并打开
-                </button>
-              </div>
-            </div>
+        <WindowModal
+          open={showNewProject}
+          title="新建内部项目"
+          themeColor={modalTheme}
+          onClose={() => setShowNewProject(false)}
+          actions={[
+            {
+              key: 'cancel',
+              label: '取消',
+              tone: 'secondary',
+              onClick: () => setShowNewProject(false),
+            },
+            {
+              key: 'create',
+              label: '创建并打开',
+              tone: 'primary',
+              disabled: !newProjectName.trim(),
+              onClick: onCreateProject,
+            },
+          ]}
+        >
+          <div class="window-modal__field">
+            <label for="icode-new-name">项目名称</label>
+            <input
+              id="icode-new-name"
+              type="text"
+              value={newProjectName}
+              placeholder="例如：待办清单"
+              onInput={(event) => setNewProjectName((event.currentTarget as HTMLInputElement).value)}
+            />
           </div>
-        )}
+          <div class="window-modal__field">
+            <label for="icode-new-desc">应用描述</label>
+            <textarea
+              id="icode-new-desc"
+              value={newProjectDescription}
+              placeholder="描述你想让 AI 生成的应用功能与界面…"
+              onInput={(event) =>
+                setNewProjectDescription((event.currentTarget as HTMLTextAreaElement).value)
+              }
+            />
+          </div>
+        </WindowModal>
 
-        {deleteConfirmModal}
-        {importErrorModal}
+        <WindowModal
+          open={!!deleteTarget}
+          title="删除内部项目"
+          role="alertdialog"
+          themeColor={modalTheme}
+          onClose={() => setDeleteTarget(undefined)}
+          actions={[
+            {
+              key: 'cancel',
+              label: '取消',
+              tone: 'secondary',
+              onClick: () => setDeleteTarget(undefined),
+            },
+            {
+              key: 'delete',
+              label: '删除',
+              tone: 'danger',
+              onClick: confirmDeleteProject,
+            },
+          ]}
+        >
+          {deleteTarget && (
+            <p class="window-modal__message">
+              确定删除「{deleteTarget.name}」吗？此操作不可恢复。桌面上的应用入口不会被卸载。
+            </p>
+          )}
+        </WindowModal>
+
+        <WindowModal
+          open={!!importAlert}
+          title={importAlert?.title ?? ''}
+          role="alertdialog"
+          themeColor={modalTheme}
+          onClose={() => setImportAlert(undefined)}
+          actions={[
+            {
+              key: 'ok',
+              label: '好',
+              tone: 'primary',
+              onClick: () => setImportAlert(undefined),
+            },
+          ]}
+        >
+          {importAlert && <p class="window-modal__message">{importAlert.message}</p>}
+        </WindowModal>
       </div>
     )
   }
 
+  const modalTheme = ICODE_CHROME_ACCENT
+
   return (
-    <div ref={hostRef} class="icode">
+    <div
+      ref={hostRef}
+      class="icode"
+      style={{ '--app-accent': session.themeColor }}
+    >
+      <WindowModalTheme themeColor={modalTheme} />
       <input
         ref={importInputRef}
         class="icode__hidden-input"
@@ -2167,10 +2083,113 @@ export function ICodeApp() {
         </nav>
       </div>
 
-      {deleteConfirmModal}
-      {clearChatConfirmModal}
-      {closeConfirmModal}
-      {importErrorModal}
+      <WindowModal
+        open={!!deleteTarget}
+        title="删除内部项目"
+        role="alertdialog"
+        themeColor={modalTheme}
+        onClose={() => setDeleteTarget(undefined)}
+        actions={[
+          {
+            key: 'cancel',
+            label: '取消',
+            tone: 'secondary',
+            onClick: () => setDeleteTarget(undefined),
+          },
+          {
+            key: 'delete',
+            label: '删除',
+            tone: 'danger',
+            onClick: confirmDeleteProject,
+          },
+        ]}
+      >
+        {deleteTarget && (
+          <p class="window-modal__message">
+            确定删除「{deleteTarget.name}」吗？此操作不可恢复。桌面上的应用入口不会被卸载。
+          </p>
+        )}
+      </WindowModal>
+
+      <WindowModal
+        open={clearChatPromptOpen}
+        title="清空对话"
+        role="alertdialog"
+        themeColor={modalTheme}
+        onClose={() => setClearChatPromptOpen(false)}
+        actions={[
+          {
+            key: 'cancel',
+            label: '取消',
+            tone: 'secondary',
+            onClick: () => setClearChatPromptOpen(false),
+          },
+          {
+            key: 'clear',
+            label: '清空',
+            tone: 'danger',
+            onClick: confirmClearChat,
+          },
+        ]}
+      >
+        <p class="window-modal__message">
+          确定清空当前项目的对话记录吗？此操作不会修改源码；保存草稿后才会永久生效。
+        </p>
+      </WindowModal>
+
+      <WindowModal
+        open={closePromptOpen}
+        title="有未保存的更改"
+        role="alertdialog"
+        themeColor={modalTheme}
+        onClose={() => setClosePromptOpen(false)}
+        actions={[
+          {
+            key: 'publish',
+            label: '发布到桌面并关闭',
+            tone: 'primary',
+            onClick: confirmClosePublish,
+          },
+          {
+            key: 'save',
+            label: '保存草稿并关闭',
+            tone: 'secondary',
+            onClick: confirmCloseSaveDraft,
+          },
+          {
+            key: 'discard',
+            label: '放弃更改',
+            tone: 'danger',
+            onClick: confirmCloseDiscard,
+          },
+          {
+            key: 'continue',
+            label: '继续编辑',
+            tone: 'secondary',
+            onClick: () => setClosePromptOpen(false),
+          },
+        ]}
+      >
+        <p class="window-modal__message">{closePromptHint}</p>
+      </WindowModal>
+
+      <WindowModal
+        open={!!importAlert}
+        title={importAlert?.title ?? ''}
+        role="alertdialog"
+        themeColor={modalTheme}
+        onClose={() => setImportAlert(undefined)}
+        actions={[
+          {
+            key: 'ok',
+            label: '好',
+            tone: 'primary',
+            onClick: () => setImportAlert(undefined),
+          },
+        ]}
+      >
+        {importAlert && <p class="window-modal__message">{importAlert.message}</p>}
+      </WindowModal>
     </div>
   )
 }

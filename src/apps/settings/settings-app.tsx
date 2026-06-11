@@ -21,6 +21,7 @@ import { DATA_CAPACITY_BYTES, DATA_STORAGE_CHANGED_EVENT } from '../../os/device
 import { STORAGE_CHANGED_EVENT } from '../../os/device-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 import { initBrowserPageCache } from '../browser/browser-page-cache.ts'
+import { AiUsageView } from './ai-usage-view.tsx'
 import { SafariUsageView } from './safari-usage-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
@@ -28,6 +29,7 @@ import { AccountView } from './account-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
+import { DockSettingsView } from './dock-settings-view.tsx'
 import { ExperimentalSettingsView } from './experimental-settings-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
@@ -70,6 +72,7 @@ export function SettingsApp() {
     totalBytes: 0,
     safariCacheBytes: 0,
     booksDataBytes: 0,
+    aiUsageBytes: 0,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
   const summary = useMemo(
@@ -165,6 +168,7 @@ export function SettingsApp() {
   const view = route.view
   const showRoot = view === 'root'
   const showUsage = view === 'usage'
+  const showAiUsage = view === 'ai-usage'
   const keepUsage =
     showUsage || view === 'app-detail' || view === 'apps-storage' || view === 'other-storage'
   const showAppsStorage = view === 'apps-storage'
@@ -175,6 +179,7 @@ export function SettingsApp() {
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
   const showWallpaper = view === 'wallpaper'
+  const showDock = view === 'dock'
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
   const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
@@ -257,7 +262,14 @@ export function SettingsApp() {
             </div>
           </SettingsKeepLayer>
 
-          <SettingsKeepLayer show={showUsage} keep={keepUsage}>
+          <SettingsKeepLayer show={showAiUsage} keep={showAiUsage}>
+        <AiUsageView
+          onBack={() => setRoute({ view: 'root' })}
+          installedApps={installedApps}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showUsage} keep={keepUsage}>
         <UsageView
           summary={summary}
           onBack={() => setRoute({ view: 'root' })}
@@ -321,6 +333,10 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showWallpaper} keep={showWallpaper}>
         <WallpaperView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showDock} keep={showDock}>
+        <DockSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showEmoji && !showEmojiCalibration} keep={showEmoji}>
@@ -463,6 +479,7 @@ function UsageView({
                 <div class="settings__meter-legend">
                   <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
                   <span>图书章节 {formatStorageSize(summary.booksDataBytes)}</span>
+                  <span>AI 用量 {formatStorageSize(summary.aiUsageBytes)}</span>
                   <span>剩余 {formatStorageSize(summary.dataAvailableBytes)}</span>
                 </div>
               </div>
@@ -509,6 +526,7 @@ function UsageView({
                 <div class="settings__list-body">
                   <StorageCategoryRow label="网络浏览器网页缓存" bytes={summary.safariCacheBytes} />
                   <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
+                  <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                 </div>
               </div>
             </section>

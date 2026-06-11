@@ -1,0 +1,314 @@
+.window-modal-overlay-root {
+  position: absolute;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.window-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.window-modal {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: min(100%, 400px);
+  max-height: min(560px, calc(100% - 48px));
+  margin-inline: auto;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.window-modal--wide {
+  width: min(100%, 520px);
+}
+
+.window-modal__header {
+  flex-shrink: 0;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--window-modal-theme, #e6e6e6) 12%, #f3f3f3) 0%,
+    #e6e6e6 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.window-modal__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #222;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.window-modal__body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px 4px;
+}
+
+.window-modal__body--scroll {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.window-modal__message {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #555;
+}
+
+.window-modal__error {
+  margin: 0 0 8px;
+  font-size: 10px;
+  color: #a12622;
+}
+
+.window-modal__field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.window-modal__field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #333;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.window-modal__field input,
+.window-modal__field textarea {
+  width: 100%;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.window-modal__field textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.window-modal__actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+/* 1–2 个按钮：同一行，等分占满宽度 */
+.window-modal__actions--pair .window-modal__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+
+/* 3 个及以上：每行一个，纵向排列 */
+.window-modal__actions--many {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.window-modal__actions--many .window-modal__btn {
+  width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.window-modal__btn {
+  min-width: 68px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+
+.window-modal__btn--secondary:active:not(:disabled) {
+  background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* 主按钮与 iCode 分段控件 / 发布按钮同款蓝色，避免 color-mix + var 在渐变中失效 */
+.window-modal__btn--primary {
+  color: #fff;
+  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  border-color: #145da8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.25);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.window-modal__btn--primary:active:not(:disabled) {
+  background: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.window-modal__btn--primary:disabled {
+  color: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(180deg, #d8ebfc 0%, #b3d7f8 55%, #9ecbf5 100%);
+  border-color: #a8cff0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 1px 0 rgba(255, 255, 255, 0.2);
+  text-shadow: none;
+  opacity: 1;
+  cursor: default;
+}
+
+.window-modal__btn--secondary {
+  color: #333;
+  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  border-color: rgba(0, 0, 0, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.window-modal__btn--danger {
+  color: #fff;
+  background: linear-gradient(180deg, #ff6259 0%, #d92121 48%, #b80000 100%);
+  border-color: #8b0000;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.window-modal__btn--danger:active:not(:disabled) {
+  background: linear-gradient(180deg, #e54b42 0%, #c01818 48%, #9a0000 100%);
+}
+
+.window-modal__btn:disabled {
+  cursor: default;
+}
+
+.window-modal__btn--secondary:disabled,
+.window-modal__btn--danger:disabled {
+  opacity: 0.5;
+}
+
+@container app-window (max-width: 520px) {
+  .window-modal-backdrop {
+    padding: 10px;
+  }
+
+  .window-modal,
+  .window-modal--wide {
+    width: 100%;
+    max-height: calc(100% - 20px);
+    border-radius: 10px;
+  }
+
+  .window-modal__header {
+    padding: 12px 12px 8px;
+  }
+
+  .window-modal__title {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .window-modal__body {
+    padding: 10px 12px 2px;
+  }
+
+  .window-modal__body--scroll {
+    max-height: min(280px, 45vh);
+  }
+
+  .window-modal__message {
+    font-size: 11px;
+  }
+
+  .window-modal__field label {
+    font-size: 11px;
+  }
+
+  .window-modal__actions {
+    gap: 8px;
+    padding: 0 10px 10px;
+  }
+
+  .window-modal__btn {
+    padding-block: 7px;
+  }
+}
+
+@container app-window (max-width: 360px) {
+  .window-modal-backdrop {
+    padding: 8px;
+  }
+
+  .window-modal,
+  .window-modal--wide {
+    max-height: calc(100% - 16px);
+    border-radius: 10px;
+  }
+
+  .window-modal__header {
+    padding: 10px 10px 6px;
+  }
+
+  .window-modal__title {
+    font-size: 11px;
+  }
+
+  .window-modal__body {
+    padding: 8px 10px 0;
+  }
+
+  .window-modal__body--scroll {
+    max-height: min(220px, 40vh);
+  }
+
+  .window-modal__actions {
+    padding: 0 8px 8px;
+    gap: 6px;
+  }
+
+  .window-modal__btn {
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+}

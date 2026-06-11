@@ -8,6 +8,7 @@ import {
   resolveAppGenerationPhase,
   totalStreamTextLength,
 } from '../../ai/ai-thinking.ts'
+import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import { buildScene3dBuilderPrompt } from '../../assets/3d/scene3d-prompt-sections.ts'
@@ -230,6 +231,11 @@ export async function generateScene3dHtmlStreaming(
   )
   const html = extractScene3dHtmlFromAiText(contentText)
   const rawText = formatScene3dRawOutput(reasoningText, contentText)
+  recordAiTokenUsage(
+    { actor: 'scene3d-lab', behavior: 'generate-scene', behaviorLabel: '生成 3D 场景' },
+    usage,
+  )
+
   const result: Scene3dGenerationResult = { html, rawText, usage: liveUsage }
   onUpdate({
     phase: 'generating',

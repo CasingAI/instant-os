@@ -17,6 +17,8 @@ type CrashGuardGlobal = {
     activated: boolean
     errors: CrashEntry[]
     consoleLogs: ConsoleEntry[]
+    moduleExecuted: boolean
+    bootComplete: boolean
   }
   pushError: (source: string, detail: string) => void
   pushConsole: (level: string, args: IArguments | unknown[]) => void
@@ -24,6 +26,9 @@ type CrashGuardGlobal = {
   dismiss: () => void
   renderCrashScreen: (primaryMessage?: string) => void
   safeString: (value: unknown) => string
+  markModuleExecuted: () => void
+  markBootComplete: () => void
+  loadMainModule: () => void
 }
 
 const CRASH_DISMISS_EVENT = 'instant-os-crash-dismiss'
@@ -82,6 +87,14 @@ export function isCrashScreenActive(): boolean {
 
 export function dismissCrashScreen(): void {
   getCrashGuard()?.dismiss()
+}
+
+export function markBootModuleExecuted(): void {
+  getCrashGuard()?.markModuleExecuted()
+}
+
+export function markBootComplete(): void {
+  getCrashGuard()?.markBootComplete()
 }
 
 type ErrorBoundaryProps = {

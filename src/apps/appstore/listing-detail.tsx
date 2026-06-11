@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
@@ -26,6 +26,11 @@ type ListingDetailProps = {
 }
 
 type DetailField = keyof StoreListingDetail
+
+/** 与 appstore.css 中 @container app-window (max-width: 720px) 保持一致 */
+const DETAIL_HERO_COMPACT_MAX_WIDTH = 720
+const DETAIL_ICON_SIZE_WIDE = 120
+const DETAIL_ICON_SIZE_COMPACT = 88
 
 function actionLabel(installed: boolean, pendingUpdate: boolean, busy: boolean): string {
   if (busy) {
@@ -78,6 +83,32 @@ export function ListingDetail({
   const [browseOpen, setBrowseOpen] = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
+  const [compactHero, setCompactHero] = useState(false)
+  const detailObserverRef = useRef<ResizeObserver | undefined>(undefined)
+
+  const detailRef = useCallback((node: HTMLElement | null) => {
+    detailObserverRef.current?.disconnect()
+    detailObserverRef.current = undefined
+
+    if (!node) {
+      return
+    }
+
+    const sync = () => {
+      setCompactHero(node.clientWidth <= DETAIL_HERO_COMPACT_MAX_WIDTH)
+    }
+
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(node)
+    detailObserverRef.current = observer
+  }, [])
+
+  useEffect(() => {
+    return () => detailObserverRef.current?.disconnect()
+  }, [])
+
+  const heroIconSize = compactHero ? DETAIL_ICON_SIZE_COMPACT : DETAIL_ICON_SIZE_WIDE
 
   const pendingUpdate = hasPendingUpdate(listing.slug)
   const installedApp = getInstalledApp(toGeneratedAppId(listing.slug))
@@ -217,7 +248,7 @@ export function ListingDetail({
   }, [listing.slug, rollbackAppVersion])
 
   return (
-    <div class="appstore-detail">
+    <div class="appstore-detail" ref={detailRef}>
       <header class="appstore-detail__nav">
         <IosNavBackButton label="应用集市" onClick={onBack} />
       </header>
@@ -228,7 +259,7 @@ export function ListingDetail({
             <GeneratedAppIcon
               emoji={listing.iconEmoji}
               themeColor={listing.themeColor}
-              size={120}
+              size={heroIconSize}
               progress={progress}
               textLength={textLength}
             />

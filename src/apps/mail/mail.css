@@ -28,6 +28,18 @@
   --mail-danger-btn: linear-gradient(180deg, #ff8a84 0%, #e34b3f 55%, #c9302a 100%);
   --mail-danger-btn-active: linear-gradient(180deg, #c9302a 0%, #e34b3f 100%);
 
+  --ios-nav-back-color: var(--mail-accent);
+  --ios-nav-back-color-active: var(--mail-unread);
+  --ios-nav-back-bg: var(--mail-plain-btn);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e6e6e6 100%);
+  --ios-nav-back-bg-active: var(--mail-plain-btn-active);
+  --ios-nav-back-border: 1px solid var(--mail-border);
+  --ios-nav-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+  --ios-nav-back-shadow: var(--mail-shadow-out);
+  --ios-nav-back-shadow-active: var(--mail-shadow-in);
+  --ios-nav-back-radius: var(--mail-radius);
+  --ios-nav-back-height: calc(var(--mail-toolbar-ctrl-h) - 2px);
+
   display: flex;
   flex-direction: column;
   height: 100%;

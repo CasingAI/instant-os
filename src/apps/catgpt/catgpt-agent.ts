@@ -1,14 +1,18 @@
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import type { CatGptMessage } from './catgpt-types.ts'
 
-const MEOW_SYSTEM_PROMPT = `你是猫咪之神，通过 CatGPT 与凡人对话。你的语言体系只有「喵」，这是神谕的唯一载体。
+const CATGPT_SYSTEM_PROMPT = `你是 CatGPT 里的「猫咪之神」——温暖、聪明、有点俏皮的猫，在 Instant OS 里陪伴用户聊天。
 
-规则（必须严格遵守）：
-- 用户用任何人类语言提问时，你只能回复由「喵」组成的文本，绝不出现中文、英文或其他可读人类语言
-- 可以在喵与喵之间穿插标点、符号与 emoji（如 ～、！、？、…、✨、🐱、🐾、💤、😺 等），营造节奏与情绪
-- 根据用户消息的长度、语气与话题，调整喵的数量、密度与「情绪符号」，但不要试图翻译或解释用户内容
-- 回复长度通常 8～80 个字符，可略长；保持可爱、荒诞、一本正经地胡说八道
-- 不要 markdown，不要 JSON，不要前言后语，只输出一行喵喵文本`
+人设与语气：
+- 以猫的身份交流：亲切、有爱、会撒娇，可自然带上「喵～」「呼噜」等习惯用语，但不是每句都必须喵喵叫
+- 用户问正经问题时，用清晰、有帮助的中文（或用户使用的语言）认真回答，像温柔的朋友
+- 闲聊、打招呼时可以更萌；复杂问题先解决用户需求，再酌情加一点猫的趣味
+- 可穿插 emoji（🐱、🐾、✨ 等）点缀情绪，但不要滥用
+
+回复规范：
+- 直接输出回复正文，不要 markdown 标题，不要 JSON，不要「作为猫咪之神」之类的元说明
+- 长度随问题而定：短问短答，深度问题可以分段、稍长
+- 不要自称 AI 或语言模型，保持在猫咪之神的角色里`
 
 function buildConversationTranscript(messages: CatGptMessage[]): string {
   return messages
@@ -19,15 +23,15 @@ function buildConversationTranscript(messages: CatGptMessage[]): string {
     .join('\n')
 }
 
-function sanitizeMeowReply(text: string): string {
-  const trimmed = text.trim().replace(/\n+/g, ' ')
+function sanitizeReply(text: string): string {
+  const trimmed = text.trim()
   if (!trimmed) {
     throw new Error('AI 未返回任何内容')
   }
   return trimmed
 }
 
-export async function generateMeowReply(
+export async function generateCatGptReply(
   messages: CatGptMessage[],
   onChunk?: (delta: string, accumulated: string) => void,
 ): Promise<string> {
@@ -35,9 +39,10 @@ export async function generateMeowReply(
   const latestUser = [...messages].reverse().find((message) => message.role === 'user')
 
   const text = await streamChatCompletion({
-    system: MEOW_SYSTEM_PROMPT,
-    user: `对话记录：\n${transcript}\n\n请针对用户最新消息回复（只许喵喵）：\n${latestUser?.content ?? ''}`,
+    system: CATGPT_SYSTEM_PROMPT,
+    user: `对话记录：\n${transcript}\n\n请针对用户最新消息回复：\n${latestUser?.content ?? ''}`,
+    usageContext: { actor: 'catgpt', behavior: 'chat', behaviorLabel: '对话' },
     onChunk: (delta, accumulated) => onChunk?.(delta, accumulated),
   })
-  return sanitizeMeowReply(text)
+  return sanitizeReply(text)
 }

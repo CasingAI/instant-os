@@ -154,6 +154,7 @@ export async function generateListingDetailStreaming(
   const text = await streamChatCompletion({
     system: LISTING_DETAIL_PROMPT,
     user: input,
+    usageContext: { actor: 'appstore', behavior: 'listing-detail', behaviorLabel: '生成应用详情' },
     onChunk: (_delta, accumulated) => {
       const partial = extractPartialObjectFields<StoreListingDetail>(accumulated, DETAIL_FIELDS)
       if (Object.keys(partial).length > 0) {
@@ -199,6 +200,7 @@ export async function generateListingReviewsStreaming(
   const text = await streamChatCompletion({
     system: LISTING_REVIEWS_PROMPT,
     user: input,
+    usageContext: { actor: 'appstore', behavior: 'listing-reviews', behaviorLabel: '生成应用评论' },
     onChunk: (delta) => {
       feed.push(delta)
     },
@@ -252,6 +254,7 @@ async function streamListings(
   const text = await streamChatCompletion({
     system,
     user,
+    usageContext: { actor: 'appstore', behavior: 'listing-search', behaviorLabel: '搜索应用' },
     onChunk: (delta) => {
       feed.push(delta)
     },

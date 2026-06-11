@@ -56,11 +56,16 @@
 }
 
 .setup-assistant__title {
+  width: fit-content;
+  max-width: 100%;
   margin: 0 0 10px;
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: #0f172a;
+  text-align: center;
+  text-align-last: center;
+  text-justify: none;
 }
 
 .setup-assistant__subtitle {
@@ -69,6 +74,9 @@
   font-size: 15px;
   line-height: 1.55;
   color: #475569;
+  text-align: start;
+  text-align-last: start;
+  text-justify: none;
 }
 
 .setup-assistant__step-head {
@@ -171,6 +179,9 @@
   font-size: 12px;
   line-height: 1.5;
   color: #64748b;
+  text-align: start;
+  text-align-last: start;
+  text-justify: none;
 }
 
 .setup-assistant__error {

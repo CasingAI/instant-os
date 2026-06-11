@@ -1,3 +1,5 @@
+import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { estimatePromptTokens } from '../browser/estimate-token-usage.ts'
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import {
@@ -156,15 +158,16 @@ export async function generateAppHtmlStreaming(
   onUpdate({ phase: 'waiting', progress: 0, textLength: 0, reasoningText: '', contentText: '' })
   setPendingInstallStream(listing.slug, { reasoningText: '', rawText: '' })
 
+  const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
+  const userPrompt = buildAppGenerationPrompt(listing, context)
+
   const stream = await client.chat.completions.create({
     model,
     stream: true,
+    stream_options: { include_usage: true },
     messages: [
-      { role: 'system', content: buildAppGenerationSystemPrompt(listing, context, isUpdate) },
-      {
-        role: 'user',
-        content: buildAppGenerationPrompt(listing, context),
-      },
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
     ],
     ...buildThinkingRequestExtras(
       config.providerId,
@@ -175,6 +178,7 @@ export async function generateAppHtmlStreaming(
   let contentText = ''
   let reasoningText = ''
   let streamStarted = false
+  let usage = snapshotFromOpenAiUsage(undefined)
   let lastMetadataEmitAt = 0
   let lastStreamEmitAt = 0
 
@@ -214,6 +218,10 @@ export async function generateAppHtmlStreaming(
 
   for await (const chunk of stream) {
     streamStarted = true
+    const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+    if (chunkUsage) {
+      usage = chunkUsage
+    }
     const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
     if (reasoning) {
       reasoningText += reasoning
@@ -233,6 +241,16 @@ export async function generateAppHtmlStreaming(
   }
 
   emit(true)
+
+  recordAiTokenUsage(
+    {
+      actor: 'appstore',
+      behavior: isUpdate ? 'app-update' : 'app-generate',
+      behaviorLabel: isUpdate ? '更新应用' : '生成应用',
+    },
+    usage,
+  )
+
   return ensureGeneratedAppTags(extractHtmlFromAiText(contentText), {
     name: listing.name,
     description: listing.description,

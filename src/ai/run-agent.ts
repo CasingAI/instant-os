@@ -2,6 +2,9 @@ import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
 import { toChatCompletionTool } from './agent-tool.ts'
 import { buildThinkingRequestExtras } from './ai-thinking.ts'
+import type { AiUsageContext } from './ai-usage-context.ts'
+import { recordAiTokenUsage } from './ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 
@@ -14,6 +17,7 @@ export type RunAgentOptions = {
   maxSteps?: number
   client?: OpenAI
   config?: Partial<OpenAiConfig>
+  usageContext?: AiUsageContext
 }
 
 export type RunAgentResult = {
@@ -71,6 +75,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
   const messages = buildInitialMessages(options)
   const chatTools = tools.length > 0 ? tools.map(toChatCompletionTool) : undefined
+  let accumulatedPromptTokens = 0
+  let accumulatedCompletionTokens = 0
+  let accumulatedTotalTokens = 0
 
   for (let step = 0; step < maxSteps; step += 1) {
     const response = await client.chat.completions.create({
@@ -79,6 +86,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       tools: chatTools,
       ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
     })
+
+    const usage = snapshotFromOpenAiUsage(response.usage)
+    if (usage) {
+      accumulatedPromptTokens += usage.promptTokens
+      accumulatedCompletionTokens += usage.completionTokens
+      accumulatedTotalTokens += usage.totalTokens
+    }
 
     const choice = response.choices[0]
     if (!choice) {
@@ -90,6 +104,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
     const toolCalls = assistantMessage.tool_calls
     if (!toolCalls?.length) {
+      if (options.usageContext && accumulatedTotalTokens > 0) {
+        recordAiTokenUsage(options.usageContext, {
+          promptTokens: accumulatedPromptTokens,
+          completionTokens: accumulatedCompletionTokens,
+          totalTokens: accumulatedTotalTokens,
+        })
+      }
       return {
         text: assistantMessage.content ?? '',
         messages,

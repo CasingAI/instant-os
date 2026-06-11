@@ -10,6 +10,19 @@
   color: #000;
   font-family: var(--app-text-font-family);
   font-size: 13px;
+
+  --ios-nav-back-color: #007aff;
+  --ios-nav-back-color-active: #0056b3;
+  --ios-nav-back-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --ios-nav-back-border: 1px solid rgba(0, 0, 0, 0.28);
+  --ios-nav-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --ios-nav-back-radius: 4px;
 }
 
 /* ── Project picker ── */
@@ -1397,28 +1410,18 @@
 }
 
 .icode__data-keys-add {
-  display: flex;
-  gap: 6px;
   padding: 6px;
   border-top: 1px solid #c8c8c8;
   background: linear-gradient(180deg, #ececec 0%, #e2e2e2 100%);
 }
 
-.icode__data-key-input {
-  flex: 1;
-  min-width: 0;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  border-radius: 4px;
-  font: inherit;
-  font-size: 11px;
-  background: #fff;
+.icode__data-keys-add-button {
+  width: 100%;
+  min-height: 24px;
 }
 
 .icode__data-key-error {
-  margin: 0;
-  padding: 0 8px 6px;
+  margin: 0 0 8px;
   font-size: 10px;
   color: #a12622;
 }
@@ -1443,6 +1446,24 @@
 
 .icode__data-detail-back {
   flex-shrink: 0;
+}
+
+.icode__data-detail-header .ios-nav-back {
+  --ios-nav-back-color: #007aff;
+  --ios-nav-back-color-active: #0056b3;
+  --ios-nav-back-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --ios-nav-back-border: 1px solid rgba(0, 0, 0, 0.22);
+  --ios-nav-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.25);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --ios-nav-back-radius: 4px;
+  --ios-nav-back-height: 22px;
+  --ios-nav-back-font-size: 11px;
+  --ios-nav-back-padding: 0 10px 0 7px;
 }
 
 .icode__data-detail-header {

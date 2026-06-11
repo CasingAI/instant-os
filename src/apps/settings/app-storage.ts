@@ -22,6 +22,7 @@ import {
   getSafariPageCacheBytes,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
+import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
 import { getNewsStorageBytes } from '../news/news-storage.ts'
 import { getCatGptStorageBytes } from '../catgpt/catgpt-storage.ts'
 import { getBooksStorageBytes } from '../books/books-storage.ts'
@@ -177,7 +178,12 @@ export function buildManagedAppList(installedApps: GeneratedAppRecord[]): Manage
 
 export function getStorageSummary(
   installedApps: GeneratedAppRecord[],
-  dataStorage: { totalBytes: number; safariCacheBytes: number; booksDataBytes: number },
+  dataStorage: {
+    totalBytes: number
+    safariCacheBytes: number
+    booksDataBytes: number
+    aiUsageBytes: number
+  },
 ) {
   const entries = buildManagedAppList(installedApps)
   const appsBytes =
@@ -186,7 +192,7 @@ export function getStorageSummary(
   const newsDataBytes = getNewsStorageBytes()
   const booksIndexBytes = getBooksStorageBytes()
   const browserSystemBytes = getBrowserSystemStorageBytes()
-  const { totalBytes: dataUsedBytes, safariCacheBytes, booksDataBytes } = dataStorage
+  const { totalBytes: dataUsedBytes, safariCacheBytes, booksDataBytes, aiUsageBytes } = dataStorage
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
   const availableBytes = Math.max(0, DEVICE_CAPACITY_BYTES - usedBytes)
@@ -216,6 +222,7 @@ export function getStorageSummary(
     availableBytes,
     dataUsedBytes,
     dataAvailableBytes,
+    aiUsageBytes,
     systemBytes: usedBytes,
   }
 }
@@ -224,13 +231,15 @@ export async function loadDataStorageBreakdown(): Promise<{
   totalBytes: number
   safariCacheBytes: number
   booksDataBytes: number
+  aiUsageBytes: number
 }> {
-  const [totalBytes, safariCacheBytes, booksDataBytes] = await Promise.all([
+  const [totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes] = await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
     getBooksContentBytes(),
+    getAiTokenUsageBytes(),
   ])
-  return { totalBytes, safariCacheBytes, booksDataBytes }
+  return { totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes }
 }
 
 export function findManagedApp(

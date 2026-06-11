@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import {
@@ -279,6 +280,12 @@ async function requestRemoteAiMove(
     tools: [GOMOKU_PLACE_STONE_TOOL],
     tool_choice: 'auto',
     ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
+  })
+
+  recordOpenAiCompletionUsage(response, {
+    actor: 'gomoku',
+    behavior: 'ai-move',
+    behaviorLabel: 'AI 落子',
   })
 
   const message = response.choices[0]?.message

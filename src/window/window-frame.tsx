@@ -11,6 +11,7 @@ import { SnapPreview } from './window-snap-preview.tsx'
 import { useWindowDrag } from './use-window-drag.ts'
 import { useWindowResize } from './use-window-resize.ts'
 import { type ResizeDirection } from './window-resize.ts'
+import { WindowModalProvider } from './window-modal-context.tsx'
 
 const EDGE_DIRECTIONS: ResizeDirection[] = ['n', 's', 'e', 'w']
 const CORNER_DIRECTIONS: ResizeDirection[] = ['nw', 'ne', 'sw', 'se']
@@ -152,11 +153,13 @@ export function WindowFrame({ window }: WindowFrameProps) {
           {!isActive && !isDesktopRevealed && (
             <div class="window-frame__focus-catcher" aria-hidden="true" />
           )}
-          {isGeneratedAppId(window.appId) ? (
-            <GeneratedApp appId={window.appId} windowId={window.id} />
-          ) : (
-            AppComponent && <AppComponent />
-          )}
+          <WindowModalProvider>
+            {isGeneratedAppId(window.appId) ? (
+              <GeneratedApp appId={window.appId} windowId={window.id} />
+            ) : (
+              AppComponent && <AppComponent />
+            )}
+          </WindowModalProvider>
         </div>
         {canResize && (
           <div class="window-frame__resize-layer" aria-hidden="true">

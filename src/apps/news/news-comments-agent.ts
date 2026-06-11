@@ -369,6 +369,7 @@ ${article.body}
     const text = await streamChatCompletion({
       system: GENERATE_COMMENTS_PROMPT,
       user: userMessage,
+      usageContext: { actor: 'news', behavior: 'comment-gen', behaviorLabel: '生成评论' },
       onChunk: (delta) => {
         feed.push(delta)
       },
@@ -505,6 +506,7 @@ ${userBody}
     const text = await streamChatCompletion({
       system: USER_TOP_COMMENT_PROMPT,
       user: userMessage,
+      usageContext: { actor: 'news', behavior: 'comment-gen', behaviorLabel: '生成评论' },
       onChunk: () => {},
     })
 
@@ -541,6 +543,7 @@ ${userBody}
     const text = await streamChatCompletion({
       system: USER_ENGAGEMENT_PROMPT,
       user: userMessage,
+      usageContext: { actor: 'news', behavior: 'reply-gen', behaviorLabel: '生成回复' },
       onChunk: () => {},
     })
     const raw = parseJsonFromAiText<{ userLikes?: number; userDislikes?: number }>(text)
@@ -583,6 +586,7 @@ ${context || '（无）'}
     const text = await streamChatCompletion({
       system: REPLY_PROMPT,
       user: userMessage,
+      usageContext: { actor: 'news', behavior: 'reply-gen', behaviorLabel: '生成回复' },
       onChunk: () => {},
     })
 

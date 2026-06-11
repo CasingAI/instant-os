@@ -14,6 +14,17 @@
   --news-radius: 6px;
   --news-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 1px 3px rgba(0, 0, 0, 0.12);
 
+  --ios-nav-back-color: var(--news-accent);
+  --ios-nav-back-color-active: #8f2f27;
+  --ios-nav-back-bg: linear-gradient(180deg, #fff 0%, #e8d9c4 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #fffdf7 0%, #efe4d2 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #e8d9c4 0%, #fff 100%);
+  --ios-nav-back-border: 1px solid var(--news-border);
+  --ios-nav-back-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  --ios-nav-back-shadow: var(--news-shadow);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.14);
+  --ios-nav-back-radius: 5px;
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -84,20 +95,25 @@
 }
 
 .news__date-label {
-  min-width: 168px;
+  width: 14em;
   height: 28px;
-  padding: 0 10px;
+  padding: 0;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   background: linear-gradient(180deg, #fffdf7 0%, #f4ebdf 100%);
   border: 1px solid var(--news-border);
   border-radius: 5px;
   box-shadow: var(--news-shadow);
   cursor: pointer;
   user-select: none;
+  flex-shrink: 0;
 }
 
 /* Body layout */
@@ -860,11 +876,11 @@
   display: none;
 }
 
-@container app-window (max-width: 720px) {
-  .news__date-label {
-    min-width: 0;
-  }
+.news--reader-open .news__date-control {
+  display: none;
+}
 
+@container app-window (max-width: 720px) {
   .news__list {
     width: 240px;
   }
@@ -911,7 +927,6 @@
 
 @container app-window (max-width: 380px) {
   .news__date-label {
-    padding: 0 6px;
     font-size: 12px;
   }
 

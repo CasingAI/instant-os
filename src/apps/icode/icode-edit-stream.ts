@@ -6,6 +6,8 @@ import {
   resolveAppGenerationThinkingEnabled,
   totalStreamTextLength,
 } from '../../ai/ai-thinking.ts'
+import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
+import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import {
@@ -233,12 +235,16 @@ export async function generateIcodeHtmlEditsStreaming(
     appliedEdits: 0,
   })
 
+  const systemPrompt = buildEditSystemPrompt(listing, existingHtml)
+  const apiMessages = buildEditApiMessages(listing, existingHtml, instruction, priorChat)
+
   const stream = await client.chat.completions.create({
     model,
     stream: true,
+    stream_options: { include_usage: true },
     messages: [
-      { role: 'system', content: buildEditSystemPrompt(listing, existingHtml) },
-      ...buildEditApiMessages(listing, existingHtml, instruction, priorChat),
+      { role: 'system', content: systemPrompt },
+      ...apiMessages,
     ],
     ...buildThinkingRequestExtras(
       config.providerId,
@@ -249,6 +255,7 @@ export async function generateIcodeHtmlEditsStreaming(
   let contentText = ''
   let reasoningText = ''
   let streamStarted = false
+  let usage = snapshotFromOpenAiUsage(undefined)
   let lastEmitAt = 0
   let currentHtml = existingHtml
   const pendingEdits: ICodeReplaceEdit[] = []
@@ -288,6 +295,10 @@ export async function generateIcodeHtmlEditsStreaming(
 
   for await (const chunk of stream) {
     streamStarted = true
+    const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+    if (chunkUsage) {
+      usage = chunkUsage
+    }
     const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
     if (reasoning) {
       reasoningText += reasoning
@@ -306,6 +317,11 @@ export async function generateIcodeHtmlEditsStreaming(
   blockFeed.flush()
 
   emit(true)
+
+  recordAiTokenUsage(
+    { actor: 'icode', behavior: 'edit-app', behaviorLabel: '编辑应用' },
+    usage,
+  )
 
   const parsedEdits = parseAiderEditBlocks(contentText)
   const editsForFinal = parsedEdits.length > 0 ? parsedEdits : pendingEdits

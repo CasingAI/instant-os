@@ -1,5 +1,6 @@
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from '../../ai/ai-thinking.ts'
+import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { TokenUsageSnapshot } from './browser-token-usage.ts'
@@ -361,16 +362,17 @@ export async function generatePageHtmlStreaming(
       textLength: text.length + reasoningText.length,
       usage: liveUsage,
     })
-    log.complete(text, html, usage ?? {
+    const finalUsage = usage ?? {
       promptTokens: liveUsage.promptTokens,
       completionTokens: liveUsage.completionTokens,
       totalTokens: liveUsage.totalTokens,
-    })
-    return { html, usage: {
-      promptTokens: liveUsage.promptTokens,
-      completionTokens: liveUsage.completionTokens,
-      totalTokens: liveUsage.totalTokens,
-    } }
+    }
+    recordAiTokenUsage(
+      { actor: 'browser', behavior: 'generate-page', behaviorLabel: '生成网页' },
+      usage,
+    )
+    log.complete(text, html, finalUsage)
+    return { html, usage: finalUsage }
   } catch (error) {
     log.error(error)
     throw error

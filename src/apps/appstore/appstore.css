@@ -365,6 +365,20 @@
 /* ── Detail page ── */
 
 .appstore-detail {
+  --ios-nav-back-color: #007aff;
+  --ios-nav-back-color-active: #005ecb;
+  --ios-nav-back-bg: linear-gradient(180deg, #fff 0%, #f2f2f7 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #e8e8ed 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #e8e8ed 0%, #f2f2f7 100%);
+  --ios-nav-back-border: 1px solid rgba(0, 0, 0, 0.08);
+  --ios-nav-back-text-shadow: none;
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  --ios-nav-back-radius: 8px;
+  --ios-nav-back-font-size: 15px;
+
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1019,6 +1033,20 @@
 /* ── Search page ── */
 
 .appstore-search {
+  --ios-nav-back-color: #007aff;
+  --ios-nav-back-color-active: #005ecb;
+  --ios-nav-back-bg: linear-gradient(180deg, #fff 0%, #f2f2f7 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #fff 0%, #e8e8ed 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #e8e8ed 0%, #f2f2f7 100%);
+  --ios-nav-back-border: 1px solid rgba(0, 0, 0, 0.08);
+  --ios-nav-back-text-shadow: none;
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  --ios-nav-back-radius: 8px;
+  --ios-nav-back-font-size: 15px;
+
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -1116,12 +1144,17 @@
   .appstore-detail__hero {
     flex-direction: column;
     align-items: flex-start;
-    gap: 14px;
+    gap: 16px;
   }
 
   .appstore-detail__icon-wrap {
     width: 88px;
     height: 88px;
+  }
+
+  .appstore-detail__hero-meta {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .appstore-detail__name {

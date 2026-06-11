@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import {
   decodeStorageValue,
@@ -24,13 +25,12 @@ export function IcodeAppDataEditor({
   onInvalidChange,
   narrowLayout,
 }: IcodeAppDataEditorProps) {
+  const modal = useWindowModal()
   const sortedKeys = useMemo(() => Object.keys(value).sort(), [value])
   const [selectedKey, setSelectedKey] = useState<string | undefined>()
   const [editKind, setEditKind] = useState<StorageValueKind>('text')
   const [editBuffer, setEditBuffer] = useState('')
   const [editInvalid, setEditInvalid] = useState(false)
-  const [newKeyName, setNewKeyName] = useState('')
-  const [newKeyError, setNewKeyError] = useState<string | undefined>()
   const [detailOpen, setDetailOpen] = useState(false)
   const editingRef = useRef(false)
   const prevNarrowLayoutRef = useRef(narrowLayout)
@@ -114,20 +114,28 @@ export function IcodeAppDataEditor({
     editingRef.current = false
   }, [])
 
-  const handleAddKey = useCallback(() => {
-    const trimmed = newKeyName.trim()
+  const openAddDialog = useCallback(async () => {
+    const trimmed = await modal.prompt({
+      title: '添加 localStorage 键',
+      label: '键名',
+      placeholder: '例如：userSettings',
+      validate: (draft) => {
+        const next = draft.trim()
+        if (!next) {
+          return '键名不能为空'
+        }
+        if (next in value) {
+          return '该键已存在'
+        }
+        return undefined
+      },
+    })
+
     if (!trimmed) {
-      setNewKeyError('键名不能为空')
-      return
-    }
-    if (trimmed in value) {
-      setNewKeyError('该键已存在')
       return
     }
 
     editingRef.current = false
-    setNewKeyError(undefined)
-    setNewKeyName('')
     onChange({
       ...value,
       [trimmed]: '',
@@ -136,7 +144,7 @@ export function IcodeAppDataEditor({
     if (narrowLayout) {
       setDetailOpen(true)
     }
-  }, [narrowLayout, newKeyName, onChange, value])
+  }, [modal, narrowLayout, onChange, value])
 
   const handleDeleteKey = useCallback(() => {
     if (!selectedKey) {
@@ -190,27 +198,10 @@ export function IcodeAppDataEditor({
           )}
         </div>
         <div class="icode__data-keys-add">
-          <input
-            type="text"
-            class="icode__data-key-input"
-            value={newKeyName}
-            placeholder="新键名"
-            spellcheck={false}
-            onInput={(event) => {
-              setNewKeyName((event.currentTarget as HTMLInputElement).value)
-              setNewKeyError(undefined)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                handleAddKey()
-              }
-            }}
-          />
-          <button type="button" class="icode__panel-action" onClick={handleAddKey}>
-            添加
+          <button type="button" class="icode__panel-action icode__data-keys-add-button" onClick={() => void openAddDialog()}>
+            添加键
           </button>
         </div>
-        {newKeyError && <p class="icode__data-key-error">{newKeyError}</p>}
       </div>
 
       <div class="icode__data-detail">

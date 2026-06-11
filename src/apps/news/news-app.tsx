@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { BackIcon, ForwardIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -64,10 +66,12 @@ function NewsReaderPlaceholder({ editionDate }: { editionDate: string }) {
 export function NewsApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
+  const { hostRef, narrowLayout } = useAppNarrowLayout()
 
   const [store, setStore] = useState<NewsStore>(() => readNewsStore())
   const [editionDate, setEditionDate] = useState<string>(() => getTodayEditionDate())
   const [selectedId, setSelectedId] = useState<string | undefined>()
+  const [stackedReaderOpen, setStackedReaderOpen] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(() => new Set())
   const [streamingArticleIds, setStreamingArticleIds] = useState<string[]>([])
@@ -110,6 +114,12 @@ export function NewsApp() {
     setAppWindowTitle('news', '新闻')
   }, [setAppWindowTitle])
 
+  useEffect(() => {
+    if (narrowLayout) {
+      setStackedReaderOpen(false)
+    }
+  }, [narrowLayout])
+
   // 响应来自系统设置的删除等外部变更，立即同步本地状态
   useEffect(() => {
     const onChanged = () => {
@@ -121,33 +131,48 @@ export function NewsApp() {
     }
   }, [])
 
-  const handleSelect = useCallback((id: string) => {
-    setSelectedId(id)
+  const clearStackedReader = useCallback(() => {
+    setStackedReaderOpen(false)
+    setSelectedId(undefined)
   }, [])
+
+  const handleSelect = useCallback(
+    (id: string) => {
+      setSelectedId(id)
+      if (narrowLayout) {
+        setStackedReaderOpen(true)
+        setDatePickerOpen(false)
+      }
+    },
+    [narrowLayout],
+  )
 
   const handlePrevDay = useCallback(() => {
     setEditionDate(shiftEditionDate(editionDate, -1))
-    setSelectedId(undefined)
+    clearStackedReader()
     setDatePickerOpen(false)
-  }, [editionDate])
+  }, [clearStackedReader, editionDate])
 
   const handleNextDay = useCallback(() => {
     setEditionDate(shiftEditionDate(editionDate, 1))
-    setSelectedId(undefined)
+    clearStackedReader()
     setDatePickerOpen(false)
-  }, [editionDate])
+  }, [clearStackedReader, editionDate])
 
   const handleJumpToToday = useCallback(() => {
     setEditionDate(getTodayEditionDate())
-    setSelectedId(undefined)
+    clearStackedReader()
     setDatePickerOpen(false)
-  }, [])
+  }, [clearStackedReader])
 
-  const handleDateSelect = useCallback((value: string) => {
-    setEditionDate(value)
-    setSelectedId(undefined)
-    setDatePickerOpen(false)
-  }, [])
+  const handleDateSelect = useCallback(
+    (value: string) => {
+      setEditionDate(value)
+      clearStackedReader()
+      setDatePickerOpen(false)
+    },
+    [clearStackedReader],
+  )
 
   const markArticleEntering = useCallback((articleId: string) => {
     setEnteringIds((current) => {
@@ -286,7 +311,10 @@ export function NewsApp() {
   }
 
   return (
-    <div class={`news${selectedArticle ? ' news--reader-open' : ''}`}>
+    <div
+      ref={hostRef}
+      class={`news${narrowLayout ? ' news--narrow' : ''}${narrowLayout && stackedReaderOpen ? ' news--reader-open' : ''}`}
+    >
       <header class="news__toolbar">
         <div class="news__toolbar-side news__toolbar-side--start">
           <IosNavBackButton
@@ -294,7 +322,7 @@ export function NewsApp() {
             iconSize={14}
             label="报道"
             aria-label="返回报道列表"
-            onClick={() => setSelectedId(undefined)}
+            onClick={clearStackedReader}
           />
           <span class="news__brand">新闻</span>
         </div>
@@ -307,7 +335,9 @@ export function NewsApp() {
             aria-label="前一天"
             title={`前一天 ${shortPrev}`}
           >
-            ‹
+            <span class="news__date-nav-icon" aria-hidden="true">
+              <BackIcon size={12} />
+            </span>
           </button>
           <button
             type="button"
@@ -324,7 +354,9 @@ export function NewsApp() {
             aria-label="后一天"
             title={`后一天 ${shortNext}`}
           >
-            ›
+            <span class="news__date-nav-icon" aria-hidden="true">
+              <ForwardIcon size={12} />
+            </span>
           </button>
         </div>
 

@@ -1,5 +1,7 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import type { AiUsageContext } from '../../ai/ai-usage-context.ts'
+import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { NotificationWeather } from '../../os/notification-center-widget-types.ts'
@@ -108,7 +110,11 @@ function normalizeWeatherDetail(raw: WeatherDetail): WeatherDetail {
   }
 }
 
-async function completeJson<T>(system: string, user: string): Promise<T> {
+async function completeJson<T>(
+  system: string,
+  user: string,
+  usageContext: AiUsageContext,
+): Promise<T> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
   const response = await client.chat.completions.create({
@@ -125,11 +131,16 @@ async function completeJson<T>(system: string, user: string): Promise<T> {
     throw new Error('AI 未返回任何内容')
   }
 
+  recordOpenAiCompletionUsage(response, usageContext)
   return parseJsonFromAiText<T>(text)
 }
 
 export async function generateFakeWeather(): Promise<NotificationWeather> {
-  const raw = await completeJson<NotificationWeather>(WEATHER_PROMPT, '请生成一条虚构的今日天气。')
+  const raw = await completeJson<NotificationWeather>(
+    WEATHER_PROMPT,
+    '请生成一条虚构的今日天气。',
+    { actor: 'weather', behavior: 'widget-weather', behaviorLabel: '小组件天气' },
+  )
   return normalizeWeather(raw)
 }
 
@@ -140,6 +151,7 @@ export async function generateWeatherDetail(cityQuery: string): Promise<WeatherD
     query
       ? `搜索词：「${query}」。请先判断这是地球地点还是幻想/科幻地点，再生成风格一致的虚构天气详情。`
       : '请生成一条虚构城市的完整天气详情。',
+    { actor: 'weather', behavior: 'weather-detail', behaviorLabel: '天气详情' },
   )
   return normalizeWeatherDetail(raw)
 }
@@ -170,6 +182,7 @@ export async function generateCitySearchSuggestions(query: string): Promise<Weat
   const raw = await completeJson<WeatherCitySuggestion[]>(
     CITY_SEARCH_PROMPT,
     `搜索词：「${trimmed}」。请先判断这是地球地点还是幻想/科幻地点，再生成 3~4 个风格一致的建议。`,
+    { actor: 'weather', behavior: 'city-search', behaviorLabel: '城市搜索' },
   )
   if (!Array.isArray(raw)) {
     return []

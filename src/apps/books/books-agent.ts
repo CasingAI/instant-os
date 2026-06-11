@@ -320,6 +320,7 @@ async function streamCatalogListings(
     const text = await streamChatCompletion({
       system,
       user,
+      usageContext: { actor: 'books', behavior: 'catalog-gen', behaviorLabel: '生成图书目录' },
       onChunk: (delta) => feed.push(delta),
     })
     feed.flush()
@@ -441,6 +442,7 @@ export async function generateBookDetailStreaming(
     const text = await streamChatCompletion({
       system: buildDetailPrompt(templateBlock),
       user: userMessage,
+      usageContext: { actor: 'books', behavior: 'detail-gen', behaviorLabel: '生成图书详情' },
       onChunk: (_delta, accumulated) => {
         const stringPartial = extractPartialObjectFields<Pick<BookDetail, 'longSynopsis'>>(
           accumulated,
@@ -558,6 +560,7 @@ ${outlineText}
   const text = await streamChatCompletion({
     system: buildSingleChapterPrompt(templateBlock),
     user: userMessage,
+    usageContext: { actor: 'books', behavior: 'chapter-gen', behaviorLabel: '生成章节' },
     thinkingEnabled: false,
     idleTimeoutMs: BOOK_CHAPTER_STREAM_IDLE_MS,
     onStreamActivity: (kind) => {

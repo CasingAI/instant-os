@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'preact/hooks'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
@@ -13,11 +14,30 @@ import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
 import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
+import {
+  DOCK_SETTINGS_CHANGED_EVENT,
+  resolveDockIconSizePx,
+} from './dock-settings-storage.ts'
 import '../icons/app-icon-tile.css'
 import './dock.css'
 
 function DockTooltip({ name }: { name: string }) {
   return <span class="dock__tooltip">{name}</span>
+}
+
+function useDockIconSize(): number {
+  const [iconSize, setIconSize] = useState(resolveDockIconSizePx)
+
+  useEffect(() => {
+    const syncIconSize = () => {
+      setIconSize(resolveDockIconSizePx())
+    }
+
+    window.addEventListener(DOCK_SETTINGS_CHANGED_EVENT, syncIconSize)
+    return () => window.removeEventListener(DOCK_SETTINGS_CHANGED_EVENT, syncIconSize)
+  }, [])
+
+  return iconSize
 }
 
 export function Dock() {
@@ -28,6 +48,7 @@ export function Dock() {
   const { showIconContextMenu } = useIconContextMenu()
   const { pinnedDockAppIds, isPinnedToDock, pinToDock, unpinFromDock } = useLauncherLayout()
   const dockHidden = windows.some((window) => window.fullscreen && !window.minimized)
+  const iconSize = useDockIconSize()
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
@@ -90,7 +111,7 @@ export function Dock() {
       >
         <DockTooltip name={app.name} />
         <span class="dock__icon">
-          <app.icon size={56} />
+          <app.icon size={iconSize} />
           {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
         </span>
         {isRunning && <span class="dock__indicator" />}
@@ -135,7 +156,7 @@ export function Dock() {
       >
         <DockTooltip name={app.name} />
         <span class="dock__icon">
-          <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={56} />
+          <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
         </span>
         {isRunning && <span class="dock__indicator" />}
       </button>

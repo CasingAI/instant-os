@@ -153,6 +153,7 @@ export async function generateArticlesForDateStreaming(
     const text = await streamChatCompletion({
       system: GENERATE_PROMPT,
       user: userMessage,
+      usageContext: { actor: 'news', behavior: 'article-gen', behaviorLabel: '生成新闻' },
       onChunk: (delta) => {
         feed.push(delta)
       },
