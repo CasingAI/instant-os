@@ -128,8 +128,22 @@
     }, BOOT_WATCHDOG_MS)
   }
 
+  function reportMainModuleLoadFailure(moduleSrc) {
+    pushError('module.load', '主模块加载失败: ' + moduleSrc)
+    activate(
+      '主模块加载失败：' +
+        moduleSrc +
+        '\n请检查网络连接，或确认浏览器支持 ES Module。',
+    )
+  }
+
   function loadMainModule() {
+    var existing = document.getElementById(MAIN_MODULE_ID)
+
     if (!supportsModuleScripts()) {
+      if (existing) {
+        removeNode(existing)
+      }
       activate(
         '当前浏览器不支持 ES Module，无法加载 Instant OS。\n' +
           '请使用 Safari 10.1+ / iOS 10.3+ 或更新的浏览器。',
@@ -137,24 +151,25 @@
       return
     }
 
-    var existing = document.getElementById(MAIN_MODULE_ID)
-    if (existing) {
-      return
+    var script = existing
+    if (!script) {
+      script = document.querySelector('script[type="module"]')
+    }
+    if (!script) {
+      script = document.createElement('script')
+      script.id = MAIN_MODULE_ID
+      script.type = 'module'
+      script.src = MAIN_MODULE_SRC
+      document.body.appendChild(script)
     }
 
-    var script = document.createElement('script')
-    script.id = MAIN_MODULE_ID
-    script.type = 'module'
-    script.src = MAIN_MODULE_SRC
+    if (script.getAttribute('data-instant-boot-wired') === '1') {
+      return
+    }
+    script.setAttribute('data-instant-boot-wired', '1')
     script.addEventListener('error', function () {
-      pushError('module.load', '主模块加载失败: ' + MAIN_MODULE_SRC)
-      activate(
-        '主模块加载失败：' +
-          MAIN_MODULE_SRC +
-          '\n请检查网络连接，或确认浏览器支持 ES Module。',
-      )
+      reportMainModuleLoadFailure(script.src || MAIN_MODULE_SRC)
     })
-    document.body.appendChild(script)
     startBootWatchdog()
   }
 
