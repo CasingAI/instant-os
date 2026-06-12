@@ -1,6 +1,8 @@
 import type OpenAI from 'openai'
 
-const ROLE_ALIASES: Record<string, OpenAI.Chat.ChatCompletionRole> = {
+type GeneratedAppChatRole = 'system' | 'user' | 'assistant' | 'tool'
+
+const ROLE_ALIASES: Record<string, GeneratedAppChatRole> = {
   system: 'system',
   user: 'user',
   assistant: 'assistant',
