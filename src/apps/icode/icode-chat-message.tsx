@@ -3,12 +3,24 @@ import type { ComponentChildren } from 'preact'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import {
+  countTextLines,
+  extractFullHtmlDocumentFromContent,
   extractInProgressCodeOutput,
+  extractInProgressFullHtmlOutput,
   extractNaturalLanguageReply,
   parseIcodeContentSegments,
+  splitTextForDisplay,
+  stripInProgressHtmlFromProse,
 } from './icode-apply-edits.ts'
 import { IcodeChatMarkdown } from './icode-chat-markdown.tsx'
-import type { ICodeChatEditBlock, ICodeChatMessage } from './icode-types.ts'
+import type { ICodeChatCapabilityRequestStatus, ICodeChatEditBlock, ICodeChatMessage } from './icode-types.ts'
+import {
+  formatGrantableCapabilityDescription,
+  formatGrantableCapabilityLabel,
+  type GrantableIcodeCapabilityTag,
+} from './icode-capability-request.ts'
+import type { AppCapabilityTag } from '../appstore/app-capability-tags.ts'
+import { hasAppCapabilityTag } from '../appstore/app-capability-tags.ts'
 
 function previewSnippet(text: string, maxLines = 5): string {
   const trimmed = text.trim()
@@ -48,7 +60,7 @@ function IcodeChatFold({ title, expanded, onToggle, children }: IcodeChatFoldPro
   )
 }
 
-function IcodeChatLiveCodePanel({ codeText }: { codeText: string }) {
+function IcodeChatStreamingCodePanel({ codeText, label }: { codeText: string; label: string }) {
   const codeRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
@@ -76,7 +88,7 @@ function IcodeChatLiveCodePanel({ codeText }: { codeText: string }) {
     <div class="icode__chat-code-stream">
       <p class="icode__chat-code-stream-label">
         <span class="icode__chat-code-stream-dot" aria-hidden="true" />
-        正在编写代码
+        {label}
       </p>
       <pre
         ref={codeRef}
@@ -84,6 +96,54 @@ function IcodeChatLiveCodePanel({ codeText }: { codeText: string }) {
       >
         {codeText}
       </pre>
+    </div>
+  )
+}
+
+type IcodeChatCapabilityRequestCardProps = {
+  tag: GrantableIcodeCapabilityTag
+  reason: string
+  status: ICodeChatCapabilityRequestStatus
+  onGrant?: () => void
+  onDismiss?: () => void
+}
+
+function IcodeChatCapabilityRequestCard({
+  tag,
+  reason,
+  status,
+  onGrant,
+  onDismiss,
+}: IcodeChatCapabilityRequestCardProps) {
+  const pending = status === 'pending'
+
+  return (
+    <div
+      class={`icode__chat-capability${pending ? ' icode__chat-capability--pending' : ''}${status === 'granted' ? ' icode__chat-capability--granted' : ''}${status === 'dismissed' ? ' icode__chat-capability--dismissed' : ''}`}
+    >
+      <div class="icode__chat-capability-well">
+        <div class="icode__chat-capability-header">
+          <span class="icode__chat-capability-badge">{formatGrantableCapabilityLabel(tag)}</span>
+          {status === 'granted' && <span class="icode__chat-capability-status">已授予</span>}
+          {status === 'dismissed' && <span class="icode__chat-capability-status">已忽略</span>}
+        </div>
+        <p class="icode__chat-capability-description">{formatGrantableCapabilityDescription(tag)}</p>
+        {reason.trim() && <p class="icode__chat-capability-reason">{reason.trim()}</p>}
+        {pending && (
+          <div class="icode__chat-capability-actions">
+            <button type="button" class="icode__button icode__button--primary icode__chat-capability-grant" onClick={onGrant}>
+              授予能力
+            </button>
+            <button
+              type="button"
+              class="icode__button icode__button--secondary icode__chat-capability-dismiss"
+              onClick={onDismiss}
+            >
+              暂不授予
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -98,6 +158,10 @@ type IcodeChatAssistantMessageProps = {
   streaming?: boolean
   phase?: AppGenerationPhase
   visibleReply?: string
+  grantedTags?: readonly AppCapabilityTag[]
+  capabilityRequests?: ICodeChatMessage['capabilityRequests']
+  onGrantCapabilityRequest?: (index: number, tag: GrantableIcodeCapabilityTag) => void
+  onDismissCapabilityRequest?: (index: number) => void
 }
 
 export function IcodeChatAssistantMessage({
@@ -110,28 +174,97 @@ export function IcodeChatAssistantMessage({
   streaming = false,
   phase,
   visibleReply,
+  grantedTags = [],
+  capabilityRequests,
+  onGrantCapabilityRequest,
+  onDismissCapabilityRequest,
 }: IcodeChatAssistantMessageProps) {
   const reasoningRef = useRef<HTMLPreElement>(null)
   const hasReasoning = Boolean(reasoningText?.trim())
   const sourceText = outputText ?? ''
   const segments = useMemo(() => parseIcodeContentSegments(sourceText), [sourceText])
   const hasStructuredOutput = segments.some((segment) => segment.type === 'edit')
-  const hasTextSegments = segments.some((segment) => segment.type === 'text')
+  const hasProseSegments = useMemo(
+    () =>
+      segments.some(
+        (segment) =>
+          segment.type === 'text' &&
+          splitTextForDisplay(segment.text).some((part) => part.type === 'prose'),
+      ),
+    [segments],
+  )
   const naturalReply = useMemo(() => extractNaturalLanguageReply(sourceText), [sourceText])
   const legacySummary = !sourceText.trim() ? summary.trim() : ''
   const streamingFallback =
-    streaming && !hasTextSegments
+    streaming && !hasProseSegments
       ? visibleReply?.trim() || naturalReply
       : ''
   const liveCodeText = useMemo(
     () => (streaming && editStreaming ? extractInProgressCodeOutput(sourceText) : ''),
     [editStreaming, sourceText, streaming],
   )
+  const inProgressHtml = useMemo(
+    () => (streaming ? extractInProgressFullHtmlOutput(sourceText) : ''),
+    [sourceText, streaming],
+  )
+  const liveOutputText = liveCodeText || inProgressHtml
+  const liveOutputLabel = liveCodeText
+    ? '正在编写代码'
+    : inProgressHtml
+      ? '正在编写完整源码'
+      : '正在编写代码'
   const showLiveCodePanel =
-    streaming && editStreaming && phase === 'generating' && Boolean(liveCodeText)
+    streaming &&
+    (editStreaming || Boolean(inProgressHtml)) &&
+    phase === 'generating' &&
+    Boolean(liveOutputText)
+  const completedFullHtml = useMemo(
+    () => (!streaming ? extractFullHtmlDocumentFromContent(sourceText) : undefined),
+    [sourceText, streaming],
+  )
 
   const [reasoningOpen, setReasoningOpen] = useState(streaming && phase === 'thinking')
   const [openEdits, setOpenEdits] = useState<Record<number, boolean>>({})
+  const [htmlFoldOpen, setHtmlFoldOpen] = useState(false)
+
+  const completedHtmlFolds = useMemo(() => {
+    if (streaming) {
+      return [] as Array<{ key: string; html: string }>
+    }
+
+    const seen = new Set<string>()
+    const folds: Array<{ key: string; html: string }> = []
+
+    for (const segment of segments) {
+      if (segment.type !== 'text') {
+        continue
+      }
+
+      for (const part of splitTextForDisplay(segment.text)) {
+        if (part.type === 'full_html' && part.complete && !seen.has(part.html)) {
+          seen.add(part.html)
+          folds.push({ key: `html-${folds.length}`, html: part.html })
+        }
+      }
+    }
+
+    if (completedFullHtml && !seen.has(completedFullHtml)) {
+      folds.push({ key: 'html-orphan', html: completedFullHtml })
+    }
+
+    return folds
+  }, [completedFullHtml, segments, streaming])
+
+  useEffect(() => {
+    if (!streaming) {
+      setHtmlFoldOpen(false)
+      return
+    }
+
+    if (inProgressHtml) {
+      setHtmlFoldOpen(true)
+    }
+  }, [inProgressHtml, streaming])
 
   useEffect(() => {
     if (!streaming) {
@@ -194,6 +327,27 @@ export function IcodeChatAssistantMessage({
     setOpenEdits((current) => ({ ...current, [index]: !current[index] }))
   }
 
+  const resolveCapabilityRequestStatus = (
+    index: number,
+    tag: GrantableIcodeCapabilityTag,
+  ): ICodeChatCapabilityRequestStatus => {
+    const stored = capabilityRequests?.[index]
+    if (stored) {
+      return stored.status
+    }
+
+    if (hasAppCapabilityTag(grantedTags, tag)) {
+      return 'granted'
+    }
+
+    return 'pending'
+  }
+
+  const resolveCapabilityRequestReason = (
+    index: number,
+    fallbackReason: string,
+  ): string => capabilityRequests?.[index]?.reason ?? fallbackReason
+
   return (
     <div
       class={`icode__chat-bubble icode__chat-bubble--assistant${streaming ? ' icode__chat-bubble--streaming-assistant' : ''}`}
@@ -215,6 +369,29 @@ export function IcodeChatAssistantMessage({
         )}
 
         {segments.map((segment, index) => {
+          if (segment.type === 'capability_request') {
+            const status = resolveCapabilityRequestStatus(segment.index, segment.request.tag)
+            const reason = resolveCapabilityRequestReason(segment.index, segment.request.reason)
+            return (
+              <IcodeChatCapabilityRequestCard
+                key={`capability-${segment.index}`}
+                tag={segment.request.tag}
+                reason={reason}
+                status={status}
+                onGrant={
+                  status === 'pending' && onGrantCapabilityRequest
+                    ? () => onGrantCapabilityRequest(segment.index, segment.request.tag)
+                    : undefined
+                }
+                onDismiss={
+                  status === 'pending' && onDismissCapabilityRequest
+                    ? () => onDismissCapabilityRequest(segment.index)
+                    : undefined
+                }
+              />
+            )
+          }
+
           if (segment.type === 'edit') {
             const expanded = Boolean(openEdits[segment.index])
             return (
@@ -238,12 +415,43 @@ export function IcodeChatAssistantMessage({
             )
           }
 
+          const proseText =
+            streaming && (inProgressHtml || liveCodeText)
+              ? stripInProgressHtmlFromProse(segment.text)
+              : splitTextForDisplay(segment.text)
+                  .filter((part): part is Extract<typeof part, { type: 'prose' }> => part.type === 'prose')
+                  .map((part) => part.text)
+                  .join('\n\n')
+
+          if (!proseText.trim()) {
+            return undefined
+          }
+
           return (
-            <IcodeChatMarkdown
-              key={`text-${index}`}
-              text={segment.text}
-              class="icode__chat-markdown icode__chat-reply-text"
-            />
+            <div key={`text-${index}`} class="icode__chat-text-flow">
+              <IcodeChatMarkdown
+                text={proseText}
+                class="icode__chat-markdown icode__chat-reply-text"
+              />
+            </div>
+          )
+        })}
+
+        {completedHtmlFolds.map(({ key, html }) => {
+          const lineCount = countTextLines(html)
+          const title = `重写的文件 · ${lineCount} 行${appliedEdits !== undefined && appliedEdits > 0 ? ' · 已应用' : ''}`
+
+          return (
+            <IcodeChatFold
+              key={key}
+              title={title}
+              expanded={htmlFoldOpen}
+              onToggle={() => setHtmlFoldOpen((open) => !open)}
+            >
+              <pre class="icode__chat-fold-text icode__chat-fold-text--output icode__chat-html-output">
+                {html}
+              </pre>
+            </IcodeChatFold>
           )
         })}
 
@@ -267,7 +475,7 @@ export function IcodeChatAssistantMessage({
           </IcodeChatFold>
         ))}
 
-        {legacySummary && !hasTextSegments && (
+        {legacySummary && !hasProseSegments && (
           <IcodeChatMarkdown text={legacySummary} class="icode__chat-markdown icode__chat-reply-text" />
         )}
 
@@ -275,13 +483,25 @@ export function IcodeChatAssistantMessage({
           <IcodeChatMarkdown text={streamingFallback} class="icode__chat-markdown icode__chat-reply-text" />
         )}
 
-        {showLiveCodePanel && <IcodeChatLiveCodePanel codeText={liveCodeText} />}
+        {showLiveCodePanel && (
+          <IcodeChatStreamingCodePanel codeText={liveOutputText} label={liveOutputLabel} />
+        )}
       </div>
     </div>
   )
 }
 
-export function IcodeChatMessageView({ message }: { message: ICodeChatMessage }) {
+export function IcodeChatMessageView({
+  message,
+  grantedTags = [],
+  onGrantCapabilityRequest,
+  onDismissCapabilityRequest,
+}: {
+  message: ICodeChatMessage
+  grantedTags?: readonly AppCapabilityTag[]
+  onGrantCapabilityRequest?: (messageId: string, index: number, tag: GrantableIcodeCapabilityTag) => void
+  onDismissCapabilityRequest?: (messageId: string, index: number) => void
+}) {
   if (message.role === 'user') {
     return <div class="icode__chat-bubble icode__chat-bubble--user">{message.content}</div>
   }
@@ -293,6 +513,18 @@ export function IcodeChatMessageView({ message }: { message: ICodeChatMessage })
       outputText={message.outputText}
       edits={message.edits}
       appliedEdits={message.appliedEdits}
+      grantedTags={grantedTags}
+      capabilityRequests={message.capabilityRequests}
+      onGrantCapabilityRequest={
+        onGrantCapabilityRequest
+          ? (index, tag) => onGrantCapabilityRequest(message.id, index, tag)
+          : undefined
+      }
+      onDismissCapabilityRequest={
+        onDismissCapabilityRequest
+          ? (index) => onDismissCapabilityRequest(message.id, index)
+          : undefined
+      }
     />
   )
 }

@@ -95,6 +95,20 @@ export function loadPublishedSnapshot(
   }
 }
 
+export function resolvePreviewBootstrapData(
+  session: Pick<ICodeInternalProject, 'appData' | 'linkedAppId'>,
+  draftAppData: Record<string, string>,
+  dataDirty: boolean,
+): Record<string, string> {
+  const sessionData = dataDirty ? draftAppData : session.appData
+
+  if (session.linkedAppId) {
+    return { ...loadGeneratedAppData(session.linkedAppId), ...sessionData }
+  }
+
+  return { ...sessionData }
+}
+
 export function draftFromInternalProject(project: ICodeInternalProject): ICodeDraftComparable {
   return {
     html: project.html,

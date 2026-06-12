@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
@@ -11,13 +11,9 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
-import { injectScene3dBridge } from '../../assets/3d/inject-scene3d-bridge.ts'
-import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
-import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
-import { generatedAppRuntimeUses3d } from './generated-app-tags.ts'
 import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
-import { injectGeneratedAppAiBridge } from './inject-generated-app-ai-bridge.ts'
-import { injectGeneratedAppStorageBridge } from './inject-generated-app-storage-bridge.ts'
+import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
+import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
 import './generated-app.css'
 
 type GeneratedAppProps = {
@@ -50,7 +46,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     return () => observer.disconnect()
   }, [])
 
-  const needs3d = app ? generatedAppRuntimeUses3d(app.html) : false
+  const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}`
 
   const preparedHtml = useMemo(() => {
     if (!app) {
@@ -58,31 +54,10 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     }
 
     const initialData = loadGeneratedAppData(appId)
-    let html = injectGeneratedAppStorageBridge(app.html, appId, initialData)
-    html = injectIframeEmojiFonts(html)
-    if (needs3d) {
-      html = injectScene3dBridge(html)
-    }
-    html = injectGeneratedAppAiBridge(html, appId)
-    return html
-  }, [app, appId, dataRevision, emojiFontEpoch, needs3d])
+    return prepareGeneratedAppRuntimeHtml(app.html, appId, initialData)
+  }, [app, appId, dataRevision, emojiFontEpoch])
 
-  const writePreparedHtmlToIframe = useCallback(() => {
-    if (!needs3d || !preparedHtml) {
-      return
-    }
-
-    writeHtmlToIframe(iframeRef.current, preparedHtml)
-  }, [needs3d, preparedHtml])
-
-  useEffect(() => {
-    if (!needs3d) {
-      return
-    }
-
-    ensureIframeBlankDocument(iframeRef.current)
-    writePreparedHtmlToIframe()
-  }, [needs3d, writePreparedHtmlToIframe, appId, dataRevision])
+  const { iframeProps } = useGeneratedHtmlIframe(iframeRef, preparedHtml, remountKey)
 
   const menuBar = useMemo((): MenuDefinition[] => {
     if (!app) {
@@ -196,14 +171,11 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   return (
     <div class="generated-app">
       <iframe
-        key={needs3d ? `${appId}-${dataRevision}-3d` : `${appId}-${dataRevision}`}
+        key={remountKey}
         ref={iframeRef}
         class="generated-app__frame"
         title={app.name}
-        sandbox={needs3d ? 'allow-scripts allow-same-origin' : 'allow-scripts'}
-        src={needs3d ? 'about:blank' : undefined}
-        srcDoc={needs3d ? undefined : preparedHtml}
-        onLoad={needs3d ? writePreparedHtmlToIframe : undefined}
+        {...iframeProps}
         onFocus={() => focusWindow(windowId)}
       />
     </div>

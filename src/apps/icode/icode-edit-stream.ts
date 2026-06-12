@@ -38,9 +38,18 @@ import {
   extractNaturalLanguageReply,
   type ICodeReplaceEdit,
 } from './icode-apply-edits.ts'
+import {
+  buildIcodeBootstrapEditRules,
+  buildIcodeCapabilityRequestPromptExtension,
+  buildIcodeCapabilityUserPromptSection,
+  shouldRevertUngrantedCapabilityCode,
+} from './icode-capability-request.ts'
 
 const ICODE_EDIT_SYSTEM_PROMPT = `你是 Instant OS 微应用的源码编辑助手。
 用户已有完整 HTML 单页应用源码。你可以回答问题、解释代码，也可以按指令修改源码。
+
+运行环境：你在 iCode 编辑器内工作。你输出的源码会自动写入当前项目并在预览区运行，用户无需也不应手动保存文件或粘贴代码。
+自然语言部分只简述做了什么、实现了什么功能或如何操作应用本身；不提示「保存为 .html 文件」「粘贴到微应用/编辑器」「复制代码后运行」等脱离 iCode 的手动步骤。
 
 回复结构（按顺序）：
 1. 先用自然语言直接回答用户（解释、确认、提问澄清等）。这段会展示给用户，请用中文，简洁清楚。
@@ -64,7 +73,8 @@ SEARCH/REPLACE 格式：
 - 禁止输出完整 HTML 文档代替 SEARCH/REPLACE
 - 保持 HTML 完整合法；CSS 继续内联在 <style> 中
 - 不使用外部 CDN、图片 URL 或网络请求；不使用 alert/confirm/prompt
-- 需要持久化的数据继续使用 localStorage`
+- 需要持久化的数据继续使用 localStorage
+- 预览在 iframe 内运行：尺寸应基于根容器（如 #app、canvas 父级）的 getBoundingClientRect 或 ResizeObserver，不要假设首帧即有正确宽高；勿依赖外层 OS 窗口 resize`
 
 export type ICodeEditGenerationUpdate = {
   phase: AppGenerationPhase
@@ -93,8 +103,14 @@ function buildEditUserPrompt(
   existingHtml: string,
   instruction: string,
 ): string {
-  const numberedSource = addLineNumbers(existingHtml.trim())
+  const trimmedHtml = existingHtml.trim()
+  const isBootstrap = trimmedHtml.length === 0
+  const numberedSource = isBootstrap ? '（空，尚无源码）' : addLineNumbers(trimmedHtml)
+  const capabilitySection = buildIcodeCapabilityUserPromptSection(listing.tags)
+
   return [
+    capabilitySection,
+    '',
     `应用名称：${listing.name}`,
     `描述：${listing.description}`,
     `分类：${listing.category}`,
@@ -103,30 +119,34 @@ function buildEditUserPrompt(
     '【用户消息】',
     instruction.trim(),
     '',
-    '【当前源码（行号仅作参考，SEARCH 中不要包含行号前缀）】',
+    isBootstrap
+      ? '【当前源码】空项目，尚未生成应用。'
+      : '【当前源码（行号仅作参考，SEARCH 中不要包含行号前缀）】',
     numberedSource,
     '',
-    '请先自然语言回复；如需改代码，再附 SEARCH/REPLACE 块。',
+    isBootstrap
+      ? '若不需要未授予能力，可输出完整 HTML；若需要未授予能力，只能 REQUEST_CAPABILITY，不要写代码。'
+      : '若不需要未授予能力，请先自然语言回复，再附 SEARCH/REPLACE；若需要未授予能力，只能 REQUEST_CAPABILITY，不要写代码。',
   ].join('\n')
 }
 
 function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): string {
+  const isBootstrap = existingHtml.trim().length === 0
   const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, undefined, existingHtml)
   const { isAi } = resolveAppAiGenerationOptions(listing, undefined, existingHtml)
 
-  const extensions: string[] = []
+  const sections = [buildIcodeCapabilityRequestPromptExtension(listing.tags), ICODE_EDIT_SYSTEM_PROMPT]
+  if (isBootstrap) {
+    sections.push(buildIcodeBootstrapEditRules())
+  }
   if (is3d) {
-    extensions.push(buildApp3dSystemPromptExtension(physicsEnabled))
+    sections.push(buildApp3dSystemPromptExtension(physicsEnabled))
   }
   if (isAi) {
-    extensions.push(buildAppAiSystemPromptExtension())
+    sections.push(buildAppAiSystemPromptExtension())
   }
 
-  if (extensions.length === 0) {
-    return ICODE_EDIT_SYSTEM_PROMPT
-  }
-
-  return `${ICODE_EDIT_SYSTEM_PROMPT}\n\n${extensions.join('\n\n')}`
+  return sections.join('\n\n')
 }
 
 function chatMessageForApi(message: ICodeChatMessage): string {
@@ -229,6 +249,24 @@ function fallbackReply(appliedCount: number, failedEdits: number): string {
   const base =
     appliedCount === 1 ? '已更新 1 处代码。' : `已更新 ${appliedCount} 处代码。`
   return failedEdits > 0 ? `${base}（${failedEdits} 处编辑未能匹配）` : base
+}
+
+function finalizeEditGenerationResult(
+  result: ICodeEditGenerationResult,
+  listing: StoreListing,
+  existingHtml: string,
+): ICodeEditGenerationResult {
+  if (!shouldRevertUngrantedCapabilityCode(result.outputText, result.html, existingHtml, listing.tags)) {
+    return result
+  }
+
+  return {
+    ...result,
+    html: existingHtml,
+    appliedEdits: 0,
+    failedEdits: 0,
+    edits: [],
+  }
 }
 
 export type ICodeEditStreamOptions = {
@@ -374,25 +412,8 @@ export async function generateIcodeHtmlEditsStreaming(
 
   if (appliedEditCount === 0 && looksLikeFullHtml(contentText)) {
     const html = extractHtmlFromAiText(contentText)
-    return {
-      html,
-      assistantSummary: assistantReply || '已根据你的修改意见更新应用源码。',
-      assistantReply: assistantReply || fullReply,
-      appliedEdits: 0,
-      failedEdits: 0,
-      reasoningText,
-      outputText: contentText,
-      edits: [],
-    }
-  }
-
-  const finalResult = applyStreamEdits(existingHtml, editsForFinal)
-  const failedEdits = finalResult.failedEdits.length
-
-  if (finalResult.appliedCount === 0) {
-    if (looksLikeFullHtml(contentText)) {
-      const html = extractHtmlFromAiText(contentText)
-      return {
+    return finalizeEditGenerationResult(
+      {
         html,
         assistantSummary: assistantReply || '已根据你的修改意见更新应用源码。',
         assistantReply: assistantReply || fullReply,
@@ -401,21 +422,50 @@ export async function generateIcodeHtmlEditsStreaming(
         reasoningText,
         outputText: contentText,
         edits: [],
-      }
+      },
+      listing,
+      existingHtml,
+    )
+  }
+
+  const finalResult = applyStreamEdits(existingHtml, editsForFinal)
+  const failedEdits = finalResult.failedEdits.length
+
+  if (finalResult.appliedCount === 0) {
+    if (looksLikeFullHtml(contentText)) {
+      const html = extractHtmlFromAiText(contentText)
+      return finalizeEditGenerationResult(
+        {
+          html,
+          assistantSummary: assistantReply || '已根据你的修改意见更新应用源码。',
+          assistantReply: assistantReply || fullReply,
+          appliedEdits: 0,
+          failedEdits: 0,
+          reasoningText,
+          outputText: contentText,
+          edits: [],
+        },
+        listing,
+        existingHtml,
+      )
     }
 
     if (assistantReply || fullReply) {
       const displayReply = extractNaturalLanguageReply(contentText) || assistantReply
-      return {
-        html: existingHtml,
-        assistantSummary: displayReply || pickLastReplyParagraph(fullReply),
-        assistantReply: displayReply || pickLastReplyParagraph(fullReply),
-        appliedEdits: 0,
-        failedEdits,
-        reasoningText,
-        outputText: contentText,
-        edits: editsForFinal,
-      }
+      return finalizeEditGenerationResult(
+        {
+          html: existingHtml,
+          assistantSummary: displayReply || pickLastReplyParagraph(fullReply),
+          assistantReply: displayReply || pickLastReplyParagraph(fullReply),
+          appliedEdits: 0,
+          failedEdits,
+          reasoningText,
+          outputText: contentText,
+          edits: editsForFinal,
+        },
+        listing,
+        existingHtml,
+      )
     }
 
     const detail =
@@ -426,14 +476,18 @@ export async function generateIcodeHtmlEditsStreaming(
 
   const summary = assistantReply || fallbackReply(finalResult.appliedCount, failedEdits)
 
-  return {
-    html: finalResult.html,
-    assistantSummary: summary,
-    assistantReply: assistantReply || summary,
-    appliedEdits: finalResult.appliedCount,
-    failedEdits,
-    reasoningText,
-    outputText: contentText,
-    edits: editsForFinal,
-  }
+  return finalizeEditGenerationResult(
+    {
+      html: finalResult.html,
+      assistantSummary: summary,
+      assistantReply: assistantReply || summary,
+      appliedEdits: finalResult.appliedCount,
+      failedEdits,
+      reasoningText,
+      outputText: contentText,
+      edits: editsForFinal,
+    },
+    listing,
+    existingHtml,
+  )
 }

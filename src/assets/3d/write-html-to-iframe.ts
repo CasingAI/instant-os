@@ -1,4 +1,4 @@
-/** Write HTML into an iframe so it inherits the parent origin (unlike srcDoc → opaque null). */
+/** 向 iframe 写入 HTML（继承父页面 origin；优于 srcDoc 的 opaque null origin）。 */
 export function writeHtmlToIframe(iframe: HTMLIFrameElement | null, html: string): boolean {
   if (!iframe || !html.trim()) {
     return false

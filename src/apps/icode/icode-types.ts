@@ -1,12 +1,21 @@
 import type { AppCapabilityTag } from '../appstore/app-capability-tags.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
+import type { GrantableIcodeCapabilityTag } from './icode-capability-request.ts'
 
 export type ICodeProjectKind = 'internal' | 'formal'
 
 export type ICodeChatEditBlock = {
   search: string
   replace: string
+}
+
+export type ICodeChatCapabilityRequestStatus = 'pending' | 'granted' | 'dismissed'
+
+export type ICodeChatCapabilityRequest = {
+  tag: GrantableIcodeCapabilityTag
+  reason: string
+  status: ICodeChatCapabilityRequestStatus
 }
 
 export type ICodeChatMessage = {
@@ -23,6 +32,8 @@ export type ICodeChatMessage = {
   /** 助手消息：成功应用的编辑块 */
   edits?: ICodeChatEditBlock[]
   appliedEdits?: number
+  /** 助手消息：请求用户授予的程序生成能力 */
+  capabilityRequests?: ICodeChatCapabilityRequest[]
 }
 
 export const ICODE_CONSOLE_MESSAGE_TYPE = 'instant-os-icode-console' as const

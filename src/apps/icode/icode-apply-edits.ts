@@ -1,3 +1,9 @@
+import {
+  parseCapabilityRequestBlocks,
+  stripCapabilityRequestBlocksFromContent,
+  type ICodeCapabilityRequest,
+} from './icode-capability-request.ts'
+
 export type ICodeReplaceEdit = {
   search: string
   replace: string
@@ -10,6 +16,8 @@ export type ApplyReplaceResult =
 const AIDER_SEARCH_HEAD = '<<<<<<< SEARCH'
 const AIDER_DIVIDER = '======='
 const AIDER_REPLACE_END = '>>>>>>> REPLACE'
+const CAPABILITY_REQUEST_HEAD = '<<<<<<< REQUEST_CAPABILITY'
+const CAPABILITY_REQUEST_END = '>>>>>>> END'
 
 function countOccurrences(source: string, search: string): number {
   if (!search) {
@@ -176,40 +184,128 @@ export function stripAiderEditBlocksFromContent(content: string): string {
   result = result.replace(blockPattern, '')
 
   result = stripTrailingIncompleteAiderBlock(result)
+  result = stripCapabilityRequestBlocksFromContent(result)
+  result = stripFullHtmlDocumentsFromText(result)
   return result.replace(/\n{3,}/g, '\n\n').trim()
 }
 
 export type ICodeContentSegment =
   | { type: 'text'; text: string }
   | { type: 'edit'; edit: ICodeReplaceEdit; index: number }
+  | { type: 'capability_request'; request: ICodeCapabilityRequest; index: number }
 
 const AIDER_BLOCK_PATTERN =
   /(?:```(?:html)?\s*\n?)?<<<<<<< SEARCH[\s\S]*?=======[\s\S]*?>>>>>>> REPLACE(?:\s*\n?```)?/g
+
+const CAPABILITY_REQUEST_BLOCK_PATTERN =
+  /(?:```(?:\w+)?\s*\n?)?<<<<<<< REQUEST_CAPABILITY[\s\S]*?=======[\s\S]*?>>>>>>> END(?:\s*\n?```)?/g
+
+function findNextSpecialBlock(
+  content: string,
+  cursor: number,
+): { kind: 'edit' | 'capability'; start: number; end: number; raw: string } | undefined {
+  AIDER_BLOCK_PATTERN.lastIndex = cursor
+  CAPABILITY_REQUEST_BLOCK_PATTERN.lastIndex = cursor
+
+  const editMatch = AIDER_BLOCK_PATTERN.exec(content)
+  const capabilityMatch = CAPABILITY_REQUEST_BLOCK_PATTERN.exec(content)
+
+  if (!editMatch && !capabilityMatch) {
+    return undefined
+  }
+
+  if (editMatch && capabilityMatch) {
+    if (editMatch.index <= capabilityMatch.index) {
+      return {
+        kind: 'edit',
+        start: editMatch.index,
+        end: editMatch.index + editMatch[0].length,
+        raw: editMatch[0],
+      }
+    }
+
+    return {
+      kind: 'capability',
+      start: capabilityMatch.index,
+      end: capabilityMatch.index + capabilityMatch[0].length,
+      raw: capabilityMatch[0],
+    }
+  }
+
+  const match = editMatch ?? capabilityMatch
+  if (!match) {
+    return undefined
+  }
+
+  return {
+    kind: editMatch ? 'edit' : 'capability',
+    start: match.index,
+    end: match.index + match[0].length,
+    raw: match[0],
+  }
+}
+
+function stripTrailingIncompleteSpecialBlocks(content: string): string {
+  const markers = [
+    AIDER_SEARCH_HEAD,
+    AIDER_DIVIDER,
+    AIDER_REPLACE_END,
+    CAPABILITY_REQUEST_HEAD,
+    CAPABILITY_REQUEST_END,
+  ]
+  let cutAt = content.length
+
+  for (const marker of markers) {
+    const index = content.indexOf(marker)
+    if (index !== -1 && index < cutAt) {
+      cutAt = index
+    }
+  }
+
+  let trimmed = content.slice(0, cutAt)
+  trimmed = trimmed.replace(/```(?:html)?\s*$/i, '')
+  return trimmed
+}
 
 export function parseIcodeContentSegments(content: string): ICodeContentSegment[] {
   const normalized = content.replace(/\r\n/g, '\n')
   const segments: ICodeContentSegment[] = []
   let editIndex = 0
+  let capabilityIndex = 0
   let cursor = 0
-  let match: RegExpExecArray | null = null
 
-  AIDER_BLOCK_PATTERN.lastIndex = 0
-  while ((match = AIDER_BLOCK_PATTERN.exec(normalized)) !== null) {
-    const before = normalized.slice(cursor, match.index).replace(/```(?:html)?\s*$/i, '').trim()
+  while (cursor < normalized.length) {
+    const nextBlock = findNextSpecialBlock(normalized, cursor)
+    if (!nextBlock) {
+      break
+    }
+
+    const before = normalized
+      .slice(cursor, nextBlock.start)
+      .replace(/```(?:html)?\s*$/i, '')
+      .trim()
     if (before) {
       segments.push({ type: 'text', text: before })
     }
 
-    const parsed = parseAiderEditBlocks(match[0])
-    if (parsed[0]) {
-      segments.push({ type: 'edit', edit: parsed[0], index: editIndex })
-      editIndex += 1
+    if (nextBlock.kind === 'edit') {
+      const parsed = parseAiderEditBlocks(nextBlock.raw)
+      if (parsed[0]) {
+        segments.push({ type: 'edit', edit: parsed[0], index: editIndex })
+        editIndex += 1
+      }
+    } else {
+      const parsed = parseCapabilityRequestBlocks(nextBlock.raw)
+      if (parsed[0]) {
+        segments.push({ type: 'capability_request', request: parsed[0], index: capabilityIndex })
+        capabilityIndex += 1
+      }
     }
 
-    cursor = match.index + match[0].length
+    cursor = nextBlock.end
   }
 
-  const tail = stripTrailingIncompleteAiderBlock(normalized.slice(cursor))
+  const tail = stripTrailingIncompleteSpecialBlocks(normalized.slice(cursor))
     .replace(/^```(?:html)?\s*/i, '')
     .trim()
   if (tail) {
@@ -330,19 +426,213 @@ export function extractInProgressCodeOutput(content: string): string {
   return ''
 }
 
-/** 按 AI 输出顺序拼接全部自然语言段落（去掉 SEARCH/REPLACE 块）。 */
+const FULL_HTML_FENCED_PATTERN = /```(?:html)?\s*\n([\s\S]*?<\/html>)\s*\n```/gi
+const FULL_HTML_BARE_PATTERN = /<!DOCTYPE[\s\S]*?<\/html>/gi
+
+export function looksLikeFullHtmlDocument(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  return (
+    trimmed.startsWith('<!DOCTYPE') ||
+    /^<html[\s>]/i.test(trimmed) ||
+    /```(?:html)?[\s\S]*<!DOCTYPE/i.test(trimmed)
+  )
+}
+
+export function extractCompleteFullHtmlDocuments(content: string): string[] {
+  const docs: string[] = []
+  const seen = new Set<string>()
+
+  for (const match of content.matchAll(FULL_HTML_FENCED_PATTERN)) {
+    const doc = match[1]?.trim()
+    if (doc && !seen.has(doc)) {
+      seen.add(doc)
+      docs.push(doc)
+    }
+  }
+
+  FULL_HTML_BARE_PATTERN.lastIndex = 0
+  for (const match of content.matchAll(FULL_HTML_BARE_PATTERN)) {
+    const doc = match[0]?.trim()
+    if (doc && !seen.has(doc)) {
+      seen.add(doc)
+      docs.push(doc)
+    }
+  }
+
+  return docs
+}
+
+export function stripFullHtmlDocumentsFromText(text: string): string {
+  let result = text
+  result = result.replace(/```(?:html)?\s*\n[\s\S]*?<\/html>\s*\n```/gi, '')
+  result = result.replace(/<!DOCTYPE[\s\S]*?<\/html>/gi, '')
+  return result.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+export function extractFullHtmlDocumentFromContent(content: string): string | undefined {
+  const docs = extractCompleteFullHtmlDocuments(content)
+  return docs[docs.length - 1]
+}
+
+function stripCompletedHtmlForTailScan(content: string): string {
+  let result = stripCapabilityRequestBlocksFromContent(stripAiderEditBlocksFromContent(content))
+  result = result.replace(/```(?:html)?\s*\n[\s\S]*?<\/html>\s*\n```/gi, '')
+  result = result.replace(/<!DOCTYPE[\s\S]*?<\/html>/gi, '')
+  return result
+}
+
+function extractTrailingIncompleteHtml(text: string): string | undefined {
+  const fenceIndex = text.lastIndexOf('```html')
+  const doctypeIndex = text.lastIndexOf('<!DOCTYPE')
+  const htmlIndex = text.lastIndexOf('<html')
+  const startIndex = Math.max(fenceIndex, doctypeIndex, htmlIndex)
+
+  if (startIndex === -1) {
+    return undefined
+  }
+
+  let chunk = text.slice(startIndex)
+  chunk = chunk.replace(/^```(?:html)?\s*\n?/i, '').replace(/\n```\s*$/i, '')
+
+  if (chunk.includes('</html>')) {
+    return undefined
+  }
+
+  return chunk.trimEnd() || undefined
+}
+
+/** 定位正文中首次出现的 HTML 流式输出标记（围栏、DOCTYPE、html 根元素）。 */
+function findFirstHtmlArtifactStart(text: string): number | undefined {
+  let first: number | undefined
+
+  for (const pattern of [/```(?:html)?/i, /<!DOCTYPE/i, /<html[\s>]/i]) {
+    const match = pattern.exec(text)
+    if (match?.index !== undefined && (first === undefined || match.index < first)) {
+      first = match.index
+    }
+  }
+
+  return first
+}
+
+function findProseCutoffForInProgressHtml(text: string): number | undefined {
+  if (extractTrailingIncompleteHtml(text)) {
+    return findFirstHtmlArtifactStart(text)
+  }
+
+  const fenceMatch = text.match(/```(?:html)?\s*$/i)
+  return fenceMatch?.index
+}
+
+/** 从正文中移除进行中的 HTML 输出（围栏、DOCTYPE 及后续未写完的源码）。 */
+export function stripInProgressHtmlFromProse(text: string): string {
+  const cutoff = findProseCutoffForInProgressHtml(text)
+  if (cutoff === undefined) {
+    return stripFullHtmlDocumentsFromText(text)
+  }
+
+  if (cutoff <= 0) {
+    return ''
+  }
+
+  return stripFullHtmlDocumentsFromText(text.slice(0, cutoff)).trim()
+}
+
+export function extractInProgressFullHtmlOutput(content: string): string {
+  if (!content.trim()) {
+    return ''
+  }
+
+  const withoutBlocks = stripCompletedHtmlForTailScan(content)
+  const trailing = extractTrailingIncompleteHtml(withoutBlocks)
+  if (trailing) {
+    return trailing
+  }
+
+  let tail = withoutBlocks.trim()
+  tail = tail.replace(/^```(?:html)?\s*\n?/i, '')
+
+  if (!tail) {
+    return ''
+  }
+
+  if (
+    tail.startsWith('<!DOCTYPE') ||
+    tail.startsWith('<html') ||
+    (tail.startsWith('<') && !tail.startsWith('<<<<<<<'))
+  ) {
+    return tail.trimEnd()
+  }
+
+  return ''
+}
+
+export type ICodeTextDisplayPart =
+  | { type: 'prose'; text: string }
+  | { type: 'full_html'; html: string; complete: boolean }
+
+export function splitTextForDisplay(text: string): ICodeTextDisplayPart[] {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return []
+  }
+
+  const parts: ICodeTextDisplayPart[] = []
+  const incomplete = extractTrailingIncompleteHtml(trimmed)
+  const prose = stripInProgressHtmlFromProse(trimmed)
+
+  if (prose) {
+    parts.push({ type: 'prose', text: prose })
+  }
+
+  for (const html of extractCompleteFullHtmlDocuments(trimmed)) {
+    parts.push({ type: 'full_html', html, complete: true })
+  }
+
+  if (
+    incomplete &&
+    !parts.some((part) => part.type === 'full_html' && part.html === incomplete)
+  ) {
+    parts.push({ type: 'full_html', html: incomplete, complete: false })
+  }
+
+  if (parts.length === 0 && looksLikeFullHtmlDocument(trimmed)) {
+    parts.push({
+      type: 'full_html',
+      html: trimmed.replace(/^```(?:html)?\s*\n?/i, '').replace(/\n```\s*$/i, '').trim(),
+      complete: /<\/html>\s*$/i.test(trimmed),
+    })
+  }
+
+  return parts
+}
+
+export function countTextLines(text: string): number {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return 0
+  }
+
+  return trimmed.split('\n').length
+}
+
+/** 按 AI 输出顺序拼接全部自然语言段落（去掉 SEARCH/REPLACE 块与完整 HTML）。 */
 export function extractNaturalLanguageReply(content: string): string {
   const segments = parseIcodeContentSegments(content)
   const texts = segments
     .filter((segment): segment is { type: 'text'; text: string } => segment.type === 'text')
-    .map((segment) => segment.text.trim())
+    .map((segment) => stripInProgressHtmlFromProse(segment.text.trim()))
     .filter(Boolean)
 
   if (texts.length > 0) {
     return texts.join('\n\n').trim()
   }
 
-  return stripAiderEditBlocksFromContent(content).trim()
+  return stripInProgressHtmlFromProse(stripAiderEditBlocksFromContent(content)).trim()
 }
 
 export function pickLastReplyParagraph(text: string): string {

@@ -12,7 +12,6 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useAppCloseGuard } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
-import { ensureIframeBlankDocument, writeHtmlToIframe } from '../../assets/3d/write-html-to-iframe.ts'
 import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
@@ -33,6 +32,7 @@ import {
   draftSnapshotsEqual,
   isPublishDirty,
   loadPublishedSnapshot,
+  resolvePreviewBootstrapData,
   type ICodePublishedSnapshot,
 } from './icode-draft.ts'
 import { buildIcodeClosePrompt, buildIcodeEditorNavHint } from './icode-editor-nav-hint.ts'
@@ -40,6 +40,12 @@ import { generateInternalAppHtml } from './icode-generation.ts'
 import { isIcodeGenerationAbortedError } from './icode-generation-abort.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
 import { parseAiderEditBlocks, stripAiderEditBlocksFromContent, extractNaturalLanguageReply } from './icode-apply-edits.ts'
+import {
+  buildChatCapabilityRequests,
+  formatGrantableCapabilityLabel,
+  mergeSessionTagsWithCapability,
+  type GrantableIcodeCapabilityTag,
+} from './icode-capability-request.ts'
 import { IcodeChatAssistantMessage, IcodeChatMessageView } from './icode-chat-message.tsx'
 import {
   buildIcodeSyncInput,
@@ -50,8 +56,8 @@ import {
   resolvePublishAppId,
   resolveUniqueCopyName,
 } from './icode-publish.ts'
-import { generatedAppRuntimeUses3d } from '../generated/generated-app-tags.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
+import { useGeneratedHtmlIframe } from '../generated/use-generated-html-iframe.ts'
 import { prepareIcodePreviewHtml } from './prepare-icode-preview-html.ts'
 import {
   createInternalProject,
@@ -191,7 +197,7 @@ function previewAppIdForSession(session: EditorSession): GeneratedAppId {
 export function ICodeApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const { installedApps, syncAppFromIcode } = useGeneratedApps()
+  const { installedApps, syncAppFromIcode, getAppDataRevision } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
   const [session, setSession] = useState<EditorSession | undefined>()
@@ -321,6 +327,7 @@ export function ICodeApp() {
 
   const previewAppId = session ? previewAppIdForSession(session) : undefined
   const runtimeAppId = session?.linkedAppId ?? previewAppId
+  const linkedAppDataRevision = session?.linkedAppId ? getAppDataRevision(session.linkedAppId) : 0
   const codeDirty = session !== undefined && draftHtml !== session.html
   const dataDirty = Boolean(session && !appDataRecordsEqual(draftAppData, session.appData))
   const currentDraft = session ? draftFromSession(session, draftHtml, codeDirty) : undefined
@@ -450,42 +457,36 @@ export function ICodeApp() {
       return
     }
 
-    previewBootstrapDataRef.current = { ...session.appData }
+    previewBootstrapDataRef.current = resolvePreviewBootstrapData(session, draftAppData, false)
     setConsoleLogs([])
     setPreviewEpoch((epoch) => epoch + 1)
-  }, [session?.html, session?.projectId])
+  }, [linkedAppDataRevision, session?.html, session?.linkedAppId, session?.projectId])
 
   const preparedHtml = useMemo(() => {
-    if (!session || !runtimeAppId || !session.html.trim()) {
+    if (!session || !runtimeAppId || !previewAppId || !session.html.trim()) {
       return undefined
     }
 
-    return prepareIcodePreviewHtml(session.html, runtimeAppId, previewBootstrapDataRef.current)
-  }, [previewEpoch, runtimeAppId, session?.html])
+    return prepareIcodePreviewHtml(
+      session.html,
+      runtimeAppId,
+      previewBootstrapDataRef.current,
+      previewAppId,
+    )
+  }, [previewAppId, previewEpoch, runtimeAppId, session?.html])
 
-  const needs3d = session ? generatedAppRuntimeUses3d(session.html) : false
+  const previewRemountKey = previewAppId ? `${previewAppId}-${previewEpoch}` : 'icode-preview'
 
   const syncPreviewWindow = useCallback(() => {
     previewWindowRef.current = iframeRef.current?.contentWindow ?? null
   }, [])
 
-  const writePreviewToIframe = useCallback(() => {
-    if (!preparedHtml) {
-      return
-    }
-
-    if (needs3d) {
-      writeHtmlToIframe(iframeRef.current, preparedHtml)
-      syncPreviewWindow()
-      return
-    }
-
-    const frame = iframeRef.current
-    if (frame) {
-      frame.srcdoc = preparedHtml
-    }
-    syncPreviewWindow()
-  }, [needs3d, preparedHtml, syncPreviewWindow])
+  const { iframeProps } = useGeneratedHtmlIframe(
+    iframeRef,
+    session?.html.trim() ? preparedHtml : undefined,
+    previewRemountKey,
+    syncPreviewWindow,
+  )
 
   useEffect(() => {
     if (!session) {
@@ -495,18 +496,6 @@ export function ICodeApp() {
 
     setAppWindowTitle('icode', `${session.name} — iCode`)
   }, [session, setAppWindowTitle])
-
-  useEffect(() => {
-    if (!preparedHtml) {
-      return
-    }
-
-    if (needs3d) {
-      ensureIframeBlankDocument(iframeRef.current)
-    }
-
-    writePreviewToIframe()
-  }, [needs3d, preparedHtml, previewEpoch, writePreviewToIframe])
 
   useEffect(() => {
     if (!runtimeAppId) {
@@ -523,13 +512,20 @@ export function ICodeApp() {
   }, [runtimeAppId, session?.name])
 
   useEffect(() => {
-    if (!runtimeAppId) {
+    if (!runtimeAppId || !previewAppId) {
       return
     }
 
     const onMessage = (event: MessageEvent) => {
+      const previewWindow =
+        previewWindowRef.current ?? iframeRef.current?.contentWindow ?? undefined
+
       if (isIcodeConsoleMessage(event.data)) {
-        if (event.data.appId !== runtimeAppId) {
+        if (event.data.appId !== previewAppId) {
+          return
+        }
+
+        if (event.source !== previewWindow) {
           return
         }
 
@@ -537,8 +533,6 @@ export function ICodeApp() {
         return
       }
 
-      const previewWindow =
-        previewWindowRef.current ?? iframeRef.current?.contentWindow ?? undefined
       if (event.source !== previewWindow) {
         return
       }
@@ -565,7 +559,7 @@ export function ICodeApp() {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [runtimeAppId])
+  }, [previewAppId, runtimeAppId])
 
   useEffect(() => {
     return () => {
@@ -736,7 +730,7 @@ export function ICodeApp() {
     dataDraftEditedRef.current = false
     setSession(updated)
     setDraftAppData({ ...draftAppData })
-    previewBootstrapDataRef.current = { ...draftAppData }
+    previewBootstrapDataRef.current = resolvePreviewBootstrapData(updated, draftAppData, false)
     setPreviewEpoch((epoch) => epoch + 1)
   }, [dataDirty, dataEditInvalid, draftAppData, session])
 
@@ -1199,17 +1193,18 @@ export function ICodeApp() {
     generationRunRef.current = undefined
   }, [applyGenerationStopped])
 
-  const onSendPrompt = useCallback(async () => {
-    const instruction = prompt.trim()
-    if (!instruction || !session || generating) {
-      return
-    }
+  const runPromptGeneration = useCallback(
+    async (instruction: string, activeSession: EditorSession) => {
+      const trimmedInstruction = instruction.trim()
+      if (!trimmedInstruction || generating) {
+        return
+      }
 
-    generationRunRef.current?.abortController.abort()
-    const abortController = new AbortController()
-    const run = {
+      generationRunRef.current?.abortController.abort()
+      const abortController = new AbortController()
+      const run = {
       abortController,
-      htmlBefore: codeDirty ? draftHtml : session.html,
+      htmlBefore: codeDirty ? draftHtml : activeSession.html,
       nextChat: [] as ICodeChatMessage[],
       stopped: false,
     }
@@ -1218,16 +1213,15 @@ export function ICodeApp() {
     const userMessage: ICodeChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: instruction,
+      content: trimmedInstruction,
       createdAt: Date.now(),
     }
 
-    const nextChat = [...session.chat, userMessage]
+    const nextChat = [...activeSession.chat, userMessage]
     run.nextChat = nextChat
-    run.htmlBefore = codeDirty ? draftHtml : session.html
+    run.htmlBefore = codeDirty ? draftHtml : activeSession.html
     streamSnapshotRef.current = { reasoningText: '', contentText: '', appliedEdits: 0 }
-    setSession({ ...session, chat: nextChat })
-    setPrompt('')
+    setSession({ ...activeSession, chat: nextChat })
     setGenerating(true)
     setGenerationPhase('waiting')
     setGenerationStatus('连接 AI…')
@@ -1238,25 +1232,25 @@ export function ICodeApp() {
     setError(undefined)
 
     try {
-      const project = getInternalProject(session.projectId)
+      const project = getInternalProject(activeSession.projectId)
       if (!project) {
         throw new Error('内部项目不存在')
       }
 
-      const requestHtml = codeDirty ? draftHtml : session.html
+      const requestHtml = codeDirty ? draftHtml : activeSession.html
 
       const result = await generateInternalAppHtml(
         {
           ...project,
-          name: session.name,
-          description: session.description,
-          category: session.category,
-          iconEmoji: session.iconEmoji,
-          themeColor: session.themeColor,
-          tags: session.tags,
+          name: activeSession.name,
+          description: activeSession.description,
+          category: activeSession.category,
+          iconEmoji: activeSession.iconEmoji,
+          themeColor: activeSession.themeColor,
+          tags: activeSession.tags,
           html: requestHtml,
         },
-        instruction,
+        trimmedInstruction,
         (update) => {
           streamSnapshotRef.current = {
             reasoningText: update.reasoningText,
@@ -1280,7 +1274,7 @@ export function ICodeApp() {
             setDraftHtml(update.partialHtml!)
           }
         },
-        session.chat,
+        activeSession.chat,
         { signal: abortController.signal },
       )
 
@@ -1301,13 +1295,18 @@ export function ICodeApp() {
         outputText: result.outputText,
         edits: result.edits,
         appliedEdits: result.appliedEdits,
+        capabilityRequests: buildChatCapabilityRequests(
+          result.outputText ?? '',
+          activeSession.tags,
+          result.html,
+        ),
       }
 
       const htmlChanged = result.html !== run.htmlBefore
       const updated: EditorSession = {
-        ...session,
+        ...activeSession,
         chat: [...nextChat, assistantMessage],
-        html: htmlChanged ? result.html : session.html,
+        html: htmlChanged ? result.html : activeSession.html,
       }
 
       setSession(updated)
@@ -1338,7 +1337,91 @@ export function ICodeApp() {
         setGenerating(false)
       }
     }
-  }, [applyGenerationStopped, codeDirty, draftHtml, generating, prompt, resetStreamUi, session])
+    },
+    [applyGenerationStopped, codeDirty, draftHtml, generating, resetStreamUi],
+  )
+
+  const onSendPrompt = useCallback(async () => {
+    const instruction = prompt.trim()
+    if (!instruction || !session) {
+      return
+    }
+
+    setPrompt('')
+    await runPromptGeneration(instruction, session)
+  }, [prompt, runPromptGeneration, session])
+
+  const onGrantCapabilityRequest = useCallback(
+    async (messageId: string, requestIndex: number, tag: GrantableIcodeCapabilityTag) => {
+      if (!session || generating) {
+        return
+      }
+
+      const targetMessage = session.chat.find((message) => message.id === messageId)
+      const request = targetMessage?.capabilityRequests?.[requestIndex]
+      if (!request || request.status !== 'pending') {
+        return
+      }
+
+      const nextTags = mergeSessionTagsWithCapability(session.tags, tag)
+      const nextChat = session.chat.map((message) => {
+        if (message.role !== 'assistant' || !message.capabilityRequests) {
+          return message
+        }
+
+        return {
+          ...message,
+          capabilityRequests: message.capabilityRequests.map((item) =>
+            item.tag === tag && item.status === 'pending'
+              ? { ...item, status: 'granted' as const }
+              : item,
+          ),
+        }
+      })
+
+      const updatedSession: EditorSession = {
+        ...session,
+        tags: nextTags,
+        chat: nextChat,
+      }
+
+      setSession(updatedSession)
+      setPreviewEpoch((epoch) => epoch + 1)
+
+      await runPromptGeneration(
+        `已授予${formatGrantableCapabilityLabel(tag)}，请继续完成之前的请求。`,
+        updatedSession,
+      )
+    },
+    [generating, runPromptGeneration, session],
+  )
+
+  const onDismissCapabilityRequest = useCallback(
+    (messageId: string, requestIndex: number) => {
+      if (!session) {
+        return
+      }
+
+      setSession({
+        ...session,
+        chat: session.chat.map((message) => {
+          if (message.id !== messageId || !message.capabilityRequests) {
+            return message
+          }
+
+          return {
+            ...message,
+            capabilityRequests: message.capabilityRequests.map((request, index) =>
+              index === requestIndex && request.status === 'pending'
+                ? { ...request, status: 'dismissed' as const }
+                : request,
+            ),
+          }
+        }),
+      })
+    },
+    [session],
+  )
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === 'icode' && !window.minimized)
@@ -1784,25 +1867,11 @@ export function ICodeApp() {
                 />
               )}
               <iframe
-                key={
-                  previewAppId
-                    ? needs3d
-                      ? `${previewAppId}-${previewEpoch}-3d`
-                      : `${previewAppId}-${previewEpoch}`
-                    : 'icode-preview'
-                }
+                key={previewRemountKey}
                 ref={iframeRef}
                 class={`icode__frame${session.html.trim() ? '' : ' icode__frame--hidden'}`}
                 title={`${session.name} 预览`}
-                sandbox={needs3d ? 'allow-scripts allow-same-origin' : 'allow-scripts'}
-                src={needs3d ? 'about:blank' : undefined}
-                srcDoc={needs3d ? undefined : preparedHtml}
-                onLoad={() => {
-                  syncPreviewWindow()
-                  if (needs3d) {
-                    writePreviewToIframe()
-                  }
-                }}
+                {...iframeProps}
               />
             </div>
           </div>
@@ -1864,12 +1933,11 @@ export function ICodeApp() {
             <div class="icode__tab-body">
               <div class="icode__tab-pane" hidden={editorTab !== 'chat'}>
                 <div class="icode__panel-toolbar">
-                  {!generating && (
-                    <span>
-                      {session.chat.length} 条消息（{formatTokenCount(contextPayload.characters)} 字符 · 约{' '}
-                      {formatTokenCount(contextPayload.tokens)} tokens）
-                    </span>
-                  )}
+                  <span>
+                    {session.chat.length} 条消息（{formatTokenCount(contextPayload.characters)} 字符 · 约{' '}
+                    {formatTokenCount(contextPayload.tokens)} tokens）
+                    {generating ? ' · 生成中…' : ''}
+                  </span>
                   <button
                     type="button"
                     class="icode__panel-action"
@@ -1888,7 +1956,15 @@ export function ICodeApp() {
                     </p>
                   ) : (
                     session.chat.map((message) => (
-                      <IcodeChatMessageView key={message.id} message={message} />
+                      <IcodeChatMessageView
+                        key={message.id}
+                        message={message}
+                        grantedTags={session.tags}
+                        onGrantCapabilityRequest={(messageId, requestIndex, tag) =>
+                          void onGrantCapabilityRequest(messageId, requestIndex, tag)
+                        }
+                        onDismissCapabilityRequest={onDismissCapabilityRequest}
+                      />
                     ))
                   )}
                   {generating && (
@@ -1902,6 +1978,7 @@ export function ICodeApp() {
                       editStreaming={codeEditingActive}
                       streaming
                       phase={generationPhase}
+                      grantedTags={session.tags}
                     />
                   )}
                 </div>
@@ -2059,9 +2136,9 @@ export function ICodeApp() {
                   </section>
 
                   <section class="icode__config-section">
-                    <h4 class="icode__config-heading">AI 能力</h4>
+                    <h4 class="icode__config-heading">程序生成能力</h4>
                     <p class="icode__config-section-hint">
-                      仅影响与 AI 对话时是否告知对应 API；预览与已安装应用始终注入运行时桥接。
+                      授予能力后，AI在生成程序时可以使用对应的能力。
                     </p>
                     <div class="icode__config-inset">
                       <div class="icode__config-toggle-row">
