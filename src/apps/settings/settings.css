@@ -2084,8 +2084,20 @@
 
 @container app-window (max-width: 380px) {
   .settings__row {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
+  }
+
+  /* 应用列表行含图标、名称、大小、箭头四列，不可沿用上面的三列布局 */
+  .settings__row:has(.settings__app-icon) {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .settings__row:has(.settings__app-icon) .settings__row-size {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .settings__row--nav {

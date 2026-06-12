@@ -197,7 +197,7 @@ function previewAppIdForSession(session: EditorSession): GeneratedAppId {
 export function ICodeApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const { installedApps, syncAppFromIcode, getAppDataRevision } = useGeneratedApps()
+  const { installedApps, syncAppFromIcode, getAppDataRevision, uninstallApp } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
   const [session, setSession] = useState<EditorSession | undefined>()
@@ -218,8 +218,9 @@ export function ICodeApp() {
   const [showNewProject, setShowNewProject] = useState(false)
   const [showImportPicker, setShowImportPicker] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<
-    { projectId: string; name: string; linkedAppId?: GeneratedAppId } | undefined
+    { projectId: string; name: string; linkedAppId?: GeneratedAppId; linkedAppName?: string } | undefined
   >()
+  const [deleteLinkedAppToo, setDeleteLinkedAppToo] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDescription, setNewProjectDescription] = useState('')
   const [previewEpoch, setPreviewEpoch] = useState(0)
@@ -913,11 +914,21 @@ export function ICodeApp() {
       return
     }
 
+    const linkedAppId = resolvePublishAppId(project)
+    const linkedApp = installedApps.find((app) => app.id === linkedAppId)
+
+    setDeleteLinkedAppToo(false)
     setDeleteTarget({
       projectId: project.id,
       name: project.name,
-      linkedAppId: project.linkedAppId,
+      linkedAppId: linkedApp ? linkedAppId : undefined,
+      linkedAppName: linkedApp?.name,
     })
+  }, [installedApps])
+
+  const closeDeleteProjectModal = useCallback(() => {
+    setDeleteTarget(undefined)
+    setDeleteLinkedAppToo(false)
   }, [])
 
   const confirmDeleteProject = useCallback(() => {
@@ -925,11 +936,17 @@ export function ICodeApp() {
       return
     }
 
+    const linkedAppId = deleteLinkedAppToo ? deleteTarget.linkedAppId : undefined
+
     const removed = removeInternalProject(deleteTarget.projectId)
     if (!removed) {
       setError('删除失败，项目可能已被移除')
-      setDeleteTarget(undefined)
+      closeDeleteProjectModal()
       return
+    }
+
+    if (linkedAppId) {
+      uninstallApp(linkedAppId)
     }
 
     if (session?.projectId === deleteTarget.projectId) {
@@ -940,9 +957,9 @@ export function ICodeApp() {
     }
 
     setProjectRevision((value) => value + 1)
-    setDeleteTarget(undefined)
+    closeDeleteProjectModal()
     setError(undefined)
-  }, [deleteTarget, session?.projectId])
+  }, [closeDeleteProjectModal, deleteLinkedAppToo, deleteTarget, session?.projectId, uninstallApp])
 
   const importFromInstalled = useCallback(
     (record: GeneratedAppRecord) => {
@@ -1510,6 +1527,53 @@ export function ICodeApp() {
 
   useAppMenuBar('icode', menuBar)
 
+  const deleteProjectModal = (
+    <WindowModal
+      open={!!deleteTarget}
+      title="删除内部项目"
+      role="alertdialog"
+      themeColor={ICODE_CHROME_ACCENT}
+      onClose={closeDeleteProjectModal}
+      actions={[
+        {
+          key: 'cancel',
+          label: '取消',
+          tone: 'secondary',
+          onClick: closeDeleteProjectModal,
+        },
+        {
+          key: 'delete',
+          label: '删除',
+          tone: 'danger',
+          onClick: confirmDeleteProject,
+        },
+      ]}
+    >
+      {deleteTarget && (
+        <>
+          <p class="window-modal__message">
+            确定删除「{deleteTarget.name}」吗？此操作不可恢复。
+            {deleteTarget.linkedAppId
+              ? ' 默认仅删除 iCode 项目，桌面应用可保留。'
+              : ' 此项目未关联已安装的桌面应用。'}
+          </p>
+          {deleteTarget.linkedAppId && deleteTarget.linkedAppName && (
+            <label class="icode__delete-linked-app">
+              <input
+                type="checkbox"
+                checked={deleteLinkedAppToo}
+                onChange={(event) =>
+                  setDeleteLinkedAppToo((event.currentTarget as HTMLInputElement).checked)
+                }
+              />
+              <span>同时从桌面卸载「{deleteTarget.linkedAppName}」</span>
+            </label>
+          )}
+        </>
+      )}
+    </WindowModal>
+  )
+
   if (!session) {
     const modalTheme = ICODE_CHROME_ACCENT
 
@@ -1714,33 +1778,7 @@ export function ICodeApp() {
           </div>
         </WindowModal>
 
-        <WindowModal
-          open={!!deleteTarget}
-          title="删除内部项目"
-          role="alertdialog"
-          themeColor={modalTheme}
-          onClose={() => setDeleteTarget(undefined)}
-          actions={[
-            {
-              key: 'cancel',
-              label: '取消',
-              tone: 'secondary',
-              onClick: () => setDeleteTarget(undefined),
-            },
-            {
-              key: 'delete',
-              label: '删除',
-              tone: 'danger',
-              onClick: confirmDeleteProject,
-            },
-          ]}
-        >
-          {deleteTarget && (
-            <p class="window-modal__message">
-              确定删除「{deleteTarget.name}」吗？此操作不可恢复。桌面上的应用入口不会被卸载。
-            </p>
-          )}
-        </WindowModal>
+        {deleteProjectModal}
 
         <WindowModal
           open={!!importAlert}
@@ -2182,7 +2220,7 @@ export function ICodeApp() {
                     <h4 class="icode__config-heading">删除项目</h4>
                     <div class="icode__config-inset icode__config-inset--danger">
                       <p class="icode__config-danger-copy">
-                        永久删除此 iCode 项目的源码、聊天记录与本地数据。桌面上的应用入口不会被卸载。
+                        永久删除此 iCode 项目的源码、聊天记录与本地数据。若项目已发布到桌面，可选择是否同时卸载应用入口。
                       </p>
                       <div class="icode__config-item icode__config-item--action">
                         <button
@@ -2281,33 +2319,7 @@ export function ICodeApp() {
         </nav>
       </div>
 
-      <WindowModal
-        open={!!deleteTarget}
-        title="删除内部项目"
-        role="alertdialog"
-        themeColor={modalTheme}
-        onClose={() => setDeleteTarget(undefined)}
-        actions={[
-          {
-            key: 'cancel',
-            label: '取消',
-            tone: 'secondary',
-            onClick: () => setDeleteTarget(undefined),
-          },
-          {
-            key: 'delete',
-            label: '删除',
-            tone: 'danger',
-            onClick: confirmDeleteProject,
-          },
-        ]}
-      >
-        {deleteTarget && (
-          <p class="window-modal__message">
-            确定删除「{deleteTarget.name}」吗？此操作不可恢复。桌面上的应用入口不会被卸载。
-          </p>
-        )}
-      </WindowModal>
+      {deleteProjectModal}
 
       <WindowModal
         open={clearChatPromptOpen}

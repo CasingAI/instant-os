@@ -2153,6 +2153,26 @@
   padding-top: 8px;
 }
 
+.icode__delete-linked-app {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d1d1d6;
+  background: #f9f9fb;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #1c1c1e;
+  cursor: pointer;
+}
+
+.icode__delete-linked-app input {
+  margin: 2px 0 0;
+  flex-shrink: 0;
+}
+
 .icode__hidden-input {
   display: none;
 }
