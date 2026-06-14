@@ -1,3 +1,5 @@
+import type { DesktopItemId } from '../os/desktop-folder-types.ts'
+import { isDesktopFolderId } from '../os/desktop-folder-types.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
 import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
@@ -50,15 +52,21 @@ function isVisibleDockApp(appId: AppId, installedGeneratedAppIds: ReadonlySet<Ge
 }
 
 export function buildDockLayoutSnapshot(params: {
-  pinnedDockAppIds: readonly AppId[]
+  pinnedDockItemIds: readonly DesktopItemId[]
   runningAppIds: readonly AppId[]
   installedGeneratedAppIds: ReadonlySet<GeneratedAppId>
 }): DockLayoutSnapshot {
-  const pinnedSet = new Set(params.pinnedDockAppIds)
+  const pinnedSet = new Set<AppId>()
   let pinnedCount = 0
 
-  for (const appId of params.pinnedDockAppIds) {
-    if (isVisibleDockApp(appId, params.installedGeneratedAppIds)) {
+  for (const itemId of params.pinnedDockItemIds) {
+    if (isDesktopFolderId(itemId)) {
+      pinnedCount += 1
+      continue
+    }
+
+    pinnedSet.add(itemId)
+    if (isVisibleDockApp(itemId, params.installedGeneratedAppIds)) {
       pinnedCount += 1
     }
   }

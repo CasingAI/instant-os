@@ -4,11 +4,12 @@ export const DATA_CAPACITY_BYTES = 50 * 1024 * 1024
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 4
+export const DATA_DB_VERSION = 5
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
 export const AI_TOKEN_USAGE_STORE = 'ai-token-usage'
+export const FOLDER_ICON_SNAPSHOTS_STORE = 'folder-icon-snapshots'
 export const DATA_META_STORE = 'data-meta'
 
 export type BookChapterRecord = {
@@ -124,6 +125,9 @@ function openDataDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(AI_TOKEN_USAGE_STORE, { keyPath: 'key' })
         store.createIndex('day', 'day', { unique: false })
         store.createIndex('kind', 'kind', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(FOLDER_ICON_SNAPSHOTS_STORE)) {
+        db.createObjectStore(FOLDER_ICON_SNAPSHOTS_STORE, { keyPath: 'key' })
       }
     }
 
@@ -509,15 +513,26 @@ export async function deleteBookChapters(bookId: string): Promise<void> {
   }
 }
 
+export async function getFolderIconSnapshotsBytes(): Promise<number> {
+  try {
+    return sumStoreBytes(FOLDER_ICON_SNAPSHOTS_STORE)
+  } catch {
+    return 0
+  }
+}
+
 export async function rebuildDataByteTotal(): Promise<number> {
   try {
-    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes] = await Promise.all([
+    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes, folderIconSnapshotBytes] =
+      await Promise.all([
       sumStoreBytes(BOOK_CHAPTERS_STORE),
       sumStoreBytes(BOOK_DETAILS_STORE),
       sumStoreBytes(SAFARI_PAGE_CACHE_STORE),
       sumStoreBytes(AI_TOKEN_USAGE_STORE),
+      sumStoreBytes(FOLDER_ICON_SNAPSHOTS_STORE),
     ])
-    const total = bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes
+    const total =
+      bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes + folderIconSnapshotBytes
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total

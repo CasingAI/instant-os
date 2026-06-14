@@ -19,6 +19,7 @@ import {
 import {
   DATA_CAPACITY_BYTES,
   getBooksContentBytes,
+  getFolderIconSnapshotsBytes,
   getSafariPageCacheBytes,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
@@ -183,6 +184,7 @@ export function getStorageSummary(
     safariCacheBytes: number
     booksDataBytes: number
     aiUsageBytes: number
+    folderIconSnapshotsBytes: number
   },
 ) {
   const entries = buildManagedAppList(installedApps)
@@ -192,7 +194,13 @@ export function getStorageSummary(
   const newsDataBytes = getNewsStorageBytes()
   const booksIndexBytes = getBooksStorageBytes()
   const browserSystemBytes = getBrowserSystemStorageBytes()
-  const { totalBytes: dataUsedBytes, safariCacheBytes, booksDataBytes, aiUsageBytes } = dataStorage
+  const {
+    totalBytes: dataUsedBytes,
+    safariCacheBytes,
+    booksDataBytes,
+    aiUsageBytes,
+    folderIconSnapshotsBytes,
+  } = dataStorage
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
   const availableBytes = Math.max(0, DEVICE_CAPACITY_BYTES - usedBytes)
@@ -223,6 +231,7 @@ export function getStorageSummary(
     dataUsedBytes,
     dataAvailableBytes,
     aiUsageBytes,
+    folderIconSnapshotsBytes,
     systemBytes: usedBytes,
   }
 }
@@ -232,14 +241,17 @@ export async function loadDataStorageBreakdown(): Promise<{
   safariCacheBytes: number
   booksDataBytes: number
   aiUsageBytes: number
+  folderIconSnapshotsBytes: number
 }> {
-  const [totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes] = await Promise.all([
+  const [totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes, folderIconSnapshotsBytes] =
+    await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
     getBooksContentBytes(),
     getAiTokenUsageBytes(),
+    getFolderIconSnapshotsBytes(),
   ])
-  return { totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes }
+  return { totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes, folderIconSnapshotsBytes }
 }
 
 export function findManagedApp(

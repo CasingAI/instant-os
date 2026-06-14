@@ -1,18 +1,18 @@
 import { useCallback, useRef } from 'preact/hooks'
-import type { AppId } from '../os/types.ts'
+import type { DesktopItemId } from '../os/desktop-folder-types.ts'
 
 const LONG_PRESS_MS = 380
 const TAP_THRESHOLD = 8
 
 type UseDesktopIconReorderOptions = {
-  appId: AppId
+  itemId: DesktopItemId
   globalIndex: number
   disabled?: boolean
   reorderingEnabled: boolean
   didSwipeRef: { current: boolean }
   onOpen: () => void
   onReorderStart: (
-    appId: AppId,
+    itemId: DesktopItemId,
     globalIndex: number,
     clientX: number,
     clientY: number,
@@ -24,7 +24,7 @@ type UseDesktopIconReorderOptions = {
 }
 
 export function useDesktopIconReorder({
-  appId,
+  itemId,
   globalIndex,
   disabled = false,
   reorderingEnabled,
@@ -85,7 +85,7 @@ export function useDesktopIconReorder({
         reorderingRef.current = true
         preventClickRef.current = true
         onReorderStart(
-          appId,
+          itemId,
           globalIndex,
           startPointRef.current.x,
           startPointRef.current.y,
@@ -133,7 +133,7 @@ export function useDesktopIconReorder({
       document.addEventListener('pointercancel', onPointerUp)
     },
     [
-      appId,
+      itemId,
       clearLongPressTimer,
       didSwipeRef,
       disabled,

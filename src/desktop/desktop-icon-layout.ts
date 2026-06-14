@@ -1,11 +1,11 @@
+import type { DesktopItemId } from '../os/desktop-folder-types.ts'
+import { moveDesktopItemInOrder } from '../os/desktop-folder-operations.ts'
 import {
   DESKTOP_ICON_GAP_X,
   DESKTOP_ICON_GAP_Y,
   DESKTOP_ICON_HEIGHT,
   DESKTOP_ICON_WIDTH,
-  moveDesktopIconInOrder,
 } from '../os/launcher-layout-storage.ts'
-import type { AppId } from '../os/types.ts'
 
 export type IconSlotPosition = {
   left: number
@@ -25,20 +25,20 @@ export function getIconSlotPosition(slotIndex: number, cols: number): IconSlotPo
 }
 
 export function buildPreviewOrder(
-  order: AppId[],
-  draggingAppId: AppId,
+  order: DesktopItemId[],
+  draggingItemId: DesktopItemId,
   hoverIndex: number,
-): AppId[] {
-  const fromIndex = order.indexOf(draggingAppId)
+): DesktopItemId[] {
+  const fromIndex = order.indexOf(draggingItemId)
   if (fromIndex < 0) {
     return order
   }
 
   const toIndex = Math.max(0, Math.min(hoverIndex, order.length - 1))
-  return moveDesktopIconInOrder(order, fromIndex, toIndex)
+  return moveDesktopItemInOrder(order, fromIndex, toIndex)
 }
 
-export function getPageSlice(order: AppId[], pageIndex: number, iconsPerPage: number): AppId[] {
+export function getPageSlice(order: DesktopItemId[], pageIndex: number, iconsPerPage: number): DesktopItemId[] {
   const start = pageIndex * iconsPerPage
   return order.slice(start, start + iconsPerPage)
 }

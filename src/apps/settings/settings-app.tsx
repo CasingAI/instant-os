@@ -73,6 +73,7 @@ export function SettingsApp() {
     safariCacheBytes: 0,
     booksDataBytes: 0,
     aiUsageBytes: 0,
+    folderIconSnapshotsBytes: 0,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
   const summary = useMemo(
@@ -480,6 +481,7 @@ function UsageView({
                   <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
                   <span>图书章节 {formatStorageSize(summary.booksDataBytes)}</span>
                   <span>AI 用量 {formatStorageSize(summary.aiUsageBytes)}</span>
+                  <span>文件夹图标 {formatStorageSize(summary.folderIconSnapshotsBytes)}</span>
                   <span>剩余 {formatStorageSize(summary.dataAvailableBytes)}</span>
                 </div>
               </div>
@@ -527,6 +529,11 @@ function UsageView({
                   <StorageCategoryRow label="网络浏览器网页缓存" bytes={summary.safariCacheBytes} />
                   <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
+                  <StorageCategoryRow
+                    label="程序图标缓存"
+                    bytes={summary.folderIconSnapshotsBytes}
+                    hint="文件夹预览缩略图缓存"
+                  />
                 </div>
               </div>
             </section>
@@ -540,7 +547,7 @@ function UsageView({
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节等大体积正文（IndexedDB）。
+              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
               应用程序的用户数据通过 localStorage 桥接按应用独立存储。
               系统空间上限 5 MB、数据空间上限 50 MB，均为硬限制。
             </p>

@@ -11,7 +11,12 @@ type PagerSession = {
   captureTarget: HTMLElement | undefined
 }
 
-export function useDesktopPagePager(pageCount: number, pagerWidth: number, enabled: boolean) {
+export function useDesktopPagePager(
+  pageCount: number,
+  pagerWidth: number,
+  enabled: boolean,
+  onEmptyTap?: (event: PointerEvent) => void,
+) {
   const [currentPage, setCurrentPage] = useState(0)
   const [dragOffset, setDragOffset] = useState(0)
   const [animating, setAnimating] = useState(false)
@@ -141,6 +146,13 @@ export function useDesktopPagePager(pageCount: number, pagerWidth: number, enabl
 
       if (!enabled || !session.dragging) {
         setDragOffset(0)
+        if (enabled && onEmptyTap) {
+          const deltaX = event.clientX - session.startX
+          const deltaY = event.clientY - session.startY
+          if (Math.abs(deltaX) < TAP_THRESHOLD && Math.abs(deltaY) < TAP_THRESHOLD) {
+            onEmptyTap(event)
+          }
+        }
         return
       }
 
@@ -159,7 +171,7 @@ export function useDesktopPagePager(pageCount: number, pagerWidth: number, enabl
 
       goToPage(nextPage)
     },
-    [currentPage, enabled, goToPage, pagerWidth],
+    [currentPage, enabled, goToPage, onEmptyTap, pagerWidth],
   )
 
   const onPointerCancel = useCallback(() => {

@@ -1,4 +1,7 @@
 import { APP_REGISTRY } from './app-registry.tsx'
+import { reconcileDesktopItemOrder, removeAppFromFolders } from './desktop-folder-operations.ts'
+import type { DesktopFolder, DesktopItemId } from './desktop-folder-types.ts'
+import { isDesktopFolderId } from './desktop-folder-types.ts'
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 import { isBuiltinAppVisibleOnDesktop } from './launcher-app-visibility.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
@@ -27,8 +30,9 @@ export const DESKTOP_ICON_GAP_X = 24
 export const DESKTOP_ICON_GAP_Y = 28
 
 export type LauncherLayoutState = {
-  pinnedDockAppIds: AppId[]
-  desktopIconOrder: AppId[]
+  pinnedDockItemIds: DesktopItemId[]
+  desktopIconOrder: DesktopItemId[]
+  desktopFolders: DesktopFolder[]
 }
 
 const DEFAULT_DOCK_PINNED_BUILTIN_COUNT = 4
@@ -40,19 +44,40 @@ export function isPermanentlyPinnedToDock(appId: AppId): boolean {
   return PERMANENTLY_PINNED_DOCK_APP_IDS.includes(appId as BuiltinAppId)
 }
 
-export function reconcilePinnedDockAppIds(pinnedDockAppIds: AppId[]): AppId[] {
-  const ordered = [...pinnedDockAppIds]
+export function reconcilePinnedDockItemIds(
+  pinnedDockItemIds: DesktopItemId[],
+  desktopFolders: DesktopFolder[] = [],
+): DesktopItemId[] {
+  const folderIdSet = new Set(desktopFolders.map((folder) => folder.id))
+  const ordered: DesktopItemId[] = []
+
+  for (const itemId of pinnedDockItemIds) {
+    if (ordered.includes(itemId)) {
+      continue
+    }
+
+    if (isDesktopFolderId(itemId)) {
+      if (folderIdSet.has(itemId)) {
+        ordered.push(itemId)
+      }
+      continue
+    }
+
+    ordered.push(itemId)
+  }
+
   for (const appId of PERMANENTLY_PINNED_DOCK_APP_IDS) {
     if (!ordered.includes(appId)) {
       ordered.push(appId)
     }
   }
+
   return ordered
 }
 
-export function getDefaultPinnedDockAppIds(): AppId[] {
+export function getDefaultPinnedDockItemIds(): DesktopItemId[] {
   const leading = APP_REGISTRY.slice(0, DEFAULT_DOCK_PINNED_BUILTIN_COUNT).map((app) => app.id)
-  return reconcilePinnedDockAppIds(leading)
+  return reconcilePinnedDockItemIds(leading)
 }
 
 export function getDefaultDesktopIconOrder(): AppId[] {
@@ -61,22 +86,18 @@ export function getDefaultDesktopIconOrder(): AppId[] {
 
 export function getDefaultLauncherLayout(): LauncherLayoutState {
   return {
-    pinnedDockAppIds: getDefaultPinnedDockAppIds(),
+    pinnedDockItemIds: getDefaultPinnedDockItemIds(),
     desktopIconOrder: [],
+    desktopFolders: [],
   }
 }
 
-export function reconcileDesktopIconOrder(storedOrder: AppId[], visibleAppIds: AppId[]): AppId[] {
-  const visibleSet = new Set(visibleAppIds)
-  const ordered = storedOrder.filter((appId) => visibleSet.has(appId))
-
-  for (const appId of visibleAppIds) {
-    if (!ordered.includes(appId)) {
-      ordered.push(appId)
-    }
-  }
-
-  return ordered
+export function reconcileDesktopIconOrder(
+  storedOrder: DesktopItemId[],
+  visibleAppIds: AppId[],
+  folders: DesktopFolder[] = [],
+): DesktopItemId[] {
+  return reconcileDesktopItemOrder(storedOrder, visibleAppIds, folders)
 }
 
 type LegacyDesktopIconPosition = {
@@ -86,6 +107,7 @@ type LegacyDesktopIconPosition = {
 
 type LegacyLauncherLayoutState = {
   desktopPositions?: Partial<Record<AppId, LegacyDesktopIconPosition>>
+  pinnedDockAppIds?: AppId[]
 }
 
 function migratePositionsToOrder(
@@ -117,14 +139,18 @@ function readLauncherLayout(): LauncherLayoutState {
     }
 
     const parsed = JSON.parse(raw) as Partial<LauncherLayoutState> & LegacyLauncherLayoutState
-    const storedPinnedDockAppIds = Array.isArray(parsed.pinnedDockAppIds)
+    const legacyPinnedDockAppIds = Array.isArray(parsed.pinnedDockAppIds)
       ? parsed.pinnedDockAppIds.filter((id): id is AppId => typeof id === 'string')
-      : getDefaultPinnedDockAppIds()
-    const pinnedDockAppIds = reconcilePinnedDockAppIds(storedPinnedDockAppIds)
+      : undefined
+    const storedPinnedDockItemIds = Array.isArray(parsed.pinnedDockItemIds)
+      ? parsed.pinnedDockItemIds.filter((id): id is DesktopItemId => typeof id === 'string')
+      : legacyPinnedDockAppIds ?? getDefaultPinnedDockItemIds()
 
-    let desktopIconOrder: AppId[] = []
+    let desktopIconOrder: DesktopItemId[] = []
     if (Array.isArray(parsed.desktopIconOrder)) {
-      desktopIconOrder = parsed.desktopIconOrder.filter((id): id is AppId => typeof id === 'string')
+      desktopIconOrder = parsed.desktopIconOrder.filter(
+        (id): id is DesktopItemId => typeof id === 'string',
+      )
     } else if (parsed.desktopPositions && typeof parsed.desktopPositions === 'object') {
       desktopIconOrder = migratePositionsToOrder(
         parsed.desktopPositions,
@@ -132,10 +158,23 @@ function readLauncherLayout(): LauncherLayoutState {
       )
     }
 
-    const state: LauncherLayoutState = { pinnedDockAppIds, desktopIconOrder }
-    const pinsMigrated = pinnedDockAppIds.some(
-      (appId, index) => storedPinnedDockAppIds[index] !== appId,
-    ) || pinnedDockAppIds.length !== storedPinnedDockAppIds.length
+    const desktopFolders = Array.isArray(parsed.desktopFolders)
+      ? parsed.desktopFolders.filter(
+          (folder): folder is DesktopFolder =>
+            typeof folder === 'object' &&
+            folder !== undefined &&
+            typeof folder.id === 'string' &&
+            typeof folder.name === 'string' &&
+            Array.isArray(folder.appIds),
+        )
+      : []
+
+    const pinnedDockItemIds = reconcilePinnedDockItemIds(storedPinnedDockItemIds, desktopFolders)
+    const state: LauncherLayoutState = { pinnedDockItemIds, desktopIconOrder, desktopFolders }
+    const pinsMigrated =
+      pinnedDockItemIds.some((itemId, index) => storedPinnedDockItemIds[index] !== itemId) ||
+      pinnedDockItemIds.length !== storedPinnedDockItemIds.length ||
+      legacyPinnedDockAppIds !== undefined
 
     if (pinsMigrated) {
       writeLauncherLayout(state)
@@ -164,35 +203,86 @@ export function saveLauncherLayout(state: LauncherLayoutState): boolean {
 }
 
 export function pinAppToDock(state: LauncherLayoutState, appId: AppId): LauncherLayoutState {
-  if (state.pinnedDockAppIds.includes(appId)) {
+  if (state.pinnedDockItemIds.includes(appId)) {
     return state
   }
 
   return {
     ...state,
-    pinnedDockAppIds: [...state.pinnedDockAppIds, appId],
+    pinnedDockItemIds: reconcilePinnedDockItemIds(
+      [...state.pinnedDockItemIds, appId],
+      state.desktopFolders,
+    ),
+  }
+}
+
+export function pinItemToDockAtIndex(
+  state: LauncherLayoutState,
+  itemId: DesktopItemId,
+  index: number,
+): LauncherLayoutState {
+  if (!isDesktopFolderId(itemId) && isPermanentlyPinnedToDock(itemId)) {
+    const permanentIndex = state.pinnedDockItemIds.indexOf(itemId)
+    if (permanentIndex >= 0 && permanentIndex !== index) {
+      const next = [...state.pinnedDockItemIds]
+      next.splice(permanentIndex, 1)
+      const clampedIndex = Math.max(0, Math.min(index, next.length))
+      next.splice(clampedIndex, 0, itemId)
+      return {
+        ...state,
+        pinnedDockItemIds: reconcilePinnedDockItemIds(next, state.desktopFolders),
+      }
+    }
+    return state
+  }
+
+  const current = state.pinnedDockItemIds
+  const fromIndex = current.indexOf(itemId)
+  let next = fromIndex >= 0 ? current.filter((id) => id !== itemId) : [...current]
+  const clampedIndex = Math.max(0, Math.min(index, next.length))
+  next = [...next.slice(0, clampedIndex), itemId, ...next.slice(clampedIndex)]
+
+  return {
+    ...state,
+    pinnedDockItemIds: reconcilePinnedDockItemIds(next, state.desktopFolders),
+  }
+}
+
+export function unpinItemFromDock(state: LauncherLayoutState, itemId: DesktopItemId): LauncherLayoutState {
+  if (!isDesktopFolderId(itemId) && isPermanentlyPinnedToDock(itemId)) {
+    return state
+  }
+
+  return {
+    ...state,
+    pinnedDockItemIds: state.pinnedDockItemIds.filter((id) => id !== itemId),
   }
 }
 
 export function unpinAppFromDock(state: LauncherLayoutState, appId: AppId): LauncherLayoutState {
-  if (isPermanentlyPinnedToDock(appId)) {
-    return state
-  }
-
-  return {
-    ...state,
-    pinnedDockAppIds: state.pinnedDockAppIds.filter((id) => id !== appId),
-  }
+  return unpinItemFromDock(state, appId)
 }
 
-export function setDesktopIconOrder(state: LauncherLayoutState, order: AppId[]): LauncherLayoutState {
+export function setDesktopIconOrder(state: LauncherLayoutState, order: DesktopItemId[]): LauncherLayoutState {
   return {
     ...state,
     desktopIconOrder: order,
   }
 }
 
-export function moveDesktopIconInOrder(order: AppId[], fromIndex: number, toIndex: number): AppId[] {
+export function setDesktopLayout(
+  state: LauncherLayoutState,
+  order: DesktopItemId[],
+  folders: DesktopFolder[],
+): LauncherLayoutState {
+  return {
+    ...state,
+    desktopIconOrder: order,
+    desktopFolders: folders,
+  }
+}
+
+export function moveDesktopIconInOrder(order: DesktopItemId[], fromIndex: number, toIndex: number): DesktopItemId[] {
   if (
     fromIndex < 0 ||
     toIndex < 0 ||
@@ -210,8 +300,14 @@ export function moveDesktopIconInOrder(order: AppId[], fromIndex: number, toInde
 }
 
 export function removeAppFromLauncherLayout(state: LauncherLayoutState, appId: AppId): LauncherLayoutState {
+  const desktopFolders = removeAppFromFolders(state.desktopFolders, appId)
+  const folderIds = new Set(desktopFolders.map((folder) => folder.id))
+
   return {
-    pinnedDockAppIds: state.pinnedDockAppIds.filter((id) => id !== appId),
-    desktopIconOrder: state.desktopIconOrder.filter((id) => id !== appId),
+    pinnedDockItemIds: state.pinnedDockItemIds.filter((id) => id !== appId),
+    desktopIconOrder: state.desktopIconOrder.filter(
+      (id) => id !== appId && (!isDesktopFolderId(id) || folderIds.has(id)),
+    ),
+    desktopFolders,
   }
 }

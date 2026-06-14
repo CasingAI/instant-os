@@ -60,6 +60,37 @@
     0 8px 24px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px) saturate(140%);
   pointer-events: auto;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.dock--drop-target .dock__plate {
+  background: rgba(30, 30, 30, 0.58);
+  border-color: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.dock__pinned-zone {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(10px * var(--dock-scale, 1));
+}
+
+.dock__drop-indicator {
+  align-self: stretch;
+  width: calc(3px * var(--dock-scale, 1));
+  margin:
+    calc(4px * var(--dock-scale, 1))
+    calc(-4px * var(--dock-scale, 1))
+    calc(10px * var(--dock-scale, 1));
+  border-radius: calc(2px * var(--dock-scale, 1));
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.45);
 }
 
 .dock__divider {
@@ -128,6 +159,13 @@
 .dock__icon .app-icon-tile__tile {
   display: block;
   border-radius: calc(13px * var(--dock-scale, 1));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.dock__icon .desktop-folder-icon {
+  display: block;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     0 3px 8px rgba(0, 0, 0, 0.35);

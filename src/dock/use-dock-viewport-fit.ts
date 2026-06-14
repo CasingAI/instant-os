@@ -11,7 +11,7 @@ export const DOCK_VIEWPORT_FIT_CHANGED_EVENT = 'instant-os:dock-viewport-fit-cha
 
 export function useDockViewportFit(): void {
   const { windows } = useOs()
-  const { pinnedDockAppIds } = useLauncherLayout()
+  const { pinnedDockItemIds } = useLauncherLayout()
   const { installedApps } = useGeneratedApps()
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
@@ -21,14 +21,14 @@ export function useDockViewportFit(): void {
 
   useLayoutEffect(() => {
     const snapshot = buildDockLayoutSnapshot({
-      pinnedDockAppIds,
+      pinnedDockItemIds,
       runningAppIds,
       installedGeneratedAppIds,
     })
     setDockLayoutSnapshot(snapshot)
     applyDockSettingsVariables()
     window.dispatchEvent(new CustomEvent(DOCK_VIEWPORT_FIT_CHANGED_EVENT))
-  }, [pinnedDockAppIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|')])
+  }, [pinnedDockItemIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|')])
 
   useEffect(() => {
     const sync = () => {

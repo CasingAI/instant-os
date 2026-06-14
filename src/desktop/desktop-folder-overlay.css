@@ -1,0 +1,365 @@
+.desktop-folder-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px calc(24px + var(--dock-reserve, 96px));
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.desktop-folder-overlay-backdrop--reordering {
+  cursor: grabbing;
+}
+
+.desktop-folder-overlay-backdrop--handed-off {
+  pointer-events: none;
+}
+
+.desktop-folder-overlay-backdrop:not(.desktop-folder-overlay-backdrop--exiting) {
+  animation: desktop-folder-overlay-backdrop-in 0.3s ease;
+}
+
+.desktop-folder-overlay-backdrop--exiting {
+  animation: desktop-folder-overlay-backdrop-out 0.28s ease forwards;
+  pointer-events: none;
+}
+
+.desktop-folder-overlay {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, 100%);
+  max-height: min(640px, calc(100vh - 48px - var(--dock-reserve, 96px)));
+  padding: 10px 10px 9px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    #d8d8de 0%,
+    #c4c4ca 38%,
+    #adadb3 100%
+  );
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 20px 56px rgba(0, 0, 0, 0.48),
+    0 6px 18px rgba(0, 0, 0, 0.32);
+}
+
+.desktop-folder-overlay:not(.desktop-folder-overlay--exiting) {
+  animation: desktop-folder-overlay-panel-in 0.3s ease-out;
+}
+
+.desktop-folder-overlay--exiting {
+  animation: desktop-folder-overlay-panel-out 0.28s ease-in forwards;
+}
+
+.desktop-folder-overlay__gloss {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 0;
+  height: 38%;
+  border-radius: 18px 18px 0 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.06) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.desktop-folder-overlay__edge {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.desktop-folder-overlay__edge--top {
+  top: 1px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.32) 45%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.desktop-folder-overlay__edge--bottom {
+  bottom: 1px;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.2) 50%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.desktop-folder-overlay__header {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  padding: 4px 12px 10px;
+  text-align: center;
+}
+
+.desktop-folder-overlay__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #3a3a40;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  cursor: text;
+}
+
+.desktop-folder-overlay__title-input {
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  color: #3a3a40;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.1),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  outline: none;
+}
+
+.desktop-folder-overlay__well {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    #3a3a40 0%,
+    #2c2c32 42%,
+    #242428 100%
+  );
+  box-shadow:
+    inset 0 3px 7px rgba(0, 0, 0, 0.62),
+    inset 0 1px 3px rgba(0, 0, 0, 0.48),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.42);
+}
+
+.desktop-folder-overlay__scroll {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 14px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.desktop-folder-overlay__scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.desktop-folder-overlay__well::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 35%;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.28) 0%,
+    rgba(0, 0, 0, 0.08) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.desktop-folder-overlay__well::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.desktop-folder-overlay__grid {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px 12px;
+  justify-items: center;
+  align-content: start;
+}
+
+.desktop-folder-overlay--reordering .desktop-folder-overlay__icon:not(.desktop-folder-overlay__icon--source) {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desktop-folder-overlay--reordering .desktop-folder-overlay__icon {
+  animation: none;
+}
+
+.desktop-folder-overlay__icon--source {
+  opacity: 0;
+  pointer-events: none;
+  min-height: 85px;
+}
+
+.desktop-folder-overlay:not(.desktop-folder-overlay--exiting) .desktop-folder-overlay__icon {
+  animation: desktop-folder-overlay-icon-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--folder-icon-index, 0) * 0.028s + 0.08s);
+}
+
+.desktop-folder-overlay__icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 80px;
+  color: #f2f2f4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  transition: transform 0.14s ease;
+  touch-action: none;
+  user-select: none;
+}
+
+.desktop-folder-overlay__icon:active {
+  transform: scale(0.92);
+}
+
+.desktop-folder-overlay__icon-image {
+  position: relative;
+  display: flex;
+}
+
+.desktop-folder-overlay__icon-image .app-icon-tile__tile {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 5px rgba(0, 0, 0, 0.45);
+  filter: none;
+}
+
+.desktop-folder-overlay__icon-image .app-icon-tile__gloss {
+  opacity: 0.55;
+}
+
+.desktop-folder-overlay__icon-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes desktop-folder-overlay-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes desktop-folder-overlay-backdrop-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-folder-overlay-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes desktop-folder-overlay-panel-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+}
+
+@keyframes desktop-folder-overlay-icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55) translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.desktop-folder-overlay__drag-ghost {
+  position: fixed;
+  z-index: 910;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 80px;
+  pointer-events: none;
+  color: #f2f2f4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.42));
+  transform: scale(1.06);
+}
+
+.desktop-folder-overlay__drag-ghost .app-icon-tile__tile {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 5px rgba(0, 0, 0, 0.45);
+}

@@ -40,7 +40,7 @@ function syncDockLayoutSnapshotFromStorage(runningAppIds: readonly AppId[] = [])
 
   setDockLayoutSnapshot(
     buildDockLayoutSnapshot({
-      pinnedDockAppIds: layout.pinnedDockAppIds,
+      pinnedDockItemIds: layout.pinnedDockItemIds,
       runningAppIds,
       installedGeneratedAppIds,
     }),

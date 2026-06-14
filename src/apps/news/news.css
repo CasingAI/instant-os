@@ -214,9 +214,9 @@
   width: 100%;
   text-align: left;
   padding: 9px 10px 9px 12px;
-  border: none;
+  border: 1px solid transparent;
+  border-bottom-color: var(--news-border-light);
   background: transparent;
-  border-bottom: 1px solid var(--news-border-light);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -224,7 +224,7 @@
 }
 
 .news__row:last-child {
-  border-bottom: none;
+  border-bottom-color: transparent;
 }
 
 .news__row--featured {
@@ -276,9 +276,8 @@
 
 .news__row--active {
   background: var(--news-selected);
-  box-shadow: inset 0 0 0 1px var(--news-accent);
+  border-color: var(--news-accent);
   border-radius: 6px;
-  border-bottom: none;
 }
 
 .news__row:has(+ .news__row--active) {

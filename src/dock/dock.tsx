@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'preact/hooks'
+import type { ComponentChildren } from 'preact'
+import { useEffect, useMemo, useState } from 'preact/hooks'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
+import { DesktopFolderIcon, type FolderPreviewApp } from '../desktop/desktop-folder-icon.tsx'
+import { openDesktopFolder, toggleDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
+import { findFolderById } from '../os/desktop-folder-operations.ts'
+import { isDesktopFolderId, type DesktopFolderId, type DesktopItemId } from '../os/desktop-folder-types.ts'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
 import {
   buildBuiltinIconContextMenuItems,
@@ -14,10 +19,9 @@ import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
-import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
-import {
-  DOCK_SETTINGS_CHANGED_EVENT,
-} from './dock-settings-storage.ts'
+import { isGeneratedAppId, type AppId, type BuiltinAppId, type GeneratedAppId } from '../os/types.ts'
+import { getDockDropSession, subscribeDockDropSession } from './dock-drop-session.ts'
+import { DOCK_SETTINGS_CHANGED_EVENT } from './dock-settings-storage.ts'
 import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from './use-dock-viewport-fit.ts'
 import { resolveEffectiveDockIconSizePx } from './dock-layout-metrics.ts'
 import '../icons/app-icon-tile.css'
@@ -46,6 +50,14 @@ function useDockIconSize(): number {
   return iconSize
 }
 
+function useDockDropSession() {
+  const [dropSession, setDropSession] = useState(getDockDropSession)
+
+  useEffect(() => subscribeDockDropSession(() => setDropSession(getDockDropSession())), [])
+
+  return dropSession
+}
+
 export function Dock() {
   const {
     windows,
@@ -62,12 +74,72 @@ export function Dock() {
   const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
     useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
-  const { pinnedDockAppIds, isPinnedToDock, pinToDock, unpinFromDock } = useLauncherLayout()
+  const {
+    pinnedDockItemIds,
+    desktopFolders,
+    isPinnedToDock,
+    pinToDock,
+    unpinFromDock,
+    unpinItemFromDock,
+    dissolveDesktopFolder,
+  } = useLauncherLayout()
+  const dropSession = useDockDropSession()
   const dockHidden = windows.some((window) => window.fullscreen && !window.minimized)
   const iconSize = useDockIconSize()
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
+
+  const folderPreviewById = useMemo(() => {
+    const map = new Map<DesktopFolderId, FolderPreviewApp[]>()
+
+    for (const folder of desktopFolders) {
+      const previews: FolderPreviewApp[] = []
+      for (const appId of folder.appIds) {
+        if (isGeneratedAppId(appId)) {
+          const app = installedApps.find((entry) => entry.id === appId)
+          if (!app) {
+            continue
+          }
+          previews.push({
+            appId: app.id,
+            kind: 'generated',
+            emoji: app.iconEmoji,
+            themeColor: app.themeColor,
+          })
+          continue
+        }
+
+        const app = getAppDefinition(appId)
+        if (!app) {
+          continue
+        }
+        previews.push({ appId: app.id, kind: 'builtin', Icon: app.icon })
+      }
+      map.set(folder.id, previews)
+    }
+
+    return map
+  }, [desktopFolders, installedApps])
+
+  function resolvePrimaryAppWindow(appId: AppId) {
+    return windows
+      .filter((window) => window.appId === appId)
+      .sort((left, right) => right.zIndex - left.zIndex)[0]
+  }
+
+  function handleDockAppClick(appId: AppId, launch: () => void) {
+    const primary = resolvePrimaryAppWindow(appId)
+    if (primary && !primary.minimized) {
+      minimizeWindow(primary.id)
+      return
+    }
+    if (primary?.minimized) {
+      restoreWindow(primary.id)
+      return
+    }
+    launch()
+  }
 
   function buildWindowSubmenu(appId: AppId) {
     return buildDockWindowSubmenuOptions(windows, appId, {
@@ -79,42 +151,24 @@ export function Dock() {
     })
   }
 
-  function handleGeneratedClick(appId: GeneratedAppId) {
-    const minimized = windows.find((window) => window.appId === appId && window.minimized)
-    if (minimized) {
-      restoreWindow(minimized.id)
-      return
-    }
-    openInstalledApp(appId)
-  }
-
-  function renderBuiltinDockItem(appId: AppId) {
-    if (isGeneratedAppId(appId)) {
-      return undefined
-    }
-
+  function renderPinnedBuiltinDockItem(appId: BuiltinAppId) {
     const app = getAppDefinition(appId)
     if (!app || !isBuiltinAppVisibleOnDock(app)) {
       return undefined
     }
 
     const isRunning = windows.some((window) => window.appId === app.id)
-    const minimized = windows.find((window) => window.appId === app.id && window.minimized)
     const pinned = isPinnedToDock(app.id)
 
     const handleOpen = () => {
-      if (minimized) {
-        restoreWindow(minimized.id)
-        return
-      }
-      openApp(app.id)
+      handleDockAppClick(app.id, () => openApp(app.id))
     }
 
     return (
       <button
         key={app.id}
         type="button"
-        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
         aria-label={app.name}
         onClick={handleOpen}
         onContextMenu={(event) => {
@@ -146,7 +200,7 @@ export function Dock() {
     )
   }
 
-  function renderGeneratedDockItem(appId: GeneratedAppId) {
+  function renderPinnedGeneratedDockItem(appId: GeneratedAppId) {
     const app = installedApps.find((entry) => entry.id === appId)
     if (!app) {
       return undefined
@@ -157,14 +211,14 @@ export function Dock() {
     const pinned = isPinnedToDock(app.id)
 
     const handleOpen = () => {
-      handleGeneratedClick(app.id)
+      handleDockAppClick(app.id, () => openInstalledApp(app.id))
     }
 
     return (
       <button
         key={app.id}
         type="button"
-        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
         aria-label={app.name}
         onClick={handleOpen}
         onContextMenu={(event) => {
@@ -191,24 +245,182 @@ export function Dock() {
     )
   }
 
-  const pinnedDockItems = pinnedDockAppIds
-    .map((appId) =>
-      isGeneratedAppId(appId) ? renderGeneratedDockItem(appId) : renderBuiltinDockItem(appId),
+  function renderPinnedFolderDockItem(folderId: DesktopFolderId) {
+    const folder = findFolderById(desktopFolders, folderId)
+    if (!folder) {
+      return undefined
+    }
+
+    const previewApps = folderPreviewById.get(folderId) ?? []
+    const handleClick = () => {
+      toggleDesktopFolder(folderId)
+    }
+    const handleOpen = () => {
+      openDesktopFolder(folderId)
+    }
+
+    return (
+      <button
+        key={folderId}
+        type="button"
+        class="dock__item dock__item--pinned dock__item--folder"
+        aria-label={folder.name}
+        onClick={handleClick}
+        onContextMenu={(event) => {
+          showIconContextMenu(event, [
+            { type: 'action', label: '打开', onClick: handleOpen },
+            { type: 'separator' },
+            { type: 'action', label: '从程序坞移除', onClick: () => unpinItemFromDock(folderId) },
+            { type: 'separator' },
+            {
+              type: 'action',
+              label: '解散文件夹',
+              onClick: () => dissolveDesktopFolder(folderId),
+            },
+          ])
+        }}
+      >
+        <DockTooltip name={folder.name} />
+        <span class="dock__icon">
+          <DesktopFolderIcon apps={previewApps} size={iconSize} />
+        </span>
+      </button>
     )
+  }
+
+  function renderPinnedDockItem(itemId: DesktopItemId) {
+    if (isDesktopFolderId(itemId)) {
+      return renderPinnedFolderDockItem(itemId)
+    }
+
+    if (isGeneratedAppId(itemId)) {
+      return renderPinnedGeneratedDockItem(itemId)
+    }
+
+    return renderPinnedBuiltinDockItem(itemId)
+  }
+
+  function renderRunningBuiltinDockItem(appId: BuiltinAppId) {
+    const app = getAppDefinition(appId)
+    if (!app || !isBuiltinAppVisibleOnDock(app)) {
+      return undefined
+    }
+
+    const isRunning = windows.some((window) => window.appId === app.id)
+
+    const handleOpen = () => {
+      handleDockAppClick(app.id, () => openApp(app.id))
+    }
+
+    return (
+      <button
+        key={app.id}
+        type="button"
+        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        aria-label={app.name}
+        onClick={handleOpen}
+        onContextMenu={(event) => {
+          showIconContextMenu(
+            event,
+            buildBuiltinIconContextMenuItems(
+              handleOpen,
+              {
+                isPinnedToDock: false,
+                onPinToDock: () => pinToDock(app.id),
+              },
+              {
+                onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+                windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
+              },
+            ),
+          )
+        }}
+      >
+        <DockTooltip name={app.name} />
+        <span class="dock__icon">
+          <app.icon size={iconSize} />
+          {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
+        </span>
+        {isRunning && <span class="dock__indicator" />}
+      </button>
+    )
+  }
+
+  function renderRunningGeneratedDockItem(appId: GeneratedAppId) {
+    const app = installedApps.find((entry) => entry.id === appId)
+    if (!app) {
+      return undefined
+    }
+
+    const isRunning = windows.some((window) => window.appId === app.id)
+    const slug = generatedAppIdToSlug(app.id)
+
+    const handleOpen = () => {
+      handleDockAppClick(app.id, () => openInstalledApp(app.id))
+    }
+
+    return (
+      <button
+        key={app.id}
+        type="button"
+        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        aria-label={app.name}
+        onClick={handleOpen}
+        onContextMenu={(event) => {
+          showIconContextMenu(
+            event,
+            buildGeneratedIconContextMenuItems({
+              onOpen: handleOpen,
+              onViewInMarketplace: () => openMarketplaceDetail(slug),
+              isPinnedToDock: false,
+              onPinToDock: () => pinToDock(app.id),
+              onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+              windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
+            }),
+          )
+        }}
+      >
+        <DockTooltip name={app.name} />
+        <span class="dock__icon">
+          <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
+        </span>
+        {isRunning && <span class="dock__indicator" />}
+      </button>
+    )
+  }
+
+  const pinnedDockItems = pinnedDockItemIds
+    .map((itemId) => renderPinnedDockItem(itemId))
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
 
   const runningDockItems = runningUnpinnedAppIds
     .map((appId) =>
       isGeneratedAppId(appId)
-        ? renderGeneratedDockItem(appId)
-        : renderBuiltinDockItem(appId),
+        ? renderRunningGeneratedDockItem(appId)
+        : renderRunningBuiltinDockItem(appId),
     )
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
 
   const showDivider = pinnedDockItems.length > 0 && runningDockItems.length > 0
+  const dropInsertIndex = dropSession.active ? dropSession.insertIndex : undefined
+
+  const pinnedZoneContent: ComponentChildren[] = []
+  for (let index = 0; index <= pinnedDockItems.length; index += 1) {
+    if (dropInsertIndex === index) {
+      pinnedZoneContent.push(
+        <div key={`drop-${index}`} class="dock__drop-indicator" aria-hidden="true" />,
+      )
+    }
+    if (index < pinnedDockItems.length) {
+      pinnedZoneContent.push(pinnedDockItems[index])
+    }
+  }
 
   return (
-    <nav class={`dock${dockHidden ? ' dock--hidden' : ''}`} aria-label="程序坞">
+    <nav
+      class={`dock${dockHidden ? ' dock--hidden' : ''}${dropSession.active ? ' dock--drop-target' : ''}`}
+      aria-label="程序坞"
+    >
       <div class="dock__row">
         <button
           type="button"
@@ -221,7 +433,7 @@ export function Dock() {
         />
         <div class="dock__plate-anchor">
           <div class="dock__plate">
-            {pinnedDockItems}
+            <div class="dock__pinned-zone">{pinnedZoneContent}</div>
             {showDivider && <div class="dock__divider" aria-hidden="true" />}
             {runningDockItems}
           </div>

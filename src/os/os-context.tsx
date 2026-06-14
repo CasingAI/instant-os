@@ -14,6 +14,7 @@ import {
   type SnapTarget,
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
+import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, WindowState, WindowRestoredBounds } from './types.ts'
 import { isGeneratedAppId } from './types.ts'
 
@@ -197,6 +198,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
 
     startDesktopRestore()
+    closeOpenDesktopFolder()
 
     const existing = windows.find((window) => window.appId === appId && !window.minimized)
     if (existing) {
@@ -235,6 +237,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   const openGeneratedApp = useCallback((appId: GeneratedAppId, title: string) => {
     startDesktopRestore()
+    closeOpenDesktopFolder()
 
     const existing = windows.find((window) => window.appId === appId && !window.minimized)
     if (existing) {
@@ -608,6 +611,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   const restoreWindow = useCallback((windowId: string) => {
     startDesktopRestore()
+    closeOpenDesktopFolder()
     const nextZ = bumpZIndex()
     setWindows((current) =>
       current.map((window) =>
