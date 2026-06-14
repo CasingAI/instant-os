@@ -3,6 +3,10 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  --wallpaper-background: transparent;
+  --wallpaper-background-size: auto;
+  --wallpaper-background-position: center;
+  --wallpaper-background-repeat: no-repeat;
   --wallpaper-overlay: none;
   --desktop-label-color: #fff;
   --desktop-label-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);

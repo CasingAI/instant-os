@@ -1,0 +1,16 @@
+.fullscreen-chrome-edge-sensor {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 1948;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.fullscreen-chrome-edge-sensor--reveal {
+  top: 0;
+}
+
+.fullscreen-chrome-edge-sensor--dismiss {
+  /* height set inline */
+}

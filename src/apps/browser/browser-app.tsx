@@ -5,13 +5,14 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import { useFullscreenChromeReveal } from '../../os/fullscreen-chrome-reveal-context.tsx'
 import {
   BackIcon,
   BookmarksIcon,
   ForwardIcon,
   LockIcon,
+  HistoryIcon,
   ReloadIcon,
-  SidebarIcon,
   StopIcon,
 } from '../../icons/app-icons.tsx'
 import {
@@ -27,8 +28,12 @@ import {
 import { clearBrowserHistory, recordBrowserHistoryVisit } from './browser-history.ts'
 import {
   addBrowserBookmark,
+  bookmarkAccentColor,
+  bookmarkDisplayGlyph,
+  insertBookmarkAt,
   isBrowserBookmarked,
   loadBookmarksBarVisible,
+  moveBookmark,
   removeBrowserBookmark,
   setBookmarksBarVisible,
   toggleBrowserBookmark,
@@ -51,15 +56,21 @@ import {
 import { SafariTabPane } from './safari-tab-pane.tsx'
 import { isEmbeddedAppOrigin, isSameDocumentUrl } from './resolve-browser-navigation-url.ts'
 import { SafariHistoryPanel } from './safari-history-panel.tsx'
+import { SafariBookmarksPanel } from './safari-bookmarks-panel.tsx'
 import { SafariAddressSuggestions } from './safari-address-suggestions.tsx'
 import { searchBrowserHistory } from './search-browser-history.ts'
 import { SafariTabBar } from './safari-tab-bar.tsx'
+import { SafariTabsPanel } from './safari-tabs-panel.tsx'
 import {
   SafariBookmarksBar,
+  SAFARI_URL_MIME,
   type SafariBookmarkContextRequest,
 } from './safari-bookmarks-bar.tsx'
+import { beginSafariDrag, endSafariDrag } from './safari-drag-bridge.ts'
+import { setSafariBookmarkDragImage } from './safari-drag-ghost.ts'
+import { AdaptiveActionMenu } from '../../ui/adaptive-action-menu.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import {
-  SafariContextMenu,
   type SafariContextMenuItem,
   type SafariContextMenuTarget,
 } from './safari-context-menu.tsx'
@@ -139,6 +150,7 @@ function commitPageVisit(url: string, title: string): void {
 
 export function BrowserApp() {
   const { closeWindowsForApp, minimizeWindow, windows, focusWindow } = useOs()
+  const { setChromePinSource } = useFullscreenChromeReveal()
   const { showBuiltinAbout } = useAboutApp()
   const browserWindowId = windows.find((window) => window.appId === 'browser' && !window.minimized)?.id
   const apiReady = useOpenAiReady()
@@ -147,6 +159,9 @@ export function BrowserApp() {
   const [addressFocused, setAddressFocused] = useState(false)
   const [addressSuggestionIndex, setAddressSuggestionIndex] = useState(-1)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [tabsOverflowOpen, setTabsOverflowOpen] = useState(false)
+  const [hiddenTabIds, setHiddenTabIds] = useState<string[]>([])
+  const [bookmarksOverflowOpen, setBookmarksOverflowOpen] = useState(false)
   const [historyRevision, setHistoryRevision] = useState(0)
   const [bookmarksRevision, setBookmarksRevision] = useState(0)
   const [bookmarksBarVisible, setBookmarksBarVisibleState] = useState(() => loadBookmarksBarVisible())
@@ -162,6 +177,15 @@ export function BrowserApp() {
   const pageHtmlByTabRef = useRef<Record<string, string>>({})
   const lastPageNavByTabRef = useRef<Record<string, { url: string; at: number }>>({})
   const safariRootRef = useRef<HTMLDivElement>(null)
+  const { hostRef: narrowLayoutHostRef, narrowLayout } = useAppNarrowLayout()
+
+  const attachSafariRoot = useCallback(
+    (node: HTMLDivElement | null) => {
+      safariRootRef.current = node
+      narrowLayoutHostRef(node)
+    },
+    [narrowLayoutHostRef],
+  )
   const viewportRef = useRef<HTMLElement>(null)
   const addressWrapRef = useRef<HTMLFormElement>(null)
   const [suggestionAnchor, setSuggestionAnchor] = useState<
@@ -237,6 +261,71 @@ export function BrowserApp() {
       return next
     })
   }, [])
+
+  const addBookmarkAt = useCallback(
+    (url: string, index: number, title?: string) => {
+      const resolvedTitle = title?.trim() || pageTitleFromUrl(url)
+      if (insertBookmarkAt({ url, title: resolvedTitle }, index)) {
+        bumpBookmarksRevision()
+      }
+    },
+    [bumpBookmarksRevision],
+  )
+
+  const reorderBookmark = useCallback(
+    (fromUrl: string, toIndex: number) => {
+      moveBookmark(fromUrl, toIndex)
+      bumpBookmarksRevision()
+    },
+    [bumpBookmarksRevision],
+  )
+
+  // 地址栏可作为整体被拖拽：未聚焦、非起始页、未加载时启用。
+  // 输入框在可拖拽时禁用指针事件，由外层容器承接拖拽；点击仍通过外层 onClick 进入编辑。
+  const addressDraggable = !addressFocused && !onStartPage && !showProgress
+
+  const handleAddressDragStart = useCallback(
+    (event: DragEvent) => {
+      if (!addressDraggable) {
+        event.preventDefault()
+        return
+      }
+
+      const url = current.url
+      const title = current.title || pageTitleFromUrl(current.url)
+      beginSafariDrag({ kind: 'url', url, title })
+      if (event.dataTransfer) {
+        event.dataTransfer.setData(SAFARI_URL_MIME, url)
+        event.dataTransfer.setData('text/uri-list', url)
+        event.dataTransfer.setData('text/plain', url)
+        event.dataTransfer.effectAllowed = 'copyMove'
+      }
+      setSafariBookmarkDragImage(event, {
+        glyph: bookmarkDisplayGlyph(url, title),
+        label: title,
+        color: bookmarkAccentColor(url),
+      })
+    },
+    [addressDraggable, current.title, current.url],
+  )
+
+  const handleAddressDragEnd = useCallback(() => {
+    endSafariDrag()
+  }, [])
+
+  // 未聚焦时点击（按下并松开且未拖动）：手动聚焦输入框。
+  const handleAddressClickToFocus = useCallback(
+    (event: MouseEvent) => {
+      if (!addressDraggable) {
+        return
+      }
+      const root = event.currentTarget as HTMLElement
+      const input = root.querySelector?.('.safari__address-input') as HTMLInputElement | null
+      input?.focus()
+      input?.select()
+    },
+    [addressDraggable],
+  )
 
   const updateTab = useCallback((tabId: string, updater: (tab: SafariTab) => SafariTab) => {
     setTabs((prev) => prev.map((tab) => (tab.id === tabId ? updater(tab) : tab)))
@@ -450,11 +539,13 @@ export function BrowserApp() {
       updateTab(tabId, (tab) => ({ ...tab, inputUrl: displayUrl(entry.url) }))
 
       if (isStartPageUrl(entry.url)) {
+        cancelGeneration(tabId)
         setTabPageState(tabId, createInitialPageState())
         return
       }
 
       if (entry.html) {
+        cancelGeneration(tabId)
         setTabPageState(tabId, {
           loading: false,
           streaming: false,
@@ -469,6 +560,7 @@ export function BrowserApp() {
 
       const persisted = getCachedPage(entry.url)
       if (persisted) {
+        cancelGeneration(tabId)
         applyCachedPage(tabId, index, entry.url, persisted)
         return
       }
@@ -480,7 +572,7 @@ export function BrowserApp() {
         buildGenContext(entry.url),
       )
     },
-    [applyCachedPage, buildGenContext, loadRemotePage, setTabPageState, updateTab],
+    [applyCachedPage, buildGenContext, cancelGeneration, loadRemotePage, setTabPageState, updateTab],
   )
 
   const navigate = useCallback(
@@ -492,6 +584,8 @@ export function BrowserApp() {
       if (!tab) {
         return
       }
+
+      cancelGeneration(tabId)
 
       const fromEntry = tab.history[tab.historyIndex] ?? INITIAL_ENTRY
       const fromUrl = context?.referrerUrl ?? fromEntry.url
@@ -525,7 +619,6 @@ export function BrowserApp() {
       )
 
       if (isStartPageUrl(url)) {
-        cancelGeneration(tabId)
         setTabPageState(tabId, createInitialPageState())
         return
       }
@@ -633,6 +726,15 @@ export function BrowserApp() {
     window.addEventListener('resize', handleLayoutChange)
     return () => window.removeEventListener('resize', handleLayoutChange)
   }, [showAddressSuggestions, updateSuggestionAnchor])
+
+  useEffect(() => {
+    setChromePinSource(
+      'browser-panels',
+      showAddressSuggestions ||
+        contextMenu !== undefined ||
+        bookmarkContextMenu !== undefined,
+    )
+  }, [bookmarkContextMenu, contextMenu, setChromePinSource, showAddressSuggestions])
 
   const navigateFromPageForTab = useCallback(
     (tabId: string, rawUrl: string) => {
@@ -953,7 +1055,7 @@ export function BrowserApp() {
       items.push({ type: 'separator' })
       items.push({
         type: 'action',
-        label: currentBookmarked ? '从个人收藏中移除' : '添加到个人收藏',
+        label: currentBookmarked ? '移除书签' : '添加书签',
         onClick: toggleBookmarkForCurrentPage,
       })
       items.push({
@@ -990,12 +1092,18 @@ export function BrowserApp() {
       {
         type: 'action',
         label: '打开',
-        onClick: () => navigateActive(bookmark.url),
+        onClick: () => {
+          setBookmarksOverflowOpen(false)
+          navigateActive(bookmark.url)
+        },
       },
       {
         type: 'action',
         label: '在新标签页中打开',
-        onClick: () => navigateInNewTab(bookmark.url),
+        onClick: () => {
+          setBookmarksOverflowOpen(false)
+          navigateInNewTab(bookmark.url)
+        },
       },
       { type: 'separator' },
       {
@@ -1007,24 +1115,40 @@ export function BrowserApp() {
         },
       },
     ]
-  }, [bookmarkContextMenu, bumpBookmarksRevision, navigateActive, navigateInNewTab])
+  }, [bookmarkContextMenu, bumpBookmarksRevision, navigateActive, navigateInNewTab, setBookmarksOverflowOpen])
 
   const addressValue = addressFocused
     ? inputUrl
     : inputUrl ||
       (onStartPage ? '' : current.title || displayUrl(current.url))
 
-  const tabSummaries = tabs.map((tab) => {
-    const entry = tab.history[tab.historyIndex] ?? INITIAL_ENTRY
-    const start = isStartPageUrl(entry.url)
-    return {
-      id: tab.id,
-      title: tabDisplayTitle(tab),
-      loading: tab.pageState.loading || tab.pageState.streaming,
-      isStartPage: start,
-      siteInitial: start ? undefined : hostnameFromUrl(entry.url).charAt(0).toUpperCase(),
+  const tabSummaries = useMemo(
+    () =>
+      tabs.map((tab) => {
+        const entry = tab.history[tab.historyIndex] ?? INITIAL_ENTRY
+        const start = isStartPageUrl(entry.url)
+        return {
+          id: tab.id,
+          title: tabDisplayTitle(tab),
+          url: start ? undefined : entry.url,
+          loading: tab.pageState.loading || tab.pageState.streaming,
+          isStartPage: start,
+          siteInitial: start ? undefined : hostnameFromUrl(entry.url).charAt(0).toUpperCase(),
+        }
+      }),
+    [tabs],
+  )
+
+  const hiddenTabSummaries = useMemo(
+    () => tabSummaries.filter((tab) => hiddenTabIds.includes(tab.id)),
+    [hiddenTabIds, tabSummaries],
+  )
+
+  useEffect(() => {
+    if (hiddenTabIds.length === 0) {
+      setTabsOverflowOpen(false)
     }
-  })
+  }, [hiddenTabIds.length])
 
   const statusHint =
     showProgress && pageState.streaming
@@ -1103,7 +1227,7 @@ export function BrowserApp() {
         items: [
           {
             type: 'action',
-            label: currentBookmarked ? '从个人收藏中移除' : '添加书签…',
+            label: currentBookmarked ? '移除书签' : '添加书签…',
             shortcut: '⌘D',
             onClick: () => run('toggleBookmark'),
             disabled: onStartPage,
@@ -1111,7 +1235,7 @@ export function BrowserApp() {
           { type: 'separator' },
           {
             type: 'action',
-            label: bookmarksBarVisible ? '隐藏收藏栏' : '显示收藏栏',
+            label: bookmarksBarVisible ? '隐藏书签栏' : '显示书签栏',
             shortcut: '⌘⇧B',
             onClick: () => run('toggleBookmarksBar'),
           },
@@ -1178,14 +1302,26 @@ export function BrowserApp() {
   useAppMenuBar('browser', menuBar)
 
   return (
-    <div class="safari" ref={safariRootRef}>
+    <div class="safari" ref={attachSafariRoot}>
       <header class="safari__chrome">
         <SafariTabBar
           tabs={tabSummaries}
           activeTabId={activeTabId}
+          overflowOpen={tabsOverflowOpen}
           onSelectTab={selectTab}
           onCloseTab={closeTab}
           onNewTab={addTab}
+          onToggleOverflow={() =>
+            setTabsOverflowOpen((open) => {
+              const next = !open
+              if (next) {
+                setHistoryOpen(false)
+                setBookmarksOverflowOpen(false)
+              }
+              return next
+            })
+          }
+          onHiddenTabsChange={setHiddenTabIds}
         />
 
         <div class="safari__toolbar">
@@ -1212,12 +1348,14 @@ export function BrowserApp() {
 
           <form class="safari__address-wrap" ref={addressWrapRef} onSubmit={submitUrl}>
             <div
-              class={`safari__address ${addressFocused ? 'safari__address--focused' : ''} ${showProgress ? 'safari__address--loading' : ''}`}
+              class={`safari__address ${addressFocused ? 'safari__address--focused' : ''} ${showProgress ? 'safari__address--loading' : ''} ${addressDraggable ? 'safari__address--draggable' : ''}`}
+              draggable={addressDraggable}
+              onDragStart={handleAddressDragStart}
+              onDragEnd={handleAddressDragEnd}
+              onClick={handleAddressClickToFocus}
             >
               <span class="safari__address-leading" aria-hidden="true">
-                {showProgress ? (
-                  <span class="safari__address-spinner" />
-                ) : !onStartPage ? (
+                {showProgress ? undefined : !onStartPage ? (
                   <LockIcon />
                 ) : undefined}
               </span>
@@ -1262,7 +1400,7 @@ export function BrowserApp() {
               type="button"
               class={`safari__btn ${currentBookmarked ? 'safari__btn--bookmarked' : ''}`}
               onClick={toggleBookmarkForCurrentPage}
-              aria-label={currentBookmarked ? '从个人收藏中移除' : '添加到个人收藏'}
+              aria-label={currentBookmarked ? '移除书签' : '添加书签'}
               aria-pressed={currentBookmarked}
               disabled={onStartPage}
             >
@@ -1286,11 +1424,20 @@ export function BrowserApp() {
             <button
               type="button"
               class={`safari__btn ${historyOpen ? 'safari__btn--active' : ''}`}
-              onClick={() => setHistoryOpen((open) => !open)}
+              onClick={() =>
+                setHistoryOpen((open) => {
+                  const next = !open
+                  if (next) {
+                    setTabsOverflowOpen(false)
+                    setBookmarksOverflowOpen(false)
+                  }
+                  return next
+                })
+              }
               aria-label="历史记录"
               aria-pressed={historyOpen}
             >
-              <SidebarIcon />
+              <HistoryIcon />
             </button>
           </div>
         </div>
@@ -1298,15 +1445,22 @@ export function BrowserApp() {
         {bookmarksBarVisible && (
           <SafariBookmarksBar
             revision={bookmarksRevision}
+            overflowOpen={bookmarksOverflowOpen}
+            onToggleOverflow={() => {
+              setBookmarksOverflowOpen((open) => {
+                const next = !open
+                if (next) {
+                  setHistoryOpen(false)
+                  setTabsOverflowOpen(false)
+                }
+                return next
+              })
+            }}
             onNavigate={navigateActive}
             onContextMenu={setBookmarkContextMenu}
+            onAddBookmark={addBookmarkAt}
+            onReorder={reorderBookmark}
           />
-        )}
-
-        {showProgress && (
-          <div class="safari__progress" role="progressbar" aria-busy="true">
-            <div class="safari__progress-bar" />
-          </div>
         )}
       </header>
 
@@ -1370,14 +1524,15 @@ export function BrowserApp() {
             />
           )
         })}
-        {contextMenu && (
-          <SafariContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            items={contextMenuItems}
-            onClose={() => setContextMenu(undefined)}
-          />
-        )}
+        <AdaptiveActionMenu
+          open={contextMenu !== undefined}
+          title="页面"
+          items={contextMenuItems}
+          narrowLayout={narrowLayout}
+          anchor={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : undefined}
+          mount="contained"
+          onClose={() => setContextMenu(undefined)}
+        />
       </main>
 
       {(livePageTokens !== undefined && livePageTokens > 0) || cumulativeTokens > 0 ? (
@@ -1402,14 +1557,45 @@ export function BrowserApp() {
         onHistoryChange={() => setHistoryRevision((value) => value + 1)}
       />
 
-      {bookmarkContextMenu && (
-        <SafariContextMenu
-          x={bookmarkContextMenu.x}
-          y={bookmarkContextMenu.y}
-          items={bookmarkContextMenuItems}
-          onClose={() => setBookmarkContextMenu(undefined)}
-        />
-      )}
+      <SafariTabsPanel
+        open={tabsOverflowOpen}
+        tabs={hiddenTabSummaries}
+        activeTabId={activeTabId}
+        onClose={() => setTabsOverflowOpen(false)}
+        onSelectTab={selectTab}
+        onCloseTab={closeTab}
+      />
+
+      <SafariBookmarksPanel
+        open={bookmarksOverflowOpen}
+        revision={bookmarksRevision}
+        contextMenuOpen={bookmarkContextMenu !== undefined && !narrowLayout}
+        onClose={() => setBookmarksOverflowOpen(false)}
+        onDismissContextMenu={() => setBookmarkContextMenu(undefined)}
+        onNavigate={navigateActive}
+        onContextMenu={setBookmarkContextMenu}
+        onReorder={reorderBookmark}
+        onAddBookmark={addBookmarkAt}
+      />
+
+      <AdaptiveActionMenu
+        open={bookmarkContextMenu !== undefined}
+        title={
+          bookmarkContextMenu
+            ? bookmarkContextMenu.bookmark.title ||
+              hostnameFromUrl(bookmarkContextMenu.bookmark.url)
+            : '书签'
+        }
+        items={bookmarkContextMenuItems}
+        narrowLayout={narrowLayout}
+        anchor={
+          bookmarkContextMenu
+            ? { x: bookmarkContextMenu.x, y: bookmarkContextMenu.y }
+            : undefined
+        }
+        mount="contained"
+        onClose={() => setBookmarkContextMenu(undefined)}
+      />
     </div>
   )
 }

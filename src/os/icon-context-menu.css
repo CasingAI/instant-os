@@ -3,20 +3,19 @@
   z-index: 5000;
   min-width: 220px;
   padding: 5px 0;
-  color: #1d1d1f;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #1a1a1a;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
+  border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 6px;
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.18),
-    0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(20px);
+    0 8px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .os-icon-context-menu__item {
   display: block;
   width: 100%;
-  padding: 4px 16px;
+  padding: 5px 16px;
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -26,8 +25,9 @@
 }
 
 .os-icon-context-menu__item:hover:not(:disabled) {
-  background: #007aff;
+  background: linear-gradient(180deg, #5cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .os-icon-context-menu__item:disabled {
@@ -40,14 +40,16 @@
 }
 
 .os-icon-context-menu__item--destructive:hover:not(:disabled) {
-  background: #ff3b30;
+  background: linear-gradient(180deg, #ff8a84 0%, #e34b3f 55%, #c9302a 100%);
   color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .os-icon-context-menu__separator {
   height: 1px;
   margin: 5px 0;
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .os-icon-context-menu__submenu-row {
@@ -56,7 +58,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 4px 16px;
+  padding: 5px 16px;
   font-size: 13px;
   white-space: nowrap;
   cursor: default;
@@ -64,8 +66,9 @@
 
 .os-icon-context-menu__submenu-row:hover,
 .os-icon-context-menu__submenu-row--open {
-  background: #007aff;
+  background: linear-gradient(180deg, #5cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .os-icon-context-menu__submenu-label {
@@ -76,6 +79,11 @@
   opacity: 0.72;
   font-size: 15px;
   line-height: 1;
+}
+
+.os-icon-context-menu__submenu-row:hover .os-icon-context-menu__submenu-chevron,
+.os-icon-context-menu__submenu-row--open .os-icon-context-menu__submenu-chevron {
+  opacity: 0.95;
 }
 
 .os-icon-context-menu__submenu {

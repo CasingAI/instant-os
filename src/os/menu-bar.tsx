@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { BatteryIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { getAppDefinition } from './app-registry.tsx'
 import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem } from './menu-bar-types.ts'
+import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
 import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import { useOs } from './os-context.tsx'
+import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
 import { useDeviceBattery } from './use-device-battery.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
 import { isGeneratedAppId } from './types.ts'
@@ -17,7 +19,10 @@ import './menu-bar-popover.css'
 import './notification-center.css'
 
 const APPLE_MENU_LABEL = '__apple__'
+const MORE_MENU_LABEL = '__more__'
 const STATUS_BATTERY_LABEL = '__status_battery__'
+const MENU_GAP_PX = 2
+const MORE_MENU_BTN_SPACE_PX = 50
 
 function appNameForWindow(appId: AppId, windowTitle: string): string {
   if (isGeneratedAppId(appId)) {
@@ -100,16 +105,23 @@ function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
 
 export function MenuBar() {
   const { windows, activeWindowId, focusWindow, restoreWindow } = useOs()
+  const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
   const { showFinderAbout, showInstantAbout } = useAboutApp()
   const battery = useDeviceBattery()
   const { pendingInstalls, failedInstalls } = useGeneratedApps()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
+  const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
   const [now, setNow] = useState(() => new Date())
   const barRef = useRef<HTMLElement>(null)
+  const leftRef = useRef<HTMLDivElement>(null)
+  const menusRef = useRef<HTMLDivElement>(null)
 
-  const hidden = windows.some((window) => window.fullscreen && !window.minimized)
+  const hasFullscreenWindow = windows.some((window) => window.fullscreen && !window.minimized)
+  const hidden = hasImmersiveFullscreen
+    ? !chromeRevealed
+    : hasFullscreenWindow
   const activeWindow = windows.find((window) => window.id === activeWindowId && !window.minimized)
 
   const desktopMenus = useMemo<MenuDefinition[]>(
@@ -131,6 +143,8 @@ export function MenuBar() {
   )
 
   const menus = activeWindow ? (menusByApp[activeWindow.appId] ?? []) : desktopMenus
+  const hasMenuOverflow = visibleMenuCount < menus.length
+  const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
   const { calendar, weekday, time } = formatOsDateTime(now)
   const activeNotificationCount = pendingInstalls.length + failedInstalls.length
@@ -139,6 +153,10 @@ export function MenuBar() {
     const id = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)
+  }, [notificationCenterOpen, openMenuLabel, setChromePinSource])
 
   const prevActiveWindowIdRef = useRef(activeWindowId)
 
@@ -150,8 +168,92 @@ export function MenuBar() {
     setOpenMenuLabel(undefined)
   }, [activeWindowId])
 
+  useLayoutEffect(() => {
+    const left = leftRef.current
+    const menusEl = menusRef.current
+    if (!left || !menusEl) {
+      return
+    }
+
+    const measure = () => {
+      const items = Array.from(menusEl.querySelectorAll<HTMLElement>('[data-menu-index]'))
+      if (items.length === 0) {
+        setVisibleMenuCount(0)
+        return
+      }
+
+      const brand = left.querySelector<HTMLElement>('.menu-bar__menu--brand')
+      const fallback = left.querySelector<HTMLElement>('.menu-bar__fallback-name')
+
+      let available = left.clientWidth
+      if (brand) {
+        available -= brand.offsetWidth + MENU_GAP_PX
+      }
+      if (fallback) {
+        available -= fallback.offsetWidth + MENU_GAP_PX
+      }
+
+      if (available <= 0) {
+        return
+      }
+
+      const moreMeasure = menusEl.querySelector<HTMLElement>('.menu-bar__more-measure')
+      const moreBtnSpace = moreMeasure
+        ? moreMeasure.offsetWidth + MENU_GAP_PX
+        : MORE_MENU_BTN_SPACE_PX
+
+      const widths: number[] = []
+      let totalWidth = 0
+      for (let index = 0; index < items.length; index += 1) {
+        const width = items[index].offsetWidth
+        widths.push(width)
+        totalWidth += width + (index > 0 ? MENU_GAP_PX : 0)
+      }
+
+      if (totalWidth <= available) {
+        setVisibleMenuCount(items.length)
+        return
+      }
+
+      let fit = items.length
+      let visibleWidth = totalWidth
+      while (fit > 0 && visibleWidth + moreBtnSpace > available) {
+        fit -= 1
+        visibleWidth -= widths[fit] + (fit > 0 ? MENU_GAP_PX : 0)
+      }
+
+      setVisibleMenuCount(Math.max(0, fit))
+    }
+
+    measure()
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure)
+      observer.observe(left)
+      const bar = barRef.current
+      if (bar) {
+        observer.observe(bar)
+      }
+      return () => observer.disconnect()
+    }
+
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [menus.length, menus.map((menu) => menu.label).join('\0')])
+
   useEffect(() => {
-    if (!openMenuLabel) {
+    if (!openMenuLabel || openMenuLabel === MORE_MENU_LABEL || openMenuLabel === APPLE_MENU_LABEL) {
+      return
+    }
+
+    const index = menus.findIndex((menu) => menu.label === openMenuLabel)
+    if (index >= visibleMenuCount) {
+      setOpenMenuLabel(undefined)
+    }
+  }, [menus, openMenuLabel, visibleMenuCount])
+
+  useEffect(() => {
+    if (!openMenuLabel || openMenuLabel === MORE_MENU_LABEL) {
       return
     }
 
@@ -194,7 +296,7 @@ export function MenuBar() {
 
   return (
     <header ref={barRef} class={`menu-bar${hidden ? ' menu-bar--hidden' : ''}`}>
-      <div class="menu-bar__left">
+      <div class="menu-bar__left" ref={leftRef}>
         <div class="menu-bar__menu menu-bar__menu--brand">
           <button
             type="button"
@@ -210,22 +312,63 @@ export function MenuBar() {
             <MenuDropdown menu={appleMenu} onClose={() => setOpenMenuLabel(undefined)} />
           )}
         </div>
-        {menus.map((menu) => (
-          <div key={menu.label} class="menu-bar__menu">
-            <button
-              type="button"
-              class={`menu-bar__trigger${openMenuLabel === menu.label ? ' menu-bar__trigger--open' : ''}`}
-              aria-haspopup="menu"
-              aria-expanded={openMenuLabel === menu.label}
-              onClick={() => toggleMenu(menu.label)}
-            >
-              {menu.label}
-            </button>
-            {openMenuLabel === menu.label && (
-              <MenuDropdown menu={menu} onClose={() => setOpenMenuLabel(undefined)} />
+        {menus.length > 0 && (
+          <div class="menu-bar__menus" ref={menusRef}>
+            {menus.map((menu, index) => {
+              if (hasMenuOverflow && index >= visibleMenuCount) {
+                return undefined
+              }
+
+              return (
+                <div key={menu.label} class="menu-bar__menu">
+                  <button
+                    type="button"
+                    class={`menu-bar__trigger${openMenuLabel === menu.label ? ' menu-bar__trigger--open' : ''}`}
+                    aria-haspopup="menu"
+                    aria-expanded={openMenuLabel === menu.label}
+                    onClick={() => toggleMenu(menu.label)}
+                  >
+                    {menu.label}
+                  </button>
+                  {openMenuLabel === menu.label && (
+                    <MenuDropdown menu={menu} onClose={() => setOpenMenuLabel(undefined)} />
+                  )}
+                </div>
+              )
+            })}
+            {hasMenuOverflow && (
+              <div class="menu-bar__menu menu-bar__menu--more">
+                <button
+                  type="button"
+                  class={`menu-bar__trigger${openMenuLabel === MORE_MENU_LABEL ? ' menu-bar__trigger--open' : ''}`}
+                  aria-haspopup="menu"
+                  aria-expanded={openMenuLabel === MORE_MENU_LABEL}
+                  aria-label="更多菜单"
+                  onClick={() => toggleMenu(MORE_MENU_LABEL)}
+                >
+                  更多
+                </button>
+                <MenuOverflowModal
+                  open={openMenuLabel === MORE_MENU_LABEL}
+                  menus={overflowMenus}
+                  onClose={() => setOpenMenuLabel(undefined)}
+                />
+              </div>
             )}
+            <div class="menu-bar__measure" aria-hidden="true">
+              {menus.map((menu, index) => (
+                <div
+                  key={`measure-${menu.label}`}
+                  class="menu-bar__menu menu-bar__menu--measure"
+                  data-menu-index={index}
+                >
+                  <span class="menu-bar__trigger">{menu.label}</span>
+                </div>
+              ))}
+              <span class="menu-bar__trigger menu-bar__more-measure">更多</span>
+            </div>
           </div>
-        ))}
+        )}
         {activeWindow && menus.length === 0 && (
           <span class="menu-bar__fallback-name">
             {appNameForWindow(activeWindow.appId, activeWindow.title)}

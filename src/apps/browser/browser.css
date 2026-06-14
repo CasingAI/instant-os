@@ -1,23 +1,41 @@
-/* Safari — modern minimal chrome */
+/* 网络浏览器 — iOS 6 拟物风格（与系统其它应用统一） */
 
 .safari {
-  --safari-bg: #f5f5f7;
-  --safari-chrome: rgba(255, 255, 255, 0.92);
-  --safari-border: rgba(0, 0, 0, 0.08);
-  --safari-text: #1d1d1f;
-  --safari-text-secondary: #6e6e73;
+  /* 金属/塑料质感的拟物色板，参照邮件 / 设置 / 新闻 */
+  --safari-bg-top: #ececec;
+  --safari-bg-bottom: #d8d8d8;
+  --safari-surface: #ffffff;
+  --safari-chrome: linear-gradient(180deg, #f0f0f0 0%, #e2e2e2 100%);
+  --safari-tabbar: linear-gradient(180deg, #e9e9e9 0%, #dcdcdc 100%);
+  --safari-border: #b0b0b0;
+  --safari-border-light: #c8c8cc;
+  --safari-text: #1a1a1a;
+  --safari-text-secondary: #5a5a5a;
   --safari-accent: #007aff;
-  --safari-accent-soft: rgba(0, 122, 255, 0.12);
-  --safari-radius: 10px;
-  --safari-radius-pill: 999px;
-  --safari-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --safari-shadow-tab: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --safari-accent-active: #0056b3;
+  --safari-accent-soft: rgba(0, 122, 255, 0.14);
+  --safari-radius: 6px;
+
+  --safari-shadow-out:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(0, 0, 0, 0.14);
+  --safari-shadow-in: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+
+  /* 凸起按钮渐变 */
+  --safari-plain-btn: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --safari-plain-btn-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
+  --safari-plain-btn-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --safari-blue-btn: linear-gradient(180deg, #5cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  --safari-blue-btn-active: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
+
+  --safari-chrome-inset-x: 10px;
+  --safari-chrome-trailing-btn: 28px;
 
   display: flex;
   flex-direction: column;
   height: 100%;
   position: relative;
-  background: var(--safari-bg);
+  background: linear-gradient(180deg, var(--safari-bg-top) 0%, var(--safari-bg-bottom) 100%);
   color: var(--safari-text);
   font-family: var(--app-text-font-family);
 }
@@ -30,7 +48,9 @@
   flex-shrink: 0;
   background: var(--safari-chrome);
   border-bottom: 1px solid var(--safari-border);
-  backdrop-filter: blur(20px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7),
+    0 4px 10px -6px rgba(0, 0, 0, 0.18);
 }
 
 /* Tabs row */
@@ -38,17 +58,21 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px 0;
+  padding: 6px var(--safari-chrome-inset-x) 0;
+  background: var(--safari-tabbar);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .safari__tabs {
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
-  padding-bottom: 6px;
+  padding-bottom: 0;
 }
 
 .safari__tabs::-webkit-scrollbar {
@@ -60,15 +84,65 @@
   align-items: center;
   flex-shrink: 0;
   max-width: 200px;
-  height: 30px;
-  border-radius: var(--safari-radius-pill);
-  background: rgba(0, 0, 0, 0.04);
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  height: 26px;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  transition: background 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  transform-origin: top center;
+}
+
+.safari__tab--entering {
+  animation: safari-tab-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  transition: none;
+}
+
+.safari__tab--exiting {
+  animation: safari-tab-out 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  pointer-events: none;
+  transition: none;
+}
+
+@keyframes safari-tab-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes safari-tab-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.82);
+  }
 }
 
 .safari__tab--active {
-  background: #fff;
-  box-shadow: var(--safari-shadow-tab);
+  background: var(--safari-plain-btn);
+  border-color: var(--safari-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.safari__tab--overflowing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .safari__tab-main {
@@ -99,10 +173,11 @@
   font-size: 10px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .safari__tab-favicon--start {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.08);
   color: var(--safari-text-secondary);
   font-size: 11px;
 }
@@ -111,24 +186,38 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* 加载中的标签指示 —— 与地址栏扫动呼应的小型脉冲点，取代转圈 */
 .safari__tab-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(0, 122, 255, 0.2);
-  border-top-color: var(--safari-accent);
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  animation: safari-spin 0.7s linear infinite;
+  background: var(--safari-accent);
+  box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.5);
   flex-shrink: 0;
+  animation: safari-tab-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes safari-tab-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.45);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0);
+  }
 }
 
 .safari__tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   margin-right: 4px;
   border: none;
   border-radius: 50%;
@@ -145,29 +234,75 @@
 }
 
 .safari__tab-close:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.1);
   color: var(--safari-text);
+}
+
+.safari__tab-overflow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--safari-chrome-trailing-btn);
+  height: var(--safari-chrome-trailing-btn);
+  margin-bottom: 4px;
+  padding: 0;
+  border: 1px solid var(--safari-border);
+  border-radius: var(--safari-radius);
+  background: var(--safari-plain-btn);
+  color: var(--safari-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: var(--safari-shadow-out);
+  transition: background 0.1s ease, box-shadow 0.1s ease, color 0.1s ease;
+}
+
+.safari__tab-overflow-btn:hover {
+  background: var(--safari-plain-btn-hover);
+  color: var(--safari-accent);
+}
+
+.safari__tab-overflow-btn:active {
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+.safari__tab-overflow-btn--active {
+  background: var(--safari-blue-btn);
+  border-color: #145da8;
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.safari__tab-overflow-btn--active:hover {
+  background: linear-gradient(180deg, #6fc0ff 0%, #3a93e8 55%, #2478d0 100%);
 }
 
 .safari__tab-new {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin-bottom: 6px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--safari-text-secondary);
+  width: var(--safari-chrome-trailing-btn);
+  height: var(--safari-chrome-trailing-btn);
+  margin-bottom: 4px;
+  border: 1px solid var(--safari-border);
+  border-radius: var(--safari-radius);
+  background: var(--safari-plain-btn);
+  color: var(--safari-accent);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.12s ease, color 0.12s ease;
+  box-shadow: var(--safari-shadow-out);
+  transition: background 0.1s ease, box-shadow 0.1s ease;
 }
 
 .safari__tab-new:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--safari-text);
+  background: var(--safari-plain-btn-hover);
+}
+
+.safari__tab-new:active {
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
 }
 
 /* Toolbar */
@@ -176,40 +311,43 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px 10px;
+  padding: 6px var(--safari-chrome-inset-x) 8px;
 }
 
 .safari__nav,
 .safari__actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
+/* Toolbar buttons — 凸起金属/塑料质感 */
 .safari__btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--safari-text);
+  width: var(--safari-chrome-trailing-btn);
+  height: var(--safari-chrome-trailing-btn);
+  border: 1px solid var(--safari-border);
+  border-radius: var(--safari-radius);
+  background: var(--safari-plain-btn);
+  color: var(--safari-accent);
   cursor: pointer;
-  transition: background 0.12s ease, opacity 0.12s ease;
+  box-shadow: var(--safari-shadow-out);
+  transition: background 0.1s ease, box-shadow 0.1s ease, color 0.1s ease;
 }
 
 .safari__btn:not(:disabled):hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--safari-plain-btn-hover);
 }
 
 .safari__btn:not(:disabled):active {
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
 }
 
 .safari__btn:disabled {
-  opacity: 0.28;
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -219,37 +357,81 @@
 }
 
 .safari__btn--active {
-  background: var(--safari-accent-soft);
-  color: var(--safari-accent);
+  background: var(--safari-blue-btn);
+  border-color: #145da8;
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
-/* Address bar */
+.safari__btn--active:active {
+  background: var(--safari-blue-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+/* Address bar — 内陷输入框 */
 .safari__address-wrap {
   min-width: 0;
 }
 
 .safari__address {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: var(--safari-radius-pill);
-  background: rgba(0, 0, 0, 0.05);
-  transition:
-    background 0.15s ease,
-    box-shadow 0.15s ease;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--safari-border);
+  border-radius: var(--safari-radius);
+  background: linear-gradient(180deg, #d8d8d8 0%, #ececec 100%);
+  box-shadow: var(--safari-shadow-in);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.2s ease;
 }
 
 .safari__address--focused {
+  border-color: var(--safari-accent);
   background: #fff;
   box-shadow:
-    0 0 0 3px var(--safari-accent-soft),
-    var(--safari-shadow-sm);
+    inset 0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 2px rgba(0, 122, 255, 0.25);
 }
 
+/* 加载态：地址栏微微泛蓝，一条亮蓝色「顶端」高光从左往右扫过并循环 —— 呼应 iOS Safari */
 .safari__address--loading {
-  background: rgba(0, 122, 255, 0.06);
+  background: linear-gradient(180deg, #d4e7ff 0%, #e7f1ff 100%);
+}
+
+/* 扫动的高光顶端：一道较宽的蓝色渐变带 + 前缘亮线，从左侧 -25% 滑到 100% */
+.safari__address--loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 122, 255, 0) 0%,
+    rgba(0, 122, 255, 0.12) 30%,
+    rgba(0, 122, 255, 0.32) 70%,
+    rgba(120, 190, 255, 0.85) 100%
+  );
+  /* 前缘亮线：右侧 1.5px 的纯亮蓝，带轻微外发光 */
+  box-shadow: 1.5px 0 0 0 rgba(255, 255, 255, 0.9);
+  transform: translateX(-110%);
+  animation: safari-address-sweep 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes safari-address-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 .safari__address-leading {
@@ -260,15 +442,6 @@
   height: 16px;
   flex-shrink: 0;
   color: var(--safari-text-secondary);
-}
-
-.safari__address-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(0, 122, 255, 0.2);
-  border-top-color: var(--safari-accent);
-  border-radius: 50%;
-  animation: safari-spin 0.7s linear infinite;
 }
 
 .safari__address-input {
@@ -299,6 +472,7 @@
   color: var(--safari-accent);
   font-weight: 500;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .safari-address-suggestions-anchor {
@@ -307,15 +481,17 @@
   pointer-events: auto;
 }
 
+/* Address suggestions — 纸面卡片 */
 .safari-address-suggestions {
   margin: 0;
   padding: 6px;
   list-style: none;
-  border-radius: 12px;
-  background: #fff;
+  border-radius: var(--safari-radius);
+  background: linear-gradient(180deg, #ffffff 0%, #f4f4f4 100%);
+  border: 1px solid var(--safari-border);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.12),
-    0 0 0 1px rgba(0, 0, 0, 0.06);
+    0 6px 20px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   max-height: 320px;
   overflow-y: auto;
 }
@@ -325,32 +501,46 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition: background 0.1s ease, border-color 0.1s ease;
 }
 
 .safari-address-suggestions__item:hover,
 .safari-address-suggestions__item--active {
-  background: rgba(0, 122, 255, 0.08);
+  background: var(--safari-blue-btn);
+  border-color: #145da8;
+  color: #fff;
+}
+
+.safari-address-suggestions__item:hover .safari-address-suggestions__title,
+.safari-address-suggestions__item--active .safari-address-suggestions__title {
+  color: #fff;
+}
+
+.safari-address-suggestions__item:hover .safari-address-suggestions__url,
+.safari-address-suggestions__item--active .safari-address-suggestions__url {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .safari-address-suggestions__favicon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  background: var(--safari-plain-btn);
+  border: 1px solid var(--safari-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
   font-size: 12px;
   font-weight: 600;
-  color: var(--safari-text-secondary);
+  color: var(--safari-accent);
 }
 
 .safari-address-suggestions__copy {
@@ -379,17 +569,47 @@
 
 /* Bookmarks bar */
 .safari-bookmarks {
-  padding: 0 10px 8px;
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--safari-chrome-inset-x) 6px;
+  background: var(--safari-tabbar);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.safari-bookmarks--empty {
+  min-height: 34px;
+}
+
+.safari-bookmarks--drop-active .safari-bookmarks__empty-hint {
+  border-color: var(--safari-accent);
+  background: var(--safari-accent-soft);
+  color: var(--safari-accent);
+}
+
+.safari-bookmarks__empty-hint {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px dashed rgba(0, 122, 255, 0.35);
+  border-radius: 5px;
+  color: var(--safari-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  opacity: 0.85;
 }
 
 .safari-bookmarks__scroll {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
   padding: 2px 0;
+  position: relative;
 }
 
 .safari-bookmarks__scroll::-webkit-scrollbar {
@@ -402,24 +622,37 @@
   gap: 6px;
   flex-shrink: 0;
   max-width: 168px;
-  height: 28px;
+  height: 26px;
   padding: 0 10px 0 6px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
+  border: 1px solid var(--safari-border);
+  border-radius: 5px;
+  background: var(--safari-plain-btn);
   color: var(--safari-text);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease;
+  box-shadow: var(--safari-shadow-out);
+  transition: background 0.1s ease, box-shadow 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  outline: none;
 }
 
 .safari-bookmarks__item:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--safari-plain-btn-hover);
 }
 
 .safari-bookmarks__item:active {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+/* 溢出隐藏的书签：绝对定位 + 不可见，但保留 offsetWidth 以便测量；
+   不占用 flex 空间，因此可见书签不会被它挤开 */
+.safari-bookmarks__item--overflowing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .safari-bookmarks__icon {
@@ -433,40 +666,446 @@
   font-size: 10px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 1px 1px rgba(0, 0, 0, 0.15);
 }
 
 .safari-bookmarks__label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
-.safari__btn--bookmarked {
+/* 可拖拽的书签 —— 拖拽手感与拖拽中状态 */
+.safari-bookmarks__item[draggable='true'] {
+  cursor: grab;
+}
+
+.safari-bookmarks__item[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.safari-bookmarks__item--dragging {
+  opacity: 0.45;
+  transform: scale(0.97);
+}
+
+/* 插入指示线（拖放到某书签的前/后） */
+.safari-bookmarks__item--drop-before {
+  border-color: var(--safari-accent);
+  box-shadow:
+    inset 3px 0 0 0 var(--safari-accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 0 0 1px rgba(0, 122, 255, 0.25),
+    0 0 8px rgba(0, 122, 255, 0.35);
+}
+
+.safari-bookmarks__item--drop-after {
+  border-color: var(--safari-accent);
+  box-shadow:
+    inset -3px 0 0 0 var(--safari-accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 0 0 1px rgba(0, 122, 255, 0.25),
+    0 0 8px rgba(0, 122, 255, 0.35);
+}
+
+/* 溢出「显示全部」按钮（三个点） */
+.safari-bookmarks__overflow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--safari-chrome-trailing-btn);
+  height: var(--safari-chrome-trailing-btn);
+  padding: 0;
+  border: 1px solid var(--safari-border);
+  border-radius: var(--safari-radius);
+  background: var(--safari-plain-btn);
+  color: var(--safari-text-secondary);
+  cursor: pointer;
+  box-shadow: var(--safari-shadow-out);
+  transition: background 0.1s ease, box-shadow 0.1s ease, color 0.1s ease;
+}
+
+.safari-bookmarks__overflow-btn svg {
+  display: block;
+}
+
+.safari-bookmarks__overflow-btn:hover {
+  background: var(--safari-plain-btn-hover);
   color: var(--safari-accent);
 }
 
-/* Progress */
-.safari__progress {
-  height: 2px;
+.safari-bookmarks__overflow-btn:active {
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+.safari-bookmarks__overflow-btn--active {
+  background: var(--safari-blue-btn);
+  border-color: #145da8;
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.safari-bookmarks__overflow-btn--active:hover {
+  background: linear-gradient(180deg, #6fc0ff 0%, #3a93e8 55%, #2478d0 100%);
+}
+
+/* 已加入书签 —— 醒目的激活态：蓝色填充凸起（与侧栏按钮一致） */
+.safari__btn--bookmarked {
+  background: var(--safari-blue-btn);
+  border-color: #145da8;
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.safari__btn--bookmarked:not(:disabled):hover {
+  background: linear-gradient(180deg, #6fc0ff 0%, #3a93e8 55%, #2478d0 100%);
+}
+
+.safari__btn--bookmarked:not(:disabled):active {
+  background: var(--safari-blue-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+.safari__btn--bookmarked svg {
+  fill: #fff;
+}
+
+/* 拖拽时跟随指针的书签预览（替代整根地址栏的默认幽灵图） */
+.safari-drag-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 26px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--safari-border);
+  border-radius: 5px;
+  background: var(--safari-plain-btn);
+  color: var(--safari-text);
+  font-family: var(--app-text-font-family);
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 4px 12px rgba(0, 0, 0, 0.22);
+  white-space: nowrap;
+}
+
+.safari-drag-ghost__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.safari-drag-ghost__label {
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 地址栏整体拖拽（未聚焦时可整栏拖到书签栏） ── */
+.safari__address--draggable {
+  cursor: grab;
+}
+
+.safari__address--draggable:hover {
+  border-color: var(--safari-accent);
+}
+
+.safari__address--draggable:active {
+  cursor: grabbing;
+}
+
+/* 未聚焦且可拖拽时：输入框不接管指针事件，避免触发原生文本拖拽而挡住整栏拖入书签 */
+.safari__address--draggable .safari__address-input {
+  cursor: grab;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.safari__address--draggable:active .safari__address-input {
+  cursor: grabbing;
+}
+
+/* ── 书签全部列表（浏览器内侧模态，与历史记录一致） ── */
+
+.safari-bookmarks-panel-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.safari-bookmarks-panel {
+  width: min(360px, 100%);
+  max-height: min(480px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.safari-bookmarks-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e6e6e6 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.safari-bookmarks-panel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #222;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.safari-bookmarks-panel__subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--safari-text-secondary);
+}
+
+.safari-bookmarks-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--safari-border);
+  border-radius: 5px;
+  background: var(--safari-plain-btn);
+  color: var(--safari-text-secondary);
+  cursor: pointer;
+  box-shadow: var(--safari-shadow-out);
+}
+
+.safari-bookmarks-panel__close:hover {
+  background: var(--safari-plain-btn-hover);
+  color: var(--safari-text);
+}
+
+.safari-bookmarks-panel__close:active {
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+.safari-bookmarks-panel__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px;
+  text-align: center;
+}
+
+.safari-bookmarks-panel__empty p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--safari-text);
+}
+
+.safari-bookmarks-panel__empty span {
+  font-size: 13px;
+  color: var(--safari-text-secondary);
+}
+
+.safari-bookmarks-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 4px;
+}
+
+.safari-bookmarks-panel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.safari-bookmarks-panel__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 0;
+  border-bottom: 1px solid #ececec;
+  background: #fff;
+  color: #222;
+}
+
+.safari-bookmarks-panel__item:last-child {
+  border-bottom: none;
+}
+
+.safari-bookmarks-panel__item[draggable='true'] {
+  cursor: grab;
+}
+
+.safari-bookmarks-panel__item--dragging {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.safari-bookmarks-panel__item--drop-before {
+  border-color: var(--safari-accent);
+  background: var(--safari-accent-soft);
+  box-shadow: inset 0 3px 0 0 var(--safari-accent);
+}
+
+.safari-bookmarks-panel__item--drop-after {
+  border-color: var(--safari-accent);
+  background: var(--safari-accent-soft);
+  box-shadow: inset 0 -3px 0 0 var(--safari-accent);
+}
+
+.safari-bookmarks-panel__item:hover:not(.safari-bookmarks-panel__item--drop-before):not(
+    .safari-bookmarks-panel__item--drop-after
+  ) {
+  color: #fff;
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.safari-bookmarks-panel__item:active:not(.safari-bookmarks-panel__item--drop-before):not(
+    .safari-bookmarks-panel__item--drop-after
+  ) {
+  color: #fff;
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.safari-bookmarks-panel__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 8px 6px 12px;
+  border: none;
+  border-radius: 0;
   background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.safari__progress-bar {
-  height: 100%;
-  width: 40%;
-  background: var(--safari-accent);
-  border-radius: 0 1px 1px 0;
-  animation: safari-progress 1s ease-in-out infinite;
+.safari-bookmarks-panel__link:hover {
+  background: transparent;
+  border-color: transparent;
 }
 
-@keyframes safari-progress {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(350%);
-  }
+.safari-bookmarks-panel__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 1px 1px rgba(0, 0, 0, 0.15);
+}
+
+.safari-bookmarks-panel__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.safari-bookmarks-panel__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.safari-bookmarks-panel__item:hover .safari-bookmarks-panel__label,
+.safari-bookmarks-panel__item:active .safari-bookmarks-panel__label {
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.safari-bookmarks-panel__url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.55;
+}
+
+.safari-bookmarks-panel__item:hover .safari-bookmarks-panel__url,
+.safari-bookmarks-panel__item:active .safari-bookmarks-panel__url {
+  opacity: 0.85;
+}
+
+.safari-bookmarks-panel__context {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #b4b4b4;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.safari-bookmarks-panel__item:hover .safari-bookmarks-panel__context,
+.safari-bookmarks-panel__context:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 @keyframes safari-spin {
@@ -512,7 +1151,7 @@
   z-index: 0;
   overflow: auto;
   padding: 16px 18px 48px;
-  background: #fafafa;
+  background: linear-gradient(180deg, #f2f2f2 0%, #e6e6e6 100%);
   scrollbar-width: none;
 }
 
@@ -525,7 +1164,7 @@
   font-family: 'SF Mono', Menlo, Monaco, monospace;
   font-size: 11px;
   line-height: 1.55;
-  color: rgba(0, 0, 0, 0.18);
+  color: rgba(0, 0, 0, 0.22);
   white-space: pre-wrap;
   word-break: break-all;
   user-select: text;
@@ -555,14 +1194,14 @@
   justify-content: center;
   gap: 12px;
   color: var(--safari-text-secondary);
-  background: rgba(255, 255, 255, 0.88);
+  background: linear-gradient(180deg, rgba(245, 245, 245, 0.92) 0%, rgba(232, 232, 232, 0.92) 100%);
   pointer-events: none;
 }
 
 .safari__loading-spinner {
   width: 24px;
   height: 24px;
-  border: 2.5px solid rgba(0, 0, 0, 0.08);
+  border: 2.5px solid rgba(0, 0, 0, 0.12);
   border-top-color: var(--safari-accent);
   border-radius: 50%;
   animation: safari-spin 0.7s linear infinite;
@@ -571,6 +1210,7 @@
 .safari__loading-overlay p {
   margin: 0;
   font-size: 13px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 /* Error */
@@ -582,6 +1222,7 @@
   height: 100%;
   padding: 32px;
   text-align: center;
+  background: linear-gradient(180deg, #f2f2f2 0%, #e6e6e6 100%);
 }
 
 .safari__error-icon {
@@ -592,16 +1233,23 @@
   height: 48px;
   margin-bottom: 16px;
   border-radius: 50%;
-  background: rgba(255, 59, 48, 0.1);
-  color: #ff3b30;
+  border: 1px solid #c9302a;
+  background: linear-gradient(180deg, #ff8a84 0%, #e34b3f 55%, #c9302a 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+  color: #fff;
   font-size: 22px;
   font-weight: 700;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
 }
 
 .safari__error h1 {
   margin: 0 0 8px;
   font-size: 20px;
   font-weight: 600;
+  color: var(--safari-text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .safari__error p {
@@ -615,25 +1263,34 @@
 .safari__error-url {
   font-family: 'SF Mono', Menlo, monospace;
   font-size: 11px;
-  color: #aeaeb2;
+  color: #86868b;
   word-break: break-all;
 }
 
 .safari__error-retry {
   margin-top: 20px;
-  padding: 8px 20px;
-  border-radius: var(--safari-radius-pill);
+  padding: 8px 22px;
+  border: 1px solid #145da8;
+  border-radius: var(--safari-radius);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   color: #fff;
-  background: var(--safari-accent);
-  border: none;
+  background: var(--safari-blue-btn);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
   cursor: pointer;
-  transition: opacity 0.12s ease;
+  transition: background 0.1s ease, box-shadow 0.1s ease;
 }
 
 .safari__error-retry:hover {
-  opacity: 0.88;
+  background: linear-gradient(180deg, #6cbeff 0%, #3a93f0 55%, #2a7dd6 100%);
+}
+
+.safari__error-retry:active {
+  background: var(--safari-blue-btn-active);
+  box-shadow: var(--safari-shadow-in);
 }
 
 /* Dev badge — unobtrusive token info */
@@ -645,15 +1302,15 @@
   display: flex;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 5px;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--safari-text-secondary);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--safari-plain-btn);
   border: 1px solid var(--safari-border);
-  box-shadow: var(--safari-shadow-sm);
+  box-shadow: var(--safari-shadow-out);
   pointer-events: none;
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
 /* ── Start page ── */
@@ -662,8 +1319,7 @@
   height: 100%;
   overflow: auto;
   background:
-    radial-gradient(ellipse 70% 50% at 50% -20%, rgba(0, 122, 255, 0.08), transparent),
-    linear-gradient(180deg, #fafafa 0%, var(--safari-bg) 100%);
+    linear-gradient(180deg, #f5f5f5 0%, #e4e4e4 100%);
 }
 
 .safari-start__content {
@@ -682,6 +1338,9 @@
 
 .safari-start__compass {
   display: block;
+  width: 64px;
+  height: 64px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.18));
 }
 
 .safari-start__greeting {
@@ -689,6 +1348,7 @@
   font-size: 28px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .safari-start__subtitle {
@@ -697,27 +1357,29 @@
   color: var(--safari-text-secondary);
 }
 
+/* Start search — 内陷输入框 */
 .safari-start__search {
   display: flex;
   align-items: center;
   gap: 10px;
   max-width: 480px;
   margin: 0 auto 40px;
-  padding: 0 16px;
-  height: 44px;
-  border-radius: var(--safari-radius-pill);
-  background: #fff;
-  box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.06),
-    0 0 0 1px rgba(0, 0, 0, 0.04);
+  padding: 0 14px;
+  height: 40px;
+  border: 1px solid var(--safari-border);
+  border-radius: var(--safari-radius);
+  background: linear-gradient(180deg, #d8d8d8 0%, #ececec 100%);
+  box-shadow: var(--safari-shadow-in);
   color: var(--safari-text-secondary);
-  transition: box-shadow 0.15s ease;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
 }
 
 .safari-start__search:focus-within {
+  border-color: var(--safari-accent);
+  background: #fff;
   box-shadow:
-    0 4px 20px rgba(0, 122, 255, 0.12),
-    0 0 0 3px var(--safari-accent-soft);
+    inset 0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 2px rgba(0, 122, 255, 0.25);
   color: var(--safari-accent);
 }
 
@@ -733,7 +1395,7 @@
 }
 
 .safari-start__search-input::placeholder {
-  color: #aeaeb2;
+  color: #86868b;
 }
 
 .safari-start__favorites {
@@ -745,6 +1407,7 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--safari-text-secondary);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .safari-start__grid {
@@ -759,31 +1422,40 @@
   align-items: center;
   gap: 8px;
   padding: 8px 4px;
-  border-radius: 12px;
+  border: 1px solid transparent;
+  border-radius: var(--safari-radius);
+  background: transparent;
   color: inherit;
-  transition: transform 0.12s ease, background 0.12s ease;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .safari-start__tile:hover {
-  background: rgba(0, 0, 0, 0.04);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: var(--safari-shadow-out);
 }
 
 .safari-start__tile:active {
-  transform: translateY(0);
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
 }
 
 .safari-start__tile-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
   font-size: 22px;
   font-weight: 700;
   color: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.15),
+    0 2px 5px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
 }
 
 .safari-start__tile-label {
@@ -794,49 +1466,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-/* ── History sidebar ── */
+/* ── History modal（居中模态卡片） ── */
 
 .safari-history-backdrop {
   position: absolute;
   inset: 0;
   z-index: 30;
-  background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(4px);
-  animation: safari-fade-in 0.18s ease;
-}
-
-@keyframes safari-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.28);
 }
 
 .safari-history {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(340px, 90%);
+  width: min(360px, 100%);
+  max-height: min(480px, calc(100% - 48px));
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-left: 1px solid var(--safari-border);
-  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.1);
-  animation: safari-slide-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-@keyframes safari-slide-in {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 .safari-history__header {
@@ -844,15 +1501,18 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 16px 14px;
-  border-bottom: 1px solid var(--safari-border);
+  padding: 12px 14px 10px;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e6e6e6 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .safari-history__title {
   margin: 0;
-  font-size: 17px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  color: #222;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .safari-history__subtitle {
@@ -865,18 +1525,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.05);
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--safari-border);
+  border-radius: 5px;
+  background: var(--safari-plain-btn);
   color: var(--safari-text-secondary);
   cursor: pointer;
+  box-shadow: var(--safari-shadow-out);
 }
 
 .safari-history__close:hover {
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--safari-plain-btn-hover);
   color: var(--safari-text);
+}
+
+.safari-history__close:active {
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
 }
 
 .safari-history__empty {
@@ -904,26 +1570,37 @@
 
 .safari-history__body {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  padding: 8px 0 16px;
+  padding: 10px 12px 4px;
 }
 
 .safari-history__group {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.safari-history__group:last-child {
+  margin-bottom: 0;
 }
 
 .safari-history__group-label {
-  margin: 0;
-  padding: 8px 16px 6px;
-  font-size: 12px;
+  margin: 0 0 6px;
+  padding: 0 2px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--safari-text-secondary);
+  color: #666;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .safari-history__list {
   margin: 0;
   padding: 0;
   list-style: none;
+  overflow: hidden;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .safari-history__item {
@@ -931,21 +1608,41 @@
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 8px;
-  padding: 2px 12px 2px 16px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid #ececec;
+  background: #fff;
+  color: #222;
+}
+
+.safari-history__item:last-child {
+  border-bottom: none;
+}
+
+.safari-history__item:hover {
+  color: #fff;
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.safari-history__item:active {
+  color: #fff;
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .safari-history__favicon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
   background: var(--safari-accent-soft);
   color: var(--safari-accent);
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .safari-history__link {
@@ -954,43 +1651,62 @@
   align-items: flex-start;
   gap: 1px;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
+  color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease;
 }
 
 .safari-history__link:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: transparent;
+  border-color: transparent;
 }
 
 .safari-history__item-title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--safari-text);
+  color: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.safari-history__item:hover .safari-history__item-title,
+.safari-history__item:active .safari-history__item-title {
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .safari-history__item-url {
   font-size: 11px;
-  color: var(--safari-text-secondary);
+  color: inherit;
+  opacity: 0.55;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
 }
 
+.safari-history__item:hover .safari-history__item-url,
+.safari-history__item:active .safari-history__item-url {
+  opacity: 0.85;
+}
+
 .safari-history__item-time {
   font-size: 11px;
-  color: #aeaeb2;
+  color: inherit;
+  opacity: 0.55;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+}
+
+.safari-history__item:hover .safari-history__item-time,
+.safari-history__item:active .safari-history__item-time {
+  opacity: 0.85;
 }
 
 .safari-history__item-remove {
@@ -999,13 +1715,12 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: none;
-  border-radius: 50%;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
-  color: #aeaeb2;
+  color: #b4b4b4;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease;
 }
 
 .safari-history__item:hover .safari-history__item-remove {
@@ -1013,30 +1728,310 @@
 }
 
 .safari-history__item-remove:hover {
-  background: rgba(255, 59, 48, 0.1);
-  color: #ff3b30;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .safari-history__footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--safari-border);
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid #a8a8a8;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e6e6e6 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .safari-history__clear {
   width: 100%;
-  padding: 10px;
-  border: none;
-  border-radius: var(--safari-radius);
-  background: rgba(255, 59, 48, 0.08);
-  color: #ff3b30;
-  font-size: 14px;
-  font-weight: 500;
+  padding: 5px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  color: #333;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.12s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  transition: background 90ms ease, box-shadow 90ms ease;
 }
 
 .safari-history__clear:hover {
-  background: rgba(255, 59, 48, 0.14);
+  background: linear-gradient(180deg, #fff 0%, #f0f0f0 55%, #e4e4e4 100%);
+}
+
+.safari-history__clear:active {
+  background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Hidden tabs modal ── */
+
+.safari-tabs-panel-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.safari-tabs-panel {
+  width: min(360px, 100%);
+  max-height: min(480px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.safari-tabs-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  background: linear-gradient(180deg, #f3f3f3 0%, #e6e6e6 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.safari-tabs-panel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #222;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.safari-tabs-panel__subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--safari-text-secondary);
+}
+
+.safari-tabs-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--safari-border);
+  border-radius: 5px;
+  background: var(--safari-plain-btn);
+  color: var(--safari-text-secondary);
+  cursor: pointer;
+  box-shadow: var(--safari-shadow-out);
+}
+
+.safari-tabs-panel__close:hover {
+  background: var(--safari-plain-btn-hover);
+  color: var(--safari-text);
+}
+
+.safari-tabs-panel__close:active {
+  background: var(--safari-plain-btn-active);
+  box-shadow: var(--safari-shadow-in);
+}
+
+.safari-tabs-panel__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px;
+  text-align: center;
+}
+
+.safari-tabs-panel__empty p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--safari-text);
+}
+
+.safari-tabs-panel__empty span {
+  font-size: 13px;
+  color: var(--safari-text-secondary);
+}
+
+.safari-tabs-panel__list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  list-style: none;
+}
+
+.safari-tabs-panel__item {
+  display: flex;
+  align-items: stretch;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  color: #222;
+  transition: background 90ms ease, box-shadow 90ms ease, color 90ms ease;
+}
+
+.safari-tabs-panel__item + .safari-tabs-panel__item {
+  margin-top: 2px;
+}
+
+.safari-tabs-panel__item:hover {
+  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.safari-tabs-panel__item:active {
+  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  color: #fff;
+}
+
+.safari-tabs-panel__item--active:not(:hover):not(:active) {
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.2);
+}
+
+.safari-tabs-panel__favicon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--safari-accent-soft);
+  color: var(--safari-accent);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.safari-tabs-panel__favicon--start {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--safari-text-secondary);
+}
+
+.safari-tabs-panel__spinner {
+  width: 8px;
+  height: 8px;
+  margin: 0 7px;
+  border-radius: 50%;
+  background: var(--safari-accent);
+  box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.5);
+  flex-shrink: 0;
+  animation: safari-tab-pulse 1.1s ease-in-out infinite;
+}
+
+.safari-tabs-panel__item:hover .safari-tabs-panel__favicon,
+.safari-tabs-panel__item:active .safari-tabs-panel__favicon {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.safari-tabs-panel__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  padding: 8px 4px 8px 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.safari-tabs-panel__main-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.safari-tabs-panel__item-title {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.safari-tabs-panel__item:hover .safari-tabs-panel__item-title,
+.safari-tabs-panel__item:active .safari-tabs-panel__item-title {
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.safari-tabs-panel__item-url {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.55;
+}
+
+.safari-tabs-panel__item:hover .safari-tabs-panel__item-url,
+.safari-tabs-panel__item:active .safari-tabs-panel__item-url {
+  opacity: 0.85;
+}
+
+.safari-tabs-panel__item-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #c5c5c5;
+  cursor: pointer;
+}
+
+.safari-tabs-panel__item:hover .safari-tabs-panel__item-close {
+  color: #d0d0d0;
+}
+
+.safari-tabs-panel__item-close:hover {
+  background: rgba(229, 57, 53, 0.1);
+  border-color: rgba(229, 57, 53, 0.22);
+  color: #e53935;
+}
+
+.safari-tabs-panel__item:hover .safari-tabs-panel__item-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ff8a80;
 }
 
 /* ── Page context menu ── */
@@ -1046,20 +2041,19 @@
   z-index: 40;
   min-width: 220px;
   padding: 5px 0;
-  color: #1d1d1f;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 6px;
+  color: var(--safari-text);
+  background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: var(--safari-radius);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.18),
-    0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(20px);
+    0 8px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .safari-context-menu__item {
   display: block;
   width: 100%;
-  padding: 4px 16px;
+  padding: 5px 16px;
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -1068,8 +2062,9 @@
 }
 
 .safari-context-menu__item:hover:not(:disabled) {
-  background: #007aff;
+  background: var(--safari-blue-btn);
   color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .safari-context-menu__item:disabled {
@@ -1080,7 +2075,8 @@
 .safari-context-menu__separator {
   height: 1px;
   margin: 5px 0;
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 @container app-window (max-width: 720px) {
@@ -1094,18 +2090,23 @@
 }
 
 @container app-window (max-width: 540px) {
+  .safari {
+    --safari-chrome-inset-x: 8px;
+  }
+
   .safari__tabs-row {
-    padding: 6px 8px 0;
+    padding-top: 5px;
     gap: 4px;
   }
 
   .safari__toolbar {
     gap: 6px;
-    padding: 4px 8px 8px;
+    padding-top: 5px;
+    padding-bottom: 7px;
   }
 
   .safari__address {
-    height: 34px;
+    height: 28px;
     padding: 0 10px;
   }
 

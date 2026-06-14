@@ -1,14 +1,25 @@
 import { AppIconTile } from './app-icon-tile.tsx'
+import { CompassMark } from '../apps/browser/compass-mark.tsx'
 
 type IconProps = {
   size?: number
 }
 
 export function BrowserIcon({ size = 64 }: IconProps) {
+  const compassSize = Math.round(size * 0.7)
   return (
-    <AppIconTile color="#4285f4" size={size}>
-      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
-        🌐
+    <AppIconTile color="#3a7bd5" size={size}>
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: `${compassSize}px`,
+          height: `${compassSize}px`,
+          filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35))',
+        }}
+      >
+        <CompassMark />
       </span>
     </AppIconTile>
   )
@@ -236,6 +247,22 @@ export function HistoryIcon() {
         stroke-linecap="round"
         stroke-linejoin="round"
       />
+    </svg>
+  )
+}
+
+export function TabsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2.5" y="4.5" width="11" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+      <path
+        d="M3.5 4.5 H12.5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linecap="round"
+      />
+      <rect x="4" y="2.5" width="8" height="2.5" rx="1" fill="currentColor" opacity="0.35" />
     </svg>
   )
 }

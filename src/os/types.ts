@@ -39,6 +39,7 @@ export type WindowState = {
   fullscreen: boolean
   restoredBounds?: WindowRestoredBounds
   enterAnimation?: WindowEnterAnimation
+  closing?: boolean
   zIndex: number
   x: number
   y: number

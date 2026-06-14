@@ -10,6 +10,8 @@ import { MenuBarProvider } from './menu-bar-context.tsx'
 import { NotificationCenterProvider } from './notification-center-context.tsx'
 import { MenuBar } from './menu-bar.tsx'
 import { OsProvider } from './os-context.tsx'
+import { FullscreenChromeRevealProvider } from './fullscreen-chrome-reveal-context.tsx'
+import { ImmersiveDesktopBackdrop } from './immersive-desktop-backdrop.tsx'
 import { useWallpaper } from './use-wallpaper.ts'
 import { WindowManager } from '../window/window-frame.tsx'
 import './os-shell.css'
@@ -21,6 +23,7 @@ function OsShellContent() {
 
   return (
     <div class="os-shell" ref={shellRef}>
+      <ImmersiveDesktopBackdrop />
       <MenuBar />
       <Desktop />
       <WindowManager />
@@ -38,7 +41,9 @@ export function OsShell() {
             <NotificationCenterProvider>
               <LauncherLayoutProvider>
                 <IconContextMenuProvider>
-                  <OsShellContent />
+                  <FullscreenChromeRevealProvider>
+                    <OsShellContent />
+                  </FullscreenChromeRevealProvider>
                 </IconContextMenuProvider>
               </LauncherLayoutProvider>
             </NotificationCenterProvider>

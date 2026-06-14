@@ -1,5 +1,7 @@
 import { useMemo } from 'preact/hooks'
 import { CloseIcon } from '../../icons/app-icons.tsx'
+import '../../ui/overlay-presence.css'
+import { useOverlayPresence } from '../../ui/use-overlay-presence.ts'
 import {
   clearBrowserHistory,
   loadBrowserHistory,
@@ -75,10 +77,11 @@ export function SafariHistoryPanel({
   onNavigate,
   onHistoryChange,
 }: SafariHistoryPanelProps) {
-  const visits = useMemo(() => (open ? loadBrowserHistory() : []), [open, revision])
+  const { mounted, exiting } = useOverlayPresence(open)
+  const visits = useMemo(() => (mounted ? loadBrowserHistory() : []), [mounted, revision])
   const groups = useMemo(() => groupHistoryByDate(visits), [visits])
 
-  if (!open) {
+  if (!mounted) {
     return undefined
   }
 
@@ -101,9 +104,25 @@ export function SafariHistoryPanel({
   }
 
   return (
-    <div class="safari-history-backdrop" role="presentation" onClick={onClose}>
+    <div
+      class={[
+        'safari-history-backdrop',
+        'overlay-presence__backdrop',
+        exiting ? 'overlay-presence__backdrop--exiting' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      role="presentation"
+      onClick={onClose}
+    >
       <aside
-        class="safari-history"
+        class={[
+          'safari-history',
+          'overlay-presence__sheet',
+          exiting ? 'overlay-presence__sheet--exiting' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         role="dialog"
         aria-modal="true"
         aria-label="浏览历史"

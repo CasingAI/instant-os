@@ -1,0 +1,22 @@
+.immersive-desktop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1938;
+  pointer-events: none;
+  clip-path: inset(0 0 calc(100% - var(--immersive-desktop-backdrop-height, 22px)) 0);
+}
+
+.immersive-desktop-backdrop__base {
+  position: absolute;
+  inset: 0;
+  background: var(--wallpaper-background);
+  background-size: var(--wallpaper-background-size);
+  background-position: var(--wallpaper-background-position);
+  background-repeat: var(--wallpaper-background-repeat);
+}
+
+.immersive-desktop-backdrop__overlay {
+  position: absolute;
+  inset: 0;
+  background-image: var(--wallpaper-overlay);
+}

@@ -365,8 +365,8 @@
       '<div class="instant-os-crash" role="alert" aria-live="assertive">' +
       '<div class="instant-os-crash__panel">' +
       '<div class="instant-os-crash__face" aria-hidden="true">:(</div>' +
-      '<h1 class="instant-os-crash__title">系统遇到异常</h1>' +
-      '<p class="instant-os-crash__subtitle">已进入诊断界面。多数错误不会阻断系统，可查看详情后忽略并继续运行。</p>' +
+      '<h1 class="instant-os-crash__title">异常</h1>' +
+      '<p class="instant-os-crash__subtitle">在系统顶层捕捉到未被处理的异常，请查看以下信息并解决或忽略</p>' +
       '<section class="instant-os-crash__section">' +
       '<h2>主要错误</h2>' +
       '<div class="instant-os-crash__primary">' +

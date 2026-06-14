@@ -5,6 +5,7 @@ import {
   bookmarkDisplayGlyph,
   loadBrowserBookmarks,
 } from './browser-bookmarks.ts'
+import { CompassMark } from './compass-mark.tsx'
 import { normalizeBrowserUrl } from './normalize-browser-url.ts'
 
 type SafariStartPageProps = {
@@ -40,24 +41,10 @@ export function SafariStartPage({ bookmarksRevision, onNavigate }: SafariStartPa
     <div class="safari-start">
       <div class="safari-start__content">
         <div class="safari-start__brand" aria-hidden="true">
-          <svg class="safari-start__compass" viewBox="0 0 80 80" width="64" height="64">
-            <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" stroke-width="2" opacity="0.15" />
-            <circle cx="40" cy="40" r="28" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.25" />
-            <text x="40" y="18" text-anchor="middle" fill="#ff3b30" font-size="11" font-weight="700">
-              N
-            </text>
-            <path
-              d="M40 22 L44 52 L40 46 L36 52 Z"
-              fill="#ff3b30"
-              opacity="0.9"
-            />
-            <path
-              d="M40 46 L44 52 L36 52 Z"
-              fill="#3a3a3c"
-              opacity="0.55"
-            />
-            <circle cx="40" cy="40" r="3" fill="currentColor" opacity="0.35" />
-          </svg>
+          {/* 拟物化金属罗盘 —— 与全局应用图标共用同一组件，保持品牌一致 */}
+          <span class="safari-start__compass">
+            <CompassMark />
+          </span>
         </div>
 
         <h1 class="safari-start__greeting">{greeting}</h1>
@@ -77,8 +64,8 @@ export function SafariStartPage({ bookmarksRevision, onNavigate }: SafariStartPa
         </form>
 
         {favorites.length > 0 && (
-          <section class="safari-start__favorites" aria-label="个人收藏">
-            <h2 class="safari-start__section-title">个人收藏</h2>
+          <section class="safari-start__favorites" aria-label="书签">
+            <h2 class="safari-start__section-title">书签</h2>
             <div class="safari-start__grid">
               {favorites.map((item) => (
                 <button

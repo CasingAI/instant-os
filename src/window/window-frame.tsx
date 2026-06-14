@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'
+import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-context.tsx'
 import { isGeneratedAppId } from '../os/types.ts'
 import type { BuiltinAppId, WindowState } from '../os/types.ts'
 import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
@@ -33,8 +34,10 @@ export function WindowFrame({ window }: WindowFrameProps) {
     toggleFullscreen,
     toggleMaximize,
     closeWindow,
+    finalizeWindowClose,
     minimizeWindow,
   } = useOs()
+  const { hasImmersiveFullscreen, chromeRevealed } = useFullscreenChromeReveal()
   const AppComponent = isGeneratedAppId(window.appId)
     ? undefined
     : APP_COMPONENTS[window.appId as BuiltinAppId]
@@ -90,18 +93,23 @@ export function WindowFrame({ window }: WindowFrameProps) {
     [windowBounds],
   )
   const [isEntering, setIsEntering] = useState(window.enterAnimation === 'scale-in')
+  const isClosing = window.closing
+  const immersiveFullscreen = window.fullscreen && hasImmersiveFullscreen
+  const showImmersiveChrome = immersiveFullscreen && chromeRevealed && isActive
   const frameTransform = window.minimized
     ? minimizeTransform
-    : isDesktopRevealed
-      ? desktopRevealTransform
-      : undefined
+    : isClosing || isEntering
+      ? undefined
+      : isDesktopRevealed
+        ? desktopRevealTransform
+        : undefined
 
   return (
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${window.minimized ? ' window-frame--minimized' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}`}
-        aria-hidden={window.minimized ? true : undefined}
+        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${window.minimized ? ' window-frame--minimized' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
+        aria-hidden={window.minimized || isClosing ? true : undefined}
         style={{
           zIndex: window.zIndex,
           left: `${window.x}px`,
@@ -115,9 +123,12 @@ export function WindowFrame({ window }: WindowFrameProps) {
           if (event.animationName === 'window-frame-open') {
             setIsEntering(false)
           }
+          if (event.animationName === 'window-frame-close') {
+            finalizeWindowClose(window.id)
+          }
         }}
         onPointerDownCapture={(event) => {
-          if (isDesktopRevealed || event.button !== 0) {
+          if (isDesktopRevealed || isClosing || event.button !== 0) {
             return
           }
           focusWindow(window.id)

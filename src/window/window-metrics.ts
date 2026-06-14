@@ -1,6 +1,11 @@
 import { resolveEffectiveDockReservePx } from '../dock/dock-layout-metrics.ts'
 
 export const STATUS_BAR_HEIGHT = 22
+export const TITLEBAR_HEIGHT = 34
+export const IMMERSIVE_FRAME_CHROME_TOP = STATUS_BAR_HEIGHT + TITLEBAR_HEIGHT
+export const FULLSCREEN_CHROME_TOP_TRIGGER_PX = 5
+/** Tall enough that fast pointer flicks still cross this band below chrome. */
+export const FULLSCREEN_CHROME_DISMISS_CATCHER_PX = 48
 
 export type WindowBounds = {
   x: number

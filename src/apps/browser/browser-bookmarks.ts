@@ -129,6 +129,67 @@ export function removeBrowserBookmark(url: string): void {
   persistItems(store.items.filter((item) => item.url !== normalized))
 }
 
+/**
+ * 把已存在的书签移动到新位置（拖拽排序）。
+ * toIndex 指的是「在移除该元素后的数组中」的目标下标，使调用方无需关心索引偏移。
+ */
+export function moveBookmark(url: string, toIndex: number): void {
+  const normalized = normalizeBrowserUrl(url)
+  const store = loadStore()
+  const fromIndex = store.items.findIndex((item) => item.url === normalized)
+  if (fromIndex < 0) {
+    return
+  }
+
+  const [moved] = store.items.splice(fromIndex, 1)
+  if (!moved) {
+    return
+  }
+
+  const clamped = Math.max(0, Math.min(toIndex, store.items.length))
+  store.items.splice(clamped, 0, moved)
+  persistItems(store.items)
+}
+
+/**
+ * 在指定位置插入一个（可能新的）书签 —— 用于把地址栏 URL 拖入书签栏的落点。
+ * 若该 URL 已存在，则视作把它移动到目标位置（去重）。
+ * 返回是否改变了书签集合（新增成功或位置变化）。
+ */
+export function insertBookmarkAt(bookmark: { url: string; title: string }, index: number): boolean {
+  if (isStartPageUrl(bookmark.url)) {
+    return false
+  }
+
+  const url = normalizeBrowserUrl(bookmark.url)
+  const title = bookmark.title.trim() || hostnameFromUrl(url)
+  const store = loadStore()
+  const existingIndex = store.items.findIndex((item) => item.url === url)
+
+  if (existingIndex >= 0) {
+    // 已存在：相当于移动到目标位置
+    const [moved] = store.items.splice(existingIndex, 1)
+    if (!moved) {
+      return false
+    }
+    const clamped = Math.max(0, Math.min(index, store.items.length))
+    if (clamped === existingIndex) {
+      return false
+    }
+    store.items.splice(clamped, 0, moved)
+    return persistItems(store.items)
+  }
+
+  const clamped = Math.max(0, Math.min(index, store.items.length))
+  store.items.splice(clamped, 0, {
+    url,
+    title,
+    emoji: bookmarkDisplayGlyph(url, title),
+    color: bookmarkAccentColor(url),
+  })
+  return persistItems(store.items.slice(0, MAX_BOOKMARKS))
+}
+
 export function updateBrowserBookmarkTitle(url: string, title: string): void {
   const normalized = normalizeBrowserUrl(url)
   const trimmed = title.trim()
