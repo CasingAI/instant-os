@@ -31,6 +31,18 @@
 
 .window-frame--minimized {
   pointer-events: none;
+  /* 稳定最小化态不过渡 transform，避免上层 UI 重渲染时过渡被重新触发 */
+  transition:
+    box-shadow 0.15s ease,
+    left 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    top 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    width 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-radius 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.42s cubic-bezier(0.32, 0, 0.67, 0);
+}
+
+.window-frame--minimizing {
   transition:
     box-shadow 0.15s ease,
     left 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),

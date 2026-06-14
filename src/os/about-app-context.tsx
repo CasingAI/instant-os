@@ -1,6 +1,6 @@
-import type { ComponentChildren } from 'preact'
+import type { ComponentChildren, RefObject } from 'preact'
 import { createContext } from 'preact'
-import { useCallback, useContext, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { getAppDefinition } from './app-registry.tsx'
 import { AboutAppDialog, type AboutAppContent } from './about-app-dialog.tsx'
 import { FINDER_ABOUT, INSTANT_ABOUT } from './builtin-app-about.ts'
@@ -13,17 +13,59 @@ type AboutAppContextValue = {
   showInstantAbout: () => void
 }
 
+type AboutAppHostHandle = {
+  show: (content: AboutAppContent) => void
+}
+
 const AboutAppContext = createContext<AboutAppContextValue | undefined>(undefined)
 
-export function AboutAppProvider({ children }: { children: ComponentChildren }) {
-  const [content, setContent] = useState<AboutAppContent | undefined>(undefined)
+type AboutAppHostProps = {
+  hostRef: RefObject<AboutAppHostHandle | undefined>
+}
 
-  const showAbout = useCallback((next: AboutAppContent) => {
-    setContent(next)
-  }, [])
+function AboutAppHost({ hostRef }: AboutAppHostProps) {
+  const [content, setContent] = useState<AboutAppContent | undefined>(undefined)
 
   const closeAbout = useCallback(() => {
     setContent(undefined)
+  }, [])
+
+  useEffect(() => {
+    hostRef.current = {
+      show: (next) => setContent(next),
+    }
+    return () => {
+      hostRef.current = undefined
+    }
+  }, [hostRef])
+
+  useEffect(() => {
+    if (!content) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeAbout()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [content, closeAbout])
+
+  if (!content) {
+    return undefined
+  }
+
+  return <AboutAppDialog {...content} onClose={closeAbout} />
+}
+
+export function AboutAppProvider({ children }: { children: ComponentChildren }) {
+  const hostRef = useRef<AboutAppHostHandle | undefined>(undefined)
+
+  const showAbout = useCallback((next: AboutAppContent) => {
+    hostRef.current?.show(next)
   }, [])
 
   const showBuiltinAbout = useCallback(
@@ -44,21 +86,6 @@ export function AboutAppProvider({ children }: { children: ComponentChildren }) 
   const showFinderAbout = useCallback(() => showAbout(FINDER_ABOUT), [showAbout])
   const showInstantAbout = useCallback(() => showAbout(INSTANT_ABOUT), [showAbout])
 
-  useEffect(() => {
-    if (!content) {
-      return
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeAbout()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [content, closeAbout])
-
   const value = useMemo(
     () => ({ showAbout, showBuiltinAbout, showFinderAbout, showInstantAbout }),
     [showAbout, showBuiltinAbout, showFinderAbout, showInstantAbout],
@@ -67,7 +94,7 @@ export function AboutAppProvider({ children }: { children: ComponentChildren }) 
   return (
     <AboutAppContext.Provider value={value}>
       {children}
-      {content && <AboutAppDialog {...content} onClose={closeAbout} />}
+      <AboutAppHost hostRef={hostRef} />
     </AboutAppContext.Provider>
   )
 }

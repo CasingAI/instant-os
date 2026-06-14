@@ -48,9 +48,14 @@ export function FullscreenChromeRevealProvider({ children }: { children: Compone
   const chromeRevealedRef = useRef(chromeRevealed)
   const pinSourcesRef = useRef(new Set<string>())
   const lastPointerYRef = useRef<number | undefined>(undefined)
+  const immersiveChromeActiveRef = useRef(false)
 
   const syncChromeRevealAtY = useCallback((y: number) => {
     lastPointerYRef.current = y
+
+    if (!immersiveChromeActiveRef.current) {
+      return
+    }
 
     if (pinSourcesRef.current.size > 0) {
       setChromeRevealed(true)
@@ -71,6 +76,9 @@ export function FullscreenChromeRevealProvider({ children }: { children: Compone
   }, [])
 
   const dismissChromeIfAllowed = useCallback(() => {
+    if (!immersiveChromeActiveRef.current) {
+      return
+    }
     if (pinSourcesRef.current.size > 0) {
       return
     }
@@ -94,11 +102,19 @@ export function FullscreenChromeRevealProvider({ children }: { children: Compone
   const hasImmersiveFullscreen =
     immersiveChromeEnabled && windows.some((window) => window.fullscreen && !window.minimized)
 
+  useEffect(() => {
+    immersiveChromeActiveRef.current = hasImmersiveFullscreen
+  }, [hasImmersiveFullscreen])
+
   const setChromePinSource = useCallback((source: string, pinned: boolean) => {
     if (pinned) {
       pinSourcesRef.current.add(source)
     } else {
       pinSourcesRef.current.delete(source)
+    }
+
+    if (!immersiveChromeActiveRef.current) {
+      return
     }
 
     if (pinSourcesRef.current.size > 0) {

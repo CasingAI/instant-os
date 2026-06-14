@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'
@@ -93,9 +93,21 @@ export function WindowFrame({ window }: WindowFrameProps) {
     [windowBounds],
   )
   const [isEntering, setIsEntering] = useState(window.enterAnimation === 'scale-in')
+  const [isMinimizing, setIsMinimizing] = useState(false)
   const isClosing = window.closing
   const immersiveFullscreen = window.fullscreen && hasImmersiveFullscreen
   const showImmersiveChrome = immersiveFullscreen && chromeRevealed && isActive
+
+  useEffect(() => {
+    if (!window.minimized) {
+      setIsMinimizing(false)
+      return
+    }
+    setIsMinimizing(true)
+    const timer = globalThis.setTimeout(() => setIsMinimizing(false), 420)
+    return () => globalThis.clearTimeout(timer)
+  }, [window.minimized])
+
   const frameTransform = window.minimized
     ? minimizeTransform
     : isClosing || isEntering
@@ -108,7 +120,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${window.minimized ? ' window-frame--minimized' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
+        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${window.minimized ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
         aria-hidden={window.minimized || isClosing ? true : undefined}
         style={{
           zIndex: window.zIndex,

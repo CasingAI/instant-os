@@ -1,16 +1,18 @@
-import type { ComponentChildren } from 'preact'
+import type { ComponentChildren, RefObject } from 'preact'
 import { createContext } from 'preact'
-import { useCallback, useContext, useMemo, useState } from 'preact/hooks'
+import { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks'
 import { NotificationBannerHost } from './notification-banner-host.tsx'
 import { NotificationCenterPanel } from './notification-center-panel.tsx'
+import {
+  getNotificationCenterStoreState,
+  setNotificationCenterStoreState,
+  subscribeNotificationCenterStore,
+} from './notification-center-store.ts'
 import { StorageWarningBannerHost } from './storage-warning-banner.tsx'
 
 type NotificationPanelScreen = 'list' | 'detail'
 
-type NotificationCenterContextValue = {
-  isOpen: boolean
-  panelScreen: NotificationPanelScreen
-  selectedSlug: string | undefined
+type NotificationCenterActions = {
   openPanel: (slug?: string) => void
   closePanel: () => void
   togglePanel: () => void
@@ -18,12 +20,28 @@ type NotificationCenterContextValue = {
   closeDetail: () => void
 }
 
-const NotificationCenterContext = createContext<NotificationCenterContextValue | undefined>(undefined)
+type NotificationCenterContextValue = NotificationCenterActions & {
+  isOpen: boolean
+  panelScreen: NotificationPanelScreen
+  selectedSlug: string | undefined
+}
 
-export function NotificationCenterProvider({ children }: { children: ComponentChildren }) {
-  const [selectedSlug, setSelectedSlug] = useState<string | undefined>(undefined)
-  const [panelScreen, setPanelScreen] = useState<NotificationPanelScreen>('list')
+type NotificationCenterHostHandle = NotificationCenterActions
+
+const NotificationCenterActionsContext = createContext<NotificationCenterActions | undefined>(undefined)
+
+type NotificationCenterHostProps = {
+  hostRef: RefObject<NotificationCenterHostHandle | undefined>
+}
+
+function NotificationCenterHost({ hostRef }: NotificationCenterHostProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [panelScreen, setPanelScreen] = useState<NotificationPanelScreen>('list')
+  const [selectedSlug, setSelectedSlug] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    setNotificationCenterStoreState({ isOpen, panelScreen, selectedSlug })
+  }, [isOpen, panelScreen, selectedSlug])
 
   const openDetail = useCallback((slug: string) => {
     setSelectedSlug(slug)
@@ -35,19 +53,16 @@ export function NotificationCenterProvider({ children }: { children: ComponentCh
     setPanelScreen('list')
   }, [])
 
-  const openPanel = useCallback(
-    (slug?: string) => {
-      if (slug) {
-        setSelectedSlug(slug)
-        setPanelScreen('detail')
-      } else {
-        setSelectedSlug(undefined)
-        setPanelScreen('list')
-      }
-      setIsOpen(true)
-    },
-    [],
-  )
+  const openPanel = useCallback((slug?: string) => {
+    if (slug) {
+      setSelectedSlug(slug)
+      setPanelScreen('detail')
+    } else {
+      setSelectedSlug(undefined)
+      setPanelScreen('list')
+    }
+    setIsOpen(true)
+  }, [])
 
   const closePanel = useCallback(() => {
     setIsOpen(false)
@@ -56,41 +71,86 @@ export function NotificationCenterProvider({ children }: { children: ComponentCh
   }, [])
 
   const togglePanel = useCallback(() => {
-    if (isOpen) {
-      closePanel()
-      return
-    }
-    openPanel()
-  }, [isOpen, closePanel, openPanel])
+    setIsOpen((current) => {
+      if (current) {
+        setSelectedSlug(undefined)
+        setPanelScreen('list')
+        return false
+      }
+      return true
+    })
+  }, [])
 
-  const value = useMemo(
-    () => ({
-      isOpen,
-      panelScreen,
-      selectedSlug,
+  useEffect(() => {
+    hostRef.current = {
       openPanel,
       closePanel,
       togglePanel,
       openDetail,
       closeDetail,
-    }),
-    [isOpen, panelScreen, selectedSlug, openPanel, closePanel, togglePanel, openDetail, closeDetail],
-  )
+    }
+    return () => {
+      hostRef.current = undefined
+    }
+  }, [closeDetail, closePanel, openDetail, openPanel, togglePanel, hostRef])
 
   return (
-    <NotificationCenterContext.Provider value={value}>
-      {children}
+    <>
       <NotificationBannerHost />
       <StorageWarningBannerHost />
       <NotificationCenterPanel open={isOpen} onClose={closePanel} />
-    </NotificationCenterContext.Provider>
+    </>
   )
 }
 
-export function useNotificationCenter() {
-  const context = useContext(NotificationCenterContext)
-  if (!context) {
+export function NotificationCenterProvider({ children }: { children: ComponentChildren }) {
+  const hostRef = useRef<NotificationCenterHostHandle | undefined>(undefined)
+
+  const openPanel = useCallback((slug?: string) => {
+    hostRef.current?.openPanel(slug)
+  }, [])
+
+  const closePanel = useCallback(() => {
+    hostRef.current?.closePanel()
+  }, [])
+
+  const togglePanel = useCallback(() => {
+    hostRef.current?.togglePanel()
+  }, [])
+
+  const openDetail = useCallback((slug: string) => {
+    hostRef.current?.openDetail(slug)
+  }, [])
+
+  const closeDetail = useCallback(() => {
+    hostRef.current?.closeDetail()
+  }, [])
+
+  const actions = useMemo(
+    () => ({ openPanel, closePanel, togglePanel, openDetail, closeDetail }),
+    [openPanel, closePanel, togglePanel, openDetail, closeDetail],
+  )
+
+  return (
+    <NotificationCenterActionsContext.Provider value={actions}>
+      {children}
+      <NotificationCenterHost hostRef={hostRef} />
+    </NotificationCenterActionsContext.Provider>
+  )
+}
+
+export function useNotificationCenter(): NotificationCenterContextValue {
+  const actions = useContext(NotificationCenterActionsContext)
+  if (!actions) {
     throw new Error('useNotificationCenter must be used within NotificationCenterProvider')
   }
-  return context
+
+  const [, rerender] = useReducer((value: number) => value + 1, 0)
+
+  useEffect(() => subscribeNotificationCenterStore(() => rerender(0)), [])
+
+  return {
+    ...actions,
+    ...getNotificationCenterStoreState(),
+  }
 }
