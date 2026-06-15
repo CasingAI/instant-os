@@ -177,6 +177,7 @@ export function useWindowDrag(
 
           if (isDoubleTap) {
             lastTapRef.current = undefined
+            upEvent.preventDefault()
             onDoubleActivate()
           } else {
             lastTapRef.current = { time: now, x: upEvent.clientX, y: upEvent.clientY }

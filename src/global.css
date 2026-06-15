@@ -17,6 +17,8 @@ body,
   padding: 0;
   overflow: hidden;
   background: #000;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
