@@ -27,6 +27,7 @@ body {
 
 button {
   font: inherit;
+  color: inherit;
   border: none;
   background: none;
   padding: 0;

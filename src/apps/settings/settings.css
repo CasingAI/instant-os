@@ -927,6 +927,7 @@
 
 .settings__row--button {
   cursor: default;
+  color: inherit;
 }
 
 .settings__row--button:hover {

@@ -12,9 +12,9 @@ const CORE_FEATURES = [
     description: '访问任意网址，由 AI 即时渲染网页',
   },
   {
-    id: 'desktop',
-    title: '桌面环境',
-    description: '窗口、Dock 与菜单栏，熟悉的使用体验',
+    id: 'icode',
+    title: 'iCode',
+    description: '对话式 AI 编程套件，轻松编写专属程序',
   },
 ] as const
 
