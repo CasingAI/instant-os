@@ -41,6 +41,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const [runtimeErrors, setRuntimeErrors] = useState<GeneratedAppRuntimeErrorEntry[]>([])
   const [runtimeErrorAlertOpen, setRuntimeErrorAlertOpen] = useState(false)
   const [runtimeErrorDetailsOpen, setRuntimeErrorDetailsOpen] = useState(false)
+  const suppressRuntimeErrorAlertRef = useRef(false)
 
   useEffect(() => {
     const root = document.documentElement
@@ -80,7 +81,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       logRuntimeErrorToHostConsole(app?.name ?? appId, message.text)
       setRuntimeErrors((current) => appendRuntimeErrorEntry(current, message))
 
-      if (runtimeErrorDetailsOpen || runtimeErrorAlertOpen) {
+      if (suppressRuntimeErrorAlertRef.current || runtimeErrorDetailsOpen || runtimeErrorAlertOpen) {
         return
       }
 
@@ -226,7 +227,10 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
         onIgnore={() => {
           setRuntimeErrorAlertOpen(false)
         }}
-        onExit={() => closeWindowsForApp(appId)}
+        onSuppressAlerts={() => {
+          suppressRuntimeErrorAlertRef.current = true
+          setRuntimeErrorAlertOpen(false)
+        }}
         onOpenDetails={() => {
           setRuntimeErrorAlertOpen(false)
           setRuntimeErrorDetailsOpen(true)

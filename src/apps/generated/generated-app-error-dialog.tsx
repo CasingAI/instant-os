@@ -10,7 +10,7 @@ type GeneratedAppErrorDialogProps = {
   alertOpen: boolean
   detailsOpen: boolean
   onIgnore: () => void
-  onExit: () => void
+  onSuppressAlerts: () => void
   onOpenDetails: () => void
   onCloseDetails: () => void
 }
@@ -35,7 +35,7 @@ export function GeneratedAppErrorDialog({
   alertOpen,
   detailsOpen,
   onIgnore,
-  onExit,
+  onSuppressAlerts,
   onOpenDetails,
   onCloseDetails,
 }: GeneratedAppErrorDialogProps) {
@@ -63,10 +63,10 @@ export function GeneratedAppErrorDialog({
   const alertActions = useMemo(
     () => [
       {
-        key: 'exit',
-        label: '退出程序',
-        tone: 'danger' as const,
-        onClick: () => onExit(),
+        key: 'suppress',
+        label: '不再提醒',
+        tone: 'secondary' as const,
+        onClick: () => onSuppressAlerts(),
       },
       {
         key: 'ignore',
@@ -81,7 +81,7 @@ export function GeneratedAppErrorDialog({
         onClick: () => onOpenDetails(),
       },
     ],
-    [onExit, onIgnore, onOpenDetails],
+    [onSuppressAlerts, onIgnore, onOpenDetails],
   )
 
   const detailActions = useMemo(
@@ -113,7 +113,7 @@ export function GeneratedAppErrorDialog({
           </div>
           <div class="generated-app-error-alert__copy">
             <p class="window-modal__message">
-              该程序在运行时遇到异常。你可以退出程序、暂时忽略此提示，或查看错误详情。
+              该程序在运行时遇到异常。你可以选择不再提醒、暂时忽略此提示，或查看错误详情。
             </p>
             {errors.length > 1 && (
               <p class="generated-app-error-alert__count">已累计 {errors.length} 条异常。</p>

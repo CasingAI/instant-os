@@ -13,10 +13,7 @@
 
 .instant-boot-splash--cold-exit {
   pointer-events: none;
-}
-
-.instant-boot-splash--cold-exit .instant-boot-splash__backdrop {
-  animation: instant-boot-splash-backdrop-exit 1s ease-out forwards;
+  animation: instant-boot-splash-exit 1s ease-out forwards;
 }
 
 .instant-boot-splash__inner {
@@ -77,7 +74,11 @@
   }
 }
 
-@keyframes instant-boot-splash-backdrop-exit {
+@keyframes instant-boot-splash-exit {
+  from {
+    opacity: 1;
+  }
+
   to {
     opacity: 0;
   }
