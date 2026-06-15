@@ -11,10 +11,16 @@ import './os/boot-splash.css'
 import './os/boot-transition.css'
 
 const DOCUMENT_TITLE = 'Instant OS'
-const COLD_ENTER_MS = 1000
+const SPLASH_EXIT_MS = 1000
 const SETUP_ENTER_MS = 1050
 
-type BootPhase = 'booting' | 'setup' | 'cold-entering' | 'setup-entering' | 'desktop'
+type BootPhase =
+  | 'booting'
+  | 'setup-boot-entering'
+  | 'setup'
+  | 'cold-entering'
+  | 'setup-entering'
+  | 'desktop'
 
 export function App() {
   const apiReady = useOpenAiReady()
@@ -31,25 +37,25 @@ export function App() {
     }
 
     const frame = window.requestAnimationFrame(() => {
+      startBootSplashColdExit()
+
       if (apiReady) {
-        startBootSplashColdExit()
         setBootPhase('cold-entering')
         return
       }
 
-      removeBootSplash()
-      setBootPhase('setup')
+      setBootPhase('setup-boot-entering')
     })
 
     return () => window.cancelAnimationFrame(frame)
   }, [apiReady, bootPhase])
 
   useEffect(() => {
-    if (bootPhase === 'cold-entering') {
+    if (bootPhase === 'cold-entering' || bootPhase === 'setup-boot-entering') {
       const timer = window.setTimeout(() => {
         removeBootSplash()
-        setBootPhase('desktop')
-      }, COLD_ENTER_MS)
+        setBootPhase(bootPhase === 'cold-entering' ? 'desktop' : 'setup')
+      }, SPLASH_EXIT_MS)
       return () => window.clearTimeout(timer)
     }
 
@@ -67,7 +73,8 @@ export function App() {
 
   const showDesktop =
     bootPhase === 'cold-entering' || bootPhase === 'setup-entering' || bootPhase === 'desktop'
-  const showSetup = bootPhase === 'setup' || bootPhase === 'setup-entering'
+  const showSetup =
+    bootPhase === 'setup-boot-entering' || bootPhase === 'setup' || bootPhase === 'setup-entering'
 
   return (
     <div class="boot-root">
@@ -94,7 +101,11 @@ export function App() {
       {showSetup && (
         <div
           class={`boot-root__setup${
-            bootPhase === 'setup-entering' ? ' boot-root__setup--exiting' : ''
+            bootPhase === 'setup-boot-entering'
+              ? ' boot-root__setup--cold-entering'
+              : bootPhase === 'setup-entering'
+                ? ' boot-root__setup--exiting'
+                : ''
           }`}
         >
           <SetupAssistant

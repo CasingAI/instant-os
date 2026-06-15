@@ -35,6 +35,11 @@
   will-change: opacity, transform, filter;
 }
 
+.boot-root__setup--cold-entering {
+  opacity: 0;
+  animation: boot-desktop-cold-enter 1s ease-out forwards;
+}
+
 .boot-root__setup--exiting {
   animation: boot-setup-exit 0.95s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
