@@ -1,0 +1,84 @@
+.instant-boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+}
+
+.instant-boot-splash__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #000;
+}
+
+.instant-boot-splash--cold-exit {
+  pointer-events: none;
+}
+
+.instant-boot-splash--cold-exit .instant-boot-splash__backdrop {
+  animation: instant-boot-splash-backdrop-exit 1s ease-out forwards;
+}
+
+.instant-boot-splash__inner {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 52px;
+  height: 108px;
+  margin-top: -54px;
+  margin-left: -26px;
+}
+
+.instant-boot-splash__logo {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  width: 52px;
+  height: 52px;
+  margin-inline: auto;
+  color: #ebebeb;
+}
+
+.instant-boot-splash__spinner-slot {
+  position: absolute;
+  top: 80px;
+  inset-inline: 0;
+  width: 28px;
+  height: 28px;
+  margin-inline: auto;
+}
+
+.instant-boot-splash__spinner {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+.instant-boot-splash__spinner-ring {
+  fill: none;
+  stroke: #333333;
+  stroke-width: 2;
+}
+
+.instant-boot-splash__spinner-arc {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 20 56;
+  transform-origin: 14px 14px;
+  animation: instant-boot-splash-spin 0.85s linear infinite;
+}
+
+@keyframes instant-boot-splash-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes instant-boot-splash-backdrop-exit {
+  to {
+    opacity: 0;
+  }
+}

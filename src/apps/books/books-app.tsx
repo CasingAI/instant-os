@@ -391,7 +391,7 @@ export function BooksApp() {
               setScreen('reader')
             }
           }}
-          onOpenStoreListing={(slug, sourceListings) => openStoreListing(slug, sourceListings, 'shelf')}
+          onOpenStoreListing={(slug) => openStoreListing(slug, undefined, 'shelf')}
           onDeleteBook={handleRemoveBook}
           onGoStore={openStore}
         />

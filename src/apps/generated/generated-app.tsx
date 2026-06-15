@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
@@ -11,6 +11,13 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
+import { GeneratedAppErrorDialog } from './generated-app-error-dialog.tsx'
+import type { GeneratedAppRuntimeErrorEntry } from './generated-app-runtime-error-types.ts'
+import {
+  appendRuntimeErrorEntry,
+  isGeneratedAppRuntimeErrorMessage,
+  logRuntimeErrorToHostConsole,
+} from './generated-app-runtime-errors.ts'
 import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
 import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
 import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
@@ -31,6 +38,9 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const dataRevision = getAppDataRevision(appId)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [emojiFontEpoch, setEmojiFontEpoch] = useState(0)
+  const [runtimeErrors, setRuntimeErrors] = useState<GeneratedAppRuntimeErrorEntry[]>([])
+  const [runtimeErrorAlertOpen, setRuntimeErrorAlertOpen] = useState(false)
+  const [runtimeErrorDetailsOpen, setRuntimeErrorDetailsOpen] = useState(false)
 
   useEffect(() => {
     const root = document.documentElement
@@ -58,6 +68,26 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   }, [app, appId, dataRevision, emojiFontEpoch])
 
   const { iframeProps } = useGeneratedHtmlIframe(iframeRef, preparedHtml, remountKey)
+
+  useEffect(() => {
+    setRuntimeErrors([])
+    setRuntimeErrorAlertOpen(false)
+    setRuntimeErrorDetailsOpen(false)
+  }, [remountKey])
+
+  const handleRuntimeError = useCallback(
+    (message: Parameters<typeof appendRuntimeErrorEntry>[1]) => {
+      logRuntimeErrorToHostConsole(app?.name ?? appId, message.text)
+      setRuntimeErrors((current) => appendRuntimeErrorEntry(current, message))
+
+      if (runtimeErrorDetailsOpen || runtimeErrorAlertOpen) {
+        return
+      }
+
+      setRuntimeErrorAlertOpen(true)
+    },
+    [app?.name, appId, runtimeErrorAlertOpen, runtimeErrorDetailsOpen],
+  )
 
   const menuBar = useMemo((): MenuDefinition[] => {
     if (!app) {
@@ -105,6 +135,15 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
         return
       }
 
+      if (isGeneratedAppRuntimeErrorMessage(event.data)) {
+        if (event.data.appId !== appId) {
+          return
+        }
+
+        handleRuntimeError(event.data)
+        return
+      }
+
       if (!isGeneratedAppStorageMessage(event.data)) {
         return
       }
@@ -118,7 +157,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [appId])
+  }, [appId, handleRuntimeError])
 
   useEffect(() => {
     return installGeneratedAppAiHandler({
@@ -177,6 +216,22 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
         title={app.name}
         {...iframeProps}
         onFocus={() => focusWindow(windowId)}
+      />
+      <GeneratedAppErrorDialog
+        appName={app.name}
+        themeColor={app.themeColor}
+        errors={runtimeErrors}
+        alertOpen={runtimeErrorAlertOpen}
+        detailsOpen={runtimeErrorDetailsOpen}
+        onIgnore={() => {
+          setRuntimeErrorAlertOpen(false)
+        }}
+        onExit={() => closeWindowsForApp(appId)}
+        onOpenDetails={() => {
+          setRuntimeErrorAlertOpen(false)
+          setRuntimeErrorDetailsOpen(true)
+        }}
+        onCloseDetails={() => setRuntimeErrorDetailsOpen(false)}
       />
     </div>
   )

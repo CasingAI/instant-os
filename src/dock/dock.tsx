@@ -91,7 +91,7 @@ export function Dock() {
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
 
-  const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
+  const [, setExperimentalSettingsVersion] = useState(0)
 
   useEffect(() => {
     const handleChange = () => setExperimentalSettingsVersion((v) => v + 1)

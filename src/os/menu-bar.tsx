@@ -150,6 +150,12 @@ export function MenuBar() {
             })
           },
         },
+        { type: 'separator' },
+        {
+          type: 'action',
+          label: '系统设置',
+          onClick: () => openApp('settings'),
+        },
       ],
     }),
     [showAbout, openApp],

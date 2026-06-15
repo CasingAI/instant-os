@@ -18,6 +18,31 @@
   padding: 24px;
   overflow-y: auto;
   background: rgba(0, 0, 0, 0.28);
+  animation: window-modal-backdrop-in 150ms ease-out both;
+}
+
+.window-modal-backdrop--closing {
+  animation: window-modal-backdrop-out 180ms ease-in both;
+}
+
+@keyframes window-modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes window-modal-backdrop-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 .window-modal {
@@ -34,6 +59,35 @@
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  animation: window-modal-in 150ms ease-out both;
+}
+
+.window-modal--closing {
+  animation: window-modal-out 180ms ease-in both;
+}
+
+@keyframes window-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes window-modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
 }
 
 .window-modal--wide {

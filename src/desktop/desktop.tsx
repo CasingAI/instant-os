@@ -470,7 +470,7 @@ export function Desktop() {
   const lastDragPointerRef = useRef({ x: 0, y: 0 })
   const reorderPlacementPageRef = useRef(0)
 
-  const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
+  const [, setExperimentalSettingsVersion] = useState(0)
 
   useEffect(() => {
     const handleChange = () => setExperimentalSettingsVersion((v) => v + 1)

@@ -22,7 +22,7 @@ export async function getThisDeviceAbout(): Promise<AboutAppContent> {
 
   return {
     title: 'Instant OS',
-    version: '版本 1.0.5',
+    version: '版本 1.0.6',
     icon: InstantLogoIcon,
     layout: 'about-this-device',
     specs: deviceSpecs,
@@ -31,7 +31,7 @@ export async function getThisDeviceAbout(): Promise<AboutAppContent> {
 
 export const INSTANT_ABOUT: AboutAppContent = {
   title: 'Instant OS',
-  version: '版本 1.0.5',
+  version: '版本 1.0.6',
   icon: InstantLogoIcon,
   paragraphs: [
     'Instant OS 是一个在浏览器中运行的 AI 桌面操作系统。它复刻经典 macOS / iOS 的视觉与交互，让你无需安装即可体验完整的「桌面 + 应用」环境。',

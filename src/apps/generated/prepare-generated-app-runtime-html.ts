@@ -4,11 +4,13 @@ import type { GeneratedAppId } from '../../os/types.ts'
 import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
 import { generatedAppRuntimeUses3d } from './generated-app-tags.ts'
 import { injectGeneratedAppAiBridge } from './inject-generated-app-ai-bridge.ts'
+import { injectGeneratedAppErrorBridge } from './inject-generated-app-error-bridge.ts'
 import { injectIframeLayoutNotify } from './inject-iframe-layout-notify.ts'
 import { injectGeneratedAppStorageBridge } from './inject-generated-app-storage-bridge.ts'
 
 export type PrepareGeneratedAppRuntimeHtmlOptions = {
   debug?: boolean
+  reportingAppId?: GeneratedAppId
 }
 
 export function prepareGeneratedAppRuntimeHtml(
@@ -30,6 +32,7 @@ export function prepareGeneratedAppRuntimeHtml(
   }
 
   prepared = injectGeneratedAppAiBridge(prepared, appId, { debug: options.debug })
+  prepared = injectGeneratedAppErrorBridge(prepared, options.reportingAppId ?? appId)
 
   return prepared
 }

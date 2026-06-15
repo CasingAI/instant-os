@@ -9,7 +9,93 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#863bff" />
+    <meta name="theme-color" content="#000000" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #app {
+        width: 100%;
+        height: 100%;
+      }
+
+      .instant-boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483000;
+      }
+
+      .instant-boot-splash__backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background: #000;
+      }
+
+      .instant-boot-splash__inner {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        z-index: 1;
+        width: 52px;
+        height: 108px;
+        margin-top: -54px;
+        margin-left: -26px;
+      }
+
+      .instant-boot-splash__logo {
+        position: absolute;
+        top: 0;
+        inset-inline: 0;
+        width: 52px;
+        height: 52px;
+        margin-inline: auto;
+        color: #ebebeb;
+      }
+
+      .instant-boot-splash__spinner-slot {
+        position: absolute;
+        top: 80px;
+        inset-inline: 0;
+        width: 28px;
+        height: 28px;
+        margin-inline: auto;
+      }
+
+      .instant-boot-splash__spinner {
+        display: block;
+        width: 28px;
+        height: 28px;
+      }
+
+      .instant-boot-splash__spinner-ring {
+        fill: none;
+        stroke: #333333;
+        stroke-width: 2;
+      }
+
+      .instant-boot-splash__spinner-arc {
+        fill: none;
+        stroke: #ffffff;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-dasharray: 20 56;
+        transform-origin: 14px 14px;
+        animation: instant-boot-splash-spin 0.85s linear infinite;
+      }
+
+      @keyframes instant-boot-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Instant OS" />
@@ -21,6 +107,25 @@
     <title>Instant OS</title>
   </head>
   <body>
+    <div id="instant-boot-splash" class="instant-boot-splash" role="status" aria-live="polite" aria-busy="true">
+      <div class="instant-boot-splash__backdrop" aria-hidden="true"></div>
+      <div class="instant-boot-splash__inner">
+        <div class="instant-boot-splash__logo" aria-hidden="true">
+          <svg width="52" height="52" viewBox="0 0 48 46" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"
+            />
+          </svg>
+        </div>
+        <div class="instant-boot-splash__spinner-slot" aria-hidden="true">
+          <svg class="instant-boot-splash__spinner" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+            <circle class="instant-boot-splash__spinner-ring" cx="14" cy="14" r="12" />
+            <circle class="instant-boot-splash__spinner-arc" cx="14" cy="14" r="12" />
+          </svg>
+        </div>
+      </div>
+    </div>
     <div id="app"></div>
     <script src="/boot-crash-guard.js"></script>
     <script type="module" id="instant-os-main-module" src="/src/entry.tsx"></script>

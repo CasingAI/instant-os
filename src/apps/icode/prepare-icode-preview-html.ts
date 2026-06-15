@@ -13,6 +13,9 @@ export function prepareIcodePreviewHtml(
     return ''
   }
 
-  const prepared = prepareGeneratedAppRuntimeHtml(html, appId, initialData, { debug: true })
+  const prepared = prepareGeneratedAppRuntimeHtml(html, appId, initialData, {
+    debug: true,
+    reportingAppId: consoleAppId ?? appId,
+  })
   return injectIcodeConsoleBridge(prepared, consoleAppId ?? appId)
 }

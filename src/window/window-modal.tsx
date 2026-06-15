@@ -1,10 +1,12 @@
 import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
-import { useContext, useMemo } from 'preact/hooks'
+import { useContext, useEffect, useMemo, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import './window-modal.css'
 
 export const WindowModalOverlayContext = createContext<HTMLElement | undefined>(undefined)
+
+const CLOSE_ANIMATION_MS = 200
 
 export type WindowModalActionTone = 'primary' | 'secondary' | 'danger'
 
@@ -24,6 +26,7 @@ export type WindowModalProps = {
   wide?: boolean
   scrollBody?: boolean
   titleId?: string
+  panelClass?: string
   onClose?: () => void
   children?: ComponentChildren
   actions?: WindowModalAction[]
@@ -41,6 +44,7 @@ export function WindowModal({
   wide,
   scrollBody,
   titleId,
+  panelClass,
   onClose,
   children,
   actions,
@@ -52,8 +56,30 @@ export function WindowModal({
 
   const overlayRoot = useContext(WindowModalOverlayContext)
   const actionsMode = (actions?.length ?? 0) > 2 ? 'many' : 'pair'
+  const [visible, setVisible] = useState(open)
+  const [closing, setClosing] = useState(false)
 
-  if (!open) {
+  useEffect(() => {
+    if (open) {
+      setVisible(true)
+      setClosing(false)
+      return
+    }
+
+    if (!visible) {
+      return
+    }
+
+    setClosing(true)
+    const timer = window.setTimeout(() => {
+      setVisible(false)
+      setClosing(false)
+    }, CLOSE_ANIMATION_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [open, visible])
+
+  if (!visible) {
     return undefined
   }
 
@@ -62,9 +88,13 @@ export function WindowModal({
     : undefined
 
   const modal = (
-    <div class="window-modal-backdrop" role="presentation" onClick={onClose}>
+    <div
+      class={`window-modal-backdrop${closing ? ' window-modal-backdrop--closing' : ''}`}
+      role="presentation"
+      onClick={onClose}
+    >
       <div
-        class={`window-modal${wide ? ' window-modal--wide' : ''}`}
+        class={`window-modal${wide ? ' window-modal--wide' : ''}${closing ? ' window-modal--closing' : ''}${panelClass ? ` ${panelClass}` : ''}`}
         style={panelStyle}
         role={role}
         aria-modal="true"

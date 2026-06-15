@@ -68,11 +68,16 @@ import {
   updateInternalProject,
 } from './icode-storage.ts'
 import { appendConsoleEntry, isIcodeConsoleMessage } from './icode-console.ts'
-import type {
-  ICodeChatMessage,
-  ICodeConsoleEntry,
-  ICodeExportBundle,
-  ICodeInternalProject,
+import {
+  isGeneratedAppRuntimeErrorMessage,
+  logRuntimeErrorToHostConsole,
+} from '../generated/generated-app-runtime-errors.ts'
+import {
+  ICODE_CONSOLE_MESSAGE_TYPE,
+  type ICodeChatMessage,
+  type ICodeConsoleEntry,
+  type ICodeExportBundle,
+  type ICodeInternalProject,
 } from './icode-types.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { IcodeAppDataEditor } from './icode-app-data-editor.tsx'
@@ -530,7 +535,33 @@ export function ICodeApp() {
           return
         }
 
+        if (event.data.level === 'error') {
+          logRuntimeErrorToHostConsole(session?.name ?? previewAppId, event.data.text)
+        }
+
         setConsoleLogs((current) => appendConsoleEntry(current, event.data))
+        return
+      }
+
+      if (isGeneratedAppRuntimeErrorMessage(event.data)) {
+        if (event.data.appId !== previewAppId) {
+          return
+        }
+
+        if (event.source !== previewWindow) {
+          return
+        }
+
+        logRuntimeErrorToHostConsole(session?.name ?? previewAppId, event.data.text)
+        setConsoleLogs((current) =>
+          appendConsoleEntry(current, {
+            type: ICODE_CONSOLE_MESSAGE_TYPE,
+            appId: event.data.appId,
+            level: 'error',
+            text: event.data.text,
+            timestamp: event.data.timestamp,
+          }),
+        )
         return
       }
 
@@ -560,7 +591,7 @@ export function ICodeApp() {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [previewAppId, runtimeAppId])
+  }, [previewAppId, runtimeAppId, session?.name])
 
   useEffect(() => {
     return () => {

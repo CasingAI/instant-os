@@ -3,6 +3,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  background: #000;
 }
 
 .boot-root__desktop {
@@ -12,8 +13,13 @@
   will-change: opacity, transform, filter;
 }
 
-.boot-root__desktop--entering {
-  animation: boot-desktop-enter 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+.boot-root__desktop--cold-entering {
+  opacity: 0;
+  animation: boot-desktop-cold-enter 1s ease-out forwards;
+}
+
+.boot-root__desktop--setup-entering {
+  animation: boot-desktop-setup-enter 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .boot-root__desktop--entered {
@@ -72,7 +78,17 @@
   }
 }
 
-@keyframes boot-desktop-enter {
+@keyframes boot-desktop-cold-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes boot-desktop-setup-enter {
   0% {
     opacity: 0;
     transform: scale(0.96);
