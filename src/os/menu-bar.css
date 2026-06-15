@@ -6,12 +6,12 @@
   align-items: center;
   height: 22px;
   padding: 0 8px;
-  color: #fff;
+  color: var(--menu-bar-color, #fff);
   font-size: 13px;
   font-weight: 500;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.08) 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-shadow: var(--menu-bar-text-shadow, 0 1px 1px rgba(0, 0, 0, 0.35));
+  background: var(--menu-bar-scrim, linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.08) 100%));
+  border-bottom: 1px solid var(--menu-bar-border, rgba(255, 255, 255, 0.08));
   transition:
     opacity 0.28s ease,
     transform 0.28s ease;
@@ -80,7 +80,7 @@
 
 .menu-bar__status-trigger:hover,
 .menu-bar__status-trigger--open {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
 }
 
 .menu-bar__battery {
@@ -111,7 +111,7 @@
 
 .menu-bar__brand:hover,
 .menu-bar__brand--open {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
   opacity: 1;
 }
 
@@ -132,7 +132,7 @@
 
 .menu-bar__trigger:hover,
 .menu-bar__trigger--open {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
 }
 
 .menu-bar__fallback-name {
@@ -157,7 +157,7 @@
 
 .menu-bar__datetime:hover,
 .menu-bar__datetime--open {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
 }
 
 .menu-bar__datetime-weekday {

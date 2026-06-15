@@ -90,7 +90,7 @@ export function BooksShelf({
                     {!editing && book.status === 'generating' && progress !== undefined
                       ? `${progress}%`
                       : !editing && book.status === 'failed'
-                        ? '生成失败'
+                        ? '下载失败'
                         : ''}
                   </span>
                 </div>

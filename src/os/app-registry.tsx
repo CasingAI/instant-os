@@ -12,13 +12,15 @@ import { StocksApp } from '../apps/stocks/stocks-app.tsx'
 import { TranslateApp } from '../apps/translate/translate-app.tsx'
 import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
 import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
+import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
+import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -98,6 +100,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
   }),
   withAbout({
+    id: 'speech',
+    name: '语音识别',
+    icon: SpeechIcon,
+    dock: false,
+    desktop: false,
+  }),
+  withAbout({
     id: 'photos',
     name: '照片',
     icon: PhotosIcon,
@@ -125,6 +134,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
+  withAbout({
+    id: 'system-info',
+    name: '系统信息',
+    icon: InstantLogoIcon,
+    dock: false,
+    desktop: false,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
@@ -138,10 +154,12 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   translate: TranslateApp,
   catgpt: CatGptApp,
   gomoku: GomokuApp,
+  speech: SpeechApp,
   photos: PlaceholderApp('photos', '照片'),
   'scene3d-lab': Scene3dLabApp,
   icode: ICodeApp,
   settings: SettingsApp,
+  'system-info': SystemInfoApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

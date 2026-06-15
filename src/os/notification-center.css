@@ -544,7 +544,12 @@
 }
 
 .notification-center__detail-card--failed {
-  border-color: rgba(200, 70, 60, 0.35);
+  border-color: #b55;
+  background: linear-gradient(180deg, #e8d5d5 0%, #f2e4e4 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(160, 50, 40, 0.15),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
 .notification-center__detail-phase--failed {
@@ -557,10 +562,13 @@
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.45;
-  color: #7a2e28;
+  color: #6d1d19;
   border-radius: 6px;
-  background: rgba(220, 80, 70, 0.1);
-  border: 1px solid rgba(200, 70, 60, 0.2);
+  background: linear-gradient(180deg, #e0c5c5 0%, #eddcdc 100%);
+  border: 1px solid rgba(170, 60, 50, 0.35);
+  box-shadow:
+    inset 0 1px 3px rgba(120, 40, 30, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .notification-center__detail-actions {
@@ -750,7 +758,7 @@
 
 .menu-bar__datetime:hover,
 .menu-bar__datetime--open {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--menu-bar-hover, rgba(255, 255, 255, 0.18));
 }
 
 .menu-bar__datetime-calendar {

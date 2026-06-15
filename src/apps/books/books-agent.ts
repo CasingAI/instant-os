@@ -2,11 +2,13 @@ import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
 import {
   createNdjsonLineFeed,
   extractPartialObjectFields,
-  extractPartialStringField,
   parseNdjsonLine,
 } from '../../ai/parse-streaming-json.ts'
 import { isStreamIdleTimeoutError, streamChatCompletion } from '../../ai/stream-chat.ts'
+import type { StreamChatTurn } from '../../ai/stream-chat.ts'
 import { hasOpenAiApiKey } from '../../ai/openai-config.ts'
+import { addAppNotification } from '../../os/app-notifications-store.ts'
+import { setBookStream, clearBookStream } from '../../os/book-stream-store.ts'
 import {
   appendChapterIndex,
   buildSeedChapters,
@@ -17,7 +19,13 @@ import {
   updateBookInLibrary,
   writeBooksStore,
 } from './books-storage.ts'
-import { countNovelCharacters, loadChapterBody, saveBookChapterOrThrow } from './books-data-storage.ts'
+import {
+  countNovelCharacters,
+  deleteBookChapterRecords,
+  deleteBookChapters,
+  loadChapterBody,
+  saveBookChapterOrThrow,
+} from './books-data-storage.ts'
 import {
   beginBookGeneration,
   endBookGeneration,
@@ -29,7 +37,6 @@ import type {
   BookDetail,
   BookListing,
   BookRecordMeta,
-  GeneratedChapterDraft,
   GeneratedDetailDraft,
   GeneratedListingDraft,
 } from './books-types.ts'
@@ -49,6 +56,27 @@ const LISTING_LINE_EXAMPLE = JSON.stringify({
   coverColor: '#ff9500',
   coverEmoji: '📕',
 })
+
+const SEARCH_PROMPT = `你是 Instant OS 图书城 AI 搜索助手。
+Instant OS 是一个 iOS 6 拟物风格的网页桌面系统，图书 App 仿 iBooks，所有书籍均为 AI 虚构网文。
+
+用户会输入搜索关键词，你需要现场想象并生成与之相关的虚构网文目录条目（不是真实出版的书）。
+只需生成列表卡片展示所需的最基本信息。
+
+必须采用 NDJSON 格式：每行一个完整 JSON 对象，不要数组包裹，不要 markdown，不要解释。
+每行格式：${LISTING_LINE_EXAMPLE}
+
+字段：slug（英文连字符 id）、title、author、category、synopsis（40~80字）、coverColor（十六进制）、coverEmoji（一个 emoji）
+
+分类只能从以下选取：${BOOK_CATEGORIES.join('、')}
+
+要求：
+- 每次生成 6~10 本与搜索词相关、有创意的虚构网文，逐行输出
+- slug 必须唯一、URL 安全
+- 结果应贴合用户搜索意图：搜索某个题材就生成该题材的书；搜索某个人物/设定就围绕它展开；可以发挥想象力
+- 标题可以很长、很野、很好笑；内容设定虚构，不涉及真实名人造谣
+- 每本书的 title 与 synopsis 必须贴合其 category 的经典网文套路
+- 生成完一本就立刻输出一行`
 
 const CATALOG_PROMPT = `你是 Instant OS 图书城 AI 编辑。
 Instant OS 是一个 iOS 6 拟物风格的网页桌面系统，图书 App 仿 iBooks，所有书籍均为 AI 虚构网文。
@@ -202,35 +230,221 @@ async function simulateDetailStream(
   }
 }
 
-const CHAPTER_LINE_EXAMPLE = JSON.stringify({
-  index: 1,
-  title: '第一章 一切从一个离谱的想法开始',
-  body: '正文第一段...\\n\\n第二段...',
-})
-
-/** 连续收不到任何流式分片超过此时长才判定卡死（与单章总耗时无关） */
+/** 连续收不到任何流式分片超过此时长才判定卡死（与生成总耗时无关） */
 const BOOK_CHAPTER_STREAM_IDLE_MS = 300_000
 
-function buildSingleChapterPrompt(templateBlock: string): string {
+const MAX_BOOK_GENERATION_ATTEMPTS = 3
+
+function buildAllChaptersPrompt(templateBlock: string): string {
   return `你是 Instant OS 图书 App 的 AI 网文写手。
 Instant OS 是 iOS 6 拟物风格桌面，所有书籍均为虚构娱乐内容。
 
-任务：根据书籍信息与章节目录，只撰写用户指定的单章正文。
+任务：根据书籍信息与章节目录，一次性撰写全部章节正文。
 
-必须采用 NDJSON 格式：只输出一行完整 JSON 对象，不要数组包裹，不要 markdown，不要解释。
-格式：${CHAPTER_LINE_EXAMPLE}
+必须使用 XML 格式输出，每章用 <chapter> 标签包裹。不要 markdown，不要解释，不要输出 XML 之外的任何文字。
+格式示例：
+<chapter index="1" title="第一章 离谱的开端">
+正文第一段...
 
-字段：index（从1起）、title、body（800~1500字，3~6段，用\\n\\n分段）
+正文第二段...
+</chapter>
+<chapter index="2" title="第二章 事情不对劲了">
+正文第二段...
+</chapter>
 
 要求：
-- 只输出本章一行 JSON，不要输出其他章节
+- 严格按章节目录顺序，一次性输出所有章节
+- index 从 1 开始递增，title 与目录给出的标题一致或轻微润色
+- 每章正文 800~1500 字，3~6 段，段落间用空行分隔
 - 严格遵循下方套路模板：落实模板中的结构节点与必备元素
 - 网文口语化，梗密集，情节离谱但自洽
-- 本章至少一个小爽点或笑点，章末留钩子（悬念/反转/震惊反应）
-- 对话用中文引号；段落间用\\n\\n
+- 每章至少一个小爽点或笑点，章末留钩子（悬念/反转/震惊反应）
+- 章节之间保持连贯，人物、情节、设定前后一致，不要把每章当成独立故事
+- 对话用中文引号
+- title 属性必须用英文双引号闭合，例如 title="第一章 标题"，不要用 】 或其他符号代替引号
 - 不涉及真实名人、不越安全红线；可以荒诞搞笑
 
 ${templateBlock}`
+}
+
+type ParsedChapter = {
+  index: number
+  title: string
+  body: string
+}
+
+function parseChapterOpeningAttributes(
+  attrText: string,
+): { index: number; title: string } | undefined {
+  const indexMatch = attrText.match(/index\s*=\s*"(\d+)"/i)
+  if (!indexMatch) {
+    return undefined
+  }
+
+  let titleMatch = attrText.match(/title\s*=\s*"([^"]*)"/i)
+  if (!titleMatch) {
+    // AI 偶发把 title 结尾的 `"` 写成 `】` 或漏写 `"`/`>`
+    titleMatch = attrText.match(/title\s*=\s*"([^>\n】]+)/i)
+  }
+  if (!titleMatch) {
+    titleMatch = attrText.match(/title\s*=\s*'([^']*)'/i)
+  }
+  if (!titleMatch) {
+    return undefined
+  }
+
+  return {
+    index: Number(indexMatch[1]),
+    title: titleMatch[1].trim(),
+  }
+}
+
+function stripOptionalBodyWrapper(body: string): string {
+  const wrapped = body.match(/^<body>([\s\S]*)<\/body>$/i)
+  return wrapped ? wrapped[1].trim() : body
+}
+
+function parseChaptersFromXmlText(text: string): ParsedChapter[] {
+  const byIndex = new Map<number, ParsedChapter>()
+  // 不要求 `>` 紧跟属性——兼容 title 引号未闭合、缺少 `>` 的畸形开标签
+  const blockRegex = /<chapter\s+([\s\S]*?)<\/chapter>/gi
+
+  let match: RegExpExecArray | null
+  while ((match = blockRegex.exec(text)) !== null) {
+    const inner = match[1]
+    const gtIndex = inner.indexOf('>')
+    let attrText: string
+    let bodyText: string
+
+    if (gtIndex !== -1) {
+      attrText = inner.slice(0, gtIndex)
+      bodyText = inner.slice(gtIndex + 1)
+    } else {
+      const newlineIndex = inner.indexOf('\n')
+      if (newlineIndex === -1) {
+        continue
+      }
+      attrText = inner.slice(0, newlineIndex)
+      bodyText = inner.slice(newlineIndex + 1)
+    }
+
+    const opening = parseChapterOpeningAttributes(attrText)
+    if (!opening) {
+      continue
+    }
+
+    const body = stripOptionalBodyWrapper(bodyText.trim())
+    if (!body) {
+      continue
+    }
+
+    byIndex.set(opening.index, {
+      index: opening.index,
+      title: opening.title,
+      body,
+    })
+  }
+
+  return [...byIndex.values()].sort((a, b) => a.index - b.index)
+}
+
+function findFirstMissingChapterIndex(
+  savedIndexes: Set<number>,
+  total: number,
+): number | undefined {
+  for (let index = 1; index <= total; index += 1) {
+    if (!savedIndexes.has(index)) {
+      return index
+    }
+  }
+  return undefined
+}
+
+function extractChapterRawSnippet(fullText: string, chapterIndex: number): string | undefined {
+  const pattern = new RegExp(
+    `<chapter\\s+[^>]*index\\s*=\\s*"${chapterIndex}"[\\s\\S]{0,600}`,
+    'i',
+  )
+  const match = fullText.match(pattern)
+  if (!match) {
+    return undefined
+  }
+  return match[0].trim()
+}
+
+function describeMissingChapterFailure(
+  firstMissing: number,
+  fullText: string,
+  parsedIndexes: Set<number>,
+): { reason: string; snippet?: string } {
+  const snippet = extractChapterRawSnippet(fullText, firstMissing)
+
+  if (parsedIndexes.has(firstMissing)) {
+    return {
+      reason: `第 ${firstMissing} 章已从 AI 输出中解析，但未能成功保存`,
+      snippet,
+    }
+  }
+
+  if (snippet) {
+    return {
+      reason: `第 ${firstMissing} 章的 XML 标签或正文无法被正确解析`,
+      snippet,
+    }
+  }
+
+  return {
+    reason: `第 ${firstMissing} 章未在 AI 输出中出现，或输出在到达该章之前已中断`,
+    snippet,
+  }
+}
+
+function buildInitialChapterUserMessage(
+  listing: BookListing,
+  detail: BookDetail,
+  total: number,
+): string {
+  const outlineText = detail.chapterOutline.map((title, index) => `${index + 1}. ${title}`).join('\n')
+  return `书名：${listing.title}
+作者：${listing.author}
+分类：${listing.category}
+列表简介：${listing.synopsis}
+详细介绍：${detail.longSynopsis}
+
+全书章节目录（共 ${total} 章）：
+${outlineText}
+
+请一次性撰写全部 ${total} 章，每章用 <chapter> 标签包裹。`
+}
+
+function buildContinueChapterUserMessage(
+  fromChapterIndex: number,
+  total: number,
+  outline: string[],
+  failureReason: string,
+  rawSnippet?: string,
+): string {
+  const remainingOutline = outline
+    .slice(fromChapterIndex - 1)
+    .map((title, offset) => `${fromChapterIndex + offset}. ${title}`)
+    .join('\n')
+
+  const snippetBlock = rawSnippet
+    ? `\n\n上次输出中第 ${fromChapterIndex} 章附近的内容（格式有问题，仅供参考，请重写）：\n${rawSnippet}`
+    : ''
+
+  return `上次生成的内容有问题：${failureReason}
+
+请重新撰写第 ${fromChapterIndex} 章至第 ${total} 章（共 ${total - fromChapterIndex + 1} 章），仍用 <chapter index="N" title="..."> 标签包裹。
+
+要求：
+- 不要重复输出前 ${fromChapterIndex - 1} 章（这些章节已经保存成功）
+- index 从 ${fromChapterIndex} 递增到 ${total}
+- title 与下方目录一致或轻微润色，title 属性必须用英文双引号闭合
+- 必须与前面已写章节的情节、人物、设定保持连贯
+
+剩余章节目录：
+${remainingOutline}${snippetBlock}`
 }
 
 function normalizeListing(
@@ -378,16 +592,6 @@ function finalizeDetail(listing: BookListing, partial: Partial<BookDetail>): Boo
   }
 }
 
-function normalizeChapter(raw: GeneratedChapterDraft): { index: number; title: string; body: string } | undefined {
-  const index = typeof raw.index === 'number' ? raw.index : undefined
-  const title = raw.title?.trim()
-  const body = (raw.body || '').trim().replace(/\\n/g, '\n')
-  if (index === undefined || !title || !body) {
-    return undefined
-  }
-  return { index, title, body }
-}
-
 export async function generateStoreCatalogStreaming(
   onListing: (listing: BookListing) => void,
 ): Promise<BookListing[]> {
@@ -407,6 +611,21 @@ export async function generateStoreCatalogForCategoryStreaming(
     `请专门为「${category}」分类生成一批新书目录，风格要多搞笑、多逆天，严格贴合该类型网文套路。`,
     onListing,
     category,
+  )
+}
+
+export async function searchStoreCatalogStreaming(
+  query: string,
+  onListing: (listing: BookListing) => void,
+): Promise<BookListing[]> {
+  const trimmed = query.trim()
+  if (!trimmed) {
+    throw new Error('请输入搜索关键词')
+  }
+  return streamCatalogListings(
+    SEARCH_PROMPT,
+    `搜索：${trimmed}`,
+    onListing,
   )
 }
 
@@ -471,120 +690,60 @@ export async function generateBookDetail(listing: BookListing): Promise<BookDeta
   return generateBookDetailStreaming(listing, () => {})
 }
 
-function estimateLiveChapterCharacterCount(
-  chapterBodies: Map<number, string>,
-  pendingLine: string,
-  draftingIndex?: number,
-): number {
-  let total = 0
-  for (const [index, body] of chapterBodies.entries()) {
-    if (draftingIndex !== undefined && index === draftingIndex) {
-      continue
-    }
-    total += countNovelCharacters(body)
+function extractPartialChapterBodyFromTail(tail: string): string {
+  const trimmed = tail.trim()
+  if (!trimmed || !/<chapter\s/i.test(trimmed)) {
+    return ''
   }
-  const partialBody = extractPartialStringField(pendingLine, 'body')
+
+  const gtIndex = trimmed.indexOf('>')
+  let body: string
+  if (gtIndex !== -1) {
+    body = trimmed.slice(gtIndex + 1)
+  } else {
+    const newlineIndex = trimmed.indexOf('\n')
+    if (newlineIndex === -1) {
+      return ''
+    }
+    body = trimmed.slice(newlineIndex + 1)
+  }
+
+  return body.replace(/<\/chapter>[\s\S]*$/i, '').trim()
+}
+
+function estimateLiveCharacterCountFromXmlStream(accumulated: string): number {
+  let total = 0
+  for (const chapter of parseChaptersFromXmlText(accumulated)) {
+    total += countNovelCharacters(chapter.body)
+  }
+
+  let lastCloseIndex = -1
+  const closeRegex = /<\/chapter>/gi
+  let match: RegExpExecArray | null
+  while ((match = closeRegex.exec(accumulated)) !== null) {
+    lastCloseIndex = match.index
+  }
+
+  const tail =
+    lastCloseIndex >= 0
+      ? accumulated.slice(lastCloseIndex + '</chapter>'.length)
+      : accumulated
+  const partialBody = extractPartialChapterBodyFromTail(tail)
   if (partialBody) {
     total += countNovelCharacters(partialBody)
+  }
+
+  return total
+}
+
+function estimateLiveChapterCharacterCount(chapterBodies: Map<number, string>): number {
+  let total = 0
+  for (const body of chapterBodies.values()) {
+    total += countNovelCharacters(body)
   }
   return total
 }
 
-function parseChapterFromText(text: string, expectedIndex: number): ReturnType<typeof normalizeChapter> {
-  const trimmed = text.trim()
-  if (!trimmed) {
-    return undefined
-  }
-
-  const lines = trimmed.split('\n').map((line) => line.trim()).filter(Boolean)
-  for (const line of lines) {
-    try {
-      const chapter = normalizeChapter(parseNdjsonLine<GeneratedChapterDraft>(line))
-      if (chapter && chapter.index === expectedIndex) {
-        return chapter
-      }
-    } catch {
-      // try next line
-    }
-  }
-
-  try {
-    const draft = parseJsonFromAiText<GeneratedChapterDraft>(trimmed)
-    const chapter = normalizeChapter(draft)
-    if (chapter && chapter.index === expectedIndex) {
-      return chapter
-    }
-  } catch {
-    // ignore
-  }
-
-  return undefined
-}
-
-async function generateOneChapterStreaming(
-  bookId: string,
-  listing: BookListing,
-  detail: BookDetail,
-  chapterIndex: number,
-  templateBlock: string,
-  chapterBodies: Map<number, string>,
-  publishLiveCharacterCount: (pendingLine?: string, draftingIndex?: number) => void,
-): Promise<ReturnType<typeof normalizeChapter>> {
-  const total = detail.chapterOutline.length
-  const chapterTitle = detail.chapterOutline[chapterIndex - 1] ?? `第${chapterIndex}章`
-  const outlineText = detail.chapterOutline.map((title, index) => `${index + 1}. ${title}`).join('\n')
-  const userMessage = `书名：${listing.title}
-作者：${listing.author}
-分类：${listing.category}
-列表简介：${listing.synopsis}
-详细介绍：${detail.longSynopsis}
-
-全书章节目录（共 ${total} 章）：
-${outlineText}
-
-当前任务：只撰写第 ${chapterIndex} 章「${chapterTitle}」。
-请只输出这一章，index 必须为 ${chapterIndex}，title 与目录一致或轻微润色。`
-
-  let parsed: ReturnType<typeof normalizeChapter> | undefined
-  const feed = createNdjsonLineFeed((line) => {
-    const chapter = parseChapterFromText(line, chapterIndex)
-    if (chapter) {
-      parsed = chapter
-      chapterBodies.set(chapter.index, chapter.body)
-      publishLiveCharacterCount(feed.getBuffer(), chapterIndex)
-    }
-  })
-
-  publishBookGenerationProgress(bookId, { phase: 'connecting' })
-
-  const text = await streamChatCompletion({
-    system: buildSingleChapterPrompt(templateBlock),
-    user: userMessage,
-    usageContext: { actor: 'books', behavior: 'chapter-gen', behaviorLabel: '生成章节' },
-    thinkingEnabled: false,
-    idleTimeoutMs: BOOK_CHAPTER_STREAM_IDLE_MS,
-    onStreamActivity: (kind) => {
-      publishBookGenerationProgress(bookId, {
-        phase: kind === 'reasoning' ? 'thinking' : 'writing',
-      })
-    },
-    onAnyStreamChunk: () => {
-      publishBookGenerationProgress(bookId, {})
-    },
-    onChunk: (delta) => {
-      feed.push(delta)
-      publishLiveCharacterCount(feed.getBuffer(), chapterIndex)
-    },
-  })
-
-  feed.flush()
-
-  if (!parsed) {
-    parsed = parseChapterFromText(text, chapterIndex)
-  }
-
-  return parsed
-}
 
 export async function generateBookChaptersStreaming(
   bookId: string,
@@ -593,25 +752,95 @@ export async function generateBookChaptersStreaming(
   onChapterSaved: (chapterIndex: number, total: number) => void,
 ): Promise<void> {
   beginBookGeneration(bookId)
+  clearBookStream(listing.slug)
   const chapterBodies = new Map<number, string>()
 
   const shouldStop = () =>
     isBookGenerationCancelled(bookId) || !findLibraryBookById(readBooksStore(), bookId)
 
-  const publishLiveCharacterCount = (pendingLine = '', draftingIndex?: number) => {
+  const publishLiveCharacterCount = (accumulatedXml?: string) => {
+    const count =
+      accumulatedXml !== undefined
+        ? estimateLiveCharacterCountFromXmlStream(accumulatedXml)
+        : estimateLiveChapterCharacterCount(chapterBodies)
     publishBookGenerationProgress(bookId, {
-      count: estimateLiveChapterCharacterCount(chapterBodies, pendingLine, draftingIndex),
+      count,
       phase: 'writing',
     })
   }
 
-  const markBookFailed = () => {
+  const markBookFailed = (errorMessage?: string) => {
+    const msg = errorMessage ?? '书籍下载失败，请稍后重试'
+    console.error(`[books] 书籍「${listing.title}」(${bookId}) 生成失败：${msg}`)
+
     if (shouldStop()) {
       return
     }
     let store = readBooksStore()
     store = updateBookInLibrary(store, bookId, { status: 'failed' })
     writeBooksStore(store)
+
+    addAppNotification({
+      id: `book-fail-${bookId}`,
+      appName: listing.title,
+      appSlug: listing.slug,
+      iconEmoji: listing.coverEmoji,
+      themeColor: listing.coverColor,
+      error: msg,
+      failedAt: Date.now(),
+    })
+  }
+
+  const resetBookForRetry = async () => {
+    chapterBodies.clear()
+    clearBookStream(listing.slug)
+    await deleteBookChapters(bookId)
+    let store = readBooksStore()
+    store = updateBookInLibrary(store, bookId, { status: 'generating', chapters: [] })
+    writeBooksStore(store)
+    publishBookGenerationProgress(bookId, { count: 0, phase: 'connecting' })
+  }
+
+  const preloadSavedChapterBodies = async () => {
+    chapterBodies.clear()
+    const store = readBooksStore()
+    const book = findLibraryBookById(store, bookId)
+    if (!book) {
+      return
+    }
+    for (const chapter of book.chapters) {
+      const body = await loadChapterBody(bookId, chapter.id)
+      if (body) {
+        chapterBodies.set(chapter.index, body)
+      }
+    }
+    publishLiveCharacterCount()
+  }
+
+  const trimChaptersFromIndex = async (fromIndex: number) => {
+    const store = readBooksStore()
+    const book = findLibraryBookById(store, bookId)
+    if (!book) {
+      return
+    }
+
+    const toRemove = book.chapters.filter((chapter) => chapter.index >= fromIndex)
+    if (toRemove.length > 0) {
+      await deleteBookChapterRecords(
+        bookId,
+        toRemove.map((chapter) => chapter.id),
+      )
+    }
+
+    for (let index = fromIndex; index <= detail.chapterOutline.length; index += 1) {
+      chapterBodies.delete(index)
+    }
+
+    let nextStore = updateBookInLibrary(store, bookId, {
+      chapters: book.chapters.filter((chapter) => chapter.index < fromIndex),
+      status: 'generating',
+    })
+    writeBooksStore(nextStore)
   }
 
   try {
@@ -671,95 +900,259 @@ export async function generateBookChaptersStreaming(
       return
     }
 
-    try {
-      for (let chapterIndex = 1; chapterIndex <= total; chapterIndex += 1) {
-        if (shouldStop()) {
-          return
-        }
+    type GenerationAttemptResult = {
+      fullText: string
+      error?: string
+    }
 
-        const currentBook = findLibraryBookById(readBooksStore(), bookId)
-        if (currentBook?.chapters.some((chapter) => chapter.index === chapterIndex)) {
-          const existing = currentBook.chapters.find((chapter) => chapter.index === chapterIndex)
-          if (existing) {
-            const body = await loadChapterBody(bookId, existing.id)
-            if (body) {
-              chapterBodies.set(chapterIndex, body)
-              publishLiveCharacterCount()
+    const initialUserMessage = buildInitialChapterUserMessage(listing, detail, total)
+
+    const runAiGenerationAttempt = async (options: {
+      followUp?: StreamChatTurn[]
+      isContinuation: boolean
+    }): Promise<GenerationAttemptResult> => {
+      publishBookGenerationProgress(bookId, { phase: 'connecting' })
+
+      const persistedChapterIndexes = new Set<number>()
+      const storeBefore = readBooksStore()
+      const bookBefore = findLibraryBookById(storeBefore, bookId)
+      for (const chapter of bookBefore?.chapters ?? []) {
+        persistedChapterIndexes.add(chapter.index)
+      }
+
+      let persistQueue: Promise<void> = Promise.resolve()
+      let persistError: string | undefined
+
+      const enqueueCompleteChapters = (text: string) => {
+        for (const chapter of parseChaptersFromXmlText(text)) {
+          if (persistedChapterIndexes.has(chapter.index)) {
+            continue
+          }
+          persistedChapterIndexes.add(chapter.index)
+          persistQueue = persistQueue.then(async () => {
+            if (shouldStop()) {
+              persistedChapterIndexes.delete(chapter.index)
+              return
             }
-          }
+            try {
+              await persistChapter(chapter.index, chapter.title, chapter.body)
+            } catch {
+              persistedChapterIndexes.delete(chapter.index)
+              persistError = '保存章节数据时发生错误'
+            }
+          })
+        }
+      }
+
+      let fullText = ''
+      try {
+        fullText = await streamChatCompletion({
+          system: buildAllChaptersPrompt(templateBlock),
+          user: initialUserMessage,
+          followUp: options.followUp,
+          usageContext: {
+            actor: 'books',
+            behavior: 'chapter-gen',
+            behaviorLabel: options.isContinuation ? '续写章节' : '生成全部章节',
+          },
+          thinkingEnabled: false,
+          idleTimeoutMs: BOOK_CHAPTER_STREAM_IDLE_MS,
+          maxCompletionTokens: 32768,
+          onStreamActivity: (kind) => {
+            publishBookGenerationProgress(bookId, {
+              phase: kind === 'reasoning' ? 'thinking' : 'writing',
+            })
+          },
+          onAnyStreamChunk: () => {
+            publishBookGenerationProgress(bookId, {})
+          },
+          onChunk: (_delta, accumulated) => {
+            setBookStream(listing.slug, { rawText: accumulated })
+            enqueueCompleteChapters(accumulated)
+            publishLiveCharacterCount(accumulated)
+          },
+        })
+      } catch (error) {
+        if (shouldStop()) {
+          return { fullText }
+        }
+        if (isStreamIdleTimeoutError(error)) {
+          return { fullText, error: 'AI 响应超时，生成全部章节耗时过长' }
+        }
+        throw error
+      }
+
+      setBookStream(listing.slug, { rawText: fullText })
+
+      await persistQueue
+      if (persistError) {
+        return { fullText, error: persistError }
+      }
+
+      const parsedChapters = parseChaptersFromXmlText(fullText)
+      const parsedIndexes = new Set(parsedChapters.map((chapter) => chapter.index))
+
+      for (const chapter of parsedChapters) {
+        if (shouldStop()) {
+          return { fullText }
+        }
+        if (persistedChapterIndexes.has(chapter.index)) {
           continue
-        }
-
-        publishBookGenerationProgress(bookId, { phase: 'connecting' })
-
-        let chapter: ReturnType<typeof normalizeChapter>
-        try {
-          chapter = await generateOneChapterStreaming(
-            bookId,
-            listing,
-            detail,
-            chapterIndex,
-            templateBlock,
-            chapterBodies,
-            publishLiveCharacterCount,
-          )
-        } catch (error) {
-          if (shouldStop()) {
-            return
-          }
-          if (isStreamIdleTimeoutError(error)) {
-            markBookFailed()
-            return
-          }
-          throw error
-        }
-
-        if (!chapter) {
-          markBookFailed()
-          return
         }
 
         try {
           await persistChapter(chapter.index, chapter.title, chapter.body)
         } catch {
-          markBookFailed()
-          return
+          return { fullText, error: '保存章节数据时发生错误' }
         }
       }
 
       if (shouldStop()) {
-        return
+        return { fullText }
       }
 
-      let store = readBooksStore()
-      const book = findLibraryBookById(store, bookId)
-      const completed = book ? book.chapters.length >= total : false
-      store = updateBookInLibrary(store, bookId, {
-        status: completed ? 'complete' : 'failed',
-      })
-      writeBooksStore(store)
-    } catch {
-      if (shouldStop()) {
-        return
+      let finalStore = readBooksStore()
+      const finalBook = findLibraryBookById(finalStore, bookId)
+      const savedIndexes = new Set(finalBook?.chapters.map((chapter) => chapter.index) ?? [])
+
+      if (finalBook && finalBook.chapters.length >= total) {
+        finalStore = updateBookInLibrary(finalStore, bookId, { status: 'complete' })
+        writeBooksStore(finalStore)
+        return { fullText }
       }
-      const store = readBooksStore()
-      const book = findLibraryBookById(store, bookId)
-      if (book && book.chapters.length === 0) {
-        const seeds = buildSeedChapters(book)
-        for (const chapter of seeds) {
-          if (shouldStop()) {
-            return
-          }
-          await persistChapter(chapter.index, chapter.title, chapter.body)
+
+      if (parsedChapters.length === 0 && savedIndexes.size === 0) {
+        const snippet = fullText.slice(0, 200)
+        return {
+          fullText,
+          error: `AI 返回了 ${fullText.length} 字符，但未包含任何 <chapter> 标签。开头：${snippet}`,
         }
+      }
+
+      const firstMissing = findFirstMissingChapterIndex(savedIndexes, total)
+      if (firstMissing === undefined) {
+        return { fullText }
+      }
+
+      const { reason } = describeMissingChapterFailure(firstMissing, fullText, parsedIndexes)
+      return { fullText, error: reason }
+    }
+
+    let conversationFollowUp: StreamChatTurn[] = []
+    let lastFullText = ''
+    let lastFailureReason = ''
+
+    await preloadSavedChapterBodies()
+
+    for (let attempt = 1; attempt <= MAX_BOOK_GENERATION_ATTEMPTS; attempt += 1) {
+      if (shouldStop()) {
+        break
+      }
+
+      if (attempt > 1) {
+        const store = readBooksStore()
+        const book = findLibraryBookById(store, bookId)
+        const savedIndexes = new Set(book?.chapters.map((chapter) => chapter.index) ?? [])
+        const firstMissing = findFirstMissingChapterIndex(savedIndexes, total)
+
+        if (savedIndexes.size === 0 || firstMissing === undefined) {
+          console.warn(
+            `[books] 书籍「${listing.title}」(${bookId}) 第 ${attempt}/${MAX_BOOK_GENERATION_ATTEMPTS} 次完整重试…`,
+          )
+          await resetBookForRetry()
+          conversationFollowUp = []
+          onChapterSaved(0, total)
+        } else {
+          const parsedIndexes = new Set(
+            parseChaptersFromXmlText(lastFullText).map((chapter) => chapter.index),
+          )
+          const { reason, snippet } = describeMissingChapterFailure(
+            firstMissing,
+            lastFullText,
+            parsedIndexes,
+          )
+          const continueMessage = buildContinueChapterUserMessage(
+            firstMissing,
+            total,
+            detail.chapterOutline,
+            lastFailureReason || reason,
+            snippet,
+          )
+
+          conversationFollowUp = [
+            ...conversationFollowUp,
+            { role: 'assistant', content: lastFullText },
+            { role: 'user', content: continueMessage },
+          ]
+
+          console.warn(
+            `[books] 书籍「${listing.title}」(${bookId}) 从第 ${firstMissing} 章续写（第 ${attempt}/${MAX_BOOK_GENERATION_ATTEMPTS} 次）…`,
+          )
+
+          await trimChaptersFromIndex(firstMissing)
+          await preloadSavedChapterBodies()
+          onChapterSaved(firstMissing - 1, total)
+        }
+
+        clearBookStream(listing.slug)
+      }
+
+      try {
+        const result = await runAiGenerationAttempt({
+          followUp: conversationFollowUp.length > 0 ? conversationFollowUp : undefined,
+          isContinuation: conversationFollowUp.length > 0,
+        })
+
+        lastFullText = result.fullText
+
+        if (!result.error) {
+          break
+        }
+
+        lastFailureReason = result.error
+
+        console.error(
+          `[books] 书籍「${listing.title}」(${bookId}) 第 ${attempt} 次尝试失败：${result.error}`,
+        )
+
+        if (attempt >= MAX_BOOK_GENERATION_ATTEMPTS) {
+          markBookFailed(`${result.error}（已自动重试 ${MAX_BOOK_GENERATION_ATTEMPTS} 次）`)
+        }
+      } catch (outerError) {
         if (shouldStop()) {
-          return
+          break
         }
-        let nextStore = readBooksStore()
-        nextStore = updateBookInLibrary(nextStore, bookId, { status: 'complete' })
-        writeBooksStore(nextStore)
-      } else {
-        markBookFailed()
+
+        const store = readBooksStore()
+        const book = findLibraryBookById(store, bookId)
+        if (book && book.chapters.length === 0) {
+          const seeds = buildSeedChapters(book)
+          for (const chapter of seeds) {
+            if (shouldStop()) {
+              break
+            }
+            await persistChapter(chapter.index, chapter.title, chapter.body)
+          }
+          if (shouldStop()) {
+            break
+          }
+          let nextStore = readBooksStore()
+          nextStore = updateBookInLibrary(nextStore, bookId, { status: 'complete' })
+          writeBooksStore(nextStore)
+          break
+        }
+
+        const errorMessage =
+          outerError instanceof Error ? outerError.message : '下载书籍时发生未知错误'
+        lastFailureReason = errorMessage
+
+        console.error(
+          `[books] 书籍「${listing.title}」(${bookId}) 第 ${attempt} 次尝试失败：${errorMessage}`,
+        )
+
+        if (attempt >= MAX_BOOK_GENERATION_ATTEMPTS) {
+          markBookFailed(`${errorMessage}（已自动重试 ${MAX_BOOK_GENERATION_ATTEMPTS} 次）`)
+        }
       }
     }
   } finally {

@@ -1,6 +1,7 @@
 import type { DesktopItemId } from '../os/desktop-folder-types.ts'
 import { isDesktopFolderId } from '../os/desktop-folder-types.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
+import { loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
 import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
 import {
@@ -48,7 +49,7 @@ function isVisibleDockApp(appId: AppId, installedGeneratedAppIds: ReadonlySet<Ge
   }
 
   const app = getAppDefinition(appId)
-  return app !== undefined && isBuiltinAppVisibleOnDock(app)
+  return app !== undefined && isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())
 }
 
 export function buildDockLayoutSnapshot(params: {

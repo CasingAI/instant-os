@@ -3,13 +3,17 @@ import { AiStreamPreview } from '../ai/ai-stream-preview.tsx'
 import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
 import { formatTextLengthK } from '../apps/appstore/format-text-length.ts'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { BooksCover } from '../apps/books/books-cover.tsx'
 import { StockWidget, WeatherWidget } from './notification-center-widgets.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import { useNotificationCenterWidgets } from './use-notification-center-widgets.ts'
 import { usePendingInstallStream } from './use-pending-install-stream.ts'
 import { useOs } from './os-context.tsx'
+import { useAppNotifications } from './use-app-notifications.ts'
+import { useBookStream } from './use-book-stream.ts'
 import type { FailedInstall, PendingInstall } from '../apps/appstore/types.ts'
+import type { AppNotification } from './app-notifications-store.ts'
 import './notification-center.css'
 
 const SCREEN_FADE_MS = 180
@@ -210,6 +214,86 @@ function NotificationDetail({ item, onBack }: NotificationDetailProps) {
   )
 }
 
+type AppNotificationListItemProps = {
+  notification: AppNotification
+  onSelect: () => void
+}
+
+function AppNotificationListItem({ notification, onSelect }: AppNotificationListItemProps) {
+  return (
+    <button
+      type="button"
+      class="notification-center__item notification-center__item--failed"
+      onClick={onSelect}
+    >
+      <span class="notification-center__item-icon">
+        <BooksCover
+          title={notification.appName}
+          coverColor={notification.themeColor}
+          coverEmoji={notification.iconEmoji}
+          size="small"
+        />
+      </span>
+      <span class="notification-center__item-copy">
+        <span class="notification-center__item-title">{notification.appName}</span>
+        <span class="notification-center__item-subtitle">
+          生成失败 · {notification.error}
+        </span>
+      </span>
+      <span class="notification-center__item-meta notification-center__item-meta--failed">!</span>
+    </button>
+  )
+}
+
+type AppNotificationDetailProps = {
+  notification: AppNotification
+  onBack: () => void
+}
+
+function AppNotificationDetail({ notification, onBack }: AppNotificationDetailProps) {
+  const stream = useBookStream(notification.appSlug)
+
+  return (
+    <div class="notification-center__detail">
+      <div class="notification-center__detail-header">
+        <IosNavBackButton
+          label="返回通知"
+          onClick={(event) => {
+            event.stopPropagation()
+            onBack()
+          }}
+        />
+      </div>
+      <div class="notification-center__detail-card notification-center__detail-card--failed">
+        <div class="notification-center__detail-hero">
+          <div class="notification-center__item-icon">
+            <BooksCover
+              title={notification.appName}
+              coverColor={notification.themeColor}
+              coverEmoji={notification.iconEmoji}
+              size="small"
+            />
+          </div>
+          <div class="notification-center__detail-copy">
+            <p class="notification-center__detail-title">{notification.appName}</p>
+            <p class="notification-center__detail-phase notification-center__detail-phase--failed">
+              生成失败
+            </p>
+          </div>
+        </div>
+        <p class="notification-center__detail-error">{notification.error}</p>
+      </div>
+      <p class="notification-center__stream-heading">AI 最后输出</p>
+      <AiStreamPreview
+        reasoningText=""
+        contentText={stream.rawText}
+        variant="notification"
+        emptyLabel="无 AI 输出记录"
+      />
+    </div>
+  )
+}
+
 type NotificationCenterPanelProps = {
   open: boolean
   onClose: () => void
@@ -217,6 +301,7 @@ type NotificationCenterPanelProps = {
 
 export function NotificationCenterPanel({ open, onClose }: NotificationCenterPanelProps) {
   const { pendingInstalls, failedInstalls, installListing, dismissFailedInstall } = useGeneratedApps()
+  const appNotifications = useAppNotifications()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -236,6 +321,9 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     : undefined
   const selectedFailed = activeDetailSlug
     ? failedInstalls.find((item) => item.listing.slug === activeDetailSlug)
+    : undefined
+  const selectedAppNotification = activeDetailSlug
+    ? appNotifications.find((item) => item.appSlug === activeDetailSlug)
     : undefined
 
   useEffect(() => {
@@ -290,12 +378,13 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   }, [open, panelScreen, contentScreen])
 
   const showDetail =
-    contentScreen === 'detail' && (selectedPending !== undefined || selectedFailed !== undefined)
+    contentScreen === 'detail' && (selectedPending !== undefined || selectedFailed !== undefined || selectedAppNotification !== undefined)
 
   const selectedHasNotification =
     selectedSlug !== undefined &&
     (pendingInstalls.some((item) => item.listing.slug === selectedSlug) ||
-      failedInstalls.some((item) => item.listing.slug === selectedSlug))
+      failedInstalls.some((item) => item.listing.slug === selectedSlug) ||
+      appNotifications.some((item) => item.appSlug === selectedSlug))
 
   useEffect(() => {
     if (!open) {
@@ -374,6 +463,11 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                   closeDetail()
                 }}
               />
+            ) : showDetail && selectedAppNotification ? (
+              <AppNotificationDetail
+                notification={selectedAppNotification}
+                onBack={closeDetail}
+              />
             ) : (
               <>
                 <div class="notification-center__widgets">
@@ -392,7 +486,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                 </div>
                 <div class="notification-center__section">
                   <p class="notification-center__section-title">通知</p>
-                  {pendingInstalls.length === 0 && failedInstalls.length === 0 ? (
+                  {pendingInstalls.length === 0 && failedInstalls.length === 0 && appNotifications.length === 0 ? (
                     <div class="notification-center__empty-box">
                       <p class="notification-center__empty">暂无通知</p>
                     </div>
@@ -410,6 +504,13 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                           key={item.id}
                           item={item}
                           onSelect={() => openDetail(item.listing.slug)}
+                        />
+                      ))}
+                      {appNotifications.map((notification) => (
+                        <AppNotificationListItem
+                          key={notification.id}
+                          notification={notification}
+                          onSelect={() => openDetail(notification.appSlug)}
                         />
                       ))}
                     </div>

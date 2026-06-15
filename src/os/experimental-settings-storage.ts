@@ -3,6 +3,8 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 export type ExperimentalSettings = {
   /** Hide menu bar and window title bar in fullscreen; reveal near top edge. */
   fullscreenImmersiveChrome: boolean
+  /** Show speech recognition app on desktop and dock. */
+  speechApp: boolean
 }
 
 export const EXPERIMENTAL_SETTINGS_CHANGED_EVENT = 'instant-os:experimental-settings-changed'
@@ -11,6 +13,7 @@ const STORAGE_KEY = DEVICE_STORAGE_KEYS.experimentalSettings
 
 const DEFAULT_SETTINGS: ExperimentalSettings = {
   fullscreenImmersiveChrome: false,
+  speechApp: false,
 }
 
 function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
@@ -21,6 +24,7 @@ function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
   const record = raw as Record<string, unknown>
   return {
     fullscreenImmersiveChrome: record.fullscreenImmersiveChrome === true,
+    speechApp: record.speechApp === true,
   }
 }
 
@@ -39,6 +43,7 @@ export function loadExperimentalSettings(): ExperimentalSettings {
 export function saveExperimentalSettings(settings: ExperimentalSettings): boolean {
   const serialized = JSON.stringify({
     fullscreenImmersiveChrome: settings.fullscreenImmersiveChrome,
+    speechApp: settings.speechApp,
   })
   if (!writeLocalStorageItem(STORAGE_KEY, serialized)) {
     return false

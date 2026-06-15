@@ -11,7 +11,7 @@ import { SettingsNavRow } from '../ui/settings-nav-row.tsx'
 import { SettingsSwitchRow } from '../ui/settings-switch-row.tsx'
 import { mergeAccountSettings, type AccountSettings } from './account-settings-storage.ts'
 
-export type AccountSubpageField = 'provider' | 'model' | 'model-custom'
+export type AccountSubpageField = 'provider' | 'model'
 
 type AccountSettingsFormProps = {
   draft: AccountSettings
@@ -19,6 +19,7 @@ type AccountSettingsFormProps = {
   layout?: 'settings' | 'setup'
   wideLayout?: boolean
   onOpenSubpage?: (field: AccountSubpageField) => void
+  onEditModel?: () => void
   onEditApiKey?: () => void
   onEditBaseURL?: () => void
 }
@@ -45,6 +46,7 @@ export function AccountSettingsForm({
   layout = 'settings',
   wideLayout = true,
   onOpenSubpage,
+  onEditModel,
   onEditApiKey,
   onEditBaseURL,
 }: AccountSettingsFormProps) {
@@ -77,11 +79,21 @@ export function AccountSettingsForm({
         />
 
         {isCustom ? (
-          <SettingsNavRow
-            label="模型"
-            value={summarizeText(draft.model)}
-            onClick={() => onOpenSubpage?.('model-custom')}
-          />
+          wideLayout ? (
+            <SettingsInlineInputRow
+              label="模型"
+              type="text"
+              value={draft.model}
+              placeholder="未填写"
+              onChange={(model) => onChange({ ...draft, model })}
+            />
+          ) : (
+            <SettingsNavRow
+              label="模型"
+              value={summarizeText(draft.model)}
+              onClick={() => onEditModel?.()}
+            />
+          )
         ) : (
           <SettingsChoiceField
             label="模型"

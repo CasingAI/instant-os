@@ -7,6 +7,21 @@
   justify-content: center;
   padding: 24px;
   background: rgba(0, 0, 0, 0.35);
+  animation: about-backdrop-in 150ms ease-out both;
+}
+
+.about-os-backdrop--closing {
+  animation: about-backdrop-out 180ms ease-in both;
+}
+
+@keyframes about-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes about-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .about-os-dialog {
@@ -20,6 +35,33 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
   text-align: left;
   word-spacing: normal;
+  animation: about-dialog-in 150ms ease-out both;
+}
+
+.about-os-dialog--closing {
+  animation: about-dialog-out 180ms ease-in both;
+}
+
+@keyframes about-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes about-dialog-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
 }
 
 .about-os-dialog__body {
@@ -99,6 +141,44 @@
   margin-bottom: 0;
 }
 
+.about-os-dialog__specs {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.about-os-dialog__spec {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.about-os-dialog__spec:last-child {
+  border-bottom: none;
+}
+
+.about-os-dialog__spec-label {
+  flex: 0 0 64px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #888;
+  text-align: right;
+}
+
+.about-os-dialog__spec-value {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1d1d1f;
+  word-break: break-word;
+}
+
 .about-os-dialog__links {
   margin-top: 12px;
   text-align: center;
@@ -132,6 +212,186 @@
 }
 
 .about-os-dialog__btn:active {
+  background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* ── About This Device (modal window style) ── */
+
+.about-os-dialog--device {
+  width: min(100%, 292px);
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  background: #f5f5f5;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* ── Title bar ── */
+
+.about-os-dialog__titlebar {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, #e8e8e8 0%, #d4d4d4 100%);
+  border-bottom: 1px solid #aaa;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  user-select: none;
+}
+
+.about-os-dialog__controls {
+  position: relative;
+  z-index: 3100;
+  display: flex;
+  gap: 8px;
+}
+
+.about-os-dialog__control {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    filter 0.12s ease,
+    transform 0.1s ease,
+    box-shadow 0.12s ease;
+}
+
+button.about-os-dialog__control {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.about-os-dialog__control--close {
+  background: linear-gradient(180deg, #ff7f79 0%, #ef4034 100%);
+}
+
+.about-os-dialog__control--minimize {
+  background: linear-gradient(180deg, #ffdc68 0%, #f5bf2a 100%);
+}
+
+.about-os-dialog__control--fullscreen {
+  background: linear-gradient(180deg, #6de374 0%, #28c840 100%);
+}
+
+.about-os-dialog__control--disabled {
+  filter: saturate(0.3) brightness(1.15);
+  cursor: default;
+  pointer-events: none;
+}
+
+button.about-os-dialog__control:hover {
+  filter: brightness(0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+button.about-os-dialog__control:active {
+  filter: brightness(0.88);
+  transform: scale(0.92);
+}
+
+.about-os-dialog__titlebar-label {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  margin-right: 74px;
+}
+
+/* ── Body ── */
+
+.about-os-dialog--device .about-os-dialog__body {
+  padding: 24px 18px 14px;
+}
+
+.about-os-dialog__icon--device {
+  margin-bottom: 4px;
+  line-height: 0;
+}
+
+.about-os-dialog__title--device {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: #000;
+}
+
+.about-os-dialog__version--device {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #4a4a4a;
+}
+
+/* ── Specs table ── */
+
+.about-os-dialog__device-specs {
+  margin: 12px auto 0;
+  padding: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.about-os-dialog__device-spec {
+  display: grid;
+  grid-template-columns: 5.5em 1fr;
+  gap: 0 8px;
+  padding: 1px 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #000;
+}
+
+.about-os-dialog__device-spec dt {
+  margin: 0;
+  font-weight: 400;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.about-os-dialog__device-spec dd {
+  margin: 0;
+  text-align: left;
+  word-break: break-word;
+}
+
+/* ── Actions ── */
+
+.about-os-dialog__actions--device {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 6px 14px 14px;
+}
+
+.about-os-dialog__actions--device .about-os-dialog__btn {
+  min-width: 0;
+  padding: 3px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+  color: #000;
+  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.about-os-dialog__actions--device .about-os-dialog__btn:active {
   background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
 }

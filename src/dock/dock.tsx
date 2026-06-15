@@ -9,6 +9,7 @@ import { getAppDefinition } from '../os/app-registry.tsx'
 import { findFolderById } from '../os/desktop-folder-operations.ts'
 import { isDesktopFolderId, type DesktopFolderId, type DesktopItemId } from '../os/desktop-folder-types.ts'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
+import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import {
   buildBuiltinIconContextMenuItems,
   buildDockWindowSubmenuOptions,
@@ -90,6 +91,14 @@ export function Dock() {
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
 
+  const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
+
+  useEffect(() => {
+    const handleChange = () => setExperimentalSettingsVersion((v) => v + 1)
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleChange)
+    return () => window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleChange)
+  }, [])
+
   const folderPreviewById = useMemo(() => {
     const map = new Map<DesktopFolderId, FolderPreviewApp[]>()
 
@@ -153,7 +162,7 @@ export function Dock() {
 
   function renderPinnedBuiltinDockItem(appId: BuiltinAppId) {
     const app = getAppDefinition(appId)
-    if (!app || !isBuiltinAppVisibleOnDock(app)) {
+    if (!app || !isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())) {
       return undefined
     }
 
@@ -302,7 +311,7 @@ export function Dock() {
 
   function renderRunningBuiltinDockItem(appId: BuiltinAppId) {
     const app = getAppDefinition(appId)
-    if (!app || !isBuiltinAppVisibleOnDock(app)) {
+    if (!app || !isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())) {
       return undefined
     }
 

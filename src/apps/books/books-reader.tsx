@@ -41,7 +41,7 @@ export function BooksReader({ book, store, onStoreChange }: BooksReaderProps) {
     if (!currentChapter) {
       setBody(undefined)
       setLoading(false)
-      setError(chapters.length === 0 ? '章节尚未生成，请稍后再试' : undefined)
+      setError(chapters.length === 0 ? '章节尚未下载，请稍后再试' : undefined)
       return
     }
 

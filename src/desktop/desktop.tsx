@@ -23,6 +23,7 @@ import {
   reconcileDesktopIconOrder,
 } from '../os/launcher-layout-storage.ts'
 import { isBuiltinAppVisibleOnDesktop } from '../os/launcher-app-visibility.ts'
+import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { useOs } from '../os/os-context.tsx'
 import type { AppId, BuiltinAppId, GeneratedAppId } from '../os/types.ts'
 import {
@@ -469,11 +470,21 @@ export function Desktop() {
   const lastDragPointerRef = useRef({ x: 0, y: 0 })
   const reorderPlacementPageRef = useRef(0)
 
+  const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
+
+  useEffect(() => {
+    const handleChange = () => setExperimentalSettingsVersion((v) => v + 1)
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleChange)
+    return () => window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleChange)
+  }, [])
+
   useEffect(() => {
     void warmFolderMiniIconSnapshotCache()
   }, [])
 
-  const desktopApps = APP_REGISTRY.filter((app) => isBuiltinAppVisibleOnDesktop(app))
+  const desktopApps = APP_REGISTRY.filter(
+    (app) => isBuiltinAppVisibleOnDesktop(app, loadExperimentalSettings()),
+  )
   const installedDesktopApps = installedApps.filter(
     (app) => !pendingInstalls.some((item) => item.id === app.id),
   )

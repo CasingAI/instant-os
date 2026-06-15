@@ -29,7 +29,6 @@ type BooksStoreDetailProps = {
   listing: BookListing
   libraryBook?: BookRecordMeta
   isAdding: boolean
-  onBack: () => void
   onAddToShelf: (detail: BookDetail) => void
   onRead: () => void
 }
@@ -38,7 +37,6 @@ export function BooksStoreDetail({
   listing,
   libraryBook,
   isAdding,
-  onBack,
   onAddToShelf,
   onRead,
 }: BooksStoreDetailProps) {
@@ -191,7 +189,7 @@ export function BooksStoreDetail({
     if (generationPhase === 'thinking') {
       return '思考中…'
     }
-    return `正在生成${generationPercent !== undefined ? ` ${generationPercent}%` : ''}`
+    return `正在下载${generationPercent !== undefined ? ` ${generationPercent}%` : ''}`
   }
 
   const characterCount = generationActive ? liveCharacterCount : persistedCharacterCount
@@ -228,13 +226,10 @@ export function BooksStoreDetail({
                 {streaming
                   ? '正在加载'
                   : libraryBook?.status === 'failed'
-                    ? '重新生成'
+                    ? '重新下载'
                     : '加入书架'}
               </button>
             )}
-            <button type="button" class="books-detail__btn books-detail__btn--secondary" onClick={onBack}>
-              返回书城
-            </button>
           </div>
         </div>
       </div>

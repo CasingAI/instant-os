@@ -120,6 +120,13 @@
   cursor: default;
 }
 
+.books__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+}
+
 .books__main {
   flex: 1;
   min-height: 0;
@@ -413,6 +420,138 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* 书城搜索 */
+.books-store-search {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--books-surface);
+  overflow: hidden;
+}
+
+.books-store-search__bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 12px;
+  padding: 3px 3px 3px 10px;
+  height: 36px;
+  box-sizing: border-box;
+  border: 1px solid var(--books-border);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff 0%, #f3ecdf 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+.books-store-search__bar:focus-within {
+  border-color: var(--books-accent);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 0 0 2px rgba(255, 149, 0, 0.22);
+}
+
+.books-store-search__icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--books-ink-muted);
+}
+
+.books-store-search__bar:focus-within .books-store-search__icon {
+  color: var(--books-accent-dark);
+}
+
+.books-store-search__input {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--books-ink);
+}
+
+.books-store-search__input::placeholder {
+  color: var(--books-ink-muted);
+  opacity: 0.7;
+}
+
+.books-store-search__submit {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--books-accent-dark);
+  border-radius: 7px;
+  background: linear-gradient(180deg, #ffb340 0%, var(--books-accent) 55%, var(--books-accent-dark) 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.15);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.books-store-search__submit:active:not(:disabled) {
+  background: linear-gradient(180deg, var(--books-accent) 0%, var(--books-accent-dark) 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.books-store-search__submit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.books-store-search__notice {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #d9a3a3;
+  background: rgba(217, 33, 33, 0.08);
+  color: #9a0000;
+  font-size: 12px;
+}
+
+.books-store-search__heading {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--books-ink-muted);
+}
+
+.books-store-search__results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 12px;
+}
+
+.books-store-search__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--books-ink-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.books-store-search__more {
+  grid-column: 1 / -1;
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--books-ink-muted);
 }
 
 /* 详情 */

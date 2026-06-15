@@ -3,6 +3,7 @@ import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import type { PendingInstall, StoreListing } from '../apps/appstore/types.ts'
 import type { GeneratedAppId } from './types.ts'
 import { useGeneratedApps } from './generated-apps-context.tsx'
+import { useAppNotifications } from './use-app-notifications.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import './notification-banner.css'
 
@@ -19,9 +20,38 @@ type BannerRecord = {
   visible: boolean
 }
 
+type AppBannerRecord = {
+  id: string
+  appName: string
+  appSlug: string
+  iconEmoji: string
+  themeColor: string
+  error: string
+  visible: boolean
+}
+
 const COMPLETE_DISMISS_MS = 2800
 const FAILED_DISMISS_MS = 5200
 const EXIT_ANIMATION_MS = 340
+
+function lightenColor(hex: string): string {
+  return adjustHex(hex, 30)
+}
+
+function darkenColor(hex: string): string {
+  return adjustHex(hex, -35)
+}
+
+function adjustHex(hex: string, amount: number): string {
+  const normalized = hex.replace('#', '')
+  if (normalized.length !== 6) {
+    return hex
+  }
+  const r = Math.max(0, Math.min(255, parseInt(normalized.slice(0, 2), 16) + amount))
+  const g = Math.max(0, Math.min(255, parseInt(normalized.slice(2, 4), 16) + amount))
+  const b = Math.max(0, Math.min(255, parseInt(normalized.slice(4, 6), 16) + amount))
+  return `${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
 
 function progressLabel(phase: PendingInstall['phase'], isUpdate?: boolean): string {
   if (phase === 'thinking') {
@@ -98,10 +128,13 @@ function NotificationBanner({ banner, onOpen, onDismiss }: NotificationBannerPro
 
 export function NotificationBannerHost() {
   const { pendingInstalls, failedInstalls } = useGeneratedApps()
+  const appNotifications = useAppNotifications()
   const { openPanel } = useNotificationCenter()
   const [banners, setBanners] = useState<BannerRecord[]>([])
+  const [appBanners, setAppBanners] = useState<AppBannerRecord[]>([])
   const prevPendingRef = useRef<Map<GeneratedAppId, PendingInstall>>(new Map())
-  const dismissTimersRef = useRef(new Map<GeneratedAppId, number>())
+  const dismissTimersRef = useRef(new Map<GeneratedAppId | string, number>())
+  const prevAppNotificationIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const prev = prevPendingRef.current
@@ -238,23 +271,82 @@ export function NotificationBannerHost() {
     }
   }, [])
 
-  const dismissBanner = (id: GeneratedAppId) => {
+  useEffect(() => {
+    const prevIds = prevAppNotificationIdsRef.current
+    const currentIds = new Set(appNotifications.map((n) => n.id))
+
+    for (const notification of appNotifications) {
+      if (!prevIds.has(notification.id)) {
+        setAppBanners((existing) => [
+          ...existing.filter((b) => b.id !== notification.id),
+          { ...notification, id: `app-${notification.id}`, visible: false },
+        ])
+      }
+    }
+
+    prevAppNotificationIdsRef.current = currentIds
+  }, [appNotifications])
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      setAppBanners((existing) =>
+        existing.map((banner) => (banner.visible ? banner : { ...banner, visible: true })),
+      )
+    })
+    return () => window.cancelAnimationFrame(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appBanners.length])
+
+  useEffect(() => {
+    for (const banner of appBanners) {
+      if (dismissTimersRef.current.has(banner.id)) {
+        continue
+      }
+
+      const timer = window.setTimeout(() => {
+        setAppBanners((existing) =>
+          existing.map((entry) =>
+            entry.id === banner.id ? { ...entry, visible: false } : entry,
+          ),
+        )
+
+        window.setTimeout(() => {
+          setAppBanners((existing) => existing.filter((entry) => entry.id !== banner.id))
+          dismissTimersRef.current.delete(banner.id)
+        }, EXIT_ANIMATION_MS)
+      }, FAILED_DISMISS_MS)
+
+      dismissTimersRef.current.set(banner.id, timer)
+    }
+  }, [appBanners])
+
+  const dismissBanner = (id: GeneratedAppId | string) => {
     const timer = dismissTimersRef.current.get(id)
     if (timer) {
       window.clearTimeout(timer)
       dismissTimersRef.current.delete(id)
     }
 
+    if (id.startsWith('app-')) {
+      setAppBanners((existing) =>
+        existing.map((banner) => (banner.id === id ? { ...banner, visible: false } : banner)),
+      )
+      window.setTimeout(() => {
+        setAppBanners((existing) => existing.filter((banner) => banner.id !== id))
+      }, EXIT_ANIMATION_MS)
+      return
+    }
+
     setBanners((existing) =>
       existing.map((banner) => (banner.id === id ? { ...banner, visible: false } : banner)),
     )
-
     window.setTimeout(() => {
       setBanners((existing) => existing.filter((banner) => banner.id !== id))
     }, EXIT_ANIMATION_MS)
   }
 
-  if (banners.length === 0) {
+  const allBannersEmpty = banners.length === 0 && appBanners.length === 0
+  if (allBannersEmpty) {
     return undefined
   }
 
@@ -269,6 +361,64 @@ export function NotificationBannerHost() {
           }}
           onDismiss={() => dismissBanner(banner.id)}
         />
+      ))}
+      {appBanners.map((banner) => (
+        <article
+          key={banner.id}
+          class={`notification-banner notification-banner--failed${banner.visible ? ' notification-banner--visible' : ''}`}
+          role="status"
+        >
+          <button
+            type="button"
+            class="notification-banner__body"
+            onClick={() => {
+              openPanel(banner.appSlug)
+            }}
+          >
+            <span class="notification-banner__icon">
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 36,
+                  height: 44,
+                  borderRadius: '2px 4px 4px 2px',
+                  background: `linear-gradient(145deg, #${lightenColor(banner.themeColor)} 0%, ${banner.themeColor} 45%, #${darkenColor(banner.themeColor)} 100%)`,
+                  boxShadow: 'inset 2px 0 3px rgba(255,255,255,0.2), inset -1px 0 2px rgba(0,0,0,0.15)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  fontSize: 20,
+                  lineHeight: 1,
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 0, left: 0, right: 0, height: '40%',
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.3) 0%, transparent 100%)',
+                    pointerEvents: 'none',
+                  }}
+                />
+                {banner.iconEmoji}
+              </span>
+            </span>
+            <span class="notification-banner__copy">
+              <span class="notification-banner__title">生成失败</span>
+              <span class="notification-banner__subtitle">
+                「{banner.appName}」 · {banner.error}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="notification-banner__close"
+            aria-label="关闭通知"
+            onClick={() => dismissBanner(banner.id)}
+          >
+            ×
+          </button>
+        </article>
       ))}
     </div>
   )

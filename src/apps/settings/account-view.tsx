@@ -13,7 +13,6 @@ import {
   type AccountSettings,
 } from '../../os/account-settings-storage.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { AccountTextFieldSubpage } from './account-text-field-subpage.tsx'
 import { SettingsChoicePickerView } from './settings-choice-picker-view.tsx'
 import { useSettingsAccountPopoverLayout } from './settings-layout-breakpoints.ts'
 
@@ -51,9 +50,6 @@ export function AccountView({ onBack }: AccountViewProps) {
 
   useEffect(() => {
     if (screen === 'model' && isCustomProvider(draft.providerId)) {
-      setScreen('main')
-    }
-    if (screen === 'model-custom' && !isCustomProvider(draft.providerId)) {
       setScreen('main')
     }
   }, [draft.providerId, screen])
@@ -102,6 +98,20 @@ export function AccountView({ onBack }: AccountViewProps) {
     }
   }
 
+  const handleEditModel = async () => {
+    const model = await modal.prompt({
+      title: '模型',
+      label: '模型名称',
+      placeholder: 'model-name',
+      initialValue: draft.model,
+      requireValue: false,
+      confirmLabel: '确定',
+    })
+    if (model !== undefined) {
+      handleChange({ ...draft, model })
+    }
+  }
+
   const preset = findAiProviderPreset(draft.providerId)
   const modelOptions =
     preset?.models.map((model) => ({ id: model.id, label: model.name })) ?? []
@@ -128,18 +138,6 @@ export function AccountView({ onBack }: AccountViewProps) {
             backLabel="AI 账户"
             options={modelOptions}
             value={draft.model}
-            onChange={(model) => handleChange({ ...draft, model })}
-            onBack={backToMain}
-          />
-        )
-      case 'model-custom':
-        return (
-          <AccountTextFieldSubpage
-            title="模型"
-            backLabel="AI 账户"
-            fieldLabel="模型名称"
-            value={draft.model}
-            placeholder="model-name"
             onChange={(model) => handleChange({ ...draft, model })}
             onBack={backToMain}
           />
@@ -171,6 +169,7 @@ export function AccountView({ onBack }: AccountViewProps) {
             layout="settings"
             wideLayout={usePopover}
             onOpenSubpage={setScreen}
+            onEditModel={handleEditModel}
             onEditApiKey={handleEditApiKey}
             onEditBaseURL={handleEditBaseURL}
           />

@@ -6,11 +6,13 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { generateBookChaptersStreaming, generateStoreCatalogForCategoryStreaming, generateStoreCatalogStreaming } from './books-agent.ts'
+import { deleteBookChapters } from './books-data-storage.ts'
 import { cancelBookGeneration } from './books-generation.ts'
 import { BooksDeleteConfirmSheet } from './books-delete-confirm-sheet.tsx'
 import { BooksReader } from './books-reader.tsx'
 import { BooksShelf } from './books-shelf.tsx'
 import { BooksStoreView } from './books-store.tsx'
+import { BooksStoreSearch } from './books-store-search.tsx'
 import { BooksStoreDetail } from './books-store-detail.tsx'
 import {
   addBookToLibrary,
@@ -25,10 +27,10 @@ import {
   upsertCatalog,
   writeBooksStore,
 } from './books-storage.ts'
-import type { BookCategory, BookDetail, BooksIndexStore } from './books-types.ts'
+import type { BookCategory, BookDetail, BookListing, BooksIndexStore } from './books-types.ts'
 import './books.css'
 
-type BooksScreen = 'shelf' | 'store' | 'store-detail' | 'reader'
+type BooksScreen = 'shelf' | 'store' | 'store-search' | 'store-detail' | 'reader'
 
 export function BooksApp() {
   const { windows, closeWindowsForApp, minimizeWindow, setAppWindowTitle } = useOs()
@@ -38,6 +40,8 @@ export function BooksApp() {
   const [store, setStore] = useState<BooksIndexStore>(() => readBooksStore())
   const [screen, setScreen] = useState<BooksScreen>('shelf')
   const [detailSlug, setDetailSlug] = useState<string | undefined>()
+  const [detailListings, setDetailListings] = useState<BookListing[]>([])
+  const [detailReturnScreen, setDetailReturnScreen] = useState<BooksScreen>('store')
   const [readerBookId, setReaderBookId] = useState<string | undefined>()
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [categoryLoading, setCategoryLoading] = useState<string | undefined>()
@@ -59,8 +63,12 @@ export function BooksApp() {
     if (!detailSlug) {
       return undefined
     }
-    return store.catalog.find((item) => item.slug === detailSlug) ?? findLibraryBook(store, detailSlug)
-  }, [detailSlug, store])
+    return (
+      detailListings.find((item) => item.slug === detailSlug) ??
+      store.catalog.find((item) => item.slug === detailSlug) ??
+      findLibraryBook(store, detailSlug)
+    )
+  }, [detailSlug, detailListings, store])
 
   const readerBook = useMemo(
     () => (readerBookId ? findLibraryBookById(store, readerBookId) : undefined),
@@ -148,9 +156,23 @@ export function BooksApp() {
     setDeleteConfirmBookId(undefined)
   }, [deleteConfirmBookId, persistStore, store])
 
-  const openStoreListing = useCallback((slug: string) => {
-    setDetailSlug(slug)
-    setScreen('store-detail')
+  const openStoreListing = useCallback(
+    (slug: string, sourceListings?: BookListing[], returnScreen: BooksScreen = 'store') => {
+      setDetailListings(sourceListings ?? store.catalog)
+      setDetailReturnScreen(returnScreen)
+      setDetailSlug(slug)
+      setScreen('store-detail')
+    },
+    [store.catalog],
+  )
+
+  const openSearch = useCallback(() => {
+    setDetailSlug(undefined)
+    setScreen('store-search')
+  }, [])
+
+  const closeSearch = useCallback(() => {
+    setScreen('store')
   }, [])
 
   const handleAddToShelf = useCallback(
@@ -161,6 +183,7 @@ export function BooksApp() {
       let book = existing
 
       if (existing?.status === 'failed') {
+        await deleteBookChapters(existing.id)
         nextStore = resetFailedBookForGeneration(nextStore, existing.id)
         book = findLibraryBookById(nextStore, existing.id)
       } else {
@@ -244,18 +267,16 @@ export function BooksApp() {
 
   if (screen === 'store-detail' && detailListing) {
     const libraryBook = findLibraryBook(store, detailListing.slug)
+    const backLabel = detailReturnScreen === 'store-search' ? '搜索' : detailReturnScreen === 'shelf' ? '书架' : '书城'
+    const closeDetail = () => {
+      setScreen(detailReturnScreen)
+      setDetailSlug(undefined)
+    }
 
     return (
       <div class="books">
         <header class="books__toolbar">
-          <IosNavBackButton
-            iconSize={14}
-            label="书城"
-            onClick={() => {
-              setScreen('store')
-              setDetailSlug(undefined)
-            }}
-          />
+          <IosNavBackButton iconSize={14} label={backLabel} onClick={closeDetail} />
           <span class="books__toolbar-title books__toolbar-title--center">书籍详情</span>
           <span class="books__toolbar-spacer" />
         </header>
@@ -264,10 +285,6 @@ export function BooksApp() {
             listing={detailListing}
             libraryBook={libraryBook}
             isAdding={addingSlug === detailListing.slug}
-            onBack={() => {
-              setScreen('store')
-              setDetailSlug(undefined)
-            }}
             onAddToShelf={(detail) => void handleAddToShelf(detailListing, detail)}
             onRead={() => {
               if (libraryBook && canOpenBook(libraryBook)) {
@@ -287,14 +304,24 @@ export function BooksApp() {
         <header class="books__toolbar">
           <IosNavBackButton iconSize={14} label="书架" onClick={() => setScreen('shelf')} />
           <span class="books__toolbar-title books__toolbar-title--center">书城</span>
-          <button
-            type="button"
-            class="books__toolbar-btn"
-            disabled={catalogLoading}
-            onClick={() => void refreshCatalog(true)}
-          >
-            {catalogLoading ? '刷新中…' : '刷新'}
-          </button>
+          <div class="books__toolbar-actions">
+            <button
+              type="button"
+              class="books__toolbar-btn"
+              onClick={openSearch}
+              aria-label="搜索"
+            >
+              搜索
+            </button>
+            <button
+              type="button"
+              class="books__toolbar-btn"
+              disabled={catalogLoading}
+              onClick={() => void refreshCatalog(true)}
+            >
+              {catalogLoading ? '刷新中…' : '刷新'}
+            </button>
+          </div>
         </header>
         <div class="books__main">
           <BooksStoreView
@@ -303,10 +330,25 @@ export function BooksApp() {
             isLoading={catalogLoading}
             categoryLoading={categoryLoading}
             onEnsureCategory={(category) => void ensureCategoryCatalog(category)}
-            onOpenListing={(slug) => {
-              setDetailSlug(slug)
-              setScreen('store-detail')
-            }}
+            onOpenListing={(slug) => openStoreListing(slug)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (screen === 'store-search') {
+    return (
+      <div class="books">
+        <header class="books__toolbar">
+          <IosNavBackButton iconSize={14} label="书城" onClick={closeSearch} />
+          <span class="books__toolbar-title books__toolbar-title--center">搜索</span>
+          <span class="books__toolbar-spacer" />
+        </header>
+        <div class="books__main">
+          <BooksStoreSearch
+            librarySlugs={librarySlugs}
+            onOpenListing={(slug, results) => openStoreListing(slug, results, 'store-search')}
           />
         </div>
       </div>
@@ -349,7 +391,7 @@ export function BooksApp() {
               setScreen('reader')
             }
           }}
-          onOpenStoreListing={openStoreListing}
+          onOpenStoreListing={(slug, sourceListings) => openStoreListing(slug, sourceListings, 'shelf')}
           onDeleteBook={handleRemoveBook}
           onGoStore={openStore}
         />

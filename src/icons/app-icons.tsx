@@ -767,3 +767,42 @@ export function StocksIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function SpeechIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#3a3d4d" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="speech-mic-body" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#f4f6fb" />
+            <stop offset="55%" stop-color="#d6dbe6" />
+            <stop offset="100%" stop-color="#aab2c2" />
+          </linearGradient>
+          <linearGradient id="speech-mic-stem" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#cfd4df" />
+            <stop offset="100%" stop-color="#8d95a6" />
+          </linearGradient>
+        </defs>
+        {/* 麦克风胶囊头 */}
+        <rect x="24" y="10" width="16" height="28" rx="8" ry="8" fill="url(#speech-mic-body)" stroke="rgba(0,0,0,0.18)" stroke-width="1" />
+        {/* 麦克风网纹 */}
+        <g stroke="rgba(40,45,60,0.28)" stroke-width="0.9">
+          <line x1="24" y1="20" x2="40" y2="20" />
+          <line x1="24" y1="26" x2="40" y2="26" />
+          <line x1="24" y1="32" x2="40" y2="32" />
+        </g>
+        {/* U 形托架 */}
+        <path d="M17 33 a15 15 0 0 0 30 0" fill="none" stroke="url(#speech-mic-stem)" stroke-width="3.4" stroke-linecap="round" />
+        {/* 立柱 */}
+        <line x1="32" y1="48" x2="32" y2="54" stroke="url(#speech-mic-stem)" stroke-width="3.2" stroke-linecap="round" />
+        {/* 底座 */}
+        <line x1="23" y1="54" x2="41" y2="54" stroke="url(#speech-mic-stem)" stroke-width="3.4" stroke-linecap="round" />
+        {/* 声波 */}
+        <g stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85" fill="none">
+          <path d="M9 26 q-3 6 0 12" />
+          <path d="M55 26 q3 6 0 12" />
+        </g>
+      </svg>
+    </AppIconTile>
+  )
+}

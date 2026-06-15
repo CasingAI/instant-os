@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { BatteryIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { getAppDefinition } from './app-registry.tsx'
+import { getThisDeviceAbout } from './builtin-app-about.ts'
 import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
@@ -104,10 +105,10 @@ function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
 }
 
 export function MenuBar() {
-  const { windows, activeWindowId, focusWindow, restoreWindow } = useOs()
+  const { windows, activeWindowId, focusWindow, restoreWindow, openApp } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
-  const { showFinderAbout, showInstantAbout } = useAboutApp()
+  const { showInstantAbout, showAbout } = useAboutApp()
   const battery = useDeviceBattery()
   const { pendingInstalls, failedInstalls } = useGeneratedApps()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
@@ -127,19 +128,31 @@ export function MenuBar() {
   const desktopMenus = useMemo<MenuDefinition[]>(
     () => [
       {
-        label: '访达',
-        items: [{ type: 'action', label: '关于访达', onClick: showFinderAbout }],
+        label: 'Instant OS',
+        items: [{ type: 'action', label: '关于 Instant', onClick: showInstantAbout }],
       },
     ],
-    [showFinderAbout],
+    [showInstantAbout],
   )
 
   const appleMenu = useMemo<MenuDefinition>(
     () => ({
       label: APPLE_MENU_LABEL,
-      items: [{ type: 'action', label: '关于 Instant', onClick: showInstantAbout }],
+      items: [
+        {
+          type: 'action',
+          label: '关于本机',
+          onClick: async () => {
+            const content = await getThisDeviceAbout()
+            showAbout({
+              ...content,
+              onMoreInfo: () => openApp('system-info'),
+            })
+          },
+        },
+      ],
     }),
-    [showInstantAbout],
+    [showAbout, openApp],
   )
 
   const menus = activeWindow ? (menusByApp[activeWindow.appId] ?? []) : desktopMenus

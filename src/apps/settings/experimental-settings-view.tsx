@@ -14,6 +14,9 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
   const [fullscreenImmersiveChrome, setFullscreenImmersiveChrome] = useState(
     () => loadExperimentalSettings().fullscreenImmersiveChrome,
   )
+  const [speechApp, setSpeechApp] = useState(
+    () => loadExperimentalSettings().speechApp,
+  )
   const [saveError, setSaveError] = useState(false)
 
   const handleToggleImmersiveChrome = (checked: boolean) => {
@@ -24,6 +27,16 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
 
     setSaveError(false)
     setFullscreenImmersiveChrome(checked)
+  }
+
+  const handleToggleSpeechApp = (checked: boolean) => {
+    if (!patchExperimentalSettings({ speechApp: checked })) {
+      setSaveError(true)
+      return
+    }
+
+    setSaveError(false)
+    setSpeechApp(checked)
   }
 
   return (
@@ -44,10 +57,21 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
                 label="全屏沉浸顶栏"
               />
             </div>
+            <div class="settings__toggle-row">
+              <span class="settings__toggle-row-label">语音识别</span>
+              <IosSwitch
+                checked={speechApp}
+                onChange={handleToggleSpeechApp}
+                label="语音识别"
+              />
+            </div>
           </div>
           <p class="settings__section-footnote">
             开启后，窗口进入全屏时会隐藏菜单栏与标题栏；将指针移至屏幕顶部 5
             像素内时，会以悬浮方式唤出菜单栏与当前窗口标题栏。
+          </p>
+          <p class="settings__section-footnote">
+            开启后，语音识别应用会出现在桌面和程序坞中。
           </p>
           {saveError && (
             <p class="settings__section-footnote settings__form-status--error">

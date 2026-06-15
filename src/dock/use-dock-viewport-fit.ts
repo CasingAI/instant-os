@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useState } from 'preact/hooks'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { useOs } from '../os/os-context.tsx'
 import { isGeneratedAppId } from '../os/types.ts'
+import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from '../os/experimental-settings-storage.ts'
 import { applyDockSettingsVariables } from './apply-dock-settings.ts'
 import { buildDockLayoutSnapshot, setDockLayoutSnapshot } from './dock-layout-metrics.ts'
 import { DOCK_SETTINGS_CHANGED_EVENT } from './dock-settings-storage.ts'
@@ -19,16 +20,21 @@ export function useDockViewportFit(): void {
     installedApps.map((app) => app.id).filter((appId) => isGeneratedAppId(appId)),
   )
 
+  const [experimentalVersion, setExperimentalVersion] = useState(0)
+
+  useEffect(() => {
+    const handleChange = () => setExperimentalVersion((v) => v + 1)
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleChange)
+    return () => window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleChange)
+  }, [])
+
   useLayoutEffect(() => {
-    const snapshot = buildDockLayoutSnapshot({
-      pinnedDockItemIds,
-      runningAppIds,
-      installedGeneratedAppIds,
-    })
-    setDockLayoutSnapshot(snapshot)
+    setDockLayoutSnapshot(
+      buildDockLayoutSnapshot({ pinnedDockItemIds, runningAppIds, installedGeneratedAppIds }),
+    )
     applyDockSettingsVariables()
     window.dispatchEvent(new CustomEvent(DOCK_VIEWPORT_FIT_CHANGED_EVENT))
-  }, [pinnedDockItemIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|')])
+  }, [pinnedDockItemIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|'), experimentalVersion])
 
   useEffect(() => {
     const sync = () => {

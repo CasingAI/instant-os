@@ -1,5 +1,6 @@
 import {
   assertBookChapterCapacity,
+  deleteBookChapterRecords,
   deleteBookChapters,
   deleteBookDetailRecord,
   getBookChapter,
@@ -11,6 +12,7 @@ import {
 import type { BookDetail, BookListing, ChapterIndex } from './books-types.ts'
 
 export {
+  deleteBookChapterRecords,
   deleteBookChapters,
   deleteBookDetailRecord,
   getBookChapter,

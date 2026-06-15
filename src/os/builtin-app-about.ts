@@ -1,20 +1,32 @@
-import { FinderIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { InstantLogoIcon } from '../icons/app-icons.tsx'
 import type { AboutAppContent } from './about-app-dialog.tsx'
+import { collectDeviceInfo } from './collect-device-info.ts'
 
 export type BuiltinAppAbout = Pick<AboutAppContent, 'version' | 'paragraphs' | 'list'>
 
-export const FINDER_ABOUT: AboutAppContent = {
-  title: '访达',
-  version: 'macOS 风格桌面',
-  icon: FinderIcon,
-  paragraphs: ['访达是 Instant OS 的桌面入口，帮助你浏览和管理整个系统。快速上手：'],
-  list: [
-    '点击桌面图标或底部 Dock 栏中的图标，打开内置应用',
-    '在应用集市浏览、搜索并安装 AI 生成的微应用，安装完成后会出现在桌面',
-    '拖动窗口标题栏移动位置，拖拽边缘调整大小；双击标题栏可最大化',
-    '顶部菜单栏会随当前激活的应用切换；无窗口时显示访达菜单',
-    '点击左上角 Instant 图标，可查看平台介绍',
-  ],
+export async function getThisDeviceAbout(): Promise<AboutAppContent> {
+  const specs = await collectDeviceInfo()
+  const osSpec = specs.find((s) => s.label === '操作系统')
+  const browserSpec = specs.find((s) => s.label === '浏览器')
+  const cpuSpec = specs.find((s) => s.label === '处理器')
+  const memSpec = specs.find((s) => s.label === '内存')
+  const displaySpec = specs.find((s) => s.label === '显示器')
+
+  const deviceSpecs = [
+    osSpec && { label: '操作系统', value: osSpec.value },
+    browserSpec && { label: '浏览器', value: browserSpec.value },
+    cpuSpec && { label: '处理器', value: cpuSpec.value },
+    memSpec && { label: '内存', value: memSpec.value },
+    displaySpec && { label: '显示器', value: displaySpec.value },
+  ].filter((spec): spec is { label: string; value: string } => Boolean(spec))
+
+  return {
+    title: 'Instant OS',
+    version: '版本 1.0.5',
+    icon: InstantLogoIcon,
+    layout: 'about-this-device',
+    specs: deviceSpecs,
+  }
 }
 
 export const INSTANT_ABOUT: AboutAppContent = {
@@ -122,6 +134,21 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       '15×15 经典五子棋，先连成五子者胜。支持人人对战、人机对战与双 AI 对战三种模式。',
       '人机模式下由当前配置的 AI 模型分析局面并落子；双 AI 模式下本地启发式 AI 与模型 AI 自动对弈。含开局抽签、撤销、对局信息面板，以及落子与胜负的音效与视觉特效。',
+    ],
+  },
+  speech: {
+    version: 'Web Speech API 语音识别测试',
+    paragraphs: [
+      '语音识别是浏览器 Web Speech API（SpeechRecognition）的演示与测试工具。点击麦克风即可开始说话，识别结果与原始事件会实时显示。',
+      '可调整识别语言、continuous 连续识别、interimResults 中间结果以及 maxAlternatives 候选数量。所有配置在开始识别后锁定，需停止后再修改。',
+      '兼容性提示：Chrome / Edge 走 Google 识别服务，Safari 走 Apple，Firefox 通常不支持。需在 HTTPS 或 localhost 环境运行，并授予麦克风权限。识别依赖厂商云端服务，离线不可用。',
+    ],
+  },
+  'system-info': {
+    version: '设备信息查看器',
+    paragraphs: [
+      '系统信息详细展示当前浏览器可获取的设备与环境信息，包括操作系统、浏览器、处理器、内存、显卡、显示器、网络状态等。',
+      '所有数据来源于浏览器 API，仅供展示与调试参考。',
     ],
   },
 }

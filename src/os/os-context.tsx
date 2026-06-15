@@ -68,6 +68,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
   icode: { title: 'iCode', width: 1280, height: 720 },
   gomoku: { title: '五子棋', width: 760, height: 680 },
+  'system-info': { title: '系统信息', width: 680, height: 480 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {

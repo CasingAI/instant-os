@@ -486,6 +486,41 @@ export async function assertBookChapterCapacity(input: {
   }
 }
 
+export async function deleteBookChapterRecords(
+  bookId: string,
+  chapterIds: string[],
+): Promise<void> {
+  if (chapterIds.length === 0) {
+    return
+  }
+
+  try {
+    const records = await Promise.all(
+      chapterIds.map((chapterId) => getBookChapter(bookId, chapterId)),
+    )
+    const existing = records.filter(
+      (record): record is BookChapterRecord => record !== undefined,
+    )
+    if (existing.length === 0) {
+      return
+    }
+
+    const freedBytes = existing.reduce((total, record) => total + (record.byteSize ?? 0), 0)
+    await runDataStoreTransaction(BOOK_CHAPTERS_STORE, 'readwrite', (store) => {
+      for (const record of existing) {
+        store.delete(record.key)
+      }
+      return store.count()
+    })
+
+    const currentTotal = await readByteTotal()
+    await writeByteTotal(Math.max(0, currentTotal - freedBytes))
+    emitDataStorageChanged()
+  } catch {
+    // ignore
+  }
+}
+
 export async function deleteBookChapters(bookId: string): Promise<void> {
   try {
     const records = await runDataStoreTransaction<BookChapterRecord[]>(

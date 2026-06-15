@@ -7,9 +7,16 @@ import { getOpenAiClient } from './openai-client.ts'
 
 export type StreamChatActivity = 'reasoning' | 'content'
 
+export type StreamChatTurn = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type StreamChatOptions = {
   system: string
   user: string
+  /** 首条 user 之后的对话轮次（assistant / user 交替） */
+  followUp?: StreamChatTurn[]
   onChunk: (delta: string, accumulated: string) => void
   /** 覆盖账户里的思考模式开关 */
   thinkingEnabled?: boolean
@@ -20,6 +27,8 @@ export type StreamChatOptions = {
   onAnyStreamChunk?: () => void
   /** 记录到全局 AI 用量统计 */
   usageContext?: AiUsageContext
+  /** API 最大输出 token 数（默认不设，使用模型默认上限） */
+  maxCompletionTokens?: number
 }
 
 const STREAM_IDLE_ERROR = 'STREAM_IDLE_TIMEOUT'
@@ -62,9 +71,13 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       model,
       stream: true,
       ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
+      ...(options.maxCompletionTokens !== undefined
+        ? { max_tokens: options.maxCompletionTokens }
+        : {}),
       messages: [
         { role: 'system', content: options.system },
         { role: 'user', content: options.user },
+        ...(options.followUp ?? []),
       ],
       ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
       ...(abortController ? { signal: abortController.signal } : {}),
@@ -74,6 +87,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
     let text = ''
     let usage: ReturnType<typeof snapshotFromOpenAiUsage>
+    let finishReason: string | undefined
 
     for await (const chunk of stream) {
       resetIdleTimer()
@@ -96,6 +110,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       options.onStreamActivity?.('content')
       text += content
       options.onChunk(content, text)
+      finishReason = chunk.choices[0]?.finish_reason || finishReason
     }
 
     if (!text.trim()) {
@@ -105,6 +120,12 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     const trimmed = text.trim()
     if (options.usageContext) {
       recordAiTokenUsage(options.usageContext, usage)
+    }
+
+    if (finishReason === 'length') {
+      throw new Error(
+        `AI 输出被截断：达到 token 上限（${options.maxCompletionTokens ?? '模型默认'}）。全文 ${trimmed.length} 字符，最后 100 字符：…${trimmed.slice(-100)}`,
+      )
     }
 
     return trimmed

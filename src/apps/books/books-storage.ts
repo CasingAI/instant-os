@@ -190,6 +190,7 @@ export function resetFailedBookForGeneration(
   }
   return updateBookInLibrary(store, bookId, {
     status: 'generating',
+    chapters: [],
   })
 }
 
