@@ -69,6 +69,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   icode: { title: 'iCode', width: 1280, height: 720 },
   gomoku: { title: '五子棋', width: 760, height: 680 },
   'system-info': { title: '系统信息', width: 680, height: 480 },
+  'task-manager': { title: '任务管理器', width: 720, height: 520 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {

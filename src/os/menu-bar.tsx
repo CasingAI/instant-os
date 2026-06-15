@@ -156,6 +156,11 @@ export function MenuBar() {
           label: '系统设置',
           onClick: () => openApp('settings'),
         },
+        {
+          type: 'action',
+          label: '任务管理器',
+          onClick: () => openApp('task-manager'),
+        },
       ],
     }),
     [showAbout, openApp],

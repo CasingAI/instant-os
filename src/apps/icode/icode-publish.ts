@@ -4,6 +4,7 @@ import type { GeneratedAppRecord } from '../appstore/types.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import type { ICodeInternalProject } from './icode-types.ts'
+import { loadInternalProjects } from './icode-storage.ts'
 
 export function listingSlugForInternalProject(project: ICodeInternalProject): string {
   if (project.linkedAppId) {
@@ -86,11 +87,18 @@ export function isIcodeManagedInstalledApp(
   app: GeneratedAppRecord,
   internalProjects: ICodeInternalProject[],
 ): boolean {
+  return resolveIcodeProjectId(app, internalProjects) !== undefined
+}
+
+export function resolveIcodeProjectId(
+  app: GeneratedAppRecord,
+  internalProjects: ICodeInternalProject[] = loadInternalProjects(),
+): string | undefined {
   if (app.icodeProjectId !== undefined) {
-    return true
+    return app.icodeProjectId
   }
 
-  return internalProjects.some((project) => project.linkedAppId === app.id)
+  return internalProjects.find((project) => project.linkedAppId === app.id)?.id
 }
 
 export function findProjectNameConflict(

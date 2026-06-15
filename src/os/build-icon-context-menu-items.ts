@@ -154,7 +154,10 @@ export function buildBuiltinIconContextMenuItems(
 
 export function buildGeneratedIconContextMenuItems(options: {
   onOpen: () => void
-  onViewInMarketplace: () => void
+  appSlug: string
+  icodeProjectId?: string
+  onViewInMarketplace: (slug: string) => void
+  onViewInIcode: (projectId: string) => void
   onUninstall?: () => void
   onForceQuit?: () => void
   openDisabled?: boolean
@@ -163,10 +166,22 @@ export function buildGeneratedIconContextMenuItems(options: {
   onUnpinFromDock?: () => void
   windowSubmenu?: WindowSubmenuOptions
 }): IconContextMenuItem[] {
+  const externalViewItem: IconContextMenuItem = options.icodeProjectId
+    ? {
+        type: 'action',
+        label: '在 iCode 中打开',
+        onClick: () => options.onViewInIcode(options.icodeProjectId!),
+      }
+    : {
+        type: 'action',
+        label: '在应用集市中查看',
+        onClick: () => options.onViewInMarketplace(options.appSlug),
+      }
+
   const items: IconContextMenuItem[] = [
     { type: 'action', label: '打开', disabled: options.openDisabled, onClick: options.onOpen },
     { type: 'separator' },
-    { type: 'action', label: '在应用集市中查看', onClick: options.onViewInMarketplace },
+    externalViewItem,
   ]
 
   const withWindowSubmenu = appendWindowSubmenuItems(items, options.windowSubmenu)

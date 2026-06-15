@@ -108,3 +108,37 @@ export function buildIcodeClosePrompt(input: {
       '编辑区还有尚未写入草稿的内容。关闭前请先保存，或选择放弃这些更改（将恢复为上次保存的内容）。',
   }
 }
+
+export function buildIcodeNavigateAwayPrompt(input: {
+  codeDirty: boolean
+  internalSaveDirty: boolean
+  chatDirty: boolean
+  mode: 'close' | 'switch'
+}): IcodeClosePrompt {
+  const closePrompt = buildIcodeClosePrompt(input)
+  if (input.mode === 'close') {
+    return closePrompt
+  }
+
+  if (input.codeDirty) {
+    return {
+      title: closePrompt.title,
+      message:
+        '源码已修改但尚未保存。切换项目前请先保存，或选择放弃这些更改（将恢复为上次保存的内容）。',
+    }
+  }
+
+  if (input.chatDirty && !input.internalSaveDirty) {
+    return {
+      title: closePrompt.title,
+      message:
+        '对话记录尚未保存。切换项目前请先保存，或选择放弃这些更改（将恢复为上次保存的对话）。',
+    }
+  }
+
+  return {
+    title: closePrompt.title,
+    message:
+      '编辑区还有尚未写入草稿的内容。切换项目前请先保存，或选择放弃这些更改（将恢复为上次保存的内容）。',
+  }
+}

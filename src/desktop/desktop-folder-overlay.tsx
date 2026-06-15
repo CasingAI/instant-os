@@ -1,6 +1,7 @@
 import type { ComponentType } from 'preact'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
+import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import {
   buildBuiltinIconContextMenuItems,
@@ -445,7 +446,7 @@ function FolderAppIcon({
   onClose,
 }: FolderAppIconProps) {
   const { openApp } = useOs()
-  const { openInstalledApp, openMarketplaceDetail } = useGeneratedApps()
+  const { openInstalledApp, openMarketplaceDetail, openIcodeProject, getInstalledApp } = useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const { isPinnedToDock, pinToDock, unpinFromDock, moveAppOutOfFolder } = useLauncherLayout()
 
@@ -503,12 +504,17 @@ function FolderAppIcon({
     }
 
     const slug = generatedAppIdToSlug(app.appId)
+    const installedApp = getInstalledApp(app.appId)
+    const icodeProjectId = installedApp ? resolveIcodeProjectId(installedApp) : undefined
     showIconContextMenu(
       event,
       [
         ...buildGeneratedIconContextMenuItems({
           onOpen: handleOpen,
-          onViewInMarketplace: () => openMarketplaceDetail(slug),
+          appSlug: slug,
+          icodeProjectId,
+          onViewInMarketplace: openMarketplaceDetail,
+          onViewInIcode: openIcodeProject,
           isPinnedToDock: pinned,
           onPinToDock: () => pinToDock(app.appId),
           onUnpinFromDock: () => unpinFromDock(app.appId),

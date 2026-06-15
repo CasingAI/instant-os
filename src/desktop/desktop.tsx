@@ -2,6 +2,7 @@ import type { ComponentType } from 'preact'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
+import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { APP_REGISTRY } from '../os/app-registry.tsx'
 import {
@@ -187,12 +188,14 @@ function GeneratedDesktopIcon({
   didSwipeRef,
   reorder,
 }: GeneratedDesktopIconProps) {
-  const { openInstalledApp, openMarketplaceDetail, uninstallApp } = useGeneratedApps()
+  const { openInstalledApp, openMarketplaceDetail, openIcodeProject, uninstallApp, getInstalledApp } = useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const { isPinnedToDock, pinToDock, unpinFromDock } = useLauncherLayout()
   const [uninstallConfirmOpen, setUninstallConfirmOpen] = useState(false)
   const downloading = progress !== undefined && progress < 100
   const slug = generatedAppIdToSlug(appId)
+  const installedApp = getInstalledApp(appId)
+  const icodeProjectId = installedApp ? resolveIcodeProjectId(installedApp) : undefined
   const canUninstall = !downloading
 
   const handleOpen = () => {
@@ -231,7 +234,10 @@ function GeneratedDesktopIcon({
             event,
             buildGeneratedIconContextMenuItems({
               onOpen: handleOpen,
-              onViewInMarketplace: () => openMarketplaceDetail(slug),
+              appSlug: slug,
+              icodeProjectId,
+              onViewInMarketplace: openMarketplaceDetail,
+              onViewInIcode: openIcodeProject,
               onUninstall: canUninstall ? () => setUninstallConfirmOpen(true) : undefined,
               openDisabled: downloading,
               isPinnedToDock: pinned,

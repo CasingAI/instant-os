@@ -151,4 +151,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '所有数据来源于浏览器 API，仅供展示与调试参考。',
     ],
   },
+  'task-manager': {
+    version: '运行中的应用管理',
+    paragraphs: [
+      '任务管理器列出当前所有已打开的应用与窗口，显示前台、后台或最小化等状态。',
+      '点击应用或窗口可切换焦点；「结束」会关闭该应用的全部窗口。',
+    ],
+  },
 }

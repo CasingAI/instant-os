@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'
@@ -93,22 +93,35 @@ export function WindowFrame({ window }: WindowFrameProps) {
     [windowBounds],
   )
   const [isEntering, setIsEntering] = useState(window.enterAnimation === 'scale-in')
+  const prevMinimizedRef = useRef(window.minimized)
   const [isMinimizing, setIsMinimizing] = useState(false)
+  const [minimizeVisualSettled, setMinimizeVisualSettled] = useState(window.minimized)
   const isClosing = window.closing
   const immersiveFullscreen = window.fullscreen && hasImmersiveFullscreen
   const showImmersiveChrome = immersiveFullscreen && chromeRevealed && isActive
+  const showMinimizeVisual = isMinimizing || minimizeVisualSettled
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const wasMinimized = prevMinimizedRef.current
+    prevMinimizedRef.current = window.minimized
+
+    if (window.minimized && !wasMinimized) {
+      setMinimizeVisualSettled(false)
+      setIsMinimizing(true)
+      const timer = globalThis.setTimeout(() => {
+        setIsMinimizing(false)
+        setMinimizeVisualSettled(true)
+      }, 420)
+      return () => globalThis.clearTimeout(timer)
+    }
+
     if (!window.minimized) {
       setIsMinimizing(false)
-      return
+      setMinimizeVisualSettled(false)
     }
-    setIsMinimizing(true)
-    const timer = globalThis.setTimeout(() => setIsMinimizing(false), 420)
-    return () => globalThis.clearTimeout(timer)
   }, [window.minimized])
 
-  const frameTransform = window.minimized
+  const frameTransform = showMinimizeVisual
     ? minimizeTransform
     : isClosing || isEntering
       ? undefined
@@ -120,8 +133,8 @@ export function WindowFrame({ window }: WindowFrameProps) {
     <>
       {dragging && <SnapPreview target={snapPreview} />}
       <section
-        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${window.minimized ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
-        aria-hidden={window.minimized || isClosing ? true : undefined}
+        class={`window-frame${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${resizing ? ' window-frame--resizing' : ''}${isAnchoredLayout ? ' window-frame--anchored' : ''}${window.maximized ? ' window-frame--maximized' : ''}${window.snap ? ` window-frame--snapped-${window.snap}` : ''}${window.fullscreen ? ' window-frame--fullscreen' : ''}${immersiveFullscreen ? ' window-frame--fullscreen-immersive' : ''}${showImmersiveChrome ? ' window-frame--chrome-revealed' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isDesktopRevealed ? ' window-frame--desktop-revealed' : ''}${isEntering ? ' window-frame--entering' : ''}${isClosing ? ' window-frame--closing' : ''}`}
+        aria-hidden={showMinimizeVisual || isClosing ? true : undefined}
         style={{
           zIndex: window.zIndex,
           left: `${window.x}px`,
@@ -129,7 +142,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
           width: `${window.width}px`,
           height: `${window.height}px`,
           transform: isEntering ? undefined : frameTransform,
-          opacity: window.minimized ? 0 : undefined,
+          opacity: showMinimizeVisual ? 0 : undefined,
         }}
         onAnimationEnd={(event) => {
           if (event.animationName === 'window-frame-open') {

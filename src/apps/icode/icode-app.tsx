@@ -35,7 +35,7 @@ import {
   resolvePreviewBootstrapData,
   type ICodePublishedSnapshot,
 } from './icode-draft.ts'
-import { buildIcodeClosePrompt, buildIcodeEditorNavHint } from './icode-editor-nav-hint.ts'
+import { buildIcodeEditorNavHint, buildIcodeNavigateAwayPrompt } from './icode-editor-nav-hint.ts'
 import { generateInternalAppHtml } from './icode-generation.ts'
 import { isIcodeGenerationAbortedError } from './icode-generation-abort.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
@@ -92,6 +92,11 @@ import './icode.css'
 
 type EditorTab = 'chat' | 'source' | 'config' | 'data' | 'console'
 type MobileEditorPane = 'preview' | 'edit'
+
+type IcodeNavigationIntent =
+  | { type: 'list' }
+  | { type: 'window' }
+  | { type: 'open'; projectId: string }
 
 const ICODE_CHROME_ACCENT = '#2f87e2'
 
@@ -202,7 +207,7 @@ function previewAppIdForSession(session: EditorSession): GeneratedAppId {
 export function ICodeApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const { installedApps, syncAppFromIcode, getAppDataRevision, uninstallApp } = useGeneratedApps()
+  const { installedApps, syncAppFromIcode, getAppDataRevision, uninstallApp, pendingIcodeProjectId, clearPendingIcodeProject } = useGeneratedApps()
 
   const [projectRevision, setProjectRevision] = useState(0)
   const [session, setSession] = useState<EditorSession | undefined>()
@@ -236,8 +241,9 @@ export function ICodeApp() {
   const [consoleLogs, setConsoleLogs] = useState<ICodeConsoleEntry[]>([])
   const [publishedSnapshot, setPublishedSnapshot] = useState<ICodePublishedSnapshot | undefined>()
   const [closePromptOpen, setClosePromptOpen] = useState(false)
+  const [closePromptMode, setClosePromptMode] = useState<'close' | 'switch'>('close')
   const [clearChatPromptOpen, setClearChatPromptOpen] = useState(false)
-  const closeIntentRef = useRef<'list' | 'window'>('list')
+  const closeIntentRef = useRef<IcodeNavigationIntent>({ type: 'list' })
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const previewWindowRef = useRef<Window | null>(null)
@@ -420,14 +426,15 @@ export function ICodeApp() {
       session?.html.length,
     ],
   )
-  const closePrompt = useMemo(
+  const navigateAwayPrompt = useMemo(
     () =>
-      buildIcodeClosePrompt({
+      buildIcodeNavigateAwayPrompt({
         codeDirty,
         internalSaveDirty,
         chatDirty,
+        mode: closePromptMode,
       }),
-    [chatDirty, codeDirty, internalSaveDirty],
+    [chatDirty, closePromptMode, codeDirty, internalSaveDirty],
   )
 
   useEffect(() => {
@@ -789,38 +796,64 @@ export function ICodeApp() {
     setClosePromptOpen(false)
   }, [])
 
-  const finishCloseEditor = useCallback(() => {
-    const shouldCloseWindow = closeIntentRef.current === 'window'
-    closeIntentRef.current = 'list'
+  const completePendingNavigation = useCallback(() => {
+    const intent = closeIntentRef.current
+    closeIntentRef.current = { type: 'list' }
+    setClosePromptOpen(false)
+    setClosePromptMode('close')
+
+    if (intent.type === 'open') {
+      const stored = getInternalProject(intent.projectId)
+      if (!stored) {
+        return
+      }
+
+      const project = ensureDesktopPlaceholder(stored)
+      const nextSession = sessionFromInternal(project)
+      setSession(nextSession)
+      setPublishedSnapshot(
+        loadPublishedSnapshot(
+          nextSession.linkedAppId ?? resolvePublishAppId(project),
+          installedApps,
+          project,
+        ),
+      )
+      setEditorTab('chat')
+      setError(undefined)
+      return
+    }
+
     resetEditorUi()
-    if (shouldCloseWindow) {
+    if (intent.type === 'window') {
       bypassAppCloseGuard('icode')
       closeWindowsForApp('icode')
     }
-  }, [bypassAppCloseGuard, closeWindowsForApp, resetEditorUi])
+  }, [bypassAppCloseGuard, closeWindowsForApp, ensureDesktopPlaceholder, installedApps, resetEditorUi])
 
   const requestCloseEditor = useCallback(() => {
-    closeIntentRef.current = 'list'
+    closeIntentRef.current = { type: 'list' }
     if (!session) {
-      finishCloseEditor()
+      completePendingNavigation()
       return
     }
 
     if (hasDraftToSave) {
+      setClosePromptMode('close')
       setClosePromptOpen(true)
       return
     }
 
-    finishCloseEditor()
-  }, [finishCloseEditor, hasDraftToSave, session])
+    completePendingNavigation()
+  }, [completePendingNavigation, hasDraftToSave, session])
 
   const requestCloseWindow = useCallback(() => {
-    closeIntentRef.current = 'window'
+    closeIntentRef.current = { type: 'window' }
     if (!session) {
       return true
     }
 
     if (hasDraftToSave) {
+      setClosePromptMode('close')
       setClosePromptOpen(true)
       return false
     }
@@ -830,25 +863,28 @@ export function ICodeApp() {
 
   useAppCloseGuard('icode', requestCloseWindow)
 
+  const dismissNavigateAwayPrompt = useCallback(() => {
+    closeIntentRef.current = { type: 'list' }
+    setClosePromptMode('close')
+    setClosePromptOpen(false)
+  }, [])
+
   const confirmCloseDiscard = useCallback(() => {
-    finishCloseEditor()
-  }, [finishCloseEditor])
+    completePendingNavigation()
+  }, [completePendingNavigation])
 
   const confirmCloseSaveDraft = useCallback(() => {
-    if (!session) {
-      finishCloseEditor()
-      return
+    if (session) {
+      saveDraftInternal(session, draftHtml, codeDirty)
     }
-
-    saveDraftInternal(session, draftHtml, codeDirty)
-    finishCloseEditor()
-  }, [codeDirty, draftHtml, finishCloseEditor, saveDraftInternal, session])
+    completePendingNavigation()
+  }, [codeDirty, completePendingNavigation, draftHtml, saveDraftInternal, session])
 
   const closePromptActions = useMemo(
     () => [
       {
         key: 'save',
-        label: '保存并关闭',
+        label: closePromptMode === 'switch' ? '保存并打开' : '保存并关闭',
         tone: 'primary' as const,
         onClick: confirmCloseSaveDraft,
       },
@@ -862,10 +898,10 @@ export function ICodeApp() {
         key: 'continue',
         label: '继续编辑',
         tone: 'secondary' as const,
-        onClick: () => setClosePromptOpen(false),
+        onClick: dismissNavigateAwayPrompt,
       },
     ],
-    [confirmCloseDiscard, confirmCloseSaveDraft],
+    [closePromptMode, confirmCloseDiscard, confirmCloseSaveDraft, dismissNavigateAwayPrompt],
   )
 
   const requestClearChat = useCallback(() => {
@@ -920,7 +956,7 @@ export function ICodeApp() {
 
   const closeEditor = requestCloseEditor
 
-  const openInternal = useCallback(
+  const openInternalDirect = useCallback(
     (projectId: string) => {
       const stored = getInternalProject(projectId)
       if (!stored) {
@@ -938,6 +974,43 @@ export function ICodeApp() {
     },
     [ensureDesktopPlaceholder, installedApps],
   )
+
+  const requestOpenInternal = useCallback(
+    (projectId: string) => {
+      if (!getInternalProject(projectId)) {
+        return
+      }
+
+      if (session?.projectId === projectId) {
+        return
+      }
+
+      if (!session) {
+        openInternalDirect(projectId)
+        return
+      }
+
+      if (hasDraftToSave) {
+        closeIntentRef.current = { type: 'open', projectId }
+        setClosePromptMode('switch')
+        setClosePromptOpen(true)
+        return
+      }
+
+      openInternalDirect(projectId)
+    },
+    [hasDraftToSave, openInternalDirect, session],
+  )
+
+  useEffect(() => {
+    if (!pendingIcodeProjectId) {
+      return
+    }
+
+    const projectId = pendingIcodeProjectId
+    clearPendingIcodeProject()
+    requestOpenInternal(projectId)
+  }, [pendingIcodeProjectId, requestOpenInternal, clearPendingIcodeProject])
 
   const requestDeleteProject = useCallback((projectId: string) => {
     const project = getInternalProject(projectId)
@@ -1014,9 +1087,9 @@ export function ICodeApp() {
       setProjectRevision((value) => value + 1)
       setShowImportPicker(false)
       setError(undefined)
-      openInternal(imported.id)
+      requestOpenInternal(imported.id)
     },
-    [installedApps, internalProjects, openInternal, syncPlaceholderToDesktop],
+    [installedApps, internalProjects, requestOpenInternal, syncPlaceholderToDesktop],
   )
 
   const exportCurrentProject = useCallback(() => {
@@ -1072,7 +1145,7 @@ export function ICodeApp() {
 
         setProjectRevision((value) => value + 1)
         setImportAlert(undefined)
-        openInternal(imported.id)
+        requestOpenInternal(imported.id)
         return imported
       }
 
@@ -1117,7 +1190,7 @@ export function ICodeApp() {
         tags: formalProject.tags ?? [],
       })
     },
-    [installedApps, internalProjects, openInternal, syncPlaceholderToDesktop],
+    [installedApps, internalProjects, requestOpenInternal, syncPlaceholderToDesktop],
   )
 
   const onImportFile = useCallback(
@@ -1164,13 +1237,13 @@ export function ICodeApp() {
     setNewProjectName('')
     setNewProjectDescription('')
     setError(undefined)
-    openInternal(project.id)
+    requestOpenInternal(project.id)
   }, [
     installedApps,
     internalProjects,
     newProjectDescription,
     newProjectName,
-    openInternal,
+    requestOpenInternal,
     syncPlaceholderToDesktop,
   ])
 
@@ -1677,7 +1750,7 @@ export function ICodeApp() {
                       key={project.id}
                       type="button"
                       class="icode__row"
-                      onClick={() => openInternal(project.id)}
+                      onClick={() => requestOpenInternal(project.id)}
                     >
                       <span class="icode__row-icon" aria-hidden="true">
                         <GeneratedAppIcon
@@ -2380,13 +2453,13 @@ export function ICodeApp() {
 
       <WindowModal
         open={closePromptOpen}
-        title={closePrompt.title}
+        title={navigateAwayPrompt.title}
         role="alertdialog"
         themeColor={modalTheme}
-        onClose={() => setClosePromptOpen(false)}
+        onClose={dismissNavigateAwayPrompt}
         actions={closePromptActions}
       >
-        <p class="window-modal__message">{closePrompt.message}</p>
+        <p class="window-modal__message">{navigateAwayPrompt.message}</p>
       </WindowModal>
 
       <WindowModal

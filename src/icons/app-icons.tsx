@@ -806,3 +806,27 @@ export function SpeechIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function TaskManagerIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#1f1f22" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="10" y="12" width="44" height="40" rx="6" fill="#2a2a2e" />
+        <polyline
+          points="16,40 24,30 32,34 40,22 48,28"
+          fill="none"
+          stroke="#34c759"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="16" cy="40" r="2.5" fill="#34c759" />
+        <circle cx="24" cy="30" r="2.5" fill="#34c759" />
+        <circle cx="32" cy="34" r="2.5" fill="#34c759" />
+        <circle cx="40" cy="22" r="2.5" fill="#34c759" />
+        <circle cx="48" cy="28" r="2.5" fill="#34c759" />
+        <rect x="16" y="46" width="32" height="2" rx="1" fill="#5ac8fa" opacity="0.9" />
+      </svg>
+    </AppIconTile>
+  )
+}

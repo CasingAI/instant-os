@@ -1,0 +1,241 @@
+.task-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  padding: 20px 24px 24px;
+  box-sizing: border-box;
+  overflow: auto;
+  background: linear-gradient(180deg, #f7f7f8 0%, #efeff1 100%);
+  color: #1d1d1f;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.task-manager__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-manager__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.task-manager__subtitle {
+  margin: 0;
+  color: #6e6e73;
+}
+
+.task-manager__empty {
+  margin: 24px 0 0;
+  color: #6e6e73;
+  text-align: center;
+}
+
+.task-manager__table-wrap {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: auto;
+}
+
+.task-manager__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.task-manager__col {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  color: #6e6e73;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.task-manager__col--status,
+.task-manager__col--windows,
+.task-manager__col--action {
+  width: 1%;
+}
+
+.task-manager__row {
+  transition: background-color 120ms ease;
+}
+
+.task-manager__row:hover {
+  background: rgba(0, 122, 255, 0.04);
+}
+
+.task-manager__row--active {
+  background: rgba(0, 122, 255, 0.08);
+}
+
+.task-manager__cell {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  vertical-align: middle;
+}
+
+.task-manager__row:last-child .task-manager__cell {
+  border-bottom: none;
+}
+
+.task-manager__app-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-manager__app-button:hover .task-manager__app-name {
+  color: #007aff;
+}
+
+.task-manager__app-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-manager__app-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-manager__app-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.task-manager__window-title {
+  overflow: hidden;
+  color: #6e6e73;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager__status {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #6e6e73;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.task-manager__status--active {
+  background: rgba(0, 122, 255, 0.12);
+  color: #007aff;
+}
+
+.task-manager__window-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #6e6e73;
+  font-size: 12px;
+}
+
+.task-manager__window-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-manager__window-button {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-manager__window-button:hover {
+  background: rgba(0, 122, 255, 0.1);
+}
+
+.task-manager__window-button-title {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager__window-button-status {
+  color: #6e6e73;
+  font-size: 11px;
+}
+
+.task-manager__end-button {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 59, 48, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 59, 48, 0.08);
+  color: #d70015;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.task-manager__end-button:hover {
+  background: rgba(255, 59, 48, 0.14);
+}
+
+.task-manager__end-button:active {
+  transform: translateY(1px);
+}
+
+.task-manager__hint {
+  margin: 0;
+  color: #6e6e73;
+  font-size: 12px;
+}
+
+.task-manager__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

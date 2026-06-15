@@ -76,6 +76,9 @@ type GeneratedAppsContextValue = {
   openMarketplaceDetail: (slug: string) => void
   pendingMarketplaceDetailSlug: string | undefined
   clearPendingMarketplaceDetail: () => void
+  openIcodeProject: (projectId: string) => void
+  pendingIcodeProjectId: string | undefined
+  clearPendingIcodeProject: () => void
   installListing: (listing: StoreListing, detail?: Partial<StoreListingDetail>) => Promise<void>
   openInstalledApp: (appId: GeneratedAppId) => void
   uninstallApp: (appId: GeneratedAppId) => void
@@ -176,6 +179,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const [pendingMarketplaceDetailSlug, setPendingMarketplaceDetailSlug] = useState<string | undefined>(
     undefined,
   )
+  const [pendingIcodeProjectId, setPendingIcodeProjectId] = useState<string | undefined>(undefined)
   const [appDataRevisions, setAppDataRevisions] = useState<Record<string, number>>({})
   const [storageRevision, setStorageRevision] = useState(0)
 
@@ -703,6 +707,18 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     setPendingMarketplaceDetailSlug(undefined)
   }, [])
 
+  const openIcodeProject = useCallback(
+    (projectId: string) => {
+      openApp('icode')
+      setPendingIcodeProjectId(projectId)
+    },
+    [openApp],
+  )
+
+  const clearPendingIcodeProject = useCallback(() => {
+    setPendingIcodeProjectId(undefined)
+  }, [])
+
   const publishAppFromIcode = useCallback(
     (input: {
       appId: GeneratedAppId
@@ -880,6 +896,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       openMarketplaceDetail,
       pendingMarketplaceDetailSlug,
       clearPendingMarketplaceDetail,
+      openIcodeProject,
+      pendingIcodeProjectId,
+      clearPendingIcodeProject,
       installListing,
       openInstalledApp,
       uninstallApp,
@@ -918,6 +937,9 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       openMarketplaceDetail,
       pendingMarketplaceDetailSlug,
       clearPendingMarketplaceDetail,
+      openIcodeProject,
+      pendingIcodeProjectId,
+      clearPendingIcodeProject,
       installListing,
       openInstalledApp,
       uninstallApp,

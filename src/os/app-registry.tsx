@@ -15,12 +15,13 @@ import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
 import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
+import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -141,6 +142,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: false,
     desktop: false,
   }),
+  withAbout({
+    id: 'task-manager',
+    name: '任务管理器',
+    icon: TaskManagerIcon,
+    dock: false,
+    desktop: false,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
@@ -160,6 +168,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   icode: ICodeApp,
   settings: SettingsApp,
   'system-info': SystemInfoApp,
+  'task-manager': TaskManagerApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
+import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
 import { DesktopFolderIcon, type FolderPreviewApp } from '../desktop/desktop-folder-icon.tsx'
-import { openDesktopFolder, toggleDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
+import { openDesktopFolder, toggleDesktopFolder, closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { findFolderById } from '../os/desktop-folder-operations.ts'
 import { isDesktopFolderId, type DesktopFolderId, type DesktopItemId } from '../os/desktop-folder-types.ts'
@@ -62,17 +63,19 @@ function useDockDropSession() {
 export function Dock() {
   const {
     windows,
+    activeWindowId,
     openApp,
     restoreWindow,
     closeWindow,
     closeWindowsForApp,
     minimizeWindow,
+    focusWindow,
     toggleMaximize,
     toggleFullscreen,
     desktopRevealed,
     toggleDesktopReveal,
   } = useOs()
-  const { installedApps, openInstalledApp, openMarketplaceDetail, pendingUpdateCount } =
+  const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeProject, pendingUpdateCount } =
     useGeneratedApps()
   const { showIconContextMenu } = useIconContextMenu()
   const {
@@ -138,16 +141,29 @@ export function Dock() {
   }
 
   function handleDockAppClick(appId: AppId, launch: () => void) {
+    closeOpenDesktopFolder()
     const primary = resolvePrimaryAppWindow(appId)
-    if (primary && !primary.minimized) {
-      minimizeWindow(primary.id)
+    if (!primary) {
+      launch()
       return
     }
-    if (primary?.minimized) {
+    if (primary.minimized) {
       restoreWindow(primary.id)
       return
     }
-    launch()
+    const activeWindow = windows.find((window) => window.id === activeWindowId)
+    const isAppFrontmost = activeWindow?.appId === appId && !activeWindow.minimized
+    if (isAppFrontmost) {
+      minimizeWindow(primary.id)
+      return
+    }
+    focusWindow(primary.id)
+  }
+
+  function handleDesktopRevealZonePointerDown(event: Event) {
+    event.preventDefault()
+    closeOpenDesktopFolder()
+    toggleDesktopReveal()
   }
 
   function buildWindowSubmenu(appId: AppId) {
@@ -217,6 +233,7 @@ export function Dock() {
 
     const isRunning = windows.some((window) => window.appId === app.id)
     const slug = generatedAppIdToSlug(app.id)
+    const icodeProjectId = resolveIcodeProjectId(app)
     const pinned = isPinnedToDock(app.id)
 
     const handleOpen = () => {
@@ -235,7 +252,10 @@ export function Dock() {
             event,
             buildGeneratedIconContextMenuItems({
               onOpen: handleOpen,
-              onViewInMarketplace: () => openMarketplaceDetail(slug),
+              appSlug: slug,
+              icodeProjectId,
+              onViewInMarketplace: openMarketplaceDetail,
+              onViewInIcode: openIcodeProject,
               isPinnedToDock: pinned,
               onPinToDock: () => pinToDock(app.id),
               onUnpinFromDock: () => unpinFromDock(app.id),
@@ -363,6 +383,7 @@ export function Dock() {
 
     const isRunning = windows.some((window) => window.appId === app.id)
     const slug = generatedAppIdToSlug(app.id)
+    const icodeProjectId = resolveIcodeProjectId(app)
 
     const handleOpen = () => {
       handleDockAppClick(app.id, () => openInstalledApp(app.id))
@@ -380,7 +401,10 @@ export function Dock() {
             event,
             buildGeneratedIconContextMenuItems({
               onOpen: handleOpen,
-              onViewInMarketplace: () => openMarketplaceDetail(slug),
+              appSlug: slug,
+              icodeProjectId,
+              onViewInMarketplace: openMarketplaceDetail,
+              onViewInIcode: openIcodeProject,
               isPinnedToDock: false,
               onPinToDock: () => pinToDock(app.id),
               onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
@@ -435,10 +459,7 @@ export function Dock() {
           type="button"
           class="dock__reveal-zone dock__reveal-zone--left"
           aria-label={desktopRevealed ? '显示窗口' : '显示桌面'}
-          onPointerDown={(event) => {
-            event.preventDefault()
-            toggleDesktopReveal()
-          }}
+          onPointerDown={handleDesktopRevealZonePointerDown}
         />
         <div class="dock__plate-anchor">
           <div class="dock__plate">
@@ -451,10 +472,7 @@ export function Dock() {
           type="button"
           class="dock__reveal-zone dock__reveal-zone--right"
           aria-label={desktopRevealed ? '显示窗口' : '显示桌面'}
-          onPointerDown={(event) => {
-            event.preventDefault()
-            toggleDesktopReveal()
-          }}
+          onPointerDown={handleDesktopRevealZonePointerDown}
         />
       </div>
     </nav>
