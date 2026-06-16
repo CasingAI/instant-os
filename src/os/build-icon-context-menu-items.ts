@@ -27,7 +27,7 @@ type WindowSubmenuActions = {
 
 function resolvePrimaryAppWindow(windows: WindowState[], appId: AppId): WindowState | undefined {
   return windows
-    .filter((window) => window.appId === appId)
+    .filter((window) => window.appId === appId && !window.closing)
     .sort((left, right) => right.zIndex - left.zIndex)[0]
 }
 

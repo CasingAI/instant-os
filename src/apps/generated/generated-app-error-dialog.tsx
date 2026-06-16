@@ -28,6 +28,30 @@ function kindLabel(kind: GeneratedAppRuntimeErrorEntry['kind']): string {
   return kind === 'unhandledrejection' ? 'Promise' : '脚本'
 }
 
+function formatAllErrorsForClipboard(appName: string, errors: GeneratedAppRuntimeErrorEntry[]): string {
+  if (errors.length === 0) {
+    return `${appName} 暂无异常记录。`
+  }
+
+  const header = [`${appName} 运行时异常`, `共 ${errors.length} 条`, ''].join('\n')
+  const body = errors
+    .map((entry, index) => {
+      const meta = `[${index + 1}] ${formatErrorTime(entry.timestamp)} (${kindLabel(entry.kind)})`
+      return `${meta}\n${entry.text}`
+    })
+    .join('\n\n')
+
+  return `${header}${body}`
+}
+
+async function copyAllErrorsToClipboard(appName: string, errors: GeneratedAppRuntimeErrorEntry[]): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(formatAllErrorsForClipboard(appName, errors))
+  } catch {
+    // clipboard unavailable
+  }
+}
+
 export function GeneratedAppErrorDialog({
   appName,
   themeColor,
@@ -87,13 +111,20 @@ export function GeneratedAppErrorDialog({
   const detailActions = useMemo(
     () => [
       {
+        key: 'copy',
+        label: '复制所有错误到剪贴板',
+        tone: 'secondary' as const,
+        disabled: errors.length === 0,
+        onClick: () => copyAllErrorsToClipboard(appName, errors),
+      },
+      {
         key: 'close',
         label: '关闭',
         tone: 'primary' as const,
         onClick: () => onCloseDetails(),
       },
     ],
-    [onCloseDetails],
+    [appName, errors, onCloseDetails],
   )
 
   return (
@@ -127,6 +158,7 @@ export function GeneratedAppErrorDialog({
         title={`${appName} 错误详情`}
         wide
         themeColor={themeColor}
+        panelClass="generated-app-error-details-modal"
         onClose={onCloseDetails}
         actions={detailActions}
       >

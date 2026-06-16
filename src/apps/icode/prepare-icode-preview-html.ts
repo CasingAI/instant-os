@@ -8,6 +8,7 @@ export function prepareIcodePreviewHtml(
   appId: GeneratedAppId,
   initialData: GeneratedAppDataStore,
   consoleAppId?: GeneratedAppId,
+  processIsolated?: boolean,
 ): string {
   if (!html.trim()) {
     return ''
@@ -16,6 +17,7 @@ export function prepareIcodePreviewHtml(
   const prepared = prepareGeneratedAppRuntimeHtml(html, appId, initialData, {
     debug: true,
     reportingAppId: consoleAppId ?? appId,
+    processIsolated: processIsolated === true,
   })
   return injectIcodeConsoleBridge(prepared, consoleAppId ?? appId)
 }

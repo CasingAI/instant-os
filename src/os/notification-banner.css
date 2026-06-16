@@ -144,3 +144,7 @@
 .notification-banner-host--storage-warning {
   top: calc(28px + var(--storage-warning-banner-offset, 0px));
 }
+
+.notification-banner-host--process-isolation-fallback {
+  top: calc(28px + var(--process-isolation-fallback-banner-offset, 0px));
+}

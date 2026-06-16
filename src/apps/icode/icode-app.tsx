@@ -6,11 +6,17 @@ import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
+import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from '../../os/experimental-settings-storage.ts'
 import { isGeneratedAppStorageMessage } from '../../os/generated-app-data-storage.ts'
+import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useAppCloseGuard } from '../../os/os-context.tsx'
+import {
+  isGeneratedAppProcessIsolationActive,
+  SANDBOXED_CORS_PROBE_COMPLETED_EVENT,
+} from '../../os/resolve-generated-app-process-isolation.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import {
   APP_CAPABILITY_TAG_3D,
@@ -57,6 +63,7 @@ import {
   resolveUniqueCopyName,
 } from './icode-publish.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
+import { injectGeneratedAppHeartbeatBridge } from '../generated/inject-generated-app-heartbeat-bridge.ts'
 import { useGeneratedHtmlIframe } from '../generated/use-generated-html-iframe.ts'
 import { prepareIcodePreviewHtml } from './prepare-icode-preview-html.ts'
 import {
@@ -204,6 +211,10 @@ function previewAppIdForSession(session: EditorSession): GeneratedAppId {
   return previewAppIdForInternal(session.projectId)
 }
 
+function icodePreviewHeartbeatWindowId(projectId: string): string {
+  return `icode-preview:${projectId}`
+}
+
 export function ICodeApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, bypassAppCloseGuard } = useOs()
   const { showBuiltinAbout } = useAboutApp()
@@ -234,6 +245,7 @@ export function ICodeApp() {
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDescription, setNewProjectDescription] = useState('')
   const [previewEpoch, setPreviewEpoch] = useState(0)
+  const [processIsolated, setProcessIsolated] = useState(() => isGeneratedAppProcessIsolationActive())
   const [draftHtml, setDraftHtml] = useState('')
   const [draftAppData, setDraftAppData] = useState<Record<string, string>>({})
   const [dataEditInvalid, setDataEditInvalid] = useState(false)
@@ -265,7 +277,15 @@ export function ICodeApp() {
   const consoleListRef = useRef<HTMLDivElement>(null)
   const chatListRef = useRef<HTMLDivElement>(null)
   const previewBootstrapDataRef = useRef<Record<string, string>>({})
+  const previewFrozenLoggedRef = useRef(false)
   const { hostRef, narrowLayout } = useIcodeNarrowLayout()
+  const {
+    registerHeartbeat,
+    unregisterHeartbeat,
+    resetHeartbeatMonitoring,
+    setHeartbeatContentWindow,
+    isWindowFrozen,
+  } = useGeneratedAppHeartbeat()
 
   const internalProjects = useMemo(() => loadInternalProjects(), [projectRevision])
 
@@ -338,6 +358,7 @@ export function ICodeApp() {
   }, [installedApps, syncPlaceholderToDesktop])
 
   const previewAppId = session ? previewAppIdForSession(session) : undefined
+  const previewHeartbeatWindowId = session ? icodePreviewHeartbeatWindowId(session.projectId) : undefined
   const runtimeAppId = session?.linkedAppId ?? previewAppId
   const linkedAppDataRevision = session?.linkedAppId ? getAppDataRevision(session.linkedAppId) : 0
   const codeDirty = session !== undefined && draftHtml !== session.html
@@ -466,40 +487,105 @@ export function ICodeApp() {
   }, [session?.appData])
 
   useEffect(() => {
+    const syncIsolation = () => {
+      setProcessIsolated(isGeneratedAppProcessIsolationActive())
+    }
+
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, syncIsolation)
+    window.addEventListener(SANDBOXED_CORS_PROBE_COMPLETED_EVENT, syncIsolation)
+    return () => {
+      window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, syncIsolation)
+      window.removeEventListener(SANDBOXED_CORS_PROBE_COMPLETED_EVENT, syncIsolation)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!session?.html.trim()) {
       return
     }
 
     previewBootstrapDataRef.current = resolvePreviewBootstrapData(session, draftAppData, false)
     setConsoleLogs([])
+    previewFrozenLoggedRef.current = false
     setPreviewEpoch((epoch) => epoch + 1)
   }, [linkedAppDataRevision, session?.html, session?.linkedAppId, session?.projectId])
 
   const preparedHtml = useMemo(() => {
-    if (!session || !runtimeAppId || !previewAppId || !session.html.trim()) {
+    if (!session || !runtimeAppId || !previewAppId || !previewHeartbeatWindowId || !session.html.trim()) {
       return undefined
     }
 
-    return prepareIcodePreviewHtml(
+    const runtimeHtml = prepareIcodePreviewHtml(
       session.html,
       runtimeAppId,
       previewBootstrapDataRef.current,
       previewAppId,
+      processIsolated,
     )
-  }, [previewAppId, previewEpoch, runtimeAppId, session?.html])
+    return injectGeneratedAppHeartbeatBridge(runtimeHtml, previewAppId, previewHeartbeatWindowId)
+  }, [previewAppId, previewEpoch, previewHeartbeatWindowId, processIsolated, runtimeAppId, session?.html])
 
-  const previewRemountKey = previewAppId ? `${previewAppId}-${previewEpoch}` : 'icode-preview'
+  const previewRemountKey = previewAppId
+    ? `${previewAppId}-${previewEpoch}-${processIsolated ? 'iso' : 'std'}`
+    : 'icode-preview'
 
-  const syncPreviewWindow = useCallback(() => {
+  const handlePreviewIframeReady = useCallback(() => {
     previewWindowRef.current = iframeRef.current?.contentWindow ?? null
-  }, [])
+    if (!previewHeartbeatWindowId) {
+      return
+    }
+
+    setHeartbeatContentWindow(previewHeartbeatWindowId, iframeRef.current?.contentWindow ?? undefined)
+  }, [previewHeartbeatWindowId, setHeartbeatContentWindow])
 
   const { iframeProps } = useGeneratedHtmlIframe(
     iframeRef,
     session?.html.trim() ? preparedHtml : undefined,
     previewRemountKey,
-    syncPreviewWindow,
+    { processIsolated, onReady: handlePreviewIframeReady },
   )
+
+  useEffect(() => {
+    if (!previewHeartbeatWindowId || !previewAppId) {
+      return
+    }
+
+    registerHeartbeat(previewHeartbeatWindowId, previewAppId)
+    return () => unregisterHeartbeat(previewHeartbeatWindowId)
+  }, [previewAppId, previewHeartbeatWindowId, registerHeartbeat, unregisterHeartbeat])
+
+  useEffect(() => {
+    if (!previewHeartbeatWindowId) {
+      return
+    }
+
+    previewFrozenLoggedRef.current = false
+    resetHeartbeatMonitoring(previewHeartbeatWindowId)
+  }, [previewRemountKey, previewHeartbeatWindowId, resetHeartbeatMonitoring])
+
+  const previewFrozen =
+    previewHeartbeatWindowId !== undefined && isWindowFrozen(previewHeartbeatWindowId)
+
+  useEffect(() => {
+    if (!previewFrozen || !previewAppId || previewFrozenLoggedRef.current) {
+      if (!previewFrozen) {
+        previewFrozenLoggedRef.current = false
+      }
+      return
+    }
+
+    previewFrozenLoggedRef.current = true
+    const timestamp = Date.now()
+    setConsoleLogs((current) =>
+      appendConsoleEntry(current, {
+        type: ICODE_CONSOLE_MESSAGE_TYPE,
+        appId: previewAppId,
+        level: 'warn',
+        text: '预览应用未响应，可能是代码中存在死循环',
+        timestamp,
+      }),
+    )
+  }, [previewAppId, previewFrozen])
 
   useEffect(() => {
     if (!session) {
@@ -1983,7 +2069,7 @@ export function ICodeApp() {
         <div class={`icode__editor-body icode__editor-body--mobile-${mobilePane}`}>
           <div class="icode__preview">
             <p class="icode__preview-label">应用预览</p>
-            <div class="icode__preview-screen">
+            <div class={`icode__preview-screen${previewFrozen ? ' icode__preview-screen--unresponsive' : ''}`}>
               {!session.html.trim() && !codeEditingActive && (
                 <div class="icode__preview-empty">
                   <span class="icode__preview-empty-icon" aria-hidden="true">
@@ -2009,12 +2095,16 @@ export function ICodeApp() {
                 />
               )}
               <iframe
-                key={previewRemountKey}
                 ref={iframeRef}
                 class={`icode__frame${session.html.trim() ? '' : ' icode__frame--hidden'}`}
                 title={`${session.name} 预览`}
                 {...iframeProps}
               />
+              {previewFrozen && (
+                <div class="icode__preview-unresponsive-overlay" aria-hidden="true">
+                  预览未响应
+                </div>
+              )}
             </div>
           </div>
 

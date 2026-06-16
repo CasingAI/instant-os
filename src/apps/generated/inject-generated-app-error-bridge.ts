@@ -38,6 +38,29 @@ function buildErrorBridgeScript(appId: GeneratedAppId): string {
     return parts.join('\\n') || '未知脚本错误';
   }
 
+  function isScriptLoadErrorEvent(event) {
+    var target = event && event.target;
+    if (!target || target === window || target === document) {
+      return false;
+    }
+    return (target.tagName || '') === 'SCRIPT';
+  }
+
+  function formatScriptLoadErrorEvent(event) {
+    var target = event.target;
+    var url = target.src || target.getAttribute('src') || '';
+    var parts = ['脚本加载失败'];
+    if (url) {
+      parts.push(url);
+      return parts.join('\\n');
+    }
+    if (event && event.filename) {
+      parts.push('at ' + event.filename + ':' + event.lineno + ':' + event.colno);
+      return parts.join('\\n');
+    }
+    return parts.join('\\n');
+  }
+
   function formatRejectionEvent(event) {
     var reason = event ? event.reason : undefined;
     if (reason instanceof Error) {
@@ -96,6 +119,10 @@ function buildErrorBridgeScript(appId: GeneratedAppId): string {
   }
 
   window.addEventListener('error', function (event) {
+    if (isScriptLoadErrorEvent(event)) {
+      emit('error', formatScriptLoadErrorEvent(event));
+      return;
+    }
     emit('error', formatErrorEvent(event));
   });
 

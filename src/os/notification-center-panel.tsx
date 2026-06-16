@@ -11,12 +11,16 @@ import { useNotificationCenterWidgets } from './use-notification-center-widgets.
 import { usePendingInstallStream } from './use-pending-install-stream.ts'
 import { useOs } from './os-context.tsx'
 import { useAppNotifications } from './use-app-notifications.ts'
+import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
+import {
+  ProcessIsolationFallbackDetail,
+  ProcessIsolationFallbackListItem,
+} from './process-isolation-fallback-notification-center.tsx'
+import { PROCESS_ISOLATION_FALLBACK_SLUG } from './process-isolation-fallback.ts'
 import { useBookStream } from './use-book-stream.ts'
 import type { FailedInstall, PendingInstall } from '../apps/appstore/types.ts'
 import type { AppNotification } from './app-notifications-store.ts'
-import './notification-center.css'
-
-const SCREEN_FADE_MS = 180
+import { NOTIFICATION_CENTER_SCREEN_FADE_MS } from './notification-center-store.ts'
 
 function phaseLabel(phase: PendingInstall['phase'], isUpdate?: boolean): string {
   if (phase === 'waiting') {
@@ -302,6 +306,7 @@ type NotificationCenterPanelProps = {
 export function NotificationCenterPanel({ open, onClose }: NotificationCenterPanelProps) {
   const { pendingInstalls, failedInstalls, installListing, dismissFailedInstall } = useGeneratedApps()
   const appNotifications = useAppNotifications()
+  const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -325,6 +330,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const selectedAppNotification = activeDetailSlug
     ? appNotifications.find((item) => item.appSlug === activeDetailSlug)
     : undefined
+  const selectedProcessIsolationFallback =
+    activeDetailSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive
 
   useEffect(() => {
     if (selectedSlug) {
@@ -372,19 +379,24 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     const timer = window.setTimeout(() => {
       setContentScreen(panelScreen)
       setContentVisible(true)
-    }, SCREEN_FADE_MS)
+    }, NOTIFICATION_CENTER_SCREEN_FADE_MS)
 
     return () => window.clearTimeout(timer)
   }, [open, panelScreen, contentScreen])
 
   const showDetail =
-    contentScreen === 'detail' && (selectedPending !== undefined || selectedFailed !== undefined || selectedAppNotification !== undefined)
+    contentScreen === 'detail' &&
+    (selectedPending !== undefined ||
+      selectedFailed !== undefined ||
+      selectedAppNotification !== undefined ||
+      selectedProcessIsolationFallback)
 
   const selectedHasNotification =
     selectedSlug !== undefined &&
     (pendingInstalls.some((item) => item.listing.slug === selectedSlug) ||
       failedInstalls.some((item) => item.listing.slug === selectedSlug) ||
-      appNotifications.some((item) => item.appSlug === selectedSlug))
+      appNotifications.some((item) => item.appSlug === selectedSlug) ||
+      (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive))
 
   useEffect(() => {
     if (!open) {
@@ -468,6 +480,11 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                 notification={selectedAppNotification}
                 onBack={closeDetail}
               />
+            ) : showDetail && selectedProcessIsolationFallback ? (
+              <ProcessIsolationFallbackDetail
+                onBack={closeDetail}
+                onDismiss={closeDetail}
+              />
             ) : (
               <>
                 <div class="notification-center__widgets">
@@ -486,7 +503,10 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                 </div>
                 <div class="notification-center__section">
                   <p class="notification-center__section-title">通知</p>
-                  {pendingInstalls.length === 0 && failedInstalls.length === 0 && appNotifications.length === 0 ? (
+                  {pendingInstalls.length === 0 &&
+                  failedInstalls.length === 0 &&
+                  appNotifications.length === 0 &&
+                  !processIsolationFallbackActive ? (
                     <div class="notification-center__empty-box">
                       <p class="notification-center__empty">暂无通知</p>
                     </div>
@@ -513,6 +533,11 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                           onSelect={() => openDetail(notification.appSlug)}
                         />
                       ))}
+                      {processIsolationFallbackActive ? (
+                        <ProcessIsolationFallbackListItem
+                          onSelect={() => openDetail(PROCESS_ISOLATION_FALLBACK_SLUG)}
+                        />
+                      ) : undefined}
                     </div>
                   )}
                 </div>

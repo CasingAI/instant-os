@@ -4,13 +4,32 @@
   align-items: flex-start;
 }
 
-.window-modal.generated-app-error-alert-modal {
+.window-modal.generated-app-error-alert-modal,
+.window-modal.generated-app-error-details-modal {
   container-type: inline-size;
+}
+
+.window-modal.generated-app-error-alert-modal {
   container-name: generated-app-error-alert;
+}
+
+.window-modal.generated-app-error-details-modal {
+  container-name: generated-app-error-details;
 }
 
 .generated-app-error-alert-modal .window-modal__actions {
   padding-top: 10px;
+}
+
+.generated-app-error-alert-modal .window-modal__actions--many,
+.generated-app-error-details-modal .window-modal__actions--pair {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.generated-app-error-alert-modal .window-modal__actions--many .window-modal__btn,
+.generated-app-error-details-modal .window-modal__actions--pair .window-modal__btn {
+  width: 100%;
 }
 
 @container generated-app-error-alert (min-width: 360px) {
@@ -20,6 +39,19 @@
   }
 
   .generated-app-error-alert-modal .window-modal__actions--many .window-modal__btn {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+}
+
+@container generated-app-error-details (min-width: 360px) {
+  .generated-app-error-details-modal .window-modal__actions--pair {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .generated-app-error-details-modal .window-modal__actions--pair .window-modal__btn {
     flex: 1 1 0;
     min-width: 0;
     width: auto;

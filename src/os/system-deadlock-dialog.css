@@ -1,0 +1,36 @@
+.system-deadlock-dialog-host {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.system-deadlock-dialog-host .window-modal-backdrop {
+  position: fixed;
+  pointer-events: auto;
+}
+
+.system-deadlock-dialog .window-modal__actions--pair,
+.system-deadlock-dialog .window-modal__actions--many {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.system-deadlock-dialog .window-modal__actions--pair .window-modal__btn,
+.system-deadlock-dialog .window-modal__actions--many .window-modal__btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .system-deadlock-dialog .window-modal__actions--pair,
+  .system-deadlock-dialog .window-modal__actions--many {
+    flex-direction: column;
+  }
+
+  .system-deadlock-dialog .window-modal__actions--pair .window-modal__btn,
+  .system-deadlock-dialog .window-modal__actions--many .window-modal__btn {
+    flex: none;
+    width: 100%;
+  }
+}

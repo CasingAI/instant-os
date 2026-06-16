@@ -134,9 +134,13 @@ export function Dock() {
     return map
   }, [desktopFolders, installedApps])
 
+  function isAppRunning(appId: AppId): boolean {
+    return windows.some((window) => window.appId === appId && !window.closing)
+  }
+
   function resolvePrimaryAppWindow(appId: AppId) {
     return windows
-      .filter((window) => window.appId === appId)
+      .filter((window) => window.appId === appId && !window.closing)
       .sort((left, right) => right.zIndex - left.zIndex)[0]
   }
 
@@ -182,7 +186,7 @@ export function Dock() {
       return undefined
     }
 
-    const isRunning = windows.some((window) => window.appId === app.id)
+    const isRunning = isAppRunning(app.id)
     const pinned = isPinnedToDock(app.id)
 
     const handleOpen = () => {
@@ -231,7 +235,7 @@ export function Dock() {
       return undefined
     }
 
-    const isRunning = windows.some((window) => window.appId === app.id)
+    const isRunning = isAppRunning(app.id)
     const slug = generatedAppIdToSlug(app.id)
     const icodeProjectId = resolveIcodeProjectId(app)
     const pinned = isPinnedToDock(app.id)
@@ -335,7 +339,7 @@ export function Dock() {
       return undefined
     }
 
-    const isRunning = windows.some((window) => window.appId === app.id)
+    const isRunning = isAppRunning(app.id)
 
     const handleOpen = () => {
       handleDockAppClick(app.id, () => openApp(app.id))
@@ -381,7 +385,7 @@ export function Dock() {
       return undefined
     }
 
-    const isRunning = windows.some((window) => window.appId === app.id)
+    const isRunning = isAppRunning(app.id)
     const slug = generatedAppIdToSlug(app.id)
     const icodeProjectId = resolveIcodeProjectId(app)
 

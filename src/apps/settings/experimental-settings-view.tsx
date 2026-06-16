@@ -17,6 +17,9 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
   const [speechApp, setSpeechApp] = useState(
     () => loadExperimentalSettings().speechApp,
   )
+  const [generatedAppLegacyLoading, setGeneratedAppLegacyLoading] = useState(
+    () => !loadExperimentalSettings().generatedAppProcessIsolation,
+  )
   const [saveError, setSaveError] = useState(false)
 
   const handleToggleImmersiveChrome = (checked: boolean) => {
@@ -37,6 +40,16 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
 
     setSaveError(false)
     setSpeechApp(checked)
+  }
+
+  const handleToggleGeneratedAppLegacyLoading = (checked: boolean) => {
+    if (!patchExperimentalSettings({ generatedAppProcessIsolation: !checked })) {
+      setSaveError(true)
+      return
+    }
+
+    setSaveError(false)
+    setGeneratedAppLegacyLoading(checked)
   }
 
   return (
@@ -65,6 +78,14 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
                 label="语音识别"
               />
             </div>
+            <div class="settings__toggle-row">
+              <span class="settings__toggle-row-label">停用窗口合成器加速</span>
+              <IosSwitch
+                checked={generatedAppLegacyLoading}
+                onChange={handleToggleGeneratedAppLegacyLoading}
+                label="停用窗口合成器加速"
+              />
+            </div>
           </div>
           <p class="settings__section-footnote">
             开启后，窗口进入全屏时会隐藏菜单栏与标题栏；将指针移至屏幕顶部 5
@@ -72,6 +93,10 @@ export function ExperimentalSettingsView({ onBack }: ExperimentalSettingsViewPro
           </p>
           <p class="settings__section-footnote">
             开启后，语音识别应用会出现在桌面和程序坞中。
+          </p>
+          <p class="settings__section-footnote">
+            非系统应用默认在 sandbox 中通过 Blob URL 加载（不含同源权限）。开启后改回同源
+            iframe 写入，便于排查兼容问题，但子应用异常时可能拖死系统界面。切换后会重新加载已打开的非系统应用窗口。
           </p>
           {saveError && (
             <p class="settings__section-footnote settings__form-status--error">

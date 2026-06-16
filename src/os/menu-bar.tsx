@@ -10,6 +10,8 @@ import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
+import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
+import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
 import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
 import { useDeviceBattery } from './use-device-battery.ts'
@@ -111,6 +113,7 @@ export function MenuBar() {
   const { showInstantAbout, showAbout } = useAboutApp()
   const battery = useDeviceBattery()
   const { pendingInstalls, failedInstalls } = useGeneratedApps()
+  const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
@@ -161,6 +164,12 @@ export function MenuBar() {
           label: '任务管理器',
           onClick: () => openApp('task-manager'),
         },
+        { type: 'separator' },
+        {
+          type: 'action',
+          label: '重新启动',
+          onClick: () => reloadInstantOs(),
+        },
       ],
     }),
     [showAbout, openApp],
@@ -171,7 +180,10 @@ export function MenuBar() {
   const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
   const { calendar, weekday, time } = formatOsDateTime(now)
-  const activeNotificationCount = pendingInstalls.length + failedInstalls.length
+  const activeNotificationCount =
+    pendingInstalls.length +
+    failedInstalls.length +
+    (processIsolationFallbackActive ? 1 : 0)
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 1000)

@@ -6,6 +6,7 @@ import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
+import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { AppId, WindowState } from '../../os/types.ts'
 import { isGeneratedAppId } from '../../os/types.ts'
@@ -19,9 +20,17 @@ type RunningAppEntry = {
   windows: WindowState[]
   primaryWindow: WindowState
   status: string
+  canEnd: boolean
 }
 
-function windowStatusLabel(window: WindowState, activeWindowId: string | undefined): string {
+function windowStatusLabel(
+  window: WindowState,
+  activeWindowId: string | undefined,
+  isUnresponsive: boolean,
+): string {
+  if (isUnresponsive) {
+    return '未响应'
+  }
   if (window.minimized) {
     return '已最小化'
   }
@@ -34,7 +43,14 @@ function windowStatusLabel(window: WindowState, activeWindowId: string | undefin
   return '后台'
 }
 
-function resolveAppStatus(windows: WindowState[], activeWindowId: string | undefined): string {
+function resolveAppStatus(
+  windows: WindowState[],
+  activeWindowId: string | undefined,
+  isUnresponsive: boolean,
+): string {
+  if (isUnresponsive) {
+    return '未响应'
+  }
   const active = windows.find((window) => window.id === activeWindowId && !window.minimized)
   if (active) {
     return '正在使用'
@@ -69,6 +85,7 @@ export function TaskManagerApp() {
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const { getInstalledApp } = useGeneratedApps()
+  const { isAppUnresponsive, isWindowUnresponsive } = useGeneratedAppHeartbeat()
   const definition = getAppDefinition(APP_ID)
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -123,7 +140,12 @@ export function TaskManagerApp() {
           name: resolveAppName(appId, sortedWindows, getInstalledApp),
           windows: sortedWindows,
           primaryWindow,
-          status: resolveAppStatus(sortedWindows, activeWindowId),
+          status: resolveAppStatus(
+            sortedWindows,
+            activeWindowId,
+            isGeneratedAppId(appId) && isAppUnresponsive(appId),
+          ),
+          canEnd: appId !== APP_ID,
         }
       })
       .filter((entry): entry is RunningAppEntry => entry !== undefined)
@@ -135,108 +157,75 @@ export function TaskManagerApp() {
         }
         return left.name.localeCompare(right.name, 'zh-CN')
       })
-  }, [activeWindowId, getInstalledApp, windows])
+  }, [activeWindowId, getInstalledApp, isAppUnresponsive, windows])
+
+  const endableApps = runningApps.filter((entry) => entry.canEnd)
+  const openWindowCount = windows.filter((window) => !window.closing).length
 
   return (
     <div class="task-manager">
-      <header class="task-manager__header">
-        <h1 class="task-manager__title">正在运行的应用</h1>
-        <p class="task-manager__subtitle">
+      <section class="task-manager__section">
+        <h2 class="task-manager__section-title">正在运行的应用</h2>
+        <p class="task-manager__section-subtitle">
           {runningApps.length === 0
             ? '当前没有打开的应用'
-            : `共 ${runningApps.length} 个应用、${windows.filter((window) => !window.closing).length} 个窗口`}
+            : `共 ${runningApps.length} 个应用、${openWindowCount} 个窗口`}
         </p>
-      </header>
 
-      {runningApps.length === 0 ? (
-        <p class="task-manager__empty">打开任意应用后，会显示在这里。</p>
-      ) : (
-        <div class="task-manager__table-wrap">
-          <table class="task-manager__table">
-            <thead>
-              <tr>
-                <th scope="col" class="task-manager__col task-manager__col--app">
-                  应用
-                </th>
-                <th scope="col" class="task-manager__col task-manager__col--status">
-                  状态
-                </th>
-                <th scope="col" class="task-manager__col task-manager__col--windows">
-                  窗口
-                </th>
-                <th scope="col" class="task-manager__col task-manager__col--action">
-                  <span class="task-manager__sr-only">操作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {runningApps.map((entry) => {
-                const builtin = !isGeneratedAppId(entry.appId) ? getAppDefinition(entry.appId) : undefined
-                const generated = isGeneratedAppId(entry.appId) ? getInstalledApp(entry.appId) : undefined
-                const Icon = builtin?.icon
-                const isActive =
-                  entry.primaryWindow.id === activeWindowId && !entry.primaryWindow.minimized
+        {runningApps.length === 0 ? (
+          <p class="task-manager__empty">打开任意应用后，会显示在这里。</p>
+        ) : (
+          <div class="task-manager__list">
+            {runningApps.map((entry) => {
+              const builtin = !isGeneratedAppId(entry.appId) ? getAppDefinition(entry.appId) : undefined
+              const generated = isGeneratedAppId(entry.appId) ? getInstalledApp(entry.appId) : undefined
+              const Icon = builtin?.icon
+              const isActive =
+                entry.primaryWindow.id === activeWindowId && !entry.primaryWindow.minimized
+              const isUnresponsive = entry.status === '未响应'
+              const singleWindow = entry.windows.length === 1 ? entry.windows[0] : undefined
+              const showWindowTitle =
+                singleWindow !== undefined && singleWindow.title !== entry.name
 
-                return (
-                  <tr
-                    key={entry.appId}
-                    class={`task-manager__row${isActive ? ' task-manager__row--active' : ''}`}
+              return (
+                <div
+                  key={entry.appId}
+                  class={`task-manager__group${isUnresponsive ? ' task-manager__group--unresponsive' : ''}`}
+                >
+                  <div
+                    class={`task-manager__app-row${isActive ? ' task-manager__app-row--active' : ''}${!entry.canEnd ? ' task-manager__app-row--system' : ''}`}
                   >
-                    <td class="task-manager__cell task-manager__cell--app">
-                      <button
-                        type="button"
-                        class="task-manager__app-button"
-                        onClick={() => focusWindow(entry.primaryWindow.id)}
-                      >
-                        <span class="task-manager__app-icon">
-                          {Icon ? (
-                            <Icon size={28} />
-                          ) : generated ? (
-                            <GeneratedAppIcon
-                              emoji={generated.iconEmoji}
-                              themeColor={generated.themeColor}
-                              size={28}
-                            />
-                          ) : (
-                            <span aria-hidden="true">📱</span>
-                          )}
-                        </span>
-                        <span class="task-manager__app-copy">
-                          <span class="task-manager__app-name">{entry.name}</span>
-                          {entry.windows.length === 1 && entry.windows[0]?.title !== entry.name && (
-                            <span class="task-manager__window-title">{entry.windows[0]?.title}</span>
-                          )}
-                        </span>
-                      </button>
-                    </td>
-                    <td class="task-manager__cell task-manager__cell--status">
-                      <span class={`task-manager__status${isActive ? ' task-manager__status--active' : ''}`}>
-                        {entry.status}
+                    <button
+                      type="button"
+                      class="task-manager__app-focus"
+                      onClick={() => focusWindow(entry.primaryWindow.id)}
+                    >
+                      <span class="task-manager__app-icon">
+                        {Icon ? (
+                          <Icon size={32} />
+                        ) : generated ? (
+                          <GeneratedAppIcon
+                            emoji={generated.iconEmoji}
+                            themeColor={generated.themeColor}
+                            size={32}
+                          />
+                        ) : (
+                          <span aria-hidden="true">📱</span>
+                        )}
                       </span>
-                    </td>
-                    <td class="task-manager__cell task-manager__cell--windows">
-                      {entry.windows.length === 1 ? (
-                        <span class="task-manager__window-count">1</span>
-                      ) : (
-                        <ul class="task-manager__window-list">
-                          {entry.windows.map((window) => (
-                            <li key={window.id}>
-                              <button
-                                type="button"
-                                class="task-manager__window-button"
-                                onClick={() => focusWindow(window.id)}
-                              >
-                                <span class="task-manager__window-button-title">{window.title}</span>
-                                <span class="task-manager__window-button-status">
-                                  {windowStatusLabel(window, activeWindowId)}
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td class="task-manager__cell task-manager__cell--action">
+                      <span class="task-manager__app-copy">
+                        <span class="task-manager__app-name">{entry.name}</span>
+                        <span class="task-manager__app-meta">
+                          {entry.status}
+                          {entry.windows.length > 1 ? ` · ${entry.windows.length} 个窗口` : ''}
+                        </span>
+                        {showWindowTitle && (
+                          <span class="task-manager__window-title">{singleWindow.title}</span>
+                        )}
+                      </span>
+                    </button>
+
+                    {entry.canEnd ? (
                       <button
                         type="button"
                         class="task-manager__end-button"
@@ -244,18 +233,45 @@ export function TaskManagerApp() {
                       >
                         结束
                       </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    ) : (
+                      <span class="task-manager__system-badge">系统</span>
+                    )}
+                  </div>
 
-      {runningApps.some((entry) => entry.windows.length > 1) && (
-        <p class="task-manager__hint">多窗口应用可点击窗口标题切换焦点；「结束」将关闭该应用的全部窗口。</p>
-      )}
+                  {entry.windows.length > 1 && (
+                    <div class="task-manager__window-rows">
+                      {entry.windows.map((window) => {
+                        const windowUnresponsive = isWindowUnresponsive(window.id)
+                        const windowActive = window.id === activeWindowId && !window.minimized
+
+                        return (
+                          <button
+                            key={window.id}
+                            type="button"
+                            class={`task-manager__window-row${windowActive ? ' task-manager__window-row--active' : ''}${windowUnresponsive ? ' task-manager__window-row--unresponsive' : ''}`}
+                            onClick={() => focusWindow(window.id)}
+                          >
+                            <span class="task-manager__window-row-title">{window.title}</span>
+                            <span class="task-manager__window-row-status">
+                              {windowStatusLabel(window, activeWindowId, windowUnresponsive)}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {endableApps.length > 0 && (
+          <p class="task-manager__footnote">
+            点击应用或窗口可切换到前台；「结束」将关闭该应用的全部窗口。
+          </p>
+        )}
+      </section>
     </div>
   )
 }

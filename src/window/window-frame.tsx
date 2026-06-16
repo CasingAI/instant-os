@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'

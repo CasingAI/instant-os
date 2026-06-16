@@ -49,6 +49,7 @@ type OsContextValue = {
   minimizeWindow: (windowId: string) => void
   restoreWindow: (windowId: string) => void
   setAppWindowTitle: (appId: AppId, title: string) => void
+  closeProcessIsolatedApps: () => void
 }
 
 const OsContext = createContext<OsContextValue | undefined>(undefined)
@@ -194,6 +195,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     )
   }, [])
 
+  const closeGuardsRef = useRef(new Map<AppId, AppCloseGuard>())
+  const bypassCloseGuardRef = useRef(new Set<AppId>())
+  const windowsRef = useRef(windows)
+  windowsRef.current = windows
+
   const openApp = useCallback((appId: AppId) => {
     if (isGeneratedAppId(appId)) {
       throw new Error('请使用 openGeneratedApp 打开 AI 生成的应用')
@@ -202,80 +208,83 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     startDesktopRestore()
     closeOpenDesktopFolder()
 
-    const existing = windows.find((window) => window.appId === appId && !window.minimized)
-    if (existing) {
-      const nextZ = bumpZIndex()
-      const title = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
-      setWindows((current) =>
-        current.map((window) =>
+    let resolvedActiveId: string | undefined
+
+    setWindows((current) => {
+      const live = current.filter((window) => !window.closing)
+      const existing = live.find((window) => window.appId === appId && !window.minimized)
+      if (existing) {
+        resolvedActiveId = existing.id
+        const nextZ = bumpZIndex()
+        const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
+        return current.map((window) =>
           window.id === existing.id
-            ? { ...window, zIndex: nextZ, minimized: false, title }
+            ? { ...window, zIndex: nextZ, minimized: false, title: resolvedTitle }
             : window,
-        ),
-      )
-      setActiveWindowId(existing.id)
-      return
-    }
+        )
+      }
 
-    const minimized = windows.find((window) => window.appId === appId && window.minimized)
-    if (minimized) {
-      const nextZ = bumpZIndex()
-      const title = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
-      setWindows((current) =>
-        current.map((window) =>
+      const minimized = live.find((window) => window.appId === appId && window.minimized)
+      if (minimized) {
+        resolvedActiveId = minimized.id
+        const nextZ = bumpZIndex()
+        const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
+        return current.map((window) =>
           window.id === minimized.id
-            ? { ...window, zIndex: nextZ, minimized: false, title }
+            ? { ...window, zIndex: nextZ, minimized: false, title: resolvedTitle }
             : window,
-        ),
-      )
-      setActiveWindowId(minimized.id)
-      return
-    }
+        )
+      }
 
-    const nextWindow = createWindow(appId, undefined, { enterAnimation: 'scale-in' })
-    setWindows((current) => [...current, nextWindow])
-    setActiveWindowId(nextWindow.id)
-  }, [windows, startDesktopRestore])
+      const nextWindow = createWindow(appId, undefined, { enterAnimation: 'scale-in' })
+      resolvedActiveId = nextWindow.id
+      return [...current, nextWindow]
+    })
+
+    if (resolvedActiveId !== undefined) {
+      setActiveWindowId(resolvedActiveId)
+    }
+  }, [startDesktopRestore])
 
   const openGeneratedApp = useCallback((appId: GeneratedAppId, title: string) => {
     startDesktopRestore()
     closeOpenDesktopFolder()
 
-    const existing = windows.find((window) => window.appId === appId && !window.minimized)
-    if (existing) {
-      const nextZ = bumpZIndex()
-      setWindows((current) =>
-        current.map((window) =>
+    let resolvedActiveId: string | undefined
+
+    setWindows((current) => {
+      const live = current.filter((window) => !window.closing)
+      const existing = live.find((window) => window.appId === appId && !window.minimized)
+      if (existing) {
+        resolvedActiveId = existing.id
+        const nextZ = bumpZIndex()
+        return current.map((window) =>
           window.id === existing.id
             ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
-        ),
-      )
-      setActiveWindowId(existing.id)
-      return
-    }
+        )
+      }
 
-    const minimized = windows.find((window) => window.appId === appId && window.minimized)
-    if (minimized) {
-      const nextZ = bumpZIndex()
-      setWindows((current) =>
-        current.map((window) =>
+      const minimized = live.find((window) => window.appId === appId && window.minimized)
+      if (minimized) {
+        resolvedActiveId = minimized.id
+        const nextZ = bumpZIndex()
+        return current.map((window) =>
           window.id === minimized.id
             ? { ...window, zIndex: nextZ, minimized: false, title }
             : window,
-        ),
-      )
-      setActiveWindowId(minimized.id)
-      return
+        )
+      }
+
+      const nextWindow = createWindow(appId, title, { enterAnimation: 'scale-in' })
+      resolvedActiveId = nextWindow.id
+      return [...current, nextWindow]
+    })
+
+    if (resolvedActiveId !== undefined) {
+      setActiveWindowId(resolvedActiveId)
     }
-
-    const nextWindow = createWindow(appId, title, { enterAnimation: 'scale-in' })
-    setWindows((current) => [...current, nextWindow])
-    setActiveWindowId(nextWindow.id)
-  }, [windows, startDesktopRestore])
-
-  const closeGuardsRef = useRef(new Map<AppId, AppCloseGuard>())
-  const bypassCloseGuardRef = useRef(new Set<AppId>())
+  }, [startDesktopRestore])
 
   const registerAppCloseGuard = useCallback((appId: AppId, guard: AppCloseGuard | undefined) => {
     if (guard) {
@@ -315,7 +324,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   }, [])
 
   const closeWindow = useCallback((windowId: string) => {
-    const closing = windows.find((window) => window.id === windowId)
+    const closing = windowsRef.current.find((window) => window.id === windowId)
     if (!closing || closing.closing) {
       return
     }
@@ -330,10 +339,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       ),
     )
     setActiveWindowId((current) => (current === windowId ? undefined : current))
-  }, [shouldAllowAppClose, windows])
+  }, [shouldAllowAppClose])
 
   const closeWindowsForApp = useCallback((appId: AppId) => {
-    const appWindows = windows.filter((window) => window.appId === appId && !window.closing)
+    const appWindows = windowsRef.current.filter((window) => window.appId === appId && !window.closing)
     if (appWindows.length === 0) {
       return
     }
@@ -342,16 +351,28 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
 
-    setWindows((current) => {
-      const closingIds = new Set(
-        current.filter((window) => window.appId === appId).map((window) => window.id),
-      )
-      setActiveWindowId((active) => (active && closingIds.has(active) ? undefined : active))
-      return current.map((window) =>
-        window.appId === appId ? { ...window, closing: true } : window,
-      )
-    })
-  }, [shouldAllowAppClose, windows])
+    const closingIds = new Set(appWindows.map((window) => window.id))
+
+    setWindows((current) =>
+      current.map((window) =>
+        closingIds.has(window.id) ? { ...window, closing: true } : window,
+      ),
+    )
+    setActiveWindowId((active) => (active && closingIds.has(active) ? undefined : active))
+  }, [shouldAllowAppClose])
+
+  const closeProcessIsolatedApps = useCallback(() => {
+    const appIds = new Set<AppId>()
+    for (const window of windowsRef.current) {
+      if (!window.closing && (isGeneratedAppId(window.appId) || window.appId === 'icode')) {
+        appIds.add(window.appId)
+      }
+    }
+
+    for (const appId of appIds) {
+      closeWindowsForApp(appId)
+    }
+  }, [closeWindowsForApp])
 
   const focusWindow = useCallback((windowId: string) => {
     startDesktopRestore()
@@ -686,8 +707,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       minimizeWindow,
       restoreWindow,
       setAppWindowTitle,
+      closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, closeProcessIsolatedApps],
   )
 
   return <OsContext.Provider value={value}>{children}</OsContext.Provider>

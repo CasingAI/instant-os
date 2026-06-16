@@ -5,6 +5,11 @@ import {
   removeBootSplash,
   startBootSplashColdExit,
 } from './os/boot-splash-host.ts'
+import {
+  applyProcessIsolationCapability,
+  shouldShowProcessIsolationFallbackNotification,
+} from './os/apply-process-isolation-capability.ts'
+import { showProcessIsolationFallbackNotification } from './os/process-isolation-fallback.ts'
 import { OsShell } from './os/os-shell.tsx'
 import { SetupAssistant } from './os/setup-assistant.tsx'
 import './os/boot-splash.css'
@@ -13,6 +18,7 @@ import './os/boot-transition.css'
 const DOCUMENT_TITLE = 'Instant OS'
 const SPLASH_EXIT_MS = 1000
 const SETUP_ENTER_MS = 1050
+const PROCESS_ISOLATION_FALLBACK_NOTIFY_DELAY_MS = 1000
 
 type BootPhase =
   | 'booting'
@@ -29,6 +35,7 @@ export function App() {
   useEffect(() => {
     document.title = DOCUMENT_TITLE
     claimBootSplash()
+    void applyProcessIsolationCapability()
   }, [])
 
   useEffect(() => {
@@ -65,6 +72,20 @@ export function App() {
       }, SETUP_ENTER_MS)
       return () => window.clearTimeout(timer)
     }
+  }, [bootPhase])
+
+  useEffect(() => {
+    if (bootPhase !== 'desktop') {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      if (shouldShowProcessIsolationFallbackNotification()) {
+        showProcessIsolationFallbackNotification()
+      }
+    }, PROCESS_ISOLATION_FALLBACK_NOTIFY_DELAY_MS)
+
+    return () => window.clearTimeout(timer)
   }, [bootPhase])
 
   const handleSetupLaunch = useCallback(() => {

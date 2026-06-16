@@ -1,5 +1,7 @@
 type NotificationPanelScreen = 'list' | 'detail'
 
+export const NOTIFICATION_CENTER_SCREEN_FADE_MS = 180
+
 export type NotificationCenterStoreState = {
   isOpen: boolean
   panelScreen: NotificationPanelScreen

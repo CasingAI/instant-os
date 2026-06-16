@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
+  EXPERIMENTAL_SETTINGS_CHANGED_EVENT,
+} from '../../os/experimental-settings-storage.ts'
+import {
+  isGeneratedAppProcessIsolationActive,
+  SANDBOXED_CORS_PROBE_COMPLETED_EVENT,
+} from '../../os/resolve-generated-app-process-isolation.ts'
+import {
   isGeneratedAppStorageMessage,
   loadGeneratedAppData,
   saveGeneratedAppData,
@@ -11,6 +18,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
+import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
 import { GeneratedAppErrorDialog } from './generated-app-error-dialog.tsx'
 import type { GeneratedAppRuntimeErrorEntry } from './generated-app-runtime-error-types.ts'
 import {
@@ -19,6 +27,7 @@ import {
   logRuntimeErrorToHostConsole,
 } from './generated-app-runtime-errors.ts'
 import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
+import { injectGeneratedAppHeartbeatBridge } from './inject-generated-app-heartbeat-bridge.ts'
 import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
 import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
 import './generated-app.css'
@@ -42,6 +51,26 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
   const [runtimeErrorAlertOpen, setRuntimeErrorAlertOpen] = useState(false)
   const [runtimeErrorDetailsOpen, setRuntimeErrorDetailsOpen] = useState(false)
   const suppressRuntimeErrorAlertRef = useRef(false)
+  const [processIsolated, setProcessIsolated] = useState(() => isGeneratedAppProcessIsolationActive())
+  const {
+    registerHeartbeat,
+    unregisterHeartbeat,
+    resetHeartbeatMonitoring,
+    setHeartbeatContentWindow,
+  } = useGeneratedAppHeartbeat()
+
+  useEffect(() => {
+    const syncIsolation = () => {
+      setProcessIsolated(isGeneratedAppProcessIsolationActive())
+    }
+
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, syncIsolation)
+    window.addEventListener(SANDBOXED_CORS_PROBE_COMPLETED_EVENT, syncIsolation)
+    return () => {
+      window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, syncIsolation)
+      window.removeEventListener(SANDBOXED_CORS_PROBE_COMPLETED_EVENT, syncIsolation)
+    }
+  }, [])
 
   useEffect(() => {
     const root = document.documentElement
@@ -57,7 +86,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     return () => observer.disconnect()
   }, [])
 
-  const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}`
+  const remountKey = `${appId}-${dataRevision}-${emojiFontEpoch}-${processIsolated ? 'iso' : 'std'}`
 
   const preparedHtml = useMemo(() => {
     if (!app) {
@@ -65,10 +94,27 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     }
 
     const initialData = loadGeneratedAppData(appId)
-    return prepareGeneratedAppRuntimeHtml(app.html, appId, initialData)
-  }, [app, appId, dataRevision, emojiFontEpoch])
+    const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, { processIsolated })
+    return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
+  }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, windowId])
 
-  const { iframeProps } = useGeneratedHtmlIframe(iframeRef, preparedHtml, remountKey)
+  const handleIframeReady = useCallback(() => {
+    setHeartbeatContentWindow(windowId, iframeRef.current?.contentWindow ?? undefined)
+  }, [setHeartbeatContentWindow, windowId])
+
+  const { iframeProps } = useGeneratedHtmlIframe(iframeRef, preparedHtml, remountKey, {
+    processIsolated,
+    onReady: handleIframeReady,
+  })
+
+  useEffect(() => {
+    registerHeartbeat(windowId, appId)
+    return () => unregisterHeartbeat(windowId)
+  }, [appId, registerHeartbeat, unregisterHeartbeat, windowId])
+
+  useEffect(() => {
+    resetHeartbeatMonitoring(windowId)
+  }, [remountKey, resetHeartbeatMonitoring, windowId])
 
   useEffect(() => {
     setRuntimeErrors([])
