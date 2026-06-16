@@ -198,6 +198,7 @@ export function Dock() {
         key={app.id}
         type="button"
         class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
+        data-dock-app-id={app.id}
         aria-label={app.name}
         onClick={handleOpen}
         onContextMenu={(event) => {
@@ -249,6 +250,7 @@ export function Dock() {
         key={app.id}
         type="button"
         class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
+        data-dock-app-id={app.id}
         aria-label={app.name}
         onClick={handleOpen}
         onContextMenu={(event) => {
@@ -350,6 +352,7 @@ export function Dock() {
         key={app.id}
         type="button"
         class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        data-dock-app-id={app.id}
         aria-label={app.name}
         onClick={handleOpen}
         onContextMenu={(event) => {
@@ -398,6 +401,7 @@ export function Dock() {
         key={app.id}
         type="button"
         class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        data-dock-app-id={app.id}
         aria-label={app.name}
         onClick={handleOpen}
         onContextMenu={(event) => {

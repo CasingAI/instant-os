@@ -1607,6 +1607,16 @@
   color: #222;
 }
 
+.settings__experimental-features {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings__experimental-feature .settings__section-footnote {
+  margin-top: 6px;
+}
+
 .settings__actions--form {
   align-items: center;
   gap: 12px;

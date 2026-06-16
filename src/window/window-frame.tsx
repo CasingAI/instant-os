@@ -84,10 +84,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
     }),
     [window.x, window.y, window.width, window.height],
   )
-  const minimizeTransform = useMemo(
-    () => buildMinimizeTransform(windowBounds),
-    [windowBounds],
-  )
+  const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
   const desktopRevealTransform = useMemo(
     () => buildDesktopRevealTransform(windowBounds),
     [windowBounds],
@@ -106,6 +103,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
     prevMinimizedRef.current = window.minimized
 
     if (window.minimized && !wasMinimized) {
+      setMinimizeTransform(buildMinimizeTransform(windowBounds, window.appId))
       setMinimizeVisualSettled(false)
       setIsMinimizing(true)
       const timer = globalThis.setTimeout(() => {
@@ -116,10 +114,11 @@ export function WindowFrame({ window }: WindowFrameProps) {
     }
 
     if (!window.minimized) {
+      setMinimizeTransform(undefined)
       setIsMinimizing(false)
       setMinimizeVisualSettled(false)
     }
-  }, [window.minimized])
+  }, [window.minimized, windowBounds, window.appId])
 
   const frameTransform = showMinimizeVisual
     ? minimizeTransform
