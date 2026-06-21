@@ -1,15 +1,17 @@
 import { useMemo } from 'preact/hooks'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
+import { ExtAppIcon } from '../ext/ext-app-icon.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
+import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
 import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import type { AppId, WindowState } from '../../os/types.ts'
-import { isGeneratedAppId } from '../../os/types.ts'
+import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import './task-manager.css'
 
 const APP_ID = 'task-manager' as const
@@ -68,11 +70,15 @@ function resolveAppName(
   appId: AppId,
   windows: WindowState[],
   getInstalledApp: ReturnType<typeof useGeneratedApps>['getInstalledApp'],
+  getSessionExtApp: ReturnType<typeof useDevExtApps>['getSessionExtApp'],
 ): string {
-  if (!isGeneratedAppId(appId)) {
-    return getAppDefinition(appId)?.name ?? windows[0]?.title ?? '应用'
+  if (isExtAppId(appId)) {
+    return getSessionExtApp(appId)?.manifest.name ?? windows[0]?.title ?? '外链应用'
   }
-  return getInstalledApp(appId)?.name ?? windows[0]?.title ?? '微应用'
+  if (isGeneratedAppId(appId)) {
+    return getInstalledApp(appId)?.name ?? windows[0]?.title ?? '微应用'
+  }
+  return getAppDefinition(appId)?.name ?? windows[0]?.title ?? '应用'
 }
 
 export function TaskManagerApp() {
@@ -85,6 +91,7 @@ export function TaskManagerApp() {
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const { getInstalledApp } = useGeneratedApps()
+  const { getSessionExtApp } = useDevExtApps()
   const { isAppUnresponsive, isWindowUnresponsive } = useGeneratedAppHeartbeat()
   const definition = getAppDefinition(APP_ID)
 
@@ -137,7 +144,7 @@ export function TaskManagerApp() {
 
         return {
           appId,
-          name: resolveAppName(appId, sortedWindows, getInstalledApp),
+          name: resolveAppName(appId, sortedWindows, getInstalledApp, getSessionExtApp),
           windows: sortedWindows,
           primaryWindow,
           status: resolveAppStatus(
@@ -157,7 +164,7 @@ export function TaskManagerApp() {
         }
         return left.name.localeCompare(right.name, 'zh-CN')
       })
-  }, [activeWindowId, getInstalledApp, isAppUnresponsive, windows])
+  }, [activeWindowId, getInstalledApp, getSessionExtApp, isAppUnresponsive, windows])
 
   const endableApps = runningApps.filter((entry) => entry.canEnd)
   const openWindowCount = windows.filter((window) => !window.closing).length
@@ -177,8 +184,11 @@ export function TaskManagerApp() {
         ) : (
           <div class="task-manager__list">
             {runningApps.map((entry) => {
-              const builtin = !isGeneratedAppId(entry.appId) ? getAppDefinition(entry.appId) : undefined
+              const builtin = !isGeneratedAppId(entry.appId) && !isExtAppId(entry.appId)
+                ? getAppDefinition(entry.appId)
+                : undefined
               const generated = isGeneratedAppId(entry.appId) ? getInstalledApp(entry.appId) : undefined
+              const extApp = isExtAppId(entry.appId) ? getSessionExtApp(entry.appId) : undefined
               const Icon = builtin?.icon
               const isActive =
                 entry.primaryWindow.id === activeWindowId && !entry.primaryWindow.minimized
@@ -208,6 +218,14 @@ export function TaskManagerApp() {
                             emoji={generated.iconEmoji}
                             themeColor={generated.themeColor}
                             size={32}
+                          />
+                        ) : extApp ? (
+                          <ExtAppIcon
+                            name={extApp.manifest.name}
+                            themeColor={extApp.manifest.themeColor}
+                            iconUrl={extApp.iconUrl}
+                            size={32}
+                            devBadge
                           />
                         ) : (
                           <span aria-hidden="true">📱</span>

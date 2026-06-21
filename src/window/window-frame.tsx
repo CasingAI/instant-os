@@ -1,9 +1,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
+import { ExtApp } from '../apps/ext/ext-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
 import { useOs } from '../os/os-context.tsx'
 import { useFullscreenChromeReveal } from '../os/fullscreen-chrome-reveal-context.tsx'
-import { isGeneratedAppId } from '../os/types.ts'
+import { isExtAppId, isGeneratedAppId } from '../os/types.ts'
 import type { BuiltinAppId, WindowState } from '../os/types.ts'
 import { buildDesktopRevealTransform } from './build-desktop-reveal-transform.ts'
 import { DesktopRevealPeekLayer } from './desktop-reveal-peek-layer.tsx'
@@ -189,7 +190,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
             <div class="window-frame__focus-catcher" aria-hidden="true" />
           )}
           <WindowModalProvider>
-            {isGeneratedAppId(window.appId) ? (
+            {isExtAppId(window.appId) ? (
+              <ExtApp appId={window.appId} windowId={window.id} />
+            ) : isGeneratedAppId(window.appId) ? (
               <GeneratedApp appId={window.appId} windowId={window.id} />
             ) : (
               AppComponent && <AppComponent />

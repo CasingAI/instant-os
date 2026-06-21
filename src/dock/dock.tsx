@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact'
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
 import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
 import { DesktopFolderIcon, type FolderPreviewApp } from '../desktop/desktop-folder-icon.tsx'
@@ -17,11 +18,12 @@ import {
   buildGeneratedIconContextMenuItems,
 } from '../os/build-icon-context-menu-items.ts'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
+import { useDevExtApps } from '../os/dev-ext-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
-import { isGeneratedAppId, type AppId, type BuiltinAppId, type GeneratedAppId } from '../os/types.ts'
+import { isExtAppId, isGeneratedAppId, type AppId, type BuiltinAppId, type ExtAppId, type GeneratedAppId } from '../os/types.ts'
 import { getDockDropSession, subscribeDockDropSession } from './dock-drop-session.ts'
 import { DOCK_SETTINGS_CHANGED_EVENT } from './dock-settings-storage.ts'
 import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from './use-dock-viewport-fit.ts'
@@ -77,6 +79,7 @@ export function Dock() {
   } = useOs()
   const { installedApps, openInstalledApp, openMarketplaceDetail, openIcodeProject, pendingUpdateCount } =
     useGeneratedApps()
+  const { openSessionExtApp, removeSessionExtApp, getSessionExtApp } = useDevExtApps()
   const { showIconContextMenu } = useIconContextMenu()
   const {
     pinnedDockItemIds,
@@ -119,6 +122,10 @@ export function Dock() {
             emoji: app.iconEmoji,
             themeColor: app.themeColor,
           })
+          continue
+        }
+
+        if (isExtAppId(appId)) {
           continue
         }
 
@@ -332,7 +339,75 @@ export function Dock() {
       return renderPinnedGeneratedDockItem(itemId)
     }
 
+    if (isExtAppId(itemId)) {
+      return renderPinnedExtDockItem(itemId)
+    }
+
     return renderPinnedBuiltinDockItem(itemId)
+  }
+
+  function renderPinnedExtDockItem(appId: ExtAppId) {
+    const app = getSessionExtApp(appId)
+    if (!app) {
+      return undefined
+    }
+
+    const isRunning = isAppRunning(app.id)
+    const pinned = isPinnedToDock(app.id)
+
+    const handleOpen = () => {
+      handleDockAppClick(app.id, () => openSessionExtApp(app.id))
+    }
+
+    return (
+      <button
+        key={app.id}
+        type="button"
+        class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
+        data-dock-app-id={app.id}
+        aria-label={app.manifest.name}
+        onClick={handleOpen}
+        onContextMenu={(event) => {
+          showIconContextMenu(event, [
+            { type: 'action', label: '打开', onClick: handleOpen },
+            { type: 'separator' },
+            {
+              type: 'action',
+              label: pinned ? '从程序坞移除' : '添加到程序坞',
+              onClick: pinned ? () => unpinFromDock(app.id) : () => pinToDock(app.id),
+            },
+            { type: 'separator' },
+            {
+              type: 'action',
+              label: '从桌面移除',
+              onClick: () => removeSessionExtApp(app.id),
+            },
+            ...(isRunning
+              ? [
+                  { type: 'separator' as const },
+                  {
+                    type: 'action' as const,
+                    label: '强制退出',
+                    onClick: () => closeWindowsForApp(app.id),
+                  },
+                ]
+              : []),
+          ])
+        }}
+      >
+        <DockTooltip name={app.manifest.name} />
+        <span class="dock__icon">
+          <ExtAppIcon
+            name={app.manifest.name}
+            themeColor={app.manifest.themeColor}
+            iconUrl={app.iconUrl}
+            size={iconSize}
+            devBadge
+          />
+        </span>
+        {isRunning && <span class="dock__indicator" />}
+      </button>
+    )
   }
 
   function renderRunningBuiltinDockItem(appId: BuiltinAppId) {
@@ -430,16 +505,69 @@ export function Dock() {
     )
   }
 
+  function renderRunningExtDockItem(appId: ExtAppId) {
+    const app = getSessionExtApp(appId)
+    if (!app) {
+      return undefined
+    }
+
+    const isRunning = isAppRunning(app.id)
+
+    const handleOpen = () => {
+      handleDockAppClick(app.id, () => openSessionExtApp(app.id))
+    }
+
+    return (
+      <button
+        key={app.id}
+        type="button"
+        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
+        data-dock-app-id={app.id}
+        aria-label={app.manifest.name}
+        onClick={handleOpen}
+        onContextMenu={(event) => {
+          showIconContextMenu(event, [
+            { type: 'action', label: '打开', onClick: handleOpen },
+            { type: 'separator' },
+            { type: 'action', label: '添加到程序坞', onClick: () => pinToDock(app.id) },
+            { type: 'separator' },
+            {
+              type: 'action',
+              label: '强制退出',
+              onClick: () => closeWindowsForApp(app.id),
+            },
+          ])
+        }}
+      >
+        <DockTooltip name={app.manifest.name} />
+        <span class="dock__icon">
+          <ExtAppIcon
+            name={app.manifest.name}
+            themeColor={app.manifest.themeColor}
+            iconUrl={app.iconUrl}
+            size={iconSize}
+            devBadge
+          />
+        </span>
+        {isRunning && <span class="dock__indicator" />}
+      </button>
+    )
+  }
+
   const pinnedDockItems = pinnedDockItemIds
     .map((itemId) => renderPinnedDockItem(itemId))
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
 
   const runningDockItems = runningUnpinnedAppIds
-    .map((appId) =>
-      isGeneratedAppId(appId)
-        ? renderRunningGeneratedDockItem(appId)
-        : renderRunningBuiltinDockItem(appId),
-    )
+    .map((appId) => {
+      if (isGeneratedAppId(appId)) {
+        return renderRunningGeneratedDockItem(appId)
+      }
+      if (isExtAppId(appId)) {
+        return renderRunningExtDockItem(appId)
+      }
+      return renderRunningBuiltinDockItem(appId)
+    })
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
 
   const showDivider = pinnedDockItems.length > 0 && runningDockItems.length > 0

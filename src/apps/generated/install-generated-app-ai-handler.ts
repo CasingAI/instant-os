@@ -1,9 +1,9 @@
 import { handleGeneratedAppAiRequest } from './handle-generated-app-ai-request.ts'
 import { isGeneratedAppAiRequestMessage } from './generated-app-ai-types.ts'
-import type { GeneratedAppId } from '../../os/types.ts'
+import type { GeneratedAppId, ExtAppId } from '../../os/types.ts'
 
 type InstallGeneratedAppAiHandlerOptions = {
-  appId: GeneratedAppId
+  appId: GeneratedAppId | ExtAppId
   appName?: string
   getContentWindow: () => Window | null | undefined
   /** 为 true 时在宿主 DevTools 输出 AI 桥调试日志（iCode 预览） */

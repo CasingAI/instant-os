@@ -1,0 +1,39 @@
+.ext-app-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.ext-app-icon__base {
+  display: inline-flex;
+}
+
+.ext-app-icon__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.ext-app-icon__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+}
+
+.ext-app-icon__dev-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 149, 0, 0.95);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  pointer-events: none;
+}

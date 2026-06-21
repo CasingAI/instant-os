@@ -110,19 +110,22 @@ export function WallpaperPaneIcon() {
   )
 }
 
-export function ExperimentalPaneIcon() {
+export function DeveloperPaneIcon() {
   return (
-    <AppIconTile color="#8a7bb8" size={PANE_ICON_SIZE}>
+    <AppIconTile color="#5c6bc0" size={PANE_ICON_SIZE}>
       <span
         class="app-icon-tile__emoji"
         style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
         aria-hidden="true"
       >
-        🧪
+        🛠️
       </span>
     </AppIconTile>
   )
 }
+
+/** @deprecated 使用 DeveloperPaneIcon */
+export const ExperimentalPaneIcon = DeveloperPaneIcon
 
 export function DockPaneIcon() {
   const svgWidth = paneSvg(22)

@@ -3,7 +3,7 @@ import { loadExperimentalSettings } from './experimental-settings-storage.ts'
 
 let corsUnsupportedWhileIsolationEnabled = false
 
-/** 本次启动 CORS 探测失败且用户未在实验性特性中关闭进程隔离。 */
+/** 本次启动 CORS 探测失败且用户未在开发者选项中关闭进程隔离。 */
 export function shouldShowProcessIsolationFallbackNotification(): boolean {
   return corsUnsupportedWhileIsolationEnabled
 }

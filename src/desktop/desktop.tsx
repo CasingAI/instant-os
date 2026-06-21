@@ -1,6 +1,7 @@
 import type { ComponentType } from 'preact'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { generatedAppIdToSlug } from '../apps/appstore/store-agent.ts'
 import { resolveIcodeProjectId } from '../apps/icode/icode-publish.ts'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
@@ -17,6 +18,7 @@ import {
   type DesktopItemId,
 } from '../os/desktop-folder-types.ts'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
+import { useDevExtApps } from '../os/dev-ext-apps-context.tsx'
 import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import {
@@ -26,7 +28,7 @@ import {
 import { isBuiltinAppVisibleOnDesktop } from '../os/launcher-app-visibility.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { useOs } from '../os/os-context.tsx'
-import type { AppId, BuiltinAppId, GeneratedAppId } from '../os/types.ts'
+import type { AppId, BuiltinAppId, ExtAppId, GeneratedAppId } from '../os/types.ts'
 import {
   buildPreviewOrder,
   getIconSlotPosition,
@@ -64,6 +66,13 @@ type DesktopAppEntry =
       themeColor: string
       progress?: number
       textLength?: number
+    }
+  | {
+      kind: 'ext'
+      appId: ExtAppId
+      name: string
+      themeColor: string
+      iconUrl: string
     }
 
 type DesktopFolderEntry = {
@@ -270,6 +279,81 @@ function GeneratedDesktopIcon({
   )
 }
 
+type ExtDesktopIconProps = {
+  appId: ExtAppId
+  name: string
+  themeColor: string
+  iconUrl: string
+  itemId: DesktopItemId
+  globalIndex: number
+  mergeTarget?: boolean
+  didSwipeRef: { current: boolean }
+  reorder: DesktopReorderController
+}
+
+function ExtDesktopIcon({
+  appId,
+  name,
+  themeColor,
+  iconUrl,
+  itemId,
+  globalIndex,
+  didSwipeRef,
+  reorder,
+}: ExtDesktopIconProps) {
+  const { openSessionExtApp, removeSessionExtApp } = useDevExtApps()
+  const { showIconContextMenu } = useIconContextMenu()
+  const { isPinnedToDock, pinToDock, unpinFromDock } = useLauncherLayout()
+
+  const handleOpen = () => {
+    openSessionExtApp(appId)
+  }
+
+  const pinned = isPinnedToDock(appId)
+
+  const { onClick, onPointerDown } = useDesktopIconReorder({
+    itemId,
+    globalIndex,
+    didSwipeRef,
+    reorderingEnabled: reorder.reorderingEnabled,
+    onOpen: handleOpen,
+    onReorderStart: reorder.onReorderStart,
+    onReorderMove: reorder.onReorderMove,
+    onReorderEnd: reorder.onReorderEnd,
+  })
+
+  return (
+    <button
+      type="button"
+      class="desktop-icon"
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onContextMenu={(event) => {
+        showIconContextMenu(event, [
+          { type: 'action', label: '打开', onClick: handleOpen },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: pinned ? '从程序坞移除' : '添加到程序坞',
+            onClick: pinned ? () => unpinFromDock(appId) : () => pinToDock(appId),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '从桌面移除',
+            onClick: () => removeSessionExtApp(appId),
+          },
+        ])
+      }}
+    >
+      <span class="desktop-icon__image">
+        <ExtAppIcon name={name} themeColor={themeColor} iconUrl={iconUrl} size={72} devBadge />
+      </span>
+      <span class="desktop-icon__label">{name}</span>
+    </button>
+  )
+}
+
 type FolderDesktopIconProps = {
   entry: DesktopFolderEntry
   itemId: DesktopItemId
@@ -370,6 +454,22 @@ function renderDesktopEntry(
     )
   }
 
+  if (entry.kind === 'ext') {
+    return (
+      <ExtDesktopIcon
+        appId={entry.appId}
+        name={entry.name}
+        themeColor={entry.themeColor}
+        iconUrl={entry.iconUrl}
+        itemId={itemId}
+        globalIndex={globalIndex}
+        mergeTarget={mergeTarget}
+        didSwipeRef={didSwipeRef}
+        reorder={reorder}
+      />
+    )
+  }
+
   return (
     <GeneratedDesktopIcon
       appId={entry.appId}
@@ -411,6 +511,23 @@ function renderDragGhost(entry: DesktopEntry) {
     )
   }
 
+  if (entry.kind === 'ext') {
+    return (
+      <>
+        <span class="desktop-icon__image">
+          <ExtAppIcon
+            name={entry.name}
+            themeColor={entry.themeColor}
+            iconUrl={entry.iconUrl}
+            size={72}
+            devBadge
+          />
+        </span>
+        <span class="desktop-icon__label">{entry.name}</span>
+      </>
+    )
+  }
+
   return (
     <>
       <span class="desktop-icon__image">
@@ -430,6 +547,7 @@ function renderDragGhost(entry: DesktopEntry) {
 export function Desktop() {
   const { desktopRevealed, hideDesktopReveal } = useOs()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
+  const { sessionExtApps } = useDevExtApps()
   const {
     pinnedDockItemIds,
     desktopIconOrder,
@@ -526,10 +644,30 @@ export function Desktop() {
           textLength: item.textLength,
         }),
       ),
+      ...sessionExtApps.map(
+        (app): DesktopAppEntry => ({
+          kind: 'ext',
+          appId: app.id,
+          name: app.manifest.name,
+          themeColor: app.manifest.themeColor,
+          iconUrl: app.iconUrl,
+        }),
+      ),
     ]
-  }, [desktopApps, installedDesktopApps, pendingInstalls, pendingUpdateCount])
+  }, [desktopApps, installedDesktopApps, pendingInstalls, pendingUpdateCount, sessionExtApps])
 
-  const visibleAppIds = useMemo(() => appEntries.map((entry) => entry.appId), [appEntries])
+  const persistableVisibleAppIds = useMemo(
+    () =>
+      appEntries
+        .filter((entry) => entry.kind !== 'ext')
+        .map((entry) => entry.appId),
+    [appEntries],
+  )
+
+  const sessionExtAppIds = useMemo(
+    () => sessionExtApps.map((app) => app.id),
+    [sessionExtApps],
+  )
 
   const appEntryById = useMemo(() => {
     const map = new Map<AppId, DesktopAppEntry>()
@@ -588,7 +726,7 @@ export function Desktop() {
         }
         if (entry.kind === 'builtin') {
           previews.push({ appId: entry.appId, kind: 'builtin', Icon: entry.Icon })
-        } else {
+        } else if (entry.kind === 'generated') {
           previews.push({
             appId: entry.appId,
             kind: 'generated',
@@ -602,20 +740,21 @@ export function Desktop() {
     [appEntryById],
   )
 
-  const orderedItemIds = useMemo(
-    () => reconcileDesktopIconOrder(desktopIconOrder, visibleAppIds, desktopFolders),
-    [desktopIconOrder, visibleAppIds, desktopFolders],
-  )
+  const orderedItemIds = useMemo(() => {
+    const base = reconcileDesktopIconOrder(desktopIconOrder, persistableVisibleAppIds, desktopFolders)
+    const trailingExtIds = sessionExtAppIds.filter((appId) => !base.includes(appId))
+    return [...base, ...trailingExtIds]
+  }, [desktopIconOrder, desktopFolders, persistableVisibleAppIds, sessionExtAppIds])
 
   useEffect(() => {
     if (reorderSession !== undefined) {
       return
     }
 
-    const reconciledFolders = reconcileDesktopFolders(desktopFolders, visibleAppIds)
+    const reconciledFolders = reconcileDesktopFolders(desktopFolders, persistableVisibleAppIds)
     const reconciledOrder = reconcileDesktopIconOrder(
       desktopIconOrder,
-      visibleAppIds,
+      persistableVisibleAppIds,
       reconciledFolders,
     )
 
@@ -631,7 +770,7 @@ export function Desktop() {
     desktopIconOrder,
     reorderSession,
     syncDesktopLayout,
-    visibleAppIds,
+    persistableVisibleAppIds,
   ])
 
   const displayOrder = previewOrder ?? orderedItemIds

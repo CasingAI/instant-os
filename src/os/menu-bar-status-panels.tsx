@@ -1,11 +1,13 @@
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
+import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
 import { getAppDefinition } from './app-registry.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
+import { useDevExtApps } from './dev-ext-apps-context.tsx'
 import { MenuBarPopover } from './menu-bar-popover.tsx'
 import type { DeviceBattery } from './use-device-battery.ts'
 import { useOs } from './os-context.tsx'
 import type { AppId, WindowState } from './types.ts'
-import { isGeneratedAppId } from './types.ts'
+import { isExtAppId, isGeneratedAppId } from './types.ts'
 
 function windowStatusLabel(window: WindowState, activeWindowId: string | undefined): string {
   if (window.minimized) {
@@ -28,6 +30,7 @@ type BatteryStatusPanelProps = {
 export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPanelProps) {
   const { windows, activeWindowId } = useOs()
   const { getInstalledApp } = useGeneratedApps()
+  const { getSessionExtApp } = useDevExtApps()
 
   const levelLabel = battery ? `${battery.levelPercent}%` : '未知'
   const statusLabel = battery
@@ -74,9 +77,10 @@ export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPan
           const appId = window.appId as AppId
           const isActive = window.id === activeWindowId && !window.minimized
           const status = windowStatusLabel(window, activeWindowId)
-          const builtin = !isGeneratedAppId(appId) ? getAppDefinition(appId) : undefined
+          const builtin = !isGeneratedAppId(appId) && !isExtAppId(appId) ? getAppDefinition(appId) : undefined
           const generated = isGeneratedAppId(appId) ? getInstalledApp(appId) : undefined
-          const name = window.title || builtin?.name || generated?.name || '应用'
+          const extApp = isExtAppId(appId) ? getSessionExtApp(appId) : undefined
+          const name = window.title || builtin?.name || generated?.name || extApp?.manifest.name || '应用'
           const Icon = builtin?.icon
 
           return (
@@ -94,6 +98,14 @@ export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPan
                     emoji={generated.iconEmoji}
                     themeColor={generated.themeColor}
                     size={24}
+                  />
+                ) : extApp ? (
+                  <ExtAppIcon
+                    name={extApp.manifest.name}
+                    themeColor={extApp.manifest.themeColor}
+                    iconUrl={extApp.iconUrl}
+                    size={24}
+                    devBadge
                   />
                 ) : (
                   <span aria-hidden="true">📱</span>

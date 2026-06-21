@@ -6,6 +6,7 @@ import { IconContextMenuProvider } from './icon-context-menu-context.tsx'
 import { LauncherLayoutProvider } from './launcher-layout-context.tsx'
 import { AboutAppProvider } from './about-app-context.tsx'
 import { GeneratedAppsProvider } from './generated-apps-context.tsx'
+import { DevExtAppsProvider } from './dev-ext-apps-context.tsx'
 import { GeneratedAppHeartbeatProvider } from './generated-app-heartbeat-context.tsx'
 import { MenuBarProvider } from './menu-bar-context.tsx'
 import { NotificationCenterProvider } from './notification-center-context.tsx'
@@ -40,7 +41,8 @@ function OsShellContent() {
 export function OsShell() {
   return (
     <OsProvider>
-      <GeneratedAppHeartbeatProvider>
+      <DevExtAppsProvider>
+        <GeneratedAppHeartbeatProvider>
         <MenuBarProvider>
           <AboutAppProvider>
             <GeneratedAppsProvider>
@@ -57,6 +59,7 @@ export function OsShell() {
           </AboutAppProvider>
         </MenuBarProvider>
       </GeneratedAppHeartbeatProvider>
+      </DevExtAppsProvider>
     </OsProvider>
   )
 }

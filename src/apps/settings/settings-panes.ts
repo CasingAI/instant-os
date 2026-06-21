@@ -4,7 +4,7 @@ import {
   AccountPaneIcon,
   AiUsagePaneIcon,
   DisplayPaneIcon,
-  ExperimentalPaneIcon,
+  DeveloperPaneIcon,
   NewsPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
@@ -74,8 +74,8 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'news', label: '新闻', Icon: NewsPaneIcon, route: { view: 'news' } },
   {
     id: 'experimental',
-    label: '实验性特性',
-    Icon: ExperimentalPaneIcon,
+    label: '开发者选项',
+    Icon: DeveloperPaneIcon,
     route: { view: 'experimental' },
   },
 ]

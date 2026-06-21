@@ -3,10 +3,15 @@ import type { BuiltinAppAbout } from './builtin-app-about.ts'
 
 export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'mail' | 'appstore' | 'scene3d-lab' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'speech' | 'system-info' | 'task-manager'
 export type GeneratedAppId = `gen:${string}`
-export type AppId = BuiltinAppId | GeneratedAppId
+export type ExtAppId = `ext:${string}`
+export type AppId = BuiltinAppId | GeneratedAppId | ExtAppId
 
 export function isGeneratedAppId(appId: AppId): appId is GeneratedAppId {
   return appId.startsWith('gen:')
+}
+
+export function isExtAppId(appId: AppId): appId is ExtAppId {
+  return appId.startsWith('ext:')
 }
 
 export type AppDefinition = {

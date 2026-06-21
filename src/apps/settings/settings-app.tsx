@@ -30,7 +30,7 @@ import { DisplayView } from './display-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
-import { ExperimentalSettingsView } from './experimental-settings-view.tsx'
+import { DeveloperSettingsView } from './developer-settings-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
@@ -390,7 +390,7 @@ export function SettingsApp() {
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showExperimental} keep={showExperimental}>
-        <ExperimentalSettingsView onBack={() => setRoute({ view: 'root' })} />
+        <DeveloperSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
         </div>
       </div>

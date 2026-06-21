@@ -3,7 +3,7 @@ import { isDesktopFolderId } from '../os/desktop-folder-types.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
-import { isGeneratedAppId, type AppId, type GeneratedAppId } from '../os/types.ts'
+import { isExtAppId, isGeneratedAppId, type AppId, type ExtAppId, type GeneratedAppId } from '../os/types.ts'
 import {
   DOCK_BASE_ICON_PX,
   DOCK_BASE_RESERVE_PX,
@@ -43,9 +43,17 @@ export function setDockLayoutSnapshot(snapshot: DockLayoutSnapshot): void {
   dockLayoutSnapshot = snapshot
 }
 
-function isVisibleDockApp(appId: AppId, installedGeneratedAppIds: ReadonlySet<GeneratedAppId>): boolean {
+function isVisibleDockApp(
+  appId: AppId,
+  installedGeneratedAppIds: ReadonlySet<GeneratedAppId>,
+  sessionExtAppIds: ReadonlySet<ExtAppId>,
+): boolean {
   if (isGeneratedAppId(appId)) {
     return installedGeneratedAppIds.has(appId)
+  }
+
+  if (isExtAppId(appId)) {
+    return sessionExtAppIds.has(appId)
   }
 
   const app = getAppDefinition(appId)
@@ -56,7 +64,9 @@ export function buildDockLayoutSnapshot(params: {
   pinnedDockItemIds: readonly DesktopItemId[]
   runningAppIds: readonly AppId[]
   installedGeneratedAppIds: ReadonlySet<GeneratedAppId>
+  sessionExtAppIds?: ReadonlySet<ExtAppId>
 }): DockLayoutSnapshot {
+  const sessionExtAppIds = params.sessionExtAppIds ?? new Set<ExtAppId>()
   const pinnedSet = new Set<AppId>()
   let pinnedCount = 0
 
@@ -67,7 +77,7 @@ export function buildDockLayoutSnapshot(params: {
     }
 
     pinnedSet.add(itemId)
-    if (isVisibleDockApp(itemId, params.installedGeneratedAppIds)) {
+    if (isVisibleDockApp(itemId, params.installedGeneratedAppIds, sessionExtAppIds)) {
       pinnedCount += 1
     }
   }
@@ -77,7 +87,7 @@ export function buildDockLayoutSnapshot(params: {
     if (pinnedSet.has(appId)) {
       continue
     }
-    if (isVisibleDockApp(appId, params.installedGeneratedAppIds)) {
+    if (isVisibleDockApp(appId, params.installedGeneratedAppIds, sessionExtAppIds)) {
       runningUnpinned.add(appId)
     }
   }

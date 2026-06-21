@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks'
 import { useGeneratedApps } from '../os/generated-apps-context.tsx'
+import { useDevExtApps } from '../os/dev-ext-apps-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { useOs } from '../os/os-context.tsx'
 import { isGeneratedAppId } from '../os/types.ts'
@@ -14,11 +15,13 @@ export function useDockViewportFit(): void {
   const { windows } = useOs()
   const { pinnedDockItemIds } = useLauncherLayout()
   const { installedApps } = useGeneratedApps()
+  const { sessionExtApps } = useDevExtApps()
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const installedGeneratedAppIds = new Set(
     installedApps.map((app) => app.id).filter((appId) => isGeneratedAppId(appId)),
   )
+  const sessionExtAppIds = new Set(sessionExtApps.map((app) => app.id))
 
   const [experimentalVersion, setExperimentalVersion] = useState(0)
 
@@ -30,11 +33,11 @@ export function useDockViewportFit(): void {
 
   useLayoutEffect(() => {
     setDockLayoutSnapshot(
-      buildDockLayoutSnapshot({ pinnedDockItemIds, runningAppIds, installedGeneratedAppIds }),
+      buildDockLayoutSnapshot({ pinnedDockItemIds, runningAppIds, installedGeneratedAppIds, sessionExtAppIds }),
     )
     applyDockSettingsVariables()
     window.dispatchEvent(new CustomEvent(DOCK_VIEWPORT_FIT_CHANGED_EVENT))
-  }, [pinnedDockItemIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|'), experimentalVersion])
+  }, [pinnedDockItemIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|'), sessionExtApps.map((app) => app.id).join('|'), experimentalVersion])
 
   useEffect(() => {
     const sync = () => {

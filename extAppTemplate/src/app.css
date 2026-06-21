@@ -1,0 +1,146 @@
+.app {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100%;
+  padding: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #1c1c1e;
+  background: linear-gradient(180deg, #f7f8fb 0%, #eef1f7 100%);
+}
+
+.app__card {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+.app__eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #007aff;
+}
+
+.app__title {
+  margin: 0 0 12px;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.app__description {
+  margin: 0 0 20px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #636366;
+}
+
+.app__meta {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.app__meta div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f2f2f7;
+  font-size: 14px;
+}
+
+.app__meta dt {
+  margin: 0;
+  color: #636366;
+}
+
+.app__meta dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.app__playground {
+  max-width: 520px;
+  margin: 16px auto 0;
+  padding: 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+.app__playground-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.app__playground-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #636366;
+}
+
+.app__field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #636366;
+}
+
+.app__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #d1d1d6;
+  border-radius: 12px;
+  font: inherit;
+  resize: vertical;
+}
+
+.app__button {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #007aff;
+  color: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app__button:disabled {
+  opacity: 0.6;
+}
+
+.app__error {
+  margin: 12px 0 0;
+  color: #ff3b30;
+  font-size: 13px;
+}
+
+.app__output {
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f2f2f7;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
