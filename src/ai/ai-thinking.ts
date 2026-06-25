@@ -26,7 +26,7 @@ export type ThinkingRequestParam = {
 }
 
 function supportsThinkingParam(providerId: AiProviderId | undefined): boolean {
-  return providerId === 'deepseek' || providerId === 'mimo'
+  return providerId === 'deepseek' || providerId === 'mimo' || providerId === 'mimo-token-plan'
 }
 
 /** 微应用生成时 DeepSeek / MiMo 始终启用思维链，不受账户设置影响；UltraSpeed 尊重用户设置以保留极速优势。 */
@@ -38,7 +38,7 @@ export function resolveAppGenerationThinkingEnabled(
   if (modelId && isMimoUltraSpeedModel(modelId)) {
     return thinkingEnabled
   }
-  if (providerId === 'deepseek' || providerId === 'mimo') {
+  if (providerId === 'deepseek' || providerId === 'mimo' || providerId === 'mimo-token-plan') {
     return true
   }
   return thinkingEnabled

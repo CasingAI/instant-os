@@ -68,23 +68,35 @@ export function mergeOpenAiConfig(
 }
 
 export function hasOpenAiApiKey(): boolean {
-  const stored = loadAccountSettings()
-  if (stored?.apiKey) {
-    return true
+  const settings = loadAccountSettings()
+  if (settings && settings.providers.length > 0) {
+    const preferred = settings.providers[settings.preferredIndex] ?? settings.providers[0]
+    if (preferred?.apiKey) {
+      return true
+    }
   }
   return Boolean(import.meta.env.VITE_OPENAI_API_KEY?.trim())
 }
 
 export function readDefaultModelId(): string {
-  const stored = loadAccountSettings()
-  if (stored?.model) {
-    return stored.model
+  const settings = loadAccountSettings()
+  if (settings && settings.providers.length > 0) {
+    const preferred = settings.providers[settings.preferredIndex] ?? settings.providers[0]
+    if (preferred?.defaultModel) {
+      return preferred.defaultModel
+    }
   }
   return import.meta.env.VITE_OPENAI_MODEL?.trim() || DEFAULT_MODEL
 }
 
 export function readDefaultModelFriendlyName(): string {
-  const stored = loadAccountSettings()
   const modelId = readDefaultModelId()
-  return resolveModelFriendlyName(modelId, stored?.providerId)
+  const settings = loadAccountSettings()
+  if (settings && settings.providers.length > 0) {
+    const preferred = settings.providers[settings.preferredIndex] ?? settings.providers[0]
+    if (preferred) {
+      return resolveModelFriendlyName(modelId, preferred.providerId)
+    }
+  }
+  return resolveModelFriendlyName(modelId)
 }

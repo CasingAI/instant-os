@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { InstantLogoIcon } from '../icons/app-icons.tsx'
-import { AccountSettingsForm } from './account-settings-form.tsx'
+import { SetupAiAccountForm } from './setup-ai-account-form.tsx'
 import { SetupCompleteView } from './setup-complete-view.tsx'
 import {
-  defaultAccountSettings,
+  defaultAccountSettingsV2,
   isAccountSettingsValid,
   saveAccountSettings,
-  type AccountSettings,
+  type AccountSettingsV2,
 } from './account-settings-storage.ts'
+import type { AiProviderEntry } from '../ai/ai-providers.ts'
 import './setup-assistant.css'
 
 const STEP_COUNT = 3
@@ -21,9 +22,28 @@ type SetupAssistantProps = {
 
 export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantProps) {
   const [step, setStep] = useState<SetupStep>(0)
-  const [draft, setDraft] = useState<AccountSettings>(() => defaultAccountSettings())
+  const [stepDirection, setStepDirection] = useState<'forward' | 'back'>('forward')
+  const stepContentRef = useRef<HTMLDivElement>(null)
+  const [bodyTransitionReady, setBodyTransitionReady] = useState(false)
+  const [bodyHeight, setBodyHeight] = useState<number | undefined>(undefined)
+  const [settings, setSettings] = useState<AccountSettingsV2>(() => {
+    const defaults = defaultAccountSettingsV2()
+    const entry = defaults.providers[0]
+    return {
+      ...defaults,
+      providers: [
+        {
+          ...entry,
+          defaultModel: '',
+          enabledModels: [],
+        },
+      ],
+    }
+  })
   const [saveError, setSaveError] = useState(false)
   const [completeRevealed, setCompleteRevealed] = useState(false)
+
+  const providerEntry = settings.providers[0]
 
   useEffect(() => {
     if (step !== 2) {
@@ -37,27 +57,56 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
 
   const canContinue =
     step === 0 ||
-    (step === 1 && isAccountSettingsValid(draft)) ||
+    (step === 1 && isAccountSettingsValid(settings)) ||
     (step === 2 && completeRevealed)
+
+  const goToStep = useCallback((next: SetupStep) => {
+    setStepDirection(next > step ? 'forward' : 'back')
+    setStep(next)
+  }, [step])
+
+  useEffect(() => {
+    setBodyTransitionReady(true)
+  }, [])
+
+  useLayoutEffect(() => {
+    const content = stepContentRef.current
+    if (!content) {
+      return
+    }
+
+    const measure = () => {
+      setBodyHeight(content.scrollHeight)
+    }
+
+    measure()
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(content)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [step, saveError, settings])
 
   const handleContinue = () => {
     if (step === 0) {
-      setStep(1)
+      goToStep(1)
       return
     }
 
     if (step === 1) {
-      if (!isAccountSettingsValid(draft)) {
+      if (!isAccountSettingsValid(settings)) {
         return
       }
       setSaveError(false)
-      setStep(2)
+      goToStep(2)
       return
     }
 
-    if (!saveAccountSettings(draft)) {
+    if (!saveAccountSettings(settings)) {
       setSaveError(true)
-      setStep(1)
+      goToStep(1)
       return
     }
     setSaveError(false)
@@ -69,50 +118,74 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
       return
     }
     setSaveError(false)
-    setStep((current) => (current - 1) as SetupStep)
+    goToStep((step - 1) as SetupStep)
   }
+
+  const updateProvider = useCallback((entry: AiProviderEntry) => {
+    setSettings((prev) => ({
+      ...prev,
+      providers: [entry],
+      preferredIndex: 0,
+    }))
+  }, [])
 
   return (
     <div class="setup-assistant">
-      <div class={`setup-assistant__panel${step === 2 ? ' setup-assistant__panel--complete' : ''}`}>
-        {step === 0 && (
-          <div class="setup-assistant__hero">
-            <div class="setup-assistant__logo" aria-hidden="true">
-              <InstantLogoIcon size={56} />
-            </div>
-            <h1 class="setup-assistant__title">欢迎使用 Instant OS</h1>
-            <p class="setup-assistant__subtitle">
-              这是一个由 AI 驱动的桌面环境。开始之前，需要先配置 AI
-              账户，以便使用应用集市、网络浏览器等功能。
-            </p>
-          </div>
-        )}
-
-        {step === 1 && (
-          <>
-            <header class="setup-assistant__step-head">
-              <h1 class="setup-assistant__title">配置 AI 账户</h1>
-              <p class="setup-assistant__subtitle">
-                选择模型供应商并填写 API Key。配置保存在本机，不会上传到服务器。
-              </p>
-            </header>
-            <div class="setup-form">
-              <AccountSettingsForm draft={draft} onChange={setDraft} layout="setup" />
-            </div>
-            {saveError && (
-              <p class="setup-assistant__error" role="alert">
-                保存失败，请检查填写是否完整，或设备存储是否已满。
-              </p>
+      <div
+        class={`setup-assistant__panel${step === 2 ? ' setup-assistant__panel--complete' : ''}`}
+      >
+        <div
+          class={`setup-assistant__body${
+            bodyTransitionReady ? '' : ' setup-assistant__body--instant'
+          }${step === 2 ? ' setup-assistant__body--complete' : ''}`}
+          style={bodyHeight === undefined ? undefined : { height: `${bodyHeight}px` }}
+        >
+          <div
+            ref={stepContentRef}
+            key={step}
+            class={`setup-assistant__step setup-assistant__step--${stepDirection}`}
+          >
+            {step === 0 && (
+              <div class="setup-assistant__hero">
+                <div class="setup-assistant__logo" aria-hidden="true">
+                  <InstantLogoIcon size={56} />
+                </div>
+                <h1 class="setup-assistant__title">欢迎使用 Instant OS</h1>
+                <p class="setup-assistant__subtitle">
+                  这是一个由 AI 驱动的桌面环境。开始之前，需要先配置 AI
+                  账户，以便使用应用集市、网络浏览器等功能。
+                </p>
+              </div>
             )}
-            <p class="setup-assistant__footnote">
-              也可稍后在「系统设置 → 账户」中修改。
-            </p>
-          </>
-        )}
 
-        {step === 2 && (
-          <SetupCompleteView saveError={saveError} onRevealComplete={handleRevealComplete} />
-        )}
+            {step === 1 && providerEntry && (
+              <>
+                <header class="setup-assistant__step-head">
+                  <h1 class="setup-assistant__title">配置 AI 钥匙串</h1>
+                  <p class="setup-assistant__subtitle">
+                    选择供应商、填写 API Key，并挑选一个模型。配置保存在本机，不会上传到服务器。
+                  </p>
+                </header>
+                <SetupAiAccountForm entry={providerEntry} onChange={updateProvider} />
+                {saveError && (
+                  <p class="setup-assistant__error" role="alert">
+                    保存失败，请检查填写是否完整，或设备存储是否已满。
+                  </p>
+                )}
+                <p class="setup-assistant__footnote">
+                  也可稍后在「钥匙串」中添加更多供应商和模型；如需开启思考模式，可在钥匙串中修改。
+                </p>
+              </>
+            )}
+
+            {step === 2 && (
+              <SetupCompleteView
+                saveError={saveError}
+                onRevealComplete={handleRevealComplete}
+              />
+            )}
+          </div>
+        </div>
 
         <footer class="setup-assistant__footer">
           <button

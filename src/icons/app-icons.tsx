@@ -807,6 +807,63 @@ export function SpeechIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function KeychainIcon({ size = 64 }: IconProps) {
+  const keyRingOuter = Math.round(size * 0.38)
+  const keyRingInner = Math.round(size * 0.22)
+  const keyShaftWidth = Math.round(size * 0.12)
+  const keyShaftHeight = Math.round(size * 0.52)
+  const cx = Math.round(size * 0.5)
+  const ringCy = Math.round(size * 0.28)
+  const shaftX = Math.round(cx - keyShaftWidth / 2)
+  const shaftY = Math.round(size * 0.42)
+
+  return (
+    <AppIconTile color="#f5a623" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 钥匙环 */}
+        <circle
+          cx={Math.round(64 * 0.5)}
+          cy={Math.round(64 * 0.28)}
+          r={Math.round(64 * 0.38) / 2}
+          fill="none"
+          stroke="#fff"
+          stroke-width="5"
+          opacity="0.92"
+        />
+        {/* 钥匙杆 */}
+        <rect
+          x={Math.round(64 * 0.5 - 64 * 0.12 / 2)}
+          y={Math.round(64 * 0.42)}
+          width={Math.round(64 * 0.12)}
+          height={Math.round(64 * 0.4)}
+          rx={Math.round(64 * 0.06)}
+          fill="#fff"
+          opacity="0.92"
+        />
+        {/* 钥匙齿 */}
+        <rect
+          x={Math.round(64 * 0.5 + 64 * 0.12 / 2 - 2)}
+          y={Math.round(64 * 0.6)}
+          width={Math.round(64 * 0.1)}
+          height="4"
+          rx="1.5"
+          fill="#f5a623"
+          opacity="0.85"
+        />
+        <rect
+          x={Math.round(64 * 0.5 + 64 * 0.12 / 2 - 2)}
+          y={Math.round(64 * 0.7)}
+          width={Math.round(64 * 0.06)}
+          height="4"
+          rx="1.5"
+          fill="#f5a623"
+          opacity="0.85"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function TaskManagerIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#1f1f22" size={size}>

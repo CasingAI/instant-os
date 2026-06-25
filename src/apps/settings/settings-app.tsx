@@ -25,7 +25,6 @@ import { AiUsageView } from './ai-usage-view.tsx'
 import { SafariUsageView } from './safari-usage-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
-import { AccountView } from './account-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
@@ -63,7 +62,7 @@ const SETTINGS_WINDOW_TITLE = '系统设置'
 const INSTALLED_APPS_PREVIEW_COUNT = 10
 
 export function SettingsApp() {
-  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const [route, setRoute] = useState<SettingsRoute>(SETTINGS_DEFAULT_ROUTE)
   const hostRef = useRef<HTMLDivElement>(null)
@@ -175,7 +174,6 @@ export function SettingsApp() {
   const showAppsStorage = view === 'apps-storage'
   const showOtherStorage = view === 'other-storage'
   const showAppDetail = view === 'app-detail' && selectedApp
-  const showAccount = view === 'account'
   const showDisplay = view === 'display'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
@@ -196,6 +194,10 @@ export function SettingsApp() {
   const nestedRoute = isNestedSettingsRoute(route)
 
   const navigatePane = (nextRoute: SettingsRoute) => {
+    if (nextRoute.view === 'account') {
+      openApp('keychain')
+      return
+    }
     if (nextRoute.view === 'usage') {
       setCacheRevision((value) => value + 1)
     }
@@ -319,10 +321,6 @@ export function SettingsApp() {
             }
           />
         )}
-      </SettingsKeepLayer>
-
-      <SettingsKeepLayer show={showAccount} keep={showAccount}>
-        <AccountView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showDisplay} keep={keepDisplay}>

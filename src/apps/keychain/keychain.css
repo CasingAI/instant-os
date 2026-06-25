@@ -1,0 +1,660 @@
+/* 钥匙串 — iOS 6 拟物风格，类似书架 */
+.keychain {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--instant-bg);
+  color: #1d1d1f;
+  font-family: var(--app-text-font-family);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ── 工具栏 ── */
+
+.keychain__toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 12px;
+  background:
+    linear-gradient(180deg, #f7f7f9 0%, #e5e5ea 100%);
+  border-bottom: 1px solid #b8b8c0;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+.keychain__toolbar > :first-child {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.keychain__toolbar > :last-child {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.keychain__toolbar-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #1d1d1f;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.keychain__toolbar-title--center {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: center;
+  max-width: calc(100% - 136px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+}
+
+.keychain__toolbar > :first-child,
+.keychain__toolbar > :last-child {
+  position: relative;
+  z-index: 1;
+}
+
+.keychain__toolbar-spacer {
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.keychain__toolbar-btn--action {
+  min-width: 64px;
+}
+
+/* ── 保存按钮 ── */
+
+.keychain__save-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 29px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #7090c8;
+  background: linear-gradient(180deg, #4a90d9 0%, #2563eb 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  animation: keychain-save-pop-in 0.2s ease-out;
+}
+
+.keychain__save-btn:hover {
+  background: linear-gradient(180deg, #5b9de4 0%, #3476f0 100%);
+}
+
+.keychain__save-btn:active {
+  background: linear-gradient(180deg, #3476f0 0%, #2563eb 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes keychain-save-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── 标题栏按钮（添加/删除/返回） ── */
+
+.keychain__toolbar-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 29px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #a8a8b0;
+  background: linear-gradient(180deg, #fff 0%, #e9e9ed 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d1d1f;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+
+.keychain__toolbar-btn:hover {
+  background: linear-gradient(180deg, #fff 0%, #f0f0f4 100%);
+}
+
+.keychain__toolbar-btn:active {
+  background: linear-gradient(180deg, #e9e9ed 0%, #d8d8de 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.keychain__toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.keychain__toolbar-btn--danger {
+  color: #d63031;
+  border-color: #d63031;
+}
+
+/* ── 内容区 ── */
+
+.keychain__content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 43px,
+      rgba(0, 0, 0, 0.04) 43px,
+      rgba(0, 0, 0, 0.04) 44px
+    );
+}
+
+.keychain__content--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 48px 24px;
+  background: var(--instant-bg);
+}
+
+.keychain__empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #86868b;
+}
+
+.keychain__empty-hint {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #aeaeb2;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+/* ── 模型列表 ── */
+
+.keychain__list {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.keychain__list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  border-top: 3px solid transparent;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s, border-top-color 0.08s;
+}
+
+.keychain__list-item:hover {
+  background: #f5f5ff;
+}
+
+.keychain__list-item:active {
+  background: #e8e8f8;
+}
+
+.keychain__list-item--dragging {
+  opacity: 0.4;
+}
+
+.keychain__list-item--over {
+  border-top-color: #2563eb;
+}
+
+/* ── 拖拽手柄 ── */
+
+.keychain__grip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 100%;
+  cursor: grab;
+}
+
+.keychain__grip:active {
+  cursor: grabbing;
+}
+
+.keychain__grip-line {
+  display: block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: #aeaeb2;
+}
+
+/* ── 模型信息 ── */
+
+.keychain__model-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.keychain__model-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keychain__model-provider {
+  font-size: 11px;
+  color: #8e8e93;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 激活徽章 ── */
+
+.keychain__badge {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #34c759 0%, #28a745 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.1);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* ── 底部提示 ── */
+
+.keychain__hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 24px;
+  font-size: 12px;
+  color: #8e8e93;
+  text-align: center;
+}
+
+/* ── 展开指示器 ── */
+
+.keychain__chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: #8e8e93;
+  opacity: 0.3;
+}
+
+/* ── 供应商设置视图 ── */
+
+.keychain__settings {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 43px,
+      rgba(0, 0, 0, 0.04) 43px,
+      rgba(0, 0, 0, 0.04) 44px
+    );
+}
+
+.keychain__settings-body {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+}
+
+/* ── 表单字段 ── */
+
+.keychain__field-group {
+  margin-bottom: 20px;
+}
+
+.keychain__field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6d6d72;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.keychain__field-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #c8c8ce;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff 0%, #fafafc 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+  color: #1d1d1f;
+  box-sizing: border-box;
+  transition: border-color 0.12s;
+}
+
+.keychain__field-input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
+}
+
+.keychain__field-input::placeholder {
+  color: #aeaeb2;
+}
+
+.keychain__field-group--choice .settings-choice-field {
+  width: 100%;
+}
+
+.keychain__field-group--choice .settings-choice-field__trigger {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #c8c8ce;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff 0%, #fafafc 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+  color: #1d1d1f;
+  text-align: left;
+}
+
+.keychain__field-group--choice .settings-choice-field__trigger--open,
+.keychain__field-group--choice .settings-choice-field__trigger:focus-visible {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
+}
+
+/* ── 模型复选框列表 ── */
+
+.keychain__model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: #fff;
+  border: 1px solid #c8c8ce;
+  border-radius: 8px;
+  --keychain-model-row-height: 36px;
+  max-height: calc(var(--keychain-model-row-height) * 2.5);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.keychain__model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--keychain-model-row-height);
+  min-height: var(--keychain-model-row-height);
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.keychain__model-row:last-of-type {
+  border-bottom: none;
+}
+
+.keychain__model-row--disabled {
+  opacity: 0.4;
+}
+
+.keychain__model-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #c8c8ce;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #fff 0%, #f0f0f4 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+}
+
+.keychain__model-toggle--on {
+  border-color: #4a90d9;
+  background: linear-gradient(180deg, #5b9de4 0%, #2563eb 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 1px 2px rgba(37, 99, 235, 0.2);
+}
+
+.keychain__model-toggle-mark {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
+}
+
+.keychain__model-check-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #1d1d1f;
+}
+
+.keychain__model-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.keychain__inline-btn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+
+.keychain__inline-btn:hover {
+  background: #f0f0f4;
+}
+
+.keychain__inline-btn--default {
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.25);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.keychain__inline-btn--default:hover {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.keychain__inline-btn--remove {
+  color: #d63031;
+}
+
+.keychain__inline-btn--remove:hover {
+  background: rgba(214, 48, 49, 0.06);
+}
+
+/* ── 自定义模型空状态 ── */
+
+.keychain__model-empty-hint {
+  padding: 12px 10px;
+  color: #aeaeb2;
+  font-size: 12px;
+  text-align: center;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* ── 自定义模型输入 ── */
+
+.keychain__model-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.keychain__model-add-input {
+  flex: 1;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #c8c8ce;
+  border-radius: 4px;
+  background: #f9f9fb;
+  font-size: 13px;
+  color: #1d1d1f;
+  box-sizing: border-box;
+}
+
+.keychain__model-add-input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.1);
+}
+
+.keychain__model-add-input::placeholder {
+  color: #aeaeb2;
+}
+
+.keychain__model-add-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 4px;
+  border: 1px solid #7090c8;
+  background: linear-gradient(180deg, #4a90d9 0%, #2563eb 100%);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.keychain__model-add-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Switch 行 ── */
+
+.keychain__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  margin-top: 8px;
+}
+
+.keychain__switch-label {
+  font-size: 13px;
+  color: #1d1d1f;
+}
+
+/* ── 页脚 ── */
+
+.keychain__settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  margin-top: 8px;
+}
+
+.keychain__done-btn {
+  height: 32px;
+  padding: 0 24px;
+  border-radius: 6px;
+  border: 1px solid #7090c8;
+  background: linear-gradient(180deg, #4a90d9 0%, #2563eb 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.keychain__done-btn:hover {
+  background: linear-gradient(180deg, #5b9de4 0%, #3476f0 100%);
+}
+
+.keychain__done-btn:active {
+  background: linear-gradient(180deg, #3476f0 0%, #2563eb 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.keychain__done-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── 容器查询 ── */
+
+@container app-window (max-width: 480px) {
+  .keychain__settings-body {
+    padding: 12px 12px 24px;
+  }
+}

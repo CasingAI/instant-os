@@ -1,4 +1,4 @@
-export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'custom'
+export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'mimo-token-plan' | 'custom'
 
 export type AiModelPreset = {
   id: string
@@ -11,6 +11,30 @@ export type AiProviderPreset = {
   baseURL: string
   models: readonly AiModelPreset[]
   defaultModel: string
+}
+
+// --- V2 multi-provider types ---
+
+export type AiModelEntry = {
+  modelId: string
+  name: string
+}
+
+export type AiProviderEntry = {
+  id: string
+  providerId: AiProviderId
+  name?: string
+  apiKey: string
+  baseURL?: string
+  enabledModels: AiModelEntry[]
+  defaultModel: string
+  thinkingEnabled: boolean
+}
+
+export type AccountSettingsV2 = {
+  version: 2
+  providers: AiProviderEntry[]
+  preferredIndex: number
 }
 
 export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
@@ -42,7 +66,7 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
   },
   {
     id: 'mimo',
-    name: '小米 MiMo',
+    name: '小米 MiMo (API)',
     baseURL: 'https://api.xiaomimimo.com/v1',
     models: [
       { id: 'mimo-v2.5-pro', name: 'MiMo V2.5 Pro' },
@@ -53,6 +77,16 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
       { id: 'mimo-v2-flash', name: 'MiMo V2 Flash' },
     ],
     defaultModel: 'mimo-v2-flash',
+  },
+  {
+    id: 'mimo-token-plan',
+    name: '小米 MiMo (Token Plan)',
+    baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    models: [
+      { id: 'mimo-v2.5-pro', name: 'MiMo V2.5 Pro' },
+      { id: 'mimo-v2.5', name: 'MiMo V2.5' },
+    ],
+    defaultModel: 'mimo-v2.5-pro',
   },
   {
     id: 'custom',
@@ -142,4 +176,70 @@ export function normalizeStoredModel(providerId: AiProviderId, model: string): s
 
 export function getDefaultThinkingEnabled(_providerId: AiProviderId): boolean {
   return false
+}
+
+export function generateProviderEntryId(): string {
+  return crypto.randomUUID()
+}
+
+export function buildEnabledModelsFromPreset(
+  providerId: AiProviderId,
+): AiModelEntry[] {
+  const preset = findAiProviderPreset(providerId)
+  if (!preset) {
+    return []
+  }
+  return preset.models.map((model) => ({
+    modelId: model.id,
+    name: model.name,
+  }))
+}
+
+export function defaultProviderEntry(
+  providerId: AiProviderId = DEFAULT_AI_PROVIDER_ID,
+): AiProviderEntry {
+  if (isCustomProvider(providerId)) {
+    return {
+      id: generateProviderEntryId(),
+      providerId,
+      apiKey: '',
+      enabledModels: [],
+      defaultModel: '',
+      thinkingEnabled: false,
+    }
+  }
+
+  const preset = findAiProviderPreset(providerId)
+  return {
+    id: generateProviderEntryId(),
+    providerId,
+    apiKey: '',
+    enabledModels: buildEnabledModelsFromPreset(providerId),
+    defaultModel: preset?.defaultModel ?? '',
+    thinkingEnabled: getDefaultThinkingEnabled(providerId),
+  }
+}
+
+export function isProviderEntryValid(entry: AiProviderEntry): boolean {
+  const hasCredentials = Boolean(entry.apiKey.trim() && entry.defaultModel.trim())
+  const hasModels = entry.enabledModels.some(
+    (model) => model.modelId.trim() === entry.defaultModel.trim(),
+  )
+  if (!hasCredentials || !hasModels) {
+    return false
+  }
+  if (isCustomProvider(entry.providerId)) {
+    return Boolean(entry.baseURL?.trim())
+  }
+  return true
+}
+
+export function resolveProviderEntryBaseURL(entry: AiProviderEntry): string | undefined {
+  if (entry.baseURL?.trim()) {
+    return entry.baseURL.trim()
+  }
+  if (isCustomProvider(entry.providerId)) {
+    return undefined
+  }
+  return resolveProviderBaseURL(entry.providerId)
 }

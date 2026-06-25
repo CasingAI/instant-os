@@ -6,6 +6,7 @@ type IosNavBackButtonProps = {
   onClick: (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => void
   class?: string
   iconSize?: number
+  disabled?: boolean
   'aria-label'?: string
 }
 
@@ -14,6 +15,7 @@ export function IosNavBackButton({
   onClick,
   class: className,
   iconSize = 13,
+  disabled = false,
   'aria-label': ariaLabel,
 }: IosNavBackButtonProps) {
   return (
@@ -21,6 +23,7 @@ export function IosNavBackButton({
       type="button"
       class={`ios-nav-back${className ? ` ${className}` : ''}`}
       onClick={onClick}
+      disabled={disabled}
       aria-label={ariaLabel}
     >
       <span class="ios-nav-back__icon" aria-hidden="true">

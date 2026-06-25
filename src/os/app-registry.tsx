@@ -16,12 +16,13 @@ import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
+import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, KeychainIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -149,6 +150,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: false,
     desktop: false,
   }),
+  withAbout({
+    id: 'keychain',
+    name: '钥匙串',
+    icon: KeychainIcon,
+    dock: false,
+    desktop: false,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
@@ -169,6 +177,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   settings: SettingsApp,
   'system-info': SystemInfoApp,
   'task-manager': TaskManagerApp,
+  keychain: KeychainApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

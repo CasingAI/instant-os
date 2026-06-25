@@ -158,4 +158,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '点击应用或窗口可切换到前台；「结束」会关闭该应用的全部窗口。任务管理器本身无法在此处结束。',
     ],
   },
+  keychain: {
+    version: 'AI 供应商账户管理',
+    paragraphs: [
+      '钥匙串用于管理多个 AI 模型供应商的 API Key 与模型配置。支持添加、编辑、排序和删除供应商，并选择首选供应商。',
+      '每个供应商可独立配置 API Key、Base URL、启用的模型列表以及默认模型。配置保存在本机，不会上传到服务器。',
+    ],
+  },
 }

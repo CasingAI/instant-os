@@ -164,6 +164,11 @@ export function MenuBar() {
           label: '任务管理器',
           onClick: () => openApp('task-manager'),
         },
+        {
+          type: 'action',
+          label: '钥匙串',
+          onClick: () => openApp('keychain'),
+        },
         { type: 'separator' },
         {
           type: 'action',
