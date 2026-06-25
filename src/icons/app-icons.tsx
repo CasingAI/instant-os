@@ -808,15 +808,6 @@ export function SpeechIcon({ size = 64 }: IconProps) {
 }
 
 export function KeychainIcon({ size = 64 }: IconProps) {
-  const keyRingOuter = Math.round(size * 0.38)
-  const keyRingInner = Math.round(size * 0.22)
-  const keyShaftWidth = Math.round(size * 0.12)
-  const keyShaftHeight = Math.round(size * 0.52)
-  const cx = Math.round(size * 0.5)
-  const ringCy = Math.round(size * 0.28)
-  const shaftX = Math.round(cx - keyShaftWidth / 2)
-  const shaftY = Math.round(size * 0.42)
-
   return (
     <AppIconTile color="#f5a623" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">

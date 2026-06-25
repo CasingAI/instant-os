@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'preact/hooks'
 import {
   AI_PROVIDER_PRESETS,
-  buildEnabledModelsFromPreset,
   defaultProviderEntry,
   findAiProviderPreset,
   isCustomProvider,
@@ -10,7 +9,6 @@ import {
   type AiProviderId,
 } from '../ai/ai-providers.ts'
 import { SettingsChoiceField } from '../ui/settings-choice-field.tsx'
-import { SettingsChoicePopoverMenu } from '../ui/settings-choice-popover-menu.tsx'
 import { SettingsInlineInputRow } from '../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../ui/settings-switch-row.tsx'
 import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
@@ -101,11 +99,6 @@ export function AiProviderForm({
 
   const showThinkingSwitch =
     entry.providerId === 'deepseek' || entry.providerId === 'mimo' || entry.providerId === 'mimo-token-plan'
-
-  const defaultModelOptions = entry.enabledModels.map((m) => ({
-    id: m.modelId,
-    label: m.name,
-  }))
 
   const renderModelSection = () => {
     if (isCustom) {

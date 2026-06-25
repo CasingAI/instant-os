@@ -276,7 +276,7 @@ export function KeychainApp() {
     const confirmed = await modal.confirm({
       title: '删除供应商',
       message: `确定要删除「${displayName}」吗？该供应商的所有配置将被移除。`,
-      destructive: true,
+      confirmTone: 'danger',
     })
     if (!confirmed) return
 
