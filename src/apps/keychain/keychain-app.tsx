@@ -137,14 +137,21 @@ export function KeychainApp() {
   })
 
   const [screen, setScreen] = useState<Screen>('main')
+  const [isAddingProvider, setIsAddingProvider] = useState(false)
   const [editingProviderIndex, setEditingProviderIndex] = useState<number>(-1)
   const [editingEntry, setEditingEntry] = useState<AiProviderEntry | undefined>(
     undefined,
   )
 
   const isDraggingRef = useRef(false)
+  const preventClickRef = useRef(false)
+  const dragIndexRef = useRef<number | undefined>(undefined)
+  const itemRefs = useRef<Map<number, HTMLElement>>(new Map())
   const [dragIndex, setDragIndex] = useState<number | undefined>(undefined)
   const [overIndex, setOverIndex] = useState<number | undefined>(undefined)
+  const [gripActiveIndex, setGripActiveIndex] = useState<number | undefined>(
+    undefined,
+  )
 
   const entryValid = useMemo(
     () => editingEntry && isProviderEntryValid(editingEntry),
@@ -226,12 +233,16 @@ export function KeychainApp() {
     setWorkingProviders((prev) => [...prev, entry])
     setEditingProviderIndex(newIndex)
     setEditingEntry(structuredClone(entry))
+    setIsAddingProvider(true)
     setScreen('provider-settings')
   }, [workingProviders.length])
 
   const handleOpenProviderSettings = useCallback(
     (item: FlatModelItem) => {
-      if (isDraggingRef.current) return
+      if (isDraggingRef.current || preventClickRef.current) {
+        preventClickRef.current = false
+        return
+      }
       const provider = workingProviders[item.providerIndex]
       if (!provider) return
       setEditingProviderIndex(item.providerIndex)
@@ -239,6 +250,7 @@ export function KeychainApp() {
         ...provider,
         enabledModels: provider.enabledModels.map((m) => ({ ...m })),
       })
+      setIsAddingProvider(false)
       setScreen('provider-settings')
     },
     [workingProviders],
@@ -264,8 +276,21 @@ export function KeychainApp() {
     })
 
     setScreen('main')
+    setIsAddingProvider(false)
     setEditingEntry(undefined)
   }, [editingEntry, editingProviderIndex])
+
+  const handleProviderCancel = useCallback(() => {
+    if (isAddingProvider && editingProviderIndex >= 0) {
+      setWorkingProviders((prev) =>
+        prev.filter((_, i) => i !== editingProviderIndex),
+      )
+    }
+
+    setScreen('main')
+    setIsAddingProvider(false)
+    setEditingEntry(undefined)
+  }, [isAddingProvider, editingProviderIndex])
 
   const handleProviderDelete = useCallback(async () => {
     if (editingProviderIndex < 0) return
@@ -290,6 +315,7 @@ export function KeychainApp() {
       setPreferredIndex(0)
       setSavedSnapshot(undefined)
       setScreen('main')
+      setIsAddingProvider(false)
       setEditingEntry(undefined)
       return
     }
@@ -304,48 +330,33 @@ export function KeychainApp() {
     setWorkingProviders(nextProviders)
     setPreferredIndex(newPref)
     setScreen('main')
+    setIsAddingProvider(false)
     setEditingEntry(undefined)
   }, [editingProviderIndex, workingProviders, preferredIndex, modal])
 
-  const handleDragStart = useCallback(
-    (index: number, event: DragEvent) => {
-      isDraggingRef.current = true
-      setDragIndex(index)
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', String(index))
+  const resolveHoverIndex = useCallback(
+    (clientY: number): number => {
+      for (let i = 0; i < flatModels.length; i++) {
+        const el = itemRefs.current.get(i)
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        if (clientY < rect.top + rect.height / 2) {
+          return i
+        }
       }
+      return Math.max(0, flatModels.length - 1)
     },
-    [],
+    [flatModels.length],
   )
 
-  const handleDragOver = useCallback(
-    (index: number, event: DragEvent) => {
-      event.preventDefault()
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move'
-      }
-      setOverIndex(index)
-    },
-    [],
-  )
-
-  const handleDragLeave = useCallback(() => {
-    setOverIndex(undefined)
-  }, [])
-
-  const handleDrop = useCallback(
-    (dropIndex: number) => {
-      setDragIndex(undefined)
-      setOverIndex(undefined)
-      isDraggingRef.current = false
-
-      if (dragIndex === undefined || dragIndex === dropIndex) return
+  const applyReorder = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex) return
 
       const items = [...flatModels]
-      const moved = items[dragIndex]
-      items.splice(dragIndex, 1)
-      items.splice(dropIndex, 0, moved)
+      const moved = items[fromIndex]
+      items.splice(fromIndex, 1)
+      items.splice(toIndex, 0, moved)
 
       const seenProviderIds: string[] = []
       const providerModels = new Map<string, AiModelEntry[]>()
@@ -382,14 +393,76 @@ export function KeychainApp() {
       setWorkingProviders(nextProviders)
       setPreferredIndex(0)
     },
-    [dragIndex, flatModels, workingProviders],
+    [flatModels, workingProviders],
   )
 
-  const handleDragEnd = useCallback(() => {
-    setDragIndex(undefined)
-    setOverIndex(undefined)
-    isDraggingRef.current = false
-  }, [])
+  const finishReorder = useCallback(
+    (fromIndex: number | undefined, toIndex: number | undefined) => {
+      setDragIndex(undefined)
+      setOverIndex(undefined)
+      setGripActiveIndex(undefined)
+      isDraggingRef.current = false
+      dragIndexRef.current = undefined
+
+      if (fromIndex === undefined || toIndex === undefined) return
+      applyReorder(fromIndex, toIndex)
+    },
+    [applyReorder],
+  )
+
+  const handleGripPointerDown = useCallback(
+    (index: number, event: PointerEvent) => {
+      if (event.button !== 0) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const grip = event.currentTarget as HTMLElement
+      isDraggingRef.current = true
+      preventClickRef.current = false
+      dragIndexRef.current = index
+      setDragIndex(index)
+      setGripActiveIndex(index)
+      grip.setPointerCapture(event.pointerId)
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (dragIndexRef.current === undefined) return
+        const nextOver = resolveHoverIndex(moveEvent.clientY)
+        setOverIndex((prev) => {
+          if (prev !== nextOver) {
+            preventClickRef.current = true
+          }
+          return nextOver
+        })
+      }
+
+      const onPointerEnd = (endEvent: PointerEvent) => {
+        grip.releasePointerCapture(endEvent.pointerId)
+        grip.removeEventListener('pointermove', onPointerMove)
+        grip.removeEventListener('pointerup', onPointerEnd)
+        grip.removeEventListener('pointercancel', onPointerEnd)
+
+        const fromIndex = dragIndexRef.current
+        const toIndex =
+          fromIndex === undefined
+            ? undefined
+            : resolveHoverIndex(endEvent.clientY)
+        if (
+          fromIndex !== undefined &&
+          toIndex !== undefined &&
+          fromIndex !== toIndex
+        ) {
+          preventClickRef.current = true
+        }
+        finishReorder(fromIndex, toIndex)
+      }
+
+      grip.addEventListener('pointermove', onPointerMove)
+      grip.addEventListener('pointerup', onPointerEnd)
+      grip.addEventListener('pointercancel', onPointerEnd)
+    },
+    [finishReorder, resolveHoverIndex],
+  )
 
   if (screen === 'provider-settings') {
     const settingsTitle =
@@ -401,19 +474,32 @@ export function KeychainApp() {
         <header class="keychain__toolbar">
           <IosNavBackButton
             label="钥匙串"
-            disabled={!entryValid}
-            onClick={handleProviderDone}
+            disabled={!isAddingProvider && !entryValid}
+            onClick={
+              isAddingProvider ? handleProviderCancel : handleProviderDone
+            }
           />
           <span class="keychain__toolbar-title keychain__toolbar-title--center">
             {settingsTitle}
           </span>
-          <button
-            type="button"
-            class="keychain__toolbar-btn keychain__toolbar-btn--danger keychain__toolbar-btn--action"
-            onClick={handleProviderDelete}
-          >
-            删除
-          </button>
+          {isAddingProvider ? (
+            <button
+              type="button"
+              class="keychain__save-btn"
+              disabled={!entryValid}
+              onClick={handleProviderDone}
+            >
+              完成
+            </button>
+          ) : (
+            <button
+              type="button"
+              class="keychain__toolbar-btn keychain__toolbar-btn--danger keychain__toolbar-btn--action"
+              onClick={handleProviderDelete}
+            >
+              删除
+            </button>
+          )}
         </header>
         <div class="keychain__settings">
           <div class="keychain__settings-body">
@@ -464,23 +550,31 @@ export function KeychainApp() {
         </div>
       ) : (
         <div class="keychain__content">
-          <div class="keychain__list">
+          <div
+            class={`keychain__list${
+              dragIndex !== undefined ? ' keychain__list--reordering' : ''
+            }`}
+          >
             {flatModels.map((item, index) => (
               <div
                 key={`${item.providerEntryId}-${item.modelId}`}
+                ref={(el) => {
+                  if (el) {
+                    itemRefs.current.set(index, el)
+                  } else {
+                    itemRefs.current.delete(index)
+                  }
+                }}
                 class={`keychain__list-item${
                   index === dragIndex ? ' keychain__list-item--dragging' : ''
                 }${index === overIndex ? ' keychain__list-item--over' : ''}`}
                 onClick={() => handleOpenProviderSettings(item)}
-                onDragOver={(e) => handleDragOver(index, e)}
-                onDragLeave={handleDragLeave}
-                onDrop={() => handleDrop(index)}
               >
                 <div
-                  class="keychain__grip"
-                  draggable
-                  onDragStart={(e) => handleDragStart(index, e)}
-                  onDragEnd={handleDragEnd}
+                  class={`keychain__grip${
+                    index === gripActiveIndex ? ' keychain__grip--active' : ''
+                  }`}
+                  onPointerDown={(e) => handleGripPointerDown(index, e)}
                 >
                   <span class="keychain__grip-line" />
                   <span class="keychain__grip-line" />
