@@ -579,6 +579,22 @@
     return message.indexOf('ResizeObserver loop') !== -1
   }
 
+  function isCssPreloadFailure(reason) {
+    var detail = safeString(reason)
+    return detail.indexOf('Unable to preload CSS for') !== -1
+  }
+
+  function onVitePreloadError(event) {
+    var reason = event.payload
+    var detail = safeString(reason)
+    pushError('vite.preload', detail)
+
+    if (isCssPreloadFailure(reason)) {
+      pushConsole('warn', ['主样式表预加载失败，应用将尝试继续启动（界面可能缺少样式）:', detail])
+      event.preventDefault()
+    }
+  }
+
   function onWindowError(event) {
     var target = event.target
     if (target && target !== window && target !== document) {
@@ -613,6 +629,12 @@
 
   function onUnhandledRejection(event) {
     var reason = event.reason
+    if (isCssPreloadFailure(reason)) {
+      pushError('unhandledrejection.css-preload', safeString(reason))
+      pushConsole('warn', ['主样式表预加载失败，应用将尝试继续启动（界面可能缺少样式）:', safeString(reason)])
+      event.preventDefault()
+      return
+    }
     var detail = safeString(reason)
     pushError('unhandledrejection', detail)
     activate(detail)
@@ -658,6 +680,7 @@
 
   installConsoleCapture()
   window.addEventListener('error', onWindowError)
+  window.addEventListener('vite:preloadError', onVitePreloadError)
   if (typeof window.Promise !== 'undefined') {
     window.addEventListener('unhandledrejection', onUnhandledRejection)
   }

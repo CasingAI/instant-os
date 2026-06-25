@@ -37,6 +37,8 @@
   color: var(--ios-nav-back-color);
   text-shadow: var(--ios-nav-back-text-shadow);
   box-shadow: var(--ios-nav-back-shadow);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .ios-nav-back__icon {

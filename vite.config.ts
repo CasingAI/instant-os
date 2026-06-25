@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
+import { bootCrashGuardFirst } from './vite-boot-crash-guard-first.ts'
 import { corsForSandboxedIframeAssets } from './vite-cors-for-sandboxed-iframe-assets.ts'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [preact(), corsForSandboxedIframeAssets()],
+  plugins: [preact(), corsForSandboxedIframeAssets(), bootCrashGuardFirst()],
   optimizeDeps: {
     include: ['monaco-editor', 'frimousse'],
   },

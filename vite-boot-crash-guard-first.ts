@@ -1,0 +1,29 @@
+import type { Plugin } from 'vite'
+
+const BOOT_CRASH_GUARD_SRC = '/boot-crash-guard.js'
+
+/** 构建产物中保证 boot-crash-guard 先于入口 module 执行。 */
+export function bootCrashGuardFirst(): Plugin {
+  return {
+    name: 'boot-crash-guard-first',
+    transformIndexHtml(html) {
+      const withoutGuard = html.replace(
+        new RegExp(`\\s*<script src="${BOOT_CRASH_GUARD_SRC.replace('/', '\\/')}"><\\/script>`, 'g'),
+        '',
+      )
+
+      const moduleScriptMatch = withoutGuard.match(
+        /<script type="module"[^>]*src="[^"]+"[^>]*><\/script>/,
+      )
+      if (!moduleScriptMatch) {
+        return withoutGuard
+      }
+
+      const guardScript = `<script src="${BOOT_CRASH_GUARD_SRC}"></script>`
+      return withoutGuard.replace(
+        moduleScriptMatch[0],
+        `${guardScript}\n    ${moduleScriptMatch[0]}`,
+      )
+    },
+  }
+}
