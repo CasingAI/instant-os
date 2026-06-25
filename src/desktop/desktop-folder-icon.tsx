@@ -24,8 +24,8 @@ type DesktopFolderIconProps = {
 const CORNER_RATIO = 0.22
 /** 外圈浅灰边宽度（72px 基准约 5px） */
 const BORDER_RATIO = 5 / 72
-/** 九宫格内边距（固定 5px） */
-const GRID_PADDING = 5
+/** 九宫格内边距与 _size_ 的比例，基准 72px → 5px */
+const GRID_PADDING_RATIO = 5 / 72
 /** 格子间距（72px 基准约 2px） */
 const GRID_GAP_RATIO = 2 / 72
 /** 小图标占格子的比例 */
@@ -35,9 +35,10 @@ function buildFolderIconGeometry(size: number) {
   const borderWidth = size * BORDER_RATIO
   const outerRadius = size * CORNER_RATIO
   const innerRadius = Math.max(0, outerRadius - borderWidth)
+  const gridPadding = Math.max(1, Math.round(size * GRID_PADDING_RATIO))
   const gap = Math.max(1, size * GRID_GAP_RATIO)
   const wellSize = size - borderWidth * 2
-  const cellSize = (wellSize - GRID_PADDING * 2 - gap * 2) / 3
+  const cellSize = (wellSize - gridPadding * 2 - gap * 2) / 3
   const miniSize = Math.max(4, Math.round(cellSize * ICON_IN_CELL))
   const miniRadius = miniSize * CORNER_RATIO
 
@@ -45,6 +46,7 @@ function buildFolderIconGeometry(size: number) {
     borderWidth,
     outerRadius,
     innerRadius,
+    gridPadding,
     gap,
     wellSize,
     miniSize,
@@ -58,6 +60,7 @@ export function DesktopFolderIcon({ apps, size = 72, mergeTarget = false }: Desk
     borderWidth,
     outerRadius,
     innerRadius,
+    gridPadding,
     gap,
     miniSize,
     miniRadius,
@@ -84,7 +87,7 @@ export function DesktopFolderIcon({ apps, size = 72, mergeTarget = false }: Desk
           class="desktop-folder-icon__grid"
           style={{
             gap: `${gap}px`,
-            padding: `${GRID_PADDING}px`,
+            padding: `${gridPadding}px`,
           }}
         >
           {Array.from({ length: 9 }, (_, index) => {
