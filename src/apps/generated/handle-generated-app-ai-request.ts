@@ -4,7 +4,7 @@ import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { recordOpenAiCompletionUsage, snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
-import type { GeneratedAppId } from '../../os/types.ts'
+import type { BridgeAppId } from './generated-app-ai-types.ts'
 import type {
   GeneratedAppAiRequestMessage,
   GeneratedAppAiResponseMessage,
@@ -73,7 +73,7 @@ function isStreamRequestBody(raw: string | undefined): boolean {
 
 function rejectRequest(
   target: ReplyTarget,
-  appId: GeneratedAppId,
+  appId: BridgeAppId,
   requestId: string,
   status: number,
   message: string,
@@ -116,7 +116,7 @@ function parseChatCompletionBody(raw: string | undefined): ChatCompletionBody | 
   }
 }
 
-function usageContext(appId: GeneratedAppId, appName: string | undefined) {
+function usageContext(appId: BridgeAppId, appName: string | undefined) {
   return {
     actor: appId,
     behavior: 'runtime-completion',
@@ -127,7 +127,7 @@ function usageContext(appId: GeneratedAppId, appName: string | undefined) {
 
 function postResponse(
   target: ReplyTarget,
-  appId: GeneratedAppId,
+  appId: BridgeAppId,
   requestId: string,
   status: number,
   body: string,
@@ -144,7 +144,7 @@ function postResponse(
 
 function postStreamChunk(
   target: ReplyTarget,
-  appId: GeneratedAppId,
+  appId: BridgeAppId,
   requestId: string,
   chunk: string,
 ): void {
@@ -159,7 +159,7 @@ function postStreamChunk(
 
 function postStreamEnd(
   target: ReplyTarget,
-  appId: GeneratedAppId,
+  appId: BridgeAppId,
   requestId: string,
   status: number,
   error?: string,

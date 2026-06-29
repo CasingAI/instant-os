@@ -6,3 +6,6 @@
 
 /fonts/*
   Access-Control-Allow-Origin: *
+
+/bridge.html
+  Content-Security-Policy: frame-ancestors *

@@ -1,4 +1,6 @@
-import type { GeneratedAppId } from '../../os/types.ts'
+import type { ExtAppId, GeneratedAppId } from '../../os/types.ts'
+
+export type BridgeAppId = GeneratedAppId | ExtAppId
 
 export const GENERATED_APP_AI_REQUEST_MESSAGE_TYPE = 'instant-generated-app-ai-request' as const
 export const GENERATED_APP_AI_RESPONSE_MESSAGE_TYPE = 'instant-generated-app-ai-response' as const
@@ -9,7 +11,7 @@ export const GENERATED_APP_AI_BASE_URL = 'https://instant-os.local/v1'
 
 export type GeneratedAppAiRequestMessage = {
   type: typeof GENERATED_APP_AI_REQUEST_MESSAGE_TYPE
-  appId: GeneratedAppId
+  appId: BridgeAppId
   requestId: string
   path: string
   method: string
@@ -20,7 +22,7 @@ export type GeneratedAppAiRequestMessage = {
 
 export type GeneratedAppAiResponseMessage = {
   type: typeof GENERATED_APP_AI_RESPONSE_MESSAGE_TYPE
-  appId: GeneratedAppId
+  appId: BridgeAppId
   requestId: string
   status: number
   body: string
@@ -28,14 +30,14 @@ export type GeneratedAppAiResponseMessage = {
 
 export type GeneratedAppAiStreamMessage = {
   type: typeof GENERATED_APP_AI_STREAM_MESSAGE_TYPE
-  appId: GeneratedAppId
+  appId: BridgeAppId
   requestId: string
   chunk: string
 }
 
 export type GeneratedAppAiStreamEndMessage = {
   type: typeof GENERATED_APP_AI_STREAM_END_MESSAGE_TYPE
-  appId: GeneratedAppId
+  appId: BridgeAppId
   requestId: string
   status: number
   error?: string

@@ -17,5 +17,8 @@ export function resolveActorLabel(actor: string): string {
   if (actor.startsWith('gen:')) {
     return actor.slice(4)
   }
+  if (actor.startsWith('ext:')) {
+    return actor.slice(4)
+  }
   return actor
 }
