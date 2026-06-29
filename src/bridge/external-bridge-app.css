@@ -22,47 +22,21 @@
 }
 
 .external-bridge__security-banner {
-  display: flex;
   flex-shrink: 0;
-  align-items: flex-start;
-  gap: 6px;
   box-sizing: border-box;
   width: 100%;
-  padding: 6px 10px 6px 12px;
+  padding: 6px 12px;
   border-bottom: 1px solid rgba(0, 122, 255, 0.16);
   background: rgba(0, 122, 255, 0.08);
   color: #004a99;
 }
 
 .external-bridge__security-banner-copy {
-  flex: 1;
   margin: 0;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.4;
   text-align: center;
-}
-
-.external-bridge__security-banner-close {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border: 1px solid rgba(0, 74, 153, 0.2);
-  border-radius: 4px;
-  font-size: 15px;
-  line-height: 1;
-  color: #004a99;
-  background: var(--external-bridge-plain-btn);
-  box-shadow: var(--external-bridge-shadow-out);
-}
-
-.external-bridge__security-banner-close:hover {
-  background: var(--external-bridge-plain-btn-hover);
-}
-
-.external-bridge__security-banner-close:active {
-  background: var(--external-bridge-plain-btn-active);
-  box-shadow: var(--external-bridge-shadow-in);
 }
 
 .external-bridge__card {

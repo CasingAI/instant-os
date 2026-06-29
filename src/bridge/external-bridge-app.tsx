@@ -20,18 +20,10 @@ function resolveHostSettingsUrl(): string {
 const EXTERNAL_BRIDGE_SECURITY_BANNER =
   'Instant OS 不会在任何非 casing-ai.com 域名的网站上要求您输入 AI API Key 或密码'
 
-function ExternalBridgeSecurityBanner({ onDismiss }: { onDismiss: () => void }) {
+function ExternalBridgeSecurityBanner() {
   return (
     <div class="external-bridge__security-banner" role="note">
       <p class="external-bridge__security-banner-copy">{EXTERNAL_BRIDGE_SECURITY_BANNER}</p>
-      <button
-        type="button"
-        class="external-bridge__security-banner-close"
-        aria-label="关闭安全提示"
-        onClick={onDismiss}
-      >
-        ×
-      </button>
     </div>
   )
 }
@@ -43,13 +35,9 @@ function ExternalBridgeShell({
   error?: boolean
   children: ComponentChildren
 }) {
-  const [bannerVisible, setBannerVisible] = useState(true)
-
   return (
     <div class={`external-bridge${error ? ' external-bridge--error' : ''}`}>
-      {bannerVisible ? (
-        <ExternalBridgeSecurityBanner onDismiss={() => setBannerVisible(false)} />
-      ) : undefined}
+      <ExternalBridgeSecurityBanner />
       {children}
     </div>
   )
