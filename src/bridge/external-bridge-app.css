@@ -1,4 +1,15 @@
 .external-bridge {
+  --external-bridge-border: #b0b0b0;
+  --external-bridge-shadow-out:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(0, 0, 0, 0.14);
+  --external-bridge-shadow-in: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+  --external-bridge-plain-btn: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --external-bridge-plain-btn-hover: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
+  --external-bridge-plain-btn-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --external-bridge-blue-btn: linear-gradient(180deg, #5cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  --external-bridge-blue-btn-active: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
+
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -7,16 +18,17 @@
   overflow: auto;
   background: linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
   color: #1c1c1e;
+  font-family: var(--app-text-font-family);
 }
 
 .external-bridge__security-banner {
   display: flex;
   flex-shrink: 0;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   box-sizing: border-box;
   width: 100%;
-  padding: 10px 12px 10px 16px;
+  padding: 6px 10px 6px 12px;
   border-bottom: 1px solid rgba(0, 122, 255, 0.16);
   background: rgba(0, 122, 255, 0.08);
   color: #004a99;
@@ -25,25 +37,32 @@
 .external-bridge__security-banner-copy {
   flex: 1;
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.4;
   text-align: center;
 }
 
 .external-bridge__security-banner-close {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  font-size: 18px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(0, 74, 153, 0.2);
+  border-radius: 4px;
+  font-size: 15px;
   line-height: 1;
   color: #004a99;
-  background: rgba(0, 74, 153, 0.08);
+  background: var(--external-bridge-plain-btn);
+  box-shadow: var(--external-bridge-shadow-out);
 }
 
 .external-bridge__security-banner-close:hover {
-  background: rgba(0, 74, 153, 0.14);
+  background: var(--external-bridge-plain-btn-hover);
+}
+
+.external-bridge__security-banner-close:active {
+  background: var(--external-bridge-plain-btn-active);
+  box-shadow: var(--external-bridge-shadow-in);
 }
 
 .external-bridge__card {
@@ -116,20 +135,51 @@
 
 .external-bridge__button {
   flex: 1;
-  min-height: 42px;
-  border-radius: 12px;
-  font-size: 15px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--external-bridge-border);
+  border-radius: 6px;
+  font-size: 14px;
   font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.1s ease,
+    box-shadow 0.1s ease;
 }
 
 .external-bridge__button--primary {
-  background: #007aff;
   color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background: var(--external-bridge-blue-btn);
+  border-color: #145da8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.external-bridge__button--primary:hover {
+  background: linear-gradient(180deg, #6fc0ff 0%, #3a93e8 55%, #2478d0 100%);
+}
+
+.external-bridge__button--primary:active {
+  background: var(--external-bridge-blue-btn-active);
+  box-shadow: var(--external-bridge-shadow-in);
 }
 
 .external-bridge__button--secondary {
-  background: rgba(0, 0, 0, 0.06);
-  color: #1c1c1e;
+  color: #333;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  background: var(--external-bridge-plain-btn);
+  box-shadow: var(--external-bridge-shadow-out);
+}
+
+.external-bridge__button--secondary:hover {
+  background: var(--external-bridge-plain-btn-hover);
+}
+
+.external-bridge__button--secondary:active {
+  background: var(--external-bridge-plain-btn-active);
+  box-shadow: var(--external-bridge-shadow-in);
 }
 
 .external-bridge__status-dot {

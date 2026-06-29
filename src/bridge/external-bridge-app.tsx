@@ -174,7 +174,7 @@ export function ExternalBridgeApp({ host = bridgeHost }: { host?: ExternalBridge
           </div>
           <h1 class="external-bridge__title">允许 AI 代理？</h1>
           <p class="external-bridge__message">
-            「{appLabel}」请求通过 Instant OS 代发 AI 请求。您的 API Key 不会暴露给该应用。
+            「{appLabel}」请求通过 Instant OS 借用 AI 代理服务。您的 API Key 不会暴露给该应用。
           </p>
           <p class="external-bridge__meta">来源：{session.parentOrigin}</p>
           <div class="external-bridge__actions">
