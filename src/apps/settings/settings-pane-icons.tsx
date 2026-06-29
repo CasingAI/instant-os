@@ -44,6 +44,20 @@ export function AccountPaneIcon() {
   )
 }
 
+export function ExternalBridgeConsentPaneIcon() {
+  return (
+    <AppIconTile color="#4f8f6f" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        🔗
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function DisplayPaneIcon() {
   const svgWidth = paneSvg(22)
   const svgHeight = paneSvg(20)

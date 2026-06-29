@@ -1674,6 +1674,23 @@
   gap: 6px;
 }
 
+.settings__list-head--external-bridge-consent {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr) auto;
+}
+
+.settings__list-head--external-bridge-consent span:nth-child(n + 2) {
+  text-align: right;
+}
+
+.settings__external-bridge-consent-list {
+  margin: 0;
+}
+
+.settings__external-bridge-consent-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .settings__actions--form {
   align-items: center;
   gap: 12px;

@@ -5,6 +5,7 @@ import {
   AiUsagePaneIcon,
   DisplayPaneIcon,
   DeveloperPaneIcon,
+  ExternalBridgeConsentPaneIcon,
   NewsPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
@@ -17,6 +18,7 @@ export type SettingsPaneId =
   | 'usage'
   | 'ai-usage'
   | 'account'
+  | 'external-bridge-consent'
   | 'display'
   | 'wallpaper'
   | 'dock'
@@ -30,6 +32,7 @@ export type SettingsRoute =
   | { view: 'usage' }
   | { view: 'ai-usage' }
   | { view: 'account' }
+  | { view: 'external-bridge-consent' }
   | { view: 'display' }
   | { view: 'wallpaper' }
   | { view: 'dock' }
@@ -61,6 +64,12 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'usage', label: '存储空间', Icon: StoragePaneIcon, route: { view: 'usage' } },
   { id: 'ai-usage', label: 'AI 用量', Icon: AiUsagePaneIcon, route: { view: 'ai-usage' } },
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' } },
+  {
+    id: 'external-bridge-consent',
+    label: '外链 AI 授权',
+    Icon: ExternalBridgeConsentPaneIcon,
+    route: { view: 'external-bridge-consent' },
+  },
   { id: 'display', label: '显示', Icon: DisplayPaneIcon, route: { view: 'display' } },
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
@@ -96,6 +105,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'ai-usage'
     case 'account':
       return 'account'
+    case 'external-bridge-consent':
+      return 'external-bridge-consent'
     case 'display':
     case 'display-emoji':
     case 'display-emoji-calibration':
@@ -123,6 +134,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'usage':
     case 'ai-usage':
     case 'account':
+    case 'external-bridge-consent':
     case 'display':
     case 'wallpaper':
     case 'dock':

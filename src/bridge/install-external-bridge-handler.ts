@@ -24,6 +24,7 @@ export type ExternalBridgeSession = {
   appName?: string
   parentOrigin: string
   phase: ExternalBridgePhase
+  hint?: string
 }
 
 type InstallExternalBridgeHandlerOptions = {
@@ -37,6 +38,8 @@ type ReplyTarget = {
 }
 
 const LOG_PREFIX = '[external-bridge]'
+const READY_RETRY_MS = 750
+const READY_RETRY_MAX = 40
 
 function postToParent(message: unknown, targetOrigin: string): void {
   if (window.parent === window) {
@@ -93,20 +96,48 @@ export function installExternalBridgeHandler(
   options: InstallExternalBridgeHandlerOptions,
 ): { dispose: () => void; controls: ExternalBridgeControls } {
   let session: ExternalBridgeSession | undefined
-  let announcedReady = false
+  let readyRetryTimer: ReturnType<typeof setInterval> | undefined
+
+  const clearReadyRetry = () => {
+    if (readyRetryTimer !== undefined) {
+      clearInterval(readyRetryTimer)
+      readyRetryTimer = undefined
+    }
+  }
 
   const notifySession = (next: ExternalBridgeSession | undefined) => {
     session = next
+    if (next) {
+      clearReadyRetry()
+    }
     options.onSessionChange(next)
   }
 
   const announceReady = () => {
-    if (announcedReady || window.parent === window) {
+    if (window.parent === window) {
       return
     }
 
-    announcedReady = true
     postToParent(buildExternalBridgeReady(options.launchAppId), '*')
+  }
+
+  const startReadyRetry = () => {
+    if (readyRetryTimer !== undefined || window.parent === window) {
+      return
+    }
+
+    readyRetryTimer = setInterval(() => {
+      if (session) {
+        clearReadyRetry()
+        return
+      }
+
+      announceReady()
+    }, READY_RETRY_MS)
+
+    setTimeout(() => {
+      clearReadyRetry()
+    }, READY_RETRY_MS * READY_RETRY_MAX)
   }
 
   const emitStatus = (
@@ -121,12 +152,19 @@ export function installExternalBridgeHandler(
     appId: string,
     appName: string | undefined,
     parentOrigin: string,
+    options?: { storageAccessAlreadyAttempted?: boolean },
   ): Promise<ExternalBridgeSession> => {
-    if (!hasOpenAiApiKey() && shouldPromptBridgeStorageAccess()) {
-      return { appId, appName, parentOrigin, phase: 'needs-storage-access' }
-    }
-
     if (!hasOpenAiApiKey()) {
+      if (
+        shouldPromptBridgeStorageAccess() &&
+        !options?.storageAccessAlreadyAttempted
+      ) {
+        const hasAccess = await hasBridgeStorageAccess()
+        if (!hasAccess) {
+          return { appId, appName, parentOrigin, phase: 'needs-storage-access' }
+        }
+      }
+
       return { appId, appName, parentOrigin, phase: 'no-api-key' }
     }
 
@@ -144,6 +182,11 @@ export function installExternalBridgeHandler(
 
     const hasAccess = await hasBridgeStorageAccess()
     if (!hasAccess) {
+      emitStatus({
+        ...session,
+        phase: 'needs-storage-access',
+        hint: '未能连接主站账户，请在浏览器提示中选择允许后重试。',
+      })
       return
     }
 
@@ -151,6 +194,7 @@ export function installExternalBridgeHandler(
       session.appId,
       session.appName,
       session.parentOrigin,
+      { storageAccessAlreadyAttempted: true },
     )
     emitStatus(nextSession, {
       modelName: nextSession.phase === 'authorized' ? resolveModelName() : undefined,
@@ -224,6 +268,7 @@ export function installExternalBridgeHandler(
 
   window.addEventListener('message', onMessage)
   announceReady()
+  startReadyRetry()
 
   const controls: ExternalBridgeControls = {
     approveConsent: () => {
@@ -250,7 +295,16 @@ export function installExternalBridgeHandler(
         return
       }
 
-      await requestBridgeStorageAccess()
+      const granted = await requestBridgeStorageAccess()
+      if (!granted) {
+        emitStatus({
+          ...session,
+          phase: 'needs-storage-access',
+          hint: '未能连接主站账户，请在浏览器提示中选择允许后重试。',
+        })
+        return
+      }
+
       await refreshSessionAfterStorageAccess()
     },
   }
@@ -258,6 +312,7 @@ export function installExternalBridgeHandler(
   return {
     dispose: () => {
       window.removeEventListener('message', onMessage)
+      clearReadyRetry()
       notifySession(undefined)
     },
     controls,

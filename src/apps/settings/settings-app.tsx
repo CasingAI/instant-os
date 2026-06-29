@@ -30,6 +30,7 @@ import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
 import { DeveloperSettingsView } from './developer-settings-view.tsx'
+import { ExternalBridgeConsentsView } from './external-bridge-consents-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
@@ -190,6 +191,7 @@ export function SettingsApp() {
   const showResources3dDetail = view === 'resources-3d-detail'
   const showNews = view === 'news'
   const showExperimental = view === 'experimental'
+  const showExternalBridgeConsent = view === 'external-bridge-consent'
   const activePaneId = paneIdForRoute(route)
   const nestedRoute = isNestedSettingsRoute(route)
 
@@ -389,6 +391,10 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showExperimental} keep={showExperimental}>
         <DeveloperSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showExternalBridgeConsent} keep={showExternalBridgeConsent}>
+        <ExternalBridgeConsentsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
         </div>
       </div>

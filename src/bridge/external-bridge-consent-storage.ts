@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'instant-os-external-bridge-consents'
 
-type BridgeConsentRecord = {
+export const EXTERNAL_BRIDGE_CONSENT_CHANGED_EVENT = 'instant-os-external-bridge-consent-changed'
+
+export type ExternalBridgeConsentRecord = {
   appId: string
   origin: string
   appName?: string
@@ -9,7 +11,7 @@ type BridgeConsentRecord = {
 
 type BridgeConsentStore = {
   version: 1
-  records: BridgeConsentRecord[]
+  records: ExternalBridgeConsentRecord[]
 }
 
 function readStore(): BridgeConsentStore {
@@ -32,6 +34,11 @@ function readStore(): BridgeConsentStore {
 
 function writeStore(store: BridgeConsentStore): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
+  window.dispatchEvent(new Event(EXTERNAL_BRIDGE_CONSENT_CHANGED_EVENT))
+}
+
+export function listExternalBridgeConsents(): ExternalBridgeConsentRecord[] {
+  return [...readStore().records].sort((left, right) => right.approvedAt - left.approvedAt)
 }
 
 export function hasExternalBridgeConsent(appId: string, origin: string): boolean {

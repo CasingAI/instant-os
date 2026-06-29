@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren } from 'preact'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { InstantLogoIcon } from '../icons/app-icons.tsx'
-import {
-  installExternalBridgeHandler,
-  validateBridgeEmbedContext,
-  type ExternalBridgeSession,
-} from './install-external-bridge-handler.ts'
-import { parseBridgeLaunchParams } from './parse-bridge-launch-params.ts'
+import type { ExternalBridgeSession } from './install-external-bridge-handler.ts'
+import { createExternalBridgeHost, type ExternalBridgeHost } from './external-bridge-host.ts'
 import './external-bridge-app.css'
+
+const bridgeHost = createExternalBridgeHost(
+  typeof window !== 'undefined' ? window.location.search : '',
+)
 
 function resolveHostSettingsUrl(): string {
   const url = new URL(window.location.href)
@@ -14,6 +15,44 @@ function resolveHostSettingsUrl(): string {
   url.search = ''
   url.hash = ''
   return url.href
+}
+
+const EXTERNAL_BRIDGE_SECURITY_BANNER =
+  'Instant OS 不会在任何非 casing-ai.com 域名的网站上要求您输入 AI API Key 或密码'
+
+function ExternalBridgeSecurityBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div class="external-bridge__security-banner" role="note">
+      <p class="external-bridge__security-banner-copy">{EXTERNAL_BRIDGE_SECURITY_BANNER}</p>
+      <button
+        type="button"
+        class="external-bridge__security-banner-close"
+        aria-label="关闭安全提示"
+        onClick={onDismiss}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+function ExternalBridgeShell({
+  error,
+  children,
+}: {
+  error?: boolean
+  children: ComponentChildren
+}) {
+  const [bannerVisible, setBannerVisible] = useState(true)
+
+  return (
+    <div class={`external-bridge${error ? ' external-bridge--error' : ''}`}>
+      {bannerVisible ? (
+        <ExternalBridgeSecurityBanner onDismiss={() => setBannerVisible(false)} />
+      ) : undefined}
+      {children}
+    </div>
+  )
 }
 
 function WaitingCard({ title, message }: { title: string; message: string }) {
@@ -29,51 +68,33 @@ function WaitingCard({ title, message }: { title: string; message: string }) {
   )
 }
 
-export function ExternalBridgeApp() {
-  const launchParams = useMemo(
-    () => parseBridgeLaunchParams(window.location.search),
-    [],
-  )
-  const embedError = launchParams ? validateBridgeEmbedContext(launchParams.appId) : undefined
-  const [session, setSession] = useState<ExternalBridgeSession | undefined>(undefined)
-  const controlsRef = useRef<ReturnType<typeof installExternalBridgeHandler>['controls'] | undefined>(
-    undefined,
-  )
+export function ExternalBridgeApp({ host = bridgeHost }: { host?: ExternalBridgeHost }) {
+  const launchParams = host.launchParams
+  const embedError = host.embedError
+  const [session, setSession] = useState<ExternalBridgeSession | undefined>(() => host.getSession())
+  const controlsRef = useRef(host.controls)
 
   useEffect(() => {
-    if (!launchParams || embedError) {
-      return
-    }
-
-    const bridge = installExternalBridgeHandler({
-      launchAppId: launchParams.appId,
-      launchAppName: launchParams.appName,
-      onSessionChange: setSession,
-    })
-
-    controlsRef.current = bridge.controls
-    return () => {
-      controlsRef.current = undefined
-      bridge.dispose()
-    }
-  }, [embedError, launchParams])
+    controlsRef.current = host.controls
+    return host.subscribe(setSession)
+  }, [host])
 
   if (!launchParams) {
     return (
-      <div class="external-bridge external-bridge--error">
+      <ExternalBridgeShell error>
         <WaitingCard
           title="无法启动桥接"
           message="URL 缺少有效的 appId 参数。第三方应用应通过 /bridge?appId=ext:… 加载此页面。"
         />
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   if (embedError) {
     return (
-      <div class="external-bridge external-bridge--error">
+      <ExternalBridgeShell error>
         <WaitingCard title="无法启动桥接" message={embedError} />
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
@@ -81,44 +102,47 @@ export function ExternalBridgeApp() {
 
   if (!session) {
     return (
-      <div class="external-bridge">
+      <ExternalBridgeShell>
         <WaitingCard
           title="正在连接"
           message="等待第三方应用完成握手。请保持此窗口打开。"
         />
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   if (session.phase === 'needs-storage-access') {
     return (
-      <div class="external-bridge">
+      <ExternalBridgeShell>
         <div class="external-bridge__card">
           <div class="external-bridge__brand">
             <InstantLogoIcon size={28} />
             <span class="external-bridge__brand-label">Instant OS</span>
           </div>
-          <h1 class="external-bridge__title">连接主站账户</h1>
+          <h1 class="external-bridge__title">同步主站 AI 账户</h1>
           <p class="external-bridge__message">
-            您已在 Instant OS 主站配置过 AI 账户，但浏览器隔离了跨站 iframe 的存储。请点击下方按钮，允许此桥接页读取您在主站保存的设置。
+            点击下方按钮，使用您在 Instant OS 主站已配置的 AI 账户。
           </p>
+          {session.hint ? (
+            <p class="external-bridge__meta external-bridge__meta--hint">{session.hint}</p>
+          ) : undefined}
           <div class="external-bridge__actions">
             <button
               type="button"
               class="external-bridge__button external-bridge__button--primary"
               onClick={() => void controlsRef.current?.connectStorageAccess()}
             >
-              连接主站账户
+              同步主站设置
             </button>
           </div>
         </div>
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   if (session.phase === 'no-api-key') {
     return (
-      <div class="external-bridge">
+      <ExternalBridgeShell>
         <div class="external-bridge__card">
           <div class="external-bridge__brand">
             <InstantLogoIcon size={28} />
@@ -136,13 +160,13 @@ export function ExternalBridgeApp() {
             ，进入「系统设置 → 账户」完成配置。
           </p>
         </div>
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   if (session.phase === 'awaiting-consent') {
     return (
-      <div class="external-bridge">
+      <ExternalBridgeShell>
         <div class="external-bridge__card">
           <div class="external-bridge__brand">
             <InstantLogoIcon size={28} />
@@ -170,31 +194,31 @@ export function ExternalBridgeApp() {
             </button>
           </div>
         </div>
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   if (session.phase === 'denied') {
     return (
-      <div class="external-bridge">
+      <ExternalBridgeShell>
         <WaitingCard
           title="已拒绝连接"
           message="您已拒绝该应用使用 Instant OS 的 AI 代理。如需重新授权，请从第三方应用再次发起连接。"
         />
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   if (session.phase === 'error') {
     return (
-      <div class="external-bridge external-bridge--error">
+      <ExternalBridgeShell error>
         <WaitingCard title="连接失败" message="桥接握手失败，请关闭后重试。" />
-      </div>
+      </ExternalBridgeShell>
     )
   }
 
   return (
-    <div class="external-bridge">
+    <ExternalBridgeShell>
       <div class="external-bridge__card">
         <div class="external-bridge__brand">
           <InstantLogoIcon size={28} />
@@ -208,6 +232,6 @@ export function ExternalBridgeApp() {
           「{appLabel}」正在通过 Instant OS 安全代理 AI 请求。此窗口可最小化，请勿关闭。
         </p>
       </div>
-    </div>
+    </ExternalBridgeShell>
   )
 }
