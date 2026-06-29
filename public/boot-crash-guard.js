@@ -137,6 +137,29 @@
     )
   }
 
+  function appendMainModuleScript(script) {
+    var body = document.body
+    if (body) {
+      body.appendChild(script)
+      return
+    }
+
+    document.addEventListener(
+      'DOMContentLoaded',
+      function onReady() {
+        document.removeEventListener('DOMContentLoaded', onReady)
+        if (script.parentNode) {
+          return
+        }
+        var readyBody = document.body
+        if (readyBody) {
+          readyBody.appendChild(script)
+        }
+      },
+      { once: true },
+    )
+  }
+
   function loadMainModule() {
     var existing = document.getElementById(MAIN_MODULE_ID)
 
@@ -160,7 +183,7 @@
       script.id = MAIN_MODULE_ID
       script.type = 'module'
       script.src = MAIN_MODULE_SRC
-      document.body.appendChild(script)
+      appendMainModuleScript(script)
     }
 
     if (script.getAttribute('data-instant-boot-wired') === '1') {

@@ -122,7 +122,7 @@ export function installExternalBridgeHandler(
     appName: string | undefined,
     parentOrigin: string,
   ): Promise<ExternalBridgeSession> => {
-    if (!hasOpenAiApiKey() && (await shouldPromptBridgeStorageAccess())) {
+    if (!hasOpenAiApiKey() && shouldPromptBridgeStorageAccess()) {
       return { appId, appName, parentOrigin, phase: 'needs-storage-access' }
     }
 

@@ -45,14 +45,11 @@ export async function requestBridgeStorageAccess(): Promise<boolean> {
   }
 }
 
-export async function shouldPromptBridgeStorageAccess(): Promise<boolean> {
+/** 跨站嵌入且读不到 Key 时，只要浏览器支持 Storage Access API 就应先让用户连接主站账户。 */
+export function shouldPromptBridgeStorageAccess(): boolean {
   if (!isCrossSiteEmbeddedBridge()) {
     return false
   }
 
-  if (!supportsBridgeStorageAccess()) {
-    return false
-  }
-
-  return !(await hasBridgeStorageAccess())
+  return supportsBridgeStorageAccess()
 }
