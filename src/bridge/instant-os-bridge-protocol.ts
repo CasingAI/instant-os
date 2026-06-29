@@ -8,6 +8,7 @@ export const EXTERNAL_BRIDGE_STATUS_MESSAGE_TYPE = 'instant-os-external-bridge-s
 
 export type ExternalBridgePhase =
   | 'checking'
+  | 'needs-storage-access'
   | 'no-api-key'
   | 'awaiting-consent'
   | 'authorized'

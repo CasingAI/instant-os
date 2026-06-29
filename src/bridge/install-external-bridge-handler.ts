@@ -2,6 +2,11 @@ import { hasOpenAiApiKey, readDefaultModelFriendlyName } from '../ai/openai-conf
 import { handleGeneratedAppAiRequest } from '../apps/generated/handle-generated-app-ai-request.ts'
 import { isGeneratedAppAiRequestMessage } from '../apps/generated/generated-app-ai-types.ts'
 import {
+  hasBridgeStorageAccess,
+  requestBridgeStorageAccess,
+  shouldPromptBridgeStorageAccess,
+} from './bridge-storage-access.ts'
+import {
   grantExternalBridgeConsent,
   hasExternalBridgeConsent,
   revokeExternalBridgeConsent,
@@ -81,6 +86,7 @@ export function validateBridgeEmbedContext(launchAppId: string): string | undefi
 export type ExternalBridgeControls = {
   approveConsent: () => void
   denyConsent: () => void
+  connectStorageAccess: () => Promise<void>
 }
 
 export function installExternalBridgeHandler(
@@ -111,11 +117,15 @@ export function installExternalBridgeHandler(
     postToParent(buildStatus(nextSession, extras), nextSession.parentOrigin)
   }
 
-  const resolvePhaseAfterHandshake = (
+  const resolvePhaseAfterHandshake = async (
     appId: string,
     appName: string | undefined,
     parentOrigin: string,
-  ): ExternalBridgeSession => {
+  ): Promise<ExternalBridgeSession> => {
+    if (!hasOpenAiApiKey() && (await shouldPromptBridgeStorageAccess())) {
+      return { appId, appName, parentOrigin, phase: 'needs-storage-access' }
+    }
+
     if (!hasOpenAiApiKey()) {
       return { appId, appName, parentOrigin, phase: 'no-api-key' }
     }
@@ -125,6 +135,26 @@ export function installExternalBridgeHandler(
     }
 
     return { appId, appName, parentOrigin, phase: 'awaiting-consent' }
+  }
+
+  const refreshSessionAfterStorageAccess = async () => {
+    if (!session) {
+      return
+    }
+
+    const hasAccess = await hasBridgeStorageAccess()
+    if (!hasAccess) {
+      return
+    }
+
+    const nextSession = await resolvePhaseAfterHandshake(
+      session.appId,
+      session.appName,
+      session.parentOrigin,
+    )
+    emitStatus(nextSession, {
+      modelName: nextSession.phase === 'authorized' ? resolveModelName() : undefined,
+    })
   }
 
   const handleHandshake = (event: MessageEvent) => {
@@ -151,9 +181,10 @@ export function installExternalBridgeHandler(
     }
 
     const appName = event.data.appName?.trim() || options.launchAppName
-    const nextSession = resolvePhaseAfterHandshake(event.data.appId, appName, event.origin)
-    emitStatus(nextSession, {
-      modelName: nextSession.phase === 'authorized' ? resolveModelName() : undefined,
+    void resolvePhaseAfterHandshake(event.data.appId, appName, event.origin).then((nextSession) => {
+      emitStatus(nextSession, {
+        modelName: nextSession.phase === 'authorized' ? resolveModelName() : undefined,
+      })
     })
   }
 
@@ -213,6 +244,14 @@ export function installExternalBridgeHandler(
 
       revokeExternalBridgeConsent(session.appId, session.parentOrigin)
       emitStatus({ ...session, phase: 'denied' })
+    },
+    connectStorageAccess: async () => {
+      if (!session || session.phase !== 'needs-storage-access') {
+        return
+      }
+
+      await requestBridgeStorageAccess()
+      await refreshSessionAfterStorageAccess()
     },
   }
 

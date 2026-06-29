@@ -90,6 +90,32 @@ export function ExternalBridgeApp() {
     )
   }
 
+  if (session.phase === 'needs-storage-access') {
+    return (
+      <div class="external-bridge">
+        <div class="external-bridge__card">
+          <div class="external-bridge__brand">
+            <InstantLogoIcon size={28} />
+            <span class="external-bridge__brand-label">Instant OS</span>
+          </div>
+          <h1 class="external-bridge__title">连接主站账户</h1>
+          <p class="external-bridge__message">
+            您已在 Instant OS 主站配置过 AI 账户，但浏览器隔离了跨站 iframe 的存储。请点击下方按钮，允许此桥接页读取您在主站保存的设置。
+          </p>
+          <div class="external-bridge__actions">
+            <button
+              type="button"
+              class="external-bridge__button external-bridge__button--primary"
+              onClick={() => void controlsRef.current?.connectStorageAccess()}
+            >
+              连接主站账户
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (session.phase === 'no-api-key') {
     return (
       <div class="external-bridge">

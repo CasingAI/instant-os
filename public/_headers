@@ -9,6 +9,8 @@
 
 /bridge
   Content-Security-Policy: frame-ancestors *
+  Permissions-Policy: storage-access=*
 
 /bridge.html
   Content-Security-Policy: frame-ancestors *
+  Permissions-Policy: storage-access=*
