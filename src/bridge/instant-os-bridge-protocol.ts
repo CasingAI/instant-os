@@ -1,6 +1,6 @@
-/** 外链应用独立运行时，通过 iframe 加载宿主 /bridge.html 与主站通信。 */
+/** 外链应用独立运行时，通过 iframe 加载宿主 /bridge 与主站通信。 */
 
-export const EXTERNAL_BRIDGE_PATH = '/bridge.html' as const
+export const EXTERNAL_BRIDGE_PATH = '/bridge' as const
 
 export const EXTERNAL_BRIDGE_READY_MESSAGE_TYPE = 'instant-os-external-bridge-ready' as const
 export const EXTERNAL_BRIDGE_HANDSHAKE_MESSAGE_TYPE = 'instant-os-external-bridge-handshake' as const

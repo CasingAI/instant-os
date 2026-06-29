@@ -63,7 +63,7 @@ export function ExternalBridgeApp() {
       <div class="external-bridge external-bridge--error">
         <WaitingCard
           title="无法启动桥接"
-          message="URL 缺少有效的 appId 参数。第三方应用应通过 /bridge.html?appId=ext:… 加载此页面。"
+          message="URL 缺少有效的 appId 参数。第三方应用应通过 /bridge?appId=ext:… 加载此页面。"
         />
       </div>
     )

@@ -7,5 +7,8 @@
 /fonts/*
   Access-Control-Allow-Origin: *
 
+/bridge
+  Content-Security-Policy: frame-ancestors *
+
 /bridge.html
   Content-Security-Policy: frame-ancestors *
