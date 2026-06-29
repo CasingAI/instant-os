@@ -10,6 +10,21 @@ type StorageAccessHandle = {
   localStorage: Storage
 }
 
+type BridgeRequestStorageAccess = ((
+  options: StorageAccessRequestOptions,
+) => Promise<StorageAccessHandle | void>) & {
+  (): Promise<void>
+}
+
+function callRequestStorageAccess(
+  options: StorageAccessRequestOptions,
+): Promise<StorageAccessHandle | void> {
+  const requestStorageAccess = document.requestStorageAccess.bind(
+    document,
+  ) as BridgeRequestStorageAccess
+  return requestStorageAccess(options)
+}
+
 export function isCrossSiteEmbeddedBridge(): boolean {
   if (window.parent === window) {
     return false
@@ -48,9 +63,9 @@ async function requestBridgeLocalStorageHandle(): Promise<Storage | undefined> {
   }
 
   try {
-    const result = await document.requestStorageAccess({ localStorage: true } as StorageAccessRequestOptions)
+    const result = await callRequestStorageAccess({ localStorage: true })
     if (result && typeof result === 'object' && 'localStorage' in result) {
-      return (result as StorageAccessHandle).localStorage
+      return result.localStorage
     }
 
     if (await document.hasStorageAccess()) {
