@@ -1,3 +1,5 @@
+import { getBridgeStorageOverride } from './bridge-storage-context.ts'
+
 const STORAGE_KEY = 'instant-os-external-bridge-consents'
 
 export const EXTERNAL_BRIDGE_CONSENT_CHANGED_EVENT = 'instant-os-external-bridge-consent-changed'
@@ -14,9 +16,13 @@ type BridgeConsentStore = {
   records: ExternalBridgeConsentRecord[]
 }
 
+function resolveConsentStorage(): Storage {
+  return getBridgeStorageOverride() ?? localStorage
+}
+
 function readStore(): BridgeConsentStore {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = resolveConsentStorage().getItem(STORAGE_KEY)
     if (!raw) {
       return { version: 1, records: [] }
     }
@@ -33,7 +39,7 @@ function readStore(): BridgeConsentStore {
 }
 
 function writeStore(store: BridgeConsentStore): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
+  resolveConsentStorage().setItem(STORAGE_KEY, JSON.stringify(store))
   window.dispatchEvent(new Event(EXTERNAL_BRIDGE_CONSENT_CHANGED_EVENT))
 }
 

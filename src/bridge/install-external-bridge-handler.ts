@@ -5,6 +5,7 @@ import {
   hasBridgeStorageAccess,
   requestBridgeStorageAccess,
   shouldPromptBridgeStorageAccess,
+  tryBindBridgeStorageSilently,
 } from './bridge-storage-access.ts'
 import {
   grantExternalBridgeConsent,
@@ -154,15 +155,16 @@ export function installExternalBridgeHandler(
     parentOrigin: string,
     options?: { storageAccessAlreadyAttempted?: boolean },
   ): Promise<ExternalBridgeSession> => {
+    if (shouldPromptBridgeStorageAccess()) {
+      await tryBindBridgeStorageSilently()
+    }
+
     if (!hasOpenAiApiKey()) {
       if (
         shouldPromptBridgeStorageAccess() &&
         !options?.storageAccessAlreadyAttempted
       ) {
-        const hasAccess = await hasBridgeStorageAccess()
-        if (!hasAccess) {
-          return { appId, appName, parentOrigin, phase: 'needs-storage-access' }
-        }
+        return { appId, appName, parentOrigin, phase: 'needs-storage-access' }
       }
 
       return { appId, appName, parentOrigin, phase: 'no-api-key' }

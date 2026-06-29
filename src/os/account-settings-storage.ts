@@ -17,6 +17,7 @@ import {
   writeLocalStorageItem,
 } from './device-storage.ts'
 import type { OpenAiConfig } from '../ai/openai-config.ts'
+import { getBridgeStorageOverride } from '../bridge/bridge-storage-context.ts'
 
 // Legacy single-provider type for migration
 type LegacyAccountSettings = {
@@ -218,9 +219,13 @@ function normalizeLegacySettings(
   }
 }
 
-export function loadAccountSettings(): AccountSettingsV2 | undefined {
+function resolveAccountSettingsStorage(storage?: Storage): Storage {
+  return storage ?? getBridgeStorageOverride() ?? localStorage
+}
+
+export function loadAccountSettings(storage?: Storage): AccountSettingsV2 | undefined {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = resolveAccountSettingsStorage(storage).getItem(STORAGE_KEY)
     if (!raw) {
       return undefined
     }
