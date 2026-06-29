@@ -1,8 +1,16 @@
 import type { Plugin } from 'vite'
 
 const BOOT_CRASH_GUARD_SRC = '/boot-crash-guard.js'
-
+const MAIN_MODULE_ID = 'instant-os-main-module'
 const BRIDGE_HTML_NAME = 'bridge.html'
+
+function ensureMainModuleScriptId(moduleTag: string): string {
+  if (moduleTag.includes(`id="${MAIN_MODULE_ID}"`) || moduleTag.includes(`id='${MAIN_MODULE_ID}'`)) {
+    return moduleTag
+  }
+
+  return moduleTag.replace('<script type="module"', `<script type="module" id="${MAIN_MODULE_ID}"`)
+}
 
 /** 构建产物中保证 boot-crash-guard 先于入口 module 执行（仅主应用 index，不含 bridge 页）。 */
 export function bootCrashGuardFirst(): Plugin {
@@ -25,10 +33,8 @@ export function bootCrashGuardFirst(): Plugin {
       }
 
       const guardScript = `<script src="${BOOT_CRASH_GUARD_SRC}"></script>`
-      return withoutGuard.replace(
-        moduleScriptMatch[0],
-        `${guardScript}\n    ${moduleScriptMatch[0]}`,
-      )
+      const moduleScript = ensureMainModuleScriptId(moduleScriptMatch[0])
+      return withoutGuard.replace(moduleScriptMatch[0], `${guardScript}\n    ${moduleScript}`)
     },
   }
 }

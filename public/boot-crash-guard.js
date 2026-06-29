@@ -137,35 +137,33 @@
     )
   }
 
-  function appendMainModuleScript(script) {
-    var body = document.body
-    if (body) {
-      body.appendChild(script)
-      return
+  function findMainModuleScript() {
+    var script = document.getElementById(MAIN_MODULE_ID)
+    if (script && script.getAttribute('type') === 'module') {
+      return script
     }
 
-    document.addEventListener(
-      'DOMContentLoaded',
-      function onReady() {
-        document.removeEventListener('DOMContentLoaded', onReady)
-        if (script.parentNode) {
-          return
-        }
-        var readyBody = document.body
-        if (readyBody) {
-          readyBody.appendChild(script)
-        }
-      },
-      { once: true },
-    )
+    return document.querySelector('script[type="module"]')
+  }
+
+  function wireMainModuleScript(script) {
+    if (!script || script.getAttribute('data-instant-boot-wired') === '1') {
+      return true
+    }
+
+    script.setAttribute('data-instant-boot-wired', '1')
+    script.addEventListener('error', function () {
+      reportMainModuleLoadFailure(script.src || MAIN_MODULE_SRC)
+    })
+    startBootWatchdog()
+    return true
   }
 
   function loadMainModule() {
-    var existing = document.getElementById(MAIN_MODULE_ID)
-
     if (!supportsModuleScripts()) {
-      if (existing) {
-        removeNode(existing)
+      var unsupported = document.getElementById(MAIN_MODULE_ID)
+      if (unsupported) {
+        removeNode(unsupported)
       }
       activate(
         '当前浏览器不支持 ES Module，无法加载 Instant OS。\n' +
@@ -174,26 +172,27 @@
       return
     }
 
-    var script = existing
-    if (!script) {
-      script = document.querySelector('script[type="module"]')
-    }
-    if (!script) {
-      script = document.createElement('script')
-      script.id = MAIN_MODULE_ID
-      script.type = 'module'
-      script.src = MAIN_MODULE_SRC
-      appendMainModuleScript(script)
-    }
-
-    if (script.getAttribute('data-instant-boot-wired') === '1') {
+    if (wireMainModuleScript(findMainModuleScript())) {
       return
     }
-    script.setAttribute('data-instant-boot-wired', '1')
-    script.addEventListener('error', function () {
-      reportMainModuleLoadFailure(script.src || MAIN_MODULE_SRC)
-    })
-    startBootWatchdog()
+
+    function wireWhenDomReady() {
+      if (wireMainModuleScript(findMainModuleScript())) {
+        return
+      }
+
+      activate(
+        '主应用入口脚本未找到。\n' +
+          '请刷新页面；若问题持续，请检查网络或联系支持。',
+      )
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', wireWhenDomReady, { once: true })
+      return
+    }
+
+    wireWhenDomReady()
   }
 
   function pushError(source, detail) {
