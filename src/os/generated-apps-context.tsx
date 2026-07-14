@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact'
+import { osNowMs } from './os-clock.ts'
 import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { nextAppVersion, normalizeAppVersion, DEFAULT_APP_VERSION } from '../apps/appstore/app-version.ts'
@@ -366,13 +367,13 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
 
       const version = normalizeAppVersion(app.version)
       const review: StoreReview = {
-        id: `user-${Date.now()}`,
+        id: `user-${osNowMs()}`,
         author: '你',
         rating: Math.max(1, Math.min(5, Math.round(rating))),
         body: trimmed,
         version,
         isUser: true,
-        createdAt: Date.now(),
+        createdAt: osNowMs(),
       }
 
       setListingReviewsCache((current) => ({
@@ -609,7 +610,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
             listing,
             error: message,
             isUpdate,
-            failedAt: Date.now(),
+            failedAt: osNowMs(),
           },
         ])
       }
@@ -820,7 +821,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
             version: DEFAULT_APP_VERSION,
             icodeProjectId: input.icodeProjectId,
             pendingUpdate: false,
-            versions: [{ version: DEFAULT_APP_VERSION, html, savedAt: Date.now() }],
+            versions: [{ version: DEFAULT_APP_VERSION, html, savedAt: osNowMs() }],
           })
 
       const nextApps = existing

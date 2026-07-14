@@ -8,6 +8,7 @@ import { SettingsApp } from '../apps/settings/settings-app.tsx'
 import { NewsApp } from '../apps/news/news-app.tsx'
 import { BooksApp } from '../apps/books/books-app.tsx'
 import { WeatherApp } from '../apps/weather/weather-app.tsx'
+import { CalendarApp } from '../apps/calendar/calendar-app.tsx'
 import { StocksApp } from '../apps/stocks/stocks-app.tsx'
 import { TranslateApp } from '../apps/translate/translate-app.tsx'
 import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
@@ -16,13 +17,14 @@ import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
+import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
 import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, KeychainIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -70,6 +72,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'weather',
     name: '天气',
     icon: WeatherIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'calendar',
+    name: '日历',
+    icon: CalendarIcon,
     dock: true,
     desktop: true,
   }),
@@ -148,6 +157,15 @@ export const APP_REGISTRY: AppDefinition[] = [
     name: '任务管理器',
     icon: TaskManagerIcon,
     dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
+  withAbout({
+    id: 'event-log',
+    name: '事件日志',
+    icon: EventLogIcon,
+    dock: false,
+    dockWhenRunning: true,
     desktop: false,
   }),
   withAbout({
@@ -166,6 +184,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   news: NewsApp,
   books: BooksApp,
   weather: WeatherApp,
+  calendar: CalendarApp,
   stocks: StocksApp,
   translate: TranslateApp,
   catgpt: CatGptApp,
@@ -177,6 +196,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   settings: SettingsApp,
   'system-info': SystemInfoApp,
   'task-manager': TaskManagerApp,
+  'event-log': EventLogApp,
   keychain: KeychainApp,
 }
 

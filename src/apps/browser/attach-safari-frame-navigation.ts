@@ -53,12 +53,27 @@ export function attachSafariFrameNavigation(
 
     const link = element.closest('a[href]')
     if (link) {
+      // 必须先阻止默认行为：href="#" / 空 href 会被注入的 <base> 解析成真实站并离开 iframe
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+
       const url = resolveFrameLinkUrl(link, getPageBaseUrl())
       if (url) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
         emitNavigate(url)
+        return
+      }
+
+      const hrefAttr = (link.getAttribute('href') ?? '').trim()
+      if (hrefAttr.startsWith('#') && hrefAttr.length > 1) {
+        try {
+          const id = decodeURIComponent(hrefAttr.slice(1))
+          if (id) {
+            doc.getElementById(id)?.scrollIntoView()
+          }
+        } catch {
+          // ignore malformed hash
+        }
       }
       return
     }

@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import { isStartPageUrl, normalizeBrowserUrl } from './normalize-browser-url.ts'
 
 export type HistoryVisitRecord = {
@@ -45,7 +46,7 @@ export function recordBrowserHistoryVisit(visit: { url: string; title: string })
 
   const url = normalizeBrowserUrl(visit.url)
   const title = visit.title.trim() || url
-  const visitedAt = Date.now()
+  const visitedAt = osNowMs()
   const store = loadStore()
 
   const withoutDuplicate = store.visits.filter((entry) => entry.url !== url)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { osNowMs } from '../../os/os-clock.ts'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 import { ICodeIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
@@ -189,7 +190,7 @@ function mergeDraftIntoSession(session: EditorSession, draftHtml: string, codeDi
 function sessionToInternalProject(session: EditorSession, draftHtml: string, codeDirty: boolean): ICodeInternalProject {
   const merged = mergeDraftIntoSession(session, draftHtml, codeDirty)
   const stored = getInternalProject(session.projectId)
-  const now = Date.now()
+  const now = osNowMs()
   return {
     id: session.projectId,
     name: merged.name,
@@ -575,7 +576,7 @@ export function ICodeApp() {
     }
 
     previewFrozenLoggedRef.current = true
-    const timestamp = Date.now()
+    const timestamp = osNowMs()
     setConsoleLogs((current) =>
       appendConsoleEntry(current, {
         type: ICODE_CONSOLE_MESSAGE_TYPE,
@@ -1358,10 +1359,10 @@ export function ICodeApp() {
           ? partialSummary
           : `${partialSummary}\n\n（已停止生成）`
         const assistantMessage: ICodeChatMessage = {
-          id: `assistant-${Date.now()}`,
+          id: `assistant-${osNowMs()}`,
           role: 'assistant',
           content: stoppedSummary,
-          createdAt: Date.now(),
+          createdAt: osNowMs(),
           reasoningText: snapshot.reasoningText || undefined,
           fullReply,
           outputText: snapshot.contentText || undefined,
@@ -1418,10 +1419,10 @@ export function ICodeApp() {
     generationRunRef.current = run
 
     const userMessage: ICodeChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-${osNowMs()}`,
       role: 'user',
       content: trimmedInstruction,
-      createdAt: Date.now(),
+      createdAt: osNowMs(),
     }
 
     const nextChat = [...activeSession.chat, userMessage]
@@ -1493,10 +1494,10 @@ export function ICodeApp() {
         ''
 
       const assistantMessage: ICodeChatMessage = {
-        id: `assistant-${Date.now()}`,
+        id: `assistant-${osNowMs()}`,
         role: 'assistant',
         content: displaySummary,
-        createdAt: Date.now(),
+        createdAt: osNowMs(),
         reasoningText: result.reasoningText,
         fullReply,
         outputText: result.outputText,

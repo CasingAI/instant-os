@@ -1,3 +1,4 @@
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   DEVICE_STORAGE_KEYS,
   getLocalStorageKeyBytes,
@@ -88,15 +89,15 @@ export function getCatGptStorageBytes(): number {
 }
 
 export function createSessionId(): string {
-  return `catgpt-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return `catgpt-${osNowMs()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
 export function createMessageId(): string {
-  return `catgpt-msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return `catgpt-msg-${osNowMs()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
 export function createSession(title = '新对话'): CatGptSession {
-  const now = Date.now()
+  const now = osNowMs()
   const id = createSessionId()
   return {
     id,
@@ -117,7 +118,7 @@ export function createMessage(
     id: createMessageId(),
     role,
     content: content.trim(),
-    createdAt: Date.now(),
+    createdAt: osNowMs(),
     isError: options?.isError,
   }
 }

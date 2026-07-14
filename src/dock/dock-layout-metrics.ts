@@ -2,7 +2,10 @@ import type { DesktopItemId } from '../os/desktop-folder-types.ts'
 import { isDesktopFolderId } from '../os/desktop-folder-types.ts'
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
-import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
+import {
+  isBuiltinAppVisibleOnDock,
+  isBuiltinAppVisibleOnDockWhenRunning,
+} from '../os/launcher-app-visibility.ts'
 import { isExtAppId, isGeneratedAppId, type AppId, type ExtAppId, type GeneratedAppId } from '../os/types.ts'
 import {
   DOCK_BASE_ICON_PX,
@@ -47,6 +50,7 @@ function isVisibleDockApp(
   appId: AppId,
   installedGeneratedAppIds: ReadonlySet<GeneratedAppId>,
   sessionExtAppIds: ReadonlySet<ExtAppId>,
+  whenRunning = false,
 ): boolean {
   if (isGeneratedAppId(appId)) {
     return installedGeneratedAppIds.has(appId)
@@ -57,7 +61,14 @@ function isVisibleDockApp(
   }
 
   const app = getAppDefinition(appId)
-  return app !== undefined && isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())
+  if (app === undefined) {
+    return false
+  }
+
+  const experimental = loadExperimentalSettings()
+  return whenRunning
+    ? isBuiltinAppVisibleOnDockWhenRunning(app, experimental)
+    : isBuiltinAppVisibleOnDock(app, experimental)
 }
 
 export function buildDockLayoutSnapshot(params: {
@@ -87,7 +98,7 @@ export function buildDockLayoutSnapshot(params: {
     if (pinnedSet.has(appId)) {
       continue
     }
-    if (isVisibleDockApp(appId, params.installedGeneratedAppIds, sessionExtAppIds)) {
+    if (isVisibleDockApp(appId, params.installedGeneratedAppIds, sessionExtAppIds, true)) {
       runningUnpinned.add(appId)
     }
   }

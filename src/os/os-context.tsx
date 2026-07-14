@@ -63,6 +63,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   news: { title: '新闻', width: 920, height: 620 },
   books: { title: '书架', width: 920, height: 620 },
   weather: { title: '天气', width: 410, height: 680 },
+  calendar: { title: '日历', width: 520, height: 700 },
   stocks: { title: '股票', width: 410, height: 680 },
   translate: { title: '翻译', width: 680, height: 520 },
   catgpt: { title: 'CatGPT', width: 860, height: 640 },
@@ -72,6 +73,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   gomoku: { title: '五子棋', width: 760, height: 680 },
   'system-info': { title: '系统信息', width: 680, height: 480 },
   'task-manager': { title: '任务管理器', width: 720, height: 520 },
+  'event-log': { title: '事件日志', width: 900, height: 620 },
   keychain: { title: '钥匙串', width: 680, height: 560 },
 }
 

@@ -1,5 +1,6 @@
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from '../../ai/ai-thinking.ts'
+import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
@@ -16,20 +17,38 @@ import {
   stabilizePartialHtml,
 } from './extract-partial-html.ts'
 import { describeBrowserUrl } from './normalize-browser-url.ts'
+import { isAiRefuseSiteAllowed } from './browser-settings-storage.ts'
+
+import { formatOsDateTimeContext } from '../../os/os-clock.ts'
+
+/** AI 唯一允许返回的页面生成错误码：该时刻该网站不存在。 */
+export const BROWSER_PAGE_ERROR_SITE_NOT_FOUND = 'SITE_NOT_FOUND'
+
+/** 浏览器错误页主文案（由外壳渲染，非 AI 文案）。 */
+export const BROWSER_PAGE_SITE_NOT_FOUND_MESSAGE = '此网站不存在'
+
+export class BrowserPageSiteNotFoundError extends Error {
+  readonly code = BROWSER_PAGE_ERROR_SITE_NOT_FOUND
+
+  constructor() {
+    super(BROWSER_PAGE_SITE_NOT_FOUND_MESSAGE)
+    this.name = 'BrowserPageSiteNotFoundError'
+  }
+}
 
 function formatCurrentDateContext(): string {
-  const now = new Date()
-  const date = now.toLocaleDateString('zh-CN', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-  const time = now.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-  return `${date} ${time}`
+  return formatOsDateTimeContext()
+}
+
+export function isSiteNotFoundResponse(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  const fenced = trimmed.match(/^```(?:\w+)?\s*([\s\S]*?)```$/i)
+  const body = (fenced?.[1] ?? trimmed).trim()
+  return body === BROWSER_PAGE_ERROR_SITE_NOT_FOUND
 }
 
 const PAGE_BUILDER_PROMPT = `你是 Instant OS 网络浏览器的网页生成器。你的首要目标是**尽可能逼真地还原**目标 URL 在真实浏览器中打开后的页面——让用户一眼就能认出是哪个网站、哪类页面。
@@ -98,10 +117,29 @@ Instant OS **从外部**拦截链接与表单，跳转到真实 URL 后由 AI �
 若打开**新站点**的子页面，会提供该站点**根目录首页**的缓存 HTML——从中提取配色、字体、顶栏结构并应用到当前页。
 
 ## 当前日期（极其重要）
-用户消息会给出**当前真实日期与时间**。页面内容必须与该日期一致：
+用户消息会给出**系统当前日期与时间**（来自 Instant OS 系统时钟，可能为用户手动设置的历史或未来日期）。页面内容必须与该日期一致：
+- 把该日期当作绝对「现在」：「今日」「最新」「刚刚」等均指向该时刻，勿默认写成用户真实世界的当前年份
+- 若日期处于古代/近代，页面文案、器物、制度与媒体形态须符合该时代；勿出现不合时宜的手机、互联网、当代品牌等
 - 新闻/资讯类：使用符合该日期的标题、时间戳与「今日」「最新」表述
 - 页脚版权年份、活动截止日期、天气/季节描述须与当前日期匹配
-- **禁止**使用过时年份或虚构日期；若需显示时间，以用户提供的当前日期为准`
+- **禁止**使用与系统日期冲突的年份或虚构时间；若需显示时间，以用户消息提供的系统日期为准`
+
+const PAGE_BUILDER_REFUSE_APPENDIX = `
+
+## 允许拒绝生成（SITE_NOT_FOUND）
+当且仅当按系统当前日期，该域名/网站在当时明显尚未出现或不合理存在时，**不要硬造页面**；输出格式改为二选一互斥：
+1. **正常页面**：只返回 HTML，第一行 \`<!DOCTYPE html>\`
+2. **网站不存在**（**唯一**允许的错误出口）：整段回复**仅输出**一行 \`SITE_NOT_FOUND\`
+   - 不要输出任何 HTML、解释、标点或其它文字
+   - 站点已存在、仅早期形态不同 → 仍生成符合当时样貌的页面，**不要**返回此错误码
+   - **禁止**返回其它任何错误码，也**禁止**自行生成「域名不存在 / 无法连接」类错误页 HTML（由浏览器外壳统一渲染）`
+
+function buildPageBuilderPrompt(allowAiRefuseSite: boolean): string {
+  if (!allowAiRefuseSite) {
+    return PAGE_BUILDER_PROMPT
+  }
+  return `${PAGE_BUILDER_PROMPT}${PAGE_BUILDER_REFUSE_APPENDIX}`
+}
 
 export type PageViewportSize = {
   width: number
@@ -167,14 +205,26 @@ function appendViewportLines(lines: string[], viewport: PageViewportSize | undef
   )
 }
 
-function buildPageUserPrompt(context: PageGenerationContext): string {
+function buildPageUserPrompt(
+  context: PageGenerationContext,
+  allowAiRefuseSite: boolean,
+): string {
   const url = context.url
   const described = describeBrowserUrl(url)
+  const dateLines = [
+    `【系统当前日期与时间 — 请把该时刻当作绝对「现在」】`,
+    formatCurrentDateContext(),
+    '请确保页面内所有日期、时间、版权年份、新闻时效与上述系统日期一致；若系统日期处于历史阶段，内容须贴合该时代。',
+  ]
+  if (allowAiRefuseSite) {
+    dateLines.push(
+      '若该网站在该系统日期下明显不存在，整段回复仅输出 SITE_NOT_FOUND（不要输出 HTML）。',
+    )
+  }
 
   if (!described) {
     const lines = [
-      `【当前日期与时间】${formatCurrentDateContext()}`,
-      '请确保页面日期与当前日期一致。',
+      ...dateLines,
       '',
       `网址：${url}`,
     ]
@@ -185,8 +235,7 @@ function buildPageUserPrompt(context: PageGenerationContext): string {
   }
 
   const lines = [
-    `【当前日期与时间】${formatCurrentDateContext()}`,
-    '请确保页面内所有日期、时间、版权年份、新闻时效与上述当前日期一致。',
+    ...dateLines,
     '',
     `完整网址：${described.url}`,
     `协议：${described.protocol}`,
@@ -285,9 +334,11 @@ export async function generatePageHtmlStreaming(
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
   const model = config.defaultModel
-  const userPrompt = buildPageUserPrompt(context)
+  const allowAiRefuseSite = isAiRefuseSiteAllowed()
+  const systemPrompt = buildPageBuilderPrompt(allowAiRefuseSite)
+  const userPrompt = buildPageUserPrompt(context, allowAiRefuseSite)
   const log = createSafariAiLogger(context.url)
-  const promptTokenEstimate = estimatePromptTokens(PAGE_BUILDER_PROMPT, userPrompt)
+  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt)
 
   let text = ''
   let reasoningText = ''
@@ -299,7 +350,8 @@ export async function generatePageHtmlStreaming(
   let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '')
 
   const emit = (force = false) => {
-    const now = Date.now()
+    // 节流必须用单调真实时钟：osNowMs() 在虚拟历史时间（公元 1970 前）下会恒小于初值 0，导致整段流式更新被吞掉
+    const now = performance.now()
     const extracted = extractPartialHtmlFromStream(text)
     const stabilized = extracted ? stabilizePartialHtml(extracted) : ''
 
@@ -356,7 +408,7 @@ export async function generatePageHtmlStreaming(
       stream: true,
       stream_options: { include_usage: true },
       messages: [
-        { role: 'system', content: PAGE_BUILDER_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
@@ -394,15 +446,6 @@ export async function generatePageHtmlStreaming(
 
     emit(true)
     liveUsage = finalizeTokenUsage(liveUsage, usage)
-    const html = stabilizePartialHtml(extractHtmlFromAiText(text))
-    onUpdate({
-      html,
-      rawText: text,
-      reasoningText,
-      title: extractTitleFromPartialHtml(html) ?? undefined,
-      textLength: text.length + reasoningText.length,
-      usage: liveUsage,
-    })
     const finalUsage = usage ?? {
       promptTokens: liveUsage.promptTokens,
       completionTokens: liveUsage.completionTokens,
@@ -412,6 +455,38 @@ export async function generatePageHtmlStreaming(
       { actor: 'browser', behavior: 'generate-page', behaviorLabel: '生成网页' },
       usage,
     )
+    recordAiEventLog(
+      { actor: 'browser', behavior: 'generate-page', behaviorLabel: '生成网页' },
+      {
+        model,
+        thinkingEnabled: config.thinkingEnabled,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response: formatStreamEventResponse(reasoningText, text),
+        usage: finalUsage,
+      },
+    )
+
+    if (allowAiRefuseSite && isSiteNotFoundResponse(text)) {
+      log.complete(text, '', finalUsage)
+      throw new BrowserPageSiteNotFoundError()
+    }
+
+    if (isSiteNotFoundResponse(text)) {
+      throw new Error('AI 未返回有效网页内容')
+    }
+
+    const html = stabilizePartialHtml(extractHtmlFromAiText(text))
+    onUpdate({
+      html,
+      rawText: text,
+      reasoningText,
+      title: extractTitleFromPartialHtml(html) ?? undefined,
+      textLength: text.length + reasoningText.length,
+      usage: liveUsage,
+    })
     log.complete(text, html, finalUsage)
     return { html, usage: finalUsage }
   } catch (error) {

@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import { toEventLogMessages } from '../../ai/ai-event-log.ts'
 import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
@@ -286,6 +287,10 @@ async function requestRemoteAiMove(
     actor: 'gomoku',
     behavior: 'ai-move',
     behaviorLabel: 'AI 落子',
+  }, {
+    model: config.defaultModel,
+    thinkingEnabled,
+    messages: toEventLogMessages(messages),
   })
 
   const message = response.choices[0]?.message

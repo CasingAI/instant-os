@@ -18,3 +18,12 @@ export function isBuiltinAppVisibleOnDock(
   if (app.id === 'speech' && experimental?.speechApp === true) return true
   return false
 }
+
+export function isBuiltinAppVisibleOnDockWhenRunning(
+  app: AppDefinition,
+  experimental?: ExperimentalSettings,
+): boolean {
+  if (isBuiltinAppVisibleOnDock(app, experimental)) return true
+  if (app.dockWhenRunning === true) return true
+  return false
+}

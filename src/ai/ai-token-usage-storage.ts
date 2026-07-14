@@ -1,4 +1,5 @@
 import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
+import { osDayKey, osNowMs } from '../os/os-clock.ts'
 import {
   AI_TOKEN_USAGE_STORE,
   DATA_CAPACITY_BYTES,
@@ -46,13 +47,6 @@ let initPromise: Promise<void> | undefined
 
 function estimateRecordBytes(record: unknown): number {
   return new TextEncoder().encode(JSON.stringify(record)).length
-}
-
-function dayKeyFromDate(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 function createRequestId(at: number): string {
@@ -286,8 +280,8 @@ export async function persistAiTokenUsage(
 ): Promise<AiTokenUsageRecord> {
   await initAiTokenUsageStorage()
 
-  const at = Date.now()
-  const day = dayKeyFromDate(new Date(at))
+  const at = osNowMs()
+  const day = osDayKey()
   const actorLabel = context.actorLabel ?? resolveActorLabel(context.actor)
   const behaviorLabel = context.behaviorLabel ?? context.behavior
 

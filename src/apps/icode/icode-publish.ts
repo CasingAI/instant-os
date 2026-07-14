@@ -1,4 +1,5 @@
 import { generatedAppIdToSlug, toGeneratedAppId } from '../appstore/store-agent.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import type { GeneratedAppRecord } from '../appstore/types.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
@@ -165,7 +166,7 @@ export function resolveUniqueCopyName(
       return candidate
     }
   }
-  return `${baseName}（副本${Date.now()}）`
+  return `${baseName}（副本${osNowMs()}）`
 }
 
 export function buildIcodeSyncInput(project: ICodeInternalProject): {

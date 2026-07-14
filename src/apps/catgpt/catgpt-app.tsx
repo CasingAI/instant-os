@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { osNowMs } from '../../os/os-clock.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -106,7 +107,7 @@ export function CatGptApp() {
         ...session,
         messages: pendingMessages,
         title: deriveSessionTitle(pendingMessages),
-        updatedAt: Date.now(),
+        updatedAt: osNowMs(),
       }
 
       persistStore(upsertSession(store, { ...pendingSession, id: session.id }))
@@ -125,7 +126,7 @@ export function CatGptApp() {
           ...pendingSession,
           messages: finalMessages,
           title: deriveSessionTitle(finalMessages),
-          updatedAt: Date.now(),
+          updatedAt: osNowMs(),
         }
 
         persistStore(
@@ -141,7 +142,7 @@ export function CatGptApp() {
           ...pendingSession,
           messages: finalMessages,
           title: deriveSessionTitle(finalMessages),
-          updatedAt: Date.now(),
+          updatedAt: osNowMs(),
         }
 
         persistStore(

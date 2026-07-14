@@ -1,4 +1,11 @@
 import {
+  calendarInstantToMs,
+  formatEditionDateLabel as formatEditionDateLabelFromCalendar,
+  parseEditionDateKey,
+} from '../../os/calendar-instant.ts'
+import { formatChineseDynastySuffixForEditionDate } from '../../os/chinese-dynasty-label.ts'
+import { osNowMs } from '../../os/os-clock.ts'
+import {
   DEVICE_STORAGE_KEYS,
   getLocalStorageKeyBytes,
   writeLocalStorageItem,
@@ -47,20 +54,17 @@ export function writeNewsStore(store: NewsStore): boolean {
 }
 
 export function createArticleId(): string {
-  return `news-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `news-${osNowMs()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function formatEditionDateLabel(editionDate: string): string {
-  const date = new Date(`${editionDate}T00:00:00`)
-  if (Number.isNaN(date.getTime())) {
-    return editionDate
-  }
-  return date.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  })
+  return formatEditionDateLabelFromCalendar(editionDate)
+}
+
+export function formatEditionDateDetailLabel(editionDate: string): string {
+  const base = formatEditionDateLabelFromCalendar(editionDate)
+  const suffix = formatChineseDynastySuffixForEditionDate(editionDate)
+  return suffix ? `${base}${suffix}` : base
 }
 
 function getArticleCreatedAt(id: string): number {
@@ -409,7 +413,7 @@ export function appendComments(
   if (!existing) {
     return saveCommentThread(store, {
       articleId,
-      generatedAt: Date.now(),
+      generatedAt: osNowMs(),
       comments: newComments,
       userReactions: {},
       reportedIds: [],
@@ -422,8 +426,7 @@ export function appendComments(
 }
 
 function parseDateToNumber(editionDate: string): number {
-  const t = Date.parse(`${editionDate}T00:00:00`)
-  return Number.isNaN(t) ? 0 : t
+  return calendarInstantToMs(parseEditionDateKey(editionDate))
 }
 
 export function buildNearbyTitlesContext(

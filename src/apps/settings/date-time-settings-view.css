@@ -1,0 +1,39 @@
+.date-time-settings__preview {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.date-time-settings__preview-label {
+  display: block;
+  margin-bottom: 4px;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+}
+
+.date-time-settings__preview-value {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.date-time-settings__editor {
+  margin-top: 14px;
+}
+
+.date-time-settings__field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.date-time-settings__field {
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .date-time-settings__field-row {
+    grid-template-columns: 1fr;
+  }
+}

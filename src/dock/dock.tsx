@@ -10,7 +10,10 @@ import { openDesktopFolder, toggleDesktopFolder, closeOpenDesktopFolder } from '
 import { getAppDefinition } from '../os/app-registry.tsx'
 import { findFolderById } from '../os/desktop-folder-operations.ts'
 import { isDesktopFolderId, type DesktopFolderId, type DesktopItemId } from '../os/desktop-folder-types.ts'
-import { isBuiltinAppVisibleOnDock } from '../os/launcher-app-visibility.ts'
+import {
+  isBuiltinAppVisibleOnDock,
+  isBuiltinAppVisibleOnDockWhenRunning,
+} from '../os/launcher-app-visibility.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
 import {
   buildBuiltinIconContextMenuItems,
@@ -412,7 +415,7 @@ export function Dock() {
 
   function renderRunningBuiltinDockItem(appId: BuiltinAppId) {
     const app = getAppDefinition(appId)
-    if (!app || !isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())) {
+    if (!app || !isBuiltinAppVisibleOnDockWhenRunning(app, loadExperimentalSettings())) {
       return undefined
     }
 

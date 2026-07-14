@@ -1,3 +1,4 @@
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   DEVICE_STORAGE_KEYS,
   getLocalStorageKeyBytes,
@@ -80,11 +81,11 @@ export async function getBooksDataBytes(): Promise<number> {
 }
 
 export function createBookId(): string {
-  return `book-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `book-${osNowMs()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function createChapterId(): string {
-  return `ch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `ch-${osNowMs()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function findLibraryBook(store: BooksIndexStore, slug: string): BookRecordMeta | undefined {
@@ -111,7 +112,7 @@ export function upsertCatalog(store: BooksIndexStore, listings: BookListing[]): 
   return {
     ...store,
     catalog: merged,
-    catalogGeneratedAt: Date.now(),
+    catalogGeneratedAt: osNowMs(),
   }
 }
 
@@ -119,7 +120,7 @@ export function replaceCatalog(store: BooksIndexStore, listings: BookListing[]):
   return {
     ...store,
     catalog: listings,
-    catalogGeneratedAt: Date.now(),
+    catalogGeneratedAt: osNowMs(),
   }
 }
 
@@ -136,7 +137,7 @@ export function addBookToLibrary(
   const book: BookRecordMeta = {
     ...listing,
     id: createBookId(),
-    addedAt: Date.now(),
+    addedAt: osNowMs(),
     status: 'generating',
     chapterCount: detail?.chapterOutline?.length ?? 0,
     chapters: [],

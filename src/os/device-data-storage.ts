@@ -1,14 +1,16 @@
+import { osNowMs } from './os-clock.ts'
 /** IndexedDB 数据空间硬上限 50 MB */
 export const DATA_CAPACITY_BYTES = 50 * 1024 * 1024
 
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 5
+export const DATA_DB_VERSION = 6
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
 export const AI_TOKEN_USAGE_STORE = 'ai-token-usage'
+export const AI_EVENT_LOG_STORE = 'ai-event-log'
 export const FOLDER_ICON_SNAPSHOTS_STORE = 'folder-icon-snapshots'
 export const DATA_META_STORE = 'data-meta'
 
@@ -125,6 +127,12 @@ function openDataDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(AI_TOKEN_USAGE_STORE, { keyPath: 'key' })
         store.createIndex('day', 'day', { unique: false })
         store.createIndex('kind', 'kind', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(AI_EVENT_LOG_STORE)) {
+        const store = db.createObjectStore(AI_EVENT_LOG_STORE, { keyPath: 'key' })
+        store.createIndex('day', 'day', { unique: false })
+        store.createIndex('at', 'at', { unique: false })
+        store.createIndex('actor', 'actor', { unique: false })
       }
       if (!db.objectStoreNames.contains(FOLDER_ICON_SNAPSHOTS_STORE)) {
         db.createObjectStore(FOLDER_ICON_SNAPSHOTS_STORE, { keyPath: 'key' })
@@ -276,7 +284,7 @@ export async function putBookDetailRecord(input: {
   const saved: BookDetailRecord = {
     ...record,
     byteSize,
-    updatedAt: Date.now(),
+    updatedAt: osNowMs(),
   }
 
   await runDataStoreTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.put(saved))
@@ -558,16 +566,17 @@ export async function getFolderIconSnapshotsBytes(): Promise<number> {
 
 export async function rebuildDataByteTotal(): Promise<number> {
   try {
-    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes, folderIconSnapshotBytes] =
+    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes, aiEventLogBytes, folderIconSnapshotBytes] =
       await Promise.all([
       sumStoreBytes(BOOK_CHAPTERS_STORE),
       sumStoreBytes(BOOK_DETAILS_STORE),
       sumStoreBytes(SAFARI_PAGE_CACHE_STORE),
       sumStoreBytes(AI_TOKEN_USAGE_STORE),
+      sumStoreBytes(AI_EVENT_LOG_STORE),
       sumStoreBytes(FOLDER_ICON_SNAPSHOTS_STORE),
     ])
     const total =
-      bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes + folderIconSnapshotBytes
+      bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes + aiEventLogBytes + folderIconSnapshotBytes
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total

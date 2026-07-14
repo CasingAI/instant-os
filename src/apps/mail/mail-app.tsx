@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { osNowMs } from '../../os/os-clock.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
@@ -293,7 +294,7 @@ export function MailApp() {
         return other ? [other] : []
       })(),
       body,
-      sentAt: Date.now(),
+      sentAt: osNowMs(),
     }
 
     if (userMessage.to.length === 0) {
@@ -318,7 +319,7 @@ export function MailApp() {
     }
 
     setSending(true)
-    const now = Date.now()
+    const now = osNowMs()
     const userMessage: MailMessage = {
       id: createMessageId(),
       from: store.userAddress,

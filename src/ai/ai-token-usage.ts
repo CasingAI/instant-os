@@ -1,4 +1,6 @@
 import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
+import { addMsToCalendarInstant, calendarDayKey } from '../os/calendar-instant.ts'
+import { getOsNowInstant, osDayKey } from '../os/os-clock.ts'
 import { resolveActorLabel, type AiUsageContext } from './ai-usage-context.ts'
 import {
   clearAiTokenUsageStore,
@@ -76,15 +78,13 @@ export function formatUsageDayLabel(day: string): string {
   if (!year || !month || !date) {
     return day
   }
-  const today = new Date()
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const todayKey = osDayKey()
   if (day === todayKey) {
     return '今天'
   }
 
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`
+  const yesterdayInstant = addMsToCalendarInstant(getOsNowInstant(), -86_400_000)
+  const yesterdayKey = calendarDayKey(yesterdayInstant)
   if (day === yesterdayKey) {
     return '昨天'
   }

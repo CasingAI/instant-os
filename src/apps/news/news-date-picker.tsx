@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import {
+  addMsToCalendarInstant,
+  formatEditionDateKey,
+  getDaysInMonth,
+  normalizeCalendarInstant,
+  parseEditionDateKey,
+  weekdayIndexForInstant,
+  type CalendarEra,
+} from '../../os/calendar-instant.ts'
+import { getOsNowInstant } from '../../os/os-clock.ts'
 import { BackIcon, ForwardIcon } from '../../icons/app-icons.tsx'
 import './news-date-picker.css'
 
@@ -10,6 +20,8 @@ export type NewsDatePickerProps = {
 }
 
 type PickerLevel = 'day' | 'month' | 'year' | 'decade'
+
+const MS_PER_DAY = 86_400_000
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
 const MONTH_LABELS = [
@@ -27,30 +39,76 @@ const MONTH_LABELS = [
   '十二月',
 ] as const
 
-function parseEditionDate(dateStr: string): { year: number; month: number; day: number } {
-  const [y, m, d] = dateStr.split('-').map((part) => Number(part))
-  if (!y || !m || !d) {
-    const now = new Date()
-    return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() }
+type EditionDateParts = {
+  era: CalendarEra
+  year: number
+  month: number
+  day: number
+}
+
+function partsFromSignedYear(year: number, month: number, day: number): EditionDateParts {
+  if (year < 0) {
+    return { era: 'BC', year: -year, month, day }
   }
-  return { year: y, month: m, day: d }
+  return { era: 'AD', year, month, day }
+}
+
+function partsToSignedYear(parts: EditionDateParts): number {
+  return parts.era === 'BC' ? -parts.year : parts.year
+}
+
+function parseEditionDate(dateStr: string): EditionDateParts {
+  const instant = parseEditionDateKey(dateStr)
+  return {
+    era: instant.era,
+    year: instant.year,
+    month: instant.month,
+    day: instant.day,
+  }
 }
 
 function formatEditionDate(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  const parts = partsFromSignedYear(year, month, day)
+  return formatEditionDateKey(
+    normalizeCalendarInstant({
+      era: parts.era,
+      year: parts.year,
+      month: parts.month,
+      day: parts.day,
+    }),
+  )
 }
 
-function getTodayParts(): { year: number; month: number; day: number } {
-  const now = new Date()
-  return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() }
+function formatEditionDateFromParts(parts: EditionDateParts): string {
+  return formatEditionDateKey(normalizeCalendarInstant(parts))
 }
 
-function getDaysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate()
+function getTodayParts(): EditionDateParts {
+  const instant = getOsNowInstant()
+  return {
+    era: instant.era,
+    year: instant.year,
+    month: instant.month,
+    day: instant.day,
+  }
 }
 
 function getDecadeStart(year: number): number {
   return Math.floor(year / 10) * 10
+}
+
+function formatPickerYear(year: number): string {
+  if (year < 0) {
+    return String(year)
+  }
+  if (year < 10_000) {
+    return String(year).padStart(4, '0')
+  }
+  return String(year)
+}
+
+function formatPickerYearLabel(year: number): string {
+  return `${formatPickerYear(year)}年`
 }
 
 type PickerViewState = {
@@ -61,12 +119,13 @@ type PickerViewState = {
 }
 
 function viewStateFromValue(value: string): PickerViewState {
-  const { year, month } = parseEditionDate(value)
+  const parts = parseEditionDate(value)
+  const signedYear = partsToSignedYear(parts)
   return {
     level: 'day',
-    year,
-    month,
-    decadeStart: getDecadeStart(year),
+    year: signedYear,
+    month: parts.month,
+    decadeStart: getDecadeStart(signedYear),
   }
 }
 
@@ -95,10 +154,10 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
 
   const headerTitle = useMemo(() => {
     if (view.level === 'day') {
-      return `${view.year}年${view.month}月`
+      return `${formatPickerYearLabel(view.year)}${view.month}月`
     }
     if (view.level === 'month') {
-      return `${view.year}年`
+      return formatPickerYearLabel(view.year)
     }
     if (view.level === 'year') {
       return `${view.decadeStart}–${view.decadeStart + 9}`
@@ -181,13 +240,16 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
 
   const handleJumpToday = useCallback(() => {
     const parts = getTodayParts()
-    onSelect(formatEditionDate(parts.year, parts.month, parts.day))
+    onSelect(formatEditionDateFromParts(parts))
     onClose()
   }, [onClose, onSelect])
 
   const dayCells = useMemo(() => {
-    const daysInMonth = getDaysInMonth(view.year, view.month)
-    const firstWeekday = new Date(view.year, view.month - 1, 1).getDay()
+    const viewParts = partsFromSignedYear(view.year, view.month, 1)
+    const daysInMonth = getDaysInMonth(viewParts.era, viewParts.year, viewParts.month)
+    const firstWeekday = weekdayIndexForInstant(
+      normalizeCalendarInstant({ era: viewParts.era, year: viewParts.year, month: viewParts.month, day: 1 }),
+    )
     const cells: Array<{ day: number; inMonth: boolean }> = []
 
     for (let i = 0; i < firstWeekday; i += 1) {
@@ -206,6 +268,9 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
     const start = view.decadeStart - 10
     return Array.from({ length: 9 }, (_, index) => start + index * 10)
   }, [view.decadeStart])
+
+  const selectedSignedYear = partsToSignedYear(selected)
+  const todaySignedYear = partsToSignedYear(today)
 
   if (!open) {
     return undefined
@@ -260,11 +325,11 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
                         return <span key={`empty-${index}`} class="news-date-picker__day-spacer" />
                       }
                       const isSelected =
-                        selected.year === view.year &&
+                        selectedSignedYear === view.year &&
                         selected.month === view.month &&
                         selected.day === cell.day
                       const isToday =
-                        today.year === view.year && today.month === view.month && today.day === cell.day
+                        todaySignedYear === view.year && today.month === view.month && today.day === cell.day
                       return (
                         <button
                           key={cell.day}
@@ -286,8 +351,8 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
                 <div class="news-date-picker__month-grid">
                   {MONTH_LABELS.map((label, index) => {
                     const month = index + 1
-                    const isSelected = selected.year === view.year && selected.month === month
-                    const isTodayMonth = today.year === view.year && today.month === month
+                    const isSelected = selectedSignedYear === view.year && selected.month === month
+                    const isTodayMonth = todaySignedYear === view.year && today.month === month
                     return (
                       <button
                         key={label}
@@ -308,8 +373,8 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
                 <div class="news-date-picker__year-grid">
                   {Array.from({ length: 12 }, (_, index) => {
                     const year = view.decadeStart - 1 + index
-                    const isSelected = selected.year === year
-                    const isTodayYear = today.year === year
+                    const isSelected = selectedSignedYear === year
+                    const isTodayYear = todaySignedYear === year
                     return (
                       <button
                         key={year}
@@ -319,7 +384,7 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
                         } ${isTodayYear ? 'news-date-picker__year--today' : ''}`}
                         onClick={() => handleSelectYear(year)}
                       >
-                        {year}
+                        {formatPickerYear(year)}
                       </button>
                     )
                   })}
@@ -330,9 +395,9 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
                 <div class="news-date-picker__decade-grid">
                   {decadeItems.map((decadeStart) => {
                     const isSelected =
-                      selected.year >= decadeStart && selected.year <= decadeStart + 9
+                      selectedSignedYear >= decadeStart && selectedSignedYear <= decadeStart + 9
                     const isTodayDecade =
-                      today.year >= decadeStart && today.year <= decadeStart + 9
+                      todaySignedYear >= decadeStart && todaySignedYear <= decadeStart + 9
                     return (
                       <button
                         key={decadeStart}
@@ -369,15 +434,13 @@ export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePicke
 }
 
 export function shiftEditionDate(dateStr: string, deltaDays: number): string {
-  const { year, month, day } = parseEditionDate(dateStr)
-  const base = new Date(year, month - 1, day)
-  base.setDate(base.getDate() + deltaDays)
-  return formatEditionDate(base.getFullYear(), base.getMonth() + 1, base.getDate())
+  const instant = parseEditionDateKey(dateStr)
+  const shifted = addMsToCalendarInstant(instant, deltaDays * MS_PER_DAY)
+  return formatEditionDateKey(shifted)
 }
 
 export function getTodayEditionDate(): string {
-  const { year, month, day } = getTodayParts()
-  return formatEditionDate(year, month, day)
+  return formatEditionDateKey(getOsNowInstant())
 }
 
 export function formatShortEditionDate(dateStr: string): string {

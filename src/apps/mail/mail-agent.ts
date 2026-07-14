@@ -1,4 +1,5 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import {
   createMessageId,
@@ -64,7 +65,7 @@ function buildThreadFromDraft(draft: InitialMailDraft): MailThread {
     name: draft.fromName.trim(),
     email: draft.fromEmail.trim().toLowerCase(),
   }
-  const sentAt = Date.now() - draft.sentAtOffsetHours * 60 * 60 * 1000
+  const sentAt = osNowMs() - draft.sentAtOffsetHours * 60 * 60 * 1000
   const message: MailMessage = {
     id: createMessageId(),
     from,
@@ -192,7 +193,7 @@ export async function generateThreadReply(context: ReplyContext): Promise<MailMe
     from: contact,
     to: [context.userAddress],
     body,
-    sentAt: Date.now(),
+    sentAt: osNowMs(),
   }
 }
 
@@ -234,6 +235,6 @@ export async function generateNewContactReply(
     from,
     to: [context.userAddress],
     body,
-    sentAt: Date.now(),
+    sentAt: osNowMs(),
   }
 }

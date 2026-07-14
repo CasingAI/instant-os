@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import { recordAiEventLog, toEventLogMessages } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { recordOpenAiCompletionUsage, snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
@@ -267,15 +268,31 @@ export async function handleGeneratedAppAiRequest(
       })
 
       let chunkCount = 0
+      let streamResponse = ''
+      let streamUsage = snapshotFromOpenAiUsage(undefined)
       for await (const chunk of completionStream) {
         const usage = snapshotFromOpenAiUsage(chunk.usage)
         if (usage) {
+          streamUsage = usage
           recordAiTokenUsage(context, usage)
+        }
+
+        const delta = chunk.choices[0]?.delta?.content
+        if (delta) {
+          streamResponse += delta
         }
 
         chunkCount += 1
         postStreamChunk(target, appId, requestId, `data: ${JSON.stringify(chunk)}\n\n`)
       }
+
+      recordAiEventLog(context, {
+        model: config.defaultModel,
+        thinkingEnabled: config.thinkingEnabled,
+        messages: toEventLogMessages(messages),
+        response: streamResponse,
+        usage: streamUsage,
+      })
 
       postStreamChunk(target, appId, requestId, 'data: [DONE]\n\n')
       postStreamEnd(target, appId, requestId, 200)
@@ -285,7 +302,11 @@ export async function handleGeneratedAppAiRequest(
 
     const response = await client.chat.completions.create(sharedParams)
 
-    recordOpenAiCompletionUsage(response, context)
+    recordOpenAiCompletionUsage(response, context, {
+      model: config.defaultModel,
+      thinkingEnabled: config.thinkingEnabled,
+      messages: toEventLogMessages(messages),
+    })
     postResponse(target, appId, requestId, 200, JSON.stringify(response))
     aiDebugInfo(debug, `${LOG_PREFIX} response`, { appId, requestId })
   } catch (error) {

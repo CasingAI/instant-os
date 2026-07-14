@@ -1,5 +1,8 @@
 import type OpenAI from 'openai'
 import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
+import { recordAiEventLog } from './ai-event-log.ts'
+import type { AiEventLogMessage } from './ai-event-log-types.ts'
+import { serializeCompletionResponse } from './ai-event-log-serialize.ts'
 import { recordAiTokenUsage, type AiUsageContext } from './ai-token-usage.ts'
 
 export type OpenAiUsageLike = {
@@ -28,6 +31,21 @@ export function snapshotFromOpenAiUsage(
 export function recordOpenAiCompletionUsage(
   response: OpenAI.Chat.ChatCompletion,
   context: AiUsageContext,
+  log?: {
+    model?: string
+    thinkingEnabled?: boolean
+    messages?: AiEventLogMessage[]
+  },
 ): void {
-  recordAiTokenUsage(context, snapshotFromOpenAiUsage(response.usage))
+  const usage = snapshotFromOpenAiUsage(response.usage)
+  recordAiTokenUsage(context, usage)
+  if (log?.messages?.length) {
+    recordAiEventLog(context, {
+      model: log.model,
+      thinkingEnabled: log.thinkingEnabled,
+      messages: log.messages,
+      response: serializeCompletionResponse(response),
+      usage,
+    })
+  }
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   appendComments,
   deleteCommentThread,
@@ -32,7 +33,7 @@ type NewsCommentsSectionProps = {
 }
 
 function createCommentId(): string {
-  return `comment-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `comment-${osNowMs()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function formatCount(value: number): string {
@@ -183,7 +184,7 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
     }
     return {
       articleId: article.id,
-      generatedAt: Date.now(),
+      generatedAt: osNowMs(),
       comments: pendingComments,
       userReactions: {},
       reportedIds: [],
@@ -249,7 +250,7 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
         } else {
           const next = saveCommentThread(fresh, {
             articleId: article.id,
-            generatedAt: Date.now(),
+            generatedAt: osNowMs(),
             comments: flattened,
             userReactions: {},
             reportedIds: [],
@@ -312,7 +313,7 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
         id: createCommentId(),
         author: '我',
         body: trimmed,
-        createdAt: Date.now(),
+        createdAt: osNowMs(),
         likes: 0,
         dislikes: 0,
         isUser: true,
@@ -344,7 +345,7 @@ export function NewsCommentsSection({ article, store, onStoreChange }: NewsComme
         id: createCommentId(),
         author: '我',
         body: formatReplyBody(body, replyToAuthor),
-        createdAt: Date.now(),
+        createdAt: osNowMs(),
         likes: 0,
         dislikes: 0,
         parentId: rootId,

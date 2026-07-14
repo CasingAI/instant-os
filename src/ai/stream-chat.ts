@@ -1,4 +1,6 @@
 import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
+import { recordAiEventLog } from './ai-event-log.ts'
+import type { AiEventLogMessage } from './ai-event-log-types.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { recordAiTokenUsage } from './ai-token-usage.ts'
@@ -120,6 +122,18 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     const trimmed = text.trim()
     if (options.usageContext) {
       recordAiTokenUsage(options.usageContext, usage)
+      const messages: AiEventLogMessage[] = [
+        { role: 'system', content: options.system },
+        { role: 'user', content: options.user },
+        ...(options.followUp ?? []),
+      ]
+      recordAiEventLog(options.usageContext, {
+        model,
+        thinkingEnabled,
+        messages,
+        response: trimmed,
+        usage,
+      })
     }
 
     if (finishReason === 'length') {

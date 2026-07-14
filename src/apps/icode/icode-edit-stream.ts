@@ -6,6 +6,7 @@ import {
   resolveAppGenerationThinkingEnabled,
   totalStreamTextLength,
 } from '../../ai/ai-thinking.ts'
+import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
@@ -298,6 +299,11 @@ export async function generateIcodeHtmlEditsStreaming(
 
   const systemPrompt = buildEditSystemPrompt(listing, existingHtml)
   const apiMessages = buildEditApiMessages(listing, existingHtml, instruction, priorChat)
+  const thinkingEnabled = resolveAppGenerationThinkingEnabled(
+    config.providerId,
+    config.thinkingEnabled,
+    model,
+  )
 
   const stream = await raceWithAbortSignal(
     client.chat.completions.create({
@@ -308,10 +314,7 @@ export async function generateIcodeHtmlEditsStreaming(
         { role: 'system', content: systemPrompt },
         ...apiMessages,
       ],
-      ...buildThinkingRequestExtras(
-        config.providerId,
-        resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
-      ),
+      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
       ...(options.signal ? { signal: options.signal } : {}),
     }),
     options.signal,
@@ -336,7 +339,8 @@ export async function generateIcodeHtmlEditsStreaming(
   })
 
   const emit = (force = false) => {
-    const now = Date.now()
+    // 节流必须用单调真实时钟，避免虚拟历史时间（1970 前）吞掉流式更新
+    const now = performance.now()
     if (!force && now - lastEmitAt < 120) {
       return
     }
@@ -357,6 +361,19 @@ export async function generateIcodeHtmlEditsStreaming(
       appliedEdits: appliedEditCount,
     })
   }
+
+  const usageContext = {
+    actor: 'icode' as const,
+    behavior: 'edit-app' as const,
+    behaviorLabel: '编辑应用',
+  }
+  const eventMessages = [
+    { role: 'system' as const, content: systemPrompt },
+    ...apiMessages.map((message) => ({
+      role: message.role as 'user' | 'assistant',
+      content: typeof message.content === 'string' ? message.content : '',
+    })),
+  ]
 
   try {
     await forEachStreamChunk(
@@ -385,10 +402,17 @@ export async function generateIcodeHtmlEditsStreaming(
     )
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
-      recordAiTokenUsage(
-        { actor: 'icode', behavior: 'edit-app', behaviorLabel: '编辑应用' },
-        usage,
-      )
+      recordAiTokenUsage(usageContext, usage)
+      if (contentText.trim() || reasoningText.trim()) {
+        recordAiEventLog(usageContext, {
+          model,
+          thinkingEnabled,
+          messages: eventMessages,
+          response: formatStreamEventResponse(reasoningText, contentText),
+          usage,
+          status: 'aborted',
+        })
+      }
       throw new IcodeGenerationAbortedError()
     }
     throw error
@@ -400,10 +424,14 @@ export async function generateIcodeHtmlEditsStreaming(
 
   emit(true)
 
-  recordAiTokenUsage(
-    { actor: 'icode', behavior: 'edit-app', behaviorLabel: '编辑应用' },
+  recordAiTokenUsage(usageContext, usage)
+  recordAiEventLog(usageContext, {
+    model,
+    thinkingEnabled,
+    messages: eventMessages,
+    response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-  )
+  })
 
   const parsedEdits = parseAiderEditBlocks(contentText)
   const editsForFinal = parsedEdits.length > 0 ? parsedEdits : pendingEdits

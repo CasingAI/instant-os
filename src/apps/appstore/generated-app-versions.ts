@@ -1,4 +1,5 @@
 import { DEFAULT_APP_VERSION, normalizeAppVersion } from './app-version.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import type { GeneratedAppRecord, GeneratedAppVersionSnapshot } from './types.ts'
 
 export function normalizeVersionSnapshots(
@@ -8,7 +9,7 @@ export function normalizeVersionSnapshots(
     return record.versions.map((snapshot) => ({
       version: normalizeAppVersion(snapshot.version),
       html: snapshot.html,
-      savedAt: typeof snapshot.savedAt === 'number' ? snapshot.savedAt : Date.now(),
+      savedAt: typeof snapshot.savedAt === 'number' ? snapshot.savedAt : osNowMs(),
     }))
   }
 
@@ -16,7 +17,7 @@ export function normalizeVersionSnapshots(
     {
       version: normalizeAppVersion(record.version),
       html: record.html,
-      savedAt: Date.now(),
+      savedAt: osNowMs(),
     },
   ]
 }
@@ -67,7 +68,7 @@ export function appendVersionSnapshot(
   const snapshot: GeneratedAppVersionSnapshot = {
     version: normalizeAppVersion(version),
     html,
-    savedAt: Date.now(),
+    savedAt: osNowMs(),
   }
 
   if (!record) {
@@ -81,7 +82,7 @@ export function pruneArchivedVersions(record: GeneratedAppRecord): GeneratedAppR
   const active: GeneratedAppVersionSnapshot = {
     version: normalizeAppVersion(record.version),
     html: record.html,
-    savedAt: Date.now(),
+    savedAt: osNowMs(),
   }
 
   return {

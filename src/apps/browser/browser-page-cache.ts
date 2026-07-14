@@ -1,3 +1,4 @@
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   clearAllSafariPageCache,
   clearSafariPageCacheByHostname,
@@ -145,7 +146,7 @@ export function saveCachedPage(
     title: record.title,
     html: record.html,
     pageTokens: record.pageTokens,
-    cachedAt: record.cachedAt ?? Date.now(),
+    cachedAt: record.cachedAt ?? osNowMs(),
   }
   memoryStore.pages[key] = nextRecord
   void persistPage(nextRecord)

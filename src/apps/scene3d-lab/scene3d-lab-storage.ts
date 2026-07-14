@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import type { LiveTokenUsage } from '../browser/estimate-token-usage.ts'
 
 export type Scene3dLabArchive = {
@@ -87,12 +88,12 @@ export function saveScene3dLabArchive(input: SaveScene3dLabArchiveInput): Scene3
 
   const title = input.title.trim() || defaultArchiveTitle(input.prompt)
   const archive: Scene3dLabArchive = {
-    id: `scene3d-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `scene3d-${osNowMs()}-${Math.random().toString(36).slice(2, 8)}`,
     title,
     prompt: input.prompt,
     html,
     rawText: input.rawText,
-    savedAt: Date.now(),
+    savedAt: osNowMs(),
     usage: input.usage,
   }
 

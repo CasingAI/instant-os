@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact'
+import { osNowMs } from './os-clock.ts'
 import { createContext } from 'preact'
 import { useCallback, useContext, useMemo, useState } from 'preact/hooks'
 import type { ExtAppRecord } from './ext-app-types.ts'
@@ -24,7 +25,7 @@ function toExtAppRecord(resolved: Awaited<ReturnType<typeof fetchExtAppManifest>
     devUrl: resolved.devUrl,
     entryUrl: resolved.entryUrl,
     iconUrl: resolved.iconUrl,
-    addedAt: Date.now(),
+    addedAt: osNowMs(),
   }
 }
 

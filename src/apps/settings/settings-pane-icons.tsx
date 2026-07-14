@@ -72,6 +72,20 @@ export function DisplayPaneIcon() {
   )
 }
 
+export function DateTimePaneIcon() {
+  return (
+    <AppIconTile color="#4f8fd1" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        🕐
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function SafariUsagePaneIcon() {
   return <BrowserIcon size={PANE_ICON_SIZE} />
 }

@@ -1,4 +1,5 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   createNdjsonLineFeed,
   extractPartialObjectFields,
@@ -303,7 +304,7 @@ function normalizeGeneratedReview(
     rating,
     body,
     version: normalizeAppVersion(raw.version || DEFAULT_APP_VERSION),
-    createdAt: Date.now(),
+    createdAt: osNowMs(),
   }
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { osNowMs } from '../../os/os-clock.ts'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -17,6 +18,7 @@ import {
 } from '../../icons/app-icons.tsx'
 import {
   generatePageHtmlStreaming,
+  BrowserPageSiteNotFoundError,
   type PageGenerationContext,
 } from './generate-page-stream.ts'
 import { extractTitleFromPartialHtml } from './extract-partial-html.ts'
@@ -463,9 +465,11 @@ export function BrowserApp() {
               return
             }
 
+            const hasStreamText =
+              update.reasoningText.length > 0 || update.rawText.length > 0 || update.html.length > 0
             setTabPageState(tabId, {
-              loading: update.html.length === 0 && update.reasoningText.length === 0,
-              streaming: update.html.length > 0 || update.reasoningText.length > 0 || update.rawText.length > 0,
+              loading: !hasStreamText,
+              streaming: hasStreamText,
               html: update.html,
               rawText: update.rawText,
               reasoningText: update.reasoningText,
@@ -518,10 +522,15 @@ export function BrowserApp() {
           loading: false,
           streaming: false,
           html: '',
-    rawText: '',
-    reasoningText: '',
-    pageTokens: undefined,
-          error: error instanceof Error ? error.message : '网页生成失败',
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error:
+            error instanceof BrowserPageSiteNotFoundError
+              ? error.message
+              : error instanceof Error
+                ? error.message
+                : '网页生成失败',
         })
       }
     },
@@ -744,15 +753,20 @@ export function BrowserApp() {
         return
       }
 
-      const now = Date.now()
+      const tab = tabs.find((item) => item.id === tabId)
+      const fromEntry = tab?.history[tab?.historyIndex ?? 0] ?? INITIAL_ENTRY
+
+      // 页内锚点 / 同文档链接不应触发重新加载（AI 页常写 href="#"，会被 <base> 解析成当前站 URL）
+      if (isSameDocumentUrl(url, fromEntry.url)) {
+        return
+      }
+
+      const now = osNowMs()
       const last = lastPageNavByTabRef.current[tabId] ?? { url: '', at: 0 }
       if (last.url === url && now - last.at < 600) {
         return
       }
       lastPageNavByTabRef.current[tabId] = { url, at: now }
-
-      const tab = tabs.find((item) => item.id === tabId)
-      const fromEntry = tab?.history[tab?.historyIndex ?? 0] ?? INITIAL_ENTRY
 
       navigate(tabId, url, {
         referrerUrl: fromEntry.url,

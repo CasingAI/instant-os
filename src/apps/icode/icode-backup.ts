@@ -1,4 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
+import { osNowMs } from '../../os/os-clock.ts'
 import type { GeneratedAppRecord } from '../appstore/types.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import { loadGeneratedAppData } from '../../os/generated-app-data-storage.ts'
@@ -58,7 +59,7 @@ export function buildExportBundleFromInternal(project: ICodeInternalProject): IC
     format: ICODE_BUNDLE_FORMAT,
     version: ICODE_BUNDLE_VERSION,
     kind: 'internal',
-    exportedAt: Date.now(),
+    exportedAt: osNowMs(),
     project,
     appData: project.appData,
   }
@@ -72,7 +73,7 @@ export function buildExportBundleFromFormal(
     format: ICODE_BUNDLE_FORMAT,
     version: ICODE_BUNDLE_VERSION,
     kind: 'formal',
-    exportedAt: Date.now(),
+    exportedAt: osNowMs(),
     project: {
       appId: record.id,
       name: record.name,

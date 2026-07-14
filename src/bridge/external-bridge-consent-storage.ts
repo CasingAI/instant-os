@@ -1,4 +1,5 @@
 import { getBridgeStorageOverride } from './bridge-storage-context.ts'
+import { osNowMs } from '../os/os-clock.ts'
 
 const STORAGE_KEY = 'instant-os-external-bridge-consents'
 
@@ -65,7 +66,7 @@ export function grantExternalBridgeConsent(
     appId,
     origin,
     appName: appName?.trim() || undefined,
-    approvedAt: Date.now(),
+    approvedAt: osNowMs(),
   })
 
   writeStore({

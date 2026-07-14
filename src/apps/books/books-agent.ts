@@ -1,4 +1,5 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   createNdjsonLineFeed,
   extractPartialObjectFields,
@@ -454,7 +455,7 @@ function normalizeListing(
 ): BookListing {
   const slug =
     raw.slug?.trim().replace(/[^a-z0-9-]/gi, '-').toLowerCase() ||
-    `book-${Date.now()}-${index}`
+    `book-${osNowMs()}-${index}`
   const category = forcedCategory ?? normalizeBookCategory(raw.category?.trim() || '脑洞')
   return {
     slug,
@@ -487,7 +488,7 @@ function buildSeedListingsForCategory(category: BookCategory): BookListing[] {
   const placeholders: BookListing[] = []
   for (let index = 0; index < 3; index += 1) {
     placeholders.push({
-      slug: `${category}-preview-${Date.now()}-${index}`,
+      slug: `${category}-preview-${osNowMs()}-${index}`,
       title: `【${category}】本地预览 ${index + 1}`,
       author: 'Instant OS 书城',
       category,
@@ -787,7 +788,7 @@ export async function generateBookChaptersStreaming(
       iconEmoji: listing.coverEmoji,
       themeColor: listing.coverColor,
       error: msg,
-      failedAt: Date.now(),
+      failedAt: osNowMs(),
     })
   }
 

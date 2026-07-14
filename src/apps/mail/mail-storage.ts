@@ -1,3 +1,4 @@
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   DEVICE_STORAGE_KEYS,
   getLocalStorageKeyBytes,
@@ -63,11 +64,11 @@ export function markStoreInitialized(threads: MailThread[]): MailStore {
 }
 
 export function createMessageId(): string {
-  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return `msg-${osNowMs()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
 export function createThreadId(): string {
-  return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return `thread-${osNowMs()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
 export function appendMessageToThread(

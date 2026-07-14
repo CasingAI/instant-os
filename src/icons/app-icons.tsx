@@ -488,6 +488,41 @@ export function NewsIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function CalendarIcon({ size = 64 }: IconProps) {
+  const cornerRadius = 14
+  return (
+    <AppIconTile color="#c83a32" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="calendar-icon-page" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fffdf8" />
+            <stop offset="100%" stop-color="#efe4d2" />
+          </linearGradient>
+          <linearGradient id="calendar-icon-header" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#e85a4e" />
+            <stop offset="100%" stop-color="#a82822" />
+          </linearGradient>
+          <clipPath id="calendar-icon-clip">
+            <rect x="0" y="0" width="64" height="64" rx={cornerRadius} ry={cornerRadius} />
+          </clipPath>
+        </defs>
+        <g clip-path="url(#calendar-icon-clip)">
+          <rect x="0" y="0" width="64" height="64" fill="url(#calendar-icon-page)" />
+          <rect x="0" y="0" width="64" height="18" fill="url(#calendar-icon-header)" />
+          <rect x="10" y="24" width="10" height="8" rx="1.5" fill="#c83a32" opacity="0.9" />
+          <rect x="27" y="24" width="10" height="8" rx="1.5" fill="#3b78c2" opacity="0.95" />
+          <rect x="44" y="24" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.55" />
+          <rect x="10" y="36" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.45" />
+          <rect x="27" y="36" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.45" />
+          <rect x="44" y="36" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.45" />
+          <rect x="10" y="48" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.35" />
+          <rect x="27" y="48" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.35" />
+        </g>
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function BooksIcon({ size = 64 }: IconProps) {
   const books = [
     { x: 11, y: 26, w: 8, h: 16, grad: 'books-icon-spine-red' },
@@ -878,3 +913,27 @@ export function TaskManagerIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function EventLogIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#4a5568" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="14" y="10" width="36" height="44" rx="4" fill="#fff" opacity="0.95" />
+        <rect x="20" y="18" width="24" height="3" rx="1.5" fill="#4a5568" opacity="0.85" />
+        <rect x="20" y="26" width="20" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
+        <rect x="20" y="33" width="22" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
+        <rect x="20" y="40" width="16" height="2.5" rx="1.25" fill="#718096" opacity="0.75" />
+        <circle cx="44" cy="46" r="8" fill="#34c759" />
+        <path
+          d="M41 46 L43.5 48.5 L47.5 43.5"
+          fill="none"
+          stroke="#fff"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+

@@ -1,11 +1,17 @@
 import { normalizeBrowserUrl } from './normalize-browser-url.ts'
 
+/** 空链接、页内锚点、javascript: 都不应触发 Safari 模拟导航（否则会被 <base> 解析成真实站 URL） */
+export function isNonNavigatingHref(href: string): boolean {
+  const trimmed = href.trim()
+  return !trimmed || trimmed.startsWith('#') || trimmed.toLowerCase().startsWith('javascript:')
+}
+
 /** iframe 内 document.baseURI 会落在 Vite 开发服务器上，需用模拟页 URL 作基准 */
 export function resolveBrowserNavigationUrl(
   href: string,
   pageBaseUrl: string,
 ): string | undefined {
-  if (!href || href === '#' || href.startsWith('javascript:')) {
+  if (isNonNavigatingHref(href)) {
     return undefined
   }
 
@@ -40,12 +46,17 @@ export function isSameDocumentUrl(urlA: string, urlB: string): boolean {
 
 export function resolveFrameLinkUrl(link: Element, pageBaseUrl: string): string | undefined {
   const hrefAttr = link.getAttribute('href') ?? ''
-  if (!hrefAttr || hrefAttr === '#' || hrefAttr.startsWith('javascript:')) {
+  if (isNonNavigatingHref(hrefAttr)) {
     return undefined
   }
 
   const resolved = resolveBrowserNavigationUrl(hrefAttr, pageBaseUrl)
   if (!resolved || isEmbeddedAppOrigin(resolved)) {
+    return undefined
+  }
+
+  // 仅 hash 不同视为当前文档，避免误触发重新生成 / 被 <base> 带到真实站
+  if (isSameDocumentUrl(resolved, pageBaseUrl)) {
     return undefined
   }
 

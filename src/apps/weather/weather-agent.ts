@@ -131,7 +131,14 @@ async function completeJson<T>(
     throw new Error('AI 未返回任何内容')
   }
 
-  recordOpenAiCompletionUsage(response, usageContext)
+  recordOpenAiCompletionUsage(response, usageContext, {
+    model: config.defaultModel,
+    thinkingEnabled: config.thinkingEnabled,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  })
   return parseJsonFromAiText<T>(text)
 }
 

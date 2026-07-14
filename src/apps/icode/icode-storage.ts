@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { toGeneratedAppId } from '../appstore/store-agent.ts'
@@ -91,7 +92,7 @@ function saveInternalProjects(projects: ICodeInternalProject[]): boolean {
 }
 
 export function createInternalProject(name: string, description: string): ICodeInternalProject {
-  const now = Date.now()
+  const now = osNowMs()
   const id = `icode-${now}`
   const project: ICodeInternalProject = {
     id,
@@ -141,7 +142,7 @@ export function updateInternalProject(
   const updated: ICodeInternalProject = {
     ...projects[index],
     ...patch,
-    updatedAt: Date.now(),
+    updatedAt: osNowMs(),
   }
   const next = [...projects]
   next[index] = updated

@@ -24,6 +24,7 @@ import {
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
 import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
+import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
 import { getNewsStorageBytes } from '../news/news-storage.ts'
 import { getCatGptStorageBytes } from '../catgpt/catgpt-storage.ts'
 import { getBooksStorageBytes } from '../books/books-storage.ts'
@@ -90,6 +91,9 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
   }
   if (appId === 'weather') {
     return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.weather)
+  }
+  if (appId === 'calendar') {
+    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.calendar)
   }
   if (appId === 'stocks') {
     return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.stocks)
@@ -184,6 +188,7 @@ export function getStorageSummary(
     safariCacheBytes: number
     booksDataBytes: number
     aiUsageBytes: number
+    aiEventLogBytes: number
     folderIconSnapshotsBytes: number
   },
 ) {
@@ -199,6 +204,7 @@ export function getStorageSummary(
     safariCacheBytes,
     booksDataBytes,
     aiUsageBytes,
+    aiEventLogBytes,
     folderIconSnapshotsBytes,
   } = dataStorage
   const otherBytes = getOtherStorageBytes()
@@ -231,6 +237,7 @@ export function getStorageSummary(
     dataUsedBytes,
     dataAvailableBytes,
     aiUsageBytes,
+    aiEventLogBytes,
     folderIconSnapshotsBytes,
     systemBytes: usedBytes,
   }
@@ -241,17 +248,32 @@ export async function loadDataStorageBreakdown(): Promise<{
   safariCacheBytes: number
   booksDataBytes: number
   aiUsageBytes: number
+  aiEventLogBytes: number
   folderIconSnapshotsBytes: number
 }> {
-  const [totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes, folderIconSnapshotsBytes] =
-    await Promise.all([
+  const [
+    totalBytes,
+    safariCacheBytes,
+    booksDataBytes,
+    aiUsageBytes,
+    aiEventLogBytes,
+    folderIconSnapshotsBytes,
+  ] = await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
     getBooksContentBytes(),
     getAiTokenUsageBytes(),
+    getAiEventLogBytes(),
     getFolderIconSnapshotsBytes(),
   ])
-  return { totalBytes, safariCacheBytes, booksDataBytes, aiUsageBytes, folderIconSnapshotsBytes }
+  return {
+    totalBytes,
+    safariCacheBytes,
+    booksDataBytes,
+    aiUsageBytes,
+    aiEventLogBytes,
+    folderIconSnapshotsBytes,
+  }
 }
 
 export function findManagedApp(

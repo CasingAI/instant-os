@@ -2,6 +2,7 @@ import { SafariStartPage } from './safari-start-page.tsx'
 import { SafariStreamBackdrop } from './safari-stream-backdrop.tsx'
 import { SafariPageFrame } from './safari-page-frame.tsx'
 import type { SafariFrameContextMenuRequest } from './attach-safari-frame-navigation.ts'
+import { BROWSER_PAGE_SITE_NOT_FOUND_MESSAGE } from './generate-page-stream.ts'
 import { isStartPageUrl, pageTitleFromUrl } from './normalize-browser-url.ts'
 
 type SafariTabPaneProps = {
@@ -59,8 +60,17 @@ export function SafariTabPane({
           <div class="safari__error-icon" aria-hidden="true">
             !
           </div>
-          <h1>无法打开此页面</h1>
-          <p>{error}</p>
+          {error === BROWSER_PAGE_SITE_NOT_FOUND_MESSAGE ? (
+            <>
+              <h1>{BROWSER_PAGE_SITE_NOT_FOUND_MESSAGE}</h1>
+              <p>无法找到该服务器。</p>
+            </>
+          ) : (
+            <>
+              <h1>无法打开此页面</h1>
+              <p>{error}</p>
+            </>
+          )}
           <p class="safari__error-url">{url}</p>
           <button type="button" class="safari__error-retry" onClick={onReload}>
             重新加载

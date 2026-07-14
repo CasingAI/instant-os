@@ -37,12 +37,30 @@ function buildNavigationBridge(pageUrl: string): string {
 (function () {
   var PAGE_BASE = ${baseJson};
 
+  function sameDocument(url) {
+    try {
+      var left = new URL(url);
+      var right = new URL(PAGE_BASE);
+      left.hash = '';
+      right.hash = '';
+      return left.href === right.href;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isNonNavigating(href) {
+    var trimmed = (href || '').trim();
+    return !trimmed || trimmed.charAt(0) === '#' || trimmed.toLowerCase().indexOf('javascript:') === 0;
+  }
+
   function send(url) {
-    if (!url || url === '#' || url.indexOf('javascript:') === 0) return;
+    if (!url || isNonNavigating(url) || sameDocument(url)) return;
     parent.postMessage({ type: 'instant-os-navigate', url: url }, '*');
   }
 
   function resolve(href) {
+    if (isNonNavigating(href)) return undefined;
     try {
       return new URL(href, PAGE_BASE).href;
     } catch (e) {
@@ -56,12 +74,25 @@ function buildNavigationBridge(pageUrl: string): string {
 
     var link = el.closest('a[href]');
     if (link) {
-      var href = link.getAttribute('href');
-      if (!href || href === '#' || href.indexOf('javascript:') === 0) return;
+      // 始终 preventDefault，避免 <base> 把 # / 空 href 解析成真实站
       event.preventDefault();
       event.stopImmediatePropagation();
+      var href = link.getAttribute('href') || '';
       var url = resolve(href);
-      if (url) send(url);
+      if (url) {
+        send(url);
+        return;
+      }
+      var hash = href.trim();
+      if (hash.charAt(0) === '#' && hash.length > 1) {
+        try {
+          var id = decodeURIComponent(hash.slice(1));
+          if (id) {
+            var target = document.getElementById(id);
+            if (target) target.scrollIntoView();
+          }
+        } catch (e) {}
+      }
       return;
     }
 

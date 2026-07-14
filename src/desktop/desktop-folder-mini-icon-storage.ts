@@ -1,3 +1,4 @@
+import { osNowMs } from '../os/os-clock.ts'
 import {
   DATA_CAPACITY_BYTES,
   DATA_META_STORE,
@@ -86,7 +87,7 @@ export async function putFolderIconSnapshot(key: string, dataUrl: string): Promi
       key,
       dataUrl,
       byteSize,
-      updatedAt: Date.now(),
+      updatedAt: osNowMs(),
     }
 
     await runDataStoreTransaction(FOLDER_ICON_SNAPSHOTS_STORE, 'readwrite', (store) =>

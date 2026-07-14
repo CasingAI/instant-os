@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks'
+import { osNowMs } from '../../os/os-clock.ts'
 import { CloseIcon } from '../../icons/app-icons.tsx'
 import '../../ui/overlay-presence.css'
 import { useOverlayPresence } from '../../ui/use-overlay-presence.ts'
@@ -25,7 +26,7 @@ type HistoryGroup = {
 
 function groupHistoryByDate(visits: HistoryVisitRecord[]): HistoryGroup[] {
   const groups = new Map<string, HistoryVisitRecord[]>()
-  const today = startOfDay(Date.now())
+  const today = startOfDay(osNowMs())
   const yesterday = today - 86_400_000
 
   for (const visit of visits) {

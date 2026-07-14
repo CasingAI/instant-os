@@ -8,6 +8,7 @@ import {
   resolveAppGenerationPhase,
   totalStreamTextLength,
 } from '../../ai/ai-thinking.ts'
+import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
@@ -157,7 +158,8 @@ export async function generateScene3dHtmlStreaming(
   let lastEmitAt = 0
 
   const emit = (force = false) => {
-    const now = Date.now()
+    // 节流必须用单调真实时钟，避免虚拟历史时间（1970 前）吞掉流式更新
+    const now = performance.now()
     if (!force && now - lastEmitAt < STREAM_EMIT_INTERVAL_MS) {
       return
     }
@@ -175,6 +177,16 @@ export async function generateScene3dHtmlStreaming(
     html: '',
     usage: liveUsage,
   })
+
+  const usageContext = {
+    actor: 'scene3d-lab' as const,
+    behavior: 'generate-scene' as const,
+    behaviorLabel: '生成 3D 场景',
+  }
+  const eventMessages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'user' as const, content: userMessage },
+  ]
 
   const stream = await client.chat.completions.create({
     model,
@@ -231,10 +243,14 @@ export async function generateScene3dHtmlStreaming(
   )
   const html = extractScene3dHtmlFromAiText(contentText)
   const rawText = formatScene3dRawOutput(reasoningText, contentText)
-  recordAiTokenUsage(
-    { actor: 'scene3d-lab', behavior: 'generate-scene', behaviorLabel: '生成 3D 场景' },
+  recordAiTokenUsage(usageContext, usage)
+  recordAiEventLog(usageContext, {
+    model,
+    thinkingEnabled: config.thinkingEnabled,
+    messages: eventMessages,
+    response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-  )
+  })
 
   const result: Scene3dGenerationResult = { html, rawText, usage: liveUsage }
   onUpdate({

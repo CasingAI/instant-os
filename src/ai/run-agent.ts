@@ -3,6 +3,7 @@ import type { AgentTool } from './agent-tool.ts'
 import { toChatCompletionTool } from './agent-tool.ts'
 import { buildThinkingRequestExtras } from './ai-thinking.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
+import { recordAiEventLog, toEventLogMessages } from './ai-event-log.ts'
 import { recordAiTokenUsage } from './ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
@@ -105,10 +106,18 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
     const toolCalls = assistantMessage.tool_calls
     if (!toolCalls?.length) {
       if (options.usageContext && accumulatedTotalTokens > 0) {
-        recordAiTokenUsage(options.usageContext, {
+        const usage = {
           promptTokens: accumulatedPromptTokens,
           completionTokens: accumulatedCompletionTokens,
           totalTokens: accumulatedTotalTokens,
+        }
+        recordAiTokenUsage(options.usageContext, usage)
+        recordAiEventLog(options.usageContext, {
+          model,
+          thinkingEnabled: config.thinkingEnabled,
+          messages: toEventLogMessages(messages),
+          response: assistantMessage.content ?? '',
+          usage,
         })
       }
       return {

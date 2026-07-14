@@ -18,6 +18,7 @@ import {
   addArticles,
   assignArticleListPositions,
   formatEditionDateLabel,
+  formatEditionDateDetailLabel,
   getArticlesForDate,
   readNewsStore,
 } from './news-storage.ts'
@@ -77,6 +78,7 @@ export function NewsApp() {
   const [streamingArticleIds, setStreamingArticleIds] = useState<string[]>([])
   const [baselineArticleIds, setBaselineArticleIds] = useState<string[]>([])
   const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const [generationFailed, setGenerationFailed] = useState(false)
 
   const articlesForDay = useMemo(() => getArticlesForDate(store, editionDate), [store, editionDate])
 
@@ -194,6 +196,7 @@ export function NewsApp() {
 
   const handleGenerate = useCallback(async () => {
     if (isGenerating) return
+    setGenerationFailed(false)
     const baseline = getArticlesForDate(readNewsStore(), editionDate).map((article) => article.id)
     setBaselineArticleIds(baseline)
     setStreamingArticleIds([])
@@ -218,7 +221,11 @@ export function NewsApp() {
       if (newArticleIdsInOrder.length > 0) {
         fresh = assignArticleListPositions(fresh, editionDate, newArticleIdsInOrder, baseline)
         setStore({ ...fresh })
+      } else {
+        setGenerationFailed(true)
       }
+    } catch {
+      setGenerationFailed(true)
     } finally {
       setIsGenerating(false)
       setStreamingArticleIds([])
@@ -229,14 +236,15 @@ export function NewsApp() {
   useEffect(() => {
     setStreamingArticleIds([])
     setBaselineArticleIds([])
+    setGenerationFailed(false)
   }, [editionDate])
 
   // 日期切换后，若当前日期尚无任何新闻，则自动触发生成（不再依赖显式按钮）
   useEffect(() => {
-    if (articlesForDay.length === 0 && !isGenerating) {
+    if (articlesForDay.length === 0 && !isGenerating && !generationFailed) {
       void handleGenerate()
     }
-  }, [articlesForDay.length, isGenerating, editionDate, handleGenerate])
+  }, [articlesForDay.length, generationFailed, isGenerating, editionDate, handleGenerate])
 
   useEffect(() => {
     if (!selectedId) {
@@ -287,6 +295,7 @@ export function NewsApp() {
   useAppMenuBar('news', menuBar)
 
   const dateLabel = formatEditionDateLabel(editionDate)
+  const articleDateLabel = formatEditionDateDetailLabel(editionDate)
   const shortPrev = formatShortEditionDate(shiftEditionDate(editionDate, -1))
   const shortNext = formatShortEditionDate(shiftEditionDate(editionDate, 1))
 
@@ -316,7 +325,7 @@ export function NewsApp() {
       class={`news${narrowLayout ? ' news--narrow' : ''}${narrowLayout && stackedReaderOpen ? ' news--reader-open' : ''}`}
     >
       <header class="news__toolbar">
-        <div class="news__toolbar-side news__toolbar-side--start">
+        {narrowLayout && stackedReaderOpen && (
           <IosNavBackButton
             class="news__toolbar-back"
             iconSize={14}
@@ -324,8 +333,7 @@ export function NewsApp() {
             aria-label="返回报道列表"
             onClick={clearStackedReader}
           />
-          <span class="news__brand">新闻</span>
-        </div>
+        )}
 
         <div class="news__date-control">
           <button
@@ -356,7 +364,7 @@ export function NewsApp() {
           </button>
         </div>
 
-        <div class="news__toolbar-side news__toolbar-side--end" aria-hidden="true" />
+        {narrowLayout && stackedReaderOpen && <span class="news__toolbar-title">报道</span>}
       </header>
 
       <NewsDatePicker
@@ -390,7 +398,7 @@ export function NewsApp() {
                 <div class="news__empty-icon" aria-hidden="true">
                   🗞️
                 </div>
-                <p>这一天还没有新闻</p>
+                <p>{generationFailed ? '新闻生成失败，请稍后重试' : '这一天还没有新闻'}</p>
               </div>
             )
           ) : (
@@ -412,7 +420,7 @@ export function NewsApp() {
               <header class="news__article-head">
                 <div class="news__article-meta">
                   <span class="news__article-cat">{selectedArticle.category}</span>
-                  <span class="news__article-date">{dateLabel}</span>
+                  <span class="news__article-date">{articleDateLabel}</span>
                   {selectedArticle.source && <span class="news__article-src">· {selectedArticle.source}</span>}
                 </div>
                 <h1 class="news__article-title">{selectedArticle.title}</h1>

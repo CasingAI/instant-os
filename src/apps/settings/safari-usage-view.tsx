@@ -1,9 +1,14 @@
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { useMemo, useState } from 'preact/hooks'
 import {
   getDomainUsageList,
   loadBrowserTokenUsage,
 } from '../browser/browser-token-usage.ts'
+import {
+  loadBrowserSettings,
+  patchBrowserSettings,
+} from '../browser/browser-settings-storage.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { SafariCacheView } from './safari-cache-view.tsx'
 import { SafariHistoryView } from './safari-history-view.tsx'
@@ -19,11 +24,21 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
   const usage = useMemo(() => loadBrowserTokenUsage(), [])
   const domains = useMemo(() => getDomainUsageList(usage), [usage])
   const [domainsExpanded, setDomainsExpanded] = useState(false)
+  const [allowAiRefuseSite, setAllowAiRefuseSite] = useState(
+    () => loadBrowserSettings().allowAiRefuseSite,
+  )
   const canExpandDomains = domains.length > DOMAIN_USAGE_PREVIEW_COUNT
   const showExpandDomains = canExpandDomains && !domainsExpanded
   const visibleDomains = showExpandDomains
     ? domains.slice(0, DOMAIN_USAGE_PREVIEW_COUNT)
     : domains
+
+  const handleToggleAiRefuseSite = (checked: boolean) => {
+    if (!patchBrowserSettings({ allowAiRefuseSite: checked })) {
+      return
+    }
+    setAllowAiRefuseSite(checked)
+  }
 
   return (
     <div class="settings">
@@ -31,6 +46,23 @@ export function SafariUsageView({ onBack, onCacheChange, onHistoryChange }: Safa
         <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <h2 class="settings__section-title">生成</h2>
+          <div class="settings__list">
+            <div class="settings__toggle-row">
+              <span class="settings__toggle-row-label">允许 AI 拒绝生成网站</span>
+              <IosSwitch
+                checked={allowAiRefuseSite}
+                onChange={handleToggleAiRefuseSite}
+                label="允许 AI 拒绝生成网站"
+              />
+            </div>
+          </div>
+          <p class="settings__section-footnote">
+            开启后，AI 可出于各种理由拒绝生成页面，并由浏览器显示「此网站不存在」。默认关闭。
+          </p>
+        </section>
+
         <SafariCacheView onCacheChange={onCacheChange} />
         <SafariHistoryView onHistoryChange={onHistoryChange} />
 

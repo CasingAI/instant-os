@@ -1,4 +1,5 @@
 import { loadBrowserHistory, type HistoryVisitRecord } from './browser-history.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import { displayUrl, hostnameFromUrl } from './normalize-browser-url.ts'
 
 export type HistorySuggestion = HistoryVisitRecord
@@ -34,7 +35,7 @@ function scoreHistoryMatch(entry: HistoryVisitRecord, query: string): number {
     return 0
   }
 
-  const ageDays = (Date.now() - entry.visitedAt) / 86_400_000
+  const ageDays = (osNowMs() - entry.visitedAt) / 86_400_000
   const recencyBoost = Math.max(0, 20 - ageDays * 2)
 
   return score + recencyBoost

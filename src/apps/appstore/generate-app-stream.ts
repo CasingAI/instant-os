@@ -1,3 +1,4 @@
+import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { estimatePromptTokens } from '../browser/estimate-token-usage.ts'
@@ -177,6 +178,11 @@ export async function generateAppHtmlStreaming(
 
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
+  const thinkingEnabled = resolveAppGenerationThinkingEnabled(
+    config.providerId,
+    config.thinkingEnabled,
+    model,
+  )
 
   const stream = await raceWithAbortSignal(
     client.chat.completions.create({
@@ -187,10 +193,7 @@ export async function generateAppHtmlStreaming(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      ...buildThinkingRequestExtras(
-        config.providerId,
-        resolveAppGenerationThinkingEnabled(config.providerId, config.thinkingEnabled, model),
-      ),
+      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
       ...(options.signal ? { signal: options.signal } : {}),
     }),
     options.signal,
@@ -204,7 +207,8 @@ export async function generateAppHtmlStreaming(
   let lastStreamEmitAt = 0
 
   const emit = (force = false) => {
-    const now = Date.now()
+    // 节流必须用单调真实时钟，避免虚拟历史时间（1970 前）吞掉流式更新
+    const now = performance.now()
     const phase = resolveAppGenerationPhase(reasoningText, contentText, streamStarted)
     const textLength = totalStreamTextLength(reasoningText, contentText)
     const generating = phase !== 'waiting'
@@ -237,6 +241,16 @@ export async function generateAppHtmlStreaming(
     })
   }
 
+  const usageContext = {
+    actor: 'appstore' as const,
+    behavior: isUpdate ? 'app-update' as const : 'app-generate' as const,
+    behaviorLabel: isUpdate ? '更新应用' : '生成应用',
+  }
+  const eventMessages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'user' as const, content: userPrompt },
+  ]
+
   try {
     await forEachStreamChunk(
       stream,
@@ -263,14 +277,17 @@ export async function generateAppHtmlStreaming(
     )
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
-      recordAiTokenUsage(
-        {
-          actor: 'appstore',
-          behavior: isUpdate ? 'app-update' : 'app-generate',
-          behaviorLabel: isUpdate ? '更新应用' : '生成应用',
-        },
-        usage,
-      )
+      recordAiTokenUsage(usageContext, usage)
+      if (contentText.trim() || reasoningText.trim()) {
+        recordAiEventLog(usageContext, {
+          model,
+          thinkingEnabled,
+          messages: eventMessages,
+          response: formatStreamEventResponse(reasoningText, contentText),
+          usage,
+          status: 'aborted',
+        })
+      }
     }
     throw error
   }
@@ -281,14 +298,14 @@ export async function generateAppHtmlStreaming(
 
   emit(true)
 
-  recordAiTokenUsage(
-    {
-      actor: 'appstore',
-      behavior: isUpdate ? 'app-update' : 'app-generate',
-      behaviorLabel: isUpdate ? '更新应用' : '生成应用',
-    },
+  recordAiTokenUsage(usageContext, usage)
+  recordAiEventLog(usageContext, {
+    model,
+    thinkingEnabled,
+    messages: eventMessages,
+    response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-  )
+  })
 
   return ensureGeneratedAppTags(extractHtmlFromAiText(contentText), {
     name: listing.name,

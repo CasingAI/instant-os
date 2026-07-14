@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
+import { osNowDate } from '../../os/os-clock.ts'
 import { SearchIcon } from '../../icons/app-icons.tsx'
 import {
   bookmarkAccentColor,
@@ -18,7 +19,7 @@ export function SafariStartPage({ bookmarksRevision, onNavigate }: SafariStartPa
   const favorites = useMemo(() => loadBrowserBookmarks(), [bookmarksRevision])
 
   const greeting = useMemo(() => {
-    const hour = new Date().getHours()
+    const hour = osNowDate().getHours()
     if (hour < 12) {
       return '早上好'
     }

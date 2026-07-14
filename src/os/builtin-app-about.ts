@@ -108,6 +108,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '支持搜索任意城市，搜索结果同样由 AI 即时编造，仅供娱乐与演示，不代表真实数据。通知中心天气小组件可一键打开本应用。',
     ],
   },
+  calendar: {
+    version: '拟物风日历',
+    paragraphs: [
+      '日历应用仿早期 iOS Calendar 拟物风格，展示月视图、二十四节气交节点，以及由 AI 即席生成的「当日大事」。',
+      '节气按公历黄经近似算定；重大事件无固定预设库，按所选日期与时代由 AI 生成并本地缓存。时间与系统「日期与时间」虚拟时钟一致。',
+    ],
+  },
   stocks: {
     version: 'AI 股票行情',
     paragraphs: [
@@ -156,6 +163,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       '任务管理器列出当前所有已打开的应用与窗口，显示前台、后台或最小化等状态。',
       '点击应用或窗口可切换到前台；「结束」会关闭该应用的全部窗口。任务管理器本身无法在此处结束。',
+    ],
+  },
+  'event-log': {
+    version: 'AI 调用日志',
+    paragraphs: [
+      '事件日志保存各应用调用 AI 生成内容时的完整输入与输出，便于排查与回顾。',
+      '日志保存在 IndexedDB 数据空间中，不会占用 localStorage。',
     ],
   },
   keychain: {

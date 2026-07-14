@@ -9,6 +9,7 @@ import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
 import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
+import { useOsNowDate } from './use-os-clock.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
@@ -117,7 +118,7 @@ export function MenuBar() {
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
-  const [now, setNow] = useState(() => new Date())
+  const now = useOsNowDate()
   const barRef = useRef<HTMLElement>(null)
   const leftRef = useRef<HTMLDivElement>(null)
   const menusRef = useRef<HTMLDivElement>(null)
@@ -166,6 +167,11 @@ export function MenuBar() {
         },
         {
           type: 'action',
+          label: '事件日志',
+          onClick: () => openApp('event-log'),
+        },
+        {
+          type: 'action',
           label: '钥匙串',
           onClick: () => openApp('keychain'),
         },
@@ -189,11 +195,6 @@ export function MenuBar() {
     pendingInstalls.length +
     failedInstalls.length +
     (processIsolationFallbackActive ? 1 : 0)
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(id)
-  }, [])
 
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)

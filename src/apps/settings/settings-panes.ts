@@ -4,6 +4,7 @@ import {
   AccountPaneIcon,
   AiUsagePaneIcon,
   DisplayPaneIcon,
+  DateTimePaneIcon,
   DeveloperPaneIcon,
   ExternalBridgeConsentPaneIcon,
   NewsPaneIcon,
@@ -20,6 +21,7 @@ export type SettingsPaneId =
   | 'account'
   | 'external-bridge-consent'
   | 'display'
+  | 'date-time'
   | 'wallpaper'
   | 'dock'
   | 'resources'
@@ -34,6 +36,7 @@ export type SettingsRoute =
   | { view: 'account' }
   | { view: 'external-bridge-consent' }
   | { view: 'display' }
+  | { view: 'date-time' }
   | { view: 'wallpaper' }
   | { view: 'dock' }
   | { view: 'display-emoji' }
@@ -44,6 +47,7 @@ export type SettingsRoute =
   | { view: 'app-detail'; appId: BuiltinAppId | GeneratedAppId; from?: 'usage' | 'apps-storage' }
   | { view: 'apps-storage' }
   | { view: 'other-storage' }
+  | { view: 'event-log-storage' }
   | { view: 'safari-usage' }
   | { view: 'news' }
   | { view: 'experimental' }
@@ -71,6 +75,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     route: { view: 'external-bridge-consent' },
   },
   { id: 'display', label: '显示', Icon: DisplayPaneIcon, route: { view: 'display' } },
+  { id: 'date-time', label: '日期与时间', Icon: DateTimePaneIcon, route: { view: 'date-time' } },
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
@@ -100,6 +105,7 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'app-detail':
     case 'apps-storage':
     case 'other-storage':
+    case 'event-log-storage':
       return 'usage'
     case 'ai-usage':
       return 'ai-usage'
@@ -111,6 +117,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'display-emoji':
     case 'display-emoji-calibration':
       return 'display'
+    case 'date-time':
+      return 'date-time'
     case 'wallpaper':
       return 'wallpaper'
     case 'dock':
@@ -136,6 +144,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'account':
     case 'external-bridge-consent':
     case 'display':
+    case 'date-time':
     case 'wallpaper':
     case 'dock':
     case 'resources':

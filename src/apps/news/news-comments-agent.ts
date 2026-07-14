@@ -1,4 +1,5 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import { createNdjsonLineFeed, parseNdjsonLine } from '../../ai/parse-streaming-json.ts'
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import {
@@ -13,6 +14,7 @@ import {
   commentsByIdMap,
 } from './news-comment-layout.ts'
 import { recordNewsTokenUsage } from './news-token-usage.ts'
+import { describeEditionDateForPrompt } from './news-agent.ts'
 import type {
   GeneratedCommentDraft,
   GeneratedReplyDraft,
@@ -41,8 +43,14 @@ const REPLY_COMMENT_EXAMPLE = JSON.stringify({
   replyTo: '路过网友',
 })
 
-const GENERATE_COMMENTS_PROMPT = `你是 Instant OS 新闻应用的 AI 评论区生成器。
-所有评论均为虚构，模拟中文互联网新闻评论区——热闹、对立、火药味十足，绝不是温和理性的讨论。
+const GENERATE_COMMENTS_PROMPT = `你是新闻评论区 AI 生成器。
+所有评论均为虚构，模拟中文新闻/舆论场下的两级评论区——热闹、对立、火药味十足，绝不是温和理性的讨论。
+
+## 版面日期（极其重要）
+- 用户消息会给出该新闻所属版面日期、相对真实世界的时间取向及时代约束；把该日期当作绝对「现在」
+- 评论语气、用词、传播载体与争论方式须贴合该历史阶段：古代可用市井议论、邸抄跟帖口吻；近代可用报馆读者来信；当代才可用微博/哔哩哔哩式网评；未来版面可用更超前但仍内洽的网民口吻
+- 若时间取向为「未来」：评论里也不要把早于版面年份的年份当成「还没发生」；时态须与新闻正文一致
+- **严禁**在远古/近代新闻下出现手机、短视频、AI、当代明星梗等不合时宜的互联网黑话
 
 任务：针对给定新闻，生成两级评论区（顶层评论 + 楼中楼），类似微博/哔哩哔哩：
 - 第一层：顶层评论
@@ -69,7 +77,7 @@ const GENERATE_COMMENTS_PROMPT = `你是 Instant OS 新闻应用的 AI 评论区
 - 内容必须与新闻主题相关
 - 逐行输出，生成完一行立刻输出下一行`
 
-const REPLY_PROMPT = `你是 Instant OS 新闻评论区 AI。
+const REPLY_PROMPT = `你是新闻评论区 AI。
 用户刚回复了一条评论。你需要：
 1. 虚构围观网友对用户这条回复的点赞/点踩数
 2. 以原评论作者或其他围观网友身份写楼中楼回复，大概率（约 80%）继续反驳、质疑、阴阳怪气
@@ -89,9 +97,10 @@ const REPLY_PROMPT = `你是 Instant OS 新闻评论区 AI。
 - userLikes / userDislikes：用户刚发的回复获得的赞踩，像发出来几分钟后的数据（一般个位数到一百多）；争议大可两边都高
 - body 必须以「回复 @某某：」开头
 - argumentative 为 true 表示反驳，false 表示附和；优先 true
-- 不要脏话、不要涉政敏感`
+- 不要脏话、不要涉政敏感
+- 回复语气须与新闻版面日期的时代一致（见用户消息中的时代约束）`
 
-const USER_ENGAGEMENT_PROMPT = `你是 Instant OS 新闻评论区数据生成器。
+const USER_ENGAGEMENT_PROMPT = `你是新闻评论区数据生成器。
 根据用户刚发表的评论内容，虚构围观网友的点赞/点踩数，像真实评论区刚发布几分钟后的样子。
 
 必须只返回 JSON 对象，不要 markdown，不要解释。格式：
@@ -102,7 +111,7 @@ const USER_ENGAGEMENT_PROMPT = `你是 Instant OS 新闻评论区数据生成器
 - userDislikes：整数，通常 0~80
 - 语气冲、争议大的评论赞踩都可以偏高`
 
-const USER_TOP_COMMENT_PROMPT = `你是 Instant OS 新闻评论区 AI。
+const USER_TOP_COMMENT_PROMPT = `你是新闻评论区 AI。
 用户刚发了一条顶层评论（主楼），网名显示为「我」。你需要：
 1. 虚构该评论的点赞/点踩数
 2. 生成 2~4 条楼中楼回复，网友来反驳、质疑、阴阳怪气或少数附和
@@ -126,13 +135,13 @@ const USER_TOP_COMMENT_PROMPT = `你是 Instant OS 新闻评论区 AI。
 - replies 数组 2~4 条，全部挂在这层主楼下
 - body 必须以「回复 @某某：」开头；多数回复 @我，也可楼中楼互怼（回复 @其他网友）
 - 语气要冲、像真实评论区，但不要脏话、不要涉政敏感
-- 内容与新闻主题及用户评论相关`
+- 内容与新闻主题及用户评论相关；用语须贴合版面日期的时代（见用户消息）`
 
 const MIN_COMMENTS = 8
 const MAX_COMMENTS = 22
 
 function createCommentId(): string {
-  return `comment-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `comment-${osNowMs()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function normalizeDraft(
@@ -144,7 +153,7 @@ function normalizeDraft(
     id: createCommentId(),
     author: raw.author?.trim() || '匿名网友',
     body: raw.body?.trim() || '……',
-    createdAt: Date.now(),
+    createdAt: osNowMs(),
     likes: Math.max(0, Math.floor(raw.likes ?? Math.random() * 80 + 5)),
     dislikes: Math.max(0, Math.floor(raw.dislikes ?? Math.random() * 20)),
     parentId,
@@ -333,19 +342,27 @@ export type CommentGenerationProgress = {
   streaming: boolean
 }
 
+function buildArticleContextBlock(article: NewsArticle): string {
+  return [
+    describeEditionDateForPrompt(article.editionDate),
+    '',
+    `新闻标题：${article.title}`,
+    `分类：${article.category}`,
+    `来源：${article.source ?? '即时新闻'}`,
+    `导语：${article.lead}`,
+    '',
+    '正文：',
+    article.body,
+  ].join('\n')
+}
+
 export async function generateCommentsForArticleStreaming(
   article: NewsArticle,
   onComment: (comment: NewsComment) => void,
 ): Promise<NewsComment[]> {
-  const userMessage = `新闻标题：${article.title}
-分类：${article.category}
-来源：${article.source ?? '即时新闻'}
-导语：${article.lead}
+  const userMessage = `${buildArticleContextBlock(article)}
 
-正文：
-${article.body}
-
-请生成 10~20 条两级评论区（顶层 + 楼中楼，楼中楼用回复 @某人）。`
+请生成 10~20 条两级评论区（顶层 + 楼中楼，楼中楼用回复 @某人）。评论须贴合上述版面日期与时代约束。`
 
   const ctx: EmitContext = {
     seenBodies: new Set(),
@@ -493,9 +510,7 @@ export async function generateRepliesToUserTopComment(
   userCommentId: string,
   userBody: string,
 ): Promise<UserTopCommentGenerationResult> {
-  const userMessage = `新闻标题：${article.title}
-分类：${article.category}
-导语：${article.lead}
+  const userMessage = `${buildArticleContextBlock(article)}
 
 用户主楼评论：
 ${userBody}
@@ -532,7 +547,9 @@ export async function generateUserCommentEngagement(
   article: NewsArticle,
   userBody: string,
 ): Promise<UserCommentEngagement> {
-  const userMessage = `新闻标题：${article.title}
+  const userMessage = `${describeEditionDateForPrompt(article.editionDate)}
+
+新闻标题：${article.title}
 
 用户发表的顶层评论：
 ${userBody}
@@ -571,7 +588,9 @@ export async function generateReplyToUser(
     .map((c) => `${c.author}：${c.body}`)
     .join('\n')
 
-  const userMessage = `新闻标题：${article.title}
+  const userMessage = `${describeEditionDateForPrompt(article.editionDate)}
+
+新闻标题：${article.title}
 
 被回复的评论（${parentComment.author}）：${parentComment.body}
 

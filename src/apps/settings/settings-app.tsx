@@ -25,7 +25,9 @@ import { AiUsageView } from './ai-usage-view.tsx'
 import { SafariUsageView } from './safari-usage-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
+import { EventLogStorageView } from './event-log-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
+import { DateTimeSettingsView } from './date-time-settings-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
@@ -73,6 +75,7 @@ export function SettingsApp() {
     safariCacheBytes: 0,
     booksDataBytes: 0,
     aiUsageBytes: 0,
+    aiEventLogBytes: 0,
     folderIconSnapshotsBytes: 0,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
@@ -171,11 +174,17 @@ export function SettingsApp() {
   const showUsage = view === 'usage'
   const showAiUsage = view === 'ai-usage'
   const keepUsage =
-    showUsage || view === 'app-detail' || view === 'apps-storage' || view === 'other-storage'
+    showUsage ||
+    view === 'app-detail' ||
+    view === 'apps-storage' ||
+    view === 'other-storage' ||
+    view === 'event-log-storage'
   const showAppsStorage = view === 'apps-storage'
   const showOtherStorage = view === 'other-storage'
+  const showEventLogStorage = view === 'event-log-storage'
   const showAppDetail = view === 'app-detail' && selectedApp
   const showDisplay = view === 'display'
+  const showDateTime = view === 'date-time'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
   const showWallpaper = view === 'wallpaper'
@@ -281,6 +290,7 @@ export function SettingsApp() {
           onSelectApp={(appId) => setRoute({ view: 'app-detail', appId, from: 'usage' })}
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
           onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
+          onOpenEventLogStorage={() => setRoute({ view: 'event-log-storage' })}
         />
       </SettingsKeepLayer>
 
@@ -300,6 +310,10 @@ export function SettingsApp() {
           totalBytes={summary.otherBytes}
           onBack={() => setRoute({ view: 'usage' })}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showEventLogStorage} keep={showEventLogStorage}>
+        <EventLogStorageView onBack={() => setRoute({ view: 'usage' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={Boolean(showAppDetail)} keep={Boolean(showAppDetail)}>
@@ -330,6 +344,10 @@ export function SettingsApp() {
           onBack={() => setRoute({ view: 'root' })}
           onOpenEmoji={() => setRoute({ view: 'display-emoji' })}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showDateTime} keep={showDateTime}>
+        <DateTimeSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showWallpaper} keep={showWallpaper}>
@@ -421,6 +439,7 @@ type UsageViewProps = {
   onSelectApp: (appId: BuiltinAppId | GeneratedAppId) => void
   onOpenAppsStorage: () => void
   onOpenOtherStorage: () => void
+  onOpenEventLogStorage: () => void
 }
 
 function UsageView({
@@ -429,6 +448,7 @@ function UsageView({
   onSelectApp,
   onOpenAppsStorage,
   onOpenOtherStorage,
+  onOpenEventLogStorage,
 }: UsageViewProps) {
   const systemUsedPercent = Math.min(100, (summary.usedBytes / DEVICE_CAPACITY_BYTES) * 100)
   const dataUsedPercent = Math.min(100, (summary.dataUsedBytes / DATA_CAPACITY_BYTES) * 100)
@@ -485,6 +505,7 @@ function UsageView({
                   <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
                   <span>图书章节 {formatStorageSize(summary.booksDataBytes)}</span>
                   <span>AI 用量 {formatStorageSize(summary.aiUsageBytes)}</span>
+                  <span>事件日志 {formatStorageSize(summary.aiEventLogBytes)}</span>
                   <span>文件夹图标 {formatStorageSize(summary.folderIconSnapshotsBytes)}</span>
                   <span>剩余 {formatStorageSize(summary.dataAvailableBytes)}</span>
                 </div>
@@ -534,6 +555,12 @@ function UsageView({
                   <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                   <StorageCategoryRow
+                    label="事件日志"
+                    bytes={summary.aiEventLogBytes}
+                    hint="AI 调用的完整输入与输出"
+                    onClick={onOpenEventLogStorage}
+                  />
+                  <StorageCategoryRow
                     label="程序图标缓存"
                     bytes={summary.folderIconSnapshotsBytes}
                     hint="文件夹预览缩略图缓存"
@@ -551,7 +578,7 @@ function UsageView({
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
+              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
               应用程序的用户数据通过 localStorage 桥接按应用独立存储。
               系统空间上限 5 MB、数据空间上限 50 MB，均为硬限制。
             </p>
@@ -647,6 +674,8 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
       return '图书索引'
     case 'weather':
       return '天气数据'
+    case 'calendar':
+      return '日历存档'
     case 'stocks':
       return '股票数据'
     case 'catgpt':
