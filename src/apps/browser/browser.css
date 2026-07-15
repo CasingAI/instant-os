@@ -53,6 +53,35 @@
     0 4px 10px -6px rgba(0, 0, 0, 0.18);
 }
 
+/* 全屏且关闭「始终显示工具栏」：工具栏上移隐藏，移入顶部再滑出（同 Chrome） */
+.safari__toolbar-reveal-sensor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 12;
+  height: 8px;
+}
+
+.safari--toolbar-autohide .safari__chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  transform: translateY(-100%);
+  transition: transform 0.28s ease;
+  pointer-events: none;
+}
+
+.safari--toolbar-autohide.safari--toolbar-revealed .safari__chrome {
+  transform: translateY(0);
+  pointer-events: auto;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7),
+    0 8px 20px -8px rgba(0, 0, 0, 0.28);
+}
+
 /* Tabs row */
 .safari__tabs-row {
   display: flex;

@@ -1,9 +1,12 @@
-/** 清理 AI HTML，避免 target/_blank、onclick 等绕过 Safari 内部导航 */
+/** 清理 AI HTML，避免 target/_blank、内联事件、CSP 等绕过或阻断 Safari 内部导航 */
 export function sanitizeHtmlForSafari(html: string): string {
   let result = html.replace(/<script[\s>][\s\S]*?<\/script>/gi, '')
+  result = result.replace(
+    /<meta[^>]+http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi,
+    '',
+  )
   result = result.replace(/\s+target\s*=\s*["'][^"']*["']/gi, '')
-  result = result.replace(/\s+onclick\s*=\s*["'][^"']*["']/gi, '')
-  result = result.replace(/\s+onsubmit\s*=\s*["'][^"']*["']/gi, '')
+  result = result.replace(/\s+on[a-z]+\s*=\s*["'][^"']*["']/gi, '')
   return result
 }
 
@@ -28,126 +31,4 @@ export function injectPageBaseHref(html: string, pageUrl: string): string {
   }
 
   return `<head>${baseTag}</head>\n${withoutBase}`
-}
-
-function buildNavigationBridge(pageUrl: string): string {
-  const baseJson = JSON.stringify(pageUrl)
-
-  return `<script>
-(function () {
-  var PAGE_BASE = ${baseJson};
-
-  function sameDocument(url) {
-    try {
-      var left = new URL(url);
-      var right = new URL(PAGE_BASE);
-      left.hash = '';
-      right.hash = '';
-      return left.href === right.href;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function isNonNavigating(href) {
-    var trimmed = (href || '').trim();
-    return !trimmed || trimmed.charAt(0) === '#' || trimmed.toLowerCase().indexOf('javascript:') === 0;
-  }
-
-  function send(url) {
-    if (!url || isNonNavigating(url) || sameDocument(url)) return;
-    parent.postMessage({ type: 'instant-os-navigate', url: url }, '*');
-  }
-
-  function resolve(href) {
-    if (isNonNavigating(href)) return undefined;
-    try {
-      return new URL(href, PAGE_BASE).href;
-    } catch (e) {
-      return undefined;
-    }
-  }
-
-  document.addEventListener('click', function (event) {
-    var el = event.target;
-    if (!el || !el.closest) return;
-
-    var link = el.closest('a[href]');
-    if (link) {
-      // 始终 preventDefault，避免 <base> 把 # / 空 href 解析成真实站
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      var href = link.getAttribute('href') || '';
-      var url = resolve(href);
-      if (url) {
-        send(url);
-        return;
-      }
-      var hash = href.trim();
-      if (hash.charAt(0) === '#' && hash.length > 1) {
-        try {
-          var id = decodeURIComponent(hash.slice(1));
-          if (id) {
-            var target = document.getElementById(id);
-            if (target) target.scrollIntoView();
-          }
-        } catch (e) {}
-      }
-      return;
-    }
-
-    var button = el.closest('button[data-navigate-url]');
-    if (button) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      var nav = button.getAttribute('data-navigate-url');
-      if (nav) {
-        var target = resolve(nav);
-        if (target) send(target);
-      }
-    }
-  }, true);
-
-  document.addEventListener('submit', function (event) {
-    var form = event.target;
-    if (!form || form.tagName !== 'FORM') {
-      if (event.target && event.target.closest) {
-        form = event.target.closest('form');
-      }
-    }
-    if (!form) return;
-
-    event.preventDefault();
-    event.stopImmediatePropagation();
-
-    try {
-      var action = form.getAttribute('action') || PAGE_BASE;
-      var target = new URL(action, PAGE_BASE);
-      var data = new FormData(form);
-      data.forEach(function (value, key) {
-        target.searchParams.set(key, String(value));
-      });
-      send(target.href);
-    } catch (e) {}
-  }, true);
-})();
-</script>`
-}
-
-export function injectSafariNavigationBridge(html: string, pageUrl: string): string {
-  if (!html.trim()) {
-    return html
-  }
-
-  const bridge = buildNavigationBridge(pageUrl)
-
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${bridge}\n</body>`)
-  }
-
-  if (/<\/html>/i.test(html)) {
-    return html.replace(/<\/html>/i, `${bridge}\n</html>`)
-  }
-
-  return `${html}\n${bridge}`
 }

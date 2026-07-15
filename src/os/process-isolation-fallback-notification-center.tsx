@@ -31,7 +31,6 @@ export function ProcessIsolationFallbackListItem({ onSelect }: ProcessIsolationF
           {PROCESS_ISOLATION_FALLBACK_COPY.listSubtitle}
         </span>
       </span>
-      <span class="notification-center__item-meta notification-center__item-meta--warning">!</span>
     </button>
   )
 }

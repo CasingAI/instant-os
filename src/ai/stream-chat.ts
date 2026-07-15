@@ -1,3 +1,4 @@
+import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
 import { recordAiEventLog } from './ai-event-log.ts'
 import type { AiEventLogMessage } from './ai-event-log-types.ts'
@@ -20,6 +21,8 @@ export type StreamChatOptions = {
   /** 首条 user 之后的对话轮次（assistant / user 交替） */
   followUp?: StreamChatTurn[]
   onChunk: (delta: string, accumulated: string) => void
+  /** 思考链增量（若模型返回 reasoning_content） */
+  onReasoningChunk?: (delta: string, accumulated: string) => void
   /** 覆盖账户里的思考模式开关 */
   thinkingEnabled?: boolean
   /** 超过该毫秒数未收到任何流式分片则中断（不是总生成时长上限） */
@@ -88,6 +91,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     resetIdleTimer()
 
     let text = ''
+    let reasoningText = ''
     let usage: ReturnType<typeof snapshotFromOpenAiUsage>
     let finishReason: string | undefined
 
@@ -103,6 +107,8 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
       if (reasoning) {
         options.onStreamActivity?.('reasoning')
+        reasoningText += reasoning
+        options.onReasoningChunk?.(reasoning, reasoningText)
         continue
       }
       if (!content) {
@@ -131,7 +137,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
         model,
         thinkingEnabled,
         messages,
-        response: trimmed,
+        response: formatStreamEventResponse(reasoningText, trimmed),
         usage,
       })
     }

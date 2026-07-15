@@ -4,7 +4,7 @@ import './ai-stream-preview.css'
 export type AiStreamPreviewProps = {
   reasoningText?: string
   contentText?: string
-  variant?: 'notification' | 'safari' | 'scene3d-lab'
+  variant?: 'notification' | 'safari' | 'scene3d-lab' | 'news' | 'news-list'
   emptyLabel?: string
   className?: string
 }

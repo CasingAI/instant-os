@@ -3,7 +3,6 @@ import {
   attachSafariFrameNavigation,
   type SafariFrameContextMenuRequest,
 } from './attach-safari-frame-navigation.ts'
-import { isEmbeddedAppOrigin } from './resolve-browser-navigation-url.ts'
 import { STREAMING_PLACEHOLDER_HTML } from './extract-partial-html.ts'
 import { prepareHtmlForSafariFrame } from './prepare-html-for-frame.ts'
 
@@ -89,18 +88,14 @@ export function SafariPageFrame({
     )
   }, [])
 
-  const writeToIframe = useCallback(
-    (source: string, force = false) => {
+  const writePreparedToIframe = useCallback(
+    (prepared: string, force = false) => {
       const iframe = iframeRef.current
       if (!iframe) {
         return
       }
 
-      const content = source
-        ? prepareHtmlForSafariFrame(source, pageUrlRef.current)
-        : STREAMING_PLACEHOLDER_HTML
-
-      if (!force && content === lastWrittenRef.current) {
+      if (!force && prepared === lastWrittenRef.current) {
         return
       }
 
@@ -110,9 +105,9 @@ export function SafariPageFrame({
       }
 
       internalWriteRef.current = true
-      lastWrittenRef.current = content
+      lastWrittenRef.current = prepared
       doc.open()
-      doc.write(content)
+      doc.write(prepared)
       doc.close()
 
       const activeDoc = iframe.contentDocument ?? iframe.contentWindow?.document
@@ -127,12 +122,23 @@ export function SafariPageFrame({
     [bindNavigation],
   )
 
+  const writeToIframe = useCallback(
+    (source: string, force = false) => {
+      const content = source
+        ? prepareHtmlForSafariFrame(source, pageUrlRef.current)
+        : STREAMING_PLACEHOLDER_HTML
+      writePreparedToIframe(content, force)
+    },
+    [writePreparedToIframe],
+  )
+
   const restoreIframeContent = useCallback(() => {
     if (!lastWrittenRef.current) {
       return
     }
-    writeToIframe(lastWrittenRef.current, true)
-  }, [writeToIframe])
+    // lastWritten 已是 prepare 后的文档，不要再次 prepare（会重复加工）
+    writePreparedToIframe(lastWrittenRef.current, true)
+  }, [writePreparedToIframe])
 
   const scheduleWrite = (source: string) => {
     pendingHtmlRef.current = source
@@ -163,33 +169,6 @@ export function SafariPageFrame({
     iframe.addEventListener('load', onFrameLoad)
     return () => iframe.removeEventListener('load', onFrameLoad)
   }, [frameKey, restoreIframeContent])
-
-  useEffect(() => {
-    const iframe = iframeRef.current
-    if (!iframe) {
-      return
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.source !== iframe.contentWindow) {
-        return
-      }
-
-      const data = event.data as { type?: string; url?: string } | undefined
-      if (!data || data.type !== 'instant-os-navigate' || typeof data.url !== 'string') {
-        return
-      }
-
-      if (isEmbeddedAppOrigin(data.url)) {
-        return
-      }
-
-      onNavigateRef.current(data.url)
-    }
-
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [frameKey])
 
   useLayoutEffect(() => {
     lastWrittenRef.current = ''

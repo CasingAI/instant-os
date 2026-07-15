@@ -1,5 +1,11 @@
 import { AppIconTile } from './app-icon-tile.tsx'
 import { CompassMark } from '../apps/browser/compass-mark.tsx'
+import {
+  formatCalendarYearLabel,
+  formatChineseMonthLabel,
+} from '../os/calendar-instant.ts'
+import { formatChineseDynastyCalendarIconParts } from '../os/chinese-dynasty-label.ts'
+import { useOsNowInstant } from '../os/use-os-clock.ts'
 
 type IconProps = {
   size?: number
@@ -488,37 +494,95 @@ export function NewsIcon({ size = 64 }: IconProps) {
   )
 }
 
+/** 按可用宽度压字号，避免日历图标红顶/白底文案溢出。 */
+function fitCalendarIconLabelFontSize(
+  label: string,
+  availableWidth: number,
+  maxFontSize: number,
+  minFontSize: number,
+): number {
+  if (label.length === 0) {
+    return maxFontSize
+  }
+  // 中文约 1em 宽；略收紧以给字重留边。
+  const fitted = Math.floor((availableWidth * 0.96) / label.length)
+  return Math.max(minFontSize, Math.min(maxFontSize, fitted))
+}
+
 export function CalendarIcon({ size = 64 }: IconProps) {
-  const cornerRadius = 14
+  const now = useOsNowInstant(60_000)
+  const dynastyParts = formatChineseDynastyCalendarIconParts(now)
+  const header = dynastyParts?.dynastyName ?? formatCalendarYearLabel(now)
+  const bodyLabel = dynastyParts?.yearLabel ?? formatChineseMonthLabel(now.month)
+  const headerHeight = Math.round(size * 0.28)
+  const bodyHeight = size - headerHeight
+  const horizontalPad = Math.max(2, Math.round(size * 0.05))
+  const availableWidth = Math.max(1, size - horizontalPad * 2)
+  const headerFontSize = fitCalendarIconLabelFontSize(
+    header,
+    availableWidth,
+    Math.round(size * 0.14),
+    6,
+  )
+  const bodyFontSize = fitCalendarIconLabelFontSize(
+    bodyLabel,
+    availableWidth,
+    Math.min(Math.round(size * 0.36), Math.round(bodyHeight * 0.72)),
+    7,
+  )
+
   return (
     <AppIconTile color="#c83a32" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <defs>
-          <linearGradient id="calendar-icon-page" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fffdf8" />
-            <stop offset="100%" stop-color="#efe4d2" />
-          </linearGradient>
-          <linearGradient id="calendar-icon-header" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#e85a4e" />
-            <stop offset="100%" stop-color="#a82822" />
-          </linearGradient>
-          <clipPath id="calendar-icon-clip">
-            <rect x="0" y="0" width="64" height="64" rx={cornerRadius} ry={cornerRadius} />
-          </clipPath>
-        </defs>
-        <g clip-path="url(#calendar-icon-clip)">
-          <rect x="0" y="0" width="64" height="64" fill="url(#calendar-icon-page)" />
-          <rect x="0" y="0" width="64" height="18" fill="url(#calendar-icon-header)" />
-          <rect x="10" y="24" width="10" height="8" rx="1.5" fill="#c83a32" opacity="0.9" />
-          <rect x="27" y="24" width="10" height="8" rx="1.5" fill="#3b78c2" opacity="0.95" />
-          <rect x="44" y="24" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.55" />
-          <rect x="10" y="36" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.45" />
-          <rect x="27" y="36" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.45" />
-          <rect x="44" y="36" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.45" />
-          <rect x="10" y="48" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.35" />
-          <rect x="27" y="48" width="10" height="8" rx="1.5" fill="#b8a890" opacity="0.35" />
-        </g>
-      </svg>
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: `${size}px`,
+          height: `${size}px`,
+          overflow: 'hidden',
+          background: '#fff',
+          boxShadow: 'inset 0 0 0 0.5px rgba(0, 0, 0, 0.12)',
+        }}
+      >
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: `${headerHeight}px`,
+            padding: `0 ${horizontalPad}px`,
+            background: 'linear-gradient(180deg, #ef5a4f 0%, #c83a32 55%, #a82822 100%)',
+            color: '#fff',
+            fontSize: `${headerFontSize}px`,
+            fontWeight: 700,
+            letterSpacing: header.length > 4 ? '-0.04em' : '0.02em',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+            textShadow: '0 0.5px 0 rgba(0, 0, 0, 0.25)',
+          }}
+        >
+          {header}
+        </span>
+        <span
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#1c1c1e',
+            fontSize: `${bodyFontSize}px`,
+            fontWeight: 700,
+            letterSpacing: bodyLabel.length > 3 ? '-0.04em' : '0',
+            lineHeight: 1,
+            padding: `0 ${horizontalPad}px`,
+            textAlign: 'center',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {bodyLabel}
+        </span>
+      </span>
     </AppIconTile>
   )
 }

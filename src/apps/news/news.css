@@ -234,10 +234,6 @@
   gap: 3px;
 }
 
-.news__row:last-child {
-  border-bottom-color: transparent;
-}
-
 .news__row--featured {
   background: linear-gradient(180deg, rgba(178, 58, 46, 0.06) 0%, transparent 60%);
   border-bottom-color: var(--news-border);
@@ -268,6 +264,28 @@
   animation: news-row-skeleton 1.1s ease-in-out infinite;
   pointer-events: none;
   box-sizing: border-box;
+}
+
+.news__list-skeleton--thinking {
+  display: flex;
+  flex-direction: column;
+  min-height: 72px;
+  height: 72px;
+  max-height: 72px;
+  padding: 0;
+  overflow: hidden;
+  animation: none;
+  background: linear-gradient(180deg, rgba(255, 252, 245, 0.95) 0%, rgba(239, 228, 210, 0.9) 100%);
+}
+
+.news__list-skeleton-pulse {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff 0%, #efe4d2 55%, #fff 100%);
+  background-size: 100% 200%;
+  animation: news-row-skeleton 1.1s ease-in-out infinite;
 }
 
 @keyframes news-row-skeleton {
@@ -400,6 +418,7 @@
 
 /* Reader — 纸张阅读区 */
 .news__reader {
+  position: relative;
   flex: 1;
   min-width: 0;
   background: var(--news-paper);
@@ -410,8 +429,39 @@
   cursor: text;
 }
 
+.news__reader-stack {
+  position: relative;
+  height: 100%;
+  min-height: 100%;
+}
+
+.news__thinking-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.news__reader-stack--thinking .news__reader-placeholder {
+  z-index: 1;
+  background: transparent;
+}
+
+.news__reader-stack--thinking .news__reader-placeholder-content {
+  padding: 28px 24px;
+  border-radius: 16px;
+  background: radial-gradient(
+    ellipse 70% 65% at 50% 45%,
+    rgba(255, 252, 245, 0.88) 0%,
+    rgba(255, 252, 245, 0.55) 48%,
+    transparent 72%
+  );
+}
+
 .news__reader-placeholder {
   position: relative;
+  z-index: 1;
   height: 100%;
   min-height: 100%;
   display: flex;
@@ -489,8 +539,10 @@
 
 .news__article-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 4px;
   font-size: 12px;
   color: var(--news-ink-muted);
   margin-bottom: 6px;
@@ -503,6 +555,18 @@
   border-radius: 3px;
   font-size: 11px;
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.news__article-date,
+.news__article-src {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 「·」跟着日期走，来源换行时不会以点开头 */
+.news__article-date:has(+ .news__article-src)::after {
+  content: '\00a0·';
 }
 
 .news__article-title {

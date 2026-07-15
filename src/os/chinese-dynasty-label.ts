@@ -112,12 +112,46 @@ function formatDynastyYearClause(instant: CalendarInstant): string | undefined {
   return resolveDynastyName(astronomicalYear)
 }
 
-/** 新中国成立前可标注时，返回如「（光绪十五年）」；否则 undefined。 */
-export function formatChineseDynastySuffix(instant: CalendarInstant): string | undefined {
+/**
+ * 新中国成立前可标注时，返回本土纪年，如「光绪十五年」或仅朝代名「商」；
+ * 无法判定时 undefined。
+ */
+export function formatChineseDynastyYearLabel(instant: CalendarInstant): string | undefined {
   if (!isBeforePrcFounding(instant)) {
     return undefined
   }
-  const clause = formatDynastyYearClause(instant)
+  return formatDynastyYearClause(instant)
+}
+
+/**
+ * 日历图标用：命中可判定朝代时红顶为朝代名；
+ * 有年号时白底为「乾兴元年」一类纪年，无年号时由调用方回退月份。
+ */
+export function formatChineseDynastyCalendarIconParts(
+  instant: CalendarInstant,
+): { dynastyName: string; yearLabel?: string } | undefined {
+  if (!isBeforePrcFounding(instant)) {
+    return undefined
+  }
+  const astronomicalYear = toAstronomicalYear(instant.era, instant.year)
+  const dynastyName = resolveDynastyName(astronomicalYear)
+  if (!dynastyName) {
+    return undefined
+  }
+  const reign = resolveReignEra(astronomicalYear)
+  if (!reign) {
+    return { dynastyName }
+  }
+  const eraYear = astronomicalYear - reign.startYear + 1
+  return {
+    dynastyName,
+    yearLabel: `${reign.name}${formatReignYearLabel(eraYear)}年`,
+  }
+}
+
+/** 新中国成立前可标注时，返回如「（光绪十五年）」；否则 undefined。 */
+export function formatChineseDynastySuffix(instant: CalendarInstant): string | undefined {
+  const clause = formatChineseDynastyYearLabel(instant)
   if (!clause) {
     return undefined
   }

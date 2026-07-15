@@ -53,6 +53,10 @@ export function isOsUsingSystemTime(): boolean {
   return readSettings().useSystemTime
 }
 
+export function isOsUsing24HourTime(): boolean {
+  return readSettings().use24HourTime !== false
+}
+
 export function getOsNowInstant(): CalendarInstant {
   const settings = readSettings()
   if (settings.useSystemTime || !settings.manual) {
@@ -98,7 +102,8 @@ export function isOsClockAtLeastYearsAwayFromReal(years: number): boolean {
 }
 
 export function applyOsManualDateTime(virtual: CalendarInstant): boolean {
-  const saved = saveDateTimeSettings(defaultManualDateTimeSettings(virtual))
+  const use24HourTime = isOsUsing24HourTime()
+  const saved = saveDateTimeSettings(defaultManualDateTimeSettings(virtual, use24HourTime))
   if (!saved) {
     return false
   }
@@ -108,7 +113,29 @@ export function applyOsManualDateTime(virtual: CalendarInstant): boolean {
 }
 
 export function applyOsSystemDateTime(): boolean {
-  const saved = saveDateTimeSettings(systemDateTimeSettings())
+  const saved = saveDateTimeSettings(systemDateTimeSettings(isOsUsing24HourTime()))
+  if (!saved) {
+    return false
+  }
+  refreshSettingsCache()
+  dispatchClockChanged()
+  return true
+}
+
+export function applyOs24HourTime(use24HourTime: boolean): boolean {
+  const current = readSettings()
+  const next: DateTimeSettings = current.useSystemTime
+    ? systemDateTimeSettings(use24HourTime)
+    : {
+        version: 1,
+        useSystemTime: false,
+        use24HourTime,
+        manual: current.manual,
+      }
+  if (!next.useSystemTime && !next.manual) {
+    return false
+  }
+  const saved = saveDateTimeSettings(next)
   if (!saved) {
     return false
   }

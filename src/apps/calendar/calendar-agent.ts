@@ -6,101 +6,219 @@ import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import {
   formatCalendarYearLabel,
-  parseEditionDateKey,
+  formatEditionDateKey,
+  getDaysInMonth,
+  normalizeCalendarInstant,
   toAstronomicalYear,
+  type CalendarEra,
   type CalendarInstant,
-  weekdayIndexForInstant,
 } from '../../os/calendar-instant.ts'
 import { formatChineseDynastySuffix } from '../../os/chinese-dynasty-label.ts'
-import { findSolarTermOnDay } from '../../os/solar-terms.ts'
-import { createEventId, saveDayDigest } from './calendar-storage.ts'
-import type { CalendarDayDigest, CalendarMajorEvent } from './calendar-types.ts'
+import {
+  createMarkerId,
+  formatMonthKey,
+  saveMonthDigest,
+} from './calendar-storage.ts'
+import type {
+  CalendarDayMarker,
+  CalendarMarkerKind,
+  CalendarMonthDigest,
+} from './calendar-types.ts'
 
-const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
+type EraMode = 'ancient' | 'imperial' | 'republican' | 'modern' | 'nearFuture' | 'farFuture'
 
-function seasonLabel(month: number): string {
-  if (month >= 3 && month <= 5) return '春季'
-  if (month >= 6 && month <= 8) return '夏季'
-  if (month >= 9 && month <= 11) return '秋季'
-  return '冬季'
+type FixedHoliday = {
+  month: number
+  day: number
+  name: string
+  note: string
 }
 
-function historicalFrameHint(instant: CalendarInstant): string {
+/** 公历固定节日：当代月历必须落盘，不可被即兴改名取代。 */
+const FIXED_GREGORIAN_HOLIDAYS: readonly FixedHoliday[] = [
+  { month: 1, day: 1, name: '元旦', note: '元旦，新年第一天。' },
+  { month: 3, day: 8, name: '妇女节', note: '国际劳动妇女节。' },
+  { month: 5, day: 1, name: '劳动节', note: '国际劳动节。' },
+  { month: 5, day: 4, name: '青年节', note: '五四青年节。' },
+  { month: 6, day: 1, name: '儿童节', note: '国际儿童节。' },
+  { month: 7, day: 1, name: '建党节', note: '中国共产党成立纪念日。' },
+  { month: 8, day: 1, name: '建军节', note: '中国人民解放军建军节。' },
+  { month: 9, day: 10, name: '教师节', note: '教师节。' },
+  { month: 10, day: 1, name: '国庆节', note: '中华人民共和国国庆节。' },
+]
+
+function realWorldAstroYear(): number {
+  return new Date().getFullYear()
+}
+
+function resolveEraMode(instant: CalendarInstant): EraMode {
   const year = toAstronomicalYear(instant.era, instant.year)
-  if (year <= -1000) {
-    return '上古/远古：用史志、邦国、农牧、星象与口述传闻口吻；勿出现近现代器物。'
-  }
-  if (year <= 0) {
-    return '先秦至秦汉前夜：可用诸侯、战事、农桑、朝廷诏令等；勿出现手机、汽车、互联网。'
-  }
-  if (year < 618) {
-    return '汉至南北朝：用史书、邸抄、民间传闻风格；勿出现近现代工业与数字科技。'
-  }
-  if (year < 960) {
-    return '隋唐：可用驿传、边塞、市井与科举前后社会图景。'
-  }
-  if (year < 1368) {
-    return '宋元：可用邸报、商路、边情与学宫议论。'
-  }
-  if (year < 1912) {
-    return '明清至清末：可用京报、告示与商埠传闻；洋务以降可谨慎出现近代事物。'
-  }
-  if (year < 1949) {
-    return '民国：可用报纸、电讯口吻；勿写成 21 世纪日常科技。'
-  }
-  if (year < 1990) {
-    return '新中国至改革开放中前期：可有广播电视；勿默认智能手机与短视频。'
-  }
-  if (year < 2010) {
-    return '1990–2009：可有个人电脑与早期互联网；勿写成全面自媒体时代。'
-  }
-  if (year <= 2025) {
-    return '当代：可用今日语汇；仍须以目标日期为「今天」。'
-  }
-  return '近未来：可适度前瞻，但日期表述仍以目标日期为「今天」。'
+  const realYear = realWorldAstroYear()
+  if (year <= -1000) return 'ancient'
+  if (year < 1912) return 'imperial'
+  if (year < 1949) return 'republican'
+  if (year <= realYear + 5) return 'modern'
+  if (year <= realYear + 80) return 'nearFuture'
+  return 'farFuture'
 }
 
-function describeDayForPrompt(dayKey: string): string {
-  const instant = parseEditionDateKey(dayKey)
-  const weekday = WEEKDAY_LABELS[weekdayIndexForInstant(instant)] ?? '周一'
-  const readable = `${formatCalendarYearLabel(instant)}${instant.month}月${instant.day}日 ${weekday}`
-  const dynasty = formatChineseDynastySuffix(instant)
-  const term = findSolarTermOnDay(instant)
-  return [
-    `日期编码：${dayKey}`,
+function eraModeLabel(mode: EraMode): string {
+  switch (mode) {
+    case 'ancient':
+      return '远古时期'
+    case 'imperial':
+      return '帝制时期'
+    case 'republican':
+      return '民国时期'
+    case 'modern':
+      return '当代'
+    case 'nearFuture':
+      return '近未来'
+    case 'farFuture':
+      return '远未来'
+  }
+}
+
+function eraModeGuidance(mode: EraMode): string {
+  switch (mode) {
+    case 'ancient':
+      return [
+        '本月按远古/上古氛围加载节日。',
+        '用语贴近祭祀、星象、农牧、氏族集会；节日可如「歇役观星」「春狩日」「社火夜」。',
+        '不要出现帝国官僚节假、近现代国家纪念日、科技与互联网语汇。',
+        '整月稀疏补若干贴合氛围的节日即可。',
+      ].join('\n')
+    case 'imperial':
+      return [
+        '本月按帝制中国氛围加载节日（先秦至清末）。',
+        '以朝廷祀典、农桑休市，以及上元、寒食、端午、中秋、重阳等传统节令为主；其余空日可再补少量同气质节日。',
+        '不要出现国庆、劳动节、互联网梗；不要把当代法定假日硬套回去。',
+      ].join('\n')
+    case 'republican':
+      return [
+        '本月按民国氛围加载节日。',
+        '可用双十、五四一类纪念氛围，以及学堂假、商埠节庆。',
+        '可有轻微近代器物，但不要写成 21 世纪互联网迷因，也不要提前套用共和国法定假日体系。',
+        '在已知纪念节之外，可于空日再补少量同气质节日。',
+      ].join('\n')
+    case 'modern':
+      return [
+        '本月按当代氛围加载节日（新中国成立后至贴近当下的年份）。',
+        '固定公历节日必须按真实常用名落点，不可改名（例如 10 月 1 日必须是「国庆节」）。',
+        '传统节日（春节、元宵、清明、端午、中秋、重阳等）若该月大致会落到，请按常识补上真实称呼。',
+        '在上述固定/传统节日之外，再从没有节日的日期里挑若干天，补上适量贴切的节日（kind=holiday），口吻像大家会认的节庆短名。',
+        '二十四节气由系统本地计算，不要输出 solar-term 条目。',
+        '天气物候短签可偶尔点缀，但不要抢占真实节日日期的主名称。',
+      ].join('\n')
+    case 'nearFuture':
+      return [
+        '本月按近未来氛围加载节日（数十年内）。',
+        '若仍能辨认今天的法定节日（如国庆、劳动节、元旦），请保留真实名称。',
+        '在这些固定节日之外，于空日再补若干带轻度时代演进色彩的节日（如城市静音日、轨道补给假）。',
+        '世界仍应可辨认，不要写成完全陌生的外星历法。',
+      ].join('\n')
+    case 'farFuture':
+      return [
+        '本月按远未来氛围加载节日（约一个世纪及更远）。',
+        '节日文化可以换代：轨道节、生态休眠、深空驿站歇航、合成季节观礼等均可。',
+        '不必保留 21 世纪国家纪念日体系；口吻要像「对当时的人来说这就是现在」。',
+        '仍用公历月日骨架，稀疏覆盖若干日期即可。',
+      ].join('\n')
+  }
+}
+
+function fixedHolidaysForMonth(month: number, daysInMonth: number): FixedHoliday[] {
+  return FIXED_GREGORIAN_HOLIDAYS.filter(
+    (item) => item.month === month && item.day >= 1 && item.day <= daysInMonth,
+  )
+}
+
+function describeMonthForPrompt(view: {
+  era: CalendarEra
+  year: number
+  month: number
+}): {
+  monthKey: string
+  userBlock: string
+  daysInMonth: number
+  mode: EraMode
+} {
+  const monthKey = formatMonthKey(view)
+  const daysInMonth = getDaysInMonth(view.era, view.year, view.month)
+  const anchor = normalizeCalendarInstant({
+    era: view.era,
+    year: view.year,
+    month: view.month,
+    day: 1,
+  })
+  const mode = resolveEraMode(anchor)
+  const dynasty = formatChineseDynastySuffix(anchor)
+  const readable = `${formatCalendarYearLabel(view)}${view.month}月`
+  const lines = [
+    `月份编码：${monthKey}`,
     `人类可读：${readable}${dynasty ? ` ${dynasty}` : ''}`,
-    `季节：${seasonLabel(instant.month)}`,
-    term ? `当日节气：${term.name}（${term.blurb}）——可作氛围，勿把节气本身再写成一条「重大事件」` : '当日非二十四节气交节日',
-    `时代约束：${historicalFrameHint(instant)}`,
-  ].join('\n')
+    `本月天数：${daysInMonth}`,
+    `日号范围：1～${daysInMonth}`,
+    `时代模式：${eraModeLabel(mode)}`,
+    `时代指引：`,
+    eraModeGuidance(mode),
+  ]
+
+  if (mode === 'modern' || mode === 'nearFuture') {
+    const fixed = fixedHolidaysForMonth(view.month, daysInMonth)
+    if (fixed.length > 0) {
+      lines.push('本月必须包含的固定公历节日（kind=holiday，name 必须一字不差）：')
+      for (const item of fixed) {
+        lines.push(`- ${item.day}日「${item.name}」—— ${item.note}`)
+      }
+      lines.push(
+        '除此以外，请再从没有上述固定节日的日期中另选若干天，补上适量节日（kind=holiday），不要占用固定节日日期改名。',
+      )
+    } else {
+      lines.push('本月无固定公历节日清单项；请稀疏补上若干贴合时代的节日（kind=holiday）。')
+    }
+  }
+
+  return { monthKey, userBlock: lines.join('\n'), daysInMonth, mode }
 }
 
-const EVENTS_PROMPT = `你是 Instant OS 日历应用的「当日大事」撰稿人。
+function markersSystemPrompt(mode: EraMode): string {
+  const shared = `你是 Instant OS「月历」应用的月度特殊日期标记员。
 
-任务：为用户给出的公历日期，生成 3～5 条中文「重大事件 / 要闻提要」。内容可虚构，但必须读起来像**那一天**可能发生、流传或被记录的大事，有自洽世界观。
-
-## 日期（最高优先级）
-- 用户消息中的日期就是这一天的「今天」
-- 题材、器物、制度、传播方式必须贴合该日所处历史阶段（见时代约束）
-- **严禁**把用户真实世界「当下」热点硬塞进来；也**严禁**把现代生活硬套到古代日期
-- **不要预设或照抄任何固定事件库**；每次按日期与时代即兴生成
-- 若历史上该日确有广为人知的大事，可作锚点再合理补全细节；想不起时宁可写契合季节与时代的虚构要闻，也不要写成另一个世纪的事
-- 节气若已在上下文给出，可作物候背景，但不要单独把「交节」再列为一条重大事件
+## 共同规则
+- 该月就是「现在」：题材必须服从下方时代模式，不要串台
+- 主要产出假期/节日短名；可少量天气物候短签（如「初雪」「黄梅」）
+- 禁止写成当日重大新闻或局势盘点
+- 不要输出二十四节气（kind=solar-term）：系统已本地算定
+- 整月稀疏：大约 8～16 条，覆盖不同日期，不要几乎天天有标记
+- 固定节日日期必须保留真实节日名；其余空日可再补节日
 
 ## 输出格式
 必须只返回 JSON 数组，不要 markdown，不要解释。每个元素：
 {
-  "title": "12～28 字标题",
-  "summary": "40～90 字摘要，像当日简讯",
-  "category": "从 政治/军事/民生/天象/文化/邦交/灾异/建设 中选一，若时代不宜用近现代词可换成同义古风称呼写入该字段"
+  "day": 本月日号（整数）,
+  "kind": "holiday" | "weather" | "special",
+  "name": "2～8 字短名，适合印在月历格子上",
+  "note": "可选，12～40 字一句说明（假期最好写清是什么假）"
 }
 
-要求：条目彼此独立、不重复；中文；口气是当日见闻而非后世史评（少用「据史料」「多年后」）。`
+要求：中文；name 短而清楚。`
 
-type RawEvent = {
-  title?: unknown
-  summary?: unknown
-  category?: unknown
+  const modeExtra =
+    mode === 'modern'
+      ? `\n\n## 当代特别强调\n先落实国定/常见固定节日，再在没有这些节日的日期里补若干适宜节日；绝不可改写固定节日名。补充节日也应读起来像节日短名，而不是新闻标题。`
+      : mode === 'ancient' || mode === 'farFuture'
+        ? `\n\n## 时代特别强调\n以贴合该时代氛围的节日为主；自洽即可，不要回填用户当下现实热点梗。`
+        : `\n\n## 年代特别强调\n该时代广为人知的节令优先用常见称呼；其余空日可再补少量同气质节日。`
+
+  return shared + modeExtra
+}
+
+type RawMarker = {
+  day?: unknown
+  kind?: unknown
+  name?: unknown
+  note?: unknown
 }
 
 async function completeJson<T>(
@@ -135,53 +253,163 @@ async function completeJson<T>(
   return parseJsonFromAiText<T>(text)
 }
 
-function normalizeEvents(raw: unknown): CalendarMajorEvent[] {
+function normalizeKind(raw: unknown): CalendarMarkerKind {
+  if (raw === 'holiday' || raw === 'solar-term' || raw === 'weather' || raw === 'special') {
+    return raw
+  }
+  if (typeof raw === 'string') {
+    if (raw.includes('假') || raw.includes('节')) return 'holiday'
+    if (raw.includes('气') || raw.includes('节令')) return 'solar-term'
+    if (raw.includes('天') || raw.includes('雨') || raw.includes('雪')) return 'weather'
+  }
+  return 'special'
+}
+
+function ensureFixedHolidays(
+  markers: CalendarDayMarker[],
+  view: { era: CalendarEra; year: number; month: number },
+  daysInMonth: number,
+  mode: EraMode,
+): CalendarDayMarker[] {
+  if (mode !== 'modern' && mode !== 'nearFuture') {
+    return markers
+  }
+
+  const required = fixedHolidaysForMonth(view.month, daysInMonth)
+  if (required.length === 0) {
+    return markers
+  }
+
+  const byDay = new Map<number, CalendarDayMarker[]>()
+  for (const marker of markers) {
+    const list = byDay.get(marker.day) ?? []
+    list.push(marker)
+    byDay.set(marker.day, list)
+  }
+
+  const next = [...markers]
+  for (const holiday of required) {
+    const dayMarkers = byDay.get(holiday.day) ?? []
+    const already = dayMarkers.some(
+      (item) => item.kind === 'holiday' && item.name === holiday.name,
+    )
+    if (already) {
+      continue
+    }
+
+    // 若该日已有被改名的假期，改回真实名；否则追加一条。
+    const renamed = dayMarkers.find((item) => item.kind === 'holiday')
+    if (renamed) {
+      renamed.name = holiday.name
+      renamed.note = holiday.note
+      continue
+    }
+
+    const dayKey = formatEditionDateKey(
+      normalizeCalendarInstant({
+        era: view.era,
+        year: view.year,
+        month: view.month,
+        day: holiday.day,
+      }),
+    )
+    next.push({
+      id: createMarkerId(),
+      day: holiday.day,
+      dayKey,
+      kind: 'holiday',
+      name: holiday.name,
+      note: holiday.note,
+    })
+  }
+
+  return next.slice(0, 24)
+}
+
+function normalizeMarkers(
+  raw: unknown,
+  view: { era: CalendarEra; year: number; month: number },
+  daysInMonth: number,
+): CalendarDayMarker[] {
   if (!Array.isArray(raw)) {
     return []
   }
-  return (raw as RawEvent[])
-    .map((item): CalendarMajorEvent | undefined => {
+  const seen = new Set<string>()
+  return (raw as RawMarker[])
+    .map((item): CalendarDayMarker | undefined => {
       if (!item || typeof item !== 'object') {
         return undefined
       }
-      const title = typeof item.title === 'string' ? item.title.trim() : ''
-      const summary = typeof item.summary === 'string' ? item.summary.trim() : ''
-      const category = typeof item.category === 'string' ? item.category.trim() : '要闻'
-      if (!title || !summary) {
+      const day = typeof item.day === 'number' ? Math.floor(item.day) : Number(item.day)
+      if (!Number.isFinite(day) || day < 1 || day > daysInMonth) {
         return undefined
       }
+      const name = typeof item.name === 'string' ? item.name.trim() : ''
+      if (!name) {
+        return undefined
+      }
+      const shortName = name.slice(0, 10)
+      const note =
+        typeof item.note === 'string' && item.note.trim()
+          ? item.note.trim().slice(0, 80)
+          : undefined
+      const kind = normalizeKind(item.kind)
+      // 节气由本地算法负责，丢弃模型输出的节气条目
+      if (kind === 'solar-term') {
+        return undefined
+      }
+      const dayKey = formatEditionDateKey(
+        normalizeCalendarInstant({
+          era: view.era,
+          year: view.year,
+          month: view.month,
+          day,
+        }),
+      )
+      const dedupe = `${day}|${kind}|${shortName}`
+      if (seen.has(dedupe)) {
+        return undefined
+      }
+      seen.add(dedupe)
       return {
-        id: createEventId(),
-        title,
-        summary,
-        category: category || '要闻',
+        id: createMarkerId(),
+        day,
+        dayKey,
+        kind,
+        name: shortName,
+        note,
       }
     })
-    .filter((item): item is CalendarMajorEvent => item !== undefined)
-    .slice(0, 5)
+    .filter((item): item is CalendarDayMarker => item !== undefined)
+    .slice(0, 20)
 }
 
-export async function generateDayMajorEvents(
-  dayKey: string,
+export async function generateMonthMarkers(
+  view: { era: CalendarEra; year: number; month: number },
   options?: { persist?: boolean },
-): Promise<CalendarDayDigest> {
-  const context = describeDayForPrompt(dayKey)
+): Promise<CalendarMonthDigest> {
+  const { monthKey, userBlock, daysInMonth, mode } = describeMonthForPrompt(view)
   const raw = await completeJson<unknown>(
-    EVENTS_PROMPT,
-    `${context}\n\n请为该日生成 3～5 条重大事件。`,
-    { actor: 'calendar', behavior: 'day-events', behaviorLabel: '生成当日大事' },
+    markersSystemPrompt(mode),
+    `${userBlock}\n\n请为本月加载特殊日期标记。`,
+    { actor: 'calendar', behavior: 'month-markers', behaviorLabel: '加载月度特殊日期' },
   )
-  const events = normalizeEvents(raw)
-  if (events.length === 0) {
-    throw new Error('未能解析出有效的重大事件')
+  const markers = ensureFixedHolidays(
+    normalizeMarkers(raw, view, daysInMonth),
+    view,
+    daysInMonth,
+    mode,
+  )
+  if (markers.length === 0) {
+    throw new Error('未能解析出有效的特殊日期标记')
   }
-  const digest: CalendarDayDigest = {
-    dayKey,
+  const digest: CalendarMonthDigest = {
+    monthKey,
     generatedAt: Date.now(),
-    events,
+    markers,
   }
   if (options?.persist !== false) {
-    saveDayDigest(digest)
+    saveMonthDigest(digest)
   }
   return digest
 }

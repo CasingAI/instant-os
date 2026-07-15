@@ -21,6 +21,7 @@ import {
   toGeneratedAppId,
 } from '../apps/appstore/store-agent.ts'
 import type {
+  CompletedInstall,
   FailedInstall,
   GeneratedAppRecord,
   PendingInstall,
@@ -53,6 +54,7 @@ type GeneratedAppsContextValue = {
   installedApps: GeneratedAppRecord[]
   pendingInstalls: PendingInstall[]
   failedInstalls: FailedInstall[]
+  completedInstalls: CompletedInstall[]
   listingsLoading: boolean
   listingsError: string | undefined
   refreshListings: (topic?: string) => Promise<void>
@@ -89,7 +91,10 @@ type GeneratedAppsContextValue = {
   getInstalledApp: (appId: GeneratedAppId) => GeneratedAppRecord | undefined
   getPendingInstall: (appId: GeneratedAppId) => PendingInstall | undefined
   getFailedInstall: (appId: GeneratedAppId) => FailedInstall | undefined
+  getCompletedInstall: (appId: GeneratedAppId) => CompletedInstall | undefined
   dismissFailedInstall: (appId: GeneratedAppId) => void
+  dismissCompletedInstall: (appId: GeneratedAppId) => void
+  clearDismissibleInstallNotifications: () => void
   pendingUpdateCount: number
   updateInstalledAppFromIcode: (
     appId: GeneratedAppId,
@@ -167,6 +172,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
   const [installedApps, setInstalledApps] = useState<GeneratedAppRecord[]>(() => loadInstalledApps())
   const [pendingInstalls, setPendingInstalls] = useState<PendingInstall[]>([])
   const [failedInstalls, setFailedInstalls] = useState<FailedInstall[]>([])
+  const [completedInstalls, setCompletedInstalls] = useState<CompletedInstall[]>([])
   const [listingsLoading, setListingsLoading] = useState(false)
   const [listingsError, setListingsError] = useState<string | undefined>(undefined)
   const [listingDetailsCache, setListingDetailsCache] = useState<Record<string, StoreListingDetail>>(
@@ -498,6 +504,36 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     })
   }, [])
 
+  const getCompletedInstall = useCallback(
+    (appId: GeneratedAppId) => completedInstalls.find((item) => item.id === appId),
+    [completedInstalls],
+  )
+
+  const dismissCompletedInstall = useCallback((appId: GeneratedAppId) => {
+    setCompletedInstalls((current) => {
+      const completed = current.find((item) => item.id === appId)
+      if (completed) {
+        clearPendingInstallStream(completed.listing.slug)
+      }
+      return current.filter((item) => item.id !== appId)
+    })
+  }, [])
+
+  const clearDismissibleInstallNotifications = useCallback(() => {
+    setFailedInstalls((current) => {
+      for (const item of current) {
+        clearPendingInstallStream(item.listing.slug)
+      }
+      return []
+    })
+    setCompletedInstalls((current) => {
+      for (const item of current) {
+        clearPendingInstallStream(item.listing.slug)
+      }
+      return []
+    })
+  }, [])
+
   const updatePendingInstall = useCallback((slug: string, patch: Partial<PendingInstall>) => {
     setPendingInstalls((current) =>
       current.map((item) => (item.listing.slug === slug ? { ...item, ...patch } : item)),
@@ -526,6 +562,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
 
         setListingsError(undefined)
         setFailedInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
+        setCompletedInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
         setPendingInstallStream(listing.slug, { reasoningText: '', rawText: '' })
         setPendingInstalls((current) => [...current, createPendingInstall(appId, listing, isUpdate)])
 
@@ -585,8 +622,16 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
         }
 
         setInstalledApps(nextApps)
-        clearPendingInstallStream(listing.slug)
         setPendingInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
+        setCompletedInstalls((current) => [
+          ...current.filter((item) => item.id !== appId),
+          {
+            id: appId,
+            listing,
+            isUpdate,
+            completedAt: osNowMs(),
+          },
+        ])
         openGeneratedApp(appId, listing.name)
       } catch (error) {
         setPendingInstalls((current) => current.filter((item) => item.listing.slug !== listing.slug))
@@ -665,6 +710,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
     (appId: GeneratedAppId) => {
       setInstalledApps((current) => current.filter((app) => app.id !== appId))
       dismissFailedInstall(appId)
+      dismissCompletedInstall(appId)
       clearGeneratedAppData(appId)
       setAppDataRevisions((current) => {
         const next = { ...current }
@@ -674,7 +720,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       saveLauncherLayout(removeAppFromLauncherLayout(loadLauncherLayout(), appId))
       closeWindowsForApp(appId)
     },
-    [closeWindowsForApp, dismissFailedInstall],
+    [closeWindowsForApp, dismissCompletedInstall, dismissFailedInstall],
   )
 
   const clearAppData = useCallback((appId: GeneratedAppId) => {
@@ -879,6 +925,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       installedApps,
       pendingInstalls,
       failedInstalls,
+      completedInstalls,
       listingsLoading,
       listingsError,
       refreshListings,
@@ -909,7 +956,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       getInstalledApp,
       getPendingInstall,
       getFailedInstall,
+      getCompletedInstall,
       dismissFailedInstall,
+      dismissCompletedInstall,
+      clearDismissibleInstallNotifications,
       pendingUpdateCount,
       updateInstalledAppFromIcode,
       publishAppFromIcode,
@@ -920,6 +970,7 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       installedApps,
       pendingInstalls,
       failedInstalls,
+      completedInstalls,
       listingsLoading,
       listingsError,
       refreshListings,
@@ -950,7 +1001,10 @@ export function GeneratedAppsProvider({ children }: { children: ComponentChildre
       getInstalledApp,
       getPendingInstall,
       getFailedInstall,
+      getCompletedInstall,
       dismissFailedInstall,
+      dismissCompletedInstall,
+      clearDismissibleInstallNotifications,
       pendingUpdateCount,
       updateInstalledAppFromIcode,
       publishAppFromIcode,

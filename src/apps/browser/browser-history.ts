@@ -1,6 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import { osNowMs } from '../../os/os-clock.ts'
-import { isStartPageUrl, normalizeBrowserUrl } from './normalize-browser-url.ts'
+import { hostnameFromUrl, isStartPageUrl, normalizeBrowserUrl } from './normalize-browser-url.ts'
 
 export type HistoryVisitRecord = {
   url: string
@@ -68,6 +68,20 @@ export function removeBrowserHistoryVisit(url: string): void {
   const store = loadStore()
   saveStore({
     visits: store.visits.filter((entry) => entry.url !== normalized),
+  })
+}
+
+export function clearBrowserHistoryByHostname(hostname: string): void {
+  const normalizedHost = hostname.replace(/^www\./, '').toLowerCase()
+  if (!normalizedHost) {
+    return
+  }
+
+  const store = loadStore()
+  saveStore({
+    visits: store.visits.filter(
+      (entry) => hostnameFromUrl(entry.url).toLowerCase() !== normalizedHost,
+    ),
   })
 }
 

@@ -233,6 +233,124 @@
   text-justify: none;
 }
 
+.setup-datetime-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.setup-datetime-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 148px;
+  padding: 22px 14px 18px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.96) 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+
+.setup-datetime-card:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  box-shadow:
+    0 8px 20px rgba(37, 99, 235, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  transform: translateY(-1px);
+}
+
+.setup-datetime-card:active {
+  transform: translateY(0);
+  box-shadow:
+    0 2px 8px rgba(37, 99, 235, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.setup-datetime-card:focus-visible {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.setup-datetime-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 2px;
+  border-radius: 14px;
+  color: #2563eb;
+  background: linear-gradient(160deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid rgba(37, 99, 235, 0.16);
+}
+
+.setup-datetime-card__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.setup-datetime-card__title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.setup-datetime-card__desc {
+  max-width: 11em;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+@media (max-width: 480px) {
+  .setup-datetime-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-datetime-card {
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .setup-datetime-card__icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 0;
+  }
+
+  .setup-datetime-card__copy {
+    align-items: flex-start;
+  }
+
+  .setup-datetime-card__desc {
+    max-width: none;
+  }
+}
+
 .setup-assistant__error {
   margin: 12px 0 0;
   font-size: 12px;
@@ -246,6 +364,11 @@
   margin-top: 28px;
   padding-top: 20px;
   border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.setup-assistant__footer-hint {
+  font-size: 13px;
+  color: #94a3b8;
 }
 
 .setup-assistant__dots {

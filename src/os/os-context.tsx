@@ -63,7 +63,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   news: { title: '新闻', width: 920, height: 620 },
   books: { title: '书架', width: 920, height: 620 },
   weather: { title: '天气', width: 410, height: 680 },
-  calendar: { title: '日历', width: 520, height: 700 },
+  calendar: { title: '月历', width: 780, height: 540 },
   stocks: { title: '股票', width: 410, height: 680 },
   translate: { title: '翻译', width: 680, height: 520 },
   catgpt: { title: 'CatGPT', width: 860, height: 640 },

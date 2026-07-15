@@ -235,16 +235,30 @@ function generatePromptForMode(mode: EditionTemporalMode): string {
   return GENERATE_PROMPT_PRESENT
 }
 
-function userMessageForMode(mode: EditionTemporalMode, dateContext: string, context: string): string {
+function userMessageForMode(
+  mode: EditionTemporalMode,
+  dateContext: string,
+  nearbyContext: string,
+  dayContext?: string,
+): string {
   const nearby = [
     '附近日期新闻标题上下文（供连贯性参考；与本日期时代冲突时，以本日期为准）：',
-    context || '（暂无历史记录）',
+    nearbyContext || '（暂无历史记录）',
   ].join('\n')
+
+  const calendarBlock = dayContext?.trim()
+    ? [
+        '',
+        '当日日历标记（可供选题参考：节令、假日、民俗等；可作当日新闻锚点，勿写成广告清单或机械罗列）：',
+        dayContext.trim(),
+      ]
+    : []
 
   if (mode === 'future') {
     return [
       '【版面日期 — 请把这一天当作绝对「今天」；此版为相对真实世界的「未来」】',
       dateContext,
+      ...calendarBlock,
       '',
       nearby,
       '',
@@ -256,6 +270,7 @@ function userMessageForMode(mode: EditionTemporalMode, dateContext: string, cont
     return [
       '【版面日期 — 请把这一天当作绝对「今天」；此版为相对真实世界的「过去」】',
       dateContext,
+      ...calendarBlock,
       '',
       nearby,
       '',
@@ -266,6 +281,7 @@ function userMessageForMode(mode: EditionTemporalMode, dateContext: string, cont
   return [
     '【版面日期 — 请把这一天当作绝对「今天」；此版贴近真实世界当下】',
     dateContext,
+    ...calendarBlock,
     '',
     nearby,
     '',
@@ -303,16 +319,22 @@ function emitUniqueArticles(
   }
 }
 
+export type GenerateArticlesStreamingOptions = {
+  dayContext?: string
+  onReasoning?: (reasoningText: string) => void
+}
+
 export async function generateArticlesForDateStreaming(
   targetDate: string,
   onArticle: (article: NewsArticle) => void,
+  options: GenerateArticlesStreamingOptions = {},
 ): Promise<NewsArticle[]> {
   const store = readNewsStore()
-  const context = buildNearbyTitlesContext(store, targetDate, 10)
+  const nearbyContext = buildNearbyTitlesContext(store, targetDate, 10)
   const mode = editionTemporalMode(targetDate)
   const systemPrompt = generatePromptForMode(mode)
   const dateContext = describeEditionDateForPrompt(targetDate)
-  const userMessage = userMessageForMode(mode, dateContext, context)
+  const userMessage = userMessageForMode(mode, dateContext, nearbyContext, options.dayContext)
 
   const articles: NewsArticle[] = []
   const seenTitles = new Set<string>()
@@ -339,6 +361,11 @@ export async function generateArticlesForDateStreaming(
       // 版面或系统时钟相对真实世界偏一年以上时强制开思考，便于贴合时代/未来时间线
       thinkingEnabled:
         mode !== 'present' || isOsClockAtLeastYearsAwayFromReal(1) ? true : undefined,
+      onReasoningChunk: options.onReasoning
+        ? (_delta, accumulated) => {
+            options.onReasoning?.(accumulated)
+          }
+        : undefined,
       onChunk: (delta) => {
         feed.push(delta)
       },

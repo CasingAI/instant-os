@@ -66,10 +66,11 @@ Instant OS 内置网络浏览器。你生成的 HTML 渲染在 iframe 内，尺�
 ## 导航与表单（重要）
 Instant OS **从外部**拦截链接与表单，跳转到真实 URL 后由 AI 重新生成——**不要写任何 JS**。
 - 搜索：\`<form action="https://域名/search" method="get">\`，input 的 name 必须是 \`q\`
-- 所有跳转用 \`<a href="https://完整绝对URL">\`；**禁止** target="_blank"、onclick、window.open、button 跳转
+- 所有可点击跳转必须用真实可解析的 \`href\`（导航栏、结果标题、「下一页」等优先 \`https://完整绝对URL\`）；**禁止** \`href="#"\`、空 href、javascript:
+- **禁止** target="_blank"、onclick、window.open、button 跳转
 - 按钮外观用 \`<a class="btn" href="https://...">\` 实现
 - Google 首页必须有 action="https://www.google.com/search" method="get" 的搜索表单
-- 禁止 \`<script>\` 标签（系统会注入导航桥，AI 不要写脚本）
+- 禁止 \`<script>\` 标签与 Content-Security-Policy meta（系统负责页内导航，AI 不要写脚本）
 
 ## 样式与流式输出顺序（重要——让首屏尽快可见）
 **禁止**在 <head> 里先写大段 <style> 再输出 body——那样流式渲染时长时间空白。

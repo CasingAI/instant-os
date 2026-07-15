@@ -100,7 +100,8 @@
   text-overflow: ellipsis;
 }
 
-.mail__toolbar-back {
+/* 须压过 .ios-nav-back 的 display:inline-flex（同特异性时全局样式后加载） */
+.ios-nav-back.mail__toolbar-back {
   display: none;
   flex-shrink: 0;
 }
@@ -966,7 +967,7 @@
     display: none;
   }
 
-  .mail--detail-open .mail__toolbar-back {
+  .mail--detail-open .ios-nav-back.mail__toolbar-back {
     display: flex;
   }
 

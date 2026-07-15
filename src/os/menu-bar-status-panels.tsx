@@ -4,6 +4,8 @@ import { getAppDefinition } from './app-registry.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { useDevExtApps } from './dev-ext-apps-context.tsx'
 import { MenuBarPopover } from './menu-bar-popover.tsx'
+import { formatOsDateTime } from './format-os-datetime.ts'
+import { isOsUsing24HourTime } from './os-clock.ts'
 import type { DeviceBattery } from './use-device-battery.ts'
 import { useOs } from './os-context.tsx'
 import type { AppId, WindowState } from './types.ts'
@@ -134,12 +136,7 @@ export function DateTimePanel({ now }: DateTimePanelProps) {
     day: 'numeric',
     weekday: 'long',
   })
-  const time = now.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
+  const { timeWithSeconds: time } = formatOsDateTime(now, isOsUsing24HourTime())
 
   return (
     <MenuBarPopover align="center" label="日期与时间">

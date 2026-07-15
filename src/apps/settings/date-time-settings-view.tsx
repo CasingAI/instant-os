@@ -2,44 +2,58 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import {
-  formatCalendarInstantLabel,
-  getDaysInMonth,
+  formatCalendarYearLabel,
   normalizeCalendarInstant,
-  type CalendarEra,
   type CalendarInstant,
 } from '../../os/calendar-instant.ts'
+import { formatOsClockHm, formatOsClockParts } from '../../os/format-os-datetime.ts'
 import {
+  applyOs24HourTime,
   applyOsManualDateTime,
   applyOsSystemDateTime,
   calendarInstantFromSystemNow,
   getOsNowInstant,
-  isOsUsingSystemTime,
   loadDateTimeSettings,
   OS_CLOCK_CHANGED_EVENT,
 } from '../../os/os-clock.ts'
+import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
+import { DateTimeDatePanel } from '../../ui/date-time-date-panel.tsx'
+import { DateTimeTimePanel } from './date-time-time-panel.tsx'
 import './date-time-settings-view.css'
 
 type DateTimeSettingsViewProps = {
   onBack: () => void
 }
 
-function cloneInstant(instant: CalendarInstant): CalendarInstant {
-  return { ...instant }
+type EditorKind = 'date' | 'time'
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+function formatDateRowLabel(instant: CalendarInstant): string {
+  return `${formatCalendarYearLabel(instant)}${instant.month}月${instant.day}日`
+}
+
+function formatTimeRowLabel(instant: CalendarInstant, use24HourTime: boolean): string {
+  return formatOsClockHm(instant.hour, instant.minute, use24HourTime)
 }
 
 export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
   const initialSettings = useMemo(() => loadDateTimeSettings(), [])
   const [useSystemTime, setUseSystemTime] = useState(() => initialSettings.useSystemTime)
-  const [draft, setDraft] = useState<CalendarInstant>(() =>
-    initialSettings.useSystemTime
-      ? calendarInstantFromSystemNow()
-      : cloneInstant(getOsNowInstant()),
-  )
+  const [use24HourTime, setUse24HourTime] = useState(() => initialSettings.use24HourTime !== false)
   const [previewInstant, setPreviewInstant] = useState(() => getOsNowInstant())
   const [saveError, setSaveError] = useState(false)
+  const [editor, setEditor] = useState<EditorKind | undefined>(undefined)
 
   useEffect(() => {
-    const syncPreview = () => setPreviewInstant(getOsNowInstant())
+    const syncPreview = () => {
+      const settings = loadDateTimeSettings()
+      setPreviewInstant(getOsNowInstant())
+      setUseSystemTime(settings.useSystemTime)
+      setUse24HourTime(settings.use24HourTime !== false)
+    }
     syncPreview()
     const intervalId = window.setInterval(syncPreview, 1000)
     window.addEventListener(OS_CLOCK_CHANGED_EVENT, syncPreview)
@@ -47,63 +61,81 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
       window.clearInterval(intervalId)
       window.removeEventListener(OS_CLOCK_CHANGED_EVENT, syncPreview)
     }
-  }, [useSystemTime, draft])
-
-  const maxDay = getDaysInMonth(draft.era, draft.year, draft.month)
+  }, [])
 
   const handleToggleSystemTime = (checked: boolean) => {
     setSaveError(false)
+    setEditor(undefined)
     if (checked) {
-      const saved = applyOsSystemDateTime()
-      if (!saved) {
+      if (!applyOsSystemDateTime()) {
         setSaveError(true)
         return
       }
       setUseSystemTime(true)
-      setDraft(calendarInstantFromSystemNow())
       return
     }
 
-    const nextDraft = calendarInstantFromSystemNow()
-    const saved = applyOsManualDateTime(nextDraft)
-    if (!saved) {
+    const next = calendarInstantFromSystemNow()
+    if (!applyOsManualDateTime(next)) {
       setSaveError(true)
       return
     }
     setUseSystemTime(false)
-    setDraft(nextDraft)
   }
 
-  const handleApplyManual = () => {
+  const handleToggle24HourTime = (checked: boolean) => {
     setSaveError(false)
-    const normalized = normalizeCalendarInstant(draft)
-    const saved = applyOsManualDateTime(normalized)
-    if (!saved) {
+    if (!applyOs24HourTime(checked)) {
       setSaveError(true)
       return
     }
-    setUseSystemTime(false)
-    setDraft(normalized)
+    setUse24HourTime(checked)
   }
 
-  const handleUseSystemNow = () => {
+  const handleConfirmDate = (datePart: CalendarInstant) => {
     setSaveError(false)
-    const systemNow = calendarInstantFromSystemNow()
-    const saved = applyOsManualDateTime(systemNow)
-    if (!saved) {
+    const current = getOsNowInstant()
+    const next = normalizeCalendarInstant({
+      ...current,
+      era: datePart.era,
+      year: datePart.year,
+      month: datePart.month,
+      day: datePart.day,
+    })
+    if (!applyOsManualDateTime(next)) {
       setSaveError(true)
       return
     }
     setUseSystemTime(false)
-    setDraft(systemNow)
+    setEditor(undefined)
   }
 
-  const updateDraft = (patch: Partial<CalendarInstant>) => {
-    setDraft((current) => normalizeCalendarInstant({ ...current, ...patch }))
+  const handleConfirmTime = (timePart: CalendarInstant) => {
+    setSaveError(false)
+    const current = getOsNowInstant()
+    const next = normalizeCalendarInstant({
+      ...current,
+      hour: timePart.hour,
+      minute: timePart.minute,
+      second: 0,
+      millisecond: 0,
+    })
+    if (!applyOsManualDateTime(next)) {
+      setSaveError(true)
+      return
+    }
+    setUseSystemTime(false)
+    setEditor(undefined)
   }
+
+  const previewClock = formatOsClockParts(
+    previewInstant.hour,
+    previewInstant.minute,
+    use24HourTime,
+  )
 
   return (
-    <div class="settings">
+    <div class={`settings${editor ? ' date-time-settings--editing' : ''}`}>
       <div class="settings__nav">
         <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
@@ -111,8 +143,28 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
         <section class="settings__section">
           <h2 class="settings__section-title">日期与时间</h2>
           <p class="settings__section-subtitle">
-            手动设置后，系统界面与 AI 生成内容都会以这里的日期与时间为准；可设置到公元前。
+            手动设定后，系统界面与 AI 生成内容都会以这里为准；可设到公元前。
           </p>
+
+          <div class="date-time-settings__clock" aria-live="polite">
+            <div class="date-time-settings__clock-face">
+              <span class="date-time-settings__clock-time">
+                {previewClock.digits}
+                <span class="date-time-settings__clock-seconds">
+                  :{pad2(previewInstant.second)}
+                </span>
+                {previewClock.period && (
+                  <span class="date-time-settings__clock-period">{previewClock.period}</span>
+                )}
+              </span>
+              <span class="date-time-settings__clock-date">
+                {formatDateRowLabel(previewInstant)}
+              </span>
+              <span class="date-time-settings__clock-mode">
+                {useSystemTime ? '跟随设备时间' : '手动设定'}
+              </span>
+            </div>
+          </div>
 
           <div class="settings__list">
             <div class="settings__toggle-row">
@@ -123,133 +175,45 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
                 label="自动设置日期与时间"
               />
             </div>
-          </div>
-
-          <div class="date-time-settings__preview">
-            <span class="date-time-settings__preview-label">当前系统时间</span>
-            <strong class="date-time-settings__preview-value">
-              {formatCalendarInstantLabel(previewInstant)}
-            </strong>
+            <div class="settings__toggle-row">
+              <span class="settings__toggle-row-label">24 小时制</span>
+              <IosSwitch
+                checked={use24HourTime}
+                onChange={handleToggle24HourTime}
+                label="24 小时制"
+              />
+            </div>
           </div>
 
           {!useSystemTime && (
-            <div class="settings__box date-time-settings__editor">
-              <div class="date-time-settings__field-row">
-                <label class="settings__field date-time-settings__field">
-                  <span class="settings__field-label">纪年</span>
-                  <select
-                    class="settings__input"
-                    value={draft.era}
-                    onChange={(event) =>
-                      updateDraft({
-                        era: (event.currentTarget as HTMLSelectElement).value as CalendarEra,
-                      })
-                    }
-                  >
-                    <option value="AD">公元</option>
-                    <option value="BC">公元前</option>
-                  </select>
-                </label>
-                <label class="settings__field date-time-settings__field">
-                  <span class="settings__field-label">年</span>
-                  <input
-                    class="settings__input"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={draft.year}
-                    onInput={(event) =>
-                      updateDraft({
-                        year: Number((event.currentTarget as HTMLInputElement).value),
-                      })
-                    }
-                  />
-                </label>
-              </div>
-
-              <div class="date-time-settings__field-row">
-                <label class="settings__field date-time-settings__field">
-                  <span class="settings__field-label">月</span>
-                  <input
-                    class="settings__input"
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={draft.month}
-                    onInput={(event) =>
-                      updateDraft({
-                        month: Number((event.currentTarget as HTMLInputElement).value),
-                      })
-                    }
-                  />
-                </label>
-                <label class="settings__field date-time-settings__field">
-                  <span class="settings__field-label">日</span>
-                  <input
-                    class="settings__input"
-                    type="number"
-                    min={1}
-                    max={maxDay}
-                    value={draft.day}
-                    onInput={(event) =>
-                      updateDraft({
-                        day: Number((event.currentTarget as HTMLInputElement).value),
-                      })
-                    }
-                  />
-                </label>
-              </div>
-
-              <div class="date-time-settings__field-row">
-                <label class="settings__field date-time-settings__field">
-                  <span class="settings__field-label">时</span>
-                  <input
-                    class="settings__input"
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={draft.hour}
-                    onInput={(event) =>
-                      updateDraft({
-                        hour: Number((event.currentTarget as HTMLInputElement).value),
-                      })
-                    }
-                  />
-                </label>
-                <label class="settings__field date-time-settings__field">
-                  <span class="settings__field-label">分</span>
-                  <input
-                    class="settings__input"
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={draft.minute}
-                    onInput={(event) =>
-                      updateDraft({
-                        minute: Number((event.currentTarget as HTMLInputElement).value),
-                      })
-                    }
-                  />
-                </label>
-              </div>
-
-              <div class="settings__actions settings__actions--in-box">
+            <>
+              <div class="settings__list date-time-settings__rows">
                 <button
                   type="button"
-                  class="settings__btn settings__btn--default"
-                  onClick={handleApplyManual}
+                  class="settings__row settings__row--button settings__row--nav"
+                  onClick={() => setEditor('date')}
                 >
-                  应用日期与时间
+                  <span class="settings__row-name">设置日期</span>
+                  <span class="settings__row-size">{formatDateRowLabel(previewInstant)}</span>
+                  <SettingsDisclosureIcon />
                 </button>
                 <button
                   type="button"
-                  class="settings__btn"
-                  onClick={handleUseSystemNow}
+                  class="settings__row settings__row--button settings__row--nav"
+                  onClick={() => setEditor('time')}
                 >
-                  使用当前真实时间
+                  <span class="settings__row-name">设置时间</span>
+                  <span class="settings__row-size">
+                    {formatTimeRowLabel(previewInstant, use24HourTime)}
+                  </span>
+                  <SettingsDisclosureIcon />
                 </button>
               </div>
-            </div>
+
+              <p class="settings__section-footnote">
+                手动模式下时间仍会随真实秒针走动；设定后会以该时刻为起点继续计时。
+              </p>
+            </>
           )}
 
           {saveError && (
@@ -257,15 +221,23 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
               保存失败，请检查设备存储空间。
             </p>
           )}
-
-          {!useSystemTime && (
-            <p class="settings__section-footnote">
-              手动模式下时间仍会随真实秒针走动；应用后会以你设定的时刻为起点继续计时。
-              {isOsUsingSystemTime() ? '' : ' 当前已启用手动日期。'}
-            </p>
-          )}
         </section>
       </div>
+
+      {editor === 'date' && (
+        <DateTimeDatePanel
+          initial={previewInstant}
+          onCancel={() => setEditor(undefined)}
+          onConfirm={handleConfirmDate}
+        />
+      )}
+      {editor === 'time' && (
+        <DateTimeTimePanel
+          initial={previewInstant}
+          onCancel={() => setEditor(undefined)}
+          onConfirm={handleConfirmTime}
+        />
+      )}
     </div>
   )
 }

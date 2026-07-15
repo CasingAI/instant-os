@@ -63,6 +63,14 @@ export function displayUrl(url: string): string {
   }
 }
 
+/** 地址栏展示文本：可切换缩略路径或含协议的完整网址。 */
+export function addressBarDisplayUrl(url: string, showFullUrl: boolean): string {
+  if (isStartPageUrl(url)) {
+    return ''
+  }
+  return showFullUrl ? normalizeBrowserUrl(url) : displayUrl(url)
+}
+
 export function pageTitleFromUrl(url: string): string {
   if (isStartPageUrl(url)) {
     return '起始页'

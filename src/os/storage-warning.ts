@@ -6,6 +6,7 @@ import {
 
 export { STORAGE_CHANGED_EVENT }
 export const OPEN_SETTINGS_USAGE_EVENT = 'instant-os:open-settings-usage'
+export const STORAGE_WARNING_SLUG = 'system:storage-warning'
 
 const COOLDOWN_MS = 5 * 60 * 1000
 const LAST_SENT_KEY = 'instant-os-storage-warning-last-sent-at'

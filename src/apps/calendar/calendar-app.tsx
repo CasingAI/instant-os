@@ -3,6 +3,7 @@ import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
   formatCalendarYearLabel,
+  formatChineseMonthLabel,
   formatEditionDateKey,
   getDaysInMonth,
   normalizeCalendarInstant,
@@ -20,31 +21,38 @@ import {
   listSolarTermsInMonth,
   type SolarTermOccurrence,
 } from '../../os/solar-terms.ts'
-import { BackIcon, ForwardIcon } from '../../icons/app-icons.tsx'
-import { generateDayMajorEvents } from './calendar-agent.ts'
+import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
+import { DateTimeDatePanel } from '../../ui/date-time-date-panel.tsx'
+import { generateMonthMarkers } from './calendar-agent.ts'
 import {
   CALENDAR_STORE_CHANGED_EVENT,
-  getDayDigest,
+  formatMonthKey,
+  getMonthDigest,
 } from './calendar-storage.ts'
-import type { CalendarDayDigest } from './calendar-types.ts'
+import { requestNewsEdition } from '../news/news-edition-request.ts'
+import {
+  CALENDAR_MARKER_KIND_LABEL,
+  type CalendarDayMarker,
+  type CalendarMarkerKind,
+  type CalendarMonthDigest,
+} from './calendar-types.ts'
 import './calendar.css'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
 const WEEKDAY_FULL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
-const MONTH_LABELS = [
-  '一月',
-  '二月',
-  '三月',
-  '四月',
-  '五月',
-  '六月',
-  '七月',
-  '八月',
-  '九月',
-  '十月',
-  '十一月',
-  '十二月',
-] as const
+
+const CALENDAR_DATE_PANEL_THEME = {
+  accent: 'var(--cal-leather-mid)',
+  accentLight: 'var(--cal-leather-top)',
+  accentDeep: 'var(--cal-leather-bottom)',
+} as const
+
+const MARKER_PRIORITY: Record<CalendarMarkerKind, number> = {
+  holiday: 0,
+  'solar-term': 1,
+  special: 2,
+  weather: 3,
+}
 
 type ViewMonth = {
   era: CalendarEra
@@ -58,6 +66,8 @@ type DayCell = {
   isToday: boolean
   isWeekend: boolean
   solarTerm?: SolarTermOccurrence
+  markerLabel?: string
+  hasHoliday?: boolean
 }
 
 function viewMonthFromInstant(instant: {
@@ -102,13 +112,55 @@ function shiftMonth(view: ViewMonth, delta: number): ViewMonth {
 }
 
 function formatMonthTitle(view: ViewMonth): string {
-  return `${formatCalendarYearLabel(view)}${MONTH_LABELS[view.month - 1]}`
+  return `${formatCalendarYearLabel(view)}${formatChineseMonthLabel(view.month)}`
+}
+
+function pickCellLabel(
+  markers: CalendarDayMarker[] | undefined,
+  solarTerm: SolarTermOccurrence | undefined,
+): { markerLabel?: string; hasHoliday?: boolean } {
+  if (markers && markers.length > 0) {
+    const sorted = [...markers].sort(
+      (a, b) => MARKER_PRIORITY[a.kind] - MARKER_PRIORITY[b.kind],
+    )
+    const top = sorted[0]
+    return {
+      markerLabel: top?.name,
+      hasHoliday: markers.some((item) => item.kind === 'holiday'),
+    }
+  }
+  if (solarTerm) {
+    return { markerLabel: solarTerm.name }
+  }
+  return {}
+}
+
+/** 供新闻生成参考的当日记事上下文。 */
+function buildNewsDayContext(
+  markers: CalendarDayMarker[],
+  solarTerm: SolarTermOccurrence | undefined,
+): string | undefined {
+  const lines: string[] = []
+  for (const marker of markers) {
+    const label = CALENDAR_MARKER_KIND_LABEL[marker.kind]
+    lines.push(marker.note ? `${label}：${marker.name}（${marker.note}）` : `${label}：${marker.name}`)
+  }
+  if (solarTerm && !markers.some((marker) => marker.name === solarTerm.name)) {
+    lines.push(
+      solarTerm.blurb ? `节气：${solarTerm.name}（${solarTerm.blurb}）` : `节气：${solarTerm.name}`,
+    )
+  }
+  if (lines.length === 0) {
+    return undefined
+  }
+  return lines.join('\n')
 }
 
 /** 返回格子与当月第一天星期偏移。 */
 function buildMonthGrid(
   view: ViewMonth,
   todayKey: string,
+  markersByDay: Map<number, CalendarDayMarker[]>,
 ): { firstWeekday: number; cells: DayCell[] } {
   const daysInMonth = getDaysInMonth(view.era, view.year, view.month)
   const firstWeekday = weekdayIndexForInstant(
@@ -127,31 +179,37 @@ function buildMonthGrid(
     })
     const dayKey = formatEditionDateKey(instant)
     const weekday = weekdayIndexForInstant(instant)
+    const solarTerm = termByDay.get(day)
+    const { markerLabel, hasHoliday } = pickCellLabel(markersByDay.get(day), solarTerm)
     cells.push({
       day,
       dayKey,
       isToday: dayKey === todayKey,
       isWeekend: weekday === 0 || weekday === 6,
-      solarTerm: termByDay.get(day),
+      solarTerm,
+      markerLabel,
+      hasHoliday,
     })
   }
   return { firstWeekday, cells }
 }
 
 export function CalendarApp() {
-  const { closeWindowsForApp, minimizeWindow, windows } = useOs()
+  const { closeWindowsForApp, minimizeWindow, openApp, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
 
   const [todayKey, setTodayKey] = useState(() => formatEditionDateKey(getOsNowInstant()))
   const [view, setView] = useState<ViewMonth>(() => viewMonthFromInstant(getOsNowInstant()))
   const [selectedKey, setSelectedKey] = useState(() => formatEditionDateKey(getOsNowInstant()))
-  const [digest, setDigest] = useState<CalendarDayDigest | undefined>(() =>
-    getDayDigest(formatEditionDateKey(getOsNowInstant())),
+  const [monthDigest, setMonthDigest] = useState<CalendarMonthDigest | undefined>(() =>
+    getMonthDigest(formatMonthKey(viewMonthFromInstant(getOsNowInstant()))),
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>()
-  const selectedKeyRef = useRef(selectedKey)
-  selectedKeyRef.current = selectedKey
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const viewMonthKey = formatMonthKey(view)
+  const viewRef = useRef(view)
+  viewRef.current = view
 
   useEffect(() => {
     const syncToday = () => {
@@ -164,52 +222,75 @@ export function CalendarApp() {
 
   useEffect(() => {
     const onStore = () => {
-      setDigest(getDayDigest(selectedKey))
+      setMonthDigest(getMonthDigest(viewMonthKey))
     }
     window.addEventListener(CALENDAR_STORE_CHANGED_EVENT, onStore)
     return () => window.removeEventListener(CALENDAR_STORE_CHANGED_EVENT, onStore)
-  }, [selectedKey])
+  }, [viewMonthKey])
 
-  const ensureEvents = useCallback(async (dayKey: string, force = false) => {
-    const existing = getDayDigest(dayKey)
+  const ensureMonthMarkers = useCallback(async (target: ViewMonth, force = false) => {
+    const monthKey = formatMonthKey(target)
+    const existing = getMonthDigest(monthKey)
     if (existing && !force) {
-      setDigest(existing)
-      setError(undefined)
-      setLoading(false)
+      if (formatMonthKey(viewRef.current) === monthKey) {
+        setMonthDigest(existing)
+        setError(undefined)
+        setLoading(false)
+      }
       return
     }
-    setDigest(force ? getDayDigest(dayKey) : undefined)
-    setLoading(true)
-    setError(undefined)
+    if (formatMonthKey(viewRef.current) === monthKey) {
+      setMonthDigest(force ? existing : undefined)
+      setLoading(true)
+      setError(undefined)
+    }
     try {
-      const next = await generateDayMajorEvents(dayKey)
-      if (dayKey === selectedKeyRef.current) {
-        setDigest(next)
+      const next = await generateMonthMarkers(target)
+      if (formatMonthKey(viewRef.current) === monthKey) {
+        setMonthDigest(next)
       }
     } catch (err) {
-      if (dayKey !== selectedKeyRef.current) {
+      if (formatMonthKey(viewRef.current) !== monthKey) {
         return
       }
-      setError(err instanceof Error ? err.message : '重大事件生成失败')
-      setDigest(getDayDigest(dayKey))
+      setError(err instanceof Error ? err.message : '特殊日期加载失败')
+      setMonthDigest(getMonthDigest(monthKey))
     } finally {
-      if (dayKey === selectedKeyRef.current) {
+      if (formatMonthKey(viewRef.current) === monthKey) {
         setLoading(false)
       }
     }
   }, [])
 
   useEffect(() => {
-    void ensureEvents(selectedKey)
-  }, [selectedKey, ensureEvents])
+    void ensureMonthMarkers(view)
+  }, [view, ensureMonthMarkers])
+
+  const markersByDay = useMemo(() => {
+    const map = new Map<number, CalendarDayMarker[]>()
+    for (const marker of monthDigest?.markers ?? []) {
+      const list = map.get(marker.day)
+      if (list) {
+        list.push(marker)
+      } else {
+        map.set(marker.day, [marker])
+      }
+    }
+    return map
+  }, [monthDigest])
 
   const { firstWeekday, cells } = useMemo(
-    () => buildMonthGrid(view, todayKey),
-    [view, todayKey],
+    () => buildMonthGrid(view, todayKey, markersByDay),
+    [view, todayKey, markersByDay],
   )
 
   const selectedInstant = useMemo(() => parseEditionDateKey(selectedKey), [selectedKey])
   const selectedTerm = useMemo(() => findSolarTermOnDay(selectedInstant), [selectedInstant])
+  const selectedMarkers = useMemo(() => {
+    return (monthDigest?.markers ?? [])
+      .filter((marker) => marker.dayKey === selectedKey)
+      .sort((a, b) => MARKER_PRIORITY[a.kind] - MARKER_PRIORITY[b.kind])
+  }, [monthDigest, selectedKey])
   const dynastySuffix = useMemo(
     () => formatChineseDynastySuffix(selectedInstant),
     [selectedInstant],
@@ -231,24 +312,32 @@ export function CalendarApp() {
     setView(viewMonthFromInstant(instant))
   }, [])
 
+  const openDatePicker = useCallback(() => {
+    setDatePickerOpen(true)
+  }, [])
+
+  const closeDatePicker = useCallback(() => {
+    setDatePickerOpen(false)
+  }, [])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === 'calendar' && !window.minimized)
 
     return [
       {
-        label: '日历',
+        label: '月历',
         items: [
-          ...aboutAppMenuPrefix('关于 日历', () => showBuiltinAbout('calendar')),
+          ...aboutAppMenuPrefix('关于 月历', () => showBuiltinAbout('calendar')),
           {
             type: 'action',
-            label: '隐藏日历',
+            label: '隐藏月历',
             shortcut: '⌘H',
             onClick: () => appWindow && minimizeWindow(appWindow.id),
           },
           { type: 'separator' },
           {
             type: 'action',
-            label: '退出日历',
+            label: '退出月历',
             shortcut: '⌘Q',
             onClick: () => closeWindowsForApp('calendar'),
           },
@@ -264,25 +353,41 @@ export function CalendarApp() {
           },
           {
             type: 'action',
-            label: '重新生成当日大事',
-            onClick: () => void ensureEvents(selectedKey, true),
+            label: '选择日期…',
+            onClick: openDatePicker,
+          },
+          {
+            type: 'action',
+            label: '刷新本月标记',
+            onClick: () => void ensureMonthMarkers(view, true),
           },
         ],
       },
     ]
   }, [
     closeWindowsForApp,
-    ensureEvents,
+    ensureMonthMarkers,
     goToday,
     minimizeWindow,
-    selectedKey,
+    openDatePicker,
     showBuiltinAbout,
+    view,
     windows,
   ])
 
   useAppMenuBar('calendar', menuBar)
 
+  const weekCount = Math.ceil((firstWeekday + cells.length) / 7)
   const leadingBlanks = Array.from({ length: firstWeekday }, (_, index) => index)
+  const trailingBlankCount = Math.max(
+    0,
+    weekCount * 7 - leadingBlanks.length - cells.length,
+  )
+  const trailingBlanks = Array.from({ length: trailingBlankCount }, (_, index) => index)
+  const selectedInView =
+    selectedInstant.era === view.era &&
+    selectedInstant.year === view.year &&
+    selectedInstant.month === view.month
 
   return (
     <div class="calendar-app">
@@ -295,7 +400,15 @@ export function CalendarApp() {
         >
           <BackIcon size={14} />
         </button>
-        <h1 class="calendar-app__title">{formatMonthTitle(view)}</h1>
+        <button
+          type="button"
+          class="calendar-app__title"
+          aria-expanded={datePickerOpen}
+          aria-label={`选择日期，当前 ${formatMonthTitle(view)}`}
+          onClick={openDatePicker}
+        >
+          {formatMonthTitle(view)}
+        </button>
         <button
           type="button"
           class="calendar-app__nav"
@@ -309,6 +422,22 @@ export function CalendarApp() {
         </button>
       </header>
 
+      {datePickerOpen && (
+        <DateTimeDatePanel
+          hostSelector=".calendar-app"
+          theme={CALENDAR_DATE_PANEL_THEME}
+          title="选择日期"
+          confirmLabel="确定"
+          initial={selectedInstant}
+          onCancel={closeDatePicker}
+          onConfirm={(next) => {
+            selectDay(formatEditionDateKey(next))
+            closeDatePicker()
+          }}
+        />
+      )}
+
+      <div class="calendar-app__body">
       <div class="calendar-app__sheet">
         <div class="calendar-app__weekdays" aria-hidden="true">
           {WEEKDAY_LABELS.map((label) => (
@@ -318,9 +447,14 @@ export function CalendarApp() {
           ))}
         </div>
 
-        <div class="calendar-app__grid" role="grid" aria-label={formatMonthTitle(view)}>
+        <div
+          class="calendar-app__grid"
+          role="grid"
+          aria-label={formatMonthTitle(view)}
+          style={{ '--cal-week-rows': weekCount } as Record<string, number>}
+        >
           {leadingBlanks.map((index) => (
-            <div key={`blank-${index}`} class="calendar-app__cell calendar-app__cell--blank" />
+            <div key={`blank-lead-${index}`} class="calendar-app__cell calendar-app__cell--blank" />
           ))}
           {cells.map((cell) => {
             const selected = cell.dayKey === selectedKey
@@ -334,21 +468,48 @@ export function CalendarApp() {
                   cell.isWeekend ? 'calendar-app__cell--weekend' : '',
                   cell.isToday ? 'calendar-app__cell--today' : '',
                   selected ? 'calendar-app__cell--selected' : '',
-                  cell.solarTerm ? 'calendar-app__cell--term' : '',
+                  cell.markerLabel ? 'calendar-app__cell--marked' : '',
+                  cell.hasHoliday ? 'calendar-app__cell--holiday' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
                 aria-selected={selected}
                 aria-current={cell.isToday ? 'date' : undefined}
+                aria-label={
+                  cell.markerLabel
+                    ? `${cell.day}日，${cell.markerLabel}`
+                    : undefined
+                }
                 onClick={() => selectDay(cell.dayKey)}
               >
                 <span class="calendar-app__day-num">{cell.day}</span>
-                {cell.solarTerm && (
-                  <span class="calendar-app__day-term">{cell.solarTerm.name}</span>
+                {cell.markerLabel && (
+                  <>
+                    <span class="calendar-app__day-term">{cell.markerLabel}</span>
+                    <span
+                      class={[
+                        'calendar-app__day-mark',
+                        cell.hasHoliday
+                          ? 'calendar-app__day-mark--holiday'
+                          : cell.solarTerm
+                            ? 'calendar-app__day-mark--term'
+                            : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-hidden="true"
+                    />
+                  </>
                 )}
               </button>
             )
           })}
+          {trailingBlanks.map((index) => (
+            <div
+              key={`blank-trail-${index}`}
+              class="calendar-app__cell calendar-app__cell--blank"
+            />
+          ))}
         </div>
       </div>
 
@@ -363,17 +524,37 @@ export function CalendarApp() {
               {dynastySuffix ? ` ${dynastySuffix}` : ''}
             </span>
           </div>
-          <button
-            type="button"
-            class="calendar-app__regen"
-            disabled={loading}
-            onClick={() => void ensureEvents(selectedKey, true)}
-          >
-            {loading ? '生成中…' : '刷新大事'}
-          </button>
+          <div class="calendar-app__detail-actions">
+            <button
+              type="button"
+              class="calendar-app__icon-btn"
+              disabled={loading}
+              title="刷新本月节日"
+              aria-label={loading ? '加载中' : '刷新'}
+              onClick={() => void ensureMonthMarkers(view, true)}
+            >
+              <ReloadIcon size={14} />
+            </button>
+            <button
+              type="button"
+              class="calendar-app__text-btn"
+              title="打开当天新闻"
+              aria-label="新闻"
+              onClick={() => {
+                requestNewsEdition({
+                  editionDate: formatEditionDateKey(selectedInstant),
+                  dayContext: buildNewsDayContext(selectedMarkers, selectedTerm),
+                  forceGenerate: true,
+                })
+                openApp('news')
+              }}
+            >
+              新闻
+            </button>
+          </div>
         </div>
 
-        {selectedTerm && (
+        {selectedInView && selectedTerm && (
           <div class="calendar-app__term-card">
             <span class="calendar-app__term-badge">节气</span>
             <div class="calendar-app__term-copy">
@@ -384,32 +565,48 @@ export function CalendarApp() {
         )}
 
         <div class="calendar-app__events">
-          <h3 class="calendar-app__events-title">重大事件</h3>
-          {loading && !digest && (
+          <h3 class="calendar-app__events-title">当日标记</h3>
+          {loading && !monthDigest && (
             <div class="calendar-app__loading" role="status">
               <div class="calendar-app__loading-spinner" aria-hidden="true" />
-              <p>正在编撰当日大事…</p>
+              <p>正在加载当月特殊日期…</p>
             </div>
           )}
           {error && <p class="calendar-app__error">{error}</p>}
-          {digest && digest.events.length > 0 && (
+          {selectedInView && selectedMarkers.length > 0 && (
             <ul class="calendar-app__event-list">
-              {digest.events.map((event) => (
-                <li key={event.id} class="calendar-app__event">
-                  <span class="calendar-app__event-cat">{event.category}</span>
+              {selectedMarkers.map((marker) => (
+                <li
+                  key={marker.id}
+                  class={[
+                    'calendar-app__event',
+                    `calendar-app__event--${marker.kind}`,
+                  ].join(' ')}
+                >
+                  <span class="calendar-app__event-cat">
+                    {CALENDAR_MARKER_KIND_LABEL[marker.kind]}
+                  </span>
                   <div class="calendar-app__event-body">
-                    <h4>{event.title}</h4>
-                    <p>{event.summary}</p>
+                    <h4>{marker.name}</h4>
+                    {marker.note && <p>{marker.note}</p>}
                   </div>
                 </li>
               ))}
             </ul>
           )}
-          {!loading && !error && digest && digest.events.length === 0 && (
-            <p class="calendar-app__hint">本日暂无大事。可点击「刷新大事」重新生成。</p>
+          {!loading &&
+            !error &&
+            monthDigest &&
+            selectedInView &&
+            selectedMarkers.length === 0 && (
+              <p class="calendar-app__hint">这一天没有特殊标记。可点刷新换一批本月节日。</p>
+            )}
+          {!selectedInView && (
+            <p class="calendar-app__hint">选中本月中的一天，查看假期与节令说明。</p>
           )}
         </div>
       </section>
+      </div>
     </div>
   )
 }

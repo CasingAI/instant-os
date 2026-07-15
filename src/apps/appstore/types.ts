@@ -66,3 +66,10 @@ export type FailedInstall = {
   isUpdate?: boolean
   failedAt: number
 }
+
+export type CompletedInstall = {
+  id: `gen:${string}`
+  listing: StoreListing
+  isUpdate?: boolean
+  completedAt: number
+}

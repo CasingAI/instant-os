@@ -1,5 +1,12 @@
 import type { ComponentChildren } from 'preact'
+import {
+  formatCalendarYearLabel,
+  weekdayLabelForInstant,
+} from './calendar-instant.ts'
+import { formatOsClockParts } from './format-os-datetime.ts'
 import type { NotificationStockSnapshot, NotificationWeather } from './notification-center-widget-types.ts'
+import { isOsUsing24HourTime } from './os-clock.ts'
+import { useOsNowInstant } from './use-os-clock.ts'
 
 type WidgetFrameProps = {
   loading: boolean
@@ -29,6 +36,57 @@ function WidgetFrame({ loading, onOpen, openLabel, children }: WidgetFrameProps)
         )}
       </div>
     </div>
+  )
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+type DateTimeWidgetProps = {
+  onOpen?: () => void
+}
+
+export function DateTimeWidget({ onOpen }: DateTimeWidgetProps) {
+  const now = useOsNowInstant()
+  const { digits: timeLabel, period } = formatOsClockParts(
+    now.hour,
+    now.minute,
+    isOsUsing24HourTime(),
+  )
+  const secondsLabel = `:${pad2(now.second)}`
+  const weekday = weekdayLabelForInstant(now)
+  const dateLabel = `${formatCalendarYearLabel(now)}${now.month}月${now.day}日`
+
+  const content = (
+    <div class="notification-center__datetime" aria-live="polite">
+      <div class="notification-center__datetime-time">
+        {timeLabel}
+        <span class="notification-center__datetime-seconds">{secondsLabel}</span>
+        {period && (
+          <span class="notification-center__datetime-period">{period}</span>
+        )}
+      </div>
+      <div class="notification-center__datetime-date">
+        <span class="notification-center__datetime-weekday">{weekday}</span>
+        <span class="notification-center__datetime-meta">{dateLabel}</span>
+      </div>
+    </div>
+  )
+
+  if (!onOpen) {
+    return content
+  }
+
+  return (
+    <button
+      type="button"
+      class="notification-center__datetime-open"
+      aria-label="打开月历"
+      onClick={onOpen}
+    >
+      {content}
+    </button>
   )
 }
 

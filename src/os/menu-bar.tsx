@@ -9,9 +9,12 @@ import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
 import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
+import { isOsUsing24HourTime } from './os-clock.ts'
 import { useOsNowDate } from './use-os-clock.ts'
 import { useNotificationCenter } from './notification-center-context.tsx'
+import { useAppNotifications } from './use-app-notifications.ts'
 import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
+import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
 import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
@@ -113,8 +116,10 @@ export function MenuBar() {
   const { menusByApp } = useMenuBar()
   const { showInstantAbout, showAbout } = useAboutApp()
   const battery = useDeviceBattery()
-  const { pendingInstalls, failedInstalls } = useGeneratedApps()
+  const { pendingInstalls, failedInstalls, completedInstalls } = useGeneratedApps()
+  const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
+  const storageWarning = useStorageWarningNotification()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
@@ -190,11 +195,14 @@ export function MenuBar() {
   const hasMenuOverflow = visibleMenuCount < menus.length
   const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
-  const { calendar, weekday, time } = formatOsDateTime(now)
+  const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
   const activeNotificationCount =
     pendingInstalls.length +
     failedInstalls.length +
-    (processIsolationFallbackActive ? 1 : 0)
+    completedInstalls.length +
+    appNotifications.length +
+    (processIsolationFallbackActive ? 1 : 0) +
+    (storageWarning ? 1 : 0)
 
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)

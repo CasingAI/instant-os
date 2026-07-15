@@ -442,6 +442,68 @@ type UsageViewProps = {
   onOpenEventLogStorage: () => void
 }
 
+type StorageMeterSegment = {
+  id: string
+  label: string
+  bytes: number
+  color: string
+  free?: boolean
+}
+
+function residualBytes(usedBytes: number, attributedBytes: number): number {
+  return Math.max(0, usedBytes - attributedBytes)
+}
+
+function StorageMeter({
+  capacityBytes,
+  segments,
+}: {
+  capacityBytes: number
+  segments: StorageMeterSegment[]
+}) {
+  const usedSegments = segments.filter((segment) => !segment.free && segment.bytes > 0)
+  const legendSegments = segments.filter((segment) => segment.bytes > 0 || segment.free)
+  const usedBytes = usedSegments.reduce((total, segment) => total + segment.bytes, 0)
+  const usedPercent = capacityBytes > 0 ? Math.min(100, (usedBytes / capacityBytes) * 100) : 0
+
+  return (
+    <>
+      <div class="settings__meter-bar" role="img" aria-label="用量分布">
+        {usedSegments.map((segment) => (
+          <div
+            key={segment.id}
+            class="settings__meter-segment"
+            style={{
+              width: `${(segment.bytes / capacityBytes) * 100}%`,
+              ['--meter-segment-color' as string]: segment.color,
+            }}
+            title={`${segment.label} ${formatStorageSize(segment.bytes)}`}
+          />
+        ))}
+        {usedPercent > 0 ? (
+          <div class="settings__meter-stripe" style={{ width: `${usedPercent}%` }} aria-hidden="true" />
+        ) : undefined}
+      </div>
+      <div class="settings__meter-legend">
+        {legendSegments.map((segment) => (
+          <span key={segment.id} class="settings__meter-legend-item">
+            <span
+              class={
+                segment.free
+                  ? 'settings__meter-legend-swatch settings__meter-legend-swatch--free'
+                  : 'settings__meter-legend-swatch'
+              }
+              style={segment.free ? undefined : { background: segment.color }}
+              aria-hidden="true"
+            />
+            {segment.label} {formatStorageSize(segment.bytes)}
+          </span>
+        ))}
+      </div>
+    </>
+  )
+}
+
 function UsageView({
   summary,
   onBack,
@@ -450,10 +512,55 @@ function UsageView({
   onOpenOtherStorage,
   onOpenEventLogStorage,
 }: UsageViewProps) {
-  const systemUsedPercent = Math.min(100, (summary.usedBytes / DEVICE_CAPACITY_BYTES) * 100)
-  const dataUsedPercent = Math.min(100, (summary.dataUsedBytes / DATA_CAPACITY_BYTES) * 100)
   const newsCommentStats = useMemo(() => getNewsCommentStats(readNewsStore()), [])
   const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
+
+  const systemAttributedBytes =
+    summary.appsBytes +
+    summary.mailDataBytes +
+    summary.newsDataBytes +
+    summary.booksIndexBytes +
+    summary.browserSystemBytes +
+    summary.otherBytes
+  const systemConfigBytes = residualBytes(summary.usedBytes, systemAttributedBytes)
+  const systemSegments: StorageMeterSegment[] = [
+    { id: 'apps', label: '应用程序', bytes: summary.appsBytes, color: '#4a90e2' },
+    { id: 'mail', label: '邮件', bytes: summary.mailDataBytes, color: '#5856d6' },
+    { id: 'news', label: '新闻', bytes: summary.newsDataBytes, color: '#ff9500' },
+    { id: 'books-index', label: '图书索引', bytes: summary.booksIndexBytes, color: '#34c759' },
+    { id: 'browser', label: '网络浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
+    { id: 'system-config', label: '系统配置', bytes: systemConfigBytes, color: '#636366' },
+    { id: 'other', label: '其他', bytes: summary.otherBytes, color: '#8e8e93' },
+    { id: 'free', label: '剩余', bytes: summary.availableBytes, color: '#d4d4d4', free: true },
+  ]
+
+  const dataAttributedBytes =
+    summary.safariCacheBytes +
+    summary.booksDataBytes +
+    summary.aiUsageBytes +
+    summary.aiEventLogBytes +
+    summary.folderIconSnapshotsBytes
+  const dataOtherBytes = residualBytes(summary.dataUsedBytes, dataAttributedBytes)
+  const dataSegments: StorageMeterSegment[] = [
+    { id: 'safari-cache', label: '网络浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
+    { id: 'books-data', label: '图书章节', bytes: summary.booksDataBytes, color: '#34c759' },
+    { id: 'ai-usage', label: 'AI 用量', bytes: summary.aiUsageBytes, color: '#af52de' },
+    { id: 'event-log', label: '事件日志', bytes: summary.aiEventLogBytes, color: '#ff2d55' },
+    {
+      id: 'folder-icons',
+      label: '文件夹图标',
+      bytes: summary.folderIconSnapshotsBytes,
+      color: '#a2845e',
+    },
+    { id: 'data-other', label: '其他', bytes: dataOtherBytes, color: '#8e8e93' },
+    {
+      id: 'data-free',
+      label: '剩余',
+      bytes: summary.dataAvailableBytes,
+      color: '#d4d4d4',
+      free: true,
+    },
+  ]
 
   return (
     <div class="settings">
@@ -471,17 +578,7 @@ function UsageView({
                   </span>
                   <span>上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}</span>
                 </div>
-                <div class="settings__meter-bar">
-                  <div class="settings__meter-fill" style={{ width: `${systemUsedPercent}%` }} />
-                </div>
-                <div class="settings__meter-legend">
-                  <span>应用程序 {formatStorageSize(summary.appsBytes)}</span>
-                  <span>邮件 {formatStorageSize(summary.mailDataBytes)}</span>
-                  <span>新闻 {formatStorageSize(summary.newsDataBytes)}</span>
-                  <span>图书索引 {formatStorageSize(summary.booksIndexBytes)}</span>
-                  <span>其他 {formatStorageSize(summary.otherBytes)}</span>
-                  <span>剩余 {formatStorageSize(summary.availableBytes)}</span>
-                </div>
+                <StorageMeter capacityBytes={DEVICE_CAPACITY_BYTES} segments={systemSegments} />
               </div>
             </section>
 
@@ -495,20 +592,7 @@ function UsageView({
                   </span>
                   <span>上限 {formatStorageSize(DATA_CAPACITY_BYTES)}</span>
                 </div>
-                <div class="settings__meter-bar">
-                  <div
-                    class="settings__meter-fill settings__meter-fill--data"
-                    style={{ width: `${dataUsedPercent}%` }}
-                  />
-                </div>
-                <div class="settings__meter-legend">
-                  <span>网络浏览器缓存 {formatStorageSize(summary.safariCacheBytes)}</span>
-                  <span>图书章节 {formatStorageSize(summary.booksDataBytes)}</span>
-                  <span>AI 用量 {formatStorageSize(summary.aiUsageBytes)}</span>
-                  <span>事件日志 {formatStorageSize(summary.aiEventLogBytes)}</span>
-                  <span>文件夹图标 {formatStorageSize(summary.folderIconSnapshotsBytes)}</span>
-                  <span>剩余 {formatStorageSize(summary.dataAvailableBytes)}</span>
-                </div>
+                <StorageMeter capacityBytes={DATA_CAPACITY_BYTES} segments={dataSegments} />
               </div>
             </section>
 
@@ -905,7 +989,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
               class="settings__btn settings__btn--danger"
               onClick={() => setConfirmOpen(true)}
             >
-              移到废纸篓
+              卸载
             </button>
           </div>
         )}
@@ -914,6 +998,9 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
       {confirmOpen && (
         <ConfirmSheet
           appName={app.name}
+          title={`确定要卸载「${app.name}」吗？`}
+          message="应用及其所有数据将被永久删除，此操作不可恢复。"
+          confirmLabel="卸载"
           onCancel={() => setConfirmOpen(false)}
           onConfirm={handleDelete}
         />
@@ -987,7 +1074,7 @@ function ConfirmSheet({
   appName,
   title,
   message,
-  confirmLabel = '移到废纸篓',
+  confirmLabel = '卸载',
   onCancel,
   onConfirm,
 }: ConfirmSheetProps) {
@@ -1006,10 +1093,10 @@ function ConfirmSheet({
           </div>
           <div class="settings__sheet-copy">
             <h3 class="settings__sheet-title" id="settings-sheet-title">
-              {title ?? `确定要将「${appName}」移到废纸篓吗？`}
+              {title ?? `确定要卸载「${appName}」吗？`}
             </h3>
             <p class="settings__sheet-message">
-              {message ?? '此应用的文稿与数据将被删除，且无法恢复。'}
+              {message ?? '应用及其所有数据将被永久删除，此操作不可恢复。'}
             </p>
           </div>
         </div>

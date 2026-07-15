@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preac
 import { InstantLogoIcon } from '../icons/app-icons.tsx'
 import { SetupAiAccountForm } from './setup-ai-account-form.tsx'
 import { SetupCompleteView } from './setup-complete-view.tsx'
+import { SetupDateTimeStep } from './setup-date-time-step.tsx'
 import {
   defaultAccountSettingsV2,
   isAccountSettingsValid,
@@ -9,11 +10,13 @@ import {
   type AccountSettingsV2,
 } from './account-settings-storage.ts'
 import type { AiProviderEntry } from '../ai/ai-providers.ts'
+import type { CalendarInstant } from './calendar-instant.ts'
+import { applyOsManualDateTime, applyOsSystemDateTime } from './os-clock.ts'
 import './setup-assistant.css'
 
-const STEP_COUNT = 3
+const STEP_COUNT = 4
 
-type SetupStep = 0 | 1 | 2
+type SetupStep = 0 | 1 | 2 | 3
 
 type SetupAssistantProps = {
   onLaunch?: () => void
@@ -46,7 +49,7 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
   const providerEntry = settings.providers[0]
 
   useEffect(() => {
-    if (step !== 2) {
+    if (step !== 3) {
       setCompleteRevealed(false)
     }
   }, [step])
@@ -57,8 +60,8 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
 
   const canContinue =
     step === 0 ||
-    (step === 1 && isAccountSettingsValid(settings)) ||
-    (step === 2 && completeRevealed)
+    (step === 2 && isAccountSettingsValid(settings)) ||
+    (step === 3 && completeRevealed)
 
   const goToStep = useCallback((next: SetupStep) => {
     setStepDirection(next > step ? 'forward' : 'back')
@@ -95,18 +98,23 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
       return
     }
 
+    // 时间步骤靠卡片推进，不走底部「继续」
     if (step === 1) {
+      return
+    }
+
+    if (step === 2) {
       if (!isAccountSettingsValid(settings)) {
         return
       }
       setSaveError(false)
-      goToStep(2)
+      goToStep(3)
       return
     }
 
     if (!saveAccountSettings(settings)) {
       setSaveError(true)
-      goToStep(1)
+      goToStep(2)
       return
     }
     setSaveError(false)
@@ -121,6 +129,19 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
     goToStep((step - 1) as SetupStep)
   }
 
+  const handleSelectSystemTime = useCallback(() => {
+    applyOsSystemDateTime()
+    goToStep(2)
+  }, [goToStep])
+
+  const handleSelectManualTime = useCallback(
+    (instant: CalendarInstant) => {
+      applyOsManualDateTime(instant)
+      goToStep(2)
+    },
+    [goToStep],
+  )
+
   const updateProvider = useCallback((entry: AiProviderEntry) => {
     setSettings((prev) => ({
       ...prev,
@@ -132,12 +153,12 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
   return (
     <div class="setup-assistant">
       <div
-        class={`setup-assistant__panel${step === 2 ? ' setup-assistant__panel--complete' : ''}`}
+        class={`setup-assistant__panel${step === 3 ? ' setup-assistant__panel--complete' : ''}`}
       >
         <div
           class={`setup-assistant__body${
             bodyTransitionReady ? '' : ' setup-assistant__body--instant'
-          }${step === 2 ? ' setup-assistant__body--complete' : ''}`}
+          }${step === 3 ? ' setup-assistant__body--complete' : ''}`}
           style={bodyHeight === undefined ? undefined : { height: `${bodyHeight}px` }}
         >
           <div
@@ -152,13 +173,20 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
                 </div>
                 <h1 class="setup-assistant__title">欢迎使用 Instant OS</h1>
                 <p class="setup-assistant__subtitle">
-                  这是一个由 AI 驱动的桌面环境。开始之前，需要先配置 AI
+                  这是一个由 AI 驱动的桌面环境。开始之前，需要先设定系统时间并配置 AI
                   账户，以便使用应用集市、网络浏览器等功能。
                 </p>
               </div>
             )}
 
-            {step === 1 && providerEntry && (
+            {step === 1 && (
+              <SetupDateTimeStep
+                onSelectSystem={handleSelectSystemTime}
+                onSelectManual={handleSelectManualTime}
+              />
+            )}
+
+            {step === 2 && providerEntry && (
               <>
                 <header class="setup-assistant__step-head">
                   <h1 class="setup-assistant__title">配置 AI 钥匙串</h1>
@@ -178,7 +206,7 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
               </>
             )}
 
-            {step === 2 && (
+            {step === 3 && (
               <SetupCompleteView
                 saveError={saveError}
                 onRevealComplete={handleRevealComplete}
@@ -196,14 +224,18 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
           >
             返回
           </button>
-          <button
-            type="button"
-            class="setup-assistant__btn setup-assistant__btn--primary"
-            onClick={handleContinue}
-            disabled={!canContinue || launching}
-          >
-            {step === 2 ? '开始使用' : '继续'}
-          </button>
+          {step === 1 ? (
+            <span class="setup-assistant__footer-hint">请选择一种时间方式</span>
+          ) : (
+            <button
+              type="button"
+              class="setup-assistant__btn setup-assistant__btn--primary"
+              onClick={handleContinue}
+              disabled={!canContinue || launching}
+            >
+              {step === 3 ? '开始使用' : '继续'}
+            </button>
+          )}
         </footer>
       </div>
 

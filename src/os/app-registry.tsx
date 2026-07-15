@@ -77,7 +77,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
   withAbout({
     id: 'calendar',
-    name: '日历',
+    name: '月历',
     icon: CalendarIcon,
     dock: true,
     desktop: true,

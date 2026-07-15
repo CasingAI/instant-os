@@ -164,6 +164,26 @@ export function formatCalendarYearLabel(instant: Pick<CalendarInstant, 'era' | '
   return instant.era === 'BC' ? `公元前${padded}年` : `${padded}年`
 }
 
+const CHINESE_MONTH_LABELS = [
+  '一月',
+  '二月',
+  '三月',
+  '四月',
+  '五月',
+  '六月',
+  '七月',
+  '八月',
+  '九月',
+  '十月',
+  '十一月',
+  '十二月',
+] as const
+
+/** 公历月份 1–12 →「一月」…「十二月」；超出范围时回退为「N月」。 */
+export function formatChineseMonthLabel(month: number): string {
+  return CHINESE_MONTH_LABELS[month - 1] ?? `${month}月`
+}
+
 export function formatEditionDateLabel(editionDate: string): string {
   const instant = parseEditionDateKey(editionDate)
   const weekday = weekdayLabelForInstant(instant)
@@ -235,7 +255,7 @@ export function weekdayIndexForInstant(instant: CalendarInstant): number {
   return Number((jdn + 1n) % 7n)
 }
 
-function weekdayLabelForInstant(instant: CalendarInstant): string {
+export function weekdayLabelForInstant(instant: CalendarInstant): string {
   const weekdayIndex = weekdayIndexForInstant(instant)
   const labels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
   return labels[weekdayIndex] ?? '周一'

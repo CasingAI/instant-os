@@ -1,0 +1,447 @@
+/* ── 面板浮层 ── */
+
+.date-time-panel {
+  --dtp-accent-light: #6a86ab;
+  --dtp-accent: #4a6790;
+  --dtp-accent-deep: #3d5a80;
+  --dtp-border: color-mix(in srgb, var(--dtp-accent-deep) 58%, #8b97a8);
+  --dtp-border-muted: color-mix(in srgb, var(--dtp-accent) 28%, #a4b0c0);
+
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.date-time-panel__backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(24, 28, 34, 0.42);
+  cursor: pointer;
+}
+
+.date-time-panel__sheet {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  max-height: min(100%, 620px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--dtp-border);
+  background: linear-gradient(180deg, #f4f6f8 0%, #e6ebf0 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 14px 32px rgba(0, 0, 0, 0.32);
+}
+
+.date-time-panel__sheet--time {
+  max-height: min(100%, 440px);
+}
+
+.date-time-panel__header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 10px;
+  background: linear-gradient(
+    180deg,
+    var(--dtp-accent-light) 0%,
+    var(--dtp-accent) 48%,
+    var(--dtp-accent-deep) 100%
+  );
+  border-bottom: 1px solid var(--dtp-accent-deep);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.date-time-panel__header-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.date-time-panel__header-btn {
+  border: none;
+  background: transparent;
+  color: #eef4ff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  padding: 6px 4px;
+}
+
+.date-time-panel__header-btn:first-child {
+  justify-self: start;
+}
+
+.date-time-panel__header-btn--accent {
+  justify-self: end;
+  color: #fff;
+  font-weight: 700;
+}
+
+.date-time-panel__header-btn:active {
+  opacity: 0.7;
+}
+
+/* ── 可输入字段 ── */
+
+.date-time-panel__inputs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.18) 100%);
+}
+
+.date-time-panel__inputs--time {
+  align-items: end;
+  justify-content: center;
+  padding-inline: 28px;
+}
+
+.date-time-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 0 auto;
+  width: 72px;
+}
+
+.date-time-panel__field--era {
+  width: 108px;
+}
+
+.date-time-panel__field--era .settings-choice-field {
+  width: 100%;
+}
+
+.date-time-panel__field--era .settings-choice-field__trigger {
+  height: 30px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  border-color: var(--dtp-border-muted);
+  background-color: transparent;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23667288' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #fff 0%, #f0f3f7 100%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: right 9px center, 0 0;
+  background-size: 10px 6px, auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 2px 3px rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+  color: #1c2430;
+}
+
+.date-time-panel__field--era .settings-choice-field__trigger--open,
+.date-time-panel__field--era .settings-choice-field__trigger:focus-visible {
+  border-color: var(--dtp-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 2px color-mix(in srgb, var(--dtp-accent) 28%, transparent);
+}
+
+.date-time-panel__field--grow {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.date-time-panel__field-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #667288;
+  letter-spacing: 0.04em;
+}
+
+.date-time-panel__control {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  border: 1px solid var(--dtp-border-muted);
+  background: linear-gradient(180deg, #fff 0%, #f0f3f7 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 2px 3px rgba(0, 0, 0, 0.06);
+  color: #1c2430;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 8px;
+}
+
+.date-time-panel__control--center {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  height: 36px;
+}
+
+.date-time-panel__control:focus {
+  outline: none;
+  border-color: var(--dtp-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 2px color-mix(in srgb, var(--dtp-accent) 28%, transparent);
+}
+
+.date-time-panel__colon {
+  align-self: center;
+  padding-bottom: 2px;
+  font-size: 28px;
+  font-weight: 700;
+  color: #4a5568;
+}
+
+/* ── 滚轮 ── */
+
+.date-time-panel__wheels {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.date-time-panel__wheels--time {
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-height: 200px;
+}
+
+.date-time-wheel {
+  position: relative;
+  height: 180px;
+  border-radius: 8px;
+  border: 1px solid var(--dtp-border-muted);
+  background: linear-gradient(180deg, #d8dee6 0%, #eef1f5 18%, #eef1f5 82%, #d8dee6 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.date-time-wheel__band {
+  pointer-events: none;
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--dtp-accent) 35%, transparent);
+  background: linear-gradient(180deg, rgba(120, 170, 230, 0.28) 0%, rgba(90, 140, 200, 0.18) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.2);
+  z-index: 1;
+}
+
+.date-time-wheel__viewport {
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.date-time-wheel__viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.date-time-wheel__spacer {
+  height: 72px;
+  flex-shrink: 0;
+}
+
+.date-time-wheel__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(30, 40, 55, 0.45);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  scroll-snap-align: center;
+}
+
+.date-time-wheel__item--selected {
+  color: #152033;
+  font-weight: 700;
+  font-size: 22px;
+}
+
+/* ── 日历 ── */
+
+.date-time-panel__calendar {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 4px;
+}
+
+.date-time-panel__calendar-nav {
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.date-time-panel__nav-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--dtp-border-muted);
+  background: linear-gradient(180deg, #fff 0%, #e6ebf1 100%);
+  color: #334155;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.date-time-panel__nav-btn:active {
+  background: linear-gradient(180deg, #e6ebf1 0%, #fff 100%);
+}
+
+.date-time-panel__calendar-title {
+  border: none;
+  background: transparent;
+  color: #243247;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.date-time-panel__calendar-title--drill {
+  cursor: pointer;
+}
+
+.date-time-panel__calendar-title--drill:hover {
+  color: var(--dtp-accent);
+}
+
+.date-time-panel__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.date-time-panel__weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7788;
+  padding: 2px 0;
+}
+
+.date-time-panel__day-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.date-time-panel__day-spacer {
+  aspect-ratio: 1;
+}
+
+.date-time-panel__day {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.15) 100%);
+  color: #1f2a3a;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.date-time-panel__day:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.date-time-panel__day--selected {
+  background: linear-gradient(180deg, var(--dtp-accent-light) 0%, var(--dtp-accent) 100%);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+.date-time-panel__day--selected:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dtp-accent-light) 55%, white) 0%,
+    var(--dtp-accent-light) 100%
+  );
+  color: #fff;
+}
+
+.date-time-panel__month-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.date-time-panel__chip {
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid var(--dtp-border-muted);
+  background: linear-gradient(180deg, #fff 0%, #e8edf3 100%);
+  color: #243247;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.date-time-panel__chip--selected {
+  border-color: var(--dtp-accent-deep);
+  background: linear-gradient(180deg, var(--dtp-accent-light) 0%, var(--dtp-accent) 100%);
+  color: #fff;
+}
+
+.date-time-panel__chip--selected:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dtp-accent-light) 55%, white) 0%,
+    var(--dtp-accent-light) 100%
+  );
+  color: #fff;
+}
+
+.date-time-panel__hint {
+  margin: 0;
+  padding: 8px 14px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: #667288;
+}
+
+@media (max-width: 420px) {
+  .date-time-panel {
+    padding: 10px;
+  }
+
+  .date-time-panel__field {
+    width: 64px;
+  }
+}

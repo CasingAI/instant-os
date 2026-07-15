@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { osNowMs } from '../../os/os-clock.ts'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -27,7 +26,12 @@ import {
   recordBrowserTokenUsage,
   type BrowserTokenUsageRecord,
 } from './browser-token-usage.ts'
-import { clearBrowserHistory, recordBrowserHistoryVisit } from './browser-history.ts'
+import {
+  clearBrowserHistory,
+  clearBrowserHistoryByHostname,
+  recordBrowserHistoryVisit,
+} from './browser-history.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
   addBrowserBookmark,
   bookmarkAccentColor,
@@ -46,10 +50,22 @@ import {
   buildPageGenerationContext,
   readBrowserViewportSize,
 } from './build-page-generation-context.ts'
-import { getCachedPage, initBrowserPageCache, saveCachedPage } from './browser-page-cache.ts'
 import {
+  clearSitePageCache,
+  getCachedPage,
+  initBrowserPageCache,
+  removeCachedPage,
+  saveCachedPage,
+} from './browser-page-cache.ts'
+import {
+  loadBrowserSettings,
+  patchBrowserSettings,
+} from './browser-settings-storage.ts'
+import {
+  addressBarDisplayUrl,
   displayUrl,
   hostnameFromUrl,
+  isSameSite,
   isStartPageUrl,
   normalizeBrowserUrl,
   pageTitleFromUrl,
@@ -154,7 +170,10 @@ export function BrowserApp() {
   const { closeWindowsForApp, minimizeWindow, windows, focusWindow } = useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
   const { showBuiltinAbout } = useAboutApp()
-  const browserWindowId = windows.find((window) => window.appId === 'browser' && !window.minimized)?.id
+  const modal = useWindowModal()
+  const browserWindow = windows.find((window) => window.appId === 'browser' && !window.minimized)
+  const browserWindowId = browserWindow?.id
+  const browserFullscreen = Boolean(browserWindow?.fullscreen)
   const apiReady = useOpenAiReady()
   const [tabs, setTabs] = useState<SafariTab[]>(() => [createSafariTab()])
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '')
@@ -167,6 +186,13 @@ export function BrowserApp() {
   const [historyRevision, setHistoryRevision] = useState(0)
   const [bookmarksRevision, setBookmarksRevision] = useState(0)
   const [bookmarksBarVisible, setBookmarksBarVisibleState] = useState(() => loadBookmarksBarVisible())
+  const [alwaysShowToolbarInFullscreen, setAlwaysShowToolbarInFullscreen] = useState(
+    () => loadBrowserSettings().alwaysShowToolbarInFullscreen,
+  )
+  const [alwaysShowFullUrl, setAlwaysShowFullUrl] = useState(
+    () => loadBrowserSettings().alwaysShowFullUrl,
+  )
+  const [fullscreenToolbarRevealed, setFullscreenToolbarRevealed] = useState(false)
   const [tokenUsage, setTokenUsage] = useState<BrowserTokenUsageRecord>(() => loadBrowserTokenUsage())
   const [contextMenu, setContextMenu] = useState<
     { x: number; y: number; target: SafariContextMenuTarget; referrerUrl: string } | undefined
@@ -214,6 +240,11 @@ export function BrowserApp() {
   useEffect(() => {
     void initBrowserPageCache()
   }, [])
+
+  const formatAddressInput = useCallback(
+    (url: string) => addressBarDisplayUrl(url, alwaysShowFullUrl),
+    [alwaysShowFullUrl],
+  )
 
   const bumpBookmarksRevision = useCallback(() => {
     setBookmarksRevision((value) => value + 1)
@@ -545,7 +576,7 @@ export function BrowserApp() {
 
   const showEntry = useCallback(
     (tabId: string, entry: HistoryEntry, index: number) => {
-      updateTab(tabId, (tab) => ({ ...tab, inputUrl: displayUrl(entry.url) }))
+      updateTab(tabId, (tab) => ({ ...tab, inputUrl: formatAddressInput(entry.url) }))
 
       if (isStartPageUrl(entry.url)) {
         cancelGeneration(tabId)
@@ -581,7 +612,7 @@ export function BrowserApp() {
         buildGenContext(entry.url),
       )
     },
-    [applyCachedPage, buildGenContext, cancelGeneration, loadRemotePage, setTabPageState, updateTab],
+    [applyCachedPage, buildGenContext, cancelGeneration, formatAddressInput, loadRemotePage, setTabPageState, updateTab],
   )
 
   const navigate = useCallback(
@@ -622,7 +653,7 @@ export function BrowserApp() {
             ...item,
             history: nextHistory,
             historyIndex: targetIndex,
-            inputUrl: displayUrl(url),
+            inputUrl: formatAddressInput(url),
           }
         }),
       )
@@ -641,7 +672,7 @@ export function BrowserApp() {
       const genContext = buildGenContext(url, fromUrl, fromHtml)
       void loadRemotePage(tabId, url, targetIndex, genContext)
     },
-    [applyCachedPage, buildGenContext, cancelGeneration, loadRemotePage, setTabPageState, tabs],
+    [applyCachedPage, buildGenContext, cancelGeneration, formatAddressInput, loadRemotePage, setTabPageState, tabs],
   )
 
   const navigateActive = useCallback(
@@ -699,6 +730,25 @@ export function BrowserApp() {
 
   const showAddressSuggestions =
     addressFocused && inputUrl.trim().length > 0 && addressSuggestions.length > 0
+
+  // 起始空白页（新建标签）始终露出工具栏，便于输入网址
+  const toolbarAutoHide =
+    browserFullscreen && !alwaysShowToolbarInFullscreen && !onStartPage
+  const toolbarInteractionPinned =
+    addressFocused ||
+    historyOpen ||
+    tabsOverflowOpen ||
+    bookmarksOverflowOpen ||
+    showAddressSuggestions ||
+    contextMenu !== undefined ||
+    bookmarkContextMenu !== undefined
+  const toolbarVisible = !toolbarAutoHide || fullscreenToolbarRevealed || toolbarInteractionPinned
+
+  useEffect(() => {
+    if (!toolbarAutoHide) {
+      setFullscreenToolbarRevealed(false)
+    }
+  }, [toolbarAutoHide])
 
   const updateSuggestionAnchor = useCallback(() => {
     if (!showAddressSuggestions || !addressWrapRef.current || !safariRootRef.current) {
@@ -761,7 +811,8 @@ export function BrowserApp() {
         return
       }
 
-      const now = osNowMs()
+      // 防抖必须用单调真实时钟：osNowMs() 在虚拟历史时间下精度/回拨不可靠
+      const now = performance.now()
       const last = lastPageNavByTabRef.current[tabId] ?? { url: '', at: 0 }
       if (last.url === url && now - last.at < 600) {
         return
@@ -836,6 +887,121 @@ export function BrowserApp() {
     }))
   }
 
+  const currentHostname = onStartPage ? undefined : hostnameFromUrl(current.url)
+
+  const scrubSiteHtmlFromTabs = useCallback((hostname: string) => {
+    setTabs((prev) =>
+      prev.map((tab) => {
+        let changed = false
+        const nextHistory = tab.history.map((entry) => {
+          if (isStartPageUrl(entry.url) || !isSameSite(entry.url, `https://${hostname}/`)) {
+            return entry
+          }
+          if (entry.html === undefined && entry.pageTokens === undefined) {
+            return entry
+          }
+          changed = true
+          return { ...entry, html: undefined, pageTokens: undefined }
+        })
+
+        const entry = nextHistory[tab.historyIndex] ?? INITIAL_ENTRY
+        const onSite = !isStartPageUrl(entry.url) && isSameSite(entry.url, `https://${hostname}/`)
+        if (onSite) {
+          delete pageHtmlByTabRef.current[tab.id]
+        }
+
+        const nextPageState =
+          onSite && (tab.pageState.html || tab.pageState.rawText || tab.pageState.reasoningText)
+            ? {
+                ...tab.pageState,
+                html: '',
+                rawText: '',
+                reasoningText: '',
+                pageTokens: undefined,
+                error: undefined,
+                loading: false,
+                streaming: false,
+              }
+            : tab.pageState
+
+        if (nextPageState !== tab.pageState) {
+          changed = true
+        }
+
+        return changed ? { ...tab, history: nextHistory, pageState: nextPageState } : tab
+      }),
+    )
+  }, [])
+
+  const clearCurrentPageCache = useCallback(async () => {
+    if (isStartPageUrl(current.url)) {
+      return
+    }
+
+    const confirmed = await modal.confirm({
+      title: '清除当前页面缓存？',
+      message: '将删除此页面的已生成内容，并重新生成当前页。',
+      confirmLabel: '清除并重新加载',
+      confirmTone: 'danger',
+    })
+    if (!confirmed) {
+      return
+    }
+
+    removeCachedPage(current.url)
+    patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
+    delete pageHtmlByTabRef.current[activeTabId]
+    const genContext = buildGenContext(current.url, current.url, undefined)
+    void loadRemotePage(activeTabId, current.url, historyIndex, { ...genContext, force: true })
+  }, [
+    activeTabId,
+    buildGenContext,
+    current.url,
+    historyIndex,
+    loadRemotePage,
+    modal,
+    patchHistoryEntry,
+  ])
+
+  const clearCurrentSiteData = useCallback(async () => {
+    const hostname = hostnameFromUrl(current.url)
+    if (!hostname || isStartPageUrl(current.url)) {
+      return
+    }
+
+    const confirmed = await modal.confirm({
+      title: `清除「${hostname}」的网站数据？`,
+      message: '将删除该网站的网页缓存与浏览记录。书签不受影响。打开中的相关标签页会重新生成。',
+      confirmLabel: '清除',
+      confirmTone: 'danger',
+    })
+    if (!confirmed) {
+      return
+    }
+
+    clearSitePageCache(hostname)
+    clearBrowserHistoryByHostname(hostname)
+    setHistoryRevision((value) => value + 1)
+    scrubSiteHtmlFromTabs(hostname)
+
+    const stillOnSite = isSameSite(current.url, `https://${hostname}/`)
+    if (stillOnSite) {
+      patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
+      delete pageHtmlByTabRef.current[activeTabId]
+      const genContext = buildGenContext(current.url, current.url, undefined)
+      void loadRemotePage(activeTabId, current.url, historyIndex, { ...genContext, force: true })
+    }
+  }, [
+    activeTabId,
+    buildGenContext,
+    current.url,
+    historyIndex,
+    loadRemotePage,
+    modal,
+    patchHistoryEntry,
+    scrubSiteHtmlFromTabs,
+  ])
+
   const submitUrl = (event: Event) => {
     event.preventDefault()
     const selected = addressSuggestions[addressSuggestionIndex]
@@ -887,7 +1053,7 @@ export function BrowserApp() {
           ...tab,
           history: [entry],
           historyIndex: 0,
-          inputUrl: displayUrl(url),
+          inputUrl: formatAddressInput(url),
           pageState: cachedHtml
             ? {
                 loading: false,
@@ -924,7 +1090,7 @@ export function BrowserApp() {
       const genContext = buildGenContext(url, fromUrl)
       void loadRemotePage(tabId, url, 0, genContext)
     },
-    [buildGenContext, loadRemotePage],
+    [buildGenContext, formatAddressInput, loadRemotePage],
   )
 
   const copyToClipboard = useCallback(async (text: string) => {
@@ -934,6 +1100,13 @@ export function BrowserApp() {
       // clipboard unavailable
     }
   }, [])
+
+  const copyCurrentPageUrl = useCallback(() => {
+    if (isStartPageUrl(current.url)) {
+      return
+    }
+    void copyToClipboard(current.url)
+  }, [copyToClipboard, current.url])
 
   const closeTab = (tabId: string) => {
     setTabs((prev) => {
@@ -1133,8 +1306,11 @@ export function BrowserApp() {
 
   const addressValue = addressFocused
     ? inputUrl
-    : inputUrl ||
-      (onStartPage ? '' : current.title || displayUrl(current.url))
+    : onStartPage
+      ? ''
+      : alwaysShowFullUrl
+        ? current.url
+        : inputUrl || current.title || displayUrl(current.url)
 
   const tabSummaries = useMemo(
     () =>
@@ -1214,10 +1390,37 @@ export function BrowserApp() {
     stopLoading,
   }
 
+  const toggleAlwaysShowToolbarInFullscreen = useCallback(() => {
+    const next = !alwaysShowToolbarInFullscreen
+    if (!patchBrowserSettings({ alwaysShowToolbarInFullscreen: next })) {
+      return
+    }
+    setAlwaysShowToolbarInFullscreen(next)
+  }, [alwaysShowToolbarInFullscreen])
+
+  const toggleAlwaysShowFullUrl = useCallback(() => {
+    const next = !alwaysShowFullUrl
+    if (!patchBrowserSettings({ alwaysShowFullUrl: next })) {
+      return
+    }
+    setAlwaysShowFullUrl(next)
+    if (!addressFocused && !onStartPage) {
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === activeTabId
+            ? { ...tab, inputUrl: addressBarDisplayUrl(current.url, next) }
+            : tab,
+        ),
+      )
+    }
+  }, [activeTabId, addressFocused, alwaysShowFullUrl, current.url, onStartPage])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     const run = (action: keyof typeof menuActionsRef.current) => {
       menuActionsRef.current[action]()
     }
+
+    const check = (active: boolean) => (active ? '✓ ' : '')
 
     return [
       {
@@ -1283,6 +1486,30 @@ export function BrowserApp() {
         ],
       },
       {
+        label: '网页',
+        items: [
+          {
+            type: 'action',
+            label: '复制页面地址',
+            onClick: () => copyCurrentPageUrl(),
+            disabled: onStartPage,
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '清除当前页面缓存…',
+            onClick: () => void clearCurrentPageCache(),
+            disabled: onStartPage,
+          },
+          {
+            type: 'action',
+            label: currentHostname ? `清除「${currentHostname}」的数据…` : '清除该网站数据…',
+            onClick: () => void clearCurrentSiteData(),
+            disabled: onStartPage,
+          },
+        ],
+      },
+      {
         label: '显示',
         items: [
           {
@@ -1299,25 +1526,74 @@ export function BrowserApp() {
             onClick: () => run('stopLoading'),
             disabled: !showProgress,
           },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: `${check(alwaysShowToolbarInFullscreen)}在全屏模式下始终显示工具栏`,
+            shortcut: '⇧⌘F',
+            onClick: () => toggleAlwaysShowToolbarInFullscreen(),
+          },
+          {
+            type: 'action',
+            label: `${check(alwaysShowFullUrl)}始终显示完整网址`,
+            onClick: () => toggleAlwaysShowFullUrl(),
+          },
         ],
       },
     ]
   }, [
+    alwaysShowFullUrl,
+    alwaysShowToolbarInFullscreen,
     bookmarksBarVisible,
+    clearCurrentPageCache,
+    clearCurrentSiteData,
+    copyCurrentPageUrl,
     currentBookmarked,
+    currentHostname,
     history.length,
     historyIndex,
     historyOpen,
     onStartPage,
     showBuiltinAbout,
     showProgress,
+    toggleAlwaysShowFullUrl,
+    toggleAlwaysShowToolbarInFullscreen,
   ])
 
   useAppMenuBar('browser', menuBar)
 
   return (
-    <div class="safari" ref={attachSafariRoot}>
-      <header class="safari__chrome">
+    <div
+      class={[
+        'safari',
+        toolbarAutoHide ? 'safari--toolbar-autohide' : '',
+        toolbarAutoHide && toolbarVisible ? 'safari--toolbar-revealed' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      ref={attachSafariRoot}
+    >
+      {toolbarAutoHide && !toolbarVisible && (
+        <div
+          class="safari__toolbar-reveal-sensor"
+          aria-hidden="true"
+          onPointerEnter={() => setFullscreenToolbarRevealed(true)}
+          onPointerMove={() => setFullscreenToolbarRevealed(true)}
+        />
+      )}
+      <header
+        class="safari__chrome"
+        onPointerLeave={(event) => {
+          if (!toolbarAutoHide || toolbarInteractionPinned) {
+            return
+          }
+          const next = event.relatedTarget
+          if (next instanceof Node && event.currentTarget.contains(next)) {
+            return
+          }
+          setFullscreenToolbarRevealed(false)
+        }}
+      >
         <SafariTabBar
           tabs={tabSummaries}
           activeTabId={activeTabId}
@@ -1383,10 +1659,18 @@ export function BrowserApp() {
                   setAddressSuggestionIndex(-1)
                   updateTab(activeTabId, (tab) => ({
                     ...tab,
-                    inputUrl: displayUrl(current.url),
+                    inputUrl: formatAddressInput(current.url),
                   }))
                 }}
-                onBlur={() => setAddressFocused(false)}
+                onBlur={() => {
+                  setAddressFocused(false)
+                  if (!onStartPage) {
+                    updateTab(activeTabId, (tab) => ({
+                      ...tab,
+                      inputUrl: formatAddressInput(current.url),
+                    }))
+                  }
+                }}
                 onKeyDown={handleAddressKeyDown}
                 onInput={(event) => {
                   const value = (event.currentTarget as HTMLInputElement).value

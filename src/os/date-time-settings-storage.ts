@@ -8,6 +8,8 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 export type DateTimeSettings = {
   version: 1
   useSystemTime: boolean
+  /** 为 false 时界面用 12 小时制（上午/下午）。默认 true。 */
+  use24HourTime: boolean
   manual?: {
     anchorRealMs: number
     virtual: CalendarInstant
@@ -19,6 +21,7 @@ const STORAGE_KEY = DEVICE_STORAGE_KEYS.dateTimeSettings
 const DEFAULT_SETTINGS: DateTimeSettings = {
   version: 1,
   useSystemTime: true,
+  use24HourTime: true,
 }
 
 function normalizeCalendar(raw: unknown): CalendarInstant | undefined {
@@ -38,20 +41,33 @@ function normalizeCalendar(raw: unknown): CalendarInstant | undefined {
   })
 }
 
+function readUse24HourTime(record: Record<string, unknown>): boolean {
+  return record.use24HourTime !== false
+}
+
 function normalizeDateTimeSettings(raw: unknown): DateTimeSettings {
   if (!raw || typeof raw !== 'object') {
     return DEFAULT_SETTINGS
   }
 
   const record = raw as Record<string, unknown>
+  const use24HourTime = readUse24HourTime(record)
   const useSystemTime = record.useSystemTime !== false
   if (useSystemTime) {
-    return DEFAULT_SETTINGS
+    return {
+      version: 1,
+      useSystemTime: true,
+      use24HourTime,
+    }
   }
 
   const manualRaw = record.manual
   if (!manualRaw || typeof manualRaw !== 'object') {
-    return DEFAULT_SETTINGS
+    return {
+      version: 1,
+      useSystemTime: true,
+      use24HourTime,
+    }
   }
 
   const manualRecord = manualRaw as Record<string, unknown>
@@ -61,12 +77,17 @@ function normalizeDateTimeSettings(raw: unknown): DateTimeSettings {
       : Date.now()
   const virtual = normalizeCalendar(manualRecord.virtual)
   if (!virtual) {
-    return DEFAULT_SETTINGS
+    return {
+      version: 1,
+      useSystemTime: true,
+      use24HourTime,
+    }
   }
 
   return {
     version: 1,
     useSystemTime: false,
+    use24HourTime,
     manual: {
       anchorRealMs,
       virtual,
@@ -87,11 +108,13 @@ export function loadDateTimeSettings(): DateTimeSettings {
 }
 
 export function saveDateTimeSettings(settings: DateTimeSettings): boolean {
+  const use24HourTime = settings.use24HourTime !== false
   const payload: DateTimeSettings = settings.useSystemTime
-    ? { version: 1, useSystemTime: true }
+    ? { version: 1, useSystemTime: true, use24HourTime }
     : {
         version: 1,
         useSystemTime: false,
+        use24HourTime,
         manual: settings.manual,
       }
 
@@ -102,10 +125,14 @@ export function saveDateTimeSettings(settings: DateTimeSettings): boolean {
   return writeLocalStorageItem(STORAGE_KEY, JSON.stringify(payload))
 }
 
-export function defaultManualDateTimeSettings(virtual: CalendarInstant): DateTimeSettings {
+export function defaultManualDateTimeSettings(
+  virtual: CalendarInstant,
+  use24HourTime = true,
+): DateTimeSettings {
   return {
     version: 1,
     useSystemTime: false,
+    use24HourTime,
     manual: {
       anchorRealMs: Date.now(),
       virtual: normalizeCalendarInstant(virtual),
@@ -113,8 +140,12 @@ export function defaultManualDateTimeSettings(virtual: CalendarInstant): DateTim
   }
 }
 
-export function systemDateTimeSettings(): DateTimeSettings {
-  return DEFAULT_SETTINGS
+export function systemDateTimeSettings(use24HourTime = true): DateTimeSettings {
+  return {
+    version: 1,
+    useSystemTime: true,
+    use24HourTime,
+  }
 }
 
 export function calendarInstantFromSystemNow(): CalendarInstant {

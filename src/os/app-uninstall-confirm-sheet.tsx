@@ -1,3 +1,5 @@
+import { createPortal } from 'preact/compat'
+import { getFloatingOverlayRoot } from '../ui/floating-overlay-root.ts'
 import './app-uninstall-confirm-sheet.css'
 
 type AppUninstallConfirmSheetProps = {
@@ -11,7 +13,7 @@ export function AppUninstallConfirmSheet({
   onCancel,
   onConfirm,
 }: AppUninstallConfirmSheetProps) {
-  return (
+  return createPortal(
     <div class="os-uninstall-confirm-backdrop" role="presentation" onClick={onCancel}>
       <div
         class="os-uninstall-confirm"
@@ -46,6 +48,7 @@ export function AppUninstallConfirmSheet({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    getFloatingOverlayRoot(),
   )
 }

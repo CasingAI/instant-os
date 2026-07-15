@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { StoragePaneIcon } from '../apps/settings/settings-pane-icons.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
-import { useOs } from './os-context.tsx'
+import { useNotificationCenter } from './notification-center-context.tsx'
+import {
+  activateStorageWarningNotification,
+  dismissStorageWarningNotification,
+} from './storage-warning-notification-store.ts'
 import {
   evaluateStorageWarning,
+  getAvailableStoragePercent,
   messageForStorageWarning,
-  openSettingsUsageView,
   STORAGE_CHANGED_EVENT,
+  STORAGE_WARNING_SLUG,
   type StorageWarningNotification,
 } from './storage-warning.ts'
 import './notification-banner.css'
@@ -57,8 +62,8 @@ function StorageWarningBanner({
 }
 
 export function StorageWarningBannerHost() {
-  const { openApp } = useOs()
   const { storageRevision } = useGeneratedApps()
+  const { openPanel } = useNotificationCenter()
   const [banner, setBanner] = useState<StorageWarningBannerRecord | undefined>(undefined)
   const bannerIdRef = useRef(0)
   const dismissTimerRef = useRef<number | undefined>(undefined)
@@ -87,6 +92,7 @@ export function StorageWarningBannerHost() {
   const showWarning = (warning: StorageWarningNotification) => {
     clearTimers()
     bannerIdRef.current += 1
+    activateStorageWarningNotification(warning)
     setBanner({
       ...warning,
       id: bannerIdRef.current,
@@ -98,6 +104,10 @@ export function StorageWarningBannerHost() {
     const warning = evaluateStorageWarning()
     if (warning) {
       showWarning(warning)
+      return
+    }
+    if (getAvailableStoragePercent() >= 20) {
+      dismissStorageWarningNotification()
     }
   }
 
@@ -140,8 +150,7 @@ export function StorageWarningBannerHost() {
 
   const handleOpen = () => {
     dismissBanner()
-    openApp('settings')
-    openSettingsUsageView()
+    openPanel(STORAGE_WARNING_SLUG)
   }
 
   if (!banner) {

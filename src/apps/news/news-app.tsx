@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
@@ -23,6 +24,11 @@ import {
   readNewsStore,
 } from './news-storage.ts'
 import { NewsCommentsSection } from './news-comments-section.tsx'
+import {
+  subscribeNewsEditionRequest,
+  takePendingNewsEdition,
+  type NewsEditionRequest,
+} from './news-edition-request.ts'
 import type { NewsArticle, NewsStore } from './news-types.ts'
 import './news.css'
 
@@ -49,6 +55,22 @@ function NewsLoadingState() {
   )
 }
 
+function NewsListThinkingSkeleton({ reasoningText }: { reasoningText: string }) {
+  return (
+    <div class="news__list-skeleton news__list-skeleton--thinking" aria-hidden="true">
+      {reasoningText ? (
+        <AiStreamPreview
+          reasoningText={reasoningText}
+          variant="news-list"
+          emptyLabel="正在思考…"
+        />
+      ) : (
+        <div class="news__list-skeleton-pulse" />
+      )}
+    </div>
+  )
+}
+
 function NewsReaderPlaceholder({ editionDate }: { editionDate: string }) {
   const copy = useMemo(() => pickReaderPlaceholder(editionDate), [editionDate])
 
@@ -67,7 +89,7 @@ function NewsReaderPlaceholder({ editionDate }: { editionDate: string }) {
 export function NewsApp() {
   const { setAppWindowTitle, closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const { hostRef, narrowLayout } = useAppNarrowLayout()
+  const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
 
   const [store, setStore] = useState<NewsStore>(() => readNewsStore())
   const [editionDate, setEditionDate] = useState<string>(() => getTodayEditionDate())
@@ -79,6 +101,11 @@ export function NewsApp() {
   const [baselineArticleIds, setBaselineArticleIds] = useState<string[]>([])
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [generationFailed, setGenerationFailed] = useState(false)
+  const [reasoningText, setReasoningText] = useState('')
+  const dayContextRef = useRef<string | undefined>()
+  const skipAutoGenerateRef = useRef(false)
+  const generateLockRef = useRef(false)
+  const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
 
   const articlesForDay = useMemo(() => getArticlesForDate(store, editionDate), [store, editionDate])
 
@@ -112,15 +139,38 @@ export function NewsApp() {
     return listArticles.find((article) => article.id === selectedId)
   }, [listArticles, selectedId])
 
+  const generatingFromEmpty = isGenerating && baselineArticleIds.length === 0
+  const showReaderThinkingOverlay =
+    generatingFromEmpty && !selectedArticle && streamingArticleIds.length === 0
+
   useEffect(() => {
     setAppWindowTitle('news', '新闻')
   }, [setAppWindowTitle])
 
   useEffect(() => {
-    if (narrowLayout) {
+    if (!layoutReady) {
+      return
+    }
+
+    const previous = prevNarrowLayoutRef.current
+    if (previous === undefined) {
+      // 首次测量：窄屏从列表开始，不把「默认宽 → 实测窄」当成缩窗
+      prevNarrowLayoutRef.current = narrowLayout
+      return
+    }
+
+    prevNarrowLayoutRef.current = narrowLayout
+
+    // 宽屏缩到窄屏时，若当前有选中项，保持详情页而不是退回列表
+    if (!previous && narrowLayout && selectedId !== undefined) {
+      setStackedReaderOpen(true)
+      return
+    }
+
+    if (!narrowLayout) {
       setStackedReaderOpen(false)
     }
-  }, [narrowLayout])
+  }, [layoutReady, narrowLayout, selectedId])
 
   // 响应来自系统设置的删除等外部变更，立即同步本地状态
   useEffect(() => {
@@ -137,6 +187,110 @@ export function NewsApp() {
     setStackedReaderOpen(false)
     setSelectedId(undefined)
   }, [])
+
+  const markArticleEntering = useCallback((articleId: string) => {
+    setEnteringIds((current) => {
+      const next = new Set(current)
+      next.add(articleId)
+      return next
+    })
+    window.setTimeout(() => {
+      setEnteringIds((current) => {
+        if (!current.has(articleId)) {
+          return current
+        }
+        const next = new Set(current)
+        next.delete(articleId)
+        return next
+      })
+    }, 400)
+  }, [])
+
+  const handleGenerate = useCallback(
+    async (options?: { targetDate?: string; dayContext?: string }) => {
+      if (generateLockRef.current) {
+        return
+      }
+      const targetDate = options?.targetDate ?? editionDate
+      const dayContext = options?.dayContext ?? dayContextRef.current
+      generateLockRef.current = true
+      setGenerationFailed(false)
+      setReasoningText('')
+      const baseline = getArticlesForDate(readNewsStore(), targetDate).map((article) => article.id)
+      setBaselineArticleIds(baseline)
+      setStreamingArticleIds([])
+      setIsGenerating(true)
+      const newArticleIdsInOrder: string[] = []
+      try {
+        let fresh = readNewsStore()
+        const seenTitles = new Set(
+          getArticlesForDate(fresh, targetDate).map((article) => article.title),
+        )
+
+        await generateArticlesForDateStreaming(
+          targetDate,
+          (article) => {
+            if (seenTitles.has(article.title)) {
+              return
+            }
+            seenTitles.add(article.title)
+            fresh = addArticles(fresh, [article])
+            newArticleIdsInOrder.push(article.id)
+            setStore({ ...fresh })
+            setStreamingArticleIds([...newArticleIdsInOrder])
+            markArticleEntering(article.id)
+          },
+          {
+            dayContext,
+            onReasoning: setReasoningText,
+          },
+        )
+
+        if (newArticleIdsInOrder.length > 0) {
+          fresh = assignArticleListPositions(fresh, targetDate, newArticleIdsInOrder, baseline)
+          setStore({ ...fresh })
+        } else {
+          setGenerationFailed(true)
+        }
+      } catch {
+        setGenerationFailed(true)
+      } finally {
+        generateLockRef.current = false
+        setIsGenerating(false)
+        setStreamingArticleIds([])
+        setBaselineArticleIds([])
+        setReasoningText('')
+        dayContextRef.current = undefined
+      }
+    },
+    [editionDate, markArticleEntering],
+  )
+
+  const applyEditionRequest = useCallback(
+    (request: NewsEditionRequest) => {
+      dayContextRef.current = request.dayContext
+      setEditionDate(request.editionDate)
+      clearStackedReader()
+      setDatePickerOpen(false)
+      setGenerationFailed(false)
+      if (request.forceGenerate) {
+        skipAutoGenerateRef.current = true
+        void handleGenerate({
+          targetDate: request.editionDate,
+          dayContext: request.dayContext,
+        })
+      }
+    },
+    [clearStackedReader, handleGenerate],
+  )
+
+  useEffect(() => {
+    const pending = takePendingNewsEdition()
+    if (pending) {
+      applyEditionRequest(pending)
+    }
+    return subscribeNewsEditionRequest(applyEditionRequest)
+  }, [applyEditionRequest])
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -176,71 +330,22 @@ export function NewsApp() {
     [clearStackedReader],
   )
 
-  const markArticleEntering = useCallback((articleId: string) => {
-    setEnteringIds((current) => {
-      const next = new Set(current)
-      next.add(articleId)
-      return next
-    })
-    window.setTimeout(() => {
-      setEnteringIds((current) => {
-        if (!current.has(articleId)) {
-          return current
-        }
-        const next = new Set(current)
-        next.delete(articleId)
-        return next
-      })
-    }, 400)
-  }, [])
-
-  const handleGenerate = useCallback(async () => {
-    if (isGenerating) return
-    setGenerationFailed(false)
-    const baseline = getArticlesForDate(readNewsStore(), editionDate).map((article) => article.id)
-    setBaselineArticleIds(baseline)
-    setStreamingArticleIds([])
-    setIsGenerating(true)
-    const newArticleIdsInOrder: string[] = []
-    try {
-      let fresh = readNewsStore()
-      const seenTitles = new Set(getArticlesForDate(fresh, editionDate).map((article) => article.title))
-
-      await generateArticlesForDateStreaming(editionDate, (article) => {
-        if (seenTitles.has(article.title)) {
-          return
-        }
-        seenTitles.add(article.title)
-        fresh = addArticles(fresh, [article])
-        newArticleIdsInOrder.push(article.id)
-        setStore({ ...fresh })
-        setStreamingArticleIds([...newArticleIdsInOrder])
-        markArticleEntering(article.id)
-      })
-
-      if (newArticleIdsInOrder.length > 0) {
-        fresh = assignArticleListPositions(fresh, editionDate, newArticleIdsInOrder, baseline)
-        setStore({ ...fresh })
-      } else {
-        setGenerationFailed(true)
-      }
-    } catch {
-      setGenerationFailed(true)
-    } finally {
-      setIsGenerating(false)
-      setStreamingArticleIds([])
-      setBaselineArticleIds([])
-    }
-  }, [editionDate, isGenerating, markArticleEntering])
-
   useEffect(() => {
+    if (generateLockRef.current) {
+      return
+    }
     setStreamingArticleIds([])
     setBaselineArticleIds([])
     setGenerationFailed(false)
+    setReasoningText('')
   }, [editionDate])
 
-  // 日期切换后，若当前日期尚无任何新闻，则自动触发生成（不再依赖显式按钮）
+  // 日期切换后，若当前日期尚无任何新闻，则自动触发生成
   useEffect(() => {
+    if (skipAutoGenerateRef.current) {
+      skipAutoGenerateRef.current = false
+      return
+    }
     if (articlesForDay.length === 0 && !isGenerating && !generationFailed) {
       void handleGenerate()
     }
@@ -405,7 +510,11 @@ export function NewsApp() {
             isGenerating ? (
               <>
                 {streamingArticles.map((article, idx) => renderNewsRow(article, idx))}
-                <div class="news__list-skeleton" aria-hidden="true" />
+                {streamingArticleIds.length === 0 ? (
+                  <NewsListThinkingSkeleton reasoningText={reasoningText} />
+                ) : (
+                  <div class="news__list-skeleton" aria-hidden="true" />
+                )}
                 {baselineArticles.map((article, idx) => renderNewsRow(article, idx))}
               </>
             ) : (
@@ -421,7 +530,9 @@ export function NewsApp() {
                 <div class="news__article-meta">
                   <span class="news__article-cat">{selectedArticle.category}</span>
                   <span class="news__article-date">{articleDateLabel}</span>
-                  {selectedArticle.source && <span class="news__article-src">· {selectedArticle.source}</span>}
+                  {selectedArticle.source && (
+                    <span class="news__article-src">{selectedArticle.source}</span>
+                  )}
                 </div>
                 <h1 class="news__article-title">{selectedArticle.title}</h1>
                 <p class="news__article-lead">{selectedArticle.lead}</p>
@@ -443,7 +554,25 @@ export function NewsApp() {
               />
             </article>
           ) : (
-            <NewsReaderPlaceholder editionDate={editionDate} />
+            <div
+              class={[
+                'news__reader-stack',
+                showReaderThinkingOverlay ? 'news__reader-stack--thinking' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {showReaderThinkingOverlay && (
+                <div class="news__thinking-backdrop" aria-hidden="true">
+                  <AiStreamPreview
+                    reasoningText={reasoningText}
+                    variant="news"
+                    emptyLabel="正在构想当日版面…"
+                  />
+                </div>
+              )}
+              <NewsReaderPlaceholder editionDate={editionDate} />
+            </div>
           )}
         </section>
       </div>

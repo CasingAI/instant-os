@@ -4,7 +4,7 @@ import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
 import { formatTextLengthK } from '../apps/appstore/format-text-length.ts'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { BooksCover } from '../apps/books/books-cover.tsx'
-import { StockWidget, WeatherWidget } from './notification-center-widgets.tsx'
+import { DateTimeWidget, StockWidget, WeatherWidget } from './notification-center-widgets.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import { useNotificationCenterWidgets } from './use-notification-center-widgets.ts'
@@ -17,9 +17,18 @@ import {
   ProcessIsolationFallbackListItem,
 } from './process-isolation-fallback-notification-center.tsx'
 import { PROCESS_ISOLATION_FALLBACK_SLUG } from './process-isolation-fallback.ts'
+import {
+  StorageWarningDetail,
+  StorageWarningListItem,
+} from './storage-warning-notification-center.tsx'
+import { STORAGE_WARNING_SLUG } from './storage-warning.ts'
+import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
 import { useBookStream } from './use-book-stream.ts'
-import type { FailedInstall, PendingInstall } from '../apps/appstore/types.ts'
+import type { CompletedInstall, FailedInstall, PendingInstall } from '../apps/appstore/types.ts'
 import type { AppNotification } from './app-notifications-store.ts'
+import { clearAppNotifications, dismissAppNotification } from './app-notifications-store.ts'
+import { dismissProcessIsolationFallbackNotification } from './process-isolation-fallback-notification-store.ts'
+import { dismissStorageWarningNotification } from './storage-warning-notification-store.ts'
 import { NOTIFICATION_CENTER_SCREEN_FADE_MS } from './notification-center-store.ts'
 
 function phaseLabel(phase: PendingInstall['phase'], isUpdate?: boolean): string {
@@ -40,30 +49,138 @@ type NotificationListItemProps = {
 type FailedNotificationListItemProps = {
   item: FailedInstall
   onSelect: () => void
+  onDismiss: () => void
+  armedClearId: string | undefined
+  setArmedClearId: (id: string | undefined) => void
 }
 
-function FailedNotificationListItem({ item, onSelect }: FailedNotificationListItemProps) {
+type CompletedNotificationListItemProps = {
+  item: CompletedInstall
+  onSelect: () => void
+  onDismiss: () => void
+  armedClearId: string | undefined
+  setArmedClearId: (id: string | undefined) => void
+}
+
+type IosStyleClearButtonProps = {
+  clearId: string
+  armedClearId: string | undefined
+  setArmedClearId: (id: string | undefined) => void
+  onConfirm: () => void
+  confirmLabel: string
+  className?: string
+}
+
+function IosStyleClearButton({
+  clearId,
+  armedClearId,
+  setArmedClearId,
+  onConfirm,
+  confirmLabel,
+  className,
+}: IosStyleClearButtonProps) {
+  const armed = armedClearId === clearId
+
   return (
     <button
       type="button"
-      class="notification-center__item notification-center__item--failed"
-      onClick={onSelect}
+      data-ios-clear={clearId}
+      class={`notification-center__ios-clear${armed ? ' notification-center__ios-clear--armed' : ''}${className ? ` ${className}` : ''}`}
+      aria-label={armed ? confirmLabel : '准备清除'}
+      aria-expanded={armed}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (armed) {
+          setArmedClearId(undefined)
+          onConfirm()
+          return
+        }
+        setArmedClearId(clearId)
+      }}
     >
-      <span class="notification-center__item-icon">
-        <GeneratedAppIcon
-          emoji={item.listing.iconEmoji}
-          themeColor={item.listing.themeColor}
-          size={40}
-        />
+      <span class="notification-center__ios-clear-glyph" aria-hidden="true" />
+      <span class="notification-center__ios-clear-label" aria-hidden="true">
+        {confirmLabel}
       </span>
-      <span class="notification-center__item-copy">
-        <span class="notification-center__item-title">{item.listing.name}</span>
-        <span class="notification-center__item-subtitle">
-          {item.isUpdate ? '更新失败' : '生成失败'} · {item.error}
-        </span>
-      </span>
-      <span class="notification-center__item-meta notification-center__item-meta--failed">!</span>
     </button>
+  )
+}
+
+function CompletedNotificationListItem({
+  item,
+  onSelect,
+  onDismiss,
+  armedClearId,
+  setArmedClearId,
+}: CompletedNotificationListItemProps) {
+  return (
+    <div class="notification-center__item-wrap">
+      <button
+        type="button"
+        class="notification-center__item notification-center__item--complete"
+        onClick={onSelect}
+      >
+        <span class="notification-center__item-icon">
+          <GeneratedAppIcon
+            emoji={item.listing.iconEmoji}
+            themeColor={item.listing.themeColor}
+            size={40}
+          />
+        </span>
+        <span class="notification-center__item-copy">
+          <span class="notification-center__item-title">{item.listing.name}</span>
+          <span class="notification-center__item-subtitle">
+            {item.isUpdate ? '更新完成' : '安装完成'} · 已就绪
+          </span>
+        </span>
+      </button>
+      <IosStyleClearButton
+        clearId={`completed:${item.id}`}
+        armedClearId={armedClearId}
+        setArmedClearId={setArmedClearId}
+        onConfirm={onDismiss}
+        confirmLabel="清除"
+      />
+    </div>
+  )
+}
+
+function FailedNotificationListItem({
+  item,
+  onSelect,
+  onDismiss,
+  armedClearId,
+  setArmedClearId,
+}: FailedNotificationListItemProps) {
+  return (
+    <div class="notification-center__item-wrap">
+      <button
+        type="button"
+        class="notification-center__item notification-center__item--failed"
+        onClick={onSelect}
+      >
+        <span class="notification-center__item-icon">
+          <GeneratedAppIcon
+            emoji={item.listing.iconEmoji}
+            themeColor={item.listing.themeColor}
+            size={40}
+          />
+        </span>
+        <span class="notification-center__item-copy">
+          <span class="notification-center__item-title">{item.listing.name}</span>
+          <span class="notification-center__item-subtitle">
+            {item.isUpdate ? '更新失败' : '生成失败'} · {item.error}
+          </span>
+        </span>
+      </button>
+      <IosStyleClearButton
+        clearId={`failed:${item.id}`}
+        armedClearId={armedClearId}
+        setArmedClearId={setArmedClearId}
+        onConfirm={onDismiss}
+        confirmLabel="清除"
+      />
+    </div>
   )
 }
 
@@ -108,9 +225,73 @@ type FailedNotificationDetailProps = {
   onDismiss: () => void
 }
 
+type CompletedNotificationDetailProps = {
+  item: CompletedInstall
+  onBack: () => void
+  onOpen: () => void
+  onDismiss: () => void
+}
+
 function handleDetailBack(event: MouseEvent, onBack: () => void) {
   event.stopPropagation()
   onBack()
+}
+
+function CompletedNotificationDetail({
+  item,
+  onBack,
+  onOpen,
+  onDismiss,
+}: CompletedNotificationDetailProps) {
+  const stream = usePendingInstallStream(item.listing.slug)
+
+  return (
+    <div class="notification-center__detail">
+      <div class="notification-center__detail-header">
+        <IosNavBackButton
+          label="返回通知"
+          onClick={(event) => handleDetailBack(event, onBack)}
+        />
+      </div>
+      <div class="notification-center__detail-card notification-center__detail-card--complete">
+        <div class="notification-center__detail-hero">
+          <GeneratedAppIcon
+            emoji={item.listing.iconEmoji}
+            themeColor={item.listing.themeColor}
+            size={52}
+          />
+          <div class="notification-center__detail-copy">
+            <p class="notification-center__detail-title">{item.listing.name}</p>
+            <p class="notification-center__detail-phase notification-center__detail-phase--complete">
+              {item.isUpdate ? '更新完成' : '安装完成'}
+            </p>
+          </div>
+        </div>
+        <div class="notification-center__detail-actions">
+          <button
+            type="button"
+            class="notification-center__action notification-center__action--primary"
+            onClick={onOpen}
+          >
+            打开
+          </button>
+          <button type="button" class="notification-center__action" onClick={onDismiss}>
+            忽略
+          </button>
+        </div>
+      </div>
+      {(stream.reasoningText || stream.rawText) && (
+        <>
+          <p class="notification-center__stream-heading">AI 输出</p>
+          <AiStreamPreview
+            reasoningText={stream.reasoningText}
+            contentText={stream.rawText}
+            variant="notification"
+          />
+        </>
+      )}
+    </div>
+  )
 }
 
 function FailedNotificationDetail({ item, onBack, onRetry, onDismiss }: FailedNotificationDetailProps) {
@@ -221,40 +402,58 @@ function NotificationDetail({ item, onBack }: NotificationDetailProps) {
 type AppNotificationListItemProps = {
   notification: AppNotification
   onSelect: () => void
+  onDismiss: () => void
+  armedClearId: string | undefined
+  setArmedClearId: (id: string | undefined) => void
 }
 
-function AppNotificationListItem({ notification, onSelect }: AppNotificationListItemProps) {
+function AppNotificationListItem({
+  notification,
+  onSelect,
+  onDismiss,
+  armedClearId,
+  setArmedClearId,
+}: AppNotificationListItemProps) {
   return (
-    <button
-      type="button"
-      class="notification-center__item notification-center__item--failed"
-      onClick={onSelect}
-    >
-      <span class="notification-center__item-icon">
-        <BooksCover
-          title={notification.appName}
-          coverColor={notification.themeColor}
-          coverEmoji={notification.iconEmoji}
-          size="small"
-        />
-      </span>
-      <span class="notification-center__item-copy">
-        <span class="notification-center__item-title">{notification.appName}</span>
-        <span class="notification-center__item-subtitle">
-          生成失败 · {notification.error}
+    <div class="notification-center__item-wrap">
+      <button
+        type="button"
+        class="notification-center__item notification-center__item--failed"
+        onClick={onSelect}
+      >
+        <span class="notification-center__item-icon">
+          <BooksCover
+            title={notification.appName}
+            coverColor={notification.themeColor}
+            coverEmoji={notification.iconEmoji}
+            size="small"
+          />
         </span>
-      </span>
-      <span class="notification-center__item-meta notification-center__item-meta--failed">!</span>
-    </button>
+        <span class="notification-center__item-copy">
+          <span class="notification-center__item-title">{notification.appName}</span>
+          <span class="notification-center__item-subtitle">
+            生成失败 · {notification.error}
+          </span>
+        </span>
+      </button>
+      <IosStyleClearButton
+        clearId={`app:${notification.id}`}
+        armedClearId={armedClearId}
+        setArmedClearId={setArmedClearId}
+        onConfirm={onDismiss}
+        confirmLabel="清除"
+      />
+    </div>
   )
 }
 
 type AppNotificationDetailProps = {
   notification: AppNotification
   onBack: () => void
+  onDismiss: () => void
 }
 
-function AppNotificationDetail({ notification, onBack }: AppNotificationDetailProps) {
+function AppNotificationDetail({ notification, onBack, onDismiss }: AppNotificationDetailProps) {
   const stream = useBookStream(notification.appSlug)
 
   return (
@@ -286,6 +485,11 @@ function AppNotificationDetail({ notification, onBack }: AppNotificationDetailPr
           </div>
         </div>
         <p class="notification-center__detail-error">{notification.error}</p>
+        <div class="notification-center__detail-actions">
+          <button type="button" class="notification-center__action" onClick={onDismiss}>
+            忽略
+          </button>
+        </div>
       </div>
       <p class="notification-center__stream-heading">AI 最后输出</p>
       <AiStreamPreview
@@ -304,9 +508,19 @@ type NotificationCenterPanelProps = {
 }
 
 export function NotificationCenterPanel({ open, onClose }: NotificationCenterPanelProps) {
-  const { pendingInstalls, failedInstalls, installListing, dismissFailedInstall } = useGeneratedApps()
+  const {
+    pendingInstalls,
+    failedInstalls,
+    completedInstalls,
+    installListing,
+    dismissFailedInstall,
+    dismissCompletedInstall,
+    clearDismissibleInstallNotifications,
+    openInstalledApp,
+  } = useGeneratedApps()
   const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
+  const storageWarning = useStorageWarningNotification()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -318,6 +532,54 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
 
   const widgets = useNotificationCenterWidgets(open && visible)
 
+  const clearableCount =
+    failedInstalls.length +
+    completedInstalls.length +
+    appNotifications.length +
+    (processIsolationFallbackActive ? 1 : 0) +
+    (storageWarning ? 1 : 0)
+
+  const clearDismissibleNotifications = () => {
+    clearDismissibleInstallNotifications()
+    clearAppNotifications()
+    dismissProcessIsolationFallbackNotification()
+    dismissStorageWarningNotification()
+  }
+
+  const [armedClearId, setArmedClearId] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (!open) {
+      setArmedClearId(undefined)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (clearableCount === 0) {
+      setArmedClearId(undefined)
+    }
+  }, [clearableCount])
+
+  useEffect(() => {
+    if (!armedClearId) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) {
+        return
+      }
+      if (target.closest('[data-ios-clear]')) {
+        return
+      }
+      setArmedClearId(undefined)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown, true)
+    return () => window.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [armedClearId])
+
   const activeDetailSlug =
     contentScreen === 'detail' ? (selectedSlug ?? lastDetailSlugRef.current) : undefined
 
@@ -327,11 +589,16 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const selectedFailed = activeDetailSlug
     ? failedInstalls.find((item) => item.listing.slug === activeDetailSlug)
     : undefined
+  const selectedCompleted = activeDetailSlug
+    ? completedInstalls.find((item) => item.listing.slug === activeDetailSlug)
+    : undefined
   const selectedAppNotification = activeDetailSlug
     ? appNotifications.find((item) => item.appSlug === activeDetailSlug)
     : undefined
   const selectedProcessIsolationFallback =
     activeDetailSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive
+  const selectedStorageWarning =
+    activeDetailSlug === STORAGE_WARNING_SLUG ? storageWarning : undefined
 
   useEffect(() => {
     if (selectedSlug) {
@@ -388,15 +655,19 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     contentScreen === 'detail' &&
     (selectedPending !== undefined ||
       selectedFailed !== undefined ||
+      selectedCompleted !== undefined ||
       selectedAppNotification !== undefined ||
-      selectedProcessIsolationFallback)
+      selectedProcessIsolationFallback ||
+      selectedStorageWarning !== undefined)
 
   const selectedHasNotification =
     selectedSlug !== undefined &&
     (pendingInstalls.some((item) => item.listing.slug === selectedSlug) ||
       failedInstalls.some((item) => item.listing.slug === selectedSlug) ||
+      completedInstalls.some((item) => item.listing.slug === selectedSlug) ||
       appNotifications.some((item) => item.appSlug === selectedSlug) ||
-      (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive))
+      (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive) ||
+      (selectedSlug === STORAGE_WARNING_SLUG && storageWarning !== undefined))
 
   useEffect(() => {
     if (!open) {
@@ -427,6 +698,11 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     if (panelRef.current?.contains(event.target as Node)) {
       return
     }
+    onClose()
+  }
+
+  const handleOpenCalendarApp = () => {
+    openApp('calendar')
     onClose()
   }
 
@@ -475,18 +751,43 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                   closeDetail()
                 }}
               />
+            ) : showDetail && selectedCompleted ? (
+              <CompletedNotificationDetail
+                item={selectedCompleted}
+                onBack={closeDetail}
+                onOpen={() => {
+                  openInstalledApp(selectedCompleted.id)
+                  dismissCompletedInstall(selectedCompleted.id)
+                  onClose()
+                }}
+                onDismiss={() => {
+                  dismissCompletedInstall(selectedCompleted.id)
+                  closeDetail()
+                }}
+              />
             ) : showDetail && selectedAppNotification ? (
               <AppNotificationDetail
                 notification={selectedAppNotification}
                 onBack={closeDetail}
+                onDismiss={() => {
+                  dismissAppNotification(selectedAppNotification.id)
+                  closeDetail()
+                }}
               />
             ) : showDetail && selectedProcessIsolationFallback ? (
               <ProcessIsolationFallbackDetail
                 onBack={closeDetail}
                 onDismiss={closeDetail}
               />
+            ) : showDetail && selectedStorageWarning ? (
+              <StorageWarningDetail
+                level={selectedStorageWarning.level}
+                onBack={closeDetail}
+                onDismiss={closeDetail}
+              />
             ) : (
               <>
+                <DateTimeWidget onOpen={handleOpenCalendarApp} />
                 <div class="notification-center__widgets">
                   <WeatherWidget
                     weather={widgets.weather}
@@ -502,11 +803,25 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                   />
                 </div>
                 <div class="notification-center__section">
-                  <p class="notification-center__section-title">通知</p>
+                  <div class="notification-center__section-header">
+                    <p class="notification-center__section-title">通知</p>
+                    {clearableCount > 0 ? (
+                      <IosStyleClearButton
+                        clearId="section:all"
+                        armedClearId={armedClearId}
+                        setArmedClearId={setArmedClearId}
+                        onConfirm={clearDismissibleNotifications}
+                        confirmLabel="清除全部"
+                        className="notification-center__ios-clear--section"
+                      />
+                    ) : undefined}
+                  </div>
                   {pendingInstalls.length === 0 &&
                   failedInstalls.length === 0 &&
+                  completedInstalls.length === 0 &&
                   appNotifications.length === 0 &&
-                  !processIsolationFallbackActive ? (
+                  !processIsolationFallbackActive &&
+                  !storageWarning ? (
                     <div class="notification-center__empty-box">
                       <p class="notification-center__empty">暂无通知</p>
                     </div>
@@ -519,11 +834,24 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                           onSelect={() => openDetail(item.listing.slug)}
                         />
                       ))}
+                      {completedInstalls.map((item) => (
+                        <CompletedNotificationListItem
+                          key={item.id}
+                          item={item}
+                          onSelect={() => openDetail(item.listing.slug)}
+                          onDismiss={() => dismissCompletedInstall(item.id)}
+                          armedClearId={armedClearId}
+                          setArmedClearId={setArmedClearId}
+                        />
+                      ))}
                       {failedInstalls.map((item) => (
                         <FailedNotificationListItem
                           key={item.id}
                           item={item}
                           onSelect={() => openDetail(item.listing.slug)}
+                          onDismiss={() => dismissFailedInstall(item.id)}
+                          armedClearId={armedClearId}
+                          setArmedClearId={setArmedClearId}
                         />
                       ))}
                       {appNotifications.map((notification) => (
@@ -531,12 +859,39 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                           key={notification.id}
                           notification={notification}
                           onSelect={() => openDetail(notification.appSlug)}
+                          onDismiss={() => dismissAppNotification(notification.id)}
+                          armedClearId={armedClearId}
+                          setArmedClearId={setArmedClearId}
                         />
                       ))}
+                      {storageWarning ? (
+                        <div class="notification-center__item-wrap">
+                          <StorageWarningListItem
+                            level={storageWarning.level}
+                            onSelect={() => openDetail(STORAGE_WARNING_SLUG)}
+                          />
+                          <IosStyleClearButton
+                            clearId="storage-warning"
+                            armedClearId={armedClearId}
+                            setArmedClearId={setArmedClearId}
+                            onConfirm={dismissStorageWarningNotification}
+                            confirmLabel="清除"
+                          />
+                        </div>
+                      ) : undefined}
                       {processIsolationFallbackActive ? (
-                        <ProcessIsolationFallbackListItem
-                          onSelect={() => openDetail(PROCESS_ISOLATION_FALLBACK_SLUG)}
-                        />
+                        <div class="notification-center__item-wrap">
+                          <ProcessIsolationFallbackListItem
+                            onSelect={() => openDetail(PROCESS_ISOLATION_FALLBACK_SLUG)}
+                          />
+                          <IosStyleClearButton
+                            clearId="process-isolation-fallback"
+                            armedClearId={armedClearId}
+                            setArmedClearId={setArmedClearId}
+                            onConfirm={dismissProcessIsolationFallbackNotification}
+                            confirmLabel="清除"
+                          />
+                        </div>
                       ) : undefined}
                     </div>
                   )}

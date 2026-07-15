@@ -13,6 +13,12 @@
   --cal-today-bottom: #2f6db5;
   --cal-selected-ring: #c9a46a;
   --cal-detail-bg: #e8dfd0;
+  --cal-gap: 4px;
+  --cal-cell-pad-y: 5px;
+  --cal-day-size: 16px;
+  --cal-term-size: 10px;
+  /* 竖排窄屏：格子限高，刚好装下日期 + 一条标记 */
+  --cal-row-h: 50px;
   --cal-bevel-up:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12);
@@ -20,9 +26,14 @@
     inset 0 2px 3px rgba(0, 0, 0, 0.18),
     inset 0 1px 0 rgba(0, 0, 0, 0.08);
 
+  container-type: size;
+  container-name: calendar-app;
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  min-width: 0;
   color: var(--cal-ink);
   font-family: var(--app-text-font-family);
   font-size: 13px;
@@ -33,12 +44,12 @@
 .calendar-app__header {
   position: relative;
   display: grid;
-  grid-template-columns: 40px 1fr 40px auto;
+  grid-template-columns: 34px minmax(0, 1fr) 34px auto;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  min-height: 52px;
-  padding: 8px 12px 10px;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 6px 10px 8px;
   background: linear-gradient(
     180deg,
     var(--cal-leather-top) 0%,
@@ -66,14 +77,36 @@
 
 .calendar-app__title {
   margin: 0;
+  justify-self: center;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 5px;
+  background: transparent;
   text-align: center;
-  font-size: 18px;
+  font: inherit;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #fff8f0;
   text-shadow:
     0 -1px 0 rgba(0, 0, 0, 0.45),
     0 1px 0 rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.calendar-app__title:hover,
+.calendar-app__title[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.calendar-app__title:active {
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .calendar-app__nav {
@@ -100,7 +133,7 @@
 .calendar-app__today-btn {
   justify-self: end;
   height: 28px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: 6px;
   border: 1px solid rgba(80, 20, 14, 0.55);
   background: linear-gradient(180deg, #f0d2a8 0%, #d4ae7a 55%, #c08a58 100%);
@@ -112,20 +145,31 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
     0 1px 2px rgba(0, 0, 0, 0.28);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
 }
 
 .calendar-app__today-btn:active {
   box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.25);
 }
 
-.calendar-app__sheet {
-  flex: 1 1 auto;
+.calendar-app__body {
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.calendar-app__sheet {
+  flex: 0 1 auto;
+  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   margin: 0 10px;
   margin-top: -2px;
-  padding: 10px 10px 8px;
+  padding: 8px 8px 6px;
   border: 1px solid #b8a890;
   border-bottom: none;
   background:
@@ -141,14 +185,16 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
     0 0 0 1px rgba(255, 255, 255, 0.25);
+  overflow: hidden;
 }
 
 .calendar-app__weekdays {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  margin-bottom: 6px;
-  padding-bottom: 6px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--cal-gap);
+  flex: 0 0 auto;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
   border-bottom: 1px solid rgba(120, 100, 70, 0.25);
 }
 
@@ -158,6 +204,7 @@
   font-weight: 700;
   color: var(--cal-ink-muted);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  line-height: 1.2;
 }
 
 .calendar-app__weekday:first-child,
@@ -167,28 +214,76 @@
 
 .calendar-app__grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: minmax(48px, 1fr);
-  gap: 4px;
-  flex: 1;
-  min-height: 220px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--cal-week-rows, 6), var(--cal-row-h));
+  gap: var(--cal-gap);
+  flex: 0 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 
 .calendar-app__cell {
   position: relative;
+  container-type: size;
+  container-name: calendar-cell;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 2px;
-  padding: 6px 2px 4px;
+  gap: 1px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: var(--cal-cell-pad-y) 2px 2px;
   border-radius: 8px;
   border: 1px solid rgba(140, 120, 90, 0.28);
   background: linear-gradient(180deg, #fffdf8 0%, #f3eadc 100%);
   box-shadow: var(--cal-bevel-up);
   color: inherit;
   cursor: pointer;
-  min-width: 0;
+  overflow: hidden;
+}
+
+/* 只有矮到连一条标记文案都放不下时，才藏文字；有事件则改用圆点提示 */
+@container calendar-cell (max-height: 36px) {
+  .calendar-app__day-term {
+    display: none;
+  }
+
+  .calendar-app__day-mark {
+    display: block;
+  }
+
+  .calendar-app__day-num {
+    margin-block: auto;
+  }
+}
+
+.calendar-app__day-mark {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: #a07040;
+  box-shadow: 0 0.5px 0 rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+
+.calendar-app__day-mark--holiday {
+  background: var(--cal-weekend);
+}
+
+.calendar-app__day-mark--term {
+  background: #5a7a9a;
+}
+
+.calendar-app__cell--today .calendar-app__day-mark {
+  background: #fff;
+  box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.2);
 }
 
 .calendar-app__cell--blank {
@@ -217,6 +312,14 @@
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
 }
 
+.calendar-app__cell--holiday:not(.calendar-app__cell--today) .calendar-app__day-term {
+  color: var(--cal-weekend);
+}
+
+.calendar-app__cell--holiday:not(.calendar-app__cell--today) {
+  background: linear-gradient(180deg, #fff8f2 0%, #f6e0d4 100%);
+}
+
 .calendar-app__cell--selected:not(.calendar-app__cell--today) {
   border-color: var(--cal-selected-ring);
   box-shadow:
@@ -237,32 +340,36 @@
 }
 
 .calendar-app__day-num {
-  font-size: 16px;
+  flex: 0 0 auto;
+  font-size: var(--cal-day-size);
   font-weight: 700;
   line-height: 1.1;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .calendar-app__day-term {
-  font-size: 10px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--cal-term-size);
   font-weight: 600;
   color: #8b4518;
   line-height: 1.1;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .calendar-app__detail {
-  flex: 0 0 auto;
-  max-height: 42%;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 10px 10px;
-  padding: 10px 12px 12px;
+  gap: 6px;
+  margin: 0 10px 8px;
+  padding: 8px 10px 10px;
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid #a89478;
   border-radius: 0 0 10px 10px;
   background: linear-gradient(180deg, #f0e6d4 0%, var(--cal-detail-bg) 100%);
@@ -275,7 +382,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .calendar-app__detail-date {
@@ -286,16 +394,61 @@
 }
 
 .calendar-app__detail-date strong {
-  font-size: 16px;
+  font-size: 15px;
   letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .calendar-app__detail-date span {
   color: var(--cal-ink-muted);
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.calendar-app__regen {
+.calendar-app__detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.calendar-app__icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid #8a7355;
+  background: linear-gradient(180deg, #f5efe4 0%, #d8c8ae 100%);
+  color: var(--cal-ink);
+  cursor: pointer;
+  box-shadow: var(--cal-bevel-up);
+}
+
+.calendar-app__icon-btn > svg {
+  display: block;
+  grid-area: 1 / 1;
+}
+
+.calendar-app__icon-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.calendar-app__icon-btn:active:not(:disabled) {
+  box-shadow: var(--cal-bevel-down);
+}
+
+.calendar-app__icon-btn:disabled > svg {
+  animation: calendar-spin 0.8s linear infinite;
+}
+
+.calendar-app__text-btn {
   flex-shrink: 0;
   height: 28px;
   padding: 0 10px;
@@ -307,22 +460,19 @@
   font-weight: 600;
   cursor: pointer;
   box-shadow: var(--cal-bevel-up);
+  white-space: nowrap;
 }
 
-.calendar-app__regen:disabled {
-  opacity: 0.65;
-  cursor: default;
-}
-
-.calendar-app__regen:active:not(:disabled) {
+.calendar-app__text-btn:active {
   box-shadow: var(--cal-bevel-down);
 }
 
 .calendar-app__term-card {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-start;
-  padding: 8px 10px;
+  flex: 0 0 auto;
+  padding: 7px 9px;
   border-radius: 8px;
   border: 1px solid rgba(140, 90, 40, 0.35);
   background: linear-gradient(180deg, #fff8ea 0%, #f0dfc0 100%);
@@ -340,6 +490,10 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
+.calendar-app__term-copy {
+  min-width: 0;
+}
+
 .calendar-app__term-copy h2 {
   margin: 0 0 2px;
   font-size: 14px;
@@ -349,6 +503,15 @@
   margin: 0;
   color: var(--cal-ink-muted);
   line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.calendar-app__events {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .calendar-app__events-title {
@@ -365,14 +528,14 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .calendar-app__event {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  padding: 8px 9px;
+  padding: 7px 8px;
   border-radius: 8px;
   border: 1px solid rgba(120, 100, 70, 0.28);
   background: linear-gradient(180deg, #fffdf8 0%, #f4ebdc 100%);
@@ -390,12 +553,32 @@
   font-weight: 700;
 }
 
+.calendar-app__event--holiday .calendar-app__event-cat {
+  background: linear-gradient(180deg, #d45545 0%, #9c2f24 100%);
+  color: #fff5ee;
+}
+
+.calendar-app__event--solar-term .calendar-app__event-cat {
+  background: linear-gradient(180deg, #c4893a 0%, #8f5e22 100%);
+  color: #fff8e8;
+}
+
+.calendar-app__event--weather .calendar-app__event-cat {
+  background: linear-gradient(180deg, #5aa0e8 0%, #2f6db5 100%);
+  color: #eef6ff;
+}
+
+.calendar-app__event--special .calendar-app__event-cat {
+  background: linear-gradient(180deg, #7a6a9a 0%, #554870 100%);
+  color: #f4eefe;
+}
+
 .calendar-app__event-body {
   min-width: 0;
 }
 
 .calendar-app__event-body h4 {
-  margin: 0 0 3px;
+  margin: 0 0 2px;
   font-size: 13px;
   line-height: 1.3;
 }
@@ -403,7 +586,7 @@
 .calendar-app__event-body p {
   margin: 0;
   color: var(--cal-ink-muted);
-  line-height: 1.45;
+  line-height: 1.4;
   font-size: 12px;
 }
 
@@ -412,7 +595,7 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 16px 8px;
+  padding: 12px 8px;
   color: var(--cal-ink-muted);
 }
 
@@ -444,4 +627,231 @@
   margin: 0;
   color: var(--cal-ink-muted);
   font-size: 12px;
+}
+
+/* 矮窗口：进一步压矮月格，把空间让给详情 */
+@container calendar-app (max-height: 560px) {
+  .calendar-app__header {
+    min-height: 40px;
+    padding: 4px 8px 6px;
+  }
+
+  .calendar-app__title {
+    font-size: 15px;
+  }
+
+  .calendar-app__sheet {
+    --cal-gap: 3px;
+    --cal-cell-pad-y: 3px;
+    --cal-day-size: 14px;
+    --cal-term-size: 9px;
+    --cal-row-h: 44px;
+    padding: 6px 6px 4px;
+  }
+
+  .calendar-app__detail {
+    padding: 6px 8px 8px;
+    gap: 5px;
+  }
+
+  .calendar-app__term-copy p {
+    -webkit-line-clamp: 2;
+  }
+
+  .calendar-app__cell {
+    border-radius: 6px;
+  }
+}
+
+@container calendar-app (max-height: 440px) {
+  .calendar-app__sheet {
+    --cal-gap: 2px;
+    --cal-cell-pad-y: 1px;
+    --cal-day-size: 12px;
+    --cal-term-size: 8px;
+    /* 极限矮窗：压成扁条，不追求接近方形 */
+    --cal-row-h: 24px;
+  }
+
+  .calendar-app__cell {
+    justify-content: center;
+    padding-block: var(--cal-cell-pad-y);
+    border-radius: 4px;
+  }
+
+  .calendar-app__day-term {
+    display: none;
+  }
+
+  .calendar-app__day-mark {
+    display: block;
+    bottom: 2px;
+    width: 4px;
+    height: 4px;
+  }
+
+  .calendar-app__term-card {
+    display: none;
+  }
+
+  .calendar-app__events-title {
+    margin-bottom: 4px;
+  }
+
+  .calendar-app__event {
+    padding: 5px 7px;
+  }
+}
+
+@container calendar-app (max-height: 360px) {
+  .calendar-app__sheet {
+    --cal-row-h: 20px;
+    --cal-day-size: 11px;
+    --cal-gap: 1px;
+  }
+
+  .calendar-app__day-mark {
+    bottom: 1px;
+    width: 3px;
+    height: 3px;
+  }
+
+  .calendar-app__icon-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  .calendar-app__text-btn {
+    height: 24px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .calendar-app__loading {
+    padding: 6px 4px;
+    gap: 4px;
+  }
+
+  .calendar-app__loading p {
+    font-size: 11px;
+  }
+}
+
+/* 窄窗口：横向收紧，避免标题与格子挤爆 */
+@container app-window (max-width: 420px) {
+  .calendar-app__header {
+    grid-template-columns: 30px minmax(0, 1fr) 30px auto;
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .calendar-app__nav {
+    width: 30px;
+    height: 26px;
+  }
+
+  .calendar-app__today-btn {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .calendar-app__sheet {
+    --cal-gap: 2px;
+    --cal-day-size: 13px;
+    --cal-term-size: 8px;
+    --cal-row-h: 44px;
+    margin-inline: 6px;
+  }
+
+  .calendar-app__detail {
+    margin-inline: 6px;
+  }
+
+  .calendar-app__weekday {
+    font-size: 11px;
+  }
+}
+
+@container app-window (max-width: 340px) {
+  .calendar-app__title {
+    font-size: 14px;
+  }
+
+  .calendar-app__sheet {
+    --cal-day-size: 12px;
+    --cal-term-size: 8px;
+    --cal-row-h: 42px;
+  }
+}
+
+/* 宽屏：左月格 + 右详情分栏；月格重新拉满高度 */
+@container calendar-app (min-width: 680px) {
+  .calendar-app__body {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+    padding: 8px 10px 10px;
+  }
+
+  .calendar-app__sheet {
+    --cal-gap: 4px;
+    --cal-cell-pad-y: 6px;
+    --cal-day-size: 17px;
+    --cal-term-size: 10px;
+    flex: 1 1 0;
+    margin: 0;
+    border-bottom: 1px solid #b8a890;
+    border-radius: 0 0 12px 12px;
+    padding: 10px;
+  }
+
+  .calendar-app__grid {
+    flex: 1 1 0;
+    grid-template-rows: repeat(var(--cal-week-rows, 6), minmax(0, 1fr));
+  }
+
+  .calendar-app__detail {
+    flex: 0 0 clamp(250px, 32%, 340px);
+    width: clamp(250px, 32%, 340px);
+    max-height: none;
+    margin: 0;
+    border-radius: 12px;
+    padding: 12px 12px 14px;
+    gap: 8px;
+  }
+
+  .calendar-app__day-term {
+    display: block;
+  }
+
+  .calendar-app__term-card {
+    display: flex;
+  }
+
+  .calendar-app__term-copy p {
+    -webkit-line-clamp: 4;
+  }
+
+  .calendar-app__cell {
+    justify-content: center;
+    padding-top: 8px;
+    border-radius: 8px;
+  }
+
+  .calendar-app__detail-date strong {
+    font-size: 18px;
+  }
+}
+
+@container calendar-app (min-width: 900px) {
+  .calendar-app__sheet {
+    --cal-gap: 5px;
+    --cal-day-size: 18px;
+    --cal-term-size: 11px;
+  }
+
+  .calendar-app__detail {
+    flex-basis: 320px;
+    width: 320px;
+  }
 }
