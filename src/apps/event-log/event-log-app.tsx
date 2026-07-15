@@ -19,7 +19,7 @@ import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
 import { osDayKey } from '../../os/os-clock.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { useOsNowDate } from '../../os/use-os-clock.ts'
-import type { AppId, GeneratedAppId } from '../../os/types.ts'
+import type { AppId } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
@@ -48,16 +48,17 @@ function resolveActorDisplayName(
     return record.actorLabel
   }
 
-  if (isGeneratedAppId(record.actor as GeneratedAppId)) {
-    return getInstalledApp(record.actor as GeneratedAppId)?.name
-      ?? generatedAppIdToSlug(record.actor as GeneratedAppId)
+  const actor = record.actor as AppId
+
+  if (isGeneratedAppId(actor)) {
+    return getInstalledApp(actor)?.name ?? generatedAppIdToSlug(actor)
   }
 
-  if (isExtAppId(record.actor as AppId)) {
-    return getSessionExtApp(record.actor as AppId)?.manifest.name ?? record.actor
+  if (isExtAppId(actor)) {
+    return getSessionExtApp(actor)?.manifest.name ?? actor
   }
 
-  return getAppDefinition(record.actor as AppId)?.name ?? record.actor
+  return getAppDefinition(actor)?.name ?? actor
 }
 
 function statusLabel(status: AiEventLogRecord['status']): string {

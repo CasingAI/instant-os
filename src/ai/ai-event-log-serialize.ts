@@ -42,7 +42,7 @@ export function toEventLogMessages(
     }
 
     if (message.role === 'tool') {
-      return [{ role: 'tool', content: message.content }]
+      return [{ role: 'tool', content: stringifyMessageContent(message.content) }]
     }
 
     return []
