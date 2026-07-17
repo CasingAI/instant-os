@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   formatCalendarYearLabel,
   getDaysInMonth,
@@ -11,6 +11,7 @@ import { BackIcon, ForwardIcon } from '../icons/app-icons.tsx'
 import { SettingsChoiceField } from './settings-choice-field.tsx'
 import type { SettingsChoiceOption } from './settings-choice-option-list.tsx'
 import { DateTimePanelPortal } from './date-time-panel-portal.tsx'
+import { useOverlayPresence } from './use-overlay-presence.ts'
 import './date-time-panel.css'
 
 /** 标题栏与选中态主题色；可传具体色值或宿主 CSS 变量（如 `var(--news-accent)`）。 */
@@ -21,6 +22,7 @@ export type DateTimeDatePanelTheme = {
 }
 
 export type DateTimeDatePanelProps = {
+  open: boolean
   initial: CalendarInstant
   onCancel: () => void
   onConfirm: (next: CalendarInstant) => void
@@ -97,6 +99,7 @@ function skipZeroYear(signed: number, direction: 1 | -1): number {
 }
 
 export function DateTimeDatePanel({
+  open,
   initial,
   onCancel,
   onConfirm,
@@ -105,6 +108,7 @@ export function DateTimeDatePanel({
   title = '设定日期',
   confirmLabel = '设定',
 }: DateTimeDatePanelProps) {
+  const { mounted, exiting } = useOverlayPresence(open)
   const themeStyle = themeToStyle(theme)
   const [draft, setDraft] = useState(() => normalizeCalendarInstant(initial))
   const [yearText, setYearText] = useState(String(initial.year))
@@ -119,7 +123,33 @@ export function DateTimeDatePanel({
     decadeStartOf(toSignedYear(initial.era, initial.year)),
   )
 
+  const syncFieldTexts = (next: CalendarInstant) => {
+    setYearText(String(next.year))
+    setMonthText(String(next.month))
+    setDayText(String(next.day))
+  }
+
+  const initialRef = useRef(initial)
+  initialRef.current = initial
+
   useEffect(() => {
+    if (!open) {
+      return
+    }
+    const next = normalizeCalendarInstant(initialRef.current)
+    const signed = toSignedYear(next.era, next.year)
+    setDraft(next)
+    syncFieldTexts(next)
+    setLevel('day')
+    setViewSignedYear(signed)
+    setViewMonth(next.month)
+    setDecadeStart(decadeStartOf(signed))
+  }, [open])
+
+  useEffect(() => {
+    if (!mounted || exiting) {
+      return
+    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onCancel()
@@ -127,13 +157,7 @@ export function DateTimeDatePanel({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onCancel])
-
-  const syncFieldTexts = (next: CalendarInstant) => {
-    setYearText(String(next.year))
-    setMonthText(String(next.month))
-    setDayText(String(next.day))
-  }
+  }, [exiting, mounted, onCancel])
 
   const commitDraft = (patch: Partial<CalendarInstant>) => {
     setDraft((current) => {
@@ -290,12 +314,21 @@ export function DateTimeDatePanel({
     onConfirm(next)
   }
 
+  if (!mounted) {
+    return undefined
+  }
+
   return (
     <DateTimePanelPortal hostSelector={hostSelector}>
       <div class="date-time-panel" role="presentation" style={themeStyle}>
-        <button type="button" class="date-time-panel__backdrop" aria-label="关闭" onClick={onCancel} />
+        <button
+          type="button"
+          class={`date-time-panel__backdrop${exiting ? ' date-time-panel__backdrop--exiting' : ''}`}
+          aria-label="关闭"
+          onClick={exiting ? undefined : onCancel}
+        />
         <div
-          class="date-time-panel__sheet"
+          class={`date-time-panel__sheet${exiting ? ' date-time-panel__sheet--exiting' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label={title}

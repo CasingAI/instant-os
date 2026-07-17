@@ -22,12 +22,9 @@ const NEWS_DATE_PANEL_THEME = {
 } as const
 
 export function NewsDatePicker({ open, value, onSelect, onClose }: NewsDatePickerProps) {
-  if (!open) {
-    return undefined
-  }
-
   return (
     <DateTimeDatePanel
+      open={open}
       hostSelector=".news"
       theme={NEWS_DATE_PANEL_THEME}
       title="选择日期"

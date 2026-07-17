@@ -58,7 +58,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 16px 0 18px;
+  padding: 16px 0 0;
 }
 
 .notification-center__screen {
@@ -77,6 +77,7 @@
 
 .notification-center__datetime-open {
   display: block;
+  flex-shrink: 0;
   width: 100%;
   margin: 0 0 10px;
   padding: 2px 16px 8px;
@@ -501,7 +502,7 @@
   gap: 10px;
   box-sizing: border-box;
   width: 100%;
-  margin: 0 0 10px;
+  margin: 0;
   padding: 4px 12px 4px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.22);
   border-bottom: 1px solid rgba(0, 0, 0, 0.28);
@@ -687,6 +688,7 @@
 
 .notification-center__empty-box {
   padding: 18px 14px;
+  margin-bottom: 18px;
   border: 1px solid #a8a8a8;
   border-radius: 8px;
   background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
@@ -705,9 +707,11 @@
 
 .notification-center__list {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  /* 给 hover 外阴影留出空间，避免被 overflow 裁切 */
-  padding: 4px 8px 12px;
+  overscroll-behavior: contain;
+  /* 顶部 4px / 底部 18px：阴影留白并替代原 body 底边距，随列表一起滚动 */
+  padding: 4px 8px 18px;
 }
 
 .notification-center__item {

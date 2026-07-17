@@ -93,19 +93,18 @@ export function SetupDateTimeStep({
         之后仍可在「系统设置 → 日期与时间」中随时更改。
       </p>
 
-      {pickerOpen && (
-        <DateTimeDatePanel
-          hostSelector=".setup-assistant"
-          title="选择日期"
-          confirmLabel="确定"
-          initial={pickerInitial}
-          onCancel={() => setPickerOpen(false)}
-          onConfirm={(next) => {
-            setPickerOpen(false)
-            onSelectManual(next)
-          }}
-        />
-      )}
+      <DateTimeDatePanel
+        open={pickerOpen}
+        hostSelector=".setup-assistant"
+        title="选择日期"
+        confirmLabel="确定"
+        initial={pickerInitial}
+        onCancel={() => setPickerOpen(false)}
+        onConfirm={(next) => {
+          setPickerOpen(false)
+          onSelectManual(next)
+        }}
+      />
     </>
   )
 }

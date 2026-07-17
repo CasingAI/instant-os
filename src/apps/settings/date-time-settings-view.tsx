@@ -224,20 +224,18 @@ export function DateTimeSettingsView({ onBack }: DateTimeSettingsViewProps) {
         </section>
       </div>
 
-      {editor === 'date' && (
-        <DateTimeDatePanel
-          initial={previewInstant}
-          onCancel={() => setEditor(undefined)}
-          onConfirm={handleConfirmDate}
-        />
-      )}
-      {editor === 'time' && (
-        <DateTimeTimePanel
-          initial={previewInstant}
-          onCancel={() => setEditor(undefined)}
-          onConfirm={handleConfirmTime}
-        />
-      )}
+      <DateTimeDatePanel
+        open={editor === 'date'}
+        initial={previewInstant}
+        onCancel={() => setEditor(undefined)}
+        onConfirm={handleConfirmDate}
+      />
+      <DateTimeTimePanel
+        open={editor === 'time'}
+        initial={previewInstant}
+        onCancel={() => setEditor(undefined)}
+        onConfirm={handleConfirmTime}
+      />
     </div>
   )
 }

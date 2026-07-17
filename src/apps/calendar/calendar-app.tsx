@@ -422,20 +422,19 @@ export function CalendarApp() {
         </button>
       </header>
 
-      {datePickerOpen && (
-        <DateTimeDatePanel
-          hostSelector=".calendar-app"
-          theme={CALENDAR_DATE_PANEL_THEME}
-          title="选择日期"
-          confirmLabel="确定"
-          initial={selectedInstant}
-          onCancel={closeDatePicker}
-          onConfirm={(next) => {
-            selectDay(formatEditionDateKey(next))
-            closeDatePicker()
-          }}
-        />
-      )}
+      <DateTimeDatePanel
+        open={datePickerOpen}
+        hostSelector=".calendar-app"
+        theme={CALENDAR_DATE_PANEL_THEME}
+        title="选择日期"
+        confirmLabel="确定"
+        initial={selectedInstant}
+        onCancel={closeDatePicker}
+        onConfirm={(next) => {
+          selectDay(formatEditionDateKey(next))
+          closeDatePicker()
+        }}
+      />
 
       <div class="calendar-app__body">
       <div class="calendar-app__sheet">

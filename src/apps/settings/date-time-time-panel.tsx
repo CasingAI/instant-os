@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   normalizeCalendarInstant,
   type CalendarInstant,
 } from '../../os/calendar-instant.ts'
 import { DateTimePanelPortal } from '../../ui/date-time-panel-portal.tsx'
+import { useOverlayPresence } from '../../ui/use-overlay-presence.ts'
 import '../../ui/date-time-panel.css'
 import { DateTimeWheelColumn } from './date-time-wheel-column.tsx'
 
 type DateTimeTimePanelProps = {
+  open: boolean
   initial: CalendarInstant
   onCancel: () => void
   onConfirm: (next: CalendarInstant) => void
@@ -17,7 +19,13 @@ function pad2(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-export function DateTimeTimePanel({ initial, onCancel, onConfirm }: DateTimeTimePanelProps) {
+export function DateTimeTimePanel({
+  open,
+  initial,
+  onCancel,
+  onConfirm,
+}: DateTimeTimePanelProps) {
+  const { mounted, exiting } = useOverlayPresence(open)
   const [draft, setDraft] = useState(() => normalizeCalendarInstant(initial))
   const [hourText, setHourText] = useState(pad2(initial.hour))
   const [minuteText, setMinuteText] = useState(pad2(initial.minute))
@@ -25,7 +33,23 @@ export function DateTimeTimePanel({ initial, onCancel, onConfirm }: DateTimeTime
   const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), [])
   const minutes = useMemo(() => Array.from({ length: 60 }, (_, i) => i), [])
 
+  const initialRef = useRef(initial)
+  initialRef.current = initial
+
   useEffect(() => {
+    if (!open) {
+      return
+    }
+    const next = normalizeCalendarInstant(initialRef.current)
+    setDraft(next)
+    setHourText(pad2(next.hour))
+    setMinuteText(pad2(next.minute))
+  }, [open])
+
+  useEffect(() => {
+    if (!mounted || exiting) {
+      return
+    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onCancel()
@@ -33,7 +57,7 @@ export function DateTimeTimePanel({ initial, onCancel, onConfirm }: DateTimeTime
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onCancel])
+  }, [exiting, mounted, onCancel])
 
   const commitDraft = (patch: Partial<CalendarInstant>) => {
     const next = normalizeCalendarInstant({ ...draft, ...patch })
@@ -74,12 +98,21 @@ export function DateTimeTimePanel({ initial, onCancel, onConfirm }: DateTimeTime
     onConfirm(next)
   }
 
+  if (!mounted) {
+    return undefined
+  }
+
   return (
     <DateTimePanelPortal>
       <div class="date-time-panel" role="presentation">
-        <button type="button" class="date-time-panel__backdrop" aria-label="关闭" onClick={onCancel} />
+        <button
+          type="button"
+          class={`date-time-panel__backdrop${exiting ? ' date-time-panel__backdrop--exiting' : ''}`}
+          aria-label="关闭"
+          onClick={exiting ? undefined : onCancel}
+        />
         <div
-          class="date-time-panel__sheet date-time-panel__sheet--time"
+          class={`date-time-panel__sheet date-time-panel__sheet--time${exiting ? ' date-time-panel__sheet--exiting' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label="设定时间"

@@ -25,6 +25,12 @@
   margin: 0;
   background: rgba(24, 28, 34, 0.42);
   cursor: pointer;
+  animation: date-time-panel-backdrop-in 0.18s ease both;
+}
+
+.date-time-panel__backdrop--exiting {
+  animation: date-time-panel-backdrop-out 0.18s ease forwards;
+  pointer-events: none;
 }
 
 .date-time-panel__sheet {
@@ -41,6 +47,56 @@
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.75) inset,
     0 14px 32px rgba(0, 0, 0, 0.32);
+  animation: date-time-panel-sheet-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.date-time-panel__sheet--exiting {
+  animation: date-time-panel-sheet-out 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes date-time-panel-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes date-time-panel-backdrop-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes date-time-panel-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes date-time-panel-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
 }
 
 .date-time-panel__sheet--time {
@@ -443,5 +499,14 @@
 
   .date-time-panel__field {
     width: 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .date-time-panel__backdrop,
+  .date-time-panel__backdrop--exiting,
+  .date-time-panel__sheet,
+  .date-time-panel__sheet--exiting {
+    animation: none;
   }
 }
