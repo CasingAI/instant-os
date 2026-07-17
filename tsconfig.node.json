@@ -20,5 +20,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "vite-boot-crash-guard-first.ts",
+    "vite-cors-for-sandboxed-iframe-assets.ts",
+    "vite-source-snapshot.ts"
+  ]
 }

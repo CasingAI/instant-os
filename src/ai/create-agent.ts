@@ -1,7 +1,15 @@
 import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
+import type { AiUsageContext } from './ai-usage-context.ts'
 import type { OpenAiConfig } from './openai-config.ts'
-import { runAgent, type RunAgentResult } from './run-agent.ts'
+import {
+  runAgent,
+  type AgentReasoningDeltaEvent,
+  type AgentStepEvent,
+  type AgentTextDeltaEvent,
+  type AgentToolCallEvent,
+  type RunAgentResult,
+} from './run-agent.ts'
 
 export type AgentDefaults = {
   prompt: string
@@ -10,6 +18,12 @@ export type AgentDefaults = {
   maxSteps?: number
   config?: Partial<OpenAiConfig>
   client?: OpenAI
+  usageContext?: AiUsageContext
+  signal?: AbortSignal
+  onStep?: (event: AgentStepEvent) => void
+  onToolCall?: (event: AgentToolCallEvent) => void
+  onTextDelta?: (event: AgentTextDeltaEvent) => void
+  onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
 }
 
 export type AgentCallOptions = {
@@ -19,6 +33,12 @@ export type AgentCallOptions = {
   tools?: AgentTool[]
   model?: string
   maxSteps?: number
+  usageContext?: AiUsageContext
+  signal?: AbortSignal
+  onStep?: (event: AgentStepEvent) => void
+  onToolCall?: (event: AgentToolCallEvent) => void
+  onTextDelta?: (event: AgentTextDeltaEvent) => void
+  onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
 }
 
 export type AgentRunner = {
@@ -37,6 +57,12 @@ export function createAgent(defaults: AgentDefaults): AgentRunner {
       maxSteps: options.maxSteps ?? defaults.maxSteps,
       client: defaults.client,
       config: defaults.config,
+      usageContext: options.usageContext ?? defaults.usageContext,
+      signal: options.signal ?? defaults.signal,
+      onStep: options.onStep ?? defaults.onStep,
+      onToolCall: options.onToolCall ?? defaults.onToolCall,
+      onTextDelta: options.onTextDelta ?? defaults.onTextDelta,
+      onReasoningDelta: options.onReasoningDelta ?? defaults.onReasoningDelta,
     })
 
   const ask = (input: string, overrides?: Omit<AgentCallOptions, 'input'>) =>

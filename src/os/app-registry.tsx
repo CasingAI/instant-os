@@ -13,6 +13,7 @@ import { StocksApp } from '../apps/stocks/stocks-app.tsx'
 import { TranslateApp } from '../apps/translate/translate-app.tsx'
 import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
 import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
+import { HelpApp } from '../apps/help/help-app.tsx'
 import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
@@ -24,7 +25,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -175,6 +176,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: false,
     desktop: false,
   }),
+  withAbout({
+    id: 'help',
+    name: '帮助',
+    icon: HelpIcon,
+    dock: true,
+    desktop: true,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
@@ -198,6 +206,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   'task-manager': TaskManagerApp,
   'event-log': EventLogApp,
   keychain: KeychainApp,
+  help: HelpApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

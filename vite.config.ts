@@ -3,10 +3,11 @@ import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 import { bootCrashGuardFirst } from './vite-boot-crash-guard-first.ts'
 import { corsForSandboxedIframeAssets } from './vite-cors-for-sandboxed-iframe-assets.ts'
+import { sourceSnapshot } from './vite-source-snapshot.ts'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [preact(), corsForSandboxedIframeAssets(), bootCrashGuardFirst()],
+  plugins: [preact(), corsForSandboxedIframeAssets(), bootCrashGuardFirst(), sourceSnapshot()],
   build: {
     rollupOptions: {
       input: {

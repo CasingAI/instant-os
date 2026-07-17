@@ -8,6 +8,7 @@ import {
   DeveloperPaneIcon,
   ExternalBridgeConsentPaneIcon,
   NewsPaneIcon,
+  NotificationCenterPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
   StoragePaneIcon,
@@ -22,6 +23,7 @@ export type SettingsPaneId =
   | 'external-bridge-consent'
   | 'display'
   | 'date-time'
+  | 'notification-center'
   | 'wallpaper'
   | 'dock'
   | 'resources'
@@ -37,6 +39,7 @@ export type SettingsRoute =
   | { view: 'external-bridge-consent' }
   | { view: 'display' }
   | { view: 'date-time' }
+  | { view: 'notification-center' }
   | { view: 'wallpaper' }
   | { view: 'dock' }
   | { view: 'display-emoji' }
@@ -76,6 +79,12 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   },
   { id: 'display', label: '显示', Icon: DisplayPaneIcon, route: { view: 'display' } },
   { id: 'date-time', label: '日期与时间', Icon: DateTimePaneIcon, route: { view: 'date-time' } },
+  {
+    id: 'notification-center',
+    label: '通知中心',
+    Icon: NotificationCenterPaneIcon,
+    route: { view: 'notification-center' },
+  },
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
@@ -119,6 +128,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'display'
     case 'date-time':
       return 'date-time'
+    case 'notification-center':
+      return 'notification-center'
     case 'wallpaper':
       return 'wallpaper'
     case 'dock':
@@ -145,6 +156,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'external-bridge-consent':
     case 'display':
     case 'date-time':
+    case 'notification-center':
     case 'wallpaper':
     case 'dock':
     case 'resources':

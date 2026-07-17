@@ -179,4 +179,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '每个供应商可独立配置 API Key、Base URL、启用的模型列表以及默认模型。配置保存在本机，不会上传到服务器。',
     ],
   },
+  help: {
+    version: '使用指南',
+    paragraphs: [
+      '帮助应用面向日常使用：用自然语言提问，助手会告诉你功能在哪里、该点什么、按什么顺序操作。',
+      '回答会尽量用菜单名与按钮文案指路，而不是讲内部实现细节。',
+    ],
+  },
 }

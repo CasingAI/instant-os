@@ -16,6 +16,9 @@
   --cg-radius: 7px;
   --cg-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset, 0 1px 3px rgba(0, 0, 0, 0.14);
   --cg-shadow-deep: 0 2px 6px rgba(0, 0, 0, 0.16), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+  --cg-chat-max: 720px;
+  --cg-bubble-max: 560px;
+  --cg-welcome-max: 520px;
 
   position: relative;
   display: flex;
@@ -28,6 +31,18 @@
   font-family: var(--app-text-font-family);
   font-size: 13px;
   overflow: hidden;
+}
+
+.catgpt-app--width-wide {
+  --cg-chat-max: 960px;
+  --cg-bubble-max: 780px;
+  --cg-welcome-max: 720px;
+}
+
+.catgpt-app--width-full {
+  --cg-chat-max: 100%;
+  --cg-bubble-max: 100%;
+  --cg-welcome-max: 100%;
 }
 
 .catgpt-app__sidebar {
@@ -261,7 +276,7 @@
 }
 
 .catgpt-app__welcome {
-  max-width: 520px;
+  max-width: var(--cg-welcome-max);
   margin: 48px auto 0;
   text-align: center;
 }
@@ -323,7 +338,7 @@
 }
 
 .catgpt-app__messages {
-  max-width: 720px;
+  max-width: var(--cg-chat-max);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -361,7 +376,7 @@
 }
 
 .catgpt-app__bubble {
-  max-width: min(100%, 560px);
+  max-width: min(100%, var(--cg-bubble-max));
   padding: 10px 14px;
   border-radius: 10px;
   line-height: 1.55;
@@ -411,7 +426,7 @@
 }
 
 .catgpt-app__composer {
-  max-width: 720px;
+  max-width: var(--cg-chat-max);
   margin: 0 auto;
   display: flex;
   gap: 8px;
@@ -475,7 +490,7 @@
 }
 
 .catgpt-app__api-hint {
-  max-width: 720px;
+  max-width: var(--cg-chat-max);
   margin: 0 auto 8px;
   padding: 8px 12px;
   border-radius: var(--cg-radius);

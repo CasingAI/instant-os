@@ -388,6 +388,11 @@ export function MenuBar() {
           label: '钥匙串',
           onClick: () => openApp('keychain'),
         },
+        {
+          type: 'action',
+          label: '帮助',
+          onClick: () => openApp('help'),
+        },
         { type: 'separator' },
         {
           type: 'action',

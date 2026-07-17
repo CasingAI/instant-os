@@ -129,6 +129,7 @@
   z-index: 0;
   padding: 20px 22px 48px;
   background: transparent;
+  overflow: hidden;
   scrollbar-width: none;
   pointer-events: none;
 }

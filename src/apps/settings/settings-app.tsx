@@ -28,6 +28,7 @@ import { OtherStorageView } from './other-storage-view.tsx'
 import { EventLogStorageView } from './event-log-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { DateTimeSettingsView } from './date-time-settings-view.tsx'
+import { NotificationCenterSettingsView } from './notification-center-settings-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
@@ -185,6 +186,7 @@ export function SettingsApp() {
   const showAppDetail = view === 'app-detail' && selectedApp
   const showDisplay = view === 'display'
   const showDateTime = view === 'date-time'
+  const showNotificationCenter = view === 'notification-center'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
   const showWallpaper = view === 'wallpaper'
@@ -348,6 +350,10 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showDateTime} keep={showDateTime}>
         <DateTimeSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showNotificationCenter} keep={showNotificationCenter}>
+        <NotificationCenterSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showWallpaper} keep={showWallpaper}>
@@ -764,6 +770,8 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
       return '股票数据'
     case 'catgpt':
       return '对话记录'
+    case 'help':
+      return '帮助对话'
     case 'gomoku':
       return '对局偏好'
     case 'icode':

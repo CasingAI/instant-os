@@ -5,6 +5,10 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import {
+  CHAT_CONTENT_WIDTH_OPTIONS,
+  type ChatContentWidth,
+} from '../chat-content-width.ts'
 import { generateCatGptReply } from './catgpt-agent.ts'
 import {
   createMessage,
@@ -25,6 +29,10 @@ const SAMPLE_PROMPTS = [
   '能赐我一句神谕吗？',
 ] as const
 
+function menuCheckPrefix(active: boolean): string {
+  return active ? '✓ ' : ''
+}
+
 function formatCatGptError(err: unknown): string {
   if (err instanceof Error) {
     return err.message
@@ -40,6 +48,7 @@ export function CatGptApp() {
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [streamingText, setStreamingText] = useState('')
+  const [contentWidth, setContentWidth] = useState<ChatContentWidth>('standard')
   const chatEndRef = useRef<HTMLDivElement | null>(null)
 
   const activeSession = useMemo(
@@ -216,15 +225,25 @@ export function CatGptApp() {
           },
         ],
       },
+      {
+        label: '视图',
+        items: CHAT_CONTENT_WIDTH_OPTIONS.map((option) => ({
+          type: 'action' as const,
+          label: `${menuCheckPrefix(contentWidth === option.id)}${option.label}`,
+          onClick: () => setContentWidth(option.id),
+        })),
+      },
     ]
-  }, [closeWindowsForApp, handleNewChat, minimizeWindow, showBuiltinAbout, windows])
+  }, [closeWindowsForApp, contentWidth, handleNewChat, minimizeWindow, showBuiltinAbout, windows])
 
   useAppMenuBar('catgpt', menuBar)
 
   const showWelcome = !activeSession || activeSession.messages.length === 0
 
   return (
-    <div class={`catgpt-app${sidebarOpen ? ' catgpt-app--sidebar-open' : ''}`}>
+    <div
+      class={`catgpt-app catgpt-app--width-${contentWidth}${sidebarOpen ? ' catgpt-app--sidebar-open' : ''}`}
+    >
       {sidebarOpen && (
         <button
           type="button"

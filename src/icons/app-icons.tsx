@@ -1001,3 +1001,61 @@ export function EventLogIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function HelpIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#e8b014" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 底座阴影 */}
+        <ellipse cx="32" cy="54" rx="21" ry="3.6" fill="rgba(0,0,0,0.2)" />
+        {/* 金属外环：几何中心约 32,31，略上抬给阴影留空 */}
+        <circle cx="32" cy="31" r="24" fill="#b87f06" />
+        <circle cx="32" cy="30.3" r="23.1" fill="#f4d25a" />
+        <circle cx="32" cy="31.5" r="21.8" fill="#d9a20f" />
+        {/* 内盘 */}
+        <circle cx="32" cy="31" r="18.6" fill="#fff8dc" />
+        <circle cx="32" cy="32" r="17.8" fill="#ffe9a0" />
+        {/* 顶部高光 */}
+        <ellipse cx="32" cy="22.5" rx="12.5" ry="7" fill="rgba(255,255,255,0.58)" />
+        {/* 内盘内阴影 */}
+        <circle
+          cx="32"
+          cy="31"
+          r="17.8"
+          fill="none"
+          stroke="rgba(140,90,0,0.2)"
+          stroke-width="1.5"
+        />
+        {/* 问号：路径按 x=32 光学居中，略下移 */}
+        <g transform="translate(0 1.5)">
+          <path
+            d="M25.2 22.8c0-4.2 3.2-7.2 7.2-7.2s7 2.7 7 6.5c0 2.9-1.4 4.5-3.7 6-2 1.3-3.1 2.5-3.1 4.8v1"
+            fill="none"
+            stroke="rgba(90,45,0,0.26)"
+            stroke-width="4.8"
+            stroke-linecap="round"
+            transform="translate(0.8 1.05)"
+          />
+          <circle cx="32.95" cy="42.05" r="3" fill="rgba(90,45,0,0.26)" />
+          <path
+            d="M25.2 22.8c0-4.2 3.2-7.2 7.2-7.2s7 2.7 7 6.5c0 2.9-1.4 4.5-3.7 6-2 1.3-3.1 2.5-3.1 4.8v1"
+            fill="none"
+            stroke="#6b3600"
+            stroke-width="4.2"
+            stroke-linecap="round"
+          />
+          <circle cx="32" cy="41" r="2.8" fill="#6b3600" />
+          <path
+            d="M25.2 22.8c0-4.2 3.2-7.2 7.2-7.2s7 2.7 7 6.5c0 2.9-1.4 4.5-3.7 6-2 1.3-3.1 2.5-3.1 4.8v1"
+            fill="none"
+            stroke="rgba(255,255,255,0.5)"
+            stroke-width="1.45"
+            stroke-linecap="round"
+            transform="translate(-0.75 -0.85)"
+          />
+          <circle cx="31.15" cy="40.1" r="1.1" fill="rgba(255,255,255,0.42)" />
+        </g>
+      </svg>
+    </AppIconTile>
+  )
+}
+

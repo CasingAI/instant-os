@@ -86,6 +86,20 @@ export function DateTimePaneIcon() {
   )
 }
 
+export function NotificationCenterPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#6b7a8f" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="3" y="3" width="16" height="16" rx="3" fill="#fff" opacity="0.95" />
+        <rect x="5.5" y="6" width="11" height="2.2" rx="1.1" fill="#6b7a8f" opacity="0.85" />
+        <rect x="5.5" y="10" width="8" height="2.2" rx="1.1" fill="#6b7a8f" opacity="0.55" />
+        <rect x="5.5" y="14" width="10" height="2.2" rx="1.1" fill="#6b7a8f" opacity="0.4" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SafariUsagePaneIcon() {
   return <BrowserIcon size={PANE_ICON_SIZE} />
 }

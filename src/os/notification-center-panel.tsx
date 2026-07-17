@@ -8,6 +8,11 @@ import { DateTimeWidget, StockWidget, WeatherWidget } from './notification-cente
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { useNotificationCenter } from './notification-center-context.tsx'
 import { useNotificationCenterWidgets } from './use-notification-center-widgets.ts'
+import {
+  loadNotificationCenterSettings,
+  NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT,
+  type NotificationCenterSettings,
+} from './notification-center-settings-storage.ts'
 import { usePendingInstallStream } from './use-pending-install-stream.ts'
 import { useOs } from './os-context.tsx'
 import { useAppNotifications } from './use-app-notifications.ts'
@@ -529,8 +534,18 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const [visible, setVisible] = useState(false)
   const [contentScreen, setContentScreen] = useState<'list' | 'detail'>('list')
   const [contentVisible, setContentVisible] = useState(true)
+  const [widgetSettings, setWidgetSettings] = useState<NotificationCenterSettings>(() =>
+    loadNotificationCenterSettings(),
+  )
 
-  const widgets = useNotificationCenterWidgets(open && visible)
+  useEffect(() => {
+    const syncSettings = () => setWidgetSettings(loadNotificationCenterSettings())
+    window.addEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, syncSettings)
+    return () => window.removeEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, syncSettings)
+  }, [])
+
+  const showWidgets = widgetSettings.showWeather || widgetSettings.showStocks
+  const widgets = useNotificationCenterWidgets(open && visible && showWidgets)
 
   const clearableCount =
     failedInstalls.length +
@@ -788,20 +803,26 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
             ) : (
               <>
                 <DateTimeWidget onOpen={handleOpenCalendarApp} />
-                <div class="notification-center__widgets">
-                  <WeatherWidget
-                    weather={widgets.weather}
-                    loading={widgets.weatherState === 'loading'}
-                    error={widgets.weatherError}
-                    onOpen={handleOpenWeatherApp}
-                  />
-                  <StockWidget
-                    snapshot={widgets.stocks}
-                    loading={widgets.stocksState === 'loading'}
-                    error={widgets.stocksError}
-                    onOpen={handleOpenStocksApp}
-                  />
-                </div>
+                {showWidgets && (
+                  <div class="notification-center__widgets">
+                    {widgetSettings.showWeather && (
+                      <WeatherWidget
+                        weather={widgets.weather}
+                        loading={widgets.weatherState === 'loading'}
+                        error={widgets.weatherError}
+                        onOpen={handleOpenWeatherApp}
+                      />
+                    )}
+                    {widgetSettings.showStocks && (
+                      <StockWidget
+                        snapshot={widgets.stocks}
+                        loading={widgets.stocksState === 'loading'}
+                        error={widgets.stocksError}
+                        onOpen={handleOpenStocksApp}
+                      />
+                    )}
+                  </div>
+                )}
                 <div class="notification-center__section">
                   <div class="notification-center__section-header">
                     <p class="notification-center__section-title">通知</p>
