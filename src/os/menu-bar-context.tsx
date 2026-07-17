@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact'
 import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { AppId } from './types.ts'
-import type { MenuDefinition } from './menu-bar-types.ts'
+import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 
 type MenuBarContextValue = {
   menusByApp: Record<string, MenuDefinition[]>
@@ -12,15 +12,25 @@ type MenuBarContextValue = {
 
 const MenuBarContext = createContext<MenuBarContextValue | undefined>(undefined)
 
+function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, string] {
+  if (item.type === 'separator') {
+    return '|'
+  }
+  return [item.label, item.disabled ?? false, item.shortcut ?? '']
+}
+
+function menuItemSignature(item: MenuItem): string | [string, boolean, string] | [string, 'submenu', unknown[]] {
+  if (item.type === 'submenu') {
+    return [item.label, 'submenu', item.items.map(leafItemSignature)]
+  }
+  return leafItemSignature(item)
+}
+
 function menuSignature(menus: MenuDefinition[]): string {
   return JSON.stringify(
     menus.map((menu) => ({
       label: menu.label,
-      items: menu.items.map((item) =>
-        item.type === 'separator'
-          ? '|'
-          : [item.label, item.disabled ?? false, item.shortcut ?? ''],
-      ),
+      items: menu.items.map(menuItemSignature),
     })),
   )
 }

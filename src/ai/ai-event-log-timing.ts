@@ -69,7 +69,6 @@ export function resolveEventLogPerformance(
   response: string,
 ): AiEventLogPerformanceFields {
   const endedRealAt = timing?.endedRealAt ?? Date.now()
-  const endedAt = timing?.endedAt ?? osNowMs()
   const responseCharCount = response.length
 
   if (!timing) {

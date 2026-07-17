@@ -105,12 +105,13 @@ export async function persistAiEventLog(
   const day = osDayKey()
 
   let previousByteSize = 0
-  if (input.id) {
+  const recordId = input.id
+  if (recordId) {
     try {
       const existing = await runDataStoreTransaction<AiEventLogDbRecord | undefined>(
         AI_EVENT_LOG_STORE,
         'readonly',
-        (store) => store.get(input.id),
+        (store) => store.get(recordId),
       )
       previousByteSize = existing?.byteSize ?? 0
     } catch {
