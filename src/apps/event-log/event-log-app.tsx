@@ -2,8 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   AI_EVENT_LOG_CHANGED_EVENT,
   deleteAiEventLog,
+  formatCharsPerSecond,
+  formatDurationMs,
   formatEventLogRoleLabel,
+  formatTokensPerSecond,
+  getLiveAiEventLogCount,
   loadRecentEventLogs,
+  refreshLiveAiEventLogPerformance,
   summarizeEventLogResponse,
   type AiEventLogRecord,
 } from '../../ai/ai-event-log.ts'
@@ -63,6 +68,8 @@ function resolveActorDisplayName(
 
 function statusLabel(status: AiEventLogRecord['status']): string {
   switch (status) {
+    case 'running':
+      return '生成中'
     case 'success':
       return '成功'
     case 'aborted':
@@ -137,6 +144,19 @@ export function EventLogApp() {
     window.addEventListener(AI_EVENT_LOG_CHANGED_EVENT, onChanged)
     return () => window.removeEventListener(AI_EVENT_LOG_CHANGED_EVENT, onChanged)
   }, [refresh])
+
+  useEffect(() => {
+    const hasLive =
+      records.some((record) => record.status === 'running') || getLiveAiEventLogCount() > 0
+    if (!hasLive) {
+      return
+    }
+    const timer = window.setInterval(() => {
+      refreshLiveAiEventLogPerformance()
+      void refresh()
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [records, refresh])
 
   useEffect(() => {
     if (!layoutReady) {
@@ -330,7 +350,7 @@ export function EventLogApp() {
                   {group.records.map((record) => (
                     <div
                       key={record.id}
-                      class={`event-log__row${record.id === selectedId && !narrowLayout ? ' event-log__row--active' : ''}`}
+                      class={`event-log__row${record.id === selectedId && !narrowLayout ? ' event-log__row--active' : ''}${record.status === 'running' ? ' event-log__row--running' : ''}`}
                     >
                       <button
                         type="button"
@@ -339,25 +359,36 @@ export function EventLogApp() {
                       >
                         <span class="event-log__row-top">
                           <span class="event-log__row-actor">{record.actorName}</span>
-                          <span class="event-log__row-time">{formatUsageTime(record.at)}</span>
+                          <span class="event-log__row-time">
+                            {record.status === 'running' ? '生成中' : formatUsageTime(record.at)}
+                          </span>
                         </span>
                         <span class="event-log__row-behavior">{record.behaviorLabel}</span>
                         <span class="event-log__row-preview">
+                          {record.status === 'running' && record.completionTokensPerSecond !== undefined
+                            ? `${formatTokensPerSecond(record.completionTokensPerSecond)} · `
+                            : record.completionTokensPerSecond !== undefined
+                              ? `${formatTokensPerSecond(record.completionTokensPerSecond)} · `
+                              : record.durationMs !== undefined
+                                ? `${formatDurationMs(record.durationMs)} · `
+                                : ''}
                           {summarizeEventLogResponse(record.response)}
                         </span>
                       </button>
-                      <button
-                        type="button"
-                        class="event-log__row-delete"
-                        aria-label={`删除 ${record.actorName} 的记录`}
-                        title="删除"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDeleteRecord(record.id)
-                        }}
-                      >
-                        ×
-                      </button>
+                      {record.status !== 'running' ? (
+                        <button
+                          type="button"
+                          class="event-log__row-delete"
+                          aria-label={`删除 ${record.actorName} 的记录`}
+                          title="删除"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            handleDeleteRecord(record.id)
+                          }}
+                        >
+                          ×
+                        </button>
+                      ) : undefined}
                     </div>
                   ))}
                 </div>
@@ -405,11 +436,42 @@ export function EventLogApp() {
                   <>
                     <dt>Tokens</dt>
                     <dd>
+                      {selected.usageEstimated ? '约 ' : ''}
                       {formatTokenCount(selected.totalTokens)}
                       {selected.promptTokens !== undefined && selected.completionTokens !== undefined
                         ? `（输入 ${formatTokenCount(selected.promptTokens)} / 输出 ${formatTokenCount(selected.completionTokens)}）`
                         : ''}
                     </dd>
+                  </>
+                )}
+                {selected.durationMs !== undefined && (
+                  <>
+                    <dt>{selected.status === 'running' ? '已进行' : '耗时'}</dt>
+                    <dd>{formatDurationMs(selected.durationMs)}</dd>
+                  </>
+                )}
+                {selected.timeToFirstTokenMs !== undefined && (
+                  <>
+                    <dt>首 token</dt>
+                    <dd>{formatDurationMs(selected.timeToFirstTokenMs)}</dd>
+                  </>
+                )}
+                {selected.completionTokensPerSecond !== undefined && (
+                  <>
+                    <dt>输出速度</dt>
+                    <dd>
+                      {selected.usageEstimated && selected.status === 'running' ? '约 ' : ''}
+                      {formatTokensPerSecond(selected.completionTokensPerSecond)}
+                      {selected.responseCharsPerSecond !== undefined
+                        ? ` · ${formatCharsPerSecond(selected.responseCharsPerSecond)}`
+                        : ''}
+                    </dd>
+                  </>
+                )}
+                {selected.responseCharCount !== undefined && (
+                  <>
+                    <dt>响应长度</dt>
+                    <dd>{selected.responseCharCount.toLocaleString('zh-CN')} 字符</dd>
                   </>
                 )}
                 {selected.errorMessage && (

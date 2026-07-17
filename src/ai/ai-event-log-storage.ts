@@ -6,6 +6,7 @@ import {
   DATA_STORAGE_CHANGED_EVENT,
   runDataStoreTransaction,
 } from '../os/device-data-storage.ts'
+import { resolveEventLogPerformance } from './ai-event-log-timing.ts'
 import { resolveActorLabel, type AiUsageContext } from './ai-usage-context.ts'
 import type { AiEventLogInput, AiEventLogRecord } from './ai-event-log-types.ts'
 
@@ -57,6 +58,7 @@ function toDbRecord(
   realAt: number,
   day: string,
 ): AiEventLogDbRecord {
+  const performance = resolveEventLogPerformance(input.timing, input.usage, input.response)
   const record: AiEventLogDbRecord = {
     key: '',
     id: '',
@@ -74,11 +76,21 @@ function toDbRecord(
     promptTokens: input.usage?.promptTokens,
     completionTokens: input.usage?.completionTokens,
     totalTokens: input.usage?.totalTokens,
+    usageEstimated: input.usageEstimated,
     status: input.status ?? 'success',
     errorMessage: input.errorMessage,
+    startedAt: performance.startedAt,
+    startedRealAt: performance.startedRealAt,
+    firstTokenAt: performance.firstTokenAt,
+    firstTokenRealAt: performance.firstTokenRealAt,
+    durationMs: performance.durationMs,
+    timeToFirstTokenMs: performance.timeToFirstTokenMs,
+    completionTokensPerSecond: performance.completionTokensPerSecond,
+    responseCharCount: performance.responseCharCount,
+    responseCharsPerSecond: performance.responseCharsPerSecond,
     byteSize: 0,
   }
-  record.id = createEventId(at)
+  record.id = input.id ?? createEventId(at)
   record.key = record.id
   record.byteSize = estimateRecordBytes(record)
   return record
@@ -88,19 +100,34 @@ export async function persistAiEventLog(
   context: AiUsageContext,
   input: AiEventLogInput,
 ): Promise<AiEventLogRecord | undefined> {
-  const at = osNowMs()
-  const realAt = Date.now()
+  const at = input.timing?.endedAt ?? osNowMs()
+  const realAt = input.timing?.endedRealAt ?? Date.now()
   const day = osDayKey()
+
+  let previousByteSize = 0
+  if (input.id) {
+    try {
+      const existing = await runDataStoreTransaction<AiEventLogDbRecord | undefined>(
+        AI_EVENT_LOG_STORE,
+        'readonly',
+        (store) => store.get(input.id),
+      )
+      previousByteSize = existing?.byteSize ?? 0
+    } catch {
+      previousByteSize = 0
+    }
+  }
+
   const dbRecord = toDbRecord(context, input, at, realAt, day)
   const currentTotal = await readByteTotal()
-  const projectedTotal = currentTotal + dbRecord.byteSize
+  const projectedTotal = currentTotal - previousByteSize + dbRecord.byteSize
 
   if (projectedTotal > DATA_CAPACITY_BYTES) {
     return undefined
   }
 
   await runDataStoreTransaction(AI_EVENT_LOG_STORE, 'readwrite', (store) => store.put(dbRecord))
-  await writeByteTotal(projectedTotal)
+  await writeByteTotal(Math.max(0, projectedTotal))
   emitDataStorageChanged()
 
   const { key: _key, byteSize: _byteSize, ...record } = dbRecord

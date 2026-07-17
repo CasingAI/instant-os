@@ -1,4 +1,4 @@
-/* 事件日志 — 与任务管理器统一的 iOS 6 拟物风格 */
+/* 事件日志 — 与性能监视器统一的 iOS 6 拟物风格 */
 
 .event-log {
   --el-bg-top: #ececec;
@@ -23,6 +23,17 @@
   font-family: var(--app-text-font-family);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.event-log,
+.event-log * {
+  scrollbar-width: none;
+}
+
+.event-log::-webkit-scrollbar,
+.event-log *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .event-log__header {
@@ -213,6 +224,14 @@
   filter: brightness(1.03);
 }
 
+.event-log__row--running {
+  background: linear-gradient(180deg, #fff8ee 0%, #ffefd7 100%);
+}
+
+.event-log__row--running.event-log__row--active {
+  background: linear-gradient(180deg, #ffe8c8 0%, #ffd9a8 100%);
+}
+
 .event-log__row-main {
   display: flex;
   flex-direction: column;
@@ -335,6 +354,11 @@
 
 .event-log__status--error {
   color: #c9302a;
+}
+
+.event-log__status--running {
+  color: #c47a00;
+  font-weight: 700;
 }
 
 .event-log__section {

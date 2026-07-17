@@ -8,7 +8,7 @@ import {
   resolveAppGenerationPhase,
   totalStreamTextLength,
 } from '../../ai/ai-thinking.ts'
-import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
+import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
@@ -187,6 +187,11 @@ export async function generateScene3dHtmlStreaming(
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userMessage },
   ]
+  const logSession = startAiEventLogSession(usageContext, {
+    model,
+    thinkingEnabled: config.thinkingEnabled,
+    messages: eventMessages,
+  })
 
   const stream = await client.chat.completions.create({
     model,
@@ -212,58 +217,88 @@ export async function generateScene3dHtmlStreaming(
     streamConnected: true,
   })
 
-  for await (const chunk of stream) {
-    streamStarted = true
-    if (chunk.usage) {
-      usage = snapshotFromUsage(chunk.usage)
-    }
+  try {
+    for await (const chunk of stream) {
+      streamStarted = true
+      if (chunk.usage) {
+        usage = snapshotFromUsage(chunk.usage)
+      }
 
-    const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
-    if (reasoning) {
-      reasoningText += reasoning
+      const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
+      if (reasoning) {
+        logSession.markFirstToken()
+        reasoningText += reasoning
+        logSession.update({
+          response: formatStreamEventResponse(reasoningText, contentText),
+          usage,
+        })
+        emit()
+        continue
+      }
+      if (!content) {
+        continue
+      }
+
+      logSession.markFirstToken()
+      contentText += content
+      logSession.update({
+        response: formatStreamEventResponse(reasoningText, contentText),
+        usage,
+      })
       emit()
-      continue
-    }
-    if (!content) {
-      continue
     }
 
-    contentText += content
-    emit()
+    if (!contentText.trim()) {
+      finishAiEventLogSession(logSession, usageContext, {
+        response: formatStreamEventResponse(reasoningText, contentText),
+        usage,
+        usageEstimated: !usage,
+        status: 'error',
+        errorMessage: 'AI 未返回任何 3D 页面内容',
+      })
+      throw new Error('AI 未返回任何 3D 页面内容')
+    }
+
+    emit(true)
+    liveUsage = finalizeTokenUsage(
+      buildLiveTokenUsage(promptTokenEstimate, formatScene3dRawOutput(reasoningText, contentText), !usage),
+      usage,
+    )
+    const html = extractScene3dHtmlFromAiText(contentText)
+    const rawText = formatScene3dRawOutput(reasoningText, contentText)
+    recordAiTokenUsage(usageContext, usage)
+    finishAiEventLogSession(logSession, usageContext, {
+      response: formatStreamEventResponse(reasoningText, contentText),
+      usage,
+      usageEstimated: !usage,
+      status: 'success',
+    })
+
+    const result: Scene3dGenerationResult = { html, rawText, usage: liveUsage }
+    onUpdate({
+      phase: 'generating',
+      progress: 100,
+      textLength: totalStreamTextLength(reasoningText, contentText),
+      reasoningText,
+      contentText,
+      rawText,
+      html,
+      usage: liveUsage,
+    })
+    return result
+  } catch (error) {
+    const snapshot = logSession.snapshot()
+    if (snapshot) {
+      finishAiEventLogSession(logSession, usageContext, {
+        response: snapshot.response,
+        usage,
+        usageEstimated: !usage,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+      })
+    }
+    throw error
   }
-
-  if (!contentText.trim()) {
-    throw new Error('AI 未返回任何 3D 页面内容')
-  }
-
-  emit(true)
-  liveUsage = finalizeTokenUsage(
-    buildLiveTokenUsage(promptTokenEstimate, formatScene3dRawOutput(reasoningText, contentText), !usage),
-    usage,
-  )
-  const html = extractScene3dHtmlFromAiText(contentText)
-  const rawText = formatScene3dRawOutput(reasoningText, contentText)
-  recordAiTokenUsage(usageContext, usage)
-  recordAiEventLog(usageContext, {
-    model,
-    thinkingEnabled: config.thinkingEnabled,
-    messages: eventMessages,
-    response: formatStreamEventResponse(reasoningText, contentText),
-    usage,
-  })
-
-  const result: Scene3dGenerationResult = { html, rawText, usage: liveUsage }
-  onUpdate({
-    phase: 'generating',
-    progress: 100,
-    textLength: totalStreamTextLength(reasoningText, contentText),
-    reasoningText,
-    contentText,
-    rawText,
-    html,
-    usage: liveUsage,
-  })
-  return result
 }
 
 /** 内置示例提示词，便于在实验室中快速测试素材目录。 */

@@ -10,7 +10,15 @@ export type MenuItemSeparator = {
   type: 'separator'
 }
 
-export type MenuItem = MenuItemAction | MenuItemSeparator
+export type MenuItemLeaf = MenuItemAction | MenuItemSeparator
+
+export type MenuItemSubmenu = {
+  type: 'submenu'
+  label: string
+  items: MenuItemLeaf[]
+}
+
+export type MenuItem = MenuItemLeaf | MenuItemSubmenu
 
 export type MenuDefinition = {
   label: string

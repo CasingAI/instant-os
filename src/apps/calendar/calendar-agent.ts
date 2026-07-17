@@ -1,5 +1,6 @@
 import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
+import { finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import type { AiUsageContext } from '../../ai/ai-usage-context.ts'
 import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
@@ -228,29 +229,45 @@ async function completeJson<T>(
 ): Promise<T> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
-  const response = await client.chat.completions.create({
-    model: config.defaultModel,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
-  })
-
-  const text = response.choices[0]?.message?.content ?? ''
-  if (!text.trim()) {
-    throw new Error('AI 未返回任何内容')
-  }
-
-  recordOpenAiCompletionUsage(response, usageContext, {
+  const messages = [
+    { role: 'system' as const, content: system },
+    { role: 'user' as const, content: user },
+  ]
+  const logSession = startAiEventLogSession(usageContext, {
     model: config.defaultModel,
     thinkingEnabled: config.thinkingEnabled,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
+    messages,
   })
-  return parseJsonFromAiText<T>(text)
+  try {
+    const response = await client.chat.completions.create({
+      model: config.defaultModel,
+      messages,
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+    })
+
+    const text = response.choices[0]?.message?.content ?? ''
+    if (!text.trim()) {
+      throw new Error('AI 未返回任何内容')
+    }
+
+    recordOpenAiCompletionUsage(response, usageContext, {
+      model: config.defaultModel,
+      thinkingEnabled: config.thinkingEnabled,
+      messages,
+      session: logSession,
+    })
+    return parseJsonFromAiText<T>(text)
+  } catch (error) {
+    const snapshot = logSession.snapshot()
+    if (snapshot) {
+      finishAiEventLogSession(logSession, usageContext, {
+        response: snapshot.response,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+      })
+    }
+    throw error
+  }
 }
 
 function normalizeKind(raw: unknown): CalendarMarkerKind {

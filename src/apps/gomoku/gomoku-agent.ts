@@ -1,6 +1,6 @@
 import type OpenAI from 'openai'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
-import { toEventLogMessages } from '../../ai/ai-event-log.ts'
+import { finishAiEventLogSession, startAiEventLogSession, toEventLogMessages } from '../../ai/ai-event-log.ts'
 import { recordOpenAiCompletionUsage } from '../../ai/openai-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
@@ -275,28 +275,47 @@ async function requestRemoteAiMove(
 ): Promise<RemoteAiMoveResponse> {
   const config = mergeOpenAiConfig()
   const client = getOpenAiClient(config)
-  const response = await client.chat.completions.create({
-    model: config.defaultModel,
-    messages,
-    tools: [GOMOKU_PLACE_STONE_TOOL],
-    tool_choice: 'auto',
-    ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
-  })
-
-  recordOpenAiCompletionUsage(response, {
-    actor: 'gomoku',
-    behavior: 'ai-move',
+  const usageContext = {
+    actor: 'gomoku' as const,
+    behavior: 'ai-move' as const,
     behaviorLabel: 'AI 落子',
-  }, {
+  }
+  const logSession = startAiEventLogSession(usageContext, {
     model: config.defaultModel,
     thinkingEnabled,
     messages: toEventLogMessages(messages),
   })
+  try {
+    const response = await client.chat.completions.create({
+      model: config.defaultModel,
+      messages,
+      tools: [GOMOKU_PLACE_STONE_TOOL],
+      tool_choice: 'auto',
+      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
+    })
 
-  const message = response.choices[0]?.message
-  return {
-    content: (message?.content ?? '').trim(),
-    toolCall: parsePlaceStoneToolCall(message),
+    recordOpenAiCompletionUsage(response, usageContext, {
+      model: config.defaultModel,
+      thinkingEnabled,
+      messages: toEventLogMessages(messages),
+      session: logSession,
+    })
+
+    const message = response.choices[0]?.message
+    return {
+      content: (message?.content ?? '').trim(),
+      toolCall: parsePlaceStoneToolCall(message),
+    }
+  } catch (error) {
+    const snapshot = logSession.snapshot()
+    if (snapshot) {
+      finishAiEventLogSession(logSession, usageContext, {
+        response: snapshot.response,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+      })
+    }
+    throw error
   }
 }
 

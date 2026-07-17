@@ -154,7 +154,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
   withAbout({
     id: 'task-manager',
-    name: '任务管理器',
+    name: '性能监视器',
     icon: TaskManagerIcon,
     dock: false,
     dockWhenRunning: true,

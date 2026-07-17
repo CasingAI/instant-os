@@ -1,4 +1,4 @@
-/* 任务管理器 — iOS 6 拟物风格（与设置等应用统一） */
+/* 性能监视器 — iOS 6 拟物风格（与设置等应用统一） */
 
 .task-manager {
   --tm-bg-top: #ececec;
@@ -15,18 +15,72 @@
   --tm-shadow-in: inset 0 1px 2px rgba(0, 0, 0, 0.08);
   --tm-danger-btn: linear-gradient(180deg, #ff8a84 0%, #e34b3f 55%, #c9302a 100%);
   --tm-danger-btn-active: linear-gradient(180deg, #c9302a 0%, #e34b3f 100%);
+  --tm-accent: #2f87e2;
 
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 18px 20px 22px;
+  padding: 12px 16px 16px;
   box-sizing: border-box;
-  overflow: auto;
+  overflow: hidden;
   background: linear-gradient(180deg, var(--tm-bg-top) 0%, var(--tm-bg-bottom) 100%);
   color: var(--tm-text);
   font-family: var(--app-text-font-family);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.task-manager,
+.task-manager * {
+  scrollbar-width: none;
+}
+
+.task-manager::-webkit-scrollbar,
+.task-manager *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.task-manager__tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0;
+  margin-bottom: 10px;
+  padding: 2px;
+  border: 1px solid #888;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #d4d4d4 0%, #ebebeb 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.task-manager__tab {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 3px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #444;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  background: transparent;
+  cursor: pointer;
+}
+
+.task-manager__tab--active {
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 1px rgba(0, 0, 0, 0.12);
+}
+
+.task-manager__tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .task-manager__section {
@@ -51,6 +105,11 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.task-manager__section-subtitle-meta {
+  color: #999;
+  font-size: 10px;
+}
+
 .task-manager__empty {
   margin: 4px 0 0;
   padding: 28px 16px;
@@ -64,57 +123,112 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.task-manager__list {
+.task-manager__table-wrap {
   margin-top: 4px;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid var(--tm-border);
   border-radius: var(--tm-radius);
   background: var(--tm-surface);
   box-shadow: var(--tm-shadow-in);
 }
 
-.task-manager__group {
+.task-manager__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.task-manager__th,
+.task-manager__td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: middle;
   border-bottom: 1px solid var(--tm-border-row);
 }
 
-.task-manager__group:last-child {
+.task-manager__th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tm-text-secondary);
+  background: linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
+  border-bottom: 1px solid var(--tm-border);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.task-manager__th--name {
+  width: 34%;
+}
+
+.task-manager__th--status {
+  width: 18%;
+}
+
+.task-manager__th--ai {
+  width: 18%;
+}
+
+.task-manager__th--windows {
+  width: 12%;
+}
+
+.task-manager__th--action {
+  width: 18%;
+  text-align: right;
+}
+
+.task-manager__tr:last-child .task-manager__td {
   border-bottom: none;
 }
 
-.task-manager__group--unresponsive {
+.task-manager__tr--unresponsive {
   background: linear-gradient(180deg, var(--tm-warning-bg-top) 0%, var(--tm-warning-bg-bottom) 100%);
 }
 
-.task-manager__app-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 6px 10px 6px 0;
+.task-manager__td {
+  font-size: 13px;
+  color: var(--tm-text);
 }
 
-.task-manager__app-row--active {
-  background: linear-gradient(180deg, #e8f2fc 0%, #d4e6f8 100%);
+.task-manager__td--status {
+  color: var(--tm-text-secondary);
+  font-size: 12px;
 }
 
-.task-manager__group--unresponsive .task-manager__app-row--active {
-  background: transparent;
+.task-manager__td--ai {
+  font-variant-numeric: tabular-nums;
+  color: var(--tm-text-muted);
 }
 
-.task-manager__app-focus {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+.task-manager__td--ai-live {
+  font-weight: 700;
+  color: var(--tm-accent);
+}
+
+.task-manager__td--windows {
+  font-variant-numeric: tabular-nums;
+  color: var(--tm-text-secondary);
+}
+
+.task-manager__td--action {
+  text-align: right;
+}
+
+.task-manager__name-cell {
+  display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 0 0 0 12px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: default;
+}
+
+.task-manager__name-text {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .task-manager__app-icon {
@@ -124,41 +238,8 @@
   justify-content: center;
 }
 
-.task-manager__app-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.task-manager__app-name {
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
-}
-
-.task-manager__app-meta {
-  overflow: hidden;
-  color: var(--tm-text-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-manager__window-title {
-  overflow: hidden;
-  color: var(--tm-text-secondary);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .task-manager__end-button {
   flex-shrink: 0;
-  margin-right: 10px;
   padding: 4px 10px;
   border: 1px solid #a82822;
   border-radius: 3px;
@@ -181,8 +262,7 @@
 }
 
 .task-manager__system-badge {
-  flex-shrink: 0;
-  margin-right: 10px;
+  display: inline-block;
   padding: 2px 8px;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 3px;
@@ -194,57 +274,6 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-.task-manager__window-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0 10px 8px 54px;
-}
-
-.task-manager__window-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: default;
-}
-
-.task-manager__window-row:first-child {
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.task-manager__window-row--active {
-  background: rgba(47, 135, 226, 0.08);
-}
-
-.task-manager__window-row--unresponsive {
-  background: rgba(201, 52, 0, 0.06);
-}
-
-.task-manager__window-row-title {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
-}
-
-.task-manager__window-row-status {
-  flex-shrink: 0;
-  color: var(--tm-text-muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
 .task-manager__footnote {
   margin: 4px 0 0;
   font-size: 11px;
@@ -252,3 +281,467 @@
   color: var(--tm-text-muted);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
+
+.task-manager__perf-live-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(180deg, #ffb347 0%, #ff9500 100%);
+  vertical-align: 1px;
+}
+
+.task-manager__perf-row--live {
+  background: linear-gradient(180deg, #fffaf0 0%, #fff3e0 100%);
+}
+
+.task-manager__section--performance {
+  gap: 10px;
+  padding-bottom: 8px;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.task-manager__perf-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.task-manager__perf-toolbar-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.task-manager__chart-now {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 96px;
+}
+
+.task-manager__chart-now-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--tm-text-muted);
+}
+
+.task-manager__chart-now-value {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--tm-accent);
+  line-height: 1.1;
+}
+
+.task-manager__perf-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-manager__perf-chart-col,
+.task-manager__perf-side-col {
+  min-width: 0;
+}
+
+.task-manager__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.task-manager__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--tm-border);
+  border-radius: var(--tm-radius);
+  background: var(--tm-surface);
+  box-shadow: var(--tm-shadow-in);
+}
+
+.task-manager__stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--tm-text-muted);
+  text-transform: none;
+}
+
+.task-manager__stat-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tm-text);
+  letter-spacing: -0.02em;
+}
+
+.task-manager__stat-hint {
+  font-size: 10px;
+  color: var(--tm-text-muted);
+  line-height: 1.3;
+}
+
+.task-manager__chart-card {
+  border: 1px solid var(--tm-border);
+  border-radius: var(--tm-radius);
+  background: var(--tm-surface);
+  box-shadow: var(--tm-shadow-in);
+  overflow: hidden;
+}
+
+.task-manager__chart-card--hero {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-manager__chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 0;
+  flex-shrink: 0;
+}
+
+.task-manager__chart-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tm-text-secondary);
+}
+
+.task-manager__chart-meta {
+  font-size: 10px;
+  color: var(--tm-text-muted);
+}
+
+.task-manager__chart-frame {
+  height: 160px;
+  padding: 4px 6px 8px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.task-manager__chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.task-manager__chart-grid {
+  stroke: #dcdcdc;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.task-manager__chart-grid--baseline {
+  stroke: #c0c0c0;
+}
+
+.task-manager__chart-grid--peak {
+  stroke: #b7c9de;
+  stroke-dasharray: 4 3;
+}
+
+.task-manager__chart-axis {
+  fill: #777;
+  font-size: 11px;
+  font-family: var(--app-text-font-family);
+}
+
+.task-manager__chart-axis--peak {
+  fill: #555;
+  font-weight: 700;
+}
+
+.task-manager__chart-area {
+  fill: rgba(47, 135, 226, 0.16);
+}
+
+.task-manager__chart-line {
+  stroke: var(--tm-accent);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.task-manager__perf-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-manager__perf-bottom > .task-manager__list {
+  min-width: 0;
+}
+
+.task-manager__list {
+  border: 1px solid var(--tm-border);
+  border-radius: var(--tm-radius);
+  background: var(--tm-surface);
+  box-shadow: var(--tm-shadow-in);
+}
+
+.task-manager__list--compact {
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.task-manager__list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tm-text-secondary);
+  background: linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
+  border-bottom: 1px solid var(--tm-border-row);
+}
+
+.task-manager__list-empty {
+  margin: 0;
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--tm-text-muted);
+}
+
+.task-manager__perf-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.8fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--tm-border-row);
+}
+
+.task-manager__perf-row:last-child {
+  border-bottom: 0;
+}
+
+.task-manager__perf-name {
+  min-width: 0;
+  font-weight: 600;
+  color: var(--tm-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-manager__perf-behavior {
+  font-weight: 400;
+  color: var(--tm-text-muted);
+}
+
+.task-manager__perf-meta {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--tm-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-manager__perf-side {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tm-accent);
+  white-space: nowrap;
+  text-align: right;
+}
+
+@media (min-width: 760px) {
+  .task-manager__perf-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(180px, 0.85fr);
+    grid-template-areas:
+      'chart side'
+      'lists lists';
+    gap: 10px;
+    align-items: start;
+  }
+
+  .task-manager__perf-chart-col {
+    grid-area: chart;
+  }
+
+  .task-manager__perf-side-col {
+    grid-area: side;
+  }
+
+  .task-manager__perf-bottom {
+    grid-area: lists;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .task-manager__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .task-manager__chart-frame {
+    height: 200px;
+  }
+
+  .task-manager__list--compact {
+    max-height: 200px;
+  }
+}
+
+@media (min-width: 980px) {
+  .task-manager__perf-dashboard {
+    grid-template-columns: minmax(0, 1.8fr) minmax(200px, 0.75fr);
+  }
+
+  .task-manager__chart-frame {
+    height: 220px;
+  }
+
+  .task-manager__chart-now-value {
+    font-size: 28px;
+  }
+
+  .task-manager__list--compact {
+    max-height: 240px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .task-manager__chart-frame {
+    height: 240px;
+  }
+
+  .task-manager__list--compact {
+    max-height: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  .task-manager {
+    padding: 10px 10px 12px;
+  }
+
+  .task-manager__stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .task-manager__stat {
+    padding: 8px;
+  }
+
+  .task-manager__stat-value {
+    font-size: 13px;
+  }
+
+  .task-manager__stat-hint {
+    display: none;
+  }
+
+  .task-manager__perf-toolbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .task-manager__chart-now {
+    align-items: flex-end;
+  }
+
+  .task-manager__chart-now-value {
+    font-size: 18px;
+  }
+
+  .task-manager__chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .task-manager__chart-frame {
+    height: 140px;
+  }
+
+  .task-manager__perf-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 4px 8px;
+    padding: 7px 10px;
+  }
+
+  .task-manager__perf-meta {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+
+  .task-manager__th--windows,
+  .task-manager__td--windows {
+    display: none;
+  }
+
+  .task-manager__th--name {
+    width: 42%;
+  }
+
+  .task-manager__th--status {
+    width: 22%;
+  }
+
+  .task-manager__th--ai {
+    width: 22%;
+  }
+
+  .task-manager__th--action {
+    width: 14%;
+  }
+
+  .task-manager__th,
+  .task-manager__td {
+    padding: 7px 8px;
+  }
+
+  .task-manager__name-cell {
+    gap: 6px;
+  }
+
+  .task-manager__end-button {
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  .task-manager__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .task-manager__th--status,
+  .task-manager__td--status {
+    display: none;
+  }
+
+  .task-manager__th--name {
+    width: 50%;
+  }
+
+  .task-manager__th--ai {
+    width: 26%;
+  }
+
+  .task-manager__th--action {
+    width: 24%;
+  }
+}
+

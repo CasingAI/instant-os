@@ -1,3 +1,14 @@
+import {
+  DEVICE_CAPACITY_BYTES,
+  getTotalLocalStorageBytes,
+} from './device-storage.ts'
+import {
+  DATA_CAPACITY_BYTES,
+  DATA_DB_NAME,
+  getTotalDataStorageBytes,
+} from './device-data-storage.ts'
+import { formatStorageSize } from './format-storage-size.ts'
+
 export type DeviceInfoSpec = {
   label: string
   value: string
@@ -5,11 +16,8 @@ export type DeviceInfoSpec = {
 
 const UNAVAILABLE = '不可用'
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).length
 }
 
 type BrandList = { brand: string; version: string }[]
@@ -236,9 +244,9 @@ function formatJsMemory(): string {
   if (!mem || typeof mem.usedJSHeapSize !== 'number') {
     return UNAVAILABLE
   }
-  const used = formatBytes(mem.usedJSHeapSize)
-  const total = formatBytes(mem.totalJSHeapSize)
-  const limit = formatBytes(mem.jsHeapSizeLimit)
+  const used = formatStorageSize(mem.usedJSHeapSize)
+  const total = formatStorageSize(mem.totalJSHeapSize)
+  const limit = formatStorageSize(mem.jsHeapSizeLimit)
   return `已用 ${used} / 已分配 ${total} / 上限 ${limit}`
 }
 
@@ -252,7 +260,7 @@ async function detectStorageQuota(): Promise<string> {
       return UNAVAILABLE
     }
     const pct = estimate.quota > 0 ? `（${(estimate.usage / estimate.quota * 100).toFixed(1)}%）` : ''
-    return `已用 ${formatBytes(estimate.usage)} / 总计 ${formatBytes(estimate.quota)}${pct}`
+    return `已用 ${formatStorageSize(estimate.usage)} / 总计 ${formatStorageSize(estimate.quota)}${pct}`
   } catch {
     return UNAVAILABLE
   }
@@ -264,16 +272,8 @@ function detectLocalStorage(): string {
     if (!storage) return UNAVAILABLE
     const count = storage.length
     if (count === 0) return '空'
-    let size = 0
-    for (let i = 0; i < count; i++) {
-      const key = storage.key(i)
-      if (key !== null) {
-        size += key.length * 2
-        const val = storage.getItem(key)
-        if (val !== null) size += val.length * 2
-      }
-    }
-    return `${count} 个键值对，约 ${formatBytes(size)}`
+    const size = getTotalLocalStorageBytes()
+    return `${count} 个键值对，${formatStorageSize(size)} / 上限 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}`
   } catch {
     return UNAVAILABLE
   }
@@ -288,13 +288,11 @@ function detectSessionStorage(): string {
     let size = 0
     for (let i = 0; i < count; i++) {
       const key = storage.key(i)
-      if (key !== null) {
-        size += key.length * 2
-        const val = storage.getItem(key)
-        if (val !== null) size += val.length * 2
-      }
+      if (key === null) continue
+      const val = storage.getItem(key)
+      if (val) size += utf8ByteLength(val)
     }
-    return `${count} 个键值对，约 ${formatBytes(size)}`
+    return `${count} 个键值对，约 ${formatStorageSize(size)}`
   } catch {
     return UNAVAILABLE
   }
@@ -311,7 +309,15 @@ async function detectIndexedDB(): Promise<string> {
       .map((db) => db.name)
       .filter((name): name is string => typeof name === 'string')
     if (names.length === 0) return '无'
-    return `${names.length} 个数据库：${names.join('、')}`
+
+    const dataBytes = names.includes(DATA_DB_NAME)
+      ? await getTotalDataStorageBytes()
+      : 0
+    const sizeLabel =
+      dataBytes > 0 || names.includes(DATA_DB_NAME)
+        ? `，${formatStorageSize(dataBytes)} / 上限 ${formatStorageSize(DATA_CAPACITY_BYTES)}`
+        : ''
+    return `${names.length} 个数据库：${names.join('、')}${sizeLabel}`
   } catch {
     return UNAVAILABLE
   }
@@ -323,7 +329,7 @@ function detectCookies(): string {
     if (raw === undefined || raw === null) return UNAVAILABLE
     if (raw.length === 0) return '无'
     const pairs = raw.split(';').filter(Boolean)
-    return `${pairs.length} 个，约 ${formatBytes(raw.length * 2)}`
+    return `${pairs.length} 个，约 ${formatStorageSize(utf8ByteLength(raw))}`
   } catch {
     return UNAVAILABLE
   }
@@ -363,7 +369,7 @@ async function detectCacheSize(): Promise<string> {
         }
       }
     }
-    return `${formatBytes(total)}（${keys.length} 个缓存仓库）`
+    return `${formatStorageSize(total)}（${keys.length} 个缓存仓库）`
   } catch {
     return UNAVAILABLE
   }

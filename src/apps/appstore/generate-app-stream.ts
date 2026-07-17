@@ -1,4 +1,4 @@
-import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
+import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { estimatePromptTokens } from '../browser/estimate-token-usage.ts'
@@ -250,6 +250,11 @@ export async function generateAppHtmlStreaming(
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ]
+  const logSession = startAiEventLogSession(usageContext, {
+    model,
+    thinkingEnabled,
+    messages: eventMessages,
+  })
 
   try {
     await forEachStreamChunk(
@@ -262,7 +267,12 @@ export async function generateAppHtmlStreaming(
         }
         const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
         if (reasoning) {
+          logSession.markFirstToken()
           reasoningText += reasoning
+          logSession.update({
+            response: formatStreamEventResponse(reasoningText, contentText),
+            usage,
+          })
           emit()
           return
         }
@@ -270,7 +280,12 @@ export async function generateAppHtmlStreaming(
           return
         }
 
+        logSession.markFirstToken()
         contentText += content
+        logSession.update({
+          response: formatStreamEventResponse(reasoningText, contentText),
+          usage,
+        })
         emit()
       },
       options.signal,
@@ -278,14 +293,21 @@ export async function generateAppHtmlStreaming(
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
       recordAiTokenUsage(usageContext, usage)
-      if (contentText.trim() || reasoningText.trim()) {
-        recordAiEventLog(usageContext, {
-          model,
-          thinkingEnabled,
-          messages: eventMessages,
-          response: formatStreamEventResponse(reasoningText, contentText),
+      finishAiEventLogSession(logSession, usageContext, {
+        response: formatStreamEventResponse(reasoningText, contentText),
+        usage,
+        usageEstimated: !usage,
+        status: 'aborted',
+      })
+    } else {
+      const snapshot = logSession.snapshot()
+      if (snapshot) {
+        finishAiEventLogSession(logSession, usageContext, {
+          response: snapshot.response,
           usage,
-          status: 'aborted',
+          usageEstimated: !usage,
+          status: 'error',
+          errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
         })
       }
     }
@@ -293,18 +315,24 @@ export async function generateAppHtmlStreaming(
   }
 
   if (!contentText.trim()) {
+    finishAiEventLogSession(logSession, usageContext, {
+      response: formatStreamEventResponse(reasoningText, contentText),
+      usage,
+      usageEstimated: !usage,
+      status: 'error',
+      errorMessage: 'AI 未返回任何代码',
+    })
     throw new Error('AI 未返回任何代码')
   }
 
   emit(true)
 
   recordAiTokenUsage(usageContext, usage)
-  recordAiEventLog(usageContext, {
-    model,
-    thinkingEnabled,
-    messages: eventMessages,
+  finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,
+    usageEstimated: !usage,
+    status: 'success',
   })
 
   return ensureGeneratedAppTags(extractHtmlFromAiText(contentText), {

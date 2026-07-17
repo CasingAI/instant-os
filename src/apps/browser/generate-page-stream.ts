@@ -1,6 +1,6 @@
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from '../../ai/ai-thinking.ts'
-import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
+import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
@@ -340,6 +340,19 @@ export async function generatePageHtmlStreaming(
   const userPrompt = buildPageUserPrompt(context, allowAiRefuseSite)
   const log = createSafariAiLogger(context.url)
   const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt)
+  const usageContext = {
+    actor: 'browser' as const,
+    behavior: 'generate-page' as const,
+    behaviorLabel: '生成网页',
+  }
+  const logSession = startAiEventLogSession(usageContext, {
+    model,
+    thinkingEnabled: config.thinkingEnabled,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  })
 
   let text = ''
   let reasoningText = ''
@@ -424,7 +437,12 @@ export async function generatePageHtmlStreaming(
       }
 
       if (reasoning) {
+        logSession.markFirstToken()
         reasoningText += reasoning
+        logSession.update({
+          response: formatStreamEventResponse(reasoningText, text),
+          usage,
+        })
         emit()
         continue
       }
@@ -436,8 +454,13 @@ export async function generatePageHtmlStreaming(
         continue
       }
 
+      logSession.markFirstToken()
       log.delta(content)
       text += content
+      logSession.update({
+        response: formatStreamEventResponse(reasoningText, text),
+        usage,
+      })
       emit()
     }
 
@@ -452,23 +475,13 @@ export async function generatePageHtmlStreaming(
       completionTokens: liveUsage.completionTokens,
       totalTokens: liveUsage.totalTokens,
     }
-    recordAiTokenUsage(
-      { actor: 'browser', behavior: 'generate-page', behaviorLabel: '生成网页' },
-      usage,
-    )
-    recordAiEventLog(
-      { actor: 'browser', behavior: 'generate-page', behaviorLabel: '生成网页' },
-      {
-        model,
-        thinkingEnabled: config.thinkingEnabled,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        response: formatStreamEventResponse(reasoningText, text),
-        usage: finalUsage,
-      },
-    )
+    recordAiTokenUsage(usageContext, usage)
+    finishAiEventLogSession(logSession, usageContext, {
+      response: formatStreamEventResponse(reasoningText, text),
+      usage: finalUsage,
+      usageEstimated: !usage,
+      status: 'success',
+    })
 
     if (allowAiRefuseSite && isSiteNotFoundResponse(text)) {
       log.complete(text, '', finalUsage)
@@ -491,6 +504,23 @@ export async function generatePageHtmlStreaming(
     log.complete(text, html, finalUsage)
     return { html, usage: finalUsage }
   } catch (error) {
+    const snapshot = logSession.snapshot()
+    if (snapshot) {
+      finishAiEventLogSession(logSession, usageContext, {
+        response: snapshot.response,
+        usage:
+          snapshot.completionTokens !== undefined
+            ? {
+                promptTokens: snapshot.promptTokens ?? 0,
+                completionTokens: snapshot.completionTokens,
+                totalTokens: snapshot.totalTokens ?? snapshot.completionTokens,
+              }
+            : undefined,
+        usageEstimated: snapshot.usageEstimated,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+      })
+    }
     log.error(error)
     throw error
   }

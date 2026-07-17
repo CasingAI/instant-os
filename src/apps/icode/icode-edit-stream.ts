@@ -6,7 +6,7 @@ import {
   resolveAppGenerationThinkingEnabled,
   totalStreamTextLength,
 } from '../../ai/ai-thinking.ts'
-import { formatStreamEventResponse, recordAiEventLog } from '../../ai/ai-event-log.ts'
+import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
@@ -374,6 +374,11 @@ export async function generateIcodeHtmlEditsStreaming(
       content: typeof message.content === 'string' ? message.content : '',
     })),
   ]
+  const logSession = startAiEventLogSession(usageContext, {
+    model,
+    thinkingEnabled,
+    messages: eventMessages,
+  })
 
   try {
     await forEachStreamChunk(
@@ -386,7 +391,12 @@ export async function generateIcodeHtmlEditsStreaming(
         }
         const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
         if (reasoning) {
+          logSession.markFirstToken()
           reasoningText += reasoning
+          logSession.update({
+            response: formatStreamEventResponse(reasoningText, contentText),
+            usage,
+          })
           emit()
           return
         }
@@ -394,8 +404,13 @@ export async function generateIcodeHtmlEditsStreaming(
           return
         }
 
+        logSession.markFirstToken()
         contentText += content
         blockFeed.push(content)
+        logSession.update({
+          response: formatStreamEventResponse(reasoningText, contentText),
+          usage,
+        })
         emit()
       },
       options.signal,
@@ -403,17 +418,23 @@ export async function generateIcodeHtmlEditsStreaming(
   } catch (error) {
     if (isStreamAbortError(error, options.signal)) {
       recordAiTokenUsage(usageContext, usage)
-      if (contentText.trim() || reasoningText.trim()) {
-        recordAiEventLog(usageContext, {
-          model,
-          thinkingEnabled,
-          messages: eventMessages,
-          response: formatStreamEventResponse(reasoningText, contentText),
-          usage,
-          status: 'aborted',
-        })
-      }
+      finishAiEventLogSession(logSession, usageContext, {
+        response: formatStreamEventResponse(reasoningText, contentText),
+        usage,
+        usageEstimated: !usage,
+        status: 'aborted',
+      })
       throw new IcodeGenerationAbortedError()
+    }
+    const snapshot = logSession.snapshot()
+    if (snapshot) {
+      finishAiEventLogSession(logSession, usageContext, {
+        response: snapshot.response,
+        usage,
+        usageEstimated: !usage,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+      })
     }
     throw error
   }
@@ -425,12 +446,11 @@ export async function generateIcodeHtmlEditsStreaming(
   emit(true)
 
   recordAiTokenUsage(usageContext, usage)
-  recordAiEventLog(usageContext, {
-    model,
-    thinkingEnabled,
-    messages: eventMessages,
+  finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,
+    usageEstimated: !usage,
+    status: 'success',
   })
 
   const parsedEdits = parseAiderEditBlocks(contentText)

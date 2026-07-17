@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { BatteryIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { BatteryIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../ui/adaptive-action-menu.tsx'
+import { isNarrowWorkArea } from '../window/window-snap.ts'
 import { useAboutApp } from './about-app-context.tsx'
 import { getAppDefinition } from './app-registry.tsx'
 import { getThisDeviceAbout } from './builtin-app-about.ts'
 import { useMenuBar } from './menu-bar-context.tsx'
-import type { MenuDefinition, MenuItem } from './menu-bar-types.ts'
+import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
 import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
@@ -41,9 +43,223 @@ function appNameForWindow(appId: AppId, windowTitle: string): string {
 type MenuDropdownProps = {
   menu: MenuDefinition
   onClose: () => void
+  narrowLayout: boolean
 }
 
-function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
+function MenuDropdownAction({
+  item,
+  onClose,
+}: {
+  item: Extract<MenuItemLeaf, { type: 'action' }>
+  onClose: () => void
+}) {
+  return (
+    <button
+      type="button"
+      class="menu-bar__dropdown-item"
+      role="menuitem"
+      disabled={item.disabled}
+      onClick={() => {
+        if (item.disabled) {
+          return
+        }
+        item.onClick()
+        onClose()
+      }}
+    >
+      <span class="menu-bar__dropdown-label">{item.label}</span>
+      {item.shortcut ? <span class="menu-bar__shortcut">{item.shortcut}</span> : undefined}
+    </button>
+  )
+}
+
+function shouldUseMenuSheetLayout(): boolean {
+  if (isNarrowWorkArea()) {
+    return true
+  }
+  if (typeof window.matchMedia === 'function') {
+    return window.matchMedia('(pointer: coarse)').matches
+  }
+  return false
+}
+
+function useMenuBarNarrowLayout(): boolean {
+  const [narrowLayout, setNarrowLayout] = useState(() => shouldUseMenuSheetLayout())
+
+  useEffect(() => {
+    const update = () => {
+      setNarrowLayout(shouldUseMenuSheetLayout())
+    }
+
+    update()
+    window.addEventListener('resize', update)
+    const media = window.matchMedia('(pointer: coarse)')
+    media.addEventListener('change', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      media.removeEventListener('change', update)
+    }
+  }, [])
+
+  return narrowLayout
+}
+
+function toAdaptiveMenuItems(
+  items: MenuItemLeaf[],
+  onParentClose: () => void,
+): AdaptiveActionMenuItem[] {
+  return items.map((item) => {
+    if (item.type === 'separator') {
+      return { type: 'separator' }
+    }
+
+    return {
+      type: 'action',
+      label: item.label,
+      disabled: item.disabled,
+      shortcut: item.shortcut,
+      onClick: () => {
+        item.onClick()
+        onParentClose()
+      },
+    }
+  })
+}
+
+const MENU_SUBMENU_MIN_WIDTH = 180
+
+function submenuFitsInViewport(row: HTMLElement): boolean {
+  const rowRect = row.getBoundingClientRect()
+  const fitsRight = rowRect.right + MENU_SUBMENU_MIN_WIDTH + 8 <= window.innerWidth
+  const fitsLeft = rowRect.left - MENU_SUBMENU_MIN_WIDTH - 8 >= 0
+  return fitsRight || fitsLeft
+}
+
+function MenuDropdownSubmenu({
+  item,
+  onClose,
+  narrowLayout,
+}: {
+  item: Extract<MenuItem, { type: 'submenu' }>
+  onClose: () => void
+  narrowLayout: boolean
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [alignLeft, setAlignLeft] = useState(false)
+  const [forceSheet, setForceSheet] = useState(false)
+
+  useLayoutEffect(() => {
+    if (narrowLayout) {
+      setForceSheet(false)
+      return
+    }
+    const row = rowRef.current
+    if (!row) {
+      return
+    }
+    setForceSheet(!submenuFitsInViewport(row))
+  }, [narrowLayout, item.label])
+
+  const useSheet = narrowLayout || forceSheet
+
+  useEffect(() => {
+    if (useSheet || !open) {
+      return
+    }
+
+    const row = rowRef.current
+    const submenu = submenuRef.current
+    if (!row || !submenu) {
+      return
+    }
+
+    const rowRect = row.getBoundingClientRect()
+    const submenuRect = submenu.getBoundingClientRect()
+    const fitsRight = rowRect.right + submenuRect.width + 8 <= window.innerWidth
+    const fitsLeft = rowRect.left - submenuRect.width - 8 >= 0
+    setAlignLeft(!fitsRight && fitsLeft)
+
+    const defaultTop = -5
+    let top = defaultTop
+    const overflowBottom = rowRect.top + defaultTop + submenuRect.height - (window.innerHeight - 8)
+    if (overflowBottom > 0) {
+      top -= overflowBottom
+    }
+    const overflowTop = 8 - (rowRect.top + top)
+    if (overflowTop > 0) {
+      top += overflowTop
+    }
+    submenu.style.top = `${top}px`
+  }, [useSheet, open, item.items])
+
+  if (useSheet) {
+    return (
+      <>
+        <button
+          type="button"
+          class="menu-bar__dropdown-item menu-bar__dropdown-item--nav"
+          role="menuitem"
+          onClick={() => setSheetOpen(true)}
+        >
+          <span class="menu-bar__dropdown-label">{item.label}</span>
+          <span class="menu-bar__submenu-chevron" aria-hidden="true">
+            <ForwardIcon size={13} />
+          </span>
+        </button>
+        <AdaptiveActionMenu
+          open={sheetOpen}
+          title={item.label}
+          items={toAdaptiveMenuItems(item.items, onClose)}
+          narrowLayout
+          mount="portal"
+          cancelLabel="返回"
+          onClose={() => setSheetOpen(false)}
+        />
+      </>
+    )
+  }
+
+  return (
+    <div
+      ref={rowRef}
+      class={`menu-bar__submenu-row${open ? ' menu-bar__submenu-row--open' : ''}`}
+      role="none"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span class="menu-bar__dropdown-label">{item.label}</span>
+      <span class="menu-bar__submenu-chevron" aria-hidden="true">
+        ›
+      </span>
+      {open ? (
+        <div
+          ref={submenuRef}
+          class={`menu-bar__dropdown menu-bar__submenu${alignLeft ? ' menu-bar__submenu--left' : ''}`}
+          role="menu"
+          aria-label={item.label}
+        >
+          {item.items.map((subItem, index) => {
+            if (subItem.type === 'separator') {
+              return <div key={`sep-${index}`} class="menu-bar__separator" role="separator" />
+            }
+            return (
+              <MenuDropdownAction
+                key={`${item.label}-${subItem.label}`}
+                item={subItem}
+                onClose={onClose}
+              />
+            )
+          })}
+        </div>
+      ) : undefined}
+    </div>
+  )
+}
+
+function MenuDropdown({ menu, onClose, narrowLayout }: MenuDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -77,14 +293,6 @@ function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
     return () => window.removeEventListener('resize', adjustPosition)
   }, [menu])
 
-  const handleItemClick = (item: MenuItem) => {
-    if (item.type !== 'action' || item.disabled) {
-      return
-    }
-    item.onClick()
-    onClose()
-  }
-
   return (
     <div ref={dropdownRef} class="menu-bar__dropdown" role="menu" aria-label={menu.label}>
       {menu.items.map((item, index) => {
@@ -92,19 +300,18 @@ function MenuDropdown({ menu, onClose }: MenuDropdownProps) {
           return <div key={`sep-${index}`} class="menu-bar__separator" role="separator" />
         }
 
-        return (
-          <button
-            key={item.label}
-            type="button"
-            class="menu-bar__dropdown-item"
-            role="menuitem"
-            disabled={item.disabled}
-            onClick={() => handleItemClick(item)}
-          >
-            <span class="menu-bar__dropdown-label">{item.label}</span>
-            {item.shortcut && <span class="menu-bar__shortcut">{item.shortcut}</span>}
-          </button>
-        )
+        if (item.type === 'submenu') {
+          return (
+            <MenuDropdownSubmenu
+              key={item.label}
+              item={item}
+              onClose={onClose}
+              narrowLayout={narrowLayout}
+            />
+          )
+        }
+
+        return <MenuDropdownAction key={item.label} item={item} onClose={onClose} />
       })}
     </div>
   )
@@ -123,6 +330,7 @@ export function MenuBar() {
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
+  const narrowLayout = useMenuBarNarrowLayout()
   const now = useOsNowDate()
   const barRef = useRef<HTMLElement>(null)
   const leftRef = useRef<HTMLDivElement>(null)
@@ -167,7 +375,7 @@ export function MenuBar() {
         },
         {
           type: 'action',
-          label: '任务管理器',
+          label: '性能监视器',
           onClick: () => openApp('task-manager'),
         },
         {
@@ -359,7 +567,11 @@ export function MenuBar() {
             <InstantLogoIcon size={15} />
           </button>
           {openMenuLabel === APPLE_MENU_LABEL && (
-            <MenuDropdown menu={appleMenu} onClose={() => setOpenMenuLabel(undefined)} />
+            <MenuDropdown
+              menu={appleMenu}
+              narrowLayout={narrowLayout}
+              onClose={() => setOpenMenuLabel(undefined)}
+            />
           )}
         </div>
         {menus.length > 0 && (
@@ -381,7 +593,11 @@ export function MenuBar() {
                     {menu.label}
                   </button>
                   {openMenuLabel === menu.label && (
-                    <MenuDropdown menu={menu} onClose={() => setOpenMenuLabel(undefined)} />
+                    <MenuDropdown
+                      menu={menu}
+                      narrowLayout={narrowLayout}
+                      onClose={() => setOpenMenuLabel(undefined)}
+                    />
                   )}
                 </div>
               )

@@ -9,7 +9,7 @@ export const SYSTEM_DEADLOCK_DIALOG_COPY = {
   message:
     '有应用长时间未响应，如果问题持续，可以关闭未响应的程序。',
   continueWaiting: '稍后自行决定',
-  taskManager: '任务管理器',
+  taskManager: '性能监视器',
   closeApps: '关闭程序',
 } as const
 

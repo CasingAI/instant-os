@@ -72,7 +72,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   icode: { title: 'iCode', width: 1280, height: 720 },
   gomoku: { title: '五子棋', width: 760, height: 680 },
   'system-info': { title: '系统信息', width: 680, height: 480 },
-  'task-manager': { title: '任务管理器', width: 720, height: 520 },
+  'task-manager': { title: '性能监视器', width: 760, height: 560 },
   'event-log': { title: '事件日志', width: 900, height: 620 },
   keychain: { title: '钥匙串', width: 680, height: 560 },
 }

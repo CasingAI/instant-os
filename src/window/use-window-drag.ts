@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'preact/hooks'
 import {
   clampFloatingPosition,
   detectSnapTarget,
+  getSnapBounds,
   type SnapTarget,
 } from './window-snap.ts'
 
@@ -160,8 +161,15 @@ export function useWindowDrag(
         if (session?.phase === 'dragging') {
           const snapTarget = detectSnapTarget(upEvent.clientX, upEvent.clientY)
           if (snapTarget) {
+            // Drag writes left/top directly on the frame. If the snap target
+            // keeps the same y as React state (e.g. already under the menu bar),
+            // reconciliation skips updating `top` and the window stays shifted
+            // down. Sync DOM to snap bounds before state commit so y is correct.
+            const bounds = getSnapBounds(snapTarget)
+            applyPositionToFrame(session.frameEl, bounds.x, bounds.y)
             onSnap(windowId, snapTarget)
           } else if (session.moved) {
+            applyPositionToFrame(session.frameEl, session.lastX, session.lastY)
             onMove(windowId, session.lastX, session.lastY)
           }
         }

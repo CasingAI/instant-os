@@ -1,6 +1,6 @@
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
-import { recordAiEventLog } from './ai-event-log.ts'
+import { finishAiEventLogSession, startAiEventLogSession } from './ai-event-log.ts'
 import type { AiEventLogMessage } from './ai-event-log-types.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { snapshotFromOpenAiUsage } from './openai-usage.ts'
@@ -50,6 +50,21 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
   const idleTimeoutMs = options.idleTimeoutMs ?? 0
   const abortController = idleTimeoutMs > 0 ? new AbortController() : undefined
 
+  const eventMessages: AiEventLogMessage[] | undefined = options.usageContext
+    ? [
+        { role: 'system', content: options.system },
+        { role: 'user', content: options.user },
+        ...(options.followUp ?? []),
+      ]
+    : undefined
+  const logSession = options.usageContext && eventMessages
+    ? startAiEventLogSession(options.usageContext, {
+        model,
+        thinkingEnabled,
+        messages: eventMessages,
+      })
+    : undefined
+
   let idleTimer: ReturnType<typeof setTimeout> | undefined
 
   const resetIdleTimer = () => {
@@ -67,8 +82,8 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
   const clearIdleTimer = () => {
     if (idleTimer) {
       clearTimeout(idleTimer)
-      idleTimer = undefined
     }
+    idleTimer = undefined
   }
 
   try {
@@ -106,19 +121,29 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
       const { reasoning, content } = readStreamDelta(chunk.choices[0]?.delta)
       if (reasoning) {
+        logSession?.markFirstToken()
         options.onStreamActivity?.('reasoning')
         reasoningText += reasoning
         options.onReasoningChunk?.(reasoning, reasoningText)
+        logSession?.update({
+          response: formatStreamEventResponse(reasoningText, text),
+          usage,
+        })
         continue
       }
       if (!content) {
         continue
       }
 
+      logSession?.markFirstToken()
       options.onStreamActivity?.('content')
       text += content
       options.onChunk(content, text)
       finishReason = chunk.choices[0]?.finish_reason || finishReason
+      logSession?.update({
+        response: formatStreamEventResponse(reasoningText, text),
+        usage,
+      })
     }
 
     if (!text.trim()) {
@@ -126,19 +151,13 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     }
 
     const trimmed = text.trim()
-    if (options.usageContext) {
+    if (options.usageContext && logSession) {
       recordAiTokenUsage(options.usageContext, usage)
-      const messages: AiEventLogMessage[] = [
-        { role: 'system', content: options.system },
-        { role: 'user', content: options.user },
-        ...(options.followUp ?? []),
-      ]
-      recordAiEventLog(options.usageContext, {
-        model,
-        thinkingEnabled,
-        messages,
+      finishAiEventLogSession(logSession, options.usageContext, {
         response: formatStreamEventResponse(reasoningText, trimmed),
         usage,
+        usageEstimated: usage ? false : undefined,
+        status: 'success',
       })
     }
 
@@ -150,6 +169,26 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
     return trimmed
   } catch (error) {
+    if (options.usageContext && logSession) {
+      const snapshot = logSession.snapshot()
+      if (snapshot) {
+        finishAiEventLogSession(logSession, options.usageContext, {
+          response: snapshot.response,
+          usage:
+            snapshot.completionTokens !== undefined
+              ? {
+                  promptTokens: snapshot.promptTokens ?? 0,
+                  completionTokens: snapshot.completionTokens,
+                  totalTokens: snapshot.totalTokens ?? snapshot.completionTokens,
+                }
+              : undefined,
+          usageEstimated: snapshot.usageEstimated,
+          status: 'error',
+          errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+        })
+      }
+    }
+
     if (abortController?.signal.aborted && abortController.signal.reason instanceof Error) {
       throw abortController.signal.reason
     }

@@ -1,6 +1,6 @@
 import type OpenAI from 'openai'
 import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
-import { recordAiEventLog, toEventLogMessages } from '../../ai/ai-event-log.ts'
+import { finishAiEventLogSession, startAiEventLogSession, toEventLogMessages } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { recordOpenAiCompletionUsage, snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
@@ -246,6 +246,11 @@ export async function handleGeneratedAppAiRequest(
   const client = getOpenAiClient(config)
   const stream = body.stream === true
   const context = usageContext(appId, appName)
+  const logSession = startAiEventLogSession(context, {
+    model: config.defaultModel,
+    thinkingEnabled: config.thinkingEnabled,
+    messages: toEventLogMessages(messages),
+  })
 
   const sharedParams: OpenAI.Chat.ChatCompletionCreateParams = {
     model: config.defaultModel,
@@ -279,19 +284,23 @@ export async function handleGeneratedAppAiRequest(
 
         const delta = chunk.choices[0]?.delta?.content
         if (delta) {
+          logSession.markFirstToken()
           streamResponse += delta
+          logSession.update({
+            response: streamResponse,
+            usage: streamUsage,
+          })
         }
 
         chunkCount += 1
         postStreamChunk(target, appId, requestId, `data: ${JSON.stringify(chunk)}\n\n`)
       }
 
-      recordAiEventLog(context, {
-        model: config.defaultModel,
-        thinkingEnabled: config.thinkingEnabled,
-        messages: toEventLogMessages(messages),
+      finishAiEventLogSession(logSession, context, {
         response: streamResponse,
         usage: streamUsage,
+        usageEstimated: !streamUsage,
+        status: 'success',
       })
 
       postStreamChunk(target, appId, requestId, 'data: [DONE]\n\n')
@@ -306,10 +315,19 @@ export async function handleGeneratedAppAiRequest(
       model: config.defaultModel,
       thinkingEnabled: config.thinkingEnabled,
       messages: toEventLogMessages(messages),
+      session: logSession,
     })
     postResponse(target, appId, requestId, 200, JSON.stringify(response))
     aiDebugInfo(debug, `${LOG_PREFIX} response`, { appId, requestId })
   } catch (error) {
+    const snapshot = logSession.snapshot()
+    if (snapshot) {
+      finishAiEventLogSession(logSession, context, {
+        response: snapshot.response,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
+      })
+    }
     const message = error instanceof Error ? error.message : 'AI 请求失败'
     aiDebugError(debug, `${LOG_PREFIX} failed`, { appId, requestId, stream, message })
     if (stream) {
