@@ -1,3 +1,8 @@
+/**
+ * 外链 Bridge 宿主侧消息处理：握手、Storage Access、AI 代理授权与转发。
+ *
+ * 【实验性 · 未完成】外链应用平台仍是未完成的实验特性；行为与协议可能继续变动。
+ */
 import { hasOpenAiApiKey, readDefaultModelFriendlyName } from '../ai/openai-config.ts'
 import { handleGeneratedAppAiRequest } from '../apps/generated/handle-generated-app-ai-request.ts'
 import { isGeneratedAppAiRequestMessage } from '../apps/generated/generated-app-ai-types.ts'

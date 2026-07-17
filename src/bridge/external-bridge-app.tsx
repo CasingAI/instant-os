@@ -1,3 +1,8 @@
+/**
+ * 外链应用 Bridge UI：握手、账户/存储访问、AI 代理授权提示。
+ *
+ * 【实验性 · 未完成】整套外链应用平台（Bridge）仍是未完成的实验特性，请勿当作稳定产品面。
+ */
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { InstantLogoIcon } from '../icons/app-icons.tsx'

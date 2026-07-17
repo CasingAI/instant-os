@@ -111,6 +111,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
+  // 【实验性 · 未完成】语音识别；默认隐藏，见 experimental-settings-storage.speechApp
   withAbout({
     id: 'speech',
     name: '语音识别',

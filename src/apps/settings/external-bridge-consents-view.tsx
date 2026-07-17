@@ -1,3 +1,8 @@
+/**
+ * 设置 → 外链 AI 授权：管理外部应用经 Bridge 获得的 AI 代理同意记录。
+ *
+ * 【实验性 · 未完成】外链应用平台（Bridge）仍是未完成的实验特性。
+ */
 import { useEffect, useState } from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import {

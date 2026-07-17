@@ -115,11 +115,13 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
           </p>
 
           <div class="settings__developer-ext-section">
-            <h3 class="settings__section-title settings__section-title--minor">外链应用调试</h3>
+            {/* 【实验性 · 未完成】外链应用平台（Bridge）整条链路尚未定稿 */}
+            <h3 class="settings__section-title settings__section-title--minor">外链应用调试（实验性 · 未完成）</h3>
             <p class="settings__section-footnote settings__section-footnote--flush">
-              输入外链应用模板的本地开发地址（例如 extAppTemplate 的 pnpm dev），系统会读取
-              instant-os.manifest.json 并临时添加到桌面。在 Instant OS 内打开后将走宿主真实 AI，而非模板内的
-              Mock。
+              外链应用平台（Bridge）仍是未完成的实验特性。输入外链应用模板的本地开发地址（例如
+              extAppTemplate 的 pnpm
+              dev），系统会读取 instant-os.manifest.json 并临时添加到桌面。在 Instant OS
+              内打开后将走宿主真实 AI，而非模板内的 Mock。
             </p>
 
             <div class="settings__box">
@@ -204,8 +206,8 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
               onChange={handleToggleImmersiveChrome}
             />
             <DeveloperFeature
-              title="语音识别"
-              description="开启后，语音识别应用会出现在桌面和程序坞中。"
+              title="语音识别（实验性 · 未完成）"
+              description="未完成的实验特性。开启后，语音识别应用会出现在桌面和程序坞中；能力与产品定位均未定稿。"
               checked={speechApp}
               onChange={handleToggleSpeechApp}
             />

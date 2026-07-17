@@ -72,6 +72,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'ai-usage', label: 'AI 用量', Icon: AiUsagePaneIcon, route: { view: 'ai-usage' } },
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' } },
   {
+    // 【实验性 · 未完成】外链应用平台（Bridge）
     id: 'external-bridge-consent',
     label: '外链 AI 授权',
     Icon: ExternalBridgeConsentPaneIcon,

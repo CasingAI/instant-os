@@ -1,3 +1,9 @@
+/**
+ * 语音识别应用（Web Speech API 演示）。
+ *
+ * 【实验性 · 未完成】默认不出现在桌面/程序坞，需在「设置 → 开发者选项」开启；
+ * 能力、交互与产品定位均未定稿，请勿当作已完成的系统应用。
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { osNowDate } from '../../os/os-clock.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'

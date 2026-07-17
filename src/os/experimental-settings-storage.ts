@@ -3,7 +3,10 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 export type ExperimentalSettings = {
   /** Hide menu bar and window title bar in fullscreen; reveal near top edge. */
   fullscreenImmersiveChrome: boolean
-  /** Show speech recognition app on desktop and dock. */
+  /**
+   * Show speech recognition app on desktop and dock.
+   * 【实验性 · 未完成】语音识别仍是未完成的实验特性，默认关闭。
+   */
   speechApp: boolean
   /**
    * Run installed generated apps in a sandboxed iframe without same-origin (Blob URL load).

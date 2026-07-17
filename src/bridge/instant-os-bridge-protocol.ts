@@ -1,4 +1,10 @@
-/** 外链应用独立运行时，通过 iframe 加载宿主 /bridge 与主站通信。 */
+/**
+ * 外链应用独立运行时：通过 iframe 加载宿主 /bridge 与主站通信。
+ *
+ * 【实验性 · 未完成】外链应用平台（Bridge）仍是未完成的实验特性：协议、授权、跨站存储与
+ * 生产安装路径均可能继续变动，请勿当作稳定对外 API 依赖。相关入口见 bridge-entry、
+ * external-bridge-app、install-external-bridge-handler，以及设置中的外链调试 / 外链 AI 授权。
+ */
 
 export const EXTERNAL_BRIDGE_PATH = '/bridge' as const
 

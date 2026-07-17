@@ -22,7 +22,7 @@ export async function getThisDeviceAbout(): Promise<AboutAppContent> {
 
   return {
     title: 'Instant OS',
-    version: '版本 1.0.6',
+    version: '版本 1.1.0',
     icon: InstantLogoIcon,
     layout: 'about-this-device',
     specs: deviceSpecs,
@@ -31,7 +31,7 @@ export async function getThisDeviceAbout(): Promise<AboutAppContent> {
 
 export const INSTANT_ABOUT: AboutAppContent = {
   title: 'Instant OS',
-  version: '版本 1.0.6',
+  version: '版本 1.1.0',
   icon: InstantLogoIcon,
   paragraphs: [
     'Instant OS 是一个在浏览器中运行的 AI 桌面操作系统。它复刻经典 macOS / iOS 的视觉与交互，让你无需安装即可体验完整的「桌面 + 应用」环境。',
@@ -111,8 +111,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   calendar: {
     version: '拟物风月历',
     paragraphs: [
-      '月历应用仿早期 iOS Calendar 拟物风格，展示月视图与本地算定的二十四节气，并按月加载特殊日期短标记。',
-      '当代年份会纳入国庆、劳动节等固定节日，并在其余日期补充适量节日；不同时代口吻会有所不同。标记按月缓存；时间与系统「日期与时间」虚拟时钟一致。',
+      '月历应用仿早期 iOS Calendar 拟物风格，展示月视图与本地算定的二十四节气，并按月加载特殊日期短标记；时间与系统「日期与时间」虚拟时钟一致。',
+      '改系统时间（含古代或未来）会切换月历所处时代：当代年份会纳入国庆、劳动节等固定节日，不同时代口吻与节气语境也会随之变化。标记按月缓存。',
     ],
   },
   stocks: {
@@ -144,9 +144,9 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   speech: {
-    version: 'Web Speech API 语音识别测试',
+    version: '实验性 · 未完成',
     paragraphs: [
-      '语音识别是浏览器 Web Speech API（SpeechRecognition）的演示与测试工具。点击麦克风即可开始说话，识别结果与原始事件会实时显示。',
+      '语音识别是未完成的实验特性（默认需在「设置 → 开发者选项」开启），基于浏览器 Web Speech API（SpeechRecognition）的演示与测试工具。点击麦克风即可开始说话，识别结果与原始事件会实时显示。',
       '可调整识别语言、continuous 连续识别、interimResults 中间结果以及 maxAlternatives 候选数量。所有配置在开始识别后锁定，需停止后再修改。',
       '兼容性提示：Chrome / Edge 走 Google 识别服务，Safari 走 Apple，Firefox 通常不支持。需在 HTTPS 或 localhost 环境运行，并授予麦克风权限。识别依赖厂商云端服务，离线不可用。',
     ],
@@ -180,10 +180,10 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   help: {
-    version: '使用指南',
+    version: '系统 AI 使用指南',
     paragraphs: [
-      '帮助应用面向日常使用：用自然语言提问，助手会告诉你功能在哪里、该点什么、按什么顺序操作。',
-      '回答会尽量用菜单名与按钮文案指路，而不是讲内部实现细节。',
+      '帮助是 Instant OS 的重磅能力：用自然语言直接问当前系统有哪些功能、在哪里、怎么用。',
+      '助手会对照本机真实实现作答（可查阅源码快照与本地存储只读信息），再用菜单名、按钮文案与操作步骤指路，而不是堆内部实现细节。',
     ],
   },
 }

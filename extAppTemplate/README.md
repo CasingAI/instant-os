@@ -89,3 +89,7 @@ pnpm preview
 ## 部署
 
 将 `dist/` 目录部署到任意 HTTPS 静态托管，把 `instant-os.manifest.json` 的托管地址提供给 Instant OS 安装器即可。
+
+---
+
+**实验性 · 未完成**：外链应用平台（Bridge）仍是未完成的实验特性；协议、授权与安装路径可能继续变动，请勿当作稳定对外 API。

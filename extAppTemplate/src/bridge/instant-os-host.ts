@@ -1,3 +1,8 @@
+/**
+ * 外链应用侧与 Instant OS 宿主通信入口。
+ *
+ * 【实验性 · 未完成】外链应用平台（Bridge）仍是未完成的实验特性，请勿当作稳定 API。
+ */
 import {
   EXT_APP_ENTER_MESSAGE_TYPE,
   EXT_APP_MANIFEST_FORMAT,
