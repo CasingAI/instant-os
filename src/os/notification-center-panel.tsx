@@ -843,9 +843,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                   appNotifications.length === 0 &&
                   !processIsolationFallbackActive &&
                   !storageWarning ? (
-                    <div class="notification-center__empty-box">
-                      <p class="notification-center__empty">暂无通知</p>
-                    </div>
+                    <p class="notification-center__empty">暂无通知</p>
                   ) : (
                     <div class="notification-center__list">
                       {pendingInstalls.map((item) => (
