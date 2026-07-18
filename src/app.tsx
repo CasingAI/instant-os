@@ -3,6 +3,7 @@ import { useOpenAiReady } from './ai/use-openai-ready.ts'
 import {
   claimBootSplash,
   removeBootSplash,
+  setBootCursorHidden,
   startBootSplashColdExit,
 } from './os/boot-splash-host.ts'
 import {
@@ -72,6 +73,15 @@ export function App() {
       }, SETUP_ENTER_MS)
       return () => window.clearTimeout(timer)
     }
+  }, [bootPhase])
+
+  useEffect(() => {
+    const hideCursor =
+      bootPhase === 'booting' ||
+      bootPhase === 'cold-entering' ||
+      bootPhase === 'setup-boot-entering' ||
+      bootPhase === 'setup-entering'
+    setBootCursorHidden(hideCursor)
   }, [bootPhase])
 
   useEffect(() => {

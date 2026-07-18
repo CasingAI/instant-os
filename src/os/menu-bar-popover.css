@@ -25,6 +25,10 @@
   transform: translateX(-50%);
 }
 
+.menu-bar__popover--flush-bottom {
+  padding-bottom: 0;
+}
+
 .menu-bar__popover-heading {
   margin: 0 0 6px;
   padding: 0 14px;
@@ -131,6 +135,23 @@
 
 .menu-bar__popover-app:hover .menu-bar__popover-app-status {
   opacity: 0.85;
+}
+
+.menu-bar__popover-more {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  color: #007aff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0 0 6px 6px;
+}
+
+.menu-bar__popover-more:hover {
+  background: rgba(0, 122, 255, 0.08);
 }
 
 .menu-bar__popover-datetime {

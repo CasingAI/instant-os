@@ -36,6 +36,25 @@ function IconContextMenuHost({ hostRef }: IconContextMenuHostProps) {
         event.preventDefault()
         event.stopPropagation()
         setMenu({ x: event.clientX, y: event.clientY, items })
+
+        // macOS 触摸板右键在 <button> 上常会在 contextmenu 后再合成一次 click，
+        // 会误触发 Dock/桌面图标的打开逻辑；只吞掉落在原目标上的那一次。
+        const origin = event.target
+        if (!(origin instanceof Element)) {
+          return
+        }
+        const suppressSyntheticClick = (clickEvent: MouseEvent) => {
+          if (!(clickEvent.target instanceof Node) || !origin.contains(clickEvent.target)) {
+            return
+          }
+          clickEvent.preventDefault()
+          clickEvent.stopPropagation()
+          window.removeEventListener('click', suppressSyntheticClick, true)
+        }
+        window.addEventListener('click', suppressSyntheticClick, true)
+        window.setTimeout(() => {
+          window.removeEventListener('click', suppressSyntheticClick, true)
+        }, 500)
       },
     }
     return () => {

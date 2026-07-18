@@ -77,13 +77,36 @@ function renderHelpMarkdown(text: string): string {
   return wrapMarkdownTables(sanitized)
 }
 
+const STREAM_CARET =
+  '<span class="help-app__stream-caret" aria-hidden="true"></span>'
+
+/** 插进最后一个块级叶子节点末尾，让光标跟在文字后面而不是另起一行 */
+function appendStreamCaret(html: string): string {
+  if (!html) {
+    return STREAM_CARET
+  }
+
+  const leafClose =
+    /<\/(li|p|h[1-6]|td|th|pre|blockquote)>(?:\s*<\/[a-z0-9-]+>)*\s*$/i
+  const match = html.match(leafClose)
+  if (match?.index !== undefined) {
+    return `${html.slice(0, match.index)}${STREAM_CARET}${html.slice(match.index)}`
+  }
+
+  return `${html}${STREAM_CARET}`
+}
+
 type HelpMarkdownProps = {
   text: string
   class?: string
+  streaming?: boolean
 }
 
-export function HelpMarkdown({ text, class: className }: HelpMarkdownProps) {
-  const html = useMemo(() => renderHelpMarkdown(text), [text])
+export function HelpMarkdown({ text, class: className, streaming }: HelpMarkdownProps) {
+  const html = useMemo(() => {
+    const rendered = renderHelpMarkdown(text)
+    return streaming ? appendStreamCaret(rendered) : rendered
+  }, [text, streaming])
   if (!html) {
     return undefined
   }

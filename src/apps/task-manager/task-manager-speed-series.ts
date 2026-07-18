@@ -1,6 +1,6 @@
-export type SpeedSampleIntervalSec = 1 | 3 | 5
+export type SpeedSampleIntervalSec = 0.5 | 1 | 3 | 5
 
-export const SPEED_SAMPLE_INTERVALS: SpeedSampleIntervalSec[] = [1, 3, 5]
+export const SPEED_SAMPLE_INTERVALS: SpeedSampleIntervalSec[] = [0.5, 1, 3, 5]
 
 /** 折线最多保留的采样点数；超出后丢掉最旧的点。 */
 export const SPEED_SERIES_MAX_POINTS = 60

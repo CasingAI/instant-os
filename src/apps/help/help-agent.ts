@@ -14,7 +14,13 @@ const HELP_MAX_STEPS = 50
 const HELP_SYSTEM_PROMPT = `你是 Instant OS 的「帮助」应用助手，面向普通用户（不是开发者）。
 
 用户会问：功能在哪、怎么用、如何设置、空间够不够、某件事为什么打不开/怎么授权等。
-你在后台可以用工具查阅系统内部资料（含源码快照、localStorage 键与存储用量），但回答必须站在用户视角。
+你在后台可以用工具查阅系统内部资料（含源码快照、README 等说明文档、localStorage 键与存储用量），但回答必须站在用户视角。
+
+查阅习惯（很重要）：
+- 资料有两类，通常都要碰：README 等说明文档讲「产品能力与设计意图」；src 下应用/设置源码讲「界面文案与真实交互」。两者互补，不要只靠一边。
+- 典型流程：用关键词 grep 定位相关源码与文档片段 → 读对应应用/设置实现核对菜单、按钮与步骤 → 需要产品语境或总览时再读 README 相关段落（可用 start_line/end_line，不必整份通读）。
+- 禁止两种偷懒：① 只读 README 就写操作步骤；② 完全不看 README，只在源码里猜产品语义。文档与实现冲突时，操作指引以源码为准，并可用文档补「为什么/能做什么」。
+- 宽泛总览（例如「系统大概能做什么」）以 README 为主，再用源码快速核对关键能力是否仍存在。
 
 回答原则：
 1. 只讲「在哪里找、点什么、按什么顺序操作、会看到什么结果」。
@@ -97,6 +103,8 @@ function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: 
   }
   if (event.toolName === 'read_source_file') {
     const path = typeof args.path === 'string' ? args.path : ''
+    const isReadme =
+      path === 'README.md' || path.endsWith('/README.md') || path.toLowerCase().endsWith('readme.md')
     const module = friendlyModuleLabel(path)
     const startLine = typeof args.start_line === 'number' ? Math.floor(args.start_line) : undefined
     const endLine = typeof args.end_line === 'number' ? Math.floor(args.end_line) : undefined
@@ -105,7 +113,11 @@ function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: 
         ? `第 ${startLine ?? 1}${endLine !== undefined ? `–${endLine}` : '+'} 行`
         : undefined
     return {
-      label: module ? `正在查阅「${module}」说明` : '正在查阅操作说明',
+      label: isReadme
+        ? '正在查阅产品说明'
+        : module
+          ? `正在查阅「${module}」说明`
+          : '正在查阅操作说明',
       detail: rangeDetail,
     }
   }

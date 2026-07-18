@@ -26,6 +26,7 @@ import {
   type SpeedSampleIntervalSec,
 } from './task-manager-speed-series.ts'
 import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
+import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
 import './task-manager.css'
 
 const APP_ID = 'task-manager' as const
@@ -123,6 +124,7 @@ export function TaskManagerApp() {
   const [sampleIntervalSec, setSampleIntervalSec] = useState<SpeedSampleIntervalSec>(1)
   const [liveByActor, setLiveByActor] = useState<Map<string, LiveAppActivity>>(() => new Map())
   const speedSeries = useTaskManagerSpeedSeries(sampleIntervalSec)
+  const systemMetrics = useTaskManagerSystemMetrics(sampleIntervalSec)
 
   const refreshLiveActivity = useCallback(() => {
     setLiveByActor(collectLiveAppActivity())
@@ -288,121 +290,134 @@ export function TaskManagerApp() {
       </div>
 
       <div class="task-manager__tab-body">
-        {tab === 'performance' ? (
+        <section
+          class="task-manager__section task-manager__tab-panel"
+          hidden={tab !== 'programs'}
+          aria-hidden={tab !== 'programs'}
+        >
+          <h2 class="task-manager__section-title">正在运行的应用</h2>
+          <p class="task-manager__section-subtitle">
+            {runningApps.length === 0
+              ? '当前没有打开的应用'
+              : `共 ${runningApps.length} 个应用、${openWindowCount} 个窗口`}
+          </p>
+
+          {runningApps.length === 0 ? (
+            <p class="task-manager__empty">打开任意应用后，会显示在这里。</p>
+          ) : (
+            <div class="task-manager__table-wrap">
+              <table class="task-manager__table">
+                <thead>
+                  <tr>
+                    <th class="task-manager__th task-manager__th--name">名称</th>
+                    <th class="task-manager__th task-manager__th--status">状态</th>
+                    <th class="task-manager__th task-manager__th--ai">AI 速度</th>
+                    <th class="task-manager__th task-manager__th--windows">窗口</th>
+                    <th class="task-manager__th task-manager__th--action">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runningApps.map((entry) => {
+                    const builtin = !isGeneratedAppId(entry.appId) && !isExtAppId(entry.appId)
+                      ? getAppDefinition(entry.appId)
+                      : undefined
+                    const generated = isGeneratedAppId(entry.appId)
+                      ? getInstalledApp(entry.appId)
+                      : undefined
+                    const extApp = isExtAppId(entry.appId)
+                      ? getSessionExtApp(entry.appId)
+                      : undefined
+                    const Icon = builtin?.icon
+                    const isUnresponsive = entry.status === '未响应'
+                    const aiSpeed = entry.liveActivity
+                      ? formatTokensPerSecond(entry.liveActivity.tokensPerSecond)
+                      : '—'
+
+                    return (
+                      <tr
+                        key={entry.appId}
+                        class={`task-manager__tr${isUnresponsive ? ' task-manager__tr--unresponsive' : ''}`}
+                      >
+                        <td class="task-manager__td task-manager__td--name">
+                          <span class="task-manager__name-cell">
+                            <span class="task-manager__app-icon">
+                              {Icon ? (
+                                <Icon size={28} />
+                              ) : generated ? (
+                                <GeneratedAppIcon
+                                  emoji={generated.iconEmoji}
+                                  themeColor={generated.themeColor}
+                                  size={28}
+                                />
+                              ) : extApp ? (
+                                <ExtAppIcon
+                                  name={extApp.manifest.name}
+                                  themeColor={extApp.manifest.themeColor}
+                                  iconUrl={extApp.iconUrl}
+                                  size={28}
+                                  devBadge
+                                />
+                              ) : (
+                                <span aria-hidden="true">📱</span>
+                              )}
+                            </span>
+                            <span class="task-manager__name-text">{entry.name}</span>
+                          </span>
+                        </td>
+                        <td class="task-manager__td task-manager__td--status">{entry.status}</td>
+                        <td
+                          class={`task-manager__td task-manager__td--ai${entry.liveActivity ? ' task-manager__td--ai-live' : ''}`}
+                        >
+                          {aiSpeed}
+                        </td>
+                        <td class="task-manager__td task-manager__td--windows">
+                          {entry.windows.length}
+                        </td>
+                        <td class="task-manager__td task-manager__td--action">
+                          {entry.canEnd ? (
+                            <button
+                              type="button"
+                              class="task-manager__end-button"
+                              onClick={() => {
+                                closeWindowsForApp(entry.appId)
+                              }}
+                            >
+                              结束
+                            </button>
+                          ) : (
+                            <span class="task-manager__system-badge">系统</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {endableApps.length > 0 && (
+            <p class="task-manager__footnote">
+              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。
+            </p>
+          )}
+        </section>
+
+        <div
+          class="task-manager__tab-panel"
+          hidden={tab !== 'performance'}
+          aria-hidden={tab !== 'performance'}
+        >
           <TaskManagerPerformancePanel
             sampleIntervalSec={sampleIntervalSec}
             series={speedSeries}
+            fpsSeries={systemMetrics.fpsSeries}
+            memorySeries={systemMetrics.memorySeries}
+            latestFps={systemMetrics.latestFps}
+            memory={systemMetrics.memory}
+            memorySupported={systemMetrics.memorySupported}
           />
-        ) : (
-          <section class="task-manager__section">
-            <h2 class="task-manager__section-title">正在运行的应用</h2>
-            <p class="task-manager__section-subtitle">
-              {runningApps.length === 0
-                ? '当前没有打开的应用'
-                : `共 ${runningApps.length} 个应用、${openWindowCount} 个窗口`}
-            </p>
-
-            {runningApps.length === 0 ? (
-              <p class="task-manager__empty">打开任意应用后，会显示在这里。</p>
-            ) : (
-              <div class="task-manager__table-wrap">
-                <table class="task-manager__table">
-                  <thead>
-                    <tr>
-                      <th class="task-manager__th task-manager__th--name">名称</th>
-                      <th class="task-manager__th task-manager__th--status">状态</th>
-                      <th class="task-manager__th task-manager__th--ai">AI 速度</th>
-                      <th class="task-manager__th task-manager__th--windows">窗口</th>
-                      <th class="task-manager__th task-manager__th--action">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runningApps.map((entry) => {
-                      const builtin = !isGeneratedAppId(entry.appId) && !isExtAppId(entry.appId)
-                        ? getAppDefinition(entry.appId)
-                        : undefined
-                      const generated = isGeneratedAppId(entry.appId)
-                        ? getInstalledApp(entry.appId)
-                        : undefined
-                      const extApp = isExtAppId(entry.appId)
-                        ? getSessionExtApp(entry.appId)
-                        : undefined
-                      const Icon = builtin?.icon
-                      const isUnresponsive = entry.status === '未响应'
-                      const aiSpeed = entry.liveActivity
-                        ? formatTokensPerSecond(entry.liveActivity.tokensPerSecond)
-                        : '—'
-
-                      return (
-                        <tr
-                          key={entry.appId}
-                          class={`task-manager__tr${isUnresponsive ? ' task-manager__tr--unresponsive' : ''}`}
-                        >
-                          <td class="task-manager__td task-manager__td--name">
-                            <span class="task-manager__name-cell">
-                              <span class="task-manager__app-icon">
-                                {Icon ? (
-                                  <Icon size={28} />
-                                ) : generated ? (
-                                  <GeneratedAppIcon
-                                    emoji={generated.iconEmoji}
-                                    themeColor={generated.themeColor}
-                                    size={28}
-                                  />
-                                ) : extApp ? (
-                                  <ExtAppIcon
-                                    name={extApp.manifest.name}
-                                    themeColor={extApp.manifest.themeColor}
-                                    iconUrl={extApp.iconUrl}
-                                    size={28}
-                                    devBadge
-                                  />
-                                ) : (
-                                  <span aria-hidden="true">📱</span>
-                                )}
-                              </span>
-                              <span class="task-manager__name-text">{entry.name}</span>
-                            </span>
-                          </td>
-                          <td class="task-manager__td task-manager__td--status">{entry.status}</td>
-                          <td
-                            class={`task-manager__td task-manager__td--ai${entry.liveActivity ? ' task-manager__td--ai-live' : ''}`}
-                          >
-                            {aiSpeed}
-                          </td>
-                          <td class="task-manager__td task-manager__td--windows">
-                            {entry.windows.length}
-                          </td>
-                          <td class="task-manager__td task-manager__td--action">
-                            {entry.canEnd ? (
-                              <button
-                                type="button"
-                                class="task-manager__end-button"
-                                onClick={() => {
-                                  closeWindowsForApp(entry.appId)
-                                }}
-                              >
-                                结束
-                              </button>
-                            ) : (
-                              <span class="task-manager__system-badge">系统</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {endableApps.length > 0 && (
-              <p class="task-manager__footnote">
-                「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。
-              </p>
-            )}
-          </section>
-        )}
+        </div>
       </div>
     </div>
   )

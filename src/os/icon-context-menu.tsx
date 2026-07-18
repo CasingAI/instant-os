@@ -129,7 +129,31 @@ export function IconContextMenu({ x, y, items, onClose }: IconContextMenuProps) 
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // 触摸板右键常在 contextmenu 之后仍投递同一次手势的 pointerdown/up；
+    // 等本次指针抬起（或短暂超时）后再允许「点外部关闭」，避免菜单闪一下就消失。
+    let dismissArmed = false
+    let armTimer = 0
+
+    const armDismiss = () => {
+      if (dismissArmed) {
+        return
+      }
+      dismissArmed = true
+      window.removeEventListener('pointerup', armDismiss, true)
+      window.clearTimeout(armTimer)
+    }
+
+    armTimer = window.setTimeout(armDismiss, 50)
+    window.addEventListener('pointerup', armDismiss, true)
+
     const handlePointerDown = (event: PointerEvent) => {
+      if (!dismissArmed) {
+        return
+      }
+      // 只认主键；右键属于打开手势
+      if (event.button !== 0) {
+        return
+      }
       if (!menuRef.current?.contains(event.target as Node)) {
         onClose()
       }
@@ -142,6 +166,9 @@ export function IconContextMenu({ x, y, items, onClose }: IconContextMenuProps) 
     }
 
     const handleScroll = () => {
+      if (!dismissArmed) {
+        return
+      }
       onClose()
     }
 
@@ -149,6 +176,8 @@ export function IconContextMenu({ x, y, items, onClose }: IconContextMenuProps) 
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('scroll', handleScroll, true)
     return () => {
+      window.clearTimeout(armTimer)
+      window.removeEventListener('pointerup', armDismiss, true)
       window.removeEventListener('pointerdown', handlePointerDown)
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('scroll', handleScroll, true)

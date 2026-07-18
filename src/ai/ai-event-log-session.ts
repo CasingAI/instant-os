@@ -9,6 +9,7 @@ import type {
   AiEventLogRecord,
   AiEventLogStatus,
 } from './ai-event-log-types.ts'
+import { ensureTokenCharsRatioHydrated } from './token-chars-ratio.ts'
 
 export const AI_EVENT_LOG_CHANGED_EVENT = 'instant-os:ai-event-log-changed'
 
@@ -67,8 +68,9 @@ function scheduleDispatch(state: LiveSessionState, force = false): void {
 function estimateCompletionUsage(
   response: string,
   promptTokens: number | undefined,
+  model: string | undefined,
 ): TokenUsageSnapshot | undefined {
-  const completionTokens = response.trim() ? estimateTokensFromText(response) : 0
+  const completionTokens = response.trim() ? estimateTokensFromText(response, model) : 0
   if (completionTokens <= 0 && (promptTokens === undefined || promptTokens <= 0)) {
     return undefined
   }
@@ -187,6 +189,7 @@ export function startAiEventLogSession(
   }
   liveSessions.set(id, state)
   scheduleDispatch(state, true)
+  void ensureTokenCharsRatioHydrated()
 
   return {
     id,
@@ -219,6 +222,7 @@ export function startAiEventLogSession(
         const estimated = estimateCompletionUsage(
           current.record.response,
           current.record.promptTokens,
+          current.record.model,
         )
         if (estimated) {
           current.record.completionTokens = estimated.completionTokens

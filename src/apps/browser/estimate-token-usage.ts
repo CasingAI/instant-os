@@ -1,13 +1,21 @@
-/** 流式阶段用字符数粗估 token（HTML 混合内容约 3~4 字符 / token） */
-export function estimateTokensFromText(text: string): number {
+import { DEFAULT_CHARS_PER_TOKEN, getCharsPerToken } from '../../ai/token-chars-ratio.ts'
+
+/** 流式阶段用字符数粗估 token；有足够历史真实用量时按模型学习比例，否则回退约 3.5 字符 / token */
+export function estimateTokensFromText(text: string, model?: string): number {
   if (!text) {
     return 0
   }
-  return Math.max(1, Math.ceil(text.length / 3.5))
+  const charsPerToken = getCharsPerToken(model) || DEFAULT_CHARS_PER_TOKEN
+  return Math.max(1, Math.ceil(text.length / charsPerToken))
 }
 
-export function estimatePromptTokens(systemPrompt: string, userPrompt: string): number {
-  const content = estimateTokensFromText(systemPrompt) + estimateTokensFromText(userPrompt)
+export function estimatePromptTokens(
+  systemPrompt: string,
+  userPrompt: string,
+  model?: string,
+): number {
+  const content =
+    estimateTokensFromText(systemPrompt, model) + estimateTokensFromText(userPrompt, model)
   return content + 8
 }
 
@@ -22,8 +30,9 @@ export function buildLiveTokenUsage(
   promptTokens: number,
   completionText: string,
   estimated = true,
+  model?: string,
 ): LiveTokenUsage {
-  const completionTokens = estimateTokensFromText(completionText)
+  const completionTokens = estimateTokensFromText(completionText, model)
   return {
     promptTokens,
     completionTokens,

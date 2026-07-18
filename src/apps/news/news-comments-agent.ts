@@ -2,6 +2,7 @@ import { parseJsonFromAiText } from '../../ai/parse-json-response.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import { createNdjsonLineFeed, parseNdjsonLine } from '../../ai/parse-streaming-json.ts'
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
+import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import {
   buildLiveTokenUsage,
   estimatePromptTokens,
@@ -328,8 +329,9 @@ function recordEstimatedUsage(
   user: string,
   output: string,
 ): void {
-  const promptTokens = estimatePromptTokens(system, user)
-  const live = buildLiveTokenUsage(promptTokens, output, true)
+  const model = mergeOpenAiConfig().defaultModel
+  const promptTokens = estimatePromptTokens(system, user, model)
+  const live = buildLiveTokenUsage(promptTokens, output, true, model)
   recordNewsTokenUsage(kind, {
     promptTokens: live.promptTokens,
     completionTokens: live.completionTokens,
@@ -652,6 +654,7 @@ export function buildLiveCommentTokenUsage(
   user: string,
   output: string,
 ): LiveTokenUsage {
-  const promptTokens = estimatePromptTokens(system, user)
-  return buildLiveTokenUsage(promptTokens, output, true)
+  const model = mergeOpenAiConfig().defaultModel
+  const promptTokens = estimatePromptTokens(system, user, model)
+  return buildLiveTokenUsage(promptTokens, output, true, model)
 }

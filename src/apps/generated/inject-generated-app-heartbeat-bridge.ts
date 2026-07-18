@@ -14,14 +14,35 @@ function buildHeartbeatBridgeScript(appId: GeneratedAppId, windowId: string): st
   var MESSAGE_TYPE = ${messageTypeJson};
   var INTERVAL_MS = ${intervalMs};
 
+  function readHeapMemory() {
+    try {
+      var mem = performance.memory;
+      if (!mem || typeof mem.usedJSHeapSize !== 'number') {
+        return undefined;
+      }
+      return {
+        usedBytes: mem.usedJSHeapSize,
+        totalBytes: mem.totalJSHeapSize,
+        limitBytes: mem.jsHeapSizeLimit
+      };
+    } catch (error) {
+      return undefined;
+    }
+  }
+
   function sendHeartbeat() {
     try {
-      parent.postMessage({
+      var payload = {
         type: MESSAGE_TYPE,
         appId: APP_ID,
         windowId: WINDOW_ID,
         timestamp: Date.now()
-      }, '*');
+      };
+      var memory = readHeapMemory();
+      if (memory) {
+        payload.memory = memory;
+      }
+      parent.postMessage(payload, '*');
     } catch (error) {}
   }
 

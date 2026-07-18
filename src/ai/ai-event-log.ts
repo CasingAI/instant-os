@@ -16,6 +16,10 @@ import {
 } from './ai-event-log-session.ts'
 import type { AiEventLogInput, AiEventLogRecord } from './ai-event-log-types.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
+import {
+  observeTokenCharsRatioFromEventLog,
+  resetTokenCharsRatios,
+} from './token-chars-ratio.ts'
 
 export type {
   AiEventLogInput,
@@ -53,6 +57,7 @@ export function recordAiEventLog(context: AiUsageContext, input: AiEventLogInput
   void persistAiEventLog(context, input)
     .then((record) => {
       if (record) {
+        observeTokenCharsRatioFromEventLog(record)
         dispatchEventLogChanged()
       }
     })
@@ -98,6 +103,7 @@ export async function deleteAiEventLog(id: string): Promise<void> {
 
 export async function clearAiEventLog(): Promise<void> {
   await clearAiEventLogStore()
+  resetTokenCharsRatios()
   dispatchEventLogChanged()
 }
 

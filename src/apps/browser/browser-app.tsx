@@ -63,7 +63,6 @@ import {
 } from './browser-settings-storage.ts'
 import {
   addressBarDisplayUrl,
-  displayUrl,
   hostnameFromUrl,
   isSameSite,
   isStartPageUrl,
@@ -1304,13 +1303,14 @@ export function BrowserApp() {
     ]
   }, [bookmarkContextMenu, bumpBookmarksRevision, navigateActive, navigateInNewTab, setBookmarksOverflowOpen])
 
+  // 未聚焦且未勾选「完整网址」时只显示域名（与 Safari 一致）；聚焦后再展示可编辑的路径文本
   const addressValue = addressFocused
     ? inputUrl
     : onStartPage
       ? ''
       : alwaysShowFullUrl
         ? current.url
-        : inputUrl || current.title || displayUrl(current.url)
+        : hostnameFromUrl(current.url)
 
   const tabSummaries = useMemo(
     () =>

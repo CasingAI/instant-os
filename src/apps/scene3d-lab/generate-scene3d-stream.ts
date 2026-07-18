@@ -69,6 +69,7 @@ function pushUpdate(
   contentText: string,
   streamStarted: boolean,
   usage: TokenUsageSnapshot | undefined,
+  model: string,
 ) {
   const phase = resolveAppGenerationPhase(reasoningText, contentText, streamStarted)
   const textLength = totalStreamTextLength(reasoningText, contentText)
@@ -77,6 +78,7 @@ function pushUpdate(
     promptTokenEstimate,
     formatScene3dRawOutput(reasoningText, contentText),
     !usage,
+    model,
   )
   onUpdate({
     phase,
@@ -148,13 +150,13 @@ export async function generateScene3dHtmlStreaming(
   const physicsEnabled = options.physicsEnabled === true
   const systemPrompt = buildScene3dBuilderPrompt(physicsEnabled)
   const userMessage = buildScene3dUserMessage(userPrompt, physicsEnabled)
-  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userMessage)
+  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userMessage, model)
 
   let reasoningText = ''
   let contentText = ''
   let streamStarted = false
   let usage: TokenUsageSnapshot | undefined
-  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '')
+  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '', true, model)
   let lastEmitAt = 0
 
   const emit = (force = false) => {
@@ -164,7 +166,7 @@ export async function generateScene3dHtmlStreaming(
       return
     }
     lastEmitAt = now
-    pushUpdate(onUpdate, promptTokenEstimate, reasoningText, contentText, streamStarted, usage)
+    pushUpdate(onUpdate, promptTokenEstimate, reasoningText, contentText, streamStarted, usage, model)
   }
 
   onUpdate({
@@ -213,7 +215,7 @@ export async function generateScene3dHtmlStreaming(
     contentText: '',
     rawText: '',
     html: '',
-    usage: buildLiveTokenUsage(promptTokenEstimate, '', true),
+    usage: buildLiveTokenUsage(promptTokenEstimate, '', true, model),
     streamConnected: true,
   })
 
@@ -261,7 +263,12 @@ export async function generateScene3dHtmlStreaming(
 
     emit(true)
     liveUsage = finalizeTokenUsage(
-      buildLiveTokenUsage(promptTokenEstimate, formatScene3dRawOutput(reasoningText, contentText), !usage),
+      buildLiveTokenUsage(
+        promptTokenEstimate,
+        formatScene3dRawOutput(reasoningText, contentText),
+        !usage,
+        model,
+      ),
       usage,
     )
     const html = extractScene3dHtmlFromAiText(contentText)

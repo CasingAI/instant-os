@@ -1,3 +1,8 @@
+html.instant-boot-hide-cursor,
+html.instant-boot-hide-cursor * {
+  cursor: none !important;
+}
+
 .boot-root {
   position: relative;
   width: 100%;

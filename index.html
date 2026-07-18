@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="instant-boot-hide-cursor">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -21,6 +21,11 @@
         touch-action: manipulation;
       }
 
+      html.instant-boot-hide-cursor,
+      html.instant-boot-hide-cursor * {
+        cursor: none !important;
+      }
+
       #app {
         width: 100%;
         height: 100%;
@@ -30,6 +35,7 @@
         position: fixed;
         inset: 0;
         z-index: 2147483000;
+        cursor: none;
       }
 
       .instant-boot-splash__backdrop {

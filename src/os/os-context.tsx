@@ -447,10 +447,17 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     setWindows((current) => {
       let resized: WindowState | undefined
       const next = current.map((window) => {
-        if (window.id !== windowId || window.fullscreen || window.maximized) {
+        if (window.id !== windowId || window.fullscreen) {
           return window
         }
-        resized = { ...window, ...bounds }
+        resized = window.maximized
+          ? {
+              ...window,
+              ...bounds,
+              maximized: false,
+              restoredBounds: undefined,
+            }
+          : { ...window, ...bounds }
         return resized
       })
       if (resized) persistWindowSize(resized)

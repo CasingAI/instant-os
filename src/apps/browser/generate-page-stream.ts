@@ -339,7 +339,7 @@ export async function generatePageHtmlStreaming(
   const systemPrompt = buildPageBuilderPrompt(allowAiRefuseSite)
   const userPrompt = buildPageUserPrompt(context, allowAiRefuseSite)
   const log = createSafariAiLogger(context.url)
-  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt)
+  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt, model)
   const usageContext = {
     actor: 'browser' as const,
     behavior: 'generate-page' as const,
@@ -361,7 +361,7 @@ export async function generatePageHtmlStreaming(
   let lastRawEmitAt = 0
   let lastUsageEmitAt = 0
   let usage: TokenUsageSnapshot | undefined
-  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '')
+  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '', true, model)
 
   const emit = (force = false) => {
     // 节流必须用单调真实时钟：osNowMs() 在虚拟历史时间（公元 1970 前）下会恒小于初值 0，导致整段流式更新被吞掉
@@ -391,7 +391,7 @@ export async function generatePageHtmlStreaming(
     }
 
     if (usageDue) {
-      liveUsage = buildLiveTokenUsage(promptTokenEstimate, text, !usage)
+      liveUsage = buildLiveTokenUsage(promptTokenEstimate, text, !usage, model)
       lastUsageEmitAt = now
     }
 

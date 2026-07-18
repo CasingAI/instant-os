@@ -63,7 +63,10 @@ export function displayUrl(url: string): string {
   }
 }
 
-/** 地址栏展示文本：可切换缩略路径或含协议的完整网址。 */
+/**
+ * 地址栏可编辑文本：完整网址（含协议），或去掉协议的 host+path+query。
+ * 未聚焦时的域名缩略由调用方单独用 hostnameFromUrl 处理。
+ */
 export function addressBarDisplayUrl(url: string, showFullUrl: boolean): string {
   if (isStartPageUrl(url)) {
     return ''

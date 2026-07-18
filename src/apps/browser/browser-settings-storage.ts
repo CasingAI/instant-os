@@ -9,7 +9,7 @@ export type BrowserSettings = {
    * 关闭后与 Chrome 相同：全屏时工具栏自动隐藏，鼠标移到顶部才露出。
    */
   alwaysShowToolbarInFullscreen: boolean
-  /** 地址栏未编辑时始终显示含协议的完整网址。 */
+  /** 地址栏未聚焦时始终显示含协议的完整网址；关闭时仅显示域名。 */
   alwaysShowFullUrl: boolean
 }
 

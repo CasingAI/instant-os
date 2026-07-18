@@ -13,14 +13,14 @@ export const listSourceTreeTool = defineTool<{
 }>({
   name: 'list_source_tree',
   description:
-    '列出 Instant OS 源码快照中的文件路径。可用 prefix 限定目录（如 bridge、ai、apps/help），用 max_depth 限制相对深度。',
+    '列出 Instant OS 资料快照中的文件路径（含 src 源码、根目录 README 等说明文档、extAppTemplate）。可用 prefix 限定目录（如 src/apps/help、README.md、extAppTemplate），用 max_depth 限制相对深度。',
   parameters: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prefix: {
         type: 'string',
-        description: '可选路径前缀，例如 apps/help 或 bridge',
+        description: '可选路径前缀，例如 src/apps/help、src/bridge 或 README.md',
       },
       max_depth: {
         type: 'number',
@@ -47,7 +47,7 @@ export const readSourceFileTool = defineTool<{
 }>({
   name: 'read_source_file',
   description:
-    '按路径读取源码快照中的单个文件。路径相对于 src/，例如 bridge/external-bridge-app.tsx。可用 start_line / end_line（从 1 起，含两端）读取片段；若返回 truncated，请用更大的 start_line 继续读后半段。',
+    '按路径读取资料快照中的单个文件。路径相对于仓库根目录，例如 src/apps/settings/settings-app.tsx、README.md。可用 start_line / end_line（从 1 起，含两端）读取片段；若返回 truncated，请用更大的 start_line 继续读后半段。回答操作步骤时应核对应用/设置源码的界面文案；README 等文档用于产品能力与语境，宜按段落读取并与源码交叉验证。',
   parameters: {
     type: 'object',
     additionalProperties: false,
@@ -55,7 +55,7 @@ export const readSourceFileTool = defineTool<{
     properties: {
       path: {
         type: 'string',
-        description: '源码相对路径',
+        description: '相对仓库根的路径',
       },
       start_line: {
         type: 'number',
@@ -158,7 +158,7 @@ export const grepSourceTool = defineTool<{
 }>({
   name: 'grep_source',
   description:
-    '在源码快照中用正则搜索。返回路径、行号与行摘录。先用本工具定位，再用 read_source_file 阅读关键文件。',
+    '在资料快照中用正则搜索（源码与 Markdown 说明文档均在内）。返回路径、行号与行摘录。先用本工具定位，再用 read_source_file 阅读相关文件。',
   parameters: {
     type: 'object',
     additionalProperties: false,

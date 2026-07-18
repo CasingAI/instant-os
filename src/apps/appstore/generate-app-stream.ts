@@ -110,9 +110,10 @@ export function measureAppGenerationContextPayload(
   const isUpdate = context.update !== undefined
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
+  const model = mergeOpenAiConfig().defaultModel
   return {
     characters: systemPrompt.length + userPrompt.length + 8,
-    tokens: estimatePromptTokens(systemPrompt, userPrompt),
+    tokens: estimatePromptTokens(systemPrompt, userPrompt, model),
   }
 }
 

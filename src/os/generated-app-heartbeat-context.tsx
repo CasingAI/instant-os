@@ -10,6 +10,10 @@ import {
   isGeneratedAppHeartbeatMessage,
   type GeneratedAppHeartbeatPhase,
 } from '../apps/generated/generated-app-heartbeat-types.ts'
+import {
+  removeGeneratedAppHeapReport,
+  upsertGeneratedAppHeapReport,
+} from './generated-app-heap-reports.ts'
 import type { GeneratedAppId } from './types.ts'
 
 type HeartbeatSource = {
@@ -103,6 +107,7 @@ export function GeneratedAppHeartbeatProvider({ children }: { children: Componen
       if (!sourcesRef.current.delete(windowId)) {
         return
       }
+      removeGeneratedAppHeapReport(windowId)
       bumpRevision()
     },
     [bumpRevision],
@@ -133,6 +138,7 @@ export function GeneratedAppHeartbeatProvider({ children }: { children: Componen
       source.lastBeatAt = now
       source.consecutiveMisses = 0
       source.ready = false
+      removeGeneratedAppHeapReport(windowId)
       bumpRevision()
     },
     [bumpRevision],
@@ -193,6 +199,17 @@ export function GeneratedAppHeartbeatProvider({ children }: { children: Componen
 
       if (source.appId !== event.data.appId) {
         return
+      }
+
+      if (event.data.memory) {
+        upsertGeneratedAppHeapReport({
+          windowId: event.data.windowId,
+          appId: event.data.appId,
+          usedBytes: event.data.memory.usedBytes,
+          totalBytes: event.data.memory.totalBytes,
+          limitBytes: event.data.memory.limitBytes,
+          at: event.data.timestamp,
+        })
       }
 
       handleHeartbeat(event.data.windowId)

@@ -9,6 +9,7 @@ import {
 import { isOsClockAtLeastYearsAwayFromReal } from '../../os/os-clock.ts'
 import { createNdjsonLineFeed, parseNdjsonLine } from '../../ai/parse-streaming-json.ts'
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
+import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { estimatePromptTokens, buildLiveTokenUsage } from '../browser/estimate-token-usage.ts'
 import { recordNewsTokenUsage } from './news-token-usage.ts'
 import { buildNearbyTitlesContext, createArticleId, readNewsStore } from './news-storage.ts'
@@ -384,8 +385,9 @@ export async function generateArticlesForDateStreaming(
       throw new Error('AI 未生成任何新闻')
     }
 
-    const promptTokens = estimatePromptTokens(systemPrompt, userMessage)
-    const usage = buildLiveTokenUsage(promptTokens, text, true)
+    const model = mergeOpenAiConfig().defaultModel
+    const promptTokens = estimatePromptTokens(systemPrompt, userMessage, model)
+    const usage = buildLiveTokenUsage(promptTokens, text, true, model)
     recordNewsTokenUsage('article', {
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,
@@ -395,8 +397,9 @@ export async function generateArticlesForDateStreaming(
     return articles
   } catch (error) {
     if (articles.length > 0) {
-      const promptTokens = estimatePromptTokens(systemPrompt, userMessage)
-      const usage = buildLiveTokenUsage(promptTokens, '', true)
+      const model = mergeOpenAiConfig().defaultModel
+      const promptTokens = estimatePromptTokens(systemPrompt, userMessage, model)
+      const usage = buildLiveTokenUsage(promptTokens, '', true, model)
       recordNewsTokenUsage('article', {
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,

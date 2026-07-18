@@ -542,8 +542,18 @@
       '</div>'
   }
 
+  function restoreBootCursor() {
+    try {
+      var root = document.documentElement
+      if (root && root.classList) {
+        root.classList.remove('instant-boot-hide-cursor')
+      }
+    } catch (_e) {}
+  }
+
   function activate(primaryReason) {
     var message = safeString(primaryReason)
+    restoreBootCursor()
     if (state.activated) {
       try {
         renderCrashScreen(message)

@@ -9,7 +9,7 @@
   display: flex;
   flex-direction: column;
   isolation: isolate;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 8px;
   transform-origin: 50% 100%;
   background: #f5f5f5;
@@ -66,8 +66,7 @@
     transform 0.55s cubic-bezier(0.19, 1, 0.22, 1);
 }
 
-.window-frame--desktop-revealed .window-frame__titlebar,
-.window-frame--desktop-revealed .window-frame__content,
+.window-frame--desktop-revealed .window-frame__chrome,
 .window-frame--desktop-revealed .window-frame__resize-layer {
   pointer-events: none;
 }
@@ -186,6 +185,16 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.window-frame__chrome {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
 .window-frame__titlebar {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -231,7 +240,7 @@
   padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%);
   cursor: pointer;
   transition:
     filter 0.12s ease,
@@ -259,7 +268,7 @@
 .window-frame__control:hover {
   filter: brightness(0.94);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 30%),
     0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
@@ -333,7 +342,8 @@
 
 .window-frame__resize-layer {
   position: absolute;
-  inset: 0;
+  /* 向外扩展，让热区以边框为中心，少占标题栏/内容区 */
+  inset: -8px;
   z-index: 3000;
   pointer-events: none;
 }
@@ -346,33 +356,33 @@
 
 .window-frame__resize--n {
   top: 0;
-  left: 0;
-  right: 0;
-  height: 16px;
+  left: 20px;
+  right: 20px;
+  height: 10px;
   cursor: n-resize;
 }
 
 .window-frame__resize--s {
   bottom: 0;
-  left: 0;
-  right: 0;
-  height: 16px;
+  left: 20px;
+  right: 20px;
+  height: 10px;
   cursor: s-resize;
 }
 
 .window-frame__resize--e {
-  top: 0;
+  top: 20px;
   right: 0;
-  bottom: 0;
-  width: 16px;
+  bottom: 20px;
+  width: 10px;
   cursor: e-resize;
 }
 
 .window-frame__resize--w {
-  top: 0;
+  top: 20px;
   left: 0;
-  bottom: 0;
-  width: 16px;
+  bottom: 20px;
+  width: 10px;
   cursor: w-resize;
 }
 

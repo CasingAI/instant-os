@@ -5,10 +5,16 @@ import './menu-bar-popover.css'
 type MenuBarPopoverProps = {
   align?: 'left' | 'right' | 'center'
   label: string
+  flushBottom?: boolean
   children: ComponentChildren
 }
 
-export function MenuBarPopover({ align = 'left', label, children }: MenuBarPopoverProps) {
+export function MenuBarPopover({
+  align = 'left',
+  label,
+  flushBottom = false,
+  children,
+}: MenuBarPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -48,11 +54,12 @@ export function MenuBarPopover({ align = 'left', label, children }: MenuBarPopov
       : align === 'center'
         ? ' menu-bar__popover--center'
         : ''
+  const flushClass = flushBottom ? ' menu-bar__popover--flush-bottom' : ''
 
   return (
     <div
       ref={popoverRef}
-      class={`menu-bar__popover${alignClass}`}
+      class={`menu-bar__popover${alignClass}${flushClass}`}
       role="dialog"
       aria-label={label}
     >

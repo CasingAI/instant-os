@@ -557,6 +557,11 @@ export function MenuBar() {
     setOpenMenuLabel(undefined)
   }
 
+  const handleOpenTaskManager = () => {
+    openApp('task-manager')
+    setOpenMenuLabel(undefined)
+  }
+
   return (
     <header ref={barRef} class={`menu-bar${hidden ? ' menu-bar--hidden' : ''}`}>
       <div class="menu-bar__left" ref={leftRef}>
@@ -667,7 +672,11 @@ export function MenuBar() {
             <BatteryIcon levelPercent={battery?.levelPercent} charging={battery?.charging} />
           </button>
           {openMenuLabel === STATUS_BATTERY_LABEL && (
-            <BatteryStatusPanel battery={battery} onSelectWindow={handleSelectWindow} />
+            <BatteryStatusPanel
+              battery={battery}
+              onSelectWindow={handleSelectWindow}
+              onOpenTaskManager={handleOpenTaskManager}
+            />
           )}
         </div>
         <button

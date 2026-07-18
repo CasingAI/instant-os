@@ -5,10 +5,37 @@ import { zipSync } from 'fflate'
 
 const SNAPSHOT_URL = '/source-snapshot.zip'
 const SNAPSHOT_FILENAME = 'source-snapshot.zip'
-const INCLUDED_EXTENSIONS = new Set(['.ts', '.tsx', '.css', '.svg', '.json'])
+
+/** 纳入帮助/源码检索快照的文本类文件 */
+const INCLUDED_EXTENSIONS = new Set([
+  '.ts',
+  '.tsx',
+  '.css',
+  '.svg',
+  '.json',
+  '.md',
+  '.html',
+  '.txt',
+  '.mjs',
+  '.cjs',
+])
+
+/** 跳过体积大或与帮助无关的目录 */
+const SKIP_DIR_NAMES = new Set([
+  'node_modules',
+  'dist',
+  '.git',
+  '.cursor',
+  '.vscode',
+  '.idea',
+  'public',
+  'coverage',
+  'terminals',
+  'agent-transcripts',
+])
 
 function shouldIncludeFile(fileName: string): boolean {
-  if (fileName === '.DS_Store') {
+  if (fileName === '.DS_Store' || fileName.startsWith('.')) {
     return false
   }
   const dot = fileName.lastIndexOf('.')
@@ -18,11 +45,14 @@ function shouldIncludeFile(fileName: string): boolean {
   return INCLUDED_EXTENSIONS.has(fileName.slice(dot).toLowerCase())
 }
 
-function collectSourceFiles(srcRoot: string): Record<string, Uint8Array> {
+function collectSnapshotFiles(projectRoot: string): Record<string, Uint8Array> {
   const files: Record<string, Uint8Array> = {}
 
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
+      if (SKIP_DIR_NAMES.has(entry)) {
+        continue
+      }
       const fullPath = join(dir, entry)
       const stat = statSync(fullPath)
       if (stat.isDirectory()) {
@@ -32,17 +62,17 @@ function collectSourceFiles(srcRoot: string): Record<string, Uint8Array> {
       if (!stat.isFile() || !shouldIncludeFile(entry)) {
         continue
       }
-      const zipPath = relative(srcRoot, fullPath).split('\\').join('/')
+      const zipPath = relative(projectRoot, fullPath).split('\\').join('/')
       files[zipPath] = new Uint8Array(readFileSync(fullPath))
     }
   }
 
-  walk(srcRoot)
+  walk(projectRoot)
   return files
 }
 
-function buildSourceSnapshotZip(srcRoot: string): Uint8Array {
-  const files = collectSourceFiles(srcRoot)
+function buildSourceSnapshotZip(projectRoot: string): Uint8Array {
+  const files = collectSnapshotFiles(projectRoot)
   return zipSync(files, { level: 6 })
 }
 
@@ -66,7 +96,7 @@ export function sourceSnapshot(): Plugin {
         }
 
         try {
-          const zipBytes = buildSourceSnapshotZip(resolve(rootDir, 'src'))
+          const zipBytes = buildSourceSnapshotZip(rootDir)
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/zip')
           res.setHeader('Cache-Control', 'no-store')
@@ -77,7 +107,7 @@ export function sourceSnapshot(): Plugin {
       })
     },
     closeBundle() {
-      const zipBytes = buildSourceSnapshotZip(resolve(rootDir, 'src'))
+      const zipBytes = buildSourceSnapshotZip(rootDir)
       writeFileSync(resolve(outDir, SNAPSHOT_FILENAME), zipBytes)
     },
   }

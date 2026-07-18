@@ -46,7 +46,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
   const isAnchored = !window.fullscreen && (window.maximized || !!window.snap)
   const isDesktopRevealed = desktopRevealed && !window.minimized
   const canResize =
-    !window.fullscreen && !window.maximized && !window.minimized && !isDesktopRevealed
+    !window.fullscreen && !window.minimized && !isDesktopRevealed
   const getDragBounds = useCallback(
     () => ({
       x: window.x,
@@ -159,45 +159,47 @@ export function WindowFrame({ window }: WindowFrameProps) {
           focusWindow(window.id)
         }}
       >
-        <header
-          class="window-frame__titlebar"
-          onPointerDown={onTitlebarPointerDown}
-        >
-          <div class="window-frame__controls">
-            <button
-              type="button"
-              class="window-frame__control window-frame__control--close"
-              aria-label="关闭"
-              onClick={() => closeWindow(window.id)}
-            />
-            <button
-              type="button"
-              class="window-frame__control window-frame__control--minimize"
-              aria-label="最小化"
-              onClick={() => minimizeWindow(window.id)}
-            />
-            <button
-              type="button"
-              class="window-frame__control window-frame__control--fullscreen"
-              aria-label={window.fullscreen ? '退出全屏' : '全屏'}
-              onClick={() => toggleFullscreen(window.id)}
-            />
-          </div>
-          <span class="window-frame__title">{window.title}</span>
-        </header>
-        <div class="window-frame__content">
-          {!isActive && !isDesktopRevealed && (
-            <div class="window-frame__focus-catcher" aria-hidden="true" />
-          )}
-          <WindowModalProvider>
-            {isExtAppId(window.appId) ? (
-              <ExtApp appId={window.appId} windowId={window.id} />
-            ) : isGeneratedAppId(window.appId) ? (
-              <GeneratedApp appId={window.appId} windowId={window.id} />
-            ) : (
-              AppComponent && <AppComponent />
+        <div class="window-frame__chrome">
+          <header
+            class="window-frame__titlebar"
+            onPointerDown={onTitlebarPointerDown}
+          >
+            <div class="window-frame__controls">
+              <button
+                type="button"
+                class="window-frame__control window-frame__control--close"
+                aria-label="关闭"
+                onClick={() => closeWindow(window.id)}
+              />
+              <button
+                type="button"
+                class="window-frame__control window-frame__control--minimize"
+                aria-label="最小化"
+                onClick={() => minimizeWindow(window.id)}
+              />
+              <button
+                type="button"
+                class="window-frame__control window-frame__control--fullscreen"
+                aria-label={window.fullscreen ? '退出全屏' : '全屏'}
+                onClick={() => toggleFullscreen(window.id)}
+              />
+            </div>
+            <span class="window-frame__title">{window.title}</span>
+          </header>
+          <div class="window-frame__content">
+            {!isActive && !isDesktopRevealed && (
+              <div class="window-frame__focus-catcher" aria-hidden="true" />
             )}
-          </WindowModalProvider>
+            <WindowModalProvider>
+              {isExtAppId(window.appId) ? (
+                <ExtApp appId={window.appId} windowId={window.id} />
+              ) : isGeneratedAppId(window.appId) ? (
+                <GeneratedApp appId={window.appId} windowId={window.id} />
+              ) : (
+                AppComponent && <AppComponent />
+              )}
+            </WindowModalProvider>
+          </div>
         </div>
         {canResize && (
           <div class="window-frame__resize-layer" aria-hidden="true">

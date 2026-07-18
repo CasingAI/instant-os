@@ -43,7 +43,8 @@
 }
 
 .overlay-presence__backdrop:not(.overlay-presence__backdrop--exiting) {
-  animation: overlay-fade-in 0.18s ease;
+  /* both：挂载首帧即套用 from，避免手机 WebKit 先闪完整态再开启动画 */
+  animation: overlay-fade-in 0.18s ease both;
 }
 
 .overlay-presence__backdrop--exiting {
@@ -51,7 +52,7 @@
 }
 
 .overlay-presence__sheet:not(.overlay-presence__sheet--exiting) {
-  animation: overlay-sheet-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation: overlay-sheet-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 .overlay-presence__sheet--exiting {

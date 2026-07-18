@@ -449,8 +449,7 @@ function HelpLiveTimeline({
             key={item.id}
             class={`help-app__live-answer${item.done ? '' : ' help-app__live-answer--streaming'}`}
           >
-            <HelpMarkdown text={item.content} />
-            {!item.done ? <span class="help-app__stream-caret" aria-hidden="true" /> : undefined}
+            <HelpMarkdown text={item.content} streaming={!item.done} />
           </div>
         )
       })}

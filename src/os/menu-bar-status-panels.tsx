@@ -24,12 +24,19 @@ function windowStatusLabel(window: WindowState, activeWindowId: string | undefin
   return '后台'
 }
 
+const BATTERY_PANEL_APP_LIMIT = 5
+
 type BatteryStatusPanelProps = {
   battery: DeviceBattery | undefined
   onSelectWindow: (windowId: string) => void
+  onOpenTaskManager: () => void
 }
 
-export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPanelProps) {
+export function BatteryStatusPanel({
+  battery,
+  onSelectWindow,
+  onOpenTaskManager,
+}: BatteryStatusPanelProps) {
   const { windows, activeWindowId } = useOs()
   const { getInstalledApp } = useGeneratedApps()
   const { getSessionExtApp } = useDevExtApps()
@@ -49,9 +56,11 @@ export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPan
     }
     return aActive ? -1 : 1
   })
+  const visibleApps = runningApps.slice(0, BATTERY_PANEL_APP_LIMIT)
+  const hasMoreApps = runningApps.length > BATTERY_PANEL_APP_LIMIT
 
   return (
-    <MenuBarPopover align="right" label="电池与运行中的应用">
+    <MenuBarPopover align="right" label="电池与运行中的应用" flushBottom={hasMoreApps}>
       <p class="menu-bar__popover-heading">电池</p>
       <div class="menu-bar__popover-row">
         <span class="menu-bar__popover-row-label">电量</span>
@@ -75,51 +84,62 @@ export function BatteryStatusPanel({ battery, onSelectWindow }: BatteryStatusPan
       {runningApps.length === 0 ? (
         <p class="menu-bar__popover-empty">没有应用正在使用。</p>
       ) : (
-        runningApps.map((window) => {
-          const appId = window.appId as AppId
-          const isActive = window.id === activeWindowId && !window.minimized
-          const status = windowStatusLabel(window, activeWindowId)
-          const builtin = !isGeneratedAppId(appId) && !isExtAppId(appId) ? getAppDefinition(appId) : undefined
-          const generated = isGeneratedAppId(appId) ? getInstalledApp(appId) : undefined
-          const extApp = isExtAppId(appId) ? getSessionExtApp(appId) : undefined
-          const name = window.title || builtin?.name || generated?.name || extApp?.manifest.name || '应用'
-          const Icon = builtin?.icon
+        <>
+          {visibleApps.map((window) => {
+            const appId = window.appId as AppId
+            const isActive = window.id === activeWindowId && !window.minimized
+            const status = windowStatusLabel(window, activeWindowId)
+            const builtin = !isGeneratedAppId(appId) && !isExtAppId(appId) ? getAppDefinition(appId) : undefined
+            const generated = isGeneratedAppId(appId) ? getInstalledApp(appId) : undefined
+            const extApp = isExtAppId(appId) ? getSessionExtApp(appId) : undefined
+            const name = window.title || builtin?.name || generated?.name || extApp?.manifest.name || '应用'
+            const Icon = builtin?.icon
 
-          return (
+            return (
+              <button
+                key={window.id}
+                type="button"
+                class={`menu-bar__popover-app${isActive ? ' menu-bar__popover-app--active' : ''}`}
+                onClick={() => onSelectWindow(window.id)}
+              >
+                <span class="menu-bar__popover-app-icon">
+                  {Icon ? (
+                    <Icon size={24} />
+                  ) : generated ? (
+                    <GeneratedAppIcon
+                      emoji={generated.iconEmoji}
+                      themeColor={generated.themeColor}
+                      size={24}
+                    />
+                  ) : extApp ? (
+                    <ExtAppIcon
+                      name={extApp.manifest.name}
+                      themeColor={extApp.manifest.themeColor}
+                      iconUrl={extApp.iconUrl}
+                      size={24}
+                      devBadge
+                    />
+                  ) : (
+                    <span aria-hidden="true">📱</span>
+                  )}
+                </span>
+                <span class="menu-bar__popover-app-copy">
+                  <span class="menu-bar__popover-app-name">{name}</span>
+                  <span class="menu-bar__popover-app-status">{status}</span>
+                </span>
+              </button>
+            )
+          })}
+          {hasMoreApps && (
             <button
-              key={window.id}
               type="button"
-              class={`menu-bar__popover-app${isActive ? ' menu-bar__popover-app--active' : ''}`}
-              onClick={() => onSelectWindow(window.id)}
+              class="menu-bar__popover-more"
+              onClick={onOpenTaskManager}
             >
-              <span class="menu-bar__popover-app-icon">
-                {Icon ? (
-                  <Icon size={24} />
-                ) : generated ? (
-                  <GeneratedAppIcon
-                    emoji={generated.iconEmoji}
-                    themeColor={generated.themeColor}
-                    size={24}
-                  />
-                ) : extApp ? (
-                  <ExtAppIcon
-                    name={extApp.manifest.name}
-                    themeColor={extApp.manifest.themeColor}
-                    iconUrl={extApp.iconUrl}
-                    size={24}
-                    devBadge
-                  />
-                ) : (
-                  <span aria-hidden="true">📱</span>
-                )}
-              </span>
-              <span class="menu-bar__popover-app-copy">
-                <span class="menu-bar__popover-app-name">{name}</span>
-                <span class="menu-bar__popover-app-status">{status}</span>
-              </span>
+              打开性能监视器
             </button>
-          )
-        })
+          )}
+        </>
       )}
     </MenuBarPopover>
   )
