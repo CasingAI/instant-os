@@ -522,6 +522,8 @@
   display: flex;
   align-items: stretch;
   flex-shrink: 0;
+  container-type: size;
+  container-name: tm-chart;
 }
 
 .task-manager__chart-unavailable {
@@ -557,9 +559,10 @@
   stroke-dasharray: 4 3;
 }
 
+/* 按 viewBox meet 缩放连续补偿（分子须带长度单位，否则 calc 无效会回退变小） */
 .task-manager__chart-axis {
   fill: #777;
-  font-size: 11px;
+  font-size: calc(15px * max(960px / 100cqi, 280px / 100cqh));
   font-family: var(--app-text-font-family);
 }
 

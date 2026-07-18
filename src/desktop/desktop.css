@@ -75,6 +75,9 @@
   width: 96px;
   color: var(--desktop-label-color, #fff);
   text-shadow: var(--desktop-label-shadow, 0 1px 3px rgba(0, 0, 0, 0.45));
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
   user-select: none;
   touch-action: none;
 }

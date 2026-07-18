@@ -36,7 +36,10 @@ import {
 const LOG_LIMIT = 200
 const CHART_VIEW_WIDTH = 960
 const CHART_VIEW_HEIGHT = 280
-const CHART_PADDING = { top: 16, right: 16, bottom: 20, left: 56 }
+/** 左侧留给轴标签；窄屏字号按 viewBox 放大后仍需足够边距 */
+const CHART_PADDING = { top: 16, right: 16, bottom: 20, left: 72 }
+const CHART_PLOT_LEFT = CHART_PADDING.left
+const CHART_AXIS_LABEL_X = CHART_PADDING.left - 6
 
 type PerfCategory = 'ai' | 'fps' | 'memory'
 
@@ -175,7 +178,7 @@ export function TaskManagerPerformancePanel({
           analysis.sampleCount > 0 ? ` · 历史可分析 ${analysis.sampleCount} 条` : ''
         }`
       : category === 'fps'
-        ? '主线程动画帧速率'
+        ? '主线程动画帧速率（与屏幕标称刷新率可能不同）'
         : !memorySupported
           ? '当前浏览器不支持读取 JS 堆内存'
           : isolationActive
@@ -498,7 +501,7 @@ export function TaskManagerPerformancePanel({
             {category === 'ai'
               ? `打开性能监视器后即按间隔写入速度点；无生成时记 0。菜单栏「视图」可切换 0.5 / 1 / 3 / 5 秒，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
               : category === 'fps'
-                ? `帧率由主线程动画帧推算；折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
+                ? `帧率由主线程动画帧推算，部分浏览器会把页面更新锁在约 60，即使屏幕是 120；拖动等合成器动画仍可能更顺。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
                 : memorySupported
                   ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。折线为去重后的独立堆之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
                   : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'}
@@ -537,16 +540,17 @@ function MetricChart({
         <g key={`tick-${tick.value}`}>
           <line
             class={`task-manager__chart-grid${tick.value === 0 ? ' task-manager__chart-grid--baseline' : ''}${tickClassPeak && tick.value === chart.axisMax ? ' task-manager__chart-grid--peak' : ''}`}
-            x1="56"
+            x1={CHART_PLOT_LEFT}
             y1={tick.y}
             x2={CHART_VIEW_WIDTH - 16}
             y2={tick.y}
           />
           <text
             class={`task-manager__chart-axis${tickClassPeak && tick.value === chart.axisMax ? ' task-manager__chart-axis--peak' : ''}`}
-            x="50"
-            y={tick.y + 3.5}
+            x={CHART_AXIS_LABEL_X}
+            y={tick.y}
             text-anchor="end"
+            dominant-baseline="middle"
           >
             {tick.label}
           </text>

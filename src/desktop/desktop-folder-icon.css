@@ -16,6 +16,16 @@
     0 3px 8px rgba(0, 0, 0, 0.28);
 }
 
+button:active:not(:disabled) .desktop-folder-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+  z-index: 6;
+}
+
 .desktop-folder-icon__well {
   position: absolute;
   z-index: 1;
@@ -106,7 +116,7 @@
 }
 
 .desktop-folder-icon__icon--pending {
-  opacity: 0;
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .desktop-folder-mini-icon-capture-host {

@@ -19,11 +19,14 @@ body,
   background: #000;
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   font-family: var(--app-text-font-family);
   -webkit-font-smoothing: antialiased;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -34,6 +37,13 @@ button {
   background: none;
   padding: 0;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(0, 122, 255, 0.85);
+  outline-offset: 2px;
 }
 
 code {

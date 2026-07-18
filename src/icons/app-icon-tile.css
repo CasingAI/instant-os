@@ -14,6 +14,22 @@
     0 4px 8px rgba(0, 0, 0, 0.35);
 }
 
+/* iOS-like press dim — shown while a parent button is held */
+.app-icon-tile__tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+button:active:not(:disabled) .app-icon-tile__tile::after {
+  opacity: 1;
+}
+
 .app-icon-tile__gloss {
   position: absolute;
   top: 0;
