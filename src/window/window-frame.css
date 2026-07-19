@@ -319,6 +319,12 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
+.window-frame__title-prefix {
+  font-weight: 500;
+  color: #8a8a8a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
 .window-frame__title-trailing {
   justify-self: end;
   min-width: 0;

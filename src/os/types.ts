@@ -54,6 +54,8 @@ export type WindowState = {
   documentId?: string
   /** 文档有未保存更改时，标题栏右侧显示「已编辑」 */
   documentEdited?: boolean
+  /** 文档只读时，标题前显示淡色「只读 - 」前缀 */
+  documentReadOnly?: boolean
   minimized: boolean
   maximized: boolean
   snap?: WindowSnap

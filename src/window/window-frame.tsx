@@ -184,7 +184,12 @@ export function WindowFrame({ window }: WindowFrameProps) {
                 onClick={() => toggleFullscreen(window.id)}
               />
             </div>
-            <span class="window-frame__title">{window.title}</span>
+            <span class="window-frame__title">
+              {window.documentReadOnly ? (
+                <span class="window-frame__title-prefix">只读 - </span>
+              ) : undefined}
+              {window.title}
+            </span>
             <span class="window-frame__title-trailing" aria-live="polite">
               {window.documentEdited ? '已编辑' : ''}
             </span>

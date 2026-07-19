@@ -52,6 +52,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     setWindowTitle,
     setWindowDocumentId,
     setWindowDocumentEdited,
+    setWindowDocumentReadOnly,
     closeWindow,
     closeWindowsForApp,
     minimizeWindow,
@@ -115,9 +116,10 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
       setWindowDocumentId(windowId, path)
       setWindowTitle(windowId, nextNode.name)
       setWindowDocumentEdited(windowId, false)
+      setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(nextNode))
       setReady(true)
     },
-    [setWindowDocumentEdited, setWindowDocumentId, setWindowTitle, windowId],
+    [setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId],
   )
 
   const loadDocument = useCallback(
@@ -163,6 +165,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
       setWindowDocumentId(windowId, nextPath)
       setWindowTitle(windowId, updated.name)
       setWindowDocumentEdited(windowId, false)
+      setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(updated))
       return true
     } catch (err) {
       await modal.alert({
@@ -174,7 +177,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     } finally {
       setLoading(false)
     }
-  }, [modal, setWindowDocumentEdited, setWindowDocumentId, setWindowTitle, windowId])
+  }, [modal, setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId])
 
   const askDirtyChoice = useCallback((): Promise<DirtyChoice> => {
     if (!dirtyRef.current) return Promise.resolve('discard')
@@ -206,6 +209,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
       if (presentation === 'host') {
         setWindowTitle(windowId, OPEN_TITLE)
         setWindowDocumentEdited(windowId, false)
+        setWindowDocumentReadOnly(windowId, false)
       }
       const picked = await showSystemOpenDialog({
         title: OPEN_TITLE,
@@ -217,16 +221,25 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
       if (!picked) {
         if (presentation === 'host' && !nodeRef.current) {
           setWindowTitle(windowId, DEFAULT_TITLE)
+          setWindowDocumentReadOnly(windowId, false)
         } else if (nodeRef.current) {
           setWindowTitle(windowId, nodeRef.current.name)
           setWindowDocumentEdited(windowId, dirtyRef.current)
+          setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(nodeRef.current))
         }
         return false
       }
       const path = await resolveFilesAbsolutePath(picked)
       return loadDocument(path)
     },
-    [loadDocument, setWindowDocumentEdited, setWindowTitle, showSystemOpenDialog, windowId],
+    [
+      loadDocument,
+      setWindowDocumentEdited,
+      setWindowDocumentReadOnly,
+      setWindowTitle,
+      showSystemOpenDialog,
+      windowId,
+    ],
   )
 
   useEffect(() => {
@@ -240,6 +253,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         if (!ok) {
           setWindowTitle(windowId, OPEN_TITLE)
           setWindowDocumentEdited(windowId, false)
+          setWindowDocumentReadOnly(windowId, false)
           const picked = await pickAndOpen('host')
           if (!mountedRef.current) return
           if (!picked) {
@@ -252,6 +266,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
 
       setWindowTitle(windowId, OPEN_TITLE)
       setWindowDocumentEdited(windowId, false)
+      setWindowDocumentReadOnly(windowId, false)
       const picked = await pickAndOpen('host')
       if (!mountedRef.current) return
       if (!picked) {
@@ -266,6 +281,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     pendingDocumentId,
     pickAndOpen,
     setWindowDocumentEdited,
+    setWindowDocumentReadOnly,
     setWindowTitle,
     windowId,
   ])

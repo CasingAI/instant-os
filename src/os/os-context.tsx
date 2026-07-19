@@ -61,6 +61,7 @@ type OsContextValue = {
   setWindowTitle: (windowId: string, title: string) => void
   setWindowDocumentId: (windowId: string, documentId: string | undefined) => void
   setWindowDocumentEdited: (windowId: string, edited: boolean) => void
+  setWindowDocumentReadOnly: (windowId: string, readOnly: boolean) => void
   closeProcessIsolatedApps: () => void
 }
 
@@ -367,6 +368,18 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       }
       return current.map((window) =>
         window.id === windowId ? { ...window, documentEdited: edited } : window,
+      )
+    })
+  }, [])
+
+  const setWindowDocumentReadOnly = useCallback((windowId: string, readOnly: boolean) => {
+    setWindows((current) => {
+      const target = current.find((window) => window.id === windowId)
+      if (!target || target.documentReadOnly === readOnly) {
+        return current
+      }
+      return current.map((window) =>
+        window.id === windowId ? { ...window, documentReadOnly: readOnly } : window,
       )
     })
   }, [])
@@ -947,9 +960,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setWindowTitle,
       setWindowDocumentId,
       setWindowDocumentEdited,
+      setWindowDocumentReadOnly,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])
