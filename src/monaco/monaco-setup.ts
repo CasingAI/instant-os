@@ -4,6 +4,7 @@ import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import * as monaco from 'monaco-editor'
+import { registerMonacoThemes } from './monaco-themes.ts'
 import { ensureMonacoTypescriptDefaults } from './monaco-typescript.ts'
 
 let configured = false
@@ -33,6 +34,7 @@ export function ensureMonacoEnvironment(): void {
     },
   }
 
+  registerMonacoThemes()
   ensureMonacoTypescriptDefaults()
 }
 

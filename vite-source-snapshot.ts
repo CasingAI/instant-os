@@ -38,6 +38,10 @@ function shouldIncludeFile(fileName: string): boolean {
   if (fileName === '.DS_Store' || fileName.startsWith('.')) {
     return false
   }
+  // MIT 等无扩展名许可证文件也要进 /system，供「关于本机」等打开
+  if (fileName === 'LICENSE' || fileName === 'LICENCE') {
+    return true
+  }
   const dot = fileName.lastIndexOf('.')
   if (dot < 0) {
     return false

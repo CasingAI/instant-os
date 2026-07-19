@@ -1,5 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
-import type { MonacoEditorTheme } from '../../monaco/monaco-editor.tsx'
+import { isMonacoEditorTheme, type MonacoEditorTheme } from '../../monaco/monaco-themes.ts'
 
 export type VscodePrefs = {
   theme: MonacoEditorTheme
@@ -17,7 +17,7 @@ export type VscodePrefs = {
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodePrefs
 
 const DEFAULT_PREFS: VscodePrefs = {
-  theme: 'vs-dark',
+  theme: 'dark-plus',
   fontSize: 13,
   minimap: true,
   wordWrap: true,
@@ -45,7 +45,7 @@ export function loadVscodePrefs(): VscodePrefs {
     if (!raw) return { ...DEFAULT_PREFS }
     const parsed = JSON.parse(raw) as Partial<VscodePrefs>
     return {
-      theme: parsed.theme === 'vs' || parsed.theme === 'hc-black' ? parsed.theme : 'vs-dark',
+      theme: isMonacoEditorTheme(parsed.theme) ? parsed.theme : DEFAULT_PREFS.theme,
       fontSize: typeof parsed.fontSize === 'number' ? clamp(parsed.fontSize, 10, 24) : DEFAULT_PREFS.fontSize,
       minimap: parsed.minimap !== false,
       wordWrap: parsed.wordWrap !== false,

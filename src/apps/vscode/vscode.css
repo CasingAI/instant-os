@@ -48,6 +48,60 @@
   --vscode-welcome: #000000;
 }
 
+.vscode--theme-dark-plus {
+  --vscode-bg: #1e1e1e;
+  --vscode-sidebar: #252526;
+  --vscode-activity: #333333;
+  --vscode-border: #3c3c3c;
+  --vscode-text: #cccccc;
+  --vscode-muted: #858585;
+  --vscode-tab: #2d2d2d;
+  --vscode-tab-active: #1e1e1e;
+  --vscode-status: #007acc;
+  --vscode-welcome: #252526;
+}
+
+.vscode--theme-light-plus {
+  --vscode-bg: #ffffff;
+  --vscode-sidebar: #f3f3f3;
+  --vscode-activity: #e8e8e8;
+  --vscode-border: #e7e7e7;
+  --vscode-text: #616161;
+  --vscode-muted: #6e6e6e;
+  --vscode-tab: #ececec;
+  --vscode-tab-active: #ffffff;
+  --vscode-status: #007acc;
+  --vscode-welcome: #f3f3f3;
+}
+
+.vscode--theme-dark-modern {
+  --vscode-bg: #1f1f1f;
+  --vscode-sidebar: #181818;
+  --vscode-activity: #181818;
+  --vscode-border: #2b2b2b;
+  --vscode-text: #cccccc;
+  --vscode-muted: #9d9d9d;
+  --vscode-tab: #181818;
+  --vscode-tab-active: #1f1f1f;
+  --vscode-status: #0078d4;
+  --vscode-welcome: #181818;
+  --vscode-accent: #0078d4;
+}
+
+.vscode--theme-light-modern {
+  --vscode-bg: #ffffff;
+  --vscode-sidebar: #f8f8f8;
+  --vscode-activity: #f8f8f8;
+  --vscode-border: #e5e5e5;
+  --vscode-text: #3b3b3b;
+  --vscode-muted: #616161;
+  --vscode-tab: #f8f8f8;
+  --vscode-tab-active: #ffffff;
+  --vscode-status: #005fb8;
+  --vscode-welcome: #f8f8f8;
+  --vscode-accent: #005fb8;
+}
+
 .vscode__body {
   display: flex;
   flex: 1;
@@ -522,7 +576,9 @@
   color: #cccccc;
 }
 
-.vscode--theme-vs .vscode-quick-pick__panel {
+.vscode--theme-vs .vscode-quick-pick__panel,
+.vscode--theme-light-plus .vscode-quick-pick__panel,
+.vscode--theme-light-modern .vscode-quick-pick__panel {
   background: #f3f3f3;
   border-color: #d4d4d4;
   color: #333;
@@ -549,7 +605,9 @@
   outline: none;
 }
 
-.vscode--theme-vs .vscode-quick-pick__input {
+.vscode--theme-vs .vscode-quick-pick__input,
+.vscode--theme-light-plus .vscode-quick-pick__input,
+.vscode--theme-light-modern .vscode-quick-pick__input {
   background: #fff;
   border-color: #d4d4d4;
   color: #333;
@@ -618,6 +676,8 @@
   color: var(--vscode-muted);
 }
 
-.vscode--theme-vs .vscode-quick-pick__hint {
+.vscode--theme-vs .vscode-quick-pick__hint,
+.vscode--theme-light-plus .vscode-quick-pick__hint,
+.vscode--theme-light-modern .vscode-quick-pick__hint {
   border-top-color: #d4d4d4;
 }

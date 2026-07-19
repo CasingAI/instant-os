@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'preact/hooks'
 import type * as Monaco from 'monaco-editor'
 import { monacoLanguageFromFileName, fileNameFromPath } from './monaco-language.ts'
 import { ensureMonacoEnvironment, monaco } from './monaco-setup.ts'
+import type { MonacoEditorTheme } from './monaco-themes.ts'
 import 'monaco-editor/min/vs/editor/editor.main.css'
 
-export type MonacoEditorTheme = 'vs' | 'vs-dark' | 'hc-black'
+export type { MonacoEditorTheme }
 
 export type MonacoRevealPosition = {
   line: number
@@ -128,7 +129,7 @@ export function MonacoEditor({
   onChange,
   language = 'plaintext',
   modelPath,
-  theme = 'vs-dark',
+  theme = 'dark-plus',
   active = true,
   readOnly = false,
   fontSize = 13,

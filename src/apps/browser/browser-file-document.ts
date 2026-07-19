@@ -69,3 +69,41 @@ export function fileDocumentAddressBarText(url: string): string {
 export async function resolveDocumentIdFromFileUrl(url: string): Promise<string | undefined> {
   return fileUrlToAbsolutePath(url)
 }
+
+function escapeHtmlText(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+}
+
+function looksLikeMarkupDocument(text: string): boolean {
+  const trimmed = text.trimStart().slice(0, 256).toLowerCase()
+  return (
+    trimmed.startsWith('<!doctype') ||
+    trimmed.startsWith('<html') ||
+    trimmed.startsWith('<?xml') ||
+    trimmed.startsWith('<svg')
+  )
+}
+
+/**
+ * 把本机文件内容转成 Safari iframe 可展示的 HTML。
+ * 网页 / SVG 原样；纯文本（如 LICENSE）包一层预格式化页。
+ */
+export function htmlForFileDocument(node: Pick<FilesNode, 'name' | 'mimeType'>, text: string): string {
+  const mime = node.mimeType ?? ''
+  if (mime === 'text/html' || mime === 'image/svg+xml' || looksLikeMarkupDocument(text)) {
+    return text
+  }
+
+  const title = escapeHtmlText(node.name)
+  const body = escapeHtmlText(text)
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>
+html,body{margin:0;padding:0;background:#fff;color:#111}
+body{padding:24px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+</style></head><body>${body}</body></html>`
+}
+
+/** 「关于本机」打开的许可证文件（源码快照内的根目录 LICENSE） */
+export const SYSTEM_LICENSE_PATH = '/system/LICENSE'

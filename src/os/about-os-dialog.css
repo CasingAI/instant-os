@@ -367,13 +367,30 @@ button.about-os-dialog__control:active {
   word-break: break-word;
 }
 
+.about-os-dialog__license-link {
+  display: block;
+  margin: 0 0 14px;
+  padding: 0 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #888;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.about-os-dialog__license-link:hover {
+  color: #666;
+  text-decoration: underline;
+}
+
 /* ── Actions ── */
 
 .about-os-dialog__actions--device {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 6px 14px 14px;
+  padding: 6px 14px 10px;
 }
 
 .about-os-dialog__actions--device .about-os-dialog__btn {

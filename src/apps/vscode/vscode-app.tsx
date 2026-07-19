@@ -78,7 +78,9 @@ function menuCheckPrefix(active: boolean): string {
 }
 
 function terminalColorsForTheme(theme: VscodePrefs['theme']): TerminalColors {
-  if (theme === 'vs') return TERMINAL_COLORS_LIGHT
+  if (theme === 'vs' || theme === 'light-plus' || theme === 'light-modern') {
+    return TERMINAL_COLORS_LIGHT
+  }
   if (theme === 'hc-black') return TERMINAL_COLORS_HIGH_CONTRAST
   return TERMINAL_COLORS_DARK
 }
@@ -828,6 +830,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     <option value="vs-dark">深色</option>
                     <option value="vs">浅色</option>
                     <option value="hc-black">高对比</option>
+                    <option value="dark-plus">深色+</option>
+                    <option value="light-plus">浅色+</option>
+                    <option value="dark-modern">现代深色</option>
+                    <option value="light-modern">现代浅色</option>
                   </select>
                 </label>
                 <label class="vscode__setting">

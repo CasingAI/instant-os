@@ -24,6 +24,7 @@ import {
 import { extractTitleFromPartialHtml } from './extract-partial-html.ts'
 import {
   buildFileDocumentUrl,
+  htmlForFileDocument,
   isFileDocumentUrl,
   resolveDocumentIdFromFileUrl,
 } from './browser-file-document.ts'
@@ -486,13 +487,14 @@ export function BrowserApp() {
         }
 
         const { node, text } = await readTextFile(documentPath)
+        const frameHtml = htmlForFileDocument(node, text)
         const resolvedUrl = await buildFileDocumentUrl(node)
         const absolutePath = await resolveFilesAbsolutePath(node)
         const title = node.name
         patchHistoryEntry(tabId, targetIndex, {
           url: resolvedUrl,
           title,
-          html: text,
+          html: frameHtml,
           pageTokens: undefined,
           documentId: absolutePath,
         })
@@ -503,7 +505,7 @@ export function BrowserApp() {
         setTabPageState(tabId, {
           loading: false,
           streaming: false,
-          html: text,
+          html: frameHtml,
           rawText: '',
           reasoningText: '',
           pageTokens: undefined,
@@ -832,20 +834,21 @@ export function BrowserApp() {
 
       try {
         const { node, text } = await readTextFile(documentRef)
+        const frameHtml = htmlForFileDocument(node, text)
         const url = await buildFileDocumentUrl(node)
         const absolutePath = await resolveFilesAbsolutePath(node)
         const title = node.name
         const entry: HistoryEntry = {
           url,
           title,
-          html: text,
+          html: frameHtml,
           pageTokens: undefined,
           documentId: absolutePath,
         }
         const pageState: PageState = {
           loading: false,
           streaming: false,
-          html: text,
+          html: frameHtml,
           rawText: '',
           reasoningText: '',
           pageTokens: undefined,
@@ -861,7 +864,7 @@ export function BrowserApp() {
 
         if (soleStartTab) {
           cancelGeneration(soleStartTab.id)
-          pageHtmlByTabRef.current[soleStartTab.id] = text
+          pageHtmlByTabRef.current[soleStartTab.id] = frameHtml
           setTabs([
             {
               ...soleStartTab,
@@ -874,7 +877,7 @@ export function BrowserApp() {
           setActiveTabId(soleStartTab.id)
         } else {
           const tab = createSafariTab()
-          pageHtmlByTabRef.current[tab.id] = text
+          pageHtmlByTabRef.current[tab.id] = frameHtml
           setTabs((prev) => [
             ...prev,
             {
