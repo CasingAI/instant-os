@@ -119,6 +119,25 @@ function bumpZIndex(): number {
   return zCounter
 }
 
+/** 剩余可见窗中 zIndex 最高的一扇；无可选时返回 undefined。 */
+function pickTopVisibleWindowId(
+  windows: WindowState[],
+  excludeIds?: ReadonlySet<string>,
+): string | undefined {
+  let topId: string | undefined
+  let topZ = -Infinity
+  for (const window of windows) {
+    if (excludeIds?.has(window.id) || window.closing || window.minimized) {
+      continue
+    }
+    if (window.zIndex > topZ) {
+      topZ = window.zIndex
+      topId = window.id
+    }
+  }
+  return topId
+}
+
 function createWindow(
   appId: AppId,
   titleOverride?: string,
@@ -569,7 +588,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         window.id === windowId ? { ...window, closing: true } : window,
       ),
     )
-    setActiveWindowId((current) => (current === windowId ? undefined : current))
+    const nextActiveId = pickTopVisibleWindowId(windowsRef.current, new Set([windowId]))
+    setActiveWindowId((current) => (current === windowId ? nextActiveId : current))
   }, [shouldAllowClose])
   closeWindowRef.current = closeWindow
 
@@ -596,7 +616,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         closingIds.has(window.id) ? { ...window, closing: true } : window,
       ),
     )
-    setActiveWindowId((active) => (active && closingIds.has(active) ? undefined : active))
+    const nextActiveId = pickTopVisibleWindowId(windowsRef.current, closingIds)
+    setActiveWindowId((active) => (active && closingIds.has(active) ? nextActiveId : active))
   }, [closeWindow, shouldAllowClose])
 
   const closeProcessIsolatedApps = useCallback(() => {
@@ -874,7 +895,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         window.id === windowId ? { ...window, minimized: true } : window,
       ),
     )
-    setActiveWindowId((current) => (current === windowId ? undefined : current))
+    const nextActiveId = pickTopVisibleWindowId(windowsRef.current, new Set([windowId]))
+    setActiveWindowId((current) => (current === windowId ? nextActiveId : current))
   }, [])
 
   const restoreWindow = useCallback((windowId: string) => {
