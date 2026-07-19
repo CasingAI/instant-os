@@ -616,6 +616,34 @@
     return detail.indexOf('Unable to preload CSS for') !== -1
   }
 
+  /** Monaco 销毁编辑器时 WordHighlighter/Delayer 会拒绝 Canceled，属已知无害噪声 */
+  function isMonacoCancellation(reason) {
+    if (reason == null) {
+      return false
+    }
+    var name = typeof reason === 'object' && reason.name != null ? String(reason.name) : ''
+    var message =
+      typeof reason === 'object' && reason.message != null
+        ? String(reason.message)
+        : typeof reason === 'string'
+          ? reason
+          : ''
+    if (name === 'Canceled' || name === 'CancellationError') {
+      return true
+    }
+    if (message === 'Canceled' || message.indexOf('Canceled: Canceled') !== -1) {
+      return true
+    }
+    var detail = safeString(reason)
+    return (
+      detail.indexOf('Canceled: Canceled') !== -1 &&
+      (detail.indexOf('WordHighlighter') !== -1 ||
+        detail.indexOf('Delayer') !== -1 ||
+        detail.indexOf('editor.api') !== -1 ||
+        detail.indexOf('monaco-editor') !== -1)
+    )
+  }
+
   function onVitePreloadError(event) {
     var reason = event.payload
     var detail = safeString(reason)
@@ -661,6 +689,11 @@
 
   function onUnhandledRejection(event) {
     var reason = event.reason
+    if (isMonacoCancellation(reason)) {
+      pushConsole('debug', ['[已忽略] Monaco 编辑器取消: ' + safeString(reason)])
+      event.preventDefault()
+      return
+    }
     if (isCssPreloadFailure(reason)) {
       pushError('unhandledrejection.css-preload', safeString(reason))
       pushConsole('warn', ['主样式表预加载失败，应用将尝试继续启动（界面可能缺少样式）:', safeString(reason)])

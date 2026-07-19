@@ -33,6 +33,25 @@ import {
   resolveNodeByAbsolutePath,
   writeTextFile,
 } from '../files/files-vfs.ts'
+import { VscodeEditorArea } from './vscode-editor-area.tsx'
+import {
+  addFileTabToFocusedGroup,
+  createEditorLayoutWithTabs,
+  createEmptyEditorLayout,
+  focusEditorGroup,
+  focusEditorItem,
+  focusEditorTab,
+  getFocusedCloseTarget,
+  layoutHasItems,
+  moveEditorItemToGroup,
+  openMarkdownPreviewToSide,
+  removeEditorItem,
+  removeFileTabFromLayout,
+  setBranchRatio,
+  splitEditorWithItem,
+  splitFocusedEditor,
+  type VscodeEditorLayoutState,
+} from './vscode-editor-layout.ts'
 import { VscodeExplorer } from './vscode-explorer.tsx'
 import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-prefs.ts'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
@@ -122,7 +141,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [tabs, setTabs] = useState<VscodeTab[]>([])
-  const [activeTabId, setActiveTabId] = useState<string | undefined>(undefined)
   const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -133,6 +151,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [revealPosition, setRevealPosition] = useState<
     (MonacoRevealPosition & { path: string }) | undefined
   >(undefined)
+  const [editorLayout, setEditorLayout] = useState<VscodeEditorLayoutState>(() =>
+    createEmptyEditorLayout(),
+  )
 
   const terminalSessionRef = useRef<TerminalSession | undefined>(undefined)
   if (!terminalSessionRef.current) {
@@ -144,20 +165,41 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const terminalSession = terminalSessionRef.current
 
   const tabsRef = useRef(tabs)
-  const activeTabIdRef = useRef(activeTabId)
+  const activeTabIdRef = useRef<string | undefined>(undefined)
+  const editorLayoutRef = useRef(editorLayout)
   const loadingPathRef = useRef<string | undefined>(undefined)
   const mountedRef = useRef(true)
   const skipSessionPersistRef = useRef(false)
   const sessionReadyRef = useRef(false)
 
   tabsRef.current = tabs
-  activeTabIdRef.current = activeTabId
+  editorLayoutRef.current = editorLayout
   sessionReadyRef.current = sessionReady
 
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  const focusedGroup = editorLayout.groups[editorLayout.focusedGroupId]
+  const focusedItem =
+    focusedGroup?.items.find((item) => item.id === focusedGroup.activeItemId) ??
+    focusedGroup?.items[0]
+
+  const activeTab = (() => {
+    if (focusedItem?.kind === 'file') {
+      return tabs.find((tab) => tab.id === focusedItem.tabId)
+    }
+    if (focusedItem?.kind === 'preview') {
+      return tabs.find((tab) => tab.path === focusedItem.sourcePath)
+    }
+    return tabs[0]
+  })()
+
+  const activeTabId = activeTab?.id
+  activeTabIdRef.current = activeTabId
+
   const dirty = activeTab ? isVscodeTabDirty(activeTab) : false
   const anyDirty = tabs.some(isVscodeTabDirty)
   const writable = activeTab?.writable ?? false
+  const showMarkdownPreviewAction =
+    focusedItem?.kind === 'file' && activeTab?.language === 'markdown'
+  const hasEditorItems = layoutHasItems(editorLayout)
 
   useEffect(() => {
     mountedRef.current = true
@@ -249,7 +291,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       tabsRef.current = restored
       activeTabIdRef.current = nextActiveId
       setTabs(restored)
-      setActiveTabId(nextActiveId)
+      setEditorLayout(createEditorLayoutWithTabs(
+        restored.map((tab) => tab.id),
+        nextActiveId,
+      ))
       saveVscodeSession({
         openPaths: keptPaths,
         activePath: restored.find((tab) => tab.id === nextActiveId)?.path ?? keptPaths[0],
@@ -323,7 +368,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     ): Promise<boolean> => {
       const existing = tabsRef.current.find((tab) => tab.path === documentRef)
       if (existing) {
-        setActiveTabId(existing.id)
+        setEditorLayout((current) => focusEditorTab(current, existing.id))
         setRevealPath(documentRef)
         if (options?.reveal) {
           setRevealPosition({
@@ -355,7 +400,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         tabsRef.current = nextTabs
         activeTabIdRef.current = tab.id
         setTabs(nextTabs)
-        setActiveTabId(tab.id)
+        setEditorLayout((current) => addFileTabToFocusedGroup(current, tab.id))
         setRevealPath(path)
         if (options?.reveal) {
           setRevealPosition({
@@ -635,7 +680,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
     if (existing) {
       if (existing.id !== activeTabIdRef.current) {
-        setActiveTabId(existing.id)
+        setEditorLayout((current) => focusEditorTab(current, existing.id))
       }
       return
     }
@@ -708,15 +753,26 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (index < 0) return
     const removed = current[index]
     const nextTabs = current.filter((tab) => tab.id !== tabId)
-    let nextActiveId = activeTabIdRef.current
-    if (activeTabIdRef.current === tabId) {
-      const neighbor = nextTabs[Math.min(index, nextTabs.length - 1)]
-      nextActiveId = neighbor?.id
-      setActiveTabId(nextActiveId)
-    }
+    const nextLayout = removeFileTabFromLayout(
+      editorLayoutRef.current,
+      tabId,
+      removed?.path,
+    )
     tabsRef.current = nextTabs
-    activeTabIdRef.current = nextActiveId
+    editorLayoutRef.current = nextLayout
     setTabs(nextTabs)
+    setEditorLayout(nextLayout)
+    const nextActiveId = (() => {
+      const group = nextLayout.groups[nextLayout.focusedGroupId]
+      const item =
+        group?.items.find((entry) => entry.id === group.activeItemId) ?? group?.items[0]
+      if (item?.kind === 'file') return item.tabId
+      if (item?.kind === 'preview') {
+        return nextTabs.find((tab) => tab.path === item.sourcePath)?.id
+      }
+      return nextTabs[0]?.id
+    })()
+    activeTabIdRef.current = nextActiveId
     if (sessionReadyRef.current && !skipSessionPersistRef.current) {
       saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, nextActiveId))
     }
@@ -730,6 +786,24 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     }
   }, [])
 
+  const openMarkdownPreviewBeside = useCallback((groupId: string) => {
+    const group = editorLayoutRef.current.groups[groupId]
+    const activeItem =
+      group?.items.find((item) => item.id === group.activeItemId) ?? group?.items[0]
+    const tabId = activeItem?.kind === 'file' ? activeItem.tabId : activeTabIdRef.current
+    const tab = tabId ? tabsRef.current.find((item) => item.id === tabId) : undefined
+    if (!tab || tab.language !== 'markdown') return
+    setEditorLayout((layout) => openMarkdownPreviewToSide(layout, tab.path, groupId))
+  }, [])
+
+  const closePreviewItem = useCallback((itemId: string) => {
+    setEditorLayout((layout) => {
+      const next = removeEditorItem(layout, itemId)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [])
+
   const closeTab = useCallback(
     async (tabId: string) => {
       const proceed = await ensureTabCleanOrConfirm(tabId)
@@ -740,10 +814,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   )
 
   const handleCloseTab = useCallback(() => {
-    const tabId = activeTabIdRef.current
-    if (!tabId) return
-    void closeTab(tabId)
-  }, [closeTab])
+    const target = getFocusedCloseTarget(editorLayoutRef.current)
+    if (!target) return
+    if (target.kind === 'preview') {
+      closePreviewItem(target.itemId)
+      return
+    }
+    void closeTab(target.tabId)
+  }, [closePreviewItem, closeTab])
 
   const requestClose = useCallback(() => {
     if (!windowId) return true
@@ -800,9 +878,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     pickAndOpenFolder,
   ])
 
-  const updateActiveText = useCallback((nextText: string) => {
-    const tabId = activeTabIdRef.current
-    if (!tabId) return
+  const updateTabText = useCallback((tabId: string, nextText: string) => {
     setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, text: nextText } : tab)))
   }, [])
 
@@ -946,6 +1022,25 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               updatePrefs({ sidebarVisible: true })
             },
           },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '在侧边打开预览',
+            disabled: !showMarkdownPreviewAction || loading || openDialogOpen || !!dirtyPrompt,
+            onClick: () => openMarkdownPreviewBeside(editorLayoutRef.current.focusedGroupId),
+          },
+          {
+            type: 'action',
+            label: '向右拆分编辑器',
+            disabled: loading || openDialogOpen || !!dirtyPrompt,
+            onClick: () => setEditorLayout((layout) => splitFocusedEditor(layout, 'right')),
+          },
+          {
+            type: 'action',
+            label: '向下拆分编辑器',
+            disabled: loading || openDialogOpen || !!dirtyPrompt,
+            onClick: () => setEditorLayout((layout) => splitFocusedEditor(layout, 'bottom')),
+          },
         ],
       },
     ]
@@ -960,12 +1055,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     loading,
     minimizeWindow,
     openDialogOpen,
+    openMarkdownPreviewBeside,
     pickAndOpen,
     pickAndOpenFolder,
     prefs.sidebarVisible,
     prefs.terminalVisible,
     prefs.workspaceFolder,
     showBuiltinAbout,
+    showMarkdownPreviewAction,
     updatePrefs,
     windowId,
     writable,
@@ -1089,7 +1186,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                       key={`${hit.tabId}:${hit.line}:${hit.preview}`}
                       type="button"
                       class="vscode__search-hit"
-                      onClick={() => setActiveTabId(hit.tabId)}
+                      onClick={() => setEditorLayout((current) => focusEditorTab(current, hit.tabId))}
                     >
                       <span class="vscode__search-hit-name">
                         {hit.name}:{hit.line}
@@ -1164,109 +1261,56 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
         <div class="vscode__main">
           <div class="vscode__editor-pane">
-            {tabs.length > 0 ? (
-              <div class="vscode__tabs" role="tablist" aria-label="打开的文件">
-                {tabs.map((tab) => {
-                  const isActive = tab.id === activeTab?.id
-                  const tabDirty = isVscodeTabDirty(tab)
-                  const tabLabel = tab.deleted
-                    ? `${tab.name}（已删除）`
-                    : tab.conflict
-                      ? `${tab.name}（冲突）`
-                      : tab.name
-                  return (
-                    <div
-                      key={tab.id}
-                      class={`vscode__tab${isActive ? ' vscode__tab--active' : ''}${tabDirty ? ' vscode__tab--dirty' : ''}${tab.deleted ? ' vscode__tab--deleted' : ''}${tab.conflict ? ' vscode__tab--conflict' : ''}`}
-                      role="tab"
-                      aria-selected={isActive}
-                    >
-                      <button
-                        type="button"
-                        class="vscode__tab-main"
-                        title={
-                          tab.deleted
-                            ? `${tab.path}（已删除）`
-                            : tab.conflict
-                              ? `${tab.path}（内容冲突）`
-                              : tab.path
-                        }
-                        onClick={() => setActiveTabId(tab.id)}
-                      >
-                        {tabDirty ? <span class="vscode__tab-dot" aria-hidden="true" /> : undefined}
-                        <span class="vscode__tab-title">{tabLabel}</span>
-                      </button>
-                      <button
-                        type="button"
-                        class="vscode__tab-close"
-                        aria-label={`关闭 ${tab.name}`}
-                        disabled={loading || openDialogOpen || !!dirtyPrompt}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void closeTab(tab.id)
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
+            {hasEditorItems ? (
+              <VscodeEditorArea
+                layout={editorLayout}
+                tabs={tabs}
+                loading={loading}
+                dialogBlocked={openDialogOpen || !!dirtyPrompt}
+                isActiveWindow={isActiveWindow}
+                prefs={{
+                  theme: prefs.theme,
+                  fontSize: prefs.fontSize,
+                  minimap: prefs.minimap,
+                  wordWrap: prefs.wordWrap,
+                }}
+                revealPosition={revealPosition}
+                onRevealPositionApplied={() => setRevealPosition(undefined)}
+                onFocusGroup={(groupId) =>
+                  setEditorLayout((current) => focusEditorGroup(current, groupId))
+                }
+                onActivateItem={(groupId, itemId) =>
+                  setEditorLayout((current) => focusEditorItem(current, groupId, itemId))
+                }
+                onCloseFileTab={(tabId) => void closeTab(tabId)}
+                onClosePreview={closePreviewItem}
+                onMoveItemToGroup={(itemId, targetGroupId, targetIndex) =>
+                  setEditorLayout((current) =>
+                    moveEditorItemToGroup(current, itemId, targetGroupId, targetIndex),
                   )
-                })}
-              </div>
-            ) : undefined}
-
-            <div class="vscode__editor">
-              {activeTab ? (
-                <>
-                  {activeTab.conflict ? (
-                    <div class="vscode__conflict-banner" role="alertdialog" aria-label="内容冲突">
-                      <p class="vscode__conflict-banner-text">
-                        未保存内容与磁盘上的文件不一致。当前编辑器显示的是未保存版本。
-                      </p>
-                      <div class="vscode__conflict-banner-actions">
-                        <button
-                          type="button"
-                          class="vscode__conflict-banner-btn vscode__conflict-banner-btn--primary"
-                          onClick={() => resolveTabConflict(activeTab.id, 'draft')}
-                        >
-                          保留未保存的内容
-                        </button>
-                        <button
-                          type="button"
-                          class="vscode__conflict-banner-btn"
-                          onClick={() => resolveTabConflict(activeTab.id, 'disk')}
-                        >
-                          使用磁盘上的内容
-                        </button>
-                      </div>
-                    </div>
-                  ) : activeTab.deleted ? (
-                    <div class="vscode__deleted-banner" role="status">
-                      此文件已从磁盘删除，保存将重新创建。
-                    </div>
-                  ) : undefined}
-                  <MonacoEditor
-                    className="vscode__monaco"
-                    value={activeTab.text}
-                    onChange={updateActiveText}
-                    language={activeTab.language}
-                    modelPath={activeTab.path}
-                    theme={prefs.theme}
-                    readOnly={!activeTab.writable}
-                    fontSize={prefs.fontSize}
-                    minimap={prefs.minimap}
-                    wordWrap={prefs.wordWrap ? 'on' : 'off'}
-                    active={isActiveWindow}
-                    onCursorChange={(line, column) => setCursor({ line, column })}
-                    onOpenPath={handleEditorOpenPath}
-                    revealPosition={
-                      revealPosition && revealPosition.path === activeTab.path
-                        ? { line: revealPosition.line, column: revealPosition.column }
-                        : undefined
-                    }
-                    onRevealPositionApplied={() => setRevealPosition(undefined)}
-                  />
-                </>
-              ) : (
+                }
+                onSplitItemToEdge={(itemId, targetGroupId, edge) =>
+                  setEditorLayout((current) =>
+                    splitEditorWithItem(current, itemId, targetGroupId, edge),
+                  )
+                }
+                onSplitGroup={(groupId, edge) =>
+                  setEditorLayout((current) => {
+                    const focused = focusEditorGroup(current, groupId)
+                    return splitFocusedEditor(focused, edge)
+                  })
+                }
+                onOpenMarkdownPreview={openMarkdownPreviewBeside}
+                onTabTextChange={updateTabText}
+                onCursorChange={(line, column) => setCursor({ line, column })}
+                onOpenPath={handleEditorOpenPath}
+                onResolveConflict={resolveTabConflict}
+                onSetBranchRatio={(branchId, ratio) =>
+                  setEditorLayout((current) => setBranchRatio(current, branchId, ratio))
+                }
+              />
+            ) : (
+              <div class="vscode__editor">
                 <div class="vscode__welcome">
                   <h1>Virtual Studio Code</h1>
                   <p>
@@ -1291,8 +1335,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {prefs.terminalVisible ? (

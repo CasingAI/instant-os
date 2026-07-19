@@ -258,6 +258,15 @@ export function MonacoEditor({
 
     return () => {
       opener.dispose()
+      // Monaco WordHighlighter 在 dispose 时会取消未完成的 Delayer，产生无害的 Canceled rejection；
+      // 先卸下 model，减少贡献点在销毁路径上的异步高亮任务。
+      try {
+        suppressChangeRef.current = true
+        editor.setModel(null)
+        suppressChangeRef.current = false
+      } catch (_e) {
+        // ignore
+      }
       editor.dispose()
       editorRef.current = undefined
     }
