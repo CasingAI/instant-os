@@ -32,17 +32,37 @@ type DirtyChoice = 'save' | 'discard' | 'cancel'
 
 type DirtyPromptState = {
   fileName: string
+  writable: boolean
   resolve: (choice: DirtyChoice) => void
+}
+
+type TextEditTab = {
+  id: string
+  path: string
+  node: FilesNode
+  text: string
+  savedText: string
 }
 
 type TextEditAppProps = {
   windowId?: string
 }
 
+let tabCounter = 0
+
+function nextTabId(): string {
+  tabCounter += 1
+  return `textedit-tab-${tabCounter}`
+}
+
 function formatError(error: unknown): string {
   if (error instanceof FilesStorageFullError) return error.message
   if (error instanceof Error && error.message) return error.message
   return '操作失败'
+}
+
+function isTabDirty(tab: TextEditTab): boolean {
+  return tab.text !== tab.savedText
 }
 
 export function TextEditApp({ windowId }: TextEditAppProps) {
@@ -69,29 +89,24 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
   const pendingDocumentId = appWindow?.documentId
   const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
-  const [node, setNode] = useState<FilesNode | undefined>(undefined)
-  const [documentPath, setDocumentPath] = useState<string | undefined>(undefined)
-  const [text, setText] = useState('')
-  const [savedText, setSavedText] = useState('')
+  const [tabs, setTabs] = useState<TextEditTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
   const bootstrappedRef = useRef(false)
-  const loadingIdRef = useRef<string | undefined>(undefined)
-  const dirtyRef = useRef(false)
-  const nodeRef = useRef(node)
-  const documentPathRef = useRef(documentPath)
-  const textRef = useRef(text)
-
-  nodeRef.current = node
-  documentPathRef.current = documentPath
-  textRef.current = text
-
-  const dirty = node !== undefined && text !== savedText
-  dirtyRef.current = dirty
-  const writable = node ? isFilesNodeWritable(node) : false
+  const loadingPathRef = useRef<string | undefined>(undefined)
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
   const mountedRef = useRef(true)
-  const showEditor = ready && node !== undefined
+
+  tabsRef.current = tabs
+  activeTabIdRef.current = activeTabId
+
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  const dirty = activeTab ? isTabDirty(activeTab) : false
+  const writable = activeTab ? isFilesNodeWritable(activeTab.node) : false
+  const showEditor = ready && activeTab !== undefined
 
   useEffect(() => {
     mountedRef.current = true
@@ -100,38 +115,86 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     }
   }, [])
 
-  useEffect(() => {
-    if (!windowId) return
-    setWindowDocumentEdited(windowId, dirty)
-  }, [dirty, setWindowDocumentEdited, windowId])
-
-  const applyLoaded = useCallback(
-    async (nextNode: FilesNode, nextText: string) => {
+  const syncWindowToTab = useCallback(
+    (tab: TextEditTab | undefined) => {
       if (!windowId) return
-      const path = await resolveFilesAbsolutePath(nextNode)
-      setNode(nextNode)
-      setDocumentPath(path)
-      setText(nextText)
-      setSavedText(nextText)
-      setWindowDocumentId(windowId, path)
-      setWindowTitle(windowId, nextNode.name)
-      setWindowDocumentEdited(windowId, false)
-      setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(nextNode))
-      setReady(true)
+      if (!tab) {
+        setWindowTitle(windowId, DEFAULT_TITLE)
+        setWindowDocumentId(windowId, undefined)
+        setWindowDocumentEdited(windowId, false)
+        setWindowDocumentReadOnly(windowId, false)
+        return
+      }
+      setWindowTitle(windowId, tab.node.name)
+      setWindowDocumentId(windowId, tab.path)
+      setWindowDocumentEdited(windowId, isTabDirty(tab))
+      setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(tab.node))
     },
     [setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId],
   )
 
-  const loadDocument = useCallback(
+  useEffect(() => {
+    if (!windowId || !ready || !activeTab) return
+    setWindowTitle(windowId, activeTab.node.name)
+    setWindowDocumentId(windowId, activeTab.path)
+    setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(activeTab.node))
+  }, [
+    activeTab?.id,
+    activeTab?.node.name,
+    activeTab?.path,
+    ready,
+    setWindowDocumentId,
+    setWindowDocumentReadOnly,
+    setWindowTitle,
+    windowId,
+  ])
+
+  useEffect(() => {
+    if (!windowId || !ready) return
+    setWindowDocumentEdited(windowId, dirty)
+  }, [dirty, ready, setWindowDocumentEdited, windowId])
+
+  const focusTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId)
+  }, [])
+
+  const openDocument = useCallback(
     async (documentRef: string): Promise<boolean> => {
-      if (loadingIdRef.current === documentRef) {
+      if (!windowId) return false
+
+      const existing = tabsRef.current.find((tab) => tab.path === documentRef)
+      if (existing) {
+        setActiveTabId(existing.id)
+        setReady(true)
         return true
       }
-      loadingIdRef.current = documentRef
+
+      if (loadingPathRef.current === documentRef) {
+        return true
+      }
+
+      loadingPathRef.current = documentRef
       setLoading(true)
       try {
         const result = await readTextFile(documentRef)
-        await applyLoaded(result.node, result.text)
+        if (!mountedRef.current) return false
+        const path = await resolveFilesAbsolutePath(result.node)
+        const already = tabsRef.current.find((tab) => tab.path === path)
+        if (already) {
+          setActiveTabId(already.id)
+          setReady(true)
+          return true
+        }
+        const tab: TextEditTab = {
+          id: nextTabId(),
+          path,
+          node: result.node,
+          text: result.text,
+          savedText: result.text,
+        }
+        setTabs((prev) => [...prev, tab])
+        setActiveTabId(tab.id)
+        setReady(true)
         return true
       } catch (err) {
         await modal.alert({
@@ -141,49 +204,63 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         })
         return false
       } finally {
-        if (loadingIdRef.current === documentRef) {
-          loadingIdRef.current = undefined
+        if (loadingPathRef.current === documentRef) {
+          loadingPathRef.current = undefined
         }
         setLoading(false)
       }
     },
-    [applyLoaded, modal],
+    [modal, windowId],
+  )
+
+  const saveTab = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      if (!windowId) return false
+      const tab = tabsRef.current.find((item) => item.id === tabId)
+      if (!tab || !isFilesNodeWritable(tab.node)) return false
+      setLoading(true)
+      try {
+        const updated = await writeTextFile(tab.path, tab.text)
+        const nextPath = await resolveFilesAbsolutePath(updated)
+        setTabs((prev) =>
+          prev.map((item) =>
+            item.id === tabId
+              ? {
+                  ...item,
+                  node: updated,
+                  path: nextPath,
+                  savedText: item.text,
+                }
+              : item,
+          ),
+        )
+        return true
+      } catch (err) {
+        await modal.alert({
+          title: '无法保存',
+          message: formatError(err),
+          themeColor: THEME,
+        })
+        return false
+      } finally {
+        setLoading(false)
+      }
+    },
+    [modal, windowId],
   )
 
   const handleSave = useCallback(async (): Promise<boolean> => {
-    if (!windowId) return false
-    const current = nodeRef.current
-    const path = documentPathRef.current
-    if (!current || !isFilesNodeWritable(current)) return false
-    setLoading(true)
-    try {
-      const updated = await writeTextFile(path ?? current.id, textRef.current)
-      const nextPath = await resolveFilesAbsolutePath(updated)
-      setNode(updated)
-      setDocumentPath(nextPath)
-      setSavedText(textRef.current)
-      setWindowDocumentId(windowId, nextPath)
-      setWindowTitle(windowId, updated.name)
-      setWindowDocumentEdited(windowId, false)
-      setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(updated))
-      return true
-    } catch (err) {
-      await modal.alert({
-        title: '无法保存',
-        message: formatError(err),
-        themeColor: THEME,
-      })
-      return false
-    } finally {
-      setLoading(false)
-    }
-  }, [modal, setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId])
+    const tabId = activeTabIdRef.current
+    if (!tabId) return false
+    return saveTab(tabId)
+  }, [saveTab])
 
-  const askDirtyChoice = useCallback((): Promise<DirtyChoice> => {
-    if (!dirtyRef.current) return Promise.resolve('discard')
+  const askDirtyChoice = useCallback((tab: TextEditTab): Promise<DirtyChoice> => {
+    if (!isTabDirty(tab)) return Promise.resolve('discard')
     return new Promise((resolve) => {
       setDirtyPrompt({
-        fileName: nodeRef.current?.name ?? '文稿',
+        fileName: tab.node.name,
+        writable: isFilesNodeWritable(tab.node),
         resolve,
       })
     })
@@ -196,17 +273,22 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     })
   }, [])
 
-  const ensureCleanOrConfirm = useCallback(async (): Promise<boolean> => {
-    const choice = await askDirtyChoice()
-    if (choice === 'cancel') return false
-    if (choice === 'save') return handleSave()
-    return true
-  }, [askDirtyChoice, handleSave])
+  const ensureTabCleanOrConfirm = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const tab = tabsRef.current.find((item) => item.id === tabId)
+      if (!tab) return true
+      const choice = await askDirtyChoice(tab)
+      if (choice === 'cancel') return false
+      if (choice === 'save') return saveTab(tabId)
+      return true
+    },
+    [askDirtyChoice, saveTab],
+  )
 
   const pickAndOpen = useCallback(
     async (presentation: 'host' | 'modal'): Promise<boolean> => {
       if (!windowId) return false
-      if (presentation === 'host') {
+      if (presentation === 'host' && tabsRef.current.length === 0) {
         setWindowTitle(windowId, OPEN_TITLE)
         setWindowDocumentEdited(windowId, false)
         setWindowDocumentReadOnly(windowId, false)
@@ -219,25 +301,25 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         presentation,
       })
       if (!picked) {
-        if (presentation === 'host' && !nodeRef.current) {
+        if (presentation === 'host' && tabsRef.current.length === 0) {
           setWindowTitle(windowId, DEFAULT_TITLE)
           setWindowDocumentReadOnly(windowId, false)
-        } else if (nodeRef.current) {
-          setWindowTitle(windowId, nodeRef.current.name)
-          setWindowDocumentEdited(windowId, dirtyRef.current)
-          setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(nodeRef.current))
+        } else {
+          const current = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current) ?? tabsRef.current[0]
+          if (current) syncWindowToTab(current)
         }
         return false
       }
       const path = await resolveFilesAbsolutePath(picked)
-      return loadDocument(path)
+      return openDocument(path)
     },
     [
-      loadDocument,
+      openDocument,
       setWindowDocumentEdited,
       setWindowDocumentReadOnly,
       setWindowTitle,
       showSystemOpenDialog,
+      syncWindowToTab,
       windowId,
     ],
   )
@@ -248,7 +330,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
 
     void (async () => {
       if (pendingDocumentId) {
-        const ok = await loadDocument(pendingDocumentId)
+        const ok = await openDocument(pendingDocumentId)
         if (!mountedRef.current) return
         if (!ok) {
           setWindowTitle(windowId, OPEN_TITLE)
@@ -277,7 +359,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
   }, [
     bypassWindowCloseGuard,
     closeWindow,
-    loadDocument,
+    openDocument,
     pendingDocumentId,
     pickAndOpen,
     setWindowDocumentEdited,
@@ -288,45 +370,85 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
 
   useEffect(() => {
     if (!windowId || !ready || !pendingDocumentId) return
-    if (pendingDocumentId === documentPathRef.current) return
-    if (loadingIdRef.current === pendingDocumentId) return
+    if (loadingPathRef.current === pendingDocumentId) return
 
-    void (async () => {
-      const proceed = await ensureCleanOrConfirm()
-      if (!proceed) {
-        if (documentPathRef.current) {
-          setWindowDocumentId(windowId, documentPathRef.current)
-        }
-        return
+    const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
+    if (existing) {
+      if (existing.id !== activeTabIdRef.current) {
+        setActiveTabId(existing.id)
       }
-      await loadDocument(pendingDocumentId)
-    })()
-  }, [ensureCleanOrConfirm, loadDocument, pendingDocumentId, ready, setWindowDocumentId, windowId])
+      return
+    }
+
+    void openDocument(pendingDocumentId)
+  }, [openDocument, pendingDocumentId, ready, windowId])
 
   const handleOpen = useCallback(async () => {
-    const proceed = await ensureCleanOrConfirm()
-    if (!proceed) return
     await pickAndOpen('modal')
-  }, [ensureCleanOrConfirm, pickAndOpen])
+  }, [pickAndOpen])
+
+  const removeTab = useCallback(
+    (tabId: string) => {
+      if (!windowId) return
+      const current = tabsRef.current
+      const index = current.findIndex((tab) => tab.id === tabId)
+      if (index < 0) return
+      const nextTabs = current.filter((tab) => tab.id !== tabId)
+      if (nextTabs.length === 0) {
+        setTabs([])
+        setActiveTabId(undefined)
+        bypassWindowCloseGuard(windowId)
+        closeWindow(windowId)
+        return
+      }
+      setTabs(nextTabs)
+      if (activeTabIdRef.current === tabId) {
+        const neighbor = nextTabs[Math.min(index, nextTabs.length - 1)]
+        setActiveTabId(neighbor?.id)
+      }
+    },
+    [bypassWindowCloseGuard, closeWindow, windowId],
+  )
+
+  const closeTab = useCallback(
+    async (tabId: string) => {
+      const proceed = await ensureTabCleanOrConfirm(tabId)
+      if (!proceed) return
+      removeTab(tabId)
+    },
+    [ensureTabCleanOrConfirm, removeTab],
+  )
+
+  const handleCloseTab = useCallback(() => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    void closeTab(tabId)
+  }, [closeTab])
 
   const requestClose = useCallback(() => {
     if (!windowId) return true
-    if (!dirtyRef.current) return true
+    const dirtyTabs = tabsRef.current.filter(isTabDirty)
+    if (dirtyTabs.length === 0) return true
+
     void (async () => {
-      const choice = await askDirtyChoice()
-      if (choice === 'cancel') {
-        cancelPendingAppQuit(APP_ID)
-        return
-      }
-      if (choice === 'save') {
-        const saved = await handleSave()
-        if (!saved) {
+      for (const tab of dirtyTabs) {
+        const latest = tabsRef.current.find((item) => item.id === tab.id)
+        if (!latest || !isTabDirty(latest)) continue
+        setActiveTabId(latest.id)
+        const choice = await askDirtyChoice(latest)
+        if (choice === 'cancel') {
           cancelPendingAppQuit(APP_ID)
           return
         }
-      } else {
-        setWindowDocumentEdited(windowId, false)
+        if (choice === 'save') {
+          const saved = await saveTab(latest.id)
+          if (!saved) {
+            cancelPendingAppQuit(APP_ID)
+            return
+          }
+        }
       }
+      setWindowDocumentEdited(windowId, false)
       bypassWindowCloseGuard(windowId)
       closeWindow(windowId)
     })()
@@ -336,12 +458,18 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     bypassWindowCloseGuard,
     cancelPendingAppQuit,
     closeWindow,
-    handleSave,
+    saveTab,
     setWindowDocumentEdited,
     windowId,
   ])
 
   useWindowCloseGuard(windowId, requestClose)
+
+  const updateActiveText = useCallback((nextText: string) => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, text: nextText } : tab)))
+  }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
@@ -376,6 +504,13 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
           },
           {
             type: 'action',
+            label: '关闭标签',
+            shortcut: '⌘W',
+            disabled: !ready || tabs.length === 0 || loading || openDialogOpen || !!dirtyPrompt,
+            onClick: () => handleCloseTab(),
+          },
+          {
+            type: 'action',
             label: '保存',
             shortcut: '⌘S',
             disabled: !ready || !writable || !dirty || loading,
@@ -388,6 +523,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     closeWindowsForApp,
     dirty,
     dirtyPrompt,
+    handleCloseTab,
     handleOpen,
     handleSave,
     loading,
@@ -395,6 +531,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     openDialogOpen,
     ready,
     showBuiltinAbout,
+    tabs.length,
     windowId,
     writable,
   ])
@@ -407,7 +544,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         key: 'save',
         label: '保存',
         tone: 'primary' as const,
-        disabled: !writable || loading,
+        disabled: !dirtyPrompt?.writable || loading,
         onClick: () => resolveDirtyPrompt('save'),
       },
       {
@@ -423,7 +560,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         onClick: () => resolveDirtyPrompt('cancel'),
       },
     ],
-    [loading, resolveDirtyPrompt, writable],
+    [dirtyPrompt?.writable, loading, resolveDirtyPrompt],
   )
 
   const pickingWithoutDocument = openDialogOpen && !showEditor
@@ -447,13 +584,52 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
 
   return (
     <div class="textedit">
+      {tabs.length > 1 ? (
+        <div class="textedit__tabs" role="tablist" aria-label="打开的文件">
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTab.id
+            const tabDirty = isTabDirty(tab)
+            return (
+              <div
+                key={tab.id}
+                class={`textedit__tab${isActive ? ' textedit__tab--active' : ''}${tabDirty ? ' textedit__tab--dirty' : ''}`}
+                role="tab"
+                aria-selected={isActive}
+              >
+                <button
+                  type="button"
+                  class="textedit__tab-main"
+                  onClick={() => focusTab(tab.id)}
+                  title={tab.path}
+                >
+                  {tabDirty ? <span class="textedit__tab-dot" aria-hidden="true" /> : undefined}
+                  <span class="textedit__tab-title">{tab.node.name}</span>
+                </button>
+                <button
+                  type="button"
+                  class="textedit__tab-close"
+                  aria-label={`关闭 ${tab.node.name}`}
+                  disabled={loading || openDialogOpen || !!dirtyPrompt}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void closeTab(tab.id)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      ) : undefined}
+
       <textarea
         class="textedit__input"
-        value={text}
+        value={activeTab.text}
         readOnly={!writable}
         spellcheck={false}
-        aria-label={node.name}
-        onInput={(event) => setText((event.target as HTMLTextAreaElement).value)}
+        aria-label={activeTab.node.name}
+        onInput={(event) => updateActiveText((event.target as HTMLTextAreaElement).value)}
       />
 
       {openDialog}

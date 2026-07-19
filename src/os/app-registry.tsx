@@ -143,7 +143,6 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: TextEditIcon,
     dock: true,
     desktop: true,
-    multiWindow: true,
   }),
   withAbout({
     id: 'scene3d-lab',
