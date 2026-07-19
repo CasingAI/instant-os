@@ -131,7 +131,7 @@ export function filesLocationDisplayName(locationId: FilesLocationId): string {
   }
   if (locationId === 'local') return '用户文件'
   if (locationId === 'models3d') return '3D 模型'
-  return '系统文件'
+  return '系统'
 }
 
 export function formatFilesByteSize(bytes: number): string {

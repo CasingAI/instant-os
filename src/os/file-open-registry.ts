@@ -15,6 +15,9 @@ type NormalizedHandler = {
 
 const PREFS_STORAGE_KEY = 'instant-os-file-open-prefs-v2'
 
+/** 用户更改「始终用此程序打开」后派发，供文件图标等刷新 */
+export const FILE_OPEN_PREFS_CHANGED_EVENT = 'instant-os-file-open-prefs-changed'
+
 const handlers: NormalizedHandler[] = []
 
 export function normalizeFileExtension(extension: string): string {
@@ -115,6 +118,7 @@ export function setPreferredFileOpenApp(fileName: string, appId: BuiltinAppId): 
   const prefs = readPreferredOpenApps()
   prefs[extension] = appId
   writePreferredOpenApps(prefs)
+  window.dispatchEvent(new CustomEvent(FILE_OPEN_PREFS_CHANGED_EVENT, { detail: { extension } }))
 }
 
 export function getDefaultFileOpenApp(fileName: string): BuiltinAppId | undefined {

@@ -293,14 +293,14 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         setWindowDocumentEdited(windowId, false)
         setWindowDocumentReadOnly(windowId, false)
       }
-      const picked = await showSystemOpenDialog({
+      const path = await showSystemOpenDialog({
         title: OPEN_TITLE,
         acceptExtensions: ['txt'],
         allowCreate: true,
         createExtension: 'txt',
         presentation,
       })
-      if (!picked) {
+      if (!path) {
         if (presentation === 'host' && tabsRef.current.length === 0) {
           setWindowTitle(windowId, DEFAULT_TITLE)
           setWindowDocumentReadOnly(windowId, false)
@@ -310,7 +310,6 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
         }
         return false
       }
-      const path = await resolveFilesAbsolutePath(picked)
       return openDocument(path)
     },
     [

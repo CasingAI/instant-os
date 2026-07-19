@@ -80,6 +80,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '默认注册为 .txt 文件的打开程序；也可从「文件」应用中直接打开文本文件。可同时打开多个文稿窗口。只读文件可查看但不可保存。',
     ],
   },
+  vscode: {
+    version: '代码编辑器',
+    paragraphs: [
+      'Virtual Studio Code 是基于 Monaco 的轻量代码编辑器：左侧资源管理器、多标签编辑、底部系统终端与简易编辑器设置。',
+      '默认作为常见源码后缀的打开程序；.txt 仍由文本编辑处理，.html 等网页文件默认仍由网络浏览器打开。只读卷可预览但不可保存。',
+    ],
+  },
   settings: {
     version: '系统管理',
     paragraphs: [

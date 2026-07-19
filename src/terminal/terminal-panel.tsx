@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { Ref } from 'preact'
+import {
+  terminalColorsToStyle,
+  type TerminalColors,
+} from './terminal-colors.ts'
 import { TerminalMarkdown } from './terminal-markdown.tsx'
 import { createTerminalSession, type TerminalSession } from './terminal-session.ts'
 import { completeTerminalTab } from './terminal-tab-complete.ts'
@@ -13,6 +17,11 @@ export type TerminalPanelProps = {
   initialCwd?: string
   thinkingEnabled?: boolean
   className?: string
+  /**
+   * 宿主注入的终端配色。未传时使用默认深色；
+   * 可传局部字段，其余回落默认。
+   */
+  colors?: Partial<TerminalColors>
   /** 外部命令下发句柄 */
   handleRef?: Ref<TerminalHandle | null>
   onBusyChange?: (busy: boolean) => void
@@ -100,6 +109,7 @@ export function TerminalPanel({
   initialCwd,
   thinkingEnabled = false,
   className,
+  colors,
   handleRef,
   onBusyChange,
   onCwdChange,
@@ -253,10 +263,12 @@ export function TerminalPanel({
   }, [handleRef, session])
 
   const classNames = ['terminal-panel', className].filter(Boolean).join(' ')
+  const colorStyle = colors ? terminalColorsToStyle(colors) : undefined
 
   return (
     <div
       class={classNames}
+      style={colorStyle}
       onClick={() => {
         // 有选区时不抢焦点，方便复制输出；否则点哪都回到提示符
         const selection = typeof window !== 'undefined' ? window.getSelection() : undefined

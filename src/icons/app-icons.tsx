@@ -129,6 +129,78 @@ export function ICodeIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function VscodeIcon({ size = 64 }: IconProps) {
+  const cornerRadius = 14
+
+  return (
+    <AppIconTile color="#0078d4" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="vscode-icon-window" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#3a3f4a" />
+            <stop offset="45%" stop-color="#252830" />
+            <stop offset="100%" stop-color="#16181e" />
+          </linearGradient>
+          <linearGradient id="vscode-icon-chrome" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#4a5160" />
+            <stop offset="100%" stop-color="#2c313c" />
+          </linearGradient>
+          <linearGradient id="vscode-icon-sidebar" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#2aa0f0" />
+            <stop offset="55%" stop-color="#0078d4" />
+            <stop offset="100%" stop-color="#005a9e" />
+          </linearGradient>
+          <linearGradient id="vscode-icon-gloss" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.28)" />
+            <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+          </linearGradient>
+          <clipPath id="vscode-icon-window-clip">
+            <rect x="0" y="0" width="64" height="64" rx={cornerRadius} ry={cornerRadius} />
+          </clipPath>
+        </defs>
+
+        <g clip-path="url(#vscode-icon-window-clip)">
+          <rect x="0" y="0" width="64" height="64" fill="url(#vscode-icon-window)" />
+
+          {/* 顶栏 */}
+          <rect x="0" y="0" width="64" height="15" fill="url(#vscode-icon-chrome)" />
+          <g>
+            <circle cx="10" cy="7.5" r="2.1" fill="#ff5f57" />
+            <circle cx="17.5" cy="7.5" r="2.1" fill="#febc2e" />
+            <circle cx="25" cy="7.5" r="2.1" fill="#28c840" />
+          </g>
+          <rect x="36" y="5.8" width="22" height="3.4" rx="1.7" fill="rgba(255,255,255,0.14)" />
+
+          {/* 活动栏 */}
+          <rect x="0" y="15" width="12" height="49" fill="url(#vscode-icon-sidebar)" />
+          <g fill="#fff">
+            <rect x="3.2" y="20" width="5.6" height="5.6" rx="1.2" opacity="0.95" />
+            <rect x="3.2" y="30" width="5.6" height="5.6" rx="1.2" opacity="0.45" />
+            <rect x="3.2" y="40" width="5.6" height="5.6" rx="1.2" opacity="0.45" />
+            <rect x="3.2" y="52" width="5.6" height="5.6" rx="1.2" opacity="0.35" />
+          </g>
+
+          {/* 编辑区语法行 */}
+          <g stroke-linecap="round">
+            <line x1="18" y1="22" x2="38" y2="22" stroke="#c586c0" stroke-width="2.6" />
+            <line x1="41" y1="22" x2="58" y2="22" stroke="#9cdcfe" stroke-width="2.6" />
+            <line x1="21" y1="29" x2="48" y2="29" stroke="#ce9178" stroke-width="2.6" />
+            <line x1="21" y1="36" x2="34" y2="36" stroke="#4ec9b0" stroke-width="2.6" />
+            <line x1="37" y1="36" x2="58" y2="36" stroke="#dcdcaa" stroke-width="2.6" />
+            <line x1="21" y1="43" x2="54" y2="43" stroke="#9cdcfe" stroke-width="2.6" />
+            <line x1="18" y1="50" x2="30" y2="50" stroke="#c586c0" stroke-width="2.6" />
+            <line x1="33" y1="50" x2="44" y2="50" stroke="#ce9178" stroke-width="2.6" />
+            <line x1="21" y1="57" x2="50" y2="57" stroke="#6a9955" stroke-width="2.6" opacity="0.85" />
+          </g>
+
+          {/* 顶部高光 */}
+          <rect x="0" y="0" width="64" height="18" fill="url(#vscode-icon-gloss)" opacity="0.5" />
+        </g>
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SettingsIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#6d737c" size={size}>

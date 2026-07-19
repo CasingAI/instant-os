@@ -110,6 +110,9 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
       DEVICE_STORAGE_KEYS.icodeProjects,
     ])
   }
+  if (appId === 'vscode') {
+    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.vscodePrefs)
+  }
   if (appId === 'scene3d-lab') {
     return sumLocalStorageKeys([
       DEVICE_STORAGE_KEYS.scene3dLabArchives,

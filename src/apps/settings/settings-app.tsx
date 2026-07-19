@@ -844,6 +844,8 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
       return '对局偏好'
     case 'icode':
       return '项目与对话'
+    case 'vscode':
+      return '编辑器偏好'
     case 'scene3d-lab':
       return '场景存档'
     case 'model-vision':

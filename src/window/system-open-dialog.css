@@ -7,11 +7,40 @@
   pointer-events: none;
 }
 
+.system-open-dialog-layer--closing {
+  pointer-events: none;
+}
+
 .system-open-dialog-scrim {
   position: fixed;
   inset: 0;
   pointer-events: auto;
   background: rgba(40, 25, 8, 0.28);
+  animation: system-open-dialog-scrim-in 150ms ease-out both;
+}
+
+.system-open-dialog-scrim--closing {
+  animation: system-open-dialog-scrim-out 180ms ease-in both;
+}
+
+@keyframes system-open-dialog-scrim-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes system-open-dialog-scrim-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 .system-open-dialog-frame {
@@ -29,30 +58,60 @@
   box-shadow:
     0 14px 36px rgba(40, 25, 8, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  transform-origin: 50% 50%;
+  animation: system-open-dialog-frame-in 150ms ease-out both;
 }
 
+.system-open-dialog-frame--closing {
+  animation: system-open-dialog-frame-out 180ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes system-open-dialog-frame-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes system-open-dialog-frame-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* 与窗口 / About 对话框通用标题栏同款，不显示红绿灯 */
 .system-open-dialog-frame__titlebar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 6px 14px;
+  height: 34px;
+  padding: 0 12px;
   cursor: move;
   user-select: none;
-  border-bottom: 1px solid #8a7050;
-  background: linear-gradient(180deg, #d8c4a0 0%, #b89568 48%, #9a7540 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  border-bottom: 1px solid #aaa;
+  background: linear-gradient(180deg, #e8e8e8 0%, #d4d4d4 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .system-open-dialog-frame__title {
   margin: 0;
   font-size: 13px;
-  font-weight: 700;
-  color: #fffaf0;
-  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.18);
+  font-weight: 600;
+  color: #444;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .system-open-dialog-frame__body {
@@ -422,22 +481,6 @@
   place-items: center;
   width: 28px;
   height: 24px;
-}
-
-.system-open-dialog__glyph {
-  display: block;
-  width: 24px;
-  height: auto;
-  overflow: visible;
-}
-
-.system-open-dialog__glyph--folder {
-  filter: drop-shadow(0 1px 1px rgba(40, 25, 8, 0.28));
-}
-
-.system-open-dialog__glyph--file {
-  width: 18px;
-  filter: drop-shadow(0 1px 1px rgba(40, 25, 8, 0.22));
 }
 
 .system-open-dialog__row-name {

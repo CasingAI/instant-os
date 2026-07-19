@@ -48,6 +48,7 @@ import {
   resolvePathNodes,
 } from './files-vfs.ts'
 import { formatFilesByteSize, formatFilesTimestamp } from './files-path.ts'
+import { FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
 import '../../ui/ios-check-toggle.css'
 import '../../ui/ios-nav-back.css'
 import './files.css'
@@ -89,58 +90,6 @@ function toTextFileName(baseName: string): string {
   const trimmed = baseName.trim().replace(/\.txt$/i, '')
   if (!trimmed) return '未命名.txt'
   return `${trimmed}.txt`
-}
-
-function FolderGlyph() {
-  return (
-    <svg class="files__glyph files__glyph--folder" viewBox="0 0 64 52" aria-hidden="true">
-      <ellipse cx="32" cy="48.5" rx="20" ry="2.8" fill="rgba(40, 25, 8, 0.22)" />
-      <path
-        fill="#c9a046"
-        d="M7 13.5c0-2.4 1.9-4.3 4.3-4.3h13.2c.9 0 1.7.4 2.3 1.1l1.8 2.1c.3.4.8.6 1.3.6H53c2.2 0 4 1.8 4 4v3.1H7v-6.6z"
-      />
-      <path
-        fill="#e8c56a"
-        d="M5 19.2c0-2.5 2-4.5 4.5-4.5h45c2.5 0 4.5 2 4.5 4.5V42c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5V19.2z"
-      />
-      <path
-        fill="#f3dfa0"
-        d="M9.5 14.7h45c1.5 0 2.9.8 3.7 2H5.8c.8-1.2 2.2-2 3.7-2z"
-      />
-      <path
-        fill="#fff"
-        opacity="0.35"
-        d="M10 16.2h44c.9 0 1.7.4 2.2 1.1H7.8c.5-.7 1.3-1.1 2.2-1.1z"
-      />
-      <path
-        fill="#a67c42"
-        opacity="0.28"
-        d="M5 34h54v8c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5v-8z"
-      />
-    </svg>
-  )
-}
-
-function FileGlyph() {
-  return (
-    <svg class="files__glyph files__glyph--file" viewBox="0 0 48 60" aria-hidden="true">
-      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
-      <path
-        fill="#f4efe6"
-        stroke="#b9a888"
-        stroke-width="1.2"
-        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
-      />
-      <path fill="#fffdf8" d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z" />
-      <path fill="#e6dcc8" stroke="#b9a888" stroke-width="1" d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z" />
-      <path
-        stroke="#c4b59a"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        d="M13 27h22M13 34h22M13 41h14"
-      />
-    </svg>
-  )
 }
 
 function DeviceGlyph() {
@@ -1113,7 +1062,7 @@ export function FilesApp() {
                       }}
                     >
                       <span class="files__item-icon">
-                        {node.kind === 'folder' ? <FolderGlyph /> : <FileGlyph />}
+                        <FilesNodeIcon node={node} size="grid" />
                       </span>
                       <span class="files__item-name">{node.name}</span>
                     </button>
@@ -1231,7 +1180,7 @@ export function FilesApp() {
             onClick={() => void createTextFileNamed()}
           >
             <span class="files__popover-item-icon" aria-hidden="true">
-              <FileGlyph />
+              <FilesTxtTemplateIcon size="list" />
             </span>
             <span class="files__popover-item-copy">
               <span class="files__popover-item-title">文本文件</span>

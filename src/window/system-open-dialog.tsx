@@ -22,23 +22,30 @@ import {
   type FilesLocationId,
   type FilesNode,
 } from '../apps/files/files-types.ts'
+import { filesLocationPathRoot } from '../apps/files/files-path.ts'
 import {
   createTextFile,
   getFilesLocationLabel,
   listDirectory,
   listFilesLocations,
+  resolveFilesAbsolutePath,
   resolvePathNodes,
 } from '../apps/files/files-vfs.ts'
+import { FilesNodeIcon } from '../apps/files/files-node-icon.tsx'
 import './system-open-dialog.css'
+
+export type SystemOpenDialogSelectionMode = 'file' | 'folder'
 
 export type SystemOpenDialogOptions = {
   title?: string
-  /** 仅显示 / 可选这些后缀的文件；不传则显示全部文件 */
+  /** 仅显示 / 可选这些后缀的文件；不传则显示全部文件。folder 模式下忽略 */
   acceptExtensions?: readonly string[]
-  /** 是否显示「新建」；默认 false */
+  /** 是否显示「新建」；默认 false。folder 模式下忽略 */
   allowCreate?: boolean
   /** 新建文件后缀，默认 txt；当前仅支持文本文件落盘 */
   createExtension?: string
+  /** 选择目标；默认 file */
+  selectionMode?: SystemOpenDialogSelectionMode
   /**
    * @deprecated 打开对话框一律挂在系统浮层，不再随 App 窗口伸缩。
    */
@@ -50,7 +57,7 @@ export type FilesOpenDialogOptions = SystemOpenDialogOptions
 
 type DialogState = {
   options: SystemOpenDialogOptions
-  resolve: (value: FilesNode | undefined) => void
+  resolve: (value: string | undefined) => void
 }
 
 type NavPoint = {
@@ -60,13 +67,15 @@ type NavPoint = {
 
 type FormatFilterMode = 'accepted' | 'all'
 
-const DEFAULT_DIALOG_TITLE = '打开文件'
+const DEFAULT_FILE_DIALOG_TITLE = '打开文件'
+const DEFAULT_FOLDER_DIALOG_TITLE = '选择文件夹'
 const DEFAULT_DIALOG_WIDTH = 560
 const DEFAULT_DIALOG_HEIGHT = 440
 const MIN_DIALOG_WIDTH = 360
 const MIN_DIALOG_HEIGHT = 320
 const DIALOG_NARROW_ENTER = 480
 const DIALOG_NARROW_EXIT = 520
+const CLOSE_ANIMATION_MS = 200
 const THEME = '#8a6a38'
 
 function centeredDialogBounds(): WindowBounds {
@@ -113,60 +122,6 @@ function sameNavPoint(a: NavPoint, b: NavPoint): boolean {
   return a.locationId === b.locationId && a.folderId === b.folderId
 }
 
-function FolderGlyph() {
-  return (
-    <svg
-      class="system-open-dialog__glyph system-open-dialog__glyph--folder"
-      viewBox="0 0 64 52"
-      aria-hidden="true"
-    >
-      <path
-        fill="#c9a046"
-        d="M7 13.5c0-2.4 1.9-4.3 4.3-4.3h13.2c.9 0 1.7.4 2.3 1.1l1.8 2.1c.3.4.8.6 1.3.6H53c2.2 0 4 1.8 4 4v3.1H7v-6.6z"
-      />
-      <path
-        fill="#e8c56a"
-        d="M5 19.2c0-2.5 2-4.5 4.5-4.5h45c2.5 0 4.5 2 4.5 4.5V42c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5V19.2z"
-      />
-      <path fill="#f3dfa0" d="M9.5 14.7h45c1.5 0 2.9.8 3.7 2H5.8c.8-1.2 2.2-2 3.7-2z" />
-      <path
-        fill="#fff"
-        opacity="0.35"
-        d="M10 16.2h44c.9 0 1.7.4 2.2 1.1H7.8c.5-.7 1.3-1.1 2.2-1.1z"
-      />
-    </svg>
-  )
-}
-
-function FileGlyph() {
-  return (
-    <svg
-      class="system-open-dialog__glyph system-open-dialog__glyph--file"
-      viewBox="0 0 48 60"
-      aria-hidden="true"
-    >
-      <path
-        fill="#f4efe6"
-        stroke="#b9a888"
-        stroke-width="1.2"
-        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
-      />
-      <path
-        fill="#e6dcc8"
-        stroke="#b9a888"
-        stroke-width="1"
-        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
-      />
-      <path
-        stroke="#c4b59a"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        d="M13 27h22M13 34h22M13 41h14"
-      />
-    </svg>
-  )
-}
-
 function NavArrowGlyph({ direction }: { direction: 'back' | 'forward' }) {
   return (
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -189,19 +144,24 @@ function SystemOpenDialogBrowser({
 }: {
   options: SystemOpenDialogOptions
   onClose: () => void
-  onPick: (node: FilesNode) => void
+  onPick: (path: string) => void
 }) {
   const modal = useWindowModal()
+  const selectionMode: SystemOpenDialogSelectionMode =
+    options.selectionMode === 'folder' ? 'folder' : 'file'
+  const folderMode = selectionMode === 'folder'
+
   const configuredAccept = useMemo(() => {
+    if (folderMode) return undefined
     if (!options.acceptExtensions || options.acceptExtensions.length === 0) {
       return undefined
     }
     return new Set(options.acceptExtensions.map(normalizeFileExtension).filter(Boolean))
-  }, [options.acceptExtensions])
+  }, [folderMode, options.acceptExtensions])
 
   const createExtension = normalizeFileExtension(options.createExtension ?? 'txt') || 'txt'
-  const allowCreate = options.allowCreate === true
-  const canChooseFormats = configuredAccept !== undefined && configuredAccept.size > 0
+  const allowCreate = !folderMode && options.allowCreate === true
+  const canChooseFormats = !folderMode && configuredAccept !== undefined && configuredAccept.size > 0
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const prevNarrowRef = useRef<boolean | undefined>(undefined)
@@ -235,7 +195,9 @@ function SystemOpenDialogBrowser({
     locationWritable && (currentFolder === undefined || isFilesNodeWritable(currentFolder))
   const locationLabel = getFilesLocationLabel(locationId)
   const selected = items.find((item) => item.id === selectedId)
-  const canOpen = selected?.kind === 'file'
+  const canOpen = folderMode
+    ? selected === undefined || selected.kind === 'folder'
+    : selected?.kind === 'file'
   const canGoBackInHistory = historyIndex > 0
   const canGoForward = historyIndex < history.length - 1
   const canLeaveBrowserStack = narrowLayout && stackedBrowserOpen && !canGoBackInHistory
@@ -249,10 +211,13 @@ function SystemOpenDialogBrowser({
         listDirectory(locationId, folderId),
         resolvePathNodes(locationId, folderId),
       ])
-      setItems(nextItems.filter((node) => matchesAccept(node, accept)))
+      const visible = folderMode
+        ? nextItems.filter((node) => node.kind === 'folder')
+        : nextItems.filter((node) => matchesAccept(node, accept))
+      setItems(visible)
       setPathNodes(nextPath)
       setSelectedId((current) =>
-        current && nextItems.some((node) => node.id === current) ? current : undefined,
+        current && visible.some((node) => node.id === current) ? current : undefined,
       )
     } catch (err) {
       setItems([])
@@ -261,7 +226,7 @@ function SystemOpenDialogBrowser({
     } finally {
       setLoading(false)
     }
-  }, [accept, folderId, locationId])
+  }, [accept, folderId, folderMode, locationId])
 
   const refreshLocations = useCallback(async () => {
     try {
@@ -419,15 +384,31 @@ function SystemOpenDialogBrowser({
     setHistoryIndex(nextIndex)
   }, [applyNavPoint, canGoForward, history, historyIndex])
 
+  const pickNodePath = useCallback(
+    async (node: FilesNode) => {
+      try {
+        onPick(await resolveFilesAbsolutePath(node))
+      } catch (err) {
+        await modal.alert({ title: '无法打开', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [modal, onPick],
+  )
+
   const handleItemActivate = useCallback(
     (node: FilesNode) => {
+      if (folderMode) {
+        if (node.kind !== 'folder') return
+        setSelectedId(node.id)
+        return
+      }
       if (node.kind === 'folder') {
         enterFolder(node)
         return
       }
       setSelectedId(node.id)
     },
-    [enterFolder],
+    [enterFolder, folderMode],
   )
 
   const handleItemDoubleClick = useCallback(
@@ -436,15 +417,28 @@ function SystemOpenDialogBrowser({
         enterFolder(node)
         return
       }
-      onPick(node)
+      if (folderMode) return
+      void pickNodePath(node)
     },
-    [enterFolder, onPick],
+    [enterFolder, folderMode, pickNodePath],
   )
 
   const handleOpen = useCallback(() => {
+    if (folderMode) {
+      if (selected?.kind === 'folder') {
+        void pickNodePath(selected)
+        return
+      }
+      if (currentFolder) {
+        void pickNodePath(currentFolder)
+        return
+      }
+      onPick(filesLocationPathRoot(locationId))
+      return
+    }
     if (!selected || selected.kind !== 'file') return
-    onPick(selected)
-  }, [onPick, selected])
+    void pickNodePath(selected)
+  }, [currentFolder, folderMode, locationId, onPick, pickNodePath, selected])
 
   const handleCreate = useCallback(async () => {
     if (!allowCreate || !canCreateHere || busy) return
@@ -476,7 +470,7 @@ function SystemOpenDialogBrowser({
         parentId: folderId,
         name: toCreateFileName(name, createExtension),
       })
-      onPick(node)
+      await pickNodePath(node)
     } catch (err) {
       await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
     } finally {
@@ -490,7 +484,7 @@ function SystemOpenDialogBrowser({
     folderId,
     locationId,
     modal,
-    onPick,
+    pickNodePath,
   ])
 
   const openOptions = useCallback(() => {
@@ -589,7 +583,7 @@ function SystemOpenDialogBrowser({
                       onDblClick={() => handleItemDoubleClick(node)}
                     >
                       <span class="system-open-dialog__row-icon" aria-hidden="true">
-                        {node.kind === 'folder' ? <FolderGlyph /> : <FileGlyph />}
+                        <FilesNodeIcon node={node} size="list" />
                       </span>
                       <span class="system-open-dialog__row-name">{node.name}</span>
                     </button>
@@ -715,14 +709,18 @@ function SystemOpenDialogBrowser({
 
 function SystemOpenDialogPanel({
   options,
+  closing,
   onClose,
   onPick,
 }: {
   options: SystemOpenDialogOptions
+  closing: boolean
   onClose: () => void
-  onPick: (node: FilesNode) => void
+  onPick: (path: string) => void
 }) {
-  const title = options.title ?? DEFAULT_DIALOG_TITLE
+  const title =
+    options.title ??
+    (options.selectionMode === 'folder' ? DEFAULT_FOLDER_DIALOG_TITLE : DEFAULT_FILE_DIALOG_TITLE)
   const [bounds, setBounds] = useState<WindowBounds>(() => centeredDialogBounds())
   const boundsRef = useRef(bounds)
   boundsRef.current = bounds
@@ -733,6 +731,7 @@ function SystemOpenDialogPanel({
   >(undefined)
 
   useEffect(() => {
+    if (closing) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose()
@@ -740,7 +739,7 @@ function SystemOpenDialogPanel({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  }, [closing, onClose])
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -799,7 +798,7 @@ function SystemOpenDialogPanel({
   }, [])
 
   const onTitlebarPointerDown = useCallback((event: PointerEvent) => {
-    if (event.button !== 0) return
+    if (closing || event.button !== 0) return
     event.preventDefault()
     dragRef.current = {
       kind: 'move',
@@ -809,10 +808,10 @@ function SystemOpenDialogPanel({
     }
     document.body.style.cursor = 'move'
     document.body.style.userSelect = 'none'
-  }, [])
+  }, [closing])
 
   const onResizePointerDown = useCallback((direction: ResizeDirection, event: PointerEvent) => {
-    if (event.button !== 0) return
+    if (closing || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
     dragRef.current = {
@@ -824,7 +823,7 @@ function SystemOpenDialogPanel({
     }
     document.body.style.cursor = getResizeCursor(direction)
     document.body.style.userSelect = 'none'
-  }, [])
+  }, [closing])
 
   const frameStyle = {
     left: `${bounds.x}px`,
@@ -834,10 +833,13 @@ function SystemOpenDialogPanel({
   }
 
   return createPortal(
-    <div class="system-open-dialog-layer">
-      <div class="system-open-dialog-scrim" aria-hidden="true" />
+    <div class={`system-open-dialog-layer${closing ? ' system-open-dialog-layer--closing' : ''}`}>
       <div
-        class="system-open-dialog-frame"
+        class={`system-open-dialog-scrim${closing ? ' system-open-dialog-scrim--closing' : ''}`}
+        aria-hidden="true"
+      />
+      <div
+        class={`system-open-dialog-frame${closing ? ' system-open-dialog-frame--closing' : ''}`}
         style={frameStyle}
         role="dialog"
         aria-modal="true"
@@ -865,37 +867,62 @@ function SystemOpenDialogPanel({
 
 export function useSystemOpenDialog() {
   const [state, setState] = useState<DialogState | undefined>(undefined)
+  const [closing, setClosing] = useState(false)
   const stateRef = useRef(state)
+  const closingRef = useRef(false)
+  const pendingValueRef = useRef<string | undefined>(undefined)
   stateRef.current = state
+  closingRef.current = closing
 
   const showSystemOpenDialog = useCallback((options: SystemOpenDialogOptions = {}) => {
-    return new Promise<FilesNode | undefined>((resolve) => {
+    return new Promise<string | undefined>((resolve) => {
+      closingRef.current = false
+      pendingValueRef.current = undefined
+      setClosing(false)
       setState({ options, resolve })
     })
   }, [])
 
-  const closeWith = useCallback((value: FilesNode | undefined) => {
-    setState((current) => {
-      current?.resolve(value)
-      return undefined
-    })
+  const closeWith = useCallback((value: string | undefined) => {
+    if (!stateRef.current || closingRef.current) return
+    pendingValueRef.current = value
+    closingRef.current = true
+    setClosing(true)
   }, [])
 
   useEffect(() => {
+    if (!closing) return
+    const timer = window.setTimeout(() => {
+      const current = stateRef.current
+      stateRef.current = undefined
+      current?.resolve(pendingValueRef.current)
+      pendingValueRef.current = undefined
+      closingRef.current = false
+      setState(undefined)
+      setClosing(false)
+    }, CLOSE_ANIMATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [closing])
+
+  useEffect(() => {
     return () => {
-      stateRef.current?.resolve(undefined)
+      const current = stateRef.current
+      if (!current) return
+      stateRef.current = undefined
+      current.resolve(closingRef.current ? pendingValueRef.current : undefined)
     }
   }, [])
 
   const dialog = state ? (
     <SystemOpenDialogPanel
       options={state.options}
+      closing={closing}
       onClose={() => closeWith(undefined)}
       onPick={(node) => closeWith(node)}
     />
   ) : undefined
 
-  const isOpen = state !== undefined
+  const isOpen = state !== undefined && !closing
 
   return { showSystemOpenDialog, dialog, isOpen }
 }

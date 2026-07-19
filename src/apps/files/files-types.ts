@@ -41,7 +41,7 @@ export type FilesLocation = {
 export const FILES_LOCATIONS: readonly FilesLocation[] = [
   { id: 'local', label: '用户文件', writable: true },
   { id: 'models3d', label: '3D 模型', writable: false },
-  { id: 'source', label: '系统文件', writable: false },
+  { id: 'source', label: '系统', writable: false },
 ]
 
 export const FILES_TEXT_MIME = 'text/plain'

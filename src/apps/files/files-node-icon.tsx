@@ -1,0 +1,748 @@
+import { useEffect, useId, useState } from 'preact/hooks'
+import {
+  FILE_OPEN_PREFS_CHANGED_EVENT,
+  fileNameExtension,
+  getDefaultFileOpenApp,
+} from '../../os/file-open-registry.ts'
+import type { FilesNode } from './files-types.ts'
+import { FILES_VFS_CHANGED_EVENT, readTextFile } from './files-vfs.ts'
+import './files-node-icon.css'
+
+export type FilesNodeIconSize = 'grid' | 'list'
+
+/** 超过此大小不再读取正文做图标预览，避免拖慢目录列表 */
+const TXT_PREVIEW_MAX_BYTES = 256 * 1024
+/**
+ * 结构点阵：行距压得很密，才能在纸面高度内塞进足够多的正文结构。
+ * 与 SVG pitchY≈0.24 配套，约可铺满 ~180 行。
+ */
+const STRUCTURE_MAX_ROWS = 180
+const STRUCTURE_MAX_DOTS = 32
+const STRUCTURE_MAX_INDENT = 8
+/** 正文一行过长时，按此字符数折成多行点阵 */
+const STRUCTURE_WRAP_CHARS = 32
+
+export type StructureRow = {
+  indent: number
+  dots: number
+}
+
+export function isTxtFileName(fileName: string): boolean {
+  return fileNameExtension(fileName) === 'txt'
+}
+
+export function isTxtFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean {
+  return node.kind === 'file' && isTxtFileName(node.name)
+}
+
+const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
+
+export function isBrowserOpenExtension(extension: string | undefined): boolean {
+  return extension !== undefined && BROWSER_OPEN_EXTENSIONS.has(extension)
+}
+
+export function browserFileBadgeLabel(extension: string): string {
+  const ext = extension.trim().toLowerCase()
+  if (ext === 'svg') return 'SVG'
+  return 'HTML'
+}
+
+function pushStructureRow(rows: StructureRow[], indent: number, dots: number): boolean {
+  if (rows.length >= STRUCTURE_MAX_ROWS) return false
+  rows.push({ indent, dots })
+  return true
+}
+
+/** 把正文压成「缩进 + 点密度」行，用于图标结构纹理 */
+export function toStructureRows(text: string): StructureRow[] {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\t/g, '  ').split('\n')
+  const rows: StructureRow[] = []
+  let started = false
+
+  for (const line of lines) {
+    if (rows.length >= STRUCTURE_MAX_ROWS) break
+    const leading = line.match(/^ */)?.[0].length ?? 0
+    const content = line.slice(leading).trimEnd()
+    if (!started) {
+      if (!content.trim()) continue
+      started = true
+    }
+
+    const indent = Math.min(STRUCTURE_MAX_INDENT, Math.floor(leading / 2))
+    const trimmed = content.trim()
+    if (!trimmed) {
+      pushStructureRow(rows, indent, 0)
+      continue
+    }
+
+    for (let offset = 0; offset < trimmed.length; offset += STRUCTURE_WRAP_CHARS) {
+      const chunk = trimmed.slice(offset, offset + STRUCTURE_WRAP_CHARS)
+      const dots = Math.min(STRUCTURE_MAX_DOTS, Math.max(2, Math.ceil(chunk.length / 1.15)))
+      if (!pushStructureRow(rows, indent, dots)) break
+    }
+  }
+
+  while (rows.length > 0 && rows[rows.length - 1]?.dots === 0) {
+    rows.pop()
+  }
+  return rows
+}
+
+/** 写在纸页上的后缀字：短后缀直接大写，过长用常见缩写 */
+export function codeFileExtLabel(extension: string): string {
+  const ext = extension.trim().toLowerCase()
+  const aliases: Record<string, string> = {
+    markdown: 'MD',
+    properties: 'PROP',
+    graphql: 'GQL',
+    typescript: 'TS',
+    javascript: 'JS',
+    xhtml: 'HTML',
+  }
+  const label = (aliases[ext] ?? ext).toUpperCase()
+  if (label.length <= 4) return label
+  return label.slice(0, 4)
+}
+
+type CodeExtTone = 'blue' | 'yellow' | 'green' | 'orange' | 'purple' | 'gray' | 'teal' | 'red'
+
+/** Code 图标独立材质：顶条釉面 + 浮雕字色，不沿用文本编辑纸页配色 */
+const CODE_EXT_MATERIAL: Record<
+  CodeExtTone,
+  {
+    bandTop: string
+    bandBot: string
+    bandShine: string
+    ink: string
+    inkDeep: string
+    wash: string
+  }
+> = {
+  blue: {
+    bandTop: '#6eb0e8',
+    bandBot: '#2f6fad',
+    bandShine: 'rgba(255,255,255,0.55)',
+    ink: '#2a5f9a',
+    inkDeep: '#1a3f6a',
+    wash: 'rgba(47, 111, 173, 0.12)',
+  },
+  yellow: {
+    bandTop: '#e8c84a',
+    bandBot: '#b89018',
+    bandShine: 'rgba(255,255,255,0.5)',
+    ink: '#8a6a10',
+    inkDeep: '#5c4708',
+    wash: 'rgba(184, 144, 24, 0.14)',
+  },
+  green: {
+    bandTop: '#7ed089',
+    bandBot: '#3d8f4a',
+    bandShine: 'rgba(255,255,255,0.5)',
+    ink: '#2f6f38',
+    inkDeep: '#1e4a24',
+    wash: 'rgba(61, 143, 74, 0.12)',
+  },
+  orange: {
+    bandTop: '#f0b060',
+    bandBot: '#b86f28',
+    bandShine: 'rgba(255,255,255,0.5)',
+    ink: '#8a5018',
+    inkDeep: '#5c3410',
+    wash: 'rgba(184, 111, 40, 0.12)',
+  },
+  purple: {
+    bandTop: '#b89aec',
+    bandBot: '#6f4fb0',
+    bandShine: 'rgba(255,255,255,0.5)',
+    ink: '#553890',
+    inkDeep: '#3a2468',
+    wash: 'rgba(111, 79, 176, 0.12)',
+  },
+  gray: {
+    bandTop: '#b0b8c4',
+    bandBot: '#5f6875',
+    bandShine: 'rgba(255,255,255,0.45)',
+    ink: '#4a5360',
+    inkDeep: '#2e3540',
+    wash: 'rgba(95, 104, 117, 0.1)',
+  },
+  teal: {
+    bandTop: '#6fd0d0',
+    bandBot: '#2f8a8a',
+    bandShine: 'rgba(255,255,255,0.5)',
+    ink: '#226868',
+    inkDeep: '#144848',
+    wash: 'rgba(47, 138, 138, 0.12)',
+  },
+  red: {
+    bandTop: '#f0a080',
+    bandBot: '#b85030',
+    bandShine: 'rgba(255,255,255,0.5)',
+    ink: '#8a3818',
+    inkDeep: '#5c2410',
+    wash: 'rgba(184, 80, 48, 0.12)',
+  },
+}
+
+function codeFileExtTone(extension: string): CodeExtTone {
+  const ext = extension.trim().toLowerCase()
+  switch (ext) {
+    case 'js':
+    case 'mjs':
+    case 'cjs':
+    case 'jsx':
+      return 'yellow'
+    case 'ts':
+    case 'mts':
+    case 'cts':
+    case 'tsx':
+      return 'blue'
+    case 'py':
+    case 'pyw':
+      return 'green'
+    case 'json':
+    case 'jsonc':
+    case 'yaml':
+    case 'yml':
+    case 'toml':
+    case 'xml':
+    case 'ini':
+    case 'conf':
+    case 'cfg':
+    case 'env':
+    case 'properties':
+      return 'orange'
+    case 'css':
+    case 'scss':
+    case 'less':
+      return 'purple'
+    case 'html':
+    case 'htm':
+    case 'xhtml':
+    case 'vue':
+    case 'svelte':
+      return 'red'
+    case 'md':
+    case 'markdown':
+    case 'mdx':
+    case 'txt':
+      return 'gray'
+    case 'sh':
+    case 'bash':
+    case 'zsh':
+    case 'ps1':
+    case 'sql':
+      return 'teal'
+    default:
+      return 'blue'
+  }
+}
+
+function FolderGlyph({ className }: { className: string }) {
+  return (
+    <svg class={className} viewBox="0 0 64 52" aria-hidden="true">
+      <ellipse cx="32" cy="48.5" rx="20" ry="2.8" fill="rgba(40, 25, 8, 0.22)" />
+      <path
+        fill="#c9a046"
+        d="M7 13.5c0-2.4 1.9-4.3 4.3-4.3h13.2c.9 0 1.7.4 2.3 1.1l1.8 2.1c.3.4.8.6 1.3.6H53c2.2 0 4 1.8 4 4v3.1H7v-6.6z"
+      />
+      <path
+        fill="#e8c56a"
+        d="M5 19.2c0-2.5 2-4.5 4.5-4.5h45c2.5 0 4.5 2 4.5 4.5V42c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5V19.2z"
+      />
+      <path
+        fill="#f3dfa0"
+        d="M9.5 14.7h45c1.5 0 2.9.8 3.7 2H5.8c.8-1.2 2.2-2 3.7-2z"
+      />
+      <path
+        fill="#fff"
+        opacity="0.35"
+        d="M10 16.2h44c.9 0 1.7.4 2.2 1.1H7.8c.5-.7 1.3-1.1 2.2-1.1z"
+      />
+      <path
+        fill="#a67c42"
+        opacity="0.28"
+        d="M5 34h54v8c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5v-8z"
+      />
+    </svg>
+  )
+}
+
+/** 未知 / 无关联类型的通用文件图标（空白页，无正文暗示） */
+function UnknownFileGlyph({ className }: { className: string }) {
+  return (
+    <svg class={className} viewBox="0 0 48 60" aria-hidden="true">
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#e8e4dc"
+        stroke="#9a9284"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#f3f0ea"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#d4cfc4"
+        stroke="#9a9284"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+    </svg>
+  )
+}
+
+function TxtPaperGlyph({ className }: { className: string }) {
+  return (
+    <svg class={className} viewBox="0 0 48 60" aria-hidden="true">
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#fffdf8"
+        stroke="#b9a888"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#fff"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#e6dcc8"
+        stroke="#b9a888"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+    </svg>
+  )
+}
+
+/** 折角盖在点阵之上，遮住纸面右上角（Mac 缩略图同款层次） */
+function TxtFoldCover() {
+  return (
+    <svg class="files-node-icon__fold" viewBox="0 0 48 60" aria-hidden="true">
+      <path
+        fill="#e6dcc8"
+        stroke="#b9a888"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+    </svg>
+  )
+}
+
+/**
+ * 与纸面同坐标系的 SVG 点阵：点极小且紧贴，clip 在纸页路径内，折角画在最上层。
+ */
+function StructureDots({ rows }: { rows: readonly StructureRow[] }) {
+  const rawId = useId()
+  const clipId = `files-struct-clip-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`
+  // 行距压到 ~0.24，约 180 行铺满纸面可用高度
+  const x0 = 11.15
+  const y0 = 6.2
+  const pitchX = 0.42
+  const pitchY = 0.24
+  const r = 0.2
+  const indentStep = 0.72
+
+  return (
+    <svg class="files-node-icon__structure" viewBox="0 0 48 60" aria-hidden="true">
+      <defs>
+        <clipPath id={clipId}>
+          <path d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`} fill="#3f3a32" opacity="0.5">
+        {rows.flatMap((row, rowIndex) =>
+          Array.from({ length: row.dots }, (_, dotIndex) => (
+            <circle
+              key={`${rowIndex}-${dotIndex}`}
+              cx={x0 + row.indent * indentStep + dotIndex * pitchX}
+              cy={y0 + rowIndex * pitchY}
+              r={r}
+            />
+          )),
+        )}
+      </g>
+      <path
+        fill="#e6dcc8"
+        stroke="#b9a888"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+    </svg>
+  )
+}
+
+/**
+ * Code 文件图标（独立造型，不沿用文本编辑折角纸页）：
+ * 厚卡片本体 + 釉面顶条 + 面板区正中浮雕后缀。
+ */
+function CodeFileGlyph({
+  className,
+  label,
+  tone,
+}: {
+  className: string
+  label: string
+  tone: CodeExtTone
+}) {
+  const rawId = useId()
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '')
+  const mat = CODE_EXT_MATERIAL[tone]
+  const len = label.length
+  const fontSize = len <= 1 ? 20 : len === 2 ? 17 : len === 3 ? 13.5 : 11
+  // 面板几何中心（顶条以下）：x 28，y 41
+  const cx = 28
+  const cy = 41
+
+  const faceGrad = `code-face-${uid}`
+  const bandGrad = `code-band-${uid}`
+  const edgeGrad = `code-edge-${uid}`
+  const glossGrad = `code-gloss-${uid}`
+
+  return (
+    <svg class={className} viewBox="0 0 56 68" aria-hidden="true">
+      <defs>
+        <linearGradient id={faceGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffffff" />
+          <stop offset="42%" stop-color="#f3f6fa" />
+          <stop offset="100%" stop-color="#dde3ec" />
+        </linearGradient>
+        <linearGradient id={bandGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color={mat.bandTop} />
+          <stop offset="100%" stop-color={mat.bandBot} />
+        </linearGradient>
+        <linearGradient id={edgeGrad} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#9aa3b0" />
+          <stop offset="100%" stop-color="#6a7380" />
+        </linearGradient>
+        <linearGradient id={glossGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.7)" />
+          <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+        </linearGradient>
+      </defs>
+
+      {/* 落地阴影 */}
+      <ellipse cx="28" cy="62.5" rx="16" ry="2.6" fill="rgba(18, 28, 42, 0.28)" />
+
+      {/* 厚度侧沿（右下挤出） */}
+      <path
+        fill={`url(#${edgeGrad})`}
+        d="M14 8h28a6 6 0 0 1 6 6v40a6 6 0 0 1-6 6H14a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6z"
+        transform="translate(2.2 2.8)"
+        opacity="0.9"
+      />
+
+      {/* 正面卡片 */}
+      <path
+        fill={`url(#${faceGrad})`}
+        stroke="#8a93a0"
+        stroke-width="0.9"
+        d="M12 6h28a6 6 0 0 1 6 6v40a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6z"
+      />
+
+      {/* 左侧厚度高光缝 */}
+      <path
+        fill="none"
+        stroke="rgba(255,255,255,0.55)"
+        stroke-width="1.1"
+        stroke-linecap="round"
+        d="M12.2 12.5v35.5"
+      />
+
+      {/* 釉面顶条 */}
+      <path
+        fill={`url(#${bandGrad})`}
+        d="M12 6h28a6 6 0 0 1 6 6v8.5H6V12a6 6 0 0 1 6-6z"
+      />
+      <path fill={`url(#${glossGrad})`} d="M12 6h28a6 6 0 0 1 5.2 3.2H6.8A6 6 0 0 1 12 6z" />
+      <path
+        fill="none"
+        stroke={mat.bandShine}
+        stroke-width="1.2"
+        stroke-linecap="round"
+        opacity="0.85"
+        d="M10.5 9.2h31"
+      />
+      {/* 顶条底沿阴影，压出厚度 */}
+      <path fill="rgba(20,30,45,0.22)" d="M6 20.5h40v1.2H6z" />
+
+      {/* 面板内凹感 */}
+      <rect x="10" y="24" width="32" height="26" rx="3.5" fill={mat.wash} />
+      <rect
+        x="10.4"
+        y="24.4"
+        width="31.2"
+        height="25.2"
+        rx="3.2"
+        fill="none"
+        stroke="rgba(255,255,255,0.65)"
+        stroke-width="0.7"
+      />
+      <rect
+        x="10.4"
+        y="24.4"
+        width="31.2"
+        height="25.2"
+        rx="3.2"
+        fill="none"
+        stroke="rgba(40,50,65,0.12)"
+        stroke-width="0.7"
+        transform="translate(0.4 0.5)"
+      />
+
+      {/* 面板高光 */}
+      <path
+        fill={`url(#${glossGrad})`}
+        opacity="0.45"
+        d="M10 24h32a3.5 3.5 0 0 1 0 1.2L10 28.5V24z"
+      />
+
+      {/* 浮雕后缀：阴影 → 高光 → 本体，几何居中于面板凹槽 */}
+      <text
+        x={cx}
+        y={cy + 0.9}
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size={fontSize}
+        font-weight="800"
+        fill={mat.inkDeep}
+        opacity="0.55"
+      >
+        {label}
+      </text>
+      <text
+        x={cx - 0.45}
+        y={cy - 0.55}
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size={fontSize}
+        font-weight="800"
+        fill="rgba(255,255,255,0.85)"
+      >
+        {label}
+      </text>
+      <text
+        x={cx}
+        y={cy}
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size={fontSize}
+        font-weight="800"
+        fill={mat.ink}
+      >
+        {label}
+      </text>
+
+      {/* 底边内高光，收口 */}
+      <path
+        fill="none"
+        stroke="rgba(255,255,255,0.4)"
+        stroke-width="1"
+        stroke-linecap="round"
+        d="M12 55.5h28"
+      />
+    </svg>
+  )
+}
+
+type StructurePreviewIconProps = {
+  nodeId: string
+  byteSize: number
+  size: FilesNodeIconSize
+  badge: string
+  badgeTone: 'txt' | 'html' | 'svg'
+  /** 不读盘，仅展示空文本样式（如「新建」菜单） */
+  staticPreview?: string
+}
+
+function StructurePreviewFileIcon({
+  nodeId,
+  byteSize,
+  size,
+  badge,
+  badgeTone,
+  staticPreview,
+}: StructurePreviewIconProps) {
+  const [rows, setRows] = useState<StructureRow[] | undefined>(
+    staticPreview !== undefined ? toStructureRows(staticPreview) : undefined,
+  )
+  const skipRead = staticPreview !== undefined || byteSize > TXT_PREVIEW_MAX_BYTES
+
+  useEffect(() => {
+    if (skipRead) {
+      if (staticPreview !== undefined) setRows(toStructureRows(staticPreview))
+      return
+    }
+
+    let cancelled = false
+
+    const load = () => {
+      void readTextFile(nodeId)
+        .then(({ text }) => {
+          if (!cancelled) setRows(toStructureRows(text))
+        })
+        .catch(() => {
+          if (!cancelled) setRows(undefined)
+        })
+    }
+
+    load()
+
+    const onVfsChanged = () => load()
+    window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    return () => {
+      cancelled = true
+      window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    }
+  }, [nodeId, byteSize, skipRead, staticPreview])
+
+  const showStructure = rows !== undefined && rows.length > 0
+  const rootClass =
+    `files-node-icon files-node-icon--${size} files-node-icon--preview` +
+    (showStructure ? ' files-node-icon--preview-ready' : '')
+
+  return (
+    <span class={rootClass} aria-hidden="true">
+      <TxtPaperGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+      {showStructure ? (
+        <StructureDots rows={rows} />
+      ) : (
+        <span class="files-node-icon__lines" />
+      )}
+      {showStructure ? undefined : <TxtFoldCover />}
+      <span class={`files-node-icon__badge files-node-icon__badge--${badgeTone}`}>{badge}</span>
+    </span>
+  )
+}
+
+function TxtFileIcon({
+  nodeId,
+  byteSize,
+  size,
+  staticPreview,
+}: {
+  nodeId: string
+  byteSize: number
+  size: FilesNodeIconSize
+  staticPreview?: string
+}) {
+  return (
+    <StructurePreviewFileIcon
+      nodeId={nodeId}
+      byteSize={byteSize}
+      size={size}
+      badge="TXT"
+      badgeTone="txt"
+      staticPreview={staticPreview}
+    />
+  )
+}
+
+function BrowserFileIcon({
+  nodeId,
+  byteSize,
+  size,
+  extension,
+}: {
+  nodeId: string
+  byteSize: number
+  size: FilesNodeIconSize
+  extension: string
+}) {
+  const badge = browserFileBadgeLabel(extension)
+  return (
+    <StructurePreviewFileIcon
+      nodeId={nodeId}
+      byteSize={byteSize}
+      size={size}
+      badge={badge}
+      badgeTone={badge === 'SVG' ? 'svg' : 'html'}
+    />
+  )
+}
+
+type CodeFileIconProps = {
+  extension: string
+  size: FilesNodeIconSize
+}
+
+/** Virtual Studio Code 默认打开时的文件图标：厚卡片拟物 + 正中浮雕后缀 */
+function CodeFileIcon({ extension, size }: CodeFileIconProps) {
+  const label = codeFileExtLabel(extension)
+  const tone = codeFileExtTone(extension)
+
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--code`}
+      aria-hidden="true"
+    >
+      <CodeFileGlyph
+        className="files-node-icon__glyph files-node-icon__glyph--file files-node-icon__glyph--code"
+        label={label}
+        tone={tone}
+      />
+    </span>
+  )
+}
+
+/** 「新建文本文件」等无节点场景的静态 TXT 图标 */
+export function FilesTxtTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
+  return <TxtFileIcon nodeId="" byteSize={0} size={size} staticPreview="" />
+}
+
+export function FilesNodeIcon({
+  node,
+  size = 'grid',
+}: {
+  node: FilesNode
+  size?: FilesNodeIconSize
+}) {
+  const [, setPrefsEpoch] = useState(0)
+
+  useEffect(() => {
+    const onPrefsChanged = () => setPrefsEpoch((value) => value + 1)
+    window.addEventListener(FILE_OPEN_PREFS_CHANGED_EVENT, onPrefsChanged)
+    return () => window.removeEventListener(FILE_OPEN_PREFS_CHANGED_EVENT, onPrefsChanged)
+  }, [])
+
+  if (node.kind === 'folder') {
+    return (
+      <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
+        <FolderGlyph className="files-node-icon__glyph files-node-icon__glyph--folder" />
+      </span>
+    )
+  }
+
+  const defaultApp = getDefaultFileOpenApp(node.name)
+  const extension = fileNameExtension(node.name)
+
+  if (defaultApp === 'vscode' && extension) {
+    return <CodeFileIcon extension={extension} size={size} />
+  }
+
+  if (defaultApp === 'textedit' || isTxtFilesNode(node)) {
+    return <TxtFileIcon nodeId={node.id} byteSize={node.byteSize} size={size} />
+  }
+
+  if (defaultApp === 'browser' || isBrowserOpenExtension(extension)) {
+    return (
+      <BrowserFileIcon
+        nodeId={node.id}
+        byteSize={node.byteSize}
+        size={size}
+        extension={extension ?? 'html'}
+      />
+    )
+  }
+
+  return (
+    <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
+      <UnknownFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
