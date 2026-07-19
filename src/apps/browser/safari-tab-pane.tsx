@@ -23,6 +23,7 @@ type SafariTabPaneProps = {
   onReload: () => void
   onFocusWindow?: () => void
   onContextMenu?: (request: SafariFrameContextMenuRequest) => void
+  onDismissOverlay?: () => void
 }
 
 export function SafariTabPane({
@@ -43,6 +44,7 @@ export function SafariTabPane({
   onReload,
   onFocusWindow,
   onContextMenu,
+  onDismissOverlay,
 }: SafariTabPaneProps) {
   const onStartPage = isStartPageUrl(url)
   const showProgress = loading || streaming
@@ -97,6 +99,7 @@ export function SafariTabPane({
             onNavigate={onPageNavigate}
             onFocus={onFocusWindow}
             onContextMenu={onContextMenu}
+            onDismissOverlay={onDismissOverlay}
           />
         </div>
       )}

@@ -2091,6 +2091,14 @@ export function BrowserApp() {
                     }
                   : undefined
               }
+              onDismissOverlay={
+                isActive
+                  ? () => {
+                      setContextMenu(undefined)
+                      setBookmarkContextMenu(undefined)
+                    }
+                  : undefined
+              }
             />
           )
         })}
@@ -2100,7 +2108,7 @@ export function BrowserApp() {
           items={contextMenuItems}
           narrowLayout={narrowLayout}
           anchor={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : undefined}
-          mount="contained"
+          mount="portal"
           onClose={() => setContextMenu(undefined)}
         />
       </main>
@@ -2163,7 +2171,7 @@ export function BrowserApp() {
             ? { x: bookmarkContextMenu.x, y: bookmarkContextMenu.y }
             : undefined
         }
-        mount="contained"
+        mount="portal"
         onClose={() => setBookmarkContextMenu(undefined)}
       />
     </div>
