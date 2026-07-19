@@ -28,6 +28,7 @@ import {
   isFileDocumentUrl,
   resolveDocumentIdFromFileUrl,
 } from './browser-file-document.ts'
+import { htmlForViewSource } from './browser-view-source.ts'
 import {
   loadBrowserTokenUsage,
   recordBrowserTokenUsage,
@@ -73,9 +74,12 @@ import {
   hostnameFromUrl,
   isSameSite,
   isStartPageUrl,
+  isViewSourceUrl,
   normalizeBrowserUrl,
   pageTitleFromUrl,
   START_PAGE_URL,
+  toViewSourceUrl,
+  unwrapViewSourceUrl,
 } from './normalize-browser-url.ts'
 import { SafariTabPane } from './safari-tab-pane.tsx'
 import { isEmbeddedAppOrigin, isSameDocumentUrl } from './resolve-browser-navigation-url.ts'
@@ -138,6 +142,8 @@ type NavigateContext = {
   referrerUrl?: string
   referrerHtml?: string
   skipCache?: boolean
+  /** 打开 view-source: 时注入的页面原文（非包装后的展示 HTML） */
+  sourceHtml?: string
 }
 
 const INITIAL_ENTRY: HistoryEntry = {
@@ -179,6 +185,29 @@ function tabDisplayTitle(tab: SafariTab): string {
 
 function commitPageVisit(url: string, title: string): void {
   recordBrowserHistoryVisit({ url, title })
+}
+
+/** 解析 view-source 页：用原文包装成展示 HTML；无原文则返回错误文案 */
+function resolveViewSourceFrame(
+  viewSourceUrl: string,
+  seedHtml?: string,
+): { innerUrl: string; title: string; frameHtml: string } | { error: string } {
+  const innerUrl = unwrapViewSourceUrl(viewSourceUrl)
+  if (!innerUrl || isStartPageUrl(innerUrl) || isViewSourceUrl(innerUrl)) {
+    return { error: '无法查看源代码' }
+  }
+
+  const sourceHtml = seedHtml || getCachedPage(innerUrl)?.html
+  if (!sourceHtml) {
+    return { error: '没有可查看的页面源代码' }
+  }
+
+  const title = pageTitleFromUrl(viewSourceUrl)
+  return {
+    innerUrl,
+    title,
+    frameHtml: htmlForViewSource(sourceHtml, innerUrl),
+  }
 }
 
 export function BrowserApp() {
@@ -686,6 +715,53 @@ export function BrowserApp() {
         return
       }
 
+      if (isViewSourceUrl(entry.url)) {
+        cancelGeneration(tabId)
+        if (entry.html) {
+          setTabPageState(tabId, {
+            loading: false,
+            streaming: false,
+            html: entry.html,
+            rawText: '',
+            reasoningText: '',
+            pageTokens: entry.pageTokens,
+            error: undefined,
+          })
+          return
+        }
+
+        const resolved = resolveViewSourceFrame(entry.url)
+        if ('error' in resolved) {
+          setTabPageState(tabId, {
+            loading: false,
+            streaming: false,
+            html: '',
+            rawText: '',
+            reasoningText: '',
+            pageTokens: undefined,
+            error: resolved.error,
+          })
+          return
+        }
+
+        patchHistoryEntry(tabId, index, {
+          title: resolved.title,
+          html: resolved.frameHtml,
+          pageTokens: undefined,
+        })
+        setTabPageState(tabId, {
+          loading: false,
+          streaming: false,
+          html: resolved.frameHtml,
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: undefined,
+        })
+        commitPageVisit(entry.url, resolved.title)
+        return
+      }
+
       if (isFileDocumentUrl(entry.url)) {
         if (entry.html) {
           cancelGeneration(tabId)
@@ -739,6 +815,7 @@ export function BrowserApp() {
       formatAddressInput,
       loadFileDocumentPage,
       loadRemotePage,
+      patchHistoryEntry,
       setTabPageState,
       updateTab,
     ],
@@ -792,6 +869,40 @@ export function BrowserApp() {
         return
       }
 
+      if (isViewSourceUrl(url)) {
+        const resolved = resolveViewSourceFrame(url, context?.sourceHtml)
+        if ('error' in resolved) {
+          setTabPageState(tabId, {
+            loading: false,
+            streaming: false,
+            html: '',
+            rawText: '',
+            reasoningText: '',
+            pageTokens: undefined,
+            error: resolved.error,
+          })
+          return
+        }
+
+        patchHistoryEntry(tabId, targetIndex, {
+          title: resolved.title,
+          html: resolved.frameHtml,
+          pageTokens: undefined,
+        })
+        setTabPageState(tabId, {
+          loading: false,
+          streaming: false,
+          html: resolved.frameHtml,
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: undefined,
+        })
+        pageHtmlByTabRef.current[tabId] = resolved.frameHtml
+        commitPageVisit(url, resolved.title)
+        return
+      }
+
       if (isFileDocumentUrl(url)) {
         void loadFileDocumentPage(tabId, url, targetIndex)
         return
@@ -813,6 +924,7 @@ export function BrowserApp() {
       formatAddressInput,
       loadFileDocumentPage,
       loadRemotePage,
+      patchHistoryEntry,
       setTabPageState,
       tabs,
     ],
@@ -1077,11 +1189,44 @@ export function BrowserApp() {
         return
       }
 
+      if (isViewSourceUrl(entry.url)) {
+        const resolved = resolveViewSourceFrame(entry.url)
+        if ('error' in resolved) {
+          patchHistoryEntry(tabId, tab.historyIndex, { html: undefined, pageTokens: undefined })
+          setTabPageState(tabId, {
+            loading: false,
+            streaming: false,
+            html: '',
+            rawText: '',
+            reasoningText: '',
+            pageTokens: undefined,
+            error: resolved.error,
+          })
+          return
+        }
+        patchHistoryEntry(tabId, tab.historyIndex, {
+          title: resolved.title,
+          html: resolved.frameHtml,
+          pageTokens: undefined,
+        })
+        setTabPageState(tabId, {
+          loading: false,
+          streaming: false,
+          html: resolved.frameHtml,
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: undefined,
+        })
+        pageHtmlByTabRef.current[tabId] = resolved.frameHtml
+        return
+      }
+
       patchHistoryEntry(tabId, tab.historyIndex, { html: undefined, pageTokens: undefined })
       const genContext = buildGenContext(entry.url, entry.url, tab.pageState.html || entry.html)
       void loadRemotePage(tabId, entry.url, tab.historyIndex, { ...genContext, force: true })
     },
-    [buildGenContext, loadRemotePage, patchHistoryEntry, tabs],
+    [buildGenContext, loadRemotePage, patchHistoryEntry, setTabPageState, tabs],
   )
 
   const goBack = () => {
@@ -1108,6 +1253,39 @@ export function BrowserApp() {
 
   const reload = () => {
     if (onStartPage) {
+      return
+    }
+
+    if (isViewSourceUrl(current.url)) {
+      const resolved = resolveViewSourceFrame(current.url)
+      if ('error' in resolved) {
+        patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
+        setTabPageState(activeTabId, {
+          loading: false,
+          streaming: false,
+          html: '',
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: resolved.error,
+        })
+        return
+      }
+      patchHistoryEntry(activeTabId, historyIndex, {
+        title: resolved.title,
+        html: resolved.frameHtml,
+        pageTokens: undefined,
+      })
+      setTabPageState(activeTabId, {
+        loading: false,
+        streaming: false,
+        html: resolved.frameHtml,
+        rawText: '',
+        reasoningText: '',
+        pageTokens: undefined,
+        error: undefined,
+      })
+      pageHtmlByTabRef.current[activeTabId] = resolved.frameHtml
       return
     }
 
@@ -1178,7 +1356,7 @@ export function BrowserApp() {
   }, [])
 
   const clearCurrentPageCache = useCallback(async () => {
-    if (isStartPageUrl(current.url)) {
+    if (isStartPageUrl(current.url) || isViewSourceUrl(current.url)) {
       return
     }
 
@@ -1209,7 +1387,7 @@ export function BrowserApp() {
 
   const clearCurrentSiteData = useCallback(async () => {
     const hostname = hostnameFromUrl(current.url)
-    if (!hostname || isStartPageUrl(current.url)) {
+    if (!hostname || isStartPageUrl(current.url) || isViewSourceUrl(current.url)) {
       return
     }
 
@@ -1275,6 +1453,62 @@ export function BrowserApp() {
 
       if (isStartPageUrl(url)) {
         setTabs((prev) => [...prev, tab])
+        if (!options?.background) {
+          setActiveTabId(tabId)
+          setAddressFocused(false)
+        }
+        return
+      }
+
+      if (isViewSourceUrl(url)) {
+        const resolved = resolveViewSourceFrame(url, options?.context?.sourceHtml)
+        if ('error' in resolved) {
+          setTabs((prev) => [
+            ...prev,
+            {
+              ...tab,
+              history: [{ url, title, html: undefined, pageTokens: undefined }],
+              historyIndex: 0,
+              inputUrl: formatAddressInput(url),
+              pageState: {
+                loading: false,
+                streaming: false,
+                html: '',
+                rawText: '',
+                reasoningText: '',
+                pageTokens: undefined,
+                error: resolved.error,
+              },
+            },
+          ])
+        } else {
+          const entry: HistoryEntry = {
+            url,
+            title: resolved.title,
+            html: resolved.frameHtml,
+            pageTokens: undefined,
+          }
+          pageHtmlByTabRef.current[tabId] = resolved.frameHtml
+          setTabs((prev) => [
+            ...prev,
+            {
+              ...tab,
+              history: [entry],
+              historyIndex: 0,
+              inputUrl: formatAddressInput(url),
+              pageState: {
+                loading: false,
+                streaming: false,
+                html: resolved.frameHtml,
+                rawText: '',
+                reasoningText: '',
+                pageTokens: undefined,
+                error: undefined,
+              },
+            },
+          ])
+          commitPageVisit(url, resolved.title)
+        }
         if (!options?.background) {
           setActiveTabId(tabId)
           setAddressFocused(false)
@@ -1378,6 +1612,29 @@ export function BrowserApp() {
     }
     void copyToClipboard(current.url)
   }, [copyToClipboard, current.url])
+
+  const canViewPageSource =
+    !onStartPage &&
+    !isViewSourceUrl(current.url) &&
+    Boolean(pageState.html || pageHtmlByTabRef.current[activeTabId] || getCachedPage(current.url)?.html)
+
+  const viewSourceCurrentPage = useCallback(() => {
+    if (isStartPageUrl(current.url) || isViewSourceUrl(current.url)) {
+      return
+    }
+
+    const sourceHtml =
+      pageState.html ||
+      pageHtmlByTabRef.current[activeTabId] ||
+      getCachedPage(current.url)?.html
+    if (!sourceHtml) {
+      return
+    }
+
+    navigateInNewTab(toViewSourceUrl(current.url), {
+      context: { sourceHtml },
+    })
+  }, [activeTabId, current.url, navigateInNewTab, pageState.html])
 
   const closeTab = (tabId: string) => {
     setTabs((prev) => {
@@ -1521,10 +1778,17 @@ export function BrowserApp() {
         label: '在新标签页中打开此页',
         onClick: () => openInNewTab(referrerUrl),
       })
+      items.push({
+        type: 'action',
+        label: '查看网页源代码',
+        disabled: !canViewPageSource,
+        onClick: viewSourceCurrentPage,
+      })
     }
 
     return items
   }, [
+    canViewPageSource,
     contextMenu,
     copyToClipboard,
     current.url,
@@ -1537,6 +1801,7 @@ export function BrowserApp() {
     onStartPage,
     reload,
     toggleBookmarkForCurrentPage,
+    viewSourceCurrentPage,
   ])
 
   const bookmarkContextMenuItems = useMemo((): SafariContextMenuItem[] => {
@@ -1576,11 +1841,12 @@ export function BrowserApp() {
   }, [bookmarkContextMenu, bumpBookmarksRevision, navigateActive, navigateInNewTab, setBookmarksOverflowOpen])
 
   // 未聚焦且未勾选「完整网址」时只显示域名（与 Safari 一致）；聚焦后再展示可编辑的路径文本
+  // view-source: 始终展示完整地址（对齐 Chrome）
   const addressValue = addressFocused
     ? inputUrl
     : onStartPage
       ? ''
-      : alwaysShowFullUrl
+      : alwaysShowFullUrl || isViewSourceUrl(current.url)
         ? current.url
         : hostnameFromUrl(current.url)
 
@@ -1634,6 +1900,7 @@ export function BrowserApp() {
     clearHistory: () => {},
     reload: () => {},
     stopLoading: () => {},
+    viewSource: () => {},
   })
 
   menuActionsRef.current = {
@@ -1660,6 +1927,7 @@ export function BrowserApp() {
     },
     reload,
     stopLoading,
+    viewSource: viewSourceCurrentPage,
   }
 
   const toggleAlwaysShowToolbarInFullscreen = useCallback(() => {
@@ -1771,13 +2039,13 @@ export function BrowserApp() {
             type: 'action',
             label: '清除当前页面缓存…',
             onClick: () => void clearCurrentPageCache(),
-            disabled: onStartPage,
+            disabled: onStartPage || isViewSourceUrl(current.url),
           },
           {
             type: 'action',
             label: currentHostname ? `清除「${currentHostname}」的数据…` : '清除该网站数据…',
             onClick: () => void clearCurrentSiteData(),
-            disabled: onStartPage,
+            disabled: onStartPage || isViewSourceUrl(current.url),
           },
         ],
       },
@@ -1798,6 +2066,13 @@ export function BrowserApp() {
             onClick: () => run('stopLoading'),
             disabled: !showProgress,
           },
+          {
+            type: 'action',
+            label: '查看网页源代码',
+            shortcut: '⌥⌘U',
+            onClick: () => run('viewSource'),
+            disabled: !canViewPageSource,
+          },
           { type: 'separator' },
           {
             type: 'action',
@@ -1817,9 +2092,11 @@ export function BrowserApp() {
     alwaysShowFullUrl,
     alwaysShowToolbarInFullscreen,
     bookmarksBarVisible,
+    canViewPageSource,
     clearCurrentPageCache,
     clearCurrentSiteData,
     copyCurrentPageUrl,
+    current.url,
     currentBookmarked,
     currentHostname,
     history.length,
