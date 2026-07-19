@@ -72,14 +72,15 @@ export function useMenuBar() {
   return context
 }
 
-export function useAppMenuBar(appId: AppId, menus: MenuDefinition[]) {
+export function useAppMenuBar(appId: AppId, menus: MenuDefinition[], enabled = true) {
   const { registerAppMenus, unregisterAppMenus } = useMenuBar()
   const menusRef = useRef(menus)
   menusRef.current = menus
   const signature = menuSignature(menus)
 
   useEffect(() => {
+    if (!enabled) return
     registerAppMenus(appId, menusRef.current)
     return () => unregisterAppMenus(appId)
-  }, [appId, signature, registerAppMenus, unregisterAppMenus])
+  }, [appId, enabled, signature, registerAppMenus, unregisterAppMenus])
 }

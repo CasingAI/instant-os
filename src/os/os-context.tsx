@@ -15,6 +15,7 @@ import {
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
+import { isMultiWindowApp } from './app-multi-window.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
 
@@ -40,6 +41,9 @@ type OsContextValue = {
   finalizeWindowClose: (windowId: string) => void
   registerAppCloseGuard: (appId: AppId, guard: AppCloseGuard | undefined) => void
   bypassAppCloseGuard: (appId: AppId) => void
+  registerWindowCloseGuard: (windowId: string, guard: AppCloseGuard | undefined) => void
+  bypassWindowCloseGuard: (windowId: string) => void
+  cancelPendingAppQuit: (appId: AppId) => void
   focusWindow: (windowId: string) => void
   moveWindow: (windowId: string, x: number, y: number) => void
   resizeWindow: (windowId: string, bounds: WindowRestoredBounds) => void
@@ -52,6 +56,9 @@ type OsContextValue = {
   setAppWindowTitle: (appId: AppId, title: string) => void
   setAppWindowDocumentId: (appId: AppId, documentId: string | undefined) => void
   setAppWindowDocumentEdited: (appId: AppId, edited: boolean) => void
+  setWindowTitle: (windowId: string, title: string) => void
+  setWindowDocumentId: (windowId: string, documentId: string | undefined) => void
+  setWindowDocumentEdited: (windowId: string, edited: boolean) => void
   closeProcessIsolatedApps: () => void
 }
 
@@ -210,6 +217,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   const closeGuardsRef = useRef(new Map<AppId, AppCloseGuard>())
   const bypassCloseGuardRef = useRef(new Set<AppId>())
+  const windowCloseGuardsRef = useRef(new Map<string, AppCloseGuard>())
+  const bypassWindowCloseGuardRef = useRef(new Set<string>())
+  const pendingQuitAppsRef = useRef(new Set<AppId>())
   const windowsRef = useRef(windows)
   windowsRef.current = windows
 
@@ -226,9 +236,33 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     let resolvedActiveId: string | undefined
     const documentId = options?.documentId
+    const multiWindow = isMultiWindowApp(appId)
 
     setWindows((current) => {
       const live = current.filter((window) => !window.closing)
+
+      if (multiWindow) {
+        if (documentId !== undefined) {
+          const sameDocument = live.find((window) => window.appId === appId && window.documentId === documentId)
+          if (sameDocument) {
+            resolvedActiveId = sameDocument.id
+            const nextZ = bumpZIndex()
+            return current.map((window) =>
+              window.id === sameDocument.id
+                ? { ...window, zIndex: nextZ, minimized: false }
+                : window,
+            )
+          }
+        }
+
+        const nextWindow = createWindow(appId, undefined, {
+          enterAnimation: 'scale-in',
+          documentId,
+        })
+        resolvedActiveId = nextWindow.id
+        return [...current, nextWindow]
+      }
+
       const existing = live.find((window) => window.appId === appId && !window.minimized)
       if (existing) {
         resolvedActiveId = existing.id
@@ -298,6 +332,34 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         window.appId === appId && !window.closing
           ? { ...window, documentEdited: edited }
           : window,
+      )
+    })
+  }, [])
+
+  const setWindowTitle = useCallback((windowId: string, title: string) => {
+    setWindows((current) => {
+      const target = current.find((window) => window.id === windowId)
+      if (!target || target.title === title) {
+        return current
+      }
+      return current.map((window) => (window.id === windowId ? { ...window, title } : window))
+    })
+  }, [])
+
+  const setWindowDocumentId = useCallback((windowId: string, documentId: string | undefined) => {
+    setWindows((current) =>
+      current.map((window) => (window.id === windowId ? { ...window, documentId } : window)),
+    )
+  }, [])
+
+  const setWindowDocumentEdited = useCallback((windowId: string, edited: boolean) => {
+    setWindows((current) => {
+      const target = current.find((window) => window.id === windowId)
+      if (!target || target.documentEdited === edited) {
+        return current
+      }
+      return current.map((window) =>
+        window.id === windowId ? { ...window, documentEdited: edited } : window,
       )
     })
   }, [])
@@ -394,7 +456,35 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     bypassCloseGuardRef.current.add(appId)
   }, [])
 
-  const shouldAllowAppClose = useCallback((appId: AppId, windowId?: string) => {
+  const registerWindowCloseGuard = useCallback((windowId: string, guard: AppCloseGuard | undefined) => {
+    if (guard) {
+      windowCloseGuardsRef.current.set(windowId, guard)
+      return
+    }
+    windowCloseGuardsRef.current.delete(windowId)
+  }, [])
+
+  const bypassWindowCloseGuard = useCallback((windowId: string) => {
+    bypassWindowCloseGuardRef.current.add(windowId)
+  }, [])
+
+  const cancelPendingAppQuit = useCallback((appId: AppId) => {
+    pendingQuitAppsRef.current.delete(appId)
+  }, [])
+
+  const closeWindowRef = useRef<(windowId: string) => void>(() => {})
+
+  const shouldAllowClose = useCallback((appId: AppId, windowId: string) => {
+    if (bypassWindowCloseGuardRef.current.has(windowId)) {
+      bypassWindowCloseGuardRef.current.delete(windowId)
+      return true
+    }
+
+    const windowGuard = windowCloseGuardsRef.current.get(windowId)
+    if (windowGuard) {
+      return windowGuard({ appId, windowId })
+    }
+
     if (bypassCloseGuardRef.current.has(appId)) {
       bypassCloseGuardRef.current.delete(appId)
       return true
@@ -408,16 +498,40 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     return guard({ appId, windowId })
   }, [])
 
+  const continuePendingAppQuit = useCallback((appId: AppId) => {
+    if (!pendingQuitAppsRef.current.has(appId)) {
+      return
+    }
+    queueMicrotask(() => {
+      if (!pendingQuitAppsRef.current.has(appId)) {
+        return
+      }
+      const target = windowsRef.current.find((window) => window.appId === appId && !window.closing)
+      if (!target) {
+        pendingQuitAppsRef.current.delete(appId)
+        return
+      }
+      closeWindowRef.current(target.id)
+    })
+  }, [])
+
   const finalizeWindowClose = useCallback((windowId: string) => {
+    let closedAppId: AppId | undefined
     setWindows((current) => {
       const target = current.find((window) => window.id === windowId)
       if (!target?.closing) {
         return current
       }
+      closedAppId = target.appId
       persistWindowSize(target)
+      windowCloseGuardsRef.current.delete(windowId)
+      bypassWindowCloseGuardRef.current.delete(windowId)
       return current.filter((window) => window.id !== windowId)
     })
-  }, [])
+    if (closedAppId !== undefined) {
+      continuePendingAppQuit(closedAppId)
+    }
+  }, [continuePendingAppQuit])
 
   const closeWindow = useCallback((windowId: string) => {
     const closing = windowsRef.current.find((window) => window.id === windowId)
@@ -425,7 +539,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
 
-    if (!shouldAllowAppClose(closing.appId, windowId)) {
+    if (!shouldAllowClose(closing.appId, windowId)) {
       return
     }
 
@@ -435,7 +549,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       ),
     )
     setActiveWindowId((current) => (current === windowId ? undefined : current))
-  }, [shouldAllowAppClose])
+  }, [shouldAllowClose])
+  closeWindowRef.current = closeWindow
 
   const closeWindowsForApp = useCallback((appId: AppId) => {
     const appWindows = windowsRef.current.filter((window) => window.appId === appId && !window.closing)
@@ -443,7 +558,13 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       return
     }
 
-    if (!shouldAllowAppClose(appId, appWindows[0]?.id)) {
+    if (isMultiWindowApp(appId)) {
+      pendingQuitAppsRef.current.add(appId)
+      closeWindow(appWindows[0]!.id)
+      return
+    }
+
+    if (!shouldAllowClose(appId, appWindows[0]!.id)) {
       return
     }
 
@@ -455,7 +576,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       ),
     )
     setActiveWindowId((active) => (active && closingIds.has(active) ? undefined : active))
-  }, [shouldAllowAppClose])
+  }, [closeWindow, shouldAllowClose])
 
   const closeProcessIsolatedApps = useCallback(() => {
     const appIds = new Set<AppId>()
@@ -801,6 +922,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       finalizeWindowClose,
       registerAppCloseGuard,
       bypassAppCloseGuard,
+      registerWindowCloseGuard,
+      bypassWindowCloseGuard,
+      cancelPendingAppQuit,
       focusWindow,
       moveWindow,
       resizeWindow,
@@ -813,9 +937,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setAppWindowTitle,
       setAppWindowDocumentId,
       setAppWindowDocumentEdited,
+      setWindowTitle,
+      setWindowDocumentId,
+      setWindowDocumentEdited,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, closeProcessIsolatedApps],
   )
 
   return <OsContext.Provider value={value}>{children}</OsContext.Provider>
@@ -830,6 +957,18 @@ export function useAppCloseGuard(appId: AppId, guard: AppCloseGuard) {
     registerAppCloseGuard(appId, (context) => guardRef.current(context))
     return () => registerAppCloseGuard(appId, undefined)
   }, [appId, registerAppCloseGuard])
+}
+
+export function useWindowCloseGuard(windowId: string | undefined, guard: AppCloseGuard) {
+  const { registerWindowCloseGuard } = useOs()
+  const guardRef = useRef(guard)
+  guardRef.current = guard
+
+  useEffect(() => {
+    if (!windowId) return
+    registerWindowCloseGuard(windowId, (context) => guardRef.current(context))
+    return () => registerWindowCloseGuard(windowId, undefined)
+  }, [windowId, registerWindowCloseGuard])
 }
 
 export function useOs() {

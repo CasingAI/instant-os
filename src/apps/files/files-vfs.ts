@@ -37,6 +37,13 @@ import {
 } from './files-location-source.ts'
 import { getCachedMount, listMounts } from './files-mount-store.ts'
 import {
+  filesLocationPathRoot,
+  isFilesAbsolutePath,
+  joinFilesAbsolutePath,
+  normalizeFilesNodeName,
+  parseFilesAbsolutePath,
+} from './files-path.ts'
+import {
   FILES_LOCATIONS,
   FILES_TEXT_MIME,
   defaultFilesNodeAttributes,
@@ -175,10 +182,7 @@ export async function mkdir(params: {
   name: string
 }): Promise<FilesNode> {
   await assertCanCreateIn(params.locationId, params.parentId)
-  const trimmed = params.name.trim()
-  if (!trimmed) {
-    throw new Error('文件夹名称不能为空')
-  }
+  const trimmed = normalizeFilesNodeName(params.name)
 
   const names = await siblingNames(params.locationId, params.parentId)
   const name = uniqueName(names, trimmed)
@@ -217,8 +221,9 @@ export async function createTextFile(params: {
   text?: string
 }): Promise<FilesNode> {
   await assertCanCreateIn(params.locationId, params.parentId)
+  const desired = normalizeFilesNodeName((params.name ?? '未命名.txt').trim() || '未命名.txt')
   const names = await siblingNames(params.locationId, params.parentId)
-  const name = uniqueName(names, (params.name ?? '未命名.txt').trim() || '未命名.txt')
+  const name = uniqueName(names, desired)
   const text = params.text ?? ''
 
   if (isMountLocationId(params.locationId)) {
@@ -250,7 +255,73 @@ export async function createTextFile(params: {
   })
 }
 
-export async function readTextFile(id: string): Promise<{ node: FilesNode; text: string }> {
+/**
+ * 解析节点的全局绝对路径（POSIX 风格，以卷根开头）。
+ * 例：`/user/笔记/草稿.txt`、`/mount/a1b2c3d4/src/main.ts`
+ */
+export async function resolveFilesAbsolutePath(node: FilesNode): Promise<string> {
+  const root = filesLocationPathRoot(node.locationId)
+  if (node.kind === 'folder') {
+    const chain = await resolvePathNodes(node.locationId, node.id)
+    return joinFilesAbsolutePath(root, ...chain.map((item) => item.name))
+  }
+
+  const parentChain =
+    node.parentId === undefined
+      ? []
+      : await resolvePathNodes(node.locationId, node.parentId)
+  return joinFilesAbsolutePath(root, ...parentChain.map((item) => item.name), node.name)
+}
+
+/** 按全局绝对路径解析节点（文件或文件夹） */
+export async function resolveNodeByAbsolutePath(
+  absolutePath: string,
+): Promise<FilesNode | undefined> {
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  if (!parsed) return undefined
+  if (parsed.segments.length === 0) return undefined
+
+  let parentId: string | undefined
+  for (let index = 0; index < parsed.segments.length; index += 1) {
+    const name = parsed.segments[index]
+    if (!name) return undefined
+    const children = await listDirectory(parsed.locationId, parentId)
+    const hit = children.find((child) => child.name === name)
+    if (!hit) return undefined
+    if (index === parsed.segments.length - 1) return hit
+    if (hit.kind !== 'folder') return undefined
+    parentId = hit.id
+  }
+
+  return undefined
+}
+
+export async function resolveFileNodeByAbsolutePath(
+  absolutePath: string,
+): Promise<FilesNode | undefined> {
+  const node = await resolveNodeByAbsolutePath(absolutePath)
+  if (!node || node.kind !== 'file') return undefined
+  return node
+}
+
+async function resolveFileRef(ref: string): Promise<FilesNode> {
+  if (isFilesAbsolutePath(ref)) {
+    const node = await resolveFileNodeByAbsolutePath(ref)
+    if (!node) throw new Error('文件不存在')
+    return node
+  }
+  return getNodeOrThrow(ref)
+}
+
+export async function readTextFile(ref: string): Promise<{ node: FilesNode; text: string }> {
+  if (isFilesAbsolutePath(ref)) {
+    const node = await resolveFileRef(ref)
+    return readTextFileByNodeId(node.id)
+  }
+  return readTextFileByNodeId(ref)
+}
+
+async function readTextFileByNodeId(id: string): Promise<{ node: FilesNode; text: string }> {
   if (isMountNodeId(id)) {
     return readMountText(id)
   }
@@ -268,30 +339,26 @@ export async function readTextFile(id: string): Promise<{ node: FilesNode; text:
   return { node, text }
 }
 
-export async function writeTextFile(id: string, text: string): Promise<FilesNode> {
-  if (isMountNodeId(id)) {
-    const node = await getNodeOrThrow(id)
-    assertNodeWritable(node)
-    return writeMountText(id, text)
-  }
-  const node = await getNodeOrThrow(id)
-  if (node.kind !== 'file') {
+export async function writeTextFile(ref: string, text: string): Promise<FilesNode> {
+  const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
+  if (target.kind !== 'file') {
     throw new Error('文件不存在')
   }
-  assertNodeWritable(node)
+  assertNodeWritable(target)
+
+  if (isMountNodeId(target.id)) {
+    return writeMountText(target.id, text)
+  }
   return writeBlobText({
-    id,
+    id: target.id,
     text,
-    previousByteSize: node.byteSize,
+    previousByteSize: target.byteSize,
     nameMetaDelta: 0,
   })
 }
 
 export async function renameNode(id: string, nextName: string): Promise<FilesNode> {
-  const trimmed = nextName.trim()
-  if (!trimmed) {
-    throw new Error('名称不能为空')
-  }
+  const trimmed = normalizeFilesNodeName(nextName)
   const node = await getNodeOrThrow(id)
   assertNodeWritable(node)
   const names = await siblingNames(node.locationId, node.parentId, node.id)
@@ -343,3 +410,5 @@ export async function getNodeOrThrow(id: string): Promise<FilesNode> {
   }
   return node
 }
+
+export { isFilesAbsolutePath } from './files-path.ts'

@@ -199,7 +199,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
               ) : isGeneratedAppId(window.appId) ? (
                 <GeneratedApp appId={window.appId} windowId={window.id} />
               ) : (
-                AppComponent && <AppComponent />
+                AppComponent && <AppComponent windowId={window.id} />
               )}
             </WindowModalProvider>
           </div>

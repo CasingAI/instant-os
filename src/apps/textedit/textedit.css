@@ -8,6 +8,15 @@
   font-family: var(--app-text-font-family);
 }
 
+.textedit--picking {
+  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+}
+
+.textedit--picking > .system-open-dialog-host {
+  flex: 1;
+  min-height: 0;
+}
+
 .textedit__boot {
   flex: 1;
   display: grid;

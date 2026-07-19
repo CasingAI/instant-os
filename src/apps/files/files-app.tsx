@@ -42,8 +42,10 @@ import {
   mkdir,
   removeNode,
   renameNode,
+  resolveFilesAbsolutePath,
   resolvePathNodes,
 } from './files-vfs.ts'
+import { formatFilesByteSize, formatFilesTimestamp } from './files-path.ts'
 import '../../ui/ios-check-toggle.css'
 import '../../ui/ios-nav-back.css'
 import './files.css'
@@ -227,6 +229,8 @@ export function FilesApp() {
   const [folderMotion, setFolderMotion] = useState<'idle' | 'push' | 'pop'>('idle')
   const [openWithNode, setOpenWithNode] = useState<FilesNode | undefined>(undefined)
   const [openWithAlways, setOpenWithAlways] = useState(false)
+  const [infoNode, setInfoNode] = useState<FilesNode | undefined>(undefined)
+  const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
 
@@ -456,9 +460,16 @@ export function FilesApp() {
       }
       setOpenWithNode(undefined)
       setOpenWithAlways(false)
-      openApp(appId, { documentId: node.id })
+      void (async () => {
+        try {
+          const documentId = await resolveFilesAbsolutePath(node)
+          openApp(appId, { documentId })
+        } catch (err) {
+          await modal.alert({ title: '无法打开', message: formatError(err), themeColor: THEME })
+        }
+      })()
     },
-    [openApp],
+    [modal, openApp],
   )
 
   const showOpenWithChooser = useCallback(
@@ -489,7 +500,12 @@ export function FilesApp() {
       setNewFileMenu(undefined)
       const appId = getDefaultFileOpenApp(node.name)
       if (appId) {
-        openApp(appId, { documentId: node.id })
+        try {
+          const documentId = await resolveFilesAbsolutePath(node)
+          openApp(appId, { documentId })
+        } catch (err) {
+          await modal.alert({ title: '无法打开', message: formatError(err), themeColor: THEME })
+        }
         return
       }
 
@@ -641,6 +657,27 @@ export function FilesApp() {
     [modal, refresh],
   )
 
+  const handleShowInfo = useCallback(
+    async (node: FilesNode) => {
+      setContextMenu(undefined)
+      setLocationContextMenu(undefined)
+      setNewFileMenu(undefined)
+      try {
+        const path = await resolveFilesAbsolutePath(node)
+        setInfoNode(node)
+        setInfoPath(path)
+      } catch (err) {
+        await modal.alert({ title: '无法显示信息', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [modal],
+  )
+
+  const closeInfo = useCallback(() => {
+    setInfoNode(undefined)
+    setInfoPath(undefined)
+  }, [])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     const canMutate = canCreateHere
@@ -726,21 +763,22 @@ export function FilesApp() {
           <ul class="files__sidebar-list">
             {locations.map((location) => {
               const active = location.id === locationId
+              const mountId = isMountLocationId(location.id) ? location.id : undefined
               return (
-                <li key={location.id}>
+                <li key={location.id} class="files__sidebar-row">
                   <button
                     type="button"
-                    class={`files__sidebar-item${active ? ' files__sidebar-item--active' : ''}`}
+                    class={`files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}`}
                     onClick={() => selectLocation(location.id)}
                     onContextMenu={(event) => {
-                      if (!isMountLocationId(location.id)) return
+                      if (!mountId) return
                       event.preventDefault()
                       setContextMenu(undefined)
                       setNewFileMenu(undefined)
                       setLocationContextMenu({
                         x: event.clientX,
                         y: event.clientY,
-                        locationId: location.id,
+                        locationId: mountId,
                         label: location.label,
                       })
                     }}
@@ -750,6 +788,20 @@ export function FilesApp() {
                     </span>
                     <span class="files__sidebar-label">{location.label}</span>
                   </button>
+                  {mountId ? (
+                    <button
+                      type="button"
+                      class={`files__sidebar-unmount${active ? ' files__sidebar-unmount--active' : ''}`}
+                      aria-label={`卸载 ${location.label}`}
+                      title="卸载"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleUnmount(mountId, location.label)
+                      }}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  ) : undefined}
                 </li>
               )
             })}
@@ -837,13 +889,9 @@ export function FilesApp() {
                       class="files__item"
                       onClick={() => handleItemClick(node)}
                       onContextMenu={(event) => {
-                        const writable = isFilesNodeWritable(node)
-                        if (node.kind === 'folder' && !writable) {
-                          event.preventDefault()
-                          return
-                        }
                         event.preventDefault()
                         setNewFileMenu(undefined)
+                        setLocationContextMenu(undefined)
                         setContextMenu({
                           x: event.clientX,
                           y: event.clientY,
@@ -897,6 +945,13 @@ export function FilesApp() {
               </button>
             </>
           ) : undefined}
+          <button
+            type="button"
+            class="files__context-item"
+            onClick={() => void handleShowInfo(contextMenu.node)}
+          >
+            显示信息
+          </button>
         </div>
       ) : undefined}
 
@@ -1000,6 +1055,71 @@ export function FilesApp() {
               <span class="files__open-with-always-text">始终使用此程序打开此类文件</span>
             </div>
           </div>
+        ) : undefined}
+      </WindowModal>
+
+      <WindowModal
+        open={!!infoNode}
+        title="信息"
+        themeColor={THEME}
+        wide
+        onClose={closeInfo}
+        actions={[
+          {
+            key: 'ok',
+            label: '完成',
+            tone: 'primary',
+            onClick: () => {
+              closeInfo()
+            },
+          },
+        ]}
+      >
+        {infoNode ? (
+          <dl class="files__info">
+            <div class="files__info-row">
+              <dt>名称</dt>
+              <dd>{infoNode.name}</dd>
+            </div>
+            <div class="files__info-row">
+              <dt>种类</dt>
+              <dd>{infoNode.kind === 'folder' ? '文件夹' : '文件'}</dd>
+            </div>
+            <div class="files__info-row">
+              <dt>位置</dt>
+              <dd>{getFilesLocationLabel(infoNode.locationId)}</dd>
+            </div>
+            <div class="files__info-row files__info-row--path">
+              <dt>路径</dt>
+              <dd>
+                <code class="files__info-path">{infoPath ?? '…'}</code>
+              </dd>
+            </div>
+            {infoNode.kind === 'file' ? (
+              <div class="files__info-row">
+                <dt>大小</dt>
+                <dd>{formatFilesByteSize(infoNode.byteSize)}</dd>
+              </div>
+            ) : undefined}
+            {infoNode.mimeType ? (
+              <div class="files__info-row">
+                <dt>类型</dt>
+                <dd>{infoNode.mimeType}</dd>
+              </div>
+            ) : undefined}
+            <div class="files__info-row">
+              <dt>创建</dt>
+              <dd>{formatFilesTimestamp(infoNode.createdAt)}</dd>
+            </div>
+            <div class="files__info-row">
+              <dt>修改</dt>
+              <dd>{formatFilesTimestamp(infoNode.updatedAt)}</dd>
+            </div>
+            <div class="files__info-row">
+              <dt>权限</dt>
+              <dd>{isFilesNodeWritable(infoNode) ? '可读写' : '只读'}</dd>
+            </div>
+          </dl>
         ) : undefined}
       </WindowModal>
     </div>

@@ -1,6 +1,7 @@
 import {
   isMountLocationId,
   makeMountLocationId,
+  newMountLocationKey,
   type MountFilesLocationId,
 } from './files-types.ts'
 
@@ -117,7 +118,9 @@ export async function addMount(handle: FileSystemDirectoryHandle): Promise<Files
   }
 
   const record: FilesMountRecord = {
-    id: makeMountLocationId(crypto.randomUUID()),
+    id: makeMountLocationId(
+      newMountLocationKey(new Set(existing.map((item) => item.id))),
+    ),
     label: handle.name || '已挂载',
     handle,
   }

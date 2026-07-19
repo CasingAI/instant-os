@@ -1,6 +1,6 @@
 export type BuiltinFilesLocationId = 'local' | 'models3d' | 'source'
 
-/** 动态挂载卷：`mount:{uuid}` */
+/** 动态挂载卷：`mount:{8位键}` */
 export type MountFilesLocationId = `mount:${string}`
 
 export type FilesLocationId = BuiltinFilesLocationId | MountFilesLocationId
@@ -57,13 +57,24 @@ export function isMountNodeId(id: string): boolean {
   return /^mount:[^:]+:[df]:/.test(id)
 }
 
-export function parseMountLocationUuid(locationId: FilesLocationId): string | undefined {
+export function parseMountLocationKey(locationId: FilesLocationId): string | undefined {
   if (!isMountLocationId(locationId)) return undefined
   return locationId.slice('mount:'.length)
 }
 
-export function makeMountLocationId(uuid: string): MountFilesLocationId {
-  return `mount:${uuid}`
+export function makeMountLocationId(key: string): MountFilesLocationId {
+  return `mount:${key}`
+}
+
+/** 约 8 位十六进制挂载键，足够区分少量挂载且路径更短 */
+export function newMountLocationKey(existingIds?: ReadonlySet<string>): string {
+  const taken = existingIds ?? new Set<string>()
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const key = crypto.randomUUID().replaceAll('-', '').slice(0, 8)
+    const id = makeMountLocationId(key)
+    if (!taken.has(id)) return key
+  }
+  return crypto.randomUUID().replaceAll('-', '').slice(0, 8)
 }
 
 export function isFilesLocationWritable(locationId: FilesLocationId): boolean {

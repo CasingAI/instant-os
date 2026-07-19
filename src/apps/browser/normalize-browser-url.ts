@@ -1,4 +1,8 @@
-import { fileDocumentDisplayName, isFileDocumentUrl } from './browser-file-document.ts'
+import {
+  fileDocumentAddressBarText,
+  fileDocumentDisplayName,
+  isFileDocumentUrl,
+} from './browser-file-document.ts'
 
 export const START_PAGE_URL = 'instant://home'
 
@@ -54,9 +58,8 @@ export function displayUrl(url: string): string {
     return ''
   }
 
-  const fileName = fileDocumentDisplayName(url)
-  if (fileName) {
-    return fileName
+  if (isFileDocumentUrl(url)) {
+    return fileDocumentAddressBarText(url)
   }
 
   try {
@@ -79,7 +82,7 @@ export function addressBarDisplayUrl(url: string, showFullUrl: boolean): string 
     return ''
   }
   if (isFileDocumentUrl(url)) {
-    return displayUrl(url)
+    return fileDocumentAddressBarText(url)
   }
   return showFullUrl ? normalizeBrowserUrl(url) : displayUrl(url)
 }

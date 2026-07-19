@@ -4,7 +4,7 @@ import type { BuiltinAppAbout } from './builtin-app-about.ts'
 export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'textedit' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'help'
 
 export type OpenAppOptions = {
-  /** VFS 文件节点 id，用于文档类应用打开指定文件 */
+  /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
   documentId?: string
 }
 export type GeneratedAppId = `gen:${string}`
@@ -28,6 +28,8 @@ export type AppDefinition = {
   /** 未固定到程序坞，但窗口打开时仍显示图标；关闭后自动消失。 */
   dockWhenRunning?: boolean
   desktop?: boolean
+  /** 允许同一应用同时打开多扇窗口（文档类应用） */
+  multiWindow?: boolean
 }
 
 export type WindowRestoredBounds = {
@@ -45,7 +47,7 @@ export type WindowState = {
   id: string
   appId: AppId
   title: string
-  /** 文档类应用当前 / 待打开的 VFS 文件节点 id */
+  /** 文档类应用当前 / 待打开的全局绝对路径（如 `/user/笔记.txt`） */
   documentId?: string
   /** 文档有未保存更改时，标题栏右侧显示「已编辑」 */
   documentEdited?: boolean

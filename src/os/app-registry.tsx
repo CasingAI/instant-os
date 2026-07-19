@@ -142,6 +142,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: TextEditIcon,
     dock: true,
     desktop: true,
+    multiWindow: true,
   }),
   withAbout({
     id: 'scene3d-lab',
@@ -210,7 +211,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
 ]
 
-export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
+export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
   appstore: MarketplaceApp,
   browser: BrowserApp,
   mail: MailApp,

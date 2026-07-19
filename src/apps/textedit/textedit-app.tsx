@@ -4,13 +4,17 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
-import { useAppCloseGuard, useOs } from '../../os/os-context.tsx'
+import { useOs, useWindowCloseGuard } from '../../os/os-context.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
 import { isFilesNodeWritable, type FilesNode } from '../files/files-types.ts'
-import { readTextFile, writeTextFile } from '../files/files-vfs.ts'
+import {
+  readTextFile,
+  resolveFilesAbsolutePath,
+  writeTextFile,
+} from '../files/files-vfs.ts'
 import './textedit.css'
 
 const APP_ID = 'textedit' as const
@@ -31,30 +35,41 @@ type DirtyPromptState = {
   resolve: (choice: DirtyChoice) => void
 }
 
+type TextEditAppProps = {
+  windowId?: string
+}
+
 function formatError(error: unknown): string {
   if (error instanceof FilesStorageFullError) return error.message
   if (error instanceof Error && error.message) return error.message
   return '操作失败'
 }
 
-export function TextEditApp() {
+export function TextEditApp({ windowId }: TextEditAppProps) {
   const {
     windows,
-    setAppWindowTitle,
-    setAppWindowDocumentId,
-    setAppWindowDocumentEdited,
+    activeWindowId,
+    setWindowTitle,
+    setWindowDocumentId,
+    setWindowDocumentEdited,
+    closeWindow,
     closeWindowsForApp,
     minimizeWindow,
-    bypassAppCloseGuard,
+    bypassWindowCloseGuard,
+    cancelPendingAppQuit,
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { showSystemOpenDialog, dialog: openDialog, isOpen: openDialogOpen } = useSystemOpenDialog()
 
-  const appWindow = windows.find((window) => window.appId === APP_ID && !window.closing)
+  const appWindow = windowId
+    ? windows.find((window) => window.id === windowId && !window.closing)
+    : undefined
   const pendingDocumentId = appWindow?.documentId
+  const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
   const [node, setNode] = useState<FilesNode | undefined>(undefined)
+  const [documentPath, setDocumentPath] = useState<string | undefined>(undefined)
   const [text, setText] = useState('')
   const [savedText, setSavedText] = useState('')
   const [loading, setLoading] = useState(false)
@@ -64,9 +79,11 @@ export function TextEditApp() {
   const loadingIdRef = useRef<string | undefined>(undefined)
   const dirtyRef = useRef(false)
   const nodeRef = useRef(node)
+  const documentPathRef = useRef(documentPath)
   const textRef = useRef(text)
 
   nodeRef.current = node
+  documentPathRef.current = documentPath
   textRef.current = text
 
   const dirty = node !== undefined && text !== savedText
@@ -83,32 +100,36 @@ export function TextEditApp() {
   }, [])
 
   useEffect(() => {
-    setAppWindowDocumentEdited(APP_ID, dirty)
-  }, [dirty, setAppWindowDocumentEdited])
+    if (!windowId) return
+    setWindowDocumentEdited(windowId, dirty)
+  }, [dirty, setWindowDocumentEdited, windowId])
 
   const applyLoaded = useCallback(
-    (nextNode: FilesNode, nextText: string) => {
+    async (nextNode: FilesNode, nextText: string) => {
+      if (!windowId) return
+      const path = await resolveFilesAbsolutePath(nextNode)
       setNode(nextNode)
+      setDocumentPath(path)
       setText(nextText)
       setSavedText(nextText)
-      setAppWindowDocumentId(APP_ID, nextNode.id)
-      setAppWindowTitle(APP_ID, nextNode.name)
-      setAppWindowDocumentEdited(APP_ID, false)
+      setWindowDocumentId(windowId, path)
+      setWindowTitle(windowId, nextNode.name)
+      setWindowDocumentEdited(windowId, false)
       setReady(true)
     },
-    [setAppWindowDocumentEdited, setAppWindowDocumentId, setAppWindowTitle],
+    [setWindowDocumentEdited, setWindowDocumentId, setWindowTitle, windowId],
   )
 
   const loadDocument = useCallback(
-    async (documentId: string): Promise<boolean> => {
-      if (loadingIdRef.current === documentId) {
+    async (documentRef: string): Promise<boolean> => {
+      if (loadingIdRef.current === documentRef) {
         return true
       }
-      loadingIdRef.current = documentId
+      loadingIdRef.current = documentRef
       setLoading(true)
       try {
-        const result = await readTextFile(documentId)
-        applyLoaded(result.node, result.text)
+        const result = await readTextFile(documentRef)
+        await applyLoaded(result.node, result.text)
         return true
       } catch (err) {
         await modal.alert({
@@ -118,7 +139,7 @@ export function TextEditApp() {
         })
         return false
       } finally {
-        if (loadingIdRef.current === documentId) {
+        if (loadingIdRef.current === documentRef) {
           loadingIdRef.current = undefined
         }
         setLoading(false)
@@ -128,15 +149,20 @@ export function TextEditApp() {
   )
 
   const handleSave = useCallback(async (): Promise<boolean> => {
+    if (!windowId) return false
     const current = nodeRef.current
+    const path = documentPathRef.current
     if (!current || !isFilesNodeWritable(current)) return false
     setLoading(true)
     try {
-      const updated = await writeTextFile(current.id, textRef.current)
+      const updated = await writeTextFile(path ?? current.id, textRef.current)
+      const nextPath = await resolveFilesAbsolutePath(updated)
       setNode(updated)
+      setDocumentPath(nextPath)
       setSavedText(textRef.current)
-      setAppWindowTitle(APP_ID, updated.name)
-      setAppWindowDocumentEdited(APP_ID, false)
+      setWindowDocumentId(windowId, nextPath)
+      setWindowTitle(windowId, updated.name)
+      setWindowDocumentEdited(windowId, false)
       return true
     } catch (err) {
       await modal.alert({
@@ -148,7 +174,7 @@ export function TextEditApp() {
     } finally {
       setLoading(false)
     }
-  }, [modal, setAppWindowDocumentEdited, setAppWindowTitle])
+  }, [modal, setWindowDocumentEdited, setWindowDocumentId, setWindowTitle, windowId])
 
   const askDirtyChoice = useCallback((): Promise<DirtyChoice> => {
     if (!dirtyRef.current) return Promise.resolve('discard')
@@ -174,27 +200,37 @@ export function TextEditApp() {
     return true
   }, [askDirtyChoice, handleSave])
 
-  const pickAndOpen = useCallback(async (): Promise<boolean> => {
-    const picked = await showSystemOpenDialog({
-      title: OPEN_TITLE,
-      acceptExtensions: ['txt'],
-      allowCreate: true,
-      createExtension: 'txt',
-    })
-    if (!picked) {
-      if (nodeRef.current) {
-        setAppWindowTitle(APP_ID, nodeRef.current.name)
-        setAppWindowDocumentEdited(APP_ID, dirtyRef.current)
-      } else {
-        setAppWindowTitle(APP_ID, DEFAULT_TITLE)
+  const pickAndOpen = useCallback(
+    async (presentation: 'host' | 'modal'): Promise<boolean> => {
+      if (!windowId) return false
+      if (presentation === 'host') {
+        setWindowTitle(windowId, OPEN_TITLE)
+        setWindowDocumentEdited(windowId, false)
       }
-      return false
-    }
-    return loadDocument(picked.id)
-  }, [loadDocument, setAppWindowDocumentEdited, setAppWindowTitle, showSystemOpenDialog])
+      const picked = await showSystemOpenDialog({
+        title: OPEN_TITLE,
+        acceptExtensions: ['txt'],
+        allowCreate: true,
+        createExtension: 'txt',
+        presentation,
+      })
+      if (!picked) {
+        if (presentation === 'host' && !nodeRef.current) {
+          setWindowTitle(windowId, DEFAULT_TITLE)
+        } else if (nodeRef.current) {
+          setWindowTitle(windowId, nodeRef.current.name)
+          setWindowDocumentEdited(windowId, dirtyRef.current)
+        }
+        return false
+      }
+      const path = await resolveFilesAbsolutePath(picked)
+      return loadDocument(path)
+    },
+    [loadDocument, setWindowDocumentEdited, setWindowTitle, showSystemOpenDialog, windowId],
+  )
 
   useEffect(() => {
-    if (bootstrappedRef.current) return
+    if (!windowId || bootstrappedRef.current) return
     bootstrappedRef.current = true
 
     void (async () => {
@@ -202,88 +238,96 @@ export function TextEditApp() {
         const ok = await loadDocument(pendingDocumentId)
         if (!mountedRef.current) return
         if (!ok) {
-          setAppWindowTitle(APP_ID, OPEN_TITLE)
-          setAppWindowDocumentEdited(APP_ID, false)
-          const picked = await pickAndOpen()
+          setWindowTitle(windowId, OPEN_TITLE)
+          setWindowDocumentEdited(windowId, false)
+          const picked = await pickAndOpen('host')
           if (!mountedRef.current) return
           if (!picked) {
-            bypassAppCloseGuard(APP_ID)
-            closeWindowsForApp(APP_ID)
+            bypassWindowCloseGuard(windowId)
+            closeWindow(windowId)
           }
         }
         return
       }
 
-      setAppWindowTitle(APP_ID, OPEN_TITLE)
-      setAppWindowDocumentEdited(APP_ID, false)
-      const picked = await pickAndOpen()
+      setWindowTitle(windowId, OPEN_TITLE)
+      setWindowDocumentEdited(windowId, false)
+      const picked = await pickAndOpen('host')
       if (!mountedRef.current) return
       if (!picked) {
-        bypassAppCloseGuard(APP_ID)
-        closeWindowsForApp(APP_ID)
+        bypassWindowCloseGuard(windowId)
+        closeWindow(windowId)
       }
     })()
   }, [
-    bypassAppCloseGuard,
-    closeWindowsForApp,
+    bypassWindowCloseGuard,
+    closeWindow,
     loadDocument,
     pendingDocumentId,
     pickAndOpen,
-    setAppWindowDocumentEdited,
-    setAppWindowTitle,
+    setWindowDocumentEdited,
+    setWindowTitle,
+    windowId,
   ])
 
   useEffect(() => {
-    if (!ready || !pendingDocumentId) return
-    if (pendingDocumentId === nodeRef.current?.id) return
+    if (!windowId || !ready || !pendingDocumentId) return
+    if (pendingDocumentId === documentPathRef.current) return
     if (loadingIdRef.current === pendingDocumentId) return
 
     void (async () => {
       const proceed = await ensureCleanOrConfirm()
       if (!proceed) {
-        if (nodeRef.current) {
-          setAppWindowDocumentId(APP_ID, nodeRef.current.id)
+        if (documentPathRef.current) {
+          setWindowDocumentId(windowId, documentPathRef.current)
         }
         return
       }
       await loadDocument(pendingDocumentId)
     })()
-  }, [ensureCleanOrConfirm, loadDocument, pendingDocumentId, ready, setAppWindowDocumentId])
+  }, [ensureCleanOrConfirm, loadDocument, pendingDocumentId, ready, setWindowDocumentId, windowId])
 
   const handleOpen = useCallback(async () => {
     const proceed = await ensureCleanOrConfirm()
     if (!proceed) return
-    await pickAndOpen()
+    await pickAndOpen('modal')
   }, [ensureCleanOrConfirm, pickAndOpen])
 
   const requestClose = useCallback(() => {
+    if (!windowId) return true
     if (!dirtyRef.current) return true
     void (async () => {
       const choice = await askDirtyChoice()
-      if (choice === 'cancel') return
+      if (choice === 'cancel') {
+        cancelPendingAppQuit(APP_ID)
+        return
+      }
       if (choice === 'save') {
         const saved = await handleSave()
-        if (!saved) return
+        if (!saved) {
+          cancelPendingAppQuit(APP_ID)
+          return
+        }
       } else {
-        setAppWindowDocumentEdited(APP_ID, false)
+        setWindowDocumentEdited(windowId, false)
       }
-      bypassAppCloseGuard(APP_ID)
-      closeWindowsForApp(APP_ID)
+      bypassWindowCloseGuard(windowId)
+      closeWindow(windowId)
     })()
     return false
   }, [
     askDirtyChoice,
-    bypassAppCloseGuard,
-    closeWindowsForApp,
+    bypassWindowCloseGuard,
+    cancelPendingAppQuit,
+    closeWindow,
     handleSave,
-    setAppWindowDocumentEdited,
+    setWindowDocumentEdited,
+    windowId,
   ])
 
-  useAppCloseGuard(APP_ID, requestClose)
+  useWindowCloseGuard(windowId, requestClose)
 
   const menuBar = useMemo((): MenuDefinition[] => {
-    const liveWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
-
     return [
       {
         label: '文本编辑',
@@ -293,7 +337,7 @@ export function TextEditApp() {
             type: 'action',
             label: '隐藏文本编辑',
             shortcut: '⌘H',
-            onClick: () => liveWindow && minimizeWindow(liveWindow.id),
+            onClick: () => windowId && minimizeWindow(windowId),
           },
           { type: 'separator' },
           {
@@ -335,11 +379,11 @@ export function TextEditApp() {
     openDialogOpen,
     ready,
     showBuiltinAbout,
-    windows,
+    windowId,
     writable,
   ])
 
-  useAppMenuBar(APP_ID, menuBar)
+  useAppMenuBar(APP_ID, menuBar, isActiveWindow)
 
   const dirtyPromptActions = useMemo(
     () => [
@@ -366,10 +410,20 @@ export function TextEditApp() {
     [loading, resolveDirtyPrompt, writable],
   )
 
+  const pickingWithoutDocument = openDialogOpen && !showEditor
+
+  if (!windowId) {
+    return <div class="textedit" />
+  }
+
+  if (pickingWithoutDocument) {
+    return <div class="textedit textedit--picking">{openDialog}</div>
+  }
+
   if (!showEditor) {
     return (
-      <div class="textedit">
-        <div class="textedit__boot">{loading || openDialogOpen ? '正在打开…' : undefined}</div>
+      <div class="textedit textedit--picking">
+        <div class="textedit__boot">{loading ? '正在打开…' : undefined}</div>
         {openDialog}
       </div>
     )

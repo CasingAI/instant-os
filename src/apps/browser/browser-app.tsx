@@ -25,7 +25,7 @@ import { extractTitleFromPartialHtml } from './extract-partial-html.ts'
 import {
   buildFileDocumentUrl,
   isFileDocumentUrl,
-  parseFileDocumentUrl,
+  resolveDocumentIdFromFileUrl,
 } from './browser-file-document.ts'
 import {
   loadBrowserTokenUsage,
@@ -97,7 +97,7 @@ import {
   type SafariContextMenuItem,
   type SafariContextMenuTarget,
 } from './safari-context-menu.tsx'
-import { readTextFile } from '../files/files-vfs.ts'
+import { readTextFile, resolveFilesAbsolutePath } from '../files/files-vfs.ts'
 import './browser.css'
 
 registerFileOpenHandler({
@@ -111,6 +111,8 @@ type HistoryEntry = {
   title: string
   html: string | undefined
   pageTokens: number | undefined
+  /** 本机 file:// 页面对应的全局绝对路径 */
+  documentId?: string
 }
 
 type PageState = {
@@ -455,21 +457,7 @@ export function BrowserApp() {
   )
 
   const loadFileDocumentPage = useCallback(
-    async (tabId: string, url: string, targetIndex: number) => {
-      const parsed = parseFileDocumentUrl(url)
-      if (!parsed) {
-        setTabPageState(tabId, {
-          loading: false,
-          streaming: false,
-          html: '',
-          rawText: '',
-          reasoningText: '',
-          pageTokens: undefined,
-          error: '无法识别的本机文件地址',
-        })
-        return
-      }
-
+    async (tabId: string, url: string, targetIndex: number, hintDocumentId?: string) => {
       cancelGeneration(tabId)
       setTabPageState(tabId, {
         loading: true,
@@ -482,14 +470,31 @@ export function BrowserApp() {
       })
 
       try {
-        const { node, text } = await readTextFile(parsed.documentId)
-        const resolvedUrl = buildFileDocumentUrl(node.id, node.name)
+        const documentPath =
+          hintDocumentId ?? (await resolveDocumentIdFromFileUrl(url))
+        if (!documentPath) {
+          setTabPageState(tabId, {
+            loading: false,
+            streaming: false,
+            html: '',
+            rawText: '',
+            reasoningText: '',
+            pageTokens: undefined,
+            error: '找不到对应的本机文件',
+          })
+          return
+        }
+
+        const { node, text } = await readTextFile(documentPath)
+        const resolvedUrl = await buildFileDocumentUrl(node)
+        const absolutePath = await resolveFilesAbsolutePath(node)
         const title = node.name
         patchHistoryEntry(tabId, targetIndex, {
           url: resolvedUrl,
           title,
           html: text,
           pageTokens: undefined,
+          documentId: absolutePath,
         })
         updateTab(tabId, (tab) => ({
           ...tab,
@@ -504,7 +509,7 @@ export function BrowserApp() {
           pageTokens: undefined,
           error: undefined,
         })
-        setAppWindowDocumentId('browser', node.id)
+        setAppWindowDocumentId('browser', absolutePath)
       } catch (error) {
         setTabPageState(tabId, {
           loading: false,
@@ -693,7 +698,7 @@ export function BrowserApp() {
           })
           return
         }
-        void loadFileDocumentPage(tabId, entry.url, index)
+        void loadFileDocumentPage(tabId, entry.url, index, entry.documentId)
         return
       }
 
@@ -819,21 +824,23 @@ export function BrowserApp() {
   )
 
   const openLocalDocument = useCallback(
-    async (documentId: string) => {
-      if (openingDocumentIdRef.current === documentId) {
+    async (documentRef: string) => {
+      if (openingDocumentIdRef.current === documentRef) {
         return
       }
-      openingDocumentIdRef.current = documentId
+      openingDocumentIdRef.current = documentRef
 
       try {
-        const { node, text } = await readTextFile(documentId)
-        const url = buildFileDocumentUrl(node.id, node.name)
+        const { node, text } = await readTextFile(documentRef)
+        const url = await buildFileDocumentUrl(node)
+        const absolutePath = await resolveFilesAbsolutePath(node)
         const title = node.name
         const entry: HistoryEntry = {
           url,
           title,
           html: text,
           pageTokens: undefined,
+          documentId: absolutePath,
         }
         const pageState: PageState = {
           loading: false,
@@ -882,8 +889,8 @@ export function BrowserApp() {
         }
 
         setAddressFocused(false)
-        setAppWindowDocumentId('browser', node.id)
-        lastOpenedDocumentIdRef.current = node.id
+        setAppWindowDocumentId('browser', absolutePath)
+        lastOpenedDocumentIdRef.current = absolutePath
       } catch (error) {
         lastOpenedDocumentIdRef.current = undefined
         await modal.alert({
@@ -892,7 +899,7 @@ export function BrowserApp() {
           themeColor: '#007aff',
         })
       } finally {
-        if (openingDocumentIdRef.current === documentId) {
+        if (openingDocumentIdRef.current === documentRef) {
           openingDocumentIdRef.current = undefined
         }
       }
@@ -1103,7 +1110,7 @@ export function BrowserApp() {
 
     if (isFileDocumentUrl(current.url)) {
       patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
-      void loadFileDocumentPage(activeTabId, current.url, historyIndex)
+      void loadFileDocumentPage(activeTabId, current.url, historyIndex, current.documentId)
       return
     }
 
