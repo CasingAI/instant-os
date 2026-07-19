@@ -2,16 +2,34 @@ import * as monaco from 'monaco-editor'
 
 let typescriptConfigured = false
 
+/**
+ * Monaco 公开枚举只有 Classic/NodeJs，但 TS worker 已支持 Node16/NodeNext/Bundler。
+ * 数值与 typescript ModuleResolutionKind 对齐。
+ */
+export const MonacoModuleResolutionKind = {
+  Classic: 1,
+  NodeJs: 2,
+  Node16: 3,
+  NodeNext: 99,
+  Bundler: 100,
+} as const
+
+export type MonacoModuleResolutionKindValue =
+  (typeof MonacoModuleResolutionKind)[keyof typeof MonacoModuleResolutionKind]
+
 export type MonacoTypescriptCompilerOverrides = {
   jsxImportSource?: string
   baseUrl?: string
   paths?: Record<string, string[]>
+  moduleResolution?: MonacoModuleResolutionKindValue
+  allowImportingTsExtensions?: boolean
 }
 
 const BASE_COMPILER_OPTIONS: monaco.typescript.CompilerOptions = {
   target: monaco.typescript.ScriptTarget.ESNext,
   module: monaco.typescript.ModuleKind.ESNext,
-  moduleResolution: monaco.typescript.ModuleResolutionKind.NodeJs,
+  moduleResolution: MonacoModuleResolutionKind.Bundler as monaco.typescript.ModuleResolutionKind,
+  allowImportingTsExtensions: true,
   jsx: monaco.typescript.JsxEmit.ReactJSX,
   allowJs: true,
   allowNonTsExtensions: true,
@@ -57,6 +75,15 @@ export function applyMonacoTypescriptCompilerOverrides(
     ...(overrides?.jsxImportSource ? { jsxImportSource: overrides.jsxImportSource } : undefined),
     ...(overrides?.baseUrl ? { baseUrl: overrides.baseUrl } : undefined),
     ...(overrides?.paths ? { paths: overrides.paths } : undefined),
+    ...(overrides?.moduleResolution !== undefined
+      ? {
+          moduleResolution:
+            overrides.moduleResolution as monaco.typescript.ModuleResolutionKind,
+        }
+      : undefined),
+    ...(overrides?.allowImportingTsExtensions !== undefined
+      ? { allowImportingTsExtensions: overrides.allowImportingTsExtensions }
+      : undefined),
   }
 
   monaco.typescript.typescriptDefaults.setCompilerOptions(next)

@@ -6,8 +6,10 @@ import { ensureMonacoEnvironment } from '../../monaco/monaco-setup.ts'
 import {
   applyMonacoTypescriptCompilerOverrides,
   clearMonacoTypescriptExtraLibs,
+  MonacoModuleResolutionKind,
   monacoFileUriString,
   setMonacoTypescriptExtraLibs,
+  type MonacoModuleResolutionKindValue,
   type MonacoTypescriptCompilerOverrides,
 } from '../../monaco/monaco-typescript.ts'
 
@@ -53,9 +55,33 @@ type TsconfigShape = {
     jsxImportSource?: string
     baseUrl?: string
     paths?: Record<string, string[]>
+    moduleResolution?: string
+    allowImportingTsExtensions?: boolean
   }
   references?: { path?: string }[]
   extends?: string
+}
+
+function mapTsconfigModuleResolution(
+  value: string | undefined,
+): MonacoModuleResolutionKindValue | undefined {
+  if (!value) return undefined
+  switch (value.toLowerCase()) {
+    case 'classic':
+      return MonacoModuleResolutionKind.Classic
+    case 'node':
+    case 'nodejs':
+    case 'node10':
+      return MonacoModuleResolutionKind.NodeJs
+    case 'node16':
+      return MonacoModuleResolutionKind.Node16
+    case 'nodenext':
+      return MonacoModuleResolutionKind.NodeNext
+    case 'bundler':
+      return MonacoModuleResolutionKind.Bundler
+    default:
+      return undefined
+  }
 }
 
 function joinWorkspace(workspaceFolder: string, ...segments: string[]): string {
@@ -208,9 +234,21 @@ async function loadTsconfigOverrides(
 
     const overrides: MonacoTypescriptCompilerOverrides = {
       baseUrl: monacoFileUriString(workspaceFolder),
+      // 与本仓库 / Vite 默认对齐；若 tsconfig 显式声明则覆盖
+      moduleResolution: MonacoModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
     }
     if (typeof options.jsxImportSource === 'string' && options.jsxImportSource.trim()) {
       overrides.jsxImportSource = options.jsxImportSource.trim()
+    }
+    const moduleResolution = mapTsconfigModuleResolution(
+      typeof options.moduleResolution === 'string' ? options.moduleResolution : undefined,
+    )
+    if (moduleResolution !== undefined) {
+      overrides.moduleResolution = moduleResolution
+    }
+    if (typeof options.allowImportingTsExtensions === 'boolean') {
+      overrides.allowImportingTsExtensions = options.allowImportingTsExtensions
     }
     if (options.paths && typeof options.paths === 'object') {
       const paths: Record<string, string[]> = {}
@@ -228,6 +266,8 @@ async function loadTsconfigOverrides(
   }
   return {
     baseUrl: monacoFileUriString(workspaceFolder),
+    moduleResolution: MonacoModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
   }
 }
 
