@@ -1,0 +1,44 @@
+.textedit {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: var(--app-text-font-family);
+}
+
+.textedit__boot {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: #777;
+  font-size: 12px;
+}
+
+.textedit__input {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+  background: #fff;
+  color: inherit;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.textedit__input:read-only {
+  cursor: default;
+  color: #333;
+}
+
+.textedit__input:focus {
+  outline: none;
+}

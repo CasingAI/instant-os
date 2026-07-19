@@ -21,12 +21,14 @@ import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
 import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
 import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
+import { FilesApp } from '../apps/files/files-app.tsx'
+import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -128,6 +130,20 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: false,
   }),
   withAbout({
+    id: 'files',
+    name: '文件',
+    icon: FilesIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'textedit',
+    name: '文本编辑',
+    icon: TextEditIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
     id: 'scene3d-lab',
     name: '3D 实验室',
     icon: Scene3dLabIcon,
@@ -208,6 +224,8 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   gomoku: GomokuApp,
   speech: SpeechApp,
   photos: PlaceholderApp('photos', '照片'),
+  files: FilesApp,
+  textedit: TextEditApp,
   'scene3d-lab': Scene3dLabApp,
   'model-vision': ModelVisionApp,
   icode: ICodeApp,

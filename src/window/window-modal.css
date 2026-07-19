@@ -166,6 +166,47 @@
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
+.window-modal__input-with-suffix {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  border: 1px solid #a8a8a8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.window-modal__input-with-suffix input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.window-modal__input-with-suffix input:focus {
+  outline: none;
+}
+
+.window-modal__input-with-suffix:focus-within {
+  outline: 2px solid rgba(47, 109, 181, 0.35);
+  outline-offset: -1px;
+}
+
+.window-modal__input-suffix {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 2px;
+  color: #6a6a6a;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+  pointer-events: none;
+}
+
 .window-modal__field textarea {
   min-height: 72px;
   resize: vertical;

@@ -1,0 +1,1007 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentType } from 'preact'
+import { useAboutApp } from '../../os/about-app-context.tsx'
+import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
+import { getAppDefinition } from '../../os/app-registry.tsx'
+import {
+  getDefaultFileOpenApp,
+  listRegisteredFileOpenApps,
+  setPreferredFileOpenApp,
+} from '../../os/file-open-registry.ts'
+import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
+import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import { useOs } from '../../os/os-context.tsx'
+import type { BuiltinAppId } from '../../os/types.ts'
+import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { WindowModal } from '../../window/window-modal.tsx'
+import { FilesStorageFullError } from './files-storage.ts'
+import {
+  FILES_MOUNTS_CHANGED_EVENT,
+  addMount,
+  canMountDirectories,
+  pickDirectoryToMount,
+  removeMount,
+} from './files-mount-store.ts'
+import {
+  isFilesLocationWritable,
+  isFilesNodeWritable,
+  isMountLocationId,
+  type FilesLocation,
+  type FilesLocationId,
+  type FilesNode,
+  type MountFilesLocationId,
+} from './files-types.ts'
+import {
+  createTextFile,
+  getFilesLocationLabel,
+  listDirectory,
+  listFilesLocations,
+  mkdir,
+  removeNode,
+  renameNode,
+  resolvePathNodes,
+} from './files-vfs.ts'
+import '../../ui/ios-check-toggle.css'
+import '../../ui/ios-nav-back.css'
+import './files.css'
+
+const APP_ID = 'files' as const
+const THEME = '#8a6a38'
+
+type ContextMenuState = {
+  x: number
+  y: number
+  node: FilesNode
+}
+
+type LocationContextMenuState = {
+  x: number
+  y: number
+  locationId: MountFilesLocationId
+  label: string
+}
+
+type NewFileMenuState = {
+  x: number
+  y: number
+  /** 箭头相对弹层左缘的水平偏移，对准新建按钮中心 */
+  arrowX: number
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof FilesStorageFullError) return error.message
+  if (error instanceof Error && error.message) return error.message
+  return '操作失败'
+}
+
+function toTextFileName(baseName: string): string {
+  const trimmed = baseName.trim().replace(/\.txt$/i, '')
+  if (!trimmed) return '未命名.txt'
+  return `${trimmed}.txt`
+}
+
+function FolderGlyph() {
+  return (
+    <svg class="files__glyph files__glyph--folder" viewBox="0 0 64 52" aria-hidden="true">
+      <ellipse cx="32" cy="48.5" rx="20" ry="2.8" fill="rgba(40, 25, 8, 0.22)" />
+      <path
+        fill="#c9a046"
+        d="M7 13.5c0-2.4 1.9-4.3 4.3-4.3h13.2c.9 0 1.7.4 2.3 1.1l1.8 2.1c.3.4.8.6 1.3.6H53c2.2 0 4 1.8 4 4v3.1H7v-6.6z"
+      />
+      <path
+        fill="#e8c56a"
+        d="M5 19.2c0-2.5 2-4.5 4.5-4.5h45c2.5 0 4.5 2 4.5 4.5V42c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5V19.2z"
+      />
+      <path
+        fill="#f3dfa0"
+        d="M9.5 14.7h45c1.5 0 2.9.8 3.7 2H5.8c.8-1.2 2.2-2 3.7-2z"
+      />
+      <path
+        fill="#fff"
+        opacity="0.35"
+        d="M10 16.2h44c.9 0 1.7.4 2.2 1.1H7.8c.5-.7 1.3-1.1 2.2-1.1z"
+      />
+      <path
+        fill="#a67c42"
+        opacity="0.28"
+        d="M5 34h54v8c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5v-8z"
+      />
+    </svg>
+  )
+}
+
+function FileGlyph() {
+  return (
+    <svg class="files__glyph files__glyph--file" viewBox="0 0 48 60" aria-hidden="true">
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#f4efe6"
+        stroke="#b9a888"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path fill="#fffdf8" d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z" />
+      <path fill="#e6dcc8" stroke="#b9a888" stroke-width="1" d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z" />
+      <path
+        stroke="#c4b59a"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        d="M13 27h22M13 34h22M13 41h14"
+      />
+    </svg>
+  )
+}
+
+function DeviceGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="2.5" y="5" width="19" height="14" rx="2.2" fill="#c9a66a" stroke="#8a6a38" stroke-width="1" />
+      <rect x="3.2" y="5.7" width="17.6" height="3.6" rx="1.1" fill="#f0d9a8" opacity="0.78" />
+      <circle cx="12" cy="13.4" r="5.4" fill="#2a241c" opacity="0.9" />
+      <circle cx="12" cy="13.4" r="4.3" fill="none" stroke="#e8c56a" stroke-width="1.2" opacity="0.75" />
+      <circle cx="12" cy="13.4" r="2.8" fill="none" stroke="#8a6a38" stroke-width="0.9" opacity="0.55" />
+      <circle cx="12" cy="13.4" r="1.6" fill="#c9a66a" />
+      <circle cx="12" cy="13.4" r="0.7" fill="#5a4328" />
+      <circle cx="18.5" cy="7.5" r="0.9" fill="#c9a046" />
+      <rect x="4.2" y="16.8" width="3.2" height="1.1" rx="0.4" fill="#8a6a38" opacity="0.55" />
+    </svg>
+  )
+}
+
+function ModelsGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#f0d9a8" stroke="#8a6a38" stroke-width="1" d="M12 3.2 L20 7.5 L20 16.2 L12 20.5 L4 16.2 L4 7.5 Z" />
+      <path fill="#c9a66a" opacity="0.65" d="M12 3.2 L20 7.5 L12 11.8 L4 7.5 Z" />
+      <path stroke="#5a4328" stroke-width="1" fill="none" d="M12 11.8 V20.5 M4 7.5 L12 11.8 L20 7.5" />
+    </svg>
+  )
+}
+
+function SourceGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5.5" y="3.5" width="13" height="16.5" rx="1.6" fill="#e6d4b0" stroke="#8a6a38" stroke-width="1" />
+      <rect x="4" y="5" width="13" height="16.5" rx="1.6" fill="#f0d9a8" stroke="#8a6a38" stroke-width="1" />
+      <path stroke="#5a4328" stroke-width="1.3" stroke-linecap="round" d="M7 9.5h7M7 13h7M7 16.5h4.5" />
+      <rect x="14.2" y="7.2" width="5.2" height="5.2" rx="1" fill="#a67c42" opacity="0.9" />
+      <path fill="#f0d9a8" d="M15.2 9.8h3.2v0.9h-3.2zM15.2 11.2h2.2v0.8h-2.2z" />
+    </svg>
+  )
+}
+
+function MountGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="6" width="18" height="13" rx="2" fill="#c9a66a" stroke="#8a6a38" stroke-width="1" />
+      <path
+        fill="#f0d9a8"
+        d="M5 9.2h14v7.6c0 .9-.7 1.6-1.6 1.6H6.6c-.9 0-1.6-.7-1.6-1.6V9.2z"
+        opacity="0.85"
+      />
+      <path
+        fill="none"
+        stroke="#5a4328"
+        stroke-width="1.2"
+        stroke-linecap="round"
+        d="M8 4.5v3M12 3.5v4M16 4.5v3"
+      />
+      <circle cx="12" cy="13.2" r="2.2" fill="#5a4328" opacity="0.7" />
+    </svg>
+  )
+}
+
+function LocationGlyph({ id }: { id: FilesLocationId }) {
+  if (isMountLocationId(id)) return <MountGlyph />
+  if (id === 'models3d') return <ModelsGlyph />
+  if (id === 'source') return <SourceGlyph />
+  return <DeviceGlyph />
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+export function FilesApp() {
+  const { closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
+  const { showBuiltinAbout } = useAboutApp()
+  const modal = useWindowModal()
+  const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
+
+  const [locationId, setLocationId] = useState<FilesLocationId>('local')
+  const [locations, setLocations] = useState<readonly FilesLocation[]>([])
+  const [folderId, setFolderId] = useState<string | undefined>(undefined)
+  const [pathNodes, setPathNodes] = useState<FilesNode[]>([])
+  const [items, setItems] = useState<FilesNode[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined)
+  const [locationContextMenu, setLocationContextMenu] = useState<
+    LocationContextMenuState | undefined
+  >(undefined)
+  const [newFileMenu, setNewFileMenu] = useState<NewFileMenuState | undefined>(undefined)
+  const [stackedBrowserOpen, setStackedBrowserOpen] = useState(false)
+  const [folderMotion, setFolderMotion] = useState<'idle' | 'push' | 'pop'>('idle')
+  const [openWithNode, setOpenWithNode] = useState<FilesNode | undefined>(undefined)
+  const [openWithAlways, setOpenWithAlways] = useState(false)
+  const newFileButtonRef = useRef<HTMLButtonElement>(null)
+  const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
+
+  const locationLabel = getFilesLocationLabel(locationId)
+  const locationWritable = isFilesLocationWritable(locationId)
+  const currentFolder = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1] : undefined
+  const canCreateHere =
+    locationWritable && (currentFolder === undefined || isFilesNodeWritable(currentFolder))
+  const currentTitle = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1].name : locationLabel
+  const canGoBackInPath = pathNodes.length > 0
+  const showToolbarBack = canGoBackInPath || (narrowLayout && stackedBrowserOpen)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError(undefined)
+    try {
+      const [listed, path] = await Promise.all([
+        listDirectory(locationId, folderId),
+        resolvePathNodes(locationId, folderId),
+      ])
+      setItems(listed)
+      setPathNodes(path)
+    } catch (err) {
+      setError(formatError(err))
+      setItems([])
+      setPathNodes([])
+    } finally {
+      setLoading(false)
+    }
+  }, [folderId, locationId])
+
+  const refreshLocations = useCallback(async () => {
+    try {
+      setLocations(await listFilesLocations())
+    } catch {
+      setLocations([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshLocations()
+  }, [refreshLocations])
+
+  useEffect(() => {
+    if (locations.length === 0) return
+    if (!locations.some((item) => item.id === locationId)) {
+      setLocationId('local')
+      setFolderId(undefined)
+    }
+  }, [locationId, locations])
+
+  useEffect(() => {
+    const onMountsChanged = () => {
+      void refreshLocations()
+    }
+    window.addEventListener(FILES_MOUNTS_CHANGED_EVENT, onMountsChanged)
+    return () => window.removeEventListener(FILES_MOUNTS_CHANGED_EVENT, onMountsChanged)
+  }, [refreshLocations])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    if (!layoutReady) return
+
+    const previous = prevNarrowLayoutRef.current
+    if (previous === undefined) {
+      prevNarrowLayoutRef.current = narrowLayout
+      return
+    }
+
+    prevNarrowLayoutRef.current = narrowLayout
+
+    if (!previous && narrowLayout) {
+      // 宽 → 窄：保持当前浏览内容，侧栏收起由 CSS 过渡
+      setStackedBrowserOpen(true)
+      return
+    }
+
+    if (previous && !narrowLayout) {
+      // 窄 → 宽：恢复并排，侧栏展开由 CSS 过渡
+      setStackedBrowserOpen(false)
+    }
+  }, [layoutReady, narrowLayout])
+
+  useEffect(() => {
+    if (!contextMenu && !locationContextMenu) return
+    const close = () => {
+      setContextMenu(undefined)
+      setLocationContextMenu(undefined)
+    }
+    window.addEventListener('click', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu, locationContextMenu])
+
+  useEffect(() => {
+    if (!newFileMenu) return
+    const close = () => setNewFileMenu(undefined)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    const timer = window.setTimeout(() => {
+      window.addEventListener('click', close)
+      window.addEventListener('scroll', close, true)
+      window.addEventListener('keydown', onKeyDown)
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [newFileMenu])
+
+  const selectLocation = useCallback(
+    (next: FilesLocationId) => {
+      setContextMenu(undefined)
+      setLocationContextMenu(undefined)
+      setNewFileMenu(undefined)
+      setLocationId(next)
+      setFolderId(undefined)
+      if (narrowLayout) {
+        if (stackedBrowserOpen) {
+          setFolderMotion('push')
+        }
+        setStackedBrowserOpen(true)
+        return
+      }
+      setFolderMotion('push')
+    },
+    [narrowLayout, stackedBrowserOpen],
+  )
+
+  const handleMount = useCallback(async () => {
+    setContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setNewFileMenu(undefined)
+
+    if (!canMountDirectories()) {
+      await modal.alert({
+        title: '无法挂载',
+        message: '当前浏览器不支持挂载本机文件夹。请使用支持 File System Access API 的浏览器（如 Chrome、Edge）。',
+        themeColor: THEME,
+      })
+      return
+    }
+
+    try {
+      const handle = await pickDirectoryToMount()
+      const mount = await addMount(handle)
+      await refreshLocations()
+      selectLocation(mount.id)
+    } catch (err) {
+      if (isAbortError(err)) return
+      await modal.alert({ title: '无法挂载', message: formatError(err), themeColor: THEME })
+    }
+  }, [modal, refreshLocations, selectLocation])
+
+  const handleUnmount = useCallback(
+    async (mountId: MountFilesLocationId, label: string) => {
+      setLocationContextMenu(undefined)
+      const ok = await modal.confirm({
+        title: '卸载文件夹？',
+        message: `「${label}」将从侧栏移除，不会删除磁盘上的文件。`,
+        confirmLabel: '卸载',
+        cancelLabel: '取消',
+        themeColor: THEME,
+      })
+      if (!ok) return
+      try {
+        await removeMount(mountId)
+        if (locationId === mountId) {
+          setLocationId('local')
+          setFolderId(undefined)
+        }
+        await refreshLocations()
+      } catch (err) {
+        await modal.alert({ title: '无法卸载', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [locationId, modal, refreshLocations],
+  )
+
+  const enterFolder = useCallback((node: FilesNode) => {
+    if (node.kind !== 'folder') return
+    setContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setNewFileMenu(undefined)
+    setFolderMotion('push')
+    setFolderId(node.id)
+  }, [])
+
+  const goBackInPath = useCallback(() => {
+    if (pathNodes.length === 0) return
+    setNewFileMenu(undefined)
+    setFolderMotion('pop')
+    const parent = pathNodes[pathNodes.length - 1]?.parentId
+    setFolderId(parent)
+  }, [pathNodes])
+
+  const leaveBrowserStack = useCallback(() => {
+    setContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setNewFileMenu(undefined)
+    setStackedBrowserOpen(false)
+  }, [])
+
+  const handleToolbarBack = useCallback(() => {
+    if (canGoBackInPath) {
+      goBackInPath()
+      return
+    }
+    if (narrowLayout && stackedBrowserOpen) {
+      leaveBrowserStack()
+    }
+  }, [canGoBackInPath, goBackInPath, leaveBrowserStack, narrowLayout, stackedBrowserOpen])
+
+  const openFileWithApp = useCallback(
+    (node: FilesNode, appId: BuiltinAppId, remember: boolean) => {
+      if (remember) {
+        setPreferredFileOpenApp(node.name, appId)
+      }
+      setOpenWithNode(undefined)
+      setOpenWithAlways(false)
+      openApp(appId, { documentId: node.id })
+    },
+    [openApp],
+  )
+
+  const showOpenWithChooser = useCallback(
+    async (node: FilesNode) => {
+      if (node.kind !== 'file') return
+      setContextMenu(undefined)
+      setLocationContextMenu(undefined)
+      setNewFileMenu(undefined)
+      const candidates = listRegisteredFileOpenApps()
+      if (candidates.length === 0) {
+        await modal.alert({
+          title: '无法打开',
+          message: '系统中还没有可用来打开文件的程序。',
+          themeColor: THEME,
+        })
+        return
+      }
+      setOpenWithNode(node)
+      setOpenWithAlways(false)
+    },
+    [modal],
+  )
+
+  const openFile = useCallback(
+    async (node: FilesNode) => {
+      if (node.kind !== 'file') return
+      setContextMenu(undefined)
+      setNewFileMenu(undefined)
+      const appId = getDefaultFileOpenApp(node.name)
+      if (appId) {
+        openApp(appId, { documentId: node.id })
+        return
+      }
+
+      const specify = await modal.confirm({
+        title: '无法打开',
+        message: '没有可以用于打开这个文件的程序。',
+        confirmLabel: '手动指定',
+        cancelLabel: '好',
+        themeColor: THEME,
+      })
+      if (!specify) return
+      await showOpenWithChooser(node)
+    },
+    [modal, openApp, showOpenWithChooser],
+  )
+
+  const handleItemClick = useCallback(
+    (node: FilesNode) => {
+      setContextMenu(undefined)
+      setNewFileMenu(undefined)
+      if (node.kind === 'folder') {
+        enterFolder(node)
+      } else {
+        void openFile(node)
+      }
+    },
+    [enterFolder, openFile],
+  )
+
+  const handleNewFolder = useCallback(async () => {
+    if (!canCreateHere) return
+    setContextMenu(undefined)
+    setNewFileMenu(undefined)
+    const name = await modal.prompt({
+      title: '新建文件夹',
+      label: '名称',
+      placeholder: '新建文件夹',
+      initialValue: '新建文件夹',
+      requireValue: true,
+      confirmLabel: '创建',
+      themeColor: THEME,
+    })
+    if (name === undefined) return
+    try {
+      await mkdir({ locationId, parentId: folderId, name })
+      await refresh()
+    } catch (err) {
+      await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
+    }
+  }, [canCreateHere, folderId, locationId, modal, refresh])
+
+  const openNewFileMenu = useCallback(() => {
+    if (!canCreateHere) return
+    setContextMenu(undefined)
+    const button = newFileButtonRef.current
+    if (!button) return
+    if (newFileMenu) {
+      setNewFileMenu(undefined)
+      return
+    }
+    const rect = button.getBoundingClientRect()
+    const popoverWidth = 176
+    const x = Math.max(8, Math.min(rect.right - popoverWidth, window.innerWidth - popoverWidth - 8))
+    const arrowX = Math.min(popoverWidth - 16, Math.max(16, rect.left + rect.width / 2 - x))
+    setNewFileMenu({
+      x,
+      y: rect.bottom + 10,
+      arrowX,
+    })
+  }, [canCreateHere, newFileMenu])
+
+  const createTextFileNamed = useCallback(async () => {
+    if (!canCreateHere) return
+    setContextMenu(undefined)
+    setNewFileMenu(undefined)
+
+    const baseName = await modal.prompt({
+      title: '新建文本文件',
+      label: '名称',
+      placeholder: '未命名',
+      initialValue: '未命名',
+      suffix: '.txt',
+      requireValue: true,
+      confirmLabel: '创建',
+      themeColor: THEME,
+    })
+    if (baseName === undefined) return
+
+    try {
+      await createTextFile({
+        locationId,
+        parentId: folderId,
+        name: toTextFileName(baseName),
+      })
+      await refresh()
+    } catch (err) {
+      await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
+    }
+  }, [canCreateHere, folderId, locationId, modal, refresh])
+
+  const handleRename = useCallback(
+    async (node: FilesNode) => {
+      if (!isFilesNodeWritable(node)) return
+      setContextMenu(undefined)
+      setNewFileMenu(undefined)
+      const name = await modal.prompt({
+        title: '重新命名',
+        label: '名称',
+        initialValue: node.name,
+        requireValue: true,
+        confirmLabel: '完成',
+        themeColor: THEME,
+      })
+      if (name === undefined || name.trim() === node.name) return
+      try {
+        await renameNode(node.id, name)
+        await refresh()
+      } catch (err) {
+        await modal.alert({ title: '无法重命名', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [modal, refresh],
+  )
+
+  const handleDelete = useCallback(
+    async (node: FilesNode) => {
+      if (!isFilesNodeWritable(node)) return
+      setContextMenu(undefined)
+      setNewFileMenu(undefined)
+      const ok = await modal.confirm({
+        title: node.kind === 'folder' ? '删除文件夹？' : '删除文件？',
+        message:
+          node.kind === 'folder'
+            ? `「${node.name}」及其包含的所有内容将被永久删除。`
+            : `「${node.name}」将被永久删除。`,
+        confirmLabel: '删除',
+        cancelLabel: '取消',
+        confirmTone: 'danger',
+        themeColor: THEME,
+      })
+      if (!ok) return
+      try {
+        await removeNode(node.id)
+        await refresh()
+      } catch (err) {
+        await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [modal, refresh],
+  )
+
+  const menuBar = useMemo((): MenuDefinition[] => {
+    const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
+    const canMutate = canCreateHere
+
+    return [
+      {
+        label: '文件',
+        items: [
+          ...aboutAppMenuPrefix('关于文件', () => showBuiltinAbout(APP_ID)),
+          {
+            type: 'action',
+            label: '隐藏文件',
+            shortcut: '⌘H',
+            onClick: () => appWindow && minimizeWindow(appWindow.id),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '新建文件夹',
+            shortcut: '⇧⌘N',
+            disabled: !canMutate,
+            onClick: () => void handleNewFolder(),
+          },
+          {
+            type: 'action',
+            label: '新建文件',
+            disabled: !canMutate,
+            onClick: () => openNewFileMenu(),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '退出文件',
+            shortcut: '⌘Q',
+            onClick: () => closeWindowsForApp(APP_ID),
+          },
+        ],
+      },
+    ]
+  }, [
+    canCreateHere,
+    closeWindowsForApp,
+    handleNewFolder,
+    minimizeWindow,
+    openNewFileMenu,
+    showBuiltinAbout,
+    windows,
+  ])
+
+  useAppMenuBar(APP_ID, menuBar)
+
+  const backLabel = canGoBackInPath
+    ? pathNodes.length > 1
+      ? pathNodes[pathNodes.length - 2].name
+      : locationLabel
+    : '位置'
+
+  const openWithApps = useMemo(() => {
+    return listRegisteredFileOpenApps().flatMap((appId) => {
+      const definition = getAppDefinition(appId)
+      if (!definition) return []
+      return [{ appId, name: definition.name, Icon: definition.icon as ComponentType<{ size?: number }> }]
+    })
+  }, [openWithNode])
+
+  return (
+    <div
+      ref={hostRef}
+      class={[
+        'files',
+        narrowLayout ? 'files--narrow' : '',
+        narrowLayout && stackedBrowserOpen ? 'files--browser-open' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <aside class="files__sidebar">
+        <header class="files__sidebar-toolbar">
+          <h1 class="files__sidebar-toolbar-title">位置</h1>
+        </header>
+        <div class="files__sidebar-section">
+          <div class="files__sidebar-heading">位置</div>
+          <ul class="files__sidebar-list">
+            {locations.map((location) => {
+              const active = location.id === locationId
+              return (
+                <li key={location.id}>
+                  <button
+                    type="button"
+                    class={`files__sidebar-item${active ? ' files__sidebar-item--active' : ''}`}
+                    onClick={() => selectLocation(location.id)}
+                    onContextMenu={(event) => {
+                      if (!isMountLocationId(location.id)) return
+                      event.preventDefault()
+                      setContextMenu(undefined)
+                      setNewFileMenu(undefined)
+                      setLocationContextMenu({
+                        x: event.clientX,
+                        y: event.clientY,
+                        locationId: location.id,
+                        label: location.label,
+                      })
+                    }}
+                  >
+                    <span class="files__sidebar-icon">
+                      <LocationGlyph id={location.id} />
+                    </span>
+                    <span class="files__sidebar-label">{location.label}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+        <div class="files__sidebar-footer">
+          <button type="button" class="files__sidebar-mount" onClick={() => void handleMount()}>
+            挂载
+          </button>
+        </div>
+      </aside>
+
+      <section class="files__main">
+        <header class="files__toolbar">
+          <div class="files__toolbar-left">
+            {showToolbarBack ? (
+              <IosNavBackButton label={backLabel} onClick={handleToolbarBack} />
+            ) : (
+              <span class="files__toolbar-spacer" />
+            )}
+          </div>
+          <h1 class="files__toolbar-title">{currentTitle}</h1>
+          <div class="files__toolbar-right">
+            {canCreateHere ? (
+              <>
+                <button type="button" class="files__toolbar-btn" onClick={() => void handleNewFolder()}>
+                  新建文件夹
+                </button>
+                <button
+                  ref={newFileButtonRef}
+                  type="button"
+                  class="files__toolbar-btn files__toolbar-btn--primary"
+                  aria-haspopup="menu"
+                  aria-expanded={!!newFileMenu}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openNewFileMenu()
+                  }}
+                >
+                  新建文件
+                </button>
+              </>
+            ) : undefined}
+          </div>
+        </header>
+
+        {!canCreateHere ? (
+          <div class="files__protected-banner" role="status">
+            此容器受保护不可修改
+          </div>
+        ) : undefined}
+
+        <div
+          class={[
+            'files__browser',
+            folderMotion === 'push' ? 'files__browser--push' : '',
+            folderMotion === 'pop' ? 'files__browser--pop' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onAnimationEnd={(event) => {
+            if (event.currentTarget !== event.target) return
+            setFolderMotion('idle')
+          }}
+        >
+          {error ? <div class="files__banner files__banner--error">{error}</div> : undefined}
+          {loading ? (
+            <div class="files__empty">正在加载…</div>
+          ) : items.length === 0 ? (
+            <div class="files__empty">
+              <p class="files__empty-title">此文件夹为空</p>
+              <p class="files__empty-text">
+                {canCreateHere
+                  ? '可新建文件夹，或新建文本文件。'
+                  : '此位置为系统资源，仅供浏览。'}
+              </p>
+            </div>
+          ) : (
+            <ul class="files__grid">
+              {items.map((node) => {
+                return (
+                  <li key={node.id}>
+                    <button
+                      type="button"
+                      class="files__item"
+                      onClick={() => handleItemClick(node)}
+                      onContextMenu={(event) => {
+                        const writable = isFilesNodeWritable(node)
+                        if (node.kind === 'folder' && !writable) {
+                          event.preventDefault()
+                          return
+                        }
+                        event.preventDefault()
+                        setNewFileMenu(undefined)
+                        setContextMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          node,
+                        })
+                      }}
+                    >
+                      <span class="files__item-icon">
+                        {node.kind === 'folder' ? <FolderGlyph /> : <FileGlyph />}
+                      </span>
+                      <span class="files__item-name">{node.name}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      {contextMenu ? (
+        <div
+          class="files__context"
+          style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {contextMenu.node.kind === 'file' ? (
+            <button
+              type="button"
+              class="files__context-item"
+              onClick={() => void showOpenWithChooser(contextMenu.node)}
+            >
+              打开方式…
+            </button>
+          ) : undefined}
+          {isFilesNodeWritable(contextMenu.node) ? (
+            <>
+              <button
+                type="button"
+                class="files__context-item"
+                onClick={() => void handleRename(contextMenu.node)}
+              >
+                重新命名
+              </button>
+              <button
+                type="button"
+                class="files__context-item files__context-item--danger"
+                onClick={() => void handleDelete(contextMenu.node)}
+              >
+                删除
+              </button>
+            </>
+          ) : undefined}
+        </div>
+      ) : undefined}
+
+      {locationContextMenu ? (
+        <div
+          class="files__context"
+          style={{ left: `${locationContextMenu.x}px`, top: `${locationContextMenu.y}px` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            class="files__context-item"
+            onClick={() =>
+              void handleUnmount(locationContextMenu.locationId, locationContextMenu.label)
+            }
+          >
+            卸载
+          </button>
+        </div>
+      ) : undefined}
+
+      {newFileMenu ? (
+        <div
+          class="files__popover"
+          role="menu"
+          style={{
+            left: `${newFileMenu.x}px`,
+            top: `${newFileMenu.y}px`,
+            ['--files-popover-arrow-x' as string]: `${newFileMenu.arrowX}px`,
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div class="files__popover-label">新建文件</div>
+          <button
+            type="button"
+            class="files__popover-item"
+            role="menuitem"
+            onClick={() => void createTextFileNamed()}
+          >
+            <span class="files__popover-item-icon" aria-hidden="true">
+              <FileGlyph />
+            </span>
+            <span class="files__popover-item-copy">
+              <span class="files__popover-item-title">文本文件</span>
+              <span class="files__popover-item-meta">.txt</span>
+            </span>
+          </button>
+        </div>
+      ) : undefined}
+
+      <WindowModal
+        open={!!openWithNode}
+        title="打开方式"
+        themeColor={THEME}
+        onClose={() => {
+          setOpenWithNode(undefined)
+          setOpenWithAlways(false)
+        }}
+        actions={[
+          {
+            key: 'cancel',
+            label: '取消',
+            tone: 'secondary',
+            onClick: () => {
+              setOpenWithNode(undefined)
+              setOpenWithAlways(false)
+            },
+          },
+        ]}
+      >
+        {openWithNode ? (
+          <div class="files__open-with">
+            <p class="files__open-with-message">
+              选择用于打开「{openWithNode.name}」的程序：
+            </p>
+            <ul class="files__open-with-list">
+              {openWithApps.map(({ appId, name, Icon }) => (
+                <li key={appId}>
+                  <button
+                    type="button"
+                    class="files__open-with-item"
+                    onClick={() => openFileWithApp(openWithNode, appId, openWithAlways)}
+                  >
+                    <span class="files__open-with-icon" aria-hidden="true">
+                      <Icon size={36} />
+                    </span>
+                    <span class="files__open-with-name">{name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div
+              class="files__open-with-always"
+              onClick={() => setOpenWithAlways((value) => !value)}
+            >
+              <IosCheckToggle
+                checked={openWithAlways}
+                label="始终使用此程序打开此类文件"
+                onChange={setOpenWithAlways}
+              />
+              <span class="files__open-with-always-text">始终使用此程序打开此类文件</span>
+            </div>
+          </div>
+        ) : undefined}
+      </WindowModal>
+    </div>
+  )
+}

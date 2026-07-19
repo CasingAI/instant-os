@@ -15,7 +15,7 @@ import {
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
-import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, WindowState, WindowRestoredBounds } from './types.ts'
+import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
 
 export type AppCloseGuardContext = {
@@ -32,7 +32,7 @@ type OsContextValue = {
   desktopRevealRestoring: boolean
   toggleDesktopReveal: () => void
   hideDesktopReveal: () => void
-  openApp: (appId: AppId) => void
+  openApp: (appId: AppId, options?: OpenAppOptions) => void
   openGeneratedApp: (appId: GeneratedAppId, title: string) => void
   openExtApp: (appId: ExtAppId, title: string) => void
   closeWindow: (windowId: string) => void
@@ -50,6 +50,8 @@ type OsContextValue = {
   minimizeWindow: (windowId: string) => void
   restoreWindow: (windowId: string) => void
   setAppWindowTitle: (appId: AppId, title: string) => void
+  setAppWindowDocumentId: (appId: AppId, documentId: string | undefined) => void
+  setAppWindowDocumentEdited: (appId: AppId, edited: boolean) => void
   closeProcessIsolatedApps: () => void
 }
 
@@ -59,6 +61,8 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   browser: { title: '网络浏览器', width: 880, height: 720 },
   settings: { title: '系统设置', width: 780, height: 540 },
   photos: { title: '照片', width: 720, height: 620 },
+  files: { title: '文件', width: 900, height: 620 },
+  textedit: { title: '文本编辑', width: 720, height: 560 },
   mail: { title: '邮件', width: 900, height: 640 },
   news: { title: '新闻', width: 920, height: 620 },
   books: { title: '书架', width: 920, height: 620 },
@@ -106,7 +110,7 @@ function bumpZIndex(): number {
 function createWindow(
   appId: AppId,
   titleOverride?: string,
-  options?: { enterAnimation?: WindowState['enterAnimation'] },
+  options?: { enterAnimation?: WindowState['enterAnimation']; documentId?: string },
 ): WindowState {
   windowCounter += 1
   const nextZ = bumpZIndex()
@@ -127,6 +131,7 @@ function createWindow(
       id: `${appId}-${windowCounter}`,
       appId,
       title: defaults.title,
+      documentId: options?.documentId,
       minimized: false,
       maximized: true,
       fullscreen: false,
@@ -143,6 +148,7 @@ function createWindow(
     id: `${appId}-${windowCounter}`,
     appId,
     title: defaults.title,
+    documentId: options?.documentId,
     minimized: false,
     maximized: false,
     fullscreen: false,
@@ -207,7 +213,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const windowsRef = useRef(windows)
   windowsRef.current = windows
 
-  const openApp = useCallback((appId: AppId) => {
+  const openApp = useCallback((appId: AppId, options?: OpenAppOptions) => {
     if (isGeneratedAppId(appId)) {
       throw new Error('请使用 openGeneratedApp 打开 AI 生成的应用')
     }
@@ -219,6 +225,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     closeOpenDesktopFolder()
 
     let resolvedActiveId: string | undefined
+    const documentId = options?.documentId
 
     setWindows((current) => {
       const live = current.filter((window) => !window.closing)
@@ -229,7 +236,13 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
         return current.map((window) =>
           window.id === existing.id
-            ? { ...window, zIndex: nextZ, minimized: false, title: resolvedTitle }
+            ? {
+                ...window,
+                zIndex: nextZ,
+                minimized: false,
+                title: resolvedTitle,
+                ...(documentId !== undefined ? { documentId } : {}),
+              }
             : window,
         )
       }
@@ -241,12 +254,21 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
         return current.map((window) =>
           window.id === minimized.id
-            ? { ...window, zIndex: nextZ, minimized: false, title: resolvedTitle }
+            ? {
+                ...window,
+                zIndex: nextZ,
+                minimized: false,
+                title: resolvedTitle,
+                ...(documentId !== undefined ? { documentId } : {}),
+              }
             : window,
         )
       }
 
-      const nextWindow = createWindow(appId, undefined, { enterAnimation: 'scale-in' })
+      const nextWindow = createWindow(appId, undefined, {
+        enterAnimation: 'scale-in',
+        documentId,
+      })
       resolvedActiveId = nextWindow.id
       return [...current, nextWindow]
     })
@@ -255,6 +277,30 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setActiveWindowId(resolvedActiveId)
     }
   }, [startDesktopRestore])
+
+  const setAppWindowDocumentId = useCallback((appId: AppId, documentId: string | undefined) => {
+    setWindows((current) =>
+      current.map((window) =>
+        window.appId === appId && !window.closing
+          ? { ...window, documentId }
+          : window,
+      ),
+    )
+  }, [])
+
+  const setAppWindowDocumentEdited = useCallback((appId: AppId, edited: boolean) => {
+    setWindows((current) => {
+      const target = current.find((window) => window.appId === appId && !window.closing)
+      if (!target || target.documentEdited === edited) {
+        return current
+      }
+      return current.map((window) =>
+        window.appId === appId && !window.closing
+          ? { ...window, documentEdited: edited }
+          : window,
+      )
+    })
+  }, [])
 
   const openGeneratedApp = useCallback((appId: GeneratedAppId, title: string) => {
     startDesktopRestore()
@@ -765,9 +811,11 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       minimizeWindow,
       restoreWindow,
       setAppWindowTitle,
+      setAppWindowDocumentId,
+      setAppWindowDocumentEdited,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, closeProcessIsolatedApps],
   )
 
   return <OsContext.Provider value={value}>{children}</OsContext.Provider>

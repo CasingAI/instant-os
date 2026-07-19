@@ -1,7 +1,12 @@
 import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about.ts'
 
-export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'help'
+export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'textedit' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'help'
+
+export type OpenAppOptions = {
+  /** VFS 文件节点 id，用于文档类应用打开指定文件 */
+  documentId?: string
+}
 export type GeneratedAppId = `gen:${string}`
 export type ExtAppId = `ext:${string}`
 export type AppId = BuiltinAppId | GeneratedAppId | ExtAppId
@@ -40,6 +45,10 @@ export type WindowState = {
   id: string
   appId: AppId
   title: string
+  /** 文档类应用当前 / 待打开的 VFS 文件节点 id */
+  documentId?: string
+  /** 文档有未保存更改时，标题栏右侧显示「已编辑」 */
+  documentEdited?: boolean
   minimized: boolean
   maximized: boolean
   snap?: WindowSnap

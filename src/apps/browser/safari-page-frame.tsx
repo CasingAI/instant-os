@@ -222,7 +222,7 @@ export function SafariPageFrame({
       ref={iframeRef}
       class={`safari__frame ${streaming ? 'safari__frame--streaming' : ''}`}
       title={title}
-      sandbox="allow-scripts allow-same-origin allow-forms"
+      sandbox="allow-same-origin allow-forms"
       onContextMenu={(event) => event.preventDefault()}
     />
   )

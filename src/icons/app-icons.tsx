@@ -52,6 +52,43 @@ export function PhotosIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function FilesIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#a67c42" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <path
+          d="M14 22.5c0-2 1.6-3.6 3.6-3.6h11c.8 0 1.5.3 2 .9l1.5 1.7c.3.3.7.5 1.1.5H46c2 0 3.6 1.6 3.6 3.6V28H14v-5.5z"
+          fill="#f0d9a8"
+          opacity="0.95"
+        />
+        <path
+          d="M12 28.5c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4V45c0 2.5-2 4.5-4.5 4.5h-31C14 49.5 12 47.5 12 45V28.5z"
+          fill="#f7f1e6"
+        />
+        <path d="M16 26.2h32c1.1 0 2.1.5 2.7 1.3H13.3c.6-.8 1.6-1.3 2.7-1.3z" fill="#e8c56a" opacity="0.9" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
+export function TextEditIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#3d7a4a" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="14" y="12" width="36" height="42" rx="4" fill="#f7f4ec" />
+        <path d="M20 22h24M20 30h24M20 38h18" stroke="#3d7a4a" stroke-width="2.4" stroke-linecap="round" />
+        <path
+          d="M40 40l8 2.5-2.5 8-8.8-8.8L40 40z"
+          fill="#f4d35e"
+          stroke="#c9a227"
+          stroke-width="1.2"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function Scene3dLabIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#5856d6" size={size}>

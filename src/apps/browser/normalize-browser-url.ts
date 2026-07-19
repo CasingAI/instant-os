@@ -1,3 +1,5 @@
+import { fileDocumentDisplayName, isFileDocumentUrl } from './browser-file-document.ts'
+
 export const START_PAGE_URL = 'instant://home'
 
 export function isStartPageUrl(url: string): boolean {
@@ -52,6 +54,11 @@ export function displayUrl(url: string): string {
     return ''
   }
 
+  const fileName = fileDocumentDisplayName(url)
+  if (fileName) {
+    return fileName
+  }
+
   try {
     const parsed = new URL(url)
     const host = parsed.host
@@ -71,12 +78,20 @@ export function addressBarDisplayUrl(url: string, showFullUrl: boolean): string 
   if (isStartPageUrl(url)) {
     return ''
   }
+  if (isFileDocumentUrl(url)) {
+    return displayUrl(url)
+  }
   return showFullUrl ? normalizeBrowserUrl(url) : displayUrl(url)
 }
 
 export function pageTitleFromUrl(url: string): string {
   if (isStartPageUrl(url)) {
     return '起始页'
+  }
+
+  const fileName = fileDocumentDisplayName(url)
+  if (fileName) {
+    return fileName
   }
 
   try {
@@ -88,6 +103,11 @@ export function pageTitleFromUrl(url: string): string {
 }
 
 export function hostnameFromUrl(url: string): string {
+  const fileName = fileDocumentDisplayName(url)
+  if (fileName) {
+    return fileName
+  }
+
   try {
     return new URL(url).hostname.replace(/^www\./, '')
   } catch {

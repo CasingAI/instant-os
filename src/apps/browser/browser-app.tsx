@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
+import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -21,6 +22,11 @@ import {
   type PageGenerationContext,
 } from './generate-page-stream.ts'
 import { extractTitleFromPartialHtml } from './extract-partial-html.ts'
+import {
+  buildFileDocumentUrl,
+  isFileDocumentUrl,
+  parseFileDocumentUrl,
+} from './browser-file-document.ts'
 import {
   loadBrowserTokenUsage,
   recordBrowserTokenUsage,
@@ -91,7 +97,14 @@ import {
   type SafariContextMenuItem,
   type SafariContextMenuTarget,
 } from './safari-context-menu.tsx'
+import { readTextFile } from '../files/files-vfs.ts'
 import './browser.css'
+
+registerFileOpenHandler({
+  appId: 'browser',
+  extensions: ['html', 'htm', 'xhtml', 'svg'],
+  rank: 10,
+})
 
 type HistoryEntry = {
   url: string
@@ -166,13 +179,21 @@ function commitPageVisit(url: string, title: string): void {
 }
 
 export function BrowserApp() {
-  const { closeWindowsForApp, minimizeWindow, windows, focusWindow } = useOs()
+  const {
+    closeWindowsForApp,
+    minimizeWindow,
+    windows,
+    focusWindow,
+    setAppWindowDocumentId,
+  } = useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
+  const appWindow = windows.find((window) => window.appId === 'browser' && !window.closing)
   const browserWindow = windows.find((window) => window.appId === 'browser' && !window.minimized)
   const browserWindowId = browserWindow?.id
   const browserFullscreen = Boolean(browserWindow?.fullscreen)
+  const pendingDocumentId = appWindow?.documentId
   const apiReady = useOpenAiReady()
   const [tabs, setTabs] = useState<SafariTab[]>(() => [createSafariTab()])
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '')
@@ -203,6 +224,8 @@ export function BrowserApp() {
   const generationSeqRef = useRef<Record<string, number>>({})
   const pageHtmlByTabRef = useRef<Record<string, string>>({})
   const lastPageNavByTabRef = useRef<Record<string, { url: string; at: number }>>({})
+  const lastOpenedDocumentIdRef = useRef<string | undefined>(undefined)
+  const openingDocumentIdRef = useRef<string | undefined>(undefined)
   const safariRootRef = useRef<HTMLDivElement>(null)
   const { hostRef: narrowLayoutHostRef, narrowLayout } = useAppNarrowLayout()
 
@@ -431,6 +454,79 @@ export function BrowserApp() {
     [patchHistoryEntry, setTabPageState],
   )
 
+  const loadFileDocumentPage = useCallback(
+    async (tabId: string, url: string, targetIndex: number) => {
+      const parsed = parseFileDocumentUrl(url)
+      if (!parsed) {
+        setTabPageState(tabId, {
+          loading: false,
+          streaming: false,
+          html: '',
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: '无法识别的本机文件地址',
+        })
+        return
+      }
+
+      cancelGeneration(tabId)
+      setTabPageState(tabId, {
+        loading: true,
+        streaming: false,
+        html: '',
+        rawText: '',
+        reasoningText: '',
+        pageTokens: undefined,
+        error: undefined,
+      })
+
+      try {
+        const { node, text } = await readTextFile(parsed.documentId)
+        const resolvedUrl = buildFileDocumentUrl(node.id, node.name)
+        const title = node.name
+        patchHistoryEntry(tabId, targetIndex, {
+          url: resolvedUrl,
+          title,
+          html: text,
+          pageTokens: undefined,
+        })
+        updateTab(tabId, (tab) => ({
+          ...tab,
+          inputUrl: formatAddressInput(resolvedUrl),
+        }))
+        setTabPageState(tabId, {
+          loading: false,
+          streaming: false,
+          html: text,
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: undefined,
+        })
+        setAppWindowDocumentId('browser', node.id)
+      } catch (error) {
+        setTabPageState(tabId, {
+          loading: false,
+          streaming: false,
+          html: '',
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: error instanceof Error ? error.message : '无法打开本机文件',
+        })
+      }
+    },
+    [
+      cancelGeneration,
+      formatAddressInput,
+      patchHistoryEntry,
+      setAppWindowDocumentId,
+      setTabPageState,
+      updateTab,
+    ],
+  )
+
   const loadRemotePage = useCallback(
     async (
       tabId: string,
@@ -583,6 +679,24 @@ export function BrowserApp() {
         return
       }
 
+      if (isFileDocumentUrl(entry.url)) {
+        if (entry.html) {
+          cancelGeneration(tabId)
+          setTabPageState(tabId, {
+            loading: false,
+            streaming: false,
+            html: entry.html,
+            rawText: '',
+            reasoningText: '',
+            pageTokens: entry.pageTokens,
+            error: undefined,
+          })
+          return
+        }
+        void loadFileDocumentPage(tabId, entry.url, index)
+        return
+      }
+
       if (entry.html) {
         cancelGeneration(tabId)
         setTabPageState(tabId, {
@@ -611,7 +725,16 @@ export function BrowserApp() {
         buildGenContext(entry.url),
       )
     },
-    [applyCachedPage, buildGenContext, cancelGeneration, formatAddressInput, loadRemotePage, setTabPageState, updateTab],
+    [
+      applyCachedPage,
+      buildGenContext,
+      cancelGeneration,
+      formatAddressInput,
+      loadFileDocumentPage,
+      loadRemotePage,
+      setTabPageState,
+      updateTab,
+    ],
   )
 
   const navigate = useCallback(
@@ -662,6 +785,11 @@ export function BrowserApp() {
         return
       }
 
+      if (isFileDocumentUrl(url)) {
+        void loadFileDocumentPage(tabId, url, targetIndex)
+        return
+      }
+
       const persisted = context?.skipCache ? undefined : getCachedPage(url)
       if (persisted) {
         applyCachedPage(tabId, targetIndex, url, persisted)
@@ -671,7 +799,16 @@ export function BrowserApp() {
       const genContext = buildGenContext(url, fromUrl, fromHtml)
       void loadRemotePage(tabId, url, targetIndex, genContext)
     },
-    [applyCachedPage, buildGenContext, cancelGeneration, formatAddressInput, loadRemotePage, setTabPageState, tabs],
+    [
+      applyCachedPage,
+      buildGenContext,
+      cancelGeneration,
+      formatAddressInput,
+      loadFileDocumentPage,
+      loadRemotePage,
+      setTabPageState,
+      tabs,
+    ],
   )
 
   const navigateActive = useCallback(
@@ -680,6 +817,98 @@ export function BrowserApp() {
     },
     [activeTabId, navigate],
   )
+
+  const openLocalDocument = useCallback(
+    async (documentId: string) => {
+      if (openingDocumentIdRef.current === documentId) {
+        return
+      }
+      openingDocumentIdRef.current = documentId
+
+      try {
+        const { node, text } = await readTextFile(documentId)
+        const url = buildFileDocumentUrl(node.id, node.name)
+        const title = node.name
+        const entry: HistoryEntry = {
+          url,
+          title,
+          html: text,
+          pageTokens: undefined,
+        }
+        const pageState: PageState = {
+          loading: false,
+          streaming: false,
+          html: text,
+          rawText: '',
+          reasoningText: '',
+          pageTokens: undefined,
+          error: undefined,
+        }
+
+        const soleStartTab =
+          tabs.length === 1 &&
+          tabs[0] &&
+          isStartPageUrl(tabs[0].history[tabs[0].historyIndex]?.url ?? START_PAGE_URL)
+            ? tabs[0]
+            : undefined
+
+        if (soleStartTab) {
+          cancelGeneration(soleStartTab.id)
+          pageHtmlByTabRef.current[soleStartTab.id] = text
+          setTabs([
+            {
+              ...soleStartTab,
+              history: [entry],
+              historyIndex: 0,
+              inputUrl: formatAddressInput(url),
+              pageState,
+            },
+          ])
+          setActiveTabId(soleStartTab.id)
+        } else {
+          const tab = createSafariTab()
+          pageHtmlByTabRef.current[tab.id] = text
+          setTabs((prev) => [
+            ...prev,
+            {
+              ...tab,
+              history: [entry],
+              historyIndex: 0,
+              inputUrl: formatAddressInput(url),
+              pageState,
+            },
+          ])
+          setActiveTabId(tab.id)
+        }
+
+        setAddressFocused(false)
+        setAppWindowDocumentId('browser', node.id)
+        lastOpenedDocumentIdRef.current = node.id
+      } catch (error) {
+        lastOpenedDocumentIdRef.current = undefined
+        await modal.alert({
+          title: '无法打开',
+          message: error instanceof Error ? error.message : '无法打开本机文件',
+          themeColor: '#007aff',
+        })
+      } finally {
+        if (openingDocumentIdRef.current === documentId) {
+          openingDocumentIdRef.current = undefined
+        }
+      }
+    },
+    [cancelGeneration, formatAddressInput, modal, setAppWindowDocumentId, tabs],
+  )
+
+  useEffect(() => {
+    if (!pendingDocumentId) {
+      return
+    }
+    if (lastOpenedDocumentIdRef.current === pendingDocumentId) {
+      return
+    }
+    void openLocalDocument(pendingDocumentId)
+  }, [openLocalDocument, pendingDocumentId])
 
   const addressSuggestions = useMemo(() => {
     if (!addressFocused || !inputUrl.trim()) {
@@ -872,6 +1101,12 @@ export function BrowserApp() {
       return
     }
 
+    if (isFileDocumentUrl(current.url)) {
+      patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
+      void loadFileDocumentPage(activeTabId, current.url, historyIndex)
+      return
+    }
+
     patchHistoryEntry(activeTabId, historyIndex, { html: undefined, pageTokens: undefined })
     const genContext = buildGenContext(current.url, current.url, pageState.html || current.html)
     void loadRemotePage(activeTabId, current.url, historyIndex, { ...genContext, force: true })
@@ -1037,6 +1272,33 @@ export function BrowserApp() {
         return
       }
 
+      if (isFileDocumentUrl(url)) {
+        setTabs((prev) => [
+          ...prev,
+          {
+            ...tab,
+            history: [{ url, title, html: undefined, pageTokens: undefined }],
+            historyIndex: 0,
+            inputUrl: formatAddressInput(url),
+            pageState: {
+              loading: true,
+              streaming: false,
+              html: '',
+              rawText: '',
+              reasoningText: '',
+              pageTokens: undefined,
+              error: undefined,
+            },
+          },
+        ])
+        if (!options?.background) {
+          setActiveTabId(tabId)
+          setAddressFocused(false)
+        }
+        void loadFileDocumentPage(tabId, url, 0)
+        return
+      }
+
       const persisted = options?.context?.skipCache ? undefined : getCachedPage(url)
       const cachedHtml = persisted?.html
       const entry: HistoryEntry = {
@@ -1067,9 +1329,9 @@ export function BrowserApp() {
                 loading: true,
                 streaming: false,
                 html: '',
-    rawText: '',
-    reasoningText: '',
-    pageTokens: undefined,
+                rawText: '',
+                reasoningText: '',
+                pageTokens: undefined,
                 error: undefined,
               },
         },
@@ -1089,7 +1351,7 @@ export function BrowserApp() {
       const genContext = buildGenContext(url, fromUrl)
       void loadRemotePage(tabId, url, 0, genContext)
     },
-    [buildGenContext, formatAddressInput, loadRemotePage],
+    [buildGenContext, formatAddressInput, loadFileDocumentPage, loadRemotePage],
   )
 
   const copyToClipboard = useCallback(async (text: string) => {

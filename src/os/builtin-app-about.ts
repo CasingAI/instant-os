@@ -52,7 +52,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: 'AI 网页浏览器',
     paragraphs: [
       '网络浏览器是 Instant OS 内置浏览器。输入任意网址或搜索词，AI 会实时生成对应页面，在标签页中浏览。',
-      '支持多标签、历史记录、前进后退与重新加载，体验接近真实浏览器。已生成的网页缓存保存在数据空间（IndexedDB），可在系统设置中管理。',
+      '支持多标签、历史记录、前进后退与重新加载；也可作为 .html / .htm / .xhtml / .svg 等本机文件的打开程序，直接预览文件内容（不经 AI 生成）。已生成的网页缓存保存在数据空间（IndexedDB），可在系统设置中管理。',
     ],
   },
   mail: {
@@ -65,6 +65,20 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   photos: {
     version: '即将推出',
     paragraphs: ['照片应用正在开发中，未来将用于浏览与管理 Instant OS 中的图片与媒体文件。'],
+  },
+  files: {
+    version: '拟物文件柜',
+    paragraphs: [
+      '文件应用仿早期 iOS 拟物风格，通过侧边栏切换虚拟位置：本机文档、内置 3D 模型与系统文件。',
+      '本机位置支持新建文件夹与文本文件、重命名与删除；3D 模型与系统文件为只读浏览。打开文件由系统「文件打开关联」决定交给哪个应用处理，文件应用本身不内置编辑器。本机数据保存在独立 IndexedDB（上限 150 MB）。',
+    ],
+  },
+  textedit: {
+    version: '简易文本编辑器',
+    paragraphs: [
+      '文本编辑用于打开与编辑本机文本文件。启动时可通过系统打开对话框选择已有文件，或新建文本文件后再编辑。',
+      '默认注册为 .txt 文件的打开程序；也可从「文件」应用中直接打开文本文件。只读文件可查看但不可保存。',
+    ],
   },
   settings: {
     version: '系统管理',

@@ -185,6 +185,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
               />
             </div>
             <span class="window-frame__title">{window.title}</span>
+            <span class="window-frame__title-trailing" aria-live="polite">
+              {window.documentEdited ? '已编辑' : ''}
+            </span>
           </header>
           <div class="window-frame__content">
             {!isActive && !isDesktopRevealed && (

@@ -13,6 +13,8 @@ type PromptOptions = {
   label?: string
   placeholder?: string
   initialValue?: string
+  /** 显示在输入框右侧的固定后缀（不可编辑） */
+  suffix?: string
   inputType?: 'text' | 'password'
   requireValue?: boolean
   confirmLabel?: string
@@ -273,28 +275,41 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
                   {promptState.options.label && (
                     <label for="window-modal-prompt-input">{promptState.options.label}</label>
                   )}
-                  <input
-                    ref={promptInputRef}
-                    id="window-modal-prompt-input"
-                    type={promptState.options.inputType ?? 'text'}
-                    value={promptState.draft}
-                    placeholder={promptState.options.placeholder}
-                    autoComplete="off"
-                    spellcheck={false}
-                    onInput={(event) => {
-                      const next = (event.currentTarget as HTMLInputElement).value
-                      setPromptState({
-                        ...promptState,
-                        draft: next,
-                        error: undefined,
-                      })
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        submitPrompt()
-                      }
-                    }}
-                  />
+                  {(() => {
+                    const input = (
+                      <input
+                        ref={promptInputRef}
+                        id="window-modal-prompt-input"
+                        type={promptState.options.inputType ?? 'text'}
+                        value={promptState.draft}
+                        placeholder={promptState.options.placeholder}
+                        autoComplete="off"
+                        spellcheck={false}
+                        onInput={(event) => {
+                          const next = (event.currentTarget as HTMLInputElement).value
+                          setPromptState({
+                            ...promptState,
+                            draft: next,
+                            error: undefined,
+                          })
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            submitPrompt()
+                          }
+                        }}
+                      />
+                    )
+                    if (!promptState.options.suffix) return input
+                    return (
+                      <div class="window-modal__input-with-suffix">
+                        {input}
+                        <span class="window-modal__input-suffix" aria-hidden="true">
+                          {promptState.options.suffix}
+                        </span>
+                      </div>
+                    )
+                  })()}
                 </div>
                 {promptState.error && <p class="window-modal__error">{promptState.error}</p>}
               </>
