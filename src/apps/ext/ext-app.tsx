@@ -8,6 +8,7 @@ import { useOs } from '../../os/os-context.tsx'
 import type { ExtAppId } from '../../os/types.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
 import { installGeneratedAppFilesHandler } from '../generated/install-generated-app-files-handler.ts'
+import { installGeneratedAppTerminalHandler } from '../generated/install-generated-app-terminal-handler.ts'
 import './ext-app.css'
 
 type ExtAppProps = {
@@ -82,6 +83,18 @@ export function ExtApp({ appId, windowId }: ExtAppProps) {
       appId,
       getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
       isAllowed: () => app.manifest.tags.includes('files'),
+    })
+  }, [app, appId])
+
+  useEffect(() => {
+    if (!app?.manifest.tags.includes('terminal')) {
+      return
+    }
+
+    return installGeneratedAppTerminalHandler({
+      appId,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+      isAllowed: () => app.manifest.tags.includes('terminal'),
     })
   }, [app, appId])
 

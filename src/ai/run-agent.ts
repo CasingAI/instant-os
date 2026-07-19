@@ -2,7 +2,7 @@ import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
 import { toChatCompletionTool } from './agent-tool.ts'
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
-import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
+import { buildThinkingRequestExtras, providerRequiresReasoningContentEcho, readStreamDelta } from './ai-thinking.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import {
   finishAiEventLogSession,
@@ -334,7 +334,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
       const assistantMessage: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
         role: 'assistant',
-        content: turn.content || undefined,
+        // MiMo / 部分兼容网关拒绝 content: null；无正文时用空字符串
+        content: turn.content || '',
         ...(turn.toolCalls.length > 0
           ? {
               tool_calls: turn.toolCalls.map((toolCall) => ({
@@ -347,6 +348,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
               })),
             }
           : {}),
+      }
+      // DeepSeek / MiMo 思维链：多轮工具调用须回传 reasoning_content（可为空串）
+      if (providerRequiresReasoningContentEcho(config.providerId)) {
+        ;(assistantMessage as OpenAI.Chat.ChatCompletionAssistantMessageParam & {
+          reasoning_content?: string
+        }).reasoning_content = turn.reasoning || ''
       }
       messages.push(assistantMessage)
 

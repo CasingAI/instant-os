@@ -2,10 +2,13 @@
  * 系统文件统一 API：一律以全局绝对路径为句柄。
  * 内置应用与第三方桥接共用此门面；底层仍走 files-vfs。
  *
- * 路径约定：`/user` · `/models` · `/system` · `/mount/{8位键}`
+ * 路径约定：
+ * - `/` — 命名空间根（虚拟）：下列出各卷，不可写入
+ * - `/user` · `/models` · `/system` · `/mount/{8位键}` — 各卷根
  */
 import {
   filesLocationPathRoot,
+  isFilesNamespaceRoot,
   joinFilesAbsolutePath,
   normalizeFilesNodeName,
   parseFilesAbsolutePath,
@@ -17,6 +20,7 @@ import {
   type FilesNode,
 } from './files-types.ts'
 import {
+  copyNodeTo,
   createTextFile,
   getFilesLocationLabel,
   listDirectory,
@@ -68,6 +72,19 @@ async function toEntry(node: FilesNode): Promise<FilesApiEntry> {
   }
 }
 
+function namespaceRootEntry(): FilesApiEntry {
+  return {
+    path: '/',
+    name: '/',
+    kind: 'folder',
+    mimeType: undefined,
+    byteSize: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    writable: false,
+  }
+}
+
 function volumeRootEntry(locationId: FilesLocationId): FilesApiEntry {
   const path = filesLocationPathRoot(locationId)
   const label = getFilesLocationLabel(locationId)
@@ -83,11 +100,28 @@ function volumeRootEntry(locationId: FilesLocationId): FilesApiEntry {
   }
 }
 
+/** 命名空间根下展示的卷条目：name 用路径去掉前导 /（如 user、mount/abcd1234） */
+function volumeChildOfNamespaceRoot(volume: FilesApiVolume): FilesApiEntry {
+  return {
+    path: volume.path,
+    name: volume.path.replace(/^\//, '') || volume.label,
+    kind: 'folder',
+    mimeType: undefined,
+    byteSize: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    writable: volume.writable,
+  }
+}
+
 async function resolveParentForCreate(absolutePath: string): Promise<{
   locationId: FilesLocationId
   parentId: string | undefined
   name: string
 }> {
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能在命名空间根 / 上创建')
+  }
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed) {
     throw new Error('路径无效')
@@ -123,9 +157,14 @@ export async function filesListVolumes(): Promise<FilesApiVolume[]> {
   }))
 }
 
-/** 列出目录内容；`path` 可为卷根如 `/user` */
+/** 列出目录内容；`/` 为命名空间根（各卷），也可为卷根如 `/user` */
 export async function filesList(dirPath: string): Promise<FilesApiEntry[]> {
   const absolutePath = assertAbsolutePath(dirPath)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    const volumes = await filesListVolumes()
+    return volumes.map(volumeChildOfNamespaceRoot)
+  }
+
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed) {
     throw new Error('路径无效')
@@ -147,9 +186,13 @@ export async function filesList(dirPath: string): Promise<FilesApiEntry[]> {
   return Promise.all(children.map((child) => toEntry(child)))
 }
 
-/** 查询路径对应条目；卷根本身也可查询 */
+/** 查询路径对应条目；命名空间根 `/` 与卷根均可查询 */
 export async function filesStat(path: string): Promise<FilesApiEntry | undefined> {
   const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    return namespaceRootEntry()
+  }
+
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed) return undefined
 
@@ -164,6 +207,9 @@ export async function filesStat(path: string): Promise<FilesApiEntry | undefined
 
 export async function filesReadText(path: string): Promise<string> {
   const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能读取命名空间根')
+  }
   const { text } = await readTextFile(absolutePath)
   return text
 }
@@ -171,6 +217,9 @@ export async function filesReadText(path: string): Promise<string> {
 /** 覆写已存在的文本文件 */
 export async function filesWriteText(path: string, text: string): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能写入命名空间根')
+  }
   const node = await writeTextFile(absolutePath, text)
   return toEntry(node)
 }
@@ -210,6 +259,9 @@ export async function filesCreateText(path: string, text = ''): Promise<FilesApi
 
 export async function filesRename(path: string, nextName: string): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能重命名命名空间根')
+  }
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed || parsed.segments.length === 0) {
     throw new Error('不能重命名卷根')
@@ -224,6 +276,9 @@ export async function filesRename(path: string, nextName: string): Promise<Files
 
 export async function filesRemove(path: string): Promise<void> {
   const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能删除命名空间根')
+  }
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed || parsed.segments.length === 0) {
     throw new Error('不能删除卷根')
@@ -233,4 +288,105 @@ export async function filesRemove(path: string): Promise<void> {
     throw new Error('项目不存在')
   }
   await removeNode(node.id)
+}
+
+/**
+ * 将源文件/文件夹复制到目标目录（同名自动加后缀）。
+ * `destDirPath` 须为已存在的文件夹或卷根。
+ */
+export async function filesCopy(sourcePath: string, destDirPath: string): Promise<FilesApiEntry> {
+  const sourceAbs = assertAbsolutePath(sourcePath)
+  const destAbs = assertAbsolutePath(destDirPath)
+
+  if (isFilesNamespaceRoot(sourceAbs)) {
+    throw new Error('不能复制命名空间根')
+  }
+  if (isFilesNamespaceRoot(destAbs)) {
+    throw new Error('不能复制到命名空间根；请指定卷路径如 /user')
+  }
+
+  const sourceParsed = parseFilesAbsolutePath(sourceAbs)
+  if (!sourceParsed || sourceParsed.segments.length === 0) {
+    throw new Error('不能复制卷根')
+  }
+  const sourceNode = await resolveNodeByAbsolutePath(sourceAbs)
+  if (!sourceNode) {
+    throw new Error('源路径不存在')
+  }
+
+  const destParsed = parseFilesAbsolutePath(destAbs)
+  if (!destParsed) {
+    throw new Error('目标路径无效')
+  }
+
+  let destLocationId: FilesLocationId
+  let destParentId: string | undefined
+
+  if (destParsed.segments.length === 0) {
+    destLocationId = destParsed.locationId
+    destParentId = undefined
+  } else {
+    const destNode = await resolveNodeByAbsolutePath(destAbs)
+    if (!destNode) {
+      throw new Error('目标文件夹不存在')
+    }
+    if (destNode.kind !== 'folder') {
+      throw new Error('目标不是文件夹')
+    }
+    destLocationId = destNode.locationId
+    destParentId = destNode.id
+  }
+
+  const copied = await copyNodeTo({
+    sourceId: sourceNode.id,
+    destLocationId,
+    destParentId,
+  })
+  return toEntry(copied)
+}
+
+/**
+ * 移动：同目录改名用 rename；跨目录则复制到目标目录后删除源。
+ * `destDirPath` 须为已存在的文件夹或卷根（保留源名称）。
+ */
+export async function filesMove(sourcePath: string, destDirPath: string): Promise<FilesApiEntry> {
+  const sourceAbs = assertAbsolutePath(sourcePath)
+  const destAbs = assertAbsolutePath(destDirPath)
+
+  if (isFilesNamespaceRoot(sourceAbs)) {
+    throw new Error('不能移动命名空间根')
+  }
+  if (isFilesNamespaceRoot(destAbs)) {
+    throw new Error('不能移动到命名空间根；请指定卷路径如 /user')
+  }
+
+  const sourceParsed = parseFilesAbsolutePath(sourceAbs)
+  if (!sourceParsed || sourceParsed.segments.length === 0) {
+    throw new Error('不能移动卷根')
+  }
+  const sourceNode = await resolveNodeByAbsolutePath(sourceAbs)
+  if (!sourceNode) {
+    throw new Error('源路径不存在')
+  }
+
+  const destParsed = parseFilesAbsolutePath(destAbs)
+  if (!destParsed) {
+    throw new Error('目标路径无效')
+  }
+
+  const sourceParentPath =
+    sourceParsed.segments.length <= 1
+      ? filesLocationPathRoot(sourceParsed.locationId)
+      : joinFilesAbsolutePath(
+          filesLocationPathRoot(sourceParsed.locationId),
+          ...sourceParsed.segments.slice(0, -1),
+        )
+
+  if (assertAbsolutePath(sourceParentPath) === destAbs) {
+    return toEntry(sourceNode)
+  }
+
+  const copied = await filesCopy(sourceAbs, destAbs)
+  await filesRemove(sourceAbs)
+  return copied
 }

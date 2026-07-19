@@ -6,6 +6,7 @@ import { injectIcodeConsoleBridge } from './inject-icode-console-bridge.ts'
 export type PrepareIcodePreviewHtmlOptions = {
   processIsolated?: boolean
   enableFiles?: boolean
+  enableTerminal?: boolean
 }
 
 export function prepareIcodePreviewHtml(
@@ -29,6 +30,7 @@ export function prepareIcodePreviewHtml(
     reportingAppId: consoleAppId ?? appId,
     processIsolated: options.processIsolated === true,
     enableFiles: options.enableFiles === true,
+    enableTerminal: options.enableTerminal === true,
   })
   return injectIcodeConsoleBridge(prepared, consoleAppId ?? appId)
 }

@@ -24,6 +24,8 @@ export type ParsedFilesAbsolutePath = {
  * - 3D 模型 `/models`
  * - 系统文件 `/system`
  * - 外部挂载 `/mount/{8位键}`
+ *
+ * 另有命名空间根 `/`（见 `isFilesNamespaceRoot`）：不对应任何 location，仅用于列举各卷。
  */
 export function filesLocationPathRoot(locationId: FilesLocationId): string {
   if (isMountLocationId(locationId)) {
@@ -31,6 +33,12 @@ export function filesLocationPathRoot(locationId: FilesLocationId): string {
     return key ? `/mount/${key}` : '/mount'
   }
   return FILES_PATH_ROOT[locationId]
+}
+
+/** 是否为命名空间虚拟根 `/`（下列出各卷，不可作为真实存储节点） */
+export function isFilesNamespaceRoot(path: string): boolean {
+  const trimmed = path.trim().replace(/\/+$/, '') || '/'
+  return trimmed === '/'
 }
 
 export function isFilesAbsolutePath(ref: string): boolean {

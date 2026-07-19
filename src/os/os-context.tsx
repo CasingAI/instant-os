@@ -16,6 +16,8 @@ import {
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { isMultiWindowApp } from './app-multi-window.ts'
+import { registerOsOpenApp } from './os-open-app-bridge.ts'
+import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
 
@@ -89,6 +91,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   'event-log': { title: '事件日志', width: 900, height: 620 },
   keychain: { title: '钥匙串', width: 680, height: 560 },
   help: { title: '帮助', width: 820, height: 640 },
+  terminal: { title: '终端', width: 760, height: 520 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {
@@ -229,6 +232,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }
     if (isExtAppId(appId)) {
       throw new Error('请使用 openExtApp 打开外链应用')
+    }
+
+    if (appId === 'terminal' && options?.terminalAction) {
+      enqueueTerminalPendingAction(options.terminalAction)
     }
 
     startDesktopRestore()
@@ -944,6 +951,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     }),
     [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, closeProcessIsolatedApps],
   )
+
+  useEffect(() => registerOsOpenApp(openApp), [openApp])
 
   return <OsContext.Provider value={value}>{children}</OsContext.Provider>
 }

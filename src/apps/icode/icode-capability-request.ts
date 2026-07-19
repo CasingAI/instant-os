@@ -2,6 +2,7 @@ import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
   APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
   formatAppCapabilityTagForDisplay,
   hasAppCapabilityTag,
   normalizeAppCapabilityTag,
@@ -13,6 +14,7 @@ export const GRANTABLE_ICODE_CAPABILITY_TAGS = [
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
   APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
 ] as const
 
 export type GrantableIcodeCapabilityTag = (typeof GRANTABLE_ICODE_CAPABILITY_TAGS)[number]
@@ -51,6 +53,12 @@ const FILES_RUNTIME_USAGE_PATTERNS = [
   /filesListVolumes|filesReadText|filesWriteText/,
 ]
 
+const TERMINAL_RUNTIME_USAGE_PATTERNS = [
+  /InstantOS\s*\.\s*terminal\b/,
+  /__INSTANT_TERMINAL__/,
+  /instant-generated-app-terminal-request/,
+]
+
 export function isGrantableIcodeCapabilityTag(tag: string): tag is GrantableIcodeCapabilityTag {
   return GRANTABLE_TAG_SET.has(tag)
 }
@@ -82,6 +90,9 @@ function formatUngrantedCapabilityLines(ungranted: readonly GrantableIcodeCapabi
       if (tag === APP_CAPABILITY_TAG_FILES) {
         return '- files：通过 InstantOS.files 读写系统文件（/user、/models、/system、/mount/…）'
       }
+      if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+        return '- terminal：通过 InstantOS.terminal 创建系统终端会话并 exec 命令（AI 映射到虚拟文件系统）'
+      }
       return `- ai：应用运行时调用系统 AI（${GENERATED_APP_AI_BASE_URL}/chat/completions 或注入的 OpenAI 客户端）`
     })
     .join('\n')
@@ -94,6 +105,9 @@ export function formatGrantableCapabilityLabel(tag: GrantableIcodeCapabilityTag)
   if (tag === APP_CAPABILITY_TAG_FILES) {
     return '文件访问能力'
   }
+  if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+    return '终端能力'
+  }
   return '运行时 AI 能力'
 }
 
@@ -103,6 +117,9 @@ export function formatGrantableCapabilityDescription(tag: GrantableIcodeCapabili
   }
   if (tag === APP_CAPABILITY_TAG_FILES) {
     return 'AI 可以在生成的 App 中读写系统文件'
+  }
+  if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+    return 'AI 可以在生成的 App 中使用系统终端会话'
   }
   return 'AI 可以在生成的 App 运行时调用 AI 能力'
 }
@@ -189,6 +206,10 @@ export function detectFilesCapabilityUsage(text: string): boolean {
   return FILES_RUNTIME_USAGE_PATTERNS.some((pattern) => pattern.test(text))
 }
 
+export function detectTerminalCapabilityUsage(text: string): boolean {
+  return TERMINAL_RUNTIME_USAGE_PATTERNS.some((pattern) => pattern.test(text))
+}
+
 export function inferMissingCapabilityRequests(
   content: string,
   html: string,
@@ -227,6 +248,17 @@ export function inferMissingCapabilityRequests(
     inferred.push({
       tag: APP_CAPABILITY_TAG_FILES,
       reason: '实现该功能需要读写系统文件，请先授予文件访问能力。',
+    })
+  }
+
+  if (
+    !hasAppCapabilityTag(grantedTags, APP_CAPABILITY_TAG_TERMINAL) &&
+    !requestedTags.has(APP_CAPABILITY_TAG_TERMINAL) &&
+    detectTerminalCapabilityUsage(html)
+  ) {
+    inferred.push({
+      tag: APP_CAPABILITY_TAG_TERMINAL,
+      reason: '实现该功能需要使用系统终端会话，请先授予终端能力。',
     })
   }
 
@@ -367,6 +399,9 @@ export function shouldRevertUngrantedCapabilityCode(
     }
     if (request.tag === APP_CAPABILITY_TAG_FILES) {
       return detectFilesCapabilityUsage(html)
+    }
+    if (request.tag === APP_CAPABILITY_TAG_TERMINAL) {
+      return detectTerminalCapabilityUsage(html)
     }
     return detectAiCapabilityUsage(html)
   })

@@ -3,6 +3,7 @@ import { createAgent } from '../../ai/create-agent.ts'
 import { SOURCE_INSPECTION_TOOLS } from '../../ai/source-tools.ts'
 import { getLocalStorageKeyLabel } from '../../ai/storage-inspection.ts'
 import { STORAGE_INSPECTION_TOOLS } from '../../ai/storage-tools.ts'
+import { HELP_TERMINAL_REQUEST_TOOLS } from './help-terminal-tools.ts'
 import type {
   AgentReasoningDeltaEvent,
   AgentTextDeltaEvent,
@@ -11,7 +12,7 @@ import type {
 
 const HELP_MAX_STEPS = 50
 
-const HELP_SYSTEM_PROMPT = `你是 Instant OS 的「帮助」应用助手，面向普通用户（不是开发者）。
+const HELP_SYSTEM_PROMPT = `你是 Instant OS 的「帮助」应用助手，面向普通用户（小白向，不是开发者、也不是终端高级用户）。
 
 用户会问：功能在哪、怎么用、如何设置、空间够不够、某件事为什么打不开/怎么授权等。
 你在后台可以用工具查阅系统内部资料（含源码快照、README 等说明文档、localStorage 键与存储用量），但回答必须站在用户视角。
@@ -30,8 +31,14 @@ const HELP_SYSTEM_PROMPT = `你是 Instant OS 的「帮助」应用助手，面�
 5. 用简洁中文 Markdown：短标题、有序步骤、必要时用列表；不要大段代码块。对比用列表即可，尽量少用表格（窄气泡里表格容易挤）。每个步骤必须单独成行（用真正的换行，不要把多步写在同一行，也不要输出字面量 \\n）。段落之间空一行。
 6. 语气友好、清楚，像系统自带帮助，而不是技术文档。
 7. 若问题其实是开发者向的（例如「这段逻辑在哪个文件」），可简短确认后仍优先给操作指引；只有用户坚持要技术细节时，再给极少路径级信息。
-8. 存储相关：可用 get_storage_usage / list_local_storage_keys / read_local_storage_key 查看占用与本地数据含义；系统空间与数据空间是两套容量，回答时要分开说。你不能清理、删除、卸载或修改任何数据；若用户要腾空间，只指路到「系统设置 → 存储空间」等界面，让用户自己操作。
-9. 账户与 API Key 内容不可读；不要尝试套取密钥，也不要在回答里复述任何疑似密钥。`
+8. 存储相关：可用 get_storage_usage / list_local_storage_keys / read_local_storage_key 查看占用与本地数据含义；系统空间与数据空间是两套容量，回答时要分开说。
+   - 日常腾空间（清浏览器缓存、微应用数据、事件日志等）：指路「系统设置 → 存储空间」，让用户自己在设置里操作。
+   - 你自己不能清理、删除、卸载或修改任何数据。
+9. 账户与 API Key 内容不可读；不要尝试套取密钥，也不要在回答里复述任何疑似密钥。
+10. 需要「动手改系统」的敏感操作时：
+   - 挂载 / 卸载本机文件夹、删除文件/文件夹、删除非账户类 localStorage 键：调用 request_terminal_action 打开「终端」让用户确认；调用后如实告诉用户已打开终端，请在弹出的确认对话框里决定是否继续。
+   - 账户与 API Key（含清空全部账户）：引导用户打开「钥匙串」自行操作；不可经终端读写、删除或清空。
+   不要假装任何改动已经完成。`
 
 const MODULE_LABELS: Record<string, string> = {
   apps: '应用',
@@ -50,6 +57,8 @@ const MODULE_LABELS: Record<string, string> = {
   icode: 'iCode',
   settings: '系统设置',
   help: '帮助',
+  terminal: '终端',
+  files: '文件',
   'system-info': '系统信息',
   'task-manager': '性能监视器',
   'event-log': '事件日志',
@@ -143,6 +152,24 @@ function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: 
     const key = typeof args.key === 'string' ? args.key.trim() : ''
     return {
       label: key ? `正在查看「${getLocalStorageKeyLabel(key)}」` : '正在查看本机数据内容',
+    }
+  }
+  if (event.toolName === 'request_terminal_action') {
+    const kind = typeof args.kind === 'string' ? args.kind : ''
+    const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
+    const kindLabel =
+      kind === 'mount'
+        ? '挂载文件夹'
+        : kind === 'unmount'
+          ? '卸载文件夹'
+          : kind === 'storage.removeKey'
+            ? '删除存储键'
+            : kind === 'fs.remove'
+              ? '删除文件'
+              : '特权操作'
+    return {
+      label: `正在通过终端请求「${kindLabel}」`,
+      detail: summary ? summary.slice(0, 64) : undefined,
     }
   }
   return { label: '正在查阅系统资料' }
@@ -427,7 +454,7 @@ export async function askHelpAgent(
 
   const agent = createAgent({
     prompt: HELP_SYSTEM_PROMPT,
-    tools: [...SOURCE_INSPECTION_TOOLS, ...STORAGE_INSPECTION_TOOLS],
+    tools: [...SOURCE_INSPECTION_TOOLS, ...STORAGE_INSPECTION_TOOLS, ...HELP_TERMINAL_REQUEST_TOOLS],
     maxSteps: HELP_MAX_STEPS,
     config: { thinkingEnabled },
     signal: options?.signal,

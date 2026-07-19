@@ -23,6 +23,7 @@ import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
   APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
   filterAppCapabilityTags,
   hasAppCapabilityTag,
 } from '../appstore/app-capability-tags.ts'
@@ -66,6 +67,7 @@ import {
 } from './icode-publish.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
 import { installGeneratedAppFilesHandler } from '../generated/install-generated-app-files-handler.ts'
+import { installGeneratedAppTerminalHandler } from '../generated/install-generated-app-terminal-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from '../generated/inject-generated-app-heartbeat-bridge.ts'
 import { useGeneratedHtmlIframe } from '../generated/use-generated-html-iframe.ts'
 import { prepareIcodePreviewHtml } from './prepare-icode-preview-html.ts'
@@ -526,6 +528,7 @@ export function ICodeApp() {
       {
         processIsolated,
         enableFiles: hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES),
+        enableTerminal: hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL),
       },
     )
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, previewAppId, previewHeartbeatWindowId)
@@ -637,6 +640,22 @@ export function ICodeApp() {
       getContentWindow: () =>
         iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
       isAllowed: () => hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES),
+    })
+  }, [runtimeAppId, session])
+
+  useEffect(() => {
+    if (!runtimeAppId || !session) {
+      return
+    }
+    if (!hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL)) {
+      return
+    }
+
+    return installGeneratedAppTerminalHandler({
+      appId: runtimeAppId,
+      getContentWindow: () =>
+        iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL),
     })
   }, [runtimeAppId, session])
 
@@ -2453,6 +2472,26 @@ export function ICodeApp() {
                                   APP_CAPABILITY_TAG_FILES,
                                 ]
                               : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_FILES)
+                            updateSessionMeta({ tags })
+                          }}
+                        />
+                      </div>
+                      <div class="icode__config-toggle-row">
+                        <div class="icode__config-toggle-copy">
+                          <strong>终端能力</strong>
+                          <span>AI 可以在他编写的 App 中通过 InstantOS.terminal 使用系统终端会话</span>
+                        </div>
+                        <IosSwitch
+                          label="启用终端模块"
+                          checked={hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_TERMINAL)}
+                          onChange={(enabled) => {
+                            const baseTags = filterAppCapabilityTags(session.tags)
+                            const tags = enabled
+                              ? [
+                                  ...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_TERMINAL),
+                                  APP_CAPABILITY_TAG_TERMINAL,
+                                ]
+                              : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_TERMINAL)
                             updateSessionMeta({ tags })
                           }}
                         />

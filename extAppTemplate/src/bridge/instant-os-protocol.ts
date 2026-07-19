@@ -14,6 +14,13 @@ export const GENERATED_APP_STORAGE_MESSAGE_TYPE = 'instant-os-app-storage' as co
 export const GENERATED_APP_FILES_REQUEST_MESSAGE_TYPE = 'instant-generated-app-files-request' as const
 export const GENERATED_APP_FILES_RESPONSE_MESSAGE_TYPE = 'instant-generated-app-files-response' as const
 
+export const GENERATED_APP_TERMINAL_REQUEST_MESSAGE_TYPE =
+  'instant-generated-app-terminal-request' as const
+export const GENERATED_APP_TERMINAL_RESPONSE_MESSAGE_TYPE =
+  'instant-generated-app-terminal-response' as const
+export const GENERATED_APP_TERMINAL_EVENT_MESSAGE_TYPE =
+  'instant-generated-app-terminal-event' as const
+
 export type ExtAppManifest = {
   format: typeof EXT_APP_MANIFEST_FORMAT
   schemaVersion: typeof EXT_APP_MANIFEST_SCHEMA_VERSION

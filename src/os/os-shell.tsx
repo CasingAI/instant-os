@@ -17,6 +17,7 @@ import { ImmersiveDesktopBackdrop } from './immersive-desktop-backdrop.tsx'
 import { useWallpaper } from './use-wallpaper.ts'
 import { WindowManager } from '../window/window-frame.tsx'
 import { SystemDeadlockDialog } from './system-deadlock-dialog.tsx'
+import { TerminalPrivilegeDialog } from '../terminal/terminal-privilege-dialog.tsx'
 import './os-shell.css'
 
 function OsShellContent() {
@@ -34,6 +35,7 @@ function OsShellContent() {
       <div class="system-deadlock-dialog-host">
         <SystemDeadlockDialog />
       </div>
+      <TerminalPrivilegeDialog />
     </div>
   )
 }

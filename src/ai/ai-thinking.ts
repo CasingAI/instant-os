@@ -58,6 +58,13 @@ export function buildThinkingRequestExtras(
   }
 }
 
+/** 多轮工具调用时是否须在 assistant 消息上回传 reasoning_content */
+export function providerRequiresReasoningContentEcho(
+  providerId: AiProviderId | undefined,
+): boolean {
+  return supportsThinkingParam(providerId)
+}
+
 export function resolveAppGenerationPhase(
   reasoningText: string,
   contentText: string,

@@ -94,6 +94,11 @@ function blockedReasonForKey(key: string): string | undefined {
   return undefined
 }
 
+/** 禁止经终端/检查工具直接读写正文的 localStorage 键（含 API Key） */
+export function isLocalStorageValueBlocked(key: string): boolean {
+  return BLOCKED_VALUE_KEYS.has(key)
+}
+
 function listAllLocalStorageKeys(): string[] {
   const keys: string[] = []
   try {

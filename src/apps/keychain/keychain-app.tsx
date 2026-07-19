@@ -40,6 +40,7 @@ import {
   type PreferredByCapability,
   type PreferredModelRef,
 } from '../../ai/ai-providers.ts'
+import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import '../../ui/ios-nav-back.css'
 import '../../ui/ios-check-toggle.css'
@@ -421,6 +422,26 @@ export function KeychainApp() {
     [],
   )
 
+  useEffect(() => {
+    return subscribeOpenAiConfig(() => {
+      const next = loadInitialState()
+      setWorkingProviders(cloneProviders(next.providers))
+      setPreferredByCapability(clonePreferred(next.preferredByCapability))
+      refreshCapabilityOrders(next.providers, next.preferredByCapability)
+      if (next.providers.length === 0) {
+        setSavedSnapshot(undefined)
+        setScreen('main')
+        setIsAddingProvider(false)
+        setEditingEntry(undefined)
+      } else {
+        setSavedSnapshot({
+          providers: cloneProviders(next.providers),
+          preferredByCapability: clonePreferred(next.preferredByCapability),
+        })
+      }
+    })
+  }, [refreshCapabilityOrders])
+
   const handleProviderDone = useCallback(() => {
     if (!editingEntry) return
 
@@ -484,11 +505,20 @@ export function KeychainApp() {
     )
 
     if (nextProviders.length === 0) {
+      const proceed = await modal.confirm({
+        title: '清空全部账户？',
+        message:
+          '这是最后一个供应商。确认后将清空全部账户与 API Key，此操作不可恢复。',
+        confirmLabel: '清空账户',
+        confirmTone: 'danger',
+      })
+      if (!proceed) return
+
       clearAccountSettings()
       setWorkingProviders([])
       setPreferredByCapability({})
-      setCapabilityOrder({})
       setSavedSnapshot(undefined)
+      refreshCapabilityOrders([], {})
       setScreen('main')
       setIsAddingProvider(false)
       setEditingEntry(undefined)

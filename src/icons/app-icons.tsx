@@ -1106,3 +1106,29 @@ export function HelpIcon({ size = 64 }: IconProps) {
   )
 }
 
+
+export function TerminalIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#2c2c2e" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="6" y="9" width="52" height="46" rx="6" fill="#1a1a1c" />
+        <rect x="7.4" y="10.4" width="49.2" height="43.2" rx="4.8" fill="#0d0d0f" />
+        <path
+          d="M16.5 24.5l10 8.2-10 8.2"
+          fill="none"
+          stroke="#7ddea5"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M29.5 40.5h18"
+          fill="none"
+          stroke="#d0d0d6"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}

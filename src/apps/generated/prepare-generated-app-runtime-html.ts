@@ -4,10 +4,11 @@ import { getHostAssetOrigin } from '../../assets/3d/resolve-host-asset-url.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
-import { generatedAppRuntimeUses3d, generatedAppRuntimeUsesFiles } from './generated-app-tags.ts'
+import { generatedAppRuntimeUses3d, generatedAppRuntimeUsesFiles, generatedAppRuntimeUsesTerminal } from './generated-app-tags.ts'
 import { injectGeneratedAppAiBridge } from './inject-generated-app-ai-bridge.ts'
 import { injectGeneratedAppErrorBridge } from './inject-generated-app-error-bridge.ts'
 import { injectGeneratedAppFilesBridge } from './inject-generated-app-files-bridge.ts'
+import { injectGeneratedAppTerminalBridge } from './inject-generated-app-terminal-bridge.ts'
 import { injectIframeLayoutNotify } from './inject-iframe-layout-notify.ts'
 import { injectGeneratedAppStorageBridge } from './inject-generated-app-storage-bridge.ts'
 
@@ -18,6 +19,8 @@ export type PrepareGeneratedAppRuntimeHtmlOptions = {
   processIsolated?: boolean
   /** 已授予 files 能力时强制注入 Files 桥 */
   enableFiles?: boolean
+  /** 已授予 terminal 能力时强制注入 Terminal 桥 */
+  enableTerminal?: boolean
 }
 
 export function prepareGeneratedAppRuntimeHtml(
@@ -50,6 +53,10 @@ export function prepareGeneratedAppRuntimeHtml(
 
   if (options.enableFiles === true || generatedAppRuntimeUsesFiles(prepared)) {
     prepared = injectGeneratedAppFilesBridge(prepared, appId)
+  }
+
+  if (options.enableTerminal === true || generatedAppRuntimeUsesTerminal(prepared)) {
+    prepared = injectGeneratedAppTerminalBridge(prepared, appId)
   }
 
   prepared = injectGeneratedAppErrorBridge(prepared, options.reportingAppId ?? appId)

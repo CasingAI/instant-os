@@ -17,7 +17,8 @@
 2. 不要依赖外部 CDN；资源放在仓库内或构建产物中
 3. 需要 AI 能力时，在 `app.config.json` 的 `tags` 中加入 `"ai"`，使用 `https://instant-os.local/v1/chat/completions`
 4. 需要文件能力时，在 `tags` 中加入 `"files"`，通过 `InstantOS.files` 以全局路径（`/user`、`/models`、`/system`、`/mount/…`）读写
-5. 构建命令：`pnpm build`（会生成 manifest、图标、启动图）
+5. 需要终端能力时，在 `tags` 中加入 `"terminal"`，通过 `InstantOS.terminal` 创建会话并向其 `exec` 命令（AI 映射到虚拟文件系统，不是真实 shell）
+6. 构建命令：`pnpm build`（会生成 manifest、图标、启动图）
 
 ## 开发工具
 

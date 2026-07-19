@@ -1,11 +1,14 @@
 import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about.ts'
+import type { TerminalPrivilegeRequest } from '../terminal/terminal-privilege-types.ts'
 
-export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'textedit' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'help'
+export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'textedit' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'help' | 'terminal'
 
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
   documentId?: string
+  /** 打开/聚焦终端时注入的待确认特权操作 */
+  terminalAction?: TerminalPrivilegeRequest
 }
 export type GeneratedAppId = `gen:${string}`
 export type ExtAppId = `ext:${string}`

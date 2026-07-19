@@ -13,6 +13,10 @@ import {
   buildAppFilesUserPromptSection,
   resolveAppFilesGenerationOptions,
 } from './app-files-generation-prompt.ts'
+import {
+  buildAppTerminalUserPromptSection,
+  resolveAppTerminalGenerationOptions,
+} from './app-terminal-generation-prompt.ts'
 
 export type AppGenerationContext = {
   detail?: Partial<StoreListingDetail>
@@ -137,6 +141,20 @@ function appendFilesRequirementLines(
   lines.push('', buildAppFilesUserPromptSection())
 }
 
+function appendTerminalRequirementLines(
+  lines: string[],
+  listing: StoreListing,
+  detail: Partial<StoreListingDetail> | undefined,
+  existingHtml: string | undefined,
+) {
+  const { isTerminal } = resolveAppTerminalGenerationOptions(listing, detail, existingHtml)
+  if (!isTerminal) {
+    return
+  }
+
+  lines.push('', buildAppTerminalUserPromptSection())
+}
+
 export function buildAppGenerationPrompt(
   listing: StoreListing,
   context: AppGenerationContext = {},
@@ -160,6 +178,7 @@ export function buildAppGenerationPrompt(
   append3dRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
   appendAiRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
   appendFilesRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
+  appendTerminalRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
 
   if (context.update) {
     appendUpdateLines(lines, context.update)

@@ -28,10 +28,11 @@ import {
 } from './generated-app-runtime-errors.ts'
 import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
 import { installGeneratedAppFilesHandler } from './install-generated-app-files-handler.ts'
+import { installGeneratedAppTerminalHandler } from './install-generated-app-terminal-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from './inject-generated-app-heartbeat-bridge.ts'
 import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
 import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
-import { APP_CAPABILITY_TAG_FILES, hasAppCapabilityTag } from '../appstore/app-capability-tags.ts'
+import { APP_CAPABILITY_TAG_FILES, APP_CAPABILITY_TAG_TERMINAL, hasAppCapabilityTag } from '../appstore/app-capability-tags.ts'
 import './generated-app.css'
 
 type GeneratedAppProps = {
@@ -99,6 +100,7 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, {
       processIsolated,
       enableFiles: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
+      enableTerminal: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
     })
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
   }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, windowId])
@@ -227,6 +229,17 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       appId,
       getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
       isAllowed: () => hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
+    })
+  }, [app, appId])
+
+  useEffect(() => {
+    if (!app) return
+    if (!hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL)) return
+
+    return installGeneratedAppTerminalHandler({
+      appId,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_TERMINAL),
     })
   }, [app, appId])
 

@@ -2,11 +2,13 @@
 export const APP_CAPABILITY_TAG_3D = '3d' as const
 export const APP_CAPABILITY_TAG_AI = 'ai' as const
 export const APP_CAPABILITY_TAG_FILES = 'files' as const
+export const APP_CAPABILITY_TAG_TERMINAL = 'terminal' as const
 
 export const APP_CAPABILITY_TAGS = [
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
   APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
   'game',
   'utility',
   'productivity',
@@ -26,6 +28,7 @@ export const APP_CAPABILITY_TAGS_VISIBLE: readonly AppCapabilityTag[] = [
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
   APP_CAPABILITY_TAG_FILES,
+  APP_CAPABILITY_TAG_TERMINAL,
 ]
 
 export function normalizeAppCapabilityTag(raw: string): AppCapabilityTag | undefined {
@@ -89,6 +92,9 @@ export function formatAppCapabilityTagForDisplay(tag: AppCapabilityTag): string 
   }
   if (tag === APP_CAPABILITY_TAG_FILES) {
     return '文件'
+  }
+  if (tag === APP_CAPABILITY_TAG_TERMINAL) {
+    return '终端'
   }
   return tag
 }
