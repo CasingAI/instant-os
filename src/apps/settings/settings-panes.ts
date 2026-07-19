@@ -1,4 +1,5 @@
 import type { ComponentChild } from 'preact'
+import type { ExperimentalSettings } from '../../os/experimental-settings-storage.ts'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import {
   AccountPaneIcon,
@@ -76,7 +77,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' } },
   { id: 'speech', label: '语音', Icon: SpeechPaneIcon, route: { view: 'speech' } },
   {
-    // 【实验性 · 未完成】外链应用平台（Bridge）
+    // 【实验性 · 未完成】外链应用平台（Bridge）；仅在 experimental.externalBridge 开启时可见
     id: 'external-bridge-consent',
     label: '外链 AI 授权',
     Icon: ExternalBridgeConsentPaneIcon,
@@ -107,6 +108,29 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     route: { view: 'experimental' },
   },
 ]
+
+/** 按开发者选项过滤一级设置入口（语音 / 外链 AI 授权依赖实验开关）。 */
+export function getVisibleSettingsPanes(
+  experimental: ExperimentalSettings,
+): SettingsPaneDef[] {
+  return SETTINGS_PANES.filter((pane) => {
+    if (pane.id === 'speech') return experimental.speechApp === true
+    if (pane.id === 'external-bridge-consent') return experimental.externalBridge === true
+    return true
+  })
+}
+
+/** 当前路由对应的一级入口是否应对用户可见。 */
+export function isSettingsRouteVisible(
+  route: SettingsRoute,
+  experimental: ExperimentalSettings,
+): boolean {
+  const paneId = paneIdForRoute(route)
+  if (paneId === undefined) return true
+  if (paneId === 'speech') return experimental.speechApp === true
+  if (paneId === 'external-bridge-consent') return experimental.externalBridge === true
+  return true
+}
 
 /** 宽屏分栏布局：右侧需展示内容，打开时默认选中第一个一级项目。 */
 export const SETTINGS_WIDE_DEFAULT_ROUTE: SettingsRoute = SETTINGS_PANES[0].route

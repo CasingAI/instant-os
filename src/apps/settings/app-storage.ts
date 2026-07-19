@@ -19,11 +19,13 @@ import {
 import {
   DATA_CAPACITY_BYTES,
   getBooksContentBytes,
+  getDevDataStorageFillBytes,
   getFolderIconSnapshotsBytes,
   getModelVisionResultsBytes,
   getSafariPageCacheBytes,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
+import { getFilesTotalBytes } from '../files/files-storage.ts'
 import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
 import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
 import { getNewsStorageBytes } from '../news/news-storage.ts'
@@ -193,6 +195,7 @@ export function getStorageSummary(
     aiEventLogBytes: number
     folderIconSnapshotsBytes: number
     modelVisionBytes: number
+    filesBytes: number
   },
 ) {
   const entries = buildManagedAppList(installedApps)
@@ -210,6 +213,7 @@ export function getStorageSummary(
     aiEventLogBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
+    filesBytes,
   } = dataStorage
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
@@ -225,6 +229,9 @@ export function getStorageSummary(
     }
     if (entry.id === 'model-vision') {
       return { ...entry, dataBytes: modelVisionBytes }
+    }
+    if (entry.id === 'files') {
+      return { ...entry, dataBytes: filesBytes }
     }
     return entry
   })
@@ -247,6 +254,7 @@ export function getStorageSummary(
     aiEventLogBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
+    filesBytes,
     systemBytes: usedBytes,
   }
 }
@@ -259,15 +267,18 @@ export async function loadDataStorageBreakdown(): Promise<{
   aiEventLogBytes: number
   folderIconSnapshotsBytes: number
   modelVisionBytes: number
+  filesBytes: number
 }> {
   const [
-    totalBytes,
-    safariCacheBytes,
+    coreDataBytes,
+    rawSafariCacheBytes,
     booksDataBytes,
     aiUsageBytes,
     aiEventLogBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
+    devFillBytes,
+    filesBytes,
   ] = await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
@@ -276,15 +287,19 @@ export async function loadDataStorageBreakdown(): Promise<{
     getAiEventLogBytes(),
     getFolderIconSnapshotsBytes(),
     getModelVisionResultsBytes(),
+    getDevDataStorageFillBytes(),
+    getFilesTotalBytes(),
   ])
   return {
-    totalBytes,
-    safariCacheBytes,
+    totalBytes: coreDataBytes + filesBytes,
+    // 开发者填充不计入网页缓存，归入用量条 / 分类列表的「其他」
+    safariCacheBytes: Math.max(0, rawSafariCacheBytes - devFillBytes),
     booksDataBytes,
     aiUsageBytes,
     aiEventLogBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
+    filesBytes,
   }
 }
 

@@ -7,6 +7,7 @@ import {
   messageForStorageWarning,
   openSettingsUsageView,
   type StorageWarningLevel,
+  type StorageWarningScope,
 } from './storage-warning.ts'
 
 function dismissStorageWarningAfterTransition(): void {
@@ -17,11 +18,12 @@ function dismissStorageWarningAfterTransition(): void {
 
 type StorageWarningListItemProps = {
   level: StorageWarningLevel
+  scope: StorageWarningScope
   onSelect: () => void
 }
 
-export function StorageWarningListItem({ level, onSelect }: StorageWarningListItemProps) {
-  const { title, subtitle } = messageForStorageWarning(level)
+export function StorageWarningListItem({ level, scope, onSelect }: StorageWarningListItemProps) {
+  const { title, subtitle } = messageForStorageWarning(level, scope)
 
   return (
     <button
@@ -42,18 +44,26 @@ export function StorageWarningListItem({ level, onSelect }: StorageWarningListIt
 
 type StorageWarningDetailProps = {
   level: StorageWarningLevel
+  scope: StorageWarningScope
   onBack: () => void
   onDismiss: () => void
+  onClose: () => void
 }
 
-export function StorageWarningDetail({ level, onBack, onDismiss }: StorageWarningDetailProps) {
+export function StorageWarningDetail({
+  level,
+  scope,
+  onBack,
+  onDismiss,
+  onClose,
+}: StorageWarningDetailProps) {
   const { openApp } = useOs()
-  const { title, subtitle } = messageForStorageWarning(level)
+  const { title, subtitle } = messageForStorageWarning(level, scope)
 
   const handleOpenUsage = () => {
     openApp('settings')
     openSettingsUsageView()
-    onDismiss()
+    onClose()
     dismissStorageWarningAfterTransition()
   }
 

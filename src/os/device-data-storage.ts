@@ -1,6 +1,6 @@
 import { osNowMs } from './os-clock.ts'
-/** IndexedDB 数据空间硬上限 50 MB */
-export const DATA_CAPACITY_BYTES = 50 * 1024 * 1024
+/** IndexedDB 数据空间硬上限 150 MB */
+export const DATA_CAPACITY_BYTES = 150 * 1024 * 1024
 
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
@@ -52,7 +52,7 @@ type DataMetaRecord = {
 
 export class DeviceDataStorageFullError extends Error {
   constructor() {
-    super('数据空间已满（50 MB 上限）')
+    super('数据空间已满（150 MB 上限）')
     this.name = 'DeviceDataStorageFullError'
   }
 }
@@ -211,6 +211,30 @@ export async function getTotalDataStorageBytes(): Promise<number> {
   return readByteTotal()
 }
 
+async function getFilesBytesForQuota(): Promise<number> {
+  try {
+    const { getFilesTotalBytes } = await import('../apps/files/files-storage.ts')
+    return await getFilesTotalBytes()
+  } catch {
+    return 0
+  }
+}
+
+/** 数据空间已用（核心 IndexedDB）+ 文件用户数据。 */
+export async function getCombinedDataStorageBytes(): Promise<number> {
+  const [dataBytes, filesBytes] = await Promise.all([
+    getTotalDataStorageBytes(),
+    getFilesBytesForQuota(),
+  ])
+  return dataBytes + filesBytes
+}
+
+/** 核心数据写入后的 projectedTotal（不含文件）是否会使合并数据空间超限。 */
+export async function wouldExceedDataCapacity(projectedCoreDataTotal: number): Promise<boolean> {
+  const filesBytes = await getFilesBytesForQuota()
+  return projectedCoreDataTotal + filesBytes > DATA_CAPACITY_BYTES
+}
+
 async function sumStoreBytes(storeName: string): Promise<number> {
   const records = await runDataStoreTransaction<Array<{ byteSize?: number }>>(
     storeName,
@@ -285,7 +309,7 @@ export async function putBookDetailRecord(input: {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -364,7 +388,7 @@ export async function putSafariPageCacheRecord(input: {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -469,7 +493,7 @@ export async function putBookChapter(input: {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -617,6 +641,102 @@ export async function rebuildDataByteTotal(): Promise<number> {
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total
+  } catch {
+    return 0
+  }
+}
+
+const DEV_DATA_FILL_HOSTNAME = 'dev-data-fill'
+const DEV_DATA_FILL_URL_PREFIX = 'instant-os://dev-data-fill/'
+const DEV_DATA_FILL_CHUNK_HTML_CHARS = 2 * 1024 * 1024
+
+/** 开发者调试：将数据空间写入至硬上限（以网页缓存条目形式落盘）。 */
+export async function fillDataStorageToCapacityForDev(): Promise<{
+  addedBytes: number
+  totalBytes: number
+}> {
+  const filesBytes = await getFilesBytesForQuota()
+  const startTotal = await readByteTotal()
+  let currentTotal = startTotal
+  let chunkIndex = 0
+
+  while (true) {
+    const remaining = DATA_CAPACITY_BYTES - (currentTotal + filesBytes)
+    if (remaining <= 0) {
+      break
+    }
+
+    const baseFields = {
+      url: `${DEV_DATA_FILL_URL_PREFIX}${chunkIndex}`,
+      hostname: DEV_DATA_FILL_HOSTNAME,
+      title: '开发者数据空间填充',
+      pageTokens: undefined as number | undefined,
+      cachedAt: Date.now(),
+    }
+
+    const emptyBytes = estimateSafariPageCacheBytes({ ...baseFields, html: '' })
+    if (emptyBytes > remaining) {
+      break
+    }
+
+    let low = 0
+    let high = Math.min(DEV_DATA_FILL_CHUNK_HTML_CHARS, remaining)
+    let bestHtml = ''
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2)
+      const html = 'x'.repeat(mid)
+      const size = estimateSafariPageCacheBytes({ ...baseFields, html })
+      if (size <= remaining) {
+        bestHtml = html
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
+
+    const input = { ...baseFields, html: bestHtml }
+    const byteSize = estimateSafariPageCacheBytes(input)
+    const existing = await getSafariPageCacheRecord(input.url)
+    const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
+    if (await wouldExceedDataCapacity(projectedTotal)) {
+      break
+    }
+
+    const record: SafariPageCacheRecord = { ...input, byteSize }
+    await runDataStoreTransaction(SAFARI_PAGE_CACHE_STORE, 'readwrite', (store) => store.put(record))
+    currentTotal = projectedTotal
+    await writeByteTotal(currentTotal)
+    chunkIndex += 1
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0)
+    })
+  }
+
+  if (currentTotal !== startTotal) {
+    emitDataStorageChanged()
+  }
+
+  return {
+    addedBytes: currentTotal - startTotal,
+    totalBytes: currentTotal + filesBytes,
+  }
+}
+
+/** 开发者调试：清除「写满数据空间」产生的填充数据。 */
+export async function clearDevDataStorageFill(): Promise<void> {
+  await clearSafariPageCacheByHostname(DEV_DATA_FILL_HOSTNAME)
+}
+
+/** 开发者调试填充占用的字节数（计入数据空间「其他」）。 */
+export async function getDevDataStorageFillBytes(): Promise<number> {
+  try {
+    const records = await runDataStoreTransaction<SafariPageCacheRecord[]>(
+      SAFARI_PAGE_CACHE_STORE,
+      'readonly',
+      (store) => store.index('hostname').getAll(DEV_DATA_FILL_HOSTNAME),
+    )
+    return records.reduce((total, record) => total + record.byteSize, 0)
   } catch {
     return 0
   }

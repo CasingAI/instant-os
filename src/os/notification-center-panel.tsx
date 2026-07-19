@@ -797,8 +797,10 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
             ) : showDetail && selectedStorageWarning ? (
               <StorageWarningDetail
                 level={selectedStorageWarning.level}
+                scope={selectedStorageWarning.scope}
                 onBack={closeDetail}
                 onDismiss={closeDetail}
+                onClose={onClose}
               />
             ) : (
               <>
@@ -887,6 +889,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                         <div class="notification-center__item-wrap">
                           <StorageWarningListItem
                             level={storageWarning.level}
+                            scope={storageWarning.scope}
                             onSelect={() => openDetail(STORAGE_WARNING_SLUG)}
                           />
                           <IosStyleClearButton

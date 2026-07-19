@@ -303,12 +303,16 @@ export async function getStorageUsageSnapshot(): Promise<{
       safariCacheLabel: string
       booksDataBytes: number
       booksDataLabel: string
+      filesBytes: number
+      filesLabel: string
       aiUsageBytes: number
       aiUsageLabel: string
       aiEventLogBytes: number
       aiEventLogLabel: string
       folderIconSnapshotsBytes: number
       folderIconSnapshotsLabel: string
+      modelVisionBytes: number
+      modelVisionLabel: string
     }
   }
   categories: {
@@ -394,12 +398,16 @@ export async function getStorageUsageSnapshot(): Promise<{
         safariCacheLabel: formatStorageSize(summary.safariCacheBytes),
         booksDataBytes: summary.booksDataBytes,
         booksDataLabel: formatStorageSize(summary.booksDataBytes),
+        filesBytes: summary.filesBytes,
+        filesLabel: formatStorageSize(summary.filesBytes),
         aiUsageBytes: summary.aiUsageBytes,
         aiUsageLabel: formatStorageSize(summary.aiUsageBytes),
         aiEventLogBytes: summary.aiEventLogBytes,
         aiEventLogLabel: formatStorageSize(summary.aiEventLogBytes),
         folderIconSnapshotsBytes: summary.folderIconSnapshotsBytes,
         folderIconSnapshotsLabel: formatStorageSize(summary.folderIconSnapshotsBytes),
+        modelVisionBytes: summary.modelVisionBytes,
+        modelVisionLabel: formatStorageSize(summary.modelVisionBytes),
       },
     },
     categories: {
@@ -412,7 +420,7 @@ export async function getStorageUsageSnapshot(): Promise<{
     },
     topApps,
     note:
-      '系统空间=localStorage（约 5MB）；数据空间=IndexedDB（约 50MB，含网页缓存、图书正文、AI 用量与事件日志等）。本工具只读，不能清理或卸载。账户/API Key 内容不可读。',
+      '系统空间=localStorage（约 5MB）；数据空间=IndexedDB（约 150MB，含网页缓存、图书正文、文件应用用户文件、AI 用量与事件日志等）。本工具只读，不能清理或卸载。账户/API Key 内容不可读。',
   }
 }
 

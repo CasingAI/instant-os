@@ -1,8 +1,9 @@
-import type { StorageWarningLevel } from './storage-warning.ts'
+import type { StorageWarningLevel, StorageWarningScope } from './storage-warning.ts'
 
 type StorageWarningNotificationListener = () => void
 
 export type ActiveStorageWarningNotification = {
+  scope: StorageWarningScope
   level: StorageWarningLevel
   availablePercent: number
 }

@@ -50,14 +50,19 @@ import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { SettingsKeepLayer } from './settings-keep-layer.tsx'
 import {
+  getVisibleSettingsPanes,
   isNestedSettingsRoute,
+  isSettingsRouteVisible,
   paneIdForRoute,
   SETTINGS_DEFAULT_ROUTE,
-  SETTINGS_PANES,
   SETTINGS_WIDE_DEFAULT_ROUTE,
   SETTINGS_WIDE_LAYOUT_MIN_WIDTH,
   type SettingsRoute,
 } from './settings-panes.ts'
+import {
+  EXPERIMENTAL_SETTINGS_CHANGED_EVENT,
+  loadExperimentalSettings,
+} from '../../os/experimental-settings-storage.ts'
 import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
@@ -80,8 +85,18 @@ export function SettingsApp() {
     aiEventLogBytes: 0,
     folderIconSnapshotsBytes: 0,
     modelVisionBytes: 0,
+    filesBytes: 0,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
+  const [experimentalSettingsVersion, setExperimentalSettingsVersion] = useState(0)
+  const experimentalSettings = useMemo(
+    () => loadExperimentalSettings(),
+    [experimentalSettingsVersion],
+  )
+  const visiblePanes = useMemo(
+    () => getVisibleSettingsPanes(experimentalSettings),
+    [experimentalSettings],
+  )
   const summary = useMemo(
     () => getStorageSummary(installedApps, dataStorage),
     [installedApps, cacheRevision, storageRevision, dataStorage],
@@ -104,6 +119,25 @@ export function SettingsApp() {
       window.removeEventListener(STORAGE_CHANGED_EVENT, refreshSystemBytes)
     }
   }, [cacheRevision, storageRevision])
+
+  useEffect(() => {
+    const handleExperimentalChange = () => {
+      setExperimentalSettingsVersion((value) => value + 1)
+    }
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleExperimentalChange)
+    return () => {
+      window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, handleExperimentalChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isSettingsRouteVisible(route, experimentalSettings)) {
+      return
+    }
+    const host = hostRef.current
+    const wide = host !== null && host.clientWidth >= SETTINGS_WIDE_LAYOUT_MIN_WIDTH
+    setRoute(wide ? SETTINGS_WIDE_DEFAULT_ROUTE : SETTINGS_DEFAULT_ROUTE)
+  }, [route, experimentalSettings])
 
   const selectedApp =
     route.view === 'app-detail' ? findManagedApp(summary.entries, route.appId) : undefined
@@ -229,7 +263,7 @@ export function SettingsApp() {
       <div class="settings__shell">
         <nav class="settings__sidebar" aria-label="设置分类">
           <ul class="settings__sidebar-list">
-            {SETTINGS_PANES.map((pane) => {
+            {visiblePanes.map((pane) => {
               const Icon = pane.Icon
               const selected = activePaneId === pane.id
               return (
@@ -260,7 +294,7 @@ export function SettingsApp() {
                   <p class="settings__welcome-text">从左侧列表中选择要更改的设置。</p>
                 </div>
                 <div class="settings__panes" aria-label="设置分类">
-                  {SETTINGS_PANES.map((pane) => {
+                  {visiblePanes.map((pane) => {
                     const Icon = pane.Icon
                     return (
                       <button
@@ -556,11 +590,13 @@ function UsageView({
     summary.aiUsageBytes +
     summary.aiEventLogBytes +
     summary.folderIconSnapshotsBytes +
-    summary.modelVisionBytes
+    summary.modelVisionBytes +
+    summary.filesBytes
   const dataOtherBytes = residualBytes(summary.dataUsedBytes, dataAttributedBytes)
   const dataSegments: StorageMeterSegment[] = [
     { id: 'safari-cache', label: '网络浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
     { id: 'books-data', label: '图书章节', bytes: summary.booksDataBytes, color: '#34c759' },
+    { id: 'files', label: '文件', bytes: summary.filesBytes, color: '#007aff' },
     { id: 'ai-usage', label: 'AI 用量', bytes: summary.aiUsageBytes, color: '#af52de' },
     { id: 'event-log', label: '事件日志', bytes: summary.aiEventLogBytes, color: '#ff2d55' },
     {
@@ -607,7 +643,7 @@ function UsageView({
 
             <section class="settings__section">
               <h2 class="settings__section-title">数据空间</h2>
-              <p class="settings__section-subtitle">大体积正文与媒体（IndexedDB）</p>
+              <p class="settings__section-subtitle">大体积正文、媒体与用户文件（IndexedDB）</p>
               <div class="settings__box" aria-label="数据空间用量">
                 <div class="settings__meter-row">
                   <span>
@@ -660,6 +696,11 @@ function UsageView({
                 <div class="settings__list-body">
                   <StorageCategoryRow label="网络浏览器网页缓存" bytes={summary.safariCacheBytes} />
                   <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
+                  <StorageCategoryRow
+                    label="文件"
+                    bytes={summary.filesBytes}
+                    hint="「文件」应用中的用户文件"
+                  />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                   <StorageCategoryRow
                     label="事件日志"
@@ -677,6 +718,11 @@ function UsageView({
                     bytes={summary.modelVisionBytes}
                     hint="3D 模型视觉标注缓存"
                   />
+                  <StorageCategoryRow
+                    label="其他"
+                    bytes={dataOtherBytes}
+                    hint="未归入已知分类的数据空间占用"
+                  />
                 </div>
               </div>
             </section>
@@ -690,9 +736,9 @@ function UsageView({
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
-              应用程序的用户数据通过 localStorage 桥接按应用独立存储。
-              系统空间上限 5 MB、数据空间上限 50 MB，均为硬限制。
+              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、文件应用用户文件、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
+              应用程序的用户数据通过 localStorage 桥接按应用独立存储；「文件」应用的用户文件计入数据空间并归在该应用名下。
+              系统空间上限 5 MB、数据空间上限 150 MB，均为硬限制。
             </p>
           </section>
         </div>

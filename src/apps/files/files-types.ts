@@ -47,8 +47,6 @@ export const FILES_LOCATIONS: readonly FilesLocation[] = [
 export const FILES_TEXT_MIME = 'text/plain'
 export const FILES_GLTF_MIME = 'model/gltf+json'
 
-export const FILES_CAPACITY_BYTES = 150 * 1024 * 1024
-
 export function isMountLocationId(id: string): id is MountFilesLocationId {
   return /^mount:[^:]+$/.test(id)
 }

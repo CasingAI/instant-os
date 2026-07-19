@@ -4,10 +4,15 @@ export type ExperimentalSettings = {
   /** Hide menu bar and window title bar in fullscreen; reveal near top edge. */
   fullscreenImmersiveChrome: boolean
   /**
-   * Show speech recognition app on desktop and dock.
+   * Show speech recognition app on desktop and dock, and the Speech settings pane.
    * 【实验性 · 未完成】语音识别仍是未完成的实验特性，默认关闭。
    */
   speechApp: boolean
+  /**
+   * Enable external Bridge tooling (dev ext apps) and the「外链 AI 授权」settings pane.
+   * 【实验性 · 未完成】外链应用平台仍是未完成的实验特性，默认关闭。
+   */
+  externalBridge: boolean
   /**
    * Run installed generated apps in a sandboxed iframe without same-origin (Blob URL load).
    * Default on; Chromium 127+ desktop may place each frame in a separate renderer process.
@@ -22,6 +27,7 @@ const STORAGE_KEY = DEVICE_STORAGE_KEYS.experimentalSettings
 const DEFAULT_SETTINGS: ExperimentalSettings = {
   fullscreenImmersiveChrome: false,
   speechApp: false,
+  externalBridge: false,
   generatedAppProcessIsolation: true,
 }
 
@@ -39,6 +45,7 @@ function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
   return {
     fullscreenImmersiveChrome: record.fullscreenImmersiveChrome === true,
     speechApp: record.speechApp === true,
+    externalBridge: record.externalBridge === true,
     generatedAppProcessIsolation: processIsolation,
   }
 }
@@ -59,6 +66,7 @@ export function saveExperimentalSettings(settings: ExperimentalSettings): boolea
   const serialized = JSON.stringify({
     fullscreenImmersiveChrome: settings.fullscreenImmersiveChrome,
     speechApp: settings.speechApp,
+    externalBridge: settings.externalBridge,
     generatedAppProcessIsolation: settings.generatedAppProcessIsolation,
   })
   if (!writeLocalStorageItem(STORAGE_KEY, serialized)) {

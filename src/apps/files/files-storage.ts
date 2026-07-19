@@ -1,6 +1,10 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import {
-  FILES_CAPACITY_BYTES,
+  DATA_CAPACITY_BYTES,
+  DATA_STORAGE_CHANGED_EVENT,
+  getTotalDataStorageBytes,
+} from '../../os/device-data-storage.ts'
+import {
   defaultFilesNodeAttributes,
   type FilesLocationId,
   type FilesNode,
@@ -43,7 +47,7 @@ type FilesMetaRecord = {
 
 export class FilesStorageFullError extends Error {
   constructor() {
-    super('文件空间已满（150 MB 上限）')
+    super('数据空间已满（150 MB 上限）')
     this.name = 'FilesStorageFullError'
   }
 }
@@ -165,12 +169,21 @@ export async function getFilesTotalBytes(): Promise<number> {
   return meta?.totalBytes ?? 0
 }
 
+function emitFilesDataStorageChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DATA_STORAGE_CHANGED_EVENT))
+  }
+}
+
 async function assertCapacity(additionalBytes: number): Promise<number> {
-  const total = await getFilesTotalBytes()
-  if (additionalBytes > 0 && total + additionalBytes > FILES_CAPACITY_BYTES) {
+  const [filesTotal, dataTotal] = await Promise.all([
+    getFilesTotalBytes(),
+    getTotalDataStorageBytes(),
+  ])
+  if (additionalBytes > 0 && filesTotal + dataTotal + additionalBytes > DATA_CAPACITY_BYTES) {
     throw new FilesStorageFullError()
   }
-  return total
+  return filesTotal
 }
 
 export async function listChildNodes(
@@ -231,6 +244,7 @@ export async function createFileWithBlob(params: {
     totalBytes: total + needed,
   } satisfies FilesMetaRecord)
   await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
   return node
 }
 
@@ -247,6 +261,7 @@ export async function createFolderNode(params: {
     totalBytes: total + params.metaBytes,
   } satisfies FilesMetaRecord)
   await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
   return params.node
 }
 
@@ -285,6 +300,7 @@ export async function writeBlobText(params: {
     totalBytes: Math.max(0, total + needed),
   } satisfies FilesMetaRecord)
   await waitForTransaction(writeTx)
+  emitFilesDataStorageChanged()
   return recordToNode(updated)
 }
 
@@ -321,6 +337,7 @@ export async function renameNodeRecord(params: {
     } satisfies FilesMetaRecord)
   }
   await waitForTransaction(writeTx)
+  emitFilesDataStorageChanged()
   return recordToNode(updated)
 }
 
@@ -385,4 +402,5 @@ export async function deleteSubtree(params: {
   } satisfies FilesMetaRecord)
 
   await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
 }

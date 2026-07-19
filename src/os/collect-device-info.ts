@@ -5,7 +5,7 @@ import {
 import {
   DATA_CAPACITY_BYTES,
   DATA_DB_NAME,
-  getTotalDataStorageBytes,
+  getCombinedDataStorageBytes,
 } from './device-data-storage.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
@@ -311,11 +311,11 @@ async function detectIndexedDB(): Promise<string> {
     if (names.length === 0) return '无'
 
     const dataBytes = names.includes(DATA_DB_NAME)
-      ? await getTotalDataStorageBytes()
+      ? await getCombinedDataStorageBytes()
       : 0
     const sizeLabel =
       dataBytes > 0 || names.includes(DATA_DB_NAME)
-        ? `，${formatStorageSize(dataBytes)} / 上限 ${formatStorageSize(DATA_CAPACITY_BYTES)}`
+        ? `，数据空间 ${formatStorageSize(dataBytes)} / 上限 ${formatStorageSize(DATA_CAPACITY_BYTES)}`
         : ''
     return `${names.length} 个数据库：${names.join('、')}${sizeLabel}`
   } catch {

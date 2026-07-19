@@ -1,6 +1,5 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import {
-  DATA_CAPACITY_BYTES,
   DATA_META_STORE,
   DATA_STORAGE_CHANGED_EVENT,
   DeviceDataStorageFullError,
@@ -8,6 +7,7 @@ import {
   MODEL_VISION_RESULTS_STORE,
   rebuildDataByteTotal,
   runDataStoreTransaction,
+  wouldExceedDataCapacity,
 } from '../../os/device-data-storage.ts'
 import {
   MODEL_VISION_CHANGED_EVENT,
@@ -333,7 +333,7 @@ export async function putModelVisionResult(
     textByteSize +
     (mediaRecord?.byteSize ?? 0)
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     throw new DeviceDataStorageFullError()
   }
 

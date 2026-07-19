@@ -216,3 +216,77 @@ export function assertDeviceStorageCapacity(key: string, value: string): void {
     throw new DeviceStorageFullError()
   }
 }
+
+export const DEV_SYSTEM_FILL_KEY = 'instant-os-dev-system-fill'
+
+/** 开发者调试：将系统空间写入至硬上限。 */
+export function fillSystemStorageToCapacityForDev(): {
+  addedBytes: number
+  totalBytes: number
+} {
+  const startTotal = getTotalLocalStorageBytes()
+  const existingBytes = getLocalStorageKeyBytes(DEV_SYSTEM_FILL_KEY)
+  const valueBudget = DEVICE_CAPACITY_BYTES - (startTotal - existingBytes)
+
+  if (valueBudget <= 0) {
+    return { addedBytes: 0, totalBytes: startTotal }
+  }
+
+  // 二进制搜索最大可写入长度，避免一次构造过大字符串后被浏览器配额拒绝
+  let low = 0
+  let high = valueBudget
+  let bestValue = ''
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const candidate = 'x'.repeat(mid)
+    if (wouldExceedDeviceStorage(DEV_SYSTEM_FILL_KEY, candidate)) {
+      high = mid - 1
+      continue
+    }
+
+    try {
+      localStorage.setItem(DEV_SYSTEM_FILL_KEY, candidate)
+      bestValue = candidate
+      low = mid + 1
+    } catch {
+      high = mid - 1
+    }
+  }
+
+  if (bestValue) {
+    try {
+      localStorage.setItem(DEV_SYSTEM_FILL_KEY, bestValue)
+    } catch {
+      // 已在搜索过程中写入过更小值；忽略最终放大失败
+    }
+  }
+
+  const totalBytes = getTotalLocalStorageBytes()
+  if (totalBytes !== startTotal && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(STORAGE_CHANGED_EVENT))
+  }
+
+  return {
+    addedBytes: totalBytes - startTotal,
+    totalBytes,
+  }
+}
+
+/** 开发者调试：清除「写满系统空间」产生的填充数据。 */
+export function clearDevSystemStorageFill(): void {
+  const existingBytes = getLocalStorageKeyBytes(DEV_SYSTEM_FILL_KEY)
+  if (existingBytes <= 0) {
+    return
+  }
+
+  try {
+    localStorage.removeItem(DEV_SYSTEM_FILL_KEY)
+  } catch {
+    return
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(STORAGE_CHANGED_EVENT))
+  }
+}

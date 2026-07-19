@@ -22,7 +22,7 @@ export async function getThisDeviceAbout(): Promise<AboutAppContent> {
 
   return {
     title: 'Instant OS',
-    version: '版本 1.1.0',
+    version: '版本 1.2.0',
     icon: InstantLogoIcon,
     layout: 'about-this-device',
     specs: deviceSpecs,
@@ -31,7 +31,7 @@ export async function getThisDeviceAbout(): Promise<AboutAppContent> {
 
 export const INSTANT_ABOUT: AboutAppContent = {
   title: 'Instant OS',
-  version: '版本 1.1.0',
+  version: '版本 1.2.0',
   icon: InstantLogoIcon,
   paragraphs: [
     'Instant OS 是一个在浏览器中运行的 AI 桌面操作系统。它复刻经典 macOS / iOS 的视觉与交互，让你无需安装即可体验完整的「桌面 + 应用」环境。',
@@ -70,7 +70,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: '拟物文件柜',
     paragraphs: [
       '文件应用仿早期 iOS 拟物风格，通过侧边栏切换虚拟位置：用户文件、内置 3D 模型与系统文件。',
-      '用户文件位置支持新建文件夹与文本文件、重命名与删除；3D 模型与系统文件为只读浏览。打开文件由系统「文件打开关联」决定交给哪个应用处理，文件应用本身不内置编辑器。用户文件数据保存在独立 IndexedDB（上限 150 MB）。',
+      '用户文件位置支持新建文件夹与文本文件、重命名与删除；3D 模型与系统文件为只读浏览。打开文件由系统「文件打开关联」决定交给哪个应用处理，文件应用本身不内置编辑器。用户文件数据计入数据空间（IndexedDB），可在系统设置中查看与管理。',
     ],
   },
   textedit: {

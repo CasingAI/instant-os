@@ -7,8 +7,9 @@ import {
   dismissStorageWarningNotification,
 } from './storage-warning-notification-store.ts'
 import {
+  areAllStorageWarningsRecovered,
+  DATA_STORAGE_CHANGED_EVENT,
   evaluateStorageWarning,
-  getAvailableStoragePercent,
   messageForStorageWarning,
   STORAGE_CHANGED_EVENT,
   STORAGE_WARNING_SLUG,
@@ -33,7 +34,7 @@ function StorageWarningBanner({
   onOpen: () => void
   onDismiss: () => void
 }) {
-  const { title, subtitle } = messageForStorageWarning(banner.level)
+  const { title, subtitle } = messageForStorageWarning(banner.level, banner.scope)
 
   return (
     <article
@@ -68,6 +69,7 @@ export function StorageWarningBannerHost() {
   const bannerIdRef = useRef(0)
   const dismissTimerRef = useRef<number | undefined>(undefined)
   const removeTimerRef = useRef<number | undefined>(undefined)
+  const checkGenerationRef = useRef(0)
 
   const clearTimers = () => {
     if (dismissTimerRef.current !== undefined) {
@@ -89,6 +91,13 @@ export function StorageWarningBannerHost() {
     }, EXIT_ANIMATION_MS)
   }
 
+  const dismissBannerThenRecheck = () => {
+    dismissBanner()
+    window.setTimeout(() => {
+      void checkStorage()
+    }, EXIT_ANIMATION_MS)
+  }
+
   const showWarning = (warning: StorageWarningNotification) => {
     clearTimers()
     bannerIdRef.current += 1
@@ -100,28 +109,39 @@ export function StorageWarningBannerHost() {
     })
   }
 
-  const checkStorage = () => {
-    const warning = evaluateStorageWarning()
+  const checkStorage = async () => {
+    const generation = ++checkGenerationRef.current
+    const warning = await evaluateStorageWarning()
+    if (generation !== checkGenerationRef.current) {
+      return
+    }
     if (warning) {
       showWarning(warning)
       return
     }
-    if (getAvailableStoragePercent() >= 20) {
+    if (await areAllStorageWarningsRecovered()) {
+      if (generation !== checkGenerationRef.current) {
+        return
+      }
       dismissStorageWarningNotification()
     }
   }
 
   useEffect(() => {
-    checkStorage()
+    void checkStorage()
   }, [storageRevision])
 
   useEffect(() => {
     const handleStorageChanged = () => {
-      checkStorage()
+      void checkStorage()
     }
 
     window.addEventListener(STORAGE_CHANGED_EVENT, handleStorageChanged)
-    return () => window.removeEventListener(STORAGE_CHANGED_EVENT, handleStorageChanged)
+    window.addEventListener(DATA_STORAGE_CHANGED_EVENT, handleStorageChanged)
+    return () => {
+      window.removeEventListener(STORAGE_CHANGED_EVENT, handleStorageChanged)
+      window.removeEventListener(DATA_STORAGE_CHANGED_EVENT, handleStorageChanged)
+    }
   }, [])
 
   useEffect(() => {
@@ -134,7 +154,7 @@ export function StorageWarningBannerHost() {
     })
 
     dismissTimerRef.current = window.setTimeout(() => {
-      dismissBanner()
+      dismissBannerThenRecheck()
     }, DISMISS_MS)
 
     return () => {
@@ -159,7 +179,7 @@ export function StorageWarningBannerHost() {
 
   return (
     <div class="notification-banner-host notification-banner-host--storage-warning" aria-live="polite">
-      <StorageWarningBanner banner={banner} onOpen={handleOpen} onDismiss={dismissBanner} />
+      <StorageWarningBanner banner={banner} onOpen={handleOpen} onDismiss={dismissBannerThenRecheck} />
     </div>
   )
 }

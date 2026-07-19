@@ -2,10 +2,10 @@ import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
 import { osDayKey, osNowMs } from '../os/os-clock.ts'
 import {
   AI_TOKEN_USAGE_STORE,
-  DATA_CAPACITY_BYTES,
   DATA_META_STORE,
   DATA_STORAGE_CHANGED_EVENT,
   runDataStoreTransaction,
+  wouldExceedDataCapacity,
 } from '../os/device-data-storage.ts'
 import { resolveActorLabel, type AiUsageContext } from './ai-usage-context.ts'
 import type {
@@ -166,7 +166,7 @@ async function writeSummaryRecord(data: AiTokenUsageRecord): Promise<boolean> {
   const currentTotal = await readByteTotal()
   const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + next.byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return false
   }
 
@@ -318,7 +318,7 @@ export async function persistAiTokenUsage(
     nextSummary.byteSize +
     requestDb.byteSize
 
-  if (projectedTotal > DATA_CAPACITY_BYTES) {
+  if (await wouldExceedDataCapacity(projectedTotal)) {
     return summary
   }
 
