@@ -1,10 +1,12 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import {
+  assertAdditionalBytesAvailable,
   collectSubtreeIds,
   createFileWithBlob,
   createFolderNode,
   deleteSubtree,
   estimateNodeMetaBytes,
+  estimateTextBytes,
   getNode,
   listChildNodes,
   newFilesNodeId,
@@ -409,6 +411,98 @@ export async function getNodeOrThrow(id: string): Promise<FilesNode> {
     throw new Error('项目不存在')
   }
   return node
+}
+
+/** 估算复制整棵子树到本地存储时需要的额外字节（内容 + 元数据） */
+export async function estimateCopyBytes(sourceId: string): Promise<number> {
+  const source = await getNodeOrThrow(sourceId)
+  return estimateCopyBytesForNode(source)
+}
+
+async function estimateCopyBytesForNode(node: FilesNode): Promise<number> {
+  if (node.kind === 'file') {
+    const { text } = await readTextFileByNodeId(node.id)
+    return estimateNodeMetaBytes(node) + estimateTextBytes(text)
+  }
+
+  let total = estimateNodeMetaBytes(node)
+  const children = await listDirectory(node.locationId, node.id)
+  for (const child of children) {
+    total += await estimateCopyBytesForNode(child)
+  }
+  return total
+}
+
+async function isFolderAncestorOf(
+  ancestorId: string,
+  candidateParentId: string | undefined,
+  locationId: FilesLocationId,
+): Promise<boolean> {
+  let currentId = candidateParentId
+  while (currentId !== undefined) {
+    if (currentId === ancestorId) return true
+    const current = await getNodeOrThrow(currentId)
+    if (current.locationId !== locationId) return false
+    currentId = current.parentId
+  }
+  return false
+}
+
+/**
+ * 将源节点复制到目标目录（同名自动加后缀）。
+ * 写入本地卷前会先预检数据空间是否够用。
+ */
+export async function copyNodeTo(params: {
+  sourceId: string
+  destLocationId: FilesLocationId
+  destParentId: string | undefined
+}): Promise<FilesNode> {
+  const source = await getNodeOrThrow(params.sourceId)
+  await assertCanCreateIn(params.destLocationId, params.destParentId)
+
+  if (
+    source.kind === 'folder' &&
+    source.locationId === params.destLocationId &&
+    (params.destParentId === source.id ||
+      (await isFolderAncestorOf(source.id, params.destParentId, params.destLocationId)))
+  ) {
+    throw new Error('不能将文件夹粘贴到自身或其子文件夹中')
+  }
+
+  const usesLocalQuota = !isMountLocationId(params.destLocationId)
+  if (usesLocalQuota) {
+    const needed = await estimateCopyBytesForNode(source)
+    await assertAdditionalBytesAvailable(needed)
+  }
+
+  return copyNodeTree(source, params.destLocationId, params.destParentId)
+}
+
+async function copyNodeTree(
+  source: FilesNode,
+  destLocationId: FilesLocationId,
+  destParentId: string | undefined,
+): Promise<FilesNode> {
+  if (source.kind === 'file') {
+    const { text } = await readTextFileByNodeId(source.id)
+    return createTextFile({
+      locationId: destLocationId,
+      parentId: destParentId,
+      name: source.name,
+      text,
+    })
+  }
+
+  const folder = await mkdir({
+    locationId: destLocationId,
+    parentId: destParentId,
+    name: source.name,
+  })
+  const children = await listDirectory(source.locationId, source.id)
+  for (const child of children) {
+    await copyNodeTree(child, destLocationId, folder.id)
+  }
+  return folder
 }
 
 export { isFilesAbsolutePath } from './files-path.ts'

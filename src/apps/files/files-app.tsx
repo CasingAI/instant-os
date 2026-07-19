@@ -12,11 +12,16 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId } from '../../os/types.ts'
+import {
+  AdaptiveActionMenu,
+  type AdaptiveActionMenuItem,
+} from '../../ui/adaptive-action-menu.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
+import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
 import { FilesStorageFullError } from './files-storage.ts'
 import {
   FILES_MOUNTS_CHANGED_EVENT,
@@ -35,6 +40,7 @@ import {
   type MountFilesLocationId,
 } from './files-types.ts'
 import {
+  copyNodeTo,
   createTextFile,
   getFilesLocationLabel,
   listDirectory,
@@ -52,11 +58,18 @@ import './files.css'
 
 const APP_ID = 'files' as const
 const THEME = '#8a6a38'
+const LONG_PRESS_MS = 380
+const LONG_PRESS_MOVE_PX = 8
 
 type ContextMenuState = {
   x: number
   y: number
   node: FilesNode
+}
+
+type BackgroundContextMenuState = {
+  x: number
+  y: number
 }
 
 type LocationContextMenuState = {
@@ -65,6 +78,10 @@ type LocationContextMenuState = {
   locationId: MountFilesLocationId
   label: string
 }
+
+type ActionSheetState =
+  | { kind: 'item'; node: FilesNode }
+  | { kind: 'background' }
 
 type NewFileMenuState = {
   x: number
@@ -221,10 +238,15 @@ export function FilesApp() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined)
+  const [backgroundContextMenu, setBackgroundContextMenu] = useState<
+    BackgroundContextMenuState | undefined
+  >(undefined)
   const [locationContextMenu, setLocationContextMenu] = useState<
     LocationContextMenuState | undefined
   >(undefined)
+  const [actionSheet, setActionSheet] = useState<ActionSheetState | undefined>(undefined)
   const [newFileMenu, setNewFileMenu] = useState<NewFileMenuState | undefined>(undefined)
+  const [clipboardRevision, setClipboardRevision] = useState(0)
   const [stackedBrowserOpen, setStackedBrowserOpen] = useState(false)
   const [folderMotion, setFolderMotion] = useState<'idle' | 'push' | 'pop'>('idle')
   const [openWithNode, setOpenWithNode] = useState<FilesNode | undefined>(undefined)
@@ -233,6 +255,13 @@ export function FilesApp() {
   const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
+  const suppressItemClickRef = useRef(false)
+  const longPressTimerRef = useRef<number | undefined>(undefined)
+  const longPressStartRef = useRef<{ x: number; y: number; node?: FilesNode } | undefined>(
+    undefined,
+  )
+  const lastPointerTypeRef = useRef<string>('mouse')
+  const actionSheetOpenedByLongPressRef = useRef(false)
 
   const locationLabel = getFilesLocationLabel(locationId)
   const locationWritable = isFilesLocationWritable(locationId)
@@ -242,6 +271,9 @@ export function FilesApp() {
   const currentTitle = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1].name : locationLabel
   const canGoBackInPath = pathNodes.length > 0
   const showToolbarBack = canGoBackInPath || (narrowLayout && stackedBrowserOpen)
+  const clipboard = getFilesClipboard()
+  const canPasteHere = canCreateHere && clipboard !== undefined
+  void clipboardRevision
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -318,10 +350,11 @@ export function FilesApp() {
   }, [layoutReady, narrowLayout])
 
   useEffect(() => {
-    if (!contextMenu && !locationContextMenu) return
+    if (!contextMenu && !locationContextMenu && !backgroundContextMenu) return
     const close = () => {
       setContextMenu(undefined)
       setLocationContextMenu(undefined)
+      setBackgroundContextMenu(undefined)
     }
     window.addEventListener('click', close)
     window.addEventListener('scroll', close, true)
@@ -329,7 +362,50 @@ export function FilesApp() {
       window.removeEventListener('click', close)
       window.removeEventListener('scroll', close, true)
     }
-  }, [contextMenu, locationContextMenu])
+  }, [backgroundContextMenu, contextMenu, locationContextMenu])
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== undefined) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = undefined
+    }
+    longPressStartRef.current = undefined
+  }, [])
+
+  const closeTransientMenus = useCallback(() => {
+    setContextMenu(undefined)
+    setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setNewFileMenu(undefined)
+    setActionSheet(undefined)
+  }, [])
+
+  const openItemActionSheet = useCallback((node: FilesNode) => {
+    setContextMenu(undefined)
+    setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setNewFileMenu(undefined)
+    actionSheetOpenedByLongPressRef.current = true
+    setActionSheet({ kind: 'item', node })
+  }, [])
+
+  const openBackgroundActionSheet = useCallback(() => {
+    setContextMenu(undefined)
+    setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setNewFileMenu(undefined)
+    actionSheetOpenedByLongPressRef.current = true
+    setActionSheet({ kind: 'background' })
+  }, [])
+
+  const isTouchLikePointer = useCallback(() => {
+    const type = lastPointerTypeRef.current
+    return type === 'touch' || type === 'pen'
+  }, [])
+
+  useEffect(() => {
+    return () => clearLongPress()
+  }, [clearLongPress])
 
   useEffect(() => {
     if (!newFileMenu) return
@@ -352,9 +428,7 @@ export function FilesApp() {
 
   const selectLocation = useCallback(
     (next: FilesLocationId) => {
-      setContextMenu(undefined)
-      setLocationContextMenu(undefined)
-      setNewFileMenu(undefined)
+      closeTransientMenus()
       setLocationId(next)
       setFolderId(undefined)
       if (narrowLayout) {
@@ -366,13 +440,11 @@ export function FilesApp() {
       }
       setFolderMotion('push')
     },
-    [narrowLayout, stackedBrowserOpen],
+    [closeTransientMenus, narrowLayout, stackedBrowserOpen],
   )
 
   const handleMount = useCallback(async () => {
-    setContextMenu(undefined)
-    setLocationContextMenu(undefined)
-    setNewFileMenu(undefined)
+    closeTransientMenus()
 
     if (!canMountDirectories()) {
       await modal.alert({
@@ -402,11 +474,12 @@ export function FilesApp() {
       if (isAbortError(err)) return
       await modal.alert({ title: '无法挂载', message: formatError(err), themeColor: THEME })
     }
-  }, [modal, refreshLocations, selectLocation])
+  }, [closeTransientMenus, modal, refreshLocations, selectLocation])
 
   const handleUnmount = useCallback(
     async (mountId: MountFilesLocationId, label: string) => {
       setLocationContextMenu(undefined)
+      setActionSheet(undefined)
       const ok = await modal.confirm({
         title: '卸载文件夹？',
         message: `「${label}」将从侧栏移除，不会删除磁盘上的文件。`,
@@ -429,14 +502,15 @@ export function FilesApp() {
     [locationId, modal, refreshLocations],
   )
 
-  const enterFolder = useCallback((node: FilesNode) => {
-    if (node.kind !== 'folder') return
-    setContextMenu(undefined)
-    setLocationContextMenu(undefined)
-    setNewFileMenu(undefined)
-    setFolderMotion('push')
-    setFolderId(node.id)
-  }, [])
+  const enterFolder = useCallback(
+    (node: FilesNode) => {
+      if (node.kind !== 'folder') return
+      closeTransientMenus()
+      setFolderMotion('push')
+      setFolderId(node.id)
+    },
+    [closeTransientMenus],
+  )
 
   const goBackInPath = useCallback(() => {
     if (pathNodes.length === 0) return
@@ -447,11 +521,9 @@ export function FilesApp() {
   }, [pathNodes])
 
   const leaveBrowserStack = useCallback(() => {
-    setContextMenu(undefined)
-    setLocationContextMenu(undefined)
-    setNewFileMenu(undefined)
+    closeTransientMenus()
     setStackedBrowserOpen(false)
-  }, [])
+  }, [closeTransientMenus])
 
   const handleToolbarBack = useCallback(() => {
     if (canGoBackInPath) {
@@ -485,9 +557,7 @@ export function FilesApp() {
   const showOpenWithChooser = useCallback(
     async (node: FilesNode) => {
       if (node.kind !== 'file') return
-      setContextMenu(undefined)
-      setLocationContextMenu(undefined)
-      setNewFileMenu(undefined)
+      closeTransientMenus()
       const candidates = listRegisteredFileOpenApps()
       if (candidates.length === 0) {
         await modal.alert({
@@ -500,14 +570,13 @@ export function FilesApp() {
       setOpenWithNode(node)
       setOpenWithAlways(false)
     },
-    [modal],
+    [closeTransientMenus, modal],
   )
 
   const openFile = useCallback(
     async (node: FilesNode) => {
       if (node.kind !== 'file') return
-      setContextMenu(undefined)
-      setNewFileMenu(undefined)
+      closeTransientMenus()
       const appId = getDefaultFileOpenApp(node.name)
       if (appId) {
         try {
@@ -529,26 +598,54 @@ export function FilesApp() {
       if (!specify) return
       await showOpenWithChooser(node)
     },
-    [modal, openApp, showOpenWithChooser],
+    [closeTransientMenus, modal, openApp, showOpenWithChooser],
   )
 
   const handleItemClick = useCallback(
     (node: FilesNode) => {
-      setContextMenu(undefined)
-      setNewFileMenu(undefined)
+      if (suppressItemClickRef.current) {
+        suppressItemClickRef.current = false
+        return
+      }
+      closeTransientMenus()
       if (node.kind === 'folder') {
         enterFolder(node)
       } else {
         void openFile(node)
       }
     },
-    [enterFolder, openFile],
+    [closeTransientMenus, enterFolder, openFile],
   )
+
+  const handleCopy = useCallback((node: FilesNode) => {
+    closeTransientMenus()
+    setFilesClipboard({
+      nodeId: node.id,
+      name: node.name,
+      kind: node.kind,
+    })
+    setClipboardRevision((value) => value + 1)
+  }, [closeTransientMenus])
+
+  const handlePaste = useCallback(async () => {
+    const entry = getFilesClipboard()
+    if (!entry || !canCreateHere) return
+    closeTransientMenus()
+    try {
+      await copyNodeTo({
+        sourceId: entry.nodeId,
+        destLocationId: locationId,
+        destParentId: folderId,
+      })
+      await refresh()
+    } catch (err) {
+      await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
+    }
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
 
   const handleNewFolder = useCallback(async () => {
     if (!canCreateHere) return
-    setContextMenu(undefined)
-    setNewFileMenu(undefined)
+    closeTransientMenus()
     const name = await modal.prompt({
       title: '新建文件夹',
       label: '名称',
@@ -565,11 +662,13 @@ export function FilesApp() {
     } catch (err) {
       await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, folderId, locationId, modal, refresh])
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
 
   const openNewFileMenu = useCallback(() => {
     if (!canCreateHere) return
     setContextMenu(undefined)
+    setBackgroundContextMenu(undefined)
+    setActionSheet(undefined)
     const button = newFileButtonRef.current
     if (!button) return
     if (newFileMenu) {
@@ -589,8 +688,7 @@ export function FilesApp() {
 
   const createTextFileNamed = useCallback(async () => {
     if (!canCreateHere) return
-    setContextMenu(undefined)
-    setNewFileMenu(undefined)
+    closeTransientMenus()
 
     const baseName = await modal.prompt({
       title: '新建文本文件',
@@ -614,13 +712,12 @@ export function FilesApp() {
     } catch (err) {
       await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
     }
-  }, [canCreateHere, folderId, locationId, modal, refresh])
+  }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
 
   const handleRename = useCallback(
     async (node: FilesNode) => {
       if (!isFilesNodeWritable(node)) return
-      setContextMenu(undefined)
-      setNewFileMenu(undefined)
+      closeTransientMenus()
       const name = await modal.prompt({
         title: '重新命名',
         label: '名称',
@@ -637,14 +734,13 @@ export function FilesApp() {
         await modal.alert({ title: '无法重命名', message: formatError(err), themeColor: THEME })
       }
     },
-    [modal, refresh],
+    [closeTransientMenus, modal, refresh],
   )
 
   const handleDelete = useCallback(
     async (node: FilesNode) => {
       if (!isFilesNodeWritable(node)) return
-      setContextMenu(undefined)
-      setNewFileMenu(undefined)
+      closeTransientMenus()
       const ok = await modal.confirm({
         title: node.kind === 'folder' ? '删除文件夹？' : '删除文件？',
         message:
@@ -664,14 +760,12 @@ export function FilesApp() {
         await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
       }
     },
-    [modal, refresh],
+    [closeTransientMenus, modal, refresh],
   )
 
   const handleShowInfo = useCallback(
     async (node: FilesNode) => {
-      setContextMenu(undefined)
-      setLocationContextMenu(undefined)
-      setNewFileMenu(undefined)
+      closeTransientMenus()
       try {
         const path = await resolveFilesAbsolutePath(node)
         setInfoNode(node)
@@ -680,13 +774,132 @@ export function FilesApp() {
         await modal.alert({ title: '无法显示信息', message: formatError(err), themeColor: THEME })
       }
     },
-    [modal],
+    [closeTransientMenus, modal],
   )
 
   const closeInfo = useCallback(() => {
     setInfoNode(undefined)
     setInfoPath(undefined)
   }, [])
+
+  const beginItemLongPress = useCallback(
+    (event: PointerEvent, node: FilesNode) => {
+      lastPointerTypeRef.current = event.pointerType
+      if (event.button !== 0) return
+
+      clearLongPress()
+      actionSheetOpenedByLongPressRef.current = false
+      longPressStartRef.current = { x: event.clientX, y: event.clientY, node }
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = undefined
+        longPressStartRef.current = undefined
+        suppressItemClickRef.current = true
+        openItemActionSheet(node)
+      }, LONG_PRESS_MS)
+    },
+    [clearLongPress, openItemActionSheet],
+  )
+
+  const beginBackgroundLongPress = useCallback(
+    (event: PointerEvent) => {
+      lastPointerTypeRef.current = event.pointerType
+      if (event.button !== 0) return
+      if ((event.target as HTMLElement | undefined)?.closest?.('.files__item')) return
+      if (!canPasteHere) return
+
+      clearLongPress()
+      actionSheetOpenedByLongPressRef.current = false
+      longPressStartRef.current = { x: event.clientX, y: event.clientY }
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = undefined
+        longPressStartRef.current = undefined
+        openBackgroundActionSheet()
+      }, LONG_PRESS_MS)
+    },
+    [canPasteHere, clearLongPress, openBackgroundActionSheet],
+  )
+
+  const handleLongPressMove = useCallback(
+    (event: PointerEvent) => {
+      const start = longPressStartRef.current
+      if (!start || longPressTimerRef.current === undefined) return
+      const dx = event.clientX - start.x
+      const dy = event.clientY - start.y
+      if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) {
+        clearLongPress()
+      }
+    },
+    [clearLongPress],
+  )
+
+  const buildItemMenuActions = useCallback(
+    (node: FilesNode): AdaptiveActionMenuItem[] => {
+      const items: AdaptiveActionMenuItem[] = []
+      if (node.kind === 'file') {
+        items.push({
+          type: 'action',
+          label: '打开方式…',
+          onClick: () => void showOpenWithChooser(node),
+        })
+      }
+      items.push({
+        type: 'action',
+        label: '复制',
+        onClick: () => handleCopy(node),
+      })
+      if (canPasteHere) {
+        items.push({
+          type: 'action',
+          label: '粘贴',
+          onClick: () => void handlePaste(),
+        })
+      }
+      if (isFilesNodeWritable(node)) {
+        items.push({ type: 'separator' })
+        items.push({
+          type: 'action',
+          label: '重新命名',
+          onClick: () => void handleRename(node),
+        })
+        items.push({
+          type: 'action',
+          label: '删除',
+          onClick: () => void handleDelete(node),
+        })
+      }
+      items.push({ type: 'separator' })
+      items.push({
+        type: 'action',
+        label: '显示信息',
+        onClick: () => void handleShowInfo(node),
+      })
+      return items
+    },
+    [canPasteHere, handleCopy, handleDelete, handlePaste, handleRename, handleShowInfo, showOpenWithChooser],
+  )
+
+  const backgroundMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    if (!canPasteHere) return []
+    return [
+      {
+        type: 'action',
+        label: '粘贴',
+        onClick: () => void handlePaste(),
+      },
+    ]
+  }, [canPasteHere, handlePaste])
+
+  const actionSheetItems = useMemo((): AdaptiveActionMenuItem[] => {
+    if (!actionSheet) return []
+    if (actionSheet.kind === 'item') return buildItemMenuActions(actionSheet.node)
+    return backgroundMenuItems
+  }, [actionSheet, backgroundMenuItems, buildItemMenuActions])
+
+  const actionSheetTitle = useMemo(() => {
+    if (!actionSheet) return '操作'
+    if (actionSheet.kind === 'item') return actionSheet.node.name
+    return currentTitle
+  }, [actionSheet, currentTitle])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
@@ -720,6 +933,14 @@ export function FilesApp() {
           { type: 'separator' },
           {
             type: 'action',
+            label: '粘贴',
+            shortcut: '⌘V',
+            disabled: !canPasteHere,
+            onClick: () => void handlePaste(),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
             label: '退出文件',
             shortcut: '⌘Q',
             onClick: () => closeWindowsForApp(APP_ID),
@@ -729,8 +950,10 @@ export function FilesApp() {
     ]
   }, [
     canCreateHere,
+    canPasteHere,
     closeWindowsForApp,
     handleNewFolder,
+    handlePaste,
     minimizeWindow,
     openNewFileMenu,
     showBuiltinAbout,
@@ -876,6 +1099,29 @@ export function FilesApp() {
             if (event.currentTarget !== event.target) return
             setFolderMotion('idle')
           }}
+          onPointerDown={beginBackgroundLongPress}
+          onPointerMove={handleLongPressMove}
+          onPointerUp={clearLongPress}
+          onPointerCancel={clearLongPress}
+          onContextMenu={(event) => {
+            if ((event.target as HTMLElement | undefined)?.closest?.('.files__item')) return
+            event.preventDefault()
+            clearLongPress()
+            setNewFileMenu(undefined)
+            setLocationContextMenu(undefined)
+            setContextMenu(undefined)
+            if (actionSheetOpenedByLongPressRef.current) {
+              actionSheetOpenedByLongPressRef.current = false
+              return
+            }
+            if (isTouchLikePointer()) {
+              if (canPasteHere) openBackgroundActionSheet()
+              return
+            }
+            setActionSheet(undefined)
+            if (!canPasteHere) return
+            setBackgroundContextMenu({ x: event.clientX, y: event.clientY })
+          }}
         >
           {error ? <div class="files__banner files__banner--error">{error}</div> : undefined}
           {loading ? (
@@ -898,10 +1144,28 @@ export function FilesApp() {
                       type="button"
                       class="files__item"
                       onClick={() => handleItemClick(node)}
+                      onPointerDown={(event) => beginItemLongPress(event, node)}
+                      onPointerMove={handleLongPressMove}
+                      onPointerUp={clearLongPress}
+                      onPointerCancel={clearLongPress}
                       onContextMenu={(event) => {
                         event.preventDefault()
+                        event.stopPropagation()
+                        clearLongPress()
                         setNewFileMenu(undefined)
                         setLocationContextMenu(undefined)
+                        setBackgroundContextMenu(undefined)
+                        if (actionSheetOpenedByLongPressRef.current) {
+                          actionSheetOpenedByLongPressRef.current = false
+                          suppressItemClickRef.current = true
+                          return
+                        }
+                        if (isTouchLikePointer()) {
+                          suppressItemClickRef.current = true
+                          openItemActionSheet(node)
+                          return
+                        }
+                        setActionSheet(undefined)
                         setContextMenu({
                           x: event.clientX,
                           y: event.clientY,
@@ -937,6 +1201,22 @@ export function FilesApp() {
               打开方式…
             </button>
           ) : undefined}
+          <button
+            type="button"
+            class="files__context-item"
+            onClick={() => handleCopy(contextMenu.node)}
+          >
+            复制
+          </button>
+          {canPasteHere ? (
+            <button
+              type="button"
+              class="files__context-item"
+              onClick={() => void handlePaste()}
+            >
+              粘贴
+            </button>
+          ) : undefined}
           {isFilesNodeWritable(contextMenu.node) ? (
             <>
               <button
@@ -965,6 +1245,22 @@ export function FilesApp() {
         </div>
       ) : undefined}
 
+      {backgroundContextMenu ? (
+        <div
+          class="files__context"
+          style={{ left: `${backgroundContextMenu.x}px`, top: `${backgroundContextMenu.y}px` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            class="files__context-item"
+            onClick={() => void handlePaste()}
+          >
+            粘贴
+          </button>
+        </div>
+      ) : undefined}
+
       {locationContextMenu ? (
         <div
           class="files__context"
@@ -982,6 +1278,18 @@ export function FilesApp() {
           </button>
         </div>
       ) : undefined}
+
+      <AdaptiveActionMenu
+        open={actionSheet !== undefined && actionSheetItems.length > 0}
+        title={actionSheetTitle}
+        items={actionSheetItems}
+        narrowLayout
+        mount="portal"
+        onClose={() => {
+          actionSheetOpenedByLongPressRef.current = false
+          setActionSheet(undefined)
+        }}
+      />
 
       {newFileMenu ? (
         <div

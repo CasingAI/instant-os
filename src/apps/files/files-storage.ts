@@ -186,6 +186,11 @@ async function assertCapacity(additionalBytes: number): Promise<number> {
   return filesTotal
 }
 
+/** 粘贴等批量写入前预检：额外占用是否会超过数据空间上限 */
+export async function assertAdditionalBytesAvailable(additionalBytes: number): Promise<void> {
+  await assertCapacity(additionalBytes)
+}
+
 export async function listChildNodes(
   locationId: FilesLocationId,
   parentId: string | undefined,
