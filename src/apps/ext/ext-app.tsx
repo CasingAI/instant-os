@@ -7,6 +7,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { ExtAppId } from '../../os/types.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
+import { installGeneratedAppFilesHandler } from '../generated/install-generated-app-files-handler.ts'
 import './ext-app.css'
 
 type ExtAppProps = {
@@ -71,6 +72,18 @@ export function ExtApp({ appId, windowId }: ExtAppProps) {
       getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
     })
   }, [app?.manifest.name, app?.manifest.tags, appId])
+
+  useEffect(() => {
+    if (!app?.manifest.tags.includes('files')) {
+      return
+    }
+
+    return installGeneratedAppFilesHandler({
+      appId,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+      isAllowed: () => app.manifest.tags.includes('files'),
+    })
+  }, [app, appId])
 
   const handleFocus = useCallback(() => {
     focusWindow(windowId)

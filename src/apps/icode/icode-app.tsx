@@ -22,6 +22,7 @@ import type { GeneratedAppId } from '../../os/types.ts'
 import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
   filterAppCapabilityTags,
   hasAppCapabilityTag,
 } from '../appstore/app-capability-tags.ts'
@@ -64,6 +65,7 @@ import {
   resolveUniqueCopyName,
 } from './icode-publish.ts'
 import { installGeneratedAppAiHandler } from '../generated/install-generated-app-ai-handler.ts'
+import { installGeneratedAppFilesHandler } from '../generated/install-generated-app-files-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from '../generated/inject-generated-app-heartbeat-bridge.ts'
 import { useGeneratedHtmlIframe } from '../generated/use-generated-html-iframe.ts'
 import { prepareIcodePreviewHtml } from './prepare-icode-preview-html.ts'
@@ -521,10 +523,21 @@ export function ICodeApp() {
       runtimeAppId,
       previewBootstrapDataRef.current,
       previewAppId,
-      processIsolated,
+      {
+        processIsolated,
+        enableFiles: hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES),
+      },
     )
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, previewAppId, previewHeartbeatWindowId)
-  }, [previewAppId, previewEpoch, previewHeartbeatWindowId, processIsolated, runtimeAppId, session?.html])
+  }, [
+    previewAppId,
+    previewEpoch,
+    previewHeartbeatWindowId,
+    processIsolated,
+    runtimeAppId,
+    session?.html,
+    session?.tags,
+  ])
 
   const previewRemountKey = previewAppId
     ? `${previewAppId}-${previewEpoch}-${processIsolated ? 'iso' : 'std'}`
@@ -610,6 +623,22 @@ export function ICodeApp() {
         iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
     })
   }, [runtimeAppId, session?.name])
+
+  useEffect(() => {
+    if (!runtimeAppId || !session) {
+      return
+    }
+    if (!hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES)) {
+      return
+    }
+
+    return installGeneratedAppFilesHandler({
+      appId: runtimeAppId,
+      getContentWindow: () =>
+        iframeRef.current?.contentWindow ?? previewWindowRef.current ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES),
+    })
+  }, [runtimeAppId, session])
 
   useEffect(() => {
     if (!runtimeAppId || !previewAppId) {
@@ -2404,6 +2433,26 @@ export function ICodeApp() {
                             const tags = enabled
                               ? [...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_AI), APP_CAPABILITY_TAG_AI]
                               : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_AI)
+                            updateSessionMeta({ tags })
+                          }}
+                        />
+                      </div>
+                      <div class="icode__config-toggle-row">
+                        <div class="icode__config-toggle-copy">
+                          <strong>文件访问能力</strong>
+                          <span>AI 可以在他编写的 App 中通过 InstantOS.files 读写系统文件</span>
+                        </div>
+                        <IosSwitch
+                          label="启用文件模块"
+                          checked={hasAppCapabilityTag(session.tags, APP_CAPABILITY_TAG_FILES)}
+                          onChange={(enabled) => {
+                            const baseTags = filterAppCapabilityTags(session.tags)
+                            const tags = enabled
+                              ? [
+                                  ...baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_FILES),
+                                  APP_CAPABILITY_TAG_FILES,
+                                ]
+                              : baseTags.filter((tag) => tag !== APP_CAPABILITY_TAG_FILES)
                             updateSessionMeta({ tags })
                           }}
                         />

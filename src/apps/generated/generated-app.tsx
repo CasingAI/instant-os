@@ -27,9 +27,11 @@ import {
   logRuntimeErrorToHostConsole,
 } from './generated-app-runtime-errors.ts'
 import { installGeneratedAppAiHandler } from './install-generated-app-ai-handler.ts'
+import { installGeneratedAppFilesHandler } from './install-generated-app-files-handler.ts'
 import { injectGeneratedAppHeartbeatBridge } from './inject-generated-app-heartbeat-bridge.ts'
 import { prepareGeneratedAppRuntimeHtml } from './prepare-generated-app-runtime-html.ts'
 import { useGeneratedHtmlIframe } from './use-generated-html-iframe.ts'
+import { APP_CAPABILITY_TAG_FILES, hasAppCapabilityTag } from '../appstore/app-capability-tags.ts'
 import './generated-app.css'
 
 type GeneratedAppProps = {
@@ -94,7 +96,10 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
     }
 
     const initialData = loadGeneratedAppData(appId)
-    const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, { processIsolated })
+    const runtimeHtml = prepareGeneratedAppRuntimeHtml(app.html, appId, initialData, {
+      processIsolated,
+      enableFiles: hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
+    })
     return injectGeneratedAppHeartbeatBridge(runtimeHtml, appId, windowId)
   }, [app, appId, dataRevision, emojiFontEpoch, processIsolated, windowId])
 
@@ -213,6 +218,17 @@ export function GeneratedApp({ appId, windowId }: GeneratedAppProps) {
       getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
     })
   }, [app?.name, appId])
+
+  useEffect(() => {
+    if (!app) return
+    if (!hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES)) return
+
+    return installGeneratedAppFilesHandler({
+      appId,
+      getContentWindow: () => iframeRef.current?.contentWindow ?? undefined,
+      isAllowed: () => hasAppCapabilityTag(app.tags, APP_CAPABILITY_TAG_FILES),
+    })
+  }, [app, appId])
 
   if (!app) {
     return (

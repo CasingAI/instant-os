@@ -16,7 +16,8 @@
 1. 启动完成后必须调用 `notifyHostEnterProgram()`（已在 `SplashScreen` 流程中接入，勿移除）
 2. 不要依赖外部 CDN；资源放在仓库内或构建产物中
 3. 需要 AI 能力时，在 `app.config.json` 的 `tags` 中加入 `"ai"`，使用 `https://instant-os.local/v1/chat/completions`
-4. 构建命令：`pnpm build`（会生成 manifest、图标、启动图）
+4. 需要文件能力时，在 `tags` 中加入 `"files"`，通过 `InstantOS.files` 以全局路径（`/user`、`/models`、`/system`、`/mount/…`）读写
+5. 构建命令：`pnpm build`（会生成 manifest、图标、启动图）
 
 ## 开发工具
 

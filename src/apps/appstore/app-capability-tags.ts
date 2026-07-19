@@ -1,10 +1,12 @@
 /** 应用能力标签白名单（内部存储一律小写） */
 export const APP_CAPABILITY_TAG_3D = '3d' as const
 export const APP_CAPABILITY_TAG_AI = 'ai' as const
+export const APP_CAPABILITY_TAG_FILES = 'files' as const
 
 export const APP_CAPABILITY_TAGS = [
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
   'game',
   'utility',
   'productivity',
@@ -23,6 +25,7 @@ const TAG_SET = new Set<string>(APP_CAPABILITY_TAGS)
 export const APP_CAPABILITY_TAGS_VISIBLE: readonly AppCapabilityTag[] = [
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
 ]
 
 export function normalizeAppCapabilityTag(raw: string): AppCapabilityTag | undefined {
@@ -83,6 +86,9 @@ export function formatAppCapabilityTagForDisplay(tag: AppCapabilityTag): string 
   }
   if (tag === APP_CAPABILITY_TAG_AI) {
     return 'AI'
+  }
+  if (tag === APP_CAPABILITY_TAG_FILES) {
+    return '文件'
   }
   return tag
 }

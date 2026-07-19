@@ -1,6 +1,7 @@
 import {
   APP_CAPABILITY_TAG_3D,
   APP_CAPABILITY_TAG_AI,
+  APP_CAPABILITY_TAG_FILES,
   filterAppCapabilityTags,
   mergeAppCapabilityTags,
 } from '../appstore/app-capability-tags.ts'
@@ -139,6 +140,12 @@ const AI_CONTENT_MARKERS = [
   /chat\.completions\.create/i,
 ]
 
+const FILES_CONTENT_MARKERS = [
+  /InstantOS\s*\.\s*files\b/,
+  /__INSTANT_FILES__/,
+  /instant-generated-app-files-request/,
+]
+
 export function inferGeneratedAppTags(html: string): string[] {
   const tags: string[] = []
 
@@ -148,6 +155,10 @@ export function inferGeneratedAppTags(html: string): string[] {
 
   if (AI_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
     tags.push(APP_CAPABILITY_TAG_AI)
+  }
+
+  if (FILES_CONTENT_MARKERS.some((pattern) => pattern.test(html))) {
+    tags.push(APP_CAPABILITY_TAG_FILES)
   }
 
   return tags
@@ -160,6 +171,15 @@ export function generatedAppRuntimeUses3d(html: string): boolean {
   }
 
   return inferGeneratedAppTags(html).includes(APP_CAPABILITY_TAG_3D)
+}
+
+/** 是否需注入 Files 桥（meta tags 含 files，或源码调用 InstantOS.files） */
+export function generatedAppRuntimeUsesFiles(html: string): boolean {
+  if (hasGeneratedAppTag(html, APP_CAPABILITY_TAG_FILES)) {
+    return true
+  }
+
+  return inferGeneratedAppTags(html).includes(APP_CAPABILITY_TAG_FILES)
 }
 
 /**
@@ -214,6 +234,7 @@ export function ensureGeneratedAppTags(html: string, _context: GeneratedAppTagCo
   const tags = mergeAppCapabilityTags(
     parseGeneratedAppTags(html),
     generatedAppRuntimeUses3d(html) ? [APP_CAPABILITY_TAG_3D] : [],
+    generatedAppRuntimeUsesFiles(html) ? [APP_CAPABILITY_TAG_FILES] : [],
     inferGeneratedAppTags(html),
   )
 

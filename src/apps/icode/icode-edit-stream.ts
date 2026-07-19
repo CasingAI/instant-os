@@ -20,6 +20,10 @@ import {
   buildAppAiSystemPromptExtension,
   resolveAppAiGenerationOptions,
 } from '../appstore/app-ai-generation-prompt.ts'
+import {
+  buildAppFilesSystemPromptExtension,
+  resolveAppFilesGenerationOptions,
+} from '../appstore/app-files-generation-prompt.ts'
 import { formatListingTagsForPrompt } from '../appstore/listing-tags.ts'
 import type { StoreListing } from '../appstore/types.ts'
 import type { AppGenerationPhase } from '../appstore/generate-app-stream.ts'
@@ -135,6 +139,7 @@ function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): str
   const isBootstrap = existingHtml.trim().length === 0
   const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, undefined, existingHtml)
   const { isAi } = resolveAppAiGenerationOptions(listing, undefined, existingHtml)
+  const { isFiles } = resolveAppFilesGenerationOptions(listing, undefined, existingHtml)
 
   const sections = [buildIcodeCapabilityRequestPromptExtension(listing.tags), ICODE_EDIT_SYSTEM_PROMPT]
   if (isBootstrap) {
@@ -145,6 +150,9 @@ function buildEditSystemPrompt(listing: StoreListing, existingHtml: string): str
   }
   if (isAi) {
     sections.push(buildAppAiSystemPromptExtension())
+  }
+  if (isFiles) {
+    sections.push(buildAppFilesSystemPromptExtension())
   }
 
   return sections.join('\n\n')

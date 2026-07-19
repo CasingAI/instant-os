@@ -4,9 +4,10 @@ import { getHostAssetOrigin } from '../../assets/3d/resolve-host-asset-url.ts'
 import type { GeneratedAppDataStore } from '../../os/generated-app-data-storage.ts'
 import type { GeneratedAppId } from '../../os/types.ts'
 import { injectIframeEmojiFonts } from '../../fonts/inject-iframe-emoji-fonts.ts'
-import { generatedAppRuntimeUses3d } from './generated-app-tags.ts'
+import { generatedAppRuntimeUses3d, generatedAppRuntimeUsesFiles } from './generated-app-tags.ts'
 import { injectGeneratedAppAiBridge } from './inject-generated-app-ai-bridge.ts'
 import { injectGeneratedAppErrorBridge } from './inject-generated-app-error-bridge.ts'
+import { injectGeneratedAppFilesBridge } from './inject-generated-app-files-bridge.ts'
 import { injectIframeLayoutNotify } from './inject-iframe-layout-notify.ts'
 import { injectGeneratedAppStorageBridge } from './inject-generated-app-storage-bridge.ts'
 
@@ -15,6 +16,8 @@ export type PrepareGeneratedAppRuntimeHtmlOptions = {
   reportingAppId?: GeneratedAppId
   /** Blob URL 进程隔离：根路径资源与 import map 须指向宿主 origin。 */
   processIsolated?: boolean
+  /** 已授予 files 能力时强制注入 Files 桥 */
+  enableFiles?: boolean
 }
 
 export function prepareGeneratedAppRuntimeHtml(
@@ -44,6 +47,11 @@ export function prepareGeneratedAppRuntimeHtml(
   }
 
   prepared = injectGeneratedAppAiBridge(prepared, appId, { debug: options.debug })
+
+  if (options.enableFiles === true || generatedAppRuntimeUsesFiles(prepared)) {
+    prepared = injectGeneratedAppFilesBridge(prepared, appId)
+  }
+
   prepared = injectGeneratedAppErrorBridge(prepared, options.reportingAppId ?? appId)
 
   return prepared

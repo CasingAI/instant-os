@@ -9,6 +9,10 @@ import {
   buildAppAiUserPromptSection,
   resolveAppAiGenerationOptions,
 } from './app-ai-generation-prompt.ts'
+import {
+  buildAppFilesUserPromptSection,
+  resolveAppFilesGenerationOptions,
+} from './app-files-generation-prompt.ts'
 
 export type AppGenerationContext = {
   detail?: Partial<StoreListingDetail>
@@ -119,6 +123,20 @@ function appendAiRequirementLines(
   lines.push('', buildAppAiUserPromptSection())
 }
 
+function appendFilesRequirementLines(
+  lines: string[],
+  listing: StoreListing,
+  detail: Partial<StoreListingDetail> | undefined,
+  existingHtml: string | undefined,
+) {
+  const { isFiles } = resolveAppFilesGenerationOptions(listing, detail, existingHtml)
+  if (!isFiles) {
+    return
+  }
+
+  lines.push('', buildAppFilesUserPromptSection())
+}
+
 export function buildAppGenerationPrompt(
   listing: StoreListing,
   context: AppGenerationContext = {},
@@ -141,6 +159,7 @@ export function buildAppGenerationPrompt(
 
   append3dRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
   appendAiRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
+  appendFilesRequirementLines(lines, listing, context.detail, context.update?.existingHtml)
 
   if (context.update) {
     appendUpdateLines(lines, context.update)

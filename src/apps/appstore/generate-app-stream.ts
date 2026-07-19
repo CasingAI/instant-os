@@ -23,6 +23,10 @@ import {
   resolveAppAiGenerationOptions,
 } from './app-ai-generation-prompt.ts'
 import {
+  buildAppFilesSystemPromptExtension,
+  resolveAppFilesGenerationOptions,
+} from './app-files-generation-prompt.ts'
+import {
   buildAppGenerationPrompt,
   type AppGenerationContext,
 } from './build-app-generation-prompt.ts'
@@ -80,6 +84,7 @@ function buildAppGenerationSystemPrompt(
   const existingHtml = context.update?.existingHtml
   const { is3d, physicsEnabled } = resolveApp3dGenerationOptions(listing, context.detail, existingHtml)
   const { isAi } = resolveAppAiGenerationOptions(listing, context.detail, existingHtml)
+  const { isFiles } = resolveAppFilesGenerationOptions(listing, context.detail, existingHtml)
 
   const extensions: string[] = []
   if (is3d) {
@@ -87,6 +92,9 @@ function buildAppGenerationSystemPrompt(
   }
   if (isAi) {
     extensions.push(buildAppAiSystemPromptExtension())
+  }
+  if (isFiles) {
+    extensions.push(buildAppFilesSystemPromptExtension())
   }
 
   if (extensions.length === 0) {
