@@ -193,9 +193,19 @@
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.18);
 }
 
+.vscode__tree-item--selected:hover {
+  color: #fff;
+  border-color: var(--vscode-accent-border);
+  background: var(--vscode-selected);
+}
+
 .vscode__tree-item--selected .vscode__tree-chevron,
 .vscode__tree-item--selected .vscode__tree-icon {
   color: rgba(255, 255, 255, 0.9);
+}
+
+.vscode__tree-item--selected .vscode__tree-label {
+  color: #fff;
 }
 
 .vscode__tree-chevron,
@@ -208,9 +218,43 @@
 }
 
 .vscode__tree-label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.vscode__tree-badge {
+  flex-shrink: 0;
+  margin-left: auto;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  color: #fff;
+  text-shadow: none;
+  background: #c0392b;
+}
+
+.vscode__tree-item--has-warning .vscode__tree-badge {
+  background: #b7791f;
+}
+
+.vscode__tree-item--has-error:not(.vscode__tree-item--selected) .vscode__tree-label {
+  color: #c0392b;
+}
+
+.vscode__tree-item--has-warning:not(.vscode__tree-item--selected) .vscode__tree-label {
+  color: #b7791f;
+}
+
+.vscode__tree-item--selected .vscode__tree-badge {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
 }
 
 .vscode__tree-hint {
@@ -541,7 +585,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 5;
+  z-index: 10;
   background: color-mix(in srgb, var(--vscode-accent) 18%, transparent);
   border: 2px solid var(--vscode-accent);
   box-sizing: border-box;
@@ -874,6 +918,155 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
+.vscode__panel-header--tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 6px;
+  min-height: 30px;
+}
+
+.vscode__panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--vscode-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px 5px;
+  cursor: pointer;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.vscode__panel-tab:hover {
+  color: var(--vscode-ink);
+}
+
+.vscode__panel-tab--active {
+  color: var(--vscode-ink);
+  border-bottom-color: var(--vscode-accent);
+}
+
+.vscode__panel-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-accent) 18%, transparent);
+  color: var(--vscode-ink);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: none;
+}
+
+.vscode__panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vscode__panel-body--hidden {
+  display: none;
+}
+
+.vscode__problems {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-paper);
+}
+
+.vscode__problems-empty {
+  padding: 16px 14px;
+  color: var(--vscode-muted);
+  font-size: 12px;
+}
+
+.vscode__problems-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: transparent;
+  color: var(--vscode-ink);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.vscode__problems-item:hover {
+  background: color-mix(in srgb, var(--vscode-accent) 10%, transparent);
+}
+
+.vscode__problems-item:active {
+  background: color-mix(in srgb, var(--vscode-accent) 16%, transparent);
+}
+
+.vscode__problems-severity {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+}
+
+.vscode__problems-severity--error {
+  color: #c0392b;
+}
+
+.vscode__problems-severity--warning {
+  color: #b7791f;
+}
+
+.vscode__problems-severity--info {
+  color: #2f6fed;
+}
+
+.vscode__problems-severity--hint {
+  color: var(--vscode-muted);
+}
+
+.vscode__problems-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vscode__problems-message {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.vscode__problems-meta {
+  color: var(--vscode-muted);
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
 .vscode__terminal-panel {
   flex: 1;
   min-height: 0;
@@ -908,6 +1101,71 @@
 
 .vscode__status-spacer {
   flex: 1;
+}
+
+.vscode__status-problems-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vscode__status-problems-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.vscode__status-problems-glyph {
+  width: 12px;
+  height: 12px;
+}
+
+.vscode__status-problems-part--error {
+  color: #c0392b;
+}
+
+.vscode__status-problems-part--warning {
+  color: #b7791f;
+}
+
+.vscode__status-problems-btn:hover {
+  border-color: var(--vscode-border);
+  background: var(--vscode-plain-btn);
+  box-shadow: var(--vscode-shadow-out);
+}
+
+.vscode__status-problems-btn:active {
+  background: var(--vscode-plain-btn-active);
+  box-shadow: var(--vscode-shadow-in);
+}
+
+.vscode__status-problems-btn--active {
+  border-color: var(--vscode-accent-border);
+  background: var(--vscode-blue-btn);
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+.vscode__status-problems-btn--active .vscode__status-problems-part--error,
+.vscode__status-problems-btn--active .vscode__status-problems-part--warning {
+  color: inherit;
+}
+
+.vscode__status-problems-btn--active:hover {
+  background: var(--vscode-blue-btn);
+  border-color: var(--vscode-accent-border);
 }
 
 .vscode__status-lang-btn {
@@ -1308,6 +1566,12 @@
   border-color: rgba(255, 255, 255, 0.06);
 }
 
+.vscode--chrome-dark .vscode__tree-item--selected:hover {
+  color: #fff;
+  border-color: var(--vscode-accent-border);
+  background: var(--vscode-selected);
+}
+
 .vscode--chrome-dark .vscode__search-input,
 .vscode--chrome-dark .vscode__setting select,
 .vscode--chrome-dark .vscode__setting input[type='number'],
@@ -1395,4 +1659,66 @@
 
 .vscode--chrome-dark .vscode__preview-body {
   background: var(--vscode-paper);
+}
+
+.vscode--chrome-dark .vscode__panel-tab {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
+}
+
+.vscode--chrome-dark .vscode__panel-tab-count {
+  background: color-mix(in srgb, var(--vscode-accent) 28%, transparent);
+}
+
+.vscode--chrome-dark .vscode__problems-item {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.vscode--chrome-dark .vscode__problems-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vscode--chrome-dark .vscode__problems-item:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.vscode--chrome-dark .vscode__problems-severity--error {
+  color: #f48771;
+}
+
+.vscode--chrome-dark .vscode__problems-severity--warning {
+  color: #cca700;
+}
+
+.vscode--chrome-dark .vscode__problems-severity--info {
+  color: #75beff;
+}
+
+.vscode--chrome-dark .vscode__tree-item--has-error:not(.vscode__tree-item--selected) .vscode__tree-label {
+  color: #f48771;
+}
+
+.vscode--chrome-dark .vscode__tree-item--has-warning:not(.vscode__tree-item--selected) .vscode__tree-label {
+  color: #cca700;
+}
+
+.vscode--chrome-dark .vscode__tree-badge {
+  background: #f48771;
+  color: #1e1e24;
+}
+
+.vscode--chrome-dark .vscode__tree-item--has-warning .vscode__tree-badge {
+  background: #cca700;
+}
+
+.vscode--chrome-dark .vscode__tree-item--selected .vscode__tree-badge {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+.vscode--chrome-dark .vscode__status-problems-part--error {
+  color: #f48771;
+}
+
+.vscode--chrome-dark .vscode__status-problems-part--warning {
+  color: #cca700;
 }

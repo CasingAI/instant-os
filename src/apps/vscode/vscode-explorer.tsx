@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
+import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
 import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
 
 type VscodeExplorerProps = {
   workspaceFolder?: string
   selectedPath?: string
   revealPath?: string
+  problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   onOpenFile: (path: string) => void
   onOpenFolder: () => void
 }
@@ -14,6 +16,7 @@ type TreeNodeProps = {
   depth: number
   selectedPath?: string
   revealPath?: string
+  problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   defaultExpanded?: boolean
   onOpenFile: (path: string) => void
 }
@@ -30,11 +33,32 @@ function folderDisplayName(path: string, name: string): string {
   return name || path.split('/').filter(Boolean).pop() || path
 }
 
+function decorationClassName(decoration: MonacoProblemTreeDecoration | undefined): string {
+  if (!decoration) return ''
+  if (decoration.errors > 0) return ' vscode__tree-item--has-error'
+  if (decoration.warnings > 0) return ' vscode__tree-item--has-warning'
+  return ''
+}
+
+function decorationTitle(
+  path: string,
+  decoration: MonacoProblemTreeDecoration | undefined,
+): string {
+  if (!decoration || (decoration.errors === 0 && decoration.warnings === 0)) {
+    return path
+  }
+  const parts: string[] = []
+  if (decoration.errors > 0) parts.push(`${decoration.errors} 个错误`)
+  if (decoration.warnings > 0) parts.push(`${decoration.warnings} 个警告`)
+  return `${path}\n${parts.join('，')}`
+}
+
 function TreeNode({
   entry,
   depth,
   selectedPath,
   revealPath,
+  problemDecorations,
   defaultExpanded = false,
   onOpenFile,
 }: TreeNodeProps) {
@@ -46,6 +70,8 @@ function TreeNode({
   const [children, setChildren] = useState<FilesApiEntry[] | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  const decoration = problemDecorations?.get(entry.path)
+  const problemCount = decoration ? decoration.errors + decoration.warnings : 0
 
   const loadChildren = useCallback(async () => {
     setLoading(true)
@@ -79,15 +105,20 @@ function TreeNode({
     return (
       <button
         type="button"
-        class={`vscode__tree-item vscode__tree-item--file${selected ? ' vscode__tree-item--selected' : ''}`}
+        class={`vscode__tree-item vscode__tree-item--file${selected ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
         style={{ paddingLeft: `${10 + depth * 12}px` }}
-        title={entry.path}
+        title={decorationTitle(entry.path, decoration)}
         onClick={() => onOpenFile(entry.path)}
       >
         <span class="vscode__tree-icon" aria-hidden="true">
           ▐
         </span>
         <span class="vscode__tree-label">{entry.name}</span>
+        {problemCount > 0 ? (
+          <span class="vscode__tree-badge" aria-hidden="true">
+            {problemCount}
+          </span>
+        ) : undefined}
       </button>
     )
   }
@@ -96,15 +127,20 @@ function TreeNode({
     <div class="vscode__tree-folder">
       <button
         type="button"
-        class={`vscode__tree-item vscode__tree-item--folder${selectedPath === entry.path ? ' vscode__tree-item--selected' : ''}`}
+        class={`vscode__tree-item vscode__tree-item--folder${selectedPath === entry.path ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
         style={{ paddingLeft: `${10 + depth * 12}px` }}
-        title={entry.path}
+        title={decorationTitle(entry.path, decoration)}
         onClick={() => setExpanded((value) => !value)}
       >
         <span class="vscode__tree-chevron" aria-hidden="true">
           {expanded ? '▾' : '▸'}
         </span>
         <span class="vscode__tree-label">{folderDisplayName(entry.path, entry.name)}</span>
+        {problemCount > 0 ? (
+          <span class="vscode__tree-badge" aria-hidden="true">
+            {problemCount}
+          </span>
+        ) : undefined}
       </button>
       {expanded ? (
         <div class="vscode__tree-children">
@@ -117,6 +153,7 @@ function TreeNode({
               depth={depth + 1}
               selectedPath={selectedPath}
               revealPath={revealPath}
+              problemDecorations={problemDecorations}
               onOpenFile={onOpenFile}
             />
           ))}
@@ -130,6 +167,7 @@ export function VscodeExplorer({
   workspaceFolder,
   selectedPath,
   revealPath,
+  problemDecorations,
   onOpenFile,
   onOpenFolder,
 }: VscodeExplorerProps) {
@@ -193,6 +231,7 @@ export function VscodeExplorer({
             depth={0}
             selectedPath={selectedPath}
             revealPath={revealPath}
+            problemDecorations={problemDecorations}
             defaultExpanded
             onOpenFile={onOpenFile}
           />

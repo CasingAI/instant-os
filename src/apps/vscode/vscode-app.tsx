@@ -5,6 +5,12 @@ import {
   monacoLanguageLabel,
   parentDirFromPath,
 } from '../../monaco/monaco-language.ts'
+import {
+  buildMonacoProblemTreeDecorations,
+  subscribeMonacoProblems,
+  summarizeMonacoProblems,
+  type MonacoProblem,
+} from '../../monaco/monaco-markers.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
@@ -50,11 +56,11 @@ import {
   removeFileTabFromLayout,
   setBranchRatio,
   splitEditorWithItem,
-  splitFocusedEditor,
   type VscodeEditorLayoutState,
 } from './vscode-editor-layout.ts'
 import { VscodeExplorer } from './vscode-explorer.tsx'
 import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-prefs.ts'
+import { VscodeProblemsPanel } from './vscode-problems-panel.tsx'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
 import {
   buildVscodeSessionFromTabs,
@@ -157,6 +163,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false)
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
+  const [problems, setProblems] = useState<MonacoProblem[]>([])
   const [revealPath, setRevealPath] = useState<string | undefined>(undefined)
   const [revealPosition, setRevealPosition] = useState<
     (MonacoRevealPosition & { path: string }) | undefined
@@ -208,11 +215,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   activeTabIdRef.current = activeTabId
 
   const dirty = activeTab ? isVscodeTabDirty(activeTab) : false
-  const anyDirty = tabs.some(isVscodeTabDirty)
   const writable = activeTab?.writable ?? false
   const showMarkdownPreviewAction =
     focusedItem?.kind === 'file' && activeTab?.language === 'markdown'
   const hasEditorItems = layoutHasItems(editorLayout)
+  const problemSummary = useMemo(() => summarizeMonacoProblems(problems), [problems])
+  const problemDecorations = useMemo(
+    () => buildMonacoProblemTreeDecorations(problems),
+    [problems],
+  )
+
+  useEffect(() => {
+    return subscribeMonacoProblems(setProblems)
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -337,6 +352,15 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setPrefs((current) => ({ ...current, ...patch }))
   }, [])
 
+  const toggleBottomPanelTab = useCallback((tab: VscodePrefs['panelTab']) => {
+    setPrefs((current) => {
+      if (current.terminalVisible && current.panelTab === tab) {
+        return { ...current, terminalVisible: false }
+      }
+      return { ...current, terminalVisible: true, panelTab: tab }
+    })
+  }, [])
+
   const onTerminalSashPointerDown = useCallback(
     (event: PointerEvent) => {
       const sash = event.currentTarget as HTMLElement
@@ -379,7 +403,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
       setWindowTitle(windowId, tab.name)
       setWindowDocumentId(windowId, tab.path)
-      setWindowDocumentEdited(windowId, isVscodeTabDirty(tab))
+      // 未保存状态只靠标签上的色点提示，不在窗口标题栏重复显示「已编辑」
+      setWindowDocumentEdited(windowId, false)
       setWindowDocumentReadOnly(windowId, !tab.writable)
     },
     [setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId],
@@ -475,6 +500,16 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const handleEditorOpenPath = useCallback(
     async (path: string, position?: MonacoRevealPosition): Promise<boolean> => {
       return openDocument(path, position ? { reveal: position } : undefined)
+    },
+    [openDocument],
+  )
+
+  const openProblem = useCallback(
+    (problem: MonacoProblem) => {
+      if (!problem.path) return
+      void openDocument(problem.path, {
+        reveal: { line: problem.startLineNumber, column: problem.startColumn },
+      })
     },
     [openDocument],
   )
@@ -1036,8 +1071,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           },
           {
             type: 'action',
-            label: `${menuCheckPrefix(prefs.terminalVisible)}终端`,
-            onClick: () => updatePrefs({ terminalVisible: !prefs.terminalVisible }),
+            label: `${menuCheckPrefix(prefs.terminalVisible && prefs.panelTab === 'problems')}问题`,
+            onClick: () => toggleBottomPanelTab('problems'),
+          },
+          {
+            type: 'action',
+            label: `${menuCheckPrefix(prefs.terminalVisible && prefs.panelTab === 'terminal')}终端`,
+            onClick: () => toggleBottomPanelTab('terminal'),
           },
           { type: 'separator' },
           {
@@ -1071,18 +1111,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             disabled: !showMarkdownPreviewAction || loading || openDialogOpen || !!dirtyPrompt,
             onClick: () => openMarkdownPreviewBeside(editorLayoutRef.current.focusedGroupId),
           },
-          {
-            type: 'action',
-            label: '向右拆分编辑器',
-            disabled: loading || openDialogOpen || !!dirtyPrompt,
-            onClick: () => setEditorLayout((layout) => splitFocusedEditor(layout, 'right')),
-          },
-          {
-            type: 'action',
-            label: '向下拆分编辑器',
-            disabled: loading || openDialogOpen || !!dirtyPrompt,
-            onClick: () => setEditorLayout((layout) => splitFocusedEditor(layout, 'bottom')),
-          },
         ],
       },
     ]
@@ -1100,11 +1128,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     openMarkdownPreviewBeside,
     pickAndOpen,
     pickAndOpenFolder,
+    prefs.panelTab,
     prefs.sidebarVisible,
     prefs.terminalVisible,
     prefs.workspaceFolder,
     showBuiltinAbout,
     showMarkdownPreviewAction,
+    toggleBottomPanelTab,
     updatePrefs,
     windowId,
     writable,
@@ -1201,6 +1231,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 workspaceFolder={prefs.workspaceFolder}
                 selectedPath={activeTab?.path}
                 revealPath={revealPath ?? activeTab?.path}
+                problemDecorations={problemDecorations}
                 onOpenFile={(path) => void openDocument(path)}
                 onOpenFolder={() => void pickAndOpenFolder()}
               />
@@ -1329,12 +1360,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     splitEditorWithItem(current, itemId, targetGroupId, edge),
                   )
                 }
-                onSplitGroup={(groupId, edge) =>
-                  setEditorLayout((current) => {
-                    const focused = focusEditorGroup(current, groupId)
-                    return splitFocusedEditor(focused, edge)
-                  })
-                }
                 onOpenMarkdownPreview={openMarkdownPreviewBeside}
                 onTabTextChange={updateTabText}
                 onCursorChange={(line, column) => setCursor({ line, column })}
@@ -1380,17 +1405,50 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 class="vscode__terminal-sash"
                 role="separator"
                 aria-orientation="horizontal"
-                aria-label="调整终端高度"
+                aria-label="调整面板高度"
                 onPointerDown={onTerminalSashPointerDown}
               />
               <div class="vscode__terminal" style={{ height: `${prefs.terminalHeight}px` }}>
-                <div class="vscode__panel-header">终端</div>
-                <TerminalPanel
-                  session={terminalSession}
-                  usageActor={APP_ID}
-                  className="vscode__terminal-panel"
-                  colors={terminalColorsForTheme(prefs.theme)}
-                />
+                <div class="vscode__panel-header vscode__panel-header--tabs" role="tablist" aria-label="面板">
+                  <button
+                    type="button"
+                    role="tab"
+                    class={`vscode__panel-tab${prefs.panelTab === 'problems' ? ' vscode__panel-tab--active' : ''}`}
+                    aria-selected={prefs.panelTab === 'problems'}
+                    onClick={() => updatePrefs({ panelTab: 'problems' })}
+                  >
+                    问题
+                    {problems.length > 0 ? (
+                      <span class="vscode__panel-tab-count">{problems.length}</span>
+                    ) : undefined}
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    class={`vscode__panel-tab${prefs.panelTab === 'terminal' ? ' vscode__panel-tab--active' : ''}`}
+                    aria-selected={prefs.panelTab === 'terminal'}
+                    onClick={() => updatePrefs({ panelTab: 'terminal' })}
+                  >
+                    终端
+                  </button>
+                </div>
+                <div
+                  class={`vscode__panel-body${prefs.panelTab === 'problems' ? '' : ' vscode__panel-body--hidden'}`}
+                  hidden={prefs.panelTab !== 'problems'}
+                >
+                  <VscodeProblemsPanel problems={problems} onSelect={openProblem} />
+                </div>
+                <div
+                  class={`vscode__panel-body${prefs.panelTab === 'terminal' ? '' : ' vscode__panel-body--hidden'}`}
+                  hidden={prefs.panelTab !== 'terminal'}
+                >
+                  <TerminalPanel
+                    session={terminalSession}
+                    usageActor={APP_ID}
+                    className="vscode__terminal-panel"
+                    colors={terminalColorsForTheme(prefs.theme)}
+                  />
+                </div>
               </div>
             </>
           ) : undefined}
@@ -1398,12 +1456,52 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       </div>
 
       <footer class="vscode__status">
+        <button
+          type="button"
+          class={`vscode__status-problems-btn${prefs.terminalVisible && prefs.panelTab === 'problems' ? ' vscode__status-problems-btn--active' : ''}`}
+          title="问题"
+          aria-pressed={prefs.terminalVisible && prefs.panelTab === 'problems'}
+          onClick={() => toggleBottomPanelTab('problems')}
+        >
+          <span class="vscode__status-problems-part vscode__status-problems-part--error">
+            <svg class="vscode__status-problems-glyph" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" stroke-width="1.5" />
+              <path
+                d="M8 5.2 V8.6 M8 10.6 V10.85"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span>{problemSummary.errors}</span>
+          </span>
+          <span class="vscode__status-problems-part vscode__status-problems-part--warning">
+            <svg class="vscode__status-problems-glyph" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M8 2.6 L13.4 12.4 H2.6 Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M8 6.2 V9.2 M8 10.7 V10.95"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span>{problemSummary.warnings}</span>
+          </span>
+        </button>
         <span>{activeTab ? activeTab.path : '未打开文件'}</span>
         <span class="vscode__status-spacer" />
         {activeTab ? (
           <>
             <span>
-              Ln {cursor.line}, Col {cursor.column}
+              第 {cursor.line} 行，第 {cursor.column} 列
             </span>
             <button
               type="button"
@@ -1415,26 +1513,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             >
               {monacoLanguageLabel(activeTab.language)}
             </button>
-            <span>
-              {activeTab.conflict
-                ? '冲突'
-                : activeTab.deleted
-                  ? '已删除'
-                  : activeTab.writable
-                    ? dirty || anyDirty
-                      ? '已编辑'
-                      : '已保存'
-                    : '只读'}
-            </span>
+            {activeTab.conflict || activeTab.deleted || !activeTab.writable ? (
+              <span>
+                {activeTab.conflict ? '冲突' : activeTab.deleted ? '已删除' : '只读'}
+              </span>
+            ) : undefined}
           </>
         ) : undefined}
         {loading ? <span>处理中…</span> : undefined}
         <button
           type="button"
-          class={`vscode__status-terminal-btn${prefs.terminalVisible ? ' vscode__status-terminal-btn--active' : ''}`}
-          title={prefs.terminalVisible ? '隐藏终端' : '显示终端'}
-          aria-pressed={prefs.terminalVisible}
-          onClick={() => updatePrefs({ terminalVisible: !prefs.terminalVisible })}
+          class={`vscode__status-terminal-btn${prefs.terminalVisible && prefs.panelTab === 'terminal' ? ' vscode__status-terminal-btn--active' : ''}`}
+          title={
+            prefs.terminalVisible && prefs.panelTab === 'terminal' ? '隐藏终端' : '显示终端'
+          }
+          aria-pressed={prefs.terminalVisible && prefs.panelTab === 'terminal'}
+          onClick={() => toggleBottomPanelTab('terminal')}
         >
           <svg class="vscode__status-terminal-glyph" viewBox="0 0 24 24" aria-hidden="true">
             <path

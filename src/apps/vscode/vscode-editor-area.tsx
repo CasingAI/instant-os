@@ -38,7 +38,6 @@ type VscodeEditorAreaProps = {
   onClosePreview: (itemId: string) => void
   onMoveItemToGroup: (itemId: string, targetGroupId: string, targetIndex?: number) => void
   onSplitItemToEdge: (itemId: string, targetGroupId: string, edge: VscodeSplitEdge) => void
-  onSplitGroup: (groupId: string, edge: 'right' | 'bottom') => void
   onOpenMarkdownPreview: (groupId: string) => void
   onTabTextChange: (tabId: string, text: string) => void
   onCursorChange: (line: number, column: number) => void
@@ -90,29 +89,12 @@ function EyeIcon() {
   )
 }
 
-function SplitRightIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-11ZM3.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5H8V2H3.5Zm5.5 0v12h3.5a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H9Z" />
-    </svg>
-  )
-}
-
-function SplitDownIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-11ZM3.5 2a.5.5 0 0 0-.5.5V8h10V2.5a.5.5 0 0 0-.5-.5h-9ZM3 9v4.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V9H3Z" />
-    </svg>
-  )
-}
-
 type GroupViewProps = Omit<
   VscodeEditorAreaProps,
-  'layout' | 'onSetBranchRatio' | 'onSplitGroup' | 'onOpenMarkdownPreview'
+  'layout' | 'onSetBranchRatio' | 'onOpenMarkdownPreview'
 > & {
   group: VscodeEditorGroupState
   focused: boolean
-  onSplitGroup: (groupId: string, edge: 'right' | 'bottom') => void
   onOpenMarkdownPreview: (groupId: string) => void
 }
 
@@ -132,7 +114,6 @@ function VscodeEditorGroupView({
   onClosePreview,
   onMoveItemToGroup,
   onSplitItemToEdge,
-  onSplitGroup,
   onOpenMarkdownPreview,
   onTabTextChange,
   onCursorChange,
@@ -155,7 +136,6 @@ function VscodeEditorGroupView({
       : undefined
 
   const showPreviewAction = activeFileTab?.language === 'markdown'
-  const canSplit = group.items.length > 1
 
   const clearDropZone = useCallback(() => setDropZone(undefined), [])
 
@@ -288,8 +268,8 @@ function VscodeEditorGroupView({
             />
           ))}
         </div>
-        <div class="vscode__tab-actions">
-          {showPreviewAction ? (
+        {showPreviewAction ? (
+          <div class="vscode__tab-actions">
             <button
               type="button"
               class="vscode__tab-action"
@@ -300,28 +280,8 @@ function VscodeEditorGroupView({
             >
               <EyeIcon />
             </button>
-          ) : undefined}
-          <button
-            type="button"
-            class="vscode__tab-action"
-            title="向右拆分"
-            aria-label="向右拆分"
-            disabled={!canSplit || loading || dialogBlocked}
-            onClick={() => onSplitGroup(group.id, 'right')}
-          >
-            <SplitRightIcon />
-          </button>
-          <button
-            type="button"
-            class="vscode__tab-action"
-            title="向下拆分"
-            aria-label="向下拆分"
-            disabled={!canSplit || loading || dialogBlocked}
-            onClick={() => onSplitGroup(group.id, 'bottom')}
-          >
-            <SplitDownIcon />
-          </button>
-        </div>
+          </div>
+        ) : undefined}
       </div>
 
       <div
