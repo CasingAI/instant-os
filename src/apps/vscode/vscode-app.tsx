@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { MonacoEditor } from '../../monaco/monaco-editor.tsx'
+import { disposeMonacoModelForPath, MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import {
   MONACO_SELECTABLE_LANGUAGES,
   monacoLanguageLabel,
@@ -33,6 +33,7 @@ import {
 import { VscodeExplorer } from './vscode-explorer.tsx'
 import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-prefs.ts'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
+import { syncVscodeTypescriptLocalModules, syncVscodeTypescriptWorkspace } from './vscode-typescript-workspace.ts'
 import {
   buildVscodeTab,
   isVscodeTabDirty,
@@ -116,6 +117,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false)
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
   const [revealPath, setRevealPath] = useState<string | undefined>(undefined)
+  const [revealPosition, setRevealPosition] = useState<
+    (MonacoRevealPosition & { path: string }) | undefined
+  >(undefined)
 
   const terminalSessionRef = useRef<TerminalSession | undefined>(undefined)
   if (!terminalSessionRef.current) {
@@ -193,11 +197,21 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }, [activeTab, prefs.workspaceFolder, terminalSession])
 
   const openDocument = useCallback(
-    async (documentRef: string): Promise<boolean> => {
+    async (
+      documentRef: string,
+      options?: { reveal?: MonacoRevealPosition },
+    ): Promise<boolean> => {
       const existing = tabsRef.current.find((tab) => tab.path === documentRef)
       if (existing) {
         setActiveTabId(existing.id)
         setRevealPath(documentRef)
+        if (options?.reveal) {
+          setRevealPosition({
+            path: existing.path,
+            line: options.reveal.line,
+            column: options.reveal.column,
+          })
+        }
         return true
       }
 
@@ -220,6 +234,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         setTabs((prev) => [...prev, tab])
         setActiveTabId(tab.id)
         setRevealPath(path)
+        if (options?.reveal) {
+          setRevealPosition({
+            path,
+            line: options.reveal.line,
+            column: options.reveal.column,
+          })
+        }
         return true
       } catch (err) {
         await modal.alert({
@@ -236,6 +257,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
     },
     [modal],
+  )
+
+  const handleEditorOpenPath = useCallback(
+    async (path: string, position?: MonacoRevealPosition): Promise<boolean> => {
+      return openDocument(path, position ? { reveal: position } : undefined)
+    },
+    [openDocument],
   )
 
   const saveTab = useCallback(
@@ -345,6 +373,36 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }, [updatePrefs])
 
   useEffect(() => {
+    const controller = new AbortController()
+    const folder = prefs.workspaceFolder
+    const timer = window.setTimeout(() => {
+      void syncVscodeTypescriptWorkspace(folder, controller.signal).catch(() => undefined)
+    }, 80)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [prefs.workspaceFolder])
+
+  useEffect(() => {
+    if (!activeTab) return
+    if (activeTab.language !== 'typescript' && activeTab.language !== 'javascript') return
+
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void syncVscodeTypescriptLocalModules(
+        activeTab.path,
+        activeTab.text,
+        controller.signal,
+      ).catch(() => undefined)
+    }, 120)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [activeTab?.path, activeTab?.text, activeTab?.language])
+
+  useEffect(() => {
     if (!windowId || !pendingDocumentId) return
     if (loadingPathRef.current === pendingDocumentId) return
     const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
@@ -361,11 +419,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const current = tabsRef.current
     const index = current.findIndex((tab) => tab.id === tabId)
     if (index < 0) return
+    const removed = current[index]
     const nextTabs = current.filter((tab) => tab.id !== tabId)
-    setTabs(nextTabs)
     if (activeTabIdRef.current === tabId) {
       const neighbor = nextTabs[Math.min(index, nextTabs.length - 1)]
       setActiveTabId(neighbor?.id)
+    }
+    setTabs(nextTabs)
+    if (removed) {
+      window.setTimeout(() => {
+        const stillOpen = tabsRef.current.some((tab) => tab.path === removed.path)
+        if (!stillOpen) {
+          disposeMonacoModelForPath(removed.path)
+        }
+      }, 0)
     }
   }, [])
 
@@ -850,6 +917,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   value={activeTab.text}
                   onChange={updateActiveText}
                   language={activeTab.language}
+                  modelPath={activeTab.path}
                   theme={prefs.theme}
                   readOnly={!activeTab.writable}
                   fontSize={prefs.fontSize}
@@ -857,6 +925,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   wordWrap={prefs.wordWrap ? 'on' : 'off'}
                   active={isActiveWindow}
                   onCursorChange={(line, column) => setCursor({ line, column })}
+                  onOpenPath={handleEditorOpenPath}
+                  revealPosition={
+                    revealPosition && revealPosition.path === activeTab.path
+                      ? { line: revealPosition.line, column: revealPosition.column }
+                      : undefined
+                  }
+                  onRevealPositionApplied={() => setRevealPosition(undefined)}
                 />
               ) : (
                 <div class="vscode__welcome">
