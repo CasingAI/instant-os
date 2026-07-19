@@ -21,6 +21,7 @@ import {
 } from '../../terminal/terminal-public.ts'
 import type { TerminalSession } from '../../terminal/terminal-session.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
@@ -76,7 +77,7 @@ import './vscode.css'
 const SESSION_PERSIST_DEBOUNCE_MS = 400
 
 const APP_ID = 'vscode' as const
-const THEME = '#0078d4'
+const THEME = '#2f87e2'
 const DEFAULT_TITLE = 'Virtual Studio Code'
 
 registerFileOpenHandler({
@@ -115,6 +116,15 @@ function terminalColorsForTheme(theme: VscodePrefs['theme']): TerminalColors {
   }
   if (theme === 'hc-black') return TERMINAL_COLORS_HIGH_CONTRAST
   return TERMINAL_COLORS_DARK
+}
+
+function isVscodeChromeDark(theme: VscodePrefs['theme']): boolean {
+  return (
+    theme === 'vs-dark' ||
+    theme === 'hc-black' ||
+    theme === 'dark-plus' ||
+    theme === 'dark-modern'
+  )
 }
 
 export function VscodeApp({ windowId }: VscodeAppProps) {
@@ -163,6 +173,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     })
   }
   const terminalSession = terminalSessionRef.current
+  const mainPaneRef = useRef<HTMLDivElement>(null)
+  const terminalHeightRef = useRef(prefs.terminalHeight)
+  terminalHeightRef.current = prefs.terminalHeight
 
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef<string | undefined>(undefined)
@@ -324,6 +337,35 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setPrefs((current) => ({ ...current, ...patch }))
   }, [])
 
+  const onTerminalSashPointerDown = useCallback(
+    (event: PointerEvent) => {
+      const sash = event.currentTarget as HTMLElement
+      const main = mainPaneRef.current
+      if (!main) return
+      event.preventDefault()
+      sash.setPointerCapture(event.pointerId)
+      const startY = event.clientY
+      const startHeight = terminalHeightRef.current
+      const mainRect = main.getBoundingClientRect()
+      const maxHeight = Math.max(120, Math.floor(mainRect.height - 160))
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const next = Math.min(
+          maxHeight,
+          Math.max(120, Math.round(startHeight + (startY - moveEvent.clientY))),
+        )
+        updatePrefs({ terminalHeight: next })
+      }
+      const onUp = (upEvent: PointerEvent) => {
+        sash.releasePointerCapture(upEvent.pointerId)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [updatePrefs],
+  )
 
   const syncWindowToTab = useCallback(
     (tab: VscodeTab | undefined) => {
@@ -1000,7 +1042,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           { type: 'separator' },
           {
             type: 'action',
-            label: '资源管理器',
+            label: '文件夹',
             onClick: () => {
               setSidebarView('explorer')
               updatePrefs({ sidebarVisible: true })
@@ -1109,18 +1151,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }
 
   return (
-    <div class={`vscode vscode--theme-${prefs.theme}`}>
+    <div class={`vscode${isVscodeChromeDark(prefs.theme) ? ' vscode--chrome-dark' : ''}`}>
       <div class="vscode__body">
-        <aside class="vscode__activity" aria-label="活动栏">
+        <aside class="vscode__activity" aria-label="工具栏">
           <button
             type="button"
             class={`vscode__activity-btn${sidebarView === 'explorer' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
-            title="资源管理器"
+            title="文件夹"
             onClick={() => activateSidebar('explorer')}
           >
-            <span class="vscode__activity-glyph" aria-hidden="true">
-              ⊞
-            </span>
+            <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3.5 7.2c0-.9.7-1.7 1.7-1.7h5.1l1.4 1.5h7.1c.9 0 1.7.8 1.7 1.7v8.4c0 .9-.8 1.7-1.7 1.7H5.2c-.9 0-1.7-.8-1.7-1.7V7.2z" />
+            </svg>
           </button>
           <button
             type="button"
@@ -1128,19 +1170,16 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             title="搜索"
             onClick={() => activateSidebar('search')}
           >
-            <span class="vscode__activity-glyph" aria-hidden="true">
-              ⌕
-            </span>
-          </button>
-          <button
-            type="button"
-            class={`vscode__activity-btn${prefs.terminalVisible ? ' vscode__activity-btn--active' : ''}`}
-            title="终端"
-            onClick={() => updatePrefs({ terminalVisible: !prefs.terminalVisible })}
-          >
-            <span class="vscode__activity-glyph" aria-hidden="true">
-              ⌁
-            </span>
+            <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="currentColor" stroke-width="2.4" />
+              <path
+                d="M15.2 15.2 L20.2 20.2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.6"
+                stroke-linecap="round"
+              />
+            </svg>
           </button>
           <div class="vscode__activity-spacer" />
           <button
@@ -1149,9 +1188,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             title="设置"
             onClick={() => activateSidebar('settings')}
           >
-            <span class="vscode__activity-glyph" aria-hidden="true">
-              ⚙
-            </span>
+            <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z" />
+            </svg>
           </button>
         </aside>
 
@@ -1234,32 +1273,28 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     }
                   />
                 </label>
-                <label class="vscode__setting vscode__setting--row">
+                <div class="vscode__setting vscode__setting--row">
                   <span>小地图</span>
-                  <input
-                    type="checkbox"
+                  <IosSwitch
                     checked={prefs.minimap}
-                    onChange={(event) =>
-                      updatePrefs({ minimap: (event.target as HTMLInputElement).checked })
-                    }
+                    onChange={(checked) => updatePrefs({ minimap: checked })}
+                    label="小地图"
                   />
-                </label>
-                <label class="vscode__setting vscode__setting--row">
+                </div>
+                <div class="vscode__setting vscode__setting--row">
                   <span>自动换行</span>
-                  <input
-                    type="checkbox"
+                  <IosSwitch
                     checked={prefs.wordWrap}
-                    onChange={(event) =>
-                      updatePrefs({ wordWrap: (event.target as HTMLInputElement).checked })
-                    }
+                    onChange={(checked) => updatePrefs({ wordWrap: checked })}
+                    label="自动换行"
                   />
-                </label>
+                </div>
               </div>
             ) : undefined}
           </aside>
         ) : undefined}
 
-        <div class="vscode__main">
+        <div class="vscode__main" ref={mainPaneRef}>
           <div class="vscode__editor-pane">
             {hasEditorItems ? (
               <VscodeEditorArea
@@ -1315,7 +1350,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   <h1>Virtual Studio Code</h1>
                   <p>
                     {prefs.workspaceFolder
-                      ? '从左侧资源管理器打开文件，或使用菜单「文件 → 打开…」。'
+                      ? '从左侧文件夹列表打开文件，或使用菜单「文件 → 打开…」。'
                       : '打开一个文件夹作为工作区，或直接打开单个文件。'}
                   </p>
                   <div class="vscode__welcome-actions">
@@ -1340,15 +1375,24 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </div>
 
           {prefs.terminalVisible ? (
-            <div class="vscode__terminal" style={{ height: `${prefs.terminalHeight}px` }}>
-              <div class="vscode__panel-header">终端</div>
-              <TerminalPanel
-                session={terminalSession}
-                usageActor={APP_ID}
-                className="vscode__terminal-panel"
-                colors={terminalColorsForTheme(prefs.theme)}
+            <>
+              <div
+                class="vscode__terminal-sash"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="调整终端高度"
+                onPointerDown={onTerminalSashPointerDown}
               />
-            </div>
+              <div class="vscode__terminal" style={{ height: `${prefs.terminalHeight}px` }}>
+                <div class="vscode__panel-header">终端</div>
+                <TerminalPanel
+                  session={terminalSession}
+                  usageActor={APP_ID}
+                  className="vscode__terminal-panel"
+                  colors={terminalColorsForTheme(prefs.theme)}
+                />
+              </div>
+            </>
           ) : undefined}
         </div>
       </div>
@@ -1385,6 +1429,32 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </>
         ) : undefined}
         {loading ? <span>处理中…</span> : undefined}
+        <button
+          type="button"
+          class={`vscode__status-terminal-btn${prefs.terminalVisible ? ' vscode__status-terminal-btn--active' : ''}`}
+          title={prefs.terminalVisible ? '隐藏终端' : '显示终端'}
+          aria-pressed={prefs.terminalVisible}
+          onClick={() => updatePrefs({ terminalVisible: !prefs.terminalVisible })}
+        >
+          <svg class="vscode__status-terminal-glyph" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4.2 7.2 L9.8 12 L4.2 16.8"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M11.5 16.8 H19.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>终端</span>
+        </button>
       </footer>
 
       {openDialog}

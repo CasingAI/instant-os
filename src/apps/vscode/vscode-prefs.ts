@@ -17,7 +17,7 @@ export type VscodePrefs = {
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodePrefs
 
 const DEFAULT_PREFS: VscodePrefs = {
-  theme: 'dark-plus',
+  theme: 'light-plus',
   fontSize: 13,
   minimap: true,
   wordWrap: true,
@@ -52,8 +52,8 @@ export function loadVscodePrefs(): VscodePrefs {
       sidebarVisible: parsed.sidebarVisible !== false,
       terminalVisible: parsed.terminalVisible !== false,
       terminalHeight:
-        typeof parsed.terminalHeight === 'number'
-          ? clamp(parsed.terminalHeight, 120, 480)
+          typeof parsed.terminalHeight === 'number'
+          ? clamp(parsed.terminalHeight, 120, 720)
           : DEFAULT_PREFS.terminalHeight,
       sidebarWidth:
         typeof parsed.sidebarWidth === 'number'
