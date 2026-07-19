@@ -1,5 +1,10 @@
 import { fileNameFromPath, monacoLanguageFromFileName } from '../../monaco/monaco-language.ts'
-import type { FilesNode } from '../files/files-types.ts'
+import { parseFilesAbsolutePath } from '../files/files-path.ts'
+import {
+  FILES_TEXT_MIME,
+  defaultFilesNodeAttributes,
+  type FilesNode,
+} from '../files/files-types.ts'
 
 export type VscodeTab = {
   id: string
@@ -10,6 +15,13 @@ export type VscodeTab = {
   writable: boolean
   language: string
   node: FilesNode
+  /** 磁盘上已不存在；保存时将按路径重新创建 */
+  deleted: boolean
+  /**
+   * 未解决的磁盘冲突：编辑器显示草稿，diskText 为当前磁盘内容。
+   * baseline 为产生冲突时的原稿基准，供热退出后再检测。
+   */
+  conflict: { diskText: string; baseline: string } | undefined
 }
 
 let tabSeq = 0
@@ -20,26 +32,66 @@ export function createVscodeTabId(): string {
 }
 
 export function isVscodeTabDirty(tab: VscodeTab): boolean {
-  return tab.text !== tab.savedText
+  return tab.deleted || tab.conflict !== undefined || tab.text !== tab.savedText
+}
+
+function stubNodeForDeletedPath(path: string): FilesNode {
+  const name = fileNameFromPath(path)
+  const parsed = parseFilesAbsolutePath(path)
+  const locationId = parsed?.locationId ?? 'local'
+  const now = Date.now()
+  return {
+    id: `vscode-deleted:${path}`,
+    locationId,
+    parentId: undefined,
+    name,
+    kind: 'file',
+    mimeType: FILES_TEXT_MIME,
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attributes: defaultFilesNodeAttributes(locationId),
+  }
 }
 
 export function buildVscodeTab(options: {
   path: string
+  /** 编辑器当前正文（可为未保存草稿） */
   text: string
   node: FilesNode
   writable: boolean
+  /** 磁盘基准；缺省与 text 相同（干净打开） */
+  savedText?: string
+  deleted?: boolean
+  conflict?: { diskText: string; baseline: string }
 }): VscodeTab {
   const name = options.node.name || fileNameFromPath(options.path)
+  const savedText = options.savedText ?? options.text
   return {
     id: createVscodeTabId(),
     path: options.path,
     name,
     text: options.text,
-    savedText: options.text,
+    savedText,
     writable: options.writable,
     language: monacoLanguageFromFileName(name),
     node: options.node,
+    deleted: options.deleted === true,
+    conflict: options.conflict,
   }
+}
+
+/** 磁盘文件已不存在时的恢复标签 */
+export function buildDeletedVscodeTab(path: string, text: string): VscodeTab {
+  const node = stubNodeForDeletedPath(path)
+  return buildVscodeTab({
+    path,
+    text,
+    savedText: '',
+    node,
+    writable: true,
+    deleted: true,
+  })
 }
 
 /** Virtual Studio Code 默认打开关联的源码后缀（不含 txt / html 族） */

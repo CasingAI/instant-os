@@ -39,6 +39,7 @@ export const DEVICE_STORAGE_KEYS = {
   icodeInternalProjects: 'instant-os-icode-internal-projects',
   icodeProjects: 'instant-os-icode-projects',
   vscodePrefs: 'instant-os-vscode-prefs',
+  vscodeSession: 'instant-os-vscode-session',
 } as const
 
 /** Frimousse 表情选择器缓存的 localStorage 键前缀 */

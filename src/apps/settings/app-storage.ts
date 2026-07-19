@@ -111,7 +111,10 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
     ])
   }
   if (appId === 'vscode') {
-    return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.vscodePrefs)
+    return sumLocalStorageKeys([
+      DEVICE_STORAGE_KEYS.vscodePrefs,
+      DEVICE_STORAGE_KEYS.vscodeSession,
+    ])
   }
   if (appId === 'scene3d-lab') {
     return sumLocalStorageKeys([

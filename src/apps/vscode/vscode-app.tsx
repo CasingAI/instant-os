@@ -25,16 +25,27 @@ import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
 import { isFilesNodeWritable } from '../files/files-types.ts'
+import { filesCreateText } from '../files/files-api.ts'
 import {
+  FILES_VFS_CHANGED_EVENT,
   readTextFile,
   resolveFilesAbsolutePath,
+  resolveNodeByAbsolutePath,
   writeTextFile,
 } from '../files/files-vfs.ts'
 import { VscodeExplorer } from './vscode-explorer.tsx'
 import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-prefs.ts'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
+import {
+  buildVscodeSessionFromTabs,
+  loadVscodeSession,
+  lookupVscodeDraft,
+  saveVscodeSession,
+  type VscodeDraftEntry,
+} from './vscode-session.ts'
 import { syncVscodeTypescriptLocalModules, syncVscodeTypescriptWorkspace } from './vscode-typescript-workspace.ts'
 import {
+  buildDeletedVscodeTab,
   buildVscodeTab,
   isVscodeTabDirty,
   VSCODE_OPEN_EXTENSIONS,
@@ -42,6 +53,8 @@ import {
   type VscodeTab,
 } from './vscode-tabs.ts'
 import './vscode.css'
+
+const SESSION_PERSIST_DEBOUNCE_MS = 400
 
 const APP_ID = 'vscode' as const
 const THEME = '#0078d4'
@@ -93,11 +106,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setWindowDocumentId,
     setWindowDocumentEdited,
     setWindowDocumentReadOnly,
-    closeWindow,
     closeWindowsForApp,
     minimizeWindow,
-    bypassWindowCloseGuard,
-    cancelPendingAppQuit,
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
@@ -113,6 +123,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [tabs, setTabs] = useState<VscodeTab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | undefined>(undefined)
+  const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
@@ -136,9 +147,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const activeTabIdRef = useRef(activeTabId)
   const loadingPathRef = useRef<string | undefined>(undefined)
   const mountedRef = useRef(true)
+  const skipSessionPersistRef = useRef(false)
+  const sessionReadyRef = useRef(false)
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
+  sessionReadyRef.current = sessionReady
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
   const dirty = activeTab ? isVscodeTabDirty(activeTab) : false
@@ -148,6 +162,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   useEffect(() => {
     mountedRef.current = true
     return () => {
+      if (!skipSessionPersistRef.current && sessionReadyRef.current) {
+        saveVscodeSession(
+          buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current),
+        )
+      }
       mountedRef.current = false
       terminalSessionRef.current?.destroy()
       terminalSessionRef.current = undefined
@@ -158,9 +177,108 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     saveVscodePrefs(prefs)
   }, [prefs])
 
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+
+    void (async () => {
+      const session = loadVscodeSession()
+      const restored: VscodeTab[] = []
+      const keptPaths: string[] = []
+      const keptDrafts: Record<string, VscodeDraftEntry> = {}
+
+      for (const path of session.openPaths) {
+        if (cancelled || !mountedRef.current) return
+        const draft = lookupVscodeDraft(session.drafts, path)
+        try {
+          const result = await readTextFile(path)
+          if (cancelled || !mountedRef.current) return
+          const absolutePath = await resolveFilesAbsolutePath(result.node)
+          if (cancelled || !mountedRef.current) return
+          const draftEntry = draft ?? lookupVscodeDraft(session.drafts, absolutePath)
+
+          let text = result.text
+          let conflict: VscodeTab['conflict']
+          let keepDraft: VscodeDraftEntry | undefined
+
+          if (draftEntry && draftEntry.text !== result.text) {
+            const baseline = draftEntry.baseline
+            const diskChangedFromBaseline =
+              baseline !== undefined && baseline !== result.text
+            if (diskChangedFromBaseline) {
+              // 真冲突：先显示草稿，由该标签内横幅选择，不阻塞其它标签恢复
+              text = draftEntry.text
+              conflict = { diskText: result.text, baseline }
+              keepDraft = { text: draftEntry.text, baseline }
+            } else {
+              text = draftEntry.text
+              keepDraft = { text: draftEntry.text, baseline: result.text }
+            }
+          }
+
+          const tab = buildVscodeTab({
+            path: absolutePath,
+            text,
+            savedText: result.text,
+            node: result.node,
+            writable: isFilesNodeWritable(result.node),
+            conflict,
+          })
+          restored.push(tab)
+          keptPaths.push(absolutePath)
+          if (keepDraft) keptDrafts[absolutePath] = keepDraft
+        } catch {
+          if (cancelled || !mountedRef.current) return
+          const text = draft?.text ?? ''
+          const tab = buildDeletedVscodeTab(path, text)
+          restored.push(tab)
+          keptPaths.push(path)
+          keptDrafts[path] = { text, baseline: '' }
+        }
+      }
+
+      if (cancelled || !mountedRef.current) return
+
+      let nextActiveId: string | undefined
+      if (restored.length > 0) {
+        const activeRestored =
+          restored.find((tab) => tab.path === session.activePath) ?? restored[0]
+        nextActiveId = activeRestored?.id
+      }
+
+      tabsRef.current = restored
+      activeTabIdRef.current = nextActiveId
+      setTabs(restored)
+      setActiveTabId(nextActiveId)
+      saveVscodeSession({
+        openPaths: keptPaths,
+        activePath: restored.find((tab) => tab.id === nextActiveId)?.path ?? keptPaths[0],
+        drafts: keptDrafts,
+      })
+      setSessionReady(true)
+      setLoading(false)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionReady || skipSessionPersistRef.current) return
+    const timer = window.setTimeout(() => {
+      if (skipSessionPersistRef.current || !mountedRef.current) return
+      saveVscodeSession(buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current))
+    }, SESSION_PERSIST_DEBOUNCE_MS)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [tabs, activeTabId, sessionReady])
+
   const updatePrefs = useCallback((patch: Partial<VscodePrefs>) => {
     setPrefs((current) => ({ ...current, ...patch }))
   }, [])
+
 
   const syncWindowToTab = useCallback(
     (tab: VscodeTab | undefined) => {
@@ -233,7 +351,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           node: result.node,
           writable: isFilesNodeWritable(result.node),
         })
-        setTabs((prev) => [...prev, tab])
+        const nextTabs = [...tabsRef.current, tab]
+        tabsRef.current = nextTabs
+        activeTabIdRef.current = tab.id
+        setTabs(nextTabs)
         setActiveTabId(tab.id)
         setRevealPath(path)
         if (options?.reveal) {
@@ -242,6 +363,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             line: options.reveal.line,
             column: options.reveal.column,
           })
+        }
+        if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+          saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, tab.id))
         }
         return true
       } catch (err) {
@@ -274,23 +398,95 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       if (!tab || !tab.writable) return false
       setLoading(true)
       try {
-        const updated = await writeTextFile(tab.path, tab.text)
+        let updated
+        if (tab.deleted) {
+          const existing = await resolveNodeByAbsolutePath(tab.path)
+          if (existing && existing.kind === 'file') {
+            updated = await writeTextFile(tab.path, tab.text)
+          } else {
+            await filesCreateText(tab.path, tab.text)
+            const created = await readTextFile(tab.path)
+            updated = created.node
+          }
+        } else {
+          // 已有未解决冲突时，Cmd+S 视为强制用编辑器内容覆盖磁盘
+          if (!tab.conflict) {
+            const onDisk = await readTextFile(tab.path)
+            if (!mountedRef.current) return false
+            if (onDisk.text !== tab.savedText && onDisk.text !== tab.text) {
+              const nextTabs = tabsRef.current.map((item) =>
+                item.id === tabId
+                  ? {
+                      ...item,
+                      savedText: onDisk.text,
+                      node: onDisk.node,
+                      writable: isFilesNodeWritable(onDisk.node),
+                      conflict: {
+                        diskText: onDisk.text,
+                        baseline: item.savedText,
+                      },
+                    }
+                  : item,
+              )
+              tabsRef.current = nextTabs
+              setTabs(nextTabs)
+              if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+                saveVscodeSession(
+                  buildVscodeSessionFromTabs(nextTabs, activeTabIdRef.current),
+                )
+              }
+              return false
+            }
+            if (onDisk.text === tab.text) {
+              const nextPath = await resolveFilesAbsolutePath(onDisk.node)
+              if (!mountedRef.current) return false
+              const nextTabs = tabsRef.current.map((item) =>
+                item.id === tabId
+                  ? {
+                      ...item,
+                      path: nextPath,
+                      name: onDisk.node.name,
+                      savedText: item.text,
+                      node: onDisk.node,
+                      writable: isFilesNodeWritable(onDisk.node),
+                      deleted: false,
+                      conflict: undefined,
+                    }
+                  : item,
+              )
+              tabsRef.current = nextTabs
+              setTabs(nextTabs)
+              if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+                saveVscodeSession(
+                  buildVscodeSessionFromTabs(nextTabs, activeTabIdRef.current),
+                )
+              }
+              return true
+            }
+          }
+          updated = await writeTextFile(tab.path, tab.text)
+        }
         const nextPath = await resolveFilesAbsolutePath(updated)
         if (!mountedRef.current) return false
-        setTabs((prev) =>
-          prev.map((item) =>
-            item.id === tabId
-              ? {
-                  ...item,
-                  path: nextPath,
-                  name: updated.name,
-                  savedText: item.text,
-                  node: updated,
-                  writable: isFilesNodeWritable(updated),
-                }
-              : item,
-          ),
+        const nextTabs = tabsRef.current.map((item) =>
+          item.id === tabId
+            ? {
+                ...item,
+                path: nextPath,
+                name: updated.name,
+                savedText: item.text,
+                node: updated,
+                writable: isFilesNodeWritable(updated),
+                deleted: false,
+                conflict: undefined,
+              }
+            : item,
         )
+        tabsRef.current = nextTabs
+        setTabs(nextTabs)
+        if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+          saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, activeTabIdRef.current))
+        }
         return true
       } catch (err) {
         await modal.alert({
@@ -328,6 +524,35 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       current?.resolve(choice)
       return undefined
     })
+  }, [])
+
+  const resolveTabConflict = useCallback((tabId: string, choice: 'draft' | 'disk') => {
+    const current = tabsRef.current
+    const tab = current.find((item) => item.id === tabId)
+    if (!tab?.conflict) return
+    const diskText = tab.conflict.diskText
+    const nextTabs = current.map((item) => {
+      if (item.id !== tabId || !item.conflict) return item
+      if (choice === 'disk') {
+        return {
+          ...item,
+          text: diskText,
+          savedText: diskText,
+          conflict: undefined,
+        }
+      }
+      return {
+        ...item,
+        // 保留编辑器中的草稿，以当前磁盘为新的 saved 基准
+        savedText: diskText,
+        conflict: undefined,
+      }
+    })
+    tabsRef.current = nextTabs
+    setTabs(nextTabs)
+    if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+      saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, activeTabIdRef.current))
+    }
   }, [])
 
   const ensureTabCleanOrConfirm = useCallback(
@@ -405,7 +630,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }, [activeTab?.path, activeTab?.text, activeTab?.language])
 
   useEffect(() => {
-    if (!windowId || !pendingDocumentId) return
+    if (!sessionReady || !windowId || !pendingDocumentId) return
     if (loadingPathRef.current === pendingDocumentId) return
     const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
     if (existing) {
@@ -415,7 +640,67 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       return
     }
     void openDocument(pendingDocumentId)
-  }, [openDocument, pendingDocumentId, windowId])
+  }, [openDocument, pendingDocumentId, sessionReady, windowId])
+
+  useEffect(() => {
+    if (!sessionReady) return
+
+    let cancelled = false
+    let timer: number | undefined
+
+    const syncDeletedFlags = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        void (async () => {
+          const current = tabsRef.current
+          if (current.length === 0) return
+          let changed = false
+          const nextTabs: VscodeTab[] = []
+          for (const tab of current) {
+            if (tab.deleted) {
+              try {
+                const result = await readTextFile(tab.path)
+                if (cancelled || !mountedRef.current) return
+                changed = true
+                nextTabs.push({
+                  ...tab,
+                  deleted: false,
+                  node: result.node,
+                  name: result.node.name || tab.name,
+                  writable: isFilesNodeWritable(result.node),
+                  savedText: result.text,
+                })
+              } catch {
+                nextTabs.push(tab)
+              }
+              continue
+            }
+            const node = await resolveNodeByAbsolutePath(tab.path)
+            if (cancelled || !mountedRef.current) return
+            if (!node || node.kind !== 'file') {
+              changed = true
+              nextTabs.push({ ...tab, deleted: true, savedText: '', conflict: undefined })
+              continue
+            }
+            nextTabs.push(tab)
+          }
+          if (!changed || cancelled || !mountedRef.current) return
+          tabsRef.current = nextTabs
+          setTabs(nextTabs)
+          if (!skipSessionPersistRef.current) {
+            saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, activeTabIdRef.current))
+          }
+        })()
+      }, 80)
+    }
+
+    window.addEventListener(FILES_VFS_CHANGED_EVENT, syncDeletedFlags)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      window.removeEventListener(FILES_VFS_CHANGED_EVENT, syncDeletedFlags)
+    }
+  }, [sessionReady])
 
   const removeTab = useCallback((tabId: string) => {
     const current = tabsRef.current
@@ -423,11 +708,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (index < 0) return
     const removed = current[index]
     const nextTabs = current.filter((tab) => tab.id !== tabId)
+    let nextActiveId = activeTabIdRef.current
     if (activeTabIdRef.current === tabId) {
       const neighbor = nextTabs[Math.min(index, nextTabs.length - 1)]
-      setActiveTabId(neighbor?.id)
+      nextActiveId = neighbor?.id
+      setActiveTabId(nextActiveId)
     }
+    tabsRef.current = nextTabs
+    activeTabIdRef.current = nextActiveId
     setTabs(nextTabs)
+    if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+      saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, nextActiveId))
+    }
     if (removed) {
       window.setTimeout(() => {
         const stillOpen = tabsRef.current.some((tab) => tab.path === removed.path)
@@ -455,63 +747,58 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const requestClose = useCallback(() => {
     if (!windowId) return true
-    const dirtyTabs = tabsRef.current.filter(isVscodeTabDirty)
-    if (dirtyTabs.length === 0) return true
-
-    void (async () => {
-      const choice = await new Promise<DirtyChoice>((resolve) => {
-        setDirtyPrompt({
-          fileName:
-            dirtyTabs.length === 1
-              ? dirtyTabs[0]!.name
-              : `${dirtyTabs.length} 个文件`,
-          writable: dirtyTabs.every((tab) => tab.writable),
-          resolve,
-        })
-      })
-
-      if (choice === 'cancel') {
-        cancelPendingAppQuit(APP_ID)
-        return
-      }
-
-      if (choice === 'save') {
-        for (const tab of dirtyTabs) {
-          const latest = tabsRef.current.find((item) => item.id === tab.id)
-          if (!latest || !isVscodeTabDirty(latest)) continue
-          if (!latest.writable) {
-            cancelPendingAppQuit(APP_ID)
-            await modal.alert({
-              title: '无法保存',
-              message: `「${latest.name}」为只读，无法保存。`,
-              themeColor: THEME,
-            })
-            return
-          }
-          const saved = await saveTab(latest.id)
-          if (!saved) {
-            cancelPendingAppQuit(APP_ID)
-            return
-          }
-        }
-      }
-
-      setWindowDocumentEdited(windowId, false)
-      bypassWindowCloseGuard(windowId)
-      closeWindow(windowId)
-    })()
-    return false
-  }, [
-    bypassWindowCloseGuard,
-    cancelPendingAppQuit,
-    closeWindow,
-    modal,
-    saveTab,
-    setWindowDocumentEdited,
-    windowId,
-  ])
+    skipSessionPersistRef.current = true
+    saveVscodeSession(buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current))
+    setWindowDocumentEdited(windowId, false)
+    return true
+  }, [setWindowDocumentEdited, windowId])
 
   useWindowCloseGuard(windowId, requestClose)
+
+  useEffect(() => {
+    if (!isActiveWindow) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (openDialogOpen || dirtyPrompt || loading) return
+
+      const key = event.key.toLowerCase()
+      if (key === 's' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        const tab = tabsRef.current.find((item) => item.id === activeTabIdRef.current)
+        if (!tab || !tab.writable) return
+        if (!isVscodeTabDirty(tab) && !tab.conflict) return
+        void handleSave()
+        return
+      }
+      if (key === 'w' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        handleCloseTab()
+        return
+      }
+      if (key === 'o' && event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        void pickAndOpenFolder()
+        return
+      }
+      if (key === 'o' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        void pickAndOpen()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [
+    dirtyPrompt,
+    handleCloseTab,
+    handleSave,
+    isActiveWindow,
+    loading,
+    openDialogOpen,
+    pickAndOpen,
+    pickAndOpenFolder,
+  ])
 
   const updateActiveText = useCallback((nextText: string) => {
     const tabId = activeTabIdRef.current
@@ -882,21 +1169,32 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 {tabs.map((tab) => {
                   const isActive = tab.id === activeTab?.id
                   const tabDirty = isVscodeTabDirty(tab)
+                  const tabLabel = tab.deleted
+                    ? `${tab.name}（已删除）`
+                    : tab.conflict
+                      ? `${tab.name}（冲突）`
+                      : tab.name
                   return (
                     <div
                       key={tab.id}
-                      class={`vscode__tab${isActive ? ' vscode__tab--active' : ''}${tabDirty ? ' vscode__tab--dirty' : ''}`}
+                      class={`vscode__tab${isActive ? ' vscode__tab--active' : ''}${tabDirty ? ' vscode__tab--dirty' : ''}${tab.deleted ? ' vscode__tab--deleted' : ''}${tab.conflict ? ' vscode__tab--conflict' : ''}`}
                       role="tab"
                       aria-selected={isActive}
                     >
                       <button
                         type="button"
                         class="vscode__tab-main"
-                        title={tab.path}
+                        title={
+                          tab.deleted
+                            ? `${tab.path}（已删除）`
+                            : tab.conflict
+                              ? `${tab.path}（内容冲突）`
+                              : tab.path
+                        }
                         onClick={() => setActiveTabId(tab.id)}
                       >
                         {tabDirty ? <span class="vscode__tab-dot" aria-hidden="true" /> : undefined}
-                        <span class="vscode__tab-title">{tab.name}</span>
+                        <span class="vscode__tab-title">{tabLabel}</span>
                       </button>
                       <button
                         type="button"
@@ -918,27 +1216,56 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
             <div class="vscode__editor">
               {activeTab ? (
-                <MonacoEditor
-                  className="vscode__monaco"
-                  value={activeTab.text}
-                  onChange={updateActiveText}
-                  language={activeTab.language}
-                  modelPath={activeTab.path}
-                  theme={prefs.theme}
-                  readOnly={!activeTab.writable}
-                  fontSize={prefs.fontSize}
-                  minimap={prefs.minimap}
-                  wordWrap={prefs.wordWrap ? 'on' : 'off'}
-                  active={isActiveWindow}
-                  onCursorChange={(line, column) => setCursor({ line, column })}
-                  onOpenPath={handleEditorOpenPath}
-                  revealPosition={
-                    revealPosition && revealPosition.path === activeTab.path
-                      ? { line: revealPosition.line, column: revealPosition.column }
-                      : undefined
-                  }
-                  onRevealPositionApplied={() => setRevealPosition(undefined)}
-                />
+                <>
+                  {activeTab.conflict ? (
+                    <div class="vscode__conflict-banner" role="alertdialog" aria-label="内容冲突">
+                      <p class="vscode__conflict-banner-text">
+                        未保存内容与磁盘上的文件不一致。当前编辑器显示的是未保存版本。
+                      </p>
+                      <div class="vscode__conflict-banner-actions">
+                        <button
+                          type="button"
+                          class="vscode__conflict-banner-btn vscode__conflict-banner-btn--primary"
+                          onClick={() => resolveTabConflict(activeTab.id, 'draft')}
+                        >
+                          保留未保存的内容
+                        </button>
+                        <button
+                          type="button"
+                          class="vscode__conflict-banner-btn"
+                          onClick={() => resolveTabConflict(activeTab.id, 'disk')}
+                        >
+                          使用磁盘上的内容
+                        </button>
+                      </div>
+                    </div>
+                  ) : activeTab.deleted ? (
+                    <div class="vscode__deleted-banner" role="status">
+                      此文件已从磁盘删除，保存将重新创建。
+                    </div>
+                  ) : undefined}
+                  <MonacoEditor
+                    className="vscode__monaco"
+                    value={activeTab.text}
+                    onChange={updateActiveText}
+                    language={activeTab.language}
+                    modelPath={activeTab.path}
+                    theme={prefs.theme}
+                    readOnly={!activeTab.writable}
+                    fontSize={prefs.fontSize}
+                    minimap={prefs.minimap}
+                    wordWrap={prefs.wordWrap ? 'on' : 'off'}
+                    active={isActiveWindow}
+                    onCursorChange={(line, column) => setCursor({ line, column })}
+                    onOpenPath={handleEditorOpenPath}
+                    revealPosition={
+                      revealPosition && revealPosition.path === activeTab.path
+                        ? { line: revealPosition.line, column: revealPosition.column }
+                        : undefined
+                    }
+                    onRevealPositionApplied={() => setRevealPosition(undefined)}
+                  />
+                </>
               ) : (
                 <div class="vscode__welcome">
                   <h1>Virtual Studio Code</h1>
@@ -1000,7 +1327,17 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             >
               {monacoLanguageLabel(activeTab.language)}
             </button>
-            <span>{activeTab.writable ? (dirty || anyDirty ? '已编辑' : '已保存') : '只读'}</span>
+            <span>
+              {activeTab.conflict
+                ? '冲突'
+                : activeTab.deleted
+                  ? '已删除'
+                  : activeTab.writable
+                    ? dirty || anyDirty
+                      ? '已编辑'
+                      : '已保存'
+                    : '只读'}
+            </span>
           </>
         ) : undefined}
         {loading ? <span>处理中…</span> : undefined}
@@ -1021,8 +1358,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       <WindowModal
         open={!!dirtyPrompt}
         title="未保存的更改"
+        role="alertdialog"
         themeColor={THEME}
-        onClose={() => resolveDirtyPrompt('cancel')}
         actions={dirtyPromptActions}
       >
         <p class="window-modal__message">是否保存对「{dirtyPrompt?.fileName}」的更改？</p>
