@@ -131,6 +131,7 @@
   font-size: 11px;
   line-height: 1.45;
   color: #555;
+  white-space: pre-line;
 }
 
 .window-modal__error {

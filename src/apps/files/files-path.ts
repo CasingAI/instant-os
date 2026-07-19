@@ -20,7 +20,7 @@ export type ParsedFilesAbsolutePath = {
 
 /**
  * 位置 → 全局路径根。
- * - 本机 `/user`
+ * - 用户文件 `/user`
  * - 3D 模型 `/models`
  * - 系统文件 `/system`
  * - 外部挂载 `/mount/{8位键}`
@@ -121,7 +121,7 @@ export function filesLocationDisplayName(locationId: FilesLocationId): string {
   if (isMountLocationId(locationId)) {
     return getCachedMount(locationId)?.label ?? locationId
   }
-  if (locationId === 'local') return '本机'
+  if (locationId === 'local') return '用户文件'
   if (locationId === 'models3d') return '3D 模型'
   return '系统文件'
 }

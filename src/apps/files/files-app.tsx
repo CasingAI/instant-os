@@ -383,6 +383,16 @@ export function FilesApp() {
       return
     }
 
+    const ok = await modal.confirm({
+      title: '挂载本机文件夹',
+      message:
+        '挂载后可在本系统中浏览并读写该文件夹里的真实文件，具备文件能力的应用也可访问。改动会直接落在电脑磁盘上，请勿挂载含重要或敏感数据的目录；卸载不会撤销已发生的修改。',
+      confirmLabel: '继续',
+      cancelLabel: '取消',
+      themeColor: THEME,
+    })
+    if (!ok) return
+
     try {
       const handle = await pickDirectoryToMount()
       const mount = await addMount(handle)
@@ -733,7 +743,7 @@ export function FilesApp() {
     ? pathNodes.length > 1
       ? pathNodes[pathNodes.length - 2].name
       : locationLabel
-    : '位置'
+    : '容器'
 
   const openWithApps = useMemo(() => {
     return listRegisteredFileOpenApps().flatMap((appId) => {
@@ -756,10 +766,10 @@ export function FilesApp() {
     >
       <aside class="files__sidebar">
         <header class="files__sidebar-toolbar">
-          <h1 class="files__sidebar-toolbar-title">位置</h1>
+          <h1 class="files__sidebar-toolbar-title">容器</h1>
         </header>
         <div class="files__sidebar-section">
-          <div class="files__sidebar-heading">位置</div>
+          <div class="files__sidebar-heading">容器</div>
           <ul class="files__sidebar-list">
             {locations.map((location) => {
               const active = location.id === locationId

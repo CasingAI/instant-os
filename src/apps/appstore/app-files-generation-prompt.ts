@@ -13,7 +13,7 @@ export const APP_STORE_FILES_RUNTIME_SECTION = `【文件运行时】
 宿主为微应用注入 InstantOS.files（全局绝对路径句柄），由系统 Files VFS 执行，可读写卷受卷属性约束。
 
 路径约定：
-- /user — 本机用户文件（可读写）
+- /user — 用户文件（可读写）
 - /models — 3D 模型（只读）
 - /system — 系统源码快照（只读）
 - /mount/{8位键}/… — 用户挂载的本机文件夹（可读写）
