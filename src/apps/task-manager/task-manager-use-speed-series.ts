@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import {
-  listLiveAiEventLogs,
-  refreshLiveAiEventLogPerformance,
-} from '../../ai/ai-event-log.ts'
+import { listLiveAiEventLogs } from '../../ai/ai-event-log.ts'
 import {
   appendSpeedSeriesPoint,
   computeInstantTokensPerSecond,
@@ -25,7 +22,6 @@ export function useTaskManagerSpeedSeries(sampleIntervalSec: SpeedSampleInterval
     lastSampleAtRef.current = Date.now()
 
     const sample = () => {
-      refreshLiveAiEventLogPerformance()
       const live = listLiveAiEventLogs()
       const sessionTokens = new Map<string, number>()
       const fallbackRates = new Map<string, number>()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   AI_EVENT_LOG_CHANGED_EVENT,
   formatDurationMs,
@@ -36,10 +36,18 @@ import {
 const LOG_LIMIT = 200
 const CHART_VIEW_WIDTH = 960
 const CHART_VIEW_HEIGHT = 280
-/** 左侧留给轴标签；窄屏字号按 viewBox 放大后仍需足够边距 */
-const CHART_PADDING = { top: 16, right: 16, bottom: 20, left: 72 }
-const CHART_PLOT_LEFT = CHART_PADDING.left
-const CHART_AXIS_LABEL_X = CHART_PADDING.left - 6
+/** 轴标签与绘图区的间距（用户单位）；左侧宽度按实测标签动态算 */
+const CHART_AXIS_LABEL_GAP = 8
+const CHART_PADDING_BASE = { top: 22, right: 16, bottom: 20, left: 56 }
+const CHART_AXIS_LEFT_MIN = 40
+const CHART_AXIS_LEFT_MAX = 280
+
+type ChartPadding = {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
 
 type PerfCategory = 'ai' | 'fps' | 'memory'
 
@@ -111,32 +119,6 @@ export function TaskManagerPerformancePanel({
   }, [refresh])
 
   const analysis = useMemo((): AiPerformanceAnalysis => analyzeAiEventPerformance(records), [records])
-  const chart = useMemo(
-    () => buildRealtimeSpeedPolyline(series, CHART_VIEW_WIDTH, CHART_VIEW_HEIGHT, CHART_PADDING),
-    [series],
-  )
-  const fpsChart = useMemo(
-    () =>
-      buildRealtimeMetricPolyline(fpsSeries, CHART_VIEW_WIDTH, CHART_VIEW_HEIGHT, CHART_PADDING, {
-        minAxisMax: 60,
-        formatTick: (value) => (value >= 10 ? `${Math.round(value)}` : value.toFixed(1)),
-      }),
-    [fpsSeries],
-  )
-  const memoryChart = useMemo(
-    () =>
-      buildRealtimeMetricPolyline(
-        memorySeries,
-        CHART_VIEW_WIDTH,
-        CHART_VIEW_HEIGHT,
-        CHART_PADDING,
-        {
-          formatTick: formatMemoryAxisTick,
-          minAxisMax: latestHeap?.limitBytes ? latestHeap.limitBytes * 0.05 : undefined,
-        },
-      ),
-    [latestHeap?.limitBytes, memorySeries],
-  )
   const recentSamples = useMemo(
     () => [...analysis.samples].reverse().slice(0, 5),
     [analysis.samples],
@@ -144,11 +126,14 @@ export function TaskManagerPerformancePanel({
   const liveCount = getLiveAiEventLogCount()
 
   const hasSpeed = series.some((point) => point.tokensPerSecond > 0)
+  const latestSpeed = series.length > 0 ? series[series.length - 1]!.tokensPerSecond : 0
   const windowAverage =
     series.length === 0
       ? undefined
       : series.reduce((sum, point) => sum + point.tokensPerSecond, 0) / series.length
-  const windowPeak = hasSpeed ? chart.maxSpeed : undefined
+  const windowPeak = hasSpeed
+    ? Math.max(...series.map((point) => point.tokensPerSecond))
+    : undefined
   const sampleMeta = speedSeriesTimeWindowLabel(series.length, sampleIntervalSec)
   const fpsSampleMeta = speedSeriesTimeWindowLabel(fpsSeries.length, sampleIntervalSec)
   const memorySampleMeta = speedSeriesTimeWindowLabel(memorySeries.length, sampleIntervalSec)
@@ -157,9 +142,11 @@ export function TaskManagerPerformancePanel({
     fpsSeries.length === 0
       ? undefined
       : fpsSeries.reduce((sum, point) => sum + point.value, 0) / fpsSeries.length
-  const fpsWindowPeak = fpsSeries.length === 0 ? undefined : fpsChart.maxValue
+  const fpsWindowPeak =
+    fpsSeries.length === 0 ? undefined : Math.max(...fpsSeries.map((point) => point.value))
 
-  const memoryWindowPeak = memorySeries.length === 0 ? undefined : memoryChart.maxValue
+  const memoryWindowPeak =
+    memorySeries.length === 0 ? undefined : Math.max(...memorySeries.map((point) => point.value))
   const heapPercent = memoryUsagePercent(latestHeap)
   const appReportCount = memory.appReports.length
   const uniqueGuestHeapCount = memory.heapClusters.filter((cluster) => !cluster.sharedWithHost).length
@@ -167,7 +154,7 @@ export function TaskManagerPerformancePanel({
 
   const categoryNow =
     category === 'ai'
-      ? formatTokensPerSecond(chart.latest)
+      ? formatTokensPerSecond(latestSpeed)
       : category === 'fps'
         ? formatFps(latestFps)
         : formatMemoryBytes(latestHeap?.usedBytes)
@@ -268,7 +255,15 @@ export function TaskManagerPerformancePanel({
                   </div>
                   <div class="task-manager__chart-frame">
                     <MetricChart
-                      chart={chart}
+                      revision={series}
+                      buildChart={(padding) =>
+                        buildRealtimeSpeedPolyline(
+                          series,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                        )
+                      }
                       ariaLabel="输出 token 速度实时折线图"
                       tickClassPeak
                     />
@@ -366,7 +361,23 @@ export function TaskManagerPerformancePanel({
                     </span>
                   </div>
                   <div class="task-manager__chart-frame">
-                    <MetricChart chart={fpsChart} ariaLabel="帧率实时折线图" />
+                    <MetricChart
+                      revision={fpsSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          fpsSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            minAxisMax: 60,
+                            formatTick: (value) =>
+                              value >= 10 ? `${Math.round(value)}` : value.toFixed(1),
+                          },
+                        )
+                      }
+                      ariaLabel="帧率实时折线图"
+                    />
                   </div>
                 </div>
               </div>
@@ -401,7 +412,24 @@ export function TaskManagerPerformancePanel({
                   </div>
                   <div class="task-manager__chart-frame">
                     {memorySupported ? (
-                      <MetricChart chart={memoryChart} ariaLabel="JS 堆内存实时折线图" />
+                      <MetricChart
+                        revision={[memorySeries, latestHeap?.limitBytes]}
+                        buildChart={(padding) =>
+                          buildRealtimeMetricPolyline(
+                            memorySeries,
+                            CHART_VIEW_WIDTH,
+                            CHART_VIEW_HEIGHT,
+                            padding,
+                            {
+                              formatTick: formatMemoryAxisTick,
+                              minAxisMax: latestHeap?.limitBytes
+                                ? latestHeap.limitBytes * 0.05
+                                : undefined,
+                            },
+                          )
+                        }
+                        ariaLabel="JS 堆内存实时折线图"
+                      />
                     ) : (
                       <p class="task-manager__chart-unavailable">
                         当前浏览器未暴露 JS 堆内存接口，无法绘制内存曲线。
@@ -519,17 +547,108 @@ type MetricChartModel = {
   ticks: { value: number; label: string; y: number }[]
 }
 
+/**
+ * 与 CSS `font-size: 15px * max(960/cqi, 280/cqh)` + viewBox meet 对齐，
+ * 估算轴标签在用户坐标系中占用的左侧宽度。
+ */
+function estimateAxisLeftPadding(
+  labels: string[],
+  frameWidth: number,
+  frameHeight: number,
+): number {
+  const maxChars = Math.max(1, ...labels.map((label) => label.length))
+  if (frameWidth <= 0 || frameHeight <= 0) {
+    return Math.min(
+      CHART_AXIS_LEFT_MAX,
+      Math.max(CHART_AXIS_LEFT_MIN, maxChars * 24 + CHART_AXIS_LABEL_GAP),
+    )
+  }
+  const scale = Math.min(frameWidth / CHART_VIEW_WIDTH, frameHeight / CHART_VIEW_HEIGHT)
+  const fontCssPx =
+    15 * Math.max(CHART_VIEW_WIDTH / frameWidth, CHART_VIEW_HEIGHT / frameHeight)
+  // 屏幕像素字宽换回用户单位；略放大系数覆盖粗体峰值刻度
+  const charWidthUser = (0.72 * fontCssPx) / Math.max(scale, 1e-6)
+  return Math.min(
+    CHART_AXIS_LEFT_MAX,
+    Math.max(CHART_AXIS_LEFT_MIN, Math.ceil(maxChars * charWidthUser + CHART_AXIS_LABEL_GAP)),
+  )
+}
+
 function MetricChart({
-  chart,
+  buildChart,
+  revision,
   ariaLabel,
   tickClassPeak = false,
 }: {
-  chart: MetricChartModel
+  buildChart: (padding: ChartPadding) => MetricChartModel
+  /** 序列或相关参数变化时触发重绘 */
+  revision: unknown
   ariaLabel: string
   tickClassPeak?: boolean
 }) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [axisLeft, setAxisLeft] = useState(CHART_PADDING_BASE.left)
+  const padding = useMemo(
+    (): ChartPadding => ({ ...CHART_PADDING_BASE, left: axisLeft }),
+    [axisLeft],
+  )
+  const chart = useMemo(
+    () => buildChart(padding),
+    // buildChart 闭包随父组件渲染更新；revision 承载数据依赖
+    [buildChart, padding, revision],
+  )
+  const plotLeft = padding.left
+  const labelX = padding.left - CHART_AXIS_LABEL_GAP
+
+  useLayoutEffect(() => {
+    const svg = svgRef.current
+    const frame = svg?.parentElement
+    if (!svg || !frame) {
+      return
+    }
+
+    const syncAxisLeft = () => {
+      const labels = [...svg.querySelectorAll('.task-manager__chart-axis')].map(
+        (node) => node.textContent ?? '',
+      )
+      const cs = getComputedStyle(frame)
+      const padX =
+        (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+      const padY =
+        (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+      const contentW = Math.max(0, frame.clientWidth - padX)
+      const contentH = Math.max(0, frame.clientHeight - padY)
+      let nextLeft = estimateAxisLeftPadding(labels, contentW, contentH)
+
+      let maxBoxWidth = 0
+      for (const node of svg.querySelectorAll('.task-manager__chart-axis')) {
+        const box = (node as SVGGraphicsElement).getBBox()
+        if (Number.isFinite(box.width)) {
+          maxBoxWidth = Math.max(maxBoxWidth, box.width)
+        }
+      }
+      if (maxBoxWidth > 0) {
+        nextLeft = Math.max(
+          nextLeft,
+          Math.min(CHART_AXIS_LEFT_MAX, Math.ceil(maxBoxWidth + CHART_AXIS_LABEL_GAP)),
+        )
+      }
+
+      setAxisLeft((prev) => (Math.abs(prev - nextLeft) >= 1 ? nextLeft : prev))
+    }
+
+    syncAxisLeft()
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+    const observer = new ResizeObserver(syncAxisLeft)
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [chart])
+
   return (
     <svg
+      ref={svgRef}
       class="task-manager__chart"
       viewBox={`0 0 ${CHART_VIEW_WIDTH} ${CHART_VIEW_HEIGHT}`}
       preserveAspectRatio="xMidYMid meet"
@@ -540,14 +659,14 @@ function MetricChart({
         <g key={`tick-${tick.value}`}>
           <line
             class={`task-manager__chart-grid${tick.value === 0 ? ' task-manager__chart-grid--baseline' : ''}${tickClassPeak && tick.value === chart.axisMax ? ' task-manager__chart-grid--peak' : ''}`}
-            x1={CHART_PLOT_LEFT}
+            x1={plotLeft}
             y1={tick.y}
             x2={CHART_VIEW_WIDTH - 16}
             y2={tick.y}
           />
           <text
             class={`task-manager__chart-axis${tickClassPeak && tick.value === chart.axisMax ? ' task-manager__chart-axis--peak' : ''}`}
-            x={CHART_AXIS_LABEL_X}
+            x={labelX}
             y={tick.y}
             text-anchor="end"
             dominant-baseline="middle"

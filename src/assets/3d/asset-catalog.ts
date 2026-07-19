@@ -29,11 +29,19 @@ export type Instant3dPlacement = {
   connects?: Instant3dAxisSide[]
   forward?: Instant3dAxisSide
   face?: Instant3dAxisSide
+  /** 椅背 / 床头 / 柜背等背面朝向 */
+  back?: Instant3dAxisSide
+  /** 关键部件相对坐标轴的对照说明（来自模型识图） */
+  axisLandmarks?: string
+  /** 给场景生成 AI 的摆放操作建议（来自模型识图） */
+  sceneUseHint?: string
 }
 
 export type Instant3dModelAppearance = {
   style: string
   description: string
+  /** 材质、配色与表面细节补充（来自模型识图） */
+  appearanceNotes?: string
   sizeMeters: Instant3dSizeMeters
   vertices: number
   triangles: number
@@ -105,9 +113,10 @@ export const INSTANT3D_PRIMITIVES: Instant3dPrimitiveKind[] = ['box', 'sphere', 
 
 export function formatPlacementPrompt(entry: Instant3dCatalogEntry): string | undefined {
   const placement = entry.appearance.placement
-  if (placement.kind === 'free') return undefined
-
   const parts: string[] = []
+  if (placement.kind !== 'free') {
+    parts.push(placementKindLabel(placement.kind))
+  }
   if (placement.tileStepMeters !== undefined) {
     parts.push(`瓦片步长 ${placement.tileStepMeters}m`)
   }
@@ -120,7 +129,16 @@ export function formatPlacementPrompt(entry: Instant3dCatalogEntry): string | un
   if (placement.face) {
     parts.push(`正面 ${placement.face}`)
   }
-  parts.push(placement.hint)
+  if (placement.back) {
+    parts.push(`背面 ${placement.back}`)
+  }
+  // 批量目录只带短 hint；完整 sceneUseHint / axisLandmarks 留在 catalog 条目供详情与按需取用
+  if (placement.kind !== 'free' && placement.hint) {
+    const shortHint =
+      placement.hint.length > 48 ? `${placement.hint.slice(0, 47).trimEnd()}…` : placement.hint
+    parts.push(shortHint)
+  }
+  if (parts.length === 0) return undefined
   return parts.join('；')
 }
 
@@ -128,7 +146,7 @@ export function formatPlacementPrompt(entry: Instant3dCatalogEntry): string | un
 export function buildThreejsCatalogPromptSection(): string {
   const lines: string[] = [
     '【Three.js 模型资源目录】加载 GLTF 时只能使用下列 url，禁止编造路径：',
-    '格式：modelId | url | 名称 | 尺寸 | 关键词',
+    '格式：modelId | url | 名称 | 尺寸 | 摆放 | 关键词',
     '',
     '摆放与比例规则：',
     '- 坐标系：X 右、Y 上、Z 前；尺寸为包围盒 宽×高×深（米）',
@@ -136,7 +154,7 @@ export function buildThreejsCatalogPromptSection(): string {
     '- 加载后设置 position，家具/道具通常 y=0 让底面贴地',
     '- 水平间距：相邻物体中心距离 ≥ (两者宽度之和)/2 + 0.3m',
     '- 地面需用 PlaneGeometry 等铺地，大小覆盖全部物体并留 ≥1m 边距',
-    '- 带「摆放」字段的模型须按 hint 理解默认朝向；tile/linear/corner/junction/wall 按接口拼接',
+    '- 「摆放」含默认朝向（正面/背面/延伸/接口）；tile/linear/corner/junction/wall 按接口拼接',
     '- 改变朝向用 object.rotation.y（弧度）；90° = Math.PI/2',
   ]
 

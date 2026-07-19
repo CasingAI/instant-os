@@ -742,70 +742,17 @@
   box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
 }
 
-.setup-ai-form__model-list {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #c8c8ce;
-  border-radius: 8px;
-  --setup-model-row-height: 40px;
-  max-height: calc(var(--setup-model-row-height) * 2.5);
+.setup-ai-form__model-cards {
+  max-height: calc(88px * 2.5);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  background: #fff;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  padding: 1px;
 }
 
-.setup-ai-form__model-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.setup-ai-form__model-cards .ai-model-cards {
   gap: 8px;
-  width: 100%;
-  height: var(--setup-model-row-height);
-  min-height: var(--setup-model-row-height);
-  padding: 0 12px;
-  border: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: #fff;
-  font-size: 14px;
-  color: #1d1d1f;
-  text-align: left;
-  cursor: pointer;
-}
-
-.setup-ai-form__model-row:last-child {
-  border-bottom: none;
-}
-
-.setup-ai-form__model-row:hover {
-  background: linear-gradient(180deg, #4089d4 0%, #2068b8 100%);
-  color: #fff;
-}
-
-.setup-ai-form__model-row:active {
-  background: linear-gradient(180deg, #2068b8 0%, #185598 100%);
-  color: #fff;
-}
-
-.setup-ai-form__model-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.setup-ai-form__model-check {
-  flex-shrink: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: #007aff;
-}
-
-.setup-ai-form__model-row:hover .setup-ai-form__model-check,
-.setup-ai-form__model-row:active .setup-ai-form__model-check {
-  color: #fff;
 }
 
 .setup-ai-form__switch-row {

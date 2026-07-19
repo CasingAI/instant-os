@@ -1,5 +1,11 @@
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../os/account-settings-storage.ts'
-import { getDefaultThinkingEnabled, resolveModelFriendlyName, type AiProviderId } from './ai-providers.ts'
+import {
+  getDefaultThinkingEnabled,
+  resolveModelFriendlyName,
+  resolvePreferredModelRef,
+  type AiModelCapability,
+  type AiProviderId,
+} from './ai-providers.ts'
 import { notifyOpenAiConfigChange, subscribeOpenAiConfig } from './openai-config-events.ts'
 
 export type OpenAiConfig = {
@@ -26,12 +32,14 @@ function readEnvConfig(): Partial<OpenAiConfig> {
   }
 }
 
-function readStoredConfig(): Partial<OpenAiConfig> | undefined {
+function readStoredConfig(
+  capability: AiModelCapability = 'text',
+): Partial<OpenAiConfig> | undefined {
   const settings = loadAccountSettings()
   if (!settings) {
     return undefined
   }
-  return accountSettingsToOpenAiConfig(settings)
+  return accountSettingsToOpenAiConfig(settings, capability)
 }
 
 export function readOpenAiConfigFromEnv(): OpenAiConfig {
@@ -41,8 +49,9 @@ export function readOpenAiConfigFromEnv(): OpenAiConfig {
 
 export function mergeOpenAiConfig(
   overrides?: Partial<OpenAiConfig>,
+  capability: AiModelCapability = 'text',
 ): OpenAiConfig {
-  const stored = readStoredConfig()
+  const stored = readStoredConfig(capability)
   const env = readEnvConfig()
 
   const apiKey = overrides?.apiKey ?? stored?.apiKey ?? env.apiKey
@@ -50,7 +59,10 @@ export function mergeOpenAiConfig(
   const defaultModel =
     overrides?.defaultModel ?? stored?.defaultModel ?? env.defaultModel ?? DEFAULT_MODEL
   const providerId = overrides?.providerId ?? stored?.providerId ?? 'deepseek'
-  const thinkingEnabled = overrides?.thinkingEnabled ?? stored?.thinkingEnabled ?? getDefaultThinkingEnabled(providerId)
+  const thinkingEnabled =
+    overrides?.thinkingEnabled ??
+    stored?.thinkingEnabled ??
+    getDefaultThinkingEnabled(providerId)
 
   if (!apiKey) {
     throw new Error(
@@ -70,7 +82,8 @@ export function mergeOpenAiConfig(
 export function hasOpenAiApiKey(): boolean {
   const settings = loadAccountSettings()
   if (settings && settings.providers.length > 0) {
-    const preferred = settings.providers[settings.preferredIndex] ?? settings.providers[0]
+    const preferred =
+      settings.providers[settings.preferredIndex] ?? settings.providers[0]
     if (preferred?.apiKey) {
       return true
     }
@@ -78,24 +91,29 @@ export function hasOpenAiApiKey(): boolean {
   return Boolean(import.meta.env.VITE_OPENAI_API_KEY?.trim())
 }
 
-export function readDefaultModelId(): string {
+export function readDefaultModelId(capability: AiModelCapability = 'text'): string {
   const settings = loadAccountSettings()
   if (settings && settings.providers.length > 0) {
-    const preferred = settings.providers[settings.preferredIndex] ?? settings.providers[0]
-    if (preferred?.defaultModel) {
-      return preferred.defaultModel
+    const ref = resolvePreferredModelRef(settings, capability)
+    if (ref?.modelId) {
+      return ref.modelId
     }
   }
   return import.meta.env.VITE_OPENAI_MODEL?.trim() || DEFAULT_MODEL
 }
 
-export function readDefaultModelFriendlyName(): string {
-  const modelId = readDefaultModelId()
+export function readDefaultModelFriendlyName(
+  capability: AiModelCapability = 'text',
+): string {
+  const modelId = readDefaultModelId(capability)
   const settings = loadAccountSettings()
   if (settings && settings.providers.length > 0) {
-    const preferred = settings.providers[settings.preferredIndex] ?? settings.providers[0]
-    if (preferred) {
-      return resolveModelFriendlyName(modelId, preferred.providerId)
+    const ref = resolvePreferredModelRef(settings, capability)
+    const entry = ref
+      ? settings.providers.find((item) => item.id === ref.providerEntryId)
+      : (settings.providers[settings.preferredIndex] ?? settings.providers[0])
+    if (entry) {
+      return resolveModelFriendlyName(modelId, entry.providerId)
     }
   }
   return resolveModelFriendlyName(modelId)

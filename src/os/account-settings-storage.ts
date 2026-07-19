@@ -1,13 +1,22 @@
 import {
   DEFAULT_AI_PROVIDER_ID,
+  CURRENT_PRESET_SYNC_REVISION,
+  appendMissingPresetModels,
   defaultProviderEntry,
   isCustomProvider,
   isProviderEntryValid,
   normalizeStoredModel,
+  parseStoredModelCapabilities,
+  reconcilePreferredByCapability,
+  applyTextPreferredToProviders,
+  resolvePreferredModelRef,
   resolveProviderEntryBaseURL,
   type AccountSettingsV2,
+  type AiModelCapability,
   type AiProviderEntry,
   type AiProviderId,
+  type PreferredByCapability,
+  type PreferredModelRef,
 } from '../ai/ai-providers.ts'
 import { notifyOpenAiConfigChange } from '../ai/openai-config-events.ts'
 import { clearOpenAiClientCache } from '../ai/openai-client.ts'
@@ -62,10 +71,17 @@ function migrateLegacySettings(
   }
   entry.thinkingEnabled = raw.thinkingEnabled
 
+  const providers = [entry]
+  const reconciled = reconcilePreferredByCapability(providers, undefined, 0)
   return {
     version: 2,
-    providers: [entry],
-    preferredIndex: 0,
+    providers: applyTextPreferredToProviders(
+      providers,
+      reconciled.preferredByCapability,
+    ),
+    preferredIndex: reconciled.preferredIndex,
+    preferredByCapability: reconciled.preferredByCapability,
+    presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
   }
 }
 
@@ -119,7 +135,12 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
             ? modelRecord.name.trim()
             : modelId
         if (modelId) {
-          enabledModels.push({ modelId, name })
+          const capabilities = parseStoredModelCapabilities(modelRecord.capabilities)
+          enabledModels.push({
+            modelId,
+            name,
+            ...(capabilities ? { capabilities } : {}),
+          })
         }
       }
     }
@@ -138,6 +159,31 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     defaultModel,
     thinkingEnabled,
   }
+}
+
+function normalizePreferredModelRef(raw: unknown): PreferredModelRef | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const record = raw as Record<string, unknown>
+  const providerEntryId =
+    typeof record.providerEntryId === 'string' ? record.providerEntryId.trim() : ''
+  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : ''
+  if (!providerEntryId || !modelId) return undefined
+  return { providerEntryId, modelId }
+}
+
+function normalizePreferredByCapability(raw: unknown): PreferredByCapability {
+  if (!raw || typeof raw !== 'object') return {}
+  const record = raw as Record<string, unknown>
+  const result: PreferredByCapability = {}
+  const text = normalizePreferredModelRef(record.text)
+  const vision = normalizePreferredModelRef(record.vision)
+  const speechRecognition = normalizePreferredModelRef(record['speech-recognition'])
+  const speechSynthesis = normalizePreferredModelRef(record['speech-synthesis'])
+  if (text) result.text = text
+  if (vision) result.vision = vision
+  if (speechRecognition) result['speech-recognition'] = speechRecognition
+  if (speechSynthesis) result['speech-synthesis'] = speechSynthesis
+  return result
 }
 
 function normalizeV2Settings(
@@ -167,15 +213,51 @@ function normalizeV2Settings(
     return undefined
   }
 
-  const preferredIndex =
-    typeof record.preferredIndex === 'number'
-      ? Math.max(0, Math.min(record.preferredIndex, providers.length - 1))
+  const storedRevision =
+    typeof record.presetSyncRevision === 'number'
+      ? record.presetSyncRevision
       : 0
+  const syncedProviders =
+    storedRevision < CURRENT_PRESET_SYNC_REVISION
+      ? providers.map(appendMissingPresetModels)
+      : providers
+
+  const preferredIndexHint =
+    typeof record.preferredIndex === 'number'
+      ? Math.max(0, Math.min(record.preferredIndex, syncedProviders.length - 1))
+      : 0
+
+  const existingPreferred = normalizePreferredByCapability(
+    record.preferredByCapability,
+  )
+
+  // 旧数据没有按能力首选时，用 preferredIndex + defaultModel 作为文本首选种子
+  if (!existingPreferred.text) {
+    const hinted = syncedProviders[preferredIndexHint]
+    if (hinted?.defaultModel) {
+      existingPreferred.text = {
+        providerEntryId: hinted.id,
+        modelId: hinted.defaultModel,
+      }
+    }
+  }
+
+  const reconciled = reconcilePreferredByCapability(
+    syncedProviders,
+    existingPreferred,
+    preferredIndexHint,
+  )
+  const nextProviders = applyTextPreferredToProviders(
+    syncedProviders,
+    reconciled.preferredByCapability,
+  )
 
   return {
     version: 2,
-    providers,
-    preferredIndex,
+    providers: nextProviders,
+    preferredIndex: reconciled.preferredIndex,
+    preferredByCapability: reconciled.preferredByCapability,
+    presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
   }
 }
 
@@ -287,9 +369,15 @@ export function clearAccountSettings(): void {
 
 export function accountSettingsToOpenAiConfig(
   settings: AccountSettingsV2,
+  capability: AiModelCapability = 'text',
 ): Partial<OpenAiConfig> | undefined {
-  const entry = getPreferredProvider(settings)
-  if (!entry) {
+  const ref = resolvePreferredModelRef(settings, capability)
+  if (!ref) {
+    return undefined
+  }
+
+  const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
+  if (!entry || !isProviderEntryValid(entry)) {
     return undefined
   }
 
@@ -298,7 +386,7 @@ export function accountSettingsToOpenAiConfig(
   return {
     apiKey: entry.apiKey,
     baseURL: baseURL || undefined,
-    defaultModel: entry.defaultModel,
+    defaultModel: ref.modelId,
     providerId: entry.providerId,
     thinkingEnabled: entry.thinkingEnabled,
   }
@@ -306,39 +394,57 @@ export function accountSettingsToOpenAiConfig(
 
 export function defaultAccountSettingsV2(): AccountSettingsV2 {
   const entry = defaultProviderEntry()
+  const providers = [entry]
+  const reconciled = reconcilePreferredByCapability(providers, undefined, 0)
   return {
     version: 2,
-    providers: [entry],
-    preferredIndex: 0,
+    providers: applyTextPreferredToProviders(
+      providers,
+      reconciled.preferredByCapability,
+    ),
+    preferredIndex: reconciled.preferredIndex,
+    preferredByCapability: reconciled.preferredByCapability,
+    presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
   }
 }
 
 export function isAccountSettingsValid(
   settings: AccountSettingsV2,
 ): boolean {
-  if (
-    settings.providers.length === 0 ||
-    settings.preferredIndex < 0 ||
-    settings.preferredIndex >= settings.providers.length
-  ) {
+  if (settings.providers.length === 0) {
     return false
   }
-  return isProviderEntryValid(settings.providers[settings.preferredIndex])
+
+  const textRef = resolvePreferredModelRef(settings, 'text')
+  if (!textRef) {
+    return false
+  }
+
+  const entry = settings.providers.find((item) => item.id === textRef.providerEntryId)
+  return entry !== undefined && isProviderEntryValid(entry)
 }
 
 export function getPreferredProvider(
   settings: AccountSettingsV2,
+  capability: AiModelCapability = 'text',
 ): AiProviderEntry | undefined {
-  if (
-    settings.preferredIndex >= 0 &&
-    settings.preferredIndex < settings.providers.length
-  ) {
-    return settings.providers[settings.preferredIndex]
+  const ref = resolvePreferredModelRef(settings, capability)
+  if (!ref) {
+    return settings.providers[settings.preferredIndex] ?? settings.providers[0]
   }
-  return settings.providers[0]
+  return (
+    settings.providers.find((item) => item.id === ref.providerEntryId) ??
+    settings.providers[0]
+  )
 }
 
-export { type AccountSettingsV2, type AiProviderEntry, type AiModelEntry } from '../ai/ai-providers.ts'
+export {
+  type AccountSettingsV2,
+  type AiProviderEntry,
+  type AiModelEntry,
+  type PreferredByCapability,
+  type PreferredModelRef,
+} from '../ai/ai-providers.ts'
 
 
 

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const MODELS = path.join(ROOT, 'public/assets/3d/models')
 const OVERRIDES_PATH = path.join(ROOT, 'src/assets/3d/catalog-overrides.json')
+const VISION_PATH = path.join(ROOT, 'src/assets/3d/catalog-vision.json')
 const OUT_PATH = path.join(ROOT, 'src/assets/3d/asset-catalog-entries.ts')
 
 /** @type {import('../src/assets/3d/asset-catalog.ts').Instant3dSourcePack[]} */
@@ -606,9 +607,55 @@ function extractGltfAppearance(gltfPath, packId, label) {
 }
 
 const overrides = JSON.parse(fs.readFileSync(OVERRIDES_PATH, 'utf8'))
+const visionById = fs.existsSync(VISION_PATH)
+  ? JSON.parse(fs.readFileSync(VISION_PATH, 'utf8'))
+  : {}
+
+/**
+ * 将模型识图结果合并进 appearance：覆盖视觉描述，并补全朝向/摆放字段。
+ * 几何推断出的 tileStepMeters 在识图未提供时保留。
+ * @param {object} appearance
+ * @param {object | undefined} vision
+ */
+function applyVisionAppearance(appearance, vision) {
+  if (!vision || typeof vision !== 'object') return appearance
+
+  if (typeof vision.visualDescription === 'string' && vision.visualDescription.trim()) {
+    appearance.description = vision.visualDescription.trim()
+  }
+  if (typeof vision.appearanceNotes === 'string' && vision.appearanceNotes.trim()) {
+    appearance.appearanceNotes = vision.appearanceNotes.trim()
+  }
+
+  const orientation = vision.orientation
+  if (!orientation || typeof orientation !== 'object') return appearance
+
+  const placement = { ...appearance.placement }
+  if (typeof orientation.placementKind === 'string' && orientation.placementKind) {
+    placement.kind = orientation.placementKind
+  }
+  if (typeof orientation.placementHint === 'string' && orientation.placementHint.trim()) {
+    placement.hint = orientation.placementHint.trim()
+  }
+  if (orientation.forward) placement.forward = orientation.forward
+  if (orientation.face) placement.face = orientation.face
+  if (orientation.back) placement.back = orientation.back
+  if (Array.isArray(orientation.connects) && orientation.connects.length > 0) {
+    placement.connects = orientation.connects
+  }
+  if (typeof orientation.axisLandmarks === 'string' && orientation.axisLandmarks.trim()) {
+    placement.axisLandmarks = orientation.axisLandmarks.trim()
+  }
+  if (typeof orientation.sceneUseHint === 'string' && orientation.sceneUseHint.trim()) {
+    placement.sceneUseHint = orientation.sceneUseHint.trim()
+  }
+  appearance.placement = placement
+  return appearance
+}
 
 /** @type {Array<{id:string,label:string,keywords:string[],url:string,source:string,appearance:object}>} */
 const entries = []
+let visionApplied = 0
 
 for (const pack of PACKS) {
   const dir = path.join(MODELS, pack.dir)
@@ -620,6 +667,14 @@ for (const pack of PACKS) {
     const label = override?.label ?? auto.label
     const keywords = override?.keywords ?? auto.keywords
     const appearance = extractGltfAppearance(path.join(dir, file), pack.id, label)
+
+    const vision = visionById[id]
+    if (vision) {
+      applyVisionAppearance(appearance, vision)
+      visionApplied += 1
+    }
+
+    // 人工 overrides 最后生效，可覆盖识图结果
     if (override?.placement) {
       appearance.placement = { ...appearance.placement, ...override.placement }
       if (override.placement.hint) {
@@ -642,7 +697,11 @@ for (const pack of PACKS) {
 }
 
 function escapeTs(value) {
-  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
 }
 
 function serializeAxisList(sides) {
@@ -668,6 +727,15 @@ function serializePlacement(placement) {
   if (placement.face) {
     lines.push(`        face: '${placement.face}',`)
   }
+  if (placement.back) {
+    lines.push(`        back: '${placement.back}',`)
+  }
+  if (placement.axisLandmarks) {
+    lines.push(`        axisLandmarks: '${escapeTs(placement.axisLandmarks)}',`)
+  }
+  if (placement.sceneUseHint) {
+    lines.push(`        sceneUseHint: '${escapeTs(placement.sceneUseHint)}',`)
+  }
   lines.push('      },')
   return lines.join('\n')
 }
@@ -676,10 +744,15 @@ function serializeAppearance(appearance) {
   const materials = appearance.materials.map((name) => `'${escapeTs(name)}'`).join(', ')
   const textures = appearance.textures.map((name) => `'${escapeTs(name)}'`).join(', ')
   const solidColors = appearance.solidColors.map((color) => `'${escapeTs(color)}'`).join(', ')
-  return [
+  const lines = [
     'appearance: {',
     `      style: '${escapeTs(appearance.style)}',`,
     `      description: '${escapeTs(appearance.description)}',`,
+  ]
+  if (appearance.appearanceNotes) {
+    lines.push(`      appearanceNotes: '${escapeTs(appearance.appearanceNotes)}',`)
+  }
+  lines.push(
     `      sizeMeters: { width: ${appearance.sizeMeters.width}, height: ${appearance.sizeMeters.height}, depth: ${appearance.sizeMeters.depth} },`,
     `      vertices: ${appearance.vertices},`,
     `      triangles: ${appearance.triangles},`,
@@ -689,7 +762,8 @@ function serializeAppearance(appearance) {
     `      solidColors: [${solidColors}],`,
     serializePlacement(appearance.placement),
     '    }',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 const lines = [
@@ -711,4 +785,6 @@ for (const entry of entries) {
 lines.push(']', '')
 
 fs.writeFileSync(OUT_PATH, lines.join('\n'))
-console.log(`Wrote ${entries.length} catalog entries to ${path.relative(ROOT, OUT_PATH)}`)
+console.log(
+  `Wrote ${entries.length} catalog entries to ${path.relative(ROOT, OUT_PATH)} (vision merged: ${visionApplied})`,
+)

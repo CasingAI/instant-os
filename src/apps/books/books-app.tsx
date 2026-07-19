@@ -246,21 +246,15 @@ export function BooksApp() {
   if (screen === 'reader' && readerBook) {
     return (
       <div class="books">
-        <header class="books__toolbar">
-          <IosNavBackButton
-            iconSize={14}
-            label="书架"
-            onClick={() => {
-              setScreen('shelf')
-              setReaderBookId(undefined)
-            }}
-          />
-          <span class="books__toolbar-title books__toolbar-title--center">{readerBook.title}</span>
-          <span class="books__toolbar-spacer" />
-        </header>
-        <div class="books__main">
-          <BooksReader book={readerBook} store={store} onStoreChange={persistStore} />
-        </div>
+        <BooksReader
+          book={readerBook}
+          store={store}
+          onStoreChange={persistStore}
+          onBack={() => {
+            setScreen('shelf')
+            setReaderBookId(undefined)
+          }}
+        />
       </div>
     )
   }

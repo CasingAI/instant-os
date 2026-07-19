@@ -1,0 +1,209 @@
+.speech-read-aloud-bar {
+  box-sizing: border-box;
+  width: 100%;
+  border-block: 1px solid rgba(90, 70, 40, 0.18);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 252, 245, 0.98) 0%,
+    rgba(236, 226, 208, 0.95) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 8px rgba(40, 28, 12, 0.08);
+  animation: speech-read-aloud-bar-in 180ms ease-out;
+}
+
+@keyframes speech-read-aloud-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.speech-read-aloud-bar--active {
+  border-color: rgba(138, 107, 61, 0.35);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 246, 232, 0.98) 0%,
+    rgba(237, 217, 184, 0.95) 100%
+  );
+}
+
+.speech-read-aloud-bar--error {
+  border-color: rgba(161, 58, 49, 0.28);
+}
+
+.speech-read-aloud-bar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  min-height: 40px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+}
+
+.speech-read-aloud-bar__controls {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.speech-read-aloud-bar__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px 10px;
+  min-width: 0;
+  text-align: right;
+}
+
+.speech-read-aloud-bar__trailing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.speech-read-aloud-bar__close {
+  appearance: none;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #7a6b57;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.speech-read-aloud-bar__close:hover {
+  background: rgba(90, 70, 40, 0.1);
+  color: #3d3428;
+}
+
+.speech-read-aloud-bar__close:active {
+  background: rgba(90, 70, 40, 0.16);
+}
+
+.speech-read-aloud-bar__btn {
+  appearance: none;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 5px;
+  border: 1px solid #c4b5a0;
+  background: linear-gradient(180deg, #fff 0%, #f0e5d3 100%);
+  color: #3d3428;
+  cursor: pointer;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 1px 2px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+.speech-read-aloud-bar__btn:active:not(:disabled) {
+  background: linear-gradient(180deg, #ebe0ce 0%, #e0d4c0 100%);
+}
+
+.speech-read-aloud-bar__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.speech-read-aloud-bar__btn--primary {
+  min-width: 52px;
+  border-color: #8a6b3d;
+  background: linear-gradient(180deg, #fffaf0 0%, #efd7b0 100%);
+}
+
+.speech-read-aloud-bar__progress {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3d3428;
+  font-variant-numeric: tabular-nums;
+}
+
+.speech-read-aloud-bar__phase {
+  font-size: 12px;
+  color: #7a6b57;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speech-read-aloud-bar__phase::before {
+  content: '·';
+  margin-right: 8px;
+  color: #b0a08c;
+}
+
+.speech-read-aloud-bar__phase--solo::before {
+  content: none;
+  margin-right: 0;
+}
+
+.speech-read-aloud-bar__phase--error {
+  color: #8f2f27;
+  max-width: 40ch;
+}
+
+.speech-read-aloud-bar--books {
+  border-color: rgba(92, 74, 50, 0.18);
+}
+
+.speech-read-aloud-bar--books .speech-read-aloud-bar__btn {
+  border-color: #b8a88e;
+  color: #5c4a32;
+}
+
+/* 正文里当前朗读块的高亮 */
+.speech-read-aloud-block--active {
+  position: relative;
+  border-radius: 4px;
+  padding-block: 0.15em;
+  padding-inline: 0.35em;
+  margin-inline: -0.35em;
+  background: linear-gradient(
+    90deg,
+    rgba(232, 196, 120, 0.38) 0%,
+    rgba(232, 196, 120, 0.16) 100%
+  );
+  box-shadow: inset 3px 0 0 #c4923a;
+  outline: 1px solid rgba(196, 146, 58, 0.28);
+  outline-offset: 2px;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease,
+    outline-color 160ms ease;
+}
+
+@media (max-width: 520px) {
+  .speech-read-aloud-bar__inner {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .speech-read-aloud-bar__trailing {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .speech-read-aloud-bar__status {
+    justify-content: flex-start;
+    text-align: left;
+  }
+}

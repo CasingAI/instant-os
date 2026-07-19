@@ -1,9 +1,13 @@
-import { useCallback, useState } from 'preact/hooks'
+import { useState } from 'preact/hooks'
 import {
   AI_PROVIDER_PRESETS,
+  buildCustomModelCapabilities,
   defaultProviderEntry,
   findAiProviderPreset,
   isCustomProvider,
+  normalizeCustomModelCapabilities,
+  resolveModelCapabilities,
+  type AiModelCapability,
   type AiModelEntry,
   type AiProviderEntry,
   type AiProviderId,
@@ -12,6 +16,10 @@ import { SettingsChoiceField } from '../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../ui/settings-switch-row.tsx'
 import { IosNavBackButton } from '../ui/ios-nav-back-button.tsx'
+import { IosCheckToggle } from '../ui/ios-check-toggle.tsx'
+import { AiModelCapabilityTags } from '../ui/ai-model-capability-tags.tsx'
+import '../ui/ios-check-toggle.css'
+import '../ui/ai-model-capability-tags.css'
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
   id: item.id,
@@ -37,6 +45,8 @@ export function AiProviderForm({
   backLabel = '返回',
   onBack,
 }: AiProviderFormProps) {
+  const [customModelInput, setCustomModelInput] = useState('')
+  const [customModelSupportsVision, setCustomModelSupportsVision] = useState(false)
   const isCustom = isCustomProvider(entry.providerId)
   const preset = findAiProviderPreset(entry.providerId)
   const providerLabel = preset?.name ?? entry.providerId
@@ -68,16 +78,15 @@ export function AiProviderForm({
       nextModels = [...entry.enabledModels, { modelId, name }]
     }
 
-    const nextDefaultModel =
-      entry.defaultModel === modelId && isEnabled
-        ? nextModels[0]?.modelId ?? ''
-        : entry.defaultModel
+    const nextDefaultModel = nextModels.some((m) => m.modelId === entry.defaultModel)
+      ? entry.defaultModel
+      : nextModels[0]?.modelId ?? ''
 
     onChange({ ...entry, enabledModels: nextModels, defaultModel: nextDefaultModel })
   }
 
-  const handleAddCustomModel = (rawValue: string) => {
-    const modelId = rawValue.trim()
+  const handleAddCustomModel = () => {
+    const modelId = customModelInput.trim()
     if (!modelId) {
       return
     }
@@ -86,14 +95,25 @@ export function AiProviderForm({
     }
     onChange({
       ...entry,
-      enabledModels: [...entry.enabledModels, { modelId, name: modelId }],
+      enabledModels: [
+        ...entry.enabledModels,
+        {
+          modelId,
+          name: modelId,
+          capabilities: buildCustomModelCapabilities(customModelSupportsVision),
+        },
+      ],
+      defaultModel: entry.defaultModel || modelId,
     })
+    setCustomModelInput('')
+    setCustomModelSupportsVision(false)
   }
 
   const handleRemoveCustomModel = (modelId: string) => {
     const nextModels = entry.enabledModels.filter((m) => m.modelId !== modelId)
-    const nextDefaultModel =
-      entry.defaultModel === modelId ? nextModels[0]?.modelId ?? '' : entry.defaultModel
+    const nextDefaultModel = nextModels.some((m) => m.modelId === entry.defaultModel)
+      ? entry.defaultModel
+      : nextModels[0]?.modelId ?? ''
     onChange({ ...entry, enabledModels: nextModels, defaultModel: nextDefaultModel })
   }
 
@@ -101,76 +121,119 @@ export function AiProviderForm({
     entry.providerId === 'deepseek' || entry.providerId === 'mimo' || entry.providerId === 'mimo-token-plan'
 
   const renderModelSection = () => {
+    const rows: Array<{
+      modelId: string
+      name: string
+      enabled: boolean
+      isFromPreset: boolean
+      capabilities: readonly AiModelCapability[]
+    }> = []
+
     if (isCustom) {
-      return (
-        <SettingsInlineInputRow
-          label="模型"
-          type="text"
-          value={entry.defaultModel}
-          placeholder="model-name"
-          onChange={(model) => onChange({ ...entry, defaultModel: model })}
-        />
-      )
+      for (const model of entry.enabledModels) {
+        rows.push({
+          modelId: model.modelId,
+          name: model.name,
+          enabled: true,
+          isFromPreset: false,
+          capabilities: normalizeCustomModelCapabilities(model.capabilities),
+        })
+      }
+    } else {
+      const seen = new Set<string>()
+      for (const pm of preset?.models ?? []) {
+        seen.add(pm.id)
+        rows.push({
+          modelId: pm.id,
+          name: pm.name,
+          enabled: entry.enabledModels.some((m) => m.modelId === pm.id),
+          isFromPreset: true,
+          capabilities: resolveModelCapabilities(entry.providerId, pm.id),
+        })
+      }
+      for (const em of entry.enabledModels) {
+        if (seen.has(em.modelId)) continue
+        rows.push({
+          modelId: em.modelId,
+          name: em.name,
+          enabled: true,
+          isFromPreset: false,
+          capabilities: normalizeCustomModelCapabilities(em.capabilities),
+        })
+      }
     }
+
+    const addCapabilities = buildCustomModelCapabilities(customModelSupportsVision)
 
     return (
       <div class={fieldClass}>
         <span class={labelClass}>模型</span>
-        <div class="ai-provider-models">
-          {preset?.models.map((model) => {
-            const isEnabled = entry.enabledModels.some((m) => m.modelId === model.id)
-            const isDefault = entry.defaultModel === model.id
+        <div class="ai-model-cards">
+          {rows.map((row) => {
             return (
-              <div key={model.id} class="ai-provider-model-row">
-                <label class="ai-provider-model-check">
-                  <input
-                    type="checkbox"
-                    checked={isEnabled}
-                    onChange={() => handleModelToggle(model.id, model.name)}
-                  />
-                  <span class="ai-provider-model-name">{model.name}</span>
-                </label>
-                {isEnabled && (
-                  <button
-                    type="button"
-                    class={`ai-provider-model-default-btn${isDefault ? ' ai-provider-model-default-btn--active' : ''}`}
-                    onClick={() => onChange({ ...entry, defaultModel: model.id })}
-                  >
-                    {isDefault ? '默认' : '设为默认'}
-                  </button>
-                )}
+              <div
+                key={row.modelId}
+                class={`ai-model-card${!row.enabled ? ' ai-model-card--disabled' : ''}`}
+              >
+                <div class="ai-model-card__header">
+                  {!isCustom && (
+                    <IosCheckToggle
+                      checked={row.enabled}
+                      label={row.enabled ? `禁用 ${row.name}` : `启用 ${row.name}`}
+                      onChange={() => handleModelToggle(row.modelId, row.name)}
+                    />
+                  )}
+                  <span class="ai-model-card__title">{row.name}</span>
+                  {!row.isFromPreset && (
+                    <div class="ai-model-card__actions">
+                      <button
+                        type="button"
+                        class="ai-provider-model-remove-btn"
+                        onClick={() => handleRemoveCustomModel(row.modelId)}
+                      >
+                        移除
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <AiModelCapabilityTags capabilities={row.capabilities} />
               </div>
             )
           })}
-
-          {entry.enabledModels
-            .filter((m) => !preset?.models.some((p) => p.id === m.modelId))
-            .map((m) => {
-              const isDefault = entry.defaultModel === m.modelId
-              return (
-                <div key={m.modelId} class="ai-provider-model-row ai-provider-model-row--custom">
-                  <span class="ai-provider-model-name">{m.name}</span>
-                  <div class="ai-provider-model-actions">
-                    <button
-                      type="button"
-                      class={`ai-provider-model-default-btn${isDefault ? ' ai-provider-model-default-btn--active' : ''}`}
-                      onClick={() => onChange({ ...entry, defaultModel: m.modelId })}
-                    >
-                      {isDefault ? '默认' : '设为默认'}
-                    </button>
-                    <button
-                      type="button"
-                      class="ai-provider-model-remove-btn"
-                      onClick={() => handleRemoveCustomModel(m.modelId)}
-                    >
-                      移除
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-
-          <AddCustomModelInput onAdd={handleAddCustomModel} />
+          <div class="ai-model-card ai-model-card--add">
+            <div class="ai-model-card__header">
+              <input
+                type="text"
+                class={`${inputClass} ai-provider-custom-model-text ai-model-card__title-input`}
+                value={customModelInput}
+                placeholder="添加模型..."
+                autoComplete="off"
+                onInput={(e) =>
+                  setCustomModelInput((e.currentTarget as HTMLInputElement).value)
+                }
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleAddCustomModel()
+                  }
+                }}
+              />
+              <div class="ai-model-card__actions">
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--small"
+                  disabled={!customModelInput.trim()}
+                  onClick={handleAddCustomModel}
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+            <AiModelCapabilityTags
+              capabilities={addCapabilities}
+              visionEditable
+              onVisionChange={setCustomModelSupportsVision}
+            />
+          </div>
         </div>
       </div>
     )
@@ -292,46 +355,6 @@ export function AiProviderForm({
         </div>
       )}
       {content}
-    </div>
-  )
-}
-
-function AddCustomModelInput({ onAdd }: { onAdd: (value: string) => void }) {
-  const [value, setValue] = useState('')
-
-  const handleSubmit = useCallback(() => {
-    const trimmed = value.trim()
-    if (trimmed) {
-      onAdd(trimmed)
-      setValue('')
-    }
-  }, [value, onAdd])
-
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Enter') {
-      handleSubmit()
-    }
-  }
-
-  return (
-    <div class="ai-provider-custom-model-input">
-      <input
-        type="text"
-        class="settings__input ai-provider-custom-model-text"
-        value={value}
-        placeholder="添加自定义模型..."
-        autoComplete="off"
-        onInput={(e) => setValue((e.currentTarget as HTMLInputElement).value)}
-        onKeyDown={handleKeyDown}
-      />
-      <button
-        type="button"
-        class="settings__btn settings__btn--small"
-        disabled={!value.trim()}
-        onClick={handleSubmit}
-      >
-        添加
-      </button>
     </div>
   )
 }

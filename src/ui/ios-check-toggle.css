@@ -1,0 +1,36 @@
+.ios-check-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #c8c8ce;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #fff 0%, #f0f0f4 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.ios-check-toggle--on {
+  border-color: #4a90d9;
+  background: linear-gradient(180deg, #5b9de4 0%, #2563eb 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 1px 2px rgba(37, 99, 235, 0.2);
+}
+
+.ios-check-toggle--disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ios-check-toggle__mark {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
+}

@@ -6,7 +6,6 @@ import {
   formatTokensPerSecond,
   getLiveAiEventLogCount,
   listLiveAiEventLogs,
-  refreshLiveAiEventLogPerformance,
 } from '../../ai/ai-event-log.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -87,7 +86,6 @@ function resolveAppName(
 }
 
 function collectLiveAppActivity(): Map<string, LiveAppActivity> {
-  refreshLiveAiEventLogPerformance()
   const byActor = new Map<string, LiveAppActivity>()
 
   for (const record of listLiveAiEventLogs()) {

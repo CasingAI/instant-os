@@ -517,7 +517,8 @@
 
 .task-manager__chart-frame {
   height: 160px;
-  padding: 4px 6px 8px;
+  /* 左侧略多一点，避免轴标签贴边被卡片 overflow 裁切 */
+  padding: 4px 6px 8px 10px;
   box-sizing: border-box;
   display: flex;
   align-items: stretch;

@@ -284,7 +284,10 @@ export function startAiEventLogSession(
   }
 }
 
-/** 刷新所有进行中会话的耗时/速度字段（供性能监视器定时 tick）。 */
+/**
+ * 刷新所有进行中会话的耗时/速度字段（供性能监视器定时 tick）。
+ * 只更新内存态，不派发变更事件，避免监听方再次调用时同步递归。
+ */
 export function refreshLiveAiEventLogPerformance(): boolean {
   if (liveSessions.size === 0) {
     return false
@@ -292,7 +295,6 @@ export function refreshLiveAiEventLogPerformance(): boolean {
   for (const state of liveSessions.values()) {
     applyLivePerformance(state)
   }
-  dispatchEventLogChanged()
   return true
 }
 

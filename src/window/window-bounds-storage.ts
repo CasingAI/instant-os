@@ -36,7 +36,13 @@ export function getPersistableWindowSize(window: WindowState): SavedWindowSize {
 
 export function loadSavedWindowSize(appId: AppId): SavedWindowSize | undefined {
   const saved = readAll()[appId]
-  if (!saved || typeof saved.width !== 'number' || typeof saved.height !== 'number') {
+  if (
+    !saved ||
+    typeof saved.width !== 'number' ||
+    typeof saved.height !== 'number' ||
+    !Number.isFinite(saved.width) ||
+    !Number.isFinite(saved.height)
+  ) {
     return undefined
   }
   return clampFloatingSize(saved.width, saved.height)

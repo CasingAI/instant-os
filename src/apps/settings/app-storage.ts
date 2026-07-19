@@ -20,6 +20,7 @@ import {
   DATA_CAPACITY_BYTES,
   getBooksContentBytes,
   getFolderIconSnapshotsBytes,
+  getModelVisionResultsBytes,
   getSafariPageCacheBytes,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
@@ -191,6 +192,7 @@ export function getStorageSummary(
     aiUsageBytes: number
     aiEventLogBytes: number
     folderIconSnapshotsBytes: number
+    modelVisionBytes: number
   },
 ) {
   const entries = buildManagedAppList(installedApps)
@@ -207,6 +209,7 @@ export function getStorageSummary(
     aiUsageBytes,
     aiEventLogBytes,
     folderIconSnapshotsBytes,
+    modelVisionBytes,
   } = dataStorage
   const otherBytes = getOtherStorageBytes()
   const usedBytes = getTotalLocalStorageBytes()
@@ -219,6 +222,9 @@ export function getStorageSummary(
     }
     if (entry.id === 'browser') {
       return { ...entry, dataBytes: safariCacheBytes }
+    }
+    if (entry.id === 'model-vision') {
+      return { ...entry, dataBytes: modelVisionBytes }
     }
     return entry
   })
@@ -240,6 +246,7 @@ export function getStorageSummary(
     aiUsageBytes,
     aiEventLogBytes,
     folderIconSnapshotsBytes,
+    modelVisionBytes,
     systemBytes: usedBytes,
   }
 }
@@ -251,6 +258,7 @@ export async function loadDataStorageBreakdown(): Promise<{
   aiUsageBytes: number
   aiEventLogBytes: number
   folderIconSnapshotsBytes: number
+  modelVisionBytes: number
 }> {
   const [
     totalBytes,
@@ -259,6 +267,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     aiUsageBytes,
     aiEventLogBytes,
     folderIconSnapshotsBytes,
+    modelVisionBytes,
   ] = await Promise.all([
     getTotalDataStorageBytes(),
     getSafariPageCacheBytes(),
@@ -266,6 +275,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     getAiTokenUsageBytes(),
     getAiEventLogBytes(),
     getFolderIconSnapshotsBytes(),
+    getModelVisionResultsBytes(),
   ])
   return {
     totalBytes,
@@ -274,6 +284,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     aiUsageBytes,
     aiEventLogBytes,
     folderIconSnapshotsBytes,
+    modelVisionBytes,
   }
 }
 

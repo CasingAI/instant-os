@@ -600,10 +600,16 @@
   margin: 0 0 12px;
 }
 
+.news__article-speech {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  width: 100%;
+}
+
 .news__article-actions {
-  margin-top: 20px;
-  display: flex;
-  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 8px;
 }
 
 .news__btn {

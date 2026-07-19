@@ -1,6 +1,7 @@
 import type { ComponentType } from 'preact'
 import { useMemo } from 'preact/hooks'
 import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
+import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
 import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
 import { BrowserApp } from '../apps/browser/browser-app.tsx'
 import { MailApp } from '../apps/mail/mail-app.tsx'
@@ -25,7 +26,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -111,10 +112,10 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
-  // 【实验性 · 未完成】语音识别；默认隐藏，见 experimental-settings-storage.speechApp
+  // 【实验性 · 未完成】语音实验室；默认隐藏，见 experimental-settings-storage.speechApp
   withAbout({
     id: 'speech',
-    name: '语音识别',
+    name: '语音实验室',
     icon: SpeechIcon,
     dock: false,
     desktop: false,
@@ -130,6 +131,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'scene3d-lab',
     name: '3D 实验室',
     icon: Scene3dLabIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'model-vision',
+    name: '模型识图',
+    icon: ModelVisionIcon,
     dock: true,
     desktop: true,
   }),
@@ -201,6 +209,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType> = {
   speech: SpeechApp,
   photos: PlaceholderApp('photos', '照片'),
   'scene3d-lab': Scene3dLabApp,
+  'model-vision': ModelVisionApp,
   icode: ICodeApp,
   settings: SettingsApp,
   'system-info': SystemInfoApp,

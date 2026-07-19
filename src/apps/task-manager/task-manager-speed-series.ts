@@ -91,8 +91,8 @@ export function niceAxisScale(rawMax: number, desiredDivisions = 4): {
   const roughStep = axisMax / Math.max(2, desiredDivisions)
   const step = pickNiceStep(roughStep)
   const ticks: number[] = [0]
-  // 与峰值至少留出约 8% 间距，避免中间刻度贴着最大值挤在一起
-  const stopBefore = axisMax * 0.92
+  // 与峰值至少留出约 15% 间距，避免中间刻度与峰值标签在像素上叠在一起
+  const stopBefore = axisMax * 0.85
 
   for (let value = step; value < stopBefore; value += step) {
     const rounded = Math.round(value * 1000) / 1000

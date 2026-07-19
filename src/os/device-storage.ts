@@ -28,6 +28,7 @@ export const DEVICE_STORAGE_KEYS = {
   scene3dLabPrefs: 'instant-os-scene3d-lab-prefs',
   notificationCenterWidgets: 'instant-os-notification-center-widgets',
   notificationCenterSettings: 'instant-os-notification-center-settings',
+  speechSettings: 'instant-os-speech-settings',
   weather: 'instant-os-weather',
   calendar: 'instant-os-calendar',
   stocks: 'instant-os-stocks',

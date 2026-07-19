@@ -29,6 +29,7 @@ import { EventLogStorageView } from './event-log-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { DateTimeSettingsView } from './date-time-settings-view.tsx'
 import { NotificationCenterSettingsView } from './notification-center-settings-view.tsx'
+import { SpeechSettingsView } from './speech-settings-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
@@ -78,6 +79,7 @@ export function SettingsApp() {
     aiUsageBytes: 0,
     aiEventLogBytes: 0,
     folderIconSnapshotsBytes: 0,
+    modelVisionBytes: 0,
   })
   const { installedApps, storageRevision } = useGeneratedApps()
   const summary = useMemo(
@@ -186,6 +188,7 @@ export function SettingsApp() {
   const showAppDetail = view === 'app-detail' && selectedApp
   const showDisplay = view === 'display'
   const showDateTime = view === 'date-time'
+  const showSpeech = view === 'speech'
   const showNotificationCenter = view === 'notification-center'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
@@ -350,6 +353,13 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showDateTime} keep={showDateTime}>
         <DateTimeSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showSpeech} keep={showSpeech}>
+        <SpeechSettingsView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpenKeychain={() => openApp('keychain')}
+        />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showNotificationCenter} keep={showNotificationCenter}>
@@ -545,7 +555,8 @@ function UsageView({
     summary.booksDataBytes +
     summary.aiUsageBytes +
     summary.aiEventLogBytes +
-    summary.folderIconSnapshotsBytes
+    summary.folderIconSnapshotsBytes +
+    summary.modelVisionBytes
   const dataOtherBytes = residualBytes(summary.dataUsedBytes, dataAttributedBytes)
   const dataSegments: StorageMeterSegment[] = [
     { id: 'safari-cache', label: '网络浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
@@ -557,6 +568,12 @@ function UsageView({
       label: '文件夹图标',
       bytes: summary.folderIconSnapshotsBytes,
       color: '#a2845e',
+    },
+    {
+      id: 'model-vision',
+      label: '模型识图',
+      bytes: summary.modelVisionBytes,
+      color: '#ff9f0a',
     },
     { id: 'data-other', label: '其他', bytes: dataOtherBytes, color: '#8e8e93' },
     {
@@ -654,6 +671,11 @@ function UsageView({
                     label="程序图标缓存"
                     bytes={summary.folderIconSnapshotsBytes}
                     hint="文件夹预览缩略图缓存"
+                  />
+                  <StorageCategoryRow
+                    label="模型识图结果"
+                    bytes={summary.modelVisionBytes}
+                    hint="3D 模型视觉标注缓存"
                   />
                 </div>
               </div>
@@ -778,6 +800,8 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
       return '项目与对话'
     case 'scene3d-lab':
       return '场景存档'
+    case 'model-vision':
+      return '识别结果'
     case 'appstore':
       return '商店清单'
     case 'settings':

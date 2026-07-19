@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
+import type { SpeechBlock } from '../../ai/speech-read-aloud.ts'
+import { useSpeechReadAloud } from '../../ai/use-speech-read-aloud.ts'
 import { BackIcon, ForwardIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { SpeechReadAloudBar } from '../../ui/speech-read-aloud-bar.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -31,6 +34,35 @@ import {
 } from './news-edition-request.ts'
 import type { NewsArticle, NewsStore } from './news-types.ts'
 import './news.css'
+
+const NEWS_SPEECH_USAGE = {
+  actor: 'news',
+  behavior: 'read-aloud',
+  behaviorLabel: '朗读',
+} as const
+
+function articleBodyParagraphs(body: string): string[] {
+  return body
+    .split('\n')
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function articleToSpeechBlocks(article: NewsArticle): SpeechBlock[] {
+  const blocks: SpeechBlock[] = []
+  const title = article.title.trim()
+  const lead = article.lead.trim()
+  if (title) {
+    blocks.push({ id: 'title', text: title })
+  }
+  if (lead) {
+    blocks.push({ id: 'lead', text: lead })
+  }
+  articleBodyParagraphs(article.body).forEach((paragraph, index) => {
+    blocks.push({ id: `body-${index}`, text: paragraph })
+  })
+  return blocks
+}
 
 const READER_PLACEHOLDERS = [
   { headline: '今日新闻，好心情', subline: '在左侧选一篇报道，慢慢品读' },
@@ -138,6 +170,18 @@ export function NewsApp() {
     }
     return listArticles.find((article) => article.id === selectedId)
   }, [listArticles, selectedId])
+
+  const readAloud = useSpeechReadAloud(NEWS_SPEECH_USAGE)
+  const { close: closeReadAloud } = readAloud
+  const speechBlocks = useMemo(
+    () => (selectedArticle ? articleToSpeechBlocks(selectedArticle) : []),
+    [selectedArticle],
+  )
+  const canStartSpeech = speechBlocks.length > 0
+
+  useEffect(() => {
+    closeReadAloud()
+  }, [selectedId, closeReadAloud])
 
   const generatingFromEmpty = isGenerating && baselineArticleIds.length === 0
   const showReaderThinkingOverlay =
@@ -386,14 +430,56 @@ export function NewsApp() {
           { type: 'action', label: '回到今天', onClick: handleJumpToToday },
         ],
       },
+      {
+        label: '朗读',
+        items: [
+          {
+            type: 'action',
+            label: readAloud.isActive
+              ? '停止朗读'
+              : readAloud.panelOpen
+                ? '继续朗读'
+                : '朗读本文',
+            disabled: !canStartSpeech && !readAloud.panelOpen,
+            onClick: () => {
+              if (readAloud.isActive) {
+                readAloud.stop()
+                return
+              }
+              if (readAloud.panelOpen) {
+                readAloud.resume()
+                return
+              }
+              if (!canStartSpeech) {
+                return
+              }
+              readAloud.start(speechBlocks)
+            },
+          },
+          {
+            type: 'action',
+            label: '关闭朗读',
+            disabled: !readAloud.panelOpen,
+            onClick: () => readAloud.close(),
+          },
+        ],
+      },
     ]
   }, [
+    canStartSpeech,
     closeWindowsForApp,
     handleJumpToToday,
     handleNextDay,
     handlePrevDay,
     minimizeWindow,
+    readAloud.close,
+    readAloud.isActive,
+    readAloud.panelOpen,
+    readAloud.resume,
+    readAloud.start,
+    readAloud.stop,
     showBuiltinAbout,
+    speechBlocks,
     windows,
   ])
 
@@ -525,7 +611,13 @@ export function NewsApp() {
 
         <section class="news__reader">
           {selectedArticle ? (
-            <article class="news__article">
+            <>
+              {readAloud.panelOpen && (
+                <div class="news__article-speech">
+                  <SpeechReadAloudBar variant="news" controls={readAloud} />
+                </div>
+              )}
+              <article class="news__article">
               <header class="news__article-head">
                 <div class="news__article-meta">
                   <span class="news__article-cat">{selectedArticle.category}</span>
@@ -539,13 +631,28 @@ export function NewsApp() {
               </header>
 
               <div class="news__article-body">
-                {selectedArticle.body
-                  .split('\n')
-                  .filter((p) => p.trim().length > 0)
-                  .map((para, i) => (
-                    <p key={i}>{para}</p>
-                  ))}
+                {articleBodyParagraphs(selectedArticle.body).map((para, i) => (
+                  <p key={i}>{para}</p>
+                ))}
               </div>
+
+              {!readAloud.panelOpen && (
+                <div class="news__article-actions">
+                  <button
+                    type="button"
+                    class="news__btn"
+                    disabled={!canStartSpeech}
+                    onClick={() => {
+                      if (!canStartSpeech) {
+                        return
+                      }
+                      readAloud.start(speechBlocks)
+                    }}
+                  >
+                    朗读
+                  </button>
+                </div>
+              )}
 
               <NewsCommentsSection
                 article={selectedArticle}
@@ -553,6 +660,7 @@ export function NewsApp() {
                 onStoreChange={setStore}
               />
             </article>
+            </>
           ) : (
             <div
               class={[

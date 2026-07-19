@@ -138,6 +138,11 @@ export function Resources3dDetailView({ target, onBack }: Resources3dDetailViewP
             {target.type === 'model' && modelEntry ? (
               <>
                 <p class="settings__model-description">{modelEntry.appearance.description}</p>
+                {modelEntry.appearance.appearanceNotes && (
+                  <p class="settings__model-description settings__model-description--notes">
+                    {modelEntry.appearance.appearanceNotes}
+                  </p>
+                )}
                 <dl class="settings__form-row">
                   <dt>风格</dt>
                   <dd>{modelEntry.appearance.style}</dd>
@@ -146,7 +151,10 @@ export function Resources3dDetailView({ target, onBack }: Resources3dDetailViewP
                   <dt>尺寸</dt>
                   <dd>{formatSizeMeters(modelEntry.appearance.sizeMeters)}</dd>
                 </dl>
-                {modelEntry.appearance.placement.kind !== 'free' && (
+                {(modelEntry.appearance.placement.kind !== 'free' ||
+                  modelEntry.appearance.placement.face ||
+                  modelEntry.appearance.placement.back ||
+                  modelEntry.appearance.placement.sceneUseHint) && (
                   <>
                     <dl class="settings__form-row">
                       <dt>摆放类型</dt>
@@ -159,6 +167,7 @@ export function Resources3dDetailView({ target, onBack }: Resources3dDetailViewP
                     {(modelEntry.appearance.placement.connects ||
                       modelEntry.appearance.placement.forward ||
                       modelEntry.appearance.placement.face ||
+                      modelEntry.appearance.placement.back ||
                       modelEntry.appearance.placement.tileStepMeters !== undefined) && (
                       <dl class="settings__form-row">
                         <dt>接口参数</dt>
@@ -172,10 +181,24 @@ export function Resources3dDetailView({ target, onBack }: Resources3dDetailViewP
                               `延伸 ${modelEntry.appearance.placement.forward}`,
                             modelEntry.appearance.placement.face &&
                               `正面 ${modelEntry.appearance.placement.face}`,
+                            modelEntry.appearance.placement.back &&
+                              `背面 ${modelEntry.appearance.placement.back}`,
                           ]
                             .filter(Boolean)
                             .join(' · ')}
                         </dd>
+                      </dl>
+                    )}
+                    {modelEntry.appearance.placement.axisLandmarks && (
+                      <dl class="settings__form-row">
+                        <dt>轴向对照</dt>
+                        <dd>{modelEntry.appearance.placement.axisLandmarks}</dd>
+                      </dl>
+                    )}
+                    {modelEntry.appearance.placement.sceneUseHint && (
+                      <dl class="settings__form-row">
+                        <dt>摆放建议</dt>
+                        <dd>{modelEntry.appearance.placement.sceneUseHint}</dd>
                       </dl>
                     )}
                   </>

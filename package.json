@@ -11,7 +11,8 @@
     "vendor:rapier": "bash scripts/vendor-rapier.sh",
     "vendor:runtime": "bash scripts/vendor-three.sh && bash scripts/vendor-rapier.sh",
     "assets:3d": "bash scripts/download-3d-assets.sh",
-    "catalog:3d": "node scripts/generate-3d-catalog.mjs"
+      "catalog:3d": "node scripts/generate-3d-catalog.mjs",
+    "catalog:3d:vision": "node scripts/import-catalog-vision.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

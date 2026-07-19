@@ -80,6 +80,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '此应用独立于应用集市的微应用生成流程，便于验证素材目录与运行时注入是否正常。',
     ],
   },
+  'model-vision': {
+    version: '3D 模型视觉标注',
+    paragraphs: [
+      '模型识图会对内置 GLTF 资源做多视角截图，再调用钥匙串中配置的图像识别模型（推荐小米 MiMo V2.5 / Token Plan）写清外观、朝向与道路接口方向。',
+      '识别结果保存在数据空间（IndexedDB），可在应用内预览；调用会计入 AI 用量与事件日志。适合在套餐额度到期前批量补全目录描述。',
+    ],
+  },
   icode: {
     version: '微应用开发环境',
     paragraphs: [
@@ -146,9 +153,9 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   speech: {
     version: '实验性 · 未完成',
     paragraphs: [
-      '语音识别是未完成的实验特性（默认需在「设置 → 开发者选项」开启），基于浏览器 Web Speech API（SpeechRecognition）的演示与测试工具。点击麦克风即可开始说话，识别结果与原始事件会实时显示。',
-      '可调整识别语言、continuous 连续识别、interimResults 中间结果以及 maxAlternatives 候选数量。所有配置在开始识别后锁定，需停止后再修改。',
-      '兼容性提示：Chrome / Edge 走 Google 识别服务，Safari 走 Apple，Firefox 通常不支持。需在 HTTPS 或 localhost 环境运行，并授予麦克风权限。识别依赖厂商云端服务，离线不可用。',
+      '语音实验室是未完成的实验特性（默认需在「设置 → 开发者选项」开启），用于测试系统语音服务。',
+      '识别与合成只调用统一系统入口，不自行选择供应商、语种或音色；模型在钥匙串按能力选用，语种与音色在「系统设置 → 语音」调整。',
+      '请先配置对应能力模型（例如 mimo-v2.5-asr / mimo-v2.5-tts）。调用会计入 AI 用量与事件日志。',
     ],
   },
   'system-info': {
@@ -175,7 +182,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   keychain: {
     version: 'AI 供应商账户管理',
     paragraphs: [
-      '钥匙串用于管理多个 AI 模型供应商的 API Key 与模型配置。支持添加、编辑、排序和删除供应商，并选择首选供应商。',
+      '钥匙串用于管理多个 AI 模型供应商的 API Key 与模型配置。支持按文本、图像识别、语音识别、语音合成分别选择首选模型。',
       '每个供应商可独立配置 API Key、Base URL、启用的模型列表以及默认模型。配置保存在本机，不会上传到服务器。',
     ],
   },

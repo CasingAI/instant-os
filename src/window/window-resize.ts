@@ -73,9 +73,11 @@ export function computeEdgeExtremeBounds(
 
 export function clampFloatingSize(width: number, height: number): Pick<WindowBounds, 'width' | 'height'> {
   const work = getMaximizedBounds()
+  const safeWidth = Number.isFinite(width) ? width : MIN_WINDOW_WIDTH
+  const safeHeight = Number.isFinite(height) ? height : MIN_WINDOW_HEIGHT
   return {
-    width: Math.max(MIN_WINDOW_WIDTH, Math.min(width, work.width)),
-    height: Math.max(MIN_WINDOW_HEIGHT, Math.min(height, work.height)),
+    width: Math.max(MIN_WINDOW_WIDTH, Math.min(safeWidth, work.width)),
+    height: Math.max(MIN_WINDOW_HEIGHT, Math.min(safeHeight, work.height)),
   }
 }
 

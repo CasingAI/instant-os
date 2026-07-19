@@ -62,6 +62,16 @@ export function Scene3dLabIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function ModelVisionIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#ff9f0a" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        👁️
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function ICodeIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#147efb" size={size}>

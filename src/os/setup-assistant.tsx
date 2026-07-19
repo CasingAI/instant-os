@@ -10,6 +10,10 @@ import {
   type AccountSettingsV2,
 } from './account-settings-storage.ts'
 import type { AiProviderEntry } from '../ai/ai-providers.ts'
+import {
+  applyTextPreferredToProviders,
+  reconcilePreferredByCapability,
+} from '../ai/ai-providers.ts'
 import type { CalendarInstant } from './calendar-instant.ts'
 import { applyOsManualDateTime, applyOsSystemDateTime } from './os-clock.ts'
 import './setup-assistant.css'
@@ -143,11 +147,23 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
   )
 
   const updateProvider = useCallback((entry: AiProviderEntry) => {
-    setSettings((prev) => ({
-      ...prev,
-      providers: [entry],
-      preferredIndex: 0,
-    }))
+    setSettings((prev) => {
+      const providers = [entry]
+      const reconciled = reconcilePreferredByCapability(
+        providers,
+        prev.preferredByCapability,
+        0,
+      )
+      return {
+        ...prev,
+        providers: applyTextPreferredToProviders(
+          providers,
+          reconciled.preferredByCapability,
+        ),
+        preferredIndex: reconciled.preferredIndex,
+        preferredByCapability: reconciled.preferredByCapability,
+      }
+    })
   }, [])
 
   return (

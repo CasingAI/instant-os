@@ -1,12 +1,19 @@
+import { useState } from 'preact/hooks'
 import {
   AI_PROVIDER_PRESETS,
+  buildCustomModelCapabilities,
+  buildEnabledModelsFromPreset,
   defaultProviderEntry,
   findAiProviderPreset,
   isCustomProvider,
+  normalizeCustomModelCapabilities,
+  resolveModelCapabilities,
   type AiProviderEntry,
   type AiProviderId,
 } from '../ai/ai-providers.ts'
 import { SettingsChoiceField } from '../ui/settings-choice-field.tsx'
+import { AiModelCapabilityTags } from '../ui/ai-model-capability-tags.tsx'
+import '../ui/ai-model-capability-tags.css'
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
   id: item.id,
@@ -19,6 +26,11 @@ type SetupAiAccountFormProps = {
 }
 
 export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps) {
+  const [customSupportsVision, setCustomSupportsVision] = useState(() =>
+    normalizeCustomModelCapabilities(entry.enabledModels[0]?.capabilities).includes(
+      'vision',
+    ),
+  )
   const isCustom = isCustomProvider(entry.providerId)
   const preset = findAiProviderPreset(entry.providerId)
   const providerLabel = preset?.name ?? entry.providerId
@@ -35,6 +47,7 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
     }
     newEntry.defaultModel = ''
     newEntry.enabledModels = []
+    setCustomSupportsVision(false)
     onChange(newEntry)
   }
 
@@ -42,20 +55,40 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
     onChange({
       ...entry,
       defaultModel: modelId,
-      enabledModels: [{ modelId, name }],
+      // 内置供应商默认启用整套预设模型，选中项作为默认
+      enabledModels: buildEnabledModelsFromPreset(entry.providerId).map(
+        (model) =>
+          model.modelId === modelId ? { ...model, name } : model,
+      ),
     })
   }
 
-  const handleCustomModelChange = (modelId: string) => {
+  const handleCustomModelChange = (modelId: string, supportsVision = customSupportsVision) => {
     const trimmed = modelId.trim()
     onChange({
       ...entry,
       defaultModel: trimmed,
-      enabledModels: trimmed ? [{ modelId: trimmed, name: trimmed }] : [],
+      enabledModels: trimmed
+        ? [
+            {
+              modelId: trimmed,
+              name: trimmed,
+              capabilities: buildCustomModelCapabilities(supportsVision),
+            },
+          ]
+        : [],
     })
   }
 
+  const handleCustomVisionChange = (supportsVision: boolean) => {
+    setCustomSupportsVision(supportsVision)
+    if (entry.defaultModel.trim()) {
+      handleCustomModelChange(entry.defaultModel, supportsVision)
+    }
+  }
+
   const presetModels = preset?.models ?? []
+  const customCapabilities = buildCustomModelCapabilities(customSupportsVision)
 
   return (
     <div class="setup-ai-form">
@@ -108,37 +141,57 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
       <div class="setup-ai-form__field">
         <span class="setup-ai-form__label">模型</span>
         {isCustom ? (
-          <input
-            class="setup-ai-form__input"
-            type="text"
-            value={entry.defaultModel}
-            placeholder="model-name"
-            autoComplete="off"
-            onInput={(event) =>
-              handleCustomModelChange(
-                (event.currentTarget as HTMLInputElement).value,
-              )
-            }
-          />
+          <div class="setup-ai-form__model-cards">
+            <div class="ai-model-card ai-model-card--add">
+              <div class="ai-model-card__header">
+                <input
+                  class="setup-ai-form__input ai-model-card__title-input"
+                  type="text"
+                  value={entry.defaultModel}
+                  placeholder="model-name"
+                  autoComplete="off"
+                  onInput={(event) =>
+                    handleCustomModelChange(
+                      (event.currentTarget as HTMLInputElement).value,
+                    )
+                  }
+                />
+              </div>
+              <AiModelCapabilityTags
+                capabilities={customCapabilities}
+                visionEditable
+                onVisionChange={handleCustomVisionChange}
+              />
+            </div>
+          </div>
         ) : (
-          <div class="setup-ai-form__model-list" role="radiogroup" aria-label="模型">
-            {presetModels.map((model) => (
-              <button
-                key={model.id}
-                type="button"
-                class="setup-ai-form__model-row"
-                role="radio"
-                aria-checked={entry.defaultModel === model.id}
-                onClick={() => handleSelectModel(model.id, model.name)}
-              >
-                <span class="setup-ai-form__model-name">{model.name}</span>
-                {entry.defaultModel === model.id && (
-                  <span class="setup-ai-form__model-check" aria-hidden="true">
-                    ✓
-                  </span>
-                )}
-              </button>
-            ))}
+          <div class="setup-ai-form__model-cards">
+            <div class="ai-model-cards">
+              {presetModels.map((model) => {
+                const selected = entry.defaultModel === model.id
+                const caps = resolveModelCapabilities(entry.providerId, model.id)
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    class={`ai-model-card ai-model-card--selectable${
+                      selected ? ' ai-model-card--selected' : ''
+                    }`}
+                    onClick={() => handleSelectModel(model.id, model.name)}
+                  >
+                    <div class="ai-model-card__header">
+                      <span class="ai-model-card__title">{model.name}</span>
+                      {selected && (
+                        <span class="ai-model-card__check" aria-hidden="true">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <AiModelCapabilityTags capabilities={caps} />
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>

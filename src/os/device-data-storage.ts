@@ -5,13 +5,15 @@ export const DATA_CAPACITY_BYTES = 50 * 1024 * 1024
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 6
+export const DATA_DB_VERSION = 8
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
 export const AI_TOKEN_USAGE_STORE = 'ai-token-usage'
 export const AI_EVENT_LOG_STORE = 'ai-event-log'
 export const FOLDER_ICON_SNAPSHOTS_STORE = 'folder-icon-snapshots'
+export const MODEL_VISION_RESULTS_STORE = 'model-vision-results'
+export const MODEL_VISION_MEDIA_STORE = 'model-vision-media'
 export const DATA_META_STORE = 'data-meta'
 
 export type BookChapterRecord = {
@@ -136,6 +138,12 @@ function openDataDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(FOLDER_ICON_SNAPSHOTS_STORE)) {
         db.createObjectStore(FOLDER_ICON_SNAPSHOTS_STORE, { keyPath: 'key' })
+      }
+      if (!db.objectStoreNames.contains(MODEL_VISION_RESULTS_STORE)) {
+        db.createObjectStore(MODEL_VISION_RESULTS_STORE, { keyPath: 'modelId' })
+      }
+      if (!db.objectStoreNames.contains(MODEL_VISION_MEDIA_STORE)) {
+        db.createObjectStore(MODEL_VISION_MEDIA_STORE, { keyPath: 'modelId' })
       }
     }
 
@@ -564,19 +572,48 @@ export async function getFolderIconSnapshotsBytes(): Promise<number> {
   }
 }
 
+export async function getModelVisionResultsBytes(): Promise<number> {
+  try {
+    const [resultsBytes, mediaBytes] = await Promise.all([
+      sumStoreBytes(MODEL_VISION_RESULTS_STORE),
+      sumStoreBytes(MODEL_VISION_MEDIA_STORE),
+    ])
+    return resultsBytes + mediaBytes
+  } catch {
+    return 0
+  }
+}
+
 export async function rebuildDataByteTotal(): Promise<number> {
   try {
-    const [bookChapterBytes, bookDetailBytes, cacheBytes, aiUsageBytes, aiEventLogBytes, folderIconSnapshotBytes] =
-      await Promise.all([
+    const [
+      bookChapterBytes,
+      bookDetailBytes,
+      cacheBytes,
+      aiUsageBytes,
+      aiEventLogBytes,
+      folderIconSnapshotBytes,
+      modelVisionBytes,
+    ] = await Promise.all([
       sumStoreBytes(BOOK_CHAPTERS_STORE),
       sumStoreBytes(BOOK_DETAILS_STORE),
       sumStoreBytes(SAFARI_PAGE_CACHE_STORE),
       sumStoreBytes(AI_TOKEN_USAGE_STORE),
       sumStoreBytes(AI_EVENT_LOG_STORE),
       sumStoreBytes(FOLDER_ICON_SNAPSHOTS_STORE),
+      sumStoreBytes(MODEL_VISION_RESULTS_STORE).then(async (resultsBytes) => {
+        const mediaBytes = await sumStoreBytes(MODEL_VISION_MEDIA_STORE)
+        return resultsBytes + mediaBytes
+      }),
     ])
     const total =
-      bookChapterBytes + bookDetailBytes + cacheBytes + aiUsageBytes + aiEventLogBytes + folderIconSnapshotBytes
+      bookChapterBytes +
+      bookDetailBytes +
+      cacheBytes +
+      aiUsageBytes +
+      aiEventLogBytes +
+      folderIconSnapshotBytes +
+      modelVisionBytes
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total

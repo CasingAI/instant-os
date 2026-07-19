@@ -158,7 +158,7 @@ export function useWindowDrag(
 
       const onPointerUp = (upEvent: PointerEvent) => {
         const session = dragStateRef.current
-        if (session?.phase === 'dragging') {
+        if (session?.phase === 'dragging' && session.moved) {
           const snapTarget = detectSnapTarget(upEvent.clientX, upEvent.clientY)
           if (snapTarget) {
             // Drag writes left/top directly on the frame. If the snap target
@@ -168,7 +168,7 @@ export function useWindowDrag(
             const bounds = getSnapBounds(snapTarget)
             applyPositionToFrame(session.frameEl, bounds.x, bounds.y)
             onSnap(windowId, snapTarget)
-          } else if (session.moved) {
+          } else {
             applyPositionToFrame(session.frameEl, session.lastX, session.lastY)
             onMove(windowId, session.lastX, session.lastY)
           }

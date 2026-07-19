@@ -11,6 +11,7 @@ import {
   NotificationCenterPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
+  SpeechPaneIcon,
   StoragePaneIcon,
   DockPaneIcon,
   WallpaperPaneIcon,
@@ -20,6 +21,7 @@ export type SettingsPaneId =
   | 'usage'
   | 'ai-usage'
   | 'account'
+  | 'speech'
   | 'external-bridge-consent'
   | 'display'
   | 'date-time'
@@ -36,6 +38,7 @@ export type SettingsRoute =
   | { view: 'usage' }
   | { view: 'ai-usage' }
   | { view: 'account' }
+  | { view: 'speech' }
   | { view: 'external-bridge-consent' }
   | { view: 'display' }
   | { view: 'date-time' }
@@ -71,6 +74,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'usage', label: '存储空间', Icon: StoragePaneIcon, route: { view: 'usage' } },
   { id: 'ai-usage', label: 'AI 用量', Icon: AiUsagePaneIcon, route: { view: 'ai-usage' } },
   { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' } },
+  { id: 'speech', label: '语音', Icon: SpeechPaneIcon, route: { view: 'speech' } },
   {
     // 【实验性 · 未完成】外链应用平台（Bridge）
     id: 'external-bridge-consent',
@@ -121,6 +125,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'ai-usage'
     case 'account':
       return 'account'
+    case 'speech':
+      return 'speech'
     case 'external-bridge-consent':
       return 'external-bridge-consent'
     case 'display':
@@ -154,6 +160,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'usage':
     case 'ai-usage':
     case 'account':
+    case 'speech':
     case 'external-bridge-consent':
     case 'display':
     case 'date-time':

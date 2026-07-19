@@ -206,8 +206,8 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
               onChange={handleToggleImmersiveChrome}
             />
             <DeveloperFeature
-              title="语音识别（实验性 · 未完成）"
-              description="未完成的实验特性。开启后，语音识别应用会出现在桌面和程序坞中；能力与产品定位均未定稿。"
+              title="语音实验室（实验性 · 未完成）"
+              description="未完成的实验特性。开启后，语音实验室会出现在桌面和程序坞中，可测试系统语音服务（识别 / 合成）；能力与产品定位均未定稿。"
               checked={speechApp}
               onChange={handleToggleSpeechApp}
             />

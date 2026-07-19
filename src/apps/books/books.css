@@ -765,6 +765,12 @@
   padding: 24px 32px;
 }
 
+.books-reader__speech {
+  flex-shrink: 0;
+  width: 100%;
+  z-index: 2;
+}
+
 .books-reader__chapter-title {
   font-family: Georgia, 'Songti SC', 'STSong', serif, var(--app-emoji-font-family);
   font-size: 22px;
