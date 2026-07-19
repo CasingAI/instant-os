@@ -182,7 +182,7 @@ export function TaskManagerPerformancePanel({
             const active = category === item.id
             const value =
               item.id === 'ai'
-                ? formatTokensPerSecond(chart.latest)
+                ? formatTokensPerSecond(latestSpeed)
                 : item.id === 'fps'
                   ? formatFps(latestFps)
                   : formatMemoryBytes(latestHeap?.usedBytes)

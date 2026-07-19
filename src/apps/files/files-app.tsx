@@ -35,6 +35,7 @@ import {
   type FilesNode,
 } from './files-types.ts'
 import {
+  FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
   createTextFile,
   getFilesLocationLabel,
@@ -256,8 +257,8 @@ export function FilesApp() {
   const canPasteHere = canCreateHere && clipboard !== undefined
   void clipboardRevision
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refresh = useCallback(async (options?: { quiet?: boolean }) => {
+    if (!options?.quiet) setLoading(true)
     setError(undefined)
     try {
       const [listed, path] = await Promise.all([
@@ -271,7 +272,7 @@ export function FilesApp() {
       setItems([])
       setPathNodes([])
     } finally {
-      setLoading(false)
+      if (!options?.quiet) setLoading(false)
     }
   }, [folderId, locationId])
 
@@ -306,6 +307,37 @@ export function FilesApp() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    let timer: number | undefined
+    const onVfsChanged = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        void refresh({ quiet: true })
+      }, 80)
+    }
+    window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    if (!isMountLocationId(locationId)) return
+    const softRefresh = () => {
+      void refresh({ quiet: true })
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') softRefresh()
+    }
+    window.addEventListener('focus', softRefresh)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', softRefresh)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [locationId, refresh])
 
   useEffect(() => {
     if (!layoutReady) return
@@ -989,6 +1021,10 @@ export function FilesApp() {
         {!canCreateHere ? (
           <div class="files__protected-banner" role="status">
             此容器受保护不可修改
+          </div>
+        ) : isMountLocationId(locationId) ? (
+          <div class="files__protected-banner files__protected-banner--mount" role="status">
+            对此容器的修改会立刻同步到本机真实文件夹
           </div>
         ) : undefined}
 

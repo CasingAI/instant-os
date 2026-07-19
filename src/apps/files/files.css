@@ -475,6 +475,17 @@
   animation: files-banner-in 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+.files__protected-banner--mount {
+  background: linear-gradient(
+    180deg,
+    #f3efe4 0%,
+    #e8dfc8 48%,
+    #dccfb0 100%
+  );
+  border-bottom-color: #b8a888;
+  color: #6a5a38;
+}
+
 @keyframes files-banner-in {
   from {
     opacity: 0;
