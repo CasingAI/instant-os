@@ -155,6 +155,36 @@
   transform: translateY(-2px) scale(0.95);
 }
 
+.dock--reordering .dock__item:hover,
+.dock--reordering .dock__item:active {
+  transform: none;
+}
+
+.dock--reordering .dock__item:hover .dock__tooltip {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.dock__item--dragging {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dock__drag-ghost {
+  position: fixed;
+  z-index: 950;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  transform: scale(1.08);
+}
+
+.dock__drag-ghost .app-icon-tile__tile,
+.dock__drag-ghost .desktop-folder-icon {
+  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.4));
+}
+
 .dock__icon {
   position: relative;
   display: inline-flex;

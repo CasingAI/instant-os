@@ -25,9 +25,14 @@ export function resolveDockDropTarget(clientX: number, clientY: number): DockDro
   }
 
   const pinnedZone = plate.querySelector('.dock__pinned-zone')
-  const pinnedItems = pinnedZone
-    ? [...pinnedZone.querySelectorAll('.dock__item')]
-    : [...plate.querySelectorAll('.dock__item--pinned')]
+  const pinnedItems = (
+    pinnedZone
+      ? [...pinnedZone.querySelectorAll('.dock__item')]
+      : [...plate.querySelectorAll('.dock__item--pinned')]
+  ).filter(
+    (item): item is HTMLElement =>
+      item instanceof HTMLElement && !item.classList.contains('dock__item--dragging'),
+  )
 
   if (pinnedItems.length === 0) {
     return { overDock: true, insertIndex: 0 }

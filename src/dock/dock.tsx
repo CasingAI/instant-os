@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact'
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { AppIconNotificationBadge } from '../icons/app-icon-notification-badge.tsx'
 import { GeneratedAppIcon } from '../apps/generated/generated-app-icon.tsx'
 import { ExtAppIcon } from '../apps/ext/ext-app-icon.tsx'
@@ -27,12 +27,27 @@ import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
 import { isExtAppId, isGeneratedAppId, type AppId, type BuiltinAppId, type ExtAppId, type GeneratedAppId } from '../os/types.ts'
-import { getDockDropSession, subscribeDockDropSession } from './dock-drop-session.ts'
+import {
+  clearDockDropSession,
+  getDockDropSession,
+  setDockDropSession,
+  subscribeDockDropSession,
+} from './dock-drop-session.ts'
+import { resolveDockDropTarget } from './dock-drop-target.ts'
 import { DOCK_SETTINGS_CHANGED_EVENT } from './dock-settings-storage.ts'
 import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from './use-dock-viewport-fit.ts'
 import { resolveEffectiveDockIconSizePx } from './dock-layout-metrics.ts'
+import { useDockIconReorder } from './use-dock-icon-reorder.ts'
 import '../icons/app-icon-tile.css'
 import './dock.css'
+
+type DockReorderSession = {
+  itemId: DesktopItemId
+  pointerX: number
+  pointerY: number
+  grabOffsetX: number
+  grabOffsetY: number
+}
 
 function DockTooltip({ name }: { name: string }) {
   return <span class="dock__tooltip">{name}</span>
@@ -65,6 +80,66 @@ function useDockDropSession() {
   return dropSession
 }
 
+type DockPinnedItemButtonProps = {
+  itemId: DesktopItemId
+  index: number
+  className: string
+  ariaLabel: string
+  reorderingEnabled: boolean
+  onOpen: () => void
+  onContextMenu: (event: MouseEvent) => void
+  onReorderStart: (
+    itemId: DesktopItemId,
+    index: number,
+    clientX: number,
+    clientY: number,
+    grabOffsetX: number,
+    grabOffsetY: number,
+  ) => void
+  onReorderMove: (clientX: number, clientY: number) => void
+  onReorderEnd: () => void
+  children: ComponentChildren
+}
+
+function DockPinnedItemButton({
+  itemId,
+  index,
+  className,
+  ariaLabel,
+  reorderingEnabled,
+  onOpen,
+  onContextMenu,
+  onReorderStart,
+  onReorderMove,
+  onReorderEnd,
+  children,
+}: DockPinnedItemButtonProps) {
+  const { onClick, onPointerDown } = useDockIconReorder({
+    itemId,
+    index,
+    reorderingEnabled,
+    onOpen,
+    onReorderStart,
+    onReorderMove,
+    onReorderEnd,
+  })
+
+  return (
+    <button
+      type="button"
+      class={className}
+      data-dock-item-id={itemId}
+      data-dock-app-id={isDesktopFolderId(itemId) ? undefined : itemId}
+      aria-label={ariaLabel}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onContextMenu={onContextMenu}
+    >
+      {children}
+    </button>
+  )
+}
+
 export function Dock() {
   const {
     windows,
@@ -89,6 +164,7 @@ export function Dock() {
     desktopFolders,
     isPinnedToDock,
     pinToDock,
+    pinToDockAtIndex,
     unpinFromDock,
     unpinItemFromDock,
     dissolveDesktopFolder,
@@ -96,6 +172,10 @@ export function Dock() {
   const dropSession = useDockDropSession()
   const dockHidden = windows.some((window) => window.fullscreen && !window.minimized)
   const iconSize = useDockIconSize()
+
+  const [reorderSession, setReorderSession] = useState<DockReorderSession | undefined>(undefined)
+  const lastPointerRef = useRef({ x: 0, y: 0 })
+  const reorderSessionRef = useRef<DockReorderSession | undefined>(undefined)
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
@@ -190,7 +270,116 @@ export function Dock() {
     })
   }
 
-  function renderPinnedBuiltinDockItem(appId: BuiltinAppId) {
+  const onReorderStart = useCallback(
+    (
+      itemId: DesktopItemId,
+      index: number,
+      clientX: number,
+      clientY: number,
+      grabOffsetX: number,
+      grabOffsetY: number,
+    ) => {
+      closeOpenDesktopFolder()
+      lastPointerRef.current = { x: clientX, y: clientY }
+      const next: DockReorderSession = {
+        itemId,
+        pointerX: clientX,
+        pointerY: clientY,
+        grabOffsetX,
+        grabOffsetY,
+      }
+      reorderSessionRef.current = next
+      setReorderSession(next)
+      setDockDropSession({ active: true, insertIndex: index })
+    },
+    [],
+  )
+
+  const onReorderMove = useCallback((clientX: number, clientY: number) => {
+    lastPointerRef.current = { x: clientX, y: clientY }
+    setReorderSession((session) => {
+      if (!session) {
+        return session
+      }
+      const next = { ...session, pointerX: clientX, pointerY: clientY }
+      reorderSessionRef.current = next
+      return next
+    })
+
+    const target = resolveDockDropTarget(clientX, clientY)
+    if (target.overDock) {
+      setDockDropSession({ active: true, insertIndex: target.insertIndex })
+    } else {
+      clearDockDropSession()
+    }
+  }, [])
+
+  const onReorderEnd = useCallback(() => {
+    const session = reorderSessionRef.current
+    const pointer = lastPointerRef.current
+    const target = resolveDockDropTarget(pointer.x, pointer.y)
+
+    if (session) {
+      if (target.overDock) {
+        pinToDockAtIndex(session.itemId, target.insertIndex)
+      } else if (isDesktopFolderId(session.itemId) || !isPermanentlyPinnedToDock(session.itemId)) {
+        unpinItemFromDock(session.itemId)
+      }
+    }
+
+    clearDockDropSession()
+    reorderSessionRef.current = undefined
+    setReorderSession(undefined)
+  }, [pinToDockAtIndex, unpinItemFromDock])
+
+  const reorderingEnabled = reorderSession !== undefined
+
+  function renderDockItemIcon(itemId: DesktopItemId) {
+    if (isDesktopFolderId(itemId)) {
+      const folder = findFolderById(desktopFolders, itemId)
+      if (!folder) {
+        return undefined
+      }
+      return <DesktopFolderIcon apps={folderPreviewById.get(itemId) ?? []} size={iconSize} />
+    }
+
+    if (isGeneratedAppId(itemId)) {
+      const app = installedApps.find((entry) => entry.id === itemId)
+      if (!app) {
+        return undefined
+      }
+      return <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
+    }
+
+    if (isExtAppId(itemId)) {
+      const app = getSessionExtApp(itemId)
+      if (!app) {
+        return undefined
+      }
+      return (
+        <ExtAppIcon
+          name={app.manifest.name}
+          themeColor={app.manifest.themeColor}
+          iconUrl={app.iconUrl}
+          size={iconSize}
+          devBadge
+        />
+      )
+    }
+
+    const app = getAppDefinition(itemId)
+    if (!app) {
+      return undefined
+    }
+    return (
+      <>
+        <app.icon size={iconSize} />
+        {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
+      </>
+    )
+  }
+
+  function renderPinnedBuiltinDockItem(appId: BuiltinAppId, index: number) {
     const app = getAppDefinition(appId)
     if (!app || !isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())) {
       return undefined
@@ -204,13 +393,17 @@ export function Dock() {
     }
 
     return (
-      <button
+      <DockPinnedItemButton
         key={app.id}
-        type="button"
-        class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
-        data-dock-app-id={app.id}
-        aria-label={app.name}
-        onClick={handleOpen}
+        itemId={app.id}
+        index={index}
+        className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
+        ariaLabel={app.name}
+        reorderingEnabled={reorderingEnabled}
+        onOpen={handleOpen}
+        onReorderStart={onReorderStart}
+        onReorderMove={onReorderMove}
+        onReorderEnd={onReorderEnd}
         onContextMenu={(event) => {
           showIconContextMenu(
             event,
@@ -236,11 +429,11 @@ export function Dock() {
           {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
         </span>
         {isRunning && <span class="dock__indicator" />}
-      </button>
+      </DockPinnedItemButton>
     )
   }
 
-  function renderPinnedGeneratedDockItem(appId: GeneratedAppId) {
+  function renderPinnedGeneratedDockItem(appId: GeneratedAppId, index: number) {
     const app = installedApps.find((entry) => entry.id === appId)
     if (!app) {
       return undefined
@@ -256,13 +449,17 @@ export function Dock() {
     }
 
     return (
-      <button
+      <DockPinnedItemButton
         key={app.id}
-        type="button"
-        class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
-        data-dock-app-id={app.id}
-        aria-label={app.name}
-        onClick={handleOpen}
+        itemId={app.id}
+        index={index}
+        className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
+        ariaLabel={app.name}
+        reorderingEnabled={reorderingEnabled}
+        onOpen={handleOpen}
+        onReorderStart={onReorderStart}
+        onReorderMove={onReorderMove}
+        onReorderEnd={onReorderEnd}
         onContextMenu={(event) => {
           showIconContextMenu(
             event,
@@ -286,11 +483,11 @@ export function Dock() {
           <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
         </span>
         {isRunning && <span class="dock__indicator" />}
-      </button>
+      </DockPinnedItemButton>
     )
   }
 
-  function renderPinnedFolderDockItem(folderId: DesktopFolderId) {
+  function renderPinnedFolderDockItem(folderId: DesktopFolderId, index: number) {
     const folder = findFolderById(desktopFolders, folderId)
     if (!folder) {
       return undefined
@@ -305,12 +502,17 @@ export function Dock() {
     }
 
     return (
-      <button
+      <DockPinnedItemButton
         key={folderId}
-        type="button"
-        class="dock__item dock__item--pinned dock__item--folder"
-        aria-label={folder.name}
-        onClick={handleClick}
+        itemId={folderId}
+        index={index}
+        className="dock__item dock__item--pinned dock__item--folder"
+        ariaLabel={folder.name}
+        reorderingEnabled={reorderingEnabled}
+        onOpen={handleClick}
+        onReorderStart={onReorderStart}
+        onReorderMove={onReorderMove}
+        onReorderEnd={onReorderEnd}
         onContextMenu={(event) => {
           showIconContextMenu(event, [
             { type: 'action', label: '打开', onClick: handleOpen },
@@ -329,27 +531,11 @@ export function Dock() {
         <span class="dock__icon">
           <DesktopFolderIcon apps={previewApps} size={iconSize} />
         </span>
-      </button>
+      </DockPinnedItemButton>
     )
   }
 
-  function renderPinnedDockItem(itemId: DesktopItemId) {
-    if (isDesktopFolderId(itemId)) {
-      return renderPinnedFolderDockItem(itemId)
-    }
-
-    if (isGeneratedAppId(itemId)) {
-      return renderPinnedGeneratedDockItem(itemId)
-    }
-
-    if (isExtAppId(itemId)) {
-      return renderPinnedExtDockItem(itemId)
-    }
-
-    return renderPinnedBuiltinDockItem(itemId)
-  }
-
-  function renderPinnedExtDockItem(appId: ExtAppId) {
+  function renderPinnedExtDockItem(appId: ExtAppId, index: number) {
     const app = getSessionExtApp(appId)
     if (!app) {
       return undefined
@@ -363,13 +549,17 @@ export function Dock() {
     }
 
     return (
-      <button
+      <DockPinnedItemButton
         key={app.id}
-        type="button"
-        class={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
-        data-dock-app-id={app.id}
-        aria-label={app.manifest.name}
-        onClick={handleOpen}
+        itemId={app.id}
+        index={index}
+        className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
+        ariaLabel={app.manifest.name}
+        reorderingEnabled={reorderingEnabled}
+        onOpen={handleOpen}
+        onReorderStart={onReorderStart}
+        onReorderMove={onReorderMove}
+        onReorderEnd={onReorderEnd}
         onContextMenu={(event) => {
           showIconContextMenu(event, [
             { type: 'action', label: '打开', onClick: handleOpen },
@@ -409,8 +599,24 @@ export function Dock() {
           />
         </span>
         {isRunning && <span class="dock__indicator" />}
-      </button>
+      </DockPinnedItemButton>
     )
+  }
+
+  function renderPinnedDockItem(itemId: DesktopItemId, index: number) {
+    if (isDesktopFolderId(itemId)) {
+      return renderPinnedFolderDockItem(itemId, index)
+    }
+
+    if (isGeneratedAppId(itemId)) {
+      return renderPinnedGeneratedDockItem(itemId, index)
+    }
+
+    if (isExtAppId(itemId)) {
+      return renderPinnedExtDockItem(itemId, index)
+    }
+
+    return renderPinnedBuiltinDockItem(itemId, index)
   }
 
   function renderRunningBuiltinDockItem(appId: BuiltinAppId) {
@@ -557,8 +763,16 @@ export function Dock() {
     )
   }
 
-  const pinnedDockItems = pinnedDockItemIds
-    .map((itemId) => renderPinnedDockItem(itemId))
+  const draggingItemId = reorderSession?.itemId
+  const visiblePinnedItemIds = draggingItemId
+    ? pinnedDockItemIds.filter((itemId) => itemId !== draggingItemId)
+    : pinnedDockItemIds
+
+  const pinnedDockItems = visiblePinnedItemIds
+    .map((itemId) => {
+      const sourceIndex = pinnedDockItemIds.indexOf(itemId)
+      return renderPinnedDockItem(itemId, sourceIndex)
+    })
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
 
   const runningDockItems = runningUnpinnedAppIds
@@ -575,6 +789,7 @@ export function Dock() {
 
   const showDivider = pinnedDockItems.length > 0 && runningDockItems.length > 0
   const dropInsertIndex = dropSession.active ? dropSession.insertIndex : undefined
+  const ghostIcon = draggingItemId ? renderDockItemIcon(draggingItemId) : undefined
 
   const pinnedZoneContent: ComponentChildren[] = []
   for (let index = 0; index <= pinnedDockItems.length; index += 1) {
@@ -590,7 +805,7 @@ export function Dock() {
 
   return (
     <nav
-      class={`dock${dockHidden ? ' dock--hidden' : ''}${dropSession.active ? ' dock--drop-target' : ''}`}
+      class={`dock${dockHidden ? ' dock--hidden' : ''}${dropSession.active ? ' dock--drop-target' : ''}${reorderSession ? ' dock--reordering' : ''}`}
       aria-label="程序坞"
     >
       <div class="dock__row">
@@ -614,6 +829,19 @@ export function Dock() {
           onPointerDown={handleDesktopRevealZonePointerDown}
         />
       </div>
+      {reorderSession && ghostIcon && (
+        <div
+          class="dock__drag-ghost"
+          style={{
+            left: `${reorderSession.pointerX - reorderSession.grabOffsetX}px`,
+            top: `${reorderSession.pointerY - reorderSession.grabOffsetY}px`,
+            transformOrigin: `${reorderSession.grabOffsetX}px ${reorderSession.grabOffsetY}px`,
+          }}
+          aria-hidden="true"
+        >
+          <span class="dock__icon">{ghostIcon}</span>
+        </div>
+      )}
     </nav>
   )
 }
