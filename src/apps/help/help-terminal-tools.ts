@@ -40,7 +40,7 @@ export const HELP_TERMINAL_REQUEST_TOOLS = [
         },
         mount_path: {
           type: 'string',
-          description: '卸载时可选：挂载路径如 /mount/xxxxxxxx 或卷标签',
+          description: '卸载时可选：挂载路径如 /mount/文件夹名 或卷标签',
         },
         fs_path: {
           type: 'string',

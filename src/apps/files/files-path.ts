@@ -23,7 +23,7 @@ export type ParsedFilesAbsolutePath = {
  * - 用户文件 `/user`
  * - 3D 模型 `/models`
  * - 系统文件 `/system`
- * - 外部挂载 `/mount/{8位键}`
+ * - 外部挂载 `/mount/{文件夹名}`
  *
  * 另有命名空间根 `/`（见 `isFilesNamespaceRoot`）：不对应任何 location，仅用于列举各卷。
  */

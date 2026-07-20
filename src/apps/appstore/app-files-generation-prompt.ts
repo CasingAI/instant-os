@@ -16,7 +16,7 @@ export const APP_STORE_FILES_RUNTIME_SECTION = `【文件运行时】
 - /user — 用户文件（可读写）
 - /models — 3D 模型（只读）
 - /system — 系统源码快照（只读）
-- /mount/{8位键}/… — 用户挂载的本机文件夹（可读写）
+- /mount/{文件夹名}/… — 用户挂载的本机文件夹（可读写；键由文件夹名派生）
 
 API（全部返回 Promise）：
 - InstantOS.files.listVolumes() → { path, label, writable }[]

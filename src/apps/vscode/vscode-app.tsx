@@ -49,6 +49,8 @@ import {
   focusEditorItem,
   focusEditorTab,
   getFocusedCloseTarget,
+  getGroupActiveItem,
+  countOtherItemsInGroup,
   layoutHasItems,
   moveEditorItemToGroup,
   openMarkdownPreviewToSide,
@@ -195,6 +197,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const skipSessionPersistRef = useRef(false)
   const sessionReadyRef = useRef(false)
   const typescriptWorkspaceAbortRef = useRef<AbortController | undefined>(undefined)
+  const typescriptSyncEntriesRef = useRef<VscodeTypescriptSyncEntry[]>([])
 
   tabsRef.current = tabs
   editorLayoutRef.current = editorLayout
@@ -223,6 +226,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const showMarkdownPreviewAction =
     focusedItem?.kind === 'file' && activeTab?.language === 'markdown'
   const hasEditorItems = layoutHasItems(editorLayout)
+  const hasOtherTabsInFocusedGroup =
+    focusedItem !== undefined &&
+    countOtherItemsInGroup(editorLayout, editorLayout.focusedGroupId, focusedItem.id) > 0
   const problemSummary = useMemo(() => summarizeMonacoProblems(problems), [problems])
   const problemDecorations = useMemo(
     () => buildMonacoProblemTreeDecorations(problems),
@@ -725,24 +731,42 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     updatePrefs({ workspaceFolder: undefined })
   }, [updatePrefs])
 
-  const typescriptSyncEntries = useMemo((): VscodeTypescriptSyncEntry[] => {
-    const openTabIds = new Set<string>()
+  // 只关心「打开了哪些文件标签」，忽略焦点切换，避免无谓触发 TS sync
+  const openFileTabIdKey = useMemo(() => {
+    const ids: string[] = []
     for (const group of Object.values(editorLayout.groups)) {
       for (const item of group.items) {
-        if (item.kind === 'file') openTabIds.add(item.tabId)
+        if (item.kind === 'file') ids.push(item.tabId)
       }
     }
-    const entries: VscodeTypescriptSyncEntry[] = []
+    ids.sort()
+    return ids.join('\0')
+  }, [editorLayout.groups])
+
+  const typescriptSyncEntries = useMemo((): VscodeTypescriptSyncEntry[] => {
+    const openTabIds = new Set(openFileTabIdKey.split('\0').filter(Boolean))
+    const next: VscodeTypescriptSyncEntry[] = []
     const seenPaths = new Set<string>()
     for (const tab of tabs) {
       if (!openTabIds.has(tab.id)) continue
       if (tab.language !== 'typescript' && tab.language !== 'javascript') continue
       if (seenPaths.has(tab.path)) continue
       seenPaths.add(tab.path)
-      entries.push({ path: tab.path, text: tab.text })
+      next.push({ path: tab.path, text: tab.text })
     }
-    return entries
-  }, [tabs, editorLayout.groups])
+    const prev = typescriptSyncEntriesRef.current
+    if (
+      prev.length === next.length &&
+      prev.every((entry, index) => {
+        const other = next[index]
+        return other !== undefined && entry.path === other.path && entry.text === other.text
+      })
+    ) {
+      return prev
+    }
+    typescriptSyncEntriesRef.current = next
+    return next
+  }, [tabs, openFileTabIdKey])
 
   // 工作区切换或卸载时硬取消 dts / workspace sync
   useEffect(() => {
@@ -922,6 +946,42 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     void closeTab(target.tabId)
   }, [closePreviewItem, closeTab])
 
+  const closeOtherInGroup = useCallback(
+    async (groupId: string, keepItemId: string) => {
+      const group = editorLayoutRef.current.groups[groupId]
+      if (!group) return
+      const others = group.items.filter((item) => item.id !== keepItemId)
+      if (others.length === 0) return
+
+      setEditorLayout((current) => {
+        const next = focusEditorItem(current, groupId, keepItemId)
+        editorLayoutRef.current = next
+        return next
+      })
+
+      for (const item of others) {
+        const stillThere = editorLayoutRef.current.groups[groupId]?.items.some(
+          (entry) => entry.id === item.id,
+        )
+        if (!stillThere) continue
+        if (item.kind === 'preview') {
+          closePreviewItem(item.id)
+          continue
+        }
+        await closeTab(item.tabId)
+      }
+    },
+    [closePreviewItem, closeTab],
+  )
+
+  const handleCloseOtherTabs = useCallback(() => {
+    const layout = editorLayoutRef.current
+    const group = layout.groups[layout.focusedGroupId]
+    const keepItem = getGroupActiveItem(group)
+    if (!group || !keepItem) return
+    void closeOtherInGroup(group.id, keepItem.id)
+  }, [closeOtherInGroup])
+
   const requestClose = useCallback(() => {
     if (!windowId) return true
     skipSessionPersistRef.current = true
@@ -1076,6 +1136,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           },
           {
             type: 'action',
+            label: '关闭其他标签',
+            disabled:
+              !hasOtherTabsInFocusedGroup || loading || openDialogOpen || !!dirtyPrompt,
+            onClick: () => handleCloseOtherTabs(),
+          },
+          {
+            type: 'action',
             label: '保存',
             shortcut: '⌘S',
             disabled: !activeTab || !writable || !dirty || loading,
@@ -1142,8 +1209,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     closeWorkspaceFolder,
     dirty,
     dirtyPrompt,
+    handleCloseOtherTabs,
     handleCloseTab,
     handleSave,
+    hasOtherTabsInFocusedGroup,
     loading,
     minimizeWindow,
     openDialogOpen,
@@ -1372,6 +1441,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 }
                 onCloseFileTab={(tabId) => void closeTab(tabId)}
                 onClosePreview={closePreviewItem}
+                onCloseOtherInGroup={(groupId, keepItemId) =>
+                  void closeOtherInGroup(groupId, keepItemId)
+                }
                 onMoveItemToGroup={(itemId, targetGroupId, targetIndex) =>
                   setEditorLayout((current) =>
                     moveEditorItemToGroup(current, itemId, targetGroupId, targetIndex),

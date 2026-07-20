@@ -117,11 +117,12 @@ export async function addMount(handle: FileSystemDirectoryHandle): Promise<Files
     }
   }
 
+  const label = handle.name || '已挂载'
   const record: FilesMountRecord = {
     id: makeMountLocationId(
-      newMountLocationKey(new Set(existing.map((item) => item.id))),
+      newMountLocationKey(label, new Set(existing.map((item) => item.id))),
     ),
-    label: handle.name || '已挂载',
+    label,
     handle,
   }
 

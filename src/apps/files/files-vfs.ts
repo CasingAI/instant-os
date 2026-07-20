@@ -275,7 +275,7 @@ export async function createTextFile(params: {
 
 /**
  * 解析节点的全局绝对路径（POSIX 风格，以卷根开头）。
- * 例：`/user/笔记/草稿.txt`、`/mount/a1b2c3d4/src/main.ts`
+ * 例：`/user/笔记/草稿.txt`、`/mount/instant-app/src/main.ts`
  */
 export async function resolveFilesAbsolutePath(node: FilesNode): Promise<string> {
   const root = filesLocationPathRoot(node.locationId)

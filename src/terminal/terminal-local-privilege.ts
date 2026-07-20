@@ -48,7 +48,7 @@ export async function runTerminalLocalPrivilegeCommand(
     if (!rest) {
       const mounts = await listTerminalMountSummaries()
       if (mounts.length === 0) {
-        return { handled: true, message: '当前没有已挂载卷。用法：umount /mount/xxxxxxxx' }
+        return { handled: true, message: '当前没有已挂载卷。用法：umount /mount/文件夹名' }
       }
       return {
         handled: true,

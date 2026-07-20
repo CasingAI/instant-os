@@ -1,6 +1,6 @@
 export type BuiltinFilesLocationId = 'local' | 'models3d' | 'source'
 
-/** 动态挂载卷：`mount:{8位键}` */
+/** 动态挂载卷：`mount:{文件夹名键}`，键由本机文件夹名派生，便于稳定路径 */
 export type MountFilesLocationId = `mount:${string}`
 
 export type FilesLocationId = BuiltinFilesLocationId | MountFilesLocationId
@@ -64,15 +64,45 @@ export function makeMountLocationId(key: string): MountFilesLocationId {
   return `mount:${key}`
 }
 
-/** 约 8 位十六进制挂载键，足够区分少量挂载且路径更短 */
-export function newMountLocationKey(existingIds?: ReadonlySet<string>): string {
-  const taken = existingIds ?? new Set<string>()
-  for (let attempt = 0; attempt < 32; attempt += 1) {
-    const key = crypto.randomUUID().replaceAll('-', '').slice(0, 8)
-    const id = makeMountLocationId(key)
-    if (!taken.has(id)) return key
+const MOUNT_KEY_FORBIDDEN = /[/\\:\u0000-\u001f\u007f]/
+const MAX_MOUNT_KEY_LENGTH = 64
+
+/**
+ * 由本机文件夹名生成挂载键（路径段安全）。
+ * 同名文件夹卸载后再挂会落到同一 `/mount/{键}`；并挂冲突时追加 -2、-3…
+ */
+export function mountKeyFromFolderName(folderName: string): string {
+  let key = folderName
+    .trim()
+    .replace(MOUNT_KEY_FORBIDDEN, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  if (!key || key === '.' || key === '..') key = 'folder'
+  if (key.length > MAX_MOUNT_KEY_LENGTH) {
+    key = key.slice(0, MAX_MOUNT_KEY_LENGTH).replace(/-+$/g, '') || 'folder'
   }
-  return crypto.randomUUID().replaceAll('-', '').slice(0, 8)
+  return key
+}
+
+/** 为挂载分配键：优先用文件夹名；与已有 id 冲突则加数字后缀 */
+export function newMountLocationKey(
+  folderName: string,
+  existingIds?: ReadonlySet<string>,
+): string {
+  const taken = existingIds ?? new Set<string>()
+  const base = mountKeyFromFolderName(folderName)
+  let key = base
+  let suffix = 2
+  while (taken.has(makeMountLocationId(key))) {
+    const candidate = `${base}-${suffix}`
+    key =
+      candidate.length <= MAX_MOUNT_KEY_LENGTH
+        ? candidate
+        : `${base.slice(0, Math.max(1, MAX_MOUNT_KEY_LENGTH - `-${suffix}`.length))}-${suffix}`
+    suffix += 1
+  }
+  return key
 }
 
 export function isFilesLocationWritable(locationId: FilesLocationId): boolean {

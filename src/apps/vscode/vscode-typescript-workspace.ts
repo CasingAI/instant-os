@@ -322,15 +322,16 @@ async function resolveRelativeModulePath(
  * 将当前文件相对路径 import 指向的本地源文件挂成 Monaco model，
  * 使 TS 语言服务能解析 `./agents` 这类模块。
  * 不在中途 abort：完整跑完 BFS，由编排层用 generation 丢弃过期结果。
+ * @returns 是否新挂载了本地依赖 model（调用方据此决定是否强制重跑语义诊断）
  */
 export async function syncVscodeTypescriptLocalModules(
   entryPath: string,
   entryText: string,
-): Promise<void> {
+): Promise<boolean> {
   ensureMonacoEnvironment()
 
   const language = monacoLanguageFromFileName(fileNameFromAbsolutePath(entryPath))
-  if (language !== 'typescript' && language !== 'javascript') return
+  if (language !== 'typescript' && language !== 'javascript') return false
 
   ensureMonacoPathModel(entryPath, entryText, language)
 
@@ -338,15 +339,16 @@ export async function syncVscodeTypescriptLocalModules(
     { path: entryPath, text: entryText, depth: 0 },
   ]
   const visited = new Set<string>([entryPath])
+  let addedLocalModules = false
 
   while (queue.length > 0) {
-    if (localModuleModelPaths.size >= MAX_LOCAL_MODULE_FILES) return
+    if (localModuleModelPaths.size >= MAX_LOCAL_MODULE_FILES) return addedLocalModules
 
     const current = queue.shift()
     if (!current || current.depth >= MAX_LOCAL_MODULE_DEPTH) continue
 
     for (const spec of extractRelativeImportSpecs(current.text)) {
-      if (localModuleModelPaths.size >= MAX_LOCAL_MODULE_FILES) return
+      if (localModuleModelPaths.size >= MAX_LOCAL_MODULE_FILES) return addedLocalModules
 
       const resolved = await resolveRelativeModulePath(current.path, spec)
       if (!resolved || visited.has(resolved)) continue
@@ -357,13 +359,18 @@ export async function syncVscodeTypescriptLocalModules(
 
       const resolvedLanguage = monacoLanguageFromFileName(fileNameFromAbsolutePath(resolved))
       ensureMonacoPathModel(resolved, text, resolvedLanguage)
-      localModuleModelPaths.add(resolved)
+      if (!localModuleModelPaths.has(resolved)) {
+        localModuleModelPaths.add(resolved)
+        addedLocalModules = true
+      }
 
       if (resolvedLanguage === 'typescript' || resolvedLanguage === 'javascript') {
         queue.push({ path: resolved, text, depth: current.depth + 1 })
       }
     }
   }
+
+  return addedLocalModules
 }
 
 export function clearVscodeTypescriptLocalModules(preservePaths?: ReadonlySet<string>): void {
@@ -468,13 +475,15 @@ export async function syncVscodeTypescriptAll(options: {
       lastSyncedWorkspaceFolder = workspaceFolder
     }
 
+    let localModulesAdded = false
     for (const entry of entries) {
       if (signal?.aborted || generation !== typescriptSyncGeneration) return
-      await syncVscodeTypescriptLocalModules(entry.path, entry.text)
+      const added = await syncVscodeTypescriptLocalModules(entry.path, entry.text)
+      if (added) localModulesAdded = true
     }
 
-    // 依赖 model 挂载后再强制重跑语义诊断，消除「能跳转仍报 2307」
-    if (!signal?.aborted && generation === typescriptSyncGeneration) {
+    // 新挂本地依赖后才强制重跑；否则会清掉 markers 造成切标签闪烁
+    if (!signal?.aborted && generation === typescriptSyncGeneration && localModulesAdded) {
       refreshMonacoTypescriptSemantics()
     }
   })()

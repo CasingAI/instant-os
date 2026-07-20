@@ -179,6 +179,17 @@ export function getFocusedCloseTarget(
   return { kind: 'preview', itemId: item.id }
 }
 
+/** 同组内除 keepItemId 外的标签数（用于「关闭其他」是否可用） */
+export function countOtherItemsInGroup(
+  layout: VscodeEditorLayoutState,
+  groupId: string,
+  keepItemId: string,
+): number {
+  const group = layout.groups[groupId]
+  if (!group) return 0
+  return group.items.filter((item) => item.id !== keepItemId).length
+}
+
 function replaceLeaf(
   node: VscodeLayoutNode,
   groupId: string,

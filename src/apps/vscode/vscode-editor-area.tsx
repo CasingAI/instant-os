@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
+import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import type { VscodePrefs } from './vscode-prefs.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import {
@@ -36,6 +37,7 @@ type VscodeEditorAreaProps = {
   onActivateItem: (groupId: string, itemId: string) => void
   onCloseFileTab: (tabId: string) => void
   onClosePreview: (itemId: string) => void
+  onCloseOtherInGroup: (groupId: string, keepItemId: string) => void
   onMoveItemToGroup: (itemId: string, targetGroupId: string, targetIndex?: number) => void
   onSplitItemToEdge: (itemId: string, targetGroupId: string, edge: VscodeSplitEdge) => void
   onOpenMarkdownPreview: (groupId: string) => void
@@ -112,6 +114,7 @@ function VscodeEditorGroupView({
   onActivateItem,
   onCloseFileTab,
   onClosePreview,
+  onCloseOtherInGroup,
   onMoveItemToGroup,
   onSplitItemToEdge,
   onOpenMarkdownPreview,
@@ -120,6 +123,7 @@ function VscodeEditorGroupView({
   onOpenPath,
   onResolveConflict,
 }: GroupViewProps) {
+  const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
   const [tabBarHot, setTabBarHot] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -136,6 +140,44 @@ function VscodeEditorGroupView({
       : undefined
 
   const showPreviewAction = activeFileTab?.language === 'markdown'
+
+  const openTabContextMenu = useCallback(
+    (event: MouseEvent, item: VscodeGroupItem) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onFocusGroup(group.id)
+      onActivateItem(group.id, item.id)
+      const otherCount = group.items.filter((entry) => entry.id !== item.id).length
+      showIconContextMenu(event, [
+        {
+          type: 'action',
+          label: '关闭',
+          disabled: loading || dialogBlocked,
+          onClick: () => {
+            if (item.kind === 'file') onCloseFileTab(item.tabId)
+            else onClosePreview(item.id)
+          },
+        },
+        {
+          type: 'action',
+          label: '关闭其他',
+          disabled: loading || dialogBlocked || otherCount === 0,
+          onClick: () => onCloseOtherInGroup(group.id, item.id),
+        },
+      ])
+    },
+    [
+      dialogBlocked,
+      group,
+      loading,
+      onActivateItem,
+      onCloseFileTab,
+      onCloseOtherInGroup,
+      onClosePreview,
+      onFocusGroup,
+      showIconContextMenu,
+    ],
+  )
 
   const clearDropZone = useCallback(() => setDropZone(undefined), [])
 
@@ -265,6 +307,7 @@ function VscodeEditorGroupView({
                 if (item.kind === 'file') onCloseFileTab(item.tabId)
                 else onClosePreview(item.id)
               }}
+              onContextMenu={(event) => openTabContextMenu(event, item)}
             />
           ))}
         </div>
@@ -369,6 +412,7 @@ type TabChipProps = {
   disabled: boolean
   onActivate: () => void
   onClose: () => void
+  onContextMenu: (event: MouseEvent) => void
 }
 
 function EditorTabChip({
@@ -379,6 +423,7 @@ function EditorTabChip({
   disabled,
   onActivate,
   onClose,
+  onContextMenu,
 }: TabChipProps) {
   const fileTab = item.kind === 'file' ? tabs.find((tab) => tab.id === item.tabId) : undefined
   const previewSource =
@@ -407,6 +452,7 @@ function EditorTabChip({
       role="tab"
       aria-selected={active}
       draggable
+      onContextMenu={onContextMenu}
       onDragStart={(event) => {
         if ((event.target as HTMLElement).closest('.vscode__tab-close')) {
           event.preventDefault()
