@@ -3,18 +3,23 @@
  */
 import { parentDirFromPath } from '../../monaco/monaco-language.ts'
 import {
+  collectNodeBuiltinDeclaration,
   collectResolvedPackageFiles,
   extractImportSpecs,
   FilesResolutionCache,
   isNodeBuiltinSpecifier,
   loadNearestTsconfig,
+  MAX_TYPES_NODE_FILES,
+  normalizeNodeBuiltinSpecifier,
   resolveBareSpecifier,
   toTsCompilerOptions,
+  typesNodeBuiltinDtsRel,
   type ResolveCompilerOptionsInput,
   type ResolvedModuleFiles,
 } from './vscode-typescript-module-resolve.ts'
 import type {
   VscodeTypescriptResolveEntry,
+  VscodeTypescriptResolveLog,
   VscodeTypescriptResolveMonacoOverrides,
   VscodeTypescriptResolveResult,
 } from './vscode-typescript-resolve-protocol.ts'
@@ -80,6 +85,52 @@ function monacoOverridesFromNearest(
   return overrides
 }
 
+function relativeToBase(baseDir: string, absolutePath: string): string | undefined {
+  const base = (baseDir.replace(/\/+$/, '') || '/').replace(/^\//, '')
+  const abs = (absolutePath.replace(/\/+$/, '') || '/').replace(/^\//, '')
+  if (!abs) return undefined
+  if (!base) return abs
+
+  const baseParts = base.split('/').filter(Boolean)
+  const absParts = abs.split('/').filter(Boolean)
+  let i = 0
+  while (i < baseParts.length && i < absParts.length && baseParts[i] === absParts[i]) {
+    i += 1
+  }
+  const up = baseParts.length - i
+  const down = absParts.slice(i)
+  if (up === 0 && down.length === 0) return '.'
+  return [...Array.from({ length: up }, () => '..'), ...down].join('/')
+}
+
+/** 把 specifier 映射到声明文件，供 Monaco Bundler 兜底（exports ambient 不齐时） */
+function mergeSpecifierPaths(
+  overrides: VscodeTypescriptResolveMonacoOverrides,
+  specifier: string,
+  dtsAbsolutePath: string,
+  logs: VscodeTypescriptResolveLog[],
+): void {
+  const rel = relativeToBase(overrides.baseUrlPath, dtsAbsolutePath)
+  if (!rel) {
+    logs.push({
+      level: 'warn',
+      message: `paths 跳过 ${specifier}：无法相对化到 baseUrl ${overrides.baseUrlPath}`,
+    })
+    return
+  }
+  const paths = { ...(overrides.paths ?? {}) }
+  const keys = new Set<string>([specifier])
+  const builtin = normalizeNodeBuiltinSpecifier(specifier)
+  if (builtin) {
+    keys.add(builtin)
+    keys.add(`node:${builtin}`)
+  }
+  for (const key of keys) {
+    paths[key] = [rel]
+  }
+  overrides.paths = paths
+}
+
 /**
  * 对打开文件中的裸包 import 做 Node 式解析，返回待注入文件列表。
  */
@@ -104,12 +155,19 @@ export async function resolveBareModulesForEntriesCore(options: {
   const cache = getCache(root)
   if (clearMissing) cache.clearMissing()
 
+  const logs: VscodeTypescriptResolveLog[] = []
+  logs.push({
+    level: 'info',
+    message: `开始解析 workspace=${root} entries=${entries.length} clearMissing=${clearMissing === true}`,
+  })
+
   const collected: ResolvedModuleFiles = new Map()
   const resolvedSpecs = new Set<string>()
   let sharedOptions = toTsCompilerOptions(undefined, root)
   let monacoOverrides: VscodeTypescriptResolveMonacoOverrides | undefined
   let nearestInput: ResolveCompilerOptionsInput | undefined
   let configDirectory = root
+  let resolvedCount = 0
 
   const entryList = entries.filter((entry) => isTsOrJsPath(entry.path))
 
@@ -136,14 +194,50 @@ export async function resolveBareModulesForEntriesCore(options: {
       return true
     })
 
+    if (specs.length > 0) {
+      logs.push({ level: 'info', message: `${entry.path} 裸导入: ${specs.join(', ')}` })
+    }
+
     const ordered = [
       ...specs.filter((s) => isNodeBuiltinSpecifier(s)),
       ...specs.filter((s) => !isNodeBuiltinSpecifier(s)),
     ]
 
-    // 串行解析各 bare spec（共享 cache）；I/O 并行由 flushPending 承担
     for (const spec of ordered) {
       if (signal?.aborted || collected.size >= maxPackageFilesTotal) break
+
+      if (isNodeBuiltinSpecifier(spec)) {
+        const before = collected.size
+        const dtsPath = await collectNodeBuiltinDeclaration(
+          cache,
+          entry.path,
+          spec,
+          collected,
+          signal,
+          Math.min(MAX_TYPES_NODE_FILES, maxPackageFilesTotal - collected.size),
+        )
+        if (dtsPath) {
+          resolvedCount += 1
+          mergeSpecifierPaths(monacoOverrides, spec, dtsPath, logs)
+          logs.push({ level: 'info', message: `✓ ${spec} → ${dtsPath}` })
+        } else if (collected.size > before) {
+          resolvedCount += 1
+          const builtin = normalizeNodeBuiltinSpecifier(spec)
+          if (builtin) {
+            for (const path of collected.keys()) {
+              if (path.endsWith(`/${typesNodeBuiltinDtsRel(builtin)}`)) {
+                mergeSpecifierPaths(monacoOverrides, spec, path, logs)
+                break
+              }
+            }
+          }
+          logs.push({ level: 'warn', message: `✓ ${spec}（部分收集）` })
+        } else {
+          logs.push({ level: 'error', message: `✗ ${spec} 未找到 @types/node` })
+        }
+        continue
+      }
+
       const resolved = await resolveBareSpecifier(
         cache,
         entry.path,
@@ -151,16 +245,32 @@ export async function resolveBareModulesForEntriesCore(options: {
         sharedOptions,
         signal,
       )
-      if (!resolved) continue
+      if (!resolved) {
+        logs.push({ level: 'error', message: `✗ ${spec} 解析失败` })
+        continue
+      }
+      resolvedCount += 1
+      mergeSpecifierPaths(monacoOverrides, spec, resolved, logs)
+      logs.push({ level: 'info', message: `✓ ${spec} → ${resolved}` })
+
+      const perResolveMax = resolved.includes('/node_modules/@types/node/')
+        ? Math.min(MAX_TYPES_NODE_FILES, maxPackageFilesTotal - collected.size)
+        : Math.min(maxPackageFilesPerResolve, maxPackageFilesTotal - collected.size)
+
+      const before = collected.size
       await collectResolvedPackageFiles(
         cache,
         resolved,
         collected,
         signal,
-        Math.min(maxPackageFilesPerResolve, maxPackageFilesTotal - collected.size),
+        perResolveMax,
         sharedOptions,
         entry.path,
       )
+      logs.push({
+        level: 'info',
+        message: `收集 ${spec}: +${collected.size - before} 文件（合计 ${collected.size}）`,
+      })
     }
   }
 
@@ -168,10 +278,17 @@ export async function resolveBareModulesForEntriesCore(options: {
     monacoOverrides = { baseUrlPath: root }
   }
 
+  logs.push({
+    level: resolvedCount > 0 ? 'info' : 'warn',
+    message: `完成: resolved=${resolvedCount} files=${collected.size} paths=${Object.keys(monacoOverrides.paths ?? {}).length}`,
+  })
+
   return {
     files: [...collected.entries()].map(([path, content]) => ({ path, content })),
     monacoOverrides,
     nearestCompilerOptions: nearestInput,
     configDirectory,
+    resolvedCount,
+    logs,
   }
 }

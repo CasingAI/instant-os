@@ -1,8 +1,10 @@
 import VscodeTypescriptResolveWorker from './vscode-typescript-resolve.worker.ts?worker'
+import { appendVscodeInternalLog } from './vscode-internal-log.ts'
 import {
   clearTypescriptResolveCaches,
   resolveBareModulesForEntriesCore,
 } from './vscode-typescript-resolve-core.ts'
+import { extractImportSpecs } from './vscode-typescript-module-resolve.ts'
 import type {
   VscodeTypescriptResolveEntry,
   VscodeTypescriptResolveResult,
@@ -25,6 +27,7 @@ function getWorker(): Worker | undefined {
   if (worker) return worker
 
   try {
+    appendVscodeInternalLog('ts-resolve-worker', '启动 TypeScript 解析 Worker')
     const instance = new VscodeTypescriptResolveWorker()
     instance.onmessage = (event: MessageEvent<VscodeTypescriptResolveWorkerResponse>) => {
       const message = event.data
@@ -39,6 +42,7 @@ function getWorker(): Worker | undefined {
     }
     instance.onerror = () => {
       workerFailed = true
+      appendVscodeInternalLog('ts-resolve-worker', 'Worker onerror，后续回退主线程', 'error')
       for (const [id, job] of pending) {
         pending.delete(id)
         job.reject(new Error('TypeScript 解析 Worker 失败'))
@@ -48,8 +52,13 @@ function getWorker(): Worker | undefined {
     }
     worker = instance
     return worker
-  } catch {
+  } catch (error) {
     workerFailed = true
+    appendVscodeInternalLog(
+      'ts-resolve-worker',
+      `Worker 创建失败: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    )
     return undefined
   }
 }
@@ -63,19 +72,21 @@ export type ResolveBareModulesClientParams = {
   signal?: AbortSignal
 }
 
-/**
- * 在 Worker 中解析裸包；不可用时回退主线程。
- */
-export async function resolveBareModulesForEntries(
+function entriesHaveBareImports(entries: readonly VscodeTypescriptResolveEntry[]): boolean {
+  return entries.some((entry) => extractImportSpecs(entry.text).bare.length > 0)
+}
+
+function isEmptyResolveResult(result: VscodeTypescriptResolveResult): boolean {
+  return result.files.length === 0 && (result.resolvedCount ?? 0) === 0
+}
+
+async function resolveViaWorker(
+  instance: Worker,
   params: ResolveBareModulesClientParams,
 ): Promise<VscodeTypescriptResolveResult> {
-  const instance = getWorker()
-  if (!instance) {
-    return resolveBareModulesForEntriesCore(params)
-  }
-
   const requestId = nextRequestId
   nextRequestId += 1
+  appendVscodeInternalLog('ts-resolve-worker', `请求 #${requestId} 发往 Worker`)
 
   return new Promise<VscodeTypescriptResolveResult>((resolve, reject) => {
     const onAbort = () => {
@@ -84,6 +95,7 @@ export async function resolveBareModulesForEntries(
         requestId,
       } satisfies VscodeTypescriptResolveWorkerRequest)
       pending.delete(requestId)
+      appendVscodeInternalLog('ts-resolve-worker', `请求 #${requestId} 已取消`, 'warn')
       resolve({ files: [] })
     }
 
@@ -95,6 +107,10 @@ export async function resolveBareModulesForEntries(
     pending.set(requestId, {
       resolve: (result) => {
         params.signal?.removeEventListener('abort', onAbort)
+        appendVscodeInternalLog(
+          'ts-resolve-worker',
+          `请求 #${requestId} 完成 files=${result.files.length} resolved=${result.resolvedCount ?? 0}`,
+        )
         resolve(result)
       },
       reject: (error) => {
@@ -114,11 +130,53 @@ export async function resolveBareModulesForEntries(
       maxPackageFilesPerResolve: params.maxPackageFilesPerResolve,
       clearMissing: params.clearMissing === true,
     } satisfies VscodeTypescriptResolveWorkerRequest)
-  }).catch(async (error) => {
-    if (params.signal?.aborted) return { files: [] }
-    console.warn('[vscode-typescript-resolve] Worker 失败，回退主线程', error)
-    return resolveBareModulesForEntriesCore(params)
   })
+}
+
+function replayResolveLogs(result: VscodeTypescriptResolveResult): void {
+  for (const entry of result.logs ?? []) {
+    appendVscodeInternalLog('ts-resolve', entry.message, entry.level)
+  }
+}
+
+/**
+ * 在 Worker 中解析裸包；不可用或空结果且存在 bare import 时回退主线程。
+ */
+export async function resolveBareModulesForEntries(
+  params: ResolveBareModulesClientParams,
+): Promise<VscodeTypescriptResolveResult> {
+  const instance = getWorker()
+  if (!instance) {
+    appendVscodeInternalLog('ts-resolve-worker', '无 Worker，主线程解析')
+    const result = await resolveBareModulesForEntriesCore(params)
+    replayResolveLogs(result)
+    return result
+  }
+
+  try {
+    const result = await resolveViaWorker(instance, params)
+    if (params.signal?.aborted) return result
+
+    if (isEmptyResolveResult(result) && entriesHaveBareImports(params.entries)) {
+      appendVscodeInternalLog('ts-resolve-worker', 'Worker 空结果，回退主线程', 'warn')
+      replayResolveLogs(result)
+      const fallback = await resolveBareModulesForEntriesCore(params)
+      replayResolveLogs(fallback)
+      return fallback
+    }
+    replayResolveLogs(result)
+    return result
+  } catch (error) {
+    if (params.signal?.aborted) return { files: [] }
+    appendVscodeInternalLog(
+      'ts-resolve-worker',
+      `Worker 失败，回退主线程: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    )
+    const fallback = await resolveBareModulesForEntriesCore(params)
+    replayResolveLogs(fallback)
+    return fallback
+  }
 }
 
 export function clearBareModulesResolveState(): void {

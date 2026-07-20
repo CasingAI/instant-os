@@ -16,10 +16,12 @@ import {
   clearBareModulesResolveState,
   resolveBareModulesForEntries,
 } from './vscode-typescript-resolve-client.ts'
+import { appendVscodeInternalLog } from './vscode-internal-log.ts'
 
 const MAX_LOCAL_MODULE_FILES = 80
 const MAX_LOCAL_MODULE_DEPTH = 8
 const MAX_PACKAGE_FILES_TOTAL = 500
+/** 普通包；@types/node 在 core 内单独提到 MAX_TYPES_NODE_FILES */
 const MAX_PACKAGE_FILES_PER_RESOLVE = 40
 
 const RELATIVE_SPEC_EXTENSIONS = [
@@ -196,15 +198,16 @@ function clearPackageModuleModels(preservePaths?: ReadonlySet<string>): void {
 /**
  * 对打开文件中的裸包 import 做 Node 式解析并注入 Monaco。
  * 重负载在 Worker 中完成；主线程只做 model / extraLibs 注入。
+ * @returns success 表示至少注入了文件，可供 bareKey 缓存
  */
 async function syncBareModulesForEntries(
   entries: readonly VscodeTypescriptSyncEntry[],
   workspaceFolder: string | undefined,
   signal?: AbortSignal,
   clearMissing = false,
-): Promise<{ files: ResolvedModuleFiles; addedModels: boolean }> {
+): Promise<{ files: ResolvedModuleFiles; addedModels: boolean; success: boolean }> {
   if (!workspaceFolder) {
-    return { files: new Map(), addedModels: false }
+    return { files: new Map(), addedModels: false, success: false }
   }
 
   const root = workspaceFolder.replace(/\/+$/, '') || '/'
@@ -218,7 +221,7 @@ async function syncBareModulesForEntries(
   })
 
   if (signal?.aborted) {
-    return { files: new Map(), addedModels: false }
+    return { files: new Map(), addedModels: false, success: false }
   }
 
   const overrides: MonacoTypescriptCompilerOverrides = {
@@ -241,13 +244,17 @@ async function syncBareModulesForEntries(
     }))
     setMonacoTypescriptExtraLibs(libs)
     lastInjectedExtraLibPaths = new Set(collected.keys())
-    // 清理不再需要的旧 package models
     clearPackageModuleModels(lastInjectedExtraLibPaths)
-    return { files: collected, addedModels }
+    appendVscodeInternalLog(
+      'ts-inject',
+      `已注入 Monaco extraLibs=${libs.length} paths=${Object.keys(result.monacoOverrides?.paths ?? {}).length}`,
+    )
+    return { files: collected, addedModels, success: true }
   }
 
   // 全失败时保留上一轮有效 extraLibs，避免闪 2307
-  return { files: collected, addedModels: false }
+  appendVscodeInternalLog('ts-inject', '解析结果为空，保留上一轮 extraLibs', 'warn')
+  return { files: collected, addedModels: false, success: false }
 }
 
 /**
@@ -357,10 +364,13 @@ export async function syncVscodeTypescriptAll(options: {
       await syncVscodeTypescriptWorkspace(workspaceFolder, signal)
       if (signal?.aborted || generation !== typescriptSyncGeneration) return
 
-      await syncBareModulesForEntries(entries, workspaceFolder, signal, true)
+      const bareResult = await syncBareModulesForEntries(entries, workspaceFolder, signal, true)
       if (signal?.aborted || generation !== typescriptSyncGeneration) return
-      lastSyncedBareKey = bareKey
-      bareSynced = true
+      // 仅成功注入时锁定 bareKey，避免空结果永久不重试
+      if (bareResult.success) {
+        lastSyncedBareKey = bareKey
+        bareSynced = true
+      }
     }
 
     let localModulesAdded = false

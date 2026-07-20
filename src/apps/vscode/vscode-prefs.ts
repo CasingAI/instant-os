@@ -1,7 +1,7 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import { isMonacoEditorTheme, type MonacoEditorTheme } from '../../monaco/monaco-themes.ts'
 
-export type VscodePanelTab = 'problems' | 'terminal'
+export type VscodePanelTab = 'problems' | 'terminal' | 'logs'
 
 export type VscodePrefs = {
   theme: MonacoEditorTheme
@@ -10,7 +10,7 @@ export type VscodePrefs = {
   wordWrap: boolean
   sidebarVisible: boolean
   terminalVisible: boolean
-  /** 底部面板当前页：问题 / 终端 */
+  /** 底部面板当前页：问题 / 终端 / 日志 */
   panelTab: VscodePanelTab
   terminalHeight: number
   sidebarWidth: number
@@ -34,7 +34,8 @@ const DEFAULT_PREFS: VscodePrefs = {
 }
 
 function normalizePanelTab(value: unknown): VscodePanelTab {
-  return value === 'problems' ? 'problems' : 'terminal'
+  if (value === 'problems' || value === 'logs') return value
+  return 'terminal'
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -11,6 +11,8 @@ const MAX_RESOLVE_ROUNDS = 24
 const MAX_PENDING_PER_FLUSH = 64
 const MAX_PNPM_SCAN = 400
 const MAX_TRANSITIVE_BARE = 24
+/** @types/node 含大量三斜线引用，需更高配额才能覆盖 os/fs 等 ambient */
+export const MAX_TYPES_NODE_FILES = 120
 
 /** from / import() / require / 无副作用 import */
 const IMPORT_SPEC_RE =
@@ -162,6 +164,166 @@ export function packageNameFromSpecifier(specifier: string): string | undefined 
 export function resolveTargetSpecifier(specifier: string): string {
   const nodeBuiltin = normalizeNodeBuiltinSpecifier(specifier)
   return nodeBuiltin ?? specifier
+}
+
+/** `os` → `os.d.ts`；`fs/promises` → `fs/promises.d.ts` */
+export function typesNodeBuiltinDtsRel(builtinName: string): string {
+  return `${builtinName}.d.ts`
+}
+
+/**
+ * 从 containing 文件向上查找 `node_modules/@types/node` 包根。
+ */
+export async function findTypesNodePackageRoot(
+  cache: FilesResolutionCache,
+  fromFile: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  let dir = parentDirFromPath(normalizeAbs(fromFile))
+  for (let i = 0; i < 24; i += 1) {
+    if (signal?.aborted) return undefined
+    const candidate = joinAbs(dir, 'node_modules', '@types', 'node')
+    const pkgJson = joinAbs(candidate, 'package.json')
+    cache.fileExists(pkgJson)
+    await cache.flushPending(signal)
+    if (cache.readFile(pkgJson) !== undefined) return candidate
+    const parent = parentDirFromPath(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return undefined
+}
+
+/**
+ * 直注 Node 内建对应的 `@types/node/<name>.d.ts`，并收集 index / package.json。
+ * @returns 内建 .d.ts 绝对路径（若找到）
+ */
+export async function collectNodeBuiltinDeclaration(
+  cache: FilesResolutionCache,
+  containingFile: string,
+  specifier: string,
+  out: ResolvedModuleFiles,
+  signal?: AbortSignal,
+  maxFiles = MAX_TYPES_NODE_FILES,
+): Promise<string | undefined> {
+  const builtin = normalizeNodeBuiltinSpecifier(specifier)
+  if (!builtin) return undefined
+
+  const typesRoot = await findTypesNodePackageRoot(cache, containingFile, signal)
+  if (!typesRoot) return undefined
+
+  const dtsRel = typesNodeBuiltinDtsRel(builtin)
+  const dtsPath = joinAbs(typesRoot, ...dtsRel.split('/'))
+  const pkgJson = joinAbs(typesRoot, 'package.json')
+  const indexDts = joinAbs(typesRoot, 'index.d.ts')
+
+  for (const path of [pkgJson, indexDts, dtsPath]) {
+    cache.fileExists(path)
+  }
+  await cache.flushPending(signal)
+
+  // 优先保证内建 dts 与 package.json 进 out
+  for (const path of [pkgJson, dtsPath, indexDts]) {
+    let text = cache.readFile(path)
+    if (text === undefined) {
+      cache.fileExists(path)
+      await cache.flushPending(signal)
+      text = cache.readFile(path)
+    }
+    if (text !== undefined) out.set(path, text)
+  }
+
+  if (cache.readFile(dtsPath) === undefined && cache.readFile(indexDts) === undefined) {
+    return undefined
+  }
+
+  // 从 index + 内建 dts 继续展开（配额更高）
+  const start = cache.readFile(dtsPath) !== undefined ? dtsPath : indexDts
+  await collectResolvedPackageFiles(cache, start, out, signal, maxFiles)
+  return cache.readFile(dtsPath) !== undefined ? dtsPath : start
+}
+
+/**
+ * 解析前从 containing 向上预热 `node_modules/<pkg>/package.json`，便于 exports 解析。
+ */
+export async function seedPackageJsonForSpecifier(
+  cache: FilesResolutionCache,
+  containingFile: string,
+  moduleName: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const target = resolveTargetSpecifier(moduleName)
+  const pkg = packageNameFromSpecifier(target)
+  if (!pkg) return
+
+  let dir = parentDirFromPath(normalizeAbs(containingFile))
+  for (let i = 0; i < 24; i += 1) {
+    if (signal?.aborted) return
+    const pkgRoot = joinAbs(dir, 'node_modules', ...packageNameSegments(pkg))
+    cache.directoryExists(pkgRoot)
+    cache.fileExists(joinAbs(pkgRoot, 'package.json'))
+    const parent = parentDirFromPath(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  await cache.flushPending(signal)
+}
+
+/**
+ * 不依赖 resolveModuleName：向上找包根 package.json，按 types/exports 直达声明入口。
+ * 用于 `@electron-toolkit/preload` 等 exports 包在缓存未齐时 resolveModuleName 失败的场景。
+ */
+export async function resolvePackageTypesEntryDirect(
+  cache: FilesResolutionCache,
+  containingFile: string,
+  moduleName: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const target = resolveTargetSpecifier(moduleName)
+  if (isNodeBuiltinSpecifier(target) || isNodeBuiltinSpecifier(moduleName)) return undefined
+
+  const pkg = packageNameFromSpecifier(target)
+  if (!pkg) return undefined
+
+  let subpath: string | undefined
+  if (target.startsWith(`${pkg}/`)) {
+    subpath = target.slice(pkg.length + 1)
+  }
+
+  let dir = parentDirFromPath(normalizeAbs(containingFile))
+  for (let i = 0; i < 24; i += 1) {
+    if (signal?.aborted) return undefined
+    const packageRoot = joinAbs(dir, 'node_modules', ...packageNameSegments(pkg))
+    const pkgJsonPath = joinAbs(packageRoot, 'package.json')
+    cache.fileExists(pkgJsonPath)
+    await cache.flushPending(signal)
+    const pkgRaw = cache.readFile(pkgJsonPath)
+    if (pkgRaw !== undefined) {
+      const pkgJson = parseJsonc<PackageJsonShape>(pkgRaw)
+      const typesEntry = pkgJson ? typesEntryFromPackageJson(pkgJson, subpath) : undefined
+      if (typesEntry) {
+        const typesPath = joinAbs(packageRoot, ...typesEntry.replace(/^\.\//, '').split('/'))
+        cache.fileExists(typesPath)
+        await cache.flushPending(signal)
+        if (cache.readFile(typesPath) !== undefined) return typesPath
+      }
+      // 常见回退
+      for (const fallback of ['index.d.ts', 'dist/index.d.ts', 'types/index.d.ts', 'lib/index.d.ts']) {
+        const candidate = joinAbs(packageRoot, ...fallback.split('/'))
+        cache.fileExists(candidate)
+      }
+      await cache.flushPending(signal)
+      for (const fallback of ['index.d.ts', 'dist/index.d.ts', 'types/index.d.ts', 'lib/index.d.ts']) {
+        const candidate = joinAbs(packageRoot, ...fallback.split('/'))
+        if (cache.readFile(candidate) !== undefined) return candidate
+      }
+      return undefined
+    }
+    const parent = parentDirFromPath(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return undefined
 }
 
 export function extractImportSpecs(source: string): {
@@ -629,6 +791,27 @@ export async function resolveBareSpecifier(
   const containing = normalizeAbs(containingFile)
   const target = resolveTargetSpecifier(moduleName)
 
+  await seedPackageJsonForSpecifier(cache, containing, moduleName, signal)
+
+  // Node 内建：优先直达 @types/node/<name>.d.ts
+  if (isNodeBuiltinSpecifier(moduleName) || isNodeBuiltinSpecifier(target)) {
+    const builtin = normalizeNodeBuiltinSpecifier(moduleName) ?? normalizeNodeBuiltinSpecifier(target)
+    if (builtin) {
+      const typesRoot = await findTypesNodePackageRoot(cache, containing, signal)
+      if (typesRoot) {
+        const dtsPath = joinAbs(typesRoot, ...typesNodeBuiltinDtsRel(builtin).split('/'))
+        cache.fileExists(dtsPath)
+        cache.fileExists(joinAbs(typesRoot, 'package.json'))
+        cache.fileExists(joinAbs(typesRoot, 'index.d.ts'))
+        await cache.flushPending(signal)
+        if (cache.readFile(dtsPath) !== undefined) return dtsPath
+        if (cache.readFile(joinAbs(typesRoot, 'index.d.ts')) !== undefined) {
+          return joinAbs(typesRoot, 'index.d.ts')
+        }
+      }
+    }
+  }
+
   const tryResolve = async (name: string): Promise<string | undefined> => {
     for (let round = 0; round < MAX_RESOLVE_ROUNDS; round += 1) {
       if (signal?.aborted) return undefined
@@ -660,17 +843,22 @@ export async function resolveBareSpecifier(
   const direct = await tryResolve(target)
   if (direct) return direct
 
+  // exports / scoped 包：resolveModuleName 失败时按 package.json 直达 types
+  const directTypes = await resolvePackageTypesEntryDirect(cache, containing, moduleName, signal)
+  if (directTypes) return directTypes
+
   // electron/main 等子路径：回退包根，让 ambient declare module 进入 program
   const pkg = packageNameFromSpecifier(target)
   if (pkg && pkg !== target) {
     const rootResolved = await tryResolve(pkg)
     if (rootResolved) return rootResolved
+    const rootDirect = await resolvePackageTypesEntryDirect(cache, containing, pkg, signal)
+    if (rootDirect) return rootDirect
   }
 
   // Node 内建 / 无自带 types 的包 → @types/*
   if (isNodeBuiltinSpecifier(moduleName) || isNodeBuiltinSpecifier(target)) {
-    const typesPkg = '@types/node'
-    return tryResolve(typesPkg)
+    return tryResolve('@types/node')
   }
 
   if (pkg && !pkg.startsWith('@types/')) {
@@ -738,6 +926,34 @@ export async function collectResolvedPackageFiles(
   }
 
   await cache.flushPending(signal)
+
+  // 确保包根 package.json 一定进入 out（exports 包必需）
+  const ensurePkgJson = async (fromPath: string) => {
+    let cursor = parentDirFromPath(fromPath)
+    for (let i = 0; i < 10; i += 1) {
+      if (cursor.includes('/node_modules/')) {
+        const parts = cursor.split('/node_modules/')
+        const tail = parts[parts.length - 1] ?? ''
+        const segs = tail.split('/').filter(Boolean)
+        const atRoot = segs[0]?.startsWith('@') ? segs.length <= 2 : segs.length <= 1
+        if (atRoot) {
+          const pkgJson = joinAbs(cursor, 'package.json')
+          let text = cache.readFile(pkgJson)
+          if (text === undefined) {
+            cache.fileExists(pkgJson)
+            await cache.flushPending(signal)
+            text = cache.readFile(pkgJson)
+          }
+          if (text !== undefined) out.set(pkgJson, text)
+          return
+        }
+      }
+      const parent = parentDirFromPath(cursor)
+      if (parent === cursor) break
+      cursor = parent
+    }
+  }
+  await ensurePkgJson(normalizeAbs(resolvedFile))
 
   const options =
     compilerOptions ??

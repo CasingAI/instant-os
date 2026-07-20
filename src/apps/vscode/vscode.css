@@ -1036,6 +1036,123 @@
   display: none;
 }
 
+.vscode__logs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--vscode-paper);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.vscode__logs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.vscode__logs-toolbar-label {
+  color: var(--vscode-muted);
+  font-size: 11px;
+}
+
+.vscode__logs-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vscode__logs-clear {
+  border: none;
+  background: transparent;
+  color: var(--vscode-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.vscode__logs-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--vscode-ink);
+}
+
+.vscode__logs-empty {
+  padding: 16px 14px;
+  color: var(--vscode-muted);
+  font-size: 12px;
+  font-family: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.vscode__logs-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.vscode__logs-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  color: var(--vscode-ink);
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.vscode__logs-time {
+  color: var(--vscode-muted);
+  flex-shrink: 0;
+}
+
+.vscode__logs-level {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.vscode__logs-level--info {
+  color: #3b82f6;
+}
+
+.vscode__logs-level--warn {
+  color: #d97706;
+}
+
+.vscode__logs-level--error {
+  color: #dc2626;
+}
+
+.vscode__logs-scope {
+  color: var(--vscode-muted);
+  flex-shrink: 0;
+}
+
+.vscode__logs-message {
+  flex: 1;
+  min-width: 12em;
+  word-break: break-word;
+}
+
 .vscode__problems {
   flex: 1;
   min-height: 0;
@@ -1136,10 +1253,10 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 2px;
   flex-shrink: 0;
   height: 26px;
-  padding: 0 10px;
+  padding: 0 6px;
   background: var(--vscode-status);
   color: var(--vscode-ink);
   font-size: 11px;
@@ -1163,13 +1280,13 @@
 .vscode__status-problems-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
   font: inherit;
-  padding: 1px 7px;
+  padding: 1px 4px;
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
@@ -1230,11 +1347,35 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  padding: 1px 7px;
+  padding: 1px 4px;
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.vscode__status-goto-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.vscode__status-goto-btn:hover,
+.vscode__status-goto-btn[aria-expanded='true'] {
+  border-color: var(--vscode-border);
+  background: var(--vscode-plain-btn);
+  box-shadow: var(--vscode-shadow-out);
+}
+
+.vscode__status-goto-btn:active {
+  background: var(--vscode-plain-btn-active);
+  box-shadow: var(--vscode-shadow-in);
 }
 
 .vscode__status-lang-btn:hover,
@@ -1252,14 +1393,13 @@
 .vscode__status-terminal-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
-  margin-left: 4px;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
   font: inherit;
-  padding: 1px 7px;
+  padding: 1px 4px;
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
@@ -1719,6 +1859,18 @@
 
 .vscode--chrome-dark .vscode__problems-item {
   border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.vscode--chrome-dark .vscode__logs-toolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.vscode--chrome-dark .vscode__logs-clear:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vscode--chrome-dark .vscode__logs-item {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 
 .vscode--chrome-dark .vscode__problems-item:hover {

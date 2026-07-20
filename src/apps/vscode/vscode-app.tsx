@@ -64,6 +64,7 @@ import {
 import { VscodeExplorer } from './vscode-explorer.tsx'
 import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-prefs.ts'
 import { VscodeProblemsPanel } from './vscode-problems-panel.tsx'
+import { VscodeLogPanel } from './vscode-log-panel.tsx'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
 import {
   buildVscodeSessionFromTabs,
@@ -176,6 +177,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [workspaceSearchHits, setWorkspaceSearchHits] = useState<VscodeWorkspaceSearchHit[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
+  const [gotoLineOpen, setGotoLineOpen] = useState(false)
+  const [gotoLineInput, setGotoLineInput] = useState('1')
+  const [gotoColumnInput, setGotoColumnInput] = useState('1')
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false)
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
   const [problems, setProblems] = useState<MonacoProblem[]>([])
@@ -534,6 +538,25 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     },
     [openDocument],
   )
+
+  const openGotoLineDialog = useCallback(() => {
+    if (!activeTab) return
+    setGotoLineInput(String(cursor.line))
+    setGotoColumnInput(String(cursor.column))
+    setGotoLineOpen(true)
+  }, [activeTab, cursor.column, cursor.line])
+
+  const confirmGotoLine = useCallback(() => {
+    if (!activeTab) {
+      setGotoLineOpen(false)
+      return
+    }
+    const line = Math.max(1, Number.parseInt(gotoLineInput.trim(), 10) || 1)
+    const column = Math.max(1, Number.parseInt(gotoColumnInput.trim(), 10) || 1)
+    setRevealPosition({ path: activeTab.path, line, column })
+    setCursor({ line, column })
+    setGotoLineOpen(false)
+  }, [activeTab, gotoColumnInput, gotoLineInput])
 
   const saveTab = useCallback(
     async (tabId: string): Promise<boolean> => {
@@ -1222,6 +1245,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             label: `${menuCheckPrefix(prefs.terminalVisible && prefs.panelTab === 'terminal')}终端`,
             onClick: () => toggleBottomPanelTab('terminal'),
           },
+          {
+            type: 'action',
+            label: `${menuCheckPrefix(prefs.terminalVisible && prefs.panelTab === 'logs')}日志`,
+            onClick: () => toggleBottomPanelTab('logs'),
+          },
           { type: 'separator' },
           {
             type: 'action',
@@ -1606,6 +1634,15 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   >
                     终端
                   </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    class={`vscode__panel-tab${prefs.panelTab === 'logs' ? ' vscode__panel-tab--active' : ''}`}
+                    aria-selected={prefs.panelTab === 'logs'}
+                    onClick={() => updatePrefs({ panelTab: 'logs' })}
+                  >
+                    日志
+                  </button>
                 </div>
                 <div
                   class={`vscode__panel-body${prefs.panelTab === 'problems' ? '' : ' vscode__panel-body--hidden'}`}
@@ -1623,6 +1660,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     className="vscode__terminal-panel"
                     colors={terminalColorsForTheme(prefs.theme)}
                   />
+                </div>
+                <div
+                  class={`vscode__panel-body${prefs.panelTab === 'logs' ? '' : ' vscode__panel-body--hidden'}`}
+                  hidden={prefs.panelTab !== 'logs'}
+                >
+                  <VscodeLogPanel />
                 </div>
               </div>
             </>
@@ -1671,31 +1714,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             <span>{problemSummary.warnings}</span>
           </span>
         </button>
-        <span>{activeTab ? activeTab.path : '未打开文件'}</span>
-        <span class="vscode__status-spacer" />
-        {activeTab ? (
-          <>
-            <span>
-              第 {cursor.line} 行，第 {cursor.column} 列
-            </span>
-            <button
-              type="button"
-              class="vscode__status-lang-btn"
-              aria-haspopup="dialog"
-              aria-expanded={languagePickerOpen}
-              title="选择语言模式"
-              onClick={() => setLanguagePickerOpen(true)}
-            >
-              {monacoLanguageLabel(activeTab.language)}
-            </button>
-            {activeTab.conflict || activeTab.deleted || !activeTab.writable ? (
-              <span>
-                {activeTab.conflict ? '冲突' : activeTab.deleted ? '已删除' : '只读'}
-              </span>
-            ) : undefined}
-          </>
-        ) : undefined}
-        {loading ? <span>处理中…</span> : undefined}
         <button
           type="button"
           class={`vscode__status-terminal-btn${prefs.terminalVisible && prefs.panelTab === 'terminal' ? ' vscode__status-terminal-btn--active' : ''}`}
@@ -1724,6 +1742,56 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </svg>
           <span>终端</span>
         </button>
+        <button
+          type="button"
+          class={`vscode__status-terminal-btn${prefs.terminalVisible && prefs.panelTab === 'logs' ? ' vscode__status-terminal-btn--active' : ''}`}
+          title={prefs.terminalVisible && prefs.panelTab === 'logs' ? '隐藏日志' : '显示日志'}
+          aria-pressed={prefs.terminalVisible && prefs.panelTab === 'logs'}
+          onClick={() => toggleBottomPanelTab('logs')}
+        >
+          <svg class="vscode__status-terminal-glyph" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M5 6.5 H19 M5 12 H19 M5 17.5 H14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>日志</span>
+        </button>
+        <span>{activeTab ? activeTab.path : '未打开文件'}</span>
+        <span class="vscode__status-spacer" />
+        {activeTab ? (
+          <>
+            <button
+              type="button"
+              class="vscode__status-goto-btn"
+              title="跳转到指定行和列"
+              aria-haspopup="dialog"
+              aria-expanded={gotoLineOpen}
+              onClick={openGotoLineDialog}
+            >
+              第 {cursor.line} 行，第 {cursor.column} 列
+            </button>
+            <button
+              type="button"
+              class="vscode__status-lang-btn"
+              aria-haspopup="dialog"
+              aria-expanded={languagePickerOpen}
+              title="选择语言模式"
+              onClick={() => setLanguagePickerOpen(true)}
+            >
+              {monacoLanguageLabel(activeTab.language)}
+            </button>
+            {activeTab.conflict || activeTab.deleted || !activeTab.writable ? (
+              <span>
+                {activeTab.conflict ? '冲突' : activeTab.deleted ? '已删除' : '只读'}
+              </span>
+            ) : undefined}
+          </>
+        ) : undefined}
+        {loading ? <span>处理中…</span> : undefined}
       </footer>
 
       {openDialog}
@@ -1737,6 +1805,60 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         onClose={() => setLanguagePickerOpen(false)}
         onSelect={(item) => setActiveLanguage(item.id)}
       />
+
+      <WindowModal
+        open={gotoLineOpen}
+        title="跳转到行列"
+        themeColor={THEME}
+        onClose={() => setGotoLineOpen(false)}
+        actions={[
+          {
+            label: '取消',
+            tone: 'secondary',
+            onClick: () => setGotoLineOpen(false),
+          },
+          {
+            label: '跳转',
+            tone: 'primary',
+            onClick: confirmGotoLine,
+          },
+        ]}
+      >
+        <p class="window-modal__message">输入要跳转的行号与列号。</p>
+        <div class="window-modal__field">
+          <label for="vscode-goto-line">行</label>
+          <input
+            id="vscode-goto-line"
+            type="number"
+            min={1}
+            value={gotoLineInput}
+            autofocus={true}
+            onInput={(event) => setGotoLineInput((event.target as HTMLInputElement).value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                confirmGotoLine()
+              }
+            }}
+          />
+        </div>
+        <div class="window-modal__field">
+          <label for="vscode-goto-column">列</label>
+          <input
+            id="vscode-goto-column"
+            type="number"
+            min={1}
+            value={gotoColumnInput}
+            onInput={(event) => setGotoColumnInput((event.target as HTMLInputElement).value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                confirmGotoLine()
+              }
+            }}
+          />
+        </div>
+      </WindowModal>
 
       <WindowModal
         open={!!dirtyPrompt}
