@@ -13,6 +13,24 @@
   overflow: visible;
 }
 
+.files-node-icon__emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 52px;
+  font-size: 36px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 1.5px rgba(40, 25, 8, 0.22));
+}
+
+.files-node-icon--list .files-node-icon__emoji {
+  width: 18px;
+  height: 22px;
+  font-size: 16px;
+  filter: drop-shadow(0 1px 1px rgba(40, 25, 8, 0.22));
+}
+
 .files-node-icon__glyph--folder {
   width: 58px;
   height: 48px;

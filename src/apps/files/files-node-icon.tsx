@@ -718,6 +718,14 @@ export function FilesNodeIcon({
     )
   }
 
+  if (node.name === '.DS_Store') {
+    return (
+      <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
+        <span class="files-node-icon__emoji">💩</span>
+      </span>
+    )
+  }
+
   const defaultApp = getDefaultFileOpenApp(node.name)
   const extension = fileNameExtension(node.name)
 
