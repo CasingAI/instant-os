@@ -4,6 +4,7 @@ import {
   formatDurationMs,
   formatTokensPerSecond,
   getLiveAiEventLogCount,
+  listLiveAiEventLogs,
   loadRecentEventLogs,
   type AiEventLogRecord,
 } from '../../ai/ai-event-log.ts'
@@ -124,9 +125,19 @@ export function TaskManagerPerformancePanel({
     [analysis.samples],
   )
   const liveCount = getLiveAiEventLogCount()
+  const liveSpeedEstimated = listLiveAiEventLogs().some(
+    (record) => record.usageEstimated === true,
+  )
 
   const hasSpeed = series.some((point) => point.tokensPerSecond > 0)
   const latestSpeed = series.length > 0 ? series[series.length - 1]!.tokensPerSecond : 0
+  const formatLiveSpeed = (rate: number | undefined) => {
+    const text = formatTokensPerSecond(rate)
+    if (text === '—' || !liveSpeedEstimated) {
+      return text
+    }
+    return `~${text}`
+  }
   const windowAverage =
     series.length === 0
       ? undefined
@@ -154,7 +165,7 @@ export function TaskManagerPerformancePanel({
 
   const categoryNow =
     category === 'ai'
-      ? formatTokensPerSecond(latestSpeed)
+      ? formatLiveSpeed(latestSpeed)
       : category === 'fps'
         ? formatFps(latestFps)
         : formatMemoryBytes(latestHeap?.usedBytes)
@@ -182,7 +193,7 @@ export function TaskManagerPerformancePanel({
             const active = category === item.id
             const value =
               item.id === 'ai'
-                ? formatTokensPerSecond(latestSpeed)
+                ? formatLiveSpeed(latestSpeed)
                 : item.id === 'fps'
                   ? formatFps(latestFps)
                   : formatMemoryBytes(latestHeap?.usedBytes)
@@ -330,7 +341,7 @@ export function TaskManagerPerformancePanel({
                         </span>
                         <span class="task-manager__perf-meta">
                           {sample.live ? '实时' : formatUsageTime(sample.at)} ·{' '}
-                          {sample.usageEstimated ? '约 ' : ''}
+                          {sample.usageEstimated ? '~' : ''}
                           {formatTokenCount(sample.completionTokens)} tok ·{' '}
                           {formatDurationMs(sample.durationMs)}
                           {sample.timeToFirstTokenMs !== undefined
@@ -338,6 +349,7 @@ export function TaskManagerPerformancePanel({
                             : ''}
                         </span>
                         <span class="task-manager__perf-side">
+                          {sample.usageEstimated ? '~' : ''}
                           {formatTokensPerSecond(sample.tokensPerSecond)}
                         </span>
                       </div>

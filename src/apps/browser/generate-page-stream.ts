@@ -9,6 +9,7 @@ import {
   buildLiveTokenUsage,
   estimatePromptTokens,
   finalizeTokenUsage,
+  HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
   type LiveTokenUsage,
 } from './estimate-token-usage.ts'
 import {
@@ -361,7 +362,19 @@ export async function generatePageHtmlStreaming(
   let lastRawEmitAt = 0
   let lastUsageEmitAt = 0
   let usage: TokenUsageSnapshot | undefined
-  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '', true, model)
+  let liveUsage = buildLiveTokenUsage(promptTokenEstimate, '', true, model, {
+    minCharsPerToken: HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
+  })
+
+  const refreshLiveUsage = () => {
+    if (usage) {
+      liveUsage = finalizeTokenUsage(liveUsage, usage)
+      return
+    }
+    liveUsage = buildLiveTokenUsage(promptTokenEstimate, text, true, model, {
+      minCharsPerToken: HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
+    })
+  }
 
   const emit = (force = false) => {
     // 节流必须用单调真实时钟：osNowMs() 在虚拟历史时间（公元 1970 前）下会恒小于初值 0，导致整段流式更新被吞掉
@@ -391,7 +404,7 @@ export async function generatePageHtmlStreaming(
     }
 
     if (usageDue) {
-      liveUsage = buildLiveTokenUsage(promptTokenEstimate, text, !usage, model)
+      refreshLiveUsage()
       lastUsageEmitAt = now
     }
 
@@ -434,6 +447,12 @@ export async function generatePageHtmlStreaming(
 
       if (chunk.usage) {
         usage = snapshotFromUsage(chunk.usage)
+        refreshLiveUsage()
+        logSession.update({
+          response: formatStreamEventResponse(reasoningText, text),
+          usage,
+        })
+        emit(true)
       }
 
       if (reasoning) {

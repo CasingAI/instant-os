@@ -37,6 +37,7 @@ type LiveAppActivity = {
   tokensPerSecond: number
   behaviorLabel: string
   sessionCount: number
+  usageEstimated: boolean
 }
 
 type RunningAppEntry = {
@@ -91,16 +92,19 @@ function collectLiveAppActivity(): Map<string, LiveAppActivity> {
   for (const record of listLiveAiEventLogs()) {
     const existing = byActor.get(record.actor)
     const rate = record.completionTokensPerSecond ?? 0
+    const usageEstimated = record.usageEstimated === true
     if (!existing) {
       byActor.set(record.actor, {
         tokensPerSecond: rate,
         behaviorLabel: record.behaviorLabel || record.behavior,
         sessionCount: 1,
+        usageEstimated,
       })
       continue
     }
     existing.tokensPerSecond += rate
     existing.sessionCount += 1
+    existing.usageEstimated = existing.usageEstimated || usageEstimated
   }
 
   return byActor
@@ -328,7 +332,7 @@ export function TaskManagerApp() {
                     const Icon = builtin?.icon
                     const isUnresponsive = entry.status === '未响应'
                     const aiSpeed = entry.liveActivity
-                      ? formatTokensPerSecond(entry.liveActivity.tokensPerSecond)
+                      ? `${entry.liveActivity.usageEstimated ? '~' : ''}${formatTokensPerSecond(entry.liveActivity.tokensPerSecond)}`
                       : '—'
 
                     return (

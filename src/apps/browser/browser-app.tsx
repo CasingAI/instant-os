@@ -53,7 +53,7 @@ import {
   toggleBrowserBookmark,
   updateBrowserBookmarkTitle,
 } from './browser-bookmarks.ts'
-import { formatTokenCount } from './format-token-count.ts'
+import { formatCompactTokenCount } from './format-token-count.ts'
 import {
   buildPageGenerationContext,
   readBrowserViewportSize,
@@ -286,10 +286,6 @@ export function BrowserApp() {
   const showProgress = pageState.loading || pageState.streaming
   const livePageTokens = pageState.pageTokens ?? current.pageTokens
   const tokensEstimated = showProgress && pageState.pageTokens !== undefined
-  const cumulativeTokens =
-    showProgress && pageState.pageTokens !== undefined
-      ? tokenUsage.totalTokens + pageState.pageTokens
-      : tokenUsage.totalTokens
 
   useEffect(() => {
     void initBrowserPageCache()
@@ -1310,6 +1306,13 @@ export function BrowserApp() {
   }
 
   const currentHostname = onStartPage ? undefined : hostnameFromUrl(current.url)
+  const storedDomainTokens = currentHostname
+    ? (tokenUsage.byDomain[currentHostname]?.totalTokens ?? 0)
+    : 0
+  const domainTokens =
+    showProgress && pageState.pageTokens !== undefined
+      ? storedDomainTokens + pageState.pageTokens
+      : storedDomainTokens
 
   const scrubSiteHtmlFromTabs = useCallback((hostname: string) => {
     setTabs((prev) =>
@@ -2390,17 +2393,18 @@ export function BrowserApp() {
         />
       </main>
 
-      {(livePageTokens !== undefined && livePageTokens > 0) || cumulativeTokens > 0 ? (
-        <div class="safari__dev-badge" title="AI 生成用量（开发信息）">
-          {livePageTokens !== undefined && livePageTokens > 0 && (
+      {(livePageTokens !== undefined && livePageTokens > 0) || domainTokens > 0 ? (
+        <div class="safari__dev-badge" title="本页 / 本站累计（开发信息）">
+          {livePageTokens !== undefined && livePageTokens > 0 ? (
             <span>
               {tokensEstimated ? '~' : ''}
-              {formatTokenCount(livePageTokens)}
+              {formatCompactTokenCount(livePageTokens)}
             </span>
-          )}
-          {cumulativeTokens > 0 && (
-            <span>Σ {formatTokenCount(cumulativeTokens)}</span>
-          )}
+          ) : undefined}
+          {livePageTokens !== undefined && livePageTokens > 0 && domainTokens > 0 ? (
+            <span>/</span>
+          ) : undefined}
+          {domainTokens > 0 ? <span>{formatCompactTokenCount(domainTokens)}</span> : undefined}
         </div>
       ) : undefined}
 
