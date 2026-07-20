@@ -1,4 +1,5 @@
 import { estimateTokensFromText } from '../apps/browser/estimate-token-usage.ts'
+import { isModelTokenizerReady } from './model-tokenizer.ts'
 import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
 import { osDayKey, osNowMs } from '../os/os-clock.ts'
 import { resolveEventLogPerformance } from './ai-event-log-timing.ts'
@@ -10,6 +11,7 @@ import type {
   AiEventLogStatus,
 } from './ai-event-log-types.ts'
 import { ensureTokenCharsRatioHydrated } from './token-chars-ratio.ts'
+import { prepareTokenEstimation } from './model-tokenizer.ts'
 
 export const AI_EVENT_LOG_CHANGED_EVENT = 'instant-os:ai-event-log-changed'
 
@@ -190,6 +192,7 @@ export function startAiEventLogSession(
   liveSessions.set(id, state)
   scheduleDispatch(state, true)
   void ensureTokenCharsRatioHydrated()
+  void prepareTokenEstimation(input.model)
 
   return {
     id,
@@ -230,7 +233,7 @@ export function startAiEventLogSession(
           if (current.record.promptTokens === undefined) {
             current.record.promptTokens = estimated.promptTokens
           }
-          current.record.usageEstimated = true
+          current.record.usageEstimated = !isModelTokenizerReady(current.record.model)
         }
       }
 

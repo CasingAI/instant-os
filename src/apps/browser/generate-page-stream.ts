@@ -10,6 +10,8 @@ import {
   estimatePromptTokens,
   finalizeTokenUsage,
   HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
+  prepareTokenEstimation,
+  resolveUsageEstimated,
   type LiveTokenUsage,
 } from './estimate-token-usage.ts'
 import {
@@ -175,6 +177,8 @@ export type PageGenerationResult = {
 
 const HTML_EMIT_INTERVAL_MS = 150
 const RAW_EMIT_INTERVAL_MS = 48
+/** token 角标单独节流：全文 encode 比 raw 更新贵，不必跟 48ms 同步 */
+const USAGE_EMIT_INTERVAL_MS = 500
 const REFERRER_HTML_MAX_CHARS = 8000
 const SITE_ROOT_HTML_MAX_CHARS = 8000
 
@@ -340,6 +344,7 @@ export async function generatePageHtmlStreaming(
   const systemPrompt = buildPageBuilderPrompt(allowAiRefuseSite)
   const userPrompt = buildPageUserPrompt(context, allowAiRefuseSite)
   const log = createSafariAiLogger(context.url)
+  await prepareTokenEstimation(model)
   const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt, model)
   const usageContext = {
     actor: 'browser' as const,
@@ -388,7 +393,7 @@ export async function generatePageHtmlStreaming(
         stabilized !== lastHtml &&
         now - lastHtmlEmitAt >= HTML_EMIT_INTERVAL_MS)
     const rawDue = force || now - lastRawEmitAt >= RAW_EMIT_INTERVAL_MS
-    const usageDue = force || now - lastUsageEmitAt >= RAW_EMIT_INTERVAL_MS
+    const usageDue = force || now - lastUsageEmitAt >= USAGE_EMIT_INTERVAL_MS
 
     if (!htmlDue && !rawDue && !usageDue) {
       return
@@ -498,7 +503,7 @@ export async function generatePageHtmlStreaming(
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, text),
       usage: finalUsage,
-      usageEstimated: !usage,
+      usageEstimated: resolveUsageEstimated(Boolean(usage), model),
       status: 'success',
     })
 

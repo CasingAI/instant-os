@@ -5,6 +5,7 @@ import type { AiEventLogMessage } from './ai-event-log-types.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { recordAiTokenUsage } from './ai-token-usage.ts'
+import { resolveUsageEstimated } from '../apps/browser/estimate-token-usage.ts'
 import { mergeOpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 
@@ -156,7 +157,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       finishAiEventLogSession(logSession, options.usageContext, {
         response: formatStreamEventResponse(reasoningText, trimmed),
         usage,
-        usageEstimated: usage ? false : undefined,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'success',
       })
     }

@@ -9,6 +9,7 @@ import {
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
+import { resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import { forEachStreamChunk, isStreamAbortError, raceWithAbortSignal } from '../../ai/stream-abort.ts'
@@ -429,7 +430,7 @@ export async function generateIcodeHtmlEditsStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'aborted',
       })
       throw new IcodeGenerationAbortedError()
@@ -439,7 +440,7 @@ export async function generateIcodeHtmlEditsStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: snapshot.response,
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
       })
@@ -457,7 +458,7 @@ export async function generateIcodeHtmlEditsStreaming(
   finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-    usageEstimated: !usage,
+    usageEstimated: resolveUsageEstimated(Boolean(usage), model),
     status: 'success',
   })
 

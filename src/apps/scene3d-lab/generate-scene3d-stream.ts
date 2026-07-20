@@ -18,6 +18,8 @@ import {
   buildLiveTokenUsage,
   estimatePromptTokens,
   finalizeTokenUsage,
+  prepareTokenEstimation,
+  resolveUsageEstimated,
   type LiveTokenUsage,
 } from '../browser/estimate-token-usage.ts'
 
@@ -150,6 +152,7 @@ export async function generateScene3dHtmlStreaming(
   const physicsEnabled = options.physicsEnabled === true
   const systemPrompt = buildScene3dBuilderPrompt(physicsEnabled)
   const userMessage = buildScene3dUserMessage(userPrompt, physicsEnabled)
+  await prepareTokenEstimation(model)
   const promptTokenEstimate = estimatePromptTokens(systemPrompt, userMessage, model)
 
   let reasoningText = ''
@@ -254,7 +257,7 @@ export async function generateScene3dHtmlStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'error',
         errorMessage: 'AI 未返回任何 3D 页面内容',
       })
@@ -277,7 +280,7 @@ export async function generateScene3dHtmlStreaming(
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, contentText),
       usage,
-      usageEstimated: !usage,
+      usageEstimated: resolveUsageEstimated(Boolean(usage), model),
       status: 'success',
     })
 
@@ -299,7 +302,7 @@ export async function generateScene3dHtmlStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: snapshot.response,
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
       })

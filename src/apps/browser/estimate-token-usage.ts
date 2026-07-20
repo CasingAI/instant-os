@@ -1,11 +1,30 @@
+import {
+  countTokensWithModelTokenizer,
+  isModelTokenizerReady,
+  prepareTokenEstimation,
+} from '../../ai/model-tokenizer.ts'
 import { DEFAULT_CHARS_PER_TOKEN, getCharsPerToken } from '../../ai/token-chars-ratio.ts'
+
+export { prepareTokenEstimation }
 
 export type EstimateTokenOptions = {
   /** 估算时字符/token 的下限（例如 HTML 流式输出用更高下限，避免角标虚高） */
   minCharsPerToken?: number
 }
 
-/** 流式阶段用字符数粗估 token；有足够历史真实用量时按模型学习比例，否则回退约 3.5 字符 / token */
+function estimateTokensFromChars(
+  text: string,
+  model: string | undefined,
+  options: EstimateTokenOptions | undefined,
+): number {
+  const charsPerToken = Math.max(
+    getCharsPerToken(model) || DEFAULT_CHARS_PER_TOKEN,
+    options?.minCharsPerToken ?? 0,
+  )
+  return Math.max(1, Math.ceil(text.length / charsPerToken))
+}
+
+/** 有本地词表且已 hydrate 时精确计数；否则用字符粗估（可带 minCharsPerToken） */
 export function estimateTokensFromText(
   text: string,
   model?: string,
@@ -14,11 +33,11 @@ export function estimateTokensFromText(
   if (!text) {
     return 0
   }
-  const charsPerToken = Math.max(
-    getCharsPerToken(model) || DEFAULT_CHARS_PER_TOKEN,
-    options?.minCharsPerToken ?? 0,
-  )
-  return Math.max(1, Math.ceil(text.length / charsPerToken))
+  const precise = countTokensWithModelTokenizer(text, model)
+  if (precise !== undefined) {
+    return Math.max(1, precise)
+  }
+  return estimateTokensFromChars(text, model, options)
 }
 
 export function estimatePromptTokens(
@@ -31,10 +50,24 @@ export function estimatePromptTokens(
   return content + 8
 }
 
+/**
+ * 是否应在 UI 上标「约 / ~」：
+ * - 已有 API usage → 否
+ * - 本地 tokenizer 已就绪 → 否（精确分词）
+ * - 否则字符粗估 → 是
+ */
+export function resolveUsageEstimated(hasApiUsage: boolean, model?: string): boolean {
+  if (hasApiUsage) {
+    return false
+  }
+  return !isModelTokenizerReady(model)
+}
+
 export type LiveTokenUsage = {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  /** true = 字符等粗估（UI 可显示 ~）；tokenizer / API 为 false */
   estimated: boolean
 }
 
@@ -53,7 +86,7 @@ export function buildLiveTokenUsage(
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
-    estimated,
+    estimated: estimated && resolveUsageEstimated(false, model),
   }
 }
 

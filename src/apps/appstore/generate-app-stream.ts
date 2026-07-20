@@ -1,7 +1,7 @@
 import { formatStreamEventResponse, finishAiEventLogSession, startAiEventLogSession } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
-import { estimatePromptTokens } from '../browser/estimate-token-usage.ts'
+import { estimatePromptTokens, prepareTokenEstimation, resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { extractHtmlFromAiText } from '../../ai/parse-json-response.ts'
 import {
   buildThinkingRequestExtras,
@@ -119,6 +119,7 @@ export function measureAppGenerationContextPayload(
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
   const model = mergeOpenAiConfig().defaultModel
+  void prepareTokenEstimation(model)
   return {
     characters: systemPrompt.length + userPrompt.length + 8,
     tokens: estimatePromptTokens(systemPrompt, userPrompt, model),
@@ -187,6 +188,7 @@ export async function generateAppHtmlStreaming(
 
   const systemPrompt = buildAppGenerationSystemPrompt(listing, context, isUpdate)
   const userPrompt = buildAppGenerationPrompt(listing, context)
+  await prepareTokenEstimation(model)
   const thinkingEnabled = resolveAppGenerationThinkingEnabled(
     config.providerId,
     config.thinkingEnabled,
@@ -305,7 +307,7 @@ export async function generateAppHtmlStreaming(
       finishAiEventLogSession(logSession, usageContext, {
         response: formatStreamEventResponse(reasoningText, contentText),
         usage,
-        usageEstimated: !usage,
+        usageEstimated: resolveUsageEstimated(Boolean(usage), model),
         status: 'aborted',
       })
     } else {
@@ -314,7 +316,7 @@ export async function generateAppHtmlStreaming(
         finishAiEventLogSession(logSession, usageContext, {
           response: snapshot.response,
           usage,
-          usageEstimated: !usage,
+          usageEstimated: resolveUsageEstimated(Boolean(usage), model),
           status: 'error',
           errorMessage: error instanceof Error ? error.message : 'AI 请求失败',
         })
@@ -327,7 +329,7 @@ export async function generateAppHtmlStreaming(
     finishAiEventLogSession(logSession, usageContext, {
       response: formatStreamEventResponse(reasoningText, contentText),
       usage,
-      usageEstimated: !usage,
+      usageEstimated: resolveUsageEstimated(Boolean(usage), model),
       status: 'error',
       errorMessage: 'AI 未返回任何代码',
     })
@@ -340,7 +342,7 @@ export async function generateAppHtmlStreaming(
   finishAiEventLogSession(logSession, usageContext, {
     response: formatStreamEventResponse(reasoningText, contentText),
     usage,
-    usageEstimated: !usage,
+    usageEstimated: resolveUsageEstimated(Boolean(usage), model),
     status: 'success',
   })
 

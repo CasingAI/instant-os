@@ -3,6 +3,7 @@ import { buildThinkingRequestExtras } from '../../ai/ai-thinking.ts'
 import { finishAiEventLogSession, startAiEventLogSession, toEventLogMessages } from '../../ai/ai-event-log.ts'
 import { recordAiTokenUsage } from '../../ai/ai-token-usage.ts'
 import { recordOpenAiCompletionUsage, snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
+import { resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { BridgeAppId } from './generated-app-ai-types.ts'
@@ -299,7 +300,7 @@ export async function handleGeneratedAppAiRequest(
       finishAiEventLogSession(logSession, context, {
         response: streamResponse,
         usage: streamUsage,
-        usageEstimated: !streamUsage,
+        usageEstimated: resolveUsageEstimated(Boolean(streamUsage), config.defaultModel),
         status: 'success',
       })
 

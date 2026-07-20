@@ -271,7 +271,12 @@ function FolderGlyph({ className }: { className: string }) {
 /** 未知 / 无关联类型的通用文件图标（空白页，无正文暗示） */
 function UnknownFileGlyph({ className }: { className: string }) {
   return (
-    <svg class={className} viewBox="0 0 48 60" aria-hidden="true">
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
       <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
       <path
         fill="#e8e4dc"
@@ -293,9 +298,33 @@ function UnknownFileGlyph({ className }: { className: string }) {
   )
 }
 
+/** 空白折角页 + 正中标记（问号 / emoji 等） */
+function BlankFileMarkIcon({
+  size,
+  mark,
+}: {
+  size: FilesNodeIconSize
+  mark: string
+}) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--blank-mark`}
+      aria-hidden="true"
+    >
+      <UnknownFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+      <span class="files-node-icon__mark">{mark}</span>
+    </span>
+  )
+}
+
 function TxtPaperGlyph({ className }: { className: string }) {
   return (
-    <svg class={className} viewBox="0 0 48 60" aria-hidden="true">
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
       <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
       <path
         fill="#fffdf8"
@@ -320,7 +349,12 @@ function TxtPaperGlyph({ className }: { className: string }) {
 /** 折角盖在点阵之上，遮住纸面右上角（Mac 缩略图同款层次） */
 function TxtFoldCover() {
   return (
-    <svg class="files-node-icon__fold" viewBox="0 0 48 60" aria-hidden="true">
+    <svg
+      class="files-node-icon__fold"
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
       <path
         fill="#e6dcc8"
         stroke="#b9a888"
@@ -346,7 +380,12 @@ function StructureDots({ rows }: { rows: readonly StructureRow[] }) {
   const indentStep = 0.72
 
   return (
-    <svg class="files-node-icon__structure" viewBox="0 0 48 60" aria-hidden="true">
+    <svg
+      class="files-node-icon__structure"
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
       <defs>
         <clipPath id={clipId}>
           <path d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z" />
@@ -719,11 +758,7 @@ export function FilesNodeIcon({
   }
 
   if (node.name === '.DS_Store') {
-    return (
-      <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
-        <span class="files-node-icon__emoji">💩</span>
-      </span>
-    )
+    return <BlankFileMarkIcon size={size} mark="💩" />
   }
 
   const defaultApp = getDefaultFileOpenApp(node.name)
@@ -748,9 +783,5 @@ export function FilesNodeIcon({
     )
   }
 
-  return (
-    <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
-      <UnknownFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
-    </span>
-  )
+  return <BlankFileMarkIcon size={size} mark="?" />
 }

@@ -6,6 +6,7 @@ import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import {
   buildLiveTokenUsage,
   estimatePromptTokens,
+  prepareTokenEstimation,
   type LiveTokenUsage,
 } from '../browser/estimate-token-usage.ts'
 import {
@@ -323,13 +324,14 @@ function trimCommentCount(comments: NewsComment[], max = 20): NewsComment[] {
   return flattenCommentsToTwoLevels([...keptTop, ...keptReplies])
 }
 
-function recordEstimatedUsage(
+async function recordEstimatedUsage(
   kind: 'comment' | 'reply',
   system: string,
   user: string,
   output: string,
-): void {
+): Promise<void> {
   const model = mergeOpenAiConfig().defaultModel
+  await prepareTokenEstimation(model)
   const promptTokens = estimatePromptTokens(system, user, model)
   const live = buildLiveTokenUsage(promptTokens, output, true, model)
   recordNewsTokenUsage(kind, {
@@ -424,14 +426,14 @@ export async function generateCommentsForArticleStreaming(
       throw new Error('too few comments')
     }
 
-    recordEstimatedUsage('comment', GENERATE_COMMENTS_PROMPT, userMessage, text)
+    await recordEstimatedUsage('comment', GENERATE_COMMENTS_PROMPT, userMessage, text)
     return comments
   } catch {
     const seeds = buildSeedComments(article)
     for (const comment of seeds) {
       onComment(comment)
     }
-    recordEstimatedUsage('comment', GENERATE_COMMENTS_PROMPT, userMessage, JSON.stringify(seeds))
+    await recordEstimatedUsage('comment', GENERATE_COMMENTS_PROMPT, userMessage, JSON.stringify(seeds))
     return seeds
   }
 }
@@ -535,12 +537,12 @@ ${userBody}
       throw new Error('no replies')
     }
 
-    recordEstimatedUsage('reply', USER_TOP_COMMENT_PROMPT, userMessage, text)
+    await recordEstimatedUsage('reply', USER_TOP_COMMENT_PROMPT, userMessage, text)
     return { userEngagement, replies }
   } catch {
     const userEngagement = rollFallbackUserEngagement(true)
     const replies = buildFallbackRepliesToUserTopComment(userCommentId)
-    recordEstimatedUsage('reply', USER_TOP_COMMENT_PROMPT, userMessage, JSON.stringify({ userEngagement, replies }))
+    await recordEstimatedUsage('reply', USER_TOP_COMMENT_PROMPT, userMessage, JSON.stringify({ userEngagement, replies }))
     return { userEngagement, replies }
   }
 }
@@ -567,11 +569,11 @@ ${userBody}
     })
     const raw = parseJsonFromAiText<{ userLikes?: number; userDislikes?: number }>(text)
     const engagement = parseUserEngagement(raw)
-    recordEstimatedUsage('reply', USER_ENGAGEMENT_PROMPT, userMessage, text)
+    await recordEstimatedUsage('reply', USER_ENGAGEMENT_PROMPT, userMessage, text)
     return engagement
   } catch {
     const engagement = rollFallbackUserEngagement()
-    recordEstimatedUsage('reply', USER_ENGAGEMENT_PROMPT, userMessage, JSON.stringify(engagement))
+    await recordEstimatedUsage('reply', USER_ENGAGEMENT_PROMPT, userMessage, JSON.stringify(engagement))
     return engagement
   }
 }
@@ -616,13 +618,13 @@ ${context || '（无）'}
     const argumentative = raw.argumentative !== false
 
     if (!argumentative && Math.random() > 0.2) {
-      recordEstimatedUsage('reply', REPLY_PROMPT, userMessage, text)
+      await recordEstimatedUsage('reply', REPLY_PROMPT, userMessage, text)
       return { userEngagement }
     }
 
     const body = formatReplyBody(raw.body?.trim() || '……', '我')
     const aiReply = normalizeDraft({ ...raw, body }, rootId)
-    recordEstimatedUsage('reply', REPLY_PROMPT, userMessage, text)
+    await recordEstimatedUsage('reply', REPLY_PROMPT, userMessage, text)
     return { userEngagement, aiReply }
   } catch {
     const userEngagement = rollFallbackUserEngagement(true)
@@ -633,7 +635,7 @@ ${context || '（无）'}
       '回复 @我：行行行，你说的都对，行了吧',
     ]
     const body = fallbackBodies[Math.floor(Math.random() * fallbackBodies.length)]
-    recordEstimatedUsage('reply', REPLY_PROMPT, userMessage, body)
+    await recordEstimatedUsage('reply', REPLY_PROMPT, userMessage, body)
     return {
       userEngagement,
       aiReply: normalizeDraft(
@@ -649,12 +651,13 @@ ${context || '（无）'}
   }
 }
 
-export function buildLiveCommentTokenUsage(
+export async function buildLiveCommentTokenUsage(
   system: string,
   user: string,
   output: string,
-): LiveTokenUsage {
+): Promise<LiveTokenUsage> {
   const model = mergeOpenAiConfig().defaultModel
+  await prepareTokenEstimation(model)
   const promptTokens = estimatePromptTokens(system, user, model)
   return buildLiveTokenUsage(promptTokens, output, true, model)
 }
