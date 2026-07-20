@@ -4,6 +4,7 @@ import {
   fileNameExtension,
   getDefaultFileOpenApp,
 } from '../../os/file-open-registry.ts'
+import { PREVIEW_MARKDOWN_EXTENSIONS } from '../preview/preview-kind.ts'
 import type { FilesNode } from './files-types.ts'
 import { FILES_VFS_CHANGED_EVENT, readTextFile } from './files-vfs.ts'
 import './files-node-icon.css'
@@ -12,15 +13,24 @@ export type FilesNodeIconSize = 'grid' | 'list'
 
 /** 超过此大小不再读取正文做图标预览，避免拖慢目录列表 */
 const TXT_PREVIEW_MAX_BYTES = 256 * 1024
+
+const MARKDOWN_EXTENSIONS = new Set<string>(PREVIEW_MARKDOWN_EXTENSIONS)
 /**
  * 结构点阵：行距压得很密，才能在纸面高度内塞进足够多的正文结构。
- * 与 SVG pitchY≈0.24 配套，约可铺满 ~180 行。
+ * 与 SVG pitchY≈0.24 配套；过长行向右溢出后由四边等距 clip 裁掉（不换行）。
  */
-const STRUCTURE_MAX_ROWS = 180
-const STRUCTURE_MAX_DOTS = 32
+const STRUCTURE_MAX_ROWS = 160
+const STRUCTURE_MAX_DOTS = 56
 const STRUCTURE_MAX_INDENT = 8
-/** 正文一行过长时，按此字符数折成多行点阵 */
-const STRUCTURE_WRAP_CHARS = 32
+
+/** 纸面白区（与 TxtPaperGlyph 内页路径对齐） */
+const PAPER_LEFT = 9.8
+const PAPER_TOP = 5.3
+const PAPER_RIGHT = 37.5
+const PAPER_BOTTOM = 51
+/** 上/右/下边距；左边略收，避免视觉上比上边更「空」 */
+const PAPER_PAGE_MARGIN = 3.2
+const PAPER_PAGE_MARGIN_LEFT = 1.0
 
 export type StructureRow = {
   indent: number
@@ -35,6 +45,15 @@ export function isTxtFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean 
   return node.kind === 'file' && isTxtFileName(node.name)
 }
 
+export function isMarkdownFileName(fileName: string): boolean {
+  const extension = fileNameExtension(fileName)
+  return extension !== undefined && MARKDOWN_EXTENSIONS.has(extension)
+}
+
+export function isMarkdownFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean {
+  return node.kind === 'file' && isMarkdownFileName(node.name)
+}
+
 const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
 
 export function isBrowserOpenExtension(extension: string | undefined): boolean {
@@ -45,6 +64,12 @@ export function browserFileBadgeLabel(extension: string): string {
   const ext = extension.trim().toLowerCase()
   if (ext === 'svg') return 'SVG'
   return 'HTML'
+}
+
+export function markdownFileBadgeLabel(extension: string): string {
+  const ext = extension.trim().toLowerCase()
+  if (ext === 'mdx') return 'MDX'
+  return 'MD'
 }
 
 function pushStructureRow(rows: StructureRow[], indent: number, dots: number): boolean {
@@ -75,11 +100,9 @@ export function toStructureRows(text: string): StructureRow[] {
       continue
     }
 
-    for (let offset = 0; offset < trimmed.length; offset += STRUCTURE_WRAP_CHARS) {
-      const chunk = trimmed.slice(offset, offset + STRUCTURE_WRAP_CHARS)
-      const dots = Math.min(STRUCTURE_MAX_DOTS, Math.max(2, Math.ceil(chunk.length / 1.15)))
-      if (!pushStructureRow(rows, indent, dots)) break
-    }
+    // 一行对应一行点阵；过长则点继续往右画，由折角外侧的 clip 裁掉
+    const dots = Math.min(STRUCTURE_MAX_DOTS, Math.max(2, Math.ceil(trimmed.length / 1.15)))
+    if (!pushStructureRow(rows, indent, dots)) break
   }
 
   while (rows.length > 0 && rows[rows.length - 1]?.dots === 0) {
@@ -366,14 +389,16 @@ function TxtFoldCover() {
 }
 
 /**
- * 与纸面同坐标系的 SVG 点阵：点极小且紧贴，clip 在纸页路径内，折角画在最上层。
+ * 与纸面同坐标系的 SVG 点阵：点极小且紧贴。
+ * 上/右/下等距边距，左边略收；右上沿折痕裁切；过长行向右溢出后被裁掉。
  */
 function StructureDots({ rows }: { rows: readonly StructureRow[] }) {
   const rawId = useId()
   const clipId = `files-struct-clip-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`
-  // 行距压到 ~0.24，约 180 行铺满纸面可用高度
-  const x0 = 11.15
-  const y0 = 6.2
+  const contentLeft = PAPER_LEFT + PAPER_PAGE_MARGIN_LEFT
+  const contentTop = PAPER_TOP + PAPER_PAGE_MARGIN
+  const contentRight = PAPER_RIGHT - PAPER_PAGE_MARGIN
+  const contentBottom = PAPER_BOTTOM - PAPER_PAGE_MARGIN
   const pitchX = 0.42
   const pitchY = 0.24
   const r = 0.2
@@ -388,7 +413,10 @@ function StructureDots({ rows }: { rows: readonly StructureRow[] }) {
     >
       <defs>
         <clipPath id={clipId}>
-          <path d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z" />
+          {/* 四边内缩同一边距；右上沿折痕裁掉折角三角 */}
+          <path
+            d={`M${contentLeft} ${contentTop}H27v${15.4 - contentTop}c0 1.1.9 2 2 2H${contentRight}V${contentBottom}H${contentLeft}z`}
+          />
         </clipPath>
       </defs>
       <g clipPath={`url(#${clipId})`} fill="#3f3a32" opacity="0.5">
@@ -396,8 +424,8 @@ function StructureDots({ rows }: { rows: readonly StructureRow[] }) {
           Array.from({ length: row.dots }, (_, dotIndex) => (
             <circle
               key={`${rowIndex}-${dotIndex}`}
-              cx={x0 + row.indent * indentStep + dotIndex * pitchX}
-              cy={y0 + rowIndex * pitchY}
+              cx={contentLeft + row.indent * indentStep + dotIndex * pitchX}
+              cy={contentTop + rowIndex * pitchY}
               r={r}
             />
           )),
@@ -594,7 +622,7 @@ type StructurePreviewIconProps = {
   byteSize: number
   size: FilesNodeIconSize
   badge: string
-  badgeTone: 'txt' | 'html' | 'svg'
+  badgeTone: 'txt' | 'html' | 'svg' | 'md'
   /** 不读盘，仅展示空文本样式（如「新建」菜单） */
   staticPreview?: string
 }
@@ -705,6 +733,31 @@ function BrowserFileIcon({
   )
 }
 
+function MarkdownFileIcon({
+  nodeId,
+  byteSize,
+  size,
+  extension,
+  staticPreview,
+}: {
+  nodeId: string
+  byteSize: number
+  size: FilesNodeIconSize
+  extension: string
+  staticPreview?: string
+}) {
+  return (
+    <StructurePreviewFileIcon
+      nodeId={nodeId}
+      byteSize={byteSize}
+      size={size}
+      badge={markdownFileBadgeLabel(extension)}
+      badgeTone="md"
+      staticPreview={staticPreview}
+    />
+  )
+}
+
 type CodeFileIconProps = {
   extension: string
   size: FilesNodeIconSize
@@ -779,6 +832,17 @@ export function FilesNodeIcon({
         byteSize={node.byteSize}
         size={size}
         extension={extension ?? 'html'}
+      />
+    )
+  }
+
+  if (defaultApp === 'preview' || isMarkdownFilesNode(node)) {
+    return (
+      <MarkdownFileIcon
+        nodeId={node.id}
+        byteSize={node.byteSize}
+        size={size}
+        extension={extension ?? 'md'}
       />
     )
   }
