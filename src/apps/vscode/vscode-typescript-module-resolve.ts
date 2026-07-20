@@ -121,6 +121,91 @@ function isDeclarationPath(path: string): boolean {
   return path.endsWith('.d.ts') || path.endsWith('.d.mts') || path.endsWith('.d.cts')
 }
 
+/**
+ * 真实 TS：exports/main 落到 .js 后旁路找同路径声明。
+ * `foo.js` → `foo.d.ts`；`.mjs` → `.d.mts`；`.cjs` → `.d.cts`。
+ */
+export function declarationPathBesideJs(jsPath: string): string | undefined {
+  const trimmed = jsPath.trim()
+  if (trimmed.endsWith('.mjs')) return `${trimmed.slice(0, -4)}.d.mts`
+  if (trimmed.endsWith('.cjs')) return `${trimmed.slice(0, -4)}.d.cts`
+  if (trimmed.endsWith('.jsx')) return `${trimmed.slice(0, -4)}.d.ts`
+  if (trimmed.endsWith('.js')) return `${trimmed.slice(0, -3)}.d.ts`
+  return undefined
+}
+
+/** 包内相对路径 → 绝对路径（去掉前导 ./） */
+function packageRelToAbs(packageRoot: string, rel: string): string {
+  return joinAbs(packageRoot, ...rel.replace(/^\.\//, '').split('/').filter(Boolean))
+}
+
+/**
+ * 从 exports / main / module 收集 JS 入口（供预热与旁路 .d.ts）。
+ */
+function jsEntryCandidatesFromPackageJson(
+  pkg: PackageJsonShape,
+  subpath: string | undefined,
+): string[] {
+  const out: string[] = []
+  const pushIfJs = (value: unknown) => {
+    if (typeof value !== 'string') return
+    const trimmed = value.trim()
+    if (trimmed && isJsModulePath(trimmed)) out.push(trimmed)
+  }
+
+  const walkExport = (value: unknown) => {
+    if (typeof value === 'string') {
+      pushIfJs(value)
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    const record = value as Record<string, unknown>
+    for (const key of ['import', 'require', 'default', 'node', 'browser', 'module']) {
+      walkExport(record[key])
+    }
+  }
+
+  const exportsField = pkg.exports
+  if (exportsField) {
+    const tryKeys = subpath && subpath !== '.' ? [`./${subpath}`, `.${subpath}`] : ['.']
+    if (typeof exportsField === 'string') {
+      walkExport(exportsField)
+    } else if (typeof exportsField === 'object') {
+      const map = exportsField as Record<string, unknown>
+      for (const key of tryKeys) {
+        if (key in map) walkExport(map[key])
+      }
+      if (!subpath || subpath === '.') walkExport(map['.'])
+    }
+  }
+
+  if (!subpath || subpath === '.') {
+    pushIfJs(pkg.module)
+    pushIfJs(pkg.main)
+  }
+
+  return [...new Set(out)]
+}
+
+/**
+ * 预热包入口 JS 与旁路 .d.ts，让后续 resolveModuleName 少轮次失败。
+ */
+function seedPackageEntryFiles(
+  cache: FilesResolutionCache,
+  packageRoot: string,
+  pkg: PackageJsonShape,
+  subpath: string | undefined,
+): void {
+  const typesEntry = typesEntryFromPackageJson(pkg, subpath)
+  if (typesEntry) cache.fileExists(packageRelToAbs(packageRoot, typesEntry))
+
+  for (const jsRel of jsEntryCandidatesFromPackageJson(pkg, subpath)) {
+    cache.fileExists(packageRelToAbs(packageRoot, jsRel))
+    const dtsRel = declarationPathBesideJs(jsRel)
+    if (dtsRel) cache.fileExists(packageRelToAbs(packageRoot, dtsRel))
+  }
+}
+
 /** scoped `@foo/bar` → `@types/foo__bar`；普通包 → `@types/pkg` */
 export function typesPackageName(packageName: string): string {
   if (packageName.startsWith('@')) {
@@ -244,7 +329,8 @@ export async function collectNodeBuiltinDeclaration(
 }
 
 /**
- * 解析前从 containing 向上预热 `node_modules/<pkg>/package.json`，便于 exports 解析。
+ * 解析前从 containing 向上预热 `node_modules/<pkg>/package.json`，
+ * 并预热 exports/main 入口 JS 与旁路 .d.ts，便于 resolveModuleName。
  */
 export async function seedPackageJsonForSpecifier(
   cache: FilesResolutionCache,
@@ -255,6 +341,11 @@ export async function seedPackageJsonForSpecifier(
   const target = resolveTargetSpecifier(moduleName)
   const pkg = packageNameFromSpecifier(target)
   if (!pkg) return
+
+  let subpath: string | undefined
+  if (target.startsWith(`${pkg}/`)) {
+    subpath = target.slice(pkg.length + 1)
+  }
 
   let dir = parentDirFromPath(normalizeAbs(containingFile))
   for (let i = 0; i < 24; i += 1) {
@@ -267,10 +358,28 @@ export async function seedPackageJsonForSpecifier(
     dir = parent
   }
   await cache.flushPending(signal)
+
+  dir = parentDirFromPath(normalizeAbs(containingFile))
+  for (let i = 0; i < 24; i += 1) {
+    if (signal?.aborted) return
+    const pkgRoot = joinAbs(dir, 'node_modules', ...packageNameSegments(pkg))
+    const pkgRaw = cache.readFile(joinAbs(pkgRoot, 'package.json'))
+    if (pkgRaw !== undefined) {
+      const pkgJson = parseJsonc<PackageJsonShape>(pkgRaw)
+      if (pkgJson) {
+        seedPackageEntryFiles(cache, pkgRoot, pkgJson, subpath)
+        await cache.flushPending(signal)
+      }
+      return
+    }
+    const parent = parentDirFromPath(dir)
+    if (parent === dir) break
+    dir = parent
+  }
 }
 
 /**
- * 不依赖 resolveModuleName：向上找包根 package.json，按 types/exports 直达声明入口。
+ * 不依赖 resolveModuleName：向上找包根 package.json，按 types/exports/main 旁路直达声明入口。
  * 用于 `@electron-toolkit/preload` 等 exports 包在缓存未齐时 resolveModuleName 失败的场景。
  */
 export async function resolvePackageTypesEntryDirect(
@@ -300,17 +409,28 @@ export async function resolvePackageTypesEntryDirect(
     const pkgRaw = cache.readFile(pkgJsonPath)
     if (pkgRaw !== undefined) {
       const pkgJson = parseJsonc<PackageJsonShape>(pkgRaw)
-      const typesEntry = pkgJson ? typesEntryFromPackageJson(pkgJson, subpath) : undefined
-      if (typesEntry) {
-        const typesPath = joinAbs(packageRoot, ...typesEntry.replace(/^\.\//, '').split('/'))
-        cache.fileExists(typesPath)
+      if (pkgJson) {
+        seedPackageEntryFiles(cache, packageRoot, pkgJson, subpath)
         await cache.flushPending(signal)
-        if (cache.readFile(typesPath) !== undefined) return typesPath
+
+        const typesEntry = typesEntryFromPackageJson(pkgJson, subpath)
+        if (typesEntry) {
+          const typesPath = packageRelToAbs(packageRoot, typesEntry)
+          if (cache.readFile(typesPath) !== undefined) return typesPath
+        }
+
+        // 再试 exports/main JS 旁路（与 typesEntry 重复时 read 已命中）
+        for (const jsRel of jsEntryCandidatesFromPackageJson(pkgJson, subpath)) {
+          const dtsRel = declarationPathBesideJs(jsRel)
+          if (!dtsRel) continue
+          const dtsPath = packageRelToAbs(packageRoot, dtsRel)
+          if (cache.readFile(dtsPath) !== undefined) return dtsPath
+        }
       }
-      // 常见回退
+
+      // 最后补充常见布局（非特例列表，仅兜底）
       for (const fallback of ['index.d.ts', 'dist/index.d.ts', 'types/index.d.ts', 'lib/index.d.ts']) {
-        const candidate = joinAbs(packageRoot, ...fallback.split('/'))
-        cache.fileExists(candidate)
+        cache.fileExists(joinAbs(packageRoot, ...fallback.split('/')))
       }
       await cache.flushPending(signal)
       for (const fallback of ['index.d.ts', 'dist/index.d.ts', 'types/index.d.ts', 'lib/index.d.ts']) {
@@ -416,6 +536,12 @@ export class FilesResolutionCache {
 
   seedFile(path: string, content: string): void {
     this.entries.set(normalizeAbs(path), { kind: 'file', content })
+    this.pending.delete(normalizeAbs(path))
+  }
+
+  /** 测试 / 预热：标记目录存在，避免 flushPending 误标 missing */
+  seedFolder(path: string): void {
+    this.entries.set(normalizeAbs(path), { kind: 'folder' })
     this.pending.delete(normalizeAbs(path))
   }
 
@@ -670,22 +796,25 @@ function findPackageRootNear(resolvedFile: string, packageName: string | undefin
   return undefined
 }
 
-function typesEntryFromPackageJson(pkg: PackageJsonShape, subpath: string | undefined): string | undefined {
+/**
+ * 与真实 TS 一致：优先 types/typings；否则从 exports/main/module 的 JS 入口旁路到 .d.ts。
+ */
+export function typesEntryFromPackageJson(
+  pkg: PackageJsonShape,
+  subpath: string | undefined,
+): string | undefined {
   if (!subpath || subpath === '.') {
     if (typeof pkg.types === 'string' && pkg.types.trim()) return pkg.types.trim()
     if (typeof pkg.typings === 'string' && pkg.typings.trim()) return pkg.typings.trim()
   }
 
-  const exportsField = pkg.exports
-  if (!exportsField) return undefined
-
-  const tryKeys = subpath && subpath !== '.' ? [`./${subpath}`, `.${subpath}`] : ['.']
-
   const pickTypes = (value: unknown): string | undefined => {
     if (typeof value === 'string') {
-      return value.endsWith('.d.ts') || value.endsWith('.d.mts') || value.endsWith('.d.cts')
-        ? value
-        : undefined
+      const trimmed = value.trim()
+      if (!trimmed) return undefined
+      if (isDeclarationPath(trimmed)) return trimmed
+      if (isJsModulePath(trimmed)) return declarationPathBesideJs(trimmed)
+      return undefined
     }
     if (!value || typeof value !== 'object') return undefined
     const record = value as Record<string, unknown>
@@ -693,30 +822,43 @@ function typesEntryFromPackageJson(pkg: PackageJsonShape, subpath: string | unde
       const hit = record[key]
       if (typeof hit === 'string' && hit.trim()) return hit.trim()
     }
-    for (const key of ['import', 'require', 'default', 'node', 'browser']) {
+    for (const key of ['import', 'require', 'default', 'node', 'browser', 'module']) {
       const nested = pickTypes(record[key])
       if (nested) return nested
     }
     return undefined
   }
 
-  if (typeof exportsField === 'string') {
-    return pickTypes(exportsField)
-  }
+  const exportsField = pkg.exports
+  if (exportsField) {
+    const tryKeys = subpath && subpath !== '.' ? [`./${subpath}`, `.${subpath}`] : ['.']
 
-  if (typeof exportsField === 'object' && exportsField !== null) {
-    const map = exportsField as Record<string, unknown>
-    for (const key of tryKeys) {
-      if (key in map) {
-        const hit = pickTypes(map[key])
+    if (typeof exportsField === 'string') {
+      const hit = pickTypes(exportsField)
+      if (hit) return hit
+    } else if (typeof exportsField === 'object' && exportsField !== null) {
+      const map = exportsField as Record<string, unknown>
+      for (const key of tryKeys) {
+        if (key in map) {
+          const hit = pickTypes(map[key])
+          if (hit) return hit
+        }
+      }
+      if (!subpath || subpath === '.') {
+        const hit = pickTypes(map['.'])
         if (hit) return hit
       }
     }
-    if (!subpath || subpath === '.') {
-      const hit = pickTypes(map['.'])
+  }
+
+  if (!subpath || subpath === '.') {
+    for (const field of [pkg.module, pkg.main]) {
+      if (typeof field !== 'string' || !field.trim()) continue
+      const hit = pickTypes(field.trim())
       if (hit) return hit
     }
   }
+
   return undefined
 }
 
@@ -736,11 +878,12 @@ async function preferDeclarationEntry(
   const pkgName = packageNameFromSpecifier(target)
   const packageRoot = findPackageRootNear(resolvedPath, pkgName)
   if (!packageRoot) {
-    // 旁路 .d.ts：index.js → index.d.ts
-    const siblingDts = resolvedPath.replace(/\.(?:[cm]?js|jsx)$/, '.d.ts')
-    cache.fileExists(siblingDts)
-    await cache.flushPending(signal)
-    if (cache.readFile(siblingDts) !== undefined) return siblingDts
+    const siblingDts = declarationPathBesideJs(resolvedPath)
+    if (siblingDts) {
+      cache.fileExists(siblingDts)
+      await cache.flushPending(signal)
+      if (cache.readFile(siblingDts) !== undefined) return siblingDts
+    }
     return resolvedPath
   }
 
@@ -755,18 +898,23 @@ async function preferDeclarationEntry(
     subpath = target.slice(pkgName.length + 1)
   }
 
+  if (pkg) {
+    seedPackageEntryFiles(cache, packageRoot, pkg, subpath)
+    await cache.flushPending(signal)
+  }
+
   const typesEntry = pkg ? typesEntryFromPackageJson(pkg, subpath) : undefined
   if (typesEntry) {
-    const typesPath = joinAbs(packageRoot, ...typesEntry.replace(/^\.\//, '').split('/'))
-    cache.fileExists(typesPath)
-    await cache.flushPending(signal)
+    const typesPath = packageRelToAbs(packageRoot, typesEntry)
     if (cache.readFile(typesPath) !== undefined) return typesPath
   }
 
-  const siblingDts = resolvedPath.replace(/\.(?:[cm]?js|jsx)$/, '.d.ts')
-  cache.fileExists(siblingDts)
-  await cache.flushPending(signal)
-  if (cache.readFile(siblingDts) !== undefined) return siblingDts
+  const siblingDts = declarationPathBesideJs(resolvedPath)
+  if (siblingDts) {
+    cache.fileExists(siblingDts)
+    await cache.flushPending(signal)
+    if (cache.readFile(siblingDts) !== undefined) return siblingDts
+  }
 
   const indexDts = joinAbs(packageRoot, 'index.d.ts')
   cache.fileExists(indexDts)

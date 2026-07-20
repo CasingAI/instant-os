@@ -13,7 +13,8 @@
     "vendor:runtime": "bash scripts/vendor-three.sh && bash scripts/vendor-rapier.sh",
     "assets:3d": "bash scripts/download-3d-assets.sh",
     "catalog:3d": "node scripts/generate-3d-catalog.mjs",
-    "catalog:3d:vision": "node scripts/import-catalog-vision.mjs"
+    "catalog:3d:vision": "node scripts/import-catalog-vision.mjs",
+    "test:vscode-ts-resolve": "node --experimental-strip-types src/apps/vscode/vscode-typescript-module-resolve.gpt-tokenizer.test.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
