@@ -25,6 +25,10 @@ import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
 import { FilesStorageFullError } from './files-storage.ts'
 import {
   FILES_MOUNTS_CHANGED_EVENT,
+  addMount,
+  canMountDirectories,
+  pickDirectoryToMount,
+  removeMount,
 } from './files-mount-store.ts'
 import {
   isFilesLocationWritable,
@@ -33,6 +37,7 @@ import {
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
+  type MountFilesLocationId,
 } from './files-types.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
@@ -67,6 +72,13 @@ type ContextMenuState = {
 type BackgroundContextMenuState = {
   x: number
   y: number
+}
+
+type LocationContextMenuState = {
+  x: number
+  y: number
+  locationId: MountFilesLocationId
+  label: string
 }
 
 type ActionSheetState =
@@ -158,6 +170,10 @@ function LocationGlyph({ id }: { id: FilesLocationId }) {
   return <DeviceGlyph />
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
 export function FilesApp() {
   const { closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
   const { showBuiltinAbout } = useAboutApp()
@@ -174,6 +190,9 @@ export function FilesApp() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined)
   const [backgroundContextMenu, setBackgroundContextMenu] = useState<
     BackgroundContextMenuState | undefined
+  >(undefined)
+  const [locationContextMenu, setLocationContextMenu] = useState<
+    LocationContextMenuState | undefined
   >(undefined)
   const [actionSheet, setActionSheet] = useState<ActionSheetState | undefined>(undefined)
   const [newFileMenu, setNewFileMenu] = useState<NewFileMenuState | undefined>(undefined)
@@ -312,9 +331,10 @@ export function FilesApp() {
   }, [layoutReady, narrowLayout])
 
   useEffect(() => {
-    if (!contextMenu && !backgroundContextMenu) return
+    if (!contextMenu && !locationContextMenu && !backgroundContextMenu) return
     const close = () => {
       setContextMenu(undefined)
+      setLocationContextMenu(undefined)
       setBackgroundContextMenu(undefined)
     }
     window.addEventListener('click', close)
@@ -323,7 +343,7 @@ export function FilesApp() {
       window.removeEventListener('click', close)
       window.removeEventListener('scroll', close, true)
     }
-  }, [backgroundContextMenu, contextMenu])
+  }, [backgroundContextMenu, contextMenu, locationContextMenu])
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current !== undefined) {
@@ -336,6 +356,7 @@ export function FilesApp() {
   const closeTransientMenus = useCallback(() => {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
     setNewFileMenu(undefined)
     setActionSheet(undefined)
   }, [])
@@ -343,6 +364,7 @@ export function FilesApp() {
   const openItemActionSheet = useCallback((node: FilesNode) => {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
     setNewFileMenu(undefined)
     actionSheetOpenedByLongPressRef.current = true
     setActionSheet({ kind: 'item', node })
@@ -351,6 +373,7 @@ export function FilesApp() {
   const openBackgroundActionSheet = useCallback(() => {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
     setNewFileMenu(undefined)
     actionSheetOpenedByLongPressRef.current = true
     setActionSheet({ kind: 'background' })
@@ -401,18 +424,65 @@ export function FilesApp() {
     [closeTransientMenus, narrowLayout, stackedBrowserOpen],
   )
 
-  const openTerminalForMount = useCallback(() => {
+  const handleMount = useCallback(async () => {
     closeTransientMenus()
-    openApp('terminal', {
-      terminalAction: {
-        id: `priv-files-mount-${Date.now()}`,
-        kind: 'mount',
-        source: 'program',
-        actorLabel: '文件',
-        summary: '',
-      },
+
+    if (!canMountDirectories()) {
+      await modal.alert({
+        title: '无法挂载',
+        message:
+          '当前浏览器不支持挂载本机文件夹。请使用支持 File System Access API 的浏览器（如 Chrome、Edge）。',
+        themeColor: THEME,
+      })
+      return
+    }
+
+    const ok = await modal.confirm({
+      title: '挂载本机文件夹',
+      message:
+        '挂载后可在本系统中浏览并读写该文件夹里的真实文件，具备文件能力的应用也可访问。改动会直接落在电脑磁盘上，请勿挂载含重要或敏感数据的目录；卸载不会撤销已发生的修改。',
+      confirmLabel: '继续',
+      cancelLabel: '取消',
+      themeColor: THEME,
     })
-  }, [closeTransientMenus, openApp])
+    if (!ok) return
+
+    try {
+      const handle = await pickDirectoryToMount()
+      const mount = await addMount(handle)
+      await refreshLocations()
+      selectLocation(mount.id)
+    } catch (err) {
+      if (isAbortError(err)) return
+      await modal.alert({ title: '无法挂载', message: formatError(err), themeColor: THEME })
+    }
+  }, [closeTransientMenus, modal, refreshLocations, selectLocation])
+
+  const handleUnmount = useCallback(
+    async (mountId: MountFilesLocationId, label: string) => {
+      setLocationContextMenu(undefined)
+      setActionSheet(undefined)
+      const ok = await modal.confirm({
+        title: '卸载文件夹？',
+        message: `「${label}」将从侧栏移除，不会删除磁盘上的文件。`,
+        confirmLabel: '卸载',
+        cancelLabel: '取消',
+        themeColor: THEME,
+      })
+      if (!ok) return
+      try {
+        await removeMount(mountId)
+        if (locationId === mountId) {
+          setLocationId('local')
+          setFolderId(undefined)
+        }
+        await refreshLocations()
+      } catch (err) {
+        await modal.alert({ title: '无法卸载', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [locationId, modal, refreshLocations],
+  )
 
   const enterFolder = useCallback(
     (node: FilesNode) => {
@@ -580,6 +650,7 @@ export function FilesApp() {
     if (!canCreateHere) return
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
     setActionSheet(undefined)
     const button = newFileButtonRef.current
     if (!button) return
@@ -915,20 +986,46 @@ export function FilesApp() {
                     type="button"
                     class={`files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}`}
                     onClick={() => selectLocation(location.id)}
+                    onContextMenu={(event) => {
+                      if (!mountId) return
+                      event.preventDefault()
+                      setContextMenu(undefined)
+                      setNewFileMenu(undefined)
+                      setLocationContextMenu({
+                        x: event.clientX,
+                        y: event.clientY,
+                        locationId: mountId,
+                        label: location.label,
+                      })
+                    }}
                   >
                     <span class="files__sidebar-icon">
                       <LocationGlyph id={location.id} />
                     </span>
                     <span class="files__sidebar-label">{location.label}</span>
                   </button>
+                  {mountId ? (
+                    <button
+                      type="button"
+                      class={`files__sidebar-unmount${active ? ' files__sidebar-unmount--active' : ''}`}
+                      aria-label={`卸载 ${location.label}`}
+                      title="卸载"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleUnmount(mountId, location.label)
+                      }}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  ) : undefined}
                 </li>
               )
             })}
           </ul>
         </div>
         <div class="files__sidebar-footer">
-          <button type="button" class="files__sidebar-mount" onClick={openTerminalForMount}>
-            在终端中挂载
+          <button type="button" class="files__sidebar-mount" onClick={() => void handleMount()}>
+            挂载
           </button>
         </div>
       </aside>
@@ -998,6 +1095,7 @@ export function FilesApp() {
             event.preventDefault()
             clearLongPress()
             setNewFileMenu(undefined)
+            setLocationContextMenu(undefined)
             setContextMenu(undefined)
             if (actionSheetOpenedByLongPressRef.current) {
               actionSheetOpenedByLongPressRef.current = false
@@ -1042,6 +1140,7 @@ export function FilesApp() {
                         event.stopPropagation()
                         clearLongPress()
                         setNewFileMenu(undefined)
+                        setLocationContextMenu(undefined)
                         setBackgroundContextMenu(undefined)
                         if (actionSheetOpenedByLongPressRef.current) {
                           actionSheetOpenedByLongPressRef.current = false
@@ -1145,6 +1244,24 @@ export function FilesApp() {
             onClick={() => void handlePaste()}
           >
             粘贴
+          </button>
+        </div>
+      ) : undefined}
+
+      {locationContextMenu ? (
+        <div
+          class="files__context"
+          style={{ left: `${locationContextMenu.x}px`, top: `${locationContextMenu.y}px` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            class="files__context-item"
+            onClick={() =>
+              void handleUnmount(locationContextMenu.locationId, locationContextMenu.label)
+            }
+          >
+            卸载
           </button>
         </div>
       ) : undefined}

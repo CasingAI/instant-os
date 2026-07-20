@@ -22,7 +22,7 @@ export const HELP_TERMINAL_REQUEST_TOOLS = [
   defineTool({
     name: 'request_terminal_action',
     description:
-      '当用户需要挂载/卸载本机文件夹、删除虚拟文件系统中的文件/文件夹、或删除非账户类 localStorage 键时调用。会打开「终端」并提交待用户确认的特权操作。账户与 API Key 请引导用户打开「钥匙串」，不要经终端清空或改写。你自己不能改数据。',
+      '当用户需要删除虚拟文件系统中的文件/文件夹、或删除非账户类 localStorage 键时调用；挂载/卸载本机文件夹也可调用，但优先引导用户在「文件」应用侧栏直接操作。会打开「终端」并提交待用户确认的特权操作。账户与 API Key 请引导用户打开「钥匙串」，不要经终端清空或改写。你自己不能改数据。',
     parameters: {
       type: 'object',
       additionalProperties: false,
