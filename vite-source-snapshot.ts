@@ -34,8 +34,19 @@ const SKIP_DIR_NAMES = new Set([
   'agent-transcripts',
 ])
 
+/** 该目录下除点文件外全部纳入快照（不限扩展名） */
+const ALWAYS_INCLUDE_DIR = 'Test'
+
+function isDotFile(fileName: string): boolean {
+  return fileName === '.DS_Store' || fileName.startsWith('.')
+}
+
+function isUnderAlwaysIncludeDir(zipPath: string): boolean {
+  return zipPath === ALWAYS_INCLUDE_DIR || zipPath.startsWith(`${ALWAYS_INCLUDE_DIR}/`)
+}
+
 function shouldIncludeFile(fileName: string): boolean {
-  if (fileName === '.DS_Store' || fileName.startsWith('.')) {
+  if (isDotFile(fileName)) {
     return false
   }
   // MIT 等无扩展名许可证文件也要进 /system，供「关于本机」等打开
@@ -63,10 +74,15 @@ function collectSnapshotFiles(projectRoot: string): Record<string, Uint8Array> {
         walk(fullPath)
         continue
       }
-      if (!stat.isFile() || !shouldIncludeFile(entry)) {
+      if (!stat.isFile()) {
         continue
       }
       const zipPath = relative(projectRoot, fullPath).split('\\').join('/')
+      const include =
+        isUnderAlwaysIncludeDir(zipPath) ? !isDotFile(entry) : shouldIncludeFile(entry)
+      if (!include) {
+        continue
+      }
       files[zipPath] = new Uint8Array(readFileSync(fullPath))
     }
   }
