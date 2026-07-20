@@ -154,6 +154,12 @@ export async function resolveBareModulesForEntriesCore(options: {
   const root = workspaceFolder.replace(/\/+$/, '') || '/'
   const cache = getCache(root)
   if (clearMissing) cache.clearMissing()
+  cache.resetMetrics()
+
+  const startedAt = performance.now()
+  let seedMs = 0
+  let resolveMs = 0
+  let collectMs = 0
 
   const logs: VscodeTypescriptResolveLog[] = []
   logs.push({
@@ -174,7 +180,9 @@ export async function resolveBareModulesForEntriesCore(options: {
   for (const entry of entryList) {
     if (signal?.aborted || collected.size >= maxPackageFilesTotal) break
 
+    const nearestStarted = performance.now()
     const nearest = await loadNearestTsconfig(entry.path, cache, signal)
+    seedMs += performance.now() - nearestStarted
     if (signal?.aborted) break
 
     const configDir = nearest?.configDirectory ?? root
@@ -208,6 +216,7 @@ export async function resolveBareModulesForEntriesCore(options: {
 
       if (isNodeBuiltinSpecifier(spec)) {
         const before = collected.size
+        const collectStarted = performance.now()
         const dtsPath = await collectNodeBuiltinDeclaration(
           cache,
           entry.path,
@@ -216,6 +225,7 @@ export async function resolveBareModulesForEntriesCore(options: {
           signal,
           Math.min(MAX_TYPES_NODE_FILES, maxPackageFilesTotal - collected.size),
         )
+        collectMs += performance.now() - collectStarted
         if (dtsPath) {
           resolvedCount += 1
           mergeSpecifierPaths(monacoOverrides, spec, dtsPath, logs)
@@ -238,6 +248,7 @@ export async function resolveBareModulesForEntriesCore(options: {
         continue
       }
 
+      const resolveStarted = performance.now()
       const resolved = await resolveBareSpecifier(
         cache,
         entry.path,
@@ -245,6 +256,7 @@ export async function resolveBareModulesForEntriesCore(options: {
         sharedOptions,
         signal,
       )
+      resolveMs += performance.now() - resolveStarted
       if (!resolved) {
         logs.push({ level: 'error', message: `✗ ${spec} 解析失败` })
         continue
@@ -258,6 +270,7 @@ export async function resolveBareModulesForEntriesCore(options: {
         : Math.min(maxPackageFilesPerResolve, maxPackageFilesTotal - collected.size)
 
       const before = collected.size
+      const collectStarted = performance.now()
       await collectResolvedPackageFiles(
         cache,
         resolved,
@@ -267,6 +280,7 @@ export async function resolveBareModulesForEntriesCore(options: {
         sharedOptions,
         entry.path,
       )
+      collectMs += performance.now() - collectStarted
       logs.push({
         level: 'info',
         message: `收集 ${spec}: +${collected.size - before} 文件（合计 ${collected.size}）`,
@@ -278,9 +292,11 @@ export async function resolveBareModulesForEntriesCore(options: {
     monacoOverrides = { baseUrlPath: root }
   }
 
+  const metrics = cache.getMetrics()
+  const totalMs = Math.round(performance.now() - startedAt)
   logs.push({
     level: resolvedCount > 0 ? 'info' : 'warn',
-    message: `完成: resolved=${resolvedCount} files=${collected.size} paths=${Object.keys(monacoOverrides.paths ?? {}).length}`,
+    message: `完成: resolved=${resolvedCount} files=${collected.size} paths=${Object.keys(monacoOverrides.paths ?? {}).length} totalMs=${totalMs} seedMs=${Math.round(seedMs)} resolveMs=${Math.round(resolveMs)} collectMs=${Math.round(collectMs)} probeCount=${metrics.probeCount} readCount=${metrics.readCount} pnpmListCount=${metrics.pnpmListCount}`,
   })
 
   return {

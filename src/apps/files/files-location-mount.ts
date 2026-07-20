@@ -10,6 +10,65 @@ import {
 
 const WRITABLE_ATTRIBUTES = { writable: true } as const
 
+/** 中间 DirectoryHandle 缓存上限 */
+const DIR_HANDLE_CACHE_MAX = 256
+/** 权限 granted 后跳过 queryPermission 的窗口 */
+const PERMISSION_GRANTED_TTL_MS = 60_000
+
+type DirHandleCacheEntry = {
+  handle: FileSystemDirectoryHandle
+  lastUsed: number
+}
+
+const dirHandleCache = new Map<string, DirHandleCacheEntry>()
+const permissionGrantedUntil = new Map<MountFilesLocationId, number>()
+
+function dirCacheKey(locationId: MountFilesLocationId, path: string | undefined): string {
+  return `${locationId}\0${path ?? ''}`
+}
+
+function touchDirCache(
+  locationId: MountFilesLocationId,
+  path: string | undefined,
+  handle: FileSystemDirectoryHandle,
+): void {
+  const key = dirCacheKey(locationId, path)
+  dirHandleCache.set(key, { handle, lastUsed: osNowMs() })
+  if (dirHandleCache.size <= DIR_HANDLE_CACHE_MAX) return
+  let oldestKey: string | undefined
+  let oldestAt = Number.POSITIVE_INFINITY
+  for (const [k, entry] of dirHandleCache) {
+    if (entry.lastUsed < oldestAt) {
+      oldestAt = entry.lastUsed
+      oldestKey = k
+    }
+  }
+  if (oldestKey) dirHandleCache.delete(oldestKey)
+}
+
+/** rename / remove 后按前缀清掉失效的 DirectoryHandle */
+export function invalidateMountDirHandleCache(
+  locationId: MountFilesLocationId,
+  pathPrefix?: string,
+): void {
+  const prefix = `${locationId}\0`
+  for (const key of [...dirHandleCache.keys()]) {
+    if (!key.startsWith(prefix)) continue
+    if (pathPrefix === undefined) {
+      dirHandleCache.delete(key)
+      continue
+    }
+    const cachedPath = key.slice(prefix.length)
+    if (
+      cachedPath === pathPrefix ||
+      cachedPath.startsWith(`${pathPrefix}/`) ||
+      pathPrefix.startsWith(`${cachedPath}/`)
+    ) {
+      dirHandleCache.delete(key)
+    }
+  }
+}
+
 function dirId(locationId: MountFilesLocationId, path: string): string {
   return `${locationId}:d:${path}`
 }
@@ -102,19 +161,51 @@ async function getRootHandle(locationId: MountFilesLocationId): Promise<FileSyst
   if (!mount) {
     throw new Error('挂载已不存在，请重新挂载')
   }
-  await ensureMountPermission(mount.id, mount.label, mount.handle)
+  const grantedUntil = permissionGrantedUntil.get(locationId) ?? 0
+  if (osNowMs() >= grantedUntil) {
+    await ensureMountPermission(mount.id, mount.label, mount.handle)
+    permissionGrantedUntil.set(locationId, osNowMs() + PERMISSION_GRANTED_TTL_MS)
+  }
+  touchDirCache(locationId, undefined, mount.handle)
   return mount.handle
 }
 
 async function resolveDirectoryHandle(
+  locationId: MountFilesLocationId,
   root: FileSystemDirectoryHandle,
   path: string | undefined,
 ): Promise<FileSystemDirectoryHandle> {
   if (!path) return root
+
+  const cached = dirHandleCache.get(dirCacheKey(locationId, path))
+  if (cached) {
+    cached.lastUsed = osNowMs()
+    return cached.handle
+  }
+
+  // 尽量从最长已缓存前缀继续走，避免每次从根重走
+  const segments = path.split('/').filter(Boolean)
+  let start = 0
   let current = root
-  for (const segment of path.split('/')) {
+  let currentPath: string | undefined
+  for (let i = segments.length - 1; i >= 1; i -= 1) {
+    const prefix = segments.slice(0, i).join('/')
+    const hit = dirHandleCache.get(dirCacheKey(locationId, prefix))
+    if (hit) {
+      hit.lastUsed = osNowMs()
+      current = hit.handle
+      currentPath = prefix
+      start = i
+      break
+    }
+  }
+
+  for (let i = start; i < segments.length; i += 1) {
+    const segment = segments[i]
     if (!segment) continue
     current = await current.getDirectoryHandle(segment)
+    currentPath = currentPath ? `${currentPath}/${segment}` : segment
+    touchDirCache(locationId, currentPath, current)
   }
   return current
 }
@@ -125,8 +216,53 @@ async function resolveParentAndName(
 ): Promise<{ parent: FileSystemDirectoryHandle; name: string }> {
   const root = await getRootHandle(locationId)
   const parentPath = parentDirPath(path)
-  const parent = await resolveDirectoryHandle(root, parentPath)
+  const parent = await resolveDirectoryHandle(locationId, root, parentPath)
   return { parent, name: baseName(path) }
+}
+
+/**
+ * 挂载卷绝对相对路径快路径：直接 getDirectoryHandle / getFileHandle，不 list 全目录。
+ * `relativePath` 为卷根下路径（不含 mount key），空字符串表示卷根本身不返回节点。
+ */
+export async function resolveMountRelativePath(
+  locationId: MountFilesLocationId,
+  relativePath: string,
+): Promise<FilesNode | undefined> {
+  const trimmed = relativePath.replace(/^\/+|\/+$/g, '')
+  if (!trimmed) return undefined
+
+  try {
+    const root = await getRootHandle(locationId)
+    const parentPath = parentDirPath(trimmed)
+    const name = baseName(trimmed)
+    const parent = await resolveDirectoryHandle(locationId, root, parentPath)
+
+    try {
+      const dirHandle = await parent.getDirectoryHandle(name)
+      touchDirCache(locationId, trimmed, dirHandle)
+      return makeDirNode(locationId, trimmed)
+    } catch {
+      // not a directory
+    }
+
+    try {
+      const handle = await parent.getFileHandle(name)
+      let byteSize = 0
+      let updatedAt = osNowMs()
+      try {
+        const blob = await handle.getFile()
+        byteSize = blob.size
+        updatedAt = blob.lastModified
+      } catch {
+        // 元数据可选
+      }
+      return makeFileNode(locationId, trimmed, byteSize, updatedAt)
+    } catch {
+      return undefined
+    }
+  } catch {
+    return undefined
+  }
 }
 
 export async function getMountNode(id: string): Promise<FilesNode | undefined> {
@@ -136,7 +272,7 @@ export async function getMountNode(id: string): Promise<FilesNode | undefined> {
   if (dir) {
     try {
       const root = await getRootHandle(dir.locationId)
-      await resolveDirectoryHandle(root, dir.path)
+      await resolveDirectoryHandle(dir.locationId, root, dir.path)
       return makeDirNode(dir.locationId, dir.path)
     } catch {
       return undefined
@@ -167,21 +303,18 @@ export async function listMountDirectory(
     folderId === undefined ? undefined : parseDirPath(folderId)?.path
   if (folderId !== undefined && folderPath === undefined) return []
 
-  const directory = await resolveDirectoryHandle(root, folderPath)
+  const directory = await resolveDirectoryHandle(locationId, root, folderPath)
   const dirs: FilesNode[] = []
   const files: FilesNode[] = []
 
   for await (const [name, handle] of directory.entries()) {
     const path = joinPath(folderPath, name)
     if (handle.kind === 'directory') {
+      touchDirCache(locationId, path, handle)
       dirs.push(makeDirNode(locationId, path))
     } else {
-      try {
-        const blob = await handle.getFile()
-        files.push(makeFileNode(locationId, path, blob.size, blob.lastModified))
-      } catch {
-        files.push(makeFileNode(locationId, path))
-      }
+      // 列举默认不 getFile()，避免 TS probe / 大目录扫元数据
+      files.push(makeFileNode(locationId, path))
     }
   }
 
@@ -265,9 +398,11 @@ export async function mkdirMount(params: {
   if (params.parentId !== undefined && parentPath === undefined) {
     throw new Error('父级不是文件夹')
   }
-  const parent = await resolveDirectoryHandle(root, parentPath)
+  const parent = await resolveDirectoryHandle(params.locationId, root, parentPath)
   await parent.getDirectoryHandle(params.name, { create: true })
-  return makeDirNode(params.locationId, joinPath(parentPath, params.name))
+  const createdPath = joinPath(parentPath, params.name)
+  invalidateMountDirHandleCache(params.locationId, parentPath)
+  return makeDirNode(params.locationId, createdPath)
 }
 
 export async function createMountTextFile(params: {
@@ -282,7 +417,7 @@ export async function createMountTextFile(params: {
   if (params.parentId !== undefined && parentPath === undefined) {
     throw new Error('父级不是文件夹')
   }
-  const parent = await resolveDirectoryHandle(root, parentPath)
+  const parent = await resolveDirectoryHandle(params.locationId, root, parentPath)
   const handle = await parent.getFileHandle(params.name, { create: true })
   const writable = await handle.createWritable()
   await writable.write(params.text)
@@ -302,6 +437,8 @@ export async function renameMountNode(id: string, nextName: string): Promise<Fil
     }
     await handle.move(nextName)
     const nextPath = joinPath(parentDirPath(dir.path), nextName)
+    invalidateMountDirHandleCache(dir.locationId, parentDirPath(dir.path) ?? '')
+    invalidateMountDirHandleCache(dir.locationId, dir.path)
     return makeDirNode(dir.locationId, nextPath)
   }
 
@@ -327,6 +464,7 @@ export async function renameMountNode(id: string, nextName: string): Promise<Fil
   const nextPath = joinPath(parentDirPath(file.path), nextName)
   const nextHandle = await parent.getFileHandle(nextName)
   const nextBlob = await nextHandle.getFile()
+  invalidateMountDirHandleCache(file.locationId, parentDirPath(file.path) ?? '')
   return makeFileNode(file.locationId, nextPath, nextBlob.size, nextBlob.lastModified)
 }
 
@@ -335,6 +473,8 @@ export async function removeMountNode(id: string): Promise<void> {
   if (dir) {
     const { parent, name } = await resolveParentAndName(dir.locationId, dir.path)
     await parent.removeEntry(name, { recursive: true })
+    invalidateMountDirHandleCache(dir.locationId, dir.path)
+    invalidateMountDirHandleCache(dir.locationId, parentDirPath(dir.path))
     return
   }
 

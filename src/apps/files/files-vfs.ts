@@ -25,6 +25,7 @@ import {
   removeMountNode,
   renameMountNode,
   resolveMountPath,
+  resolveMountRelativePath,
   writeMountText,
 } from './files-location-mount.ts'
 import {
@@ -302,6 +303,11 @@ export async function resolveNodeByAbsolutePath(
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed) return undefined
   if (parsed.segments.length === 0) return undefined
+
+  // 挂载卷：直接走 FSA handle，禁止逐层 list
+  if (isMountLocationId(parsed.locationId)) {
+    return resolveMountRelativePath(parsed.locationId, parsed.segments.join('/'))
+  }
 
   let parentId: string | undefined
   for (let index = 0; index < parsed.segments.length; index += 1) {

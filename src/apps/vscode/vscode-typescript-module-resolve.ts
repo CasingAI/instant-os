@@ -8,7 +8,6 @@ import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import { parentDirFromPath } from '../../monaco/monaco-language.ts'
 
 const MAX_RESOLVE_ROUNDS = 24
-const MAX_PENDING_PER_FLUSH = 64
 const MAX_PNPM_SCAN = 400
 const MAX_TRANSITIVE_BARE = 24
 /** @types/node 含大量三斜线引用，需更高配额才能覆盖 os/fs 等 ambient */
@@ -24,8 +23,28 @@ const TRIPLE_SLASH_RE =
 
 type CacheEntry =
   | { kind: 'file'; content: string }
+  | { kind: 'file-meta' }
   | { kind: 'folder' }
   | { kind: 'missing' }
+
+export type FilesResolutionCacheMetrics = {
+  probeCount: number
+  readCount: number
+  pnpmListCount: number
+}
+
+const MAX_PENDING_PER_FLUSH = 96
+const MAX_FLUSH_LOOPS = 32
+
+function pendingPathPriority(path: string): number {
+  if (path.endsWith('/package.json') || path.endsWith('package.json')) return 0
+  if (path.endsWith('.d.ts') || path.endsWith('.d.mts') || path.endsWith('.d.cts')) return 1
+  if (path.endsWith('tsconfig.json') || path.endsWith('tsconfig.app.json') || path.endsWith('jsconfig.json')) {
+    return 1
+  }
+  if (/\.(?:[cm]?js|jsx)$/.test(path)) return 2
+  return 3
+}
 
 export type ResolvedModuleFiles = Map<string, string>
 
@@ -271,7 +290,7 @@ export async function findTypesNodePackageRoot(
     const pkgJson = joinAbs(candidate, 'package.json')
     cache.fileExists(pkgJson)
     await cache.flushPending(signal)
-    if (cache.readFile(pkgJson) !== undefined) return candidate
+    if (cache.fileExists(pkgJson)) return candidate
     const parent = parentDirFromPath(dir)
     if (parent === dir) break
     dir = parent
@@ -309,23 +328,18 @@ export async function collectNodeBuiltinDeclaration(
 
   // 优先保证内建 dts 与 package.json 进 out
   for (const path of [pkgJson, dtsPath, indexDts]) {
-    let text = cache.readFile(path)
-    if (text === undefined) {
-      cache.fileExists(path)
-      await cache.flushPending(signal)
-      text = cache.readFile(path)
-    }
+    const text = await cache.ensureFileContent(path, signal)
     if (text !== undefined) out.set(path, text)
   }
 
-  if (cache.readFile(dtsPath) === undefined && cache.readFile(indexDts) === undefined) {
+  if (!cache.fileExists(dtsPath) && !cache.fileExists(indexDts)) {
     return undefined
   }
 
   // 从 index + 内建 dts 继续展开（配额更高）
-  const start = cache.readFile(dtsPath) !== undefined ? dtsPath : indexDts
+  const start = cache.fileExists(dtsPath) ? dtsPath : indexDts
   await collectResolvedPackageFiles(cache, start, out, signal, maxFiles)
-  return cache.readFile(dtsPath) !== undefined ? dtsPath : start
+  return cache.fileExists(dtsPath) ? dtsPath : start
 }
 
 /**
@@ -363,7 +377,8 @@ export async function seedPackageJsonForSpecifier(
   for (let i = 0; i < 24; i += 1) {
     if (signal?.aborted) return
     const pkgRoot = joinAbs(dir, 'node_modules', ...packageNameSegments(pkg))
-    const pkgRaw = cache.readFile(joinAbs(pkgRoot, 'package.json'))
+    const pkgJsonPath = joinAbs(pkgRoot, 'package.json')
+    const pkgRaw = await cache.ensureFileContent(pkgJsonPath, signal)
     if (pkgRaw !== undefined) {
       const pkgJson = parseJsonc<PackageJsonShape>(pkgRaw)
       if (pkgJson) {
@@ -406,7 +421,7 @@ export async function resolvePackageTypesEntryDirect(
     const pkgJsonPath = joinAbs(packageRoot, 'package.json')
     cache.fileExists(pkgJsonPath)
     await cache.flushPending(signal)
-    const pkgRaw = cache.readFile(pkgJsonPath)
+    const pkgRaw = await cache.ensureFileContent(pkgJsonPath, signal)
     if (pkgRaw !== undefined) {
       const pkgJson = parseJsonc<PackageJsonShape>(pkgRaw)
       if (pkgJson) {
@@ -416,15 +431,15 @@ export async function resolvePackageTypesEntryDirect(
         const typesEntry = typesEntryFromPackageJson(pkgJson, subpath)
         if (typesEntry) {
           const typesPath = packageRelToAbs(packageRoot, typesEntry)
-          if (cache.readFile(typesPath) !== undefined) return typesPath
+          if (cache.fileExists(typesPath)) return typesPath
         }
 
-        // 再试 exports/main JS 旁路（与 typesEntry 重复时 read 已命中）
+        // 再试 exports/main JS 旁路（与 typesEntry 重复时已命中）
         for (const jsRel of jsEntryCandidatesFromPackageJson(pkgJson, subpath)) {
           const dtsRel = declarationPathBesideJs(jsRel)
           if (!dtsRel) continue
           const dtsPath = packageRelToAbs(packageRoot, dtsRel)
-          if (cache.readFile(dtsPath) !== undefined) return dtsPath
+          if (cache.fileExists(dtsPath)) return dtsPath
         }
       }
 
@@ -435,7 +450,7 @@ export async function resolvePackageTypesEntryDirect(
       await cache.flushPending(signal)
       for (const fallback of ['index.d.ts', 'dist/index.d.ts', 'types/index.d.ts', 'lib/index.d.ts']) {
         const candidate = joinAbs(packageRoot, ...fallback.split('/'))
-        if (cache.readFile(candidate) !== undefined) return candidate
+        if (cache.fileExists(candidate)) return candidate
       }
       return undefined
     }
@@ -503,19 +518,44 @@ export function parseJsonc<T>(raw: string): T | undefined {
 /**
  * 同步缓存 + pending 队列：resolveModuleName 只读缓存；
  * 未知路径记入 pending，由 flushPending 经 files-api 填充。
+ * 存在性（file-meta）与正文（file）分离，解析轮次避免全文读取。
  */
 export class FilesResolutionCache {
   private readonly entries = new Map<string, CacheEntry>()
   private readonly pending = new Set<string>()
+  private readonly contentPending = new Set<string>()
   private flushChain: Promise<void> = Promise.resolve()
+  private readonly metrics: FilesResolutionCacheMetrics = {
+    probeCount: 0,
+    readCount: 0,
+    pnpmListCount: 0,
+  }
+  /** projectDir → .pnpm 子项名列表；null 表示无 .pnpm */
+  private readonly pnpmListingByProject = new Map<string, string[] | undefined>()
+  /** `${projectDir}\0${packageName}` → 实体根或 undefined 负向 */
+  private readonly pnpmRootByPkg = new Map<string, string | undefined>()
 
   get size(): number {
     return this.entries.size
   }
 
+  getMetrics(): FilesResolutionCacheMetrics {
+    return { ...this.metrics }
+  }
+
+  resetMetrics(): void {
+    this.metrics.probeCount = 0
+    this.metrics.readCount = 0
+    this.metrics.pnpmListCount = 0
+  }
+
   clear(): void {
     this.entries.clear()
     this.pending.clear()
+    this.contentPending.clear()
+    this.pnpmListingByProject.clear()
+    this.pnpmRootByPkg.clear()
+    this.resetMetrics()
   }
 
   /** 清除「不存在」标记，便于 npm install 后重新探测 */
@@ -523,6 +563,8 @@ export class FilesResolutionCache {
     for (const [path, entry] of this.entries) {
       if (entry.kind === 'missing') this.entries.delete(path)
     }
+    this.pnpmListingByProject.clear()
+    this.pnpmRootByPkg.clear()
   }
 
   /** 已确认存在的文件内容（用于注入 Monaco） */
@@ -535,8 +577,10 @@ export class FilesResolutionCache {
   }
 
   seedFile(path: string, content: string): void {
-    this.entries.set(normalizeAbs(path), { kind: 'file', content })
-    this.pending.delete(normalizeAbs(path))
+    const key = normalizeAbs(path)
+    this.entries.set(key, { kind: 'file', content })
+    this.pending.delete(key)
+    this.contentPending.delete(key)
   }
 
   /** 测试 / 预热：标记目录存在，避免 flushPending 误标 missing */
@@ -551,10 +595,18 @@ export class FilesResolutionCache {
     this.pending.add(key)
   }
 
+  private touchContentPending(path: string): void {
+    const key = normalizeAbs(path)
+    const hit = this.entries.get(key)
+    if (hit?.kind === 'file') return
+    if (hit?.kind === 'missing' || hit?.kind === 'folder') return
+    this.contentPending.add(key)
+  }
+
   fileExists(path: string): boolean {
     const key = normalizeAbs(path)
     const hit = this.entries.get(key)
-    if (hit) return hit.kind === 'file'
+    if (hit) return hit.kind === 'file' || hit.kind === 'file-meta'
     this.touchPending(key)
     return false
   }
@@ -571,7 +623,37 @@ export class FilesResolutionCache {
     const key = normalizeAbs(path)
     const hit = this.entries.get(key)
     if (hit?.kind === 'file') return hit.content
+    if (hit?.kind === 'file-meta') {
+      this.touchContentPending(key)
+      return undefined
+    }
     if (!hit) this.touchPending(key)
+    return undefined
+  }
+
+  /**
+   * 确保路径有正文；file-meta 时读入，未探测时先 probe。
+   * @returns 文件正文，不存在则 undefined
+   */
+  async ensureFileContent(path: string, signal?: AbortSignal): Promise<string | undefined> {
+    const key = normalizeAbs(path)
+    const hit = this.entries.get(key)
+    if (hit?.kind === 'file') return hit.content
+    if (hit?.kind === 'missing' || hit?.kind === 'folder') return undefined
+
+    if (!hit) {
+      this.touchPending(key)
+      await this.flushPending(signal)
+    }
+
+    const after = this.entries.get(key)
+    if (after?.kind === 'file') return after.content
+    if (after?.kind === 'file-meta') {
+      this.touchContentPending(key)
+      await this.flushPending(signal)
+      const loaded = this.entries.get(key)
+      return loaded?.kind === 'file' ? loaded.content : undefined
+    }
     return undefined
   }
 
@@ -590,9 +672,8 @@ export class FilesResolutionCache {
   }
 
   /**
-   * 拉取 pending；同批并行 probe。对 `…/node_modules/<pkg>/…` 在 FSA 读不到时尝试 pnpm 布局回退。
-   * 并发 flush 串行化，避免重复 probe。
-   * @returns 是否写入了新缓存项
+   * 拉取 pending（存在性）与 contentPending（正文）。
+   * 优先 package.json / .d.ts；循环直到队列空或达上限。
    */
   async flushPending(signal?: AbortSignal): Promise<boolean> {
     let release!: () => void
@@ -602,31 +683,71 @@ export class FilesResolutionCache {
     })
     await previous
     try {
-      if (this.pending.size === 0) return false
-      const batch = [...this.pending].slice(0, MAX_PENDING_PER_FLUSH)
-      for (const path of batch) this.pending.delete(path)
+      let any = false
+      for (let loop = 0; loop < MAX_FLUSH_LOOPS; loop += 1) {
+        if (signal?.aborted) break
+        if (this.pending.size === 0 && this.contentPending.size === 0) break
 
-      const results = await Promise.all(
-        batch.map(async (path) => {
-          if (signal?.aborted) return false
-          if (this.entries.has(path)) return false
-          return this.probePath(path, signal)
-        }),
-      )
-      return results.some(Boolean)
+        if (this.pending.size > 0) {
+          const sorted = [...this.pending].sort(
+            (a, b) => pendingPathPriority(a) - pendingPathPriority(b),
+          )
+          const batch = sorted.slice(0, MAX_PENDING_PER_FLUSH)
+          for (const path of batch) this.pending.delete(path)
+
+          const results = await Promise.all(
+            batch.map(async (path) => {
+              if (signal?.aborted) return false
+              if (this.entries.has(path)) return false
+              return this.probePath(path, signal)
+            }),
+          )
+          if (results.some(Boolean)) any = true
+        }
+
+        if (this.contentPending.size > 0) {
+          const batch = [...this.contentPending].slice(0, MAX_PENDING_PER_FLUSH)
+          for (const path of batch) this.contentPending.delete(path)
+          const results = await Promise.all(
+            batch.map(async (path) => {
+              if (signal?.aborted) return false
+              return this.loadFileContent(path, signal)
+            }),
+          )
+          if (results.some(Boolean)) any = true
+        }
+      }
+      return any
     } finally {
       release()
     }
   }
 
+  private async loadFileContent(path: string, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return false
+    const hit = this.entries.get(path)
+    if (hit?.kind === 'file') return false
+    if (hit?.kind === 'missing' || hit?.kind === 'folder') return false
+
+    try {
+      this.metrics.readCount += 1
+      const text = await filesReadText(path)
+      this.entries.set(path, { kind: 'file', content: text })
+      return true
+    } catch {
+      if (!hit) this.entries.set(path, { kind: 'missing' })
+      return true
+    }
+  }
+
   private async probePath(path: string, signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return false
+    this.metrics.probeCount += 1
 
     try {
       const stat = await filesStat(path)
       if (stat?.kind === 'file') {
-        const text = await filesReadText(path)
-        this.entries.set(path, { kind: 'file', content: text })
+        this.entries.set(path, { kind: 'file-meta' })
         return true
       }
       if (stat?.kind === 'folder') {
@@ -657,6 +778,11 @@ export class FilesResolutionCache {
     const after = path.slice(idx + marker.length)
     if (after.startsWith('.pnpm/')) return false
 
+    // 已确认无 .pnpm 则跳过
+    if (this.pnpmListingByProject.has(before) && this.pnpmListingByProject.get(before) === undefined) {
+      return false
+    }
+
     const segments = after.split('/').filter(Boolean)
     if (segments.length === 0) return false
 
@@ -670,15 +796,15 @@ export class FilesResolutionCache {
       rest = segments.slice(1)
     }
 
-    const realRoot = await findPnpmPackageRoot(before, pkgName, signal)
+    const realRoot = await this.findPnpmPackageRootCached(before, pkgName, signal)
     if (!realRoot) return false
 
     const realPath = rest.length > 0 ? joinAbs(realRoot, ...rest) : realRoot
     try {
+      this.metrics.probeCount += 1
       const stat = await filesStat(realPath)
       if (stat?.kind === 'file') {
-        const text = await filesReadText(realPath)
-        this.entries.set(path, { kind: 'file', content: text })
+        this.entries.set(path, { kind: 'file-meta' })
         return true
       }
       if (stat?.kind === 'folder') {
@@ -690,6 +816,67 @@ export class FilesResolutionCache {
     }
     return false
   }
+
+  private async findPnpmPackageRootCached(
+    projectDir: string,
+    packageName: string,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    const rootKey = `${projectDir}\0${packageName}`
+    if (this.pnpmRootByPkg.has(rootKey)) {
+      return this.pnpmRootByPkg.get(rootKey)
+    }
+
+    if (signal?.aborted) return undefined
+    const pnpmDir = joinAbs(projectDir, 'node_modules', '.pnpm')
+
+    let names = this.pnpmListingByProject.get(projectDir)
+    if (!this.pnpmListingByProject.has(projectDir)) {
+      try {
+        this.metrics.probeCount += 1
+        const stat = await filesStat(pnpmDir)
+        if (!stat || stat.kind !== 'folder') {
+          this.pnpmListingByProject.set(projectDir, undefined)
+          this.pnpmRootByPkg.set(rootKey, undefined)
+          return undefined
+        }
+        this.metrics.pnpmListCount += 1
+        const entries = await filesList(pnpmDir)
+        names = entries.filter((e) => e.kind === 'folder').map((e) => e.name)
+        this.pnpmListingByProject.set(projectDir, names)
+      } catch {
+        this.pnpmListingByProject.set(projectDir, undefined)
+        this.pnpmRootByPkg.set(rootKey, undefined)
+        return undefined
+      }
+    }
+
+    if (!names || names.length === 0) {
+      this.pnpmRootByPkg.set(rootKey, undefined)
+      return undefined
+    }
+
+    const prefixes = pnpmFolderPrefixes(packageName)
+    let scanned = 0
+    for (const name of names) {
+      if (signal?.aborted || scanned >= MAX_PNPM_SCAN) break
+      scanned += 1
+      if (!prefixes.some((p) => name.startsWith(p))) continue
+      const candidate = joinAbs(pnpmDir, name, 'node_modules', ...packageNameSegments(packageName))
+      try {
+        this.metrics.probeCount += 1
+        const stat = await filesStat(candidate)
+        if (stat?.kind === 'folder') {
+          this.pnpmRootByPkg.set(rootKey, candidate)
+          return candidate
+        }
+      } catch {
+        // continue
+      }
+    }
+    this.pnpmRootByPkg.set(rootKey, undefined)
+    return undefined
+  }
 }
 
 function pnpmFolderPrefixes(packageName: string): string[] {
@@ -698,40 +885,6 @@ function pnpmFolderPrefixes(packageName: string): string[] {
     if (scope && name) return [`${scope}+${name}@`]
   }
   return [`${packageName}@`]
-}
-
-async function findPnpmPackageRoot(
-  projectDir: string,
-  packageName: string,
-  signal?: AbortSignal,
-): Promise<string | undefined> {
-  if (signal?.aborted) return undefined
-  const pnpmDir = joinAbs(projectDir, 'node_modules', '.pnpm')
-  let entries
-  try {
-    const stat = await filesStat(pnpmDir)
-    if (!stat || stat.kind !== 'folder') return undefined
-    entries = await filesList(pnpmDir)
-  } catch {
-    return undefined
-  }
-
-  const prefixes = pnpmFolderPrefixes(packageName)
-  let scanned = 0
-  for (const entry of entries) {
-    if (signal?.aborted || scanned >= MAX_PNPM_SCAN) break
-    scanned += 1
-    if (entry.kind !== 'folder') continue
-    if (!prefixes.some((p) => entry.name.startsWith(p))) continue
-    const candidate = joinAbs(entry.path, 'node_modules', ...packageNameSegments(packageName))
-    try {
-      const stat = await filesStat(candidate)
-      if (stat?.kind === 'folder') return candidate
-    } catch {
-      // continue
-    }
-  }
-  return undefined
 }
 
 function mapModuleResolution(kind: string | undefined): ts.ModuleResolutionKind {
@@ -882,7 +1035,7 @@ async function preferDeclarationEntry(
     if (siblingDts) {
       cache.fileExists(siblingDts)
       await cache.flushPending(signal)
-      if (cache.readFile(siblingDts) !== undefined) return siblingDts
+      if (cache.fileExists(siblingDts)) return siblingDts
     }
     return resolvedPath
   }
@@ -890,7 +1043,7 @@ async function preferDeclarationEntry(
   const pkgJsonPath = joinAbs(packageRoot, 'package.json')
   cache.fileExists(pkgJsonPath)
   await cache.flushPending(signal)
-  const pkgRaw = cache.readFile(pkgJsonPath)
+  const pkgRaw = await cache.ensureFileContent(pkgJsonPath, signal)
   const pkg = pkgRaw ? parseJsonc<PackageJsonShape>(pkgRaw) : undefined
 
   let subpath: string | undefined
@@ -906,27 +1059,27 @@ async function preferDeclarationEntry(
   const typesEntry = pkg ? typesEntryFromPackageJson(pkg, subpath) : undefined
   if (typesEntry) {
     const typesPath = packageRelToAbs(packageRoot, typesEntry)
-    if (cache.readFile(typesPath) !== undefined) return typesPath
+    if (cache.fileExists(typesPath)) return typesPath
   }
 
   const siblingDts = declarationPathBesideJs(resolvedPath)
   if (siblingDts) {
     cache.fileExists(siblingDts)
     await cache.flushPending(signal)
-    if (cache.readFile(siblingDts) !== undefined) return siblingDts
+    if (cache.fileExists(siblingDts)) return siblingDts
   }
 
   const indexDts = joinAbs(packageRoot, 'index.d.ts')
   cache.fileExists(indexDts)
   await cache.flushPending(signal)
-  if (cache.readFile(indexDts) !== undefined) return indexDts
+  if (cache.fileExists(indexDts)) return indexDts
 
   return resolvedPath
 }
 
 /**
  * 用官方 resolveModuleName 解析裸包名；缺失文件时 flush files-api 缓存并重试。
- * JS 入口会尽量回退到声明文件。子路径失败时回退包根。
+ * 先直达 package.json types/旁路 .d.ts，再走重型 resolveModuleName。
  */
 export async function resolveBareSpecifier(
   cache: FilesResolutionCache,
@@ -952,13 +1105,17 @@ export async function resolveBareSpecifier(
         cache.fileExists(joinAbs(typesRoot, 'package.json'))
         cache.fileExists(joinAbs(typesRoot, 'index.d.ts'))
         await cache.flushPending(signal)
-        if (cache.readFile(dtsPath) !== undefined) return dtsPath
-        if (cache.readFile(joinAbs(typesRoot, 'index.d.ts')) !== undefined) {
+        if (cache.fileExists(dtsPath)) return dtsPath
+        if (cache.fileExists(joinAbs(typesRoot, 'index.d.ts'))) {
           return joinAbs(typesRoot, 'index.d.ts')
         }
       }
     }
   }
+
+  // 先直达：多数 exports 包可跳过大量 failedLookup FSA probe
+  const directTypesEarly = await resolvePackageTypesEntryDirect(cache, containing, moduleName, signal)
+  if (directTypesEarly) return directTypesEarly
 
   const tryResolve = async (name: string): Promise<string | undefined> => {
     for (let round = 0; round < MAX_RESOLVE_ROUNDS; round += 1) {
@@ -970,10 +1127,10 @@ export async function resolveBareSpecifier(
         let path = normalizeAbs(resolved)
         seedPackageJsonAlongResolved(cache, path, name)
         await cache.flushPending(signal)
-        if (cache.readFile(path) === undefined) {
+        if (!cache.fileExists(path)) {
           cache.fileExists(path)
           const changed = await cache.flushPending(signal)
-          if (cache.readFile(path) === undefined) {
+          if (!cache.fileExists(path)) {
             if (!changed) return undefined
             continue
           }
@@ -988,20 +1145,16 @@ export async function resolveBareSpecifier(
     return undefined
   }
 
-  const direct = await tryResolve(target)
-  if (direct) return direct
-
-  // exports / scoped 包：resolveModuleName 失败时按 package.json 直达 types
-  const directTypes = await resolvePackageTypesEntryDirect(cache, containing, moduleName, signal)
-  if (directTypes) return directTypes
+  const viaResolve = await tryResolve(target)
+  if (viaResolve) return viaResolve
 
   // electron/main 等子路径：回退包根，让 ambient declare module 进入 program
   const pkg = packageNameFromSpecifier(target)
   if (pkg && pkg !== target) {
-    const rootResolved = await tryResolve(pkg)
-    if (rootResolved) return rootResolved
     const rootDirect = await resolvePackageTypesEntryDirect(cache, containing, pkg, signal)
     if (rootDirect) return rootDirect
+    const rootResolved = await tryResolve(pkg)
+    if (rootResolved) return rootResolved
   }
 
   // Node 内建 / 无自带 types 的包 → @types/*
@@ -1086,12 +1239,7 @@ export async function collectResolvedPackageFiles(
         const atRoot = segs[0]?.startsWith('@') ? segs.length <= 2 : segs.length <= 1
         if (atRoot) {
           const pkgJson = joinAbs(cursor, 'package.json')
-          let text = cache.readFile(pkgJson)
-          if (text === undefined) {
-            cache.fileExists(pkgJson)
-            await cache.flushPending(signal)
-            text = cache.readFile(pkgJson)
-          }
+          const text = await cache.ensureFileContent(pkgJson, signal)
           if (text !== undefined) out.set(pkgJson, text)
           return
         }
@@ -1136,12 +1284,7 @@ export async function collectResolvedPackageFiles(
     if (!path || visited.has(path)) continue
     visited.add(path)
 
-    let text = cache.readFile(path)
-    if (text === undefined) {
-      cache.fileExists(path)
-      await cache.flushPending(signal)
-      text = cache.readFile(path)
-    }
+    const text = await cache.ensureFileContent(path, signal)
     if (text === undefined) continue
     out.set(path, text)
 
@@ -1149,7 +1292,7 @@ export async function collectResolvedPackageFiles(
       continue
     }
 
-    const { relative, bare } = extractImportSpecs(text)
+    const { relative } = extractImportSpecs(text)
     const refs = extractTripleSlashRefs(text)
     const fromDir = parentDirFromPath(path)
 
@@ -1191,10 +1334,6 @@ export async function collectResolvedPackageFiles(
       }
     }
 
-    for (const spec of bare) {
-      if (bareResolved + pendingBare.length >= MAX_TRANSITIVE_BARE) break
-      pendingBare.push(spec)
-    }
     for (const typeName of refs.types) {
       if (bareResolved + pendingBare.length >= MAX_TRANSITIVE_BARE) break
       if (typeName === 'node' || typeName === 'node/') {
@@ -1203,6 +1342,7 @@ export async function collectResolvedPackageFiles(
         pendingBare.push(typeName.startsWith('@types/') ? typeName : typesPackageName(typeName))
       }
     }
+    // 不展开 .d.ts 内裸 import，避免大包传递依赖拖垮收集；入口 paths 映射已够 Monaco 解包名
   }
 }
 
@@ -1273,7 +1413,7 @@ export async function loadNearestTsconfig(
       const path = joinAbs(dir, name)
       cache.fileExists(path)
       await cache.flushPending(signal)
-      const raw = cache.readFile(path)
+      const raw = await cache.ensureFileContent(path, signal)
       if (!raw) continue
       const parsed = parseJsonc<TsconfigFileShape>(raw)
       if (!parsed) continue
@@ -1290,7 +1430,7 @@ export async function loadNearestTsconfig(
         }
         await cache.flushPending(signal)
         for (const candidate of candidates) {
-          const extendsRaw = cache.readFile(candidate)
+          const extendsRaw = await cache.ensureFileContent(candidate, signal)
           if (!extendsRaw) continue
           const extendsParsed = parseJsonc<TsconfigFileShape>(extendsRaw)
           options = extendsParsed?.compilerOptions
