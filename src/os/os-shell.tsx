@@ -1,7 +1,9 @@
-import { useRef } from 'preact/hooks'
+import { useEffect, useRef } from 'preact/hooks'
 import { Desktop } from '../desktop/desktop.tsx'
 import { Dock } from '../dock/dock.tsx'
 import { useDockViewportFit } from '../dock/use-dock-viewport-fit.ts'
+import { FilesMountPermissionDialog } from '../apps/files/files-mount-permission-dialog.tsx'
+import { scanMountPermissionsNeedingPrompt } from '../apps/files/files-mount-permission-gate.ts'
 import { IconContextMenuProvider } from './icon-context-menu-context.tsx'
 import { LauncherLayoutProvider } from './launcher-layout-context.tsx'
 import { AboutAppProvider } from './about-app-context.tsx'
@@ -25,6 +27,10 @@ function OsShellContent() {
   useWallpaper(shellRef)
   useDockViewportFit()
 
+  useEffect(() => {
+    void scanMountPermissionsNeedingPrompt()
+  }, [])
+
   return (
     <div class="os-shell" ref={shellRef}>
       <ImmersiveDesktopBackdrop />
@@ -35,6 +41,7 @@ function OsShellContent() {
       <div class="system-deadlock-dialog-host">
         <SystemDeadlockDialog />
       </div>
+      <FilesMountPermissionDialog />
       <TerminalPrivilegeDialog />
     </div>
   )

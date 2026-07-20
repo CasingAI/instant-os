@@ -17,6 +17,7 @@ import { useNotificationCenter } from './notification-center-context.tsx'
 import { useAppNotifications } from './use-app-notifications.ts'
 import { useProcessIsolationFallbackNotification } from './use-process-isolation-fallback-notification.ts'
 import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
+import { useMountDisconnectedNotification } from './use-mount-disconnected-notification.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
 import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
@@ -327,6 +328,7 @@ export function MenuBar() {
   const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
   const storageWarning = useStorageWarningNotification()
+  const mountDisconnected = useMountDisconnectedNotification()
   const { isOpen: notificationCenterOpen, togglePanel } = useNotificationCenter()
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
@@ -415,7 +417,8 @@ export function MenuBar() {
     completedInstalls.length +
     appNotifications.length +
     (processIsolationFallbackActive ? 1 : 0) +
-    (storageWarning ? 1 : 0)
+    (storageWarning ? 1 : 0) +
+    (mountDisconnected ? 1 : 0)
 
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)

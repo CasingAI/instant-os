@@ -1,4 +1,5 @@
 import { osNowMs } from '../../os/os-clock.ts'
+import { ensureMountPermission } from './files-mount-permission-gate.ts'
 import { getMount } from './files-mount-store.ts'
 import {
   FILES_TEXT_MIME,
@@ -96,24 +97,12 @@ function makeFileNode(
   }
 }
 
-async function ensureReadWritePermission(handle: FileSystemDirectoryHandle): Promise<void> {
-  if (typeof handle.queryPermission === 'function') {
-    const status = await handle.queryPermission({ mode: 'readwrite' })
-    if (status === 'granted') return
-  }
-  if (typeof handle.requestPermission === 'function') {
-    const status = await handle.requestPermission({ mode: 'readwrite' })
-    if (status === 'granted') return
-    throw new Error('无法访问已挂载的文件夹，请重新挂载')
-  }
-}
-
 async function getRootHandle(locationId: MountFilesLocationId): Promise<FileSystemDirectoryHandle> {
   const mount = await getMount(locationId)
   if (!mount) {
     throw new Error('挂载已不存在，请重新挂载')
   }
-  await ensureReadWritePermission(mount.handle)
+  await ensureMountPermission(mount.id, mount.label, mount.handle)
   return mount.handle
 }
 

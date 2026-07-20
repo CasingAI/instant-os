@@ -148,3 +148,7 @@
 .notification-banner-host--process-isolation-fallback {
   top: calc(28px + var(--process-isolation-fallback-banner-offset, 0px));
 }
+
+.notification-banner-host--mount-disconnected {
+  top: calc(28px + var(--mount-disconnected-banner-offset, 0px));
+}

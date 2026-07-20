@@ -28,12 +28,19 @@ import {
 } from './storage-warning-notification-center.tsx'
 import { STORAGE_WARNING_SLUG } from './storage-warning.ts'
 import { useStorageWarningNotification } from './use-storage-warning-notification.ts'
+import { useMountDisconnectedNotification } from './use-mount-disconnected-notification.ts'
+import {
+  MountDisconnectedDetail,
+  MountDisconnectedListItem,
+} from './mount-disconnected-notification-center.tsx'
+import { MOUNT_DISCONNECTED_SLUG } from './mount-disconnected.ts'
 import { useBookStream } from './use-book-stream.ts'
 import type { CompletedInstall, FailedInstall, PendingInstall } from '../apps/appstore/types.ts'
 import type { AppNotification } from './app-notifications-store.ts'
 import { clearAppNotifications, dismissAppNotification } from './app-notifications-store.ts'
 import { dismissProcessIsolationFallbackNotification } from './process-isolation-fallback-notification-store.ts'
 import { dismissStorageWarningNotification } from './storage-warning-notification-store.ts'
+import { dismissMountDisconnectedNotification } from './mount-disconnected-notification-store.ts'
 import { NOTIFICATION_CENTER_SCREEN_FADE_MS } from './notification-center-store.ts'
 
 function phaseLabel(phase: PendingInstall['phase'], isUpdate?: boolean): string {
@@ -526,6 +533,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
   const storageWarning = useStorageWarningNotification()
+  const mountDisconnected = useMountDisconnectedNotification()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -552,13 +560,15 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     completedInstalls.length +
     appNotifications.length +
     (processIsolationFallbackActive ? 1 : 0) +
-    (storageWarning ? 1 : 0)
+    (storageWarning ? 1 : 0) +
+    (mountDisconnected ? 1 : 0)
 
   const clearDismissibleNotifications = () => {
     clearDismissibleInstallNotifications()
     clearAppNotifications()
     dismissProcessIsolationFallbackNotification()
     dismissStorageWarningNotification()
+    dismissMountDisconnectedNotification()
   }
 
   const [armedClearId, setArmedClearId] = useState<string | undefined>(undefined)
@@ -614,6 +624,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     activeDetailSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive
   const selectedStorageWarning =
     activeDetailSlug === STORAGE_WARNING_SLUG ? storageWarning : undefined
+  const selectedMountDisconnected =
+    activeDetailSlug === MOUNT_DISCONNECTED_SLUG ? mountDisconnected : undefined
 
   useEffect(() => {
     if (selectedSlug) {
@@ -673,7 +685,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
       selectedCompleted !== undefined ||
       selectedAppNotification !== undefined ||
       selectedProcessIsolationFallback ||
-      selectedStorageWarning !== undefined)
+      selectedStorageWarning !== undefined ||
+      selectedMountDisconnected !== undefined)
 
   const selectedHasNotification =
     selectedSlug !== undefined &&
@@ -682,7 +695,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
       completedInstalls.some((item) => item.listing.slug === selectedSlug) ||
       appNotifications.some((item) => item.appSlug === selectedSlug) ||
       (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive) ||
-      (selectedSlug === STORAGE_WARNING_SLUG && storageWarning !== undefined))
+      (selectedSlug === STORAGE_WARNING_SLUG && storageWarning !== undefined) ||
+      (selectedSlug === MOUNT_DISCONNECTED_SLUG && mountDisconnected !== undefined))
 
   useEffect(() => {
     if (!open) {
@@ -802,6 +816,12 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                 onDismiss={closeDetail}
                 onClose={onClose}
               />
+            ) : showDetail && selectedMountDisconnected ? (
+              <MountDisconnectedDetail
+                label={selectedMountDisconnected.label}
+                onBack={closeDetail}
+                onDismiss={closeDetail}
+              />
             ) : (
               <>
                 <DateTimeWidget onOpen={handleOpenCalendarApp} />
@@ -844,7 +864,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                   completedInstalls.length === 0 &&
                   appNotifications.length === 0 &&
                   !processIsolationFallbackActive &&
-                  !storageWarning ? (
+                  !storageWarning &&
+                  !mountDisconnected ? (
                     <p class="notification-center__empty">暂无通知</p>
                   ) : (
                     <div class="notification-center__list">
@@ -911,6 +932,21 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                             armedClearId={armedClearId}
                             setArmedClearId={setArmedClearId}
                             onConfirm={dismissProcessIsolationFallbackNotification}
+                            confirmLabel="清除"
+                          />
+                        </div>
+                      ) : undefined}
+                      {mountDisconnected ? (
+                        <div class="notification-center__item-wrap">
+                          <MountDisconnectedListItem
+                            label={mountDisconnected.label}
+                            onSelect={() => openDetail(MOUNT_DISCONNECTED_SLUG)}
+                          />
+                          <IosStyleClearButton
+                            clearId="mount-disconnected"
+                            armedClearId={armedClearId}
+                            setArmedClearId={setArmedClearId}
+                            onConfirm={dismissMountDisconnectedNotification}
                             confirmLabel="清除"
                           />
                         </div>
