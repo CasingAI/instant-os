@@ -27,13 +27,13 @@
     "monaco-editor": "^0.55.1",
     "openai": "^6.42.0",
     "preact": "^10.29.1",
-    "three": "^0.184.0"
+    "three": "^0.184.0",
+    "typescript": "~6.0.2"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.5",
     "@types/d3-hierarchy": "^3.1.7",
     "@types/node": "^24.12.3",
-    "typescript": "~6.0.2",
     "vite": "^8.0.12"
   }
 }
