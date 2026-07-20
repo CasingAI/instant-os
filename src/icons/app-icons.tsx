@@ -55,131 +55,62 @@ export function PhotosIcon({ size = 64 }: IconProps) {
 export function FilesIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#a67c42" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <path
-          d="M14 22.5c0-2 1.6-3.6 3.6-3.6h11c.8 0 1.5.3 2 .9l1.5 1.7c.3.3.7.5 1.1.5H46c2 0 3.6 1.6 3.6 3.6V28H14v-5.5z"
-          fill="#f0d9a8"
-          opacity="0.95"
-        />
-        <path
-          d="M12 28.5c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4V45c0 2.5-2 4.5-4.5 4.5h-31C14 49.5 12 47.5 12 45V28.5z"
-          fill="#f7f1e6"
-        />
-        <path d="M16 26.2h32c1.1 0 2.1.5 2.7 1.3H13.3c.6-.8 1.6-1.3 2.7-1.3z" fill="#e8c56a" opacity="0.9" />
-      </svg>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        📑
+      </span>
     </AppIconTile>
   )
 }
 
 export function TextEditIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#3d7a4a" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <rect x="14" y="12" width="36" height="42" rx="4" fill="#f7f4ec" />
-        <path d="M20 22h24M20 30h24M20 38h18" stroke="#3d7a4a" stroke-width="2.4" stroke-linecap="round" />
-        <path
-          d="M40 40l8 2.5-2.5 8-8.8-8.8L40 40z"
-          fill="#f4d35e"
-          stroke="#c9a227"
-          stroke-width="1.2"
-          stroke-linejoin="round"
-        />
-      </svg>
+    <AppIconTile color="#f0eee9" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        📝
+      </span>
     </AppIconTile>
   )
 }
 
-/** 通用文档预览：纸页 + 放大镜，不绑定单一格式 */
+/** 通用文档预览：画框 + 放大镜 */
 export function PreviewIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#8b5a2b" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <defs>
-          <linearGradient id="preview-icon-paper-back" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#e8dcc4" />
-            <stop offset="100%" stop-color="#cbb892" />
-          </linearGradient>
-          <linearGradient id="preview-icon-paper" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fffef9" />
-            <stop offset="45%" stop-color="#f7edd8" />
-            <stop offset="100%" stop-color="#e8d4b0" />
-          </linearGradient>
-          <linearGradient id="preview-icon-glass" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#e8f4ff" />
-            <stop offset="40%" stop-color="#8ec4ef" />
-            <stop offset="100%" stop-color="#2f6fa8" />
-          </linearGradient>
-          <linearGradient id="preview-icon-rim" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#9a7a52" />
-            <stop offset="50%" stop-color="#6b4a28" />
-            <stop offset="100%" stop-color="#3d2a14" />
-          </linearGradient>
-          <linearGradient id="preview-icon-handle" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#d4a574" />
-            <stop offset="40%" stop-color="#8b5a2b" />
-            <stop offset="100%" stop-color="#4a3018" />
-          </linearGradient>
-          <radialGradient id="preview-icon-lens-shine" cx="35%" cy="32%" r="55%">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0.75" />
-            <stop offset="45%" stop-color="#fff" stop-opacity="0.12" />
-            <stop offset="100%" stop-color="#fff" stop-opacity="0" />
-          </radialGradient>
-        </defs>
-        {/* paper back */}
-        <rect
-          x="13"
-          y="12"
-          width="30"
-          height="40"
-          rx="3.5"
-          fill="url(#preview-icon-paper-back)"
-          opacity="0.95"
-        />
-        <rect
-          x="11"
-          y="10"
-          width="30"
-          height="40"
-          rx="3.5"
-          fill="url(#preview-icon-paper)"
-          stroke="#b8956a"
-          stroke-width="1.1"
-        />
-        <path
-          d="M17 20h18M17 26.5h18M17 33h12"
-          stroke="#a89070"
-          stroke-width="2"
-          stroke-linecap="round"
-          opacity="0.75"
-        />
-        <path
-          d="M17 20h18M17 26.5h18M17 33h12"
-          stroke="#fff8ec"
-          stroke-width="0.7"
-          stroke-linecap="round"
-          opacity="0.5"
-          transform="translate(0 -0.6)"
-        />
-        <circle cx="40" cy="39" r="13.2" fill="url(#preview-icon-rim)" opacity="0.9" />
-        <circle cx="40" cy="39" r="11.4" fill="url(#preview-icon-glass)" stroke="#1e4a72" stroke-width="1.4" />
-        <circle cx="40" cy="39" r="11.4" fill="url(#preview-icon-lens-shine)" />
-        <circle cx="40" cy="39" r="7" fill="none" stroke="#fff" stroke-width="1.2" opacity="0.35" />
-        <path
-          d="M48.5 47.5l9 9"
-          stroke="url(#preview-icon-handle)"
-          stroke-width="4.2"
-          stroke-linecap="round"
-        />
-        <path
-          d="M48.5 47.5l9 9"
-          stroke="#f0d4a8"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          opacity="0.55"
-        />
-        <circle cx="57.2" cy="56.2" r="2.2" fill="#5a3d22" opacity="0.85" />
-        <circle cx="57.2" cy="56.2" r="1.1" fill="#c9a06a" opacity="0.7" />
-      </svg>
+    <AppIconTile color="#f0eee9" size={size}>
+      <span
+        style={{
+          position: 'relative',
+          display: 'block',
+          width: `${size}px`,
+          height: `${size}px`,
+        }}
+      >
+        <span
+          class="app-icon-tile__emoji"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '51%',
+            transform: 'translate(-50%, -50%)',
+            fontSize: `${size * (54 / 72)}px`,
+            lineHeight: 1,
+          }}
+        >
+          🖼️
+        </span>
+        <span
+          class="app-icon-tile__emoji"
+          style={{
+            position: 'absolute',
+            right: `${size * (4.32 / 72)}px`,
+            bottom: `${size * (2.88 / 72)}px`,
+            fontSize: `${size * (42 / 72)}px`,
+            lineHeight: 1,
+            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25))',
+          }}
+        >
+          🔍
+        </span>
+      </span>
     </AppIconTile>
   )
 }

@@ -1152,6 +1152,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
     const canMutate = canCreateHere
+    const atContainerRoot = pathNodes.length === 0
 
     return [
       {
@@ -1195,15 +1196,44 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           },
         ],
       },
+      {
+        label: '前往',
+        items: [
+          {
+            type: 'action',
+            label: '返回上级',
+            disabled: !canGoBackInPath,
+            onClick: goBackInPath,
+          },
+          {
+            type: 'action',
+            label: '容器根目录',
+            disabled: atContainerRoot,
+            onClick: () => navigatePathBar(undefined),
+          },
+          { type: 'separator' },
+          ...locations.map((location) => ({
+            type: 'action' as const,
+            label: location.label,
+            onClick: () => selectLocation(location.id),
+          })),
+        ],
+      },
     ]
   }, [
     canCreateHere,
+    canGoBackInPath,
     canPasteHere,
     closeWindowsForApp,
+    goBackInPath,
     handleNewFolder,
     handlePaste,
+    locations,
     minimizeWindow,
+    navigatePathBar,
     openNewFileMenu,
+    pathNodes.length,
+    selectLocation,
     showBuiltinAbout,
     windows,
   ])
@@ -1273,14 +1303,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                     <button
                       type="button"
                       class={`files__sidebar-unmount${active ? ' files__sidebar-unmount--active' : ''}`}
-                      aria-label={`卸载 ${location.label}`}
-                      title="卸载"
+                      aria-label={`推出 ${location.label}`}
+                      title="推出"
                       onClick={(event) => {
                         event.stopPropagation()
                         void handleUnmount(mountId, location.label)
                       }}
                     >
-                      <span aria-hidden="true">×</span>
+                      <span aria-hidden="true">⏏</span>
                     </button>
                   ) : undefined}
                 </li>
@@ -1537,7 +1567,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               void handleUnmount(locationContextMenu.locationId, locationContextMenu.label)
             }
           >
-            卸载
+            推出
           </button>
         </div>
       ) : undefined}
