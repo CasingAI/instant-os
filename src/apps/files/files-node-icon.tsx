@@ -4,7 +4,7 @@ import {
   fileNameExtension,
   getDefaultFileOpenApp,
 } from '../../os/file-open-registry.ts'
-import { PREVIEW_MARKDOWN_EXTENSIONS } from '../preview/preview-kind.ts'
+import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import type { FilesNode } from './files-types.ts'
 import { FILES_VFS_CHANGED_EVENT, readTextFile } from './files-vfs.ts'
 import './files-node-icon.css'
@@ -13,8 +13,6 @@ export type FilesNodeIconSize = 'grid' | 'list'
 
 /** 超过此大小不再读取正文做图标预览，避免拖慢目录列表 */
 const TXT_PREVIEW_MAX_BYTES = 256 * 1024
-
-const MARKDOWN_EXTENSIONS = new Set<string>(PREVIEW_MARKDOWN_EXTENSIONS)
 /**
  * 结构点阵：行距压得很密，才能在纸面高度内塞进足够多的正文结构。
  * 与 SVG pitchY≈0.24 配套；过长行向右溢出后由四边等距 clip 裁掉（不换行）。
@@ -45,19 +43,28 @@ export function isTxtFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean 
   return node.kind === 'file' && isTxtFileName(node.name)
 }
 
-export function isMarkdownFileName(fileName: string): boolean {
-  const extension = fileNameExtension(fileName)
-  return extension !== undefined && MARKDOWN_EXTENSIONS.has(extension)
-}
-
-export function isMarkdownFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean {
-  return node.kind === 'file' && isMarkdownFileName(node.name)
-}
-
 const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
+const VSCODE_OPEN_EXTENSION_SET = new Set<string>(VSCODE_OPEN_EXTENSIONS)
+
+/** 无常规后缀、但应显示 Code 卡片的特殊文件名 → 卡片标签与色调键 */
+const CODE_SPECIAL_FILE_NAMES: Record<string, { label: string; toneKey: string }> = {
+  dockerfile: { label: 'DOCK', toneKey: 'docker' },
+  makefile: { label: 'MAKE', toneKey: 'sh' },
+  gnumakefile: { label: 'MAKE', toneKey: 'sh' },
+  '.gitignore': { label: 'Git', toneKey: 'git' },
+  '.gitattributes': { label: 'Git', toneKey: 'git' },
+  '.gitmodules': { label: 'Git', toneKey: 'git' },
+  'package-lock.json': { label: 'LOCK', toneKey: 'json' },
+  license: { label: 'TEXT', toneKey: 'txt' },
+}
 
 export function isBrowserOpenExtension(extension: string | undefined): boolean {
   return extension !== undefined && BROWSER_OPEN_EXTENSIONS.has(extension)
+}
+
+export function isImageFileExtension(extension: string | undefined): boolean {
+  return extension !== undefined && IMAGE_EXTENSIONS.has(extension)
 }
 
 export function browserFileBadgeLabel(extension: string): string {
@@ -66,10 +73,23 @@ export function browserFileBadgeLabel(extension: string): string {
   return 'HTML'
 }
 
-export function markdownFileBadgeLabel(extension: string): string {
-  const ext = extension.trim().toLowerCase()
-  if (ext === 'mdx') return 'MDX'
-  return 'MD'
+type CodeIconSpec = {
+  extension: string
+  label?: string
+}
+
+/** 按后缀或特殊文件名解析 Code 卡片；不含 txt/html 等可选关联 */
+function resolveCodeFileIconSpec(fileName: string): CodeIconSpec | undefined {
+  const lower = fileName.toLowerCase()
+  const special = CODE_SPECIAL_FILE_NAMES[lower]
+  if (special) {
+    return { extension: special.toneKey, label: special.label }
+  }
+  const extension = fileNameExtension(fileName)
+  if (extension !== undefined && VSCODE_OPEN_EXTENSION_SET.has(extension)) {
+    return { extension }
+  }
+  return undefined
 }
 
 function pushStructureRow(rows: StructureRow[], indent: number, dots: number): boolean {
@@ -255,7 +275,10 @@ function codeFileExtTone(extension: string): CodeExtTone {
     case 'zsh':
     case 'ps1':
     case 'sql':
+    case 'docker':
       return 'teal'
+    case 'git':
+      return 'orange'
     default:
       return 'blue'
   }
@@ -317,6 +340,51 @@ function UnknownFileGlyph({ className }: { className: string }) {
         stroke-width="1"
         d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
       />
+    </svg>
+  )
+}
+
+/** 图片文件：折角页上叠简化山景示意（不读文件内容） */
+function ImageFileGlyph({ className }: { className: string }) {
+  return (
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#f0f4f8"
+        stroke="#7a8a9a"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#e8eef4"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#c8d4e0"
+        stroke="#7a8a9a"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+      {/* 预览窗 */}
+      <rect x="11" y="24" width="22" height="18" rx="2" fill="#dce6f0" />
+      <rect
+        x="11"
+        y="24"
+        width="22"
+        height="18"
+        rx="2"
+        fill="none"
+        stroke="#6a7a8a"
+        stroke-width="0.9"
+      />
+      <circle cx="27.5" cy="29.2" r="2.2" fill="#f0c060" />
+      <path fill="#6a9a6a" d="M12.2 40.5h19.6L26 33.2l-4.2 4.5-3.2-2.8z" />
+      <path fill="#4a7a4a" opacity="0.85" d="M12.2 40.5h10.5l-3.8-5.2-3.5 2.6z" />
     </svg>
   )
 }
@@ -622,7 +690,7 @@ type StructurePreviewIconProps = {
   byteSize: number
   size: FilesNodeIconSize
   badge: string
-  badgeTone: 'txt' | 'html' | 'svg' | 'md'
+  badgeTone: 'txt' | 'html' | 'svg'
   /** 不读盘，仅展示空文本样式（如「新建」菜单） */
   staticPreview?: string
 }
@@ -733,39 +801,15 @@ function BrowserFileIcon({
   )
 }
 
-function MarkdownFileIcon({
-  nodeId,
-  byteSize,
-  size,
-  extension,
-  staticPreview,
-}: {
-  nodeId: string
-  byteSize: number
-  size: FilesNodeIconSize
-  extension: string
-  staticPreview?: string
-}) {
-  return (
-    <StructurePreviewFileIcon
-      nodeId={nodeId}
-      byteSize={byteSize}
-      size={size}
-      badge={markdownFileBadgeLabel(extension)}
-      badgeTone="md"
-      staticPreview={staticPreview}
-    />
-  )
-}
-
 type CodeFileIconProps = {
   extension: string
   size: FilesNodeIconSize
+  label?: string
 }
 
-/** Virtual Studio Code 默认打开时的文件图标：厚卡片拟物 + 正中浮雕后缀 */
-function CodeFileIcon({ extension, size }: CodeFileIconProps) {
-  const label = codeFileExtLabel(extension)
+/** Code 可打开类型的文件图标：厚卡片拟物 + 正中浮雕后缀 */
+function CodeFileIcon({ extension, size, label }: CodeFileIconProps) {
+  const resolvedLabel = label ?? codeFileExtLabel(extension)
   const tone = codeFileExtTone(extension)
 
   return (
@@ -775,9 +819,20 @@ function CodeFileIcon({ extension, size }: CodeFileIconProps) {
     >
       <CodeFileGlyph
         className="files-node-icon__glyph files-node-icon__glyph--file files-node-icon__glyph--code"
-        label={label}
+        label={resolvedLabel}
         tone={tone}
       />
+    </span>
+  )
+}
+
+function ImageFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--image`}
+      aria-hidden="true"
+    >
+      <ImageFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
     </span>
   )
 }
@@ -816,7 +871,15 @@ export function FilesNodeIcon({
 
   const defaultApp = getDefaultFileOpenApp(node.name)
   const extension = fileNameExtension(node.name)
+  const codeSpec = resolveCodeFileIconSpec(node.name)
 
+  if (codeSpec) {
+    return (
+      <CodeFileIcon extension={codeSpec.extension} label={codeSpec.label} size={size} />
+    )
+  }
+
+  /** txt / html 等可选关联：用户选「始终用 Code」时切到 Code 卡片 */
   if (defaultApp === 'vscode' && extension) {
     return <CodeFileIcon extension={extension} size={size} />
   }
@@ -836,15 +899,8 @@ export function FilesNodeIcon({
     )
   }
 
-  if (defaultApp === 'preview' || isMarkdownFilesNode(node)) {
-    return (
-      <MarkdownFileIcon
-        nodeId={node.id}
-        byteSize={node.byteSize}
-        size={size}
-        extension={extension ?? 'md'}
-      />
-    )
+  if (isImageFileExtension(extension)) {
+    return <ImageFileIcon size={size} />
   }
 
   return <BlankFileMarkIcon size={size} mark="?" />

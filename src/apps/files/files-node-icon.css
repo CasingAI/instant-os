@@ -1,4 +1,4 @@
-/* 文件节点图标：文件夹 / 未知文件 / 结构预览（TXT·HTML·SVG·MD） / Code 卡片后缀 */
+/* 文件节点图标：文件夹 / 未知文件 / 结构预览（TXT·HTML·SVG） / 图片 / Code 卡片后缀 */
 
 /* 画布统一为正方形；字形在内按自身比例居中撑满 */
 .files-node-icon {
@@ -61,6 +61,7 @@
 /* 叠层：纸页在正方形画布内居中，高度撑满 */
 .files-node-icon--blank-mark .files-node-icon__glyph--file,
 .files-node-icon--preview .files-node-icon__glyph--file,
+.files-node-icon--image .files-node-icon__glyph--file,
 .files-node-icon--code .files-node-icon__glyph--file {
   position: absolute;
   top: 50%;
@@ -184,10 +185,6 @@
 
 .files-node-icon--preview .files-node-icon__badge--svg {
   background: linear-gradient(180deg, #9a7ad4 0%, #5f3fa0 100%);
-}
-
-.files-node-icon--preview .files-node-icon__badge--md {
-  background: linear-gradient(180deg, #c49a6c 0%, #8b5a2b 100%);
 }
 
 .files-node-icon--list.files-node-icon--preview .files-node-icon__lines {
