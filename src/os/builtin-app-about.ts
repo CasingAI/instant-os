@@ -80,6 +80,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '默认注册为 .txt 文件的打开程序；也可从「文件」应用中直接打开文本文件。可同时打开多个文稿窗口。只读文件可查看但不可保存。',
     ],
   },
+  preview: {
+    version: '文档预览',
+    paragraphs: [
+      '预览用于以拟物纸面查看本机文档。当前支持 Markdown（.md / .markdown / .mdx），后续将加入更多格式。',
+      '默认作为 Markdown 文件的打开程序；也可从「文件」应用中直接打开。预览为只读，编辑请使用 Virtual Studio Code 或文本编辑。',
+    ],
+  },
   vscode: {
     version: '代码编辑器',
     paragraphs: [

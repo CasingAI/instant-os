@@ -1,0 +1,193 @@
+/* 文档级 Markdown 拟物纸面 — 供「预览」等读文档场景使用 */
+.markdown-document-preview {
+  --mdp-paper: #faf6ee;
+  --mdp-ink: #2c2419;
+  --mdp-ink-muted: #6b5d4d;
+  --mdp-accent: #8b5a2b;
+  --mdp-border: #c4b5a0;
+  --mdp-code-bg: #f0e8d8;
+  --mdp-pre-bg: #f3ebdc;
+  --mdp-table-head: #efe6d6;
+
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 28px 36px 56px;
+  max-width: 720px;
+  margin: 0 auto;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(255, 255, 255, 0.55) 0%, transparent 55%),
+    linear-gradient(180deg, #fffdf8 0%, var(--mdp-paper) 40%, #f5efe4 100%);
+  color: var(--mdp-ink);
+  font-family: Georgia, 'Songti SC', 'STSong', 'Noto Serif SC', serif, var(--app-emoji-font-family);
+  font-size: 16px;
+  line-height: 1.75;
+  text-rendering: optimizeLegibility;
+}
+
+.markdown-document-preview--empty {
+  min-height: 100%;
+}
+
+.markdown-document-preview > :first-child {
+  margin-top: 0;
+}
+
+.markdown-document-preview > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-document-preview p {
+  margin: 0 0 1em;
+}
+
+.markdown-document-preview h1,
+.markdown-document-preview h2,
+.markdown-document-preview h3,
+.markdown-document-preview h4,
+.markdown-document-preview h5,
+.markdown-document-preview h6 {
+  margin: 1.5em 0 0.55em;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--mdp-ink);
+  letter-spacing: 0.01em;
+}
+
+.markdown-document-preview h1 {
+  font-size: 1.85em;
+  text-align: center;
+  padding-bottom: 0.45em;
+  border-bottom: 1px solid color-mix(in srgb, var(--mdp-border) 70%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.markdown-document-preview h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid color-mix(in srgb, var(--mdp-border) 55%, transparent);
+}
+
+.markdown-document-preview h3 {
+  font-size: 1.2em;
+}
+
+.markdown-document-preview h4 {
+  font-size: 1.05em;
+}
+
+.markdown-document-preview ul,
+.markdown-document-preview ol {
+  margin: 0 0 1em;
+  padding-left: 1.7em;
+}
+
+.markdown-document-preview li + li {
+  margin-top: 0.28em;
+}
+
+.markdown-document-preview blockquote {
+  margin: 0 0 1em;
+  padding: 0.55em 1em 0.55em 1.1em;
+  border-left: 3px solid #b8956a;
+  background: linear-gradient(90deg, rgba(184, 149, 106, 0.12) 0%, transparent 100%);
+  color: var(--mdp-ink-muted);
+  font-style: italic;
+  border-radius: 0 4px 4px 0;
+}
+
+.markdown-document-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 0.12em 0.38em;
+  border-radius: 3px;
+  background: var(--mdp-code-bg);
+  border: 1px solid color-mix(in srgb, var(--mdp-border) 55%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  color: #3a2f22;
+}
+
+.markdown-document-preview pre {
+  margin: 0 0 1.1em;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #faf4e8 0%, var(--mdp-pre-bg) 100%);
+  border: 1px solid var(--mdp-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 3px rgba(44, 36, 25, 0.08);
+}
+
+.markdown-document-preview pre code {
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--mdp-ink);
+}
+
+.markdown-document-preview a {
+  color: var(--mdp-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--mdp-accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.markdown-document-preview a:hover {
+  color: #6b4220;
+  text-decoration-color: var(--mdp-accent);
+}
+
+.markdown-document-preview hr {
+  margin: 1.75em 0;
+  border: none;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--mdp-border) 18%,
+    var(--mdp-border) 82%,
+    transparent 100%
+  );
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.markdown-document-preview__table-wrap {
+  overflow-x: auto;
+  margin: 0 0 1.1em;
+  border-radius: 4px;
+  border: 1px solid var(--mdp-border);
+  box-shadow: 0 1px 2px rgba(44, 36, 25, 0.06);
+  background: rgba(255, 253, 248, 0.65);
+}
+
+.markdown-document-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92em;
+  font-family: Georgia, 'Songti SC', 'STSong', serif, var(--app-emoji-font-family);
+}
+
+.markdown-document-preview th,
+.markdown-document-preview td {
+  border: 1px solid color-mix(in srgb, var(--mdp-border) 80%, transparent);
+  padding: 7px 12px;
+  text-align: left;
+}
+
+.markdown-document-preview th {
+  font-weight: 700;
+  background: var(--mdp-table-head);
+  color: var(--mdp-ink);
+}
+
+.markdown-document-preview td {
+  background: rgba(255, 253, 248, 0.4);
+}
+
+.markdown-document-preview td code,
+.markdown-document-preview th code {
+  font-size: 0.9em;
+}

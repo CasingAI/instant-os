@@ -89,6 +89,43 @@ export function TextEditIcon({ size = 64 }: IconProps) {
   )
 }
 
+/** 通用文档预览：纸页 + 放大镜，不绑定单一格式 */
+export function PreviewIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#8b5a2b" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="preview-icon-paper" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fffdf8" />
+            <stop offset="100%" stop-color="#f0e4d0" />
+          </linearGradient>
+          <linearGradient id="preview-icon-glass" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#d8ecff" />
+            <stop offset="55%" stop-color="#7eb6e8" />
+            <stop offset="100%" stop-color="#3a7ab8" />
+          </linearGradient>
+        </defs>
+        <rect x="12" y="10" width="32" height="42" rx="3.5" fill="url(#preview-icon-paper)" stroke="#c4a882" stroke-width="1.2" />
+        <path d="M18 20h20M18 27h20M18 34h14" stroke="#a89070" stroke-width="2" stroke-linecap="round" opacity="0.85" />
+        <circle cx="40" cy="40" r="11" fill="url(#preview-icon-glass)" stroke="#2f5f8a" stroke-width="2" opacity="0.95" />
+        <circle cx="40" cy="40" r="6.5" fill="none" stroke="#fff" stroke-width="1.4" opacity="0.55" />
+        <path
+          d="M48 48l7.5 7.5"
+          stroke="#5a3d22"
+          stroke-width="3.2"
+          stroke-linecap="round"
+        />
+        <path
+          d="M48 48l7.5 7.5"
+          stroke="#c9a06a"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function Scene3dLabIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#5856d6" size={size}>

@@ -24,13 +24,14 @@ import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
 import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
 import { FilesApp } from '../apps/files/files-app.tsx'
 import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
+import { PreviewApp } from '../apps/preview/preview-app.tsx'
 import { VscodeApp } from '../apps/vscode/vscode-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon, TerminalIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon, TerminalIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -146,6 +147,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
   }),
   withAbout({
+    id: 'preview',
+    name: '预览',
+    icon: PreviewIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
     id: 'vscode',
     name: 'Virtual Studio Code',
     icon: VscodeIcon,
@@ -242,6 +250,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   photos: PlaceholderApp('photos', '照片'),
   files: FilesApp,
   textedit: TextEditApp,
+  preview: PreviewApp,
   vscode: VscodeApp,
   'scene3d-lab': Scene3dLabApp,
   'model-vision': ModelVisionApp,
