@@ -295,6 +295,7 @@ export function focusEditorItem(
 ): VscodeEditorLayoutState {
   const group = layout.groups[groupId]
   if (!group || !group.items.some((item) => item.id === itemId)) return layout
+  if (layout.focusedGroupId === groupId && group.activeItemId === itemId) return layout
   return {
     ...layout,
     focusedGroupId: groupId,
@@ -319,6 +320,7 @@ export function focusEditorGroup(
   groupId: string,
 ): VscodeEditorLayoutState {
   if (!layout.groups[groupId]) return layout
+  if (layout.focusedGroupId === groupId) return layout
   return { ...layout, focusedGroupId: groupId }
 }
 

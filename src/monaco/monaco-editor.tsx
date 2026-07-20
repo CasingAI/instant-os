@@ -363,7 +363,7 @@ export function MonacoEditor({
     })
 
     return () => window.cancelAnimationFrame(frame)
-  }, [active, value, modelPath])
+  }, [active])
 
   return <div class={className ?? 'monaco-editor-host'} ref={containerRef} />
 }

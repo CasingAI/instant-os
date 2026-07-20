@@ -146,6 +146,41 @@ function isVscodeChromeDark(theme: VscodePrefs['theme']): boolean {
   )
 }
 
+type VscodeCursorPos = { line: number; column: number }
+
+/** 行列状态隔离在状态栏按钮内，避免每次点击光标触发整页重渲 */
+function VscodeStatusCursorButton({
+  expanded,
+  onOpenGoto,
+  registerSetter,
+}: {
+  expanded: boolean
+  onOpenGoto: () => void
+  registerSetter: (setter: (line: number, column: number) => void) => void
+}) {
+  const [cursor, setCursor] = useState<VscodeCursorPos>({ line: 1, column: 1 })
+
+  useEffect(() => {
+    registerSetter((line, column) => {
+      setCursor({ line, column })
+    })
+    return () => registerSetter(() => undefined)
+  }, [registerSetter])
+
+  return (
+    <button
+      type="button"
+      class="vscode__status-goto-btn"
+      title="跳转到指定行和列"
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      onClick={onOpenGoto}
+    >
+      第 {cursor.line} 行，第 {cursor.column} 列
+    </button>
+  )
+}
+
 export function VscodeApp({ windowId }: VscodeAppProps) {
   const {
     windows,
@@ -176,7 +211,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [workspaceSearchHits, setWorkspaceSearchHits] = useState<VscodeWorkspaceSearchHit[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
-  const [cursor, setCursor] = useState({ line: 1, column: 1 })
+  const cursorRef = useRef<VscodeCursorPos>({ line: 1, column: 1 })
+  const cursorSetterRef = useRef<(line: number, column: number) => void>(() => undefined)
   const [gotoLineOpen, setGotoLineOpen] = useState(false)
   const [gotoLineInput, setGotoLineInput] = useState('1')
   const [gotoColumnInput, setGotoColumnInput] = useState('1')
@@ -541,10 +577,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const openGotoLineDialog = useCallback(() => {
     if (!activeTab) return
-    setGotoLineInput(String(cursor.line))
-    setGotoColumnInput(String(cursor.column))
+    setGotoLineInput(String(cursorRef.current.line))
+    setGotoColumnInput(String(cursorRef.current.column))
     setGotoLineOpen(true)
-  }, [activeTab, cursor.column, cursor.line])
+  }, [activeTab])
+
+  const registerCursorSetter = useCallback((setter: (line: number, column: number) => void) => {
+    cursorSetterRef.current = (line, column) => {
+      cursorRef.current = { line, column }
+      setter(line, column)
+    }
+  }, [])
+
+  const applyCursor = useCallback((line: number, column: number) => {
+    cursorRef.current = { line, column }
+    cursorSetterRef.current(line, column)
+  }, [])
 
   const confirmGotoLine = useCallback(() => {
     if (!activeTab) {
@@ -554,9 +602,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const line = Math.max(1, Number.parseInt(gotoLineInput.trim(), 10) || 1)
     const column = Math.max(1, Number.parseInt(gotoColumnInput.trim(), 10) || 1)
     setRevealPosition({ path: activeTab.path, line, column })
-    setCursor({ line, column })
+    applyCursor(line, column)
     setGotoLineOpen(false)
-  }, [activeTab, gotoColumnInput, gotoLineInput])
+  }, [activeTab, applyCursor, gotoColumnInput, gotoLineInput])
 
   const saveTab = useCallback(
     async (tabId: string): Promise<boolean> => {
@@ -1421,7 +1469,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               <VscodeExplorer
                 workspaceFolder={prefs.workspaceFolder}
                 selectedPath={activeTab?.path}
-                revealPath={revealPath ?? activeTab?.path}
+                revealPath={revealPath}
                 revealNonce={revealNonce}
                 problemDecorations={problemDecorations}
                 onOpenFile={(path) => void openDocument(path)}
@@ -1565,7 +1613,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 }
                 onOpenMarkdownPreview={openMarkdownPreviewBeside}
                 onTabTextChange={updateTabText}
-                onCursorChange={(line, column) => setCursor({ line, column })}
+                onCursorChange={applyCursor}
                 onOpenPath={handleEditorOpenPath}
                 onResolveConflict={resolveTabConflict}
                 onSetBranchRatio={(branchId, ratio) =>
@@ -1764,16 +1812,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         <span class="vscode__status-spacer" />
         {activeTab ? (
           <>
-            <button
-              type="button"
-              class="vscode__status-goto-btn"
-              title="跳转到指定行和列"
-              aria-haspopup="dialog"
-              aria-expanded={gotoLineOpen}
-              onClick={openGotoLineDialog}
-            >
-              第 {cursor.line} 行，第 {cursor.column} 列
-            </button>
+            <VscodeStatusCursorButton
+              expanded={gotoLineOpen}
+              onOpenGoto={openGotoLineDialog}
+              registerSetter={registerCursorSetter}
+            />
             <button
               type="button"
               class="vscode__status-lang-btn"
