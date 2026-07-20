@@ -1,3 +1,4 @@
+import './monaco-nls.ts'
 import * as monaco from 'monaco-editor'
 
 let typescriptConfigured = false

@@ -8,6 +8,7 @@
  *  https://github.com/microsoft/vscode/tree/main/extensions/theme-defaults
  *--------------------------------------------------------------------------------------------*/
 
+import './monaco-nls.ts'
 import * as monaco from 'monaco-editor'
 import type { editor } from 'monaco-editor'
 
