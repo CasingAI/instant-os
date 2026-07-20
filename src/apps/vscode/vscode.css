@@ -199,22 +199,67 @@
   background: var(--vscode-selected);
 }
 
-.vscode__tree-item--selected .vscode__tree-chevron,
+.vscode__tree-item--selected .vscode__tree-chevron {
+  color: rgba(255, 255, 255, 0.92);
+}
+
 .vscode__tree-item--selected .vscode__tree-icon {
-  color: rgba(255, 255, 255, 0.9);
+  filter: brightness(1.12) saturate(1.05);
 }
 
 .vscode__tree-item--selected .vscode__tree-label {
   color: #fff;
 }
 
-.vscode__tree-chevron,
-.vscode__tree-icon {
-  width: 12px;
+.vscode__tree-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--vscode-muted);
-  font-size: 10px;
-  text-align: center;
+}
+
+.vscode__tree-chevron--spacer {
+  visibility: hidden;
+}
+
+.vscode__tree-chevron-svg {
+  display: block;
+  overflow: visible;
+}
+
+.vscode__tree-chevron-shadow {
+  fill: rgba(0, 0, 0, 0.22);
+}
+
+.vscode__tree-chevron-face {
+  fill: currentColor;
+  filter: drop-shadow(0 0.5px 0 rgba(255, 255, 255, 0.45));
+}
+
+.vscode__tree-item--selected .vscode__tree-chevron-shadow {
+  fill: rgba(0, 0, 0, 0.28);
+}
+
+.vscode__tree-item--selected .vscode__tree-chevron-face {
+  filter: drop-shadow(0 0.5px 0 rgba(255, 255, 255, 0.35));
+}
+
+.vscode__tree-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--vscode-file-icon-color, var(--vscode-muted));
+}
+
+.vscode__tree-icon-svg {
+  display: block;
+  overflow: visible;
 }
 
 .vscode__tree-label {

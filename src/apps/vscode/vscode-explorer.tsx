@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
 import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
+import { VscodeFileIcon, VscodeFolderIcon, VscodeTreeTwistie } from './vscode-file-icons.tsx'
 
 type VscodeExplorerProps = {
   workspaceFolder?: string
@@ -110,9 +111,8 @@ function TreeNode({
         title={decorationTitle(entry.path, decoration)}
         onClick={() => onOpenFile(entry.path)}
       >
-        <span class="vscode__tree-icon" aria-hidden="true">
-          ▐
-        </span>
+        <span class="vscode__tree-chevron vscode__tree-chevron--spacer" aria-hidden="true" />
+        <VscodeFileIcon fileName={entry.name} selected={selected} />
         <span class="vscode__tree-label">{entry.name}</span>
         {problemCount > 0 ? (
           <span class="vscode__tree-badge" aria-hidden="true">
@@ -133,8 +133,9 @@ function TreeNode({
         onClick={() => setExpanded((value) => !value)}
       >
         <span class="vscode__tree-chevron" aria-hidden="true">
-          {expanded ? '▾' : '▸'}
+          <VscodeTreeTwistie expanded={expanded} />
         </span>
+        <VscodeFolderIcon expanded={expanded} selected={selectedPath === entry.path} />
         <span class="vscode__tree-label">{folderDisplayName(entry.path, entry.name)}</span>
         {problemCount > 0 ? (
           <span class="vscode__tree-badge" aria-hidden="true">
@@ -212,7 +213,7 @@ export function VscodeExplorer({
 
   return (
     <div class="vscode__explorer">
-      <div class="vscode__sidebar-title">文件夹</div>
+      <div class="vscode__sidebar-title">工作区</div>
       {!workspaceFolder ? (
         <div class="vscode__explorer-empty">
           <p class="vscode__tree-hint">尚未打开文件夹</p>

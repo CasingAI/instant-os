@@ -1082,7 +1082,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           { type: 'separator' },
           {
             type: 'action',
-            label: '文件夹',
+            label: '工作区',
             onClick: () => {
               setSidebarView('explorer')
               updatePrefs({ sidebarVisible: true })
@@ -1187,7 +1187,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           <button
             type="button"
             class={`vscode__activity-btn${sidebarView === 'explorer' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
-            title="文件夹"
+            title="工作区"
             onClick={() => activateSidebar('explorer')}
           >
             <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
