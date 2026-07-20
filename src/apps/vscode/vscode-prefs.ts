@@ -3,6 +3,21 @@ import { isMonacoEditorTheme, type MonacoEditorTheme } from '../../monaco/monaco
 
 export type VscodePanelTab = 'problems' | 'terminal' | 'logs'
 
+export type VscodeSearchPrefs = {
+  isCaseSensitive: boolean
+  matchWholeWord: boolean
+  isRegex: boolean
+  preserveCase: boolean
+  showReplace: boolean
+  showDetails: boolean
+  useExcludeSettingsAndIgnoreFiles: boolean
+  onlyOpenEditors: boolean
+  onlyChangedFiles: boolean
+  searchHistory: string[]
+  replaceHistory: string[]
+  searchEditorContextLines: number
+}
+
 export type VscodePrefs = {
   theme: MonacoEditorTheme
   fontSize: number
@@ -16,9 +31,26 @@ export type VscodePrefs = {
   sidebarWidth: number
   /** 当前工作区文件夹绝对路径；未打开时为 undefined */
   workspaceFolder: string | undefined
+  search: VscodeSearchPrefs
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodePrefs
+const MAX_SEARCH_HISTORY = 20
+
+export const DEFAULT_SEARCH_PREFS: VscodeSearchPrefs = {
+  isCaseSensitive: false,
+  matchWholeWord: false,
+  isRegex: false,
+  preserveCase: false,
+  showReplace: false,
+  showDetails: false,
+  useExcludeSettingsAndIgnoreFiles: true,
+  onlyOpenEditors: false,
+  onlyChangedFiles: false,
+  searchHistory: [],
+  replaceHistory: [],
+  searchEditorContextLines: 1,
+}
 
 const DEFAULT_PREFS: VscodePrefs = {
   theme: 'light-plus',
@@ -31,6 +63,7 @@ const DEFAULT_PREFS: VscodePrefs = {
   terminalHeight: 220,
   sidebarWidth: 240,
   workspaceFolder: undefined,
+  search: { ...DEFAULT_SEARCH_PREFS },
 }
 
 function normalizePanelTab(value: unknown): VscodePanelTab {
@@ -49,10 +82,45 @@ function normalizeWorkspaceFolder(value: unknown): string | undefined {
   return trimmed.replace(/\/+$/, '') || '/'
 }
 
+function normalizeHistory(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .slice(0, MAX_SEARCH_HISTORY)
+}
+
+function normalizeSearchPrefs(value: unknown): VscodeSearchPrefs {
+  const raw = value && typeof value === 'object' ? (value as Partial<VscodeSearchPrefs>) : {}
+  return {
+    isCaseSensitive: raw.isCaseSensitive === true,
+    matchWholeWord: raw.matchWholeWord === true,
+    isRegex: raw.isRegex === true,
+    preserveCase: raw.preserveCase === true,
+    showReplace: raw.showReplace === true,
+    showDetails: raw.showDetails === true,
+    useExcludeSettingsAndIgnoreFiles: raw.useExcludeSettingsAndIgnoreFiles !== false,
+    onlyOpenEditors: raw.onlyOpenEditors === true,
+    onlyChangedFiles: raw.onlyChangedFiles === true,
+    searchHistory: normalizeHistory(raw.searchHistory),
+    replaceHistory: normalizeHistory(raw.replaceHistory),
+    searchEditorContextLines:
+      typeof raw.searchEditorContextLines === 'number'
+        ? clamp(raw.searchEditorContextLines, 0, 10)
+        : DEFAULT_SEARCH_PREFS.searchEditorContextLines,
+  }
+}
+
+export function pushSearchHistory(history: string[], query: string): string[] {
+  const trimmed = query.trim()
+  if (!trimmed) return history
+  const next = [trimmed, ...history.filter((item) => item !== trimmed)]
+  return next.slice(0, MAX_SEARCH_HISTORY)
+}
+
 export function loadVscodePrefs(): VscodePrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_PREFS }
+    if (!raw) return { ...DEFAULT_PREFS, search: { ...DEFAULT_SEARCH_PREFS } }
     const parsed = JSON.parse(raw) as Partial<VscodePrefs>
     return {
       theme: isMonacoEditorTheme(parsed.theme) ? parsed.theme : DEFAULT_PREFS.theme,
@@ -63,7 +131,7 @@ export function loadVscodePrefs(): VscodePrefs {
       terminalVisible: parsed.terminalVisible !== false,
       panelTab: normalizePanelTab(parsed.panelTab),
       terminalHeight:
-          typeof parsed.terminalHeight === 'number'
+        typeof parsed.terminalHeight === 'number'
           ? clamp(parsed.terminalHeight, 120, 720)
           : DEFAULT_PREFS.terminalHeight,
       sidebarWidth:
@@ -71,9 +139,10 @@ export function loadVscodePrefs(): VscodePrefs {
           ? clamp(parsed.sidebarWidth, 160, 420)
           : DEFAULT_PREFS.sidebarWidth,
       workspaceFolder: normalizeWorkspaceFolder(parsed.workspaceFolder),
+      search: normalizeSearchPrefs(parsed.search),
     }
   } catch {
-    return { ...DEFAULT_PREFS }
+    return { ...DEFAULT_PREFS, search: { ...DEFAULT_SEARCH_PREFS } }
   }
 }
 

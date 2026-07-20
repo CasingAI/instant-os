@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { searchVscodeWorkspaceFilesCore } from './vscode-workspace-search-core.ts'
+import { searchVscodeWorkspaceFilesCoreDetailed } from './vscode-workspace-search-core.ts'
 import type {
   VscodeWorkspaceSearchWorkerRequest,
   VscodeWorkspaceSearchWorkerResponse,
@@ -29,19 +29,33 @@ self.onmessage = (event: MessageEvent<VscodeWorkspaceSearchWorkerRequest>) => {
   const controller = new AbortController()
   abortControllers.set(message.requestId, controller)
 
-  void searchVscodeWorkspaceFilesCore({
+  void searchVscodeWorkspaceFilesCoreDetailed({
     query: message.query,
     skipPaths: message.skipPaths,
     workspaceFolder: message.workspaceFolder,
+    isCaseSensitive: message.isCaseSensitive,
+    matchWholeWord: message.matchWholeWord,
+    isRegex: message.isRegex,
+    filesToInclude: message.filesToInclude,
+    filesToExclude: message.filesToExclude,
+    useExcludeSettingsAndIgnoreFiles: message.useExcludeSettingsAndIgnoreFiles,
+    onlyOpenEditors: message.onlyOpenEditors,
+    onlyPaths: message.onlyPaths,
+    contextLines: message.contextLines,
     signal: controller.signal,
     onProgress: (hits) => {
       if (controller.signal.aborted) return
       post({ type: 'progress', requestId: message.requestId, hits })
     },
   })
-    .then((hits) => {
+    .then((result) => {
       if (controller.signal.aborted) return
-      post({ type: 'done', requestId: message.requestId, hits })
+      post({
+        type: 'done',
+        requestId: message.requestId,
+        hits: result.hits,
+        patternError: result.patternError,
+      })
     })
     .catch((error: unknown) => {
       if (controller.signal.aborted) return

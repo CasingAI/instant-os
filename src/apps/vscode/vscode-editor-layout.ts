@@ -7,6 +7,7 @@ export type VscodeSplitEdge = 'left' | 'right' | 'top' | 'bottom'
 export type VscodeGroupItem =
   | { kind: 'file'; id: string; tabId: string }
   | { kind: 'preview'; id: string; sourcePath: string }
+  | { kind: 'searchEditor'; id: string; sessionId: string }
 
 export type VscodeEditorGroupState = {
   id: string
@@ -171,11 +172,13 @@ export function getFocusedCloseTarget(
 ):
   | { kind: 'file'; tabId: string }
   | { kind: 'preview'; itemId: string }
+  | { kind: 'searchEditor'; itemId: string }
   | undefined {
   const group = layout.groups[layout.focusedGroupId]
   const item = getGroupActiveItem(group)
   if (!item) return undefined
   if (item.kind === 'file') return { kind: 'file', tabId: item.tabId }
+  if (item.kind === 'searchEditor') return { kind: 'searchEditor', itemId: item.id }
   return { kind: 'preview', itemId: item.id }
 }
 
@@ -352,6 +355,44 @@ export function addFileTabToFocusedGroup(
         ...group,
         items: [...group.items, item],
         activeItemId: tabId,
+      },
+    },
+  }
+}
+
+export function openSearchEditorInFocusedGroup(
+  layout: VscodeEditorLayoutState,
+  sessionId: string,
+): VscodeEditorLayoutState {
+  for (const group of Object.values(layout.groups)) {
+    const existing = group.items.find(
+      (item) => item.kind === 'searchEditor' && item.sessionId === sessionId,
+    )
+    if (existing) {
+      return focusEditorItem(layout, group.id, existing.id)
+    }
+  }
+
+  let focusedGroupId = layout.focusedGroupId
+  let group = layout.groups[focusedGroupId]
+  if (!group) {
+    const fresh = createEmptyEditorLayout()
+    focusedGroupId = fresh.focusedGroupId
+    group = fresh.groups[focusedGroupId]!
+    layout = fresh
+  }
+
+  const itemId = `search-editor-item-${sessionId}`
+  const item: VscodeGroupItem = { kind: 'searchEditor', id: itemId, sessionId }
+  return {
+    ...layout,
+    focusedGroupId,
+    groups: {
+      ...layout.groups,
+      [focusedGroupId]: {
+        ...group,
+        items: [...group.items, item],
+        activeItemId: itemId,
       },
     },
   }

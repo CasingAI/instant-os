@@ -352,7 +352,8 @@
 }
 
 .vscode__search-input {
-  margin: 0 12px 8px;
+  flex: 1;
+  margin: 0;
   padding: 7px 10px;
   border: 1px solid var(--vscode-border);
   border-radius: 5px;
@@ -362,10 +363,165 @@
   font-size: 12px;
   box-shadow: var(--vscode-shadow-in);
   outline: none;
+  min-width: 0;
+}
+
+.vscode__search-input--detail {
+  width: 100%;
 }
 
 .vscode__search-input:focus {
   border-color: var(--vscode-accent);
+}
+
+.vscode__search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.vscode__search-header .vscode__sidebar-title {
+  margin-bottom: 0;
+}
+
+.vscode__search-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.vscode__search-icon-btn,
+.vscode__search-action-btn,
+.vscode__search-file-replace,
+.vscode__search-hit-replace {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.vscode__search-icon-btn:hover,
+.vscode__search-action-btn:hover,
+.vscode__search-file-replace:hover,
+.vscode__search-hit-replace:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--vscode-ink);
+}
+
+.vscode__search-query-row,
+.vscode__search-replace-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 8px 6px;
+}
+
+.vscode__search-toggle-replace {
+  width: 18px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-muted);
+  cursor: pointer;
+  transform: rotate(0deg);
+  transition: transform 0.12s ease;
+  padding: 0;
+  font-size: 12px;
+}
+
+.vscode__search-toggle-replace--open {
+  transform: rotate(90deg);
+}
+
+.vscode__search-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.vscode__search-toggles {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.vscode__search-toggle {
+  min-width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.vscode__search-toggle--on {
+  background: rgba(47, 135, 226, 0.18);
+  border-color: rgba(47, 135, 226, 0.35);
+  color: var(--vscode-accent-deep);
+}
+
+.vscode__search-details-toggle {
+  margin: 0 12px 6px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-muted);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.vscode__search-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.vscode__search-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--vscode-muted);
+}
+
+.vscode__search-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--vscode-ink);
+}
+
+.vscode__search-check--disabled {
+  opacity: 0.5;
+}
+
+.vscode__search-error {
+  margin: 0 12px 6px;
+  font-size: 11px;
+  color: #c23b22;
+}
+
+.vscode__search-summary {
+  margin: 0 12px 6px;
+  font-size: 11px;
+  color: var(--vscode-muted);
 }
 
 .vscode__search-results {
@@ -374,17 +530,78 @@
   padding: 0 6px 8px;
 }
 
-.vscode__search-hit {
+.vscode__search-file {
+  margin-bottom: 4px;
+}
+
+.vscode__search-file-row {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
+  align-items: center;
+  gap: 4px;
+}
+
+.vscode__search-file-head {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: 5px;
   background: transparent;
   color: var(--vscode-ink);
   text-align: left;
-  padding: 8px 10px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.vscode__search-file-head:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.vscode__search-twistie {
+  width: 12px;
+  color: var(--vscode-muted);
+  font-size: 10px;
+}
+
+.vscode__search-file-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode__search-file-count {
+  font-size: 10px;
+  color: var(--vscode-muted);
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.vscode__search-hit-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding-left: 14px;
+}
+
+.vscode__search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-ink);
+  text-align: left;
+  padding: 4px 8px;
   cursor: pointer;
   font: inherit;
 }
@@ -394,13 +611,224 @@
   border-color: rgba(0, 0, 0, 0.06);
 }
 
-.vscode__search-hit-name {
+.vscode__search-hit-line {
+  font-size: 10px;
+  color: var(--vscode-muted);
+}
+
+.vscode__search-hit-preview,
+.vscode__search-hit-after {
+  font-size: 11px;
+  color: var(--vscode-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode__search-hit-after {
+  color: #2e7d32;
+}
+
+.vscode__search-mark {
+  background: rgba(255, 213, 0, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.vscode__search-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--vscode-editor-bg, #fff);
+}
+
+.vscode__search-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vscode-border);
   font-size: 12px;
+}
+
+.vscode__search-editor-query {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vscode__search-editor-label {
+  color: var(--vscode-muted);
+}
+
+.vscode__search-editor-flag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(47, 135, 226, 0.15);
   color: var(--vscode-accent-deep);
+}
+
+.vscode__search-editor-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vscode-muted);
+}
+
+.vscode__search-editor-context input {
+  width: 52px;
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.vscode__search-editor-summary {
+  margin-left: auto;
+  color: var(--vscode-muted);
+}
+
+.vscode__search-editor-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px 24px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.vscode__search-editor-file {
+  margin-bottom: 18px;
+}
+
+.vscode__search-editor-file-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--vscode-accent-deep);
+  font-family: inherit;
+}
+
+.vscode__search-editor-block {
+  margin-bottom: 10px;
+  border-left: 2px solid rgba(47, 135, 226, 0.35);
+  padding-left: 6px;
+}
+
+.vscode__search-editor-line {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 1px 4px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--vscode-ink);
+  border-radius: 3px;
+}
+
+.vscode__search-editor-line:hover {
+  background: rgba(47, 135, 226, 0.08);
+}
+
+.vscode__search-editor-line--match {
+  background: rgba(255, 213, 0, 0.18);
+}
+
+.vscode__search-editor-lineno {
+  width: 40px;
+  flex-shrink: 0;
+  color: var(--vscode-muted);
+  text-align: right;
+}
+
+.vscode__search-editor-text {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vscode__quick-search {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+
+.vscode__quick-search-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.28);
+  cursor: default;
+}
+
+.vscode__quick-search-panel {
+  position: relative;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(60vh, 480px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: #f6f6f8;
+  border: 1px solid var(--vscode-border);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.vscode__quick-search-input {
+  margin: 12px 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.vscode__quick-search-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 8px 10px;
+}
+
+.vscode__quick-search-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--vscode-ink);
+}
+
+.vscode__quick-search-item--active,
+.vscode__quick-search-item:hover {
+  background: rgba(47, 135, 226, 0.14);
+  border-color: rgba(47, 135, 226, 0.25);
+}
+
+.vscode__quick-search-item-name {
+  font-size: 12px;
   font-weight: 600;
 }
 
-.vscode__search-hit-preview {
+.vscode__quick-search-item-preview {
   font-size: 11px;
   color: var(--vscode-muted);
   overflow: hidden;
@@ -1772,10 +2200,30 @@
 .vscode--chrome-dark .vscode__search-input,
 .vscode--chrome-dark .vscode__setting select,
 .vscode--chrome-dark .vscode__setting input[type='number'],
-.vscode--chrome-dark .vscode-quick-pick__input {
+.vscode--chrome-dark .vscode-quick-pick__input,
+.vscode--chrome-dark .vscode__quick-search-input,
+.vscode--chrome-dark .vscode__search-editor-context input {
   background: #1e1e24;
   color: var(--vscode-ink);
   border-color: var(--vscode-border);
+}
+
+.vscode--chrome-dark .vscode__search-file-head:hover,
+.vscode--chrome-dark .vscode__quick-search-item--active,
+.vscode--chrome-dark .vscode__quick-search-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vscode--chrome-dark .vscode__quick-search-panel {
+  background: #2b2b32;
+}
+
+.vscode--chrome-dark .vscode__search-file-count {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vscode--chrome-dark .vscode__search-hit-after {
+  color: #81c784;
 }
 
 .vscode--chrome-dark .vscode__setting--row {

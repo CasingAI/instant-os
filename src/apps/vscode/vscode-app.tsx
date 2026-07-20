@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { disposeMonacoModelForPath, MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
+import { disposeMonacoModelForPath, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import {
   MONACO_SELECTABLE_LANGUAGES,
   monacoLanguageLabel,
@@ -55,6 +55,7 @@ import {
   layoutHasItems,
   moveEditorItemToGroup,
   openMarkdownPreviewToSide,
+  openSearchEditorInFocusedGroup,
   removeEditorItem,
   removeFileTabFromLayout,
   setBranchRatio,
@@ -66,6 +67,12 @@ import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-pre
 import { VscodeProblemsPanel } from './vscode-problems-panel.tsx'
 import { VscodeLogPanel } from './vscode-log-panel.tsx'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
+import { VscodeQuickSearch } from './vscode-quick-search.tsx'
+import { VscodeSearchPanel } from './vscode-search-panel.tsx'
+import {
+  buildSearchEditorSession,
+  type VscodeSearchEditorSession,
+} from './vscode-search-editor-session.ts'
 import {
   buildVscodeSessionFromTabs,
   loadVscodeSession,
@@ -87,13 +94,12 @@ import {
 } from './vscode-tabs.ts'
 import {
   matchVscodeOpenFiles,
-  searchVscodeWorkspaceFiles,
+  searchVscodeWorkspaceFilesDetailed,
   type VscodeWorkspaceSearchHit,
 } from './vscode-workspace-search.ts'
 import './vscode.css'
 
 const SESSION_PERSIST_DEBOUNCE_MS = 400
-const SEARCH_DEBOUNCE_MS = 250
 
 const APP_ID = 'vscode' as const
 const THEME = '#2f87e2'
@@ -208,9 +214,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [tabs, setTabs] = useState<VscodeTab[]>([])
   const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [workspaceSearchHits, setWorkspaceSearchHits] = useState<VscodeWorkspaceSearchHit[]>([])
-  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchFocusNonce, setSearchFocusNonce] = useState(0)
+  const [searchExpandReplaceNonce, setSearchExpandReplaceNonce] = useState(0)
+  const [searchSeedInclude, setSearchSeedInclude] = useState<string | undefined>(undefined)
+  const [searchSeedIncludeNonce, setSearchSeedIncludeNonce] = useState(0)
+  const [searchEditorSessions, setSearchEditorSessions] = useState<
+    Map<string, VscodeSearchEditorSession>
+  >(() => new Map())
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false)
   const cursorRef = useRef<VscodeCursorPos>({ line: 1, column: 1 })
   const cursorSetterRef = useRef<(line: number, column: number) => void>(() => undefined)
   const [gotoLineOpen, setGotoLineOpen] = useState(false)
@@ -1018,6 +1029,30 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     [ensureTabCleanOrConfirm, removeTab],
   )
 
+  const closeSearchEditorItem = useCallback((itemId: string) => {
+    let sessionId: string | undefined
+    for (const group of Object.values(editorLayoutRef.current.groups)) {
+      const item = group.items.find((entry) => entry.id === itemId)
+      if (item?.kind === 'searchEditor') {
+        sessionId = item.sessionId
+        break
+      }
+    }
+    setEditorLayout((layout) => {
+      const next = removeEditorItem(layout, itemId)
+      editorLayoutRef.current = next
+      return next
+    })
+    if (sessionId) {
+      setSearchEditorSessions((prev) => {
+        if (!prev.has(sessionId!)) return prev
+        const next = new Map(prev)
+        next.delete(sessionId!)
+        return next
+      })
+    }
+  }, [])
+
   const handleCloseTab = useCallback(() => {
     const target = getFocusedCloseTarget(editorLayoutRef.current)
     if (!target) return
@@ -1025,8 +1060,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       closePreviewItem(target.itemId)
       return
     }
+    if (target.kind === 'searchEditor') {
+      closeSearchEditorItem(target.itemId)
+      return
+    }
     void closeTab(target.tabId)
-  }, [closePreviewItem, closeTab])
+  }, [closePreviewItem, closeSearchEditorItem, closeTab])
 
   const closeOtherInGroup = useCallback(
     async (groupId: string, keepItemId: string) => {
@@ -1050,10 +1089,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           closePreviewItem(item.id)
           continue
         }
+        if (item.kind === 'searchEditor') {
+          closeSearchEditorItem(item.id)
+          continue
+        }
         await closeTab(item.tabId)
       }
     },
-    [closePreviewItem, closeTab],
+    [closePreviewItem, closeSearchEditorItem, closeTab],
   )
 
   const handleCloseOtherTabs = useCallback(() => {
@@ -1103,6 +1146,30 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       if (key === 'o' && !event.shiftKey && !event.altKey) {
         event.preventDefault()
         void pickAndOpen()
+        return
+      }
+      if (key === 'f' && event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        setSidebarView('search')
+        setPrefs((current) => ({ ...current, sidebarVisible: true }))
+        setSearchFocusNonce((value) => value + 1)
+        return
+      }
+      if (key === 'h' && event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        setSidebarView('search')
+        setPrefs((current) => ({
+          ...current,
+          sidebarVisible: true,
+          search: { ...current.search, showReplace: true },
+        }))
+        setSearchFocusNonce((value) => value + 1)
+        setSearchExpandReplaceNonce((value) => value + 1)
+        return
+      }
+      if (key === 'f' && !event.shiftKey && event.altKey) {
+        event.preventDefault()
+        setQuickSearchOpen(true)
       }
     }
 
@@ -1155,58 +1222,192 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     [tabs],
   )
 
-  const openSearchHits = useMemo(
-    () => matchVscodeOpenFiles(searchQuery, openSearchFiles),
-    [openSearchFiles, searchQuery],
+  const dirtyPaths = useMemo(() => {
+    const paths = new Set<string>()
+    for (const tab of tabs) {
+      if (isVscodeTabDirty(tab)) paths.add(tab.path)
+    }
+    return paths
+  }, [tabs])
+
+  const patchSearchPrefs = useCallback((patch: Partial<VscodePrefs['search']>) => {
+    setPrefs((current) => ({
+      ...current,
+      search: { ...current.search, ...patch },
+    }))
+  }, [])
+
+  const activateSearchSidebar = useCallback(
+    (options?: { expandReplace?: boolean }) => {
+      setSidebarView('search')
+      setPrefs((current) => ({
+        ...current,
+        sidebarVisible: true,
+        ...(options?.expandReplace
+          ? { search: { ...current.search, showReplace: true } }
+          : {}),
+      }))
+      setSearchFocusNonce((value) => value + 1)
+      if (options?.expandReplace) {
+        setSearchExpandReplaceNonce((value) => value + 1)
+      }
+    },
+    [],
   )
 
-  // 只在查询词 / 工作区变化时扫盘；打开文件变化不重搜（避免点击结果清空列表）
-  useEffect(() => {
-    const query = searchQuery.trim()
-    if (!query) {
-      setWorkspaceSearchHits([])
-      setSearchLoading(false)
-      return
-    }
+  const findInFolder = useCallback(
+    (folderPath: string) => {
+      const root = prefs.workspaceFolder?.replace(/\/+$/, '') || ''
+      const rel =
+        root && folderPath.startsWith(`${root}/`)
+          ? folderPath.slice(root.length + 1)
+          : folderPath === root
+            ? ''
+            : folderPath
+      setSearchSeedInclude(rel || '.')
+      setSearchSeedIncludeNonce((value) => value + 1)
+      activateSearchSidebar()
+    },
+    [activateSearchSidebar, prefs.workspaceFolder],
+  )
 
-    const abort = new AbortController()
-    setWorkspaceSearchHits([])
-    setSearchLoading(true)
-    const skipPaths = new Set(tabsRef.current.map((tab) => tab.path))
-    const timer = window.setTimeout(() => {
-      void searchVscodeWorkspaceFiles({
-        query,
+  const openSearchHit = useCallback(
+    (hit: VscodeWorkspaceSearchHit) => {
+      void openDocument(hit.path, {
+        reveal: { line: hit.line, column: hit.column },
+      })
+    },
+    [openDocument],
+  )
+
+  const updateOpenFileTextByPath = useCallback((path: string, text: string) => {
+    setTabs((prev) =>
+      prev.map((tab) => (tab.path === path ? { ...tab, text } : tab)),
+    )
+  }, [])
+
+  const openSearchEditorFromPanel = useCallback(
+    async (payload: {
+      query: string
+      isCaseSensitive: boolean
+      matchWholeWord: boolean
+      isRegex: boolean
+      filesToInclude: string
+      filesToExclude: string
+      useExcludeSettingsAndIgnoreFiles: boolean
+      hits: VscodeWorkspaceSearchHit[]
+    }) => {
+      const contextLines = prefs.search.searchEditorContextLines
+      let hits = payload.hits
+      if (contextLines > 0 && prefs.workspaceFolder && payload.query.trim()) {
+        const openMatched = matchVscodeOpenFiles(payload.query, openSearchFiles, {
+          isCaseSensitive: payload.isCaseSensitive,
+          matchWholeWord: payload.matchWholeWord,
+          isRegex: payload.isRegex,
+          filesToInclude: payload.filesToInclude,
+          filesToExclude: payload.filesToExclude,
+          useExcludeSettingsAndIgnoreFiles: payload.useExcludeSettingsAndIgnoreFiles,
+          workspaceFolder: prefs.workspaceFolder,
+          contextLines,
+        })
+        const skipPaths = new Set(openSearchFiles.map((file) => file.path))
+        const workspaceResult = await searchVscodeWorkspaceFilesDetailed({
+          query: payload.query,
+          skipPaths,
+          workspaceFolder: prefs.workspaceFolder,
+          isCaseSensitive: payload.isCaseSensitive,
+          matchWholeWord: payload.matchWholeWord,
+          isRegex: payload.isRegex,
+          filesToInclude: payload.filesToInclude,
+          filesToExclude: payload.filesToExclude,
+          useExcludeSettingsAndIgnoreFiles: payload.useExcludeSettingsAndIgnoreFiles,
+          contextLines,
+        })
+        const openPaths = new Set(openSearchFiles.map((file) => file.path))
+        hits = [
+          ...openMatched.hits,
+          ...workspaceResult.hits.filter((hit) => !openPaths.has(hit.path)),
+        ]
+      }
+
+      const session = buildSearchEditorSession({
+        query: payload.query,
+        isCaseSensitive: payload.isCaseSensitive,
+        matchWholeWord: payload.matchWholeWord,
+        isRegex: payload.isRegex,
+        filesToInclude: payload.filesToInclude,
+        filesToExclude: payload.filesToExclude,
+        useExcludeSettingsAndIgnoreFiles: payload.useExcludeSettingsAndIgnoreFiles,
+        hits,
+        contextLines,
+      })
+      setSearchEditorSessions((prev) => {
+        const next = new Map(prev)
+        next.set(session.id, session)
+        return next
+      })
+      setEditorLayout((layout) => {
+        const next = openSearchEditorInFocusedGroup(layout, session.id)
+        editorLayoutRef.current = next
+        return next
+      })
+    },
+    [openSearchFiles, prefs.search.searchEditorContextLines, prefs.workspaceFolder],
+  )
+
+  const refreshSearchEditorContext = useCallback(
+    async (sessionId: string, lines: number) => {
+      const session = searchEditorSessions.get(sessionId)
+      if (!session) return
+      patchSearchPrefs({ searchEditorContextLines: lines })
+      if (!prefs.workspaceFolder || !session.query.trim()) {
+        setSearchEditorSessions((prev) => {
+          const next = new Map(prev)
+          const current = next.get(sessionId)
+          if (!current) return prev
+          next.set(sessionId, { ...current, contextLines: lines })
+          return next
+        })
+        return
+      }
+      const openMatched = matchVscodeOpenFiles(session.query, openSearchFiles, {
+        isCaseSensitive: session.isCaseSensitive,
+        matchWholeWord: session.matchWholeWord,
+        isRegex: session.isRegex,
+        filesToInclude: session.filesToInclude,
+        filesToExclude: session.filesToExclude,
+        useExcludeSettingsAndIgnoreFiles: session.useExcludeSettingsAndIgnoreFiles,
+        workspaceFolder: prefs.workspaceFolder,
+        contextLines: lines,
+      })
+      const skipPaths = new Set(openSearchFiles.map((file) => file.path))
+      const workspaceResult = await searchVscodeWorkspaceFilesDetailed({
+        query: session.query,
         skipPaths,
         workspaceFolder: prefs.workspaceFolder,
-        signal: abort.signal,
-        onProgress: (hits) => {
-          if (abort.signal.aborted) return
-          setWorkspaceSearchHits(hits)
-        },
+        isCaseSensitive: session.isCaseSensitive,
+        matchWholeWord: session.matchWholeWord,
+        isRegex: session.isRegex,
+        filesToInclude: session.filesToInclude,
+        filesToExclude: session.filesToExclude,
+        useExcludeSettingsAndIgnoreFiles: session.useExcludeSettingsAndIgnoreFiles,
+        contextLines: lines,
       })
-        .then((hits) => {
-          if (abort.signal.aborted) return
-          setWorkspaceSearchHits(hits)
-          setSearchLoading(false)
-        })
-        .catch(() => {
-          if (abort.signal.aborted) return
-          setSearchLoading(false)
-        })
-    }, SEARCH_DEBOUNCE_MS)
-
-    return () => {
-      abort.abort()
-      window.clearTimeout(timer)
-    }
-  }, [prefs.workspaceFolder, searchQuery])
-
-  const searchHits = useMemo(() => {
-    if (!searchQuery.trim()) return []
-    const openPaths = new Set(tabs.map((tab) => tab.path))
-    const workspaceOnly = workspaceSearchHits.filter((hit) => !openPaths.has(hit.path))
-    return [...openSearchHits, ...workspaceOnly]
-  }, [openSearchHits, searchQuery, tabs, workspaceSearchHits])
+      const openPaths = new Set(openSearchFiles.map((file) => file.path))
+      const hits = [
+        ...openMatched.hits,
+        ...workspaceResult.hits.filter((hit) => !openPaths.has(hit.path)),
+      ]
+      setSearchEditorSessions((prev) => {
+        const next = new Map(prev)
+        const current = next.get(sessionId)
+        if (!current) return prev
+        next.set(sessionId, { ...current, contextLines: lines, hits })
+        return next
+      })
+    },
+    [openSearchFiles, patchSearchPrefs, prefs.workspaceFolder, searchEditorSessions],
+  )
 
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
@@ -1310,10 +1511,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           {
             type: 'action',
             label: '搜索',
-            onClick: () => {
-              setSidebarView('search')
-              updatePrefs({ sidebarVisible: true })
-            },
+            shortcut: '⇧⌘F',
+            onClick: () => activateSearchSidebar(),
+          },
+          {
+            type: 'action',
+            label: '在文件中替换',
+            shortcut: '⇧⌘H',
+            onClick: () => activateSearchSidebar({ expandReplace: true }),
+          },
+          {
+            type: 'action',
+            label: '快速搜索',
+            shortcut: '⌥⌘F',
+            onClick: () => setQuickSearchOpen(true),
           },
           {
             type: 'action',
@@ -1334,6 +1545,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       },
     ]
   }, [
+    activateSearchSidebar,
     activeTab,
     closeWindowsForApp,
     closeWorkspaceFolder,
@@ -1457,7 +1669,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             type="button"
             class={`vscode__activity-btn${sidebarView === 'search' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
             title="搜索"
-            onClick={() => activateSidebar('search')}
+            onClick={() => activateSearchSidebar()}
           >
             <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="currentColor" stroke-width="2.4" />
@@ -1495,43 +1707,25 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onOpenFile={(path) => void openDocument(path)}
                 onOpenFolder={() => void pickAndOpenFolder()}
                 onOpenInFiles={openInFiles}
+                onFindInFolder={findInFolder}
               />
             ) : undefined}
 
             {sidebarView === 'search' ? (
-              <div class="vscode__search">
-                <div class="vscode__sidebar-title">搜索</div>
-                <input
-                  class="vscode__search-input"
-                  type="search"
-                  placeholder="在工作区中搜索"
-                  value={searchQuery}
-                  onInput={(event) => setSearchQuery((event.target as HTMLInputElement).value)}
-                />
-                <div class="vscode__search-results">
-                  {searchHits.map((hit) => (
-                    <button
-                      key={`${hit.path}:${hit.line}:${hit.preview}`}
-                      type="button"
-                      class="vscode__search-hit"
-                      onClick={() =>
-                        void openDocument(hit.path, { reveal: { line: hit.line, column: 1 } })
-                      }
-                    >
-                      <span class="vscode__search-hit-name">
-                        {hit.name}:{hit.line}
-                      </span>
-                      <span class="vscode__search-hit-preview">{hit.preview}</span>
-                    </button>
-                  ))}
-                  {searchQuery.trim() && searchLoading ? (
-                    <div class="vscode__tree-hint">搜索中…</div>
-                  ) : undefined}
-                  {searchQuery.trim() && !searchLoading && searchHits.length === 0 ? (
-                    <div class="vscode__tree-hint">无匹配</div>
-                  ) : undefined}
-                </div>
-              </div>
+              <VscodeSearchPanel
+                workspaceFolder={prefs.workspaceFolder}
+                openFiles={openSearchFiles}
+                dirtyPaths={dirtyPaths}
+                searchPrefs={prefs.search}
+                onPatchSearchPrefs={patchSearchPrefs}
+                focusNonce={searchFocusNonce}
+                expandReplaceNonce={searchExpandReplaceNonce}
+                seedInclude={searchSeedInclude}
+                seedIncludeNonce={searchSeedIncludeNonce}
+                onOpenHit={openSearchHit}
+                onUpdateOpenFileText={updateOpenFileTextByPath}
+                onOpenSearchEditor={(payload) => void openSearchEditorFromPanel(payload)}
+              />
             ) : undefined}
 
             {sidebarView === 'settings' ? (
@@ -1639,6 +1833,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onResolveConflict={resolveTabConflict}
                 onSetBranchRatio={(branchId, ratio) =>
                   setEditorLayout((current) => setBranchRatio(current, branchId, ratio))
+                }
+                searchEditorSessions={searchEditorSessions}
+                onCloseSearchEditor={closeSearchEditorItem}
+                onSearchEditorOpenHit={openSearchHit}
+                onSearchEditorContextLinesChange={(sessionId, lines) =>
+                  void refreshSearchEditorContext(sessionId, lines)
                 }
               />
             ) : (
@@ -1868,6 +2068,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         activeId={activeTab?.language}
         onClose={() => setLanguagePickerOpen(false)}
         onSelect={(item) => setActiveLanguage(item.id)}
+      />
+
+      <VscodeQuickSearch
+        open={quickSearchOpen}
+        workspaceFolder={prefs.workspaceFolder}
+        openFiles={openSearchFiles}
+        onClose={() => setQuickSearchOpen(false)}
+        onSelect={openSearchHit}
       />
 
       <WindowModal

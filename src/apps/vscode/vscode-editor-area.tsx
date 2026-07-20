@@ -18,6 +18,9 @@ import {
 } from './vscode-editor-layout.ts'
 import { isVscodeTabDirty, type VscodeTab } from './vscode-tabs.ts'
 import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
+import { VscodeSearchEditor } from './vscode-search-editor.tsx'
+import type { VscodeSearchEditorSession } from './vscode-search-editor-session.ts'
+import type { VscodeWorkspaceSearchHit } from './vscode-workspace-search-core.ts'
 
 type DropZone = VscodeSplitEdge
 
@@ -51,6 +54,10 @@ type VscodeEditorAreaProps = {
   onOpenPath: (path: string, reveal?: MonacoRevealPosition) => void
   onResolveConflict: (tabId: string, choice: 'draft' | 'disk') => void
   onSetBranchRatio: (branchId: string, ratio: number) => void
+  searchEditorSessions?: ReadonlyMap<string, VscodeSearchEditorSession>
+  onCloseSearchEditor?: (itemId: string) => void
+  onSearchEditorOpenHit?: (hit: VscodeWorkspaceSearchHit) => void
+  onSearchEditorContextLinesChange?: (sessionId: string, lines: number) => void
 }
 
 function pathInWorkspace(workspaceFolder: string | undefined, path: string | undefined): boolean {
@@ -64,6 +71,7 @@ function pathForGroupItem(
   tabs: readonly VscodeTab[],
 ): string | undefined {
   if (item.kind === 'preview') return item.sourcePath
+  if (item.kind === 'searchEditor') return undefined
   return tabs.find((tab) => tab.id === item.tabId)?.path
 }
 
@@ -144,6 +152,10 @@ function VscodeEditorGroupView({
   onCursorChange,
   onOpenPath,
   onResolveConflict,
+  searchEditorSessions,
+  onCloseSearchEditor,
+  onSearchEditorOpenHit,
+  onSearchEditorContextLinesChange,
 }: GroupViewProps) {
   const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
@@ -185,6 +197,7 @@ function VscodeEditorGroupView({
           disabled: loading || dialogBlocked,
           onClick: () => {
             if (item.kind === 'file') onCloseFileTab(item.tabId)
+            else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
             else onClosePreview(item.id)
           },
         },
@@ -239,6 +252,7 @@ function VscodeEditorGroupView({
       onCloseFileTab,
       onCloseOtherInGroup,
       onClosePreview,
+      onCloseSearchEditor,
       onFocusGroup,
       onOpenInFiles,
       onRevealInExplorer,
@@ -374,6 +388,7 @@ function VscodeEditorGroupView({
               onActivate={() => onActivateItem(group.id, item.id)}
               onClose={() => {
                 if (item.kind === 'file') onCloseFileTab(item.tabId)
+                else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
                 else onClosePreview(item.id)
               }}
               onContextMenu={(event) => openTabContextMenu(event, item)}
@@ -414,6 +429,22 @@ function VscodeEditorGroupView({
           <div class="vscode__preview-body">
             <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
           </div>
+        ) : activeItem?.kind === 'searchEditor' ? (
+          (() => {
+            const session = searchEditorSessions?.get(activeItem.sessionId)
+            if (!session) {
+              return <div class="vscode__group-empty">搜索结果已关闭</div>
+            }
+            return (
+              <VscodeSearchEditor
+                session={session}
+                onOpenHit={(hit) => onSearchEditorOpenHit?.(hit)}
+                onContextLinesChange={(lines) =>
+                  onSearchEditorContextLinesChange?.(activeItem.sessionId, lines)
+                }
+              />
+            )
+          })()
         ) : activeFileTab ? (
           <>
             {activeFileTab.conflict ? (
@@ -500,7 +531,9 @@ function EditorTabChip({
     item.kind === 'preview' ? tabs.find((tab) => tab.path === item.sourcePath) : undefined
 
   const title =
-    item.kind === 'preview'
+    item.kind === 'searchEditor'
+      ? '搜索编辑器'
+      : item.kind === 'preview'
       ? `Preview ${previewSource?.name ?? 'Markdown'}`
       : fileTab
         ? fileTab.deleted
@@ -512,7 +545,9 @@ function EditorTabChip({
 
   const dirty = fileTab ? isVscodeTabDirty(fileTab) : false
   const pathTitle =
-    item.kind === 'preview'
+    item.kind === 'searchEditor'
+      ? 'Search Editor'
+      : item.kind === 'preview'
       ? previewSource?.path ?? item.sourcePath
       : fileTab?.path ?? ''
 

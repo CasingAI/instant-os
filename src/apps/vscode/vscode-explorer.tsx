@@ -16,6 +16,8 @@ type VscodeExplorerProps = {
   onOpenFile: (path: string) => void
   onOpenFolder: () => void
   onOpenInFiles: (path: string) => void
+  /** 在文件夹中查找（预填 Search include） */
+  onFindInFolder?: (folderPath: string) => void
 }
 
 type TreeNodeProps = {
@@ -29,6 +31,7 @@ type TreeNodeProps = {
   workspaceFolder?: string
   onOpenFile: (path: string) => void
   onOpenInFiles: (path: string) => void
+  onFindInFolder?: (folderPath: string) => void
 }
 
 function pathInWorkspace(workspaceFolder: string | undefined, path: string): boolean {
@@ -86,6 +89,7 @@ function TreeNode({
   workspaceFolder,
   onOpenFile,
   onOpenInFiles,
+  onFindInFolder,
 }: TreeNodeProps) {
   const { showIconContextMenu } = useIconContextMenu()
   const isFolder = entry.kind === 'folder'
@@ -123,7 +127,15 @@ function TreeNode({
       const canOpenInFiles = parseFilesAbsolutePath(entry.path) !== undefined
       showIconContextMenu(event, [
         ...(isFolder
-          ? []
+          ? [
+              {
+                type: 'action' as const,
+                label: '在文件夹中查找',
+                disabled: !onFindInFolder,
+                onClick: () => onFindInFolder?.(entry.path),
+              },
+              { type: 'separator' as const },
+            ]
           : [
               {
                 type: 'action' as const,
@@ -155,7 +167,15 @@ function TreeNode({
         },
       ])
     },
-    [entry.path, isFolder, onOpenFile, onOpenInFiles, showIconContextMenu, workspaceFolder],
+    [
+      entry.path,
+      isFolder,
+      onFindInFolder,
+      onOpenFile,
+      onOpenInFiles,
+      showIconContextMenu,
+      workspaceFolder,
+    ],
   )
 
   // 仅在 reveal 目标变化时自动展开；不要把 expanded 放进依赖，
@@ -251,6 +271,7 @@ function TreeNode({
               workspaceFolder={workspaceFolder}
               onOpenFile={onOpenFile}
               onOpenInFiles={onOpenInFiles}
+              onFindInFolder={onFindInFolder}
             />
           ))}
         </div>
@@ -268,6 +289,7 @@ export function VscodeExplorer({
   onOpenFile,
   onOpenFolder,
   onOpenInFiles,
+  onFindInFolder,
 }: VscodeExplorerProps) {
   const [root, setRoot] = useState<FilesApiEntry | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -335,6 +357,7 @@ export function VscodeExplorer({
             workspaceFolder={workspaceFolder}
             onOpenFile={onOpenFile}
             onOpenInFiles={onOpenInFiles}
+            onFindInFolder={onFindInFolder}
           />
         </div>
       ) : undefined}

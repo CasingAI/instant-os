@@ -1,7 +1,7 @@
 import VscodeWorkspaceSearchWorker from './vscode-workspace-search.worker.ts?worker'
 import {
   matchVscodeOpenFiles,
-  searchVscodeWorkspaceFilesCore,
+  searchVscodeWorkspaceFilesCoreDetailed,
   type VscodeWorkspaceSearchHit,
   type VscodeWorkspaceSearchOpenFile,
   type VscodeWorkspaceSearchParams,
@@ -19,9 +19,14 @@ export type {
 
 export { matchVscodeOpenFiles }
 
+export type VscodeWorkspaceSearchClientResult = {
+  hits: VscodeWorkspaceSearchHit[]
+  patternError: string | undefined
+}
+
 type PendingSearch = {
   onProgress?: (hits: VscodeWorkspaceSearchHit[]) => void
-  resolve: (hits: VscodeWorkspaceSearchHit[]) => void
+  resolve: (result: VscodeWorkspaceSearchClientResult) => void
   reject: (error: Error) => void
 }
 
@@ -48,7 +53,7 @@ function getWorker(): Worker | undefined {
 
       pending.delete(message.requestId)
       if (message.type === 'done') {
-        job.resolve(message.hits)
+        job.resolve({ hits: message.hits, patternError: message.patternError })
         return
       }
       job.reject(new Error(message.message))
@@ -77,35 +82,46 @@ function getWorker(): Worker | undefined {
 export async function searchVscodeWorkspaceFiles(
   params: VscodeWorkspaceSearchParams,
 ): Promise<VscodeWorkspaceSearchHit[]> {
+  const result = await searchVscodeWorkspaceFilesDetailed(params)
+  return result.hits
+}
+
+export async function searchVscodeWorkspaceFilesDetailed(
+  params: VscodeWorkspaceSearchParams,
+): Promise<VscodeWorkspaceSearchClientResult> {
   const query = params.query.trim()
-  if (!query || !params.workspaceFolder) return []
+  if (!query || !params.workspaceFolder) return { hits: [], patternError: undefined }
+  if (params.onlyOpenEditors) return { hits: [], patternError: undefined }
 
   const instance = getWorker()
   if (!instance) {
-    return searchVscodeWorkspaceFilesCore(params)
+    return searchVscodeWorkspaceFilesCoreDetailed(params)
   }
 
   const requestId = nextRequestId
   nextRequestId += 1
   const skipPaths = [...(params.skipPaths instanceof Set ? params.skipPaths : params.skipPaths)]
+  const onlyPaths = params.onlyPaths
+    ? [...(params.onlyPaths instanceof Set ? params.onlyPaths : params.onlyPaths)]
+    : undefined
 
-  return new Promise<VscodeWorkspaceSearchHit[]>((resolve, reject) => {
+  return new Promise<VscodeWorkspaceSearchClientResult>((resolve, reject) => {
     const onAbort = () => {
       instance.postMessage({ type: 'abort', requestId } satisfies VscodeWorkspaceSearchWorkerRequest)
       pending.delete(requestId)
-      resolve([])
+      resolve({ hits: [], patternError: undefined })
     }
 
     if (params.signal?.aborted) {
-      resolve([])
+      resolve({ hits: [], patternError: undefined })
       return
     }
 
     pending.set(requestId, {
       onProgress: params.onProgress,
-      resolve: (hits) => {
+      resolve: (result) => {
         params.signal?.removeEventListener('abort', onAbort)
-        resolve(hits)
+        resolve(result)
       },
       reject: (error) => {
         params.signal?.removeEventListener('abort', onAbort)
@@ -121,10 +137,19 @@ export async function searchVscodeWorkspaceFiles(
       query,
       skipPaths,
       workspaceFolder: params.workspaceFolder!,
+      isCaseSensitive: params.isCaseSensitive,
+      matchWholeWord: params.matchWholeWord,
+      isRegex: params.isRegex,
+      filesToInclude: params.filesToInclude,
+      filesToExclude: params.filesToExclude,
+      useExcludeSettingsAndIgnoreFiles: params.useExcludeSettingsAndIgnoreFiles,
+      onlyOpenEditors: params.onlyOpenEditors,
+      onlyPaths,
+      contextLines: params.contextLines,
     } satisfies VscodeWorkspaceSearchWorkerRequest)
   }).catch(async (error) => {
-    if (params.signal?.aborted) return []
+    if (params.signal?.aborted) return { hits: [], patternError: undefined }
     console.warn('[vscode-workspace-search] Worker 失败，回退主线程', error)
-    return searchVscodeWorkspaceFilesCore(params)
+    return searchVscodeWorkspaceFilesCoreDetailed(params)
   })
 }
