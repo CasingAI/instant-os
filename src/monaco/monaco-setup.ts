@@ -5,6 +5,7 @@ import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import * as monaco from 'monaco-editor'
+import { installMonacoDialogService } from './monaco-dialog-service.ts'
 import { registerMonacoThemes } from './monaco-themes.ts'
 import { ensureMonacoTypescriptDefaults } from './monaco-typescript.ts'
 
@@ -34,6 +35,9 @@ export function ensureMonacoEnvironment(): void {
       return new editorWorker()
     },
   }
+
+  // 必须在首个 editor.create / StandaloneServices.get 之前替换，否则会固化成 window.confirm
+  installMonacoDialogService()
 
   registerMonacoThemes()
   ensureMonacoTypescriptDefaults()

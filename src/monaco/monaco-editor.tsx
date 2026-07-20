@@ -187,6 +187,8 @@ export function MonacoEditor({
       padding: { top: 8, bottom: 8 },
       tabSize: 2,
       renderWhitespace: 'selection',
+      // 依赖包等文件常含 LS/PS，默认 prompt 会打扰；用户暂无此设置项
+      unusualLineTerminators: 'off',
       readOnly,
       // Cmd/Ctrl+点击转到定义
       links: true,

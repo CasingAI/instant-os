@@ -18,6 +18,7 @@ import { FullscreenChromeRevealProvider } from './fullscreen-chrome-reveal-conte
 import { ImmersiveDesktopBackdrop } from './immersive-desktop-backdrop.tsx'
 import { useWallpaper } from './use-wallpaper.ts'
 import { WindowManager } from '../window/window-frame.tsx'
+import { MonacoDialogHost } from '../monaco/monaco-dialog-host.tsx'
 import { SystemDeadlockDialog } from './system-deadlock-dialog.tsx'
 import { TerminalPrivilegeDialog } from '../terminal/terminal-privilege-dialog.tsx'
 import './os-shell.css'
@@ -43,6 +44,7 @@ function OsShellContent() {
       </div>
       <FilesMountPermissionDialog />
       <TerminalPrivilegeDialog />
+      <MonacoDialogHost />
     </div>
   )
 }
