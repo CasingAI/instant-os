@@ -62,6 +62,7 @@
 .files-node-icon--blank-mark .files-node-icon__glyph--file,
 .files-node-icon--preview .files-node-icon__glyph--file,
 .files-node-icon--image .files-node-icon__glyph--file,
+.files-node-icon--model3d .files-node-icon__glyph--file,
 .files-node-icon--code .files-node-icon__glyph--file {
   position: absolute;
   top: 50%;

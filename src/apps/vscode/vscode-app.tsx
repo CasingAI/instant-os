@@ -33,6 +33,7 @@ import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
 import { isFilesNodeWritable } from '../files/files-types.ts'
 import { filesCreateText } from '../files/files-api.ts'
+import { requestFilesReveal } from '../files/files-reveal-request.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
   readTextFile,
@@ -154,6 +155,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setWindowDocumentReadOnly,
     closeWindowsForApp,
     minimizeWindow,
+    openApp,
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
@@ -1329,6 +1331,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     [updatePrefs],
   )
 
+  const openInFiles = useCallback(
+    (path: string) => {
+      requestFilesReveal(path)
+      openApp('files', { documentId: path })
+    },
+    [openApp],
+  )
+
   if (!windowId) {
     return <div class="vscode" />
   }
@@ -1513,6 +1523,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   void closeOtherInGroup(groupId, keepItemId)
                 }
                 onRevealInExplorer={revealInExplorer}
+                onOpenInFiles={openInFiles}
                 workspaceFolder={prefs.workspaceFolder}
                 onMoveItemToGroup={(itemId, targetGroupId, targetIndex) =>
                   setEditorLayout((current) =>

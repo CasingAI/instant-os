@@ -1,5 +1,6 @@
 import {
   ensureSourceSnapshotLoaded,
+  readSourceBytes,
   readSourceFile,
 } from '../../ai/source-snapshot-store.ts'
 import { FILES_TEXT_MIME, type FilesNode } from './files-types.ts'
@@ -38,11 +39,21 @@ function baseName(path: string): string {
 }
 
 function guessMime(path: string): string {
-  if (path.endsWith('.json')) return 'application/json'
-  if (path.endsWith('.css')) return 'text/css'
-  if (path.endsWith('.html')) return 'text/html'
-  if (path.endsWith('.md')) return 'text/markdown'
-  if (path.endsWith('.svg')) return 'image/svg+xml'
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.json')) return 'application/json'
+  if (lower.endsWith('.css')) return 'text/css'
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html'
+  if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.mdx')) {
+    return 'text/markdown'
+  }
+  if (lower.endsWith('.svg')) return 'image/svg+xml'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.ico')) return 'image/x-icon'
+  if (lower.endsWith('.gltf')) return 'model/gltf+json'
+  if (lower.endsWith('.glb')) return 'model/gltf-binary'
   return FILES_TEXT_MIME
 }
 
@@ -89,9 +100,9 @@ export async function getSourceNode(id: string): Promise<FilesNode | undefined> 
 
   const filePath = parseFilePath(id)
   if (filePath !== undefined) {
-    const text = await readSourceFile(filePath)
-    if (text === undefined) return undefined
-    return makeFileNode(filePath, new TextEncoder().encode(text).length)
+    const bytes = await readSourceBytes(filePath)
+    if (bytes === undefined) return undefined
+    return makeFileNode(filePath, bytes.byteLength)
   }
 
   return undefined
@@ -130,8 +141,8 @@ export async function listSourceDirectory(folderId: string | undefined): Promise
     ...filePaths
       .sort((a, b) => a.localeCompare(b))
       .map((path) => {
-        const text = files.get(path) ?? ''
-        return makeFileNode(path, new TextEncoder().encode(text).length)
+        const bytes = files.get(path)
+        return makeFileNode(path, bytes?.byteLength ?? 0)
       }),
   ]
 
@@ -161,8 +172,25 @@ export async function readSourceText(id: string): Promise<{ node: FilesNode; tex
   if (text === undefined) {
     throw new Error('文件不存在')
   }
+  const bytes = await readSourceBytes(filePath)
   return {
-    node: makeFileNode(filePath, new TextEncoder().encode(text).length),
+    node: makeFileNode(filePath, bytes?.byteLength ?? new TextEncoder().encode(text).length),
     text,
+  }
+}
+
+export async function readSourceBlob(id: string): Promise<{ node: FilesNode; blob: Blob }> {
+  const filePath = parseFilePath(id)
+  if (filePath === undefined) {
+    throw new Error('文件不存在')
+  }
+  const bytes = await readSourceBytes(filePath)
+  if (bytes === undefined) {
+    throw new Error('文件不存在')
+  }
+  const mime = guessMime(filePath)
+  return {
+    node: makeFileNode(filePath, bytes.byteLength),
+    blob: new Blob([bytes], { type: mime }),
   }
 }

@@ -34,6 +34,7 @@ type PreviewTab = {
   kind: PreviewKind
   text?: string
   imageSrc?: string
+  modelUrl?: string
 }
 
 type PreviewAppProps = {
@@ -53,9 +54,12 @@ function formatError(error: unknown): string {
   return '操作失败'
 }
 
-function revokeTabImage(tab: PreviewTab): void {
+function revokeTabUrls(tab: PreviewTab): void {
   if (tab.imageSrc?.startsWith('blob:')) {
     URL.revokeObjectURL(tab.imageSrc)
+  }
+  if (tab.modelUrl?.startsWith('blob:')) {
+    URL.revokeObjectURL(tab.modelUrl)
   }
 }
 
@@ -102,7 +106,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
     return () => {
       mountedRef.current = false
       for (const tab of tabsRef.current) {
-        revokeTabImage(tab)
+        revokeTabUrls(tab)
       }
     }
   }, [])
@@ -166,8 +170,14 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           loaded.kind === 'image' && loaded.blob
             ? URL.createObjectURL(loaded.blob)
             : undefined
+        const modelUrl =
+          loaded.kind === 'model3d'
+            ? loaded.modelUrl ??
+              (loaded.blob ? URL.createObjectURL(loaded.blob) : undefined)
+            : undefined
         if (!mountedRef.current) {
           if (imageSrc) URL.revokeObjectURL(imageSrc)
+          if (modelUrl?.startsWith('blob:')) URL.revokeObjectURL(modelUrl)
           return false
         }
         const tab: PreviewTab = {
@@ -177,6 +187,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           kind: loaded.kind,
           text: loaded.text,
           imageSrc,
+          modelUrl,
         }
         setTabs((prev) => [...prev, tab])
         setActiveTabId(tab.id)
@@ -248,7 +259,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
       const index = current.findIndex((tab) => tab.id === tabId)
       if (index < 0) return
       const closing = current[index]
-      if (closing) revokeTabImage(closing)
+      if (closing) revokeTabUrls(closing)
       const nextTabs = current.filter((tab) => tab.id !== tabId)
       if (nextTabs.length === 0) {
         setTabs([])
@@ -388,7 +399,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           <div class="preview-app__empty">
             <p class="preview-app__empty-title">预览</p>
             <p class="preview-app__empty-hint">
-              打开 Markdown 或图片文件，以只读方式查看内容。
+              打开 Markdown、图片或 3D 模型（glTF / GLB），以只读方式查看内容。
             </p>
             <button
               type="button"
@@ -405,6 +416,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
             text={activeTab.text}
             imageSrc={activeTab.imageSrc}
             imageAlt={activeTab.name}
+            modelUrl={activeTab.modelUrl}
           />
         )}
       </div>

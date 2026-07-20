@@ -31,6 +31,10 @@ import {
   removeMount,
 } from './files-mount-store.ts'
 import {
+  subscribeFilesRevealRequests,
+  takeFilesRevealRequest,
+} from './files-reveal-request.ts'
+import {
   isFilesLocationWritable,
   isFilesNodeWritable,
   isMountLocationId,
@@ -50,9 +54,17 @@ import {
   removeNode,
   renameNode,
   resolveFilesAbsolutePath,
+  resolveNodeByAbsolutePath,
   resolvePathNodes,
 } from './files-vfs.ts'
-import { formatFilesByteSize, formatFilesTimestamp } from './files-path.ts'
+import {
+  filesLocationPathRoot,
+  formatFilesByteSize,
+  formatFilesTimestamp,
+  joinFilesAbsolutePath,
+  parseFilesAbsolutePath,
+} from './files-path.ts'
+import { FilesPathBar, type FilesPathBarSegment } from './files-path-bar.tsx'
 import { FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
 import '../../ui/ios-check-toggle.css'
 import '../../ui/ios-nav-back.css'
@@ -174,11 +186,16 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-export function FilesApp() {
+export function FilesApp({ windowId }: { windowId?: string }) {
   const { closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
+
+  const appWindow = windowId
+    ? windows.find((window) => window.id === windowId && !window.closing)
+    : undefined
+  const pendingDocumentId = appWindow?.documentId
 
   const [locationId, setLocationId] = useState<FilesLocationId>('local')
   const [locations, setLocations] = useState<readonly FilesLocation[]>([])
@@ -212,6 +229,11 @@ export function FilesApp() {
   )
   const lastPointerTypeRef = useRef<string>('mouse')
   const actionSheetOpenedByLongPressRef = useRef(false)
+  const refreshGenRef = useRef(0)
+  const lastOpenedDocumentIdRef = useRef<string | undefined>(undefined)
+  const lastRevealNonceRef = useRef(0)
+  const narrowLayoutRef = useRef(narrowLayout)
+  narrowLayoutRef.current = narrowLayout
 
   const locationLabel = getFilesLocationLabel(locationId)
   const locationWritable = isFilesLocationWritable(locationId)
@@ -226,6 +248,7 @@ export function FilesApp() {
   void clipboardRevision
 
   const refresh = useCallback(async (options?: { quiet?: boolean }) => {
+    const gen = ++refreshGenRef.current
     if (!options?.quiet) setLoading(true)
     setError(undefined)
     try {
@@ -233,14 +256,16 @@ export function FilesApp() {
         listDirectory(locationId, folderId),
         resolvePathNodes(locationId, folderId),
       ])
+      if (gen !== refreshGenRef.current) return
       setItems(listed)
       setPathNodes(path)
     } catch (err) {
+      if (gen !== refreshGenRef.current) return
       setError(formatError(err))
       setItems([])
       setPathNodes([])
     } finally {
-      if (!options?.quiet) setLoading(false)
+      if (gen === refreshGenRef.current && !options?.quiet) setLoading(false)
     }
   }, [folderId, locationId])
 
@@ -275,6 +300,82 @@ export function FilesApp() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
+    const applyBrowse = (nextLocationId: FilesLocationId, nextFolderId: string | undefined) => {
+      // 递增 gen，丢弃仍在飞的旧 refresh，避免导航后被过期列表盖回
+      refreshGenRef.current += 1
+      setLocationId(nextLocationId)
+      setFolderId(nextFolderId)
+      setFolderMotion('push')
+      if (narrowLayoutRef.current) {
+        setStackedBrowserOpen(true)
+      }
+    }
+
+    const tryNavigate = async (path: string): Promise<boolean> => {
+      const parsed = parseFilesAbsolutePath(path)
+      if (!parsed) return false
+
+      if (parsed.segments.length === 0) {
+        applyBrowse(parsed.locationId, undefined)
+        return true
+      }
+
+      try {
+        const node = await resolveNodeByAbsolutePath(path)
+        if (node) {
+          applyBrowse(node.locationId, node.kind === 'folder' ? node.id : node.parentId)
+          return true
+        }
+      } catch {
+        // 挂载权限未就绪等：继续尝试父路径
+      }
+
+      if (parsed.segments.length <= 1) {
+        applyBrowse(parsed.locationId, undefined)
+        return true
+      }
+
+      const parentPath = joinFilesAbsolutePath(
+        filesLocationPathRoot(parsed.locationId),
+        ...parsed.segments.slice(0, -1),
+      )
+      return tryNavigate(parentPath)
+    }
+
+    try {
+      const ok = await tryNavigate(absolutePath)
+      if (ok) {
+        lastOpenedDocumentIdRef.current = absolutePath
+      } else {
+        lastOpenedDocumentIdRef.current = undefined
+      }
+    } catch {
+      lastOpenedDocumentIdRef.current = undefined
+    }
+  }, [])
+
+  useEffect(() => {
+    const drainReveal = () => {
+      const request = takeFilesRevealRequest()
+      if (!request) return
+      if (request.nonce === lastRevealNonceRef.current) return
+      lastRevealNonceRef.current = request.nonce
+      lastOpenedDocumentIdRef.current = request.path
+      void navigateToDocumentPath(request.path)
+    }
+
+    drainReveal()
+    return subscribeFilesRevealRequests(drainReveal)
+  }, [navigateToDocumentPath])
+
+  useEffect(() => {
+    if (!pendingDocumentId) return
+    if (lastOpenedDocumentIdRef.current === pendingDocumentId) return
+    lastOpenedDocumentIdRef.current = pendingDocumentId
+    void navigateToDocumentPath(pendingDocumentId)
+  }, [navigateToDocumentPath, pendingDocumentId])
 
   useEffect(() => {
     let timer: number | undefined
@@ -501,6 +602,43 @@ export function FilesApp() {
     const parent = pathNodes[pathNodes.length - 1]?.parentId
     setFolderId(parent)
   }, [pathNodes])
+
+  const navigatePathBar = useCallback(
+    (nextFolderId: string | undefined) => {
+      closeTransientMenus()
+      if (nextFolderId === folderId) return
+      const currentDepth = pathNodes.length
+      const targetDepth =
+        nextFolderId === undefined
+          ? 0
+          : pathNodes.findIndex((node) => node.id === nextFolderId) + 1
+      setFolderMotion(targetDepth < currentDepth ? 'pop' : 'push')
+      setFolderId(nextFolderId)
+    },
+    [closeTransientMenus, folderId, pathNodes],
+  )
+
+  const pathBarSegments = useMemo((): FilesPathBarSegment[] => {
+    const root: FilesPathBarSegment = {
+      key: `root:${locationId}`,
+      label: locationLabel,
+      folderId: undefined,
+      current: pathNodes.length === 0,
+    }
+    const folders = pathNodes.map((node, index) => ({
+      key: node.id,
+      label: node.name,
+      folderId: node.id,
+      current: index === pathNodes.length - 1,
+    }))
+    return [root, ...folders]
+  }, [locationId, locationLabel, pathNodes])
+
+  const pathBarAbsolutePath = useMemo(() => {
+    const root = filesLocationPathRoot(locationId)
+    if (pathNodes.length === 0) return root
+    return joinFilesAbsolutePath(root, ...pathNodes.map((node) => node.name))
+  }, [locationId, pathNodes])
 
   const leaveBrowserStack = useCallback(() => {
     closeTransientMenus()
@@ -1171,6 +1309,12 @@ export function FilesApp() {
             </ul>
           )}
         </div>
+
+        <FilesPathBar
+          segments={pathBarSegments}
+          absolutePath={pathBarAbsolutePath}
+          onNavigate={navigatePathBar}
+        />
       </section>
 
       {contextMenu ? (

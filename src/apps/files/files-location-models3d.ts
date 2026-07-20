@@ -117,3 +117,34 @@ export async function readModels3dText(id: string): Promise<{ node: FilesNode; t
     text,
   }
 }
+
+export async function readModels3dBlob(id: string): Promise<{ node: FilesNode; blob: Blob }> {
+  const modelId = parseModelId(id)
+  if (!modelId) {
+    throw new Error('文件不存在')
+  }
+  const entry = catalogEntryById(modelId)
+  const node = modelNode(modelId)
+  if (!entry || !node) {
+    throw new Error('文件不存在')
+  }
+
+  const response = await fetch(entry.url)
+  if (!response.ok) {
+    throw new Error(`无法读取模型（HTTP ${response.status}）`)
+  }
+  const blob = await response.blob()
+  const typed =
+    blob.type && blob.type !== 'application/octet-stream'
+      ? blob
+      : new Blob([blob], { type: FILES_GLTF_MIME })
+  return {
+    node: { ...node, byteSize: typed.size },
+    blob: typed,
+  }
+}
+
+/** 从节点 id 解析 catalog 条目 id（`models3d:f:{id}`） */
+export function parseModels3dCatalogId(id: string): string | undefined {
+  return parseModelId(id)
+}

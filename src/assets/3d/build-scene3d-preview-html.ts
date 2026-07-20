@@ -80,20 +80,31 @@ renderer.setAnimationLoop(() => {
 });
 `
 
-export function buildScene3dModelPreviewHtml(modelId: string): string {
-  const entry = catalogEntryById(modelId)
-  const url = entry?.url ?? ''
+export function buildScene3dModelUrlPreviewHtml(modelUrl: string): string {
   return previewShell(`
 ${PREVIEW_SETUP}
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const gltf = await new GLTFLoader().loadAsync(${JSON.stringify(url)});
-const model = gltf.scene;
-model.position.set(0, 0, 0);
-scene.add(model);
-frameObject(model);
+try {
+  const gltf = await new GLTFLoader().loadAsync(${JSON.stringify(modelUrl)});
+  const model = gltf.scene;
+  model.position.set(0, 0, 0);
+  scene.add(model);
+  frameObject(model);
+} catch (error) {
+  const message = document.createElement('div');
+  message.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:#4a5568;font:14px/1.5 system-ui,sans-serif;';
+  message.textContent = '无法加载 3D 模型' + (error && error.message ? '：' + error.message : '');
+  container.appendChild(message);
+}
 ${PREVIEW_LOOP}
 `)
+}
+
+export function buildScene3dModelPreviewHtml(modelId: string): string {
+  const entry = catalogEntryById(modelId)
+  const url = entry?.url ?? ''
+  return buildScene3dModelUrlPreviewHtml(url)
 }
 
 export function buildScene3dPrimitivePreviewHtml(kind: Instant3dPrimitiveKind): string {

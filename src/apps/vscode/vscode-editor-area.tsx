@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
+import { parseFilesAbsolutePath } from '../files/files-path.ts'
 import type { VscodePrefs } from './vscode-prefs.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import {
@@ -16,6 +17,7 @@ import {
   setActiveEditorDrag,
 } from './vscode-editor-layout.ts'
 import { isVscodeTabDirty, type VscodeTab } from './vscode-tabs.ts'
+import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
 
 type DropZone = VscodeSplitEdge
 
@@ -39,6 +41,7 @@ type VscodeEditorAreaProps = {
   onClosePreview: (itemId: string) => void
   onCloseOtherInGroup: (groupId: string, keepItemId: string) => void
   onRevealInExplorer: (path: string) => void
+  onOpenInFiles: (path: string) => void
   workspaceFolder: string | undefined
   onMoveItemToGroup: (itemId: string, targetGroupId: string, targetIndex?: number) => void
   onSplitItemToEdge: (itemId: string, targetGroupId: string, edge: VscodeSplitEdge) => void
@@ -132,6 +135,7 @@ function VscodeEditorGroupView({
   onClosePreview,
   onCloseOtherInGroup,
   onRevealInExplorer,
+  onOpenInFiles,
   workspaceFolder,
   onMoveItemToGroup,
   onSplitItemToEdge,
@@ -168,6 +172,12 @@ function VscodeEditorGroupView({
       const otherCount = group.items.filter((entry) => entry.id !== item.id).length
       const itemPath = pathForGroupItem(item, tabs)
       const canReveal = pathInWorkspace(workspaceFolder, itemPath)
+      const canOpenInFiles = itemPath !== undefined && parseFilesAbsolutePath(itemPath) !== undefined
+      const copyToClipboard = (text: string) => {
+        void navigator.clipboard.writeText(text).catch(() => {
+          // clipboard unavailable
+        })
+      }
       showIconContextMenu(event, [
         {
           type: 'action',
@@ -184,12 +194,39 @@ function VscodeEditorGroupView({
           disabled: loading || dialogBlocked || otherCount === 0,
           onClick: () => onCloseOtherInGroup(group.id, item.id),
         },
+        { type: 'separator' },
+        {
+          type: 'action',
+          label: '复制路径',
+          disabled: !itemPath,
+          onClick: () => {
+            if (itemPath) copyToClipboard(itemPath)
+          },
+        },
+        {
+          type: 'action',
+          label: '复制相对路径',
+          disabled: !canReveal || !itemPath || !workspaceFolder,
+          onClick: () => {
+            if (!itemPath || !workspaceFolder) return
+            copyToClipboard(relativeToWorkspace(workspaceFolder, itemPath))
+          },
+        },
+        { type: 'separator' },
         {
           type: 'action',
           label: '在工作区列表显示',
           disabled: !canReveal,
           onClick: () => {
             if (itemPath) onRevealInExplorer(itemPath)
+          },
+        },
+        {
+          type: 'action',
+          label: '在文件中显示',
+          disabled: !canOpenInFiles,
+          onClick: () => {
+            if (itemPath) onOpenInFiles(itemPath)
           },
         },
       ])
@@ -203,6 +240,7 @@ function VscodeEditorGroupView({
       onCloseOtherInGroup,
       onClosePreview,
       onFocusGroup,
+      onOpenInFiles,
       onRevealInExplorer,
       showIconContextMenu,
       tabs,

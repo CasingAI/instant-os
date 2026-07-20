@@ -30,12 +30,14 @@ import {
 import {
   getModels3dNode,
   listModels3dDirectory,
+  readModels3dBlob,
   readModels3dText,
   resolveModels3dPath,
 } from './files-location-models3d.ts'
 import {
   getSourceNode,
   listSourceDirectory,
+  readSourceBlob,
   readSourceText,
   resolveSourcePath,
 } from './files-location-source.ts'
@@ -372,8 +374,11 @@ async function readFileBlobByNodeId(id: string): Promise<{ node: FilesNode; blob
   if (isMountNodeId(id)) {
     return readMountBlob(id)
   }
-  if (id.startsWith('models3d:') || id.startsWith('source:')) {
-    throw new Error('此位置不支持二进制读取')
+  if (id.startsWith('models3d:')) {
+    return readModels3dBlob(id)
+  }
+  if (id.startsWith('source:')) {
+    return readSourceBlob(id)
   }
   const node = await getNode(id)
   if (!node || node.kind !== 'file') {

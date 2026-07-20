@@ -45,6 +45,7 @@ export function isTxtFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean 
 
 const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
+const MODEL3D_EXTENSIONS = new Set(['gltf', 'glb'])
 const VSCODE_OPEN_EXTENSION_SET = new Set<string>(VSCODE_OPEN_EXTENSIONS)
 
 /** 无常规后缀、但应显示 Code 卡片的特殊文件名 → 卡片标签与色调键 */
@@ -65,6 +66,10 @@ export function isBrowserOpenExtension(extension: string | undefined): boolean {
 
 export function isImageFileExtension(extension: string | undefined): boolean {
   return extension !== undefined && IMAGE_EXTENSIONS.has(extension)
+}
+
+export function isModel3dFileExtension(extension: string | undefined): boolean {
+  return extension !== undefined && MODEL3D_EXTENSIONS.has(extension)
 }
 
 export function browserFileBadgeLabel(extension: string): string {
@@ -837,6 +842,60 @@ function ImageFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/** 3D 模型：折角页上叠立方体示意 */
+function Model3dFileGlyph({ className }: { className: string }) {
+  return (
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#f4ebe0"
+        stroke="#8a6a38"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#efe4d4"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#e0d0b8"
+        stroke="#8a6a38"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+      <path
+        fill="#f0d9a8"
+        stroke="#8a6a38"
+        stroke-width="1"
+        d="M22 22.5 L31 27 L31 37.5 L22 42 L13 37.5 L13 27 Z"
+      />
+      <path fill="#c9a66a" opacity="0.7" d="M22 22.5 L31 27 L22 31.5 L13 27 Z" />
+      <path
+        stroke="#5a4328"
+        stroke-width="1"
+        fill="none"
+        d="M22 31.5 V42 M13 27 L22 31.5 L31 27"
+      />
+    </svg>
+  )
+}
+
+function Model3dFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--model3d`}
+      aria-hidden="true"
+    >
+      <Model3dFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** 「新建文本文件」等无节点场景的静态 TXT 图标 */
 export function FilesTxtTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return <TxtFileIcon nodeId="" byteSize={0} size={size} staticPreview="" />
@@ -901,6 +960,10 @@ export function FilesNodeIcon({
 
   if (isImageFileExtension(extension)) {
     return <ImageFileIcon size={size} />
+  }
+
+  if (isModel3dFileExtension(extension)) {
+    return <Model3dFileIcon size={size} />
   }
 
   return <BlankFileMarkIcon size={size} mark="?" />

@@ -1,4 +1,4 @@
-import { strFromU8, unzipSync } from 'fflate'
+import { unzipSync } from 'fflate'
 
 const SNAPSHOT_URL = '/source-snapshot.zip'
 const TEXT_DECODER = new TextDecoder('utf-8')
@@ -15,8 +15,8 @@ export type SourceGrepResult = {
   scannedFiles: number
 }
 
-let filesByPath: Map<string, string> | undefined
-let loadPromise: Promise<Map<string, string>> | undefined
+let filesByPath: Map<string, Uint8Array> | undefined
+let loadPromise: Promise<Map<string, Uint8Array>> | undefined
 
 function normalizePath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\\/g, '/').replace(/^\.\//, '')
@@ -29,7 +29,11 @@ function pathDepth(path: string): number {
   return path.split('/').filter(Boolean).length
 }
 
-async function loadSnapshot(): Promise<Map<string, string>> {
+function decodeText(bytes: Uint8Array): string {
+  return TEXT_DECODER.decode(bytes)
+}
+
+async function loadSnapshot(): Promise<Map<string, Uint8Array>> {
   const response = await fetch(SNAPSHOT_URL)
   if (!response.ok) {
     throw new Error(`无法加载源码快照（HTTP ${response.status}）`)
@@ -37,20 +41,20 @@ async function loadSnapshot(): Promise<Map<string, string>> {
 
   const buffer = new Uint8Array(await response.arrayBuffer())
   const unzipped = unzipSync(buffer)
-  const map = new Map<string, string>()
+  const map = new Map<string, Uint8Array>()
 
   for (const [rawPath, bytes] of Object.entries(unzipped)) {
     if (rawPath.endsWith('/')) {
       continue
     }
     const path = normalizePath(rawPath)
-    map.set(path, strFromU8(bytes) || TEXT_DECODER.decode(bytes))
+    map.set(path, bytes)
   }
 
   return map
 }
 
-export async function ensureSourceSnapshotLoaded(): Promise<Map<string, string>> {
+export async function ensureSourceSnapshotLoaded(): Promise<Map<string, Uint8Array>> {
   if (filesByPath) {
     return filesByPath
   }
@@ -95,6 +99,12 @@ export async function listSourcePaths(options?: {
 }
 
 export async function readSourceFile(path: string): Promise<string | undefined> {
+  const bytes = await readSourceBytes(path)
+  if (bytes === undefined) return undefined
+  return decodeText(bytes)
+}
+
+export async function readSourceBytes(path: string): Promise<Uint8Array | undefined> {
   const files = await ensureSourceSnapshotLoaded()
   return files.get(normalizePath(path))
 }
@@ -126,11 +136,12 @@ export async function grepSource(options: {
       continue
     }
     scannedFiles += 1
-    const content = files.get(path)
-    if (content === undefined) {
+    const bytes = files.get(path)
+    if (bytes === undefined) {
       continue
     }
 
+    const content = decodeText(bytes)
     const lines = content.split('\n')
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index] ?? ''
