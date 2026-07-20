@@ -29,6 +29,8 @@ import {
 import type { TerminalSession } from '../../terminal/terminal-session.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
+import { VscodeIcon } from '../../icons/app-icons.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
@@ -123,6 +125,16 @@ type DirtyPromptState = {
 
 type SidebarView = 'explorer' | 'search' | 'settings'
 
+const VSCODE_THEME_OPTIONS = [
+  { id: 'vs-dark', label: '深色' },
+  { id: 'vs', label: '浅色' },
+  { id: 'hc-black', label: '高对比' },
+  { id: 'dark-plus', label: '深色+' },
+  { id: 'light-plus', label: '浅色+' },
+  { id: 'dark-modern', label: '现代深色' },
+  { id: 'light-modern', label: '现代浅色' },
+] as const
+
 type VscodeAppProps = {
   windowId?: string
 }
@@ -213,6 +225,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
+  const [activityCaretTop, setActivityCaretTop] = useState(30)
+  const activityRailRef = useRef<HTMLElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
   const [tabs, setTabs] = useState<VscodeTab[]>([])
   const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -1732,6 +1747,21 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setRevealNonce((value) => value + 1)
   }, [activeTab?.path, explorerVisible, prefs.workspaceFolder, sessionReady])
 
+  useEffect(() => {
+    if (!prefs.sidebarVisible) return
+    const frame = window.requestAnimationFrame(() => {
+      const sidebar = sidebarRef.current
+      const rail = activityRailRef.current
+      if (!sidebar || !rail) return
+      const active = rail.querySelector('.vscode__activity-btn--active')
+      if (!(active instanceof HTMLElement)) return
+      const sidebarRect = sidebar.getBoundingClientRect()
+      const btnRect = active.getBoundingClientRect()
+      setActivityCaretTop(Math.round(btnRect.top - sidebarRect.top + btnRect.height / 2))
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [prefs.sidebarVisible, sidebarView])
+
   if (!windowId) {
     return <div class="vscode" />
   }
@@ -1739,7 +1769,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   return (
     <div class={`vscode${isVscodeChromeDark(prefs.theme) ? ' vscode--chrome-dark' : ''}`}>
       <div class="vscode__body">
-        <aside class="vscode__activity" aria-label="工具栏">
+        <aside class="vscode__activity" aria-label="工具栏" ref={activityRailRef}>
+          <div class="vscode__activity-brand" aria-hidden="true" title="Virtual Studio Code">
+            <VscodeIcon size={32} />
+          </div>
           <button
             type="button"
             class={`vscode__activity-btn${sidebarView === 'explorer' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
@@ -1782,7 +1815,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
         {prefs.sidebarVisible ? (
           <>
-          <aside class="vscode__sidebar" style={{ width: `${prefs.sidebarWidth}px` }}>
+          <div class="vscode__sidebar-shell" style={{ width: `${prefs.sidebarWidth}px` }}>
+            <aside
+              class="vscode__sidebar"
+              ref={sidebarRef}
+              style={{
+                ['--vscode-caret-y' as string]: `${activityCaretTop}px`,
+              }}
+            >
             {sidebarView === 'explorer' ? (
               <VscodeExplorer
                 workspaceFolder={prefs.workspaceFolder}
@@ -1816,26 +1856,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
             {sidebarView === 'settings' ? (
               <div class="vscode__settings">
-                <div class="vscode__sidebar-title">设置</div>
-                <label class="vscode__setting">
-                  <span>主题</span>
-                  <select
-                    value={prefs.theme}
-                    onChange={(event) =>
-                      updatePrefs({
-                        theme: (event.target as HTMLSelectElement).value as VscodePrefs['theme'],
-                      })
-                    }
-                  >
-                    <option value="vs-dark">深色</option>
-                    <option value="vs">浅色</option>
-                    <option value="hc-black">高对比</option>
-                    <option value="dark-plus">深色+</option>
-                    <option value="light-plus">浅色+</option>
-                    <option value="dark-modern">现代深色</option>
-                    <option value="light-modern">现代浅色</option>
-                  </select>
-                </label>
+                <div class="vscode__sidebar-header">设置</div>
+                <SettingsChoiceField
+                  label="主题"
+                  value={prefs.theme}
+                  options={VSCODE_THEME_OPTIONS}
+                  onChange={(value) =>
+                    updatePrefs({ theme: value as VscodePrefs['theme'] })
+                  }
+                  wideLayout
+                  presentation="form"
+                  fieldClass="vscode__setting"
+                  labelClass=""
+                />
                 <label class="vscode__setting">
                   <span>字号</span>
                   <input
@@ -1869,6 +1902,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               </div>
             ) : undefined}
           </aside>
+          </div>
           <div
             class="vscode__sidebar-sash"
             role="separator"

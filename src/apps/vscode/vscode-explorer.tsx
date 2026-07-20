@@ -332,7 +332,7 @@ export function VscodeExplorer({
 
   return (
     <div class="vscode__explorer">
-      <div class="vscode__sidebar-title">工作区</div>
+      <div class="vscode__sidebar-header">工作区</div>
       {!workspaceFolder ? (
         <div class="vscode__explorer-empty">
           <p class="vscode__tree-hint">尚未打开文件夹</p>

@@ -98,9 +98,7 @@ export function VscodeSearchPanel({
   const [patternError, setPatternError] = useState<string | undefined>(undefined)
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set())
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => new Set())
-  const [allCollapsed, setAllCollapsed] = useState(false)
   const [replacing, setReplacing] = useState(false)
-  const [refreshNonce, setRefreshNonce] = useState(0)
   const historyIndexRef = useRef(-1)
 
   const openFilesRef = useRef(openFiles)
@@ -243,7 +241,6 @@ export function VscodeSearchPanel({
     searchPrefs.onlyOpenEditors,
     searchPrefs.useExcludeSettingsAndIgnoreFiles,
     workspaceFolder,
-    refreshNonce,
   ])
 
   const allHits = useMemo(() => {
@@ -294,30 +291,6 @@ export function VscodeSearchPanel({
       else next.add(path)
       return next
     })
-  }, [])
-
-  const toggleCollapseAll = useCallback(() => {
-    setAllCollapsed((prev) => {
-      const next = !prev
-      if (next) {
-        setCollapsedPaths(new Set(groups.map((group) => group.path)))
-      } else {
-        setCollapsedPaths(new Set())
-      }
-      return next
-    })
-  }, [groups])
-
-  const clearResults = useCallback(() => {
-    setQuery('')
-    setWorkspaceHits([])
-    setDismissedKeys(new Set())
-    setPatternError(undefined)
-  }, [])
-
-  const refresh = useCallback(() => {
-    setDismissedKeys(new Set())
-    setRefreshNonce((value) => value + 1)
   }, [])
 
   const appendExclude = useCallback((folderOrFileRel: string) => {
@@ -563,46 +536,7 @@ export function VscodeSearchPanel({
 
   return (
     <div class="vscode__search">
-      <div class="vscode__search-header">
-        <div class="vscode__sidebar-title">搜索</div>
-        <div class="vscode__search-header-actions">
-          <button
-            type="button"
-            class="vscode__search-icon-btn"
-            title="在编辑器中打开"
-            disabled={allHits.length === 0}
-            onClick={() => {
-              rememberQuery()
-              onOpenSearchEditor({
-                query,
-                isCaseSensitive: searchPrefs.isCaseSensitive,
-                matchWholeWord: searchPrefs.matchWholeWord,
-                isRegex: searchPrefs.isRegex,
-                filesToInclude,
-                filesToExclude,
-                useExcludeSettingsAndIgnoreFiles: searchPrefs.useExcludeSettingsAndIgnoreFiles,
-                hits: allHits,
-              })
-            }}
-          >
-            ⎙
-          </button>
-          <button
-            type="button"
-            class="vscode__search-icon-btn"
-            title={allCollapsed ? '全部展开' : '全部折叠'}
-            onClick={toggleCollapseAll}
-          >
-            {allCollapsed ? '⊞' : '⊟'}
-          </button>
-          <button type="button" class="vscode__search-icon-btn" title="刷新" onClick={refresh}>
-            ↻
-          </button>
-          <button type="button" class="vscode__search-icon-btn" title="清除" onClick={clearResults}>
-            ⌫
-          </button>
-        </div>
-      </div>
+      <div class="vscode__sidebar-header">搜索</div>
 
       <div class="vscode__search-query-row">
         <button
@@ -628,39 +562,6 @@ export function VscodeSearchPanel({
             onKeyDown={onQueryKeyDown}
             onBlur={rememberQuery}
           />
-          <div class="vscode__search-toggles" role="group" aria-label="匹配选项">
-            <button
-              type="button"
-              class={`vscode__search-toggle${searchPrefs.isCaseSensitive ? ' vscode__search-toggle--on' : ''}`}
-              title="区分大小写 (Alt+C)"
-              aria-pressed={searchPrefs.isCaseSensitive}
-              onClick={() =>
-                onPatchSearchPrefs({ isCaseSensitive: !searchPrefs.isCaseSensitive })
-              }
-            >
-              Aa
-            </button>
-            <button
-              type="button"
-              class={`vscode__search-toggle${searchPrefs.matchWholeWord ? ' vscode__search-toggle--on' : ''}`}
-              title="全字匹配 (Alt+W)"
-              aria-pressed={searchPrefs.matchWholeWord}
-              onClick={() =>
-                onPatchSearchPrefs({ matchWholeWord: !searchPrefs.matchWholeWord })
-              }
-            >
-              ab
-            </button>
-            <button
-              type="button"
-              class={`vscode__search-toggle${searchPrefs.isRegex ? ' vscode__search-toggle--on' : ''}`}
-              title="使用正则表达式 (Alt+R)"
-              aria-pressed={searchPrefs.isRegex}
-              onClick={() => onPatchSearchPrefs({ isRegex: !searchPrefs.isRegex })}
-            >
-              .*
-            </button>
-          </div>
         </div>
       </div>
 
@@ -702,14 +603,50 @@ export function VscodeSearchPanel({
 
       <button
         type="button"
-        class="vscode__search-details-toggle"
+        class="vscode__search-advanced-toggle"
+        aria-expanded={searchPrefs.showDetails}
         onClick={() => onPatchSearchPrefs({ showDetails: !searchPrefs.showDetails })}
       >
-        {searchPrefs.showDetails ? '▾' : '▸'} 文件包含与排除
+        {searchPrefs.showDetails ? '▾' : '▸'} 高级选项
       </button>
 
       {searchPrefs.showDetails ? (
-        <div class="vscode__search-details">
+        <div class="vscode__search-advanced">
+          <div class="vscode__search-advanced-label">匹配</div>
+          <div class="vscode__search-toggles" role="group" aria-label="匹配选项">
+            <button
+              type="button"
+              class={`vscode__search-toggle${searchPrefs.isCaseSensitive ? ' vscode__search-toggle--on' : ''}`}
+              title="区分大小写"
+              aria-pressed={searchPrefs.isCaseSensitive}
+              onClick={() =>
+                onPatchSearchPrefs({ isCaseSensitive: !searchPrefs.isCaseSensitive })
+              }
+            >
+              Aa
+            </button>
+            <button
+              type="button"
+              class={`vscode__search-toggle${searchPrefs.matchWholeWord ? ' vscode__search-toggle--on' : ''}`}
+              title="全字匹配"
+              aria-pressed={searchPrefs.matchWholeWord}
+              onClick={() =>
+                onPatchSearchPrefs({ matchWholeWord: !searchPrefs.matchWholeWord })
+              }
+            >
+              ab
+            </button>
+            <button
+              type="button"
+              class={`vscode__search-toggle${searchPrefs.isRegex ? ' vscode__search-toggle--on' : ''}`}
+              title="使用正则表达式"
+              aria-pressed={searchPrefs.isRegex}
+              onClick={() => onPatchSearchPrefs({ isRegex: !searchPrefs.isRegex })}
+            >
+              .*
+            </button>
+          </div>
+
           <label class="vscode__search-detail-field">
             <span>要包含的文件</span>
             <input
@@ -777,11 +714,34 @@ export function VscodeSearchPanel({
       {patternError ? <div class="vscode__search-error">{patternError}</div> : undefined}
 
       <div class="vscode__search-summary">
-        {query.trim()
-          ? loading
-            ? `搜索中…（已找到 ${resultCount} 个结果）`
-            : `${resultCount} 个结果，${fileCount} 个文件`
-          : '输入以搜索工作区'}
+        <span>
+          {query.trim()
+            ? loading
+              ? `搜索中…（已找到 ${resultCount} 个结果）`
+              : `${resultCount} 个结果，${fileCount} 个文件`
+            : '输入以搜索工作区'}
+        </span>
+        {allHits.length > 0 ? (
+          <button
+            type="button"
+            class="vscode__search-summary-link"
+            onClick={() => {
+              rememberQuery()
+              onOpenSearchEditor({
+                query,
+                isCaseSensitive: searchPrefs.isCaseSensitive,
+                matchWholeWord: searchPrefs.matchWholeWord,
+                isRegex: searchPrefs.isRegex,
+                filesToInclude,
+                filesToExclude,
+                useExcludeSettingsAndIgnoreFiles: searchPrefs.useExcludeSettingsAndIgnoreFiles,
+                hits: allHits,
+              })
+            }}
+          >
+            在编辑器中打开
+          </button>
+        ) : undefined}
       </div>
 
       <div class="vscode__search-results">
