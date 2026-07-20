@@ -59,6 +59,7 @@ function waitForTransaction(tx: IDBTransaction): Promise<void> {
 }
 
 function emitMountsChanged(): void {
+  if (typeof window === 'undefined') return
   window.dispatchEvent(new Event(FILES_MOUNTS_CHANGED_EVENT))
 }
 

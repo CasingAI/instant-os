@@ -83,9 +83,15 @@ import {
   VSCODE_OPTIONAL_OPEN_EXTENSIONS,
   type VscodeTab,
 } from './vscode-tabs.ts'
+import {
+  matchVscodeOpenFiles,
+  searchVscodeWorkspaceFiles,
+  type VscodeWorkspaceSearchHit,
+} from './vscode-workspace-search.ts'
 import './vscode.css'
 
 const SESSION_PERSIST_DEBOUNCE_MS = 400
+const SEARCH_DEBOUNCE_MS = 250
 
 const APP_ID = 'vscode' as const
 const THEME = '#2f87e2'
@@ -165,6 +171,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [workspaceSearchHits, setWorkspaceSearchHits] = useState<VscodeWorkspaceSearchHit[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false)
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
@@ -1062,26 +1070,69 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     [],
   )
 
-  const searchHits = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    if (!query) return []
-    return tabs.flatMap((tab) => {
-      const lines = tab.text.split('\n')
-      const matches: Array<{ tabId: string; path: string; name: string; line: number; preview: string }> = []
-      lines.forEach((line, index) => {
-        if (line.toLowerCase().includes(query)) {
-          matches.push({
-            tabId: tab.id,
-            path: tab.path,
-            name: tab.name,
-            line: index + 1,
-            preview: line.trim().slice(0, 120),
-          })
-        }
+  const openSearchFiles = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        tabId: tab.id,
+        path: tab.path,
+        name: tab.name,
+        text: tab.text,
+      })),
+    [tabs],
+  )
+
+  const openSearchHits = useMemo(
+    () => matchVscodeOpenFiles(searchQuery, openSearchFiles),
+    [openSearchFiles, searchQuery],
+  )
+
+  // 只在查询词 / 工作区变化时扫盘；打开文件变化不重搜（避免点击结果清空列表）
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!query) {
+      setWorkspaceSearchHits([])
+      setSearchLoading(false)
+      return
+    }
+
+    const abort = new AbortController()
+    setWorkspaceSearchHits([])
+    setSearchLoading(true)
+    const skipPaths = new Set(tabsRef.current.map((tab) => tab.path))
+    const timer = window.setTimeout(() => {
+      void searchVscodeWorkspaceFiles({
+        query,
+        skipPaths,
+        workspaceFolder: prefs.workspaceFolder,
+        signal: abort.signal,
+        onProgress: (hits) => {
+          if (abort.signal.aborted) return
+          setWorkspaceSearchHits(hits)
+        },
       })
-      return matches
-    })
-  }, [searchQuery, tabs])
+        .then((hits) => {
+          if (abort.signal.aborted) return
+          setWorkspaceSearchHits(hits)
+          setSearchLoading(false)
+        })
+        .catch(() => {
+          if (abort.signal.aborted) return
+          setSearchLoading(false)
+        })
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      abort.abort()
+      window.clearTimeout(timer)
+    }
+  }, [prefs.workspaceFolder, searchQuery])
+
+  const searchHits = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    const openPaths = new Set(tabs.map((tab) => tab.path))
+    const workspaceOnly = workspaceSearchHits.filter((hit) => !openPaths.has(hit.path))
+    return [...openSearchHits, ...workspaceOnly]
+  }, [openSearchHits, searchQuery, tabs, workspaceSearchHits])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
@@ -1334,20 +1385,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 <input
                   class="vscode__search-input"
                   type="search"
-                  placeholder="在已打开文件中搜索"
+                  placeholder="在工作区中搜索"
                   value={searchQuery}
                   onInput={(event) => setSearchQuery((event.target as HTMLInputElement).value)}
                 />
                 <div class="vscode__search-results">
-                  {searchQuery.trim() && searchHits.length === 0 ? (
-                    <div class="vscode__tree-hint">无匹配</div>
-                  ) : undefined}
                   {searchHits.map((hit) => (
                     <button
-                      key={`${hit.tabId}:${hit.line}:${hit.preview}`}
+                      key={`${hit.path}:${hit.line}:${hit.preview}`}
                       type="button"
                       class="vscode__search-hit"
-                      onClick={() => setEditorLayout((current) => focusEditorTab(current, hit.tabId))}
+                      onClick={() =>
+                        void openDocument(hit.path, { reveal: { line: hit.line, column: 1 } })
+                      }
                     >
                       <span class="vscode__search-hit-name">
                         {hit.name}:{hit.line}
@@ -1355,6 +1405,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                       <span class="vscode__search-hit-preview">{hit.preview}</span>
                     </button>
                   ))}
+                  {searchQuery.trim() && searchLoading ? (
+                    <div class="vscode__tree-hint">搜索中…</div>
+                  ) : undefined}
+                  {searchQuery.trim() && !searchLoading && searchHits.length === 0 ? (
+                    <div class="vscode__tree-hint">无匹配</div>
+                  ) : undefined}
                 </div>
               </div>
             ) : undefined}
