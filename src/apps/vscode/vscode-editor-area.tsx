@@ -494,6 +494,7 @@ function EditorTabChip({
   onClose,
   onContextMenu,
 }: TabChipProps) {
+  const tabRef = useRef<HTMLDivElement>(null)
   const fileTab = item.kind === 'file' ? tabs.find((tab) => tab.id === item.tabId) : undefined
   const previewSource =
     item.kind === 'preview' ? tabs.find((tab) => tab.path === item.sourcePath) : undefined
@@ -515,8 +516,17 @@ function EditorTabChip({
       ? previewSource?.path ?? item.sourcePath
       : fileTab?.path ?? ''
 
+  useEffect(() => {
+    if (!active) return
+    const frame = window.requestAnimationFrame(() => {
+      tabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [active])
+
   return (
     <div
+      ref={tabRef}
       class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${fileTab?.deleted ? ' vscode__tab--deleted' : ''}${fileTab?.conflict ? ' vscode__tab--conflict' : ''}`}
       role="tab"
       aria-selected={active}
