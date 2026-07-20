@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
+import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
+import { parseFilesAbsolutePath } from '../files/files-path.ts'
 import { VscodeFileIcon, VscodeFolderIcon, VscodeTreeTwistie } from './vscode-file-icons.tsx'
+import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
 
 type VscodeExplorerProps = {
   workspaceFolder?: string
@@ -12,6 +15,7 @@ type VscodeExplorerProps = {
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   onOpenFile: (path: string) => void
   onOpenFolder: () => void
+  onOpenInFiles: (path: string) => void
 }
 
 type TreeNodeProps = {
@@ -22,7 +26,21 @@ type TreeNodeProps = {
   revealNonce?: number
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   defaultExpanded?: boolean
+  workspaceFolder?: string
   onOpenFile: (path: string) => void
+  onOpenInFiles: (path: string) => void
+}
+
+function pathInWorkspace(workspaceFolder: string | undefined, path: string): boolean {
+  if (!workspaceFolder) return false
+  const root = workspaceFolder.replace(/\/+$/, '') || '/'
+  return path === root || path.startsWith(`${root}/`)
+}
+
+function copyToClipboard(text: string) {
+  void navigator.clipboard.writeText(text).catch(() => {
+    // clipboard unavailable
+  })
 }
 
 function sortEntries(entries: FilesApiEntry[]): FilesApiEntry[] {
@@ -65,8 +83,11 @@ function TreeNode({
   revealNonce = 0,
   problemDecorations,
   defaultExpanded = false,
+  workspaceFolder,
   onOpenFile,
+  onOpenInFiles,
 }: TreeNodeProps) {
+  const { showIconContextMenu } = useIconContextMenu()
   const isFolder = entry.kind === 'folder'
   const shouldReveal =
     revealPath !== undefined &&
@@ -94,6 +115,49 @@ function TreeNode({
     }
   }, [entry.path])
 
+  const openEntryContextMenu = useCallback(
+    (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const canCopyRelative = pathInWorkspace(workspaceFolder, entry.path)
+      const canOpenInFiles = parseFilesAbsolutePath(entry.path) !== undefined
+      showIconContextMenu(event, [
+        ...(isFolder
+          ? []
+          : [
+              {
+                type: 'action' as const,
+                label: '打开',
+                onClick: () => onOpenFile(entry.path),
+              },
+              { type: 'separator' as const },
+            ]),
+        {
+          type: 'action',
+          label: '复制路径',
+          onClick: () => copyToClipboard(entry.path),
+        },
+        {
+          type: 'action',
+          label: '复制相对路径',
+          disabled: !canCopyRelative || !workspaceFolder,
+          onClick: () => {
+            if (!workspaceFolder) return
+            copyToClipboard(relativeToWorkspace(workspaceFolder, entry.path))
+          },
+        },
+        { type: 'separator' },
+        {
+          type: 'action',
+          label: '在文件中显示',
+          disabled: !canOpenInFiles,
+          onClick: () => onOpenInFiles(entry.path),
+        },
+      ])
+    },
+    [entry.path, isFolder, onOpenFile, onOpenInFiles, showIconContextMenu, workspaceFolder],
+  )
+
   // 仅在 reveal 目标变化时自动展开；不要把 expanded 放进依赖，
   // 否则用户手动收起后会被 shouldReveal 立刻顶回去。
   useEffect(() => {
@@ -109,11 +173,20 @@ function TreeNode({
 
   useEffect(() => {
     if (!isRevealTarget) return
-    // 等父级目录展开后再滚入视口
-    const frame = window.requestAnimationFrame(() => {
-      itemRef.current?.scrollIntoView({ block: 'nearest' })
-    })
-    return () => window.cancelAnimationFrame(frame)
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const behavior: ScrollBehavior = reduceMotion ? 'auto' : 'smooth'
+    const scroll = () => {
+      itemRef.current?.scrollIntoView({ block: 'nearest', behavior })
+    }
+    // 父目录异步展开后节点才挂载；再补一次以覆盖布局稳定前的空滚
+    const frame = window.requestAnimationFrame(scroll)
+    const timer = window.setTimeout(scroll, 120)
+    const timer2 = window.setTimeout(scroll, 360)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+      window.clearTimeout(timer2)
+    }
   }, [isRevealTarget, revealNonce, revealPath])
 
   if (!isFolder) {
@@ -126,6 +199,7 @@ function TreeNode({
         style={{ paddingLeft: `${10 + depth * 12}px` }}
         title={decorationTitle(entry.path, decoration)}
         onClick={() => onOpenFile(entry.path)}
+        onContextMenu={openEntryContextMenu}
       >
         <span class="vscode__tree-chevron vscode__tree-chevron--spacer" aria-hidden="true" />
         <VscodeFileIcon fileName={entry.name} selected={selected} />
@@ -148,6 +222,7 @@ function TreeNode({
         style={{ paddingLeft: `${10 + depth * 12}px` }}
         title={decorationTitle(entry.path, decoration)}
         onClick={() => setExpanded((value) => !value)}
+        onContextMenu={openEntryContextMenu}
       >
         <span class="vscode__tree-chevron" aria-hidden="true">
           <VscodeTreeTwistie expanded={expanded} />
@@ -173,7 +248,9 @@ function TreeNode({
               revealPath={revealPath}
               revealNonce={revealNonce}
               problemDecorations={problemDecorations}
+              workspaceFolder={workspaceFolder}
               onOpenFile={onOpenFile}
+              onOpenInFiles={onOpenInFiles}
             />
           ))}
         </div>
@@ -190,6 +267,7 @@ export function VscodeExplorer({
   problemDecorations,
   onOpenFile,
   onOpenFolder,
+  onOpenInFiles,
 }: VscodeExplorerProps) {
   const [root, setRoot] = useState<FilesApiEntry | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -254,7 +332,9 @@ export function VscodeExplorer({
             revealNonce={revealNonce}
             problemDecorations={problemDecorations}
             defaultExpanded
+            workspaceFolder={workspaceFolder}
             onOpenFile={onOpenFile}
+            onOpenInFiles={onOpenInFiles}
           />
         </div>
       ) : undefined}

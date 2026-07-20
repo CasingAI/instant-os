@@ -220,7 +220,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [openWithAlways, setOpenWithAlways] = useState(false)
   const [infoNode, setInfoNode] = useState<FilesNode | undefined>(undefined)
   const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+  const [selectNonce, setSelectNonce] = useState(0)
+  const [pendingSelectName, setPendingSelectName] = useState<string | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
+  const browserRef = useRef<HTMLDivElement>(null)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
   const suppressItemClickRef = useRef(false)
   const longPressTimerRef = useRef<number | undefined>(undefined)
@@ -234,6 +238,33 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const lastRevealNonceRef = useRef(0)
   const narrowLayoutRef = useRef(narrowLayout)
   narrowLayoutRef.current = narrowLayout
+  /** 窄屏首次滑入内容层时，等布局 transition 后再滚入选中项 */
+  const pendingRevealLayoutRef = useRef(false)
+
+  const clearSelection = useCallback(() => {
+    setSelectedId(undefined)
+    setPendingSelectName(undefined)
+  }, [])
+
+  const activateSelection = useCallback((nodeId: string) => {
+    setPendingSelectName(undefined)
+    setSelectedId(nodeId)
+    setSelectNonce((value) => value + 1)
+  }, [])
+
+  const scrollSelectedIntoView = useCallback((nodeId: string) => {
+    const root = browserRef.current
+    if (!root) return
+    const item = root.querySelector<HTMLElement>(
+      `[data-files-node-id="${CSS.escape(nodeId)}"]`,
+    )
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    item?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    })
+  }, [])
 
   const locationLabel = getFilesLocationLabel(locationId)
   const locationWritable = isFilesLocationWritable(locationId)
@@ -309,23 +340,50 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       setFolderId(nextFolderId)
       setFolderMotion('push')
       if (narrowLayoutRef.current) {
+        // 窄屏内容层有 slide transition；即使已是 browser-open，揭示时也可能仍在滑入中
+        pendingRevealLayoutRef.current = true
         setStackedBrowserOpen(true)
       }
     }
 
-    const tryNavigate = async (path: string): Promise<boolean> => {
+    const armSelectByName = (name: string | undefined) => {
+      setSelectedId(undefined)
+      setPendingSelectName(name)
+      if (name) setSelectNonce((value) => value + 1)
+    }
+
+    const tryNavigate = async (
+      path: string,
+      selectName?: string,
+    ): Promise<boolean> => {
       const parsed = parseFilesAbsolutePath(path)
       if (!parsed) return false
 
       if (parsed.segments.length === 0) {
         applyBrowse(parsed.locationId, undefined)
+        if (selectName) armSelectByName(selectName)
+        else clearSelection()
         return true
       }
+
+      const leafName = parsed.segments[parsed.segments.length - 1]
 
       try {
         const node = await resolveNodeByAbsolutePath(path)
         if (node) {
-          applyBrowse(node.locationId, node.kind === 'folder' ? node.id : node.parentId)
+          if (selectName) {
+            // 递归落到父目录：进入该目录并按文件名待选
+            applyBrowse(node.locationId, node.kind === 'folder' ? node.id : node.parentId)
+            armSelectByName(selectName)
+            return true
+          }
+          if (node.kind === 'folder') {
+            clearSelection()
+            applyBrowse(node.locationId, node.id)
+          } else {
+            applyBrowse(node.locationId, node.parentId)
+            activateSelection(node.id)
+          }
           return true
         }
       } catch {
@@ -334,6 +392,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
       if (parsed.segments.length <= 1) {
         applyBrowse(parsed.locationId, undefined)
+        armSelectByName(selectName ?? leafName)
         return true
       }
 
@@ -341,7 +400,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         filesLocationPathRoot(parsed.locationId),
         ...parsed.segments.slice(0, -1),
       )
-      return tryNavigate(parentPath)
+      return tryNavigate(parentPath, selectName ?? leafName)
     }
 
     try {
@@ -354,7 +413,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     } catch {
       lastOpenedDocumentIdRef.current = undefined
     }
-  }, [])
+  }, [activateSelection, clearSelection])
 
   useEffect(() => {
     const drainReveal = () => {
@@ -376,6 +435,66 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     lastOpenedDocumentIdRef.current = pendingDocumentId
     void navigateToDocumentPath(pendingDocumentId)
   }, [navigateToDocumentPath, pendingDocumentId])
+
+  useEffect(() => {
+    if (!pendingSelectName || loading) return
+    const match = items.find((node) => node.name === pendingSelectName)
+    if (!match) return
+    setPendingSelectName(undefined)
+    setSelectedId(match.id)
+    setSelectNonce((value) => value + 1)
+  }, [items, loading, pendingSelectName])
+
+  // 等目录切换动画 / 窄屏滑入结束后再滚入，避免 transform 过程中 scrollIntoView 无效
+  useEffect(() => {
+    if (!selectedId || loading) return
+    if (!items.some((node) => node.id === selectedId)) return
+
+    let cancelled = false
+    const timers: number[] = []
+    const frames: number[] = []
+
+    const queueScroll = (delayMs: number, clearLayoutWait = false) => {
+      timers.push(
+        window.setTimeout(() => {
+          frames.push(
+            window.requestAnimationFrame(() => {
+              if (cancelled) return
+              scrollSelectedIntoView(selectedId)
+              if (clearLayoutWait) pendingRevealLayoutRef.current = false
+            }),
+          )
+        }, delayMs),
+      )
+    }
+
+    const waitingLayout = pendingRevealLayoutRef.current
+    if (folderMotion === 'idle' && !waitingLayout) {
+      queueScroll(0)
+    } else if (folderMotion === 'idle' && waitingLayout) {
+      // 与 --files-layout-duration（0.36s）对齐
+      queueScroll(400, true)
+    } else {
+      // push/pop 约 0.28s；reduced-motion 时 animationend 可能不触发，用超时兜底
+      queueScroll(300)
+      if (waitingLayout) queueScroll(400, true)
+    }
+
+    return () => {
+      cancelled = true
+      for (const timer of timers) window.clearTimeout(timer)
+      for (const frame of frames) window.cancelAnimationFrame(frame)
+    }
+  }, [folderMotion, items, loading, scrollSelectedIntoView, selectNonce, selectedId])
+
+  // 选中高亮约 2.5s 后淡出清除
+  useEffect(() => {
+    if (!selectedId) return
+    const timer = window.setTimeout(() => {
+      setSelectedId((current) => (current === selectedId ? undefined : current))
+    }, 2500)
+    return () => window.clearTimeout(timer)
+  }, [selectNonce, selectedId])
 
   useEffect(() => {
     let timer: number | undefined
@@ -421,6 +540,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
     if (!previous && narrowLayout) {
       // 宽 → 窄：保持当前浏览内容，侧栏收起由 CSS 过渡
+      // 若正从「在文件中显示」进入，标记等待滑入后再滚入选中项
+      if (lastOpenedDocumentIdRef.current || selectedId) {
+        pendingRevealLayoutRef.current = true
+      }
       setStackedBrowserOpen(true)
       return
     }
@@ -429,7 +552,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       // 窄 → 宽：恢复并排，侧栏展开由 CSS 过渡
       setStackedBrowserOpen(false)
     }
-  }, [layoutReady, narrowLayout])
+  }, [layoutReady, narrowLayout, selectedId])
 
   useEffect(() => {
     if (!contextMenu && !locationContextMenu && !backgroundContextMenu) return
@@ -511,6 +634,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const selectLocation = useCallback(
     (next: FilesLocationId) => {
       closeTransientMenus()
+      clearSelection()
       setLocationId(next)
       setFolderId(undefined)
       if (narrowLayout) {
@@ -522,7 +646,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       setFolderMotion('push')
     },
-    [closeTransientMenus, narrowLayout, stackedBrowserOpen],
+    [clearSelection, closeTransientMenus, narrowLayout, stackedBrowserOpen],
   )
 
   const handleMount = useCallback(async () => {
@@ -589,24 +713,27 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     (node: FilesNode) => {
       if (node.kind !== 'folder') return
       closeTransientMenus()
+      clearSelection()
       setFolderMotion('push')
       setFolderId(node.id)
     },
-    [closeTransientMenus],
+    [clearSelection, closeTransientMenus],
   )
 
   const goBackInPath = useCallback(() => {
     if (pathNodes.length === 0) return
     setNewFileMenu(undefined)
+    clearSelection()
     setFolderMotion('pop')
     const parent = pathNodes[pathNodes.length - 1]?.parentId
     setFolderId(parent)
-  }, [pathNodes])
+  }, [clearSelection, pathNodes])
 
   const navigatePathBar = useCallback(
     (nextFolderId: string | undefined) => {
       closeTransientMenus()
       if (nextFolderId === folderId) return
+      clearSelection()
       const currentDepth = pathNodes.length
       const targetDepth =
         nextFolderId === undefined
@@ -615,7 +742,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       setFolderMotion(targetDepth < currentDepth ? 'pop' : 'push')
       setFolderId(nextFolderId)
     },
-    [closeTransientMenus, folderId, pathNodes],
+    [clearSelection, closeTransientMenus, folderId, pathNodes],
   )
 
   const pathBarSegments = useMemo((): FilesPathBarSegment[] => {
@@ -1213,6 +1340,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         ) : undefined}
 
         <div
+          ref={browserRef}
           class={[
             'files__browser',
             folderMotion === 'push' ? 'files__browser--push' : '',
@@ -1263,11 +1391,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           ) : (
             <ul class="files__grid">
               {items.map((node) => {
+                const selected = node.id === selectedId
                 return (
                   <li key={node.id}>
                     <button
                       type="button"
-                      class="files__item"
+                      class={`files__item${selected ? ' files__item--selected' : ''}`}
+                      data-files-node-id={node.id}
+                      aria-selected={selected}
                       onClick={() => handleItemClick(node)}
                       onPointerDown={(event) => beginItemLongPress(event, node)}
                       onPointerMove={handleLongPressMove}
@@ -1280,6 +1411,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         setNewFileMenu(undefined)
                         setLocationContextMenu(undefined)
                         setBackgroundContextMenu(undefined)
+                        activateSelection(node.id)
                         if (actionSheetOpenedByLongPressRef.current) {
                           actionSheetOpenedByLongPressRef.current = false
                           suppressItemClickRef.current = true

@@ -1415,6 +1415,26 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     [openApp],
   )
 
+  // 侧栏（重新）打开或会话恢复完成后，展开并滚到当前编辑文件；同一轮打开内切 Tab 不重复
+  const explorerVisible = prefs.sidebarVisible && sidebarView === 'explorer'
+  const explorerRevealDoneRef = useRef(false)
+  useEffect(() => {
+    if (!explorerVisible) {
+      explorerRevealDoneRef.current = false
+      return
+    }
+    if (explorerRevealDoneRef.current) return
+    // 等会话恢复出 activeTab，避免恢复前空跑后不再揭示
+    if (!sessionReady) return
+    const path = activeTab?.path
+    if (!path || !prefs.workspaceFolder) return
+    const root = prefs.workspaceFolder.replace(/\/+$/, '') || '/'
+    if (path !== root && !path.startsWith(`${root}/`)) return
+    explorerRevealDoneRef.current = true
+    setRevealPath(path)
+    setRevealNonce((value) => value + 1)
+  }, [activeTab?.path, explorerVisible, prefs.workspaceFolder, sessionReady])
+
   if (!windowId) {
     return <div class="vscode" />
   }
@@ -1474,6 +1494,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 problemDecorations={problemDecorations}
                 onOpenFile={(path) => void openDocument(path)}
                 onOpenFolder={() => void pickAndOpenFolder()}
+                onOpenInFiles={openInFiles}
               />
             ) : undefined}
 
