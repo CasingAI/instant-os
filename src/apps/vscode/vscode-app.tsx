@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { flushSync } from 'preact/compat'
 import { disposeMonacoModelForPath, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import {
@@ -226,9 +226,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
-  const [activityCaretTop, setActivityCaretTop] = useState(30)
+  const [activityCaretTop, setActivityCaretTop] = useState(78)
+  const [caretReady, setCaretReady] = useState(false)
   const activityRailRef = useRef<HTMLElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  const explorerBtnRef = useRef<HTMLButtonElement>(null)
+  const searchBtnRef = useRef<HTMLButtonElement>(null)
+  const settingsBtnRef = useRef<HTMLButtonElement>(null)
   const [tabs, setTabs] = useState<VscodeTab[]>([])
   const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -1748,20 +1752,81 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setRevealNonce((value) => value + 1)
   }, [activeTab?.path, explorerVisible, prefs.workspaceFolder, sessionReady])
 
-  useEffect(() => {
-    if (!prefs.sidebarVisible) return
-    const frame = window.requestAnimationFrame(() => {
-      const sidebar = sidebarRef.current
-      const rail = activityRailRef.current
-      if (!sidebar || !rail) return
-      const active = rail.querySelector('.vscode__activity-btn--active')
-      if (!(active instanceof HTMLElement)) return
-      const sidebarRect = sidebar.getBoundingClientRect()
-      const btnRect = active.getBoundingClientRect()
-      setActivityCaretTop(Math.round(btnRect.top - sidebarRect.top + btnRect.height / 2))
-    })
-    return () => window.cancelAnimationFrame(frame)
+  const getActiveActivityButton = useCallback((): HTMLButtonElement | undefined => {
+    if (!prefs.sidebarVisible) return undefined
+    if (sidebarView === 'explorer') return explorerBtnRef.current ?? undefined
+    if (sidebarView === 'search') return searchBtnRef.current ?? undefined
+    return settingsBtnRef.current ?? undefined
   }, [prefs.sidebarVisible, sidebarView])
+
+  const syncActivityCaretTop = useCallback(() => {
+    if (!windowId || !prefs.sidebarVisible) return false
+    const rail = activityRailRef.current
+    const sidebar = sidebarRef.current
+    const btn = getActiveActivityButton()
+    if (!rail || !sidebar || !btn) return false
+
+    let caretY: number
+    if (btn.offsetParent === rail) {
+      const railRect = rail.getBoundingClientRect()
+      const sidebarRect = sidebar.getBoundingClientRect()
+      const railSidebarOffset = sidebarRect.top - railRect.top
+      caretY = railSidebarOffset + btn.offsetTop + btn.offsetHeight / 2
+    } else {
+      const sidebarRect = sidebar.getBoundingClientRect()
+      const btnRect = btn.getBoundingClientRect()
+      caretY = btnRect.top - sidebarRect.top + btnRect.height / 2
+    }
+
+    setActivityCaretTop(Math.round(caretY))
+    setCaretReady(true)
+    return true
+  }, [getActiveActivityButton, prefs.sidebarVisible, windowId])
+
+  const syncActivityCaretTopRef = useRef(syncActivityCaretTop)
+  syncActivityCaretTopRef.current = syncActivityCaretTop
+
+  const bindSidebarRef = useCallback((node: HTMLElement | null) => {
+    sidebarRef.current = node
+    if (node) {
+      queueMicrotask(() => syncActivityCaretTopRef.current())
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!windowId) return
+    syncActivityCaretTop()
+
+    const rail = activityRailRef.current
+    if (!rail || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => {
+      syncActivityCaretTop()
+    })
+    observer.observe(rail)
+    return () => observer.disconnect()
+  }, [syncActivityCaretTop, sidebarView, windowId, sessionReady, prefs.sidebarVisible])
+
+  useEffect(() => {
+    if (!windowId || !prefs.sidebarVisible) return
+
+    let raf2 = 0
+    const raf1 = window.requestAnimationFrame(() => {
+      syncActivityCaretTop()
+      raf2 = window.requestAnimationFrame(() => {
+        syncActivityCaretTop()
+      })
+    })
+    const timer = window.setTimeout(() => {
+      syncActivityCaretTop()
+    }, 320)
+
+    return () => {
+      window.cancelAnimationFrame(raf1)
+      if (raf2) window.cancelAnimationFrame(raf2)
+      window.clearTimeout(timer)
+    }
+  }, [syncActivityCaretTop, sidebarView, windowId, sessionReady, prefs.sidebarVisible])
 
   if (!windowId) {
     return <div class="vscode" />
@@ -1779,6 +1844,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </div>
           <button
             type="button"
+            ref={explorerBtnRef}
             class={`vscode__activity-btn${sidebarView === 'explorer' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
             title="工作区"
             onClick={() => activateSidebar('explorer')}
@@ -1789,6 +1855,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </button>
           <button
             type="button"
+            ref={searchBtnRef}
             class={`vscode__activity-btn${sidebarView === 'search' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
             title="搜索"
             onClick={() => activateSearchSidebar()}
@@ -1807,6 +1874,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           <div class="vscode__activity-spacer" />
           <button
             type="button"
+            ref={settingsBtnRef}
             class={`vscode__activity-btn${sidebarView === 'settings' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
             title="设置"
             onClick={() => activateSidebar('settings')}
@@ -1821,8 +1889,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           <>
           <div class="vscode__sidebar-shell" style={{ width: `${prefs.sidebarWidth}px` }}>
             <aside
-              class="vscode__sidebar"
-              ref={sidebarRef}
+              class={`vscode__sidebar${caretReady ? '' : ' vscode__sidebar--caret-instant'}`}
+              ref={bindSidebarRef}
               style={{
                 ['--vscode-caret-y' as string]: `${activityCaretTop}px`,
               }}

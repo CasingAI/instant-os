@@ -176,6 +176,10 @@
   transition: --vscode-caret-y 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+.vscode__sidebar--caret-instant {
+  transition: none;
+}
+
 /* 竖向细线：平时微可见，悬停/拖拽高亮 */
 .vscode__sidebar-sash {
   flex-shrink: 0;
