@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { flushSync } from 'preact/compat'
 import { disposeMonacoModelForPath, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import {
   MONACO_SELECTABLE_LANGUAGES,
@@ -33,6 +34,7 @@ import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
 import { isFilesNodeWritable } from '../files/files-types.ts'
 import { filesCreateText } from '../files/files-api.ts'
+import { isBinaryFile } from '../files/is-binary-file.ts'
 import { requestFilesReveal } from '../files/files-reveal-request.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
@@ -511,8 +513,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   )
 
   useEffect(() => {
+    // 会话恢复完成前不要同步窗口 documentId：冷启动时 OS 传入的待打开路径
+    // 会挂在 window.documentId 上，若此时按「无标签」清空，后续打开 effect 就读不到了。
+    if (!sessionReady) return
+    // 异步打开尚未完成时，tabs/layout 可能短暂不一致；若用旧 activeTab 回写 documentId，
+    // 会清掉 pending 并在后续 effect 里把焦点抢回旧标签。
+    if (
+      pendingDocumentId &&
+      activeTab?.path !== pendingDocumentId &&
+      loadingPathRef.current === pendingDocumentId
+    ) {
+      return
+    }
     syncWindowToTab(activeTab)
-  }, [activeTab, syncWindowToTab])
+  }, [activeTab, pendingDocumentId, sessionReady, syncWindowToTab])
 
   useEffect(() => {
     if (!activeTab) return
@@ -557,6 +571,33 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         const result = await readTextFile(documentRef)
         const path = await resolveFilesAbsolutePath(result.node)
         if (!mountedRef.current) return false
+
+        if (
+          isBinaryFile({
+            fileName: result.node.name || path,
+            mimeType: result.node.mimeType,
+            text: result.text,
+          })
+        ) {
+          const tab = buildVscodeTab({
+            path,
+            text: result.text,
+            node: result.node,
+            writable: isFilesNodeWritable(result.node),
+            binaryPrompt: true,
+          })
+          const nextTabs = [...tabsRef.current, tab]
+          tabsRef.current = nextTabs
+          activeTabIdRef.current = tab.id
+          // await 之后的 setState 可能拆成两次渲染；必须同帧更新 tabs+layout，否则中间帧会用旧标签回写 documentId 并抢走焦点
+          flushSync(() => {
+            setTabs(nextTabs)
+            setEditorLayout((current) => addFileTabToFocusedGroup(current, tab.id))
+          })
+          setRevealPath(path)
+          return true
+        }
+
         const tab = buildVscodeTab({
           path,
           text: result.text,
@@ -566,8 +607,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         const nextTabs = [...tabsRef.current, tab]
         tabsRef.current = nextTabs
         activeTabIdRef.current = tab.id
-        setTabs(nextTabs)
-        setEditorLayout((current) => addFileTabToFocusedGroup(current, tab.id))
+        flushSync(() => {
+          setTabs(nextTabs)
+          setEditorLayout((current) => addFileTabToFocusedGroup(current, tab.id))
+        })
         setRevealPath(path)
         if (options?.reveal) {
           setRevealPosition({
@@ -870,6 +913,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const seenPaths = new Set<string>()
     for (const tab of tabs) {
       if (!openTabIds.has(tab.id)) continue
+      if (tab.binaryPrompt) continue
       if (tab.language !== 'typescript' && tab.language !== 'javascript') continue
       if (seenPaths.has(tab.path)) continue
       seenPaths.add(tab.path)
@@ -923,9 +967,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (loadingPathRef.current === pendingDocumentId) return
     const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
     if (existing) {
-      if (existing.id !== activeTabIdRef.current) {
-        setEditorLayout((current) => focusEditorTab(current, existing.id))
-      }
+      // 始终聚焦：避免异步打开过程中焦点被旧标签抢回后无法恢复
+      setEditorLayout((current) => focusEditorTab(current, existing.id))
       return
     }
     void openDocument(pendingDocumentId)
@@ -1027,6 +1070,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           disposeMonacoModelForPath(removed.path)
         }
       }, 0)
+    }
+  }, [])
+
+  const confirmBinaryPrompt = useCallback((tabId: string) => {
+    const current = tabsRef.current
+    const tab = current.find((item) => item.id === tabId)
+    if (!tab?.binaryPrompt) return
+    const nextTabs = current.map((item) =>
+      item.id === tabId ? { ...item, binaryPrompt: undefined } : item,
+    )
+    tabsRef.current = nextTabs
+    setTabs(nextTabs)
+    if (sessionReadyRef.current && !skipSessionPersistRef.current) {
+      saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, activeTabIdRef.current))
     }
   }, [])
 
@@ -1868,6 +1925,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onCursorChange={applyCursor}
                 onOpenPath={handleEditorOpenPath}
                 onResolveConflict={resolveTabConflict}
+                onConfirmBinaryPrompt={confirmBinaryPrompt}
                 onSetBranchRatio={(branchId, ratio) =>
                   setEditorLayout((current) => setBranchRatio(current, branchId, ratio))
                 }
@@ -2094,9 +2152,15 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             >
               {monacoLanguageLabel(activeTab.language)}
             </button>
-            {activeTab.conflict || activeTab.deleted || !activeTab.writable ? (
+            {activeTab.conflict || activeTab.deleted || activeTab.binaryPrompt || !activeTab.writable ? (
               <span>
-                {activeTab.conflict ? '冲突' : activeTab.deleted ? '已删除' : '只读'}
+                {activeTab.binaryPrompt
+                  ? '二进制'
+                  : activeTab.conflict
+                    ? '冲突'
+                    : activeTab.deleted
+                      ? '已删除'
+                      : '只读'}
               </span>
             ) : undefined}
           </>

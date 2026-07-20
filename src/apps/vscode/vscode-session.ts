@@ -158,10 +158,13 @@ export function buildVscodeSessionFromTabs(
   tabs: readonly VscodeTab[],
   activeTabId: string | undefined,
 ): VscodeSession {
-  const openPaths = tabs.map((tab) => tab.path)
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  // 二进制询问尚未确认前不写入会话，避免误把未打开的文件记进恢复列表
+  const persistable = tabs.filter((tab) => !tab.binaryPrompt)
+  const openPaths = persistable.map((tab) => tab.path)
+  const activeTab =
+    persistable.find((tab) => tab.id === activeTabId) ?? persistable[0]
   const drafts: Record<string, VscodeDraftEntry> = {}
-  for (const tab of tabs) {
+  for (const tab of persistable) {
     if (!isVscodeTabDirty(tab) && !tab.deleted) continue
     if (utf8ByteLength(tab.text) > MAX_DRAFT_BYTES) continue
     drafts[tab.path] = {

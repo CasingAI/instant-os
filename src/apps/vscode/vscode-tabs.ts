@@ -22,6 +22,10 @@ export type VscodeTab = {
    * baseline 为产生冲突时的原稿基准，供热退出后再检测。
    */
   conflict: { diskText: string; baseline: string } | undefined
+  /**
+   * 二进制 / 不受支持编码：先在标签内询问，确认前不挂载 Monaco。
+   */
+  binaryPrompt: true | undefined
 }
 
 let tabSeq = 0
@@ -32,6 +36,7 @@ export function createVscodeTabId(): string {
 }
 
 export function isVscodeTabDirty(tab: VscodeTab): boolean {
+  if (tab.binaryPrompt) return false
   return tab.deleted || tab.conflict !== undefined || tab.text !== tab.savedText
 }
 
@@ -64,6 +69,7 @@ export function buildVscodeTab(options: {
   savedText?: string
   deleted?: boolean
   conflict?: { diskText: string; baseline: string }
+  binaryPrompt?: true
 }): VscodeTab {
   const name = options.node.name || fileNameFromPath(options.path)
   const savedText = options.savedText ?? options.text
@@ -78,6 +84,7 @@ export function buildVscodeTab(options: {
     node: options.node,
     deleted: options.deleted === true,
     conflict: options.conflict,
+    binaryPrompt: options.binaryPrompt === true ? true : undefined,
   }
 }
 

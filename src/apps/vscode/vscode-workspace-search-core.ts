@@ -1,4 +1,5 @@
 import { filesList, filesReadText } from '../files/files-api.ts'
+import { isBinaryContent } from '../files/is-binary-file.ts'
 import {
   compileSearchGlobs,
   DEFAULT_SEARCH_EXCLUDE_GLOBS,
@@ -22,8 +23,6 @@ const MAX_FILES = 400
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_HITS = 500
 const PREVIEW_MAX = 120
-/** 与 git buffer_is_binary / 常见实现一致：检查文件头一段是否含 NUL */
-const BINARY_PROBE_BYTES = 8000
 /** 每处理这么多文件就向调用方推一次结果，并让出事件循环 */
 const REPORT_EVERY_FILES = 8
 
@@ -96,18 +95,6 @@ function yieldEventLoop(): Promise<void> {
 function toPathSet(paths: ReadonlySet<string> | string[] | undefined): ReadonlySet<string> | undefined {
   if (!paths) return undefined
   return paths instanceof Set ? paths : new Set(paths)
-}
-
-/**
- * 主流启发式（git / ripgrep / GNU grep）：内容里出现 NUL 即视为二进制。
- * 此处检查解码后字符串前 BINARY_PROBE_BYTES 个码元（与 git 看前 8000 字节同量级）。
- */
-function isBinaryByNulHeuristic(text: string): boolean {
-  const limit = Math.min(text.length, BINARY_PROBE_BYTES)
-  for (let i = 0; i < limit; i += 1) {
-    if (text.charCodeAt(i) === 0) return true
-  }
-  return false
 }
 
 function buildContext(
@@ -360,7 +347,7 @@ export async function searchVscodeWorkspaceFilesCoreDetailed(
       continue
     }
 
-    if (text.length > MAX_FILE_BYTES || isBinaryByNulHeuristic(text)) {
+    if (text.length > MAX_FILE_BYTES || isBinaryContent(text)) {
       processed += 1
       continue
     }

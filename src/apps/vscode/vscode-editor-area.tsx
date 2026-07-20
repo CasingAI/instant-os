@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { parseFilesAbsolutePath } from '../files/files-path.ts'
@@ -23,6 +23,68 @@ import type { VscodeSearchEditorSession } from './vscode-search-editor-session.t
 import type { VscodeWorkspaceSearchHit } from './vscode-workspace-search-core.ts'
 
 type DropZone = VscodeSplitEdge
+
+type TabVisualSnapshot = {
+  title: string
+  pathTitle: string
+  dirty: boolean
+  deleted: boolean
+  conflict: boolean
+}
+
+type DisplayTab = {
+  item: VscodeGroupItem
+  exiting: boolean
+  snapshot: TabVisualSnapshot
+}
+
+function computeTabSnapshot(
+  item: VscodeGroupItem,
+  tabs: readonly VscodeTab[],
+): TabVisualSnapshot {
+  const fileTab = item.kind === 'file' ? tabs.find((tab) => tab.id === item.tabId) : undefined
+  const previewSource =
+    item.kind === 'preview' ? tabs.find((tab) => tab.path === item.sourcePath) : undefined
+
+  const title =
+    item.kind === 'searchEditor'
+      ? '搜索编辑器'
+      : item.kind === 'preview'
+        ? `Preview ${previewSource?.name ?? 'Markdown'}`
+        : fileTab
+          ? fileTab.deleted
+            ? `${fileTab.name}（已删除）`
+            : fileTab.conflict
+              ? `${fileTab.name}（冲突）`
+              : fileTab.binaryPrompt
+                ? `${fileTab.name}（二进制）`
+                : fileTab.name
+          : '未知文件'
+
+  return {
+    title,
+    pathTitle:
+      item.kind === 'searchEditor'
+        ? 'Search Editor'
+        : item.kind === 'preview'
+          ? previewSource?.path ?? item.sourcePath
+          : fileTab?.path ?? '',
+    dirty: fileTab ? isVscodeTabDirty(fileTab) : false,
+    deleted: Boolean(fileTab?.deleted),
+    conflict: Boolean(fileTab?.conflict),
+  }
+}
+
+function itemExistsInLayout(layout: VscodeEditorLayoutState, itemId: string): boolean {
+  for (const group of Object.values(layout.groups)) {
+    if (group.items.some((item) => item.id === itemId)) return true
+  }
+  return false
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
 type VscodeEditorAreaProps = {
   layout: VscodeEditorLayoutState
@@ -53,6 +115,7 @@ type VscodeEditorAreaProps = {
   onCursorChange: (line: number, column: number) => void
   onOpenPath: (path: string, reveal?: MonacoRevealPosition) => void
   onResolveConflict: (tabId: string, choice: 'draft' | 'disk') => void
+  onConfirmBinaryPrompt: (tabId: string) => void
   onSetBranchRatio: (branchId: string, ratio: number) => void
   searchEditorSessions?: ReadonlyMap<string, VscodeSearchEditorSession>
   onCloseSearchEditor?: (itemId: string) => void
@@ -118,16 +181,14 @@ function EyeIcon() {
   )
 }
 
-type GroupViewProps = Omit<
-  VscodeEditorAreaProps,
-  'layout' | 'onSetBranchRatio' | 'onOpenMarkdownPreview'
-> & {
+type GroupViewProps = Omit<VscodeEditorAreaProps, 'onSetBranchRatio' | 'onOpenMarkdownPreview'> & {
   group: VscodeEditorGroupState
   focused: boolean
   onOpenMarkdownPreview: (groupId: string) => void
 }
 
 function VscodeEditorGroupView({
+  layout,
   group,
   focused,
   tabs,
@@ -152,6 +213,7 @@ function VscodeEditorGroupView({
   onCursorChange,
   onOpenPath,
   onResolveConflict,
+  onConfirmBinaryPrompt,
   searchEditorSessions,
   onCloseSearchEditor,
   onSearchEditorOpenHit,
@@ -162,6 +224,71 @@ function VscodeEditorGroupView({
   const [tabBarHot, setTabBarHot] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const tabsRowRef = useRef<HTMLDivElement>(null)
+  const visualsRef = useRef(new Map<string, TabVisualSnapshot>())
+  const initialItemIdsRef = useRef<Set<string> | undefined>(undefined)
+  if (initialItemIdsRef.current === undefined) {
+    initialItemIdsRef.current = new Set(group.items.map((item) => item.id))
+  }
+
+  for (const item of group.items) {
+    visualsRef.current.set(item.id, computeTabSnapshot(item, tabs))
+  }
+
+  const [displayTabs, setDisplayTabs] = useState<DisplayTab[]>(() =>
+    group.items.map((item) => ({
+      item,
+      exiting: false,
+      snapshot: computeTabSnapshot(item, tabs),
+    })),
+  )
+
+  useLayoutEffect(() => {
+    const reducedMotion = prefersReducedMotion()
+    setDisplayTabs((prev) => {
+      const nextIds = new Set(group.items.map((item) => item.id))
+      const exitingEntries: DisplayTab[] = []
+
+      for (const entry of prev) {
+        if (nextIds.has(entry.item.id)) continue
+        if (itemExistsInLayout(layout, entry.item.id)) {
+          visualsRef.current.delete(entry.item.id)
+          continue
+        }
+        if (entry.exiting) {
+          exitingEntries.push(entry)
+          continue
+        }
+        if (reducedMotion) {
+          visualsRef.current.delete(entry.item.id)
+          continue
+        }
+        exitingEntries.push({
+          item: entry.item,
+          exiting: true,
+          snapshot: visualsRef.current.get(entry.item.id) ?? entry.snapshot,
+        })
+      }
+
+      const result: DisplayTab[] = group.items.map((item) => ({
+        item,
+        exiting: false,
+        snapshot: visualsRef.current.get(item.id) ?? computeTabSnapshot(item, tabs),
+      }))
+
+      for (const entry of exitingEntries) {
+        const oldIndex = prev.findIndex((item) => item.item.id === entry.item.id)
+        const insertAt = Math.min(Math.max(oldIndex, 0), result.length)
+        result.splice(insertAt, 0, entry)
+      }
+
+      return result
+    })
+  }, [group.items, layout, tabs])
+
+  const finishTabExit = useCallback((itemId: string) => {
+    setDisplayTabs((prev) => prev.filter((entry) => entry.item.id !== itemId))
+    visualsRef.current.delete(itemId)
+  }, [])
 
   const activeItem = getGroupActiveItem(group)
   const activeFileTab =
@@ -377,21 +504,31 @@ function VscodeEditorGroupView({
         onDrop={onDropTabBar}
       >
         <div class="vscode__tabs" role="tablist" aria-label="编辑器标签">
-          {group.items.map((item) => (
+          {displayTabs.map((entry) => (
             <EditorTabChip
-              key={item.id}
-              item={item}
+              key={entry.item.id}
+              item={entry.item}
               groupId={group.id}
-              active={item.id === activeItem?.id}
-              tabs={tabs}
-              disabled={loading || dialogBlocked}
-              onActivate={() => onActivateItem(group.id, item.id)}
-              onClose={() => {
-                if (item.kind === 'file') onCloseFileTab(item.tabId)
-                else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
-                else onClosePreview(item.id)
+              active={!entry.exiting && entry.item.id === activeItem?.id}
+              snapshot={entry.snapshot}
+              disabled={loading || dialogBlocked || entry.exiting}
+              enter={!entry.exiting && !initialItemIdsRef.current!.has(entry.item.id)}
+              exiting={entry.exiting}
+              onActivate={() => {
+                if (entry.exiting) return
+                onActivateItem(group.id, entry.item.id)
               }}
-              onContextMenu={(event) => openTabContextMenu(event, item)}
+              onClose={() => {
+                if (entry.exiting) return
+                if (entry.item.kind === 'file') onCloseFileTab(entry.item.tabId)
+                else if (entry.item.kind === 'searchEditor') onCloseSearchEditor?.(entry.item.id)
+                else onClosePreview(entry.item.id)
+              }}
+              onExitComplete={() => finishTabExit(entry.item.id)}
+              onContextMenu={(event) => {
+                if (entry.exiting) return
+                openTabContextMenu(event, entry.item)
+              }}
             />
           ))}
         </div>
@@ -446,6 +583,25 @@ function VscodeEditorGroupView({
             )
           })()
         ) : activeFileTab ? (
+          activeFileTab.binaryPrompt ? (
+            <div class="vscode__binary-prompt" role="status">
+              <div class="vscode__binary-prompt-card">
+                <p class="vscode__binary-prompt-title">二进制文件</p>
+                <p class="vscode__binary-prompt-text">
+                  此文件是二进制文件或使用了不受支持的文本编码，因此未在文本编辑器中显示。
+                </p>
+                <div class="vscode__binary-prompt-actions">
+                  <button
+                    type="button"
+                    class="vscode__binary-prompt-btn"
+                    onClick={() => onConfirmBinaryPrompt(activeFileTab.id)}
+                  >
+                    以文本打开
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
           <>
             {activeFileTab.conflict ? (
               <div class="vscode__conflict-banner" role="alertdialog" aria-label="内容冲突">
@@ -496,6 +652,7 @@ function VscodeEditorGroupView({
               onRevealPositionApplied={onRevealPositionApplied}
             />
           </>
+          )
         ) : (
           <div class="vscode__group-empty">将标签拖到此处</div>
         )}
@@ -508,10 +665,13 @@ type TabChipProps = {
   item: VscodeGroupItem
   groupId: string
   active: boolean
-  tabs: readonly VscodeTab[]
+  snapshot: TabVisualSnapshot
   disabled: boolean
+  enter?: boolean
+  exiting?: boolean
   onActivate: () => void
   onClose: () => void
+  onExitComplete: () => void
   onContextMenu: (event: MouseEvent) => void
 }
 
@@ -519,56 +679,73 @@ function EditorTabChip({
   item,
   groupId,
   active,
-  tabs,
+  snapshot,
   disabled,
+  enter = false,
+  exiting = false,
   onActivate,
   onClose,
+  onExitComplete,
   onContextMenu,
 }: TabChipProps) {
   const tabRef = useRef<HTMLDivElement>(null)
-  const fileTab = item.kind === 'file' ? tabs.find((tab) => tab.id === item.tabId) : undefined
-  const previewSource =
-    item.kind === 'preview' ? tabs.find((tab) => tab.path === item.sourcePath) : undefined
-
-  const title =
-    item.kind === 'searchEditor'
-      ? '搜索编辑器'
-      : item.kind === 'preview'
-      ? `Preview ${previewSource?.name ?? 'Markdown'}`
-      : fileTab
-        ? fileTab.deleted
-          ? `${fileTab.name}（已删除）`
-          : fileTab.conflict
-            ? `${fileTab.name}（冲突）`
-            : fileTab.name
-        : '未知文件'
-
-  const dirty = fileTab ? isVscodeTabDirty(fileTab) : false
-  const pathTitle =
-    item.kind === 'searchEditor'
-      ? 'Search Editor'
-      : item.kind === 'preview'
-      ? previewSource?.path ?? item.sourcePath
-      : fileTab?.path ?? ''
+  const [entering, setEntering] = useState(enter && !exiting)
+  const { title, pathTitle, dirty, deleted, conflict } = snapshot
 
   useEffect(() => {
-    if (!active) return
+    if (!active || exiting) return
     const frame = window.requestAnimationFrame(() => {
       tabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [active])
+  }, [active, exiting])
+
+  useEffect(() => {
+    if (!entering) return
+    const node = tabRef.current
+    if (!node) {
+      setEntering(false)
+      return
+    }
+    const finish = () => setEntering(false)
+    node.addEventListener('animationend', finish)
+    const fallback = window.setTimeout(finish, prefersReducedMotion() ? 0 : 250)
+    return () => {
+      node.removeEventListener('animationend', finish)
+      window.clearTimeout(fallback)
+    }
+  }, [entering])
+
+  useEffect(() => {
+    if (!exiting) return
+    const node = tabRef.current
+    if (!node || prefersReducedMotion()) {
+      onExitComplete()
+      return
+    }
+    const finish = (event?: AnimationEvent) => {
+      if (event && event.target !== node) return
+      onExitComplete()
+    }
+    node.addEventListener('animationend', finish)
+    const fallback = window.setTimeout(() => finish(), 250)
+    return () => {
+      node.removeEventListener('animationend', finish)
+      window.clearTimeout(fallback)
+    }
+  }, [exiting, onExitComplete])
 
   return (
     <div
       ref={tabRef}
-      class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${fileTab?.deleted ? ' vscode__tab--deleted' : ''}${fileTab?.conflict ? ' vscode__tab--conflict' : ''}`}
+      class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${deleted ? ' vscode__tab--deleted' : ''}${conflict ? ' vscode__tab--conflict' : ''}${entering ? ' vscode__tab--enter' : ''}${exiting ? ' vscode__tab--exit' : ''}`}
       role="tab"
       aria-selected={active}
-      draggable
+      aria-hidden={exiting ? true : undefined}
+      draggable={!exiting}
       onContextMenu={onContextMenu}
       onDragStart={(event) => {
-        if ((event.target as HTMLElement).closest('.vscode__tab-close')) {
+        if (exiting || (event.target as HTMLElement).closest('.vscode__tab-close')) {
           event.preventDefault()
           return
         }
@@ -581,10 +758,6 @@ function EditorTabChip({
         setActiveEditorDrag(undefined)
       }}
     >
-      <button type="button" class="vscode__tab-main" title={pathTitle} onClick={onActivate}>
-        {dirty ? <span class="vscode__tab-dot" aria-hidden="true" /> : undefined}
-        <span class="vscode__tab-title">{title}</span>
-      </button>
       <button
         type="button"
         class="vscode__tab-close"
@@ -596,6 +769,10 @@ function EditorTabChip({
         }}
       >
         ×
+      </button>
+      <button type="button" class="vscode__tab-main" title={pathTitle} onClick={onActivate}>
+        {dirty ? <span class="vscode__tab-dot" aria-hidden="true" /> : undefined}
+        <span class="vscode__tab-title">{title}</span>
       </button>
     </div>
   )

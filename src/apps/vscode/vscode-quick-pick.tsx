@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+
+const CLOSE_ANIMATION_MS = 110
 
 export type VscodeQuickPickItem = {
   id: string
@@ -36,6 +38,8 @@ export function VscodeQuickPick({
   onSelect,
   onClose,
 }: VscodeQuickPickProps) {
+  const [visible, setVisible] = useState(open)
+  const [closing, setClosing] = useState(false)
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -45,6 +49,26 @@ export function VscodeQuickPick({
     const normalized = query.trim().toLowerCase()
     return items.filter((item) => itemMatches(item, normalized))
   }, [items, query])
+
+  // layout 阶段切 closing，避免先画一帧「仍打开」再开退场，体感像延迟
+  useLayoutEffect(() => {
+    if (open) {
+      setVisible(true)
+      setClosing(false)
+      return
+    }
+    if (!visible) return
+    setClosing(true)
+  }, [open, visible])
+
+  useEffect(() => {
+    if (open || !closing) return
+    const timer = window.setTimeout(() => {
+      setVisible(false)
+      setClosing(false)
+    }, CLOSE_ANIMATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [closing, open])
 
   useEffect(() => {
     if (!open) return
@@ -76,17 +100,34 @@ export function VscodeQuickPick({
     node?.scrollIntoView({ block: 'nearest' })
   }, [highlight, open])
 
-  if (!open) return undefined
+  if (!visible) return undefined
+
+  const requestClose = () => {
+    if (closing) return
+    onClose()
+  }
 
   const selectIndex = (index: number) => {
+    if (closing) return
     const item = filtered[index]
     if (!item) return
     onSelect(item)
   }
 
   return (
-    <div class="vscode-quick-pick" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" class="vscode-quick-pick__backdrop" aria-label="关闭" onClick={onClose} />
+    <div
+      class={`vscode-quick-pick${closing ? ' vscode-quick-pick--closing' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <button
+        type="button"
+        class="vscode-quick-pick__backdrop"
+        aria-label="关闭"
+        disabled={closing}
+        onClick={requestClose}
+      />
       <div class="vscode-quick-pick__panel">
         <div class="vscode-quick-pick__title">{title}</div>
         <input
@@ -97,15 +138,17 @@ export function VscodeQuickPick({
           value={query}
           aria-autocomplete="list"
           aria-controls="vscode-quick-pick-list"
+          disabled={closing}
           onInput={(event) => {
             setQuery((event.target as HTMLInputElement).value)
             setHighlight(0)
           }}
           onKeyDown={(event) => {
+            if (closing) return
             if (event.key === 'Escape') {
               event.preventDefault()
               event.stopPropagation()
-              onClose()
+              requestClose()
               return
             }
             if (event.key === 'ArrowDown') {
@@ -145,9 +188,12 @@ export function VscodeQuickPick({
                   role="option"
                   data-quick-pick-index={index}
                   aria-selected={selected}
+                  disabled={closing}
                   class={`vscode-quick-pick__item${highlighted ? ' vscode-quick-pick__item--highlight' : ''}${selected ? ' vscode-quick-pick__item--active' : ''}`}
-                  onMouseEnter={() => setHighlight(index)}
-                  onClick={() => onSelect(item)}
+                  onMouseEnter={() => {
+                    if (!closing) setHighlight(index)
+                  }}
+                  onClick={() => selectIndex(index)}
                 >
                   <span class="vscode-quick-pick__item-label">{item.label}</span>
                   {item.description ? (
