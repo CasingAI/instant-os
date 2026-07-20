@@ -81,10 +81,10 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   preview: {
-    version: '文档预览',
+    version: '文档与图片预览',
     paragraphs: [
-      '预览用于以拟物纸面查看本机文档。当前支持 Markdown（.md / .markdown / .mdx），后续将加入更多格式。',
-      '默认作为 Markdown 文件的打开程序；也可从「文件」应用中直接打开。预览为只读，编辑请使用 Virtual Studio Code 或文本编辑。',
+      '预览用于以只读方式查看本机文档与图片。支持 Markdown（.md / .markdown / .mdx）的拟物纸面渲染，以及常见图片（.png / .jpg / .gif / .webp / .ico）。',
+      '默认作为 Markdown 与常见图片的打开程序；可在同一窗口用多标签页同时打开多个文件。编辑请使用 Virtual Studio Code 或文本编辑。',
     ],
   },
   vscode: {

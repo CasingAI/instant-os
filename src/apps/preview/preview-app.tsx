@@ -1,48 +1,62 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { MarkdownDocumentPreview } from '../../markdown/markdown-public.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import {
+  FilePreview,
+  loadPreviewDocument,
+  PREVIEW_OPEN_EXTENSIONS,
+  type PreviewKind,
+} from '../../preview/file-preview-public.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
-import { readTextFile, resolveFilesAbsolutePath } from '../files/files-vfs.ts'
-import {
-  PREVIEW_MARKDOWN_EXTENSIONS,
-  resolvePreviewKind,
-  type PreviewKind,
-} from './preview-kind.ts'
 import './preview.css'
 
 const APP_ID = 'preview' as const
 const THEME = '#8b5a2b'
 const DEFAULT_TITLE = '预览'
-const OPEN_TITLE = '打开文档'
+const OPEN_TITLE = '打开文件'
 
 registerFileOpenHandler({
   appId: APP_ID,
-  extensions: [...PREVIEW_MARKDOWN_EXTENSIONS],
+  extensions: [...PREVIEW_OPEN_EXTENSIONS],
   rank: 5,
 })
 
-type PreviewDocument = {
+type PreviewTab = {
+  id: string
   path: string
   name: string
-  text: string
   kind: PreviewKind
+  text?: string
+  imageSrc?: string
 }
 
 type PreviewAppProps = {
   windowId?: string
 }
 
+let tabCounter = 0
+
+function nextTabId(): string {
+  tabCounter += 1
+  return `preview-tab-${tabCounter}`
+}
+
 function formatError(error: unknown): string {
   if (error instanceof FilesStorageFullError) return error.message
   if (error instanceof Error && error.message) return error.message
   return '操作失败'
+}
+
+function revokeTabImage(tab: PreviewTab): void {
+  if (tab.imageSrc?.startsWith('blob:')) {
+    URL.revokeObjectURL(tab.imageSrc)
+  }
 }
 
 export function PreviewApp({ windowId }: PreviewAppProps) {
@@ -53,8 +67,10 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
     setWindowDocumentId,
     setWindowDocumentEdited,
     setWindowDocumentReadOnly,
+    closeWindow,
     closeWindowsForApp,
     minimizeWindow,
+    bypassWindowCloseGuard,
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
@@ -66,64 +82,105 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
   const pendingDocumentId = appWindow?.documentId
   const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
-  const [document, setDocument] = useState<PreviewDocument | undefined>(undefined)
+  const [tabs, setTabs] = useState<PreviewTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
+  const [ready, setReady] = useState(false)
   const bootstrappedRef = useRef(false)
   const loadingPathRef = useRef<string | undefined>(undefined)
-  const documentPathRef = useRef<string | undefined>(undefined)
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
   const mountedRef = useRef(true)
 
-  documentPathRef.current = document?.path
+  tabsRef.current = tabs
+  activeTabIdRef.current = activeTabId
+
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
 
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      for (const tab of tabsRef.current) {
+        revokeTabImage(tab)
+      }
     }
   }, [])
 
-  const syncWindowMeta = useCallback(
-    (doc: PreviewDocument | undefined) => {
-      if (!windowId) return
-      if (!doc) {
-        setWindowTitle(windowId, DEFAULT_TITLE)
-        setWindowDocumentId(windowId, undefined)
-        setWindowDocumentEdited(windowId, false)
-        setWindowDocumentReadOnly(windowId, false)
-        return
-      }
-      setWindowTitle(windowId, doc.name)
-      setWindowDocumentId(windowId, doc.path)
-      setWindowDocumentEdited(windowId, false)
-      setWindowDocumentReadOnly(windowId, true)
-    },
-    [setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId],
-  )
-
   useEffect(() => {
-    if (!windowId || loading) return
-    syncWindowMeta(document)
-  }, [document, loading, syncWindowMeta, windowId])
+    if (!windowId || !ready) return
+    if (!activeTab) {
+      setWindowTitle(windowId, DEFAULT_TITLE)
+      setWindowDocumentId(windowId, undefined)
+      setWindowDocumentEdited(windowId, false)
+      setWindowDocumentReadOnly(windowId, false)
+      return
+    }
+    setWindowTitle(windowId, activeTab.name)
+    setWindowDocumentId(windowId, activeTab.path)
+    setWindowDocumentEdited(windowId, false)
+    setWindowDocumentReadOnly(windowId, true)
+  }, [
+    activeTab?.id,
+    activeTab?.name,
+    activeTab?.path,
+    ready,
+    setWindowDocumentEdited,
+    setWindowDocumentId,
+    setWindowDocumentReadOnly,
+    setWindowTitle,
+    windowId,
+  ])
+
+  const focusTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId)
+  }, [])
 
   const openDocument = useCallback(
     async (documentRef: string): Promise<boolean> => {
       if (!windowId) return false
-      if (documentPathRef.current === documentRef) return true
-      if (loadingPathRef.current === documentRef) return true
+
+      const existing = tabsRef.current.find((tab) => tab.path === documentRef)
+      if (existing) {
+        setActiveTabId(existing.id)
+        setReady(true)
+        return true
+      }
+
+      if (loadingPathRef.current === documentRef) {
+        return true
+      }
 
       loadingPathRef.current = documentRef
       setLoading(true)
       try {
-        const result = await readTextFile(documentRef)
+        const loaded = await loadPreviewDocument(documentRef)
         if (!mountedRef.current) return false
-        const path = await resolveFilesAbsolutePath(result.node)
-        const kind = resolvePreviewKind(result.node.name)
-        setDocument({
-          path,
-          name: result.node.name,
-          text: kind === 'markdown' ? result.text : '',
-          kind,
-        })
+        const already = tabsRef.current.find((tab) => tab.path === loaded.path)
+        if (already) {
+          setActiveTabId(already.id)
+          setReady(true)
+          return true
+        }
+        const imageSrc =
+          loaded.kind === 'image' && loaded.blob
+            ? URL.createObjectURL(loaded.blob)
+            : undefined
+        if (!mountedRef.current) {
+          if (imageSrc) URL.revokeObjectURL(imageSrc)
+          return false
+        }
+        const tab: PreviewTab = {
+          id: nextTabId(),
+          path: loaded.path,
+          name: loaded.name,
+          kind: loaded.kind,
+          text: loaded.text,
+          imageSrc,
+        }
+        setTabs((prev) => [...prev, tab])
+        setActiveTabId(tab.id)
+        setReady(true)
         return true
       } catch (err) {
         await modal.alert({
@@ -146,7 +203,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
     if (!windowId) return false
     const path = await showSystemOpenDialog({
       title: OPEN_TITLE,
-      acceptExtensions: [...PREVIEW_MARKDOWN_EXTENSIONS],
+      acceptExtensions: [...PREVIEW_OPEN_EXTENSIONS],
       allowCreate: false,
       presentation: 'modal',
     })
@@ -160,19 +217,61 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
 
     if (pendingDocumentId) {
       void openDocument(pendingDocumentId)
+    } else {
+      setReady(true)
     }
   }, [openDocument, pendingDocumentId, windowId])
 
   useEffect(() => {
-    if (!windowId || !bootstrappedRef.current || !pendingDocumentId) return
+    if (!windowId || !ready || !pendingDocumentId) return
     if (loadingPathRef.current === pendingDocumentId) return
-    if (documentPathRef.current === pendingDocumentId) return
+
+    const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
+    if (existing) {
+      if (existing.id !== activeTabIdRef.current) {
+        setActiveTabId(existing.id)
+      }
+      return
+    }
+
     void openDocument(pendingDocumentId)
-  }, [openDocument, pendingDocumentId, windowId])
+  }, [openDocument, pendingDocumentId, ready, windowId])
 
   const handleOpen = useCallback(async () => {
     await pickAndOpen()
   }, [pickAndOpen])
+
+  const removeTab = useCallback(
+    (tabId: string) => {
+      if (!windowId) return
+      const current = tabsRef.current
+      const index = current.findIndex((tab) => tab.id === tabId)
+      if (index < 0) return
+      const closing = current[index]
+      if (closing) revokeTabImage(closing)
+      const nextTabs = current.filter((tab) => tab.id !== tabId)
+      if (nextTabs.length === 0) {
+        setTabs([])
+        setActiveTabId(undefined)
+        bypassWindowCloseGuard(windowId)
+        closeWindow(windowId)
+        return
+      }
+      setTabs(nextTabs)
+      if (activeTabIdRef.current === tabId) {
+        const neighbor = nextTabs[Math.min(index, nextTabs.length - 1)]
+        setActiveTabId(neighbor?.id)
+      }
+    },
+    [bypassWindowCloseGuard, closeWindow, windowId],
+  )
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      removeTab(tabId)
+    },
+    [removeTab],
+  )
 
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
@@ -205,10 +304,19 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
             disabled: loading || openDialogOpen,
             onClick: () => void handleOpen(),
           },
+          {
+            type: 'action',
+            label: '关闭标签页',
+            shortcut: '⌘W',
+            disabled: !activeTab || loading,
+            onClick: () => activeTab && closeTab(activeTab.id),
+          },
         ],
       },
     ]
   }, [
+    activeTab,
+    closeTab,
     closeWindowsForApp,
     handleOpen,
     loading,
@@ -232,34 +340,72 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           打开…
         </button>
         <div class="preview-app__toolbar-title">
-          {document ? document.name : '未打开文档'}
+          {activeTab ? activeTab.name : '未打开文档'}
         </div>
       </div>
+
+      {tabs.length > 1 ? (
+        <div class="preview-app__tabs" role="tablist" aria-label="打开的文件">
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTab?.id
+            return (
+              <div
+                key={tab.id}
+                class={`preview-app__tab${isActive ? ' preview-app__tab--active' : ''}`}
+                role="tab"
+                aria-selected={isActive}
+              >
+                <button
+                  type="button"
+                  class="preview-app__tab-main"
+                  onClick={() => focusTab(tab.id)}
+                  title={tab.path}
+                >
+                  <span class="preview-app__tab-title">{tab.name}</span>
+                </button>
+                <button
+                  type="button"
+                  class="preview-app__tab-close"
+                  aria-label={`关闭 ${tab.name}`}
+                  disabled={loading || openDialogOpen}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    closeTab(tab.id)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      ) : undefined}
+
       <div class="preview-app__body">
-        {loading ? (
+        {loading && !activeTab ? (
           <div class="preview-app__loading">正在打开…</div>
-        ) : !document ? (
+        ) : !activeTab ? (
           <div class="preview-app__empty">
             <p class="preview-app__empty-title">预览</p>
-            <p class="preview-app__empty-hint">打开 Markdown 等文档以查看拟物纸面渲染。</p>
+            <p class="preview-app__empty-hint">
+              打开 Markdown 或图片文件，以只读方式查看内容。
+            </p>
             <button
               type="button"
               class="preview-app__toolbar-btn preview-app__empty-btn"
               disabled={openDialogOpen}
               onClick={() => void handleOpen()}
             >
-              打开文档…
+              打开文件…
             </button>
           </div>
-        ) : document.kind === 'unsupported' ? (
-          <div class="preview-app__unsupported">
-            <p class="preview-app__unsupported-title">暂不支持此格式</p>
-            <p class="preview-app__unsupported-hint">
-              「预览」目前可查看 Markdown（.md / .markdown / .mdx）。其它格式将陆续加入。
-            </p>
-          </div>
         ) : (
-          <MarkdownDocumentPreview text={document.text} />
+          <FilePreview
+            kind={activeTab.kind}
+            text={activeTab.text}
+            imageSrc={activeTab.imageSrc}
+            imageAlt={activeTab.name}
+          />
         )}
       </div>
       {openDialogOpen && openDialog ? openDialog : undefined}

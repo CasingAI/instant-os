@@ -1,0 +1,52 @@
+import { fileNameExtension } from '../os/file-open-registry.ts'
+
+export type PreviewKind = 'markdown' | 'image' | 'unsupported'
+
+const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
+
+export const PREVIEW_MARKDOWN_EXTENSIONS = ['md', 'markdown', 'mdx'] as const
+export const PREVIEW_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'] as const
+
+export const PREVIEW_OPEN_EXTENSIONS = [
+  ...PREVIEW_MARKDOWN_EXTENSIONS,
+  ...PREVIEW_IMAGE_EXTENSIONS,
+] as const
+
+/** 按路径扩展名分流预览格式；后续加格式时在此扩展 */
+export function resolvePreviewKind(pathOrName: string): PreviewKind {
+  const extension = fileNameExtension(pathOrName)
+  if (extension && MARKDOWN_EXTENSIONS.has(extension)) {
+    return 'markdown'
+  }
+  if (extension && IMAGE_EXTENSIONS.has(extension)) {
+    return 'image'
+  }
+  return 'unsupported'
+}
+
+export function fileNameFromPath(path: string): string {
+  const trimmed = path.replace(/\/+$/, '')
+  const slash = trimmed.lastIndexOf('/')
+  if (slash < 0) return trimmed || path
+  return trimmed.slice(slash + 1) || trimmed
+}
+
+export function guessImageMime(pathOrName: string): string {
+  const extension = fileNameExtension(pathOrName)
+  switch (extension) {
+    case 'png':
+      return 'image/png'
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg'
+    case 'gif':
+      return 'image/gif'
+    case 'webp':
+      return 'image/webp'
+    case 'ico':
+      return 'image/x-icon'
+    default:
+      return 'application/octet-stream'
+  }
+}

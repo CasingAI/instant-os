@@ -224,6 +224,22 @@ export async function readMountText(
   }
 }
 
+export async function readMountBlob(
+  id: string,
+): Promise<{ node: FilesNode; blob: Blob }> {
+  const parsed = parseFilePath(id)
+  if (!parsed) {
+    throw new Error('文件不存在')
+  }
+  const { parent, name } = await resolveParentAndName(parsed.locationId, parsed.path)
+  const handle = await parent.getFileHandle(name)
+  const blob = await handle.getFile()
+  return {
+    node: makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified),
+    blob,
+  }
+}
+
 export async function writeMountText(id: string, text: string): Promise<FilesNode> {
   const parsed = parseFilePath(id)
   if (!parsed) {

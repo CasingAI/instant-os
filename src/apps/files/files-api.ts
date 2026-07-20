@@ -26,6 +26,7 @@ import {
   listDirectory,
   listFilesLocations,
   mkdir,
+  readFileBlob,
   readTextFile,
   removeNode,
   renameNode,
@@ -212,6 +213,16 @@ export async function filesReadText(path: string): Promise<string> {
   }
   const { text } = await readTextFile(absolutePath)
   return text
+}
+
+/** 读取文件二进制内容 */
+export async function filesReadBlob(path: string): Promise<Blob> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能读取命名空间根')
+  }
+  const { blob } = await readFileBlob(absolutePath)
+  return blob
 }
 
 /** 覆写已存在的文本文件 */

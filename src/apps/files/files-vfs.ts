@@ -10,6 +10,7 @@ import {
   getNode,
   listChildNodes,
   newFilesNodeId,
+  readBlobBytes,
   readBlobText,
   renameNodeRecord,
   writeBlobText,
@@ -19,6 +20,7 @@ import {
   getMountNode,
   listMountDirectory,
   mkdirMount,
+  readMountBlob,
   readMountText,
   removeMountNode,
   renameMountNode,
@@ -355,6 +357,34 @@ async function readTextFileByNodeId(id: string): Promise<{ node: FilesNode; text
   }
   const text = await readBlobText(id)
   return { node, text }
+}
+
+/** 读取文件二进制内容（挂载卷 File，或本地卷已存的 bytes） */
+export async function readFileBlob(ref: string): Promise<{ node: FilesNode; blob: Blob }> {
+  if (isFilesAbsolutePath(ref)) {
+    const node = await resolveFileRef(ref)
+    return readFileBlobByNodeId(node.id)
+  }
+  return readFileBlobByNodeId(ref)
+}
+
+async function readFileBlobByNodeId(id: string): Promise<{ node: FilesNode; blob: Blob }> {
+  if (isMountNodeId(id)) {
+    return readMountBlob(id)
+  }
+  if (id.startsWith('models3d:') || id.startsWith('source:')) {
+    throw new Error('此位置不支持二进制读取')
+  }
+  const node = await getNode(id)
+  if (!node || node.kind !== 'file') {
+    throw new Error('文件不存在')
+  }
+  const bytes = await readBlobBytes(id)
+  if (!bytes) {
+    throw new Error('此文件没有可预览的二进制内容')
+  }
+  const type = node.mimeType ?? 'application/octet-stream'
+  return { node, blob: new Blob([new Uint8Array(bytes)], { type }) }
 }
 
 export async function writeTextFile(ref: string, text: string): Promise<FilesNode> {

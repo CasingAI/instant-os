@@ -95,32 +95,90 @@ export function PreviewIcon({ size = 64 }: IconProps) {
     <AppIconTile color="#8b5a2b" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
         <defs>
+          <linearGradient id="preview-icon-paper-back" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#e8dcc4" />
+            <stop offset="100%" stop-color="#cbb892" />
+          </linearGradient>
           <linearGradient id="preview-icon-paper" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fffdf8" />
-            <stop offset="100%" stop-color="#f0e4d0" />
+            <stop offset="0%" stop-color="#fffef9" />
+            <stop offset="45%" stop-color="#f7edd8" />
+            <stop offset="100%" stop-color="#e8d4b0" />
           </linearGradient>
           <linearGradient id="preview-icon-glass" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#d8ecff" />
-            <stop offset="55%" stop-color="#7eb6e8" />
-            <stop offset="100%" stop-color="#3a7ab8" />
+            <stop offset="0%" stop-color="#e8f4ff" />
+            <stop offset="40%" stop-color="#8ec4ef" />
+            <stop offset="100%" stop-color="#2f6fa8" />
           </linearGradient>
+          <linearGradient id="preview-icon-rim" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#9a7a52" />
+            <stop offset="50%" stop-color="#6b4a28" />
+            <stop offset="100%" stop-color="#3d2a14" />
+          </linearGradient>
+          <linearGradient id="preview-icon-handle" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#d4a574" />
+            <stop offset="40%" stop-color="#8b5a2b" />
+            <stop offset="100%" stop-color="#4a3018" />
+          </linearGradient>
+          <radialGradient id="preview-icon-lens-shine" cx="35%" cy="32%" r="55%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.75" />
+            <stop offset="45%" stop-color="#fff" stop-opacity="0.12" />
+            <stop offset="100%" stop-color="#fff" stop-opacity="0" />
+          </radialGradient>
         </defs>
-        <rect x="12" y="10" width="32" height="42" rx="3.5" fill="url(#preview-icon-paper)" stroke="#c4a882" stroke-width="1.2" />
-        <path d="M18 20h20M18 27h20M18 34h14" stroke="#a89070" stroke-width="2" stroke-linecap="round" opacity="0.85" />
-        <circle cx="40" cy="40" r="11" fill="url(#preview-icon-glass)" stroke="#2f5f8a" stroke-width="2" opacity="0.95" />
-        <circle cx="40" cy="40" r="6.5" fill="none" stroke="#fff" stroke-width="1.4" opacity="0.55" />
+        {/* paper back */}
+        <rect
+          x="13"
+          y="12"
+          width="30"
+          height="40"
+          rx="3.5"
+          fill="url(#preview-icon-paper-back)"
+          opacity="0.95"
+        />
+        <rect
+          x="11"
+          y="10"
+          width="30"
+          height="40"
+          rx="3.5"
+          fill="url(#preview-icon-paper)"
+          stroke="#b8956a"
+          stroke-width="1.1"
+        />
         <path
-          d="M48 48l7.5 7.5"
-          stroke="#5a3d22"
-          stroke-width="3.2"
+          d="M17 20h18M17 26.5h18M17 33h12"
+          stroke="#a89070"
+          stroke-width="2"
+          stroke-linecap="round"
+          opacity="0.75"
+        />
+        <path
+          d="M17 20h18M17 26.5h18M17 33h12"
+          stroke="#fff8ec"
+          stroke-width="0.7"
+          stroke-linecap="round"
+          opacity="0.5"
+          transform="translate(0 -0.6)"
+        />
+        <circle cx="40" cy="39" r="13.2" fill="url(#preview-icon-rim)" opacity="0.9" />
+        <circle cx="40" cy="39" r="11.4" fill="url(#preview-icon-glass)" stroke="#1e4a72" stroke-width="1.4" />
+        <circle cx="40" cy="39" r="11.4" fill="url(#preview-icon-lens-shine)" />
+        <circle cx="40" cy="39" r="7" fill="none" stroke="#fff" stroke-width="1.2" opacity="0.35" />
+        <path
+          d="M48.5 47.5l9 9"
+          stroke="url(#preview-icon-handle)"
+          stroke-width="4.2"
           stroke-linecap="round"
         />
         <path
-          d="M48 48l7.5 7.5"
-          stroke="#c9a06a"
-          stroke-width="1.6"
+          d="M48.5 47.5l9 9"
+          stroke="#f0d4a8"
+          stroke-width="1.5"
           stroke-linecap="round"
+          opacity="0.55"
         />
+        <circle cx="57.2" cy="56.2" r="2.2" fill="#5a3d22" opacity="0.85" />
+        <circle cx="57.2" cy="56.2" r="1.1" fill="#c9a06a" opacity="0.7" />
       </svg>
     </AppIconTile>
   )

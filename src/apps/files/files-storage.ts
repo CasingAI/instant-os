@@ -37,7 +37,10 @@ type FilesNodeRecord = {
 
 type FilesBlobRecord = {
   id: string
-  text: string
+  /** 文本内容；与 bytes 可并存，读取方按用途择一 */
+  text?: string
+  /** 二进制内容（图片等）；无则不可当作二进制文件读取 */
+  bytes?: ArrayBuffer
 }
 
 type FilesMetaRecord = {
@@ -228,6 +231,17 @@ export async function readBlobText(id: string): Promise<string> {
   )
   await waitForTransaction(tx)
   return record?.text ?? ''
+}
+
+/** 读取本地卷二进制内容；无 bytes 时返回 undefined（不把文本当二进制） */
+export async function readBlobBytes(id: string): Promise<ArrayBuffer | undefined> {
+  const db = await openFilesDb()
+  const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
+  const record = await requestToPromise(
+    tx.objectStore(FILES_BLOBS_STORE).get(id) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(tx)
+  return record?.bytes
 }
 
 export async function createFileWithBlob(params: {
