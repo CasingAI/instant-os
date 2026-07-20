@@ -467,13 +467,10 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin: 6px 6px 0;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  border-radius: 6px;
+  margin: 0;
+  border: unset;
+  border-radius: 0;
   background: var(--vscode-paper);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 3px rgba(0, 0, 0, 0.1);
   overflow: hidden;
 }
 
@@ -502,29 +499,48 @@
 
 .vscode__split-sash {
   flex-shrink: 0;
-  background: var(--vscode-border-light);
+  position: relative;
   z-index: 2;
+  background: transparent;
+  border: none;
 }
 
 .vscode__split-sash--horizontal {
-  width: 5px;
+  width: 4px;
   cursor: col-resize;
-  background: linear-gradient(90deg, #d8d8d8 0%, #ececec 50%, #d0d0d0 100%);
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .vscode__split-sash--vertical {
-  height: 5px;
+  height: 4px;
   cursor: row-resize;
-  background: linear-gradient(180deg, #d8d8d8 0%, #ececec 50%, #d0d0d0 100%);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.vscode__split-sash:hover,
-.vscode__split-sash:active {
-  background: color-mix(in srgb, var(--vscode-accent) 35%, #ececec);
+.vscode__split-sash::after {
+  content: '';
+  position: absolute;
+  background: var(--vscode-border-light);
+  transition: background 0.12s ease;
+}
+
+.vscode__split-sash--horizontal::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+}
+
+.vscode__split-sash--vertical::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  margin-top: -0.5px;
+}
+
+.vscode__split-sash:hover::after,
+.vscode__split-sash:active::after {
+  background: color-mix(in srgb, var(--vscode-accent) 70%, transparent);
 }
 
 .vscode__editor-group {
@@ -901,22 +917,19 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  margin: 0 6px 6px;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  border-radius: 6px;
+  margin: 0;
+  border: unset;
+  border-radius: 0;
   background: var(--vscode-paper);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 3px rgba(0, 0, 0, 0.1);
   min-height: 120px;
   overflow: hidden;
 }
 
-/* 透明间距条：平时只占 gap，悬停/拖拽才显细线 */
+/* 全宽细线：平时微可见，悬停/拖拽高亮 */
 .vscode__terminal-sash {
   flex-shrink: 0;
-  height: 6px;
-  margin: 0 6px;
+  height: 4px;
+  margin: 0;
   cursor: row-resize;
   border: none;
   background: transparent;
@@ -929,13 +942,12 @@
 .vscode__terminal-sash::after {
   content: '';
   position: absolute;
-  left: 8px;
-  right: 8px;
+  left: 0;
+  right: 0;
   top: 50%;
-  height: 2px;
-  margin-top: -1px;
-  border-radius: 1px;
-  background: transparent;
+  height: 1px;
+  margin-top: -0.5px;
+  background: var(--vscode-border-light);
   transition: background 0.12s ease;
 }
 
@@ -1630,15 +1642,6 @@
   background: linear-gradient(180deg, #3e3e46 0%, #323238 100%);
   border-color: var(--vscode-border);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.vscode--chrome-dark .vscode__editor-pane,
-.vscode--chrome-dark .vscode__terminal {
-  border-color: rgba(0, 0, 0, 0.45);
-  background: var(--vscode-paper);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .vscode--chrome-dark .vscode__tabs-row {
