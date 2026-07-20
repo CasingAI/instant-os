@@ -86,7 +86,24 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-let editorTabEnterAnimationReady = false
+/** 标签 flex 宽度过渡时长，与 CSS 保持一致。 */
+const TAB_FLEX_TRANSITION_MS = 200
+
+function listenTabFlexTransition(
+  node: HTMLElement,
+  onDone: () => void,
+): () => void {
+  const finish = (event: TransitionEvent) => {
+    if (event.target !== node || event.propertyName !== 'flex-grow') return
+    onDone()
+  }
+  node.addEventListener('transitionend', finish)
+  const fallback = window.setTimeout(onDone, TAB_FLEX_TRANSITION_MS + 50)
+  return () => {
+    node.removeEventListener('transitionend', finish)
+    window.clearTimeout(fallback)
+  }
+}
 
 /** 均分后单标签宽度低于此值时，才启用悬停/激活加宽。 */
 const TAB_EXPAND_MIN_WIDTH = 96
@@ -242,7 +259,10 @@ function VscodeEditorGroupView({
   const tabsRowRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const visualsRef = useRef(new Map<string, TabVisualSnapshot>())
-  const seenItemIdsRef = useRef(new Set<string>())
+  const initialItemIdsRef = useRef<Set<string> | undefined>(undefined)
+  if (initialItemIdsRef.current === undefined) {
+    initialItemIdsRef.current = new Set(group.items.map((item) => item.id))
+  }
   const peekPointerIdRef = useRef<number | undefined>(undefined)
 
   for (const item of group.items) {
@@ -299,20 +319,6 @@ function VscodeEditorGroupView({
       return result
     })
   }, [group.items, layout, tabs])
-
-  useEffect(() => {
-    if (editorTabEnterAnimationReady) return
-    const frame = window.requestAnimationFrame(() => {
-      editorTabEnterAnimationReady = true
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [])
-
-  useLayoutEffect(() => {
-    for (const item of group.items) {
-      seenItemIdsRef.current.add(item.id)
-    }
-  }, [group.items])
 
   const clearPeek = useCallback(() => {
     peekPointerIdRef.current = undefined
@@ -584,11 +590,7 @@ function VscodeEditorGroupView({
               active={!entry.exiting && entry.item.id === activeItem?.id}
               snapshot={entry.snapshot}
               disabled={loading || dialogBlocked || entry.exiting}
-              enter={
-                !entry.exiting &&
-                editorTabEnterAnimationReady &&
-                !seenItemIdsRef.current.has(entry.item.id)
-              }
+              enter={!entry.exiting && !initialItemIdsRef.current!.has(entry.item.id)}
               exiting={entry.exiting}
               expanded={!entry.exiting && expandedTabId === entry.item.id}
               onActivate={() => {
@@ -786,7 +788,62 @@ function EditorTabChip({
 }: TabChipProps) {
   const tabRef = useRef<HTMLDivElement>(null)
   const [entering, setEntering] = useState(enter && !exiting)
+  const [enterActive, setEnterActive] = useState(false)
+  const [exitActive, setExitActive] = useState(false)
   const { title, pathTitle, dirty, deleted, conflict } = snapshot
+
+  useLayoutEffect(() => {
+    if (!entering) return
+    if (prefersReducedMotion()) {
+      setEnterActive(true)
+      setEntering(false)
+      return
+    }
+    const frame = window.requestAnimationFrame(() => setEnterActive(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [entering])
+
+  useLayoutEffect(() => {
+    if (!exiting) {
+      setExitActive(false)
+      return
+    }
+    if (prefersReducedMotion()) {
+      onExitComplete()
+      return
+    }
+    const frame = window.requestAnimationFrame(() => setExitActive(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [exiting, onExitComplete])
+
+  useEffect(() => {
+    if (!enterActive || !entering) return
+    const node = tabRef.current
+    if (!node) {
+      setEntering(false)
+      setEnterActive(false)
+      return
+    }
+    if (prefersReducedMotion()) {
+      setEntering(false)
+      setEnterActive(false)
+      return
+    }
+    return listenTabFlexTransition(node, () => {
+      setEntering(false)
+      setEnterActive(false)
+    })
+  }, [enterActive, entering])
+
+  useEffect(() => {
+    if (!exitActive || !exiting) return
+    const node = tabRef.current
+    if (!node) {
+      onExitComplete()
+      return
+    }
+    return listenTabFlexTransition(node, onExitComplete)
+  }, [exitActive, exiting, onExitComplete])
 
   useEffect(() => {
     if (!active || exiting) return
@@ -796,45 +853,10 @@ function EditorTabChip({
     return () => window.cancelAnimationFrame(frame)
   }, [active, exiting])
 
-  useEffect(() => {
-    if (!entering) return
-    const node = tabRef.current
-    if (!node) {
-      setEntering(false)
-      return
-    }
-    const finish = () => setEntering(false)
-    node.addEventListener('animationend', finish)
-    const fallback = window.setTimeout(finish, prefersReducedMotion() ? 0 : 250)
-    return () => {
-      node.removeEventListener('animationend', finish)
-      window.clearTimeout(fallback)
-    }
-  }, [entering])
-
-  useEffect(() => {
-    if (!exiting) return
-    const node = tabRef.current
-    if (!node || prefersReducedMotion()) {
-      onExitComplete()
-      return
-    }
-    const finish = (event?: AnimationEvent) => {
-      if (event && event.target !== node) return
-      onExitComplete()
-    }
-    node.addEventListener('animationend', finish)
-    const fallback = window.setTimeout(() => finish(), 250)
-    return () => {
-      node.removeEventListener('animationend', finish)
-      window.clearTimeout(fallback)
-    }
-  }, [exiting, onExitComplete])
-
   return (
     <div
       ref={tabRef}
-      class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${deleted ? ' vscode__tab--deleted' : ''}${conflict ? ' vscode__tab--conflict' : ''}${entering ? ' vscode__tab--enter' : ''}${exiting ? ' vscode__tab--exit' : ''}${expanded ? ' vscode__tab--expanded' : ''}`}
+      class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${deleted ? ' vscode__tab--deleted' : ''}${conflict ? ' vscode__tab--conflict' : ''}${entering ? ' vscode__tab--enter' : ''}${entering && enterActive ? ' vscode__tab--enter-active' : ''}${exiting ? ' vscode__tab--exit' : ''}${exiting && exitActive ? ' vscode__tab--exit-active' : ''}${expanded && !entering ? ' vscode__tab--expanded' : ''}`}
       role="tab"
       aria-selected={active}
       aria-hidden={exiting ? true : undefined}

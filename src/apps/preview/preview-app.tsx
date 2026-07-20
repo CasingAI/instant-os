@@ -366,7 +366,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
         </div>
       </div>
 
-      {tabs.length > 1 ? (
+      {tabItems.length > 0 ? (
         <DocumentTabBar
           class="preview-app__doc-tabs"
           tabs={tabItems}

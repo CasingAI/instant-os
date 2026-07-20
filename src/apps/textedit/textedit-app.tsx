@@ -595,7 +595,7 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
 
   return (
     <div class="textedit">
-      {tabs.length > 1 ? (
+      {tabs.length > 0 ? (
         <DocumentTabBar
           tabs={tabItems}
           activeTabId={activeTab.id}

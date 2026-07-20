@@ -1329,44 +1329,30 @@
 }
 
 .vscode__tab--enter {
+  flex-grow: 0;
+  flex-basis: 0;
+  min-width: 0;
+  opacity: 0;
   overflow: hidden;
-  flex: 0 1 0;
-  animation: vscode-tab-enter 200ms ease-out forwards;
+  transition: flex-grow 200ms ease-out, opacity 200ms ease-out;
+}
+
+.vscode__tab--enter.vscode__tab--enter-active {
+  flex-grow: 1;
+  opacity: 1;
 }
 
 .vscode__tab--exit {
-  overflow: hidden;
-  flex: 0 1 0;
   pointer-events: none;
-  animation: vscode-tab-exit 200ms ease-in forwards;
+  overflow: hidden;
+  transition: flex-grow 200ms ease-in, opacity 200ms ease-in;
 }
 
-@keyframes vscode-tab-enter {
-  from {
-    flex-grow: 0;
-    max-width: 0;
-    opacity: 0;
-  }
-
-  to {
-    flex-grow: 1;
-    max-width: 100%;
-    opacity: 1;
-  }
-}
-
-@keyframes vscode-tab-exit {
-  from {
-    flex-grow: 1;
-    max-width: 100%;
-    opacity: 1;
-  }
-
-  to {
-    flex-grow: 0;
-    max-width: 0;
-    opacity: 0;
-  }
+.vscode__tab--exit.vscode__tab--exit-active {
+  flex-grow: 0;
+  flex-basis: 0;
+  min-width: 0;
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

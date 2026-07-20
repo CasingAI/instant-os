@@ -9,15 +9,59 @@
   --doc-tab-close-hover-bg: rgba(0, 0, 0, 0.08);
   --doc-tab-close-hover-ink: #222;
   --doc-tab-dirty-dot: #3d7a4a;
+  --doc-tab-bar-height: 28px;
 
   display: flex;
   flex-shrink: 0;
   align-items: stretch;
-  height: 28px;
+  height: var(--doc-tab-bar-height);
   margin: 0;
   padding: 0;
   background: var(--doc-tab-bar-bg);
   min-width: 0;
+  overflow: hidden;
+}
+
+.doc-tab-bar--bar-enter {
+  height: 0;
+  animation: doc-tab-bar-enter 200ms ease-out forwards;
+}
+
+.doc-tab-bar--bar-exit {
+  pointer-events: none;
+  animation: doc-tab-bar-exit 200ms ease-in forwards;
+}
+
+@keyframes doc-tab-bar-enter {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+
+  to {
+    height: var(--doc-tab-bar-height);
+    opacity: 1;
+  }
+}
+
+@keyframes doc-tab-bar-exit {
+  from {
+    height: var(--doc-tab-bar-height);
+    opacity: 1;
+  }
+
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+.doc-tab-bar__row {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  align-items: stretch;
 }
 
 .doc-tab-bar__tabs {
@@ -57,47 +101,38 @@
 }
 
 .doc-tab-bar__tab--enter {
+  flex-grow: 0;
+  flex-basis: 0;
+  min-width: 0;
+  opacity: 0;
   overflow: hidden;
-  flex: 0 1 0;
-  animation: doc-tab-enter 200ms ease-out forwards;
+  transition: flex-grow 200ms ease-out, opacity 200ms ease-out;
+}
+
+.doc-tab-bar__tab--enter.doc-tab-bar__tab--enter-active {
+  flex-grow: 1;
+  opacity: 1;
 }
 
 .doc-tab-bar__tab--exit {
-  overflow: hidden;
-  flex: 0 1 0;
   pointer-events: none;
-  animation: doc-tab-exit 200ms ease-in forwards;
+  overflow: hidden;
+  transition: flex-grow 200ms ease-in, opacity 200ms ease-in;
 }
 
-@keyframes doc-tab-enter {
-  from {
-    flex-grow: 0;
-    max-width: 0;
-    opacity: 0;
-  }
-
-  to {
-    flex-grow: 1;
-    max-width: 100%;
-    opacity: 1;
-  }
-}
-
-@keyframes doc-tab-exit {
-  from {
-    flex-grow: 1;
-    max-width: 100%;
-    opacity: 1;
-  }
-
-  to {
-    flex-grow: 0;
-    max-width: 0;
-    opacity: 0;
-  }
+.doc-tab-bar__tab--exit.doc-tab-bar__tab--exit-active {
+  flex-grow: 0;
+  flex-basis: 0;
+  min-width: 0;
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .doc-tab-bar--bar-enter,
+  .doc-tab-bar--bar-exit {
+    animation: none;
+  }
+
   .doc-tab-bar__tab--enter,
   .doc-tab-bar__tab--exit {
     animation: none;
