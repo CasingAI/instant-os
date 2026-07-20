@@ -1,4 +1,7 @@
 .textedit {
+  --doc-tab-content-bg: #fff;
+  --doc-tab-dirty-dot: #3d7a4a;
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -23,98 +26,6 @@
   place-items: center;
   color: #777;
   font-size: 12px;
-}
-
-.textedit__tabs {
-  display: flex;
-  flex-shrink: 0;
-  align-items: stretch;
-  height: 28px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background: #e8e8e8;
-  border-bottom: 1px solid #c8c8c8;
-}
-
-.textedit__tab {
-  display: flex;
-  flex: 1 1 0;
-  align-items: stretch;
-  min-width: 0;
-  margin: 0;
-  border: 0;
-  border-right: 1px solid #c8c8c8;
-  border-radius: 0;
-  background: #e8e8e8;
-  color: #555;
-}
-
-.textedit__tab:last-child {
-  border-right: 0;
-}
-
-.textedit__tab--active {
-  background: #fff;
-  color: #1a1a1a;
-}
-
-.textedit__tab-main {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 0;
-  margin: 0;
-  padding: 0 4px 0 8px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.textedit__tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.textedit__tab-dot {
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #3d7a4a;
-}
-
-.textedit__tab-close {
-  flex-shrink: 0;
-  align-self: center;
-  width: 18px;
-  height: 18px;
-  margin: 0 6px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: #777;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.textedit__tab-close:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.08);
-  color: #222;
-}
-
-.textedit__tab-close:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .textedit__input {

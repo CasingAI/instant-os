@@ -14,6 +14,7 @@ import {
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
+import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
 import './preview.css'
 
 const APP_ID = 'preview' as const
@@ -139,6 +140,16 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
   const focusTab = useCallback((tabId: string) => {
     setActiveTabId(tabId)
   }, [])
+
+  const tabItems = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        id: tab.id,
+        title: tab.name,
+        pathTitle: tab.path,
+      })),
+    [tabs],
+  )
 
   const openDocument = useCallback(
     async (documentRef: string): Promise<boolean> => {
@@ -356,40 +367,14 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
       </div>
 
       {tabs.length > 1 ? (
-        <div class="preview-app__tabs" role="tablist" aria-label="打开的文件">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTab?.id
-            return (
-              <div
-                key={tab.id}
-                class={`preview-app__tab${isActive ? ' preview-app__tab--active' : ''}`}
-                role="tab"
-                aria-selected={isActive}
-              >
-                <button
-                  type="button"
-                  class="preview-app__tab-main"
-                  onClick={() => focusTab(tab.id)}
-                  title={tab.path}
-                >
-                  <span class="preview-app__tab-title">{tab.name}</span>
-                </button>
-                <button
-                  type="button"
-                  class="preview-app__tab-close"
-                  aria-label={`关闭 ${tab.name}`}
-                  disabled={loading || openDialogOpen}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    closeTab(tab.id)
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            )
-          })}
-        </div>
+        <DocumentTabBar
+          class="preview-app__doc-tabs"
+          tabs={tabItems}
+          activeTabId={activeTab?.id}
+          closeDisabled={loading || openDialogOpen}
+          onActivate={focusTab}
+          onClose={closeTab}
+        />
       ) : undefined}
 
       <div class="preview-app__body">

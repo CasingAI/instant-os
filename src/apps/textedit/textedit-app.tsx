@@ -15,6 +15,7 @@ import {
   resolveFilesAbsolutePath,
   writeTextFile,
 } from '../files/files-vfs.ts'
+import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
 import './textedit.css'
 
 const APP_ID = 'textedit' as const
@@ -581,45 +582,27 @@ export function TextEditApp({ windowId }: TextEditAppProps) {
     )
   }
 
+  const tabItems = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        id: tab.id,
+        title: tab.node.name,
+        pathTitle: tab.path,
+        dirty: isTabDirty(tab),
+      })),
+    [tabs],
+  )
+
   return (
     <div class="textedit">
       {tabs.length > 1 ? (
-        <div class="textedit__tabs" role="tablist" aria-label="打开的文件">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTab.id
-            const tabDirty = isTabDirty(tab)
-            return (
-              <div
-                key={tab.id}
-                class={`textedit__tab${isActive ? ' textedit__tab--active' : ''}${tabDirty ? ' textedit__tab--dirty' : ''}`}
-                role="tab"
-                aria-selected={isActive}
-              >
-                <button
-                  type="button"
-                  class="textedit__tab-main"
-                  onClick={() => focusTab(tab.id)}
-                  title={tab.path}
-                >
-                  {tabDirty ? <span class="textedit__tab-dot" aria-hidden="true" /> : undefined}
-                  <span class="textedit__tab-title">{tab.node.name}</span>
-                </button>
-                <button
-                  type="button"
-                  class="textedit__tab-close"
-                  aria-label={`关闭 ${tab.node.name}`}
-                  disabled={loading || openDialogOpen || !!dirtyPrompt}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void closeTab(tab.id)
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            )
-          })}
-        </div>
+        <DocumentTabBar
+          tabs={tabItems}
+          activeTabId={activeTab.id}
+          closeDisabled={loading || openDialogOpen || !!dirtyPrompt}
+          onActivate={focusTab}
+          onClose={(tabId) => void closeTab(tabId)}
+        />
       ) : undefined}
 
       <textarea

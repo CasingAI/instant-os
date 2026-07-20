@@ -86,6 +86,19 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+let editorTabEnterAnimationReady = false
+
+/** 均分后单标签宽度低于此值时，才启用悬停/激活加宽。 */
+const TAB_EXPAND_MIN_WIDTH = 96
+
+function measureTabsCrowded(tabsEl: HTMLElement): boolean {
+  const tabCount = tabsEl.querySelectorAll('.vscode__tab:not(.vscode__tab--exit)').length
+  if (tabCount === 0) return false
+  const width = tabsEl.clientWidth
+  if (width <= 0) return false
+  return width / tabCount < TAB_EXPAND_MIN_WIDTH
+}
+
 type VscodeEditorAreaProps = {
   layout: VscodeEditorLayoutState
   tabs: readonly VscodeTab[]
@@ -222,13 +235,15 @@ function VscodeEditorGroupView({
   const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
   const [tabBarHot, setTabBarHot] = useState(false)
+  const [hoverTabId, setHoverTabId] = useState<string | undefined>(undefined)
+  const [peekTabId, setPeekTabId] = useState<string | undefined>(undefined)
+  const [tabsCrowded, setTabsCrowded] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const tabsRowRef = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
   const visualsRef = useRef(new Map<string, TabVisualSnapshot>())
-  const initialItemIdsRef = useRef<Set<string> | undefined>(undefined)
-  if (initialItemIdsRef.current === undefined) {
-    initialItemIdsRef.current = new Set(group.items.map((item) => item.id))
-  }
+  const seenItemIdsRef = useRef(new Set<string>())
+  const peekPointerIdRef = useRef<number | undefined>(undefined)
 
   for (const item of group.items) {
     visualsRef.current.set(item.id, computeTabSnapshot(item, tabs))
@@ -285,6 +300,39 @@ function VscodeEditorGroupView({
     })
   }, [group.items, layout, tabs])
 
+  useEffect(() => {
+    if (editorTabEnterAnimationReady) return
+    const frame = window.requestAnimationFrame(() => {
+      editorTabEnterAnimationReady = true
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  useLayoutEffect(() => {
+    for (const item of group.items) {
+      seenItemIdsRef.current.add(item.id)
+    }
+  }, [group.items])
+
+  const clearPeek = useCallback(() => {
+    peekPointerIdRef.current = undefined
+    setPeekTabId(undefined)
+  }, [])
+
+  useLayoutEffect(() => {
+    const tabsEl = tabsRef.current
+    if (!tabsEl) return
+
+    const update = () => {
+      setTabsCrowded(measureTabsCrowded(tabsEl))
+    }
+
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(tabsEl)
+    return () => observer.disconnect()
+  }, [displayTabs])
+
   const finishTabExit = useCallback((itemId: string) => {
     setDisplayTabs((prev) => prev.filter((entry) => entry.item.id !== itemId))
     visualsRef.current.delete(itemId)
@@ -301,6 +349,7 @@ function VscodeEditorGroupView({
       : undefined
 
   const showPreviewAction = activeFileTab?.language === 'markdown'
+  const expandedTabId = tabsCrowded ? peekTabId ?? hoverTabId ?? activeItem?.id : undefined
 
   const openTabContextMenu = useCallback(
     (event: MouseEvent, item: VscodeGroupItem) => {
@@ -502,8 +551,31 @@ function VscodeEditorGroupView({
         onDragOver={onDragOverTabBar}
         onDragLeave={onDragLeaveTabBar}
         onDrop={onDropTabBar}
+        onPointerUp={(event) => {
+          if (peekPointerIdRef.current === event.pointerId) clearPeek()
+        }}
+        onPointerCancel={clearPeek}
+        onPointerLeave={(event) => {
+          if (event.pointerType === 'mouse') return
+          const row = tabsRowRef.current
+          if (!row) return
+          const next = event.relatedTarget
+          if (next instanceof Node && row.contains(next)) return
+          clearPeek()
+        }}
       >
-        <div class="vscode__tabs" role="tablist" aria-label="编辑器标签">
+        <div
+          ref={tabsRef}
+          class="vscode__tabs"
+          role="tablist"
+          aria-label="编辑器标签"
+          onMouseLeave={(event) => {
+            const tabs = event.currentTarget
+            const next = event.relatedTarget
+            if (next instanceof Node && tabs.contains(next)) return
+            setHoverTabId(undefined)
+          }}
+        >
           {displayTabs.map((entry) => (
             <EditorTabChip
               key={entry.item.id}
@@ -512,8 +584,13 @@ function VscodeEditorGroupView({
               active={!entry.exiting && entry.item.id === activeItem?.id}
               snapshot={entry.snapshot}
               disabled={loading || dialogBlocked || entry.exiting}
-              enter={!entry.exiting && !initialItemIdsRef.current!.has(entry.item.id)}
+              enter={
+                !entry.exiting &&
+                editorTabEnterAnimationReady &&
+                !seenItemIdsRef.current.has(entry.item.id)
+              }
               exiting={entry.exiting}
+              expanded={!entry.exiting && expandedTabId === entry.item.id}
               onActivate={() => {
                 if (entry.exiting) return
                 onActivateItem(group.id, entry.item.id)
@@ -529,6 +606,17 @@ function VscodeEditorGroupView({
                 if (entry.exiting) return
                 openTabContextMenu(event, entry.item)
               }}
+              onMouseEnter={() => {
+                if (entry.exiting) return
+                setHoverTabId(entry.item.id)
+              }}
+              onPeekStart={(event) => {
+                if (entry.exiting || event.pointerType === 'mouse') return
+                if ((event.target as HTMLElement).closest('.vscode__tab-close')) return
+                peekPointerIdRef.current = event.pointerId
+                setPeekTabId(entry.item.id)
+              }}
+              onPeekEnd={clearPeek}
             />
           ))}
         </div>
@@ -669,10 +757,14 @@ type TabChipProps = {
   disabled: boolean
   enter?: boolean
   exiting?: boolean
+  expanded?: boolean
   onActivate: () => void
   onClose: () => void
   onExitComplete: () => void
   onContextMenu: (event: MouseEvent) => void
+  onMouseEnter: () => void
+  onPeekStart: (event: PointerEvent) => void
+  onPeekEnd: () => void
 }
 
 function EditorTabChip({
@@ -683,10 +775,14 @@ function EditorTabChip({
   disabled,
   enter = false,
   exiting = false,
+  expanded = false,
   onActivate,
   onClose,
   onExitComplete,
   onContextMenu,
+  onMouseEnter,
+  onPeekStart,
+  onPeekEnd,
 }: TabChipProps) {
   const tabRef = useRef<HTMLDivElement>(null)
   const [entering, setEntering] = useState(enter && !exiting)
@@ -738,17 +834,20 @@ function EditorTabChip({
   return (
     <div
       ref={tabRef}
-      class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${deleted ? ' vscode__tab--deleted' : ''}${conflict ? ' vscode__tab--conflict' : ''}${entering ? ' vscode__tab--enter' : ''}${exiting ? ' vscode__tab--exit' : ''}`}
+      class={`vscode__tab${active ? ' vscode__tab--active' : ''}${dirty ? ' vscode__tab--dirty' : ''}${deleted ? ' vscode__tab--deleted' : ''}${conflict ? ' vscode__tab--conflict' : ''}${entering ? ' vscode__tab--enter' : ''}${exiting ? ' vscode__tab--exit' : ''}${expanded ? ' vscode__tab--expanded' : ''}`}
       role="tab"
       aria-selected={active}
       aria-hidden={exiting ? true : undefined}
       draggable={!exiting}
       onContextMenu={onContextMenu}
+      onMouseEnter={onMouseEnter}
+      onPointerDown={onPeekStart}
       onDragStart={(event) => {
         if (exiting || (event.target as HTMLElement).closest('.vscode__tab-close')) {
           event.preventDefault()
           return
         }
+        onPeekEnd()
         const payload: VscodeEditorDragPayload = { itemId: item.id, fromGroupId: groupId }
         setActiveEditorDrag(payload)
         event.dataTransfer?.setData(VSCODE_EDITOR_DRAG_MIME, JSON.stringify(payload))

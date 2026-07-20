@@ -17,6 +17,7 @@
   --vscode-toolbar: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   --vscode-status: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 55%, #c4c4c4 100%);
   --vscode-well: #f0f0f0;
+  --vscode-editor-bg: #ffffff;
   --vscode-panel: #f4f4f4;
   --vscode-selected: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   --vscode-radius: 6px;
@@ -1184,7 +1185,6 @@
   margin: 0;
   padding: 0;
   background: #e8e8e8;
-  border-bottom: 1px solid #c8c8c8;
   box-shadow: none;
   min-width: 0;
   position: relative;
@@ -1217,6 +1217,7 @@
   gap: 4px;
   padding: 0 6px;
   border-left: 1px solid #c8c8c8;
+  border-bottom: 1px solid #c8c8c8;
 }
 
 .vscode__tab-action {
@@ -1300,14 +1301,23 @@
   display: flex;
   flex: 1 1 0;
   align-items: stretch;
+  position: relative;
   min-width: 0;
   margin: 0;
   border: 0;
   border-right: 1px solid #c8c8c8;
+  border-bottom: 1px solid #c8c8c8;
   border-radius: 0;
   background: #e8e8e8;
   color: #555;
   box-shadow: none;
+  overflow: hidden;
+  transition: flex-grow 200ms ease, background-color 200ms ease;
+}
+
+.vscode__tab--expanded {
+  flex-grow: 2.5;
+  z-index: 2;
 }
 
 .vscode__tab:last-child {
@@ -1316,11 +1326,13 @@
 
 .vscode__tab--enter {
   overflow: hidden;
-  animation: vscode-tab-enter 200ms ease-out;
+  flex: 0 1 0;
+  animation: vscode-tab-enter 200ms ease-out forwards;
 }
 
 .vscode__tab--exit {
   overflow: hidden;
+  flex: 0 1 0;
   pointer-events: none;
   animation: vscode-tab-exit 200ms ease-in forwards;
 }
@@ -1328,11 +1340,13 @@
 @keyframes vscode-tab-enter {
   from {
     flex-grow: 0;
+    max-width: 0;
     opacity: 0;
   }
 
   to {
     flex-grow: 1;
+    max-width: 100%;
     opacity: 1;
   }
 }
@@ -1340,11 +1354,13 @@
 @keyframes vscode-tab-exit {
   from {
     flex-grow: 1;
+    max-width: 100%;
     opacity: 1;
   }
 
   to {
     flex-grow: 0;
+    max-width: 0;
     opacity: 0;
   }
 }
@@ -1354,22 +1370,27 @@
   .vscode__tab--exit {
     animation: none;
   }
+
+  .vscode__tab {
+    transition: none;
+  }
 }
 
 .vscode__tab--active {
-  background: #fff;
+  background: var(--vscode-editor-bg);
   color: #1a1a1a;
-  position: relative;
+  border-bottom: none;
   z-index: 1;
-  margin-bottom: 0;
-  padding-bottom: 0;
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+  transition: flex-grow 200ms ease, background-color 200ms ease;
 }
 
 .vscode__tab-main {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 5px;
   min-width: 0;
   margin: 0;
@@ -1379,8 +1400,9 @@
   color: inherit;
   font: inherit;
   font-size: 12px;
-  padding: 0 8px 0 4px;
+  padding: 0 8px 0 2px;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .vscode__tab--active .vscode__tab-main {
@@ -1389,6 +1411,8 @@
 }
 
 .vscode__tab-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1409,7 +1433,7 @@
   align-self: center;
   width: 18px;
   height: 18px;
-  margin: 0 0 0 6px;
+  margin: 0 2px 0 6px;
   padding: 0;
   border: none;
   border-radius: 3px;
@@ -1440,7 +1464,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--vscode-well);
+  background: var(--vscode-editor-bg);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
@@ -2692,13 +2716,13 @@
 
 .vscode--chrome-dark .vscode__tabs-row {
   background: #2a2a30;
-  border-bottom-color: #1a1a1e;
   box-shadow: none;
 }
 
 .vscode--chrome-dark .vscode__tab {
   background: #2a2a30;
   border-right-color: #1a1a1e;
+  border-bottom-color: #1a1a1e;
   color: #8a8a96;
   box-shadow: none;
 }
@@ -2708,8 +2732,9 @@
 }
 
 .vscode--chrome-dark .vscode__tab--active {
-  background: #3c3c46;
+  background: var(--vscode-editor-bg);
   color: var(--vscode-ink);
+  border-bottom: none;
   box-shadow: none;
 }
 
@@ -2728,6 +2753,7 @@
 
 .vscode--chrome-dark .vscode__tab-actions {
   border-left-color: #1a1a1e;
+  border-bottom-color: #1a1a1e;
 }
 
 .vscode--chrome-dark .vscode__panel-close:hover {

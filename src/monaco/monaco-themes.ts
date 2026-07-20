@@ -36,6 +36,23 @@ export function isMonacoEditorTheme(value: unknown): value is MonacoEditorTheme 
   return typeof value === 'string' && (MONACO_EDITOR_THEMES as readonly string[]).includes(value)
 }
 
+/** 与 Monaco 各主题 `editor.background` 对齐，供标签栏与编辑区无缝衔接。 */
+export function monacoEditorBackgroundForTheme(theme: MonacoEditorTheme): string {
+  switch (theme) {
+    case 'vs':
+    case 'light-plus':
+    case 'light-modern':
+      return '#FFFFFF'
+    case 'vs-dark':
+    case 'dark-plus':
+      return '#1E1E1E'
+    case 'dark-modern':
+      return '#1F1F1F'
+    case 'hc-black':
+      return '#000000'
+  }
+}
+
 const DARK_PLUS_RULES: editor.ITokenThemeRule[] = [
   { token: 'comment', foreground: '6A9955' },
   { token: 'string', foreground: 'CE9178' },

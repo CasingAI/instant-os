@@ -6,6 +6,7 @@ import {
   monacoLanguageLabel,
   parentDirFromPath,
 } from '../../monaco/monaco-language.ts'
+import { monacoEditorBackgroundForTheme } from '../../monaco/monaco-themes.ts'
 import {
   buildMonacoProblemTreeDecorations,
   subscribeMonacoProblems,
@@ -1767,7 +1768,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }
 
   return (
-    <div class={`vscode${isVscodeChromeDark(prefs.theme) ? ' vscode--chrome-dark' : ''}`}>
+    <div
+      class={`vscode${isVscodeChromeDark(prefs.theme) ? ' vscode--chrome-dark' : ''}`}
+      style={{ '--vscode-editor-bg': monacoEditorBackgroundForTheme(prefs.theme) }}
+    >
       <div class="vscode__body">
         <aside class="vscode__activity" aria-label="工具栏" ref={activityRailRef}>
           <div class="vscode__activity-brand" aria-hidden="true" title="Virtual Studio Code">
