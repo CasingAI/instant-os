@@ -250,6 +250,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const mainPaneRef = useRef<HTMLDivElement>(null)
   const terminalHeightRef = useRef(prefs.terminalHeight)
   terminalHeightRef.current = prefs.terminalHeight
+  const sidebarWidthRef = useRef(prefs.sidebarWidth)
+  sidebarWidthRef.current = prefs.sidebarWidth
 
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef<string | undefined>(undefined)
@@ -451,6 +453,32 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           Math.max(120, Math.round(startHeight + (startY - moveEvent.clientY))),
         )
         updatePrefs({ terminalHeight: next })
+      }
+      const onUp = (upEvent: PointerEvent) => {
+        sash.releasePointerCapture(upEvent.pointerId)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [updatePrefs],
+  )
+
+  const onSidebarSashPointerDown = useCallback(
+    (event: PointerEvent) => {
+      const sash = event.currentTarget as HTMLElement
+      event.preventDefault()
+      sash.setPointerCapture(event.pointerId)
+      const startX = event.clientX
+      const startWidth = sidebarWidthRef.current
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const next = Math.min(
+          420,
+          Math.max(160, Math.round(startWidth + (moveEvent.clientX - startX))),
+        )
+        updatePrefs({ sidebarWidth: next })
       }
       const onUp = (upEvent: PointerEvent) => {
         sash.releasePointerCapture(upEvent.pointerId)
@@ -1696,6 +1724,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         </aside>
 
         {prefs.sidebarVisible ? (
+          <>
           <aside class="vscode__sidebar" style={{ width: `${prefs.sidebarWidth}px` }}>
             {sidebarView === 'explorer' ? (
               <VscodeExplorer
@@ -1783,6 +1812,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               </div>
             ) : undefined}
           </aside>
+          <div
+            class="vscode__sidebar-sash"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整侧栏宽度"
+            onPointerDown={onSidebarSashPointerDown}
+          />
+          </>
         ) : undefined}
 
         <div class="vscode__main" ref={mainPaneRef}>
@@ -2039,7 +2076,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </svg>
           <span>日志</span>
         </button>
-        <span>{activeTab ? activeTab.path : '未打开文件'}</span>
         <span class="vscode__status-spacer" />
         {activeTab ? (
           <>
