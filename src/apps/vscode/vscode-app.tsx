@@ -1912,6 +1912,16 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   >
                     日志
                   </button>
+                  <span class="vscode__panel-header-spacer" aria-hidden="true" />
+                  <button
+                    type="button"
+                    class="vscode__panel-close"
+                    aria-label="关闭面板"
+                    title="关闭面板"
+                    onClick={() => updatePrefs({ terminalVisible: false })}
+                  >
+                    ×
+                  </button>
                 </div>
                 <div
                   class={`vscode__panel-body${prefs.panelTab === 'problems' ? '' : ' vscode__panel-body--hidden'}`}

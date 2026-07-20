@@ -1411,6 +1411,29 @@
   min-height: 30px;
 }
 
+.vscode__panel-header-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.vscode__panel-close {
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: var(--vscode-muted);
+  padding: 0 8px;
+  height: 22px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.vscode__panel-close:hover {
+  color: var(--vscode-ink);
+  background: rgba(0, 0, 0, 0.06);
+}
+
 .vscode__panel-tab {
   display: inline-flex;
   align-items: center;
@@ -2249,6 +2272,10 @@
 }
 
 .vscode--chrome-dark .vscode__tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vscode--chrome-dark .vscode__panel-close:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
