@@ -1,19 +1,18 @@
 import { defineConfig, type Plugin } from 'vite'
 import preact from '@preact/preset-vite'
 
-/** 与宿主一致：不做模块热替换，改文件后整页重载。 */
-function forceFullReload(): Plugin {
+/** 与宿主一致：不做模块热替换，也不整页刷新；需手动刷新。 */
+function suppressHotUpdate(): Plugin {
   return {
-    name: 'force-full-reload',
-    handleHotUpdate({ server }) {
-      server.ws.send({ type: 'full-reload', path: '*' })
+    name: 'suppress-hot-update',
+    handleHotUpdate() {
       return []
     },
   }
 }
 
 export default defineConfig({
-  plugins: [preact(), forceFullReload()],
+  plugins: [preact(), suppressHotUpdate()],
   base: './',
   build: {
     outDir: 'dist',

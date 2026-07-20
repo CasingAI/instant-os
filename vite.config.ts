@@ -5,12 +5,11 @@ import { bootCrashGuardFirst } from './vite-boot-crash-guard-first.ts'
 import { corsForSandboxedIframeAssets } from './vite-cors-for-sandboxed-iframe-assets.ts'
 import { sourceSnapshot } from './vite-source-snapshot.ts'
 
-/** OS 壳状态复杂，模块热替换易卡死；改文件后整页重载。 */
-function forceFullReload(): Plugin {
+/** OS 壳状态复杂，模块热替换易卡死；改文件后也不整页刷新，需手动刷新或菜单「重新启动」。 */
+function suppressHotUpdate(): Plugin {
   return {
-    name: 'force-full-reload',
-    handleHotUpdate({ server }) {
-      server.ws.send({ type: 'full-reload', path: '*' })
+    name: 'suppress-hot-update',
+    handleHotUpdate() {
       return []
     },
   }
@@ -23,7 +22,7 @@ export default defineConfig({
     corsForSandboxedIframeAssets(),
     bootCrashGuardFirst(),
     sourceSnapshot(),
-    forceFullReload(),
+    suppressHotUpdate(),
   ],
   build: {
     rollupOptions: {
