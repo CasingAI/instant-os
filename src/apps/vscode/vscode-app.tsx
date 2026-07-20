@@ -69,7 +69,10 @@ import {
   saveVscodeSession,
   type VscodeDraftEntry,
 } from './vscode-session.ts'
-import { syncVscodeTypescriptLocalModules, syncVscodeTypescriptWorkspace } from './vscode-typescript-workspace.ts'
+import {
+  syncVscodeTypescriptAll,
+  type VscodeTypescriptSyncEntry,
+} from './vscode-typescript-workspace.ts'
 import {
   buildDeletedVscodeTab,
   buildVscodeTab,
@@ -191,6 +194,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const mountedRef = useRef(true)
   const skipSessionPersistRef = useRef(false)
   const sessionReadyRef = useRef(false)
+  const typescriptWorkspaceAbortRef = useRef<AbortController | undefined>(undefined)
 
   tabsRef.current = tabs
   editorLayoutRef.current = editorLayout
@@ -721,35 +725,53 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     updatePrefs({ workspaceFolder: undefined })
   }, [updatePrefs])
 
+  const typescriptSyncEntries = useMemo((): VscodeTypescriptSyncEntry[] => {
+    const openTabIds = new Set<string>()
+    for (const group of Object.values(editorLayout.groups)) {
+      for (const item of group.items) {
+        if (item.kind === 'file') openTabIds.add(item.tabId)
+      }
+    }
+    const entries: VscodeTypescriptSyncEntry[] = []
+    const seenPaths = new Set<string>()
+    for (const tab of tabs) {
+      if (!openTabIds.has(tab.id)) continue
+      if (tab.language !== 'typescript' && tab.language !== 'javascript') continue
+      if (seenPaths.has(tab.path)) continue
+      seenPaths.add(tab.path)
+      entries.push({ path: tab.path, text: tab.text })
+    }
+    return entries
+  }, [tabs, editorLayout.groups])
+
+  // 工作区切换或卸载时硬取消 dts / workspace sync
   useEffect(() => {
+    typescriptWorkspaceAbortRef.current?.abort()
     const controller = new AbortController()
-    const folder = prefs.workspaceFolder
-    const timer = window.setTimeout(() => {
-      void syncVscodeTypescriptWorkspace(folder, controller.signal).catch(() => undefined)
-    }, 80)
+    typescriptWorkspaceAbortRef.current = controller
     return () => {
       controller.abort()
-      window.clearTimeout(timer)
     }
   }, [prefs.workspaceFolder])
 
+  // 会话恢复后与打开中的 TS/JS 标签变化时编排 sync（覆盖全部分屏标签，不只焦点）
   useEffect(() => {
-    if (!activeTab) return
-    if (activeTab.language !== 'typescript' && activeTab.language !== 'javascript') return
+    if (!sessionReady) return
 
-    const controller = new AbortController()
+    const folder = prefs.workspaceFolder
+    const entries = typescriptSyncEntries
     const timer = window.setTimeout(() => {
-      void syncVscodeTypescriptLocalModules(
-        activeTab.path,
-        activeTab.text,
-        controller.signal,
-      ).catch(() => undefined)
+      void syncVscodeTypescriptAll({
+        workspaceFolder: folder,
+        entries,
+        signal: typescriptWorkspaceAbortRef.current?.signal,
+      }).catch(() => undefined)
     }, 120)
     return () => {
-      controller.abort()
+      // 仅清防抖；文本编辑不 abort，由 generation 在入口边界丢弃过期编排
       window.clearTimeout(timer)
     }
-  }, [activeTab?.path, activeTab?.text, activeTab?.language])
+  }, [sessionReady, prefs.workspaceFolder, typescriptSyncEntries])
 
   useEffect(() => {
     if (!sessionReady || !windowId || !pendingDocumentId) return

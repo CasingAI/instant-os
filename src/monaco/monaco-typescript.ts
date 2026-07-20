@@ -65,6 +65,19 @@ export function ensureMonacoTypescriptDefaults(): void {
   })
 }
 
+/**
+ * 强制 TS worker 用当前 compilerOptions 重跑语义诊断。
+ * 动态 createModel 挂载本地依赖后，若不触发重分析，会出现「可转到定义但仍报 2307」的分裂。
+ */
+export function refreshMonacoTypescriptSemantics(): void {
+  ensureMonacoTypescriptDefaults()
+  const ts = monaco.typescript.typescriptDefaults
+  const js = monaco.typescript.javascriptDefaults
+  const options = { ...ts.getCompilerOptions() }
+  ts.setCompilerOptions(options)
+  js.setCompilerOptions(options)
+}
+
 export function applyMonacoTypescriptCompilerOverrides(
   overrides: MonacoTypescriptCompilerOverrides | undefined,
 ): void {

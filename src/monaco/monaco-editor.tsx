@@ -177,6 +177,8 @@ export function MonacoEditor({
           }),
       theme,
       automaticLayout: true,
+      // 让 hover / suggest 等溢出层使用 fixed，避免被编辑器祖先 overflow:hidden 裁切
+      fixedOverflowWidgets: true,
       minimap: { enabled: minimap },
       fontSize,
       lineHeight: Math.round(fontSize * 1.45),

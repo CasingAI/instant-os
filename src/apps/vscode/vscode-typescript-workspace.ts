@@ -8,8 +8,8 @@ import {
   clearMonacoTypescriptExtraLibs,
   MonacoModuleResolutionKind,
   monacoFileUriString,
+  refreshMonacoTypescriptSemantics,
   setMonacoTypescriptExtraLibs,
-  type MonacoModuleResolutionKindValue,
   type MonacoTypescriptCompilerOverrides,
 } from '../../monaco/monaco-typescript.ts'
 
@@ -36,11 +36,20 @@ const RELATIVE_SPEC_EXTENSIONS = [
   '/index.jsx',
 ] as const
 
+/** 匹配 from/import()/require()，以及无副作用 `import './x'` */
 const RELATIVE_IMPORT_RE =
-  /(?:from\s+|import\s*\(|require\s*\()\s*['"](\.[^'"]+)['"]/g
+  /(?:from\s+|import\s*\(|require\s*\(|import\s+)\s*['"](\.[^'"]+)['"]/g
 
 /** 工作区内为相对路径解析而加载的 Monaco model 路径 */
 const localModuleModelPaths = new Set<string>()
+
+/** 编排 sync 代数：文本编辑时用它丢弃过期结果，而非中途 abort BFS */
+let typescriptSyncGeneration = 0
+
+export type VscodeTypescriptSyncEntry = {
+  path: string
+  text: string
+}
 
 type PackageJsonShape = {
   dependencies?: Record<string, string>
@@ -60,28 +69,6 @@ type TsconfigShape = {
   }
   references?: { path?: string }[]
   extends?: string
-}
-
-function mapTsconfigModuleResolution(
-  value: string | undefined,
-): MonacoModuleResolutionKindValue | undefined {
-  if (!value) return undefined
-  switch (value.toLowerCase()) {
-    case 'classic':
-      return MonacoModuleResolutionKind.Classic
-    case 'node':
-    case 'nodejs':
-    case 'node10':
-      return MonacoModuleResolutionKind.NodeJs
-    case 'node16':
-      return MonacoModuleResolutionKind.Node16
-    case 'nodenext':
-      return MonacoModuleResolutionKind.NodeNext
-    case 'bundler':
-      return MonacoModuleResolutionKind.Bundler
-    default:
-      return undefined
-  }
 }
 
 function joinWorkspace(workspaceFolder: string, ...segments: string[]): string {
@@ -219,6 +206,39 @@ async function collectDtsInPackage(
   await walk(packageRoot, 0)
 }
 
+function compilerOptionsFromTsconfig(
+  workspaceFolder: string,
+  options: NonNullable<TsconfigShape['compilerOptions']>,
+): MonacoTypescriptCompilerOverrides {
+  const overrides: MonacoTypescriptCompilerOverrides = {
+    baseUrl: monacoFileUriString(workspaceFolder),
+    // Monaco 无真实 FS：始终用 Bundler，避免 tsconfig 的 node/node16 导致
+    // 无后缀相对路径「能跳转却报 2307」的诊断分裂
+    moduleResolution: MonacoModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+  }
+  if (typeof options.jsxImportSource === 'string' && options.jsxImportSource.trim()) {
+    overrides.jsxImportSource = options.jsxImportSource.trim()
+  }
+  // 仍读取 tsconfig 的 allowImportingTsExtensions；缺省保持 true
+  if (typeof options.allowImportingTsExtensions === 'boolean') {
+    overrides.allowImportingTsExtensions = options.allowImportingTsExtensions
+  }
+  if (options.paths && typeof options.paths === 'object') {
+    const paths: Record<string, string[]> = {}
+    for (const [key, values] of Object.entries(options.paths)) {
+      if (!Array.isArray(values)) continue
+      paths[key] = values
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.replace(/^\.\//, ''))
+    }
+    if (Object.keys(paths).length > 0) {
+      overrides.paths = paths
+    }
+  }
+  return overrides
+}
+
 async function loadTsconfigOverrides(
   workspaceFolder: string,
   signal: AbortSignal | undefined,
@@ -229,40 +249,23 @@ async function loadTsconfigOverrides(
     const raw = await tryReadText(joinWorkspace(workspaceFolder, name))
     if (!raw) continue
     const parsed = parseJsonc<TsconfigShape>(raw)
-    const options = parsed?.compilerOptions
+    if (!parsed) continue
+
+    let options = parsed.compilerOptions
+    // 一层 extends：根配置无 compilerOptions 时，合并被引用文件
+    if (!options && typeof parsed.extends === 'string' && parsed.extends.trim()) {
+      if (signal?.aborted) return undefined
+      const extendsPath = joinWorkspace(
+        workspaceFolder,
+        ...parsed.extends.trim().replace(/^\.\//, '').split('/'),
+      )
+      const extendsRaw = await tryReadText(extendsPath)
+      const extendsParsed = extendsRaw ? parseJsonc<TsconfigShape>(extendsRaw) : undefined
+      options = extendsParsed?.compilerOptions
+    }
     if (!options) continue
 
-    const overrides: MonacoTypescriptCompilerOverrides = {
-      baseUrl: monacoFileUriString(workspaceFolder),
-      // 与本仓库 / Vite 默认对齐；若 tsconfig 显式声明则覆盖
-      moduleResolution: MonacoModuleResolutionKind.Bundler,
-      allowImportingTsExtensions: true,
-    }
-    if (typeof options.jsxImportSource === 'string' && options.jsxImportSource.trim()) {
-      overrides.jsxImportSource = options.jsxImportSource.trim()
-    }
-    const moduleResolution = mapTsconfigModuleResolution(
-      typeof options.moduleResolution === 'string' ? options.moduleResolution : undefined,
-    )
-    if (moduleResolution !== undefined) {
-      overrides.moduleResolution = moduleResolution
-    }
-    if (typeof options.allowImportingTsExtensions === 'boolean') {
-      overrides.allowImportingTsExtensions = options.allowImportingTsExtensions
-    }
-    if (options.paths && typeof options.paths === 'object') {
-      const paths: Record<string, string[]> = {}
-      for (const [key, values] of Object.entries(options.paths)) {
-        if (!Array.isArray(values)) continue
-        paths[key] = values
-          .filter((item): item is string => typeof item === 'string')
-          .map((item) => item.replace(/^\.\//, ''))
-      }
-      if (Object.keys(paths).length > 0) {
-        overrides.paths = paths
-      }
-    }
-    return overrides
+    return compilerOptionsFromTsconfig(workspaceFolder, options)
   }
   return {
     baseUrl: monacoFileUriString(workspaceFolder),
@@ -318,11 +321,11 @@ async function resolveRelativeModulePath(
 /**
  * 将当前文件相对路径 import 指向的本地源文件挂成 Monaco model，
  * 使 TS 语言服务能解析 `./agents` 这类模块。
+ * 不在中途 abort：完整跑完 BFS，由编排层用 generation 丢弃过期结果。
  */
 export async function syncVscodeTypescriptLocalModules(
   entryPath: string,
   entryText: string,
-  signal?: AbortSignal,
 ): Promise<void> {
   ensureMonacoEnvironment()
 
@@ -337,14 +340,12 @@ export async function syncVscodeTypescriptLocalModules(
   const visited = new Set<string>([entryPath])
 
   while (queue.length > 0) {
-    if (signal?.aborted) return
     if (localModuleModelPaths.size >= MAX_LOCAL_MODULE_FILES) return
 
     const current = queue.shift()
     if (!current || current.depth >= MAX_LOCAL_MODULE_DEPTH) continue
 
     for (const spec of extractRelativeImportSpecs(current.text)) {
-      if (signal?.aborted) return
       if (localModuleModelPaths.size >= MAX_LOCAL_MODULE_FILES) return
 
       const resolved = await resolveRelativeModulePath(current.path, spec)
@@ -398,6 +399,8 @@ export async function syncVscodeTypescriptWorkspace(
     clearMonacoTypescriptExtraLibs()
     applyMonacoTypescriptCompilerOverrides({
       baseUrl: monacoFileUriString(root),
+      moduleResolution: MonacoModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
     })
     return
   }
@@ -407,6 +410,8 @@ export async function syncVscodeTypescriptWorkspace(
     clearMonacoTypescriptExtraLibs()
     applyMonacoTypescriptCompilerOverrides({
       baseUrl: monacoFileUriString(root),
+      moduleResolution: MonacoModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
     })
     return
   }
@@ -433,4 +438,53 @@ export async function syncVscodeTypescriptWorkspace(
     filePath: monacoFileUriString(path),
   }))
   setMonacoTypescriptExtraLibs(libs)
+}
+
+/** 上一轮编排 sync 的 Promise；新请求先等它结束，避免并发改 worker */
+let typescriptSyncInFlight: Promise<void> | undefined
+/** 已成功完成 workspace sync 的文件夹（避免每次按键重扫 node_modules） */
+let lastSyncedWorkspaceFolder: string | undefined | null = null
+
+/**
+ * 先同步工作区类型 / compilerOptions，再对全部打开的 TS/JS 入口做本地模块 BFS。
+ * 文本编辑用 generation 丢弃过期编排；硬取消（卸载 / 切换工作区）用 AbortSignal 打断 workspace sync。
+ */
+export async function syncVscodeTypescriptAll(options: {
+  workspaceFolder: string | undefined
+  entries: readonly VscodeTypescriptSyncEntry[]
+  signal?: AbortSignal
+}): Promise<void> {
+  const generation = ++typescriptSyncGeneration
+  const { workspaceFolder, entries, signal } = options
+  const previous = typescriptSyncInFlight
+
+  const run = (async () => {
+    if (previous) await previous.catch(() => undefined)
+    if (signal?.aborted || generation !== typescriptSyncGeneration) return
+
+    if (workspaceFolder !== lastSyncedWorkspaceFolder) {
+      await syncVscodeTypescriptWorkspace(workspaceFolder, signal)
+      if (signal?.aborted || generation !== typescriptSyncGeneration) return
+      lastSyncedWorkspaceFolder = workspaceFolder
+    }
+
+    for (const entry of entries) {
+      if (signal?.aborted || generation !== typescriptSyncGeneration) return
+      await syncVscodeTypescriptLocalModules(entry.path, entry.text)
+    }
+
+    // 依赖 model 挂载后再强制重跑语义诊断，消除「能跳转仍报 2307」
+    if (!signal?.aborted && generation === typescriptSyncGeneration) {
+      refreshMonacoTypescriptSemantics()
+    }
+  })()
+
+  typescriptSyncInFlight = run
+  try {
+    await run
+  } finally {
+    if (typescriptSyncInFlight === run) {
+      typescriptSyncInFlight = undefined
+    }
+  }
 }
