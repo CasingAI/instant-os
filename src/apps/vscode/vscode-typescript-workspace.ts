@@ -11,15 +11,11 @@ import {
   setMonacoTypescriptExtraLibs,
   type MonacoTypescriptCompilerOverrides,
 } from '../../monaco/monaco-typescript.ts'
+import { extractImportSpecs, type ResolvedModuleFiles } from './vscode-typescript-module-resolve.ts'
 import {
-  collectResolvedPackageFiles,
-  extractImportSpecs,
-  FilesResolutionCache,
-  loadNearestTsconfig,
-  resolveBareSpecifier,
-  toTsCompilerOptions,
-  type ResolvedModuleFiles,
-} from './vscode-typescript-module-resolve.ts'
+  clearBareModulesResolveState,
+  resolveBareModulesForEntries,
+} from './vscode-typescript-resolve-client.ts'
 
 const MAX_LOCAL_MODULE_FILES = 80
 const MAX_LOCAL_MODULE_DEPTH = 8
@@ -48,12 +44,11 @@ const localModuleModelPaths = new Set<string>()
 /** 为裸包解析注入的 model 路径（与相对路径分开，便于清理） */
 const packageModuleModelPaths = new Set<string>()
 
+/** 上一轮成功注入的 extraLibs 路径集合（失败时不清空） */
+let lastInjectedExtraLibPaths = new Set<string>()
+
 /** 编排 sync 代数：文本编辑时用它丢弃过期结果，而非中途 abort BFS */
 let typescriptSyncGeneration = 0
-
-/** 每个工作区复用的 files-api 解析缓存 */
-let resolutionCache: FilesResolutionCache | undefined
-let resolutionCacheWorkspace: string | undefined
 
 export type VscodeTypescriptSyncEntry = {
   path: string
@@ -66,16 +61,6 @@ function fileNameFromAbsolutePath(path: string): string {
   return slash >= 0 ? trimmed.slice(slash + 1) : trimmed
 }
 
-function getResolutionCache(workspaceFolder: string | undefined): FilesResolutionCache {
-  const key = workspaceFolder?.replace(/\/+$/, '') || ''
-  if (!resolutionCache || resolutionCacheWorkspace !== key) {
-    clearPackageModuleModels()
-    resolutionCache = new FilesResolutionCache()
-    resolutionCacheWorkspace = key
-  }
-  return resolutionCache
-}
-
 async function tryReadText(path: string): Promise<string | undefined> {
   try {
     const stat = await filesStat(path)
@@ -84,33 +69,6 @@ async function tryReadText(path: string): Promise<string | undefined> {
   } catch {
     return undefined
   }
-}
-
-function monacoOverridesFromNearest(
-  workspaceFolder: string,
-  nearest: Awaited<ReturnType<typeof loadNearestTsconfig>>,
-): MonacoTypescriptCompilerOverrides {
-  const baseDir = nearest?.configDirectory ?? workspaceFolder
-  const overrides: MonacoTypescriptCompilerOverrides = {
-    baseUrl: monacoFileUriString(baseDir),
-    // Monaco 无真实 FS：诊断阶段始终 Bundler，避免 node/node16 与注入文件不同步导致 2307 分裂
-    moduleResolution: MonacoModuleResolutionKind.Bundler,
-    allowImportingTsExtensions: true,
-  }
-  const options = nearest?.compilerOptions
-  if (options?.paths && typeof options.paths === 'object') {
-    const paths: Record<string, string[]> = {}
-    for (const [key, values] of Object.entries(options.paths)) {
-      if (!Array.isArray(values)) continue
-      paths[key] = values
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.replace(/^\.\//, ''))
-    }
-    if (Object.keys(paths).length > 0) {
-      overrides.paths = paths
-    }
-  }
-  return overrides
 }
 
 function resolveRelativeBase(fromFilePath: string, spec: string): string {
@@ -150,7 +108,6 @@ function injectResolvedFiles(files: ResolvedModuleFiles): boolean {
   let added = false
   for (const [path, content] of files) {
     const language = monacoLanguageFromFileName(fileNameFromAbsolutePath(path))
-    // package.json 用 json；.d.ts / .ts 用 typescript
     const lang =
       path.endsWith('package.json') || path.endsWith('.json')
         ? 'json'
@@ -238,92 +195,59 @@ function clearPackageModuleModels(preservePaths?: ReadonlySet<string>): void {
 
 /**
  * 对打开文件中的裸包 import 做 Node 式解析并注入 Monaco。
- * 同时写入 extraLibs（含 package.json），便于 worker 做 exports 解析。
+ * 重负载在 Worker 中完成；主线程只做 model / extraLibs 注入。
  */
 async function syncBareModulesForEntries(
   entries: readonly VscodeTypescriptSyncEntry[],
   workspaceFolder: string | undefined,
   signal?: AbortSignal,
+  clearMissing = false,
 ): Promise<{ files: ResolvedModuleFiles; addedModels: boolean }> {
-  const cache = getResolutionCache(workspaceFolder)
-  const collected: ResolvedModuleFiles = new Map()
-  const resolvedSpecs = new Set<string>()
-  let addedModels = false
-
-  // 用第一个可解析的 nearest tsconfig；无则退回工作区根
-  let sharedOptions = toTsCompilerOptions(undefined, workspaceFolder?.replace(/\/+$/, '') || '/')
-  let monacoOverridesApplied = false
-
-  for (const entry of entries) {
-    if (signal?.aborted || collected.size >= MAX_PACKAGE_FILES_TOTAL) break
-
-    const language = monacoLanguageFromFileName(fileNameFromAbsolutePath(entry.path))
-    if (language !== 'typescript' && language !== 'javascript') continue
-
-    const nearest = await loadNearestTsconfig(entry.path, cache, signal)
-    if (signal?.aborted) break
-
-    const configDir =
-      nearest?.configDirectory ?? workspaceFolder?.replace(/\/+$/, '') ?? parentDirFromPath(entry.path)
-    sharedOptions = toTsCompilerOptions(nearest?.compilerOptions, configDir)
-
-    if (!monacoOverridesApplied && workspaceFolder) {
-      applyMonacoTypescriptCompilerOverrides(
-        monacoOverridesFromNearest(workspaceFolder.replace(/\/+$/, '') || '/', nearest),
-      )
-      monacoOverridesApplied = true
-    }
-
-    const { bare } = extractImportSpecs(entry.text)
-    for (const spec of bare) {
-      if (signal?.aborted || collected.size >= MAX_PACKAGE_FILES_TOTAL) break
-      const cacheKey = `${parentDirFromPath(entry.path)}\0${spec}`
-      if (resolvedSpecs.has(cacheKey)) continue
-      resolvedSpecs.add(cacheKey)
-
-      const resolved = await resolveBareSpecifier(
-        cache,
-        entry.path,
-        spec,
-        sharedOptions,
-        signal,
-      )
-      if (!resolved) continue
-
-      const before = collected.size
-      await collectResolvedPackageFiles(
-        cache,
-        resolved,
-        collected,
-        signal,
-        Math.min(MAX_PACKAGE_FILES_PER_RESOLVE, MAX_PACKAGE_FILES_TOTAL - collected.size),
-      )
-      if (collected.size > before) {
-        // 稍后统一 inject
-      }
-    }
+  if (!workspaceFolder) {
+    return { files: new Map(), addedModels: false }
   }
 
-  if (!monacoOverridesApplied && workspaceFolder) {
-    applyMonacoTypescriptCompilerOverrides({
-      baseUrl: monacoFileUriString(workspaceFolder.replace(/\/+$/, '') || '/'),
-      moduleResolution: MonacoModuleResolutionKind.Bundler,
-      allowImportingTsExtensions: true,
-    })
+  const root = workspaceFolder.replace(/\/+$/, '') || '/'
+  const result = await resolveBareModulesForEntries({
+    workspaceFolder: root,
+    entries,
+    maxPackageFilesTotal: MAX_PACKAGE_FILES_TOTAL,
+    maxPackageFilesPerResolve: MAX_PACKAGE_FILES_PER_RESOLVE,
+    clearMissing,
+    signal,
+  })
+
+  if (signal?.aborted) {
+    return { files: new Map(), addedModels: false }
   }
+
+  const overrides: MonacoTypescriptCompilerOverrides = {
+    baseUrl: monacoFileUriString(result.monacoOverrides?.baseUrlPath ?? root),
+    moduleResolution: MonacoModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    ...(result.monacoOverrides?.paths ? { paths: result.monacoOverrides.paths } : undefined),
+  }
+  applyMonacoTypescriptCompilerOverrides(overrides)
+
+  const collected: ResolvedModuleFiles = new Map(
+    result.files.map((file) => [file.path, file.content]),
+  )
 
   if (collected.size > 0) {
-    addedModels = injectResolvedFiles(collected)
+    const addedModels = injectResolvedFiles(collected)
     const libs = [...collected.entries()].map(([path, content]) => ({
       content,
       filePath: monacoFileUriString(path),
     }))
     setMonacoTypescriptExtraLibs(libs)
-  } else {
-    setMonacoTypescriptExtraLibs([])
+    lastInjectedExtraLibPaths = new Set(collected.keys())
+    // 清理不再需要的旧 package models
+    clearPackageModuleModels(lastInjectedExtraLibPaths)
+    return { files: collected, addedModels }
   }
 
-  return { files: collected, addedModels }
+  // 全失败时保留上一轮有效 extraLibs，避免闪 2307
+  return { files: collected, addedModels: false }
 }
 
 /**
@@ -341,14 +265,12 @@ export async function syncVscodeTypescriptWorkspace(
     applyMonacoTypescriptCompilerOverrides(undefined)
     clearVscodeTypescriptLocalModules()
     clearPackageModuleModels()
-    resolutionCache?.clear()
-    resolutionCache = undefined
-    resolutionCacheWorkspace = undefined
+    lastInjectedExtraLibPaths = new Set()
+    clearBareModulesResolveState()
     return ''
   }
 
   const root = workspaceFolder.replace(/\/+$/, '') || '/'
-  getResolutionCache(root)
   return root
 }
 
@@ -397,7 +319,7 @@ async function probeNodeModulesHint(
   return flags.join(',')
 }
 
-/** 上一轮编排 sync 的 Promise；新请求先等它结束，避免并发改 worker */
+/** 上一轮活跃 sync 的 Promise；新请求先等它结束，避免并发改 worker */
 let typescriptSyncInFlight: Promise<void> | undefined
 /** 已成功完成「裸包解析」的缓存键（工作区 + 打开文件的裸 import 集合） */
 let lastSyncedBareKey: string | undefined
@@ -432,11 +354,10 @@ export async function syncVscodeTypescriptAll(options: {
     let bareSynced = false
 
     if (bareKey !== lastSyncedBareKey) {
-      getResolutionCache(workspaceFolder).clearMissing()
       await syncVscodeTypescriptWorkspace(workspaceFolder, signal)
       if (signal?.aborted || generation !== typescriptSyncGeneration) return
 
-      await syncBareModulesForEntries(entries, workspaceFolder, signal)
+      await syncBareModulesForEntries(entries, workspaceFolder, signal, true)
       if (signal?.aborted || generation !== typescriptSyncGeneration) return
       lastSyncedBareKey = bareKey
       bareSynced = true

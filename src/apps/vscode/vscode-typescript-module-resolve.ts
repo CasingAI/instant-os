@@ -10,10 +10,15 @@ import { parentDirFromPath } from '../../monaco/monaco-language.ts'
 const MAX_RESOLVE_ROUNDS = 24
 const MAX_PENDING_PER_FLUSH = 64
 const MAX_PNPM_SCAN = 400
+const MAX_TRANSITIVE_BARE = 24
 
 /** from / import() / require / 无副作用 import */
 const IMPORT_SPEC_RE =
   /(?:from\s+|import\s*\(|require\s*\(|import\s+)\s*['"]([^'"]+)['"]/g
+
+/** /// <reference types="…" /> 或 path="…" */
+const TRIPLE_SLASH_RE =
+  /\/\/\/\s*<reference\s+(?:types|path)\s*=\s*['"]([^'"]+)['"]\s*\/>/g
 
 type CacheEntry =
   | { kind: 'file'; content: string }
@@ -29,6 +34,70 @@ export type ResolveCompilerOptionsInput = {
   allowJs?: boolean
 }
 
+type PackageJsonShape = {
+  types?: string
+  typings?: string
+  main?: string
+  module?: string
+  exports?: unknown
+}
+
+/** 常见 Node 内建（不含 node: 前缀）；用于触发 @types/node */
+const NODE_BUILTIN_NAMES = new Set([
+  'assert',
+  'assert/strict',
+  'async_hooks',
+  'buffer',
+  'child_process',
+  'cluster',
+  'console',
+  'constants',
+  'crypto',
+  'dgram',
+  'diagnostics_channel',
+  'dns',
+  'dns/promises',
+  'domain',
+  'events',
+  'fs',
+  'fs/promises',
+  'http',
+  'http2',
+  'https',
+  'inspector',
+  'module',
+  'net',
+  'os',
+  'path',
+  'path/posix',
+  'path/win32',
+  'perf_hooks',
+  'process',
+  'punycode',
+  'querystring',
+  'readline',
+  'readline/promises',
+  'repl',
+  'stream',
+  'stream/consumers',
+  'stream/promises',
+  'stream/web',
+  'string_decoder',
+  'timers',
+  'timers/promises',
+  'tls',
+  'trace_events',
+  'tty',
+  'url',
+  'util',
+  'util/types',
+  'v8',
+  'vm',
+  'wasi',
+  'worker_threads',
+  'zlib',
+])
+
 function normalizeAbs(path: string): string {
   const trimmed = path.replace(/\/+$/, '') || '/'
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
@@ -42,6 +111,14 @@ function packageNameSegments(packageName: string): string[] {
   return packageName.split('/').filter(Boolean)
 }
 
+function isJsModulePath(path: string): boolean {
+  return /\.(?:[cm]?js|jsx)$/.test(path)
+}
+
+function isDeclarationPath(path: string): boolean {
+  return path.endsWith('.d.ts') || path.endsWith('.d.mts') || path.endsWith('.d.cts')
+}
+
 /** scoped `@foo/bar` → `@types/foo__bar`；普通包 → `@types/pkg` */
 export function typesPackageName(packageName: string): string {
   if (packageName.startsWith('@')) {
@@ -51,10 +128,26 @@ export function typesPackageName(packageName: string): string {
   return `@types/${packageName}`
 }
 
+/** `node:fs` → `fs`；其它协议返回 undefined */
+export function normalizeNodeBuiltinSpecifier(specifier: string): string | undefined {
+  if (specifier.startsWith('node:')) {
+    const name = specifier.slice('node:'.length)
+    return name || undefined
+  }
+  if (NODE_BUILTIN_NAMES.has(specifier)) return specifier
+  return undefined
+}
+
+export function isNodeBuiltinSpecifier(specifier: string): boolean {
+  return normalizeNodeBuiltinSpecifier(specifier) !== undefined
+}
+
 /** 从完整 specifier 取出包名（`@scope/pkg/sub` → `@scope/pkg`） */
 export function packageNameFromSpecifier(specifier: string): string | undefined {
   if (!specifier || specifier.startsWith('.') || specifier.startsWith('/')) return undefined
-  if (specifier.startsWith('node:') || specifier.startsWith('data:') || specifier.startsWith('http')) {
+  const nodeBuiltin = normalizeNodeBuiltinSpecifier(specifier)
+  if (nodeBuiltin) return undefined
+  if (specifier.startsWith('data:') || specifier.startsWith('http:') || specifier.startsWith('https:')) {
     return undefined
   }
   if (specifier.startsWith('@')) {
@@ -63,6 +156,12 @@ export function packageNameFromSpecifier(specifier: string): string | undefined 
     return `${parts[0]}/${parts[1]}`
   }
   return specifier.split('/')[0]
+}
+
+/** 解析用的裸包名：node:fs → fs；子路径保留 */
+export function resolveTargetSpecifier(specifier: string): string {
+  const nodeBuiltin = normalizeNodeBuiltinSpecifier(specifier)
+  return nodeBuiltin ?? specifier
 }
 
 export function extractImportSpecs(source: string): {
@@ -78,7 +177,6 @@ export function extractImportSpecs(source: string): {
     if (!spec) continue
     if (spec.startsWith('.')) relative.add(spec)
     else if (
-      !spec.startsWith('node:') &&
       !spec.startsWith('data:') &&
       !spec.startsWith('http:') &&
       !spec.startsWith('https:')
@@ -87,6 +185,24 @@ export function extractImportSpecs(source: string): {
     }
   }
   return { relative: [...relative], bare: [...bare] }
+}
+
+export function extractTripleSlashRefs(source: string): {
+  types: string[]
+  paths: string[]
+} {
+  const types = new Set<string>()
+  const paths = new Set<string>()
+  TRIPLE_SLASH_RE.lastIndex = 0
+  let match: RegExpExecArray | undefined
+  while ((match = TRIPLE_SLASH_RE.exec(source) ?? undefined)) {
+    const value = match[1]
+    if (!value) continue
+    const full = match[0] ?? ''
+    if (/\btypes\s*=/.test(full)) types.add(value)
+    else if (/\bpath\s*=/.test(full)) paths.add(value)
+  }
+  return { types: [...types], paths: [...paths] }
 }
 
 /** 粗略剥离 JSONC 注释与尾逗号 */
@@ -109,6 +225,7 @@ export function parseJsonc<T>(raw: string): T | undefined {
 export class FilesResolutionCache {
   private readonly entries = new Map<string, CacheEntry>()
   private readonly pending = new Set<string>()
+  private flushChain: Promise<void> = Promise.resolve()
 
   get size(): number {
     return this.entries.size
@@ -185,22 +302,33 @@ export class FilesResolutionCache {
   }
 
   /**
-   * 拉取 pending；对 `…/node_modules/<pkg>/…` 在 FSA 读不到时尝试 pnpm 布局回退。
+   * 拉取 pending；同批并行 probe。对 `…/node_modules/<pkg>/…` 在 FSA 读不到时尝试 pnpm 布局回退。
+   * 并发 flush 串行化，避免重复 probe。
    * @returns 是否写入了新缓存项
    */
   async flushPending(signal?: AbortSignal): Promise<boolean> {
-    if (this.pending.size === 0) return false
-    let changed = false
-    const batch = [...this.pending].slice(0, MAX_PENDING_PER_FLUSH)
-    for (const path of batch) {
-      if (signal?.aborted) break
-      this.pending.delete(path)
-      if (this.entries.has(path)) continue
+    let release!: () => void
+    const previous = this.flushChain
+    this.flushChain = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    try {
+      if (this.pending.size === 0) return false
+      const batch = [...this.pending].slice(0, MAX_PENDING_PER_FLUSH)
+      for (const path of batch) this.pending.delete(path)
 
-      const filled = await this.probePath(path, signal)
-      if (filled) changed = true
+      const results = await Promise.all(
+        batch.map(async (path) => {
+          if (signal?.aborted) return false
+          if (this.entries.has(path)) return false
+          return this.probePath(path, signal)
+        }),
+      )
+      return results.some(Boolean)
+    } finally {
+      release()
     }
-    return changed
   }
 
   private async probePath(path: string, signal?: AbortSignal): Promise<boolean> {
@@ -346,7 +474,8 @@ export function toTsCompilerOptions(
       : configDirectory
 
   return {
-    allowJs: input?.allowJs !== false,
+    // 裸包预解析偏向声明文件，避免落到 index.js 导致命名导出无类型
+    allowJs: input?.allowJs === true,
     allowSyntheticDefaultImports: true,
     esModuleInterop: true,
     module: ts.ModuleKind.ESNext,
@@ -358,9 +487,136 @@ export function toTsCompilerOptions(
   }
 }
 
+function findPackageRootNear(resolvedFile: string, packageName: string | undefined): string | undefined {
+  let cursor = parentDirFromPath(resolvedFile)
+  for (let i = 0; i < 12; i += 1) {
+    if (packageName) {
+      const nmSuffix = `/node_modules/${packageName}`
+      if (cursor.endsWith(nmSuffix)) return cursor
+    } else if (cursor.includes('/node_modules/')) {
+      const parts = cursor.split('/node_modules/')
+      const tail = parts[parts.length - 1] ?? ''
+      const segs = tail.split('/').filter(Boolean)
+      if (segs[0]?.startsWith('@') ? segs.length === 2 : segs.length === 1) {
+        return cursor
+      }
+    }
+    const parent = parentDirFromPath(cursor)
+    if (parent === cursor) break
+    cursor = parent
+  }
+  return undefined
+}
+
+function typesEntryFromPackageJson(pkg: PackageJsonShape, subpath: string | undefined): string | undefined {
+  if (!subpath || subpath === '.') {
+    if (typeof pkg.types === 'string' && pkg.types.trim()) return pkg.types.trim()
+    if (typeof pkg.typings === 'string' && pkg.typings.trim()) return pkg.typings.trim()
+  }
+
+  const exportsField = pkg.exports
+  if (!exportsField) return undefined
+
+  const tryKeys = subpath && subpath !== '.' ? [`./${subpath}`, `.${subpath}`] : ['.']
+
+  const pickTypes = (value: unknown): string | undefined => {
+    if (typeof value === 'string') {
+      return value.endsWith('.d.ts') || value.endsWith('.d.mts') || value.endsWith('.d.cts')
+        ? value
+        : undefined
+    }
+    if (!value || typeof value !== 'object') return undefined
+    const record = value as Record<string, unknown>
+    for (const key of ['types', 'typings']) {
+      const hit = record[key]
+      if (typeof hit === 'string' && hit.trim()) return hit.trim()
+    }
+    for (const key of ['import', 'require', 'default', 'node', 'browser']) {
+      const nested = pickTypes(record[key])
+      if (nested) return nested
+    }
+    return undefined
+  }
+
+  if (typeof exportsField === 'string') {
+    return pickTypes(exportsField)
+  }
+
+  if (typeof exportsField === 'object' && exportsField !== null) {
+    const map = exportsField as Record<string, unknown>
+    for (const key of tryKeys) {
+      if (key in map) {
+        const hit = pickTypes(map[key])
+        if (hit) return hit
+      }
+    }
+    if (!subpath || subpath === '.') {
+      const hit = pickTypes(map['.'])
+      if (hit) return hit
+    }
+  }
+  return undefined
+}
+
+/**
+ * 若 resolve 落到 JS，尝试改到同包 types / 旁路 .d.ts。
+ */
+async function preferDeclarationEntry(
+  cache: FilesResolutionCache,
+  resolvedPath: string,
+  moduleName: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (isDeclarationPath(resolvedPath)) return resolvedPath
+  if (!isJsModulePath(resolvedPath)) return resolvedPath
+
+  const target = resolveTargetSpecifier(moduleName)
+  const pkgName = packageNameFromSpecifier(target)
+  const packageRoot = findPackageRootNear(resolvedPath, pkgName)
+  if (!packageRoot) {
+    // 旁路 .d.ts：index.js → index.d.ts
+    const siblingDts = resolvedPath.replace(/\.(?:[cm]?js|jsx)$/, '.d.ts')
+    cache.fileExists(siblingDts)
+    await cache.flushPending(signal)
+    if (cache.readFile(siblingDts) !== undefined) return siblingDts
+    return resolvedPath
+  }
+
+  const pkgJsonPath = joinAbs(packageRoot, 'package.json')
+  cache.fileExists(pkgJsonPath)
+  await cache.flushPending(signal)
+  const pkgRaw = cache.readFile(pkgJsonPath)
+  const pkg = pkgRaw ? parseJsonc<PackageJsonShape>(pkgRaw) : undefined
+
+  let subpath: string | undefined
+  if (pkgName && target.startsWith(`${pkgName}/`)) {
+    subpath = target.slice(pkgName.length + 1)
+  }
+
+  const typesEntry = pkg ? typesEntryFromPackageJson(pkg, subpath) : undefined
+  if (typesEntry) {
+    const typesPath = joinAbs(packageRoot, ...typesEntry.replace(/^\.\//, '').split('/'))
+    cache.fileExists(typesPath)
+    await cache.flushPending(signal)
+    if (cache.readFile(typesPath) !== undefined) return typesPath
+  }
+
+  const siblingDts = resolvedPath.replace(/\.(?:[cm]?js|jsx)$/, '.d.ts')
+  cache.fileExists(siblingDts)
+  await cache.flushPending(signal)
+  if (cache.readFile(siblingDts) !== undefined) return siblingDts
+
+  const indexDts = joinAbs(packageRoot, 'index.d.ts')
+  cache.fileExists(indexDts)
+  await cache.flushPending(signal)
+  if (cache.readFile(indexDts) !== undefined) return indexDts
+
+  return resolvedPath
+}
+
 /**
  * 用官方 resolveModuleName 解析裸包名；缺失文件时 flush files-api 缓存并重试。
- * @returns 解析到的主文件绝对路径（若成功）
+ * JS 入口会尽量回退到声明文件。子路径失败时回退包根。
  */
 export async function resolveBareSpecifier(
   cache: FilesResolutionCache,
@@ -371,29 +627,57 @@ export async function resolveBareSpecifier(
 ): Promise<string | undefined> {
   const host = cache.createHost()
   const containing = normalizeAbs(containingFile)
+  const target = resolveTargetSpecifier(moduleName)
 
-  for (let round = 0; round < MAX_RESOLVE_ROUNDS; round += 1) {
-    if (signal?.aborted) return undefined
+  const tryResolve = async (name: string): Promise<string | undefined> => {
+    for (let round = 0; round < MAX_RESOLVE_ROUNDS; round += 1) {
+      if (signal?.aborted) return undefined
 
-    const result = ts.resolveModuleName(moduleName, containing, compilerOptions, host)
-    const resolved = result.resolvedModule?.resolvedFileName
-    if (resolved) {
-      const path = normalizeAbs(resolved)
-      seedPackageJsonAlongResolved(cache, path, moduleName)
-      if (cache.readFile(path) !== undefined) {
+      const result = ts.resolveModuleName(name, containing, compilerOptions, host)
+      const resolved = result.resolvedModule?.resolvedFileName
+      if (resolved) {
+        let path = normalizeAbs(resolved)
+        seedPackageJsonAlongResolved(cache, path, name)
         await cache.flushPending(signal)
+        if (cache.readFile(path) === undefined) {
+          cache.fileExists(path)
+          const changed = await cache.flushPending(signal)
+          if (cache.readFile(path) === undefined) {
+            if (!changed) return undefined
+            continue
+          }
+        }
+        path = await preferDeclarationEntry(cache, path, name, signal)
         return path
       }
-      cache.fileExists(path)
-      const changed = await cache.flushPending(signal)
-      if (cache.readFile(path) !== undefined) return path
-      if (!changed) return undefined
-      continue
-    }
 
-    const changed = await cache.flushPending(signal)
-    if (!changed) return undefined
+      const changed = await cache.flushPending(signal)
+      if (!changed) return undefined
+    }
+    return undefined
   }
+
+  const direct = await tryResolve(target)
+  if (direct) return direct
+
+  // electron/main 等子路径：回退包根，让 ambient declare module 进入 program
+  const pkg = packageNameFromSpecifier(target)
+  if (pkg && pkg !== target) {
+    const rootResolved = await tryResolve(pkg)
+    if (rootResolved) return rootResolved
+  }
+
+  // Node 内建 / 无自带 types 的包 → @types/*
+  if (isNodeBuiltinSpecifier(moduleName) || isNodeBuiltinSpecifier(target)) {
+    const typesPkg = '@types/node'
+    return tryResolve(typesPkg)
+  }
+
+  if (pkg && !pkg.startsWith('@types/')) {
+    const typesPkg = typesPackageName(pkg)
+    return tryResolve(typesPkg)
+  }
+
   return undefined
 }
 
@@ -403,7 +687,7 @@ function seedPackageJsonAlongResolved(
   resolvedFile: string,
   moduleName: string,
 ): void {
-  const pkg = packageNameFromSpecifier(moduleName)
+  const pkg = packageNameFromSpecifier(resolveTargetSpecifier(moduleName))
   let cursor = parentDirFromPath(resolvedFile)
   for (let i = 0; i < 10; i += 1) {
     cache.fileExists(joinAbs(cursor, 'package.json'))
@@ -418,7 +702,7 @@ function seedPackageJsonAlongResolved(
 }
 
 /**
- * 解析成功后，把包内入口 .d.ts / package.json 及有限相对引用收进 out。
+ * 解析成功后，把包内入口 .d.ts / package.json、相对引用、裸 import、三斜线引用收进 out。
  */
 export async function collectResolvedPackageFiles(
   cache: FilesResolutionCache,
@@ -426,9 +710,13 @@ export async function collectResolvedPackageFiles(
   out: ResolvedModuleFiles,
   signal?: AbortSignal,
   maxFiles = 40,
+  compilerOptions?: ts.CompilerOptions,
+  containingFile?: string,
 ): Promise<void> {
   const queue: string[] = [normalizeAbs(resolvedFile)]
   const visited = new Set<string>()
+  const pendingBare: string[] = []
+  let bareResolved = 0
 
   // 一并挂上沿路径的 package.json
   let cursor = parentDirFromPath(resolvedFile)
@@ -439,7 +727,6 @@ export async function collectResolvedPackageFiles(
     if (parent === cursor) break
     if (cursor.includes('/node_modules/')) {
       queue.push(pkgJson)
-      // 停在包根（node_modules/<pkg> 或 node_modules/@scope/pkg）
       const parts = cursor.split('/node_modules/')
       const tail = parts[parts.length - 1] ?? ''
       const segs = tail.split('/').filter(Boolean)
@@ -452,8 +739,35 @@ export async function collectResolvedPackageFiles(
 
   await cache.flushPending(signal)
 
-  while (queue.length > 0 && out.size < maxFiles) {
+  const options =
+    compilerOptions ??
+    ({
+      allowJs: false,
+      allowSyntheticDefaultImports: true,
+      esModuleInterop: true,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      resolveJsonModule: true,
+      target: ts.ScriptTarget.ESNext,
+      baseUrl: '/',
+    } satisfies ts.CompilerOptions)
+
+  const containing = containingFile ? normalizeAbs(containingFile) : normalizeAbs(resolvedFile)
+
+  while ((queue.length > 0 || pendingBare.length > 0) && out.size < maxFiles) {
     if (signal?.aborted) return
+
+    if (queue.length === 0 && pendingBare.length > 0 && bareResolved < MAX_TRANSITIVE_BARE) {
+      const bareSpec = pendingBare.shift()
+      if (!bareSpec) continue
+      bareResolved += 1
+      const resolved = await resolveBareSpecifier(cache, containing, bareSpec, options, signal)
+      if (resolved && !visited.has(resolved)) {
+        queue.push(resolved)
+      }
+      continue
+    }
+
     const path = queue.shift()
     if (!path || visited.has(path)) continue
     visited.add(path)
@@ -467,10 +781,14 @@ export async function collectResolvedPackageFiles(
     if (text === undefined) continue
     out.set(path, text)
 
-    if (!path.endsWith('.d.ts') && !path.endsWith('.ts') && !path.endsWith('.tsx')) continue
+    if (!path.endsWith('.d.ts') && !path.endsWith('.ts') && !path.endsWith('.tsx') && !path.endsWith('.d.mts') && !path.endsWith('.d.cts')) {
+      continue
+    }
 
-    const { relative } = extractImportSpecs(text)
+    const { relative, bare } = extractImportSpecs(text)
+    const refs = extractTripleSlashRefs(text)
     const fromDir = parentDirFromPath(path)
+
     for (const spec of relative) {
       if (out.size >= maxFiles) break
       const base = resolveRelativePath(fromDir, spec)
@@ -478,7 +796,16 @@ export async function collectResolvedPackageFiles(
         cache.fileExists(candidate)
       }
     }
+    for (const refPath of refs.paths) {
+      if (refPath.startsWith('.')) {
+        const base = resolveRelativePath(fromDir, refPath)
+        for (const candidate of relativeCandidates(base)) {
+          cache.fileExists(candidate)
+        }
+      }
+    }
     await cache.flushPending(signal)
+
     for (const spec of relative) {
       if (out.size >= maxFiles) break
       const base = resolveRelativePath(fromDir, spec)
@@ -487,6 +814,29 @@ export async function collectResolvedPackageFiles(
           queue.push(candidate)
           break
         }
+      }
+    }
+    for (const refPath of refs.paths) {
+      if (!refPath.startsWith('.')) continue
+      const base = resolveRelativePath(fromDir, refPath)
+      for (const candidate of relativeCandidates(base)) {
+        if (cache.fileExists(candidate) && !visited.has(candidate)) {
+          queue.push(candidate)
+          break
+        }
+      }
+    }
+
+    for (const spec of bare) {
+      if (bareResolved + pendingBare.length >= MAX_TRANSITIVE_BARE) break
+      pendingBare.push(spec)
+    }
+    for (const typeName of refs.types) {
+      if (bareResolved + pendingBare.length >= MAX_TRANSITIVE_BARE) break
+      if (typeName === 'node' || typeName === 'node/') {
+        pendingBare.push('@types/node')
+      } else if (!typeName.startsWith('.')) {
+        pendingBare.push(typeName.startsWith('@types/') ? typeName : typesPackageName(typeName))
       }
     }
   }
@@ -568,7 +918,6 @@ export async function loadNearestTsconfig(
       if (!options && typeof parsed.extends === 'string' && parsed.extends.trim()) {
         const extendsRel = parsed.extends.trim().replace(/^\.\//, '')
         const extendsPath = joinAbs(dir, ...extendsRel.split('/'))
-        // extends 可能省略 .json
         const candidates = extendsPath.endsWith('.json')
           ? [extendsPath]
           : [extendsPath, `${extendsPath}.json`]
