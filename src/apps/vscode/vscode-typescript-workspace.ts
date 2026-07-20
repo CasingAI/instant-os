@@ -18,7 +18,8 @@ const MAX_WALK_DEPTH = 5
 const MAX_TOTAL_LIBS = 400
 const MAX_LOCAL_MODULE_FILES = 80
 const MAX_LOCAL_MODULE_DEPTH = 8
-const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.cache'])
+/** 包内 walk 跳过的目录；不跳过 dist/build，否则子路径 .d.ts 进不了 extraLibs */
+const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'coverage', '.cache'])
 
 const RELATIVE_SPEC_EXTENSIONS = [
   '',
@@ -115,27 +116,83 @@ function collectDependencyNames(pkg: PackageJsonShape): string[] {
   return [...names].sort()
 }
 
-function resolveTypesEntry(pkg: PackageJsonShape): string | undefined {
-  if (typeof pkg.types === 'string' && pkg.types.trim()) return pkg.types.trim()
-  if (typeof pkg.typings === 'string' && pkg.typings.trim()) return pkg.typings.trim()
+/** 从 exports 条件对象里取出 types / typings / 以 .d.ts 结尾的 default */
+function typesPathFromExportTarget(target: unknown): string | undefined {
+  if (typeof target === 'string') {
+    return target.includes('.d.ts') ? target : undefined
+  }
+  if (!target || typeof target !== 'object') return undefined
 
-  const exportsField = pkg.exports
-  if (!exportsField || typeof exportsField !== 'object') return undefined
-
-  const root = (exportsField as Record<string, unknown>)['.']
-  if (typeof root === 'string' && root.endsWith('.d.ts')) return root
-  if (root && typeof root === 'object') {
-    const typed = root as Record<string, unknown>
-    for (const key of ['types', 'typings', 'default']) {
-      const value = typed[key]
-      if (typeof value === 'string' && value.includes('.d.ts')) return value
-      if (value && typeof value === 'object') {
-        const nested = value as Record<string, unknown>
-        if (typeof nested.types === 'string') return nested.types
-      }
+  const typed = target as Record<string, unknown>
+  for (const key of ['types', 'typings', 'default']) {
+    const value = typed[key]
+    if (typeof value === 'string' && value.includes('.d.ts')) return value
+    if (value && typeof value === 'object') {
+      const nested = value as Record<string, unknown>
+      if (typeof nested.types === 'string' && nested.types.trim()) return nested.types
+      if (typeof nested.typings === 'string' && nested.typings.trim()) return nested.typings
     }
   }
   return undefined
+}
+
+/**
+ * 收集包内应优先注入的类型入口：顶层 types/typings，以及 exports 全部子路径的 types。
+ * 例如 electron-trpc-experimental 只有 ./preload、./main，无根导出 `.`。
+ */
+function collectTypesEntries(pkg: PackageJsonShape): string[] {
+  const entries = new Set<string>()
+
+  const add = (raw: string | undefined): void => {
+    if (!raw || !raw.trim()) return
+    entries.add(raw.trim().replace(/^\.\//, ''))
+  }
+
+  if (typeof pkg.types === 'string') add(pkg.types)
+  if (typeof pkg.typings === 'string') add(pkg.typings)
+
+  const exportsField = pkg.exports
+  if (!exportsField) return [...entries]
+
+  if (typeof exportsField === 'string') {
+    add(exportsField.includes('.d.ts') ? exportsField : undefined)
+    return [...entries]
+  }
+
+  if (typeof exportsField !== 'object') return [...entries]
+
+  // 数组形式 exports：少见，逐项尝试
+  if (Array.isArray(exportsField)) {
+    for (const item of exportsField) {
+      add(typesPathFromExportTarget(item))
+    }
+    return [...entries]
+  }
+
+  for (const target of Object.values(exportsField as Record<string, unknown>)) {
+    add(typesPathFromExportTarget(target))
+  }
+  return [...entries]
+}
+
+function packageJsonFingerprint(raw: string | undefined): string {
+  if (raw === undefined) return ''
+  // 长度 + 简单哈希，足够感知依赖变更而无需加密强度
+  let hash = 0
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = (hash * 31 + raw.charCodeAt(i)) | 0
+  }
+  return `${raw.length}:${hash}`
+}
+
+function workspaceSyncCacheKey(
+  workspaceFolder: string | undefined,
+  packageRaw: string | undefined,
+  nodeModulesPresent: boolean,
+): string {
+  if (!workspaceFolder) return ''
+  const root = workspaceFolder.replace(/\/+$/, '') || '/'
+  return `${root}#${packageJsonFingerprint(packageRaw)}#nm:${nodeModulesPresent ? '1' : '0'}`
 }
 
 async function collectDtsInPackage(
@@ -191,10 +248,11 @@ async function collectDtsInPackage(
   }
 
   const pkg = pkgRaw ? parseJsonc<PackageJsonShape>(pkgRaw) : undefined
-  const typesEntry = pkg ? resolveTypesEntry(pkg) : undefined
+  const typesEntries = pkg ? collectTypesEntries(pkg) : []
 
-  if (typesEntry) {
-    const entryPath = joinWorkspace(packageRoot, ...typesEntry.replace(/^\.\//, '').split('/'))
+  for (const typesEntry of typesEntries) {
+    if (count >= MAX_DTS_FILES_PER_PACKAGE || out.size >= MAX_TOTAL_LIBS) break
+    const entryPath = joinWorkspace(packageRoot, ...typesEntry.split('/'))
     await addFile(entryPath)
   }
 
@@ -384,23 +442,33 @@ export function clearVscodeTypescriptLocalModules(preservePaths?: ReadonlySet<st
 /**
  * 将工作区 package.json 依赖的类型声明注入 Monaco。
  * 失败时静默降级；可用 AbortSignal 取消切换中的旧任务。
+ * @returns 本次用于缓存的 sync key（路径 + package.json 摘要 + node_modules 是否存在）
  */
 export async function syncVscodeTypescriptWorkspace(
   workspaceFolder: string | undefined,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<string> {
   ensureMonacoEnvironment()
 
   if (!workspaceFolder) {
     clearMonacoTypescriptExtraLibs()
     applyMonacoTypescriptCompilerOverrides(undefined)
     clearVscodeTypescriptLocalModules()
-    return
+    return ''
   }
 
   const root = workspaceFolder.replace(/\/+$/, '') || '/'
   const packageRaw = await tryReadText(joinWorkspace(root, 'package.json'))
-  if (signal?.aborted) return
+  if (signal?.aborted) {
+    return workspaceSyncCacheKey(root, packageRaw, false)
+  }
+
+  const nodeModulesStat = await filesStat(joinWorkspace(root, 'node_modules'))
+  if (signal?.aborted) {
+    return workspaceSyncCacheKey(root, packageRaw, false)
+  }
+  const nodeModulesPresent = nodeModulesStat?.kind === 'folder'
+  const cacheKey = workspaceSyncCacheKey(root, packageRaw, nodeModulesPresent)
 
   if (!packageRaw) {
     clearMonacoTypescriptExtraLibs()
@@ -409,7 +477,8 @@ export async function syncVscodeTypescriptWorkspace(
       moduleResolution: MonacoModuleResolutionKind.Bundler,
       allowImportingTsExtensions: true,
     })
-    return
+    refreshMonacoTypescriptSemantics()
+    return cacheKey
   }
 
   const packageJson = parseJsonc<PackageJsonShape>(packageRaw)
@@ -420,11 +489,12 @@ export async function syncVscodeTypescriptWorkspace(
       moduleResolution: MonacoModuleResolutionKind.Bundler,
       allowImportingTsExtensions: true,
     })
-    return
+    refreshMonacoTypescriptSemantics()
+    return cacheKey
   }
 
   const overrides = await loadTsconfigOverrides(root, signal)
-  if (signal?.aborted) return
+  if (signal?.aborted) return cacheKey
   applyMonacoTypescriptCompilerOverrides(overrides)
 
   const libMap = new Map<string, string>()
@@ -438,19 +508,21 @@ export async function syncVscodeTypescriptWorkspace(
     await collectDtsInPackage(packageRoot, libMap, signal)
   }
 
-  if (signal?.aborted) return
+  if (signal?.aborted) return cacheKey
 
   const libs = [...libMap.entries()].map(([path, content]) => ({
     content,
     filePath: monacoFileUriString(path),
   }))
   setMonacoTypescriptExtraLibs(libs)
+  refreshMonacoTypescriptSemantics()
+  return cacheKey
 }
 
 /** 上一轮编排 sync 的 Promise；新请求先等它结束，避免并发改 worker */
 let typescriptSyncInFlight: Promise<void> | undefined
-/** 已成功完成 workspace sync 的文件夹（避免每次按键重扫 node_modules） */
-let lastSyncedWorkspaceFolder: string | undefined | null = null
+/** 已成功完成 workspace sync 的缓存键（路径 + package.json 摘要 + node_modules） */
+let lastSyncedWorkspaceKey: string | undefined
 
 /**
  * 先同步工作区类型 / compilerOptions，再对全部打开的 TS/JS 入口做本地模块 BFS。
@@ -469,10 +541,25 @@ export async function syncVscodeTypescriptAll(options: {
     if (previous) await previous.catch(() => undefined)
     if (signal?.aborted || generation !== typescriptSyncGeneration) return
 
-    if (workspaceFolder !== lastSyncedWorkspaceFolder) {
-      await syncVscodeTypescriptWorkspace(workspaceFolder, signal)
+    // 读 package.json + node_modules 是否存在，决定是否重扫（装依赖后会变）
+    let packageRaw: string | undefined
+    let nodeModulesPresent = false
+    if (workspaceFolder) {
+      const root = workspaceFolder.replace(/\/+$/, '') || '/'
+      packageRaw = await tryReadText(joinWorkspace(root, 'package.json'))
       if (signal?.aborted || generation !== typescriptSyncGeneration) return
-      lastSyncedWorkspaceFolder = workspaceFolder
+      const nodeModulesStat = await filesStat(joinWorkspace(root, 'node_modules'))
+      if (signal?.aborted || generation !== typescriptSyncGeneration) return
+      nodeModulesPresent = nodeModulesStat?.kind === 'folder'
+    }
+    const nextKey = workspaceSyncCacheKey(workspaceFolder, packageRaw, nodeModulesPresent)
+
+    let workspaceSynced = false
+    if (nextKey !== lastSyncedWorkspaceKey) {
+      const syncedKey = await syncVscodeTypescriptWorkspace(workspaceFolder, signal)
+      if (signal?.aborted || generation !== typescriptSyncGeneration) return
+      lastSyncedWorkspaceKey = syncedKey
+      workspaceSynced = true
     }
 
     let localModulesAdded = false
@@ -482,8 +569,13 @@ export async function syncVscodeTypescriptAll(options: {
       if (added) localModulesAdded = true
     }
 
-    // 新挂本地依赖后才强制重跑；否则会清掉 markers 造成切标签闪烁
-    if (!signal?.aborted && generation === typescriptSyncGeneration && localModulesAdded) {
+    // 新挂本地依赖后才额外强制重跑；workspace sync 内已 refresh，避免重复清 markers
+    if (
+      !signal?.aborted &&
+      generation === typescriptSyncGeneration &&
+      localModulesAdded &&
+      !workspaceSynced
+    ) {
       refreshMonacoTypescriptSemantics()
     }
   })()

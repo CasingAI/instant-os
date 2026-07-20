@@ -178,6 +178,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
   const [problems, setProblems] = useState<MonacoProblem[]>([])
   const [revealPath, setRevealPath] = useState<string | undefined>(undefined)
+  const [revealNonce, setRevealNonce] = useState(0)
   const [revealPosition, setRevealPosition] = useState<
     (MonacoRevealPosition & { path: string }) | undefined
   >(undefined)
@@ -1318,6 +1319,16 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     updatePrefs({ sidebarVisible: true })
   }
 
+  const revealInExplorer = useCallback(
+    (path: string) => {
+      setSidebarView('explorer')
+      updatePrefs({ sidebarVisible: true })
+      setRevealPath(path)
+      setRevealNonce((value) => value + 1)
+    },
+    [updatePrefs],
+  )
+
   if (!windowId) {
     return <div class="vscode" />
   }
@@ -1373,6 +1384,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 workspaceFolder={prefs.workspaceFolder}
                 selectedPath={activeTab?.path}
                 revealPath={revealPath ?? activeTab?.path}
+                revealNonce={revealNonce}
                 problemDecorations={problemDecorations}
                 onOpenFile={(path) => void openDocument(path)}
                 onOpenFolder={() => void pickAndOpenFolder()}
@@ -1500,6 +1512,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onCloseOtherInGroup={(groupId, keepItemId) =>
                   void closeOtherInGroup(groupId, keepItemId)
                 }
+                onRevealInExplorer={revealInExplorer}
+                workspaceFolder={prefs.workspaceFolder}
                 onMoveItemToGroup={(itemId, targetGroupId, targetIndex) =>
                   setEditorLayout((current) =>
                     moveEditorItemToGroup(current, itemId, targetGroupId, targetIndex),

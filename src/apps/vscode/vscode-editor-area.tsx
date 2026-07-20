@@ -38,6 +38,8 @@ type VscodeEditorAreaProps = {
   onCloseFileTab: (tabId: string) => void
   onClosePreview: (itemId: string) => void
   onCloseOtherInGroup: (groupId: string, keepItemId: string) => void
+  onRevealInExplorer: (path: string) => void
+  workspaceFolder: string | undefined
   onMoveItemToGroup: (itemId: string, targetGroupId: string, targetIndex?: number) => void
   onSplitItemToEdge: (itemId: string, targetGroupId: string, edge: VscodeSplitEdge) => void
   onOpenMarkdownPreview: (groupId: string) => void
@@ -46,6 +48,20 @@ type VscodeEditorAreaProps = {
   onOpenPath: (path: string, reveal?: MonacoRevealPosition) => void
   onResolveConflict: (tabId: string, choice: 'draft' | 'disk') => void
   onSetBranchRatio: (branchId: string, ratio: number) => void
+}
+
+function pathInWorkspace(workspaceFolder: string | undefined, path: string | undefined): boolean {
+  if (!workspaceFolder || !path) return false
+  const root = workspaceFolder.replace(/\/+$/, '') || '/'
+  return path === root || path.startsWith(`${root}/`)
+}
+
+function pathForGroupItem(
+  item: VscodeGroupItem,
+  tabs: readonly VscodeTab[],
+): string | undefined {
+  if (item.kind === 'preview') return item.sourcePath
+  return tabs.find((tab) => tab.id === item.tabId)?.path
 }
 
 function parseDragPayload(event: DragEvent): VscodeEditorDragPayload | undefined {
@@ -115,6 +131,8 @@ function VscodeEditorGroupView({
   onCloseFileTab,
   onClosePreview,
   onCloseOtherInGroup,
+  onRevealInExplorer,
+  workspaceFolder,
   onMoveItemToGroup,
   onSplitItemToEdge,
   onOpenMarkdownPreview,
@@ -148,6 +166,8 @@ function VscodeEditorGroupView({
       onFocusGroup(group.id)
       onActivateItem(group.id, item.id)
       const otherCount = group.items.filter((entry) => entry.id !== item.id).length
+      const itemPath = pathForGroupItem(item, tabs)
+      const canReveal = pathInWorkspace(workspaceFolder, itemPath)
       showIconContextMenu(event, [
         {
           type: 'action',
@@ -164,6 +184,14 @@ function VscodeEditorGroupView({
           disabled: loading || dialogBlocked || otherCount === 0,
           onClick: () => onCloseOtherInGroup(group.id, item.id),
         },
+        {
+          type: 'action',
+          label: '在工作区列表显示',
+          disabled: !canReveal,
+          onClick: () => {
+            if (itemPath) onRevealInExplorer(itemPath)
+          },
+        },
       ])
     },
     [
@@ -175,7 +203,10 @@ function VscodeEditorGroupView({
       onCloseOtherInGroup,
       onClosePreview,
       onFocusGroup,
+      onRevealInExplorer,
       showIconContextMenu,
+      tabs,
+      workspaceFolder,
     ],
   )
 

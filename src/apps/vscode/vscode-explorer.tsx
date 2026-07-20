@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
 import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
 import { VscodeFileIcon, VscodeFolderIcon, VscodeTreeTwistie } from './vscode-file-icons.tsx'
@@ -7,6 +7,8 @@ type VscodeExplorerProps = {
   workspaceFolder?: string
   selectedPath?: string
   revealPath?: string
+  /** 递增以强制再次展开 / 滚入视口（同一路径再次「在列表显示」） */
+  revealNonce?: number
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   onOpenFile: (path: string) => void
   onOpenFolder: () => void
@@ -17,6 +19,7 @@ type TreeNodeProps = {
   depth: number
   selectedPath?: string
   revealPath?: string
+  revealNonce?: number
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   defaultExpanded?: boolean
   onOpenFile: (path: string) => void
@@ -59,6 +62,7 @@ function TreeNode({
   depth,
   selectedPath,
   revealPath,
+  revealNonce = 0,
   problemDecorations,
   defaultExpanded = false,
   onOpenFile,
@@ -67,10 +71,12 @@ function TreeNode({
   const shouldReveal =
     revealPath !== undefined &&
     (revealPath === entry.path || revealPath.startsWith(`${entry.path}/`))
+  const isRevealTarget = revealPath === entry.path
   const [expanded, setExpanded] = useState(defaultExpanded || shouldReveal)
   const [children, setChildren] = useState<FilesApiEntry[] | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  const itemRef = useRef<HTMLButtonElement>(null)
   const decoration = problemDecorations?.get(entry.path)
   const problemCount = decoration ? decoration.errors + decoration.warnings : 0
 
@@ -93,7 +99,7 @@ function TreeNode({
   useEffect(() => {
     if (!isFolder || !shouldReveal) return
     setExpanded(true)
-  }, [isFolder, revealPath, shouldReveal])
+  }, [isFolder, revealPath, revealNonce, shouldReveal])
 
   useEffect(() => {
     if (!isFolder || !expanded) return
@@ -101,10 +107,20 @@ function TreeNode({
     void loadChildren()
   }, [children, expanded, isFolder, loadChildren])
 
+  useEffect(() => {
+    if (!isRevealTarget) return
+    // 等父级目录展开后再滚入视口
+    const frame = window.requestAnimationFrame(() => {
+      itemRef.current?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [isRevealTarget, revealNonce, revealPath])
+
   if (!isFolder) {
     const selected = selectedPath === entry.path
     return (
       <button
+        ref={itemRef}
         type="button"
         class={`vscode__tree-item vscode__tree-item--file${selected ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
         style={{ paddingLeft: `${10 + depth * 12}px` }}
@@ -126,6 +142,7 @@ function TreeNode({
   return (
     <div class="vscode__tree-folder">
       <button
+        ref={itemRef}
         type="button"
         class={`vscode__tree-item vscode__tree-item--folder${selectedPath === entry.path ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
         style={{ paddingLeft: `${10 + depth * 12}px` }}
@@ -154,6 +171,7 @@ function TreeNode({
               depth={depth + 1}
               selectedPath={selectedPath}
               revealPath={revealPath}
+              revealNonce={revealNonce}
               problemDecorations={problemDecorations}
               onOpenFile={onOpenFile}
             />
@@ -168,6 +186,7 @@ export function VscodeExplorer({
   workspaceFolder,
   selectedPath,
   revealPath,
+  revealNonce = 0,
   problemDecorations,
   onOpenFile,
   onOpenFolder,
@@ -232,6 +251,7 @@ export function VscodeExplorer({
             depth={0}
             selectedPath={selectedPath}
             revealPath={revealPath}
+            revealNonce={revealNonce}
             problemDecorations={problemDecorations}
             defaultExpanded
             onOpenFile={onOpenFile}
