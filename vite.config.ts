@@ -33,7 +33,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['monaco-editor', 'frimousse'],
+    include: ['monaco-editor', 'frimousse', 'quickjs-emscripten'],
   },
   server: {
     port: 6173,
