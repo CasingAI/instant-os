@@ -26,6 +26,7 @@ import {
 } from './task-manager-speed-series.ts'
 import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
 import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
+import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
 import './task-manager.css'
 
 const APP_ID = 'task-manager' as const
@@ -127,6 +128,7 @@ export function TaskManagerApp() {
   const [liveByActor, setLiveByActor] = useState<Map<string, LiveAppActivity>>(() => new Map())
   const speedSeries = useTaskManagerSpeedSeries(sampleIntervalSec)
   const systemMetrics = useTaskManagerSystemMetrics(sampleIntervalSec)
+  const proxyServerMetrics = useTaskManagerProxyServerMetrics(sampleIntervalSec)
 
   const refreshLiveActivity = useCallback(() => {
     setLiveByActor(collectLiveAppActivity())
@@ -418,6 +420,12 @@ export function TaskManagerApp() {
             latestFps={systemMetrics.latestFps}
             memory={systemMetrics.memory}
             memorySupported={systemMetrics.memorySupported}
+            proxyDownloadSeries={proxyServerMetrics.downloadSeries}
+            proxyUploadSeries={proxyServerMetrics.uploadSeries}
+            latestProxyDownload={proxyServerMetrics.latestDownloadBytesPerSec}
+            latestProxyUpload={proxyServerMetrics.latestUploadBytesPerSec}
+            proxyServerConnected={proxyServerMetrics.proxyServerConnected}
+            proxyRecentRequests={proxyServerMetrics.recentRequests}
           />
         </div>
       </div>

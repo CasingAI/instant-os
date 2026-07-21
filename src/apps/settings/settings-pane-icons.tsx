@@ -226,3 +226,24 @@ export function DockPaneIcon() {
     </AppIconTile>
   )
 }
+
+export function ProxyServerPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#3d7ea6" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="4" y="3" width="14" height="10" rx="1.5" fill="#fff" opacity="0.95" />
+        <rect x="6" y="5" width="10" height="6" rx="0.6" fill="#3d7ea6" opacity="0.35" />
+        <rect x="9.5" y="13" width="3" height="2" fill="#fff" opacity="0.9" />
+        <rect x="6" y="15" width="10" height="2" rx="0.8" fill="#fff" opacity="0.85" />
+        <path
+          d="M7 18.5 H15"
+          stroke="#fff"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          opacity="0.7"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}

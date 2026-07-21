@@ -7,6 +7,14 @@ import { MenuBarPopover } from './menu-bar-popover.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { isOsUsing24HourTime } from './os-clock.ts'
 import type { DeviceBattery } from './use-device-battery.ts'
+import {
+  formatProxyServerMenuSpeed,
+  type ProxyServerConnectionState,
+} from './use-proxy-server-connection.ts'
+import {
+  formatProxyServerBytesPerSec,
+  formatProxyServerDataBytes,
+} from './proxy-server-metrics.ts'
 import { useOs } from './os-context.tsx'
 import type { AppId, WindowState } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
@@ -165,6 +173,76 @@ export function DateTimePanel({ now }: DateTimePanelProps) {
         <p class="menu-bar__popover-date">{date}</p>
         <p class="menu-bar__popover-time">{time}</p>
       </div>
+    </MenuBarPopover>
+  )
+}
+
+type ProxyServerStatusPanelProps = {
+  connection: ProxyServerConnectionState
+  onOpenProxyServerSettings: () => void
+  onOpenTaskManager: () => void
+}
+
+export function ProxyServerStatusPanel({
+  connection,
+  onOpenProxyServerSettings,
+  onOpenTaskManager,
+}: ProxyServerStatusPanelProps) {
+  const { connected, proxyHost, throughput, recentRequests } = connection
+  const speedLabel = formatProxyServerMenuSpeed(throughput)
+
+  return (
+    <MenuBarPopover align="right" label="代理服务器" flushBottom>
+      <p class="menu-bar__popover-heading">代理服务器</p>
+      <div class="menu-bar__popover-row">
+        <span class="menu-bar__popover-row-label">状态</span>
+        <span class="menu-bar__popover-row-value">{connected ? '已连接' : '未连接'}</span>
+      </div>
+      {proxyHost && (
+        <div class="menu-bar__popover-row">
+          <span class="menu-bar__popover-row-label">主机</span>
+          <span class="menu-bar__popover-row-value">{proxyHost}</span>
+        </div>
+      )}
+      <div class="menu-bar__popover-row">
+        <span class="menu-bar__popover-row-label">速度</span>
+        <span class="menu-bar__popover-row-value">{speedLabel}</span>
+      </div>
+      <div class="menu-bar__popover-row">
+        <span class="menu-bar__popover-row-label">下行</span>
+        <span class="menu-bar__popover-row-value">
+          {formatProxyServerBytesPerSec(throughput.downloadBytesPerSec)}
+        </span>
+      </div>
+      <div class="menu-bar__popover-row">
+        <span class="menu-bar__popover-row-label">上行</span>
+        <span class="menu-bar__popover-row-value">
+          {formatProxyServerBytesPerSec(throughput.uploadBytesPerSec)}
+        </span>
+      </div>
+
+      <div class="menu-bar__popover-separator" />
+      <p class="menu-bar__popover-heading">最近请求</p>
+      {recentRequests.length === 0 ? (
+        <p class="menu-bar__popover-empty">暂无请求</p>
+      ) : (
+        recentRequests.map((request) => (
+          <div key={request.id} class="menu-bar__popover-row">
+            <span class="menu-bar__popover-row-label">{request.host}</span>
+            <span class="menu-bar__popover-row-value">
+              {request.status ?? '失败'} · {request.durationMs} ms ·{' '}
+              {formatProxyServerDataBytes(request.downloadBytes)}
+            </span>
+          </div>
+        ))
+      )}
+
+      <button type="button" class="menu-bar__popover-more" onClick={onOpenProxyServerSettings}>
+        代理服务器设置…
+      </button>
+      <button type="button" class="menu-bar__popover-more" onClick={onOpenTaskManager}>
+        打开性能监视器
+      </button>
     </MenuBarPopover>
   )
 }

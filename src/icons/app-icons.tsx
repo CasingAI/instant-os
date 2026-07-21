@@ -512,6 +512,41 @@ export function SignalIcon() {
   )
 }
 
+/** 菜单栏代理服务器状态图标（显示器造型，语义为代理通道而非整机网卡） */
+export function EthernetIcon() {
+  return (
+    <svg
+      width="16"
+      height="12"
+      viewBox="0 0 16 12"
+      class="ethernet-icon"
+      role="img"
+      aria-label="代理服务器"
+    >
+      <rect
+        x="2.5"
+        y="0.5"
+        width="11"
+        height="7.5"
+        rx="1.2"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1"
+      />
+      <rect x="4.5" y="2" width="7" height="4" rx="0.4" fill="currentColor" opacity="0.35" />
+      <path
+        d="M7 8.5 V9.5 H9 V8.5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <rect x="4" y="9.5" width="8" height="1.8" rx="0.6" fill="currentColor" />
+    </svg>
+  )
+}
+
 type BrandIconProps = {
   size?: number
 }

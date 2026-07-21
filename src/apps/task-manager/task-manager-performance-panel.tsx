@@ -33,6 +33,12 @@ import {
   type AggregatedMemorySnapshot,
   type MemoryHeapCluster,
 } from './task-manager-system-metrics.ts'
+import {
+  formatProxyServerAxisTick,
+  formatProxyServerBytesPerSec,
+  formatProxyServerDataBytes,
+  type ProxyServerRequestRecord,
+} from '../../os/proxy-server-metrics.ts'
 
 const LOG_LIMIT = 200
 const CHART_VIEW_WIDTH = 960
@@ -50,12 +56,13 @@ type ChartPadding = {
   left: number
 }
 
-type PerfCategory = 'ai' | 'fps' | 'memory'
+type PerfCategory = 'ai' | 'fps' | 'memory' | 'proxy-server'
 
 const PERF_CATEGORIES: { id: PerfCategory; label: string }[] = [
   { id: 'ai', label: 'AI 输出' },
   { id: 'fps', label: '帧率' },
   { id: 'memory', label: '内存' },
+  { id: 'proxy-server', label: '代理服务器' },
 ]
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -76,6 +83,12 @@ type TaskManagerPerformancePanelProps = {
   latestFps: number
   memory: AggregatedMemorySnapshot
   memorySupported: boolean
+  proxyDownloadSeries: MetricSeriesPoint[]
+  proxyUploadSeries: MetricSeriesPoint[]
+  latestProxyDownload: number
+  latestProxyUpload: number
+  proxyServerConnected: boolean
+  proxyRecentRequests: ProxyServerRequestRecord[]
 }
 
 function formatHeapClusterLabel(cluster: MemoryHeapCluster, index: number, total: number): string {
@@ -96,6 +109,12 @@ export function TaskManagerPerformancePanel({
   latestFps,
   memory,
   memorySupported,
+  proxyDownloadSeries,
+  proxyUploadSeries,
+  latestProxyDownload,
+  latestProxyUpload,
+  proxyServerConnected,
+  proxyRecentRequests,
 }: TaskManagerPerformancePanelProps) {
   const [category, setCategory] = useState<PerfCategory>('ai')
   const [records, setRecords] = useState<AiEventLogRecord[]>([])
@@ -148,6 +167,10 @@ export function TaskManagerPerformancePanel({
   const sampleMeta = speedSeriesTimeWindowLabel(series.length, sampleIntervalSec)
   const fpsSampleMeta = speedSeriesTimeWindowLabel(fpsSeries.length, sampleIntervalSec)
   const memorySampleMeta = speedSeriesTimeWindowLabel(memorySeries.length, sampleIntervalSec)
+  const proxySampleMeta = speedSeriesTimeWindowLabel(
+    proxyDownloadSeries.length,
+    sampleIntervalSec,
+  )
 
   const fpsWindowAverage =
     fpsSeries.length === 0
@@ -163,12 +186,28 @@ export function TaskManagerPerformancePanel({
   const uniqueGuestHeapCount = memory.heapClusters.filter((cluster) => !cluster.sharedWithHost).length
   const guestClusters = memory.heapClusters.filter((cluster) => !cluster.sharedWithHost)
 
+  const proxyDownloadAverage =
+    proxyDownloadSeries.length === 0
+      ? undefined
+      : proxyDownloadSeries.reduce((sum, point) => sum + point.value, 0) /
+        proxyDownloadSeries.length
+  const proxyDownloadPeak =
+    proxyDownloadSeries.length === 0
+      ? undefined
+      : Math.max(...proxyDownloadSeries.map((point) => point.value))
+  const proxyUploadPeak =
+    proxyUploadSeries.length === 0
+      ? undefined
+      : Math.max(...proxyUploadSeries.map((point) => point.value))
+
   const categoryNow =
     category === 'ai'
       ? formatLiveSpeed(latestSpeed)
       : category === 'fps'
         ? formatFps(latestFps)
-        : formatMemoryBytes(latestHeap?.usedBytes)
+        : category === 'memory'
+          ? formatMemoryBytes(latestHeap?.usedBytes)
+          : formatProxyServerBytesPerSec(latestProxyDownload)
 
   const categorySubtitle =
     category === 'ai'
@@ -177,13 +216,17 @@ export function TaskManagerPerformancePanel({
         }`
       : category === 'fps'
         ? '主线程动画帧速率（与屏幕标称刷新率可能不同）'
-        : !memorySupported
-          ? '当前浏览器不支持读取 JS 堆内存'
-          : isolationActive
-            ? `按独立堆去重后合计${uniqueGuestHeapCount > 0 ? ` · ${uniqueGuestHeapCount} 个微应用堆` : ''}${
-                memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
-              }`
-            : '宿主 JS 堆（同域微应用通常同堆，不计多份）'
+        : category === 'memory'
+          ? !memorySupported
+            ? '当前浏览器不支持读取 JS 堆内存'
+            : isolationActive
+              ? `按独立堆去重后合计${uniqueGuestHeapCount > 0 ? ` · ${uniqueGuestHeapCount} 个微应用堆` : ''}${
+                  memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
+                }`
+              : '宿主 JS 堆（同域微应用通常同堆，不计多份）'
+          : proxyServerConnected
+            ? '经代理服务器的吞吐'
+            : '尚未连接代理服务器'
 
   return (
     <section class="task-manager__section task-manager__section--performance">
@@ -196,7 +239,9 @@ export function TaskManagerPerformancePanel({
                 ? formatLiveSpeed(latestSpeed)
                 : item.id === 'fps'
                   ? formatFps(latestFps)
-                  : formatMemoryBytes(latestHeap?.usedBytes)
+                  : item.id === 'memory'
+                    ? formatMemoryBytes(latestHeap?.usedBytes)
+                    : formatProxyServerBytesPerSec(latestProxyDownload)
             const hint =
               item.id === 'ai'
                 ? liveCount > 0
@@ -204,13 +249,17 @@ export function TaskManagerPerformancePanel({
                   : '空闲'
                 : item.id === 'fps'
                   ? fpsSampleMeta
-                  : memorySupported
-                    ? isolationActive
-                      ? uniqueGuestHeapCount > 0
-                        ? `${uniqueGuestHeapCount} 个独立堆`
-                        : '隔离去重'
-                      : '仅宿主'
-                    : '不可用'
+                  : item.id === 'memory'
+                    ? memorySupported
+                      ? isolationActive
+                        ? uniqueGuestHeapCount > 0
+                          ? `${uniqueGuestHeapCount} 个独立堆`
+                          : '隔离去重'
+                        : '仅宿主'
+                      : '不可用'
+                    : proxyServerConnected
+                      ? proxySampleMeta
+                      : '未连接'
             return (
               <button
                 key={item.id}
@@ -242,7 +291,9 @@ export function TaskManagerPerformancePanel({
                     ? sampleMeta
                     : category === 'fps'
                       ? fpsSampleMeta
-                      : memorySampleMeta}
+                      : category === 'memory'
+                        ? memorySampleMeta
+                        : proxySampleMeta}
                 </span>
               </p>
             </div>
@@ -537,14 +588,112 @@ export function TaskManagerPerformancePanel({
             </div>
           )}
 
+          {category === 'proxy-server' && (
+            <div class="task-manager__perf-dashboard">
+              <div class="task-manager__perf-chart-col">
+                <div class="task-manager__chart-card task-manager__chart-card--hero">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">下行速率</h3>
+                    <span class="task-manager__chart-meta">
+                      {proxyServerConnected
+                        ? `${proxySampleMeta} · 峰值 ${formatProxyServerBytesPerSec(proxyDownloadPeak)}`
+                        : '未连接'}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame">
+                    {proxyServerConnected ? (
+                      <MetricChart
+                        revision={proxyDownloadSeries}
+                        buildChart={(padding) =>
+                          buildRealtimeMetricPolyline(
+                            proxyDownloadSeries,
+                            CHART_VIEW_WIDTH,
+                            CHART_VIEW_HEIGHT,
+                            padding,
+                            {
+                              formatTick: formatProxyServerAxisTick,
+                              minAxisMax: 1024,
+                            },
+                          )
+                        }
+                        ariaLabel="代理服务器下行速率实时折线图"
+                      />
+                    ) : (
+                      <p class="task-manager__chart-unavailable">
+                        尚未连接代理服务器。请打开「系统设置 → 代理服务器」配置并连接。
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div class="task-manager__perf-side-col">
+                <div class="task-manager__stats">
+                  <StatCard
+                    label="当前下行"
+                    value={formatProxyServerBytesPerSec(latestProxyDownload)}
+                    hint={proxyServerConnected ? proxySampleMeta : '未连接'}
+                  />
+                  <StatCard
+                    label="当前上行"
+                    value={formatProxyServerBytesPerSec(latestProxyUpload)}
+                    hint={
+                      proxyUploadPeak !== undefined
+                        ? `峰值 ${formatProxyServerBytesPerSec(proxyUploadPeak)}`
+                        : undefined
+                    }
+                  />
+                  <StatCard
+                    label="窗口平均下行"
+                    value={formatProxyServerBytesPerSec(proxyDownloadAverage)}
+                    hint={proxySampleMeta}
+                  />
+                  <StatCard
+                    label="窗口峰值下行"
+                    value={formatProxyServerBytesPerSec(proxyDownloadPeak)}
+                  />
+                </div>
+              </div>
+
+              <div class="task-manager__perf-bottom">
+                <div class="task-manager__list task-manager__list--compact">
+                  <div class="task-manager__list-header">最近请求</div>
+                  {proxyRecentRequests.length === 0 ? (
+                    <p class="task-manager__list-empty">
+                      {proxyServerConnected ? '暂无请求' : '连接代理服务器后，这里会列出最近请求。'}
+                    </p>
+                  ) : (
+                    proxyRecentRequests.map((request) => (
+                      <div key={request.id} class="task-manager__perf-row">
+                        <span class="task-manager__perf-name">{request.host}</span>
+                        <span class="task-manager__perf-meta">
+                          {request.method}
+                          {request.status !== undefined ? ` · ${request.status}` : ' · 失败'}
+                          {request.errorMessage ? ` · ${request.errorMessage}` : ''}
+                          {' · '}
+                          {request.durationMs} ms
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {formatProxyServerDataBytes(request.downloadBytes)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <p class="task-manager__footnote">
             {category === 'ai'
               ? `打开性能监视器后即按间隔写入速度点；无生成时记 0。菜单栏「视图」可切换 0.5 / 1 / 3 / 5 秒，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
               : category === 'fps'
                 ? `帧率由主线程动画帧推算，部分浏览器会把页面更新锁在约 60，即使屏幕是 120；拖动等合成器动画仍可能更顺。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
-                : memorySupported
-                  ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。折线为去重后的独立堆之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
-                  : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'}
+                : category === 'memory'
+                  ? memorySupported
+                    ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。折线为去重后的独立堆之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
+                    : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'
+                  : `仅统计经代理服务器的流量。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`}
           </p>
         </div>
       </div>

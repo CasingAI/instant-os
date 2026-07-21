@@ -9,6 +9,7 @@ import {
   DeveloperPaneIcon,
   ExternalBridgeConsentPaneIcon,
   NewsPaneIcon,
+  ProxyServerPaneIcon,
   NotificationCenterPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
@@ -29,6 +30,7 @@ export type SettingsPaneId =
   | 'notification-center'
   | 'wallpaper'
   | 'dock'
+  | 'proxy-server'
   | 'resources'
   | 'safari'
   | 'news'
@@ -46,6 +48,7 @@ export type SettingsRoute =
   | { view: 'notification-center' }
   | { view: 'wallpaper' }
   | { view: 'dock' }
+  | { view: 'proxy-server' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
   | { view: 'resources' }
@@ -93,6 +96,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   },
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
+  { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
   {
     id: 'safari',
@@ -165,6 +169,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'wallpaper'
     case 'dock':
       return 'dock'
+    case 'proxy-server':
+      return 'proxy-server'
     case 'resources':
     case 'resources-3d':
     case 'resources-3d-detail':
@@ -191,6 +197,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'notification-center':
     case 'wallpaper':
     case 'dock':
+    case 'proxy-server':
     case 'resources':
     case 'safari-usage':
     case 'news':

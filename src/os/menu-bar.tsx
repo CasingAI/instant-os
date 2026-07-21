@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { BatteryIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
+import { BatteryIcon, EthernetIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../ui/adaptive-action-menu.tsx'
 import { isNarrowWorkArea } from '../window/window-snap.ts'
 import { useAboutApp } from './about-app-context.tsx'
@@ -8,7 +8,7 @@ import { getThisDeviceAbout } from './builtin-app-about.ts'
 import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
-import { BatteryStatusPanel } from './menu-bar-status-panels.tsx'
+import { BatteryStatusPanel, ProxyServerStatusPanel } from './menu-bar-status-panels.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { isOsUsing24HourTime } from './os-clock.ts'
@@ -22,6 +22,8 @@ import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
 import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
 import { useDeviceBattery } from './use-device-battery.ts'
+import { useProxyServerConnection } from './use-proxy-server-connection.ts'
+import { openSettingsProxyServerView } from './proxy-server-settings-storage.ts'
 import type { AppId, BuiltinAppId } from './types.ts'
 import { isGeneratedAppId } from './types.ts'
 import './menu-bar.css'
@@ -30,6 +32,7 @@ import './notification-center.css'
 
 const APPLE_MENU_LABEL = '__apple__'
 const MORE_MENU_LABEL = '__more__'
+const STATUS_PROXY_SERVER_LABEL = '__status_proxy_server__'
 const STATUS_BATTERY_LABEL = '__status_battery__'
 const MENU_GAP_PX = 2
 const MORE_MENU_BTN_SPACE_PX = 50
@@ -324,6 +327,7 @@ export function MenuBar() {
   const { menusByApp } = useMenuBar()
   const { showInstantAbout, showAbout } = useAboutApp()
   const battery = useDeviceBattery()
+  const proxyServer = useProxyServerConnection()
   const { pendingInstalls, failedInstalls, completedInstalls } = useGeneratedApps()
   const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
@@ -423,6 +427,12 @@ export function MenuBar() {
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)
   }, [notificationCenterOpen, openMenuLabel, setChromePinSource])
+
+  useEffect(() => {
+    if (!proxyServer.connected && openMenuLabel === STATUS_PROXY_SERVER_LABEL) {
+      setOpenMenuLabel(undefined)
+    }
+  }, [proxyServer.connected, openMenuLabel])
 
   const prevActiveWindowIdRef = useRef(activeWindowId)
 
@@ -565,6 +575,12 @@ export function MenuBar() {
     setOpenMenuLabel(undefined)
   }
 
+  const handleOpenProxyServerSettings = () => {
+    openApp('settings')
+    openSettingsProxyServerView()
+    setOpenMenuLabel(undefined)
+  }
+
   return (
     <header ref={barRef} class={`menu-bar${hidden ? ' menu-bar--hidden' : ''}`}>
       <div class="menu-bar__left" ref={leftRef}>
@@ -656,6 +672,31 @@ export function MenuBar() {
       </div>
       <div class="menu-bar__center" />
       <div class="menu-bar__right">
+        {proxyServer.connected && (
+          <div class="menu-bar__menu">
+            <button
+              type="button"
+              class={`menu-bar__status-trigger${openMenuLabel === STATUS_PROXY_SERVER_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+              aria-haspopup="dialog"
+              aria-expanded={openMenuLabel === STATUS_PROXY_SERVER_LABEL}
+              aria-label={
+                proxyServer.proxyHost
+                  ? `代理服务器已连接，${proxyServer.proxyHost}`
+                  : '代理服务器已连接'
+              }
+              onClick={() => toggleMenu(STATUS_PROXY_SERVER_LABEL)}
+            >
+              <EthernetIcon />
+            </button>
+            {openMenuLabel === STATUS_PROXY_SERVER_LABEL && (
+              <ProxyServerStatusPanel
+                connection={proxyServer}
+                onOpenProxyServerSettings={handleOpenProxyServerSettings}
+                onOpenTaskManager={handleOpenTaskManager}
+              />
+            )}
+          </div>
+        )}
         <div class="menu-bar__menu">
           <button
             type="button"

@@ -35,6 +35,7 @@ import { EmojiSettingsView } from './emoji-settings-view.tsx'
 import { DockSettingsView } from './dock-settings-view.tsx'
 import { DeveloperSettingsView } from './developer-settings-view.tsx'
 import { ExternalBridgeConsentsView } from './external-bridge-consents-view.tsx'
+import { ProxyServerSettingsView } from './proxy-server-settings-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
@@ -63,6 +64,7 @@ import {
   EXPERIMENTAL_SETTINGS_CHANGED_EVENT,
   loadExperimentalSettings,
 } from '../../os/experimental-settings-storage.ts'
+import { OPEN_SETTINGS_PROXY_SERVER_EVENT } from '../../os/proxy-server-settings-storage.ts'
 import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
@@ -173,9 +175,16 @@ export function SettingsApp() {
       setCacheRevision((value) => value + 1)
       setRoute({ view: 'usage' })
     }
+    const handleOpenProxyServer = () => {
+      setRoute({ view: 'proxy-server' })
+    }
 
     window.addEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
-    return () => window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
+    window.addEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
+    return () => {
+      window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
+      window.removeEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
+    }
   }, [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
@@ -228,6 +237,7 @@ export function SettingsApp() {
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
   const showWallpaper = view === 'wallpaper'
   const showDock = view === 'dock'
+  const showProxyServer = view === 'proxy-server'
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
   const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
@@ -406,6 +416,10 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showDock} keep={showDock}>
         <DockSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showProxyServer} keep={showProxyServer}>
+        <ProxyServerSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showEmoji && !showEmojiCalibration} keep={showEmoji}>
