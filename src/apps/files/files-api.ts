@@ -4,7 +4,7 @@
  *
  * 路径约定：
  * - `/` — 命名空间根（虚拟）：下列出各卷，不可写入
- * - `/user` · `/models` · `/system` · `/mount/{文件夹名}` — 各卷根
+ * - `/user` · `/repo` · `/models` · `/system` · `/mount/{文件夹名}` — 各卷根
  */
 import {
   filesLocationPathRoot,
@@ -21,6 +21,7 @@ import {
 } from './files-types.ts'
 import {
   copyNodeTo,
+  createBinaryFile,
   createTextFile,
   getFilesLocationLabel,
   listDirectory,
@@ -32,6 +33,7 @@ import {
   renameNode,
   resolveFilesAbsolutePath,
   resolveNodeByAbsolutePath,
+  writeBinaryFile,
   writeTextFile,
 } from './files-vfs.ts'
 
@@ -265,6 +267,38 @@ export async function filesCreateText(path: string, text = ''): Promise<FilesApi
     name: target.name,
     text,
   })
+  return toEntry(node)
+}
+
+/** 创建新二进制文件（不可覆盖已有路径） */
+export async function filesCreateBinary(
+  path: string,
+  bytes: ArrayBuffer,
+  mimeType?: string,
+): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(path)
+  const existing = await resolveNodeByAbsolutePath(absolutePath)
+  if (existing) {
+    throw new Error('路径已存在')
+  }
+  const target = await resolveParentForCreate(absolutePath)
+  const node = await createBinaryFile({
+    locationId: target.locationId,
+    parentId: target.parentId,
+    name: target.name,
+    bytes,
+    mimeType,
+  })
+  return toEntry(node)
+}
+
+/** 覆写已存在的二进制文件 */
+export async function filesWriteBinary(path: string, bytes: ArrayBuffer): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能写入命名空间根')
+  }
+  const node = await writeBinaryFile(absolutePath, bytes)
   return toEntry(node)
 }
 

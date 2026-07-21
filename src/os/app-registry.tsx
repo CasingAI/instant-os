@@ -22,6 +22,7 @@ import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
 import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
 import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
+import { GithubDesktopApp } from '../apps/github-desktop/github-desktop-app.tsx'
 import { FilesApp } from '../apps/files/files-app.tsx'
 import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
 import { PreviewApp } from '../apps/preview/preview-app.tsx'
@@ -31,7 +32,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, HelpIcon, TerminalIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -219,6 +220,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: false,
   }),
   withAbout({
+    id: 'github-desktop',
+    name: 'GitHub Desktop',
+    icon: GithubDesktopIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
     id: 'help',
     name: '帮助',
     icon: HelpIcon,
@@ -260,6 +268,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'task-manager': TaskManagerApp,
   'event-log': EventLogApp,
   keychain: KeychainApp,
+  'github-desktop': GithubDesktopApp,
   help: HelpApp,
   terminal: TerminalApp,
 }

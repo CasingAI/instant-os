@@ -3,6 +3,7 @@ import {
   assertAdditionalBytesAvailable,
   collectSubtreeIds,
   createFileWithBlob,
+  createFileWithBytes,
   createFolderNode,
   deleteSubtree,
   estimateNodeMetaBytes,
@@ -13,6 +14,7 @@ import {
   readBlobBytes,
   readBlobText,
   renameNodeRecord,
+  writeBlobBytes,
   writeBlobText,
 } from './files-storage.ts'
 import {
@@ -278,6 +280,43 @@ export async function createTextFile(params: {
   return created
 }
 
+export async function createBinaryFile(params: {
+  locationId: FilesLocationId
+  parentId: string | undefined
+  name: string
+  bytes: ArrayBuffer
+  mimeType?: string
+}): Promise<FilesNode> {
+  await assertCanCreateIn(params.locationId, params.parentId)
+  if (isMountLocationId(params.locationId)) {
+    throw new Error('挂载卷暂不支持从此处创建二进制文件')
+  }
+  const desired = normalizeFilesNodeName(params.name.trim() || '未命名.bin')
+  const names = await siblingNames(params.locationId, params.parentId)
+  const name = uniqueName(names, desired)
+
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: params.locationId,
+    parentId: params.parentId,
+    name,
+    kind: 'file',
+    mimeType: params.mimeType ?? 'application/octet-stream',
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attributes: defaultFilesNodeAttributes(params.locationId),
+  }
+  const created = await createFileWithBytes({
+    node,
+    bytes: params.bytes,
+    metaBytes: estimateNodeMetaBytes(node),
+  })
+  emitFilesVfsChanged()
+  return created
+}
+
 /**
  * 解析节点的全局绝对路径（POSIX 风格，以卷根开头）。
  * 例：`/user/笔记/草稿.txt`、`/mount/instant-app/src/main.ts`
@@ -391,11 +430,13 @@ async function readFileBlobByNodeId(id: string): Promise<{ node: FilesNode; blob
     throw new Error('文件不存在')
   }
   const bytes = await readBlobBytes(id)
-  if (!bytes) {
-    throw new Error('此文件没有可预览的二进制内容')
+  if (bytes) {
+    const type = node.mimeType ?? 'application/octet-stream'
+    return { node, blob: new Blob([new Uint8Array(bytes)], { type }) }
   }
-  const type = node.mimeType ?? 'application/octet-stream'
-  return { node, blob: new Blob([new Uint8Array(bytes)], { type }) }
+  const text = await readBlobText(id)
+  const type = node.mimeType ?? 'text/plain'
+  return { node, blob: new Blob([text], { type }) }
 }
 
 export async function writeTextFile(ref: string, text: string): Promise<FilesNode> {
@@ -413,6 +454,26 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
   const written = await writeBlobText({
     id: target.id,
     text,
+    previousByteSize: target.byteSize,
+    nameMetaDelta: 0,
+  })
+  emitFilesVfsChanged()
+  return written
+}
+
+export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<FilesNode> {
+  const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
+  if (target.kind !== 'file') {
+    throw new Error('文件不存在')
+  }
+  assertNodeWritable(target)
+
+  if (isMountNodeId(target.id)) {
+    throw new Error('挂载卷暂不支持从此处写入二进制文件')
+  }
+  const written = await writeBlobBytes({
+    id: target.id,
+    bytes,
     previousByteSize: target.byteSize,
     nameMetaDelta: 0,
   })

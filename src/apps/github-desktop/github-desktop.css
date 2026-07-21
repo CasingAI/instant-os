@@ -1,0 +1,325 @@
+.github-desktop {
+  --gd-bg: #1c1c1e;
+  --gd-panel: #2c2c2e;
+  --gd-panel-2: #3a3a3c;
+  --gd-border: rgba(255, 255, 255, 0.1);
+  --gd-text: #f5f5f7;
+  --gd-muted: rgba(245, 245, 247, 0.55);
+  --gd-accent: #2da44e;
+  --gd-accent-hover: #2c974b;
+  --gd-danger: #cf222e;
+  --gd-blue: #58a6ff;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--gd-bg);
+  color: var(--gd-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.github-desktop__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gd-border);
+  background: var(--gd-panel);
+  flex-shrink: 0;
+}
+
+.github-desktop__toolbar-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-desktop__toolbar-meta {
+  color: var(--gd-muted);
+  font-size: 12px;
+}
+
+.github-desktop button,
+.github-desktop select,
+.github-desktop input,
+.github-desktop textarea {
+  font: inherit;
+}
+
+.github-desktop__btn {
+  appearance: none;
+  border: 1px solid var(--gd-border);
+  background: var(--gd-panel-2);
+  color: var(--gd-text);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.github-desktop__btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.github-desktop__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.github-desktop__btn--primary {
+  background: var(--gd-accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+
+.github-desktop__btn--primary:hover:not(:disabled) {
+  background: var(--gd-accent-hover);
+  filter: none;
+}
+
+.github-desktop__btn--danger {
+  color: #ffb4b4;
+}
+
+.github-desktop__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.github-desktop__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+}
+
+.github-desktop__empty h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.github-desktop__empty p {
+  margin: 0;
+  color: var(--gd-muted);
+  max-width: 360px;
+}
+
+.github-desktop__list {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.github-desktop__list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--gd-border);
+  background: var(--gd-panel);
+  color: inherit;
+  cursor: pointer;
+}
+
+.github-desktop__list-item:hover {
+  border-color: rgba(88, 166, 255, 0.45);
+}
+
+.github-desktop__list-item strong {
+  display: block;
+  font-size: 13px;
+}
+
+.github-desktop__list-item span {
+  color: var(--gd-muted);
+  font-size: 12px;
+}
+
+.github-desktop__list-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.github-desktop__clone {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.github-desktop__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.github-desktop__field label {
+  color: var(--gd-muted);
+  font-size: 12px;
+}
+
+.github-desktop__field input,
+.github-desktop__field select,
+.github-desktop__field textarea {
+  background: #0d1117;
+  border: 1px solid var(--gd-border);
+  border-radius: 6px;
+  color: var(--gd-text);
+  padding: 7px 9px;
+}
+
+.github-desktop__field textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.github-desktop__repo {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) 1fr;
+  min-height: 0;
+}
+
+.github-desktop__changes {
+  border-right: 1px solid var(--gd-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--gd-panel);
+}
+
+.github-desktop__changes-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--gd-border);
+  color: var(--gd-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.github-desktop__changes-list {
+  flex: 1;
+  overflow: auto;
+  padding: 4px;
+}
+
+.github-desktop__change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.github-desktop__change:hover,
+.github-desktop__change.is-selected {
+  background: rgba(88, 166, 255, 0.12);
+}
+
+.github-desktop__change-kind {
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.github-desktop__change-kind--added {
+  color: var(--gd-accent);
+}
+
+.github-desktop__change-kind--modified {
+  color: #d29922;
+}
+
+.github-desktop__change-kind--deleted {
+  color: var(--gd-danger);
+}
+
+.github-desktop__change-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-desktop__diff {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.github-desktop__diff-body {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #c9d1d9;
+  background: #0d1117;
+}
+
+.github-desktop__commit-bar {
+  border-top: 1px solid var(--gd-border);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--gd-panel);
+  flex-shrink: 0;
+}
+
+.github-desktop__commit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.github-desktop__status {
+  padding: 6px 12px;
+  border-top: 1px solid var(--gd-border);
+  color: var(--gd-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+  background: var(--gd-panel);
+}
+
+.github-desktop__status.is-error {
+  color: #ffb4b4;
+}
+
+.github-desktop__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.github-desktop__row select {
+  flex: 1;
+  min-width: 0;
+}

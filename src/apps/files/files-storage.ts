@@ -267,6 +267,32 @@ export async function createFileWithBlob(params: {
   return node
 }
 
+export async function createFileWithBytes(params: {
+  node: FilesNode
+  bytes: ArrayBuffer
+  metaBytes: number
+}): Promise<FilesNode> {
+  const contentBytes = params.bytes.byteLength
+  const needed = params.metaBytes + contentBytes
+  const total = await assertCapacity(needed)
+  const node: FilesNode = { ...params.node, byteSize: contentBytes }
+
+  const db = await openFilesDb()
+  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node))
+  tx.objectStore(FILES_BLOBS_STORE).put({
+    id: node.id,
+    bytes: params.bytes,
+  } satisfies FilesBlobRecord)
+  tx.objectStore(FILES_META_STORE).put({
+    key: 'byte-total',
+    totalBytes: total + needed,
+  } satisfies FilesMetaRecord)
+  await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
+  return node
+}
+
 export async function createFolderNode(params: {
   node: FilesNode
   metaBytes: number
@@ -314,6 +340,48 @@ export async function writeBlobText(params: {
   const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
   writeTx.objectStore(FILES_BLOBS_STORE).put({ id: params.id, text: params.text } satisfies FilesBlobRecord)
+  writeTx.objectStore(FILES_META_STORE).put({
+    key: 'byte-total',
+    totalBytes: Math.max(0, total + needed),
+  } satisfies FilesMetaRecord)
+  await waitForTransaction(writeTx)
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
+export async function writeBlobBytes(params: {
+  id: string
+  bytes: ArrayBuffer
+  previousByteSize: number
+  nameMetaDelta: number
+}): Promise<FilesNode> {
+  const contentBytes = params.bytes.byteLength
+  const needed = contentBytes - params.previousByteSize + params.nameMetaDelta
+  const total = await assertCapacity(needed)
+
+  const db = await openFilesDb()
+  const readTx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const existing = await requestToPromise(
+    readTx.objectStore(FILES_NODES_STORE).get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  await waitForTransaction(readTx)
+  if (!existing) {
+    throw new Error('文件不存在')
+  }
+
+  const updated: FilesNodeRecord = {
+    ...existing,
+    byteSize: contentBytes,
+    updatedAt: osNowMs(),
+    attributes: existing.attributes ?? defaultFilesNodeAttributes(existing.locationId),
+  }
+
+  const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  writeTx.objectStore(FILES_NODES_STORE).put(updated)
+  writeTx.objectStore(FILES_BLOBS_STORE).put({
+    id: params.id,
+    bytes: params.bytes,
+  } satisfies FilesBlobRecord)
   writeTx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: Math.max(0, total + needed),

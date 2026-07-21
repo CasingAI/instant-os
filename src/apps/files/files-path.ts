@@ -8,6 +8,7 @@ import {
 /** 内置卷在全局路径中的根前缀 */
 export const FILES_PATH_ROOT = {
   local: '/user',
+  repo: '/repo',
   models3d: '/models',
   source: '/system',
 } as const
@@ -21,6 +22,7 @@ export type ParsedFilesAbsolutePath = {
 /**
  * 位置 → 全局路径根。
  * - 用户文件 `/user`
+ * - 代码仓库 `/repo`
  * - 3D 模型 `/models`
  * - 系统文件 `/system`
  * - 外部挂载 `/mount/{文件夹名}`
@@ -87,7 +89,7 @@ export function parseFilesAbsolutePath(absolutePath: string): ParsedFilesAbsolut
   const normalized = absolutePath.replace(/\/+$/, '') || '/'
 
   for (const [id, root] of Object.entries(FILES_PATH_ROOT) as [
-    'local' | 'models3d' | 'source',
+    keyof typeof FILES_PATH_ROOT,
     string,
   ][]) {
     if (normalized === root) {
@@ -130,6 +132,7 @@ export function filesLocationDisplayName(locationId: FilesLocationId): string {
     return getCachedMount(locationId)?.label ?? locationId
   }
   if (locationId === 'local') return '用户文件'
+  if (locationId === 'repo') return '代码仓库'
   if (locationId === 'models3d') return '3D 模型'
   return '系统'
 }

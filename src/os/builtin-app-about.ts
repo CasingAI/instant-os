@@ -69,8 +69,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   files: {
     version: '拟物文件柜',
     paragraphs: [
-      '文件应用仿早期 iOS 拟物风格，通过侧边栏切换虚拟位置：用户文件、内置 3D 模型与系统文件。',
-      '用户文件位置支持新建文件夹与文本文件、重命名与删除；3D 模型与系统文件为只读浏览。也可在侧栏直接挂载本机文件夹，改动会同步到真实磁盘。打开文件由系统「文件打开关联」决定交给哪个应用处理，文件应用本身不内置编辑器。用户文件数据计入数据空间（IndexedDB），可在系统设置中查看与管理。',
+      '文件应用仿早期 iOS 拟物风格，通过侧边栏切换虚拟位置：用户文件、代码仓库、内置 3D 模型与系统文件。',
+      '用户文件与代码仓库位置支持新建文件夹与文件、重命名与删除；3D 模型与系统文件为只读浏览。也可在侧栏直接挂载本机文件夹，改动会同步到真实磁盘。打开文件由系统「文件打开关联」决定交给哪个应用处理，文件应用本身不内置编辑器。用户文件与代码仓库数据计入数据空间（IndexedDB），可在系统设置中查看与管理。',
     ],
   },
   textedit: {
@@ -212,6 +212,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       '钥匙串用于管理本机保存的 API 凭证。一级列表可进入 GitHub 或 AI 模型供应商；在 GitHub 页点击 Token 行会弹出对话框填写 Personal Access Token。',
       '所有配置仅保存在本机，不会上传到服务器。',
+    ],
+  },
+  'github-desktop': {
+    version: 'GitHub API 同步客户端',
+    paragraphs: [
+      'GitHub Desktop 基于 GitHub REST API 与 Personal Access Token，在本地维护当前分支的工作树副本（保存在 /repo/github/…），支持克隆、切换分支、提交并推送、拉取。',
+      '不是真实 Git 协议客户端：本地不保存 .git 对象库；日常编辑与 AI Agent 读写走本地文件，仅在同步时访问 GitHub API。',
     ],
   },
   help: {

@@ -93,6 +93,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   'task-manager': { title: '性能监视器', width: 760, height: 560 },
   'event-log': { title: '事件日志', width: 900, height: 620 },
   keychain: { title: '钥匙串', width: 680, height: 560 },
+  'github-desktop': { title: 'GitHub Desktop', width: 980, height: 680 },
   help: { title: '帮助', width: 820, height: 640 },
   terminal: { title: '终端', width: 760, height: 520 },
 }
