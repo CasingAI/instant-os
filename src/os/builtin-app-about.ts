@@ -208,10 +208,10 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   keychain: {
-    version: 'AI 供应商账户管理',
+    version: '凭证与 API Key',
     paragraphs: [
-      '钥匙串用于管理多个 AI 模型供应商的 API Key 与模型配置。支持按文本、图像识别、语音识别、语音合成分别选择首选模型。',
-      '每个供应商可独立配置 API Key、Base URL、启用的模型列表以及默认模型。配置保存在本机，不会上传到服务器。',
+      '钥匙串用于管理本机保存的 API 凭证。一级列表可进入 GitHub 或 AI 模型供应商；在 GitHub 页点击 Token 行会弹出对话框填写 Personal Access Token。',
+      '所有配置仅保存在本机，不会上传到服务器。',
     ],
   },
   help: {

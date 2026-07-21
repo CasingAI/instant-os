@@ -19,6 +19,7 @@ export const DEVICE_STORAGE_KEYS = {
   newsTokenUsage: 'instant-os-news-token-usage',
   windowSizes: 'instant-os:window-sizes',
   accountSettings: 'instant-os-account-settings',
+  githubCredentials: 'instant-os-github-credentials',
   displaySettings: 'instant-os-display-settings',
   dateTimeSettings: 'instant-os-date-time-settings',
   dockSettings: 'instant-os-dock-settings',

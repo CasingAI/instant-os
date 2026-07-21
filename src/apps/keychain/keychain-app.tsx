@@ -42,12 +42,21 @@ import {
 } from '../../ai/ai-providers.ts'
 import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
+import {
+  hasGithubCredentials,
+  loadGithubCredentials,
+  subscribeGithubCredentials,
+} from '../../os/github-credentials-storage.ts'
+import { ForwardIcon } from '../../icons/app-icons.tsx'
+import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
+import { GithubCredentialsDialog } from './github-credentials-dialog.tsx'
 import '../../ui/ios-nav-back.css'
 import '../../ui/ios-check-toggle.css'
 import '../../ui/ai-model-capability-tags.css'
+import '../settings/settings.css'
 import './keychain.css'
 
-type Screen = 'main' | 'provider-settings'
+type Screen = 'root' | 'github' | 'ai-providers' | 'provider-settings'
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
   id: item.id,
@@ -238,7 +247,14 @@ export function KeychainApp() {
     },
   )
 
-  const [screen, setScreen] = useState<Screen>('main')
+  const [screen, setScreen] = useState<Screen>('root')
+  const [githubDialogOpen, setGithubDialogOpen] = useState(false)
+  const [githubConfigured, setGithubConfigured] = useState(() =>
+    hasGithubCredentials(),
+  )
+  const [githubTokenLength, setGithubTokenLength] = useState(
+    () => loadGithubCredentials().token.length,
+  )
   const [activeCapability, setActiveCapability] =
     useState<AiModelCapability>('text')
   const [isAddingProvider, setIsAddingProvider] = useState(false)
@@ -297,6 +313,16 @@ export function KeychainApp() {
     setAppWindowTitle('keychain', '钥匙串')
   }, [setAppWindowTitle])
 
+  const refreshGithubStatus = useCallback(() => {
+    const token = loadGithubCredentials().token
+    setGithubConfigured(token.length > 0)
+    setGithubTokenLength(token.length)
+  }, [])
+
+  useEffect(() => {
+    return subscribeGithubCredentials(refreshGithubStatus)
+  }, [refreshGithubStatus])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find(
       (w) => w.appId === 'keychain' && !w.minimized,
@@ -348,6 +374,31 @@ export function KeychainApp() {
       preferredByCapability: clonePreferred(settings.preferredByCapability),
     })
   }, [workingProviders, preferredByCapability, syncPreferences])
+
+  const handleCancelChanges = useCallback(() => {
+    if (!savedSnapshot) {
+      setWorkingProviders([])
+      setPreferredByCapability({})
+      setCapabilityOrder({})
+      return
+    }
+
+    const providers = cloneProviders(savedSnapshot.providers)
+    const preferred = clonePreferred(savedSnapshot.preferredByCapability)
+    setWorkingProviders(providers)
+    setPreferredByCapability(preferred)
+
+    const nextOrder: CapabilityOrderMap = {}
+    for (const cap of AI_MODEL_CAPABILITIES) {
+      const models = orderModelsForCapability(
+        listEnabledModelsForCapability(providers, cap),
+        undefined,
+        preferred[cap],
+      )
+      if (models.length > 0) nextOrder[cap] = refsFromModels(models)
+    }
+    setCapabilityOrder(nextOrder)
+  }, [savedSnapshot])
 
   const handleAddProvider = useCallback(() => {
     const entry = defaultProviderEntry()
@@ -430,7 +481,7 @@ export function KeychainApp() {
       refreshCapabilityOrders(next.providers, next.preferredByCapability)
       if (next.providers.length === 0) {
         setSavedSnapshot(undefined)
-        setScreen('main')
+        setScreen('ai-providers')
         setIsAddingProvider(false)
         setEditingEntry(undefined)
       } else {
@@ -464,7 +515,7 @@ export function KeychainApp() {
       return synced.providers
     })
 
-    setScreen('main')
+    setScreen('ai-providers')
     setIsAddingProvider(false)
     setEditingEntry(undefined)
   }, [
@@ -482,7 +533,7 @@ export function KeychainApp() {
       )
     }
 
-    setScreen('main')
+    setScreen('ai-providers')
     setIsAddingProvider(false)
     setEditingEntry(undefined)
   }, [isAddingProvider, editingProviderIndex])
@@ -519,7 +570,7 @@ export function KeychainApp() {
       setPreferredByCapability({})
       setSavedSnapshot(undefined)
       refreshCapabilityOrders([], {})
-      setScreen('main')
+      setScreen('ai-providers')
       setIsAddingProvider(false)
       setEditingEntry(undefined)
       return
@@ -529,7 +580,7 @@ export function KeychainApp() {
     setWorkingProviders(synced.providers)
     setPreferredByCapability(synced.preferredByCapability)
     refreshCapabilityOrders(synced.providers, synced.preferredByCapability)
-    setScreen('main')
+    setScreen('ai-providers')
     setIsAddingProvider(false)
     setEditingEntry(undefined)
   }, [
@@ -548,22 +599,19 @@ export function KeychainApp() {
       ) || '供应商'
 
     return (
-      <div class="keychain">
-        <header class="keychain__toolbar">
+      <div class="settings">
+        <div class="settings__nav keychain__nav">
           <IosNavBackButton
-            label="钥匙串"
+            label="AI 模型供应商"
             disabled={!isAddingProvider && !entryValid}
             onClick={
               isAddingProvider ? handleProviderCancel : handleProviderDone
             }
           />
-          <span class="keychain__toolbar-title keychain__toolbar-title--center">
-            {settingsTitle}
-          </span>
           {isAddingProvider ? (
             <button
               type="button"
-              class="keychain__save-btn"
+              class="settings__btn settings__btn--default"
               disabled={!entryValid}
               onClick={handleProviderDone}
             >
@@ -572,97 +620,184 @@ export function KeychainApp() {
           ) : (
             <button
               type="button"
-              class="keychain__toolbar-btn keychain__toolbar-btn--danger keychain__toolbar-btn--action"
+              class="settings__btn settings__btn--danger"
               onClick={handleProviderDelete}
             >
               删除
             </button>
           )}
-        </header>
-        <div class="keychain__settings">
-          <div class="keychain__settings-body">
+        </div>
+        <div class="settings__content settings__content--compact">
+          <section class="settings__section">
+            <h2 class="settings__section-title">{settingsTitle}</h2>
             {editingEntry && (
               <ProviderSettingsForm
                 entry={editingEntry}
                 onChange={setEditingEntry}
               />
             )}
-          </div>
+          </section>
         </div>
       </div>
     )
   }
 
-  return (
-    <div class="keychain">
-      <header class="keychain__toolbar">
-        {dirty ? (
-          <button
-            type="button"
-            class="keychain__save-btn"
-            onClick={handleSave}
-          >
-            保存
-          </button>
-        ) : (
-          <span class="keychain__toolbar-spacer" />
-        )}
-        <span class="keychain__toolbar-title keychain__toolbar-title--center">
-          钥匙串
-        </span>
-        <button
-          type="button"
-          class="keychain__toolbar-btn keychain__toolbar-btn--action"
-          onClick={handleAddProvider}
-        >
-          添加
-        </button>
-      </header>
+  if (screen === 'root') {
+    const providerCount = workingProviders.length
+    const aiStatus =
+      providerCount === 0
+        ? '未配置'
+        : `${providerCount} 个供应商`
 
-      {!hasAnyModel ? (
-        <div class="keychain__content keychain__content--empty">
-          <span class="keychain__empty-title">尚未添加供应商</span>
-          <span class="keychain__empty-hint">
-            点击右上角「添加」来添加 AI 模型供应商
-          </span>
-        </div>
-      ) : (
-        <>
-          <div class="keychain__tabs" role="tablist" aria-label="模型能力">
-            {AI_MODEL_CAPABILITIES.map((capability) => (
-              <button
-                key={capability}
-                type="button"
-                role="tab"
-                aria-selected={activeCapability === capability}
-                class={`keychain__tab${
-                  activeCapability === capability ? ' keychain__tab--active' : ''
-                }`}
-                onClick={() => setActiveCapability(capability)}
-              >
-                {AI_MODEL_CAPABILITY_LABELS[capability]}
-              </button>
-            ))}
-          </div>
-          <div class="keychain__content">
-            <CapabilitySection
-              capability={activeCapability}
-              providers={workingProviders}
-              preferred={preferredByCapability[activeCapability]}
-              order={capabilityOrder[activeCapability]}
-              onReorder={(ordered) =>
-                handleReorderCapability(activeCapability, ordered)
-              }
-              onOpenProvider={handleOpenProviderSettings}
-            />
-            <div class="keychain__hint">
-              拖拽排序，首位模型将作为当前类别的首选
+    return (
+      <div class="settings">
+        <div class="settings__content settings__content--compact">
+          <section class="settings__section">
+            <h2 class="settings__section-title">凭证</h2>
+            <div class="settings__list">
+              <SettingsNavRow
+                label="GitHub"
+                value={githubConfigured ? '已配置' : '未配置'}
+                secretLength={
+                  githubTokenLength > 0 ? githubTokenLength : undefined
+                }
+                onClick={() => setScreen('github')}
+              />
+              <SettingsNavRow
+                label="AI 模型供应商"
+                value={aiStatus}
+                onClick={() => setScreen('ai-providers')}
+              />
             </div>
-          </div>
-        </>
-      )}
-    </div>
-  )
+            <p class="settings__section-footnote">
+              管理本机保存的 API 凭证。配置仅保存在本机，不会上传到服务器。
+            </p>
+          </section>
+        </div>
+      </div>
+    )
+  }
+
+  if (screen === 'github') {
+    return (
+      <div class="settings">
+        <div class="settings__nav">
+          <IosNavBackButton
+            label="钥匙串"
+            onClick={() => {
+              setGithubDialogOpen(false)
+              setScreen('root')
+            }}
+          />
+        </div>
+        <div class="settings__content settings__content--compact">
+          <section class="settings__section">
+            <h2 class="settings__section-title">GitHub</h2>
+            <div class="settings__list">
+              <SettingsNavRow
+                label="Personal Access Token"
+                value={githubConfigured ? '已配置' : '未配置'}
+                secretLength={
+                  githubTokenLength > 0 ? githubTokenLength : undefined
+                }
+                onClick={() => setGithubDialogOpen(true)}
+              />
+            </div>
+            <p class="settings__section-footnote">
+              用于访问 GitHub API。可在 GitHub 设置中创建，仅保存在本机。
+            </p>
+          </section>
+        </div>
+
+        <GithubCredentialsDialog
+          open={githubDialogOpen}
+          onClose={() => setGithubDialogOpen(false)}
+          onChanged={refreshGithubStatus}
+        />
+      </div>
+    )
+  }
+
+  if (screen === 'ai-providers') {
+    return (
+      <div class="settings">
+        <div class="settings__nav keychain__nav">
+          {dirty ? (
+            <button
+              type="button"
+              class="settings__btn settings__btn--plain"
+              onClick={handleCancelChanges}
+            >
+              取消
+            </button>
+          ) : (
+            <IosNavBackButton label="钥匙串" onClick={() => setScreen('root')} />
+          )}
+          {dirty ? (
+            <button
+              type="button"
+              class="settings__btn settings__btn--default"
+              onClick={handleSave}
+            >
+              保存
+            </button>
+          ) : (
+            <button
+              type="button"
+              class="settings__btn settings__btn--plain"
+              onClick={handleAddProvider}
+            >
+              添加
+            </button>
+          )}
+        </div>
+        <div class="settings__content settings__content--compact">
+          <section class="settings__section">
+            <h2 class="settings__section-title">AI 模型供应商</h2>
+            {!hasAnyModel ? (
+              <div class="settings__box settings__empty">
+                尚未添加供应商。点击右上角「添加」来配置 AI 模型。
+              </div>
+            ) : (
+              <>
+                <div class="keychain__tabs" role="tablist" aria-label="模型能力">
+                  {AI_MODEL_CAPABILITIES.map((capability) => (
+                    <button
+                      key={capability}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeCapability === capability}
+                      class={`keychain__tab${
+                        activeCapability === capability
+                          ? ' keychain__tab--active'
+                          : ''
+                      }`}
+                      onClick={() => setActiveCapability(capability)}
+                    >
+                      {AI_MODEL_CAPABILITY_LABELS[capability]}
+                    </button>
+                  ))}
+                </div>
+                <CapabilitySection
+                  capability={activeCapability}
+                  providers={workingProviders}
+                  preferred={preferredByCapability[activeCapability]}
+                  order={capabilityOrder[activeCapability]}
+                  onReorder={(ordered) =>
+                    handleReorderCapability(activeCapability, ordered)
+                  }
+                  onOpenProvider={handleOpenProviderSettings}
+                />
+                <p class="settings__section-footnote">
+                  拖拽排序，首位模型将作为当前类别的首选。
+                </p>
+              </>
+            )}
+          </section>
+        </div>
+      </div>
+    )
+  }
 }
 
 function CapabilitySection({
@@ -806,7 +941,9 @@ function CapabilitySection({
 
   if (models.length === 0) {
     return (
-      <div class="keychain__section-empty">暂无支持该能力的已启用模型</div>
+      <div class="settings__box settings__empty keychain__section-empty">
+        暂无支持该能力的已启用模型
+      </div>
     )
   }
 
@@ -853,7 +990,9 @@ function CapabilitySection({
 
           {index === 0 && <span class="keychain__badge">首选</span>}
 
-          <span class="keychain__chevron">{'\u203A'}</span>
+          <span class="settings__disclosure" aria-hidden="true">
+            <ForwardIcon size={13} />
+          </span>
         </div>
       ))}
     </div>
@@ -1009,7 +1148,7 @@ function ProviderSettingsForm({
                   <div class="ai-model-card__actions">
                     <button
                       type="button"
-                      class="keychain__inline-btn keychain__inline-btn--remove"
+                      class="settings__btn settings__btn--small settings__btn--danger"
                       onClick={() => handleRemoveCustomModel(row.modelId)}
                     >
                       移除
@@ -1024,7 +1163,7 @@ function ProviderSettingsForm({
         <div class="ai-model-card ai-model-card--add">
           <div class="ai-model-card__header">
             <input
-              class="keychain__model-add-input ai-model-card__title-input"
+              class="settings__input ai-model-card__title-input"
               type="text"
               value={customModelInput}
               placeholder={isCustom ? '添加模型...' : '添加自定义模型...'}
@@ -1037,7 +1176,7 @@ function ProviderSettingsForm({
             <div class="ai-model-card__actions">
               <button
                 type="button"
-                class="keychain__model-add-btn"
+                class="settings__btn settings__btn--small settings__btn--default"
                 disabled={!customModelInput.trim()}
                 onClick={handleAddCustomModel}
               >
@@ -1056,7 +1195,7 @@ function ProviderSettingsForm({
   }
 
   return (
-    <>
+    <div class="settings__form">
       <SettingsChoiceField
         label="供应商"
         value={entry.providerId}
@@ -1065,14 +1204,12 @@ function ProviderSettingsForm({
         onChange={(value) => handleProviderChange(value)}
         wideLayout
         presentation="form"
-        fieldClass="keychain__field-group keychain__field-group--choice"
-        labelClass="keychain__field-label"
       />
 
-      <div class="keychain__field-group">
-        <label class="keychain__field-label">名称（可选）</label>
+      <label class="settings__field">
+        <span class="settings__field-label">名称（可选）</span>
         <input
-          class="keychain__field-input"
+          class="settings__input"
           type="text"
           value={entry.name ?? ''}
           placeholder="为供应商取个名字"
@@ -1084,13 +1221,13 @@ function ProviderSettingsForm({
             })
           }
         />
-      </div>
+      </label>
 
       {isCustom && (
-        <div class="keychain__field-group">
-          <label class="keychain__field-label">Base URL</label>
+        <label class="settings__field">
+          <span class="settings__field-label">Base URL</span>
           <input
-            class="keychain__field-input"
+            class="settings__input"
             type="url"
             value={entry.baseURL ?? ''}
             placeholder="https://api.example.com/v1"
@@ -1103,13 +1240,13 @@ function ProviderSettingsForm({
               })
             }
           />
-        </div>
+        </label>
       )}
 
-      <div class="keychain__field-group">
-        <label class="keychain__field-label">API Key</label>
+      <label class="settings__field">
+        <span class="settings__field-label">API Key</span>
         <input
-          class="keychain__field-input"
+          class="settings__input"
           type="password"
           value={entry.apiKey}
           placeholder="sk-..."
@@ -1121,25 +1258,27 @@ function ProviderSettingsForm({
             })
           }
         />
-      </div>
+      </label>
 
-      <div class="keychain__field-group">
-        <label class="keychain__field-label">启用的模型</label>
+      <div class="settings__field settings__field--stacked">
+        <span class="settings__field-label">启用的模型</span>
         {renderModelCards()}
       </div>
 
       {showThinking && (
-        <div class="keychain__switch-row">
-          <span class="keychain__switch-label">思考模式</span>
-          <IosSwitch
-            checked={entry.thinkingEnabled}
-            onChange={(thinkingEnabled) =>
-              onChange({ ...entry, thinkingEnabled })
-            }
-            label="思考模式"
-          />
+        <div class="settings__list">
+          <div class="settings__row settings__row--switch">
+            <span class="settings__row-name">思考模式</span>
+            <IosSwitch
+              checked={entry.thinkingEnabled}
+              onChange={(thinkingEnabled) =>
+                onChange({ ...entry, thinkingEnabled })
+              }
+              label="思考模式"
+            />
+          </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
