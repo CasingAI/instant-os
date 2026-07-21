@@ -11,6 +11,7 @@ import {
 import { MountDisconnectedBannerHost } from './mount-disconnected-banner.tsx'
 import { ProcessIsolationFallbackBannerHost } from './process-isolation-fallback-banner.tsx'
 import { StorageWarningBannerHost } from './storage-warning-banner.tsx'
+import { GithubDesktopMissingEmailBannerHost } from '../apps/github-desktop/github-desktop-missing-email-banner.tsx'
 
 type NotificationPanelScreen = 'list' | 'detail'
 
@@ -102,6 +103,7 @@ function NotificationCenterHost({ hostRef }: NotificationCenterHostProps) {
       <StorageWarningBannerHost />
       <ProcessIsolationFallbackBannerHost />
       <MountDisconnectedBannerHost />
+      <GithubDesktopMissingEmailBannerHost />
       <NotificationCenterPanel open={isOpen} onClose={closePanel} />
     </>
   )

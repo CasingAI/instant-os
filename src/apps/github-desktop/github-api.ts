@@ -24,6 +24,8 @@ export class GithubApiError extends Error {
 export type GithubUser = {
   login: string
   name: string | undefined
+  /** 账户主邮箱（来自 /user/emails）；无权限或未配置时为 undefined */
+  email: string | undefined
   avatarUrl: string | undefined
 }
 
@@ -124,12 +126,52 @@ export async function githubGetAuthenticatedUser(): Promise<GithubUser> {
   const data = await githubJson<{
     login: string
     name?: string | null
+    email?: string | null
     avatar_url?: string
   }>('/user')
+  const emailFromProfile =
+    typeof data.email === 'string' && data.email.trim() ? data.email.trim() : undefined
+  // /user.email 仅在公开可见时有值；完整列表需 user:email（classic）或 Email addresses 读权限
+  const email = emailFromProfile ?? (await githubTryGetPrimaryEmail())
   return {
     login: data.login,
     name: data.name ?? undefined,
+    email,
     avatarUrl: data.avatar_url,
+  }
+}
+
+type GithubEmailEntry = {
+  email: string
+  primary: boolean
+  verified: boolean
+  visibility?: string | null
+}
+
+/** 选出更适合作为 commit author 的邮箱：主+已验证 > 主 > 已验证 > 第一条 */
+export function pickGithubPrimaryEmail(emails: readonly GithubEmailEntry[]): string | undefined {
+  const cleaned = emails
+    .map((entry) => ({
+      ...entry,
+      email: entry.email.trim(),
+    }))
+    .filter((entry) => entry.email.length > 0)
+  if (cleaned.length === 0) return undefined
+  return (
+    cleaned.find((entry) => entry.primary && entry.verified)?.email ??
+    cleaned.find((entry) => entry.primary)?.email ??
+    cleaned.find((entry) => entry.verified)?.email ??
+    cleaned[0]?.email
+  )
+}
+
+/** 无权限或失败时返回 undefined，不抛错（Token 常没有 user:email） */
+export async function githubTryGetPrimaryEmail(): Promise<string | undefined> {
+  try {
+    const data = await githubJson<GithubEmailEntry[]>('/user/emails')
+    return pickGithubPrimaryEmail(data)
+  } catch {
+    return undefined
   }
 }
 

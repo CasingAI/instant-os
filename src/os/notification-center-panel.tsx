@@ -42,6 +42,13 @@ import { dismissProcessIsolationFallbackNotification } from './process-isolation
 import { dismissStorageWarningNotification } from './storage-warning-notification-store.ts'
 import { dismissMountDisconnectedNotification } from './mount-disconnected-notification-store.ts'
 import { NOTIFICATION_CENTER_SCREEN_FADE_MS } from './notification-center-store.ts'
+import { useGithubDesktopMissingEmailNotification } from '../apps/github-desktop/use-github-desktop-missing-email-notification.ts'
+import {
+  GithubDesktopMissingEmailDetail,
+  GithubDesktopMissingEmailListItem,
+} from '../apps/github-desktop/github-desktop-missing-email-notification-center.tsx'
+import { GITHUB_DESKTOP_MISSING_EMAIL_SLUG } from '../apps/github-desktop/github-desktop-missing-email.ts'
+import { dismissGithubDesktopMissingEmailNotification } from '../apps/github-desktop/github-desktop-missing-email-notification-store.ts'
 
 function phaseLabel(phase: PendingInstall['phase'], isUpdate?: boolean): string {
   if (phase === 'waiting') {
@@ -534,6 +541,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
   const storageWarning = useStorageWarningNotification()
   const mountDisconnected = useMountDisconnectedNotification()
+  const githubDesktopMissingEmail = useGithubDesktopMissingEmailNotification()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -561,7 +569,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     appNotifications.length +
     (processIsolationFallbackActive ? 1 : 0) +
     (storageWarning ? 1 : 0) +
-    (mountDisconnected ? 1 : 0)
+    (mountDisconnected ? 1 : 0) +
+    (githubDesktopMissingEmail ? 1 : 0)
 
   const clearDismissibleNotifications = () => {
     clearDismissibleInstallNotifications()
@@ -569,6 +578,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     dismissProcessIsolationFallbackNotification()
     dismissStorageWarningNotification()
     dismissMountDisconnectedNotification()
+    dismissGithubDesktopMissingEmailNotification()
   }
 
   const [armedClearId, setArmedClearId] = useState<string | undefined>(undefined)
@@ -626,6 +636,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     activeDetailSlug === STORAGE_WARNING_SLUG ? storageWarning : undefined
   const selectedMountDisconnected =
     activeDetailSlug === MOUNT_DISCONNECTED_SLUG ? mountDisconnected : undefined
+  const selectedGithubDesktopMissingEmail =
+    activeDetailSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail
 
   useEffect(() => {
     if (selectedSlug) {
@@ -686,7 +698,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
       selectedAppNotification !== undefined ||
       selectedProcessIsolationFallback ||
       selectedStorageWarning !== undefined ||
-      selectedMountDisconnected !== undefined)
+      selectedMountDisconnected !== undefined ||
+      selectedGithubDesktopMissingEmail)
 
   const selectedHasNotification =
     selectedSlug !== undefined &&
@@ -696,7 +709,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
       appNotifications.some((item) => item.appSlug === selectedSlug) ||
       (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive) ||
       (selectedSlug === STORAGE_WARNING_SLUG && storageWarning !== undefined) ||
-      (selectedSlug === MOUNT_DISCONNECTED_SLUG && mountDisconnected !== undefined))
+      (selectedSlug === MOUNT_DISCONNECTED_SLUG && mountDisconnected !== undefined) ||
+      (selectedSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail))
 
   useEffect(() => {
     if (!open) {
@@ -822,6 +836,12 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                 onBack={closeDetail}
                 onDismiss={closeDetail}
               />
+            ) : showDetail && selectedGithubDesktopMissingEmail ? (
+              <GithubDesktopMissingEmailDetail
+                onBack={closeDetail}
+                onDismiss={closeDetail}
+                onClose={onClose}
+              />
             ) : (
               <>
                 <DateTimeWidget onOpen={handleOpenCalendarApp} />
@@ -865,7 +885,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                   appNotifications.length === 0 &&
                   !processIsolationFallbackActive &&
                   !storageWarning &&
-                  !mountDisconnected ? (
+                  !mountDisconnected &&
+                  !githubDesktopMissingEmail ? (
                     <p class="notification-center__empty">暂无通知</p>
                   ) : (
                     <div class="notification-center__list">
@@ -947,6 +968,20 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                             armedClearId={armedClearId}
                             setArmedClearId={setArmedClearId}
                             onConfirm={dismissMountDisconnectedNotification}
+                            confirmLabel="清除"
+                          />
+                        </div>
+                      ) : undefined}
+                      {githubDesktopMissingEmail ? (
+                        <div class="notification-center__item-wrap">
+                          <GithubDesktopMissingEmailListItem
+                            onSelect={() => openDetail(GITHUB_DESKTOP_MISSING_EMAIL_SLUG)}
+                          />
+                          <IosStyleClearButton
+                            clearId="github-desktop-missing-email"
+                            armedClearId={armedClearId}
+                            setArmedClearId={setArmedClearId}
+                            onConfirm={dismissGithubDesktopMissingEmailNotification}
                             confirmLabel="清除"
                           />
                         </div>

@@ -3,7 +3,6 @@ import { GithubDesktopIcon } from '../../icons/app-icons.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
-  clearGithubCredentials,
   hasGithubCredentials,
   subscribeGithubCredentials,
 } from '../../os/github-credentials-storage.ts'
@@ -18,6 +17,9 @@ import {
 import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
+import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
+import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
+import '../settings/settings.css'
 import { filesWatch } from '../files/files-api.ts'
 import {
   GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE,
@@ -53,12 +55,23 @@ import {
 import { commitAndPushGithubChanges, summarizeChanges } from './github-commit.ts'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
 import {
+  buildGithubCommitMessage,
+  defaultGithubCommitIdentity,
   externalEditorLabel,
   loadGithubDesktopPrefs,
+  resolveCommitCoAuthors,
   updateGithubDesktopPrefs,
   type GithubDesktopPrefs,
   type GithubExternalEditor,
 } from './github-desktop-prefs.ts'
+import {
+  OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT,
+  shouldWarnGithubDesktopMissingEmail,
+  showGithubDesktopMissingEmailNotification,
+} from './github-desktop-missing-email.ts'
+import {
+  dismissGithubDesktopMissingEmailNotification,
+} from './github-desktop-missing-email-notification-store.ts'
 import { fetchGithubRemote } from './github-fetch.ts'
 import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
@@ -104,13 +117,6 @@ function changeKindMark(kind: GithubChange['kind']): string {
   if (kind === 'added') return 'A'
   if (kind === 'deleted') return 'D'
   return 'M'
-}
-
-function buildCommitMessage(summary: string, description: string): string {
-  const head = summary.trim()
-  const body = description.trim()
-  if (!body) return head
-  return `${head}\n\n${body}`
 }
 
 function commitSummaryLine(message: string): string {
@@ -377,14 +383,21 @@ export function GithubDesktopApp() {
       const avatarUrl = await ensureGithubAvatarCached(next.avatarUrl)
       setAvatarDisplayUrl(avatarUrl)
       const prefs = loadGithubDesktopPrefs()
-      if (!prefs.gitUserName || !prefs.gitUserEmail) {
-        setDesktopPrefs(
-          updateGithubDesktopPrefs({
-            gitUserName: prefs.gitUserName || next.name?.trim() || next.login,
-            gitUserEmail:
-              prefs.gitUserEmail || `${next.login}@users.noreply.github.com`,
-          }),
-        )
+      const defaults = defaultGithubCommitIdentity(next)
+      if (defaults) {
+        const noreply = `${next.login}@users.noreply.github.com`
+        const shouldFillName = !prefs.gitUserName.trim()
+        const shouldFillEmail =
+          !prefs.gitUserEmail.trim() ||
+          (Boolean(next.email?.trim()) && prefs.gitUserEmail.trim() === noreply)
+        if (shouldFillName || shouldFillEmail) {
+          setDesktopPrefs(
+            updateGithubDesktopPrefs({
+              gitUserName: shouldFillName ? defaults.gitUserName : prefs.gitUserName,
+              gitUserEmail: shouldFillEmail ? defaults.gitUserEmail : prefs.gitUserEmail,
+            }),
+          )
+        }
       }
     } catch (err) {
       setAccountError(err instanceof Error ? err.message : String(err))
@@ -393,20 +406,18 @@ export function GithubDesktopApp() {
     }
   }, [hasToken])
 
-  const openPreferences = useCallback(() => {
+  const openPreferences = useCallback((tab: 'accounts' | 'integrations' | 'git' = 'accounts') => {
     setPrefsOpen(true)
-    setPrefsTab('accounts')
+    setPrefsTab(tab)
     setAccountError(undefined)
     const prefs = loadGithubDesktopPrefs()
     // 首次打开 Git：用账户缓存预填空姓名/邮箱
-    const cached = loadGithubCachedAccount()
+    const defaults = defaultGithubCommitIdentity()
     let next = prefs
-    if (cached && (!prefs.gitUserName || !prefs.gitUserEmail)) {
+    if (defaults && (!prefs.gitUserName || !prefs.gitUserEmail)) {
       next = updateGithubDesktopPrefs({
-        gitUserName: prefs.gitUserName || cached.name?.trim() || cached.login,
-        gitUserEmail:
-          prefs.gitUserEmail ||
-          (cached.login ? `${cached.login}@users.noreply.github.com` : ''),
+        gitUserName: prefs.gitUserName || defaults.gitUserName,
+        gitUserEmail: prefs.gitUserEmail || defaults.gitUserEmail,
       })
     }
     setDesktopPrefs(next)
@@ -419,6 +430,30 @@ export function GithubDesktopApp() {
     setPrefsOpen(false)
     setAccountError(undefined)
   }, [])
+
+  // 每次打开应用（挂载 / Token 就绪）时若仍缺真实邮箱，弹出通知横幅
+  useEffect(() => {
+    if (shouldWarnGithubDesktopMissingEmail()) {
+      showGithubDesktopMissingEmailNotification()
+    } else {
+      dismissGithubDesktopMissingEmailNotification()
+    }
+  }, [hasToken])
+
+  // 用户改邮箱或刷新到真实邮箱后，条件解除则清掉通知（不在此处重新激活，以免覆盖「忽略」）
+  useEffect(() => {
+    if (!shouldWarnGithubDesktopMissingEmail()) {
+      dismissGithubDesktopMissingEmailNotification()
+    }
+  }, [desktopPrefs.gitUserEmail, user?.email])
+
+  useEffect(() => {
+    const handleOpenGitPrefs = () => {
+      openPreferences('git')
+    }
+    window.addEventListener(OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT, handleOpenGitPrefs)
+    return () => window.removeEventListener(OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT, handleOpenGitPrefs)
+  }, [openPreferences])
 
   const patchDesktopPrefs = useCallback((patch: Partial<Omit<GithubDesktopPrefs, 'version'>>) => {
     setDesktopPrefs(updateGithubDesktopPrefs(patch))
@@ -895,7 +930,11 @@ export function GithubDesktopApp() {
 
   const handleCommit = useCallback(() => {
     if (view.kind !== 'repo') return
-    const message = buildCommitMessage(commitSummary, commitDescription)
+    const message = buildGithubCommitMessage(
+      commitSummary,
+      commitDescription,
+      resolveCommitCoAuthors(desktopPrefs),
+    )
     if (!message.trim()) return
     void runBusy('commit', '提交并推送…', '提交失败', async () => {
       const next = await commitAndPushGithubChanges({
@@ -907,7 +946,7 @@ export function GithubDesktopApp() {
       await refreshRepoState(next)
       await syncRemoteCaches(next)
     })
-  }, [view, commitSummary, commitDescription, runBusy, refreshRepoState, syncRemoteCaches])
+  }, [view, commitSummary, commitDescription, desktopPrefs, runBusy, refreshRepoState, syncRemoteCaches])
 
   const handleRebuildBaseline = useCallback(() => {
     if (view.kind !== 'repo') return
@@ -1774,7 +1813,7 @@ export function GithubDesktopApp() {
             </div>
           ) : undefined}
           <input
-            class="github-desktop__clone-filter"
+            class="settings__input github-desktop__clone-filter"
             value={cloneFilter}
             placeholder="过滤仓库…"
             disabled={cloneDialogLoading}
@@ -1807,28 +1846,28 @@ export function GithubDesktopApp() {
               })
             )}
           </div>
-          <div class="github-desktop__clone-field">
-            <label>分支</label>
-            <select
+          <div class="settings__form github-desktop__clone-fields">
+            <SettingsChoiceField
+              label="分支"
               value={cloneBranch}
-              disabled={cloneDialogLoading || busy}
-              onChange={(event) => setCloneBranch((event.target as HTMLSelectElement).value)}
-            >
-              {(cloneBranches.length > 0
+              options={(cloneBranches.length > 0
                 ? cloneBranches
                 : cloneBranch
                   ? [{ name: cloneBranch, commitSha: '', protected: false }]
                   : []
-              ).map((branch) => (
-                <option key={branch.name} value={branch.name}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div class="github-desktop__clone-field">
-            <label>本地路径</label>
-            <div class="github-desktop__clone-path">{cloneLocalPath}</div>
+              ).map((branch) => ({
+                id: branch.name,
+                label: branch.name,
+              }))}
+              onChange={setCloneBranch}
+              wideLayout
+              presentation="form"
+              disabled={cloneDialogLoading || busy || !cloneBranch}
+            />
+            <div class="settings__field">
+              <span class="settings__field-label">本地路径</span>
+              <div class="github-desktop__clone-path">{cloneLocalPath}</div>
+            </div>
           </div>
         </div>
       </WindowModal>
@@ -1837,10 +1876,12 @@ export function GithubDesktopApp() {
         open={prefsOpen}
         title="设置"
         wide
+        scrollBody
+        panelClass="github-desktop__prefs-modal"
         onClose={closePreferences}
         actions={[
           {
-            label: '关闭',
+            label: '完成',
             tone: 'primary',
             onClick: closePreferences,
           },
@@ -1850,6 +1891,7 @@ export function GithubDesktopApp() {
           <SegmentedControl
             value={prefsTab}
             ariaLabel="设置分类"
+            className="github-desktop__prefs-tabs"
             items={[
               { id: 'accounts', label: '账户' },
               { id: 'integrations', label: '集成' },
@@ -1859,14 +1901,14 @@ export function GithubDesktopApp() {
           />
           <div class="github-desktop__prefs-panel">
             {prefsTab === 'accounts' ? (
-              <>
-                <h2 class="github-desktop__prefs-heading">GitHub.com</h2>
+              <section class="settings__section">
+                <h2 class="settings__section-title">GitHub.com</h2>
                 {!hasToken ? (
-                  <div class="github-desktop__prefs-cta">
+                  <div class="settings__box github-desktop__prefs-cta">
                     <p>登录到你的 GitHub.com 账户以访问仓库。</p>
                     <button
                       type="button"
-                      class="github-desktop__btn github-desktop__btn--primary"
+                      class="settings__btn settings__btn--default"
                       onClick={() => {
                         closePreferences()
                         openApp('keychain')
@@ -1876,15 +1918,15 @@ export function GithubDesktopApp() {
                     </button>
                   </div>
                 ) : (
-                  <>
+                  <div class="settings__list">
                     <div class="github-desktop__prefs-account-row">
                       {avatarDisplayUrl || user?.avatarUrl ? (
                         <img
                           class="github-desktop__prefs-avatar"
                           src={avatarDisplayUrl ?? user?.avatarUrl}
                           alt=""
-                          width={32}
-                          height={32}
+                          width={36}
+                          height={36}
                         />
                       ) : (
                         <div class="github-desktop__prefs-avatar github-desktop__prefs-avatar--placeholder">
@@ -1907,17 +1949,13 @@ export function GithubDesktopApp() {
                       </div>
                       <button
                         type="button"
-                        class="github-desktop__btn"
+                        class="settings__btn settings__btn--small settings__btn--plain"
                         onClick={() => {
-                          clearGithubCachedAccount()
-                          void clearGithubAvatarCache()
-                          clearGithubCredentials()
-                          setUser(undefined)
-                          setAvatarDisplayUrl(undefined)
                           closePreferences()
+                          openApp('keychain')
                         }}
                       >
-                        退出登录
+                        管理凭证…
                       </button>
                     </div>
                     {accountError ? (
@@ -1925,81 +1963,127 @@ export function GithubDesktopApp() {
                     ) : undefined}
                     <button
                       type="button"
-                      class="github-desktop__btn--link"
+                      class="settings__row settings__row--button github-desktop__prefs-refresh"
                       disabled={accountRefreshing}
                       onClick={() => {
                         void refreshAccountProfile()
                       }}
                     >
-                      {accountRefreshing ? '刷新中…' : '刷新账户信息'}
+                      <span class="settings__row-name">
+                        {accountRefreshing ? '刷新中…' : '刷新账户信息'}
+                      </span>
                     </button>
-                  </>
+                  </div>
                 )}
-                <p class="github-desktop__prefs-hint">
-                  Token 保存在系统钥匙串中。账户资料仅在本机缓存，打开应用时不会请求 GitHub。
+                <p class="settings__section-footnote">
+                  Token 由系统钥匙串保管；本应用只读取是否已配置。要更改或移除凭证，请在钥匙串中操作。账户资料仅在本机缓存，打开应用时不会请求 GitHub。
                 </p>
-              </>
+              </section>
             ) : undefined}
 
             {prefsTab === 'integrations' ? (
-              <>
-                <h2 class="github-desktop__prefs-heading">应用程序</h2>
-                <label class="github-desktop__prefs-field">
-                  <span>外部编辑器</span>
-                  <select
-                    value={desktopPrefs.externalEditor}
-                    onChange={(event) => {
-                      const value = (event.target as HTMLSelectElement).value as GithubExternalEditor
-                      patchDesktopPrefs({ externalEditor: value })
-                    }}
-                  >
-                    <option value="vscode">Virtual Studio Code Desktop</option>
-                    <option value="files">文件</option>
-                  </select>
-                </label>
-                <p class="github-desktop__prefs-hint">
+              <section class="settings__section">
+                <h2 class="settings__section-title">应用程序</h2>
+                <div class="settings__box">
+                  <div class="settings__form">
+                    <SettingsChoiceField
+                      label="外部编辑器"
+                      value={desktopPrefs.externalEditor}
+                      options={[
+                        { id: 'vscode', label: 'Virtual Studio Code Desktop' },
+                        { id: 'files', label: '文件' },
+                      ]}
+                      onChange={(value) => {
+                        patchDesktopPrefs({
+                          externalEditor: value as GithubExternalEditor,
+                        })
+                      }}
+                      wideLayout
+                      presentation="form"
+                    />
+                  </div>
+                </div>
+                <p class="settings__section-footnote">
                   「仓库 → 在编辑器中打开」会使用此处选择的应用打开当前仓库。默认是 Virtual Studio
                   Code Desktop。
                 </p>
-              </>
+              </section>
             ) : undefined}
 
             {prefsTab === 'git' ? (
               <>
-                <h2 class="github-desktop__prefs-heading">提交作者</h2>
-                <p class="github-desktop__prefs-hint">
-                  这些信息会写入你推送到 GitHub 的 commit（author / committer）。可与账户资料不同。
-                </p>
-                <label class="github-desktop__prefs-field">
-                  <span>姓名</span>
-                  <input
-                    type="text"
-                    value={desktopPrefs.gitUserName}
-                    placeholder="例如 Your Name"
-                    onInput={(event) => {
-                      patchDesktopPrefs({
-                        gitUserName: (event.target as HTMLInputElement).value,
-                      })
-                    }}
-                  />
-                </label>
-                <label class="github-desktop__prefs-field">
-                  <span>邮箱</span>
-                  <input
-                    type="email"
-                    value={desktopPrefs.gitUserEmail}
-                    placeholder="name@example.com"
-                    onInput={(event) => {
-                      patchDesktopPrefs({
-                        gitUserEmail: (event.target as HTMLInputElement).value,
-                      })
-                    }}
-                  />
-                </label>
-                <p class="github-desktop__prefs-hint">
-                  若留空，提交时会尝试使用已缓存的 GitHub 账户名与
-                  login@users.noreply.github.com。
-                </p>
+                <section class="settings__section">
+                  <h2 class="settings__section-title">提交作者</h2>
+                  <p class="settings__section-subtitle">
+                    这些信息会写入你推送到 GitHub 的 commit（author / committer）。可与账户资料不同。
+                  </p>
+                  <div class="settings__box">
+                    <div class="settings__form">
+                      <label class="settings__field">
+                        <span class="settings__field-label">姓名</span>
+                        <input
+                          class="settings__input"
+                          type="text"
+                          value={desktopPrefs.gitUserName}
+                          placeholder="例如 Your Name"
+                          autoComplete="name"
+                          onInput={(event) => {
+                            patchDesktopPrefs({
+                              gitUserName: (event.target as HTMLInputElement).value,
+                            })
+                          }}
+                        />
+                      </label>
+                      <label class="settings__field">
+                        <span class="settings__field-label">邮箱</span>
+                        <input
+                          class="settings__input"
+                          type="email"
+                          value={desktopPrefs.gitUserEmail}
+                          placeholder="login@users.noreply.github.com"
+                          autoComplete="email"
+                          onInput={(event) => {
+                            patchDesktopPrefs({
+                              gitUserEmail: (event.target as HTMLInputElement).value,
+                            })
+                          }}
+                        />
+                      </label>
+                      <div class="github-desktop__prefs-form-actions">
+                        <button
+                          type="button"
+                          class="settings__btn settings__btn--small settings__btn--plain"
+                          disabled={!defaultGithubCommitIdentity()}
+                          onClick={() => {
+                            const defaults = defaultGithubCommitIdentity()
+                            if (!defaults) return
+                            patchDesktopPrefs(defaults)
+                          }}
+                        >
+                          恢复默认
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="settings__section-footnote">
+                    默认取自账户显示名与主邮箱；拉不到邮箱时用 noreply。Token 需有邮箱读权限。留空则提交时同样回退。
+                  </p>
+                </section>
+                <section class="settings__section">
+                  <h2 class="settings__section-title">协作者</h2>
+                  <div class="settings__list">
+                    <SettingsSwitchRow
+                      label="添加 Instant Agent"
+                      checked={desktopPrefs.includeCasingAiCoAuthor}
+                      onChange={(checked) => {
+                        patchDesktopPrefs({ includeCasingAiCoAuthor: checked })
+                      }}
+                    />
+                  </div>
+                  <p class="settings__section-footnote">
+                    开启后提交说明会附带 Instant Agent 的 Co-authored-by。
+                  </p>
+                </section>
               </>
             ) : undefined}
           </div>

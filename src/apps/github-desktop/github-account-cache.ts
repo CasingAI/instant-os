@@ -28,6 +28,8 @@ function normalizeCachedAccount(raw: unknown): GithubCachedAccount | undefined {
   return {
     login,
     name: typeof record.name === 'string' && record.name.trim() ? record.name.trim() : undefined,
+    email:
+      typeof record.email === 'string' && record.email.trim() ? record.email.trim() : undefined,
     avatarUrl:
       typeof record.avatarUrl === 'string' && record.avatarUrl.trim()
         ? record.avatarUrl.trim()
@@ -57,6 +59,7 @@ export function saveGithubCachedAccount(user: GithubUser): GithubCachedAccount |
   const payload: GithubCachedAccount = {
     login: user.login.trim(),
     name: user.name?.trim() || undefined,
+    email: user.email?.trim() || undefined,
     avatarUrl: user.avatarUrl?.trim() || undefined,
     tokenFingerprint: fingerprint,
     fetchedAt: Date.now(),
@@ -81,6 +84,7 @@ export function cachedAccountAsUser(cached: GithubCachedAccount): GithubUser {
   return {
     login: cached.login,
     name: cached.name,
+    email: cached.email,
     avatarUrl: cached.avatarUrl,
   }
 }

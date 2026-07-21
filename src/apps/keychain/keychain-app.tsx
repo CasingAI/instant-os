@@ -705,7 +705,9 @@ export function KeychainApp() {
               />
             </div>
             <p class="settings__section-footnote">
-              用于访问 GitHub API。可在 GitHub 设置中创建，仅保存在本机。
+              用于访问 GitHub API。可在 GitHub 设置中创建，仅保存在本机。若要让 GitHub Desktop
+              自动填真实提交邮箱，classic Token 需 user:email；细粒度 Token 需 Email addresses
+              只读。
             </p>
           </section>
         </div>

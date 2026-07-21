@@ -106,7 +106,9 @@ export function GithubCredentialsDialog({
       actions={actions}
     >
       <p class="window-modal__message">
-        填写 Personal Access Token，用于访问 GitHub API。仅保存在本机。
+        填写 Personal Access Token，用于访问 GitHub API。仅保存在本机。若希望 GitHub Desktop
+        自动填入真实提交邮箱，classic Token 请勾选 user:email；细粒度 Token 请授予 Email
+        addresses 只读。
       </p>
       <div class="window-modal__field">
         <label for="keychain-github-token-input">Token</label>
