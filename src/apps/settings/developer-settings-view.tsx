@@ -62,6 +62,9 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   const [generatedAppLegacyLoading, setGeneratedAppLegacyLoading] = useState(
     () => !loadExperimentalSettings().generatedAppProcessIsolation,
   )
+  const [alwaysShowCursor, setAlwaysShowCursor] = useState(
+    () => loadExperimentalSettings().alwaysShowCursor,
+  )
   const [saveError, setSaveError] = useState(false)
   const [devUrl, setDevUrl] = useState('http://localhost:6175/')
   const [addBusy, setAddBusy] = useState(false)
@@ -112,6 +115,16 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
 
     setSaveError(false)
     setGeneratedAppLegacyLoading(checked)
+  }
+
+  const handleToggleAlwaysShowCursor = (checked: boolean) => {
+    if (!patchExperimentalSettings({ alwaysShowCursor: checked })) {
+      setSaveError(true)
+      return
+    }
+
+    setSaveError(false)
+    setAlwaysShowCursor(checked)
   }
 
   const handleAddDevExtApp = async () => {
@@ -404,6 +417,12 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
               description="未完成的实验特性。开启后，语音实验室会出现在桌面和程序坞中，系统设置中也会出现「语音」入口，可测试系统语音服务（识别 / 合成）；能力与产品定位均未定稿。"
               checked={speechApp}
               onChange={handleToggleSpeechApp}
+            />
+            <DeveloperFeature
+              title="始终显示鼠标指针"
+              description="开启后，启动界面与冷启动过渡期间也会显示系统鼠标指针，便于调试与录屏。"
+              checked={alwaysShowCursor}
+              onChange={handleToggleAlwaysShowCursor}
             />
             <DeveloperFeature
               title="停用窗口合成器加速"

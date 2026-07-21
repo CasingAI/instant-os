@@ -10,6 +10,7 @@ import {
   applyProcessIsolationCapability,
   shouldShowProcessIsolationFallbackNotification,
 } from './os/apply-process-isolation-capability.ts'
+import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from './os/experimental-settings-storage.ts'
 import { showProcessIsolationFallbackNotification } from './os/process-isolation-fallback.ts'
 import { OsShell } from './os/os-shell.tsx'
 import { SetupAssistant } from './os/setup-assistant.tsx'
@@ -76,12 +77,20 @@ export function App() {
   }, [bootPhase])
 
   useEffect(() => {
-    const hideCursor =
-      bootPhase === 'booting' ||
-      bootPhase === 'cold-entering' ||
-      bootPhase === 'setup-boot-entering' ||
-      bootPhase === 'setup-entering'
-    setBootCursorHidden(hideCursor)
+    const applyBootCursorVisibility = () => {
+      const hideCursor =
+        bootPhase === 'booting' ||
+        bootPhase === 'cold-entering' ||
+        bootPhase === 'setup-boot-entering' ||
+        bootPhase === 'setup-entering'
+      setBootCursorHidden(hideCursor)
+    }
+
+    applyBootCursorVisibility()
+    window.addEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, applyBootCursorVisibility)
+    return () => {
+      window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, applyBootCursorVisibility)
+    }
   }, [bootPhase])
 
   useEffect(() => {

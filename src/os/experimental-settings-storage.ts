@@ -18,6 +18,8 @@ export type ExperimentalSettings = {
    * Default on; Chromium 127+ desktop may place each frame in a separate renderer process.
    */
   generatedAppProcessIsolation: boolean
+  /** Keep the system cursor visible during boot splash and cold-start transitions. */
+  alwaysShowCursor: boolean
 }
 
 export const EXPERIMENTAL_SETTINGS_CHANGED_EVENT = 'instant-os:experimental-settings-changed'
@@ -29,6 +31,7 @@ const DEFAULT_SETTINGS: ExperimentalSettings = {
   speechApp: false,
   externalBridge: false,
   generatedAppProcessIsolation: true,
+  alwaysShowCursor: false,
 }
 
 function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
@@ -47,6 +50,7 @@ function normalizeExperimentalSettings(raw: unknown): ExperimentalSettings {
     speechApp: record.speechApp === true,
     externalBridge: record.externalBridge === true,
     generatedAppProcessIsolation: processIsolation,
+    alwaysShowCursor: record.alwaysShowCursor === true,
   }
 }
 
@@ -68,6 +72,7 @@ export function saveExperimentalSettings(settings: ExperimentalSettings): boolea
     speechApp: settings.speechApp,
     externalBridge: settings.externalBridge,
     generatedAppProcessIsolation: settings.generatedAppProcessIsolation,
+    alwaysShowCursor: settings.alwaysShowCursor,
   })
   if (!writeLocalStorageItem(STORAGE_KEY, serialized)) {
     return false

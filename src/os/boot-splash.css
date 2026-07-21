@@ -2,6 +2,9 @@
   position: fixed;
   inset: 0;
   z-index: 2147483000;
+}
+
+html.instant-boot-hide-cursor .instant-boot-splash {
   cursor: none;
 }
 
