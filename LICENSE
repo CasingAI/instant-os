@@ -63,7 +63,42 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-2. Model tokenizer assets (Hugging Face Hub)
+2. GitHub Desktop (desktop/desktop)
+--------------------------------------------------------------------------------
+
+The Instant OS “GitHub Desktop” app icon (public/assets/icons/github.png) and
+portions of its UI layout, styling, and interaction patterns are adapted from
+or informed by the GitHub Desktop open-source project.
+
+Source:
+https://github.com/desktop/desktop
+
+Copyright (c) GitHub, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Note: The MIT License does not grant trademark rights. “GitHub”, “GitHub
+Desktop”, and related marks remain trademarks of GitHub, Inc. This project is
+not affiliated with or endorsed by GitHub, Inc.
+
+--------------------------------------------------------------------------------
+3. Model tokenizer assets (Hugging Face Hub)
 --------------------------------------------------------------------------------
 
 Tokenizer configuration files under public/assets/tokenizers/ are downloaded
@@ -105,7 +140,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-3. Vendored runtimes (public/vendor/)
+4. Vendored runtimes (public/vendor/)
 --------------------------------------------------------------------------------
 
 Three.js (MIT)
@@ -145,7 +180,7 @@ Full license text: see “Apache License 2.0” appendix below, or
 http://www.apache.org/licenses/LICENSE-2.0
 
 --------------------------------------------------------------------------------
-4. Runtime npm dependencies (bundled into build artifacts)
+5. Runtime npm dependencies (bundled into build artifacts)
 --------------------------------------------------------------------------------
 
 The following packages may be included in distributed builds. Each retains its
@@ -178,7 +213,7 @@ For each MIT-licensed package above, the standard MIT permission notice and
 disclaimer apply under that package’s copyright.
 
 --------------------------------------------------------------------------------
-5. Third-party 3D assets (CC0)
+6. Third-party 3D assets (CC0)
 --------------------------------------------------------------------------------
 
 CC0 1.0 model packs under public/assets/3d/models/ (KayKit Bits packs and
@@ -188,7 +223,7 @@ License copies and a summary notice are kept at:
 public/assets/3d/licenses/
 
 --------------------------------------------------------------------------------
-6. Apple Color Emoji font files
+7. Apple Color Emoji font files
 --------------------------------------------------------------------------------
 
 Font files under public/fonts/apple-color-emoji/ are Apple proprietary font
