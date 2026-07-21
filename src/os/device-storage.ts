@@ -20,6 +20,8 @@ export const DEVICE_STORAGE_KEYS = {
   windowSizes: 'instant-os:window-sizes',
   accountSettings: 'instant-os-account-settings',
   githubCredentials: 'instant-os-github-credentials',
+  githubAccountCache: 'instant-os-github-account-cache',
+  githubDesktopPrefs: 'instant-os-github-desktop-prefs',
   proxyServerSettings: 'instant-os-proxy-server-settings',
   displaySettings: 'instant-os-display-settings',
   dateTimeSettings: 'instant-os-date-time-settings',

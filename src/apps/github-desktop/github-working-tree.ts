@@ -22,8 +22,8 @@ import {
   githubGetRepo,
 } from './github-api.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
+import { persistBaselineFromFiles } from './github-baseline.ts'
 import {
-  buildFileIndex,
   saveGithubRepoMeta,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
@@ -268,15 +268,16 @@ export async function cloneGithubRepository(params: {
 
   onProgress?.('建立同步快照…')
   const working = await collectWorkingTreeFiles(params.owner, params.repo)
-  const fileIndex = await buildFileIndex(working)
+  const fileIndex = await persistBaselineFromFiles(working)
   const meta: GithubRepoSyncMeta = {
-    version: 1,
+    version: 2,
     owner: remote.owner,
     repo: remote.name,
     currentBranch: branch,
-    headSha,
     defaultBranch: remote.defaultBranch,
-    fileIndex,
+    branches: {
+      [branch]: { tipSha: headSha, fileIndex },
+    },
     updatedAt: osNowMs(),
   }
   await saveGithubRepoMeta(meta)

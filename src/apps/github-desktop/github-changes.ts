@@ -1,11 +1,32 @@
+import { osNowMs } from '../../os/os-clock.ts'
 import { filesReadText } from '../files/files-api.ts'
 import { joinFilesAbsolutePath } from '../files/files-path.ts'
+import { githubDownloadZipball } from './github-api.ts'
+import {
+  baselineBlobExists,
+  baselineBlobIsValid,
+  baselineMissingForIndex,
+  readBaselineBytes,
+  readBaselineTextForPath,
+  removeBaselineBlob,
+  writeBaselineBlob,
+} from './github-baseline.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
-import { hashBytes, type GithubRepoSyncMeta } from './github-sync-meta.ts'
+import {
+  buildFileIndex,
+  currentFileIndex,
+  currentHeadSha,
+  hashBytes,
+  saveGithubRepoMeta,
+  withBranchSnapshot,
+  type GithubFileIndexEntry,
+  type GithubRepoSyncMeta,
+} from './github-sync-meta.ts'
 import {
   collectWorkingTreeFiles,
   isProbablyTextBytes,
   readWorkingTreeBytes,
+  unzipGithubZipball,
 } from './github-working-tree.ts'
 
 export type GithubChangeKind = 'added' | 'modified' | 'deleted'
@@ -16,6 +37,14 @@ export type GithubChange = {
   absolutePath: string
 }
 
+/** Monaco Diff 用的两侧正文；notice 有值时表示无法做文本 diff，只展示提示 */
+export type GithubChangePreview = {
+  path: string
+  original: string
+  modified: string
+  notice?: string
+}
+
 export { collectWorkingTreeFiles, readWorkingTreeBytes }
 
 export async function detectGithubChanges(
@@ -23,11 +52,12 @@ export async function detectGithubChanges(
 ): Promise<GithubChange[]> {
   const root = githubRepoRootPath(meta.owner, meta.repo)
   const working = await collectWorkingTreeFiles(meta.owner, meta.repo)
+  const fileIndex = currentFileIndex(meta)
   const changes: GithubChange[] = []
 
   for (const [path, bytes] of working) {
     const absolutePath = joinFilesAbsolutePath(root, ...path.split('/'))
-    const previous = meta.fileIndex[path]
+    const previous = fileIndex[path]
     const hash = await hashBytes(bytes)
     if (!previous) {
       changes.push({ path, kind: 'added', absolutePath })
@@ -36,7 +66,7 @@ export async function detectGithubChanges(
     }
   }
 
-  for (const path of Object.keys(meta.fileIndex)) {
+  for (const path of Object.keys(fileIndex)) {
     if (!working.has(path)) {
       changes.push({
         path,
@@ -48,6 +78,134 @@ export async function detectGithubChanges(
 
   changes.sort((a, b) => a.path.localeCompare(b.path))
   return changes
+}
+
+/**
+ * 已有仓库可能只有 fileIndex、没有 blob。
+ * 在无本地变更时，工作区即基线，可就地补齐。
+ */
+export async function ensureBaselineIfClean(
+  meta: GithubRepoSyncMeta,
+  hasLocalChanges: boolean,
+): Promise<void> {
+  await rebuildGithubBaseline(meta, { hasLocalChanges })
+}
+
+export type RebuildBaselineResult =
+  | { status: 'rebuilt'; written: number; fromRemote: number; repaired: number }
+  | { status: 'already_complete' }
+  | { status: 'empty' }
+  | { status: 'incomplete'; written: number; missing: number }
+
+/**
+ * 重建当前分支 tip 的本地 blob。
+ * - 默认（打开仓库 / 文件监听）：只做本地补齐与脏 blob 清理，**绝不请求网络**。
+ * - force（菜单「重建本地基线」）：一次 zipball 重写 baseline + fileIndex，不动工作区。
+ */
+export async function rebuildGithubBaseline(
+  meta: GithubRepoSyncMeta,
+  options?: { hasLocalChanges?: boolean; force?: boolean },
+): Promise<RebuildBaselineResult> {
+  const fileIndex = currentFileIndex(meta)
+  if (Object.keys(fileIndex).length === 0 && !options?.force) return { status: 'empty' }
+
+  if (options?.force) {
+    return forceRebuildBaselineFromZip(meta)
+  }
+
+  if (!(await baselineMissingForIndex(fileIndex))) {
+    return { status: 'already_complete' }
+  }
+
+  const hasLocalChanges =
+    options?.hasLocalChanges ?? (await detectGithubChanges(meta)).length > 0
+
+  let written = 0
+  let repaired = 0
+
+  // 先清掉内容与 key 不符的脏 blob，否则占坑会导致误判「已完整」
+  for (const entry of Object.values(fileIndex)) {
+    if (await baselineBlobExists(entry.hash) && !(await baselineBlobIsValid(entry.hash))) {
+      await removeBaselineBlob(entry.hash)
+      repaired += 1
+    }
+  }
+
+  // 有本地变更时不能拿工作区当 tip；缺的基线留给用户手动「重建」或干净后补齐
+  if (!hasLocalChanges) {
+    const working = await collectWorkingTreeFiles(meta.owner, meta.repo)
+    const currentIndex = await buildFileIndex(working)
+    let matchesTip = true
+    const allPaths = new Set([...Object.keys(fileIndex), ...Object.keys(currentIndex)])
+    for (const path of allPaths) {
+      const expected = fileIndex[path]
+      const actual = currentIndex[path]
+      if (!expected || !actual || expected.hash !== actual.hash) {
+        matchesTip = false
+        break
+      }
+    }
+    if (matchesTip) {
+      for (const [path, bytes] of working) {
+        const hash = fileIndex[path]?.hash
+        if (!hash || (await baselineBlobIsValid(hash))) continue
+        await writeBaselineBlob(hash, bytes)
+        written += 1
+      }
+    }
+  }
+
+  if (!(await baselineMissingForIndex(fileIndex))) {
+    return { status: 'rebuilt', written, fromRemote: 0, repaired }
+  }
+  if (written > 0 || repaired > 0) {
+    return {
+      status: 'incomplete',
+      written,
+      missing: await countMissingBlobs(fileIndex),
+    }
+  }
+  return { status: 'incomplete', written: 0, missing: await countMissingBlobs(fileIndex) }
+}
+
+/** 一次 zipball 重建 tip 基线；不改写工作区（本地未提交改动得以保留） */
+async function forceRebuildBaselineFromZip(
+  meta: GithubRepoSyncMeta,
+): Promise<RebuildBaselineResult> {
+  const tipSha = currentHeadSha(meta)
+  if (!tipSha) return { status: 'empty' }
+
+  const zip = await githubDownloadZipball(meta.owner, meta.repo, tipSha)
+  const files = await unzipGithubZipball(zip)
+  if (files.size === 0) return { status: 'empty' }
+
+  let written = 0
+  const nextIndex: Record<string, GithubFileIndexEntry> = {}
+  for (const [path, bytes] of files) {
+    const hash = await hashBytes(bytes)
+    await writeBaselineBlob(hash, bytes)
+    nextIndex[path] = { hash, byteSize: bytes.byteLength }
+    written += 1
+  }
+
+  const next = withBranchSnapshot(meta, meta.currentBranch, {
+    tipSha,
+    fileIndex: nextIndex,
+  })
+  next.updatedAt = osNowMs()
+  await saveGithubRepoMeta(next)
+
+  return { status: 'rebuilt', written, fromRemote: written, repaired: 0 }
+}
+
+async function countMissingBlobs(
+  fileIndex: Record<string, { hash: string }>,
+): Promise<number> {
+  let missing = 0
+  for (const entry of Object.values(fileIndex)) {
+    if (!(await baselineBlobIsValid(entry.hash))) missing += 1
+  }
+  return missing
 }
 
 async function readPathAsText(absolutePath: string): Promise<string> {
@@ -62,24 +220,86 @@ async function readPathAsText(absolutePath: string): Promise<string> {
   }
 }
 
-/** 变更预览：无旧版正文缓存时展示当前内容或删除说明 */
+const MISSING_BASELINE_NOTICE =
+  '本地没有该文件的基线快照。请使用菜单「仓库 → 重建本地基线」（需代理）补齐，或在干净工作区时重新打开仓库。'
+
+/** 变更预览：只读本地 tip blob vs 工作区。切勿再调 Contents API 当「旧版」——易把 JSON 包装当成原文。 */
 export async function buildChangePreview(
-  _meta: GithubRepoSyncMeta,
+  meta: GithubRepoSyncMeta,
   change: GithubChange,
-): Promise<string> {
+): Promise<GithubChangePreview> {
+  const fileIndex = currentFileIndex(meta)
+
   if (change.kind === 'added') {
     const text = await readPathAsText(change.absolutePath)
-    return `--- /dev/null\n+++ b/${change.path}\n${text
-      .split('\n')
-      .map((line) => `+${line}`)
-      .join('\n')}\n`
+    if (text.startsWith('（二进制文件')) {
+      return {
+        path: change.path,
+        original: '',
+        modified: '',
+        notice: `二进制文件已新增：${text.trim()}`,
+      }
+    }
+    return { path: change.path, original: '', modified: text }
   }
+
+  const entry = fileIndex[change.path]
+  if (!entry || !(await baselineBlobExists(entry.hash))) {
+    if (change.kind === 'deleted') {
+      return {
+        path: change.path,
+        original: '',
+        modified: '',
+        notice: MISSING_BASELINE_NOTICE,
+      }
+    }
+    const newText = await readPathAsText(change.absolutePath)
+    return {
+      path: change.path,
+      original: '',
+      modified: newText.startsWith('（二进制文件') ? '' : newText,
+      notice: MISSING_BASELINE_NOTICE,
+    }
+  }
+
   if (change.kind === 'deleted') {
-    return `--- a/${change.path}\n+++ /dev/null\n（文件已删除；上次同步正文未本地缓存，无法展示旧内容）\n`
+    const oldText = await readBaselineTextForPath(fileIndex, change.path)
+    if (oldText === undefined) {
+      const bytes = await readBaselineBytes(entry.hash)
+      return {
+        path: change.path,
+        original: '',
+        modified: '',
+        notice: bytes
+          ? `二进制文件已删除（${bytes.byteLength} 字节）`
+          : MISSING_BASELINE_NOTICE,
+      }
+    }
+    return { path: change.path, original: oldText, modified: '' }
   }
-  const text = await readPathAsText(change.absolutePath)
-  return `--- a/${change.path}\n+++ b/${change.path}\n@@ 本地修改（无旧版正文缓存，显示当前内容） @@\n${text
-    .split('\n')
-    .map((line) => ` ${line}`)
-    .join('\n')}\n`
+
+  const newText = await readPathAsText(change.absolutePath)
+  if (newText.startsWith('（二进制文件')) {
+    return {
+      path: change.path,
+      original: '',
+      modified: '',
+      notice: `二进制文件已修改：${newText.trim()}`,
+    }
+  }
+
+  const oldText = await readBaselineTextForPath(fileIndex, change.path)
+  if (oldText === undefined) {
+    const bytes = await readBaselineBytes(entry.hash)
+    return {
+      path: change.path,
+      original: '',
+      modified: newText,
+      notice: bytes
+        ? '旧版为二进制，以下为当前文件全文。'
+        : MISSING_BASELINE_NOTICE,
+    }
+  }
+
+  return { path: change.path, original: oldText, modified: newText }
 }

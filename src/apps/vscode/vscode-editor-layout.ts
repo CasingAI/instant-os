@@ -1,4 +1,4 @@
-/** Virtual Studio Code 编辑器组分屏布局（二叉树，可嵌套成多格） */
+/** Virtual Studio Code Desktop 编辑器组分屏布局（二叉树，可嵌套成多格） */
 
 export type VscodeSplitDirection = 'horizontal' | 'vertical'
 

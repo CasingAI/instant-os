@@ -1,5 +1,5 @@
 /**
- * Virtual Studio Code 内部运行日志（内存环形缓冲 + 订阅）。
+ * Virtual Studio Code Desktop 内部运行日志（内存环形缓冲 + 订阅）。
  * 用于底部「日志」面板观察 Worker / 模块解析等内部行为。
  */
 

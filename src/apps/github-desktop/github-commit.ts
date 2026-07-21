@@ -6,9 +6,13 @@ import {
   githubGetCommitTreeSha,
   githubUpdateBranchRef,
 } from './github-api.ts'
+import { persistBaselineFromFiles } from './github-baseline.ts'
+import { resolveGithubCommitAuthor } from './github-desktop-prefs.ts'
 import {
-  buildFileIndex,
+  appendGithubLocalCommit,
+  currentHeadSha,
   saveGithubRepoMeta,
+  withBranchSnapshot,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
@@ -37,8 +41,18 @@ export async function commitAndPushGithubChanges(params: {
     throw new Error('没有可提交的变更')
   }
 
+  const author = resolveGithubCommitAuthor()
+  if (!author) {
+    throw new Error('尚未配置提交身份。请在设置 → Git 中填写姓名与邮箱，或先刷新账户信息。')
+  }
+
   const { owner, repo } = params.meta
-  const baseTreeSha = await githubGetCommitTreeSha(owner, repo, params.meta.headSha)
+  const parentSha = currentHeadSha(params.meta)
+  if (!parentSha) {
+    throw new Error('当前分支缺少 tip，请重新克隆或拉取')
+  }
+
+  const baseTreeSha = await githubGetCommitTreeSha(owner, repo, parentSha)
 
   const treeEntries: Array<
     | { path: string; mode: '100644'; type: 'blob'; sha: string }
@@ -59,20 +73,29 @@ export async function commitAndPushGithubChanges(params: {
   const commitSha = await githubCreateCommit(owner, repo, {
     message,
     treeSha,
-    parentSha: params.meta.headSha,
+    parentSha,
+    author,
   })
   await githubUpdateBranchRef(owner, repo, params.meta.currentBranch, commitSha)
 
-  // 提交成功后以「当前工作树全量」刷新快照（与 tip 对齐）
+  // 远端成功后再写本地 tip / commit 账本
   const working = await collectWorkingTreeFiles(owner, repo)
-  const fileIndex = await buildFileIndex(working)
-  const next: GithubRepoSyncMeta = {
-    ...params.meta,
-    headSha: commitSha,
-    fileIndex,
-    updatedAt: osNowMs(),
-  }
+  const fileIndex = await persistBaselineFromFiles(working)
+  const next = withBranchSnapshot(
+    params.meta,
+    params.meta.currentBranch,
+    { tipSha: commitSha, fileIndex },
+  )
+  next.updatedAt = osNowMs()
   await saveGithubRepoMeta(next)
+  await appendGithubLocalCommit(owner, repo, {
+    sha: commitSha,
+    message,
+    parentSha,
+    author: author.name,
+    committedAt: osNowMs(),
+    branch: params.meta.currentBranch,
+  })
   return next
 }
 

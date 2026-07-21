@@ -108,7 +108,7 @@ const SESSION_PERSIST_DEBOUNCE_MS = 400
 
 const APP_ID = 'vscode' as const
 const THEME = '#2f87e2'
-const DEFAULT_TITLE = 'Virtual Studio Code'
+const DEFAULT_TITLE = 'Virtual Studio Code Desktop'
 
 registerFileOpenHandler({
   appId: APP_ID,
@@ -1517,19 +1517,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
-        label: 'Virtual Studio Code',
+        label: 'Virtual Studio Code Desktop',
         items: [
-          ...aboutAppMenuPrefix('关于 Virtual Studio Code', () => showBuiltinAbout(APP_ID)),
+          ...aboutAppMenuPrefix('关于 Virtual Studio Code Desktop', () => showBuiltinAbout(APP_ID)),
           {
             type: 'action',
-            label: '隐藏 Virtual Studio Code',
+            label: '隐藏 Virtual Studio Code Desktop',
             shortcut: '⌘H',
             onClick: () => windowId && minimizeWindow(windowId),
           },
           { type: 'separator' },
           {
             type: 'action',
-            label: '退出 Virtual Studio Code',
+            label: '退出 Virtual Studio Code Desktop',
             shortcut: '⌘Q',
             onClick: () => closeWindowsForApp(APP_ID),
           },
@@ -1839,7 +1839,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     >
       <div class="vscode__body">
         <aside class="vscode__activity" aria-label="工具栏" ref={activityRailRef}>
-          <div class="vscode__activity-brand" aria-hidden="true" title="Virtual Studio Code">
+          <div class="vscode__activity-brand" aria-hidden="true" title="Virtual Studio Code Desktop">
             <VscodeIcon size={32} />
           </div>
           <button
@@ -2045,7 +2045,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             ) : (
               <div class="vscode__editor">
                 <div class="vscode__welcome">
-                  <h1>Virtual Studio Code</h1>
+                  <h1>Virtual Studio Code Desktop</h1>
                   <p>
                     {prefs.workspaceFolder
                       ? '从左侧文件夹列表打开文件，或使用菜单「文件 → 打开…」。'

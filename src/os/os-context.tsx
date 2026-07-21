@@ -74,7 +74,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   files: { title: '文件', width: 900, height: 620 },
   textedit: { title: '文本编辑', width: 720, height: 560 },
   preview: { title: '预览', width: 780, height: 640 },
-  vscode: { title: 'Virtual Studio Code', width: 1100, height: 720 },
+  vscode: { title: 'Virtual Studio Code Desktop', width: 1100, height: 720 },
   mail: { title: '邮件', width: 900, height: 640 },
   news: { title: '新闻', width: 920, height: 620 },
   books: { title: '书架', width: 920, height: 620 },

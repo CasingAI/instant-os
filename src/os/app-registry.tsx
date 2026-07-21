@@ -156,7 +156,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
   withAbout({
     id: 'vscode',
-    name: 'Virtual Studio Code',
+    name: 'Virtual Studio Code Desktop',
     icon: VscodeIcon,
     dock: true,
     desktop: true,

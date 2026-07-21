@@ -1136,14 +1136,20 @@ export function KeychainIcon({ size = 64 }: IconProps) {
 
 export function GithubDesktopIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#24292f" size={size}>
-      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <path
-          fill="#fff"
-          opacity="0.95"
-          d="M32 10c-12.15 0-22 9.85-22 22 0 9.72 6.3 17.96 15.05 20.86 1.1.2 1.5-.48 1.5-1.06 0-.52-.02-1.9-.03-3.73-6.12 1.33-7.41-2.95-7.41-2.95-1-2.54-2.44-3.22-2.44-3.22-2-1.36.15-1.34.15-1.34 2.21.16 3.37 2.27 3.37 2.27 1.96 3.36 5.14 2.39 6.4 1.83.2-1.42.77-2.39 1.4-2.94-4.88-.56-10.01-2.44-10.01-10.86 0-2.4.86-4.36 2.26-5.9-.23-.55-.98-2.78.21-5.8 0 0 1.84-.59 6.04 2.25a21 21 0 0 1 5.5-.74c1.87.01 3.75.25 5.5.74 4.19-2.84 6.03-2.25 6.03-2.25 1.2 3.02.45 5.25.22 5.8 1.41 1.54 2.26 3.5 2.26 5.9 0 8.44-5.15 10.3-10.05 10.84.79.68 1.49 2.02 1.49 4.07 0 2.94-.03 5.3-.03 6.02 0 .59.39 1.28 1.51 1.06C47.71 49.95 54 41.72 54 32c0-12.15-9.85-22-22-22z"
-        />
-      </svg>
+    <AppIconTile color="#7b26a8" size={size}>
+      <img
+        src="/assets/icons/github.png"
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        style={{
+          display: 'block',
+          width: `${size}px`,
+          height: `${size}px`,
+          objectFit: 'cover',
+        }}
+      />
     </AppIconTile>
   )
 }

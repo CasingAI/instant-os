@@ -101,7 +101,7 @@ export function buildDeletedVscodeTab(path: string, text: string): VscodeTab {
   })
 }
 
-/** Virtual Studio Code 默认打开关联的源码后缀（不含 txt / html 族） */
+/** Virtual Studio Code Desktop 默认打开关联的源码后缀（不含 txt / html 族） */
 export const VSCODE_OPEN_EXTENSIONS = [
   'js',
   'mjs',

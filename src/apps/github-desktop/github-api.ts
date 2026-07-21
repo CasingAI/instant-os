@@ -74,16 +74,24 @@ async function githubFetch(
   init?: RequestInit & { raw?: boolean },
 ): Promise<Response> {
   const token = getToken()
-  const headers = new Headers(init?.headers)
+  const { raw, ...requestInit } = init ?? {}
+  const headers = new Headers(requestInit.headers)
   headers.set('Authorization', `Bearer ${token}`)
-  headers.set('Accept', 'application/vnd.github+json')
+  // 易错点：/contents/{path} 默认返回 Contents API 的 JSON 包装（name/path/sha/base64 content），
+  // 不是文件正文。若把这份 JSON 写进工作区或 baseline，Diff 会拿 JSON 跟真实文件比，看起来「原文完全不对」。
+  // 取正文必须用 raw:true（Accept: application/vnd.github.raw），且绝不能被下面的默认 JSON Accept 盖掉。
+  if (raw) {
+    headers.set('Accept', 'application/vnd.github.raw')
+  } else if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/vnd.github+json')
+  }
   headers.set('X-GitHub-Api-Version', '2022-11-28')
-  if (init?.body && !headers.has('Content-Type')) {
+  if (requestInit.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
   const response = await fetch(`${GITHUB_API}${path}`, {
-    ...init,
+    ...requestInit,
     headers,
   })
 
@@ -215,6 +223,86 @@ export async function githubGetBranchTip(
   return data.object.sha
 }
 
+export type GithubCommitSummary = {
+  sha: string
+  message: string
+  authorName: string
+  authorDate: string
+}
+
+export type GithubCommitFileChange = {
+  filename: string
+  status: string
+  patch?: string
+}
+
+export type GithubCommitDetail = {
+  sha: string
+  message: string
+  authorName: string
+  authorDate: string
+  files: GithubCommitFileChange[]
+}
+
+export async function githubListCommits(
+  owner: string,
+  repo: string,
+  sha: string,
+  perPage = 50,
+): Promise<GithubCommitSummary[]> {
+  const data = await githubJson<
+    Array<{
+      sha: string
+      commit: {
+        message: string
+        author?: { name?: string; date?: string }
+      }
+    }>
+  >(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits?sha=${encodeURIComponent(sha)}&per_page=${perPage}`,
+  )
+
+  return data.map((item) => ({
+    sha: item.sha,
+    message: item.commit.message,
+    authorName: item.commit.author?.name?.trim() || 'unknown',
+    authorDate: item.commit.author?.date ?? '',
+  }))
+}
+
+export async function githubGetCommit(
+  owner: string,
+  repo: string,
+  sha: string,
+): Promise<GithubCommitDetail> {
+  const data = await githubJson<{
+    sha: string
+    commit: {
+      message: string
+      author?: { name?: string; date?: string }
+    }
+    files?: Array<{
+      filename: string
+      status: string
+      patch?: string
+    }>
+  }>(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}`,
+  )
+
+  return {
+    sha: data.sha,
+    message: data.commit.message,
+    authorName: data.commit.author?.name?.trim() || 'unknown',
+    authorDate: data.commit.author?.date ?? '',
+    files: (data.files ?? []).map((file) => ({
+      filename: file.filename,
+      status: file.status,
+      patch: file.patch,
+    })),
+  }
+}
+
 /**
  * 经系统代理下载 zipball。
  * 直连会 302 到 codeload.github.com 并被浏览器 CORS 拦截。
@@ -321,6 +409,11 @@ export async function githubCompare(
   }
 }
 
+/**
+ * 拉取某 ref 下文件的**原始字节**（不是 Contents JSON）。
+ * 见 githubFetch 的 Accept/raw 注释：此处一旦拿错，会污染工作区与 baseline。
+ * 校验用响应头，不猜正文——仓库里真实的 .json 文件完全可能长得像 Contents 包装。
+ */
 export async function githubGetFileContent(
   owner: string,
   repo: string,
@@ -332,12 +425,16 @@ export async function githubGetFileContent(
       .split('/')
       .map(encodeURIComponent)
       .join('/')}?ref=${encodeURIComponent(ref)}`,
-    {
-      headers: {
-        Accept: 'application/vnd.github.raw',
-      },
-    },
+    { raw: true },
   )
+  const mediaType = (response.headers.get('X-GitHub-Media-Type') ?? '').toLowerCase()
+  // 只要到 raw 却仍是 format=json，说明 Accept 又被盖掉了。不根据正文形态判断（真 .json 文件会误杀）。
+  if (mediaType.includes('format=json')) {
+    throw new GithubApiError(
+      500,
+      `GitHub 未按 raw 返回文件正文（${owner}/${repo}:${path}@${ref}，X-GitHub-Media-Type=${mediaType}）。请检查 Accept/raw 请求头。`,
+    )
+  }
   return new Uint8Array(await response.arrayBuffer())
 }
 
@@ -405,17 +502,28 @@ export async function githubCreateCommit(
     message: string
     treeSha: string
     parentSha: string
+    author?: { name: string; email: string; date?: string }
   },
 ): Promise<string> {
+  const body: Record<string, unknown> = {
+    message: params.message,
+    tree: params.treeSha,
+    parents: [params.parentSha],
+  }
+  if (params.author) {
+    const identity = {
+      name: params.author.name,
+      email: params.author.email,
+      ...(params.author.date ? { date: params.author.date } : {}),
+    }
+    body.author = identity
+    body.committer = identity
+  }
   const data = await githubJson<{ sha: string }>(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits`,
     {
       method: 'POST',
-      body: JSON.stringify({
-        message: params.message,
-        tree: params.treeSha,
-        parents: [params.parentSha],
-      }),
+      body: JSON.stringify(body),
     },
   )
   return data.sha
