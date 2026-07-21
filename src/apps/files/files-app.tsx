@@ -1322,44 +1322,62 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             {locations.map((location) => {
               const active = location.id === locationId
               const mountId = isMountLocationId(location.id) ? location.id : undefined
+              const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}`
+              const locationContent = (
+                <>
+                  <span class="files__sidebar-icon">
+                    <LocationGlyph id={location.id} />
+                  </span>
+                  <span class="files__sidebar-label">{location.label}</span>
+                </>
+              )
+              const handleLocationContextMenu = (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+                if (!mountId) return
+                event.preventDefault()
+                setContextMenu(undefined)
+                setNewFileMenu(undefined)
+                setLocationContextMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  locationId: mountId,
+                  label: location.label,
+                })
+              }
               return (
-                <li key={location.id} class="files__sidebar-row">
-                  <button
-                    type="button"
-                    class={`files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}`}
-                    onClick={() => selectLocation(location.id)}
-                    onContextMenu={(event) => {
-                      if (!mountId) return
-                      event.preventDefault()
-                      setContextMenu(undefined)
-                      setNewFileMenu(undefined)
-                      setLocationContextMenu({
-                        x: event.clientX,
-                        y: event.clientY,
-                        locationId: mountId,
-                        label: location.label,
-                      })
-                    }}
-                  >
-                    <span class="files__sidebar-icon">
-                      <LocationGlyph id={location.id} />
-                    </span>
-                    <span class="files__sidebar-label">{location.label}</span>
-                  </button>
+                <li key={location.id}>
                   {mountId ? (
+                    <div class={itemClass}>
+                      <button
+                        type="button"
+                        class="files__sidebar-item-select"
+                        onClick={() => selectLocation(location.id)}
+                        onContextMenu={handleLocationContextMenu}
+                      >
+                        {locationContent}
+                      </button>
+                      <button
+                        type="button"
+                        class={`files__sidebar-unmount${active ? ' files__sidebar-unmount--active' : ''}`}
+                        aria-label={`推出 ${location.label}`}
+                        title="推出"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleUnmount(mountId, location.label)
+                        }}
+                      >
+                        <span aria-hidden="true">⏏</span>
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      class={`files__sidebar-unmount${active ? ' files__sidebar-unmount--active' : ''}`}
-                      aria-label={`推出 ${location.label}`}
-                      title="推出"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void handleUnmount(mountId, location.label)
-                      }}
+                      class={itemClass}
+                      onClick={() => selectLocation(location.id)}
+                      onContextMenu={handleLocationContextMenu}
                     >
-                      <span aria-hidden="true">⏏</span>
+                      {locationContent}
                     </button>
-                  ) : undefined}
+                  )}
                 </li>
               )
             })}
