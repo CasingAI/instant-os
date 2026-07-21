@@ -1163,42 +1163,15 @@
 
 .github-desktop__prefs {
   display: flex;
+  flex-direction: column;
+  gap: 14px;
   min-height: 280px;
-  margin: -4px -2px;
-}
-
-.github-desktop__prefs-nav {
-  width: 160px;
-  flex-shrink: 0;
-  padding: 8px 0;
-  border-right: 1px solid var(--gd-border);
-  background: var(--gd-alt);
-}
-
-.github-desktop__prefs-nav-item {
-  appearance: none;
-  display: block;
-  width: 100%;
-  padding: 8px 14px;
-  border: none;
-  background: transparent;
-  color: var(--gd-text);
-  text-align: left;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.github-desktop__prefs-nav-item.is-active {
-  background: var(--gd-selected);
-  color: var(--gd-accent);
-  font-weight: 600;
+  padding: 4px 2px 0;
 }
 
 .github-desktop__prefs-panel {
   flex: 1;
   min-width: 0;
-  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;

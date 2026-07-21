@@ -49,6 +49,7 @@ import {
 } from '../../os/github-credentials-storage.ts'
 import { ForwardIcon } from '../../icons/app-icons.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GithubCredentialsDialog } from './github-credentials-dialog.tsx'
 import '../../ui/ios-nav-back.css'
 import '../../ui/ios-check-toggle.css'
@@ -760,24 +761,16 @@ export function KeychainApp() {
               </div>
             ) : (
               <>
-                <div class="keychain__tabs" role="tablist" aria-label="模型能力">
-                  {AI_MODEL_CAPABILITIES.map((capability) => (
-                    <button
-                      key={capability}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeCapability === capability}
-                      class={`keychain__tab${
-                        activeCapability === capability
-                          ? ' keychain__tab--active'
-                          : ''
-                      }`}
-                      onClick={() => setActiveCapability(capability)}
-                    >
-                      {AI_MODEL_CAPABILITY_LABELS[capability]}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  value={activeCapability}
+                  ariaLabel="模型能力"
+                  className="keychain__capability-tabs"
+                  items={AI_MODEL_CAPABILITIES.map((capability) => ({
+                    id: capability,
+                    label: AI_MODEL_CAPABILITY_LABELS[capability],
+                  }))}
+                  onChange={setActiveCapability}
+                />
                 <CapabilitySection
                   capability={activeCapability}
                   providers={workingProviders}

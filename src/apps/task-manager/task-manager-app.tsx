@@ -27,6 +27,7 @@ import {
 import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
 import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
 import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import './task-manager.css'
 
 const APP_ID = 'task-manager' as const
@@ -272,26 +273,16 @@ export function TaskManagerApp() {
 
   return (
     <div class="task-manager">
-      <div class="task-manager__tabs" role="tablist" aria-label="性能监视器">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'programs'}
-          class={`task-manager__tab${tab === 'programs' ? ' task-manager__tab--active' : ''}`}
-          onClick={() => setTab('programs')}
-        >
-          程序
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'performance'}
-          class={`task-manager__tab${tab === 'performance' ? ' task-manager__tab--active' : ''}`}
-          onClick={() => setTab('performance')}
-        >
-          性能
-        </button>
-      </div>
+      <SegmentedControl
+        value={tab}
+        ariaLabel="性能监视器"
+        className="task-manager__section-tabs"
+        items={[
+          { id: 'programs', label: '程序' },
+          { id: 'performance', label: '性能' },
+        ]}
+        onChange={setTab}
+      />
 
       <div class="task-manager__tab-body">
         <section

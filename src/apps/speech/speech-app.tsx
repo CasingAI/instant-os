@@ -26,6 +26,7 @@ import {
   type MicWavRecorder,
 } from './speech-record-wav.ts'
 import { SpeechStyleLabPanel } from './speech-style-lab-panel.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import './speech.css'
 
 type SpeechTab = 'chat' | 'recognize' | 'synthesize' | 'style-lab'
@@ -190,44 +191,18 @@ export function SpeechApp() {
         <span class="speech-app__hint">实验性 · 系统语音服务</span>
       </header>
 
-      <div class="speech-app__tabs" role="tablist" aria-label="语音能力">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'chat'}
-          class={`speech-app__tab${tab === 'chat' ? ' speech-app__tab--active' : ''}`}
-          onClick={() => setTab('chat')}
-        >
-          语音对话
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'recognize'}
-          class={`speech-app__tab${tab === 'recognize' ? ' speech-app__tab--active' : ''}`}
-          onClick={() => setTab('recognize')}
-        >
-          语音识别
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'synthesize'}
-          class={`speech-app__tab${tab === 'synthesize' ? ' speech-app__tab--active' : ''}`}
-          onClick={() => setTab('synthesize')}
-        >
-          语音合成
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'style-lab'}
-          class={`speech-app__tab${tab === 'style-lab' ? ' speech-app__tab--active' : ''}`}
-          onClick={() => setTab('style-lab')}
-        >
-          表现力
-        </button>
-      </div>
+      <SegmentedControl
+        value={tab}
+        ariaLabel="语音能力"
+        className="speech-app__capability-tabs"
+        items={[
+          { id: 'chat', label: '语音对话' },
+          { id: 'recognize', label: '语音识别' },
+          { id: 'synthesize', label: '语音合成' },
+          { id: 'style-lab', label: '表现力' },
+        ]}
+        onChange={setTab}
+      />
 
       <div class="speech-app__body">
         {tab === 'chat' ? (

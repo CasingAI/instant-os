@@ -17,6 +17,7 @@ import {
 } from '../../os/proxy-server-settings-storage.ts'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { filesWatch } from '../files/files-api.ts'
 import {
   GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE,
@@ -1846,29 +1847,16 @@ export function GithubDesktopApp() {
         ]}
       >
         <div class="github-desktop__prefs">
-          <nav class="github-desktop__prefs-nav" aria-label="设置分类">
-            <button
-              type="button"
-              class={`github-desktop__prefs-nav-item${prefsTab === 'accounts' ? ' is-active' : ''}`}
-              onClick={() => setPrefsTab('accounts')}
-            >
-              账户
-            </button>
-            <button
-              type="button"
-              class={`github-desktop__prefs-nav-item${prefsTab === 'integrations' ? ' is-active' : ''}`}
-              onClick={() => setPrefsTab('integrations')}
-            >
-              集成
-            </button>
-            <button
-              type="button"
-              class={`github-desktop__prefs-nav-item${prefsTab === 'git' ? ' is-active' : ''}`}
-              onClick={() => setPrefsTab('git')}
-            >
-              Git
-            </button>
-          </nav>
+          <SegmentedControl
+            value={prefsTab}
+            ariaLabel="设置分类"
+            items={[
+              { id: 'accounts', label: '账户' },
+              { id: 'integrations', label: '集成' },
+              { id: 'git', label: 'Git' },
+            ]}
+            onChange={setPrefsTab}
+          />
           <div class="github-desktop__prefs-panel">
             {prefsTab === 'accounts' ? (
               <>

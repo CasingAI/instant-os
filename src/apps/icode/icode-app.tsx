@@ -4,6 +4,7 @@ import { AiStreamPreview } from '../../ai/ai-stream-preview.tsx'
 import { ICodeIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -2159,56 +2160,22 @@ export function ICodeApp() {
 
           <aside class="icode__panel">
             <div class="icode__segmented-wrap">
-              <div class="icode__segmented" role="tablist" aria-label="调试面板">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'chat'}
-                  class={`icode__segment${editorTab === 'chat' ? ' icode__segment--active' : ''}`}
-                  onClick={() => setEditorTab('chat')}
-                >
-                  对话
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'source'}
-                  class={`icode__segment${editorTab === 'source' ? ' icode__segment--active' : ''}${codeDirty ? ' icode__segment--dirty' : ''}`}
-                  onClick={() => setEditorTab('source')}
-                >
-                  源码
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'config'}
-                  class={`icode__segment${editorTab === 'config' ? ' icode__segment--active' : ''}`}
-                  onClick={() => setEditorTab('config')}
-                >
-                  配置
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'data'}
-                  class={`icode__segment${editorTab === 'data' ? ' icode__segment--active' : ''}${dataDirty ? ' icode__segment--dirty' : ''}`}
-                  onClick={() => setEditorTab('data')}
-                >
-                  数据
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={editorTab === 'console'}
-                  class={`icode__segment${editorTab === 'console' ? ' icode__segment--active' : ''}`}
-                  onClick={() => setEditorTab('console')}
-                >
-                  日志
-                  {consoleLogs.length > 0 && (
-                    <span class="icode__segment-badge">{consoleLogs.length}</span>
-                  )}
-                </button>
-              </div>
+              <SegmentedControl
+                value={editorTab}
+                ariaLabel="调试面板"
+                items={[
+                  { id: 'chat', label: '对话' },
+                  { id: 'source', label: '源码', dirty: codeDirty },
+                  { id: 'config', label: '配置' },
+                  { id: 'data', label: '数据', dirty: dataDirty },
+                  {
+                    id: 'console',
+                    label: '日志',
+                    badge: consoleLogs.length > 0 ? consoleLogs.length : undefined,
+                  },
+                ]}
+                onChange={setEditorTab}
+              />
             </div>
 
             <div class="icode__tab-body">
