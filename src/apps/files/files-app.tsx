@@ -47,7 +47,10 @@ import {
   FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
   createTextFile,
+  enrichFilesNodeMeta,
+  filesNodeNeedsViewportMeta,
   getFilesLocationLabel,
+  getNodeOrThrow,
   listDirectory,
   listFilesLocations,
   mkdir,
@@ -74,6 +77,82 @@ const APP_ID = 'files' as const
 const THEME = '#8a6a38'
 const LONG_PRESS_MS = 380
 const LONG_PRESS_MOVE_PX = 8
+const VIEW_MODE_STORAGE_KEY = 'files.viewMode'
+const VIEWPORT_META_DEBOUNCE_MS = 100
+const VIEWPORT_META_CONCURRENCY = 8
+const VIEWPORT_META_ROOT_MARGIN = '96px'
+
+type FilesViewMode = 'grid' | 'list'
+
+function readFilesViewMode(): FilesViewMode {
+  try {
+    const raw = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+    if (raw === 'list' || raw === 'grid') return raw
+  } catch {
+    // ignore
+  }
+  return 'grid'
+}
+
+function writeFilesViewMode(mode: FilesViewMode): void {
+  try {
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+  } catch {
+    // ignore
+  }
+}
+
+function formatListByteSize(node: FilesNode, metaResolved: ReadonlySet<string>): string {
+  if (node.kind === 'folder' || node.locationId === 'models3d') return '—'
+  if (filesNodeNeedsViewportMeta(node) && !metaResolved.has(node.id)) return '…'
+  return formatFilesByteSize(node.byteSize)
+}
+
+function formatListTimestamp(node: FilesNode, metaResolved: ReadonlySet<string>): string {
+  if (filesNodeNeedsViewportMeta(node) && !metaResolved.has(node.id)) return '…'
+  return formatFilesTimestamp(node.updatedAt)
+}
+
+async function mapIdsWithConcurrency(
+  ids: readonly string[],
+  concurrency: number,
+  worker: (id: string) => Promise<void>,
+): Promise<void> {
+  if (ids.length === 0) return
+  let nextIndex = 0
+  const runners = Array.from({ length: Math.min(concurrency, ids.length) }, async () => {
+    while (true) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= ids.length) return
+      await worker(ids[index]!)
+    }
+  })
+  await Promise.all(runners)
+}
+
+function FilesViewModeIcon({ mode }: { mode: FilesViewMode }) {
+  if (mode === 'list') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="2.5" width="3" height="3" rx="0.5" fill="currentColor" />
+        <rect x="7" y="3.25" width="7" height="1.5" rx="0.5" fill="currentColor" />
+        <rect x="2" y="6.5" width="3" height="3" rx="0.5" fill="currentColor" />
+        <rect x="7" y="7.25" width="7" height="1.5" rx="0.5" fill="currentColor" />
+        <rect x="2" y="10.5" width="3" height="3" rx="0.5" fill="currentColor" />
+        <rect x="7" y="11.25" width="7" height="1.5" rx="0.5" fill="currentColor" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2" y="2" width="5" height="5" rx="0.75" fill="currentColor" />
+      <rect x="9" y="2" width="5" height="5" rx="0.75" fill="currentColor" />
+      <rect x="2" y="9" width="5" height="5" rx="0.75" fill="currentColor" />
+      <rect x="9" y="9" width="5" height="5" rx="0.75" fill="currentColor" />
+    </svg>
+  )
+}
 
 type ContextMenuState = {
   x: number
@@ -220,6 +299,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [openWithAlways, setOpenWithAlways] = useState(false)
   const [infoNode, setInfoNode] = useState<FilesNode | undefined>(undefined)
   const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
+  const [viewMode, setViewMode] = useState<FilesViewMode>(() => readFilesViewMode())
+  const [metaResolvedIds, setMetaResolvedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [selectNonce, setSelectNonce] = useState(0)
   const [pendingSelectName, setPendingSelectName] = useState<string | undefined>(undefined)
@@ -234,6 +315,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const lastPointerTypeRef = useRef<string>('mouse')
   const actionSheetOpenedByLongPressRef = useRef(false)
   const refreshGenRef = useRef(0)
+  const viewportMetaGenRef = useRef(0)
+  const viewportMetaPendingRef = useRef(new Set<string>())
+  const viewportMetaInFlightRef = useRef(new Set<string>())
+  const viewportMetaResolvedRef = useRef(new Set<string>())
+  const viewportMetaDebounceRef = useRef<number | undefined>(undefined)
+  const itemsRef = useRef<FilesNode[]>([])
+  itemsRef.current = items
   const lastOpenedDocumentIdRef = useRef<string | undefined>(undefined)
   const lastRevealNonceRef = useRef(0)
   const narrowLayoutRef = useRef(narrowLayout)
@@ -278,8 +366,92 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const canPasteHere = canCreateHere && clipboard !== undefined
   void clipboardRevision
 
+  const resetViewportMeta = useCallback(() => {
+    viewportMetaGenRef.current += 1
+    viewportMetaPendingRef.current.clear()
+    viewportMetaInFlightRef.current.clear()
+    viewportMetaResolvedRef.current.clear()
+    if (viewportMetaDebounceRef.current !== undefined) {
+      window.clearTimeout(viewportMetaDebounceRef.current)
+      viewportMetaDebounceRef.current = undefined
+    }
+    setMetaResolvedIds(new Set())
+  }, [])
+
+  const flushViewportMetaQueue = useCallback(async () => {
+    const gen = viewportMetaGenRef.current
+    const ids = [...viewportMetaPendingRef.current]
+    viewportMetaPendingRef.current.clear()
+    if (ids.length === 0) return
+
+    await mapIdsWithConcurrency(ids, VIEWPORT_META_CONCURRENCY, async (id) => {
+      if (gen !== viewportMetaGenRef.current) return
+      if (viewportMetaResolvedRef.current.has(id) || viewportMetaInFlightRef.current.has(id)) {
+        return
+      }
+      viewportMetaInFlightRef.current.add(id)
+      try {
+        const enriched = await enrichFilesNodeMeta(id)
+        if (gen !== viewportMetaGenRef.current) return
+        if (enriched) {
+          setItems((prev) =>
+            prev.map((node) =>
+              node.id === enriched.id
+                ? {
+                    ...node,
+                    byteSize: enriched.byteSize,
+                    updatedAt: enriched.updatedAt,
+                    createdAt: enriched.createdAt,
+                  }
+                : node,
+            ),
+          )
+        }
+      } finally {
+        viewportMetaInFlightRef.current.delete(id)
+        if (gen === viewportMetaGenRef.current) {
+          viewportMetaResolvedRef.current.add(id)
+          setMetaResolvedIds((prev) => {
+            if (prev.has(id)) return prev
+            const next = new Set(prev)
+            next.add(id)
+            return next
+          })
+        }
+      }
+    })
+  }, [])
+
+  const scheduleViewportMetaFlush = useCallback(() => {
+    if (viewportMetaDebounceRef.current !== undefined) {
+      window.clearTimeout(viewportMetaDebounceRef.current)
+    }
+    viewportMetaDebounceRef.current = window.setTimeout(() => {
+      viewportMetaDebounceRef.current = undefined
+      void flushViewportMetaQueue()
+    }, VIEWPORT_META_DEBOUNCE_MS)
+  }, [flushViewportMetaQueue])
+
+  const enqueueViewportMeta = useCallback(
+    (nodeId: string) => {
+      if (
+        viewportMetaResolvedRef.current.has(nodeId) ||
+        viewportMetaInFlightRef.current.has(nodeId) ||
+        viewportMetaPendingRef.current.has(nodeId)
+      ) {
+        return
+      }
+      const node = itemsRef.current.find((item) => item.id === nodeId)
+      if (!node || !filesNodeNeedsViewportMeta(node)) return
+      viewportMetaPendingRef.current.add(nodeId)
+      scheduleViewportMetaFlush()
+    },
+    [scheduleViewportMetaFlush],
+  )
+
   const refresh = useCallback(async (options?: { quiet?: boolean }) => {
     const gen = ++refreshGenRef.current
+    resetViewportMeta()
     if (!options?.quiet) setLoading(true)
     setError(undefined)
     try {
@@ -298,7 +470,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     } finally {
       if (gen === refreshGenRef.current && !options?.quiet) setLoading(false)
     }
-  }, [folderId, locationId])
+  }, [folderId, locationId, resetViewportMeta])
 
   const refreshLocations = useCallback(async () => {
     try {
@@ -331,6 +503,34 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const itemIdsKey = useMemo(() => items.map((item) => item.id).join('\0'), [items])
+
+  useEffect(() => {
+    if (loading) return
+    const root = browserRef.current
+    if (!root) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const target = entry.target as HTMLElement
+          const nodeId = target.dataset.filesNodeId
+          if (!nodeId) continue
+          enqueueViewportMeta(nodeId)
+        }
+      },
+      { root, rootMargin: VIEWPORT_META_ROOT_MARGIN, threshold: 0 },
+    )
+
+    const nodes = root.querySelectorAll<HTMLElement>('[data-files-node-id]')
+    for (const node of nodes) {
+      observer.observe(node)
+    }
+
+    return () => observer.disconnect()
+  }, [enqueueViewportMeta, itemIdsKey, loading, viewMode])
 
   const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
     const applyBrowse = (nextLocationId: FilesLocationId, nextFolderId: string | undefined) => {
@@ -1015,8 +1215,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     async (node: FilesNode) => {
       closeTransientMenus()
       try {
-        const path = await resolveFilesAbsolutePath(node)
-        setInfoNode(node)
+        const fresh =
+          node.id === ''
+            ? node
+            : await getNodeOrThrow(node.id).catch(() => node)
+        const path = await resolveFilesAbsolutePath(fresh)
+        setInfoNode(fresh)
         setInfoPath(path)
       } catch (err) {
         await modal.alert({ title: '无法显示信息', message: formatError(err), themeColor: THEME })
@@ -1024,6 +1228,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     },
     [closeTransientMenus, modal],
   )
+
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => {
+      const next: FilesViewMode = prev === 'grid' ? 'list' : 'grid'
+      writeFilesViewMode(next)
+      return next
+    })
+  }, [])
 
   const closeInfo = useCallback(() => {
     setInfoNode(undefined)
@@ -1081,7 +1293,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     (event: PointerEvent) => {
       lastPointerTypeRef.current = event.pointerType
       if (event.button !== 0) return
-      if ((event.target as HTMLElement | undefined)?.closest?.('.files__item')) return
+      if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
+        return
 
       clearLongPress()
       actionSheetOpenedByLongPressRef.current = false
@@ -1401,6 +1614,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           </div>
           <h1 class="files__toolbar-title">{currentTitle}</h1>
           <div class="files__toolbar-right">
+            <button
+              type="button"
+              class="files__toolbar-btn files__toolbar-btn--icon"
+              aria-label={viewMode === 'grid' ? '切换到列表视图' : '切换到图标视图'}
+              title={viewMode === 'grid' ? '列表视图' : '图标视图'}
+              onClick={toggleViewMode}
+            >
+              <FilesViewModeIcon mode={viewMode === 'grid' ? 'list' : 'grid'} />
+            </button>
             {canCreateHere ? (
               <>
                 <button
@@ -1460,7 +1682,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onPointerUp={clearLongPress}
           onPointerCancel={clearLongPress}
           onContextMenu={(event) => {
-            if ((event.target as HTMLElement | undefined)?.closest?.('.files__item')) return
+            if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
+              return
             event.preventDefault()
             clearLongPress()
             setNewFileMenu(undefined)
@@ -1492,14 +1715,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               </p>
             </div>
           ) : (
-            <ul class="files__grid">
+            <ul class={viewMode === 'list' ? 'files__list' : 'files__grid'}>
               {items.map((node) => {
                 const selected = node.id === selectedId
+                const itemClass =
+                  viewMode === 'list'
+                    ? `files__list-item${selected ? ' files__list-item--selected' : ''}`
+                    : `files__item${selected ? ' files__item--selected' : ''}`
                 return (
                   <li key={node.id}>
                     <button
                       type="button"
-                      class={`files__item${selected ? ' files__item--selected' : ''}`}
+                      class={itemClass}
                       data-files-node-id={node.id}
                       aria-selected={selected}
                       onClick={() => handleItemClick(node)}
@@ -1533,10 +1760,32 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         })
                       }}
                     >
-                      <span class="files__item-icon">
-                        <FilesNodeIcon node={node} size="grid" />
-                      </span>
-                      <span class="files__item-name">{node.name}</span>
+                      {viewMode === 'list' ? (
+                        <>
+                          <span class="files__list-icon">
+                            <FilesNodeIcon node={node} size="list" />
+                          </span>
+                          <span class="files__list-main">
+                            <span class="files__list-name">{node.name}</span>
+                            <span class="files__list-date files__list-date--inline">
+                              {formatListTimestamp(node, metaResolvedIds)}
+                            </span>
+                          </span>
+                          <span class="files__list-size">
+                            {formatListByteSize(node, metaResolvedIds)}
+                          </span>
+                          <span class="files__list-date files__list-date--col">
+                            {formatListTimestamp(node, metaResolvedIds)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span class="files__item-icon">
+                            <FilesNodeIcon node={node} size="grid" />
+                          </span>
+                          <span class="files__item-name">{node.name}</span>
+                        </>
+                      )}
                     </button>
                   </li>
                 )

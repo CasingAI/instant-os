@@ -313,7 +313,7 @@ export async function listMountDirectory(
       touchDirCache(locationId, path, handle)
       dirs.push(makeDirNode(locationId, path))
     } else {
-      // 列举默认不 getFile()，避免 TS probe / 大目录扫元数据
+      // 列举保持轻量；大小/修改时间由可视区懒加载补齐
       files.push(makeFileNode(locationId, path))
     }
   }

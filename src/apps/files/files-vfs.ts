@@ -480,6 +480,25 @@ export async function getNodeOrThrow(id: string): Promise<FilesNode> {
   return node
 }
 
+/** 列表可视区是否需异步补齐大小/修改时间（目前仅挂载卷文件） */
+export function filesNodeNeedsViewportMeta(node: FilesNode): boolean {
+  return node.kind === 'file' && isMountNodeId(node.id)
+}
+
+/**
+ * 为可视行补齐元数据。无需补齐或失败时返回 undefined，调用方保持原节点。
+ */
+export async function enrichFilesNodeMeta(nodeId: string): Promise<FilesNode | undefined> {
+  if (!isMountNodeId(nodeId)) return undefined
+  try {
+    const node = await getMountNode(nodeId)
+    if (!node || node.kind !== 'file') return undefined
+    return node
+  } catch {
+    return undefined
+  }
+}
+
 /** 估算复制整棵子树到本地存储时需要的额外字节（内容 + 元数据） */
 export async function estimateCopyBytes(sourceId: string): Promise<number> {
   const source = await getNodeOrThrow(sourceId)

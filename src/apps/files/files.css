@@ -850,6 +850,112 @@ button.files__path-bar-segment:active {
   text-shadow: 0 1px 0 rgba(255, 240, 210, 0.4);
 }
 
+.files__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.files__list-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 72px 132px;
+  align-items: center;
+  gap: 8px 10px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  user-select: none;
+  transition:
+    background 0.55s ease,
+    border-color 0.55s ease,
+    box-shadow 0.55s ease;
+}
+
+.files__list-item:hover {
+  background: rgba(255, 248, 230, 0.28);
+  border-color: rgba(90, 60, 25, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition-duration: 0.12s;
+}
+
+.files__list-item--selected,
+.files__list-item--selected:hover {
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.55) 0%, rgba(201, 160, 70, 0.42) 100%);
+  border-color: rgba(90, 60, 25, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  transition-duration: 0.12s;
+}
+
+.files__list-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+
+.files__list-icon .files-node-icon--list {
+  width: 22px;
+  height: 22px;
+}
+
+.files__list-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.files__list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--files-ink);
+}
+
+.files__list-size,
+.files__list-date {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: rgba(60, 42, 20, 0.72);
+  font-variant-numeric: tabular-nums;
+}
+
+.files__list-size {
+  text-align: right;
+}
+
+.files__list-date--col {
+  text-align: right;
+}
+
+.files__list-date--inline {
+  display: none;
+}
+
 .files__editor {
   flex: 1;
   min-height: 0;
@@ -1191,6 +1297,21 @@ button.files__path-bar-segment:active {
 }
 
 /* 宽屏并排 / 窄屏堆叠共用同一套绝对定位，靠 left/width/transform 过渡，避免临界点硬切 */
+.files--narrow .files__list-item {
+  grid-template-columns: 28px minmax(0, 1fr) 64px;
+}
+
+.files--narrow .files__list-date--col {
+  display: none;
+}
+
+.files--narrow .files__list-date--inline {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(60, 42, 20, 0.62);
+}
+
 .files--narrow .files__sidebar-toolbar {
   max-height: 54px;
   min-height: 46px;
