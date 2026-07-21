@@ -9,8 +9,15 @@ import {
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
+  isProxyServerConnected,
+  subscribeProxyServerSettings,
+  openSettingsProxyServerView,
+} from '../../os/proxy-server-settings-storage.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { filesWatch } from '../files/files-api.ts'
+import {
+  GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE,
   githubGetAuthenticatedUser,
   githubListBranches,
   githubListUserRepos,
@@ -57,6 +64,7 @@ export function GithubDesktopApp() {
   const modal = useWindowModal()
 
   const [hasToken, setHasToken] = useState(() => hasGithubCredentials())
+  const [proxyConnected, setProxyConnected] = useState(() => isProxyServerConnected())
   const [view, setView] = useState<View>({ kind: 'home' })
   const [localRepos, setLocalRepos] = useState<GithubRepoSyncMeta[]>([])
   const [user, setUser] = useState<GithubUser | undefined>()
@@ -85,6 +93,17 @@ export function GithubDesktopApp() {
       setHasToken(hasGithubCredentials())
     })
   }, [])
+
+  useEffect(() => {
+    return subscribeProxyServerSettings(() => {
+      setProxyConnected(isProxyServerConnected())
+    })
+  }, [])
+
+  const openProxySettings = useCallback(() => {
+    openApp('settings')
+    openSettingsProxyServerView()
+  }, [openApp])
 
   const refreshLocalRepos = useCallback(async () => {
     const list = await listGithubRepoMeta()
@@ -129,6 +148,46 @@ export function GithubDesktopApp() {
       setBranches([])
     }
   }, [])
+
+  const refreshRepoChanges = useCallback(async (owner: string, repo: string) => {
+    const latest = await getGithubRepoMeta(owner, repo)
+    if (!latest) return
+    setView((prev) =>
+      prev.kind === 'repo' && prev.meta.owner === latest.owner && prev.meta.repo === latest.repo
+        ? { kind: 'repo', meta: latest }
+        : prev,
+    )
+    const nextChanges = await detectGithubChanges(latest)
+    setChanges(nextChanges)
+    setSelectedPath((prev) => {
+      if (prev && nextChanges.some((item) => item.path === prev)) return prev
+      return nextChanges[0]?.path
+    })
+  }, [])
+
+  const repoWatchKey =
+    view.kind === 'repo' ? `${view.meta.owner}/${view.meta.repo}` : undefined
+
+  useEffect(() => {
+    if (!repoWatchKey) return
+    const [owner, repo] = repoWatchKey.split('/')
+    if (!owner || !repo) return
+    const root = githubRepoRootPath(owner, repo)
+    let timer: number | undefined
+    let cancelled = false
+    const unwatch = filesWatch(root, () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        if (cancelled) return
+        void refreshRepoChanges(owner, repo)
+      }, 100)
+    })
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      unwatch()
+    }
+  }, [repoWatchKey, refreshRepoChanges])
 
   useEffect(() => {
     if (view.kind !== 'repo' || !selectedPath) {
@@ -208,6 +267,10 @@ export function GithubDesktopApp() {
   }, [remoteRepos])
 
   const handleClone = useCallback(() => {
+    if (!proxyConnected) {
+      setError(GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE)
+      return
+    }
     void runBusy('正在克隆…', async () => {
       const meta = await cloneGithubRepository({
         owner: cloneOwner.trim(),
@@ -219,7 +282,15 @@ export function GithubDesktopApp() {
       await refreshRepoState(meta)
       setStatus(`已克隆 ${meta.owner}/${meta.repo}`)
     })
-  }, [cloneOwner, cloneRepo, cloneBranch, runBusy, refreshLocalRepos, refreshRepoState])
+  }, [
+    proxyConnected,
+    cloneOwner,
+    cloneRepo,
+    cloneBranch,
+    runBusy,
+    refreshLocalRepos,
+    refreshRepoState,
+  ])
 
   const handleOpenLocal = useCallback(
     (meta: GithubRepoSyncMeta) => {
@@ -474,9 +545,16 @@ export function GithubDesktopApp() {
               <p>
                 尚未配置 GitHub Token。请打开钥匙串，添加 Personal Access Token 后再克隆仓库。
               </p>
-            ) : localRepos.length === 0 ? (
+            ) : undefined}
+            {hasToken && !proxyConnected ? (
+              <p>
+                克隆、切换分支与大范围拉取需要经代理服务器下载压缩包。请先在系统设置中连接代理服务器。
+              </p>
+            ) : undefined}
+            {hasToken && proxyConnected && localRepos.length === 0 ? (
               <p>还没有本地副本。克隆一个仓库后，工作树会保存在 /repo/github/…</p>
-            ) : (
+            ) : undefined}
+            {localRepos.length > 0 ? (
               <div class="github-desktop__list">
                 {localRepos.map((repo) => (
                   <button
@@ -496,8 +574,36 @@ export function GithubDesktopApp() {
                   </button>
                 ))}
               </div>
-            )}
-            {hasToken ? (
+            ) : undefined}
+            {!hasToken ? (
+              <button
+                type="button"
+                class="github-desktop__btn github-desktop__btn--primary"
+                onClick={() => openApp('keychain')}
+              >
+                打开钥匙串
+              </button>
+            ) : !proxyConnected ? (
+              <div class="github-desktop__row">
+                <button
+                  type="button"
+                  class="github-desktop__btn github-desktop__btn--primary"
+                  onClick={openProxySettings}
+                >
+                  打开代理设置
+                </button>
+                <button
+                  type="button"
+                  class="github-desktop__btn"
+                  disabled={busy}
+                  onClick={() => {
+                    void openClone()
+                  }}
+                >
+                  浏览远端仓库
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
                 class="github-desktop__btn github-desktop__btn--primary"
@@ -508,14 +614,6 @@ export function GithubDesktopApp() {
               >
                 克隆仓库
               </button>
-            ) : (
-              <button
-                type="button"
-                class="github-desktop__btn github-desktop__btn--primary"
-                onClick={() => openApp('keychain')}
-              >
-                打开钥匙串
-              </button>
             )}
           </div>
         ) : undefined}
@@ -524,6 +622,19 @@ export function GithubDesktopApp() {
           <div class="github-desktop__empty">
             <div class="github-desktop__clone">
               <h2>克隆仓库</h2>
+              {!proxyConnected ? (
+                <p class="github-desktop__hint">
+                  {GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE}
+                  {' '}
+                  <button
+                    type="button"
+                    class="github-desktop__btn"
+                    onClick={openProxySettings}
+                  >
+                    打开代理设置
+                  </button>
+                </p>
+              ) : undefined}
               <div class="github-desktop__field">
                 <label>你的仓库</label>
                 <select
@@ -588,7 +699,9 @@ export function GithubDesktopApp() {
                 <button
                   type="button"
                   class="github-desktop__btn github-desktop__btn--primary"
-                  disabled={busy || !cloneOwner.trim() || !cloneRepo.trim()}
+                  disabled={
+                    busy || !proxyConnected || !cloneOwner.trim() || !cloneRepo.trim()
+                  }
                   onClick={handleClone}
                 >
                   克隆

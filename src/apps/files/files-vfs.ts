@@ -64,13 +64,28 @@ import {
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
+import {
+  notifyFilesWatch,
+  type FilesWatchChange,
+} from './files-watch.ts'
 
 /** 虚拟文件系统内容变更（新建 / 写入 / 重命名 / 删除等），供文件管理器等订阅刷新 */
 export const FILES_VFS_CHANGED_EVENT = 'instant-os-files-vfs-changed'
 
-function emitFilesVfsChanged(): void {
+function emitFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChange[]): void {
+  notifyFilesWatch(change)
   if (typeof window === 'undefined') return
   window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
+}
+
+async function emitNodeCreated(node: FilesNode): Promise<void> {
+  const path = await resolveFilesAbsolutePath(node)
+  emitFilesVfsChanged({ kind: 'created', path })
+}
+
+async function emitNodeModified(node: FilesNode): Promise<void> {
+  const path = await resolveFilesAbsolutePath(node)
+  emitFilesVfsChanged({ kind: 'modified', path })
 }
 
 export async function listFilesLocations(): Promise<readonly FilesLocation[]> {
@@ -210,7 +225,7 @@ export async function mkdir(params: {
       parentId: params.parentId,
       name,
     })
-    emitFilesVfsChanged()
+    await emitNodeCreated(created)
     return created
   }
 
@@ -231,7 +246,7 @@ export async function mkdir(params: {
     node,
     metaBytes: estimateNodeMetaBytes(node),
   })
-  emitFilesVfsChanged()
+  await emitNodeCreated(created)
   return created
 }
 
@@ -254,7 +269,7 @@ export async function createTextFile(params: {
       name,
       text,
     })
-    emitFilesVfsChanged()
+    await emitNodeCreated(created)
     return created
   }
 
@@ -276,7 +291,7 @@ export async function createTextFile(params: {
     text,
     metaBytes: estimateNodeMetaBytes(node),
   })
-  emitFilesVfsChanged()
+  await emitNodeCreated(created)
   return created
 }
 
@@ -313,7 +328,7 @@ export async function createBinaryFile(params: {
     bytes: params.bytes,
     metaBytes: estimateNodeMetaBytes(node),
   })
-  emitFilesVfsChanged()
+  await emitNodeCreated(created)
   return created
 }
 
@@ -448,7 +463,7 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
 
   if (isMountNodeId(target.id)) {
     const written = await writeMountText(target.id, text)
-    emitFilesVfsChanged()
+    await emitNodeModified(written)
     return written
   }
   const written = await writeBlobText({
@@ -457,7 +472,7 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
     previousByteSize: target.byteSize,
     nameMetaDelta: 0,
   })
-  emitFilesVfsChanged()
+  await emitNodeModified(written)
   return written
 }
 
@@ -477,7 +492,7 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
     previousByteSize: target.byteSize,
     nameMetaDelta: 0,
   })
-  emitFilesVfsChanged()
+  await emitNodeModified(written)
   return written
 }
 
@@ -485,12 +500,14 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
   const trimmed = normalizeFilesNodeName(nextName)
   const node = await getNodeOrThrow(id)
   assertNodeWritable(node)
+  const previousPath = await resolveFilesAbsolutePath(node)
   const names = await siblingNames(node.locationId, node.parentId, node.id)
   const name = uniqueName(names, trimmed)
 
   if (isMountNodeId(id)) {
     const renamed = await renameMountNode(id, name)
-    emitFilesVfsChanged()
+    const path = await resolveFilesAbsolutePath(renamed)
+    emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
     return renamed
   }
 
@@ -501,21 +518,23 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
     name,
     metaDelta: after - before,
   })
-  emitFilesVfsChanged()
+  const path = await resolveFilesAbsolutePath(renamed)
+  emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
   return renamed
 }
 
 export async function removeNode(id: string): Promise<void> {
   const node = await getNodeOrThrow(id)
   assertNodeWritable(node)
+  const path = await resolveFilesAbsolutePath(node)
   if (isMountNodeId(id)) {
     await removeMountNode(id)
-    emitFilesVfsChanged()
+    emitFilesVfsChanged({ kind: 'deleted', path })
     return
   }
   const subtree = await collectSubtreeIds(id)
   await deleteSubtree(subtree)
-  emitFilesVfsChanged()
+  emitFilesVfsChanged({ kind: 'deleted', path })
 }
 
 export async function getNodeOrThrow(id: string): Promise<FilesNode> {

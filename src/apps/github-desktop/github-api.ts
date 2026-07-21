@@ -1,6 +1,15 @@
 import { loadGithubCredentials } from '../../os/github-credentials-storage.ts'
+import {
+  isProxyServerConnected,
+  proxiedFetch,
+  ProxyServerApiError,
+} from '../../os/proxy-server-api.ts'
 
 const GITHUB_API = 'https://api.github.com'
+
+/** zipball 经代理下载；未连接时代码与 UI 共用此文案 */
+export const GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE =
+  '克隆/整包下载需要代理服务器。请先在「系统设置 → 代理服务器」中连接'
 
 export class GithubApiError extends Error {
   status: number
@@ -206,14 +215,65 @@ export async function githubGetBranchTip(
   return data.object.sha
 }
 
+/**
+ * 经系统代理下载 zipball。
+ * 直连会 302 到 codeload.github.com 并被浏览器 CORS 拦截。
+ */
 export async function githubDownloadZipball(
   owner: string,
   repo: string,
   ref: string,
 ): Promise<ArrayBuffer> {
-  const response = await githubFetch(
-    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/${encodeURIComponent(ref)}`,
-  )
+  if (!isProxyServerConnected()) {
+    throw new GithubApiError(0, GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE)
+  }
+
+  const token = getToken()
+  const headers = new Headers()
+  headers.set('Authorization', `Bearer ${token}`)
+  headers.set('Accept', 'application/vnd.github+json')
+  headers.set('X-GitHub-Api-Version', '2022-11-28')
+
+  const url = `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/${encodeURIComponent(ref)}`
+
+  let response: Response
+  try {
+    response = await proxiedFetch(url, { headers })
+  } catch (error) {
+    if (error instanceof ProxyServerApiError) {
+      throw new GithubApiError(0, error.message)
+    }
+    throw error
+  }
+
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      const text = (await response.text()).trim()
+      if (text) {
+        // Worker 失败时可能返回 ERR… 短文本；GitHub 也可能回 JSON
+        try {
+          const body = JSON.parse(text) as { message?: string }
+          detail = body.message?.trim() || text.slice(0, 200)
+        } catch {
+          detail = text.slice(0, 200)
+        }
+      }
+    } catch {
+      // ignore
+    }
+    if (response.status === 401) {
+      throw new GithubApiError(401, 'GitHub 认证失败，请检查 Personal Access Token')
+    }
+    if (response.status === 403) {
+      throw new GithubApiError(403, `GitHub API 拒绝访问：${detail}`)
+    }
+    throw new GithubApiError(
+      response.status,
+      `下载压缩包失败（${response.status}）：${detail}`,
+    )
+  }
+
   return response.arrayBuffer()
 }
 

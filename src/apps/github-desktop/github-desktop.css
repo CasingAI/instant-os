@@ -319,6 +319,20 @@
   align-items: center;
 }
 
+.github-desktop__hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(210, 153, 34, 0.12);
+  color: #e3b341;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .github-desktop__row select {
   flex: 1;
   min-width: 0;

@@ -36,6 +36,14 @@ import {
   writeBinaryFile,
   writeTextFile,
 } from './files-vfs.ts'
+import {
+  subscribeFilesWatch,
+  type FilesWatchChange,
+  type FilesWatchListener,
+  type FilesWatchOptions,
+} from './files-watch.ts'
+
+export type { FilesWatchChange, FilesWatchListener, FilesWatchOptions }
 
 export type FilesApiEntry = {
   path: string
@@ -434,4 +442,16 @@ export async function filesMove(sourcePath: string, destDirPath: string): Promis
   const copied = await filesCopy(sourceAbs, destAbs)
   await filesRemove(sourceAbs)
   return copied
+}
+
+/**
+ * 订阅某绝对路径（文件或目录）的 VFS 变更。
+ * 仅覆盖经本系统文件 API / VFS 的同源写入；默认递归匹配子孙。
+ */
+export function filesWatch(
+  path: string,
+  listener: FilesWatchListener,
+  options?: FilesWatchOptions,
+): () => void {
+  return subscribeFilesWatch(assertAbsolutePath(path), listener, options)
 }
