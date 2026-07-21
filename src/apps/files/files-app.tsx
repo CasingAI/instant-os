@@ -65,7 +65,7 @@ import {
   parseFilesAbsolutePath,
 } from './files-path.ts'
 import { FilesPathBar, type FilesPathBarSegment } from './files-path-bar.tsx'
-import { FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
+import { FilesFolderTemplateIcon, FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
 import '../../ui/ios-check-toggle.css'
 import '../../ui/ios-nav-back.css'
 import './files.css'
@@ -1030,6 +1030,35 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     setInfoPath(undefined)
   }, [])
 
+  const handleShowCurrentFolderInfo = useCallback(async () => {
+    closeTransientMenus()
+    if (currentFolder) {
+      await handleShowInfo(currentFolder)
+      return
+    }
+    setInfoNode({
+      id: '',
+      locationId,
+      parentId: undefined,
+      name: currentTitle,
+      kind: 'folder',
+      mimeType: undefined,
+      byteSize: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      attributes: { writable: locationWritable },
+    })
+    setInfoPath(pathBarAbsolutePath)
+  }, [
+    closeTransientMenus,
+    currentFolder,
+    currentTitle,
+    handleShowInfo,
+    locationId,
+    locationWritable,
+    pathBarAbsolutePath,
+  ])
+
   const beginItemLongPress = useCallback(
     (event: PointerEvent, node: FilesNode) => {
       lastPointerTypeRef.current = event.pointerType
@@ -1053,7 +1082,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       lastPointerTypeRef.current = event.pointerType
       if (event.button !== 0) return
       if ((event.target as HTMLElement | undefined)?.closest?.('.files__item')) return
-      if (!canPasteHere) return
 
       clearLongPress()
       actionSheetOpenedByLongPressRef.current = false
@@ -1064,7 +1092,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         openBackgroundActionSheet()
       }, LONG_PRESS_MS)
     },
-    [canPasteHere, clearLongPress, openBackgroundActionSheet],
+    [clearLongPress, openBackgroundActionSheet],
   )
 
   const handleLongPressMove = useCallback(
@@ -1127,15 +1155,34 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   )
 
   const backgroundMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
-    if (!canPasteHere) return []
-    return [
-      {
+    const items: AdaptiveActionMenuItem[] = []
+    if (canCreateHere) {
+      items.push({
+        type: 'action',
+        label: '新建文件夹',
+        onClick: () => void handleNewFolder(),
+      })
+    }
+    items.push({
+      type: 'action',
+      label: '显示信息',
+      onClick: () => void handleShowCurrentFolderInfo(),
+    })
+    if (canPasteHere) {
+      items.push({
         type: 'action',
         label: '粘贴',
         onClick: () => void handlePaste(),
-      },
-    ]
-  }, [canPasteHere, handlePaste])
+      })
+    }
+    return items
+  }, [
+    canCreateHere,
+    canPasteHere,
+    handleNewFolder,
+    handlePaste,
+    handleShowCurrentFolderInfo,
+  ])
 
   const actionSheetItems = useMemo((): AdaptiveActionMenuItem[] => {
     if (!actionSheet) return []
@@ -1338,13 +1385,21 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           <div class="files__toolbar-right">
             {canCreateHere ? (
               <>
-                <button type="button" class="files__toolbar-btn" onClick={() => void handleNewFolder()}>
-                  新建文件夹
+                <button
+                  type="button"
+                  class="files__toolbar-btn files__toolbar-btn--icon"
+                  aria-label="新建文件夹"
+                  title="新建文件夹"
+                  onClick={() => void handleNewFolder()}
+                >
+                  <FilesFolderTemplateIcon size="list" />
                 </button>
                 <button
                   ref={newFileButtonRef}
                   type="button"
-                  class="files__toolbar-btn files__toolbar-btn--primary"
+                  class="files__toolbar-btn files__toolbar-btn--primary files__toolbar-btn--icon"
+                  aria-label="新建文件"
+                  title="新建文件"
                   aria-haspopup="menu"
                   aria-expanded={!!newFileMenu}
                   onClick={(event) => {
@@ -1352,7 +1407,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                     openNewFileMenu()
                   }}
                 >
-                  新建文件
+                  <FilesTxtTemplateIcon size="list" />
                 </button>
               </>
             ) : undefined}
@@ -1398,11 +1453,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               return
             }
             if (isTouchLikePointer()) {
-              if (canPasteHere) openBackgroundActionSheet()
+              if (backgroundMenuItems.length > 0) openBackgroundActionSheet()
               return
             }
             setActionSheet(undefined)
-            if (!canPasteHere) return
+            if (backgroundMenuItems.length === 0) return
             setBackgroundContextMenu({ x: event.clientX, y: event.clientY })
           }}
         >
@@ -1544,13 +1599,23 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           style={{ left: `${backgroundContextMenu.x}px`, top: `${backgroundContextMenu.y}px` }}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            class="files__context-item"
-            onClick={() => void handlePaste()}
-          >
-            粘贴
-          </button>
+          {backgroundMenuItems.map((item, index) => {
+            if (item.type === 'separator') return undefined
+            return (
+              <button
+                key={`${item.label}-${index}`}
+                type="button"
+                class="files__context-item"
+                disabled={item.disabled}
+                onClick={() => {
+                  item.onClick()
+                  setBackgroundContextMenu(undefined)
+                }}
+              >
+                {item.label}
+              </button>
+            )
+          })}
         </div>
       ) : undefined}
 

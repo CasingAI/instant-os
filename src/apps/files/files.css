@@ -375,6 +375,7 @@
 
 .files__toolbar-right {
   justify-content: flex-end;
+  gap: 4px;
 }
 
 .files__toolbar-spacer {
@@ -441,6 +442,20 @@
 
 .files__toolbar-btn--primary:hover:not(:disabled) {
   background: linear-gradient(180deg, #d8b878 0%, #b89568 48%, #8a6a38 100%);
+}
+
+.files__toolbar-btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.files__toolbar-btn--icon .files-node-icon--list {
+  width: 20px;
+  height: 20px;
 }
 
 .files__protected-banner {

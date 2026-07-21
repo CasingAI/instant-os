@@ -896,6 +896,15 @@ function Model3dFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/** 「新建文件夹」等无节点场景的静态文件夹图标 */
+export function FilesFolderTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
+  return (
+    <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
+      <FolderGlyph className="files-node-icon__glyph files-node-icon__glyph--folder" />
+    </span>
+  )
+}
+
 /** 「新建文本文件」等无节点场景的静态 TXT 图标 */
 export function FilesTxtTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return <TxtFileIcon nodeId="" byteSize={0} size={size} staticPreview="" />
