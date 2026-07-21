@@ -82,11 +82,6 @@
   touch-action: none;
 }
 
-.desktop-icon:active:not(:disabled) {
-  transform: scale(0.94);
-  transition: transform 0.12s ease;
-}
-
 .desktop-icon:disabled {
   cursor: default;
 }
@@ -94,6 +89,12 @@
 .desktop-icon__image {
   position: relative;
   display: flex;
+  transition: transform 0.12s ease;
+}
+
+/* Scale the glyph only — scaling the button shrinks hit-testing and drops corner clicks. */
+.desktop-icon:active:not(:disabled) .desktop-icon__image {
+  transform: scale(0.94);
 }
 
 /* Drop shadow on the tile itself — parent filter breaks border-radius clipping in WebKit (iPadOS). */

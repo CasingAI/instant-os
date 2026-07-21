@@ -151,12 +151,16 @@
   }
 }
 
-.dock__item:active {
+/* Scale the glyph only — scaling the item shrinks hit-testing and drops corner clicks. */
+.dock__item:active .dock__icon {
   transform: translateY(-2px) scale(0.95);
 }
 
-.dock--reordering .dock__item:hover,
-.dock--reordering .dock__item:active {
+.dock--reordering .dock__item:hover {
+  transform: none;
+}
+
+.dock--reordering .dock__item:active .dock__icon {
   transform: none;
 }
 
@@ -188,6 +192,7 @@
 .dock__icon {
   position: relative;
   display: inline-flex;
+  transition: transform 0.18s ease;
 }
 
 .dock__icon .app-icon-tile__tile {
