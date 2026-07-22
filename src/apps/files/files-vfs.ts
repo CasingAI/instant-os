@@ -1,3 +1,4 @@
+import { recordFilesIoByteEvent } from '../../os/files-io-metrics.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import {
   assertAdditionalBytesAvailable,
@@ -89,6 +90,66 @@ async function emitNodeCreated(node: FilesNode): Promise<void> {
 async function emitNodeModified(node: FilesNode): Promise<void> {
   const path = await resolveFilesAbsolutePath(node)
   emitFilesVfsChanged({ kind: 'modified', path })
+}
+
+/** 记录数据读（路径异步解析，不阻塞返回；含 0 字节以统计次数） */
+function recordFilesIoRead(
+  node: FilesNode,
+  bytes: number,
+  op: string | undefined,
+  durationMs: number,
+): void {
+  const safeBytes = Math.max(0, bytes)
+  void resolveFilesAbsolutePath(node)
+    .then((path) => {
+      recordFilesIoByteEvent({
+        locationId: node.locationId,
+        direction: 'read',
+        bytes: safeBytes,
+        path,
+        op,
+        durationMs,
+      })
+    })
+    .catch(() => {
+      recordFilesIoByteEvent({
+        locationId: node.locationId,
+        direction: 'read',
+        bytes: safeBytes,
+        op,
+        durationMs,
+      })
+    })
+}
+
+/** 记录数据写（路径异步解析，不阻塞返回；含 0 字节以统计次数） */
+function recordFilesIoWrite(
+  node: FilesNode,
+  bytes: number,
+  op: string | undefined,
+  durationMs: number,
+): void {
+  const safeBytes = Math.max(0, bytes)
+  void resolveFilesAbsolutePath(node)
+    .then((path) => {
+      recordFilesIoByteEvent({
+        locationId: node.locationId,
+        direction: 'write',
+        bytes: safeBytes,
+        path,
+        op,
+        durationMs,
+      })
+    })
+    .catch(() => {
+      recordFilesIoByteEvent({
+        locationId: node.locationId,
+        direction: 'write',
+        bytes: safeBytes,
+        op,
+        durationMs,
+      })
+    })
 }
 
 export async function listFilesLocations(): Promise<readonly FilesLocation[]> {
@@ -274,6 +335,7 @@ export async function createTextFile(params: {
   const names = await siblingNames(params.locationId, params.parentId)
   const name = uniqueName(names, desired)
   const text = params.text ?? ''
+  const startedAt = performance.now()
 
   if (isMountLocationId(params.locationId)) {
     const created = await createMountTextFile({
@@ -283,6 +345,12 @@ export async function createTextFile(params: {
       text,
     })
     await emitNodeCreated(created)
+    recordFilesIoWrite(
+      created,
+      estimateTextBytes(text),
+      'createText',
+      performance.now() - startedAt,
+    )
     return created
   }
 
@@ -305,6 +373,12 @@ export async function createTextFile(params: {
     metaBytes: estimateNodeMetaBytes(node),
   })
   await emitNodeCreated(created)
+  recordFilesIoWrite(
+    created,
+    estimateTextBytes(text),
+    'createText',
+    performance.now() - startedAt,
+  )
   return created
 }
 
@@ -322,6 +396,7 @@ export async function createBinaryFile(params: {
   const desired = normalizeFilesNodeName(params.name.trim() || '未命名.bin')
   const names = await siblingNames(params.locationId, params.parentId)
   const name = uniqueName(names, desired)
+  const startedAt = performance.now()
 
   const now = osNowMs()
   const node: FilesNode = {
@@ -342,6 +417,12 @@ export async function createBinaryFile(params: {
     metaBytes: estimateNodeMetaBytes(node),
   })
   await emitNodeCreated(created)
+  recordFilesIoWrite(
+    created,
+    params.bytes.byteLength,
+    'createBinary',
+    performance.now() - startedAt,
+  )
   return created
 }
 
@@ -417,6 +498,20 @@ export async function readTextFile(ref: string): Promise<{ node: FilesNode; text
 }
 
 async function readTextFileByNodeId(id: string): Promise<{ node: FilesNode; text: string }> {
+  const startedAt = performance.now()
+  const result = await readTextFileByNodeIdUnmetered(id)
+  recordFilesIoRead(
+    result.node,
+    estimateTextBytes(result.text),
+    'readText',
+    performance.now() - startedAt,
+  )
+  return result
+}
+
+async function readTextFileByNodeIdUnmetered(
+  id: string,
+): Promise<{ node: FilesNode; text: string }> {
   if (isMountNodeId(id)) {
     return readMountText(id)
   }
@@ -451,6 +546,15 @@ export async function readFileBlob(ref: string): Promise<{ node: FilesNode; blob
 }
 
 async function readFileBlobByNodeId(id: string): Promise<{ node: FilesNode; blob: Blob }> {
+  const startedAt = performance.now()
+  const result = await readFileBlobByNodeIdUnmetered(id)
+  recordFilesIoRead(result.node, result.blob.size, 'readBlob', performance.now() - startedAt)
+  return result
+}
+
+async function readFileBlobByNodeIdUnmetered(
+  id: string,
+): Promise<{ node: FilesNode; blob: Blob }> {
   if (isMountNodeId(id)) {
     return readMountBlob(id)
   }
@@ -480,10 +584,17 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
     throw new Error('文件不存在')
   }
   assertNodeWritable(target)
+  const startedAt = performance.now()
 
   if (isMountNodeId(target.id)) {
     const written = await writeMountText(target.id, text)
     await emitNodeModified(written)
+    recordFilesIoWrite(
+      written,
+      estimateTextBytes(text),
+      'writeText',
+      performance.now() - startedAt,
+    )
     return written
   }
   const written = await writeBlobText({
@@ -493,6 +604,12 @@ export async function writeTextFile(ref: string, text: string): Promise<FilesNod
     nameMetaDelta: 0,
   })
   await emitNodeModified(written)
+  recordFilesIoWrite(
+    written,
+    estimateTextBytes(text),
+    'writeText',
+    performance.now() - startedAt,
+  )
   return written
 }
 
@@ -506,6 +623,7 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
   if (isMountNodeId(target.id)) {
     throw new Error('挂载卷暂不支持从此处写入二进制文件')
   }
+  const startedAt = performance.now()
   const written = await writeBlobBytes({
     id: target.id,
     bytes,
@@ -513,6 +631,7 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
     nameMetaDelta: 0,
   })
   await emitNodeModified(written)
+  recordFilesIoWrite(written, bytes.byteLength, 'writeBinary', performance.now() - startedAt)
   return written
 }
 
@@ -607,7 +726,7 @@ export async function estimateCopyBytes(sourceId: string): Promise<number> {
 
 async function estimateCopyBytesForNode(node: FilesNode): Promise<number> {
   if (node.kind === 'file') {
-    const { text } = await readTextFileByNodeId(node.id)
+    const { text } = await readTextFileByNodeIdUnmetered(node.id)
     return estimateNodeMetaBytes(node) + estimateTextBytes(text)
   }
 
@@ -1008,11 +1127,39 @@ export async function upsertFilesBatch(
   const results: FilesNode[] = []
   for (let offset = 0; offset < prepared.length; offset += batchSize) {
     const slice = prepared.slice(offset, offset + batchSize)
+    const startedAt = performance.now()
     const committed = await commitFilesBatch(slice.map((item) => item.op))
+    const durationMs = performance.now() - startedAt
+    const perItemMs = slice.length > 0 ? durationMs / slice.length : durationMs
     results.push(...committed)
     emitFilesVfsChanged(
       slice.map((item) => ({ kind: item.watchKind, path: item.absolutePath })),
     )
+    for (let i = 0; i < slice.length; i += 1) {
+      const item = slice[i]
+      const node = committed[i]
+      if (!item || !node) continue
+      const op = item.op
+      if (op.kind === 'write-text' || op.kind === 'create-text') {
+        recordFilesIoByteEvent({
+          locationId: node.locationId,
+          direction: 'write',
+          bytes: estimateTextBytes(op.text),
+          path: item.absolutePath,
+          op: 'upsertBatch',
+          durationMs: perItemMs,
+        })
+      } else if (op.kind === 'write-bytes' || op.kind === 'create-bytes') {
+        recordFilesIoByteEvent({
+          locationId: node.locationId,
+          direction: 'write',
+          bytes: op.bytes.byteLength,
+          path: item.absolutePath,
+          op: 'upsertBatch',
+          durationMs: perItemMs,
+        })
+      }
+    }
   }
   return results
 }

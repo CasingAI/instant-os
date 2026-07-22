@@ -39,6 +39,18 @@ import {
   formatProxyServerDataBytes,
   type ProxyServerRequestRecord,
 } from '../../os/proxy-server-metrics.ts'
+import {
+  formatFilesIoAxisTick,
+  formatFilesIoBytesPerSec,
+  formatFilesIoDataBytes,
+  formatFilesIoDurationAxisTick,
+  formatFilesIoDurationMs,
+  formatFilesIoOpLabel,
+  formatFilesIoOpsAxisTick,
+  formatFilesIoOpsPerSec,
+  type FilesIoOperationRecord,
+} from '../../os/files-io-metrics.ts'
+import type { FilesIoContainerId, FilesIoContainerMetrics } from './task-manager-use-files-io-metrics.ts'
 
 const LOG_LIMIT = 200
 const CHART_VIEW_WIDTH = 960
@@ -56,14 +68,28 @@ type ChartPadding = {
   left: number
 }
 
-type PerfCategory = 'ai' | 'fps' | 'memory' | 'proxy-server'
+type FixedPerfCategory = 'ai' | 'fps' | 'memory' | 'proxy-server'
+type DiskPerfCategory = `disk:${FilesIoContainerId}`
+type PerfCategory = FixedPerfCategory | DiskPerfCategory
 
-const PERF_CATEGORIES: { id: PerfCategory; label: string }[] = [
+const PERF_CATEGORIES: { id: FixedPerfCategory; label: string }[] = [
   { id: 'ai', label: 'AI 输出' },
   { id: 'fps', label: '帧率' },
   { id: 'memory', label: '内存' },
   { id: 'proxy-server', label: '代理服务器' },
 ]
+
+function isDiskCategory(category: PerfCategory): category is DiskPerfCategory {
+  return category.startsWith('disk:')
+}
+
+function diskContainerIdFromCategory(category: DiskPerfCategory): FilesIoContainerId {
+  return category.slice('disk:'.length) as FilesIoContainerId
+}
+
+function toDiskCategory(containerId: FilesIoContainerId): DiskPerfCategory {
+  return `disk:${containerId}`
+}
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -89,6 +115,8 @@ type TaskManagerPerformancePanelProps = {
   latestProxyUpload: number
   proxyServerConnected: boolean
   proxyRecentRequests: ProxyServerRequestRecord[]
+  filesIoContainers: FilesIoContainerMetrics[]
+  filesIoRecentOperations: FilesIoOperationRecord[]
 }
 
 function formatHeapClusterLabel(cluster: MemoryHeapCluster, index: number, total: number): string {
@@ -115,6 +143,8 @@ export function TaskManagerPerformancePanel({
   latestProxyUpload,
   proxyServerConnected,
   proxyRecentRequests,
+  filesIoContainers,
+  filesIoRecentOperations,
 }: TaskManagerPerformancePanelProps) {
   const [category, setCategory] = useState<PerfCategory>('ai')
   const [records, setRecords] = useState<AiEventLogRecord[]>([])
@@ -123,6 +153,30 @@ export function TaskManagerPerformancePanel({
   const hostHeap = memory.host
   const appsHeap = memory.apps
   const isolationActive = memory.isolationActive
+
+  const selectedDiskContainer = useMemo((): FilesIoContainerMetrics | undefined => {
+    if (!isDiskCategory(category)) return undefined
+    const containerId = diskContainerIdFromCategory(category)
+    return filesIoContainers.find((container) => container.id === containerId)
+  }, [category, filesIoContainers])
+
+  useEffect(() => {
+    if (!isDiskCategory(category)) return
+    if (selectedDiskContainer) return
+    if (filesIoContainers.length === 0) {
+      setCategory('ai')
+      return
+    }
+    setCategory(toDiskCategory(filesIoContainers[0]!.id))
+  }, [category, selectedDiskContainer, filesIoContainers])
+
+  const diskRecentOperations = useMemo((): FilesIoOperationRecord[] => {
+    if (!selectedDiskContainer) return []
+    const allowed = new Set(selectedDiskContainer.locationIds)
+    return filesIoRecentOperations
+      .filter((item) => allowed.has(item.locationId))
+      .slice(0, 12)
+  }, [filesIoRecentOperations, selectedDiskContainer])
 
   const refresh = useCallback(async () => {
     const next = await loadRecentEventLogs(LOG_LIMIT)
@@ -171,6 +225,10 @@ export function TaskManagerPerformancePanel({
     proxyDownloadSeries.length,
     sampleIntervalSec,
   )
+  const diskSampleMeta = speedSeriesTimeWindowLabel(
+    selectedDiskContainer?.readSeries.length ?? 0,
+    sampleIntervalSec,
+  )
 
   const fpsWindowAverage =
     fpsSeries.length === 0
@@ -200,6 +258,49 @@ export function TaskManagerPerformancePanel({
       ? undefined
       : Math.max(...proxyUploadSeries.map((point) => point.value))
 
+  const diskReadSeries = selectedDiskContainer?.readSeries ?? []
+  const diskWriteSeries = selectedDiskContainer?.writeSeries ?? []
+  const diskOpsSeries = selectedDiskContainer?.opsSeries ?? []
+  const diskLatencySeries = selectedDiskContainer?.latencySeries ?? []
+  const diskLatestRead = selectedDiskContainer?.latestReadBytesPerSec ?? 0
+  const diskLatestWrite = selectedDiskContainer?.latestWriteBytesPerSec ?? 0
+  const diskLatestOps = selectedDiskContainer?.latestOpsPerSec ?? 0
+  const diskLatestAvgLatency = selectedDiskContainer?.latestAvgDurationMs ?? 0
+  const diskLatestPeakLatency = selectedDiskContainer?.latestPeakDurationMs ?? 0
+  const diskOpBreakdown = selectedDiskContainer?.opBreakdown ?? []
+  const diskReadAverage =
+    diskReadSeries.length === 0
+      ? undefined
+      : diskReadSeries.reduce((sum, point) => sum + point.value, 0) / diskReadSeries.length
+  const diskReadPeak =
+    diskReadSeries.length === 0
+      ? undefined
+      : Math.max(...diskReadSeries.map((point) => point.value))
+  const diskWriteAverage =
+    diskWriteSeries.length === 0
+      ? undefined
+      : diskWriteSeries.reduce((sum, point) => sum + point.value, 0) / diskWriteSeries.length
+  const diskWritePeak =
+    diskWriteSeries.length === 0
+      ? undefined
+      : Math.max(...diskWriteSeries.map((point) => point.value))
+  const diskOpsAverage =
+    diskOpsSeries.length === 0
+      ? undefined
+      : diskOpsSeries.reduce((sum, point) => sum + point.value, 0) / diskOpsSeries.length
+  const diskOpsPeak =
+    diskOpsSeries.length === 0
+      ? undefined
+      : Math.max(...diskOpsSeries.map((point) => point.value))
+  const diskLatencyAverage =
+    diskLatencySeries.length === 0
+      ? undefined
+      : diskLatencySeries.reduce((sum, point) => sum + point.value, 0) / diskLatencySeries.length
+  const diskLatencyPeak =
+    diskLatencySeries.length === 0
+      ? undefined
+      : Math.max(...diskLatencySeries.map((point) => point.value))
+
   const categoryNow =
     category === 'ai'
       ? formatLiveSpeed(latestSpeed)
@@ -207,7 +308,13 @@ export function TaskManagerPerformancePanel({
         ? formatFps(latestFps)
         : category === 'memory'
           ? formatMemoryBytes(latestHeap?.usedBytes)
-          : formatProxyServerBytesPerSec(latestProxyDownload)
+          : category === 'proxy-server'
+            ? formatProxyServerBytesPerSec(latestProxyDownload)
+            : formatFilesIoBytesPerSec(diskLatestRead)
+
+  const categoryTitle = isDiskCategory(category)
+    ? (selectedDiskContainer?.label ?? '磁盘')
+    : PERF_CATEGORIES.find((item) => item.id === category)?.label
 
   const categorySubtitle =
     category === 'ai'
@@ -224,9 +331,28 @@ export function TaskManagerPerformancePanel({
                   memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
                 }`
               : '宿主 JS 堆（同域微应用通常同堆，不计多份）'
-          : proxyServerConnected
-            ? '经代理服务器的吞吐'
-            : '尚未连接代理服务器'
+          : category === 'proxy-server'
+            ? proxyServerConnected
+              ? '经代理服务器的吞吐'
+              : '尚未连接代理服务器'
+            : selectedDiskContainer
+              ? selectedDiskContainer.id === 'physical'
+                ? selectedDiskContainer.mountCount > 0
+                  ? `${selectedDiskContainer.detail} · ${selectedDiskContainer.mountCount} 个挂载 · 吞吐 · 请求次数 · 响应时间`
+                  : `${selectedDiskContainer.detail} · 尚未挂载本机文件夹`
+                : `${selectedDiskContainer.detail} · 吞吐 · 请求次数 · 响应时间`
+              : '容器不可用'
+
+  const categorySampleMeta =
+    category === 'ai'
+      ? sampleMeta
+      : category === 'fps'
+        ? fpsSampleMeta
+        : category === 'memory'
+          ? memorySampleMeta
+          : category === 'proxy-server'
+            ? proxySampleMeta
+            : diskSampleMeta
 
   return (
     <section class="task-manager__section task-manager__section--performance">
@@ -274,26 +400,58 @@ export function TaskManagerPerformancePanel({
               </button>
             )
           })}
+
+          {filesIoContainers.length > 0 ? (
+            <div class="task-manager__perf-nav-group" role="presentation">
+              <div class="task-manager__perf-nav-group-title">磁盘</div>
+              {filesIoContainers.map((container) => {
+                const id = toDiskCategory(container.id)
+                const active = category === id
+                const activity =
+                  container.latestReadBytesPerSec +
+                  container.latestWriteBytesPerSec +
+                  container.latestOpsPerSec
+                const idleHint =
+                  container.id === 'physical'
+                    ? container.mountCount > 0
+                      ? `${container.mountCount} 个挂载`
+                      : '未挂载'
+                    : container.writable
+                      ? '空闲'
+                      : '只读'
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    class={`task-manager__perf-nav-item${active ? ' task-manager__perf-nav-item--active' : ''}`}
+                    aria-pressed={active}
+                    onClick={() => setCategory(id)}
+                  >
+                    <span class="task-manager__perf-nav-label">{container.label}</span>
+                    <span class="task-manager__perf-nav-value">
+                      {formatFilesIoBytesPerSec(container.latestReadBytesPerSec)}
+                    </span>
+                    <span class="task-manager__perf-nav-hint">
+                      {activity > 0
+                        ? `${formatFilesIoOpsPerSec(container.latestOpsPerSec)} · ${formatFilesIoDurationMs(container.latestAvgDurationMs)}`
+                        : `${container.detail} · ${idleHint}`}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : undefined}
         </nav>
 
         <div class="task-manager__perf-main">
           <div class="task-manager__perf-toolbar">
             <div class="task-manager__perf-toolbar-copy">
-              <h2 class="task-manager__section-title">
-                {PERF_CATEGORIES.find((item) => item.id === category)?.label}
-              </h2>
+              <h2 class="task-manager__section-title">{categoryTitle}</h2>
               <p class="task-manager__section-subtitle">
                 {categorySubtitle}
                 <span class="task-manager__section-subtitle-meta">
                   {' '}
-                  ·{' '}
-                  {category === 'ai'
-                    ? sampleMeta
-                    : category === 'fps'
-                      ? fpsSampleMeta
-                      : category === 'memory'
-                        ? memorySampleMeta
-                        : proxySampleMeta}
+                  · {categorySampleMeta}
                 </span>
               </p>
             </div>
@@ -684,6 +842,230 @@ export function TaskManagerPerformancePanel({
             </div>
           )}
 
+          {isDiskCategory(category) && selectedDiskContainer && (
+            <div class="task-manager__perf-dashboard task-manager__perf-dashboard--disk">
+              <div class="task-manager__perf-chart-col">
+                <div class="task-manager__chart-card task-manager__chart-card--hero">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">读取速率</h3>
+                    <span class="task-manager__chart-meta">
+                      {diskSampleMeta}
+                      {' · '}
+                      峰值 {formatFilesIoBytesPerSec(diskReadPeak)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskReadSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskReadSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: formatFilesIoAxisTick,
+                            minAxisMax: 1024,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}读取速率实时折线图`}
+                    />
+                  </div>
+                </div>
+                <div class="task-manager__chart-card">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">写入速率</h3>
+                    <span class="task-manager__chart-meta">
+                      峰值 {formatFilesIoBytesPerSec(diskWritePeak)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskWriteSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskWriteSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: formatFilesIoAxisTick,
+                            minAxisMax: 1024,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}写入速率实时折线图`}
+                    />
+                  </div>
+                </div>
+                <div class="task-manager__chart-card">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">请求次数</h3>
+                    <span class="task-manager__chart-meta">
+                      {diskSampleMeta}
+                      {' · '}
+                      峰值 {formatFilesIoOpsPerSec(diskOpsPeak)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskOpsSeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskOpsSeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: (value) => `${formatFilesIoOpsAxisTick(value)}/s`,
+                            minAxisMax: 1,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}请求次数实时折线图`}
+                    />
+                  </div>
+                </div>
+                <div class="task-manager__chart-card">
+                  <div class="task-manager__chart-header">
+                    <h3 class="task-manager__chart-title">响应时间</h3>
+                    <span class="task-manager__chart-meta">
+                      平均 {formatFilesIoDurationMs(diskLatestAvgLatency)}
+                      {' · '}
+                      峰值 {formatFilesIoDurationMs(diskLatestPeakLatency)}
+                    </span>
+                  </div>
+                  <div class="task-manager__chart-frame task-manager__chart-frame--compact">
+                    <MetricChart
+                      revision={diskLatencySeries}
+                      buildChart={(padding) =>
+                        buildRealtimeMetricPolyline(
+                          diskLatencySeries,
+                          CHART_VIEW_WIDTH,
+                          CHART_VIEW_HEIGHT,
+                          padding,
+                          {
+                            formatTick: formatFilesIoDurationAxisTick,
+                            minAxisMax: 16,
+                          },
+                        )
+                      }
+                      ariaLabel={`${selectedDiskContainer.label}响应时间实时折线图`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="task-manager__perf-side-col">
+                <div class="task-manager__stats">
+                  <StatCard
+                    label="当前读取"
+                    value={formatFilesIoBytesPerSec(diskLatestRead)}
+                    hint={
+                      diskReadAverage !== undefined
+                        ? `平均 ${formatFilesIoBytesPerSec(diskReadAverage)}`
+                        : diskSampleMeta
+                    }
+                  />
+                  <StatCard
+                    label="当前写入"
+                    value={formatFilesIoBytesPerSec(diskLatestWrite)}
+                    hint={
+                      selectedDiskContainer.writable
+                        ? diskWriteAverage !== undefined
+                          ? `平均 ${formatFilesIoBytesPerSec(diskWriteAverage)}`
+                          : undefined
+                        : '只读卷'
+                    }
+                  />
+                  <StatCard
+                    label="请求次数"
+                    value={formatFilesIoOpsPerSec(diskLatestOps)}
+                    hint={
+                      diskOpsAverage !== undefined
+                        ? `窗口平均 ${formatFilesIoOpsPerSec(diskOpsAverage)}`
+                        : diskSampleMeta
+                    }
+                  />
+                  <StatCard
+                    label="平均响应"
+                    value={formatFilesIoDurationMs(diskLatestAvgLatency)}
+                    hint={
+                      diskLatencyAverage !== undefined
+                        ? `窗口平均 ${formatFilesIoDurationMs(diskLatencyAverage)}`
+                        : undefined
+                    }
+                  />
+                  <StatCard
+                    label="峰值响应"
+                    value={formatFilesIoDurationMs(
+                      Math.max(diskLatestPeakLatency, diskLatencyPeak ?? 0),
+                    )}
+                  />
+                  <StatCard
+                    label="窗口峰值读取"
+                    value={formatFilesIoBytesPerSec(diskReadPeak)}
+                  />
+                </div>
+              </div>
+
+              <div class="task-manager__perf-bottom">
+                <div class="task-manager__list task-manager__list--compact">
+                  <div class="task-manager__list-header">按操作类型</div>
+                  {diskOpBreakdown.length === 0 ? (
+                    <p class="task-manager__list-empty">暂无分类数据</p>
+                  ) : (
+                    diskOpBreakdown.slice(0, 8).map((item) => (
+                      <div
+                        key={`${item.direction}:${item.op}`}
+                        class="task-manager__perf-row"
+                      >
+                        <span class="task-manager__perf-name">
+                          {formatFilesIoOpLabel(item.op)}
+                        </span>
+                        <span class="task-manager__perf-meta">
+                          {item.direction === 'read' ? '读取' : '写入'}
+                          {' · '}
+                          {item.count} 次
+                          {' · '}
+                          平均 {formatFilesIoDurationMs(item.avgDurationMs)}
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {formatFilesIoDataBytes(item.bytes)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div class="task-manager__list task-manager__list--compact">
+                  <div class="task-manager__list-header">最近读写</div>
+                  {diskRecentOperations.length === 0 ? (
+                    <p class="task-manager__list-empty">暂无数据读写</p>
+                  ) : (
+                    diskRecentOperations.map((operation) => (
+                      <div key={operation.id} class="task-manager__perf-row">
+                        <span class="task-manager__perf-name">
+                          {formatFilesIoPath(operation.path)}
+                        </span>
+                        <span class="task-manager__perf-meta">
+                          {operation.direction === 'read' ? '读取' : '写入'}
+                          {' · '}
+                          {formatFilesIoOpLabel(operation.op)}
+                          {' · '}
+                          {formatFilesIoDurationMs(operation.durationMs)}
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {formatFilesIoDataBytes(operation.bytes)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <p class="task-manager__footnote">
             {category === 'ai'
               ? `打开性能监视器后即按间隔写入速度点；无生成时记 0。菜单栏「视图」可切换 0.5 / 1 / 3 / 5 秒，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
@@ -693,12 +1075,20 @@ export function TaskManagerPerformancePanel({
                   ? memorySupported
                     ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。折线为去重后的独立堆之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
                     : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'
-                  : `仅统计经代理服务器的流量。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`}
+                  : category === 'proxy-server'
+                    ? `仅统计经代理服务器的流量。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
+                    : `仅统计经虚拟文件系统的数据读写（不含目录列举等元数据操作）。折线与当前值按菜单栏「视图」采样间隔写入；响应时间为单次读写耗时。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`}
           </p>
         </div>
       </div>
     </section>
   )
+}
+
+function formatFilesIoPath(path: string | undefined): string {
+  if (!path) return '（未知路径）'
+  if (path.length <= 48) return path
+  return `…${path.slice(-47)}`
 }
 
 type MetricChartModel = {

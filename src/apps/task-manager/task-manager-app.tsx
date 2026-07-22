@@ -27,6 +27,7 @@ import {
 import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
 import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
 import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
+import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import './task-manager.css'
 
@@ -130,6 +131,7 @@ export function TaskManagerApp() {
   const speedSeries = useTaskManagerSpeedSeries(sampleIntervalSec)
   const systemMetrics = useTaskManagerSystemMetrics(sampleIntervalSec)
   const proxyServerMetrics = useTaskManagerProxyServerMetrics(sampleIntervalSec)
+  const filesIoMetrics = useTaskManagerFilesIoMetrics(sampleIntervalSec)
 
   const refreshLiveActivity = useCallback(() => {
     setLiveByActor(collectLiveAppActivity())
@@ -417,6 +419,8 @@ export function TaskManagerApp() {
             latestProxyUpload={proxyServerMetrics.latestUploadBytesPerSec}
             proxyServerConnected={proxyServerMetrics.proxyServerConnected}
             proxyRecentRequests={proxyServerMetrics.recentRequests}
+            filesIoContainers={filesIoMetrics.containers}
+            filesIoRecentOperations={filesIoMetrics.recentOperations}
           />
         </div>
       </div>
