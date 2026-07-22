@@ -24,11 +24,16 @@ import {
 import { githubRepoRootPath } from './github-repo-paths.ts'
 import { deleteGithubNodeSubtree, ensureGithubRepoRootFolder } from './github-objects-vfs.ts'
 import { shouldReportGithubProgress, type GithubProgress } from './github-progress.ts'
-import { persistBaselineFromFiles } from './github-baseline.ts'
+import { persistBaselineFromFiles, readBaselineBytes } from './github-baseline.ts'
+import {
+  diffFileIndexes,
+  type GithubFileIndexOp,
+} from './github-file-index-diff.ts'
 import {
   getGithubRepoMeta,
   saveGithubRepoMeta,
   stampGithubStoredRemoteRepo,
+  type GithubFileIndexEntry,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 
@@ -208,6 +213,95 @@ export async function collectWorkingTreeFiles(
     map.set(relative, await readWorkingTreeBytes(entry.path))
   }
   return map
+}
+
+/** 仅收集工作区相对路径与 byteSize，不读正文 */
+export async function collectWorkingTreeFileStats(
+  owner: string,
+  repo: string,
+): Promise<Map<string, { absolutePath: string; byteSize: number }>> {
+  const root = githubRepoRootPath(owner, repo)
+  const rootStat = await filesStat(root)
+  if (!rootStat) return new Map()
+
+  const entries = await listFilesRecursive(root)
+  const map = new Map<string, { absolutePath: string; byteSize: number }>()
+  const prefix = `${root}/`
+  for (const entry of entries) {
+    if (!entry.path.startsWith(prefix)) continue
+    const relative = entry.path.slice(prefix.length)
+    if (!relative) continue
+    map.set(relative, { absolutePath: entry.path, byteSize: entry.byteSize })
+  }
+  return map
+}
+
+/**
+ * 按 fileIndex diff 操作增量更新工作区：只删/写有差异的路径，不清空整树。
+ */
+export async function applyFileIndexOpsToWorkingTree(
+  owner: string,
+  repo: string,
+  ops: readonly GithubFileIndexOp[],
+  onProgress?: GithubProgress,
+): Promise<void> {
+  if (ops.length === 0) {
+    onProgress?.('工作区已对齐')
+    return
+  }
+
+  const repoPath = await ensureRepoRootFolder(owner, repo)
+  let totalUpsertBytes = 0
+  for (const op of ops) {
+    if (op.kind === 'upsert') totalUpsertBytes += op.byteSize
+  }
+  if (totalUpsertBytes > 0) {
+    await assertAdditionalBytesAvailable(totalUpsertBytes + ops.length * 64)
+  }
+
+  let applied = 0
+  let lastProgressAt = 0
+  const progressIntervalMs = 1000
+  for (const op of ops) {
+    const absolute = joinFilesAbsolutePath(repoPath, ...op.path.split('/'))
+    if (op.kind === 'remove') {
+      await removeWorkingTreePath(absolute)
+    } else {
+      const bytes = await readBaselineBytes(op.hash)
+      if (bytes === undefined) {
+        throw new Error(`缺少基线快照：${op.path}`)
+      }
+      await writeWorkingTreeFile(absolute, bytes)
+    }
+    applied += 1
+    const now = osNowMs()
+    if (
+      applied === ops.length ||
+      shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)
+    ) {
+      lastProgressAt = now
+      onProgress?.(`同步文件 ${applied}/${ops.length}…`, {
+        fraction: applied / ops.length,
+      })
+    }
+  }
+  onProgress?.(`已同步 ${ops.length} 个文件`)
+}
+
+/** 将工作区从 fromIndex 对齐到 toIndex（仅应用差异） */
+export async function syncWorkingTreeToFileIndex(
+  owner: string,
+  repo: string,
+  fromIndex: Record<string, GithubFileIndexEntry>,
+  toIndex: Record<string, GithubFileIndexEntry>,
+  onProgress?: GithubProgress,
+): Promise<number> {
+  const ops = diffFileIndexes(fromIndex, toIndex)
+  onProgress?.(
+    ops.length === 0 ? '工作区无需变更' : `应用 ${ops.length} 处差异…`,
+  )
+  await applyFileIndexOpsToWorkingTree(owner, repo, ops, onProgress)
+  return ops.length
 }
 
 export async function materializeFilesToRepo(

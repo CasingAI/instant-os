@@ -7,18 +7,20 @@ import {
 } from './github-api.ts'
 import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
+import { persistBaselineFromFiles, baselineBlobsAbsentForIndex } from './github-baseline.ts'
+import { collectWorkingTreeFiles, detectGithubChanges } from './github-changes.ts'
+import type { GithubProgress } from './github-progress.ts'
 import {
+  currentFileIndex,
   currentHeadSha,
   saveGithubRepoMeta,
   withBranchSnapshot,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
-import { loadFilesFromFileIndex, persistBaselineFromFiles } from './github-baseline.ts'
-import { collectWorkingTreeFiles, detectGithubChanges } from './github-changes.ts'
-import type { GithubProgress } from './github-progress.ts'
 import {
   materializeFilesToRepo,
   removeWorkingTreePath,
+  syncWorkingTreeToFileIndex,
   unzipGithubZipball,
   writeWorkingTreeFile,
 } from './github-working-tree.ts'
@@ -135,20 +137,24 @@ export async function switchGithubBranch(params: {
   params.onProgress?.(`切换到 ${branch}…`)
 
   const cached = params.meta.branches[branch]
-  if (cached) {
-    const files = await loadFilesFromFileIndex(cached.fileIndex)
-    if (files) {
-      params.onProgress?.('从本地快照还原工作区…')
-      await materializeFilesToRepo(params.meta.owner, params.meta.repo, files, params.onProgress)
-      const next: GithubRepoSyncMeta = {
-        ...params.meta,
-        version: 2,
-        currentBranch: branch,
-        updatedAt: osNowMs(),
-      }
-      await saveGithubRepoMeta(next)
-      return next
+  if (cached && !(await baselineBlobsAbsentForIndex(cached.fileIndex))) {
+    const fromIndex = currentFileIndex(params.meta)
+    params.onProgress?.('从本地快照增量同步工作区…')
+    await syncWorkingTreeToFileIndex(
+      params.meta.owner,
+      params.meta.repo,
+      fromIndex,
+      cached.fileIndex,
+      params.onProgress,
+    )
+    const next: GithubRepoSyncMeta = {
+      ...params.meta,
+      version: 2,
+      currentBranch: branch,
+      updatedAt: osNowMs(),
     }
+    await saveGithubRepoMeta(next)
+    return next
   }
 
   const headSha = await githubGetBranchTip(params.meta.owner, params.meta.repo, branch)

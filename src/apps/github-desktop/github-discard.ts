@@ -1,15 +1,14 @@
 import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import {
-  baselineMissingForIndex,
-  loadFilesFromFileIndex,
+  baselineBlobsAbsentForIndex,
   readBaselineBytes,
 } from './github-baseline.ts'
 import type { GithubChange } from './github-changes.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
-import { currentFileIndex, type GithubRepoSyncMeta } from './github-sync-meta.ts'
-import type { GithubProgress } from './github-progress.ts'
+import { currentFileIndex, type GithubFileIndexEntry, type GithubRepoSyncMeta } from './github-sync-meta.ts'
+import { shouldReportGithubProgress, type GithubProgress } from './github-progress.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import {
-  materializeFilesToRepo,
   removeWorkingTreePath,
   writeWorkingTreeFile,
 } from './github-working-tree.ts'
@@ -18,12 +17,12 @@ const MISSING_BASELINE_MESSAGE =
   '本地基线不完整，无法丢弃更改。请使用菜单「仓库 → 重建本地基线」或重新克隆。'
 
 async function assertBaselineReady(
-  fileIndex: Record<string, { hash: string }>,
+  fileIndex: Record<string, GithubFileIndexEntry>,
 ): Promise<void> {
   if (Object.keys(fileIndex).length === 0) {
     throw new Error('当前分支没有本地快照，无法丢弃更改。请先拉取或重新克隆。')
   }
-  if (await baselineMissingForIndex(fileIndex)) {
+  if (await baselineBlobsAbsentForIndex(fileIndex)) {
     throw new Error(MISSING_BASELINE_MESSAGE)
   }
 }
@@ -36,38 +35,47 @@ export async function discardGithubChanges(params: {
   discardAll: boolean
   onProgress?: GithubProgress
 }): Promise<void> {
-  const { meta, changes, discardAll, onProgress } = params
+  const { meta, changes, onProgress } = params
   if (changes.length === 0) return
 
   const fileIndex = currentFileIndex(meta)
   await assertBaselineReady(fileIndex)
 
-  if (discardAll) {
-    onProgress?.('正在还原工作区…')
-    const files = await loadFilesFromFileIndex(fileIndex)
-    if (!files) {
-      throw new Error(MISSING_BASELINE_MESSAGE)
-    }
-    await materializeFilesToRepo(meta.owner, meta.repo, files, onProgress)
-    return
-  }
-
   const root = githubRepoRootPath(meta.owner, meta.repo)
+  let applied = 0
+  let lastProgressAt = 0
+  const progressIntervalMs = 1000
+  onProgress?.(
+    params.discardAll ? '正在还原工作区…' : `丢弃 ${changes.length} 处更改…`,
+  )
+
   for (const change of changes) {
     if (change.kind === 'added') {
       await removeWorkingTreePath(change.absolutePath)
-      continue
+    } else {
+      const entry = fileIndex[change.path]
+      if (!entry) {
+        throw new Error(`无法丢弃 ${change.path}：缺少基线索引`)
+      }
+      const bytes = await readBaselineBytes(entry.hash)
+      if (bytes === undefined) {
+        throw new Error(`无法丢弃 ${change.path}：缺少基线快照`)
+      }
+      const absolute =
+        change.absolutePath || joinFilesAbsolutePath(root, ...change.path.split('/'))
+      await writeWorkingTreeFile(absolute, bytes)
     }
-    const entry = fileIndex[change.path]
-    if (!entry) {
-      throw new Error(`无法丢弃 ${change.path}：缺少基线索引`)
+    applied += 1
+    const now = osNowMs()
+    if (
+      applied === changes.length ||
+      shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)
+    ) {
+      lastProgressAt = now
+      onProgress?.(`还原文件 ${applied}/${changes.length}…`, {
+        fraction: applied / changes.length,
+      })
     }
-    const bytes = await readBaselineBytes(entry.hash)
-    if (bytes === undefined) {
-      throw new Error(`无法丢弃 ${change.path}：缺少基线快照`)
-    }
-    const absolute =
-      change.absolutePath || joinFilesAbsolutePath(root, ...change.path.split('/'))
-    await writeWorkingTreeFile(absolute, bytes)
   }
+  onProgress?.(`已还原 ${changes.length} 个文件`)
 }

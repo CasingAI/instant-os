@@ -25,6 +25,7 @@ import {
 import type { GithubProgress } from './github-progress.ts'
 import {
   collectWorkingTreeFiles,
+  collectWorkingTreeFileStats,
   isProbablyTextBytes,
   readWorkingTreeBytes,
   unzipGithubZipball,
@@ -46,29 +47,37 @@ export type GithubChangePreview = {
   notice?: string
 }
 
-export { collectWorkingTreeFiles, readWorkingTreeBytes }
+export { collectWorkingTreeFiles, collectWorkingTreeFileStats, readWorkingTreeBytes }
 
 export async function detectGithubChanges(
   meta: GithubRepoSyncMeta,
 ): Promise<GithubChange[]> {
   const root = githubRepoRootPath(meta.owner, meta.repo)
-  const working = await collectWorkingTreeFiles(meta.owner, meta.repo)
+  const workingStats = await collectWorkingTreeFileStats(meta.owner, meta.repo)
   const fileIndex = currentFileIndex(meta)
   const changes: GithubChange[] = []
 
-  for (const [path, bytes] of working) {
-    const absolutePath = joinFilesAbsolutePath(root, ...path.split('/'))
+  for (const [path, stat] of workingStats) {
     const previous = fileIndex[path]
-    const hash = await hashBytes(bytes)
     if (!previous) {
-      changes.push({ path, kind: 'added', absolutePath })
-    } else if (previous.hash !== hash) {
-      changes.push({ path, kind: 'modified', absolutePath })
+      changes.push({ path, kind: 'added', absolutePath: stat.absolutePath })
+      continue
+    }
+    // 大小不同即可判定修改，跳过读正文与哈希
+    if (previous.byteSize !== stat.byteSize) {
+      changes.push({ path, kind: 'modified', absolutePath: stat.absolutePath })
+      continue
+    }
+    // 大小相同：读正文算哈希，排除「同大小不同内容」
+    const bytes = await readWorkingTreeBytes(stat.absolutePath)
+    const hash = await hashBytes(bytes)
+    if (previous.hash !== hash) {
+      changes.push({ path, kind: 'modified', absolutePath: stat.absolutePath })
     }
   }
 
   for (const path of Object.keys(fileIndex)) {
-    if (!working.has(path)) {
+    if (!workingStats.has(path)) {
       changes.push({
         path,
         kind: 'deleted',

@@ -93,6 +93,16 @@ export async function baselineMissingForIndex(
   return false
 }
 
+/** 仅检查 blob 是否存在（不做内容哈希校验，供丢弃/切换等热路径） */
+export async function baselineBlobsAbsentForIndex(
+  fileIndex: Record<string, GithubFileIndexEntry>,
+): Promise<boolean> {
+  for (const entry of Object.values(fileIndex)) {
+    if (!(await baselineBlobExists(entry.hash))) return true
+  }
+  return false
+}
+
 /** 用 fileIndex + 本地 blob 组装文件映射；任一 blob 缺失则返回 undefined */
 export async function loadFilesFromFileIndex(
   fileIndex: Record<string, GithubFileIndexEntry>,

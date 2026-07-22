@@ -61,6 +61,7 @@ import {
 import { generateGithubCommitMessage } from './github-commit-agent.ts'
 import { commitAndPushGithubChanges, summarizeChanges } from './github-commit.ts'
 import { discardGithubChanges } from './github-discard.ts'
+import { GithubChangesVirtualList } from './github-changes-virtual-list.tsx'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
 import {
   buildGithubCommitMessage,
@@ -2293,12 +2294,13 @@ export function GithubDesktopApp() {
 
               {sidebarTab === 'changes' ? (
                 <>
-                  <div class="github-desktop__changes-list">
-                    {changes.map((change) => {
+                  <GithubChangesVirtualList
+                    items={changes}
+                    itemKey={(change) => change.path}
+                    renderItem={(change) => {
                       const staged = !unstagedPaths.has(change.path)
                       return (
                         <div
-                          key={change.path}
                           class={`github-desktop__change${
                             selectedPath === change.path ? ' is-selected' : ''
                           }`}
@@ -2331,8 +2333,8 @@ export function GithubDesktopApp() {
                           </button>
                         </div>
                       )
-                    })}
-                  </div>
+                    }}
+                  />
                   <div class="github-desktop__changes-header github-desktop__changes-header--footer">
                     {changes.length > 0 ? (
                       <IosCheckToggle
