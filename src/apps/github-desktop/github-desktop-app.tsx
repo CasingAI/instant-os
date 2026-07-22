@@ -2013,7 +2013,7 @@ export function GithubDesktopApp() {
                         >
                           {busyKind === 'commit'
                             ? '正在处理…'
-                            : `AI 提交到 ${view.meta.currentBranch}`}
+                            : `提交到 ${view.meta.currentBranch}`}
                         </button>
                       )}
                     </div>
