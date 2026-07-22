@@ -1,6 +1,7 @@
+import { formatStorageSize } from './format-storage-size.ts'
 import { osNowMs } from './os-clock.ts'
-/** IndexedDB 数据空间硬上限 150 MB */
-export const DATA_CAPACITY_BYTES = 150 * 1024 * 1024
+/** IndexedDB 数据空间硬上限 1 GB */
+export const DATA_CAPACITY_BYTES = 1024 * 1024 * 1024
 
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
@@ -52,7 +53,7 @@ type DataMetaRecord = {
 
 export class DeviceDataStorageFullError extends Error {
   constructor() {
-    super('数据空间已满（150 MB 上限）')
+    super(`数据空间已满（${formatStorageSize(DATA_CAPACITY_BYTES)} 上限）`)
     this.name = 'DeviceDataStorageFullError'
   }
 }

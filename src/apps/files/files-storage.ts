@@ -9,6 +9,7 @@ import {
   DATA_STORAGE_CHANGED_EVENT,
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
+import { formatStorageSize } from '../../os/format-storage-size.ts'
 import {
   normalizeFilesNodeAttributes,
   type FilesLocationId,
@@ -55,7 +56,7 @@ type FilesMetaRecord = {
 
 export class FilesStorageFullError extends Error {
   constructor() {
-    super('数据空间已满（150 MB 上限）')
+    super(`数据空间已满（${formatStorageSize(DATA_CAPACITY_BYTES)} 上限）`)
     this.name = 'FilesStorageFullError'
   }
 }

@@ -752,7 +752,8 @@ function UsageView({
             <p class="settings__section-footnote">
               系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、文件应用用户文件、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
               应用程序的用户数据通过 localStorage 桥接按应用独立存储；「文件」应用的用户文件计入数据空间并归在该应用名下。
-              系统空间上限 5 MB、数据空间上限 150 MB，均为硬限制。
+              系统空间上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}、数据空间上限{' '}
+              {formatStorageSize(DATA_CAPACITY_BYTES)}，均为硬限制。
             </p>
           </section>
         </div>
