@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GithubDesktopIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -1311,6 +1311,29 @@ export function GithubDesktopApp() {
     setSyncMenuOpen(false)
   }, [])
 
+  const toolbarWrapRef = useRef<HTMLDivElement>(null)
+  const toolbarMenuOpen = repoFoldoutOpen || branchFoldoutOpen || syncMenuOpen
+
+  useEffect(() => {
+    if (!toolbarMenuOpen) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (toolbarWrapRef.current?.contains(event.target as Node)) return
+      closeToolbarMenus()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeToolbarMenus()
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [toolbarMenuOpen, closeToolbarMenus])
+
   const toggleRepoFoldout = useCallback(() => {
     setBranchFoldoutOpen(false)
     setSyncMenuOpen(false)
@@ -1355,7 +1378,7 @@ export function GithubDesktopApp() {
   return (
     <div class="github-desktop">
       {showToolbar ? (
-        <div class="github-desktop__toolbar-wrap">
+        <div class="github-desktop__toolbar-wrap" ref={toolbarWrapRef}>
           <div class="github-desktop__toolbar">
             <button
               type="button"
@@ -1401,6 +1424,7 @@ export function GithubDesktopApp() {
               </button>
             ) : undefined}
 
+            {view.kind === 'repo' ? (
             <div
               class={`github-desktop__toolbar-sync${canPull && !syncNetworkBusy ? ' has-menu' : ''}`}
             >
@@ -1409,7 +1433,7 @@ export function GithubDesktopApp() {
                 class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync${
                   syncNetworkBusy ? ' has-progress' : ''
                 }${syncMenuOpen ? ' is-open' : ''}`}
-                disabled={view.kind !== 'repo' || busy}
+                disabled={busy}
                 onClick={handleFetchOrPull}
                 aria-busy={syncNetworkBusy ? 'true' : undefined}
                 title={
@@ -1450,7 +1474,7 @@ export function GithubDesktopApp() {
                   class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync-menu${
                     syncMenuOpen ? ' is-open' : ''
                   }`}
-                  disabled={view.kind !== 'repo' || busy}
+                  disabled={busy}
                   aria-label="获取与拉取选项"
                   onClick={toggleSyncMenu}
                 >
@@ -1458,6 +1482,7 @@ export function GithubDesktopApp() {
                 </button>
               ) : undefined}
             </div>
+            ) : undefined}
           </div>
 
           {repoFoldoutOpen ? (
@@ -1562,6 +1587,15 @@ export function GithubDesktopApp() {
         </div>
       ) : undefined}
 
+      {showToolbar && toolbarMenuOpen ? (
+        <button
+          type="button"
+          class="github-desktop__toolbar-backdrop"
+          aria-label="关闭菜单"
+          onClick={closeToolbarMenus}
+        />
+      ) : undefined}
+
       {showToolbar && banner ? (
         <div class="github-desktop__banner">
           <p>{banner.message}</p>
@@ -1640,7 +1674,7 @@ export function GithubDesktopApp() {
             </div>
             <div class="github-desktop__blank-right">
               <h3>本地仓库</h3>
-              <div class="settings__list github-desktop__local-list" role="list" aria-label="本地仓库">
+              <div class="github-desktop__local-list" role="list" aria-label="本地仓库">
                 {cloningRepos.length === 0 && localRepos.length === 0 ? (
                   <div class="settings__empty">
                     还没有本地副本。克隆后会保存在 /repo/github/…
@@ -1711,7 +1745,7 @@ export function GithubDesktopApp() {
             <div class="github-desktop__missing-actions">
               <button
                 type="button"
-                class="github-desktop__blank-cta github-desktop__blank-cta--primary"
+                class="github-desktop__btn github-desktop__btn--primary"
                 disabled={busy}
                 onClick={() => handleCloneAgain(view.meta)}
               >
@@ -1719,7 +1753,7 @@ export function GithubDesktopApp() {
               </button>
               <button
                 type="button"
-                class="github-desktop__blank-cta"
+                class="github-desktop__btn"
                 disabled={busy}
                 onClick={() => {
                   void handleDeleteLocal(view.meta)

@@ -61,6 +61,7 @@
   --gd-banner-text: #7d4e00;
   display: flex;
   flex-direction: column;
+  position: relative;
   height: 100%;
   background: linear-gradient(180deg, var(--gd-bg-top) 0%, var(--gd-bg-bottom) 100%);
   color: var(--gd-text);
@@ -455,6 +456,16 @@
   overflow: visible;
 }
 
+.github-desktop__toolbar-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  border: none;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.16);
+  cursor: default;
+}
+
 /* —— Banner —— */
 .github-desktop__banner {
   display: flex;
@@ -582,26 +593,40 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 36px 32px;
+  padding: 0;
   margin-left: 8px;
   border: 1px solid var(--gd-border);
   border-radius: var(--gd-radius);
   background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
   box-shadow: var(--gd-shadow-out);
+  overflow: hidden;
 }
 
 .github-desktop__blank-right h3 {
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  margin: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  font-size: 11px;
+  font-weight: 600;
   color: #555;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #f4f4f4 0%, #e8e8e8 100%);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .github-desktop__local-list {
   flex: 1;
   min-height: 0;
+  width: 100%;
   overflow: auto;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .github-desktop__local-list .settings__option-row:hover .settings__row-hint,
@@ -1590,7 +1615,6 @@
   .github-desktop__blank-right {
     margin-left: 0;
     margin-top: 8px;
-    padding: 24px 20px;
   }
 
   .github-desktop__repo {
