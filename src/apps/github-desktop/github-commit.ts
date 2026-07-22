@@ -6,18 +6,18 @@ import {
   githubGetCommitTreeSha,
   githubUpdateBranchRef,
 } from './github-api.ts'
-import { persistBaselineFromFiles } from './github-baseline.ts'
 import { resolveGithubCommitAuthor } from './github-desktop-prefs.ts'
 import {
   appendGithubLocalCommit,
+  currentFileIndex,
   currentHeadSha,
   saveGithubRepoMeta,
   withBranchSnapshot,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
-  collectWorkingTreeFiles,
   detectGithubChanges,
+  persistBaselineFromWorkingTree,
   readWorkingTreeBytes,
   type GithubChange,
 } from './github-changes.ts'
@@ -78,9 +78,12 @@ export async function commitAndPushGithubChanges(params: {
   })
   await githubUpdateBranchRef(owner, repo, params.meta.currentBranch, commitSha)
 
-  // 远端成功后再写本地 tip / commit 账本
-  const working = await collectWorkingTreeFiles(owner, repo)
-  const fileIndex = await persistBaselineFromFiles(working)
+  // 远端成功后再写本地 tip / commit 账本（含 revisionId）
+  const fileIndex = await persistBaselineFromWorkingTree(
+    owner,
+    repo,
+    currentFileIndex(params.meta),
+  )
   const next = withBranchSnapshot(
     params.meta,
     params.meta.currentBranch,

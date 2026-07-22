@@ -16,6 +16,8 @@ export function stampGithubStoredRemoteRepo(
 export type GithubFileIndexEntry = {
   hash: string
   byteSize: number
+  /** 对齐 tip 时的 contentRevisionId；旧数据可能缺省 */
+  revisionId?: string
 }
 
 export type GithubBranchSnapshot = {
@@ -475,13 +477,96 @@ export async function hashBytes(bytes: Uint8Array): Promise<string> {
 
 export async function buildFileIndex(
   files: Map<string, Uint8Array>,
+  revisionIds?: ReadonlyMap<string, string | undefined>,
 ): Promise<Record<string, GithubFileIndexEntry>> {
   const index: Record<string, GithubFileIndexEntry> = {}
   for (const [path, bytes] of files) {
-    index[path] = {
+    const entry: GithubFileIndexEntry = {
       hash: await hashBytes(bytes),
       byteSize: bytes.byteLength,
     }
+    const revisionId = revisionIds?.get(path)
+    if (revisionId !== undefined) {
+      entry.revisionId = revisionId
+    }
+    index[path] = entry
   }
   return index
+}
+
+/** 工作区文件元数据快照（不含正文） */
+export type GithubRevisionSnapshotEntry = {
+  path: string
+  absolutePath: string
+  byteSize: number
+  contentRevisionId: string | undefined
+}
+
+/**
+ * 从 revision 快照构建 fileIndex。
+ * hash 优先复用 previousIndex 中 revisionId 未变的路径；仅对新增 / revision 变化的路径调用 hashPath。
+ */
+export async function buildFileIndexFromRevisionSnapshot(
+  snapshot: readonly GithubRevisionSnapshotEntry[],
+  options?: {
+    previousIndex?: Record<string, GithubFileIndexEntry>
+    hashPath: (absolutePath: string) => Promise<{ hash: string; byteSize: number }>
+  },
+): Promise<Record<string, GithubFileIndexEntry>> {
+  const previous = options?.previousIndex ?? {}
+  const hashPath = options?.hashPath
+  if (!hashPath) {
+    throw new Error('buildFileIndexFromRevisionSnapshot 需要 hashPath')
+  }
+
+  const index: Record<string, GithubFileIndexEntry> = {}
+  for (const entry of snapshot) {
+    const prev = previous[entry.path]
+    const revisionId = entry.contentRevisionId
+    if (
+      prev &&
+      revisionId !== undefined &&
+      prev.revisionId !== undefined &&
+      prev.revisionId === revisionId
+    ) {
+      index[entry.path] = {
+        hash: prev.hash,
+        byteSize: entry.byteSize,
+        revisionId,
+      }
+      continue
+    }
+    const hashed = await hashPath(entry.absolutePath)
+    const next: GithubFileIndexEntry = {
+      hash: hashed.hash,
+      byteSize: hashed.byteSize,
+    }
+    if (revisionId !== undefined) {
+      next.revisionId = revisionId
+    }
+    index[entry.path] = next
+  }
+  return index
+}
+
+/**
+ * 将 fileIndex 中指定路径（或全部）的 revisionId 同步为快照中的当前值。
+ * discard 后必须调用，避免误报 modified。
+ */
+export function reconcileFileIndexRevisionIds(
+  fileIndex: Record<string, GithubFileIndexEntry>,
+  snapshot: readonly GithubRevisionSnapshotEntry[],
+  paths?: ReadonlySet<string>,
+): Record<string, GithubFileIndexEntry> {
+  const byPath = new Map(snapshot.map((item) => [item.path, item]))
+  const next: Record<string, GithubFileIndexEntry> = { ...fileIndex }
+  const targets = paths ?? new Set(Object.keys(fileIndex))
+  for (const path of targets) {
+    const entry = next[path]
+    if (!entry) continue
+    const live = byPath.get(path)
+    if (!live || live.contentRevisionId === undefined) continue
+    next[path] = { ...entry, revisionId: live.contentRevisionId, byteSize: live.byteSize }
+  }
+  return next
 }

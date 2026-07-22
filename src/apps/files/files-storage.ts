@@ -11,6 +11,7 @@ import {
 } from '../../os/device-data-storage.ts'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import {
+  newContentRevisionId,
   normalizeFilesNodeAttributes,
   type FilesLocationId,
   type FilesNode,
@@ -37,6 +38,8 @@ type FilesNodeRecord = {
   byteSize: number
   createdAt: number
   updatedAt: number
+  /** 内容版本戳；旧记录 / 文件夹可能缺失 */
+  contentRevisionId?: string
   /** 旧数据可能缺失；读取时按位置默认补齐 */
   attributes?: FilesNodeAttributes
 }
@@ -114,7 +117,7 @@ function parentKey(parentId: string | undefined): string {
 }
 
 export function recordToNode(record: FilesNodeRecord): FilesNode {
-  return {
+  const node: FilesNode = {
     id: record.id,
     locationId: record.locationId,
     parentId: record.parentId === FILES_ROOT_PARENT_KEY ? undefined : record.parentId,
@@ -126,6 +129,10 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
     updatedAt: record.updatedAt,
     attributes: normalizeFilesNodeAttributes(record.locationId, record.attributes),
   }
+  if (record.contentRevisionId !== undefined) {
+    node.contentRevisionId = record.contentRevisionId
+  }
+  return node
 }
 
 function nodeToRecord(node: FilesNode): FilesNodeRecord {
@@ -142,6 +149,9 @@ function nodeToRecord(node: FilesNode): FilesNodeRecord {
   }
   if (node.mimeType !== undefined) {
     record.mimeType = node.mimeType
+  }
+  if (node.contentRevisionId !== undefined) {
+    record.contentRevisionId = node.contentRevisionId
   }
   return record
 }
@@ -258,7 +268,11 @@ export async function createFileWithBlob(params: {
   const textBytes = estimateTextBytes(params.text)
   const needed = params.metaBytes + textBytes
   const total = await assertCapacity(needed)
-  const node: FilesNode = { ...params.node, byteSize: textBytes }
+  const node: FilesNode = {
+    ...params.node,
+    byteSize: textBytes,
+    contentRevisionId: newContentRevisionId(),
+  }
 
   const db = await openFilesDb()
   const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
@@ -281,7 +295,11 @@ export async function createFileWithBytes(params: {
   const contentBytes = params.bytes.byteLength
   const needed = params.metaBytes + contentBytes
   const total = await assertCapacity(needed)
-  const node: FilesNode = { ...params.node, byteSize: contentBytes }
+  const node: FilesNode = {
+    ...params.node,
+    byteSize: contentBytes,
+    contentRevisionId: newContentRevisionId(),
+  }
 
   const db = await openFilesDb()
   const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
@@ -340,6 +358,7 @@ export async function writeBlobText(params: {
     ...existing,
     byteSize: textBytes,
     updatedAt: osNowMs(),
+    contentRevisionId: newContentRevisionId(),
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
@@ -379,6 +398,7 @@ export async function writeBlobBytes(params: {
     ...existing,
     byteSize: contentBytes,
     updatedAt: osNowMs(),
+    contentRevisionId: newContentRevisionId(),
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
@@ -596,7 +616,11 @@ export async function commitFilesBatch(
     }
     if (op.kind === 'create-text') {
       const textBytes = estimateTextBytes(op.text)
-      const node: FilesNode = { ...op.node, byteSize: textBytes }
+      const node: FilesNode = {
+        ...op.node,
+        byteSize: textBytes,
+        contentRevisionId: newContentRevisionId(),
+      }
       nodes.put(nodeToRecord(node))
       blobs.put({ id: node.id, text: op.text } satisfies FilesBlobRecord)
       results.push(node)
@@ -604,7 +628,11 @@ export async function commitFilesBatch(
     }
     if (op.kind === 'create-bytes') {
       const contentBytes = op.bytes.byteLength
-      const node: FilesNode = { ...op.node, byteSize: contentBytes }
+      const node: FilesNode = {
+        ...op.node,
+        byteSize: contentBytes,
+        contentRevisionId: newContentRevisionId(),
+      }
       nodes.put(nodeToRecord(node))
       blobs.put({ id: node.id, bytes: op.bytes } satisfies FilesBlobRecord)
       results.push(node)
@@ -622,6 +650,7 @@ export async function commitFilesBatch(
         ...existing,
         byteSize: textBytes,
         updatedAt: osNowMs(),
+        contentRevisionId: newContentRevisionId(),
         attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
       }
       nodes.put(updated)
@@ -641,6 +670,7 @@ export async function commitFilesBatch(
       ...existing,
       byteSize: contentBytes,
       updatedAt: osNowMs(),
+      contentRevisionId: newContentRevisionId(),
       attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
     }
     nodes.put(updated)
@@ -656,4 +686,145 @@ export async function commitFilesBatch(
   await waitForTransaction(tx)
   emitFilesDataStorageChanged()
   return results
+}
+
+/** 子树内文件节点的扁平元数据（不含路径，由上层用 parentId 拼） */
+export type LocalVolumeFileNodeMeta = {
+  id: string
+  parentId: string | undefined
+  name: string
+  byteSize: number
+  contentRevisionId: string | undefined
+  updatedAt: number
+}
+
+/**
+ * 单只读事务：从 rootFolderId（undefined = 卷根）BFS 收集所有文件节点元数据。
+ * 仅适用于 IndexedDB 本地卷（local / repo），不支持 mount。
+ */
+export async function listLocalVolumeFileNodes(
+  locationId: FilesLocationId,
+  rootFolderId: string | undefined,
+): Promise<LocalVolumeFileNodeMeta[]> {
+  const db = await openFilesDb()
+  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const store = tx.objectStore(FILES_NODES_STORE)
+  const index = store.index('by-parent')
+
+  const files: LocalVolumeFileNodeMeta[] = []
+  const folderQueue: Array<string | undefined> = [rootFolderId]
+
+  while (folderQueue.length > 0) {
+    const parentId = folderQueue.shift()
+    const children = await requestToPromise(
+      index.getAll([locationId, parentKey(parentId)]) as IDBRequest<FilesNodeRecord[]>,
+    )
+    for (const child of children ?? []) {
+      if (child.kind === 'folder') {
+        folderQueue.push(child.id)
+      } else {
+        files.push({
+          id: child.id,
+          parentId: child.parentId === FILES_ROOT_PARENT_KEY ? undefined : child.parentId,
+          name: child.name,
+          byteSize: child.byteSize,
+          contentRevisionId: child.contentRevisionId,
+          updatedAt: child.updatedAt,
+        })
+      }
+    }
+  }
+
+  await waitForTransaction(tx)
+  return files
+}
+
+/**
+ * 对子树内缺 contentRevisionId 的文件节点批量补 UUID（单 write 事务）。
+ * 返回补齐数量。
+ */
+export async function backfillContentRevisionIds(
+  locationId: FilesLocationId,
+  rootFolderId: string | undefined,
+): Promise<number> {
+  const db = await openFilesDb()
+  const tx = db.transaction(FILES_NODES_STORE, 'readwrite')
+  const store = tx.objectStore(FILES_NODES_STORE)
+  const index = store.index('by-parent')
+
+  let written = 0
+  const folderQueue: Array<string | undefined> = [rootFolderId]
+
+  while (folderQueue.length > 0) {
+    const parentId = folderQueue.shift()
+    const children = await requestToPromise(
+      index.getAll([locationId, parentKey(parentId)]) as IDBRequest<FilesNodeRecord[]>,
+    )
+    for (const child of children ?? []) {
+      if (child.kind === 'folder') {
+        folderQueue.push(child.id)
+        continue
+      }
+      if (child.contentRevisionId !== undefined) continue
+      const updated: FilesNodeRecord = {
+        ...child,
+        contentRevisionId: newContentRevisionId(),
+      }
+      store.put(updated)
+      written += 1
+    }
+  }
+
+  await waitForTransaction(tx)
+  if (written > 0) emitFilesDataStorageChanged()
+  return written
+}
+
+/**
+ * 单事务：收集子树内所有节点（含文件夹），供路径拼装用。
+ * 返回 files + folders（folders 含 id→name/parentId）。
+ */
+export async function listLocalVolumeSubtreeNodes(
+  locationId: FilesLocationId,
+  rootFolderId: string | undefined,
+): Promise<{
+  files: LocalVolumeFileNodeMeta[]
+  folders: Map<string, { parentId: string | undefined; name: string }>
+}> {
+  const db = await openFilesDb()
+  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const store = tx.objectStore(FILES_NODES_STORE)
+  const index = store.index('by-parent')
+
+  const files: LocalVolumeFileNodeMeta[] = []
+  const folders = new Map<string, { parentId: string | undefined; name: string }>()
+  const folderQueue: Array<string | undefined> = [rootFolderId]
+
+  while (folderQueue.length > 0) {
+    const parentId = folderQueue.shift()
+    const children = await requestToPromise(
+      index.getAll([locationId, parentKey(parentId)]) as IDBRequest<FilesNodeRecord[]>,
+    )
+    for (const child of children ?? []) {
+      if (child.kind === 'folder') {
+        folders.set(child.id, {
+          parentId: child.parentId === FILES_ROOT_PARENT_KEY ? undefined : child.parentId,
+          name: child.name,
+        })
+        folderQueue.push(child.id)
+      } else {
+        files.push({
+          id: child.id,
+          parentId: child.parentId === FILES_ROOT_PARENT_KEY ? undefined : child.parentId,
+          name: child.name,
+          byteSize: child.byteSize,
+          contentRevisionId: child.contentRevisionId,
+          updatedAt: child.updatedAt,
+        })
+      }
+    }
+  }
+
+  await waitForTransaction(tx)
+  return { files, folders }
 }

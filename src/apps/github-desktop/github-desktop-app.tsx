@@ -53,6 +53,7 @@ import {
   buildChangePreview,
   detectGithubChanges,
   ensureBaselineIfClean,
+  ensureGithubRevisionIdsReady,
   rebuildGithubBaseline,
   type GithubChange,
   type GithubChangePreview,
@@ -669,11 +670,12 @@ export function GithubDesktopApp() {
     meta: GithubRepoSyncMeta,
     onProgress?: GithubProgress,
   ) => {
-    const latest = (await getGithubRepoMeta(meta.owner, meta.repo)) ?? meta
+    let latest = (await getGithubRepoMeta(meta.owner, meta.repo)) ?? meta
+    latest = await ensureGithubRevisionIdsReady(latest, onProgress)
     setView({ kind: 'repo', meta: latest })
     setSidebarTab('changes')
     setRepoFoldoutOpen(false)
-    onProgress?.('扫描工作区文件…')
+    onProgress?.('检查本地更改…')
     const nextChanges = await detectGithubChanges(latest)
     // 只本地补齐基线，打开仓库绝不打 Contents / zip / branches API
     onProgress?.('校验本地基线…')
@@ -1427,13 +1429,13 @@ export function GithubDesktopApp() {
       .then((confirmed) => {
         if (!confirmed) return
         void runBusy('discard', '正在丢弃更改…', '丢弃更改失败', async () => {
-          await discardGithubChanges({
+          const next = await discardGithubChanges({
             meta: view.meta,
             changes,
             discardAll: true,
             onProgress: reportSyncProgress,
           })
-          await refreshRepoState(view.meta, reportSyncProgress)
+          await refreshRepoState(next, reportSyncProgress)
         })
       })
   }, [view, changes, modal, runBusy, refreshRepoState, reportSyncProgress])
@@ -1442,12 +1444,12 @@ export function GithubDesktopApp() {
     (change: GithubChange) => {
       if (view.kind !== 'repo') return
       void runBusy('discard', `丢弃 ${change.path}…`, '丢弃更改失败', async () => {
-        await discardGithubChanges({
+        const next = await discardGithubChanges({
           meta: view.meta,
           changes: [change],
           discardAll: false,
         })
-        await refreshRepoState(view.meta, reportSyncProgress)
+        await refreshRepoState(next, reportSyncProgress)
       })
     },
     [view, runBusy, refreshRepoState, reportSyncProgress],

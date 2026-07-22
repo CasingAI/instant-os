@@ -54,11 +54,17 @@ export async function baselineBlobIsValid(hash: string): Promise<boolean> {
 /** 将工作区文件写入本地 blob，并返回 fileIndex（与 buildFileIndex 一致） */
 export async function persistBaselineFromFiles(
   files: Map<string, Uint8Array>,
+  revisionIds?: ReadonlyMap<string, string | undefined>,
 ): Promise<Record<string, GithubFileIndexEntry>> {
   const index: Record<string, GithubFileIndexEntry> = {}
   for (const [path, bytes] of files) {
     const hash = await hashBytes(bytes)
-    index[path] = { hash, byteSize: bytes.byteLength }
+    const entry: GithubFileIndexEntry = { hash, byteSize: bytes.byteLength }
+    const revisionId = revisionIds?.get(path)
+    if (revisionId !== undefined) {
+      entry.revisionId = revisionId
+    }
+    index[path] = entry
     await writeBaselineBlobIfMissing(hash, bytes)
   }
   return index

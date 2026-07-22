@@ -27,6 +27,8 @@ import {
   getFilesLocationLabel,
   listDirectory,
   listFilesLocations,
+  listSubtreeFiles,
+  backfillSubtreeContentRevisionIds,
   mkdir,
   readFileBlob,
   readTextFile,
@@ -37,10 +39,11 @@ import {
   upsertFilesBatch,
   writeBinaryFile,
   writeTextFile,
+  type FilesSubtreeFileEntry,
   type FilesUpsertBatchItem,
 } from './files-vfs.ts'
 
-export type { FilesUpsertBatchItem }
+export type { FilesUpsertBatchItem, FilesSubtreeFileEntry }
 import {
   subscribeFilesWatch,
   type FilesWatchChange,
@@ -58,6 +61,8 @@ export type FilesApiEntry = {
   byteSize: number
   createdAt: number
   updatedAt: number
+  /** 内容版本戳；仅文件有意义，旧记录可能缺省 */
+  contentRevisionId?: string
   writable: boolean
 }
 
@@ -76,7 +81,7 @@ function assertAbsolutePath(path: string): string {
 }
 
 async function toEntry(node: FilesNode): Promise<FilesApiEntry> {
-  return {
+  const entry: FilesApiEntry = {
     path: await resolveFilesAbsolutePath(node),
     name: node.name,
     kind: node.kind,
@@ -86,6 +91,10 @@ async function toEntry(node: FilesNode): Promise<FilesApiEntry> {
     updatedAt: node.updatedAt,
     writable: isFilesNodeWritable(node),
   }
+  if (node.contentRevisionId !== undefined) {
+    entry.contentRevisionId = node.contentRevisionId
+  }
+  return entry
 }
 
 function namespaceRootEntry(): FilesApiEntry {
@@ -201,6 +210,23 @@ export async function filesList(dirPath: string): Promise<FilesApiEntry[]> {
   }
   const children = await listDirectory(node.locationId, node.id)
   return Promise.all(children.map((child) => toEntry(child)))
+}
+
+/**
+ * 一次事务列出本地卷目录下全部文件元数据（含 contentRevisionId）。
+ * 仅支持 IndexedDB 本地卷（local / repo）。
+ */
+export async function filesListSubtreeFiles(
+  rootPath: string,
+): Promise<FilesSubtreeFileEntry[]> {
+  return listSubtreeFiles(assertAbsolutePath(rootPath))
+}
+
+/** 对本地卷子树内缺 contentRevisionId 的文件节点批量补齐 */
+export async function filesBackfillSubtreeContentRevisionIds(
+  rootPath: string,
+): Promise<number> {
+  return backfillSubtreeContentRevisionIds(assertAbsolutePath(rootPath))
 }
 
 /** 查询路径对应条目；命名空间根 `/` 与卷根均可查询 */

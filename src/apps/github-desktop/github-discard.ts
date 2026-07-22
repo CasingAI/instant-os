@@ -4,8 +4,16 @@ import {
   readBaselineBytes,
 } from './github-baseline.ts'
 import type { GithubChange } from './github-changes.ts'
+import { stampFileIndexRevisionIdsFromWorkingTree } from './github-changes.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
-import { currentFileIndex, type GithubFileIndexEntry, type GithubRepoSyncMeta } from './github-sync-meta.ts'
+import {
+  currentFileIndex,
+  currentHeadSha,
+  saveGithubRepoMeta,
+  withBranchSnapshot,
+  type GithubFileIndexEntry,
+  type GithubRepoSyncMeta,
+} from './github-sync-meta.ts'
 import { shouldReportGithubProgress, type GithubProgress } from './github-progress.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import {
@@ -34,9 +42,9 @@ export async function discardGithubChanges(params: {
   /** true：整工作区对齐 tip（清空多余新增文件）；false：仅处理列出的变更 */
   discardAll: boolean
   onProgress?: GithubProgress
-}): Promise<void> {
+}): Promise<GithubRepoSyncMeta> {
   const { meta, changes, onProgress } = params
-  if (changes.length === 0) return
+  if (changes.length === 0) return meta
 
   const fileIndex = currentFileIndex(meta)
   await assertBaselineReady(fileIndex)
@@ -49,7 +57,9 @@ export async function discardGithubChanges(params: {
     params.discardAll ? '正在还原工作区…' : `丢弃 ${changes.length} 处更改…`,
   )
 
+  const touchedPaths = new Set<string>()
   for (const change of changes) {
+    touchedPaths.add(change.path)
     if (change.kind === 'added') {
       await removeWorkingTreePath(change.absolutePath)
     } else {
@@ -77,5 +87,21 @@ export async function discardGithubChanges(params: {
       })
     }
   }
+
+  // 写回 tip 后节点 revisionId 已变，必须同步到 fileIndex，否则会误报 modified
+  const reconciled = await stampFileIndexRevisionIdsFromWorkingTree(
+    meta.owner,
+    meta.repo,
+    fileIndex,
+    params.discardAll ? undefined : touchedPaths,
+  )
+  const next = withBranchSnapshot(meta, meta.currentBranch, {
+    tipSha: currentHeadSha(meta),
+    fileIndex: reconciled,
+  })
+  next.updatedAt = osNowMs()
+  await saveGithubRepoMeta(next)
+
   onProgress?.(`已还原 ${changes.length} 个文件`)
+  return next
 }

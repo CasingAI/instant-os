@@ -26,7 +26,17 @@ export type FilesNode = {
   byteSize: number
   createdAt: number
   updatedAt: number
+  /**
+   * 内容版本戳：每次写入文件正文时刷新（随机 UUID）。
+   * 仅文件有意义；文件夹 / 旧记录可能缺省。
+   */
+  contentRevisionId?: string
   attributes: FilesNodeAttributes
+}
+
+/** 每次内容写入时生成的版本戳 */
+export function newContentRevisionId(): string {
+  return crypto.randomUUID()
 }
 
 export type FilesLocation = {

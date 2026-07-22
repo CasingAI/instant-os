@@ -2,6 +2,7 @@ import { recordFilesIoByteEvent } from '../../os/files-io-metrics.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import {
   assertAdditionalBytesAvailable,
+  backfillContentRevisionIds,
   collectSubtreeIds,
   commitFilesBatch,
   createFileWithBlob,
@@ -13,6 +14,7 @@ import {
   FILES_BATCH_DEFAULT_SIZE,
   getNode,
   listChildNodes,
+  listLocalVolumeSubtreeNodes,
   newFilesNodeId,
   readBlobBytes,
   readBlobText,
@@ -478,6 +480,105 @@ export async function resolveFileNodeByAbsolutePath(
   const node = await resolveNodeByAbsolutePath(absolutePath)
   if (!node || node.kind !== 'file') return undefined
   return node
+}
+
+export type FilesSubtreeFileEntry = {
+  /** 相对 rootAbsolutePath 的路径 */
+  path: string
+  absolutePath: string
+  byteSize: number
+  contentRevisionId: string | undefined
+  updatedAt: number
+}
+
+/**
+ * 一次事务拉出本地卷（local / repo）某目录下全部文件元数据。
+ * 不支持 mount / models3d / source。
+ */
+export async function listSubtreeFiles(
+  rootAbsolutePath: string,
+): Promise<FilesSubtreeFileEntry[]> {
+  const absolutePath = rootAbsolutePath.replace(/\/+$/, '') || '/'
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  if (!parsed) {
+    throw new Error('路径无效')
+  }
+  if (isMountLocationId(parsed.locationId)) {
+    throw new Error('挂载卷不支持子树枚举')
+  }
+  if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+    throw new Error('该卷不支持子树枚举')
+  }
+
+  let rootFolderId: string | undefined
+  if (parsed.segments.length === 0) {
+    rootFolderId = undefined
+  } else {
+    const rootNode = await resolveNodeByAbsolutePath(absolutePath)
+    if (!rootNode || rootNode.kind !== 'folder') {
+      throw new Error('文件夹不存在')
+    }
+    rootFolderId = rootNode.id
+  }
+
+  const { files, folders } = await listLocalVolumeSubtreeNodes(
+    parsed.locationId,
+    rootFolderId,
+  )
+
+  const buildRelativeSegments = (fileParentId: string | undefined, fileName: string): string[] => {
+    const segments: string[] = [fileName]
+    let current = fileParentId
+    while (current !== undefined && current !== rootFolderId) {
+      const folder = folders.get(current)
+      if (!folder) break
+      segments.unshift(folder.name)
+      current = folder.parentId
+    }
+    return segments
+  }
+
+  return files.map((file) => {
+    const relativeSegments = buildRelativeSegments(file.parentId, file.name)
+    const relativePath = relativeSegments.join('/')
+    return {
+      path: relativePath,
+      absolutePath: joinFilesAbsolutePath(absolutePath, ...relativeSegments),
+      byteSize: file.byteSize,
+      contentRevisionId: file.contentRevisionId,
+      updatedAt: file.updatedAt,
+    }
+  })
+}
+
+/** 对本地卷子树内缺 contentRevisionId 的文件节点批量补齐 */
+export async function backfillSubtreeContentRevisionIds(
+  rootAbsolutePath: string,
+): Promise<number> {
+  const absolutePath = rootAbsolutePath.replace(/\/+$/, '') || '/'
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  if (!parsed) {
+    throw new Error('路径无效')
+  }
+  if (isMountLocationId(parsed.locationId)) {
+    throw new Error('挂载卷不支持 revision 补齐')
+  }
+  if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+    throw new Error('该卷不支持 revision 补齐')
+  }
+
+  let rootFolderId: string | undefined
+  if (parsed.segments.length === 0) {
+    rootFolderId = undefined
+  } else {
+    const rootNode = await resolveNodeByAbsolutePath(absolutePath)
+    if (!rootNode || rootNode.kind !== 'folder') {
+      throw new Error('文件夹不存在')
+    }
+    rootFolderId = rootNode.id
+  }
+
+  return backfillContentRevisionIds(parsed.locationId, rootFolderId)
 }
 
 async function resolveFileRef(ref: string): Promise<FilesNode> {

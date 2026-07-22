@@ -4,6 +4,7 @@ import { assertAdditionalBytesAvailable, listChildNodes } from '../files/files-s
 import {
   filesCreateBinary,
   filesList,
+  filesListSubtreeFiles,
   filesMkdir,
   filesReadBlob,
   filesReadText,
@@ -35,6 +36,7 @@ import {
   stampGithubStoredRemoteRepo,
   type GithubFileIndexEntry,
   type GithubRepoSyncMeta,
+  type GithubRevisionSnapshotEntry,
 } from './github-sync-meta.ts'
 
 /** 基线 blob 预取并发 */
@@ -242,23 +244,37 @@ export async function collectWorkingTreeFiles(
   return map
 }
 
+/** 一次事务拉工作区全部文件元数据（含 contentRevisionId） */
+export async function collectWorkingTreeRevisionSnapshot(
+  owner: string,
+  repo: string,
+): Promise<GithubRevisionSnapshotEntry[]> {
+  const root = githubRepoRootPath(owner, repo)
+  const rootStat = await filesStat(root)
+  if (!rootStat) return []
+
+  const entries = await filesListSubtreeFiles(root)
+  return entries.map((entry) => ({
+    path: entry.path,
+    absolutePath: entry.absolutePath,
+    byteSize: entry.byteSize,
+    contentRevisionId: entry.contentRevisionId,
+  }))
+}
+
 /** 仅收集工作区相对路径与 byteSize，不读正文 */
 export async function collectWorkingTreeFileStats(
   owner: string,
   repo: string,
-): Promise<Map<string, { absolutePath: string; byteSize: number }>> {
-  const root = githubRepoRootPath(owner, repo)
-  const rootStat = await filesStat(root)
-  if (!rootStat) return new Map()
-
-  const entries = await listFilesRecursive(root)
-  const map = new Map<string, { absolutePath: string; byteSize: number }>()
-  const prefix = `${root}/`
-  for (const entry of entries) {
-    if (!entry.path.startsWith(prefix)) continue
-    const relative = entry.path.slice(prefix.length)
-    if (!relative) continue
-    map.set(relative, { absolutePath: entry.path, byteSize: entry.byteSize })
+): Promise<Map<string, { absolutePath: string; byteSize: number; contentRevisionId?: string }>> {
+  const snapshot = await collectWorkingTreeRevisionSnapshot(owner, repo)
+  const map = new Map<string, { absolutePath: string; byteSize: number; contentRevisionId?: string }>()
+  for (const entry of snapshot) {
+    map.set(entry.path, {
+      absolutePath: entry.absolutePath,
+      byteSize: entry.byteSize,
+      contentRevisionId: entry.contentRevisionId,
+    })
   }
   return map
 }
@@ -405,8 +421,12 @@ export async function cloneGithubRepository(params: {
   await materializeFilesToRepo(params.owner, params.repo, files, onProgress)
 
   onProgress?.('建立同步快照…')
+  const snapshot = await collectWorkingTreeRevisionSnapshot(params.owner, params.repo)
   const working = await collectWorkingTreeFiles(params.owner, params.repo)
-  const fileIndex = await persistBaselineFromFiles(working)
+  const revisionIds = new Map(
+    snapshot.map((entry) => [entry.path, entry.contentRevisionId] as const),
+  )
+  const fileIndex = await persistBaselineFromFiles(working, revisionIds)
   const meta: GithubRepoSyncMeta = {
     version: 2,
     owner: remote.owner.login,

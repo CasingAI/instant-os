@@ -8,7 +8,11 @@ import {
 import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
 import { persistBaselineFromFiles, baselineBlobsAbsentForIndex } from './github-baseline.ts'
-import { collectWorkingTreeFiles, detectGithubChanges } from './github-changes.ts'
+import {
+  detectGithubChanges,
+  persistBaselineFromWorkingTree,
+  stampFileIndexRevisionIdsFromWorkingTree,
+} from './github-changes.ts'
 import type { GithubProgress } from './github-progress.ts'
 import {
   currentFileIndex,
@@ -82,8 +86,11 @@ export async function pullGithubRepository(params: {
   }
 
   onProgress?.('更新同步快照…')
-  const working = await collectWorkingTreeFiles(meta.owner, meta.repo)
-  const fileIndex = await persistBaselineFromFiles(working)
+  const fileIndex = await persistBaselineFromWorkingTree(
+    meta.owner,
+    meta.repo,
+    currentFileIndex(meta),
+  )
   const next = withBranchSnapshot(
     meta,
     meta.currentBranch,
@@ -107,7 +114,7 @@ async function rematerializeFromZip(params: {
   const zip = await githubDownloadZipball(meta.owner, meta.repo, params.ref, onProgress)
   const files = await unzipGithubZipball(zip)
   onProgress?.('写入基线快照…')
-  const fileIndex = await persistBaselineFromFiles(files)
+  let fileIndex = await persistBaselineFromFiles(files)
   const fromIndex = currentFileIndex(meta)
   onProgress?.('增量同步工作区…')
   await syncWorkingTreeToFileIndex(
@@ -116,6 +123,12 @@ async function rematerializeFromZip(params: {
     fromIndex,
     fileIndex,
     onProgress,
+  )
+  // 工作区写入后节点有了新 revisionId，需对齐到 fileIndex
+  fileIndex = await stampFileIndexRevisionIdsFromWorkingTree(
+    meta.owner,
+    meta.repo,
+    fileIndex,
   )
   const next = withBranchSnapshot(
     meta,
@@ -156,12 +169,18 @@ export async function switchGithubBranch(params: {
       cached.fileIndex,
       params.onProgress,
     )
-    const next: GithubRepoSyncMeta = {
-      ...params.meta,
-      version: 2,
-      currentBranch: branch,
-      updatedAt: osNowMs(),
-    }
+    const stampedIndex = await stampFileIndexRevisionIdsFromWorkingTree(
+      params.meta.owner,
+      params.meta.repo,
+      cached.fileIndex,
+    )
+    const next = withBranchSnapshot(
+      params.meta,
+      branch,
+      { tipSha: cached.tipSha, fileIndex: stampedIndex },
+      { currentBranch: branch },
+    )
+    next.updatedAt = osNowMs()
     await saveGithubRepoMeta(next)
     return next
   }
