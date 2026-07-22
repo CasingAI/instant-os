@@ -85,6 +85,7 @@ import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
 import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
 import { reconcileGithubRepoAttributes } from './github-repo-attributes.ts'
 import {
+  currentBranchRemoteSha,
   currentHeadSha,
   buildRepoBranchList,
   deleteGithubRepoMeta,
@@ -427,7 +428,6 @@ export function GithubDesktopApp() {
   const [commitDescription, setCommitDescription] = useState('')
   const [commitMode, setCommitMode] = useState<CommitMode>('auto')
   const aiReady = useOpenAiReady()
-  const [remoteHeadSha, setRemoteHeadSha] = useState<string | undefined>()
   /** 推动「上次获取」相对时间刷新 */
   const [nowMs, setNowMs] = useState(() => Date.now())
 
@@ -443,11 +443,13 @@ export function GithubDesktopApp() {
   const showToolbar =
     view.kind === 'repo' || view.kind === 'cloning' || view.kind === 'missing'
   const repoHeadSha = view.kind === 'repo' ? currentHeadSha(view.meta) : ''
+  const branchRemoteSha =
+    view.kind === 'repo' ? currentBranchRemoteSha(view.meta) : undefined
   const canPull =
     view.kind === 'repo' &&
-    Boolean(remoteHeadSha) &&
+    Boolean(branchRemoteSha) &&
     Boolean(repoHeadSha) &&
-    remoteHeadSha !== repoHeadSha
+    branchRemoteSha !== repoHeadSha
 
   const banner = useMemo(() => {
     if (!hasToken) {
@@ -683,10 +685,7 @@ export function GithubDesktopApp() {
       if (prev && nextChanges.some((item) => item.path === prev)) return prev
       return nextChanges[0]?.path
     })
-    // 用上次 Fetch 缓存的 tip 恢复「获取 / 拉取」按钮状态（不联网）
     onProgress?.('更新界面状态…')
-    const cachedList = await getCachedGithubCommitList(latest.owner, latest.repo)
-    setRemoteHeadSha(cachedList?.tipSha)
   }, [])
 
   const refreshRepoChanges = useCallback(async (owner: string, repo: string) => {
@@ -1076,6 +1075,7 @@ export function GithubDesktopApp() {
         updatedAt: fetchedAt,
       }
       await saveGithubRepoMeta(nextMeta)
+      setNowMs(fetchedAt)
       setLocalRepos((prev) =>
         prev.map((item) =>
           item.owner === nextMeta.owner && item.repo === nextMeta.repo ? nextMeta : item,
@@ -1088,7 +1088,6 @@ export function GithubDesktopApp() {
           ? { kind: 'repo', meta: nextMeta }
           : prev,
       )
-      setRemoteHeadSha(result.remoteSha)
       const local = await listGithubLocalCommits(meta.owner, meta.repo)
       setHistoryCommits(mergeLocalHistoryLists(local, result.commits))
       setHistoryError(undefined)
@@ -1400,15 +1399,18 @@ export function GithubDesktopApp() {
     (branch: string) => {
       if (view.kind !== 'repo') return
       void runBusy('switch', `切换分支 ${branch}…`, '切换分支失败', async () => {
-        const next = await switchGithubBranch({
+        const { meta: next, syncedWithRemote } = await switchGithubBranch({
           meta: view.meta,
           branch,
           onProgress: reportSyncProgress,
         })
         await refreshRepoState(next, reportSyncProgress)
+        if (syncedWithRemote) {
+          await syncRemoteCaches(next)
+        }
       })
     },
-    [view, runBusy, refreshRepoState, reportSyncProgress],
+    [view, runBusy, refreshRepoState, syncRemoteCaches, reportSyncProgress],
   )
 
   const handleDiscardAll = useCallback(() => {
@@ -1455,7 +1457,6 @@ export function GithubDesktopApp() {
     setRepoFoldoutOpen(false)
     setBranchFoldoutOpen(false)
     setSyncMenuOpen(false)
-    setRemoteHeadSha(undefined)
     void refreshLocalRepos()
   }, [refreshLocalRepos])
 

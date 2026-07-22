@@ -20,6 +20,7 @@ import {
   saveGithubRepoMeta,
   touchRecentBranch,
   withBranchSnapshot,
+  withRemoteBranchTip,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
@@ -142,14 +143,22 @@ async function rematerializeFromZip(params: {
   return next
 }
 
+export type SwitchGithubBranchResult = {
+  meta: GithubRepoSyncMeta
+  /** 本次是否从 GitHub 拉取并物化了分支（非本地快照切换） */
+  syncedWithRemote: boolean
+}
+
 export async function switchGithubBranch(params: {
   meta: GithubRepoSyncMeta
   branch: string
   onProgress?: GithubProgress
-}): Promise<GithubRepoSyncMeta> {
+}): Promise<SwitchGithubBranchResult> {
   const branch = params.branch.trim()
   if (!branch) throw new Error('分支名无效')
-  if (branch === params.meta.currentBranch) return params.meta
+  if (branch === params.meta.currentBranch) {
+    return { meta: params.meta, syncedWithRemote: false }
+  }
 
   params.onProgress?.('检查本地是否有未提交变更…')
   const localChanges = await detectGithubChanges(params.meta)
@@ -186,22 +195,26 @@ export async function switchGithubBranch(params: {
     )
     next.updatedAt = osNowMs()
     await saveGithubRepoMeta(next)
-    return next
+    return { meta: next, syncedWithRemote: false }
   }
 
   const headSha = await githubGetBranchTip(params.meta.owner, params.meta.repo, branch)
-  const next = await rematerializeFromZip({
-    meta: params.meta,
-    ref: branch,
+  const next = withRemoteBranchTip(
+    await rematerializeFromZip({
+      meta: params.meta,
+      ref: branch,
+      branch,
+      headSha,
+      onProgress: params.onProgress,
+    }),
     branch,
     headSha,
-    onProgress: params.onProgress,
-  })
+  )
   const withRecent = touchRecentBranch(next, branch)
   if (withRecent !== next) {
     withRecent.updatedAt = osNowMs()
     await saveGithubRepoMeta(withRecent)
-    return withRecent
+    return { meta: withRecent, syncedWithRemote: true }
   }
-  return next
+  return { meta: next, syncedWithRemote: true }
 }

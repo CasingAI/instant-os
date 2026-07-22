@@ -216,6 +216,29 @@ export function currentHeadSha(meta: GithubRepoSyncMeta): string {
   return currentBranchSnapshot(meta).tipSha
 }
 
+/** 最近一次 Fetch 缓存的、当前分支远端 tip（未 Fetch 过则为 undefined） */
+export function currentBranchRemoteSha(meta: GithubRepoSyncMeta): string | undefined {
+  for (const remote of meta.remoteBranches ?? []) {
+    if (remote.name === meta.currentBranch) return remote.commitSha
+  }
+  return undefined
+}
+
+/** 切换分支或单独查询 tip 后，对齐远端分支列表里该分支的 commitSha */
+export function withRemoteBranchTip(
+  meta: GithubRepoSyncMeta,
+  branch: string,
+  commitSha: string,
+): GithubRepoSyncMeta {
+  const existing = meta.remoteBranches ?? []
+  const hit = existing.find((item) => item.name === branch)
+  if (hit?.commitSha === commitSha) return meta
+  const remoteBranches = hit
+    ? existing.map((item) => (item.name === branch ? { ...item, commitSha } : item))
+    : [...existing, { name: branch, commitSha, protected: false }]
+  return { ...meta, remoteBranches }
+}
+
 export function currentFileIndex(
   meta: GithubRepoSyncMeta,
 ): Record<string, GithubFileIndexEntry> {
