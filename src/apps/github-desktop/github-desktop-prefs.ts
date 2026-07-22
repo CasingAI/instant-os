@@ -1,4 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { getBuiltinAppName } from '../../os/builtin-app-name.ts'
+import type { BuiltinAppId } from '../../os/types.ts'
 import { loadGithubCachedAccount } from './github-account-cache.ts'
 
 export type GithubExternalEditor = 'vscode' | 'files'
@@ -137,6 +139,11 @@ export function resolveCommitCoAuthors(
   return prefs.includeCasingAiCoAuthor ? [INSTANT_AGENT_COAUTHOR] : []
 }
 
+const EXTERNAL_EDITOR_APP_IDS: Record<GithubExternalEditor, BuiltinAppId> = {
+  vscode: 'vscode',
+  files: 'files',
+}
+
 export function externalEditorLabel(editor: GithubExternalEditor): string {
-  return editor === 'files' ? '文件' : 'Virtual Studio Code Desktop'
+  return getBuiltinAppName(EXTERNAL_EDITOR_APP_IDS[editor])
 }

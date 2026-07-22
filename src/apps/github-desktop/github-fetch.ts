@@ -1,9 +1,11 @@
 import {
   githubGetBranchTip,
+  githubGetRepo,
   githubListBranches,
   githubListCommits,
   type GithubBranch,
   type GithubCommitSummary,
+  type GithubRepoSummary,
 } from './github-api.ts'
 import {
   currentHeadSha,
@@ -18,6 +20,7 @@ export type GithubFetchResult = {
   upToDate: boolean
   branches: GithubBranch[]
   commits: GithubCommitSummary[]
+  remote: GithubRepoSummary
 }
 
 /**
@@ -31,6 +34,9 @@ export async function fetchGithubRemote(params: {
 }): Promise<GithubFetchResult> {
   const { meta, onProgress } = params
   const localSha = currentHeadSha(meta)
+
+  onProgress?.('读取仓库信息…')
+  const remote = await githubGetRepo(meta.owner, meta.repo)
 
   onProgress?.('检查远端分支 tip…')
   const remoteSha = await githubGetBranchTip(meta.owner, meta.repo, meta.currentBranch)
@@ -48,5 +54,6 @@ export async function fetchGithubRemote(params: {
     upToDate: Boolean(localSha) && localSha === remoteSha,
     branches,
     commits,
+    remote,
   }
 }

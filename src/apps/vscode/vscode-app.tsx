@@ -279,6 +279,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const activeTabIdRef = useRef<string | undefined>(undefined)
   const editorLayoutRef = useRef(editorLayout)
   const loadingPathRef = useRef<string | undefined>(undefined)
+  const lastOpenedPendingDocumentIdRef = useRef<string | undefined>(undefined)
   const mountedRef = useRef(true)
   const skipSessionPersistRef = useRef(false)
   const sessionReadyRef = useRef(false)
@@ -895,6 +896,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     return openDocument(path)
   }, [openDocument, showSystemOpenDialog])
 
+  const openWorkspaceFolderAtPath = useCallback(
+    (path: string): void => {
+      updatePrefs({ workspaceFolder: path, sidebarVisible: true })
+      setSidebarView('explorer')
+      setRevealPath(path)
+      if (terminalSession.getCwd() !== path) {
+        void terminalSession.cd(path).catch(() => undefined)
+      }
+    },
+    [terminalSession, updatePrefs],
+  )
+
   const pickAndOpenFolder = useCallback(async (): Promise<boolean> => {
     const path = await showSystemOpenDialog({
       title: '打开文件夹',
@@ -902,14 +915,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       presentation: 'modal',
     })
     if (!path) return false
-    updatePrefs({ workspaceFolder: path, sidebarVisible: true })
-    setSidebarView('explorer')
-    setRevealPath(path)
-    if (terminalSession.getCwd() !== path) {
-      void terminalSession.cd(path).catch(() => undefined)
-    }
+    openWorkspaceFolderAtPath(path)
     return true
-  }, [showSystemOpenDialog, terminalSession, updatePrefs])
+  }, [openWorkspaceFolderAtPath, showSystemOpenDialog])
 
   const closeWorkspaceFolder = useCallback(() => {
     updatePrefs({ workspaceFolder: undefined })
@@ -985,14 +993,26 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   useEffect(() => {
     if (!sessionReady || !windowId || !pendingDocumentId) return
     if (loadingPathRef.current === pendingDocumentId) return
+    if (lastOpenedPendingDocumentIdRef.current === pendingDocumentId) return
+    lastOpenedPendingDocumentIdRef.current = pendingDocumentId
+
     const existing = tabsRef.current.find((tab) => tab.path === pendingDocumentId)
     if (existing) {
       // 始终聚焦：避免异步打开过程中焦点被旧标签抢回后无法恢复
       setEditorLayout((current) => focusEditorTab(current, existing.id))
       return
     }
-    void openDocument(pendingDocumentId)
-  }, [openDocument, pendingDocumentId, sessionReady, windowId])
+
+    void (async () => {
+      const node = await resolveNodeByAbsolutePath(pendingDocumentId)
+      if (!mountedRef.current) return
+      if (node?.kind === 'folder') {
+        openWorkspaceFolderAtPath(pendingDocumentId)
+        return
+      }
+      void openDocument(pendingDocumentId)
+    })()
+  }, [openDocument, openWorkspaceFolderAtPath, pendingDocumentId, sessionReady, windowId])
 
   useEffect(() => {
     if (!sessionReady) return

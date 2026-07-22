@@ -31,15 +31,170 @@ export type GithubUser = {
   avatarUrl: string | undefined
 }
 
+export type GithubRepoVisibility = 'public' | 'private' | 'internal'
+
+export type GithubRepoOwnerInfo = {
+  login: string
+  id: number
+  avatarUrl?: string
+  type?: string
+}
+
+export type GithubRepoLicenseInfo = {
+  key: string
+  name: string
+  spdxId?: string
+  url?: string
+}
+
+/** GitHub REST `repos` 资源中适合本地缓存的字段 */
 export type GithubRepoSummary = {
   id: number
   name: string
   fullName: string
-  owner: string
+  owner: GithubRepoOwnerInfo
   private: boolean
-  defaultBranch: string
-  description: string | undefined
+  visibility: GithubRepoVisibility
+  htmlUrl: string
+  description?: string
+  fork: boolean
+  createdAt: string
   updatedAt: string
+  pushedAt?: string
+  homepage?: string
+  size?: number
+  stargazersCount: number
+  watchersCount: number
+  language?: string
+  forksCount: number
+  openIssuesCount: number
+  defaultBranch: string
+  topics: string[]
+  archived: boolean
+  disabled: boolean
+  isTemplate: boolean
+  hasIssues: boolean
+  hasProjects: boolean
+  hasWiki: boolean
+  hasPages: boolean
+  license?: GithubRepoLicenseInfo
+}
+
+export function githubRepoOwnerLogin(owner: GithubRepoOwnerInfo | string): string {
+  return typeof owner === 'string' ? owner : owner.login
+}
+
+export function formatGithubRepoVisibilityLabel(
+  info: Pick<GithubRepoSummary, 'private' | 'visibility'>,
+): string {
+  if (info.visibility === 'internal') return '内部'
+  return info.private ? '私有' : '公开'
+}
+
+export function formatGithubRepoVisibilitySuffix(
+  info: Pick<GithubRepoSummary, 'private' | 'visibility'>,
+): string {
+  if (info.visibility === 'public' && !info.private) return ''
+  return `（${formatGithubRepoVisibilityLabel(info)}）`
+}
+
+type GithubRepoApiJson = {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  visibility?: string | null
+  html_url: string
+  description?: string | null
+  fork: boolean
+  created_at: string
+  updated_at: string
+  pushed_at?: string | null
+  homepage?: string | null
+  size?: number
+  stargazers_count?: number
+  watchers_count?: number
+  language?: string | null
+  forks_count?: number
+  open_issues_count?: number
+  default_branch: string
+  topics?: string[]
+  archived?: boolean
+  disabled?: boolean
+  is_template?: boolean
+  has_issues?: boolean
+  has_projects?: boolean
+  has_wiki?: boolean
+  has_pages?: boolean
+  license?: {
+    key: string
+    name: string
+    spdx_id?: string | null
+    url?: string | null
+  } | null
+  owner: {
+    login: string
+    id: number
+    avatar_url?: string
+    type?: string
+  }
+}
+
+function parseGithubRepoVisibility(
+  data: Pick<GithubRepoApiJson, 'private' | 'visibility'>,
+): GithubRepoVisibility {
+  if (data.visibility === 'public' || data.visibility === 'private' || data.visibility === 'internal') {
+    return data.visibility
+  }
+  return data.private ? 'private' : 'public'
+}
+
+function parseGithubRepoJson(data: GithubRepoApiJson): GithubRepoSummary {
+  const license = data.license
+    ? {
+        key: data.license.key,
+        name: data.license.name,
+        spdxId: data.license.spdx_id ?? undefined,
+        url: data.license.url ?? undefined,
+      }
+    : undefined
+
+  return {
+    id: data.id,
+    name: data.name,
+    fullName: data.full_name,
+    owner: {
+      login: data.owner.login,
+      id: data.owner.id,
+      avatarUrl: data.owner.avatar_url ?? undefined,
+      type: data.owner.type ?? undefined,
+    },
+    private: data.private,
+    visibility: parseGithubRepoVisibility(data),
+    htmlUrl: data.html_url,
+    description: data.description ?? undefined,
+    fork: data.fork,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    pushedAt: data.pushed_at ?? undefined,
+    homepage: data.homepage ?? undefined,
+    size: data.size,
+    stargazersCount: data.stargazers_count ?? 0,
+    watchersCount: data.watchers_count ?? 0,
+    language: data.language ?? undefined,
+    forksCount: data.forks_count ?? 0,
+    openIssuesCount: data.open_issues_count ?? 0,
+    defaultBranch: data.default_branch,
+    topics: data.topics ?? [],
+    archived: data.archived ?? false,
+    disabled: data.disabled ?? false,
+    isTemplate: data.is_template ?? false,
+    hasIssues: data.has_issues ?? true,
+    hasProjects: data.has_projects ?? true,
+    hasWiki: data.has_wiki ?? true,
+    hasPages: data.has_pages ?? false,
+    license,
+  }
 }
 
 export type GithubBranch = {
@@ -183,56 +338,22 @@ export async function githubListUserRepos(options?: {
 }): Promise<GithubRepoSummary[]> {
   const perPage = options?.perPage ?? 50
   const page = options?.page ?? 1
-  const data = await githubJson<
-    Array<{
-      id: number
-      name: string
-      full_name: string
-      private: boolean
-      default_branch: string
-      description?: string | null
-      updated_at: string
-      owner: { login: string }
-    }>
-  >(`/user/repos?sort=updated&per_page=${perPage}&page=${page}&affiliation=owner,collaborator,organization_member`)
+  const data = await githubJson<GithubRepoApiJson[]>(
+    `/user/repos?sort=updated&per_page=${perPage}&page=${page}&affiliation=owner,collaborator,organization_member`,
+  )
 
-  return data.map((item) => ({
-    id: item.id,
-    name: item.name,
-    fullName: item.full_name,
-    owner: item.owner.login,
-    private: item.private,
-    defaultBranch: item.default_branch,
-    description: item.description ?? undefined,
-    updatedAt: item.updated_at,
-  }))
+  return data.map(parseGithubRepoJson)
 }
 
 export async function githubGetRepo(
   owner: string,
   repo: string,
 ): Promise<GithubRepoSummary> {
-  const data = await githubJson<{
-    id: number
-    name: string
-    full_name: string
-    private: boolean
-    default_branch: string
-    description?: string | null
-    updated_at: string
-    owner: { login: string }
-  }>(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`)
+  const data = await githubJson<GithubRepoApiJson>(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+  )
 
-  return {
-    id: data.id,
-    name: data.name,
-    fullName: data.full_name,
-    owner: data.owner.login,
-    private: data.private,
-    defaultBranch: data.default_branch,
-    description: data.description ?? undefined,
-    updatedAt: data.updated_at,
-  }
+  return parseGithubRepoJson(data)
 }
 
 export async function githubListBranches(

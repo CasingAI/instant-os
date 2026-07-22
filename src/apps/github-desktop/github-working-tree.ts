@@ -28,6 +28,7 @@ import { persistBaselineFromFiles } from './github-baseline.ts'
 import {
   getGithubRepoMeta,
   saveGithubRepoMeta,
+  stampGithubStoredRemoteRepo,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 
@@ -262,7 +263,7 @@ export async function cloneGithubRepository(params: {
   const fileIndex = await persistBaselineFromFiles(working)
   const meta: GithubRepoSyncMeta = {
     version: 2,
-    owner: remote.owner,
+    owner: remote.owner.login,
     repo: remote.name,
     currentBranch: branch,
     defaultBranch: remote.defaultBranch,
@@ -270,6 +271,7 @@ export async function cloneGithubRepository(params: {
       [branch]: { tipSha: headSha, fileIndex },
     },
     updatedAt: osNowMs(),
+    remote: stampGithubStoredRemoteRepo(remote),
   }
   await saveGithubRepoMeta(meta)
   return meta

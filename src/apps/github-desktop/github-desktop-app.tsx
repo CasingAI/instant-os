@@ -10,6 +10,10 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import {
+  formatOpenInBuiltinAppLabel,
+  getBuiltinAppName,
+} from '../../os/builtin-app-name.ts'
+import {
   isProxyServerConnected,
   subscribeProxyServerSettings,
   openSettingsProxyServerView,
@@ -26,6 +30,9 @@ import {
   githubGetAuthenticatedUser,
   githubGetCommit,
   githubListUserRepos,
+  formatGithubRepoVisibilityLabel,
+  formatGithubRepoVisibilitySuffix,
+  githubRepoOwnerLogin,
   type GithubBranch,
   type GithubCommitDetail,
   type GithubCommitSummary,
@@ -87,6 +94,7 @@ import {
   putCachedGithubCommitDetail,
   saveGithubMissingRepoMeta,
   saveGithubRepoMeta,
+  stampGithubStoredRemoteRepo,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
@@ -192,6 +200,14 @@ function shortSha(sha: string): string {
   return sha.slice(0, 7)
 }
 
+function formatLocalRepoHint(repo: GithubRepoSyncMeta): string {
+  if (repo.missing) return '找不到本地文件 · 可重新克隆'
+  const branchLine = `${repo.currentBranch} · ${shortSha(currentHeadSha(repo) || '???????')}`
+  const description = repo.remote?.description?.trim()
+  if (description) return `${description} · ${branchLine}`
+  return branchLine
+}
+
 function isGithubRepoCloning(
   owner: string,
   repo: string,
@@ -226,10 +242,73 @@ function CaretIcon() {
 function RepoIcon() {
   return (
     <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-      <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 1 0-2h8ZM5 6.25a.75.75 0 0 1 .75-.75h5.5a.75.75 0 0 1 0 1.5h-5.5A.75.75 0 0 1 5 6.25Zm.75 2.25h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Z" />
-      <path d="M0 2.5A2.5 2.5 0 0 1 2.5 0h1a.75.75 0 0 1 0 1.5h-1A1 1 0 0 0 1.5 2.5v9A1 1 0 0 0 2.5 13h1a.75.75 0 0 1 0 1.5h-1A2.5 2.5 0 0 1 0 11.5Z" />
+      <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z" />
     </svg>
   )
+}
+
+function PrivateRepoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+      <path d="M4 4a4 4 0 0 1 8 0v2h.25c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25v-5.5C2 6.784 2.784 6 3.75 6H4Zm8.25 3.5h-8.5a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25ZM10.5 6V4a2.5 2.5 0 1 0-5 0v2Z" />
+    </svg>
+  )
+}
+
+function ForkRepoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+      <path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z" />
+    </svg>
+  )
+}
+
+function CloningRepoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+      <path d="m4.927 5.427 2.896 2.896a.25.25 0 0 0 .354 0l2.896-2.896A.25.25 0 0 0 10.896 5H8.75V.75a.75.75 0 1 0-1.5 0V5H5.104a.25.25 0 0 0-.177.427Z" />
+      <path d="M1.573 2.573a.25.25 0 0 0-.073.177v7.5a.25.25 0 0 0 .25.25h12.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25h-3a.75.75 0 1 1 0-1.5h3A1.75 1.75 0 0 1 16 2.75v7.5A1.75 1.75 0 0 1 14.25 12h-3.727c.099 1.041.52 1.872 1.292 2.757A.75.75 0 0 1 11.25 16h-6.5a.75.75 0 0 1-.565-1.243c.772-.885 1.192-1.716 1.292-2.757H1.75A1.75 1.75 0 0 1 0 10.25v-7.5A1.75 1.75 0 0 1 1.75 1h3a.75.75 0 0 1 0 1.5h-3a.25.25 0 0 0-.177.073ZM6.982 12a5.72 5.72 0 0 1-.765 2.5h3.566a5.72 5.72 0 0 1-.765-2.5H6.982Z" />
+    </svg>
+  )
+}
+
+function MissingRepoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+      <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
+    </svg>
+  )
+}
+
+type ToolbarRepoIconKind = 'default' | 'repo' | 'private' | 'fork' | 'cloning' | 'missing'
+
+function resolveToolbarRepoIconKind(view: View): ToolbarRepoIconKind {
+  if (view.kind === 'cloning') return 'cloning'
+  if (view.kind === 'missing') return 'missing'
+  if (view.kind === 'repo') {
+    const remote = view.meta.remote
+    if (remote?.private) return 'private'
+    if (remote?.fork) return 'fork'
+    return 'repo'
+  }
+  return 'default'
+}
+
+function ToolbarRepoIcon({ kind }: { kind: ToolbarRepoIconKind }) {
+  switch (kind) {
+    case 'private':
+      return <PrivateRepoIcon />
+    case 'fork':
+      return <ForkRepoIcon />
+    case 'cloning':
+      return <CloningRepoIcon />
+    case 'missing':
+      return <MissingRepoIcon />
+    case 'repo':
+    case 'default':
+    default:
+      return <RepoIcon />
+  }
 }
 
 function BranchIcon() {
@@ -559,6 +638,24 @@ export function GithubDesktopApp() {
     [openApp],
   )
 
+  const openRepoInVscode = useCallback(
+    (owner: string, repo: string) => {
+      openApp('vscode', {
+        documentId: githubRepoRootPath(owner, repo),
+      })
+    },
+    [openApp],
+  )
+
+  const openRepoInFiles = useCallback(
+    (owner: string, repo: string) => {
+      openApp('files', {
+        documentId: githubRepoRootPath(owner, repo),
+      })
+    },
+    [openApp],
+  )
+
   const refreshRepoState = useCallback(async (meta: GithubRepoSyncMeta) => {
     const latest = (await getGithubRepoMeta(meta.owner, meta.repo)) ?? meta
     setView({ kind: 'repo', meta: latest })
@@ -876,16 +973,17 @@ export function GithubDesktopApp() {
         setRemoteRepos(repos)
         if (preserveSelection) {
           const stillSelected = repos.find(
-            (item) => item.owner === cloneOwner && item.name === cloneRepo,
+            (item) =>
+              githubRepoOwnerLogin(item.owner) === cloneOwner && item.name === cloneRepo,
           )
           if (!stillSelected) {
             const first = repos[0]
-            setCloneOwner(first?.owner ?? '')
+            setCloneOwner(first ? githubRepoOwnerLogin(first.owner) : '')
             setCloneRepo(first?.name ?? '')
           }
         } else {
           const first = repos[0]
-          setCloneOwner(first?.owner ?? '')
+          setCloneOwner(first ? githubRepoOwnerLogin(first.owner) : '')
           setCloneRepo(first?.name ?? '')
         }
       } catch (err) {
@@ -924,7 +1022,7 @@ export function GithubDesktopApp() {
     (fullName: string) => {
       const hit = remoteRepos.find((item) => item.fullName === fullName)
       if (!hit) return
-      setCloneOwner(hit.owner)
+      setCloneOwner(githubRepoOwnerLogin(hit.owner))
       setCloneRepo(hit.name)
       setCloneDialogError(undefined)
     },
@@ -939,10 +1037,17 @@ export function GithubDesktopApp() {
       const fetchedAt = Date.now()
       const nextMeta: GithubRepoSyncMeta = {
         ...meta,
+        defaultBranch: result.remote.defaultBranch,
+        remote: stampGithubStoredRemoteRepo(result.remote, fetchedAt),
         lastFetchedAt: fetchedAt,
         updatedAt: fetchedAt,
       }
       await saveGithubRepoMeta(nextMeta)
+      setLocalRepos((prev) =>
+        prev.map((item) =>
+          item.owner === nextMeta.owner && item.repo === nextMeta.repo ? nextMeta : item,
+        ),
+      )
       setView((prev) =>
         prev.kind === 'repo' &&
         prev.meta.owner === nextMeta.owner &&
@@ -1579,8 +1684,15 @@ export function GithubDesktopApp() {
       : view.kind === 'missing'
         ? view.meta.repo
         : cloningTitleRepo
+  const toolbarRepoIconKind = useMemo(() => resolveToolbarRepoIconKind(view), [view])
   const toolbarRepoDescription =
-    view.kind === 'cloning' ? '正在克隆…' : view.kind === 'missing' ? '找不到本地仓库' : '当前仓库'
+    view.kind === 'cloning'
+      ? '正在克隆…'
+      : view.kind === 'missing'
+        ? '找不到本地仓库'
+        : view.kind === 'repo' && view.meta.remote
+          ? formatGithubRepoVisibilityLabel(view.meta.remote)
+          : '当前仓库'
   const toolbarRepoFullName =
     view.kind === 'repo'
       ? `${view.meta.owner}/${view.meta.repo}`
@@ -1604,7 +1716,7 @@ export function GithubDesktopApp() {
               title={toolbarRepoFullName}
             >
               <span class="github-desktop__toolbar-icon">
-                <RepoIcon />
+                <ToolbarRepoIcon kind={toolbarRepoIconKind} />
               </span>
               <span class="github-desktop__toolbar-btn-text">
                 <span class="github-desktop__toolbar-btn-description">{toolbarRepoDescription}</span>
@@ -1740,7 +1852,11 @@ export function GithubDesktopApp() {
                     <span>
                       {repo.missing
                         ? `${repo.owner}/${repo.repo} · 找不到本地文件`
-                        : `${repo.owner}/${repo.repo} · ${repo.currentBranch}`}
+                        : `${repo.owner}/${repo.repo} · ${repo.currentBranch}${
+                            repo.remote
+                              ? ` · ${formatGithubRepoVisibilityLabel(repo.remote)}`
+                              : ''
+                          }`}
                     </span>
                   </button>
                 )
@@ -1748,13 +1864,13 @@ export function GithubDesktopApp() {
               <div class="github-desktop__foldout-footer">
                 <button
                   type="button"
-                  class="github-desktop__btn--link"
+                  class="github-desktop__btn github-desktop__foldout-footer-btn"
                   onClick={() => {
                     closeToolbarMenus()
                     goHome()
                   }}
                 >
-                  查看全部仓库…
+                  返回仓库列表
                 </button>
               </div>
             </div>
@@ -1923,12 +2039,11 @@ export function GithubDesktopApp() {
                         <span class="settings__row-meta">
                           <span class="settings__option-label">
                             {repo.owner}/{repo.repo}
+                            {repo.remote
+                              ? formatGithubRepoVisibilitySuffix(repo.remote)
+                              : ''}
                           </span>
-                          <span class="settings__row-hint">
-                            {repo.missing
-                              ? '找不到本地文件 · 可重新克隆'
-                              : `${repo.currentBranch} · ${shortSha(currentHeadSha(repo) || '???????')}`}
-                          </span>
+                          <span class="settings__row-hint">{formatLocalRepoHint(repo)}</span>
                         </span>
                       </button>
                     ))}
@@ -2249,9 +2364,38 @@ export function GithubDesktopApp() {
                   </div>
                 )
               ) : changes.length === 0 ? (
-                <div class="github-desktop__diff-empty">
-                  <h3>无本地更改</h3>
-                  <p>当前工作区与最近一次同步的快照一致。</p>
+                <div class="github-desktop__no-changes">
+                  <div class="github-desktop__no-changes-header">
+                    <h3>无本地更改</h3>
+                    <p>当前仓库没有未提交的更改</p>
+                  </div>
+                  <div class="github-desktop__no-changes-suggestions">
+                    <div class="github-desktop__no-changes-row">
+                      <div class="github-desktop__no-changes-row-text">
+                        <strong>在外部编辑器中打开此仓库</strong>
+                        <span>在仓库菜单中也可找到此选项</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="github-desktop__btn github-desktop__btn--primary"
+                        onClick={() => openRepoInVscode(view.meta.owner, view.meta.repo)}
+                      >
+                        {formatOpenInBuiltinAppLabel('vscode')}
+                      </button>
+                    </div>
+                    <div class="github-desktop__no-changes-row">
+                      <div class="github-desktop__no-changes-row-text">
+                        <strong>在文件应用中查看仓库文件</strong>
+                      </div>
+                      <button
+                        type="button"
+                        class="github-desktop__btn"
+                        onClick={() => openRepoInFiles(view.meta.owner, view.meta.repo)}
+                      >
+                        在文件中显示
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : !selectedPath ? (
                 <div class="github-desktop__diff-empty">
@@ -2384,7 +2528,8 @@ export function GithubDesktopApp() {
                   </div>
                 ) : (
                   filteredRemotes.map((repo) => {
-                    const selected = cloneOwner === repo.owner && cloneRepo === repo.name
+                    const selected =
+                      cloneOwner === githubRepoOwnerLogin(repo.owner) && cloneRepo === repo.name
                     return (
                       <button
                         key={repo.fullName}
@@ -2399,7 +2544,7 @@ export function GithubDesktopApp() {
                         <span class="settings__row-meta">
                           <span class="settings__option-label">
                             {repo.fullName}
-                            {repo.private ? '（私有）' : ''}
+                            {formatGithubRepoVisibilitySuffix(repo)}
                           </span>
                           <span class="settings__row-hint">
                             {repo.description || `默认分支 ${repo.defaultBranch}`}
@@ -2574,8 +2719,8 @@ export function GithubDesktopApp() {
                       label="外部编辑器"
                       value={desktopPrefs.externalEditor}
                       options={[
-                        { id: 'vscode', label: 'Virtual Studio Code Desktop' },
-                        { id: 'files', label: '文件' },
+                        { id: 'vscode', label: getBuiltinAppName('vscode') },
+                        { id: 'files', label: getBuiltinAppName('files') },
                       ]}
                       onChange={(value) => {
                         patchDesktopPrefs({
@@ -2588,8 +2733,8 @@ export function GithubDesktopApp() {
                   </div>
                 </div>
                 <p class="settings__section-footnote">
-                  「仓库 → 在编辑器中打开」会使用此处选择的应用打开当前仓库。默认是 Virtual Studio
-                  Code Desktop。
+                  「仓库 → 在编辑器中打开」会使用此处选择的应用打开当前仓库。默认是{' '}
+                  {getBuiltinAppName('vscode')}。
                 </p>
               </section>
             ) : undefined}

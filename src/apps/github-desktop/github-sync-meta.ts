@@ -1,4 +1,17 @@
+import type { GithubRepoSummary } from './github-api.ts'
 import { githubRepoId } from './github-repo-paths.ts'
+
+/** 从 GitHub API 拉取并持久化的仓库快照 */
+export type GithubStoredRemoteRepo = GithubRepoSummary & {
+  fetchedAt: number
+}
+
+export function stampGithubStoredRemoteRepo(
+  summary: GithubRepoSummary,
+  fetchedAt = Date.now(),
+): GithubStoredRemoteRepo {
+  return { ...summary, fetchedAt }
+}
 
 export type GithubFileIndexEntry = {
   hash: string
@@ -34,6 +47,8 @@ export type GithubRepoSyncMeta = {
    * 克隆失败占位、或本地工作树丢失时为 true，可点进后「重新克隆」。
    */
   missing?: boolean
+  /** 最近一次从 GitHub API 同步的仓库元数据（克隆 / 获取时更新） */
+  remote?: GithubStoredRemoteRepo
 }
 
 /** 磁盘上可能仍是 v1 */
