@@ -80,7 +80,7 @@ import {
 import {
   dismissGithubDesktopMissingEmailNotification,
 } from './github-desktop-missing-email-notification-store.ts'
-import { fetchGithubRemote } from './github-fetch.ts'
+import { fetchGithubRemote, GITHUB_REMOTE_COMMIT_LIST_LIMIT } from './github-fetch.ts'
 import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
 import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
 import { reconcileGithubRepoAttributes } from './github-repo-attributes.ts'
@@ -433,6 +433,7 @@ export function GithubDesktopApp() {
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const [historyCommits, setHistoryCommits] = useState<GithubCommitSummary[]>([])
+  const [historyRemoteTruncated, setHistoryRemoteTruncated] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | undefined>()
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | undefined>()
@@ -839,6 +840,9 @@ export function GithubDesktopApp() {
         if (cancelled) return
         const list = mergeLocalHistoryLists(local, cached?.commits)
         setHistoryCommits(list)
+        setHistoryRemoteTruncated(
+          (cached?.commits.length ?? 0) >= GITHUB_REMOTE_COMMIT_LIST_LIMIT,
+        )
         setHistoryError(undefined)
         setSelectedCommitSha((prev) => {
           if (prev && list.some((item) => item.sha === prev)) return prev
@@ -1107,6 +1111,7 @@ export function GithubDesktopApp() {
       )
       const local = await listGithubLocalCommits(meta.owner, meta.repo)
       setHistoryCommits(mergeLocalHistoryLists(local, result.commits))
+      setHistoryRemoteTruncated(result.commits.length >= GITHUB_REMOTE_COMMIT_LIST_LIMIT)
       setHistoryError(undefined)
       setSelectedCommitSha((prev) => {
         if (prev && result.commits.some((item) => item.sha === prev)) return prev
@@ -2540,23 +2545,31 @@ export function GithubDesktopApp() {
                         本地还没有提交历史缓存。点击工具栏「获取」从 GitHub 刷新（不改动工作区）。
                       </div>
                     ) : (
-                      historyCommits.map((commit) => (
-                        <button
-                          key={commit.sha}
-                          type="button"
-                          class={`github-desktop__history-item${
-                            selectedCommitSha === commit.sha ? ' is-selected' : ''
-                          }`}
-                          onClick={() => setSelectedCommitSha(commit.sha)}
-                        >
-                          <span class="github-desktop__history-message">
-                            {commitSummaryLine(commit.message)}
-                          </span>
-                          <span class="github-desktop__history-meta">
-                            {shortSha(commit.sha)} · {commit.authorName}
-                          </span>
-                        </button>
-                      ))
+                      <>
+                        {historyCommits.map((commit) => (
+                          <button
+                            key={commit.sha}
+                            type="button"
+                            class={`github-desktop__history-item${
+                              selectedCommitSha === commit.sha ? ' is-selected' : ''
+                            }`}
+                            onClick={() => setSelectedCommitSha(commit.sha)}
+                          >
+                            <span class="github-desktop__history-message">
+                              {commitSummaryLine(commit.message)}
+                            </span>
+                            <span class="github-desktop__history-meta">
+                              {shortSha(commit.sha)} · {commit.authorName}
+                            </span>
+                          </button>
+                        ))}
+                        {historyRemoteTruncated ? (
+                          <p class="github-desktop__history-list-hint">
+                            仅显示最近 {GITHUB_REMOTE_COMMIT_LIST_LIMIT}{' '}
+                            条远端提交
+                          </p>
+                        ) : undefined}
+                      </>
                     )}
                   </div>
                   <div class="github-desktop__changes-header github-desktop__changes-header--footer">

@@ -14,6 +14,9 @@ import {
 } from './github-sync-meta.ts'
 import type { GithubProgress } from './github-progress.ts'
 
+/** Fetch 时从 GitHub API 拉取的远端提交历史上限（单页，无翻页） */
+export const GITHUB_REMOTE_COMMIT_LIST_LIMIT = 50
+
 export type GithubFetchResult = {
   localSha: string
   remoteSha: string
@@ -45,7 +48,12 @@ export async function fetchGithubRemote(params: {
   const branches = await githubListBranches(meta.owner, meta.repo)
 
   onProgress?.('刷新提交历史…')
-  const commits = await githubListCommits(meta.owner, meta.repo, remoteSha, 50)
+  const commits = await githubListCommits(
+    meta.owner,
+    meta.repo,
+    remoteSha,
+    GITHUB_REMOTE_COMMIT_LIST_LIMIT,
+  )
   await putCachedGithubCommitList(meta.owner, meta.repo, remoteSha, commits)
 
   return {
