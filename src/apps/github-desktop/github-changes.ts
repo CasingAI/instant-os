@@ -129,6 +129,35 @@ export async function persistBaselineFromWorkingTree(
   })
 }
 
+/** 分次提交：仅把本次已提交路径写入基线索引，未提交路径保持原基线以便继续出现在变更列表 */
+export async function persistBaselineForCommittedChanges(
+  owner: string,
+  repo: string,
+  committedChanges: readonly GithubChange[],
+  previousIndex: Record<string, GithubFileIndexEntry>,
+): Promise<Record<string, GithubFileIndexEntry>> {
+  const nextIndex = { ...previousIndex }
+  for (const change of committedChanges) {
+    if (change.kind === 'deleted') {
+      delete nextIndex[change.path]
+      continue
+    }
+    const bytes = await readWorkingTreeBytes(change.absolutePath)
+    const hash = await hashBytes(bytes)
+    await writeBaselineBlobIfMissing(hash, bytes)
+    nextIndex[change.path] = { hash, byteSize: bytes.byteLength }
+  }
+  if (committedChanges.length === 0) {
+    return nextIndex
+  }
+  return stampFileIndexRevisionIdsFromWorkingTree(
+    owner,
+    repo,
+    nextIndex,
+    new Set(committedChanges.map((change) => change.path)),
+  )
+}
+
 /**
  * 将已有 fileIndex 的 revisionId 与当前工作区节点对齐（discard / zip 物化后）。
  */

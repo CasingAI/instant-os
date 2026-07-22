@@ -192,7 +192,7 @@ export function createStreamingPcmPlayer(
       bindMediaSession()
 
       const buffer = context.createBuffer(1, floats.length, options.sampleRate)
-      buffer.copyToChannel(floats, 0)
+      buffer.copyToChannel(new Float32Array(floats), 0)
       const source = context.createBufferSource()
       source.buffer = buffer
       source.connect(context.destination)

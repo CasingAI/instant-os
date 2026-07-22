@@ -41,7 +41,7 @@ function extractAssistantText(response: OpenAI.Chat.ChatCompletion): string {
     return content.trim()
   }
   if (Array.isArray(content)) {
-    return content
+    return (content as unknown[])
       .map((part) => {
         if (typeof part === 'string') return part
         if (part && typeof part === 'object' && 'text' in part) {
@@ -68,7 +68,7 @@ function buildAsrMessages(
           input_audio: {
             data: asrDataUrl(audioBase64, mimeType),
           },
-        },
+        } as OpenAI.Chat.ChatCompletionContentPart,
       ],
     },
   ]

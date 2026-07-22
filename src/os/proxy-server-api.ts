@@ -127,7 +127,7 @@ export async function proxiedFetch(
   const targetUrl = resolveTargetUrl(input)
   const method = (
     init?.method ??
-    (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') ||
+    (typeof input !== 'string' && !(input instanceof URL) ? input.method : undefined) ??
     'GET'
   ).toUpperCase()
   const uploadBytes = estimateBodyBytes(init?.body)

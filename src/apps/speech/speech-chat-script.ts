@@ -41,7 +41,7 @@ const IGNORE_TAG_RE = /<\s*ignore\s*\/?\s*>/gi
 const BLOCK_RE = /<(speak|sing)\b([^>]*)>([\s\S]*?)<\/\1>/gi
 const LEGACY_SING_PREFIX_RE = /^\s*[（(]\s*(唱歌|sing|singing)\s*[)）]\s*/i
 
-const KNOWN_VOICES = new Set(MIMO_TTS_VOICES.map((item) => item.id))
+const KNOWN_VOICES = new Set<string>(MIMO_TTS_VOICES.map((item) => item.id))
 
 function getAttr(attrs: string, name: string): string | undefined {
   const re = new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i')

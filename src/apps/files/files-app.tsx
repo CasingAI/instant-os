@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { ComponentType } from 'preact'
+import type { ComponentType, JSX } from 'preact'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'

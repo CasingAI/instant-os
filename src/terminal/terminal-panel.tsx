@@ -283,8 +283,9 @@ export function TerminalPanel({
         ref={scrollRef}
         onMouseDown={() => {
           // 在输出区按下时让出焦点，否则选区建不起来 / ⌘C 会落到 input
-          if (document.activeElement === inputRef.current) {
-            inputRef.current.blur()
+          const input = inputRef.current
+          if (input && document.activeElement === input) {
+            input.blur()
           }
         }}
       >

@@ -19,7 +19,7 @@ export function GithubCredentialsDialog({
   onChanged,
 }: GithubCredentialsDialogProps) {
   const modal = useWindowModal()
-  const inputRef = useRef<HTMLInputElement | undefined>(undefined)
+  const inputRef = useRef<HTMLInputElement>(null)
   const [savedToken, setSavedToken] = useState('')
   const [token, setToken] = useState('')
 

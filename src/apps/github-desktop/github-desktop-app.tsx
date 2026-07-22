@@ -58,7 +58,7 @@ import {
   type GithubChangePreview,
 } from './github-changes.ts'
 import { generateGithubCommitMessage } from './github-commit-agent.ts'
-import { commitAndPushGithubChanges, summarizeChanges } from './github-commit.ts'
+import { commitAndPushGithubChanges, formatStagedChangesSummary } from './github-commit.ts'
 import { discardGithubChanges } from './github-discard.ts'
 import { GithubChangesVirtualList } from './github-changes-virtual-list.tsx'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
@@ -392,6 +392,7 @@ export function GithubDesktopApp() {
   const [busyKind, setBusyKind] = useState<BusyKind>()
   const busyKindRef = useRef<BusyKind>(undefined)
   const repoWatchTimerRef = useRef<number | undefined>(undefined)
+  const progressValueRef = useRef(0.08)
   const [progressLabel, setProgressLabel] = useState<string | undefined>()
   /** 0–1，对齐 GitHub Desktop 工具栏按钮进度条；未知进度时用不确定动画 */
   const [progressValue, setProgressValue] = useState<number | undefined>()
@@ -776,6 +777,13 @@ export function GithubDesktopApp() {
 
   const allChangesStaged =
     changes.length > 0 && stagedChanges.length === changes.length
+  const partialCommit = stagedChanges.length > 0 && stagedChanges.length < changes.length
+  const commitButtonTitle =
+    view.kind === 'repo'
+      ? partialCommit
+        ? `提交 ${stagedChanges.length} 项变更到 ${view.meta.currentBranch}，其余 ${changes.length - stagedChanges.length} 项留在本地`
+        : `提交到 ${view.meta.currentBranch}`
+      : undefined
 
   const toggleAllChangesStaged = useCallback(
     (staged: boolean) => {
@@ -911,13 +919,16 @@ export function GithubDesktopApp() {
       busyKindRef.current = kind
       setBusyKind(kind)
       setProgressLabel(label)
+      progressValueRef.current = 0.08
       setProgressValue(0.08)
       try {
         await task()
         setProgressLabel(undefined)
+        progressValueRef.current = 0.08
         setProgressValue(undefined)
       } catch (err) {
         setProgressLabel(undefined)
+        progressValueRef.current = 0.08
         setProgressValue(undefined)
         await showError(errorTitle, err)
       } finally {
@@ -928,8 +939,15 @@ export function GithubDesktopApp() {
     [showError],
   )
 
+  const bumpSyncProgress = useCallback((candidate: number) => {
+    const next = Math.min(0.98, Math.max(progressValueRef.current, candidate))
+    progressValueRef.current = next
+    setProgressValue(next)
+  }, [])
+
   const reportSyncProgress = useCallback((message: string, detail?: GithubProgressDetail) => {
     setProgressLabel(message)
+    let candidate: number | undefined
     if (detail?.fraction !== undefined) {
       let mapped = detail.fraction
       if (message.includes('下载') || message.includes('压缩包')) {
@@ -937,26 +955,23 @@ export function GithubDesktopApp() {
       } else if (message.includes('写入文件') || message.includes('写入基线快照')) {
         mapped = 0.7 + detail.fraction * 0.22
       }
-      setProgressValue(Math.min(0.98, Math.max(0.08, mapped)))
-      return
-    }
-    // 常见文案 → 粗粒度进度，让按钮进度条能动起来
-    if (message.includes('检查远端') || message.includes('检查远端分支')) {
-      setProgressValue(0.2)
+      candidate = Math.max(0.08, mapped)
+    } else if (message.includes('检查远端') || message.includes('检查远端分支')) {
+      candidate = 0.2
     } else if (
       message.includes('扫描工作区') ||
       message.includes('检查本地更改') ||
       message.includes('检查本地是否有未提交')
     ) {
-      setProgressValue(0.28)
+      candidate = 0.28
     } else if (message.includes('更新界面状态') || message.includes('正在打开仓库')) {
-      setProgressValue(0.82)
+      candidate = 0.82
     } else if (message.includes('分支列表') || message.includes('比较本地')) {
-      setProgressValue(0.45)
+      candidate = 0.45
     } else if (message.includes('提交历史')) {
-      setProgressValue(0.32)
+      candidate = 0.32
     } else if (message.includes('压缩包') || message.includes('下载')) {
-      setProgressValue(0.38)
+      candidate = 0.38
     } else if (
       message.includes('应用变更') ||
       message.includes('写入文件') ||
@@ -966,21 +981,23 @@ export function GithubDesktopApp() {
       if (match) {
         const done = Number(match[1])
         const total = Number(match[2])
-        if (total > 0) setProgressValue(0.35 + (done / total) * 0.55)
-        else setProgressValue(0.6)
+        candidate = total > 0 ? 0.35 + (done / total) * 0.55 : 0.6
       } else {
-        setProgressValue(0.6)
+        candidate = 0.6
       }
     } else if (message.includes('解压压缩包')) {
-      setProgressValue(0.68)
+      candidate = 0.68
     } else if (message.includes('更新同步') || message.includes('建立同步')) {
-      setProgressValue(0.92)
+      candidate = 0.92
     } else if (message.includes('已是最新')) {
-      setProgressValue(1)
+      candidate = 1
     } else {
-      setProgressValue((prev) => Math.min(0.9, (prev ?? 0.15) + 0.08))
+      candidate = Math.min(0.9, progressValueRef.current + 0.08)
     }
-  }, [])
+    if (candidate !== undefined) {
+      bumpSyncProgress(candidate)
+    }
+  }, [bumpSyncProgress])
 
   const closeCloneDialog = useCallback(() => {
     setCloneDialogOpen(false)
@@ -1694,14 +1711,17 @@ export function GithubDesktopApp() {
     setBranchFoldoutFilter('')
   }, [])
 
-  const toolbarWrapRef = useRef<HTMLDivElement>(null)
   const toolbarMenuOpen = repoFoldoutOpen || branchFoldoutOpen || syncMenuOpen
 
   useEffect(() => {
     if (!toolbarMenuOpen) return
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (toolbarWrapRef.current?.contains(event.target as Node)) return
+      const target = event.target
+      if (target instanceof Element) {
+        if (target.closest('.github-desktop__toolbar-foldout')) return
+        if (target.closest('.github-desktop__toolbar-btn')) return
+      }
       closeToolbarMenus()
     }
 
@@ -1877,7 +1897,7 @@ export function GithubDesktopApp() {
   return (
     <div class="github-desktop">
       {showToolbar ? (
-        <div class="github-desktop__toolbar-wrap" ref={toolbarWrapRef}>
+        <div class="github-desktop__toolbar-wrap">
           <div class="github-desktop__toolbar">
             <button
               type="button"
@@ -2407,7 +2427,7 @@ export function GithubDesktopApp() {
                         ? '无本地更改'
                         : stagedChanges.length === 0
                           ? '未选择文件'
-                          : summarizeChanges(stagedChanges)}
+                          : formatStagedChangesSummary(stagedChanges, changes.length)}
                     </span>
                     {changes.length > 0 ? (
                       <button
@@ -2449,9 +2469,12 @@ export function GithubDesktopApp() {
                               stagedChanges.length === 0 ||
                               !commitSummary.trim()
                             }
+                            title={commitButtonTitle}
                             onClick={handleCommit}
                           >
-                            提交到 {view.meta.currentBranch}
+                            {partialCommit
+                              ? `提交 ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
+                              : `提交到 ${view.meta.currentBranch}`}
                           </button>
                         </>
                       ) : (
@@ -2465,15 +2488,21 @@ export function GithubDesktopApp() {
                             stagedChanges.length === 0
                           }
                           title={
-                            aiReady
-                              ? '由 AI 生成提交说明并提交'
-                              : '请先在设置中配置 AI API Key'
+                            busyKind === 'commit'
+                              ? undefined
+                              : aiReady
+                                ? partialCommit
+                                  ? `由 AI 为 ${stagedChanges.length} 项已选变更生成说明并提交，其余留在本地`
+                                  : `由 AI 生成提交说明并提交到 ${view.meta.currentBranch}`
+                                : '请先在设置中配置 AI API Key'
                           }
                           onClick={handleAutoCommit}
                         >
                           {busyKind === 'commit'
                             ? '正在处理…'
-                            : `提交到 ${view.meta.currentBranch}`}
+                            : partialCommit
+                              ? `提交 ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
+                              : `提交到 ${view.meta.currentBranch}`}
                         </button>
                       )}
                     </div>

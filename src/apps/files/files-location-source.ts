@@ -191,6 +191,6 @@ export async function readSourceBlob(id: string): Promise<{ node: FilesNode; blo
   const mime = guessMime(filePath)
   return {
     node: makeFileNode(filePath, bytes.byteLength),
-    blob: new Blob([bytes], { type: mime }),
+    blob: new Blob([bytes as BlobPart], { type: mime }),
   }
 }

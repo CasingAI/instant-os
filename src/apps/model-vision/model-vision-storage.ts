@@ -41,6 +41,12 @@ type ModelVisionMediaRecord = {
   byteSize: number
 }
 
+/** 拆分媒体字段前，文本与预览曾写在同一条结果记录里 */
+type LegacyModelVisionFatRecord = ModelVisionTextRecord & {
+  viewPreviews?: ModelVisionViewPreview[]
+  thumbnailDataUrl?: string
+}
+
 function estimateJsonBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length
 }
@@ -467,17 +473,18 @@ export async function migrateModelVisionEmbeddedMedia(): Promise<number> {
         (store) => store.get(modelId),
       )
       if (!raw || !isValidTextRecord(raw)) continue
+      const legacy = raw as LegacyModelVisionFatRecord
 
       const existingMedia = await getMediaRecord(modelId)
       if (
         !existingMedia &&
-        ((Array.isArray(raw.viewPreviews) && raw.viewPreviews.length > 0) ||
-          raw.thumbnailDataUrl)
+        ((Array.isArray(legacy.viewPreviews) && legacy.viewPreviews.length > 0) ||
+          legacy.thumbnailDataUrl)
       ) {
         const mediaWithoutSize = {
           modelId,
-          viewPreviews: raw.viewPreviews as ModelVisionViewPreview[] | undefined,
-          thumbnailDataUrl: raw.thumbnailDataUrl,
+          viewPreviews: legacy.viewPreviews,
+          thumbnailDataUrl: legacy.thumbnailDataUrl,
         }
         const mediaRecord: ModelVisionMediaRecord = {
           ...mediaWithoutSize,

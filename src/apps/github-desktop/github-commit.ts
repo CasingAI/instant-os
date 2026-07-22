@@ -17,6 +17,7 @@ import {
 } from './github-sync-meta.ts'
 import {
   detectGithubChanges,
+  persistBaselineForCommittedChanges,
   persistBaselineFromWorkingTree,
   readWorkingTreeBytes,
   type GithubChange,
@@ -79,11 +80,11 @@ export async function commitAndPushGithubChanges(params: {
   await githubUpdateBranchRef(owner, repo, params.meta.currentBranch, commitSha)
 
   // 远端成功后再写本地 tip / commit 账本（含 revisionId）
-  const fileIndex = await persistBaselineFromWorkingTree(
-    owner,
-    repo,
-    currentFileIndex(params.meta),
-  )
+  const previousIndex = currentFileIndex(params.meta)
+  const isPartialCommit = changes.length < allChanges.length
+  const fileIndex = isPartialCommit
+    ? await persistBaselineForCommittedChanges(owner, repo, changes, previousIndex)
+    : await persistBaselineFromWorkingTree(owner, repo, previousIndex)
   const next = withBranchSnapshot(
     params.meta,
     params.meta.currentBranch,
@@ -111,4 +112,15 @@ export function summarizeChanges(changes: readonly GithubChange[]): string {
   if (modified) parts.push(`${modified} 修改`)
   if (deleted) parts.push(`${deleted} 删除`)
   return parts.join(' · ') || '无变更'
+}
+
+export function formatStagedChangesSummary(
+  stagedChanges: readonly GithubChange[],
+  totalCount: number,
+): string {
+  const summary = summarizeChanges(stagedChanges)
+  if (totalCount === 0 || stagedChanges.length === 0 || stagedChanges.length === totalCount) {
+    return summary
+  }
+  return `已选 ${stagedChanges.length}/${totalCount} · ${summary}`
 }

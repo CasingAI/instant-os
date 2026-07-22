@@ -223,7 +223,6 @@
 }
 
 .github-desktop__toolbar-sync {
-  margin-left: auto;
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -241,8 +240,6 @@
 .github-desktop__toolbar-btn--sync {
   flex: 1;
   min-width: 0;
-  border-right: none;
-  border-left: 1px solid var(--gd-toolbar-border);
 }
 
 .github-desktop__toolbar-sync.has-menu .github-desktop__toolbar-btn--sync {
@@ -254,7 +251,6 @@
   flex-shrink: 0;
   justify-content: center;
   padding: 0;
-  border-right: none;
   border-left: none;
 }
 
@@ -381,8 +377,7 @@
 }
 
 .github-desktop__toolbar-foldout--sync {
-  right: 0;
-  left: auto;
+  left: 480px;
   width: 280px;
 }
 
@@ -1333,13 +1328,19 @@
 
 .github-desktop__commit-btn {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   height: 30px;
+  padding: 0 10px;
   border: 1px solid var(--gd-accent-border);
   border-radius: var(--gd-radius);
   background: var(--gd-blue-btn);
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),

@@ -15,7 +15,6 @@ import {
 } from './files-path.ts'
 import {
   filesVolumeRootAttributes,
-  isFilesLocationWritable,
   isFilesNodeWritable,
   type FilesLocationId,
   type FilesNode,
