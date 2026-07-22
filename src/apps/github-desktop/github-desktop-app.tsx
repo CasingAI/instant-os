@@ -33,7 +33,6 @@ import {
   formatGithubRepoVisibilityLabel,
   formatGithubRepoVisibilitySuffix,
   githubRepoOwnerLogin,
-  type GithubBranch,
   type GithubCommitDetail,
   type GithubCommitSummary,
   type GithubRepoSummary,
@@ -87,6 +86,7 @@ import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
 import { reconcileGithubRepoAttributes } from './github-repo-attributes.ts'
 import {
   currentHeadSha,
+  buildRepoBranchList,
   deleteGithubRepoMeta,
   getCachedGithubCommitDetail,
   getCachedGithubCommitList,
@@ -425,8 +425,6 @@ export function GithubDesktopApp() {
   const [commitDescription, setCommitDescription] = useState('')
   const [commitMode, setCommitMode] = useState<CommitMode>('auto')
   const aiReady = useOpenAiReady()
-  const [branches, setBranches] = useState<GithubBranch[]>([])
-  /** 最近一次 Fetch 看到的远端 tip；与本地 tip 不同时主按钮变为「拉取」 */
   const [remoteHeadSha, setRemoteHeadSha] = useState<string | undefined>()
   /** 推动「上次获取」相对时间刷新 */
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -679,28 +677,6 @@ export function GithubDesktopApp() {
     setSelectedPath((prev) => {
       if (prev && nextChanges.some((item) => item.path === prev)) return prev
       return nextChanges[0]?.path
-    })
-    // 分支列表用本地快照；远端分支名在「获取 / 拉取」后更新
-    setBranches((prev) => {
-      const localNames = Object.keys(latest.branches)
-      if (localNames.length === 0) {
-        return [
-          {
-            name: latest.currentBranch,
-            commitSha: currentHeadSha(latest),
-            protected: false,
-          },
-        ]
-      }
-      const fromMeta = localNames.map((name) => ({
-        name,
-        commitSha: latest.branches[name]?.tipSha ?? '',
-        protected: false,
-      }))
-      if (prev.length === 0) return fromMeta
-      const known = new Set(fromMeta.map((item) => item.name))
-      const extras = prev.filter((item) => !known.has(item.name))
-      return [...fromMeta, ...extras]
     })
     // 用上次 Fetch 缓存的 tip 恢复「获取 / 拉取」按钮状态（不联网）
     const cachedList = await getCachedGithubCommitList(latest.owner, latest.repo)
@@ -1078,6 +1054,11 @@ export function GithubDesktopApp() {
         ...meta,
         defaultBranch: result.remote.defaultBranch,
         remote: stampGithubStoredRemoteRepo(result.remote, fetchedAt),
+        remoteBranches: result.branches.map((branch) => ({
+          name: branch.name,
+          commitSha: branch.commitSha,
+          protected: branch.protected,
+        })),
         lastFetchedAt: fetchedAt,
         updatedAt: fetchedAt,
       }
@@ -1095,7 +1076,6 @@ export function GithubDesktopApp() {
           : prev,
       )
       setRemoteHeadSha(result.remoteSha)
-      setBranches(result.branches)
       const local = await listGithubLocalCommits(meta.owner, meta.repo)
       setHistoryCommits(mergeLocalHistoryLists(local, result.commits))
       setHistoryError(undefined)
@@ -1682,18 +1662,7 @@ export function GithubDesktopApp() {
   })()
 
   const syncIconKind: 'sync' | 'pull' = canPull && !syncNetworkBusy ? 'pull' : 'sync'
-  const branchList =
-    view.kind === 'repo'
-      ? branches.length > 0
-        ? branches
-        : [
-            {
-              name: view.meta.currentBranch,
-              commitSha: repoHeadSha,
-              protected: false,
-            },
-          ]
-      : []
+  const branchList = view.kind === 'repo' ? buildRepoBranchList(view.meta) : []
 
   const closeToolbarMenus = useCallback(() => {
     setRepoFoldoutOpen(false)
@@ -2049,19 +2018,48 @@ export function GithubDesktopApp() {
               ) : (
                 filteredBranchList.map((branch) => {
                   const active = branch.name === view.meta.currentBranch
+                  const localOutdated =
+                    branch.hasLocalSnapshot &&
+                    Boolean(branch.localTipSha) &&
+                    Boolean(branch.commitSha) &&
+                    branch.localTipSha !== branch.commitSha
                   return (
                     <button
                       key={branch.name}
                       type="button"
-                      class={`github-desktop__foldout-item${active ? ' is-active' : ''}`}
+                      class={`github-desktop__foldout-item github-desktop__foldout-item--branch${active ? ' is-active' : ''}${branch.hasLocalSnapshot ? ' github-desktop__foldout-item--local' : ''}`}
                       disabled={busy}
                       onClick={() => {
                         closeToolbarMenus()
                         if (!active) handleSwitchBranch(branch.name)
                       }}
                     >
-                      <strong>{branch.name}</strong>
-                      <span>{shortSha(branch.commitSha || '???????')}</span>
+                      <div class="github-desktop__foldout-item-branch-head">
+                        <strong>{branch.name}</strong>
+                        {branch.hasLocalSnapshot ? (
+                          <span
+                            class={`github-desktop__branch-badge${localOutdated ? ' github-desktop__branch-badge--stale' : ''}`}
+                            title={
+                              localOutdated
+                                ? `本地快照 ${branch.localTipSha?.slice(0, 7)}，与远端 ${branch.commitSha.slice(0, 7)} 不同`
+                                : '已有本地快照，可离线切换'
+                            }
+                          >
+                            本地
+                          </span>
+                        ) : undefined}
+                        {branch.protected ? (
+                          <span class="github-desktop__branch-badge github-desktop__branch-badge--protected" title="受保护分支">
+                            保护
+                          </span>
+                        ) : undefined}
+                      </div>
+                      <span>
+                        {shortSha(branch.commitSha || '???????')}
+                        {localOutdated
+                          ? ` · 本地 ${shortSha(branch.localTipSha || '???????')}`
+                          : undefined}
+                      </span>
                     </button>
                   )
                 })

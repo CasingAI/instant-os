@@ -32,6 +32,19 @@ export type GithubLocalCommit = {
   branch: string
 }
 
+/** 最近一次 Fetch 缓存的远端分支（持久化，刷新后仍显示） */
+export type GithubStoredRemoteBranch = {
+  name: string
+  commitSha: string
+  protected: boolean
+}
+
+/** 分支下拉列表条目（远端列表 + 本地快照标记） */
+export type GithubDesktopBranchListItem = GithubStoredRemoteBranch & {
+  hasLocalSnapshot: boolean
+  localTipSha: string | undefined
+}
+
 export type GithubRepoSyncMeta = {
   version: 2
   owner: string
@@ -39,6 +52,8 @@ export type GithubRepoSyncMeta = {
   currentBranch: string
   defaultBranch: string
   branches: Record<string, GithubBranchSnapshot>
+  /** 最近一次 Fetch 拿到的远端分支列表 */
+  remoteBranches?: GithubStoredRemoteBranch[]
   updatedAt: number
   /** 最近一次成功 Fetch（含拉取后附带刷新）的时间戳 */
   lastFetchedAt?: number
@@ -209,6 +224,59 @@ export function withBranchSnapshot(
       [branch]: snapshot,
     },
   }
+}
+
+function branchHasLocalSnapshot(snapshot: GithubBranchSnapshot | undefined): boolean {
+  if (!snapshot) return false
+  return Object.keys(snapshot.fileIndex).length > 0 || Boolean(snapshot.tipSha)
+}
+
+/** 合并持久化的远端分支列表与本地快照，供分支下拉使用 */
+export function buildRepoBranchList(meta: GithubRepoSyncMeta): GithubDesktopBranchListItem[] {
+  const byName = new Map<string, GithubDesktopBranchListItem>()
+
+  for (const remote of meta.remoteBranches ?? []) {
+    const local = meta.branches[remote.name]
+    byName.set(remote.name, {
+      name: remote.name,
+      commitSha: remote.commitSha,
+      protected: remote.protected,
+      hasLocalSnapshot: branchHasLocalSnapshot(local),
+      localTipSha: local?.tipSha || undefined,
+    })
+  }
+
+  for (const [name, local] of Object.entries(meta.branches)) {
+    if (byName.has(name)) continue
+    byName.set(name, {
+      name,
+      commitSha: local.tipSha,
+      protected: false,
+      hasLocalSnapshot: branchHasLocalSnapshot(local),
+      localTipSha: local.tipSha || undefined,
+    })
+  }
+
+  if (byName.size === 0) {
+    const local = meta.branches[meta.currentBranch]
+    return [
+      {
+        name: meta.currentBranch,
+        commitSha: currentHeadSha(meta),
+        protected: false,
+        hasLocalSnapshot: branchHasLocalSnapshot(local),
+        localTipSha: currentHeadSha(meta) || undefined,
+      },
+    ]
+  }
+
+  const list = [...byName.values()]
+  list.sort((a, b) => {
+    if (a.name === meta.currentBranch) return -1
+    if (b.name === meta.currentBranch) return 1
+    return a.name.localeCompare(b.name)
+  })
+  return list
 }
 
 export async function listGithubRepoMeta(): Promise<GithubRepoSyncMeta[]> {

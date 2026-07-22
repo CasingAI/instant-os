@@ -487,6 +487,47 @@
   color: var(--gd-accent);
 }
 
+.github-desktop__foldout-item--branch .github-desktop__foldout-item-branch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.github-desktop__branch-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-shadow: none;
+  color: #245e2c;
+  background: rgba(52, 142, 72, 0.16);
+  border: 1px solid rgba(52, 142, 72, 0.28);
+}
+
+.github-desktop__branch-badge--stale {
+  color: #7a4e12;
+  background: rgba(196, 128, 32, 0.16);
+  border-color: rgba(196, 128, 32, 0.32);
+}
+
+.github-desktop__branch-badge--protected {
+  color: #3a4f7a;
+  background: rgba(72, 108, 168, 0.14);
+  border-color: rgba(72, 108, 168, 0.28);
+}
+
+.github-desktop__foldout-item.is-active .github-desktop__branch-badge {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
 .github-desktop__foldout-footer {
   padding: 8px 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.1);
