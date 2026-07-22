@@ -818,7 +818,7 @@ export function GithubDesktopApp() {
       let mapped = detail.fraction
       if (message.includes('下载') || message.includes('压缩包')) {
         mapped = 0.35 + detail.fraction * 0.35
-      } else if (message.includes('写入文件')) {
+      } else if (message.includes('写入文件') || message.includes('写入基线快照')) {
         mapped = 0.7 + detail.fraction * 0.22
       }
       setProgressValue(Math.min(0.98, Math.max(0.08, mapped)))
@@ -833,7 +833,11 @@ export function GithubDesktopApp() {
       setProgressValue(0.32)
     } else if (message.includes('压缩包') || message.includes('下载')) {
       setProgressValue(0.38)
-    } else if (message.includes('应用变更') || message.includes('写入文件')) {
+    } else if (
+      message.includes('应用变更') ||
+      message.includes('写入文件') ||
+      message.includes('写入基线快照')
+    ) {
       const match = /(\d+)\s*\/\s*(\d+)/.exec(message)
       if (match) {
         const done = Number(match[1])
@@ -843,6 +847,8 @@ export function GithubDesktopApp() {
       } else {
         setProgressValue(0.6)
       }
+    } else if (message.includes('解压压缩包')) {
+      setProgressValue(0.68)
     } else if (message.includes('更新同步') || message.includes('建立同步')) {
       setProgressValue(0.92)
     } else if (message.includes('已是最新')) {
@@ -1216,7 +1222,10 @@ export function GithubDesktopApp() {
     }
     void runBusy('rebuild', '重建本地基线…', '重建基线失败', async () => {
       // 一次 zipball 重建 tip 基线，避免按文件狂打 Contents API
-      const result = await rebuildGithubBaseline(view.meta, { force: true })
+      const result = await rebuildGithubBaseline(view.meta, {
+        force: true,
+        onProgress: reportSyncProgress,
+      })
       const latest = await getGithubRepoMeta(view.meta.owner, view.meta.repo)
       const metaAfter = latest ?? view.meta
       await refreshRepoState(metaAfter)
@@ -1235,6 +1244,7 @@ export function GithubDesktopApp() {
         })
         return
       }
+      if (result.status !== 'rebuilt') return
       // 重建已联网：顺便刷新分支名与 History 列表缓存，避免 Diff 好了但 History 仍空
       await syncRemoteCaches(metaAfter)
       await modal.alert({
@@ -1242,7 +1252,7 @@ export function GithubDesktopApp() {
         message: `已用 tip 压缩包写入 ${result.written} 个本地快照（未改动工作区），并已刷新提交历史缓存。`,
       })
     })
-  }, [view, runBusy, modal, refreshRepoState, proxyConnected, syncRemoteCaches])
+  }, [view, runBusy, modal, refreshRepoState, proxyConnected, syncRemoteCaches, reportSyncProgress])
 
   const handleSwitchBranch = useCallback(
     (branch: string) => {
@@ -1469,13 +1479,15 @@ export function GithubDesktopApp() {
     busyKind === 'pull' ||
     busyKind === 'fetch' ||
     busyKind === 'switch' ||
-    busyKind === 'commit'
+    busyKind === 'commit' ||
+    busyKind === 'rebuild'
 
   const syncButtonTitle = (() => {
     if (busyKind === 'pull') return '拉取 origin'
     if (busyKind === 'fetch') return '获取 origin'
     if (busyKind === 'switch') return '切换分支'
     if (busyKind === 'commit') return '推送 origin'
+    if (busyKind === 'rebuild') return '重建本地基线'
     return canPull ? '拉取 origin' : '获取 origin'
   })()
 

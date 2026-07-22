@@ -22,6 +22,7 @@ import {
   type GithubFileIndexEntry,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
+import type { GithubProgress } from './github-progress.ts'
 import {
   collectWorkingTreeFiles,
   isProbablyTextBytes,
@@ -104,13 +105,13 @@ export type RebuildBaselineResult =
  */
 export async function rebuildGithubBaseline(
   meta: GithubRepoSyncMeta,
-  options?: { hasLocalChanges?: boolean; force?: boolean },
+  options?: { hasLocalChanges?: boolean; force?: boolean; onProgress?: GithubProgress },
 ): Promise<RebuildBaselineResult> {
   const fileIndex = currentFileIndex(meta)
   if (Object.keys(fileIndex).length === 0 && !options?.force) return { status: 'empty' }
 
   if (options?.force) {
-    return forceRebuildBaselineFromZip(meta)
+    return forceRebuildBaselineFromZip(meta, options.onProgress)
   }
 
   if (!(await baselineMissingForIndex(fileIndex))) {
@@ -171,21 +172,29 @@ export async function rebuildGithubBaseline(
 /** 一次 zipball 重建 tip 基线；不改写工作区（本地未提交改动得以保留） */
 async function forceRebuildBaselineFromZip(
   meta: GithubRepoSyncMeta,
+  onProgress?: GithubProgress,
 ): Promise<RebuildBaselineResult> {
   const tipSha = currentHeadSha(meta)
   if (!tipSha) return { status: 'empty' }
 
-  const zip = await githubDownloadZipball(meta.owner, meta.repo, tipSha)
+  onProgress?.('下载压缩包…')
+  const zip = await githubDownloadZipball(meta.owner, meta.repo, tipSha, onProgress)
+  onProgress?.('解压压缩包…')
   const files = await unzipGithubZipball(zip)
   if (files.size === 0) return { status: 'empty' }
 
   let written = 0
   const nextIndex: Record<string, GithubFileIndexEntry> = {}
-  for (const [path, bytes] of files) {
+  const entries = [...files.entries()]
+  const total = entries.length
+  for (const [path, bytes] of entries) {
     const hash = await hashBytes(bytes)
     await writeBaselineBlob(hash, bytes)
     nextIndex[path] = { hash, byteSize: bytes.byteLength }
     written += 1
+    if (written % 50 === 0 || written === total) {
+      onProgress?.(`写入基线快照 ${written} / ${total}`, { fraction: written / total })
+    }
   }
 
   const next = withBranchSnapshot(meta, meta.currentBranch, {
