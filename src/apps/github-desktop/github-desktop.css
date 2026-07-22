@@ -243,7 +243,7 @@
 }
 
 .github-desktop__toolbar-sync.has-menu .github-desktop__toolbar-btn--sync {
-  border-right: 1px solid var(--gd-toolbar-border);
+  border-right: none;
 }
 
 .github-desktop__toolbar-btn--sync-menu {
@@ -251,7 +251,7 @@
   flex-shrink: 0;
   justify-content: center;
   padding: 0;
-  border-left: none;
+  border-left: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .github-desktop__toolbar-btn.has-progress:disabled {
@@ -273,8 +273,15 @@
   z-index: 1;
   flex-shrink: 0;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-right: 10px;
   color: inherit;
+  line-height: 0;
+}
+
+.github-desktop__toolbar-icon svg {
+  display: block;
 }
 
 .github-desktop__toolbar-icon.is-spinning {
@@ -324,26 +331,34 @@
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  height: 15px;
-  padding: 0 6px;
-  border-radius: 8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
   border: 1px solid var(--gd-accent-border);
   background: var(--gd-toolbar-badge);
   color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
+  line-height: 0;
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.3),
     0 1px 1px rgba(0, 0, 0, 0.15);
 }
 
-.github-desktop__toolbar-ahead-behind span {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+.github-desktop__toolbar-ahead-behind svg {
+  display: block;
+  flex-shrink: 0;
+  /* 箭头视觉重心略偏下，上移半像素对齐 */
+  transform: translateY(-0.5px);
+}
+
+.github-desktop__toolbar-ahead-behind-count {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes gd-sync-spin {
@@ -1671,13 +1686,57 @@
   color: rgba(255, 255, 255, 0.82);
 }
 
+.github-desktop__history-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.github-desktop__history-unpushed {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--gd-accent-border);
+  background: var(--gd-toolbar-badge);
+  color: #fff;
+  line-height: 0;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 1px 1px rgba(0, 0, 0, 0.15);
+}
+
+.github-desktop__history-unpushed svg {
+  display: block;
+  /* 箭头视觉重心略偏下，上移半像素对齐 */
+  transform: translateY(-0.5px);
+}
+
+.github-desktop__history-item.is-selected .github-desktop__history-unpushed {
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+.github-desktop__history-item--unpushed .github-desktop__history-message {
+  font-weight: 600;
+}
+
 .github-desktop__history-message {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
 }
 
 .github-desktop__history-meta {

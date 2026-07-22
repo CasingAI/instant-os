@@ -58,7 +58,7 @@ import {
   type GithubChangePreview,
 } from './github-changes.ts'
 import { generateGithubCommitMessage } from './github-commit-agent.ts'
-import { commitAndPushGithubChanges, formatStagedChangesSummary } from './github-commit.ts'
+import { buildLocalCommitDetail, buildLocalCommitFilePreview, commitGithubChanges, formatStagedChangesSummary, pushGithubBranch } from './github-commit.ts'
 import { discardGithubChanges } from './github-discard.ts'
 import { GithubChangesVirtualList } from './github-changes-virtual-list.tsx'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
@@ -86,6 +86,9 @@ import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
 import { reconcileGithubRepoAttributes } from './github-repo-attributes.ts'
 import {
   currentBranchRemoteSha,
+  branchHasUnpushedCommits,
+  currentBranchPushedSha,
+  isLocalCommitSha,
   currentHeadSha,
   buildRepoBranchList,
   deleteGithubRepoMeta,
@@ -94,6 +97,7 @@ import {
   getGithubRepoMeta,
   groupRepoBranchList,
   listGithubLocalCommits,
+  listUnpushedLocalCommits,
   listGithubRepoMeta,
   putCachedGithubCommitDetail,
   saveGithubMissingRepoMeta,
@@ -137,6 +141,7 @@ type CommitMode = 'manual' | 'auto'
 type BusyKind =
   | 'pull'
   | 'fetch'
+  | 'push'
   | 'commit'
   | 'switch'
   | 'load'
@@ -337,7 +342,17 @@ function SyncIcon() {
   )
 }
 
-function ArrowDownIcon({ size = 16 }: { size?: number }) {
+/** GitHub octicon arrow-up：推送 / 超前 */
+function PushIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M3.47 7.78A.75.75 0 0 1 4.53 7.78L7.25 5.061V14.25a.75.75 0 0 0 1.5 0V5.061l2.72 2.719a.75.75 0 1 0 1.06-1.061l-4.25-4.25a.75.75 0 0 0-1.06 0l-4.25 4.25a.75.75 0 0 0 0 1.061Z" />
+    </svg>
+  )
+}
+
+/** GitHub octicon arrow-down：拉取 / 落后 */
+function PullIcon({ size = 16 }: { size?: number }) {
   return (
     <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" aria-hidden="true">
       <path d="M13.03 8.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.47 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l2.97 2.97V3.75a.75.75 0 0 1 1.5 0v7.44l2.97-2.97a.75.75 0 0 1 1.06 0Z" />
@@ -440,18 +455,39 @@ export function GithubDesktopApp() {
   const [historyDetail, setHistoryDetail] = useState<GithubCommitDetail | undefined>()
   const [historyDetailLoading, setHistoryDetailLoading] = useState(false)
   const [selectedHistoryFile, setSelectedHistoryFile] = useState<string | undefined>()
+  const [historyFilePreview, setHistoryFilePreview] = useState<GithubChangePreview | undefined>()
+  const [historyFilePreviewLoading, setHistoryFilePreviewLoading] = useState(false)
+  const [unpushedCommitCount, setUnpushedCommitCount] = useState(0)
 
   const busy = busyKind !== undefined
   const showToolbar =
     view.kind === 'repo' || view.kind === 'cloning' || view.kind === 'missing'
-  const repoHeadSha = view.kind === 'repo' ? currentHeadSha(view.meta) : ''
   const branchRemoteSha =
     view.kind === 'repo' ? currentBranchRemoteSha(view.meta) : undefined
+  const branchPushedSha =
+    view.kind === 'repo' ? currentBranchPushedSha(view.meta) : undefined
+  const canPush = view.kind === 'repo' && branchHasUnpushedCommits(view.meta)
   const canPull =
     view.kind === 'repo' &&
     Boolean(branchRemoteSha) &&
-    Boolean(repoHeadSha) &&
-    branchRemoteSha !== repoHeadSha
+    Boolean(branchPushedSha) &&
+    branchRemoteSha !== branchPushedSha &&
+    !canPush
+
+  useEffect(() => {
+    if (view.kind !== 'repo' || !canPush) {
+      setUnpushedCommitCount(0)
+      return
+    }
+    let cancelled = false
+    const { owner, repo, currentBranch } = view.meta
+    void listUnpushedLocalCommits(owner, repo, currentBranch).then((commits) => {
+      if (!cancelled) setUnpushedCommitCount(commits.length)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [view, canPush])
 
   const banner = useMemo(() => {
     if (!hasToken) {
@@ -782,8 +818,8 @@ export function GithubDesktopApp() {
   const commitButtonTitle =
     view.kind === 'repo'
       ? partialCommit
-        ? `提交 ${stagedChanges.length} 项变更到 ${view.meta.currentBranch}，其余 ${changes.length - stagedChanges.length} 项留在本地`
-        : `提交到 ${view.meta.currentBranch}`
+        ? `Commit ${stagedChanges.length} 项变更到 ${view.meta.currentBranch}，其余 ${changes.length - stagedChanges.length} 项留在本地`
+        : `Commit 到 ${view.meta.currentBranch}`
       : undefined
 
   const toggleAllChangesStaged = useCallback(
@@ -884,13 +920,26 @@ export function GithubDesktopApp() {
 
     void (async () => {
       try {
+        // 本地 commit 优先走本地账本，避免缓存里没有 patch 时误走远端详情路径
+        if (isLocalCommitSha(sha)) {
+          const localCommits = await listGithubLocalCommits(owner, repo)
+          const local = localCommits.find((item) => item.sha === sha)
+          if (cancelled) return
+          if (local) {
+            const detail = buildLocalCommitDetail(local)
+            setHistoryDetail(detail)
+            setSelectedHistoryFile(detail.files[0]?.filename)
+            setHistoryDetailLoading(false)
+            void putCachedGithubCommitDetail(owner, repo, detail)
+            return
+          }
+        }
         const cached = await getCachedGithubCommitDetail(owner, repo, sha)
         if (cancelled) return
         if (cached) {
           setHistoryDetail(cached)
           setSelectedHistoryFile(cached.files[0]?.filename)
           setHistoryDetailLoading(false)
-          // 刷新 LRU，不阻塞 UI
           void putCachedGithubCommitDetail(owner, repo, cached)
           return
         }
@@ -904,7 +953,7 @@ export function GithubDesktopApp() {
         if (cancelled) return
         setHistoryDetail(undefined)
         setHistoryDetailLoading(false)
-        await showError('加载提交详情失败', err)
+        await showError('加载 commit 详情失败', err)
       }
     })()
 
@@ -912,6 +961,50 @@ export function GithubDesktopApp() {
       cancelled = true
     }
   }, [view, sidebarTab, selectedCommitSha, showError])
+
+  useEffect(() => {
+    if (view.kind !== 'repo' || sidebarTab !== 'history' || !selectedCommitSha || !selectedHistoryFile) {
+      setHistoryFilePreview(undefined)
+      setHistoryFilePreviewLoading(false)
+      return
+    }
+    if (!isLocalCommitSha(selectedCommitSha)) {
+      setHistoryFilePreview(undefined)
+      setHistoryFilePreviewLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const { owner, repo } = view.meta
+    const sha = selectedCommitSha
+    const path = selectedHistoryFile
+    setHistoryFilePreviewLoading(true)
+    setHistoryFilePreview(undefined)
+
+    void (async () => {
+      try {
+        const localCommits = await listGithubLocalCommits(owner, repo)
+        const local = localCommits.find((item) => item.sha === sha)
+        if (cancelled) return
+        if (!local) {
+          setHistoryFilePreviewLoading(false)
+          return
+        }
+        const preview = await buildLocalCommitFilePreview(owner, repo, local, path)
+        if (cancelled) return
+        setHistoryFilePreview(preview)
+        setHistoryFilePreviewLoading(false)
+      } catch {
+        if (cancelled) return
+        setHistoryFilePreview(undefined)
+        setHistoryFilePreviewLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [view, sidebarTab, selectedCommitSha, selectedHistoryFile])
 
   const runBusy = useCallback(
     async (kind: Exclude<BusyKind, undefined>, label: string, errorTitle: string, task: () => Promise<void>) => {
@@ -965,14 +1058,14 @@ export function GithubDesktopApp() {
     } else if (
       message.includes('扫描工作区') ||
       message.includes('检查本地更改') ||
-      message.includes('检查本地是否有未提交')
+      message.includes('检查本地是否有未 commit')
     ) {
       candidate = 0.28
     } else if (message.includes('更新界面状态') || message.includes('正在打开仓库')) {
       candidate = 0.82
     } else if (message.includes('分支列表') || message.includes('比较本地')) {
       candidate = 0.45
-    } else if (message.includes('提交历史')) {
+    } else if (message.includes('commit 历史')) {
       candidate = 0.32
     } else if (message.includes('压缩包') || message.includes('下载')) {
       candidate = 0.38
@@ -1158,11 +1251,21 @@ export function GithubDesktopApp() {
     })
   }, [view, runBusy, refreshRepoState, syncRemoteCaches, reportSyncProgress])
 
-  /** Desktop 式：同一主按钮，Fetch / Pull 随远端是否超前切换 */
-  const handleFetchOrPull = useCallback(() => {
-    if (canPull) handlePull()
+  const handlePush = useCallback(() => {
+    if (view.kind !== 'repo') return
+    void runBusy('push', '正在推送到 origin…', '推送失败', async () => {
+      const next = await pushGithubBranch(view.meta)
+      await refreshRepoState(next, reportSyncProgress)
+      await syncRemoteCaches(next)
+    })
+  }, [view, runBusy, refreshRepoState, syncRemoteCaches, reportSyncProgress])
+
+  /** Desktop 式：同一主按钮，Push / Pull / Fetch 随状态切换 */
+  const handleSyncPrimary = useCallback(() => {
+    if (canPush) handlePush()
+    else if (canPull) handlePull()
     else handleFetch()
-  }, [canPull, handleFetch, handlePull])
+  }, [canPush, canPull, handlePush, handleFetch, handlePull])
 
   const beginClone = useCallback(
     async (owner: string, repo: string, options?: { reclone?: boolean }) => {
@@ -1324,10 +1427,10 @@ export function GithubDesktopApp() {
     [modal, runBusy, refreshLocalRepos],
   )
 
-  const pushCommit = useCallback(
+  const submitCommit = useCallback(
     async (message: string, selectedPaths: ReadonlySet<string>) => {
       if (view.kind !== 'repo') return
-      const next = await commitAndPushGithubChanges({
+      const next = await commitGithubChanges({
         meta: view.meta,
         message,
         selectedPaths,
@@ -1335,9 +1438,8 @@ export function GithubDesktopApp() {
       setCommitSummary('')
       setCommitDescription('')
       await refreshRepoState(next, reportSyncProgress)
-      await syncRemoteCaches(next)
     },
-    [view, refreshRepoState, syncRemoteCaches, reportSyncProgress],
+    [view, refreshRepoState, reportSyncProgress],
   )
 
   const handleCommit = useCallback(() => {
@@ -1350,16 +1452,16 @@ export function GithubDesktopApp() {
     if (!message.trim()) return
     const selectedPaths = new Set(stagedChanges.map((change) => change.path))
     if (selectedPaths.size === 0) return
-    void runBusy('commit', '提交并推送…', '提交失败', async () => {
-      await pushCommit(message, selectedPaths)
+    void runBusy('commit', '正在 commit…', 'Commit 失败', async () => {
+      await submitCommit(message, selectedPaths)
     })
-  }, [view, commitSummary, commitDescription, desktopPrefs, stagedChanges, runBusy, pushCommit])
+  }, [view, commitSummary, commitDescription, desktopPrefs, stagedChanges, runBusy, submitCommit])
 
   const handleAutoCommit = useCallback(() => {
     if (view.kind !== 'repo') return
     const selectedPaths = new Set(stagedChanges.map((change) => change.path))
     if (selectedPaths.size === 0) return
-    void runBusy('commit', '正在生成提交说明…', '自动提交失败', async () => {
+    void runBusy('commit', '正在生成 commit 说明…', '自动 commit 失败', async () => {
       const generated = await generateGithubCommitMessage({
         meta: view.meta,
         changes: stagedChanges,
@@ -1369,10 +1471,10 @@ export function GithubDesktopApp() {
         generated.description,
         resolveCommitCoAuthors(desktopPrefs),
       )
-      setProgressLabel('提交并推送…')
-      await pushCommit(message, selectedPaths)
+      setProgressLabel('正在 commit…')
+      await submitCommit(message, selectedPaths)
     })
-  }, [view, stagedChanges, desktopPrefs, runBusy, pushCommit])
+  }, [view, stagedChanges, desktopPrefs, runBusy, submitCommit])
 
   const handleRebuildBaseline = useCallback(() => {
     if (view.kind !== 'repo') return
@@ -1412,7 +1514,7 @@ export function GithubDesktopApp() {
       await syncRemoteCaches(metaAfter)
       await modal.alert({
         title: '基线已重建',
-        message: `已用 tip 压缩包写入 ${result.written} 个本地快照（未改动工作区），并已刷新提交历史缓存。`,
+        message: `已用 tip 压缩包写入 ${result.written} 个本地快照（未改动工作区），并已刷新 commit 历史缓存。`,
       })
     })
   }, [view, runBusy, modal, refreshRepoState, proxyConnected, syncRemoteCaches, reportSyncProgress])
@@ -1441,7 +1543,7 @@ export function GithubDesktopApp() {
       .confirm({
         title: '丢弃全部更改',
         message:
-          '将把工作区恢复为当前分支最后一次同步的状态，未提交的本地修改会全部丢失。此操作无法撤销。',
+          '将把工作区恢复为当前分支最后一次同步的状态，未 commit 的本地修改会全部丢失。此操作无法撤销。',
         confirmLabel: '丢弃全部',
         confirmTone: 'danger',
       })
@@ -1640,11 +1742,11 @@ export function GithubDesktopApp() {
         items: [
           {
             type: 'action',
-            label: canPull ? '拉取' : '获取',
+            label: canPush ? '推送' : canPull ? '拉取' : '获取',
             disabled: view.kind !== 'repo' || busy,
-            onClick: () => handleFetchOrPull(),
+            onClick: () => handleSyncPrimary(),
           },
-          ...(canPull
+          ...(canPush || canPull
             ? [
                 {
                   type: 'action' as const,
@@ -1672,9 +1774,10 @@ export function GithubDesktopApp() {
     handleDeleteLocal,
     handleRebuildBaseline,
     busy,
+    canPush,
     canPull,
     handleFetch,
-    handleFetchOrPull,
+    handleSyncPrimary,
   ])
 
   useAppMenuBar(APP_ID, menuBar)
@@ -1682,8 +1785,8 @@ export function GithubDesktopApp() {
   const syncNetworkBusy =
     busyKind === 'pull' ||
     busyKind === 'fetch' ||
+    busyKind === 'push' ||
     busyKind === 'switch' ||
-    busyKind === 'commit' ||
     busyKind === 'rebuild' ||
     busyKind === 'discard' ||
     busyKind === 'load'
@@ -1691,12 +1794,14 @@ export function GithubDesktopApp() {
   const syncButtonTitle = (() => {
     if (busyKind === 'pull') return '拉取 origin'
     if (busyKind === 'fetch') return '获取 origin'
+    if (busyKind === 'push') return '推送 origin'
     if (busyKind === 'switch') return '切换分支'
-    if (busyKind === 'commit') return '推送 origin'
     if (busyKind === 'rebuild') return '重建本地基线'
     if (busyKind === 'load') return '打开仓库'
     if (busyKind === 'discard') return '丢弃更改'
-    return canPull ? '拉取 origin' : '获取 origin'
+    if (canPush) return '推送 origin'
+    if (canPull) return '拉取 origin'
+    return '获取 origin'
   })()
 
   const syncButtonSubtitle = (() => {
@@ -1705,7 +1810,8 @@ export function GithubDesktopApp() {
     return formatLastFetchedLabel(view.meta.lastFetchedAt, nowMs)
   })()
 
-  const syncIconKind: 'sync' | 'pull' = canPull && !syncNetworkBusy ? 'pull' : 'sync'
+  const syncIconKind: 'sync' | 'pull' | 'push' =
+    canPush && !syncNetworkBusy ? 'push' : canPull && !syncNetworkBusy ? 'pull' : 'sync'
   const branchList = view.kind === 'repo' ? buildRepoBranchList(view.meta) : []
 
   const closeToolbarMenus = useCallback(() => {
@@ -1950,7 +2056,7 @@ export function GithubDesktopApp() {
 
             {view.kind === 'repo' ? (
             <div
-              class={`github-desktop__toolbar-sync${canPull && !syncNetworkBusy ? ' has-menu' : ''}`}
+              class={`github-desktop__toolbar-sync${(canPull || canPush) && !syncNetworkBusy ? ' has-menu' : ''}`}
             >
               <button
                 type="button"
@@ -1958,14 +2064,16 @@ export function GithubDesktopApp() {
                   syncNetworkBusy ? ' has-progress' : ''
                 }${syncMenuOpen ? ' is-open' : ''}`}
                 disabled={busy}
-                onClick={handleFetchOrPull}
+                onClick={handleSyncPrimary}
                 aria-busy={syncNetworkBusy ? 'true' : undefined}
                 title={
                   syncNetworkBusy
                     ? syncButtonSubtitle
-                    : canPull
-                      ? '将远端变更合入本地工作区（需无未提交改动）'
-                      : '从 GitHub 获取远端信息，不改动工作区'
+                    : canPush
+                      ? '将本地 commit 推送到 origin'
+                      : canPull
+                        ? '将远端变更合入本地工作区（需无未 commit 改动）'
+                        : '从 GitHub 获取远端信息，不改动工作区'
                 }
               >
                 {syncNetworkBusy && progressValue !== undefined ? (
@@ -1978,21 +2086,36 @@ export function GithubDesktopApp() {
                 <span
                   class={`github-desktop__toolbar-icon${syncNetworkBusy ? ' is-spinning' : ''}`}
                 >
-                  {syncIconKind === 'pull' ? <ArrowDownIcon /> : <SyncIcon />}
+                  {syncIconKind === 'push' ? (
+                    <PushIcon />
+                  ) : syncIconKind === 'pull' ? (
+                    <PullIcon />
+                  ) : (
+                    <SyncIcon />
+                  )}
                 </span>
                 <span class="github-desktop__toolbar-btn-text">
                   <span class="github-desktop__toolbar-btn-title">{syncButtonTitle}</span>
                   <span class="github-desktop__toolbar-btn-description">{syncButtonSubtitle}</span>
                 </span>
-                {canPull && !syncNetworkBusy ? (
-                  <span class="github-desktop__toolbar-ahead-behind" aria-hidden="true">
-                    <span>
-                      <ArrowDownIcon size={10} />
+                {canPush && !syncNetworkBusy ? (
+                  <span
+                    class="github-desktop__toolbar-ahead-behind"
+                    title={`${unpushedCommitCount} 个 commit 待推送`}
+                    aria-label={`${unpushedCommitCount} 个 commit 待推送`}
+                  >
+                    <PushIcon size={10} />
+                    <span class="github-desktop__toolbar-ahead-behind-count">
+                      {Math.max(unpushedCommitCount, 1)}
                     </span>
+                  </span>
+                ) : canPull && !syncNetworkBusy ? (
+                  <span class="github-desktop__toolbar-ahead-behind" aria-hidden="true">
+                    <PullIcon size={12} />
                   </span>
                 ) : undefined}
               </button>
-              {canPull && !syncNetworkBusy ? (
+              {(canPull || canPush) && !syncNetworkBusy ? (
                 <button
                   type="button"
                   class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync-menu${
@@ -2392,7 +2515,7 @@ export function GithubDesktopApp() {
                               checked={staged}
                               disabled={busy}
                               size="small"
-                              label={`将 ${change.path} 包含在本次提交中`}
+                              label={`将 ${change.path} 包含在本次 commit 中`}
                               onChange={(checked) => toggleChangeStaged(change.path, checked)}
                             />
                           </span>
@@ -2478,8 +2601,8 @@ export function GithubDesktopApp() {
                             onClick={handleCommit}
                           >
                             {partialCommit
-                              ? `提交 ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
-                              : `提交到 ${view.meta.currentBranch}`}
+                              ? `Commit ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
+                              : `Commit 到 ${view.meta.currentBranch}`}
                           </button>
                         </>
                       ) : (
@@ -2497,8 +2620,8 @@ export function GithubDesktopApp() {
                               ? undefined
                               : aiReady
                                 ? partialCommit
-                                  ? `由 AI 为 ${stagedChanges.length} 项已选变更生成说明并提交，其余留在本地`
-                                  : `由 AI 生成提交说明并提交到 ${view.meta.currentBranch}`
+                                  ? `由 AI 为 ${stagedChanges.length} 项已选变更生成说明并 commit，其余留在本地`
+                                  : `由 AI 生成 commit 说明并 commit 到 ${view.meta.currentBranch}`
                                 : '请先在设置中配置 AI API Key'
                           }
                           onClick={handleAutoCommit}
@@ -2506,12 +2629,12 @@ export function GithubDesktopApp() {
                           {busyKind === 'commit'
                             ? '正在处理…'
                             : partialCommit
-                              ? `提交 ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
-                              : `提交到 ${view.meta.currentBranch}`}
+                              ? `Commit ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
+                              : `Commit 到 ${view.meta.currentBranch}`}
                         </button>
                       )}
                     </div>
-                    <div class="github-desktop__commit-tabs" role="tablist" aria-label="提交方式">
+                    <div class="github-desktop__commit-tabs" role="tablist" aria-label="Commit 方式">
                       <button
                         type="button"
                         role="tab"
@@ -2542,31 +2665,46 @@ export function GithubDesktopApp() {
                       <div class="github-desktop__sidebar-empty">正在加载…</div>
                     ) : historyCommits.length === 0 ? (
                       <div class="github-desktop__sidebar-empty">
-                        本地还没有提交历史缓存。点击工具栏「获取」从 GitHub 刷新（不改动工作区）。
+                        本地还没有 commit 历史缓存。点击工具栏「获取」从 GitHub 刷新（不改动工作区）。
                       </div>
                     ) : (
                       <>
-                        {historyCommits.map((commit) => (
+                        {historyCommits.map((commit) => {
+                          const unpushed = isLocalCommitSha(commit.sha)
+                          return (
                           <button
                             key={commit.sha}
                             type="button"
                             class={`github-desktop__history-item${
                               selectedCommitSha === commit.sha ? ' is-selected' : ''
-                            }`}
+                            }${unpushed ? ' github-desktop__history-item--unpushed' : ''}`}
                             onClick={() => setSelectedCommitSha(commit.sha)}
                           >
-                            <span class="github-desktop__history-message">
-                              {commitSummaryLine(commit.message)}
+                            <span class="github-desktop__history-item-head">
+                              <span class="github-desktop__history-message">
+                                {commitSummaryLine(commit.message)}
+                              </span>
+                              {unpushed ? (
+                                <span
+                                  class="github-desktop__history-unpushed"
+                                  title="尚未推送到 origin"
+                                  aria-label="尚未推送到 origin"
+                                >
+                                  <PushIcon size={10} />
+                                </span>
+                              ) : undefined}
                             </span>
                             <span class="github-desktop__history-meta">
                               {shortSha(commit.sha)} · {commit.authorName}
+                              {unpushed ? ' · 未推送' : ''}
                             </span>
                           </button>
-                        ))}
+                          )
+                        })}
                         {historyRemoteTruncated ? (
                           <p class="github-desktop__history-list-hint">
                             仅显示最近 {GITHUB_REMOTE_COMMIT_LIST_LIMIT}{' '}
-                            条远端提交
+                            条远端 commit
                           </p>
                         ) : undefined}
                       </>
@@ -2574,10 +2712,10 @@ export function GithubDesktopApp() {
                   </div>
                   <div class="github-desktop__changes-header github-desktop__changes-header--footer">
                     {historyLoading
-                      ? '加载提交历史…'
+                      ? '加载 commit 历史…'
                       : historyError
                         ? '无法加载历史'
-                        : `${historyCommits.length} 条提交`}
+                        : `${historyCommits.length} 条 commit`}
                   </div>
                 </>
               )}
@@ -2587,12 +2725,12 @@ export function GithubDesktopApp() {
               {sidebarTab === 'history' ? (
                 !selectedCommitSha ? (
                   <div class="github-desktop__diff-empty">
-                    <h3>选择一个提交</h3>
-                    <p>在左侧列表中选择提交以查看变更。</p>
+                    <h3>选择一个 commit</h3>
+                    <p>在左侧列表中选择 commit 以查看变更。</p>
                   </div>
                 ) : historyDetailLoading && !historyDetail ? (
                   <div class="github-desktop__diff-empty">
-                    <h3>正在加载提交详情…</h3>
+                    <h3>正在加载 commit 详情…</h3>
                   </div>
                 ) : historyDetail ? (
                   <div class="github-desktop__history-detail">
@@ -2607,7 +2745,7 @@ export function GithubDesktopApp() {
                     </div>
                     <div class="github-desktop__history-files">
                       {historyDetail.files.length === 0 ? (
-                        <div class="github-desktop__sidebar-empty">此提交没有文件变更信息</div>
+                        <div class="github-desktop__sidebar-empty">此 commit 没有文件变更信息</div>
                       ) : (
                         historyDetail.files.map((file) => (
                           <button
@@ -2636,6 +2774,33 @@ export function GithubDesktopApp() {
                             </div>
                           )
                         }
+                        if (isLocalCommitSha(historyDetail.sha)) {
+                          if (historyFilePreviewLoading) {
+                            return (
+                              <div class="github-desktop__diff-empty">
+                                <h3>正在加载 diff…</h3>
+                              </div>
+                            )
+                          }
+                          if (historyFilePreview?.notice) {
+                            return (
+                              <div class="github-desktop__diff-notice">{historyFilePreview.notice}</div>
+                            )
+                          }
+                          if (historyFilePreview) {
+                            return (
+                              <GithubDesktopDiffView
+                                original={historyFilePreview.original}
+                                modified={historyFilePreview.modified}
+                              />
+                            )
+                          }
+                          return (
+                            <div class="github-desktop__diff-notice">
+                              无法加载本地 commit 的 diff。
+                            </div>
+                          )
+                        }
                         if (!file.patch) {
                           return (
                             <div class="github-desktop__diff-notice">
@@ -2649,14 +2814,14 @@ export function GithubDesktopApp() {
                   </div>
                 ) : (
                   <div class="github-desktop__diff-empty">
-                    <h3>无法显示提交</h3>
+                    <h3>无法显示 commit</h3>
                   </div>
                 )
               ) : changes.length === 0 ? (
                 <div class="github-desktop__no-changes">
                   <div class="github-desktop__no-changes-header">
                     <h3>无本地更改</h3>
-                    <p>当前仓库没有未提交的更改</p>
+                    <p>当前仓库没有未 commit 的更改</p>
                   </div>
                   <div class="github-desktop__no-changes-suggestions">
                     <div class="github-desktop__no-changes-row">
@@ -3031,7 +3196,7 @@ export function GithubDesktopApp() {
             {prefsTab === 'git' ? (
               <>
                 <section class="settings__section">
-                  <h2 class="settings__section-title">提交作者</h2>
+                  <h2 class="settings__section-title">Commit 作者</h2>
                   <p class="settings__section-subtitle">
                     这些信息会写入你推送到 GitHub 的 commit（author / committer）。可与账户资料不同。
                   </p>
@@ -3084,7 +3249,7 @@ export function GithubDesktopApp() {
                     </div>
                   </div>
                   <p class="settings__section-footnote">
-                    默认取自账户显示名与主邮箱；拉不到邮箱时用 noreply。Token 需有邮箱读权限。留空则提交时同样回退。
+                    默认取自账户显示名与主邮箱；拉不到邮箱时用 noreply。Token 需有邮箱读权限。留空则 commit 时同样回退。
                   </p>
                 </section>
                 <section class="settings__section">
@@ -3099,7 +3264,7 @@ export function GithubDesktopApp() {
                     />
                   </div>
                   <p class="settings__section-footnote">
-                    开启后提交说明会附带 Instant Agent 的 Co-authored-by。
+                    开启后 commit 说明会附带 Instant Agent 的 Co-authored-by。
                   </p>
                 </section>
               </>

@@ -88,7 +88,7 @@ function resolveCloneOverallFraction(message: string, detailFraction?: number): 
   }
   if (message.includes('解析压缩包')) return 0.62
   if (message.includes('建立同步快照')) return 0.96
-  if (message.includes('获取提交 SHA')) return 0.6
+  if (message.includes('获取 commit SHA')) return 0.6
   return detailFraction
 }
 

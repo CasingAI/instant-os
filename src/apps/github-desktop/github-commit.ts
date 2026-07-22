@@ -6,31 +6,44 @@ import {
   githubGetCommitTreeSha,
   githubUpdateBranchRef,
 } from './github-api.ts'
+import { readBaselineBytes, readBaselineText } from './github-baseline.ts'
+import { githubGetFileContent } from './github-api.ts'
 import { resolveGithubCommitAuthor } from './github-desktop-prefs.ts'
 import {
   appendGithubLocalCommit,
+  createLocalCommitSha,
+  currentBranchPushedSha,
   currentFileIndex,
   currentHeadSha,
+  finalizePushedLocalCommits,
+  isLocalCommitSha,
+  listUnpushedLocalCommits,
+  listGithubLocalCommits,
   saveGithubRepoMeta,
   withBranchSnapshot,
+  withRemoteBranchTip,
+  type GithubCachedCommitDetail,
+  type GithubLocalCommit,
   type GithubRepoSyncMeta,
+  type GithubFileIndexEntry,
 } from './github-sync-meta.ts'
+import type { GithubChangePreview } from './github-changes.ts'
 import {
   detectGithubChanges,
   persistBaselineForCommittedChanges,
   persistBaselineFromWorkingTree,
-  readWorkingTreeBytes,
   type GithubChange,
 } from './github-changes.ts'
 
-export async function commitAndPushGithubChanges(params: {
+/** 仅本地 commit：更新 fileIndex / tip，不调用 GitHub API */
+export async function commitGithubChanges(params: {
   meta: GithubRepoSyncMeta
   message: string
   selectedPaths?: ReadonlySet<string>
 }): Promise<GithubRepoSyncMeta> {
   const message = params.message.trim()
   if (!message) {
-    throw new Error('请填写提交说明')
+    throw new Error('请填写 commit 说明')
   }
 
   const allChanges = await detectGithubChanges(params.meta)
@@ -39,12 +52,12 @@ export async function commitAndPushGithubChanges(params: {
     : allChanges
 
   if (changes.length === 0) {
-    throw new Error('没有可提交的变更')
+    throw new Error('没有可 commit 的变更')
   }
 
   const author = resolveGithubCommitAuthor()
   if (!author) {
-    throw new Error('尚未配置提交身份。请在设置 → Git 中填写姓名与邮箱，或先刷新账户信息。')
+    throw new Error('尚未配置 commit 身份。请在设置 → Git 中填写姓名与邮箱，或先刷新账户信息。')
   }
 
   const { owner, repo } = params.meta
@@ -53,8 +66,55 @@ export async function commitAndPushGithubChanges(params: {
     throw new Error('当前分支缺少 tip，请重新克隆或拉取')
   }
 
-  const baseTreeSha = await githubGetCommitTreeSha(owner, repo, parentSha)
+  const commitSha = createLocalCommitSha()
+  const previousIndex = currentFileIndex(params.meta)
+  const isPartialCommit = changes.length < allChanges.length
+  const fileIndex = isPartialCommit
+    ? await persistBaselineForCommittedChanges(owner, repo, changes, previousIndex)
+    : await persistBaselineFromWorkingTree(owner, repo, previousIndex)
+  const snap = params.meta.branches[params.meta.currentBranch]
+  const next = withBranchSnapshot(params.meta, params.meta.currentBranch, {
+    tipSha: commitSha,
+    fileIndex,
+    baselineComplete: snap?.baselineComplete,
+    pushedTipSha: snap?.pushedTipSha ?? currentBranchPushedSha(params.meta),
+  })
+  next.updatedAt = osNowMs()
+  await saveGithubRepoMeta(next)
+  await appendGithubLocalCommit(owner, repo, {
+    sha: commitSha,
+    message,
+    parentSha,
+    author: author.name,
+    committedAt: osNowMs(),
+    branch: params.meta.currentBranch,
+    changes: changes.map((change) => ({ path: change.path, kind: change.kind })),
+    fileIndexBefore: previousIndex,
+    fileIndexAfter: fileIndex,
+  })
+  return next
+}
 
+async function pushLocalCommitToRemote(
+  meta: GithubRepoSyncMeta,
+  commit: GithubLocalCommit,
+  parentSha: string,
+): Promise<string> {
+  const author = resolveGithubCommitAuthor()
+  if (!author) {
+    throw new Error('尚未配置 commit 身份。请在设置 → Git 中填写姓名与邮箱，或先刷新账户信息。')
+  }
+  const changes = commit.changes ?? []
+  if (changes.length === 0) {
+    throw new Error('本地 commit 缺少变更记录，无法推送')
+  }
+  const fileIndexAfter = commit.fileIndexAfter
+  if (!fileIndexAfter) {
+    throw new Error('本地 commit 缺少快照，无法推送')
+  }
+
+  const { owner, repo } = meta
+  const baseTreeSha = await githubGetCommitTreeSha(owner, repo, parentSha)
   const treeEntries: Array<
     | { path: string; mode: '100644'; type: 'blob'; sha: string }
     | { path: string; mode: '100644'; type: 'blob'; sha: null }
@@ -65,42 +125,183 @@ export async function commitAndPushGithubChanges(params: {
       treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: null })
       continue
     }
-    const bytes = await readWorkingTreeBytes(change.absolutePath)
+    const entry = fileIndexAfter[change.path]
+    if (!entry) {
+      throw new Error(`本地 commit 快照缺少文件 ${change.path}`)
+    }
+    const bytes = await readBaselineBytes(entry.hash)
+    if (bytes === undefined) {
+      throw new Error(`本地基线缺少文件 ${change.path}`)
+    }
     const blobSha = await githubCreateBlob(owner, repo, bytes, 'base64')
     treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: blobSha })
   }
 
   const treeSha = await githubCreateTree(owner, repo, baseTreeSha, treeEntries)
-  const commitSha = await githubCreateCommit(owner, repo, {
-    message,
+  return githubCreateCommit(owner, repo, {
+    message: commit.message,
     treeSha,
     parentSha,
     author,
   })
-  await githubUpdateBranchRef(owner, repo, params.meta.currentBranch, commitSha)
+}
 
-  // 远端成功后再写本地 tip / commit 账本（含 revisionId）
-  const previousIndex = currentFileIndex(params.meta)
-  const isPartialCommit = changes.length < allChanges.length
-  const fileIndex = isPartialCommit
-    ? await persistBaselineForCommittedChanges(owner, repo, changes, previousIndex)
-    : await persistBaselineFromWorkingTree(owner, repo, previousIndex)
-  const next = withBranchSnapshot(
-    params.meta,
-    params.meta.currentBranch,
-    { tipSha: commitSha, fileIndex },
+/** 将尚未推送的本地 commit 链推送到远端分支 */
+export async function pushGithubBranch(meta: GithubRepoSyncMeta): Promise<GithubRepoSyncMeta> {
+  const unpushed = await listUnpushedLocalCommits(meta.owner, meta.repo, meta.currentBranch)
+  if (unpushed.length === 0) {
+    throw new Error('没有可推送的 commit')
+  }
+
+  let parentSha = currentBranchPushedSha(meta)
+  if (!parentSha || isLocalCommitSha(parentSha)) {
+    throw new Error('无法推送：缺少已同步到远端的基点，请先获取或拉取')
+  }
+
+  const mappings: Array<{ localSha: string; remoteSha: string }> = []
+  for (const commit of unpushed) {
+    const remoteSha = await pushLocalCommitToRemote(meta, commit, parentSha)
+    mappings.push({ localSha: commit.sha, remoteSha })
+    parentSha = remoteSha
+  }
+
+  const remoteTipSha = parentSha
+  await githubUpdateBranchRef(meta.owner, meta.repo, meta.currentBranch, remoteTipSha)
+  await finalizePushedLocalCommits(meta.owner, meta.repo, mappings)
+
+  const snap = meta.branches[meta.currentBranch]
+  const next = withRemoteBranchTip(
+    withBranchSnapshot(meta, meta.currentBranch, {
+      tipSha: remoteTipSha,
+      fileIndex: snap?.fileIndex ?? {},
+      baselineComplete: snap?.baselineComplete,
+      pushedTipSha: remoteTipSha,
+    }),
+    meta.currentBranch,
+    remoteTipSha,
   )
   next.updatedAt = osNowMs()
   await saveGithubRepoMeta(next)
-  await appendGithubLocalCommit(owner, repo, {
-    sha: commitSha,
-    message,
-    parentSha,
-    author: author.name,
-    committedAt: osNowMs(),
-    branch: params.meta.currentBranch,
-  })
   return next
+}
+
+export async function commitAndPushGithubChanges(params: {
+  meta: GithubRepoSyncMeta
+  message: string
+  selectedPaths?: ReadonlySet<string>
+}): Promise<GithubRepoSyncMeta> {
+  const committed = await commitGithubChanges(params)
+  return pushGithubBranch(committed)
+}
+
+export function buildLocalCommitDetail(commit: GithubLocalCommit): GithubCachedCommitDetail {
+  const statusByKind = {
+    added: 'added',
+    modified: 'modified',
+    deleted: 'removed',
+  } as const
+  return {
+    sha: commit.sha,
+    message: commit.message,
+    authorName: commit.author,
+    authorDate: new Date(commit.committedAt).toISOString(),
+    files: (commit.changes ?? []).map((change) => ({
+      filename: change.path,
+      status: statusByKind[change.kind],
+    })),
+  }
+}
+
+async function readIndexedFileText(
+  index: Record<string, GithubFileIndexEntry> | undefined,
+  path: string,
+): Promise<string | undefined> {
+  const entry = index?.[path]
+  if (!entry) return undefined
+  return readBaselineText(entry.hash)
+}
+
+async function resolveParentFileIndex(
+  owner: string,
+  repo: string,
+  parentSha: string | undefined,
+): Promise<Record<string, GithubFileIndexEntry> | undefined> {
+  if (!parentSha) return undefined
+  if (isLocalCommitSha(parentSha)) {
+    const commits = await listGithubLocalCommits(owner, repo)
+    return commits.find((item) => item.sha === parentSha)?.fileIndexAfter
+  }
+  return undefined
+}
+
+async function readRemoteParentFileText(
+  owner: string,
+  repo: string,
+  parentSha: string,
+  path: string,
+): Promise<string | undefined> {
+  try {
+    const bytes = await githubGetFileContent(owner, repo, path, parentSha)
+    return new TextDecoder().decode(bytes)
+  } catch {
+    return undefined
+  }
+}
+
+/** 本地 commit 的文件 diff：不依赖 GitHub patch API */
+export async function buildLocalCommitFilePreview(
+  owner: string,
+  repo: string,
+  commit: GithubLocalCommit,
+  path: string,
+): Promise<GithubChangePreview> {
+  const change = commit.changes?.find((item) => item.path === path)
+  if (!change) {
+    return {
+      path,
+      original: '',
+      modified: '',
+      notice: '找不到此文件的变更记录。',
+    }
+  }
+
+  const beforeIndex =
+    commit.fileIndexBefore ??
+    (await resolveParentFileIndex(owner, repo, commit.parentSha))
+
+  if (change.kind === 'added') {
+    const modified = await readIndexedFileText(commit.fileIndexAfter, path)
+    if (modified === undefined) {
+      return { path, original: '', modified: '', notice: '无法读取新增文件内容。' }
+    }
+    return { path, original: '', modified }
+  }
+
+  if (change.kind === 'deleted') {
+    let original = await readIndexedFileText(beforeIndex, path)
+    if (original === undefined && commit.parentSha && !isLocalCommitSha(commit.parentSha)) {
+      original = await readRemoteParentFileText(owner, repo, commit.parentSha, path)
+    }
+    if (original === undefined) {
+      return { path, original: '', modified: '', notice: '无法读取删除前的文件内容。' }
+    }
+    return { path, original, modified: '' }
+  }
+
+  let original = await readIndexedFileText(beforeIndex, path)
+  if (original === undefined && commit.parentSha && !isLocalCommitSha(commit.parentSha)) {
+    original = await readRemoteParentFileText(owner, repo, commit.parentSha, path)
+  }
+  const modified = await readIndexedFileText(commit.fileIndexAfter, path)
+  if (original === undefined || modified === undefined) {
+    return {
+      path,
+      original: original ?? '',
+      modified: modified ?? '',
+      notice: '无法读取本地 commit 的对比内容。',
+    }
+  }
+  return { path, original, modified }
 }
 
 export function summarizeChanges(changes: readonly GithubChange[]): string {

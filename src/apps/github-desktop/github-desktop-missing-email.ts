@@ -14,9 +14,9 @@ export const GITHUB_DESKTOP_MISSING_EMAIL_COPY = {
   bannerTitle: '无法获取 GitHub 邮箱',
   listTitle: '无法获取 GitHub 邮箱',
   listSubtitle: 'GitHub Desktop 正在使用默认 noreply 邮箱，请手动设置',
-  detailPhase: '提交作者',
+  detailPhase: 'Commit 作者',
   detailBody:
-    '当前 Token 未能读取到账户邮箱，提交将使用 login@users.noreply.github.com。请在 Git 设置中填写真实邮箱，或在钥匙串为 Token 授予邮箱读权限后刷新账户信息。',
+    '当前 Token 未能读取到账户邮箱，commit 将使用 login@users.noreply.github.com。请在 Git 设置中填写真实邮箱，或在钥匙串为 Token 授予邮箱读权限后刷新账户信息。',
   openSettingsButton: '打开 Git 设置',
   dismissButton: '忽略',
 } as const

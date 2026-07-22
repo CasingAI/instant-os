@@ -12,10 +12,10 @@ const COMMIT_AGENT_USAGE: AiUsageContext = {
   actor: 'github-desktop',
   behavior: 'generate-commit-message',
   actorLabel: 'GitHub Desktop',
-  behaviorLabel: '生成提交说明',
+  behaviorLabel: '生成 commit 说明',
 }
 
-const COMMIT_MESSAGE_PROMPT = `你是 Git 提交说明撰写助手。根据用户提供的文件变更，生成简洁、专业的中文提交说明。
+const COMMIT_MESSAGE_PROMPT = `你是 Git commit 说明撰写助手。根据用户提供的文件变更，生成简洁、专业的中文 commit 说明。
 
 必须只返回 JSON 对象，不要 markdown，不要解释。格式：
 {
@@ -129,7 +129,7 @@ export async function generateGithubCommitMessage(params: {
 
     const parsed = normalizeGeneratedMessage(parseJsonFromAiText<GeneratedGithubCommitMessage>(text))
     if (!parsed.summary) {
-      throw new Error('AI 未生成有效的提交摘要')
+      throw new Error('AI 未生成有效的 commit 摘要')
     }
     return parsed
   } catch (error) {

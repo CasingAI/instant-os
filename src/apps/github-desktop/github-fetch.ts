@@ -47,7 +47,7 @@ export async function fetchGithubRemote(params: {
   onProgress?.('刷新分支列表…')
   const branches = await githubListBranches(meta.owner, meta.repo)
 
-  onProgress?.('刷新提交历史…')
+  onProgress?.('刷新 commit 历史…')
   const commits = await githubListCommits(
     meta.owner,
     meta.repo,

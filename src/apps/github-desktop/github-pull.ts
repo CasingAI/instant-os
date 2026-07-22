@@ -39,10 +39,10 @@ export async function pullGithubRepository(params: {
   onProgress?: GithubProgress
 }): Promise<GithubRepoSyncMeta> {
   const { meta, onProgress } = params
-  onProgress?.('检查本地是否有未提交变更…')
+  onProgress?.('检查本地是否有未 commit 变更…')
   const localChanges = await detectGithubChanges(meta)
   if (localChanges.length > 0) {
-    throw new Error('本地有未提交变更，请先提交或丢弃后再拉取')
+    throw new Error('本地有未 commit 变更，请先 commit 或丢弃后再拉取')
   }
 
   const localSha = currentHeadSha(meta)
@@ -108,7 +108,7 @@ export async function pullGithubRepository(params: {
   const next = withBranchSnapshot(
     meta,
     meta.currentBranch,
-    { tipSha: remoteSha, fileIndex, baselineComplete: true },
+    { tipSha: remoteSha, fileIndex, baselineComplete: true, pushedTipSha: remoteSha },
   )
   next.updatedAt = osNowMs()
   await saveGithubRepoMeta(next)
@@ -147,7 +147,7 @@ async function rematerializeFromZip(params: {
   const next = withBranchSnapshot(
     meta,
     branch,
-    { tipSha: params.headSha, fileIndex, baselineComplete: true },
+    { tipSha: params.headSha, fileIndex, baselineComplete: true, pushedTipSha: params.headSha },
     { currentBranch: branch },
   )
   next.updatedAt = osNowMs()
@@ -172,10 +172,10 @@ export async function switchGithubBranch(params: {
     return { meta: params.meta, syncedWithRemote: false }
   }
 
-  params.onProgress?.('检查本地是否有未提交变更…')
+  params.onProgress?.('检查本地是否有未 commit 变更…')
   const localChanges = await detectGithubChanges(params.meta)
   if (localChanges.length > 0) {
-    throw new Error('本地有未提交变更，请先提交或丢弃后再切换分支')
+    throw new Error('本地有未 commit 变更，请先 commit 或丢弃后再切换分支')
   }
 
   params.onProgress?.(`切换到 ${branch}…`)

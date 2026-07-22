@@ -25,6 +25,13 @@ export type GithubBranchSnapshot = {
   fileIndex: Record<string, GithubFileIndexEntry>
   /** 基线 blob 已齐全；切换分支时可跳过全量存在性扫描 */
   baselineComplete?: boolean
+  /** 上次成功推送到远端后的 tip；缺省时视为与远端 tip 一致 */
+  pushedTipSha?: string
+}
+
+export type GithubLocalCommitChange = {
+  path: string
+  kind: 'added' | 'modified' | 'deleted'
 }
 
 export type GithubLocalCommit = {
@@ -34,6 +41,27 @@ export type GithubLocalCommit = {
   author: string
   committedAt: number
   branch: string
+  /** push 成功后写入的远端 commit sha */
+  remoteSha?: string
+  /** 本地 commit 的路径级变更，供 push 时重建 tree */
+  changes?: GithubLocalCommitChange[]
+  /** commit 完成后的 fileIndex 快照，供 push 时读取 blob */
+  fileIndexAfter?: Record<string, GithubFileIndexEntry>
+  /** commit 前的 fileIndex 快照，供本地历史 diff 使用 */
+  fileIndexBefore?: Record<string, GithubFileIndexEntry>
+}
+
+const LOCAL_COMMIT_SHA_PREFIX = 'local-'
+
+export function createLocalCommitSha(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${LOCAL_COMMIT_SHA_PREFIX}${hex}`
+}
+
+export function isLocalCommitSha(sha: string): boolean {
+  return sha.startsWith(LOCAL_COMMIT_SHA_PREFIX)
 }
 
 /** 最近一次 Fetch 缓存的远端分支（持久化，刷新后仍显示） */
@@ -224,6 +252,20 @@ export function currentBranchRemoteSha(meta: GithubRepoSyncMeta): string | undef
     if (remote.name === meta.currentBranch) return remote.commitSha
   }
   return undefined
+}
+
+/** 当前分支上次推送到远端后的 tip；旧数据缺省时回退到远端 tip 或本地 tip */
+export function currentBranchPushedSha(meta: GithubRepoSyncMeta): string {
+  const snap = currentBranchSnapshot(meta)
+  if (snap.pushedTipSha) return snap.pushedTipSha
+  return currentBranchRemoteSha(meta) ?? snap.tipSha
+}
+
+/** 本地是否有尚未推送到远端的提交 */
+export function branchHasUnpushedCommits(meta: GithubRepoSyncMeta): boolean {
+  const tipSha = currentHeadSha(meta)
+  if (!tipSha) return false
+  return tipSha !== currentBranchPushedSha(meta)
 }
 
 /** 切换分支或单独查询 tip 后，对齐远端分支列表里该分支的 commitSha */
@@ -468,6 +510,43 @@ export async function appendGithubLocalCommit(
   const withoutDup = commits.filter((item) => item.sha !== commit.sha)
   withoutDup.unshift(commit)
   store.put({ id, commits: withoutDup.slice(0, 200) } satisfies CommitsRecord)
+  await waitForTransaction(tx)
+}
+
+export async function listUnpushedLocalCommits(
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<GithubLocalCommit[]> {
+  const commits = await listGithubLocalCommits(owner, repo)
+  return commits
+    .filter(
+      (item) =>
+        item.branch === branch && isLocalCommitSha(item.sha) && item.remoteSha === undefined,
+    )
+    .sort((a, b) => a.committedAt - b.committedAt)
+}
+
+export async function finalizePushedLocalCommits(
+  owner: string,
+  repo: string,
+  mappings: ReadonlyArray<{ localSha: string; remoteSha: string }>,
+): Promise<void> {
+  if (mappings.length === 0) return
+  const db = await openDb()
+  const id = githubRepoId(owner, repo)
+  const tx = db.transaction(COMMITS_STORE, 'readwrite')
+  const store = tx.objectStore(COMMITS_STORE)
+  const existing = await requestToPromise(
+    store.get(id) as IDBRequest<CommitsRecord | undefined>,
+  )
+  const byLocalSha = new Map(mappings.map((item) => [item.localSha, item.remoteSha]))
+  const commits = (existing?.commits ?? []).map((item) => {
+    const remoteSha = byLocalSha.get(item.sha)
+    if (!remoteSha) return item
+    return { ...item, sha: remoteSha, remoteSha }
+  })
+  store.put({ id, commits } satisfies CommitsRecord)
   await waitForTransaction(tx)
 }
 

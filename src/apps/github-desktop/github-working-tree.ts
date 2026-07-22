@@ -421,7 +421,7 @@ export async function cloneGithubRepository(params: {
   onProgress?.('解析压缩包…')
   const files = await unzipGithubZipball(zip)
 
-  onProgress?.('获取提交 SHA…')
+  onProgress?.('获取 commit SHA…')
   const headSha = await githubGetBranchTip(params.owner, params.repo, branch)
 
   await materializeFilesToRepo(params.owner, params.repo, files, onProgress)
@@ -441,7 +441,7 @@ export async function cloneGithubRepository(params: {
       currentBranch: branch,
       defaultBranch: remote.defaultBranch,
       branches: {
-        [branch]: { tipSha: headSha, fileIndex },
+        [branch]: { tipSha: headSha, fileIndex, pushedTipSha: headSha },
       },
       updatedAt: osNowMs(),
       remote: stampGithubStoredRemoteRepo(remote),
