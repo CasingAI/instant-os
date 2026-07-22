@@ -1493,12 +1493,12 @@ export function GithubDesktopApp() {
     if (cloneSourceTab === 'url') {
       return parsedCloneUrl
         ? githubRepoRootPath(parsedCloneUrl.owner, parsedCloneUrl.repo)
-        : '/repo/github/…'
+        : '/dev/github/…'
     }
     if (cloneOwner.trim() && cloneRepo.trim()) {
       return githubRepoRootPath(cloneOwner.trim(), cloneRepo.trim())
     }
-    return '/repo/github/…'
+    return '/dev/github/…'
   }, [cloneSourceTab, parsedCloneUrl, cloneOwner, cloneRepo])
 
   const canCloneFromGithub =
@@ -2255,7 +2255,7 @@ export function GithubDesktopApp() {
               <div class="github-desktop__local-list" role="list" aria-label="本地仓库">
                 {cloningRepos.length === 0 && listedLocalRepos.length === 0 ? (
                   <div class="settings__empty">
-                    还没有本地副本。克隆后会保存在 /repo/github/…
+                    还没有本地副本。克隆后会保存在 /dev/github/…
                   </div>
                 ) : (
                   <>

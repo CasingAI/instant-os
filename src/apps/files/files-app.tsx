@@ -377,7 +377,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [locationId, pathNodes])
   const canCreateHere =
     locationWritable &&
-    (locationId !== 'repo' || currentFolder !== undefined) &&
+    (locationId !== 'dev' || currentFolder !== undefined) &&
     (currentFolder === undefined || isFilesNodeWritable(currentFolder))
   const currentTitle = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1].name : locationLabel
   const canGoBackInPath = pathNodes.length > 0
@@ -543,7 +543,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (!options?.quiet) beginRefreshingUi(gen)
     setError(undefined)
     try {
-      if (locationId === 'repo') {
+      if (locationId === 'dev') {
         await reconcileGithubRepoAttributes().catch(() => undefined)
       }
       const [listed, path] = await Promise.all([
@@ -1302,7 +1302,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     async (node: FilesNode) => {
       closeTransientMenus()
       try {
-        if (node.locationId === 'repo' && node.id !== '') {
+        if (node.locationId === 'dev' && node.id !== '') {
           await reconcileGithubRepoAttributes().catch(() => undefined)
         }
         const fresh =

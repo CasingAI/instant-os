@@ -3,7 +3,7 @@
  * 走 files-storage（系统 / root 层），不检查节点 writable。
  */
 import { osNowMs } from '../../os/os-clock.ts'
-import { joinFilesAbsolutePath, parseFilesAbsolutePath } from '../files/files-path.ts'
+import { filesLocationPathRoot, joinFilesAbsolutePath, parseFilesAbsolutePath } from '../files/files-path.ts'
 import {
   collectSubtreeIds,
   createFileWithBytes,
@@ -28,6 +28,7 @@ import {
   githubUserRootPath,
 } from './github-repo-paths.ts'
 
+const DEV_FILES_ROOT = filesLocationPathRoot('dev')
 const SYSTEM_ATTRIBUTES: FilesNodeAttributes = { readable: true, writable: false }
 const WORKSPACE_ATTRIBUTES: FilesNodeAttributes = { readable: true, writable: true }
 
@@ -40,7 +41,7 @@ async function ensureSystemFolder(
   attributes: FilesNodeAttributes = SYSTEM_ATTRIBUTES,
 ): Promise<FilesNode> {
   const parsed = parseFilesAbsolutePath(absolutePath)
-  if (!parsed || parsed.locationId !== 'repo') {
+  if (!parsed || parsed.locationId !== 'dev') {
     throw new Error(`无效的系统路径：${absolutePath}`)
   }
   if (parsed.segments.length === 0) {
@@ -64,7 +65,7 @@ async function ensureSystemFolder(
 
   let parentId: string | undefined
   if (parentSegments.length > 0) {
-    const parentPath = joinFilesAbsolutePath('/repo', ...parentSegments)
+    const parentPath = joinFilesAbsolutePath(DEV_FILES_ROOT, ...parentSegments)
     const parent = await ensureSystemFolder(parentPath, SYSTEM_ATTRIBUTES)
     parentId = parent.id
   }
@@ -72,7 +73,7 @@ async function ensureSystemFolder(
   const now = osNowMs()
   const node: FilesNode = {
     id: newFilesNodeId(),
-    locationId: 'repo',
+    locationId: 'dev',
     parentId,
     name,
     kind: 'folder',
@@ -150,13 +151,13 @@ export async function writeGithubObjectBlob(
   const parentSegments = parsed.segments.slice(0, -1)
   const name = parsed.segments[parsed.segments.length - 1]
   if (!name) throw new Error(`无效的对象路径：${path}`)
-  const parentPath = joinFilesAbsolutePath('/repo', ...parentSegments)
+  const parentPath = joinFilesAbsolutePath(DEV_FILES_ROOT, ...parentSegments)
   const parent = await ensureSystemFolder(parentPath)
 
   const now = osNowMs()
   const node: FilesNode = {
     id: newFilesNodeId(),
-    locationId: 'repo',
+    locationId: 'dev',
     parentId: parent.id,
     name,
     kind: 'file',

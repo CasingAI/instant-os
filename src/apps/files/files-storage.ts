@@ -20,7 +20,7 @@ import {
 } from './files-types.ts'
 
 export const FILES_DB_NAME = 'instant-os-files'
-export const FILES_DB_VERSION = 1
+export const FILES_DB_VERSION = 2
 export const FILES_NODES_STORE = 'nodes'
 export const FILES_BLOBS_STORE = 'blobs'
 export const FILES_META_STORE = 'meta'
@@ -72,8 +72,9 @@ function openFilesDb(): Promise<IDBDatabase> {
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(FILES_DB_NAME, FILES_DB_VERSION)
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result
+      const tx = request.transaction
       if (!db.objectStoreNames.contains(FILES_NODES_STORE)) {
         const store = db.createObjectStore(FILES_NODES_STORE, { keyPath: 'id' })
         store.createIndex('by-parent', ['locationId', 'parentId'], { unique: false })
@@ -84,6 +85,23 @@ function openFilesDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(FILES_META_STORE)) {
         db.createObjectStore(FILES_META_STORE, { keyPath: 'key' })
+      }
+
+      const oldVersion = event.oldVersion
+      if (oldVersion > 0 && oldVersion < 2 && tx) {
+        const nodeStore = tx.objectStore(FILES_NODES_STORE)
+        const cursorReq = nodeStore.openCursor()
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result
+          if (!cursor) return
+          const record = cursor.value as FilesNodeRecord
+          if ((record.locationId as string) === 'repo') {
+            const updateReq = cursor.update({ ...record, locationId: 'dev' })
+            updateReq.onsuccess = () => cursor.continue()
+            return
+          }
+          cursor.continue()
+        }
       }
     }
 

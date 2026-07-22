@@ -31,13 +31,13 @@ function snap(
 ): GithubRevisionSnapshotEntry {
   return {
     path,
-    absolutePath: `/repo/github/o/r/${path}`,
+    absolutePath: `/dev/github/o/r/${path}`,
     byteSize,
     contentRevisionId,
   }
 }
 
-const root = '/repo/github/o/r'
+const root = '/dev/github/o/r'
 
 {
   const changes = diffRevisionSnapshot(
@@ -58,7 +58,7 @@ const root = '/repo/github/o/r'
     {
       path: 'a.ts',
       kind: 'modified',
-      absolutePath: '/repo/github/o/r/a.ts',
+      absolutePath: '/dev/github/o/r/a.ts',
       needsHashCheck: false,
       byteSize: 10,
     },
@@ -91,7 +91,7 @@ const root = '/repo/github/o/r'
     {
       path: 'new.ts',
       kind: 'added',
-      absolutePath: '/repo/github/o/r/new.ts',
+      absolutePath: '/dev/github/o/r/new.ts',
       needsHashCheck: false,
       byteSize: 20,
     },
@@ -108,7 +108,7 @@ const root = '/repo/github/o/r'
     {
       path: 'gone.ts',
       kind: 'deleted',
-      absolutePath: '/repo/github/o/r/gone.ts',
+      absolutePath: '/dev/github/o/r/gone.ts',
       needsHashCheck: false,
     },
   ])

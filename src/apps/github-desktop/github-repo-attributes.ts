@@ -1,5 +1,5 @@
 /**
- * 一次性修补已有 repo 卷节点属性：系统目录只读，工作区根可写。
+ * 一次性修补已有 dev 卷节点属性：系统目录只读，工作区根可写。
  * 不覆盖工作区内部已有节点的自有属性。
  */
 import { listChildNodes, updateNodeAttributes } from '../files/files-storage.ts'
@@ -26,7 +26,7 @@ async function ensureNodeAttributes(
 
 async function reconcileObjectsTree(folder: FilesNode): Promise<void> {
   await ensureNodeAttributes(folder, SYSTEM_ATTRIBUTES)
-  const children = await listChildNodes('repo', folder.id)
+  const children = await listChildNodes('dev', folder.id)
   for (const child of children) {
     if (child.kind === 'folder') {
       await reconcileObjectsTree(child)
@@ -41,7 +41,7 @@ async function reconcileOnce(): Promise<void> {
   if (!githubRoot || githubRoot.kind !== 'folder') return
   await ensureNodeAttributes(githubRoot, SYSTEM_ATTRIBUTES)
 
-  const topChildren = await listChildNodes('repo', githubRoot.id)
+  const topChildren = await listChildNodes('dev', githubRoot.id)
   for (const child of topChildren) {
     if (child.kind !== 'folder') continue
 
@@ -52,7 +52,7 @@ async function reconcileOnce(): Promise<void> {
 
     // owner 层：只读
     await ensureNodeAttributes(child, SYSTEM_ATTRIBUTES)
-    const repos = await listChildNodes('repo', child.id)
+    const repos = await listChildNodes('dev', child.id)
     for (const repoNode of repos) {
       if (repoNode.kind !== 'folder') continue
       // 工作区根：可写；内部节点不覆盖
@@ -66,7 +66,7 @@ async function reconcileOnce(): Promise<void> {
   }
 }
 
-/** 幂等修补 repo 卷 GitHub 相关文件夹属性；可在启动时调用 */
+/** 幂等修补 dev 卷 GitHub 相关文件夹属性；可在启动时调用 */
 export function reconcileGithubRepoAttributes(): Promise<void> {
   if (!reconcilePromise) {
     reconcilePromise = reconcileOnce().catch((err) => {

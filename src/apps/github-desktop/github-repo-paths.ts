@@ -1,19 +1,21 @@
-import { joinFilesAbsolutePath } from '../files/files-path.ts'
+import { filesLocationPathRoot, joinFilesAbsolutePath } from '../files/files-path.ts'
 
 export const GITHUB_REPO_HOST = 'github'
 
+const DEV_FILES_ROOT = filesLocationPathRoot('dev')
+
 /** GitHub 卷下用户可见的命名空间根 */
-export const GITHUB_USER_ROOT = '/repo/github'
+export const GITHUB_USER_ROOT = joinFilesAbsolutePath(DEV_FILES_ROOT, GITHUB_REPO_HOST)
 
 /** 基线 blob 对象库（仅 GitHub Desktop 内部写入） */
-export const GITHUB_OBJECTS_ROOT = '/repo/github/.objects'
+export const GITHUB_OBJECTS_ROOT = joinFilesAbsolutePath(GITHUB_USER_ROOT, '.objects')
 
 export function githubUserRootPath(...segments: string[]): string {
   return joinFilesAbsolutePath(GITHUB_USER_ROOT, ...segments)
 }
 
 export function githubRepoRootPath(owner: string, repo: string): string {
-  return joinFilesAbsolutePath('/repo', GITHUB_REPO_HOST, owner, repo)
+  return joinFilesAbsolutePath(DEV_FILES_ROOT, GITHUB_REPO_HOST, owner, repo)
 }
 
 export function githubRepoId(owner: string, repo: string): string {

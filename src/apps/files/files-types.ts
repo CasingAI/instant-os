@@ -1,4 +1,4 @@
-export type BuiltinFilesLocationId = 'local' | 'models3d' | 'source' | 'repo'
+export type BuiltinFilesLocationId = 'local' | 'models3d' | 'source' | 'dev'
 
 /** 动态挂载卷：`mount:{文件夹名键}`，键由本机文件夹名派生，便于稳定路径 */
 export type MountFilesLocationId = `mount:${string}`
@@ -52,7 +52,7 @@ export type FilesLocation = {
 
 export const FILES_LOCATIONS: readonly FilesLocation[] = [
   { id: 'local', label: '用户文件', writable: true },
-  { id: 'repo', label: '代码仓库', writable: true },
+  { id: 'dev', label: '开发者数据', writable: true },
   { id: 'models3d', label: '3D 模型', writable: false },
   { id: 'source', label: '系统', writable: false },
 ]
@@ -149,7 +149,7 @@ export function isFilesNodeWritable(node: Pick<FilesNode, 'attributes'>): boolea
 
 /** 卷根（虚拟条目）的属性：与 files-api volumeRootEntry 一致 */
 export function filesVolumeRootAttributes(locationId: FilesLocationId): FilesNodeAttributes {
-  if (locationId === 'repo') {
+  if (locationId === 'dev') {
     return { readable: true, writable: false }
   }
   return defaultFilesNodeAttributes(locationId)

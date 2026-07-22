@@ -23,7 +23,7 @@ import {
   githubGetBranchTip,
   githubGetRepo,
 } from './github-api.ts'
-import { githubRepoRootPath } from './github-repo-paths.ts'
+import { githubRepoRootPath, githubUserRootPath } from './github-repo-paths.ts'
 import { deleteGithubNodeSubtree, ensureGithubRepoRootFolder } from './github-objects-vfs.ts'
 import { shouldReportGithubProgress, type GithubProgress } from './github-progress.ts'
 import { persistBaselineFromFiles, readBaselineBytes } from './github-baseline.ts'
@@ -458,10 +458,10 @@ export async function deleteLocalGithubRepository(owner: string, repo: string): 
   if (node) {
     await deleteGithubNodeSubtree(node)
   }
-  const ownerPath = joinFilesAbsolutePath('/repo/github', owner)
+  const ownerPath = githubUserRootPath(owner)
   const ownerNode = await resolveNodeByAbsolutePath(ownerPath)
   if (ownerNode) {
-    const ownerChildren = await listChildNodes('repo', ownerNode.id).catch(() => [])
+    const ownerChildren = await listChildNodes('dev', ownerNode.id).catch(() => [])
     if (ownerChildren.length === 0) {
       await deleteGithubNodeSubtree(ownerNode).catch(() => undefined)
     }
