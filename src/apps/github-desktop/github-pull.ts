@@ -18,6 +18,7 @@ import {
   currentFileIndex,
   currentHeadSha,
   saveGithubRepoMeta,
+  touchRecentBranch,
   withBranchSnapshot,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
@@ -174,11 +175,14 @@ export async function switchGithubBranch(params: {
       params.meta.repo,
       cached.fileIndex,
     )
-    const next = withBranchSnapshot(
-      params.meta,
+    const next = touchRecentBranch(
+      withBranchSnapshot(
+        params.meta,
+        branch,
+        { tipSha: cached.tipSha, fileIndex: stampedIndex },
+        { currentBranch: branch },
+      ),
       branch,
-      { tipSha: cached.tipSha, fileIndex: stampedIndex },
-      { currentBranch: branch },
     )
     next.updatedAt = osNowMs()
     await saveGithubRepoMeta(next)
@@ -186,11 +190,18 @@ export async function switchGithubBranch(params: {
   }
 
   const headSha = await githubGetBranchTip(params.meta.owner, params.meta.repo, branch)
-  return rematerializeFromZip({
+  const next = await rematerializeFromZip({
     meta: params.meta,
     ref: branch,
     branch,
     headSha,
     onProgress: params.onProgress,
   })
+  const withRecent = touchRecentBranch(next, branch)
+  if (withRecent !== next) {
+    withRecent.updatedAt = osNowMs()
+    await saveGithubRepoMeta(withRecent)
+    return withRecent
+  }
+  return next
 }

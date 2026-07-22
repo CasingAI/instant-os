@@ -34,6 +34,7 @@ import {
   getGithubRepoMeta,
   saveGithubRepoMeta,
   stampGithubStoredRemoteRepo,
+  touchRecentBranch,
   type GithubFileIndexEntry,
   type GithubRepoSyncMeta,
   type GithubRevisionSnapshotEntry,
@@ -427,18 +428,21 @@ export async function cloneGithubRepository(params: {
     snapshot.map((entry) => [entry.path, entry.contentRevisionId] as const),
   )
   const fileIndex = await persistBaselineFromFiles(working, revisionIds)
-  const meta: GithubRepoSyncMeta = {
-    version: 2,
-    owner: remote.owner.login,
-    repo: remote.name,
-    currentBranch: branch,
-    defaultBranch: remote.defaultBranch,
-    branches: {
-      [branch]: { tipSha: headSha, fileIndex },
+  const meta = touchRecentBranch(
+    {
+      version: 2,
+      owner: remote.owner.login,
+      repo: remote.name,
+      currentBranch: branch,
+      defaultBranch: remote.defaultBranch,
+      branches: {
+        [branch]: { tipSha: headSha, fileIndex },
+      },
+      updatedAt: osNowMs(),
+      remote: stampGithubStoredRemoteRepo(remote),
     },
-    updatedAt: osNowMs(),
-    remote: stampGithubStoredRemoteRepo(remote),
-  }
+    branch,
+  )
   await saveGithubRepoMeta(meta)
   return meta
 }

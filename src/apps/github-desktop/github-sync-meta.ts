@@ -47,6 +47,15 @@ export type GithubDesktopBranchListItem = GithubStoredRemoteBranch & {
   localTipSha: string | undefined
 }
 
+/** 分支下拉分组：主分支 / 最近 / 其余 */
+export type GithubDesktopBranchListSections = {
+  defaultBranch: GithubDesktopBranchListItem | undefined
+  recent: GithubDesktopBranchListItem[]
+  other: GithubDesktopBranchListItem[]
+}
+
+const MAX_RECENT_BRANCHES = 8
+
 export type GithubRepoSyncMeta = {
   version: 2
   owner: string
@@ -56,6 +65,8 @@ export type GithubRepoSyncMeta = {
   branches: Record<string, GithubBranchSnapshot>
   /** 最近一次 Fetch 拿到的远端分支列表 */
   remoteBranches?: GithubStoredRemoteBranch[]
+  /** 最近切换过的分支名（新在前），供分支下拉「最近分支」分组 */
+  recentBranches?: string[]
   updatedAt: number
   /** 最近一次成功 Fetch（含拉取后附带刷新）的时间戳 */
   lastFetchedAt?: number
@@ -272,13 +283,45 @@ export function buildRepoBranchList(meta: GithubRepoSyncMeta): GithubDesktopBran
     ]
   }
 
-  const list = [...byName.values()]
-  list.sort((a, b) => {
-    if (a.name === meta.currentBranch) return -1
-    if (b.name === meta.currentBranch) return 1
-    return a.name.localeCompare(b.name)
-  })
-  return list
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** 记录分支切换，更新最近分支列表 */
+export function touchRecentBranch(
+  meta: GithubRepoSyncMeta,
+  branch: string,
+): GithubRepoSyncMeta {
+  const name = branch.trim()
+  if (!name) return meta
+  const prev = meta.recentBranches ?? []
+  const next = [name, ...prev.filter((item) => item !== name)].slice(0, MAX_RECENT_BRANCHES)
+  if (next.length === prev.length && next.every((item, index) => item === prev[index])) {
+    return meta
+  }
+  return { ...meta, recentBranches: next }
+}
+
+/** 将分支列表拆成主分支 / 最近 / 其余三组 */
+export function groupRepoBranchList(
+  meta: GithubRepoSyncMeta,
+  branches: GithubDesktopBranchListItem[],
+): GithubDesktopBranchListSections {
+  const byName = new Map(branches.map((branch) => [branch.name, branch]))
+  const defaultBranch = byName.get(meta.defaultBranch)
+  let recent = (meta.recentBranches ?? [])
+    .filter((name) => name !== meta.defaultBranch && byName.has(name))
+    .map((name) => byName.get(name)!)
+  if (recent.length === 0) {
+    const current = byName.get(meta.currentBranch)
+    if (current && current.name !== meta.defaultBranch) {
+      recent = [current]
+    }
+  }
+  const recentNames = new Set(recent.map((branch) => branch.name))
+  const other = branches
+    .filter((branch) => branch.name !== meta.defaultBranch && !recentNames.has(branch.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return { defaultBranch, recent, other }
 }
 
 export async function listGithubRepoMeta(): Promise<GithubRepoSyncMeta[]> {

@@ -408,6 +408,25 @@
   text-align: center;
 }
 
+.github-desktop__foldout-section-title {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gd-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.github-desktop__foldout-section .github-desktop__foldout-item:last-child {
+  border-bottom: none;
+}
+
+.github-desktop__foldout-section:not(:last-child) .github-desktop__foldout-item:last-child {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
 .github-desktop__foldout-item {
   appearance: none;
   display: flex;
@@ -492,6 +511,23 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+.github-desktop__foldout-item--branch .github-desktop__foldout-item-branch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.github-desktop__foldout-item--branch .github-desktop__foldout-item-branch-sha {
+  font-size: 11px;
+  color: var(--gd-muted);
+}
+
+.github-desktop__foldout-item--branch.is-active .github-desktop__foldout-item-branch-sha {
+  color: var(--gd-selected-text);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .github-desktop__branch-badge {

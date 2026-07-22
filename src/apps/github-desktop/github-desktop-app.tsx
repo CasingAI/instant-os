@@ -91,12 +91,14 @@ import {
   getCachedGithubCommitDetail,
   getCachedGithubCommitList,
   getGithubRepoMeta,
+  groupRepoBranchList,
   listGithubLocalCommits,
   listGithubRepoMeta,
   putCachedGithubCommitDetail,
   saveGithubMissingRepoMeta,
   saveGithubRepoMeta,
   stampGithubStoredRemoteRepo,
+  type GithubDesktopBranchListItem,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
@@ -1780,11 +1782,20 @@ export function GithubDesktopApp() {
       )
     })
   }, [listedLocalRepos, repoFoldoutFilter])
-  const filteredBranchList = useMemo(() => {
+  const filteredBranchSections = useMemo(() => {
     const q = branchFoldoutFilter.trim().toLowerCase()
-    if (!q) return branchList
-    return branchList.filter((branch) => branch.name.toLowerCase().includes(q))
-  }, [branchList, branchFoldoutFilter])
+    const filtered = q
+      ? branchList.filter((branch) => branch.name.toLowerCase().includes(q))
+      : branchList
+    if (view.kind !== 'repo') {
+      return { defaultBranch: undefined, recent: [], other: [] }
+    }
+    return groupRepoBranchList(view.meta, filtered)
+  }, [branchList, branchFoldoutFilter, view])
+  const filteredBranchCount =
+    (filteredBranchSections.defaultBranch ? 1 : 0) +
+    filteredBranchSections.recent.length +
+    filteredBranchSections.other.length
   const cloningTitleOwner = activeCloning?.owner ?? (view.kind === 'cloning' ? view.owner : undefined)
   const cloningTitleRepo = activeCloning?.repo ?? (view.kind === 'cloning' ? view.repo : undefined)
   const toolbarRepoTitle =
@@ -1810,6 +1821,57 @@ export function GithubDesktopApp() {
         : cloningTitleOwner && cloningTitleRepo
           ? `${cloningTitleOwner}/${cloningTitleRepo}`
           : undefined
+
+  const renderBranchFoldoutItem = (branch: GithubDesktopBranchListItem) => {
+    if (view.kind !== 'repo') return undefined
+    const active = branch.name === view.meta.currentBranch
+    const localOutdated =
+      branch.hasLocalSnapshot &&
+      Boolean(branch.localTipSha) &&
+      Boolean(branch.commitSha) &&
+      branch.localTipSha !== branch.commitSha
+    return (
+      <button
+        key={branch.name}
+        type="button"
+        class={`github-desktop__foldout-item github-desktop__foldout-item--branch${active ? ' is-active' : ''}${branch.hasLocalSnapshot ? ' github-desktop__foldout-item--local' : ''}`}
+        disabled={busy}
+        onClick={() => {
+          closeToolbarMenus()
+          if (!active) handleSwitchBranch(branch.name)
+        }}
+      >
+        <div class="github-desktop__foldout-item-branch-head">
+          <strong>{branch.name}</strong>
+          {branch.protected ? (
+            <span class="github-desktop__branch-badge github-desktop__branch-badge--protected" title="受保护分支">
+              保护
+            </span>
+          ) : undefined}
+        </div>
+        <div class="github-desktop__foldout-item-branch-meta">
+          <span class="github-desktop__foldout-item-branch-sha">
+            {shortSha(branch.commitSha || '???????')}
+            {localOutdated
+              ? ` · 本地 ${shortSha(branch.localTipSha || '???????')}`
+              : undefined}
+          </span>
+          {branch.hasLocalSnapshot ? (
+            <span
+              class={`github-desktop__branch-badge${localOutdated ? ' github-desktop__branch-badge--stale' : ''}`}
+              title={
+                localOutdated
+                  ? `本地快照 ${branch.localTipSha?.slice(0, 7)}，与远端 ${branch.commitSha.slice(0, 7)} 不同`
+                  : '已有本地快照，可离线切换'
+              }
+            >
+              本地
+            </span>
+          ) : undefined}
+        </div>
+      </button>
+    )
+  }
 
   return (
     <div class="github-desktop">
@@ -2030,58 +2092,35 @@ export function GithubDesktopApp() {
                   }
                 />
               </div>
-              {filteredBranchList.length === 0 ? (
+              {filteredBranchCount === 0 ? (
                 <div class="github-desktop__foldout-empty">
                   {branchFoldoutFilter.trim() ? '没有匹配的分支' : '没有分支'}
                 </div>
               ) : (
-                filteredBranchList.map((branch) => {
-                  const active = branch.name === view.meta.currentBranch
-                  const localOutdated =
-                    branch.hasLocalSnapshot &&
-                    Boolean(branch.localTipSha) &&
-                    Boolean(branch.commitSha) &&
-                    branch.localTipSha !== branch.commitSha
-                  return (
-                    <button
-                      key={branch.name}
-                      type="button"
-                      class={`github-desktop__foldout-item github-desktop__foldout-item--branch${active ? ' is-active' : ''}${branch.hasLocalSnapshot ? ' github-desktop__foldout-item--local' : ''}`}
-                      disabled={busy}
-                      onClick={() => {
-                        closeToolbarMenus()
-                        if (!active) handleSwitchBranch(branch.name)
-                      }}
-                    >
-                      <div class="github-desktop__foldout-item-branch-head">
-                        <strong>{branch.name}</strong>
-                        {branch.hasLocalSnapshot ? (
-                          <span
-                            class={`github-desktop__branch-badge${localOutdated ? ' github-desktop__branch-badge--stale' : ''}`}
-                            title={
-                              localOutdated
-                                ? `本地快照 ${branch.localTipSha?.slice(0, 7)}，与远端 ${branch.commitSha.slice(0, 7)} 不同`
-                                : '已有本地快照，可离线切换'
-                            }
-                          >
-                            本地
-                          </span>
-                        ) : undefined}
-                        {branch.protected ? (
-                          <span class="github-desktop__branch-badge github-desktop__branch-badge--protected" title="受保护分支">
-                            保护
-                          </span>
-                        ) : undefined}
-                      </div>
-                      <span>
-                        {shortSha(branch.commitSha || '???????')}
-                        {localOutdated
-                          ? ` · 本地 ${shortSha(branch.localTipSha || '???????')}`
-                          : undefined}
-                      </span>
-                    </button>
-                  )
-                })
+                <>
+                  {filteredBranchSections.defaultBranch ? (
+                    <div class="github-desktop__foldout-section">
+                      <div class="github-desktop__foldout-section-title">主分支</div>
+                      {renderBranchFoldoutItem(filteredBranchSections.defaultBranch)}
+                    </div>
+                  ) : undefined}
+                  {filteredBranchSections.recent.length > 0 ? (
+                    <div class="github-desktop__foldout-section">
+                      <div class="github-desktop__foldout-section-title">最近分支</div>
+                      {filteredBranchSections.recent.map((branch) =>
+                        renderBranchFoldoutItem(branch),
+                      )}
+                    </div>
+                  ) : undefined}
+                  {filteredBranchSections.other.length > 0 ? (
+                    <div class="github-desktop__foldout-section">
+                      <div class="github-desktop__foldout-section-title">其余分支</div>
+                      {filteredBranchSections.other.map((branch) =>
+                        renderBranchFoldoutItem(branch),
+                      )}
+                    </div>
+                  ) : undefined}
+                </>
               )}
             </div>
           ) : undefined}
