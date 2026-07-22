@@ -1,7 +1,7 @@
 import {
   cloneGithubRepository,
-  type GithubProgress,
 } from './github-working-tree.ts'
+import type { GithubProgress } from './github-progress.ts'
 import type { GithubRepoSyncMeta } from './github-sync-meta.ts'
 
 export type GithubCloningRepository = {
@@ -15,7 +15,7 @@ type Listener = () => void
 /** 对齐 Desktop：自 1_000_000 起，避免与持久化仓库 id 冲突 */
 let nextId = 1_000_000
 const repositories: GithubCloningRepository[] = []
-const progressById = new Map<number, string>()
+const progressById = new Map<number, { label: string; fraction?: number }>()
 const listeners = new Set<Listener>()
 
 function notifySubscribers() {
@@ -35,7 +35,11 @@ export function getGithubCloningRepository(
 }
 
 export function getGithubCloningProgress(id: number): string | undefined {
-  return progressById.get(id)
+  return progressById.get(id)?.label
+}
+
+export function getGithubCloningProgressFraction(id: number): number | undefined {
+  return progressById.get(id)?.fraction
 }
 
 export function subscribeGithubCloningRepositories(listener: Listener): () => void {
@@ -57,12 +61,35 @@ export function removeGithubCloningRepository(id: number): void {
   notifySubscribers()
 }
 
-function setProgress(id: number, label: string) {
+function setProgress(id: number, label: string, fraction?: number) {
   if (!progressById.has(id) && !repositories.some((entry) => entry.id === id)) {
     return
   }
-  progressById.set(id, label)
+  progressById.set(id, { label, fraction })
   notifySubscribers()
+}
+
+function resolveCloneOverallFraction(message: string, detailFraction?: number): number | undefined {
+  if (detailFraction === undefined) {
+    const match = /(\d+)\s*\/\s*(\d+)/.exec(message)
+    if (match) {
+      const done = Number(match[1])
+      const total = Number(match[2])
+      if (total > 0) detailFraction = done / total
+    }
+  }
+  if (detailFraction === undefined) return undefined
+
+  if (message.includes('下载') || message.includes('压缩包')) {
+    return 0.12 + detailFraction * 0.48
+  }
+  if (message.includes('写入文件')) {
+    return 0.62 + detailFraction * 0.33
+  }
+  if (message.includes('解析压缩包')) return 0.62
+  if (message.includes('建立同步快照')) return 0.96
+  if (message.includes('获取提交 SHA')) return 0.6
+  return detailFraction
 }
 
 /**
@@ -82,11 +109,15 @@ export function startGithubClone(params: {
     repo: params.repo,
   }
   repositories.push(repository)
-  progressById.set(repository.id, `正在克隆 ${params.owner}/${params.repo}…`)
+  progressById.set(repository.id, { label: `正在克隆 ${params.owner}/${params.repo}…` })
   notifySubscribers()
 
-  const onProgress: GithubProgress = (message) => {
-    setProgress(repository.id, message)
+  const onProgress: GithubProgress = (message, detail) => {
+    setProgress(
+      repository.id,
+      message,
+      resolveCloneOverallFraction(message, detail?.fraction),
+    )
   }
 
   const promise = (async () => {

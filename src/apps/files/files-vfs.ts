@@ -124,6 +124,16 @@ async function assertCanCreateIn(
   parentId: string | undefined,
 ): Promise<void> {
   assertLocationAllowsCreate(locationId)
+  if (locationId === 'repo') {
+    const { reconcileGithubRepoAttributes } = await import(
+      '../github-desktop/github-repo-attributes.ts'
+    )
+    await reconcileGithubRepoAttributes().catch(() => undefined)
+  }
+  // /repo 卷根不可新建（命名空间与系统目录由内置应用维护）
+  if (parentId === undefined && locationId === 'repo') {
+    throw new Error('此位置受保护，无法在此新建或粘贴')
+  }
   if (parentId === undefined) return
   const parent = await getNodeOrThrow(parentId)
   if (parent.kind !== 'folder') {

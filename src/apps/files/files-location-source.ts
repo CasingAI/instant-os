@@ -7,7 +7,7 @@ import { FILES_TEXT_MIME, type FilesNode } from './files-types.ts'
 
 const LOCATION_ID = 'source' as const
 const EPOCH = 0
-const READONLY_ATTRIBUTES = { writable: false } as const
+const READONLY_ATTRIBUTES = { readable: true, writable: false } as const
 
 function dirId(path: string): string {
   return `source:d:${path}`

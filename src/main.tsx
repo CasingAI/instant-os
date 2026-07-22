@@ -48,6 +48,9 @@ if (!appRoot) {
       render(tree, appRoot)
       markBootComplete()
       void initBrowserPageCache()
+      void import('./apps/github-desktop/github-repo-attributes.ts')
+        .then((m) => m.reconcileGithubRepoAttributes())
+        .catch(() => undefined)
       scheduleEmojiOffsetAutoCalibration()
     })
     .catch((error) => {

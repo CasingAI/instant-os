@@ -1,6 +1,6 @@
 import { unzipSync } from 'fflate'
 import { osNowMs } from '../../os/os-clock.ts'
-import { assertAdditionalBytesAvailable } from '../files/files-storage.ts'
+import { assertAdditionalBytesAvailable, listChildNodes } from '../files/files-storage.ts'
 import {
   filesCreateBinary,
   filesCreateText,
@@ -22,15 +22,16 @@ import {
   githubGetRepo,
 } from './github-api.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
+import { deleteGithubNodeSubtree, ensureGithubRepoRootFolder } from './github-objects-vfs.ts'
+import type { GithubProgress } from './github-progress.ts'
 import { persistBaselineFromFiles } from './github-baseline.ts'
 import {
+  getGithubRepoMeta,
   saveGithubRepoMeta,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 
 const TEXT_DECODER = new TextDecoder('utf-8')
-
-export type GithubProgress = (message: string) => void
 
 function normalizeZipPath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\\/g, '/')
@@ -149,19 +150,7 @@ export async function clearDirectoryContents(dirPath: string): Promise<void> {
 }
 
 export async function ensureRepoRootFolder(owner: string, repo: string): Promise<string> {
-  const githubRoot = '/repo/github'
-  if (!(await filesStat(githubRoot))) {
-    await filesMkdir(githubRoot)
-  }
-  const ownerPath = joinFilesAbsolutePath(githubRoot, owner)
-  if (!(await filesStat(ownerPath))) {
-    await filesMkdir(ownerPath)
-  }
-  const repoPath = githubRepoRootPath(owner, repo)
-  if (!(await filesStat(repoPath))) {
-    await filesMkdir(repoPath)
-  }
-  return repoPath
+  return ensureGithubRepoRootFolder(owner, repo)
 }
 
 async function listFilesRecursive(dirPath: string): Promise<FilesApiEntry[]> {
@@ -233,8 +222,10 @@ export async function materializeFilesToRepo(
     const absolute = joinFilesAbsolutePath(repoPath, ...relativePath.split('/'))
     await writeWorkingTreeFile(absolute, bytes)
     written += 1
-    if (written % 40 === 0) {
-      onProgress?.(`写入文件 ${written}/${files.size}…`)
+    if (written % 40 === 0 || written === files.size) {
+      onProgress?.(`写入文件 ${written}/${files.size}…`, {
+        fraction: files.size > 0 ? written / files.size : undefined,
+      })
     }
   }
   onProgress?.(`已写入 ${files.size} 个文件`)
@@ -257,7 +248,7 @@ export async function cloneGithubRepository(params: {
   const branch = params.branch?.trim() || remote.defaultBranch
 
   onProgress?.(`下载 ${branch} 分支压缩包…`)
-  const zip = await githubDownloadZipball(params.owner, params.repo, branch)
+  const zip = await githubDownloadZipball(params.owner, params.repo, branch, onProgress)
   onProgress?.('解析压缩包…')
   const files = await unzipGithubZipball(zip)
 
@@ -288,12 +279,15 @@ export async function deleteLocalGithubRepository(owner: string, repo: string): 
   const repoPath = githubRepoRootPath(owner, repo)
   const node = await resolveNodeByAbsolutePath(repoPath)
   if (node) {
-    await filesRemove(repoPath)
+    await deleteGithubNodeSubtree(node)
   }
   const ownerPath = joinFilesAbsolutePath('/repo/github', owner)
-  const ownerChildren = await filesList(ownerPath).catch(() => [])
-  if (ownerChildren.length === 0) {
-    await filesRemove(ownerPath).catch(() => undefined)
+  const ownerNode = await resolveNodeByAbsolutePath(ownerPath)
+  if (ownerNode) {
+    const ownerChildren = await listChildNodes('repo', ownerNode.id).catch(() => [])
+    if (ownerChildren.length === 0) {
+      await deleteGithubNodeSubtree(ownerNode).catch(() => undefined)
+    }
   }
 }
 
@@ -305,4 +299,47 @@ export async function isGithubRepoWorkingTreePresent(
   const root = githubRepoRootPath(owner, repo)
   const stat = await filesStat(root)
   return Boolean(stat)
+}
+
+/**
+ * 克隆前检查目标路径是否可用（首次从对话框克隆）。
+ * 返回阻止克隆的说明；undefined 表示可以克隆。
+ */
+export async function describeGithubRepoClonePathBlockReason(
+  owner: string,
+  repo: string,
+): Promise<string | undefined> {
+  const path = githubRepoRootPath(owner, repo)
+  const meta = await getGithubRepoMeta(owner, repo)
+  const rootStat = await filesStat(path)
+
+  if (rootStat && rootStat.kind !== 'folder') {
+    return `目标路径 ${path} 已被非文件夹占用，无法克隆。`
+  }
+
+  const children = rootStat?.kind === 'folder' ? await filesList(path) : []
+  const hasContent = children.length > 0
+
+  if (meta && !meta.missing && hasContent) {
+    return `本地已有 ${owner}/${repo}（${path}），无需重复克隆。`
+  }
+
+  if (hasContent) {
+    return `目标文件夹 ${path} 不为空，无法克隆到此位置。请先删除本地副本，或使用「重新克隆」。`
+  }
+
+  return undefined
+}
+
+/** 重新克隆：仅拒绝路径被非文件夹占用；已有内容会在克隆流程中清空覆写 */
+export async function describeGithubRepoReclonePathBlockReason(
+  owner: string,
+  repo: string,
+): Promise<string | undefined> {
+  const path = githubRepoRootPath(owner, repo)
+  const rootStat = await filesStat(path)
+  if (rootStat && rootStat.kind !== 'folder') {
+    return `目标路径 ${path} 已被非文件夹占用，无法重新克隆。`
+  }
+  return undefined
 }

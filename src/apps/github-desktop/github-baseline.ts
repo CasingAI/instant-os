@@ -1,19 +1,10 @@
-import {
-  filesCreateBinary,
-  filesMkdir,
-  filesReadBlob,
-  filesRemove,
-  filesStat,
-  filesWriteBinary,
-} from '../files/files-api.ts'
-import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import { hashBytes, type GithubFileIndexEntry } from './github-sync-meta.ts'
-
-const OBJECTS_ROOT = '/repo/github/.objects'
-
-function objectPathForHash(hash: string): string {
-  return joinFilesAbsolutePath(OBJECTS_ROOT, hash.slice(0, 2), hash)
-}
+import {
+  githubObjectStat,
+  readGithubObjectBytes,
+  removeGithubObjectBlob,
+  writeGithubObjectBlob,
+} from './github-objects-vfs.ts'
 
 function isProbablyTextBytes(bytes: Uint8Array): boolean {
   if (bytes.byteLength === 0) return true
@@ -29,56 +20,28 @@ function isProbablyTextBytes(bytes: Uint8Array): boolean {
   return suspicious / sample.length < 0.05
 }
 
-async function ensureDir(path: string): Promise<void> {
-  const existing = await filesStat(path)
-  if (existing) {
-    if (existing.kind !== 'folder') {
-      throw new Error(`路径冲突：${path} 不是文件夹`)
-    }
-    return
-  }
-  await filesMkdir(path)
-}
-
-async function ensureObjectParents(hash: string): Promise<string> {
-  await ensureDir('/repo/github')
-  await ensureDir(OBJECTS_ROOT)
-  const shard = joinFilesAbsolutePath(OBJECTS_ROOT, hash.slice(0, 2))
-  await ensureDir(shard)
-  return objectPathForHash(hash)
-}
-
 export async function baselineBlobExists(hash: string): Promise<boolean> {
-  const stat = await filesStat(objectPathForHash(hash))
-  return stat?.kind === 'file'
+  return (await githubObjectStat(hash)) !== undefined
 }
 
 export async function writeBaselineBlobIfMissing(
   hash: string,
   bytes: Uint8Array,
 ): Promise<void> {
-  if (await baselineBlobExists(hash)) return
-  await writeBaselineBlob(hash, bytes)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  await writeGithubObjectBlob(hash, copy.buffer, false)
 }
 
 /** 写入 blob；若已存在则覆盖（用于修复「有文件但内容不对」的脏基线） */
 export async function writeBaselineBlob(hash: string, bytes: Uint8Array): Promise<void> {
-  const path = await ensureObjectParents(hash)
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
-  if (await baselineBlobExists(hash)) {
-    await filesWriteBinary(path, copy.buffer)
-    return
-  }
-  await filesCreateBinary(path, copy.buffer)
+  await writeGithubObjectBlob(hash, copy.buffer, true)
 }
 
 export async function removeBaselineBlob(hash: string): Promise<void> {
-  try {
-    await filesRemove(objectPathForHash(hash))
-  } catch {
-    // 不存在则忽略
-  }
+  await removeGithubObjectBlob(hash)
 }
 
 /** 磁盘上有文件，且正文 hash 与 key 一致（防止 Contents JSON 等脏数据占坑） */
@@ -102,13 +65,7 @@ export async function persistBaselineFromFiles(
 }
 
 export async function readBaselineBytes(hash: string): Promise<Uint8Array | undefined> {
-  const path = objectPathForHash(hash)
-  try {
-    const blob = await filesReadBlob(path)
-    return new Uint8Array(await blob.arrayBuffer())
-  } catch {
-    return undefined
-  }
+  return readGithubObjectBytes(hash)
 }
 
 export async function readBaselineText(hash: string): Promise<string | undefined> {

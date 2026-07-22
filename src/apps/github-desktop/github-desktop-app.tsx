@@ -75,6 +75,7 @@ import {
 import { fetchGithubRemote } from './github-fetch.ts'
 import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
 import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
+import { reconcileGithubRepoAttributes } from './github-repo-attributes.ts'
 import {
   currentHeadSha,
   deleteGithubRepoMeta,
@@ -90,16 +91,20 @@ import {
 } from './github-sync-meta.ts'
 import {
   deleteLocalGithubRepository,
+  describeGithubRepoClonePathBlockReason,
+  describeGithubRepoReclonePathBlockReason,
   isGithubRepoWorkingTreePresent,
 } from './github-working-tree.ts'
 import {
   getGithubCloningProgress,
+  getGithubCloningProgressFraction,
   getGithubCloningRepository,
   listGithubCloningRepositories,
   startGithubClone,
   subscribeGithubCloningRepositories,
   type GithubCloningRepository,
 } from './github-cloning-store.ts'
+import type { GithubProgressDetail } from './github-progress.ts'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import '../../ui/ios-check-toggle.css'
@@ -185,6 +190,14 @@ function commitSummaryLine(message: string): string {
 
 function shortSha(sha: string): string {
   return sha.slice(0, 7)
+}
+
+function isGithubRepoCloning(
+  owner: string,
+  repo: string,
+  cloningRepos: readonly GithubCloningRepository[],
+): boolean {
+  return cloningRepos.some((entry) => entry.owner === owner && entry.repo === repo)
 }
 
 /** 对齐 Desktop「Last fetched …」/「Never fetched」 */
@@ -310,6 +323,7 @@ export function GithubDesktopApp() {
   const [remoteRepos, setRemoteRepos] = useState<GithubRepoSummary[]>([])
   const [cloneOwner, setCloneOwner] = useState('')
   const [cloneRepo, setCloneRepo] = useState('')
+  const [clonePathBlockReason, setClonePathBlockReason] = useState<string | undefined>()
 
   const [changes, setChanges] = useState<GithubChange[]>([])
   /** 未勾选、不参与本次提交的路径 */
@@ -402,6 +416,7 @@ export function GithubDesktopApp() {
   }, [openApp])
 
   const refreshLocalRepos = useCallback(async () => {
+    await reconcileGithubRepoAttributes().catch(() => undefined)
     const list = await listGithubRepoMeta()
     setLocalRepos(list)
   }, [])
@@ -797,10 +812,16 @@ export function GithubDesktopApp() {
     [showError],
   )
 
-  const reportSyncProgress = useCallback((message: string, fraction?: number) => {
+  const reportSyncProgress = useCallback((message: string, detail?: GithubProgressDetail) => {
     setProgressLabel(message)
-    if (fraction !== undefined) {
-      setProgressValue(Math.min(0.98, Math.max(0.08, fraction)))
+    if (detail?.fraction !== undefined) {
+      let mapped = detail.fraction
+      if (message.includes('下载') || message.includes('压缩包')) {
+        mapped = 0.35 + detail.fraction * 0.35
+      } else if (message.includes('写入文件')) {
+        mapped = 0.7 + detail.fraction * 0.22
+      }
+      setProgressValue(Math.min(0.98, Math.max(0.08, mapped)))
       return
     }
     // 常见文案 → 粗粒度进度，让按钮进度条能动起来
@@ -808,8 +829,10 @@ export function GithubDesktopApp() {
       setProgressValue(0.2)
     } else if (message.includes('分支列表') || message.includes('比较本地')) {
       setProgressValue(0.45)
-    } else if (message.includes('提交历史') || message.includes('压缩包')) {
-      setProgressValue(0.7)
+    } else if (message.includes('提交历史')) {
+      setProgressValue(0.32)
+    } else if (message.includes('压缩包') || message.includes('下载')) {
+      setProgressValue(0.38)
     } else if (message.includes('应用变更') || message.includes('写入文件')) {
       const match = /(\d+)\s*\/\s*(\d+)/.exec(message)
       if (match) {
@@ -832,6 +855,7 @@ export function GithubDesktopApp() {
   const closeCloneDialog = useCallback(() => {
     setCloneDialogOpen(false)
     setCloneDialogError(undefined)
+    setClonePathBlockReason(undefined)
     setCloneSourceTab('github')
     setCloneFilter('')
     setCloneUrl('')
@@ -977,7 +1001,18 @@ export function GithubDesktopApp() {
   }, [canPull, handleFetch, handlePull])
 
   const beginClone = useCallback(
-    async (owner: string, repo: string) => {
+    async (owner: string, repo: string, options?: { reclone?: boolean }) => {
+      const blockReason = options?.reclone
+        ? await describeGithubRepoReclonePathBlockReason(owner, repo)
+        : await describeGithubRepoClonePathBlockReason(owner, repo)
+      if (blockReason) {
+        await modal.alert({
+          title: options?.reclone ? '无法重新克隆' : '无法克隆',
+          message: blockReason,
+        })
+        return
+      }
+
       const alreadyCloning = listGithubCloningRepositories().find(
         (entry) => entry.owner === owner && entry.repo === repo,
       )
@@ -1014,7 +1049,7 @@ export function GithubDesktopApp() {
         await showError('克隆失败', err)
       }
     },
-    [refreshLocalRepos, refreshRepoState, syncRemoteCaches, showError],
+    [refreshLocalRepos, refreshRepoState, syncRemoteCaches, showError, modal],
   )
 
   const handleClone = useCallback(async () => {
@@ -1043,6 +1078,12 @@ export function GithubDesktopApp() {
     )
     if (alreadyCloning) {
       setCloneDialogError(`正在克隆 ${owner}/${repo}，请稍候`)
+      return
+    }
+
+    const blockReason = await describeGithubRepoClonePathBlockReason(owner, repo)
+    if (blockReason) {
+      setCloneDialogError(blockReason)
       return
     }
 
@@ -1089,7 +1130,7 @@ export function GithubDesktopApp() {
         })
         return
       }
-      void beginClone(meta.owner, meta.repo)
+      void beginClone(meta.owner, meta.repo, { reclone: true })
     },
     [proxyConnected, modal, beginClone],
   )
@@ -1256,6 +1297,38 @@ export function GithubDesktopApp() {
   const canCloneFromUrl = Boolean(parsedCloneUrl)
   const canClone =
     cloneSourceTab === 'url' ? canCloneFromUrl : canCloneFromGithub
+
+  useEffect(() => {
+    if (!cloneDialogOpen) {
+      setClonePathBlockReason(undefined)
+      return
+    }
+
+    let owner = cloneOwner.trim()
+    let repo = cloneRepo.trim()
+    if (cloneSourceTab === 'url') {
+      const parsed = parseGithubRepoUrl(cloneUrl)
+      if (!parsed) {
+        setClonePathBlockReason(undefined)
+        return
+      }
+      owner = parsed.owner
+      repo = parsed.repo
+    }
+
+    if (!owner || !repo) {
+      setClonePathBlockReason(undefined)
+      return
+    }
+
+    let cancelled = false
+    void describeGithubRepoClonePathBlockReason(owner, repo).then((reason) => {
+      if (!cancelled) setClonePathBlockReason(reason)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [cloneDialogOpen, cloneSourceTab, cloneOwner, cloneRepo, cloneUrl])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
@@ -1477,6 +1550,15 @@ export function GithubDesktopApp() {
     view.kind === 'cloning' ? getGithubCloningRepository(view.id) : undefined
   const activeCloningProgress =
     view.kind === 'cloning' ? getGithubCloningProgress(view.id) : undefined
+  const activeCloningFraction =
+    view.kind === 'cloning' ? getGithubCloningProgressFraction(view.id) : undefined
+  const listedLocalRepos = useMemo(
+    () =>
+      localRepos.filter(
+        (meta) => !isGithubRepoCloning(meta.owner, meta.repo, cloningRepos),
+      ),
+    [localRepos, cloningRepos],
+  )
   const cloningTitleOwner = activeCloning?.owner ?? (view.kind === 'cloning' ? view.owner : undefined)
   const cloningTitleRepo = activeCloning?.repo ?? (view.kind === 'cloning' ? view.repo : undefined)
   const toolbarRepoTitle =
@@ -1627,7 +1709,7 @@ export function GithubDesktopApp() {
                   </button>
                 )
               })}
-              {localRepos.map((repo) => {
+              {listedLocalRepos.map((repo) => {
                 const active =
                   (view.kind === 'repo' || view.kind === 'missing') &&
                   view.meta.owner === repo.owner &&
@@ -1776,7 +1858,7 @@ export function GithubDesktopApp() {
                         void openClone()
                       }}
                     >
-                      从互联网克隆仓库…
+                      从 GitHub 克隆仓库
                     </button>
                   </>
                 ) : (
@@ -1788,7 +1870,7 @@ export function GithubDesktopApp() {
                       void openClone()
                     }}
                   >
-                    从互联网克隆仓库…
+                    从 GitHub 克隆仓库
                   </button>
                 )}
               </div>
@@ -1796,7 +1878,7 @@ export function GithubDesktopApp() {
             <div class="github-desktop__blank-right">
               <h3>本地仓库</h3>
               <div class="github-desktop__local-list" role="list" aria-label="本地仓库">
-                {cloningRepos.length === 0 && localRepos.length === 0 ? (
+                {cloningRepos.length === 0 && listedLocalRepos.length === 0 ? (
                   <div class="settings__empty">
                     还没有本地副本。克隆后会保存在 /repo/github/…
                   </div>
@@ -1819,7 +1901,7 @@ export function GithubDesktopApp() {
                         </span>
                       </button>
                     ))}
-                    {localRepos.map((repo) => (
+                    {listedLocalRepos.map((repo) => (
                       <button
                         key={`${repo.owner}/${repo.repo}`}
                         type="button"
@@ -1851,7 +1933,11 @@ export function GithubDesktopApp() {
             <h2>
               正在克隆 {cloningTitleOwner}/{cloningTitleRepo}
             </h2>
-            <progress class="github-desktop__cloning-progress" />
+            <progress
+              class="github-desktop__cloning-progress"
+              max={1}
+              value={activeCloningFraction}
+            />
             <p>{activeCloningProgress ?? '请稍候…'}</p>
           </div>
         ) : undefined}
@@ -2210,6 +2296,7 @@ export function GithubDesktopApp() {
               cloneDialogLoading ||
               !proxyConnected ||
               !canClone ||
+              Boolean(clonePathBlockReason) ||
               busy,
             onClick: () => {
               void handleClone()
@@ -2233,6 +2320,8 @@ export function GithubDesktopApp() {
           />
           {cloneDialogError ? (
             <div class="github-desktop__clone-error">{cloneDialogError}</div>
+          ) : clonePathBlockReason ? (
+            <div class="github-desktop__clone-error">{clonePathBlockReason}</div>
           ) : undefined}
           {!proxyConnected ? (
             <div class="github-desktop__clone-error">

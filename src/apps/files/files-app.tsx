@@ -37,6 +37,8 @@ import {
 import {
   isFilesLocationWritable,
   isFilesNodeWritable,
+  formatFilesNodePermissionLabel,
+  filesVolumeRootAttributes,
   isMountLocationId,
   type FilesLocation,
   type FilesLocationId,
@@ -67,6 +69,7 @@ import {
   joinFilesAbsolutePath,
   parseFilesAbsolutePath,
 } from './files-path.ts'
+import { reconcileGithubRepoAttributes } from '../github-desktop/github-repo-attributes.ts'
 import { FilesPathBar, type FilesPathBarSegment } from './files-path-bar.tsx'
 import { FilesFolderTemplateIcon, FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
 import '../../ui/ios-check-toggle.css'
@@ -356,9 +359,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   const locationLabel = getFilesLocationLabel(locationId)
   const locationWritable = isFilesLocationWritable(locationId)
+  /** 整卷只读（如 3D 模型、系统）；与单个文件夹只读不同 */
+  const isProtectedVolume = !locationWritable
   const currentFolder = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1] : undefined
+  const pathBarAbsolutePath = useMemo(() => {
+    const root = filesLocationPathRoot(locationId)
+    if (pathNodes.length === 0) return root
+    return joinFilesAbsolutePath(root, ...pathNodes.map((node) => node.name))
+  }, [locationId, pathNodes])
   const canCreateHere =
-    locationWritable && (currentFolder === undefined || isFilesNodeWritable(currentFolder))
+    locationWritable &&
+    (locationId !== 'repo' || currentFolder !== undefined) &&
+    (currentFolder === undefined || isFilesNodeWritable(currentFolder))
   const currentTitle = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1].name : locationLabel
   const canGoBackInPath = pathNodes.length > 0
   const showToolbarBack = canGoBackInPath || (narrowLayout && stackedBrowserOpen)
@@ -455,6 +467,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (!options?.quiet) setLoading(true)
     setError(undefined)
     try {
+      if (locationId === 'repo') {
+        await reconcileGithubRepoAttributes().catch(() => undefined)
+      }
       const [listed, path] = await Promise.all([
         listDirectory(locationId, folderId),
         resolvePathNodes(locationId, folderId),
@@ -961,12 +976,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     return [root, ...folders]
   }, [locationId, locationLabel, pathNodes])
 
-  const pathBarAbsolutePath = useMemo(() => {
-    const root = filesLocationPathRoot(locationId)
-    if (pathNodes.length === 0) return root
-    return joinFilesAbsolutePath(root, ...pathNodes.map((node) => node.name))
-  }, [locationId, pathNodes])
-
   const leaveBrowserStack = useCallback(() => {
     closeTransientMenus()
     setStackedBrowserOpen(false)
@@ -1215,6 +1224,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     async (node: FilesNode) => {
       closeTransientMenus()
       try {
+        if (node.locationId === 'repo' && node.id !== '') {
+          await reconcileGithubRepoAttributes().catch(() => undefined)
+        }
         const fresh =
           node.id === ''
             ? node
@@ -1258,7 +1270,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       byteSize: 0,
       createdAt: 0,
       updatedAt: 0,
-      attributes: { writable: locationWritable },
+      attributes: filesVolumeRootAttributes(locationId),
     })
     setInfoPath(pathBarAbsolutePath)
   }, [
@@ -1267,7 +1279,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     currentTitle,
     handleShowInfo,
     locationId,
-    locationWritable,
     pathBarAbsolutePath,
   ])
 
@@ -1654,11 +1665,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           </div>
         </header>
 
-        {!canCreateHere ? (
+        {!isProtectedVolume ? undefined : (
           <div class="files__protected-banner" role="status">
             此容器受保护不可修改
           </div>
-        ) : isMountLocationId(locationId) ? (
+        )}
+        {!isProtectedVolume && isMountLocationId(locationId) ? (
           <div class="files__protected-banner files__protected-banner--mount" role="status">
             对此容器的修改会立刻同步到本机真实文件夹
           </div>
@@ -2060,7 +2072,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             </div>
             <div class="files__info-row">
               <dt>权限</dt>
-              <dd>{isFilesNodeWritable(infoNode) ? '可读写' : '只读'}</dd>
+              <dd>{formatFilesNodePermissionLabel(infoNode)}</dd>
             </div>
           </dl>
         ) : undefined}

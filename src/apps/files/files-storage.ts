@@ -1,3 +1,8 @@
+/**
+ * 文件存储底层（系统 / root 层）。
+ * 不检查节点 `writable`；内置应用维护受保护数据时应使用本模块或专用 internal 模块，
+ * 面向用户的读写请走 files-vfs / files-api。
+ */
 import { osNowMs } from '../../os/os-clock.ts'
 import {
   DATA_CAPACITY_BYTES,
@@ -5,7 +10,7 @@ import {
   getTotalDataStorageBytes,
 } from '../../os/device-data-storage.ts'
 import {
-  defaultFilesNodeAttributes,
+  normalizeFilesNodeAttributes,
   type FilesLocationId,
   type FilesNode,
   type FilesNodeAttributes,
@@ -118,7 +123,7 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
     byteSize: record.byteSize,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    attributes: record.attributes ?? defaultFilesNodeAttributes(record.locationId),
+    attributes: normalizeFilesNodeAttributes(record.locationId, record.attributes),
   }
 }
 
@@ -334,7 +339,7 @@ export async function writeBlobText(params: {
     ...existing,
     byteSize: textBytes,
     updatedAt: osNowMs(),
-    attributes: existing.attributes ?? defaultFilesNodeAttributes(existing.locationId),
+    attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
   const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
@@ -373,7 +378,7 @@ export async function writeBlobBytes(params: {
     ...existing,
     byteSize: contentBytes,
     updatedAt: osNowMs(),
-    attributes: existing.attributes ?? defaultFilesNodeAttributes(existing.locationId),
+    attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
   const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
@@ -412,7 +417,7 @@ export async function renameNodeRecord(params: {
     ...existing,
     name: params.name,
     updatedAt: osNowMs(),
-    attributes: existing.attributes ?? defaultFilesNodeAttributes(existing.locationId),
+    attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
   const writeTx = db.transaction([FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
@@ -423,6 +428,34 @@ export async function renameNodeRecord(params: {
       totalBytes: Math.max(0, total + params.metaDelta),
     } satisfies FilesMetaRecord)
   }
+  await waitForTransaction(writeTx)
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
+/** 系统层更新节点属性（不检查 writable） */
+export async function updateNodeAttributes(
+  id: string,
+  attributes: FilesNodeAttributes,
+): Promise<FilesNode> {
+  const db = await openFilesDb()
+  const readTx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const existing = await requestToPromise(
+    readTx.objectStore(FILES_NODES_STORE).get(id) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  await waitForTransaction(readTx)
+  if (!existing) {
+    throw new Error('项目不存在')
+  }
+
+  const updated: FilesNodeRecord = {
+    ...existing,
+    updatedAt: osNowMs(),
+    attributes: normalizeFilesNodeAttributes(existing.locationId, attributes),
+  }
+
+  const writeTx = db.transaction(FILES_NODES_STORE, 'readwrite')
+  writeTx.objectStore(FILES_NODES_STORE).put(updated)
   await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
   return recordToNode(updated)

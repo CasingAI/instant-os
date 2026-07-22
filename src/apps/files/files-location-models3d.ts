@@ -8,7 +8,7 @@ import { FILES_GLTF_MIME, type FilesNode } from './files-types.ts'
 
 const LOCATION_ID = 'models3d' as const
 const EPOCH = 0
-const READONLY_ATTRIBUTES = { writable: false } as const
+const READONLY_ATTRIBUTES = { readable: true, writable: false } as const
 
 function packFolderId(packId: string): string {
   return `models3d:d:${packId}`

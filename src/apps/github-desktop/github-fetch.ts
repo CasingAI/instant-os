@@ -10,7 +10,7 @@ import {
   putCachedGithubCommitList,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
-import type { GithubProgress } from './github-working-tree.ts'
+import type { GithubProgress } from './github-progress.ts'
 
 export type GithubFetchResult = {
   localSha: string

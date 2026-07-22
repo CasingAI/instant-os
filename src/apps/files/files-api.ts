@@ -14,6 +14,7 @@ import {
   parseFilesAbsolutePath,
 } from './files-path.ts'
 import {
+  filesVolumeRootAttributes,
   isFilesLocationWritable,
   isFilesNodeWritable,
   type FilesLocationId,
@@ -99,6 +100,7 @@ function namespaceRootEntry(): FilesApiEntry {
 function volumeRootEntry(locationId: FilesLocationId): FilesApiEntry {
   const path = filesLocationPathRoot(locationId)
   const label = getFilesLocationLabel(locationId)
+  const rootAttributes = filesVolumeRootAttributes(locationId)
   return {
     path,
     name: label,
@@ -107,7 +109,7 @@ function volumeRootEntry(locationId: FilesLocationId): FilesApiEntry {
     byteSize: 0,
     createdAt: 0,
     updatedAt: 0,
-    writable: isFilesLocationWritable(locationId),
+    writable: rootAttributes.writable,
   }
 }
 

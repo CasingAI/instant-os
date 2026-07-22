@@ -8,7 +8,7 @@ import {
   type MountFilesLocationId,
 } from './files-types.ts'
 
-const WRITABLE_ATTRIBUTES = { writable: true } as const
+const WRITABLE_ATTRIBUTES = { readable: true, writable: true } as const
 
 /** 中间 DirectoryHandle 缓存上限 */
 const DIR_HANDLE_CACHE_MAX = 256

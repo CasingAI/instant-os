@@ -9,6 +9,8 @@ export type FilesNodeKind = 'folder' | 'file'
 
 /** 节点自身的文件属性（类 POSIX / Finder 信息，不依赖调用方写死位置） */
 export type FilesNodeAttributes = {
+  /** 是否允许读取；当前用户侧不拦截读取，默认 true，为以后预留 */
+  readable: boolean
   /** 是否允许修改内容、重命名、删除；文件夹为 false 时也不可在其下新建 */
   writable: boolean
 }
@@ -112,9 +114,40 @@ export function isFilesLocationWritable(locationId: FilesLocationId): boolean {
 }
 
 export function defaultFilesNodeAttributes(locationId: FilesLocationId): FilesNodeAttributes {
-  return { writable: isFilesLocationWritable(locationId) }
+  return { readable: true, writable: isFilesLocationWritable(locationId) }
+}
+
+/** 旧记录可能缺字段；读取时按位置默认补齐 */
+export function normalizeFilesNodeAttributes(
+  locationId: FilesLocationId,
+  attributes: Partial<FilesNodeAttributes> | undefined,
+): FilesNodeAttributes {
+  const defaults = defaultFilesNodeAttributes(locationId)
+  return {
+    readable: attributes?.readable ?? defaults.readable,
+    writable: attributes?.writable ?? defaults.writable,
+  }
+}
+
+export function isFilesNodeReadable(node: Pick<FilesNode, 'attributes'>): boolean {
+  return node.attributes.readable === true
 }
 
 export function isFilesNodeWritable(node: Pick<FilesNode, 'attributes'>): boolean {
   return node.attributes.writable === true
+}
+
+/** 卷根（虚拟条目）的属性：与 files-api volumeRootEntry 一致 */
+export function filesVolumeRootAttributes(locationId: FilesLocationId): FilesNodeAttributes {
+  if (locationId === 'repo') {
+    return { readable: true, writable: false }
+  }
+  return defaultFilesNodeAttributes(locationId)
+}
+
+/** 信息面板权限文案 */
+export function formatFilesNodePermissionLabel(node: Pick<FilesNode, 'attributes'>): string {
+  if (isFilesNodeWritable(node)) return '可读写'
+  if (isFilesNodeReadable(node)) return '只读'
+  return '不可访问'
 }

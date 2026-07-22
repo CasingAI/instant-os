@@ -15,12 +15,12 @@ import {
 } from './github-sync-meta.ts'
 import { loadFilesFromFileIndex, persistBaselineFromFiles } from './github-baseline.ts'
 import { collectWorkingTreeFiles, detectGithubChanges } from './github-changes.ts'
+import type { GithubProgress } from './github-progress.ts'
 import {
   materializeFilesToRepo,
   removeWorkingTreePath,
   unzipGithubZipball,
   writeWorkingTreeFile,
-  type GithubProgress,
 } from './github-working-tree.ts'
 
 /** 变更文件数超过此阈值时回退整包 zip */
@@ -102,7 +102,7 @@ async function rematerializeFromZip(params: {
   const { meta, onProgress } = params
   const branch = params.branch ?? meta.currentBranch
   onProgress?.('下载压缩包…')
-  const zip = await githubDownloadZipball(meta.owner, meta.repo, params.ref)
+  const zip = await githubDownloadZipball(meta.owner, meta.repo, params.ref, onProgress)
   const files = await unzipGithubZipball(zip)
   await materializeFilesToRepo(meta.owner, meta.repo, files, onProgress)
   const working = await collectWorkingTreeFiles(meta.owner, meta.repo)

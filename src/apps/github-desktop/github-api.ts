@@ -4,6 +4,8 @@ import {
   proxiedFetch,
   ProxyServerApiError,
 } from '../../os/proxy-server-api.ts'
+import { formatGithubByteSize } from './github-format-bytes.ts'
+import type { GithubProgress } from './github-progress.ts'
 
 const GITHUB_API = 'https://api.github.com'
 
@@ -346,6 +348,80 @@ export async function githubGetCommit(
 }
 
 /**
+ * 流式读取响应体，并按块上报下载进度。
+ */
+async function readResponseBodyWithProgress(
+  response: Response,
+  onProgress?: GithubProgress,
+): Promise<ArrayBuffer> {
+  const body = response.body
+  if (!body) {
+    const buffer = await response.arrayBuffer()
+    if (onProgress && buffer.byteLength > 0) {
+      reportZipballDownloadProgress(onProgress, buffer.byteLength, buffer.byteLength)
+    }
+    return buffer
+  }
+
+  const contentLength = response.headers.get('content-length')
+  const parsedTotal = contentLength ? Number(contentLength) : undefined
+  const totalBytes =
+    parsedTotal !== undefined && Number.isFinite(parsedTotal) && parsedTotal >= 0
+      ? parsedTotal
+      : undefined
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let downloaded = 0
+  let lastReportAt = 0
+
+  const maybeReport = (force = false) => {
+    if (!onProgress) return
+    const now = Date.now()
+    if (!force && now - lastReportAt < 120) return
+    lastReportAt = now
+    reportZipballDownloadProgress(onProgress, downloaded, totalBytes)
+  }
+
+  maybeReport(true)
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) {
+      chunks.push(value)
+      downloaded += value.byteLength
+      maybeReport()
+    }
+  }
+
+  maybeReport(true)
+
+  const buffer = new Uint8Array(downloaded)
+  let offset = 0
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return buffer.buffer
+}
+
+function reportZipballDownloadProgress(
+  onProgress: GithubProgress,
+  downloadedBytes: number,
+  totalBytes: number | undefined,
+): void {
+  const downloadedLabel = formatGithubByteSize(downloadedBytes)
+  const message =
+    totalBytes !== undefined
+      ? `下载压缩包… ${downloadedLabel} / ${formatGithubByteSize(totalBytes)}`
+      : `下载压缩包… ${downloadedLabel}`
+  const fraction =
+    totalBytes !== undefined && totalBytes > 0 ? downloadedBytes / totalBytes : undefined
+  onProgress(message, { fraction, downloadedBytes, totalBytes })
+}
+
+/**
  * 经系统代理下载 zipball。
  * 直连会 302 到 codeload.github.com 并被浏览器 CORS 拦截。
  */
@@ -353,6 +429,7 @@ export async function githubDownloadZipball(
   owner: string,
   repo: string,
   ref: string,
+  onProgress?: GithubProgress,
 ): Promise<ArrayBuffer> {
   if (!isProxyServerConnected()) {
     throw new GithubApiError(0, GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE)
@@ -404,7 +481,7 @@ export async function githubDownloadZipball(
     )
   }
 
-  return response.arrayBuffer()
+  return readResponseBodyWithProgress(response, onProgress)
 }
 
 export async function githubCompare(
