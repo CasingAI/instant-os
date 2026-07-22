@@ -114,7 +114,7 @@ import {
   subscribeGithubCloningRepositories,
   type GithubCloningRepository,
 } from './github-cloning-store.ts'
-import type { GithubProgressDetail } from './github-progress.ts'
+import type { GithubProgress, GithubProgressDetail } from './github-progress.ts'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import '../../ui/ios-check-toggle.css'
@@ -665,20 +665,26 @@ export function GithubDesktopApp() {
     [openApp],
   )
 
-  const refreshRepoState = useCallback(async (meta: GithubRepoSyncMeta) => {
+  const refreshRepoState = useCallback(async (
+    meta: GithubRepoSyncMeta,
+    onProgress?: GithubProgress,
+  ) => {
     const latest = (await getGithubRepoMeta(meta.owner, meta.repo)) ?? meta
     setView({ kind: 'repo', meta: latest })
     setSidebarTab('changes')
     setRepoFoldoutOpen(false)
+    onProgress?.('扫描工作区文件…')
     const nextChanges = await detectGithubChanges(latest)
     // 只本地补齐基线，打开仓库绝不打 Contents / zip / branches API
-    await ensureBaselineIfClean(latest, nextChanges.length > 0)
+    onProgress?.('校验本地基线…')
+    await ensureBaselineIfClean(latest, nextChanges.length > 0, onProgress)
     setChanges(nextChanges)
     setSelectedPath((prev) => {
       if (prev && nextChanges.some((item) => item.path === prev)) return prev
       return nextChanges[0]?.path
     })
     // 用上次 Fetch 缓存的 tip 恢复「获取 / 拉取」按钮状态（不联网）
+    onProgress?.('更新界面状态…')
     const cachedList = await getCachedGithubCommitList(latest.owner, latest.repo)
     setRemoteHeadSha(cachedList?.tipSha)
   }, [])
@@ -939,6 +945,16 @@ export function GithubDesktopApp() {
     // 常见文案 → 粗粒度进度，让按钮进度条能动起来
     if (message.includes('检查远端') || message.includes('检查远端分支')) {
       setProgressValue(0.2)
+    } else if (
+      message.includes('扫描工作区') ||
+      message.includes('检查本地更改') ||
+      message.includes('检查本地是否有未提交')
+    ) {
+      setProgressValue(0.28)
+    } else if (message.includes('校验本地基线') || message.includes('检查基线快照')) {
+      setProgressValue(0.55)
+    } else if (message.includes('更新界面状态') || message.includes('正在打开仓库')) {
+      setProgressValue(0.82)
     } else if (message.includes('分支列表') || message.includes('比较本地')) {
       setProgressValue(0.45)
     } else if (message.includes('提交历史')) {
@@ -1119,7 +1135,7 @@ export function GithubDesktopApp() {
         meta: view.meta,
         onProgress: reportSyncProgress,
       })
-      await refreshRepoState(next)
+      await refreshRepoState(next, reportSyncProgress)
       await syncRemoteCaches(next)
     })
   }, [view, runBusy, refreshRepoState, syncRemoteCaches, reportSyncProgress])
@@ -1237,7 +1253,12 @@ export function GithubDesktopApp() {
   const handleOpenLocal = useCallback(
     (meta: GithubRepoSyncMeta) => {
       setRepoFoldoutOpen(false)
-      void runBusy('load', '加载仓库…', '打开仓库失败', async () => {
+      // 先切到仓库视图，让工具栏「获取 origin」同款区块立刻显示打开进度
+      setView({ kind: 'repo', meta })
+      setChanges([])
+      setSelectedPath(undefined)
+      setDiffPreview(undefined)
+      void runBusy('load', '正在打开仓库…', '打开仓库失败', async () => {
         const present = await isGithubRepoWorkingTreePresent(meta.owner, meta.repo)
         if (meta.missing || !present) {
           const missingMeta = await saveGithubMissingRepoMeta(meta.owner, meta.repo)
@@ -1245,10 +1266,10 @@ export function GithubDesktopApp() {
           setView({ kind: 'missing', meta: missingMeta })
           return
         }
-        await refreshRepoState(meta)
+        await refreshRepoState(meta, reportSyncProgress)
       })
     },
-    [runBusy, refreshRepoState, refreshLocalRepos],
+    [runBusy, refreshRepoState, refreshLocalRepos, reportSyncProgress],
   )
 
   const handleCloneAgain = useCallback(
@@ -1295,10 +1316,10 @@ export function GithubDesktopApp() {
       })
       setCommitSummary('')
       setCommitDescription('')
-      await refreshRepoState(next)
+      await refreshRepoState(next, reportSyncProgress)
       await syncRemoteCaches(next)
     },
-    [view, refreshRepoState, syncRemoteCaches],
+    [view, refreshRepoState, syncRemoteCaches, reportSyncProgress],
   )
 
   const handleCommit = useCallback(() => {
@@ -1352,7 +1373,7 @@ export function GithubDesktopApp() {
       })
       const latest = await getGithubRepoMeta(view.meta.owner, view.meta.repo)
       const metaAfter = latest ?? view.meta
-      await refreshRepoState(metaAfter)
+      await refreshRepoState(metaAfter, reportSyncProgress)
 
       if (result.status === 'empty') {
         await modal.alert({
@@ -1387,7 +1408,7 @@ export function GithubDesktopApp() {
           branch,
           onProgress: reportSyncProgress,
         })
-        await refreshRepoState(next)
+        await refreshRepoState(next, reportSyncProgress)
       })
     },
     [view, runBusy, refreshRepoState, reportSyncProgress],
@@ -1412,7 +1433,7 @@ export function GithubDesktopApp() {
             discardAll: true,
             onProgress: reportSyncProgress,
           })
-          await refreshRepoState(view.meta)
+          await refreshRepoState(view.meta, reportSyncProgress)
         })
       })
   }, [view, changes, modal, runBusy, refreshRepoState, reportSyncProgress])
@@ -1426,10 +1447,10 @@ export function GithubDesktopApp() {
           changes: [change],
           discardAll: false,
         })
-        await refreshRepoState(view.meta)
+        await refreshRepoState(view.meta, reportSyncProgress)
       })
     },
-    [view, runBusy, refreshRepoState],
+    [view, runBusy, refreshRepoState, reportSyncProgress],
   )
 
   const goHome = useCallback(() => {
@@ -1644,7 +1665,8 @@ export function GithubDesktopApp() {
     busyKind === 'switch' ||
     busyKind === 'commit' ||
     busyKind === 'rebuild' ||
-    busyKind === 'discard'
+    busyKind === 'discard' ||
+    busyKind === 'load'
 
   const syncButtonTitle = (() => {
     if (busyKind === 'pull') return '拉取 origin'
@@ -1652,6 +1674,8 @@ export function GithubDesktopApp() {
     if (busyKind === 'switch') return '切换分支'
     if (busyKind === 'commit') return '推送 origin'
     if (busyKind === 'rebuild') return '重建本地基线'
+    if (busyKind === 'load') return '打开仓库'
+    if (busyKind === 'discard') return '丢弃更改'
     return canPull ? '拉取 origin' : '获取 origin'
   })()
 

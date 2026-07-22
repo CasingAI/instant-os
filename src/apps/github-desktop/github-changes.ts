@@ -97,8 +97,9 @@ export async function detectGithubChanges(
 export async function ensureBaselineIfClean(
   meta: GithubRepoSyncMeta,
   hasLocalChanges: boolean,
+  onProgress?: GithubProgress,
 ): Promise<void> {
-  await rebuildGithubBaseline(meta, { hasLocalChanges })
+  await rebuildGithubBaseline(meta, { hasLocalChanges, onProgress })
 }
 
 export type RebuildBaselineResult =
@@ -123,6 +124,7 @@ export async function rebuildGithubBaseline(
     return forceRebuildBaselineFromZip(meta, options.onProgress)
   }
 
+  options?.onProgress?.('检查基线快照是否完整…')
   if (!(await baselineMissingForIndex(fileIndex))) {
     return { status: 'already_complete' }
   }

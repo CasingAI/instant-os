@@ -32,6 +32,7 @@ export async function pullGithubRepository(params: {
   onProgress?: GithubProgress
 }): Promise<GithubRepoSyncMeta> {
   const { meta, onProgress } = params
+  onProgress?.('检查本地是否有未提交变更…')
   const localChanges = await detectGithubChanges(meta)
   if (localChanges.length > 0) {
     throw new Error('本地有未提交变更，请先提交或丢弃后再拉取')
@@ -136,6 +137,7 @@ export async function switchGithubBranch(params: {
   if (!branch) throw new Error('分支名无效')
   if (branch === params.meta.currentBranch) return params.meta
 
+  params.onProgress?.('检查本地是否有未提交变更…')
   const localChanges = await detectGithubChanges(params.meta)
   if (localChanges.length > 0) {
     throw new Error('本地有未提交变更，请先提交或丢弃后再切换分支')
