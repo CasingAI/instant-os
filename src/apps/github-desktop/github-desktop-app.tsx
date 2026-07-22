@@ -52,7 +52,6 @@ import {
 import {
   buildChangePreview,
   detectGithubChanges,
-  ensureBaselineIfClean,
   ensureGithubRevisionIdsReady,
   rebuildGithubBaseline,
   type GithubChange,
@@ -677,9 +676,6 @@ export function GithubDesktopApp() {
     setRepoFoldoutOpen(false)
     onProgress?.('检查本地更改…')
     const nextChanges = await detectGithubChanges(latest)
-    // 只本地补齐基线，打开仓库绝不打 Contents / zip / branches API
-    onProgress?.('校验本地基线…')
-    await ensureBaselineIfClean(latest, nextChanges.length > 0, onProgress)
     setChanges(nextChanges)
     setSelectedPath((prev) => {
       if (prev && nextChanges.some((item) => item.path === prev)) return prev
@@ -704,7 +700,6 @@ export function GithubDesktopApp() {
       )
       const nextChanges = await detectGithubChanges(latest)
       if (busyKindRef.current) return
-      await ensureBaselineIfClean(latest, nextChanges.length > 0)
       setChanges(nextChanges)
       setSelectedPath((prev) => {
         if (prev && nextChanges.some((item) => item.path === prev)) return prev
@@ -953,8 +948,6 @@ export function GithubDesktopApp() {
       message.includes('检查本地是否有未提交')
     ) {
       setProgressValue(0.28)
-    } else if (message.includes('校验本地基线') || message.includes('检查基线快照')) {
-      setProgressValue(0.55)
     } else if (message.includes('更新界面状态') || message.includes('正在打开仓库')) {
       setProgressValue(0.82)
     } else if (message.includes('分支列表') || message.includes('比较本地')) {

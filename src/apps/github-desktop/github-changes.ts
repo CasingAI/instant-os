@@ -3,11 +3,9 @@ import { filesBackfillSubtreeContentRevisionIds, filesReadText } from '../files/
 import { githubDownloadZipball } from './github-api.ts'
 import {
   baselineBlobExists,
-  baselineBlobIsValid,
-  baselineMissingForIndex,
+  baselineBlobsAbsentForIndex,
   readBaselineBytes,
   readBaselineTextForPath,
-  removeBaselineBlob,
   writeBaselineBlob,
   writeBaselineBlobIfMissing,
 } from './github-baseline.ts'
@@ -187,18 +185,6 @@ export async function ensureGithubRevisionIdsReady(
   return next
 }
 
-/**
- * 已有仓库可能只有 fileIndex、没有 blob。
- * 在无本地变更时，工作区即基线，可就地补齐。
- */
-export async function ensureBaselineIfClean(
-  meta: GithubRepoSyncMeta,
-  hasLocalChanges: boolean,
-  onProgress?: GithubProgress,
-): Promise<void> {
-  await rebuildGithubBaseline(meta, { hasLocalChanges, onProgress })
-}
-
 export type RebuildBaselineResult =
   | { status: 'rebuilt'; written: number; fromRemote: number; repaired: number }
   | { status: 'already_complete' }
@@ -207,7 +193,7 @@ export type RebuildBaselineResult =
 
 /**
  * 重建当前分支 tip 的本地 blob。
- * - 默认（打开仓库 / 文件监听）：只做本地补齐与脏 blob 清理，**绝不请求网络**。
+ * - 默认：仅按存在性检查缺失对象；工作区干净时可就地补齐，**绝不请求网络、不做全量 hash**。
  * - force（菜单「重建本地基线」）：一次 zipball 重写 baseline + fileIndex，不动工作区。
  */
 export async function rebuildGithubBaseline(
@@ -221,8 +207,8 @@ export async function rebuildGithubBaseline(
     return forceRebuildBaselineFromZip(meta, options.onProgress)
   }
 
-  options?.onProgress?.('检查基线快照是否完整…')
-  if (!(await baselineMissingForIndex(fileIndex))) {
+  options?.onProgress?.('检查基线对象是否齐全…')
+  if (!(await baselineBlobsAbsentForIndex(fileIndex))) {
     return { status: 'already_complete' }
   }
 
@@ -230,17 +216,8 @@ export async function rebuildGithubBaseline(
     options?.hasLocalChanges ?? (await detectGithubChanges(meta)).length > 0
 
   let written = 0
-  let repaired = 0
 
-  // 先清掉内容与 key 不符的脏 blob，否则占坑会导致误判「已完整」
-  for (const entry of Object.values(fileIndex)) {
-    if (await baselineBlobExists(entry.hash) && !(await baselineBlobIsValid(entry.hash))) {
-      await removeBaselineBlob(entry.hash)
-      repaired += 1
-    }
-  }
-
-  // 有本地变更时不能拿工作区当 tip；缺的基线留给用户手动「重建」或干净后补齐
+  // 有本地变更时不能拿工作区当 tip；缺的基线留给用户手动「重建」
   if (!hasLocalChanges) {
     const working = await collectWorkingTreeFiles(meta.owner, meta.repo)
     const currentIndex = await buildFileIndex(working)
@@ -257,17 +234,17 @@ export async function rebuildGithubBaseline(
     if (matchesTip) {
       for (const [path, bytes] of working) {
         const hash = fileIndex[path]?.hash
-        if (!hash || (await baselineBlobIsValid(hash))) continue
+        if (!hash || (await baselineBlobExists(hash))) continue
         await writeBaselineBlob(hash, bytes)
         written += 1
       }
     }
   }
 
-  if (!(await baselineMissingForIndex(fileIndex))) {
-    return { status: 'rebuilt', written, fromRemote: 0, repaired }
+  if (!(await baselineBlobsAbsentForIndex(fileIndex))) {
+    return { status: 'rebuilt', written, fromRemote: 0, repaired: 0 }
   }
-  if (written > 0 || repaired > 0) {
+  if (written > 0) {
     return {
       status: 'incomplete',
       written,
@@ -320,7 +297,7 @@ async function countMissingBlobs(
 ): Promise<number> {
   let missing = 0
   for (const entry of Object.values(fileIndex)) {
-    if (!(await baselineBlobIsValid(entry.hash))) missing += 1
+    if (!(await baselineBlobExists(entry.hash))) missing += 1
   }
   return missing
 }
@@ -338,7 +315,7 @@ async function readPathAsText(absolutePath: string): Promise<string> {
 }
 
 const MISSING_BASELINE_NOTICE =
-  '本地没有该文件的基线快照。请使用菜单「仓库 → 重建本地基线」（需代理）补齐，或在干净工作区时重新打开仓库。'
+  '本地没有该文件的基线快照。请使用菜单「仓库 → 重建本地基线」（需代理）补齐。'
 
 /** 变更预览：只读本地 tip blob vs 工作区。切勿再调 Contents API 当「旧版」——易把 JSON 包装当成原文。 */
 export async function buildChangePreview(
