@@ -2,12 +2,14 @@ import { osNowMs } from '../../os/os-clock.ts'
 import {
   assertAdditionalBytesAvailable,
   collectSubtreeIds,
+  commitFilesBatch,
   createFileWithBlob,
   createFileWithBytes,
   createFolderNode,
   deleteSubtree,
   estimateNodeMetaBytes,
   estimateTextBytes,
+  FILES_BATCH_DEFAULT_SIZE,
   getNode,
   listChildNodes,
   newFilesNodeId,
@@ -16,6 +18,7 @@ import {
   renameNodeRecord,
   writeBlobBytes,
   writeBlobText,
+  type FilesStorageBatchOp,
 } from './files-storage.ts'
 import {
   createMountTextFile,
@@ -428,7 +431,14 @@ async function readTextFileByNodeId(id: string): Promise<{ node: FilesNode; text
     throw new Error('文件不存在')
   }
   const text = await readBlobText(id)
-  return { node, text }
+  if (text.length > 0) {
+    return { node, text }
+  }
+  const bytes = await readBlobBytes(id)
+  if (bytes) {
+    return { node, text: new TextDecoder().decode(bytes) }
+  }
+  return { node, text: '' }
 }
 
 /** 读取文件二进制内容（挂载卷 File，或本地卷已存的 bytes） */
@@ -681,4 +691,331 @@ async function copyNodeTree(
   return folder
 }
 
+export type FilesUpsertBatchItem =
+  | { path: string; text: string }
+  | { path: string; bytes: ArrayBuffer }
+
+type PreparedUpsert = {
+  absolutePath: string
+  watchKind: 'created' | 'modified'
+  op: FilesStorageBatchOp
+}
+
+/**
+ * 按绝对路径批量 upsert 本地卷文件（存在则覆写、不存在则精确名创建）。
+ * 自动补齐缺失父目录；挂载卷不支持。默认每批 FILES_BATCH_DEFAULT_SIZE 条提交。
+ */
+export async function upsertFilesBatch(
+  items: readonly FilesUpsertBatchItem[],
+  options?: { batchSize?: number },
+): Promise<FilesNode[]> {
+  if (items.length === 0) return []
+  const batchSize = Math.max(1, options?.batchSize ?? FILES_BATCH_DEFAULT_SIZE)
+
+  type ParsedItem = {
+    absolutePath: string
+    locationId: FilesLocationId
+    parentSegments: string[]
+    fileName: string
+    item: FilesUpsertBatchItem
+  }
+
+  const parsedItems: ParsedItem[] = []
+  const folderPaths = new Set<string>()
+
+  for (const item of items) {
+    const absolutePath = item.path.trim().replace(/\/+$/, '') || '/'
+    if (!isFilesAbsolutePath(absolutePath)) {
+      throw new Error('路径必须是以 / 开头的全局绝对路径')
+    }
+    const parsed = parseFilesAbsolutePath(absolutePath)
+    if (!parsed || parsed.segments.length === 0) {
+      throw new Error('路径无效')
+    }
+    if (isMountLocationId(parsed.locationId)) {
+      throw new Error('挂载卷暂不支持批量写入')
+    }
+    if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+      throw new Error('此位置不支持批量写入')
+    }
+
+    const fileName = normalizeFilesNodeName(parsed.segments[parsed.segments.length - 1] ?? '')
+    const parentSegments = parsed.segments.slice(0, -1).map((seg) => normalizeFilesNodeName(seg))
+    const root = filesLocationPathRoot(parsed.locationId)
+    let prefix = root
+    for (const seg of parentSegments) {
+      prefix = joinFilesAbsolutePath(prefix, seg)
+      folderPaths.add(`${parsed.locationId}\n${prefix}`)
+    }
+    parsedItems.push({
+      absolutePath,
+      locationId: parsed.locationId,
+      parentSegments,
+      fileName,
+      item,
+    })
+  }
+
+  const childrenCache = new Map<string, FilesNode[]>()
+  const folderIdByPath = new Map<string, string | undefined>()
+
+  const cacheKey = (locationId: FilesLocationId, parentId: string | undefined) =>
+    `${locationId}\0${parentId ?? ''}`
+
+  const listCached = async (
+    locationId: FilesLocationId,
+    parentId: string | undefined,
+  ): Promise<FilesNode[]> => {
+    const key = cacheKey(locationId, parentId)
+    const hit = childrenCache.get(key)
+    if (hit) return hit
+    const listed = await listDirectory(locationId, parentId)
+    childrenCache.set(key, listed)
+    return listed
+  }
+
+  const rememberChild = (
+    locationId: FilesLocationId,
+    parentId: string | undefined,
+    node: FilesNode,
+  ) => {
+    const key = cacheKey(locationId, parentId)
+    const current = childrenCache.get(key)
+    // 缓存未热时不要用「单节点」污染，否则会掩盖已存在的同级目录/文件
+    if (!current) return
+    childrenCache.set(key, [...current.filter((child) => child.name !== node.name), node])
+  }
+
+  // 按深度排序后批量创建缺失目录；每一层 flush 后再处理下一层，避免父目录尚未落盘
+  const sortedFolderEntries = [...folderPaths]
+    .map((entry) => {
+      const sep = entry.indexOf('\n')
+      const locationId = entry.slice(0, sep) as FilesLocationId
+      const path = entry.slice(sep + 1)
+      const root = filesLocationPathRoot(locationId)
+      const relative = path === root ? '' : path.slice(root.length).replace(/^\//, '')
+      const segments = relative ? relative.split('/') : []
+      return { locationId, path, segments, depth: segments.length }
+    })
+    .sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path))
+
+  for (const locationId of new Set(sortedFolderEntries.map((entry) => entry.locationId))) {
+    folderIdByPath.set(filesLocationPathRoot(locationId), undefined)
+  }
+
+  let pendingFolderOps: {
+    path: string
+    locationId: FilesLocationId
+    parentId: string | undefined
+    op: FilesStorageBatchOp
+  }[] = []
+
+  const flushFolders = async () => {
+    if (pendingFolderOps.length === 0) return
+    for (let offset = 0; offset < pendingFolderOps.length; offset += batchSize) {
+      const slice = pendingFolderOps.slice(offset, offset + batchSize)
+      const created = await commitFilesBatch(slice.map((item) => item.op))
+      for (let i = 0; i < slice.length; i += 1) {
+        const folder = created[i]
+        const meta = slice[i]
+        if (!folder || !meta) continue
+        folderIdByPath.set(meta.path, folder.id)
+        rememberChild(meta.locationId, meta.parentId, folder)
+        emitFilesVfsChanged({ kind: 'created', path: meta.path })
+      }
+    }
+    pendingFolderOps = []
+  }
+
+  let currentDepth = -1
+  for (const entry of sortedFolderEntries) {
+    if (entry.depth !== currentDepth) {
+      await flushFolders()
+      currentDepth = entry.depth
+    }
+    if (folderIdByPath.has(entry.path)) continue
+    let parentId: string | undefined
+    let currentPath = filesLocationPathRoot(entry.locationId)
+    for (let i = 0; i < entry.segments.length; i += 1) {
+      const name = entry.segments[i]!
+      const nextPath = joinFilesAbsolutePath(currentPath, name)
+      if (folderIdByPath.has(nextPath)) {
+        parentId = folderIdByPath.get(nextPath)
+        currentPath = nextPath
+        continue
+      }
+      // 仅处理到 entry 自身这一层；祖先应已在更浅 depth 处理完
+      if (i < entry.segments.length - 1) {
+        throw new Error(`父目录缺失：${nextPath}`)
+      }
+      const siblings = await listCached(entry.locationId, parentId)
+      const existing = siblings.find((child) => child.name === name)
+      if (existing) {
+        if (existing.kind !== 'folder') {
+          throw new Error(`路径冲突：${nextPath} 不是文件夹`)
+        }
+        folderIdByPath.set(nextPath, existing.id)
+        parentId = existing.id
+        currentPath = nextPath
+        continue
+      }
+      await assertCanCreateIn(entry.locationId, parentId)
+      const now = osNowMs()
+      const node: FilesNode = {
+        id: newFilesNodeId(),
+        locationId: entry.locationId,
+        parentId,
+        name,
+        kind: 'folder',
+        mimeType: undefined,
+        byteSize: 0,
+        createdAt: now,
+        updatedAt: now,
+        attributes: defaultFilesNodeAttributes(entry.locationId),
+      }
+      pendingFolderOps.push({
+        path: nextPath,
+        locationId: entry.locationId,
+        parentId,
+        op: { kind: 'create-folder', node, metaBytes: estimateNodeMetaBytes(node) },
+      })
+      // 先占位，避免同层后续条目重复创建；flush 后 id 不变
+      folderIdByPath.set(nextPath, node.id)
+      rememberChild(entry.locationId, parentId, node)
+      parentId = node.id
+      currentPath = nextPath
+    }
+    if (pendingFolderOps.length >= batchSize) {
+      await flushFolders()
+    }
+  }
+  await flushFolders()
+
+  const prepared: PreparedUpsert[] = []
+  const assertedParents = new Set<string>()
+  const assertParentOnce = async (
+    locationId: FilesLocationId,
+    parentId: string | undefined,
+  ) => {
+    const key = `${locationId}\0${parentId ?? ''}`
+    if (assertedParents.has(key)) return
+    await assertCanCreateIn(locationId, parentId)
+    assertedParents.add(key)
+  }
+
+  for (const parsed of parsedItems) {
+    const root = filesLocationPathRoot(parsed.locationId)
+    const parentPath =
+      parsed.parentSegments.length === 0
+        ? root
+        : joinFilesAbsolutePath(root, ...parsed.parentSegments)
+    const parentId = folderIdByPath.has(parentPath)
+      ? folderIdByPath.get(parentPath)
+      : undefined
+    if (parsed.parentSegments.length > 0 && !folderIdByPath.has(parentPath)) {
+      throw new Error(`父文件夹不存在：${parentPath}`)
+    }
+    await assertParentOnce(parsed.locationId, parentId)
+
+    const siblings = await listCached(parsed.locationId, parentId)
+    const existing = siblings.find((child) => child.name === parsed.fileName)
+    if (existing && existing.kind !== 'file') {
+      throw new Error(`路径冲突：${parsed.absolutePath}`)
+    }
+
+    if (existing) {
+      assertNodeWritable(existing)
+      if ('text' in parsed.item) {
+        prepared.push({
+          absolutePath: parsed.absolutePath,
+          watchKind: 'modified',
+          op: {
+            kind: 'write-text',
+            id: existing.id,
+            text: parsed.item.text,
+            previousByteSize: existing.byteSize,
+            nameMetaDelta: 0,
+          },
+        })
+      } else {
+        prepared.push({
+          absolutePath: parsed.absolutePath,
+          watchKind: 'modified',
+          op: {
+            kind: 'write-bytes',
+            id: existing.id,
+            bytes: parsed.item.bytes,
+            previousByteSize: existing.byteSize,
+            nameMetaDelta: 0,
+          },
+        })
+      }
+      continue
+    }
+
+    const now = osNowMs()
+    if ('text' in parsed.item) {
+      const node: FilesNode = {
+        id: newFilesNodeId(),
+        locationId: parsed.locationId,
+        parentId,
+        name: parsed.fileName,
+        kind: 'file',
+        mimeType: FILES_TEXT_MIME,
+        byteSize: 0,
+        createdAt: now,
+        updatedAt: now,
+        attributes: defaultFilesNodeAttributes(parsed.locationId),
+      }
+      prepared.push({
+        absolutePath: parsed.absolutePath,
+        watchKind: 'created',
+        op: {
+          kind: 'create-text',
+          node,
+          text: parsed.item.text,
+          metaBytes: estimateNodeMetaBytes(node),
+        },
+      })
+      rememberChild(parsed.locationId, parentId, node)
+    } else {
+      const node: FilesNode = {
+        id: newFilesNodeId(),
+        locationId: parsed.locationId,
+        parentId,
+        name: parsed.fileName,
+        kind: 'file',
+        mimeType: 'application/octet-stream',
+        byteSize: 0,
+        createdAt: now,
+        updatedAt: now,
+        attributes: defaultFilesNodeAttributes(parsed.locationId),
+      }
+      prepared.push({
+        absolutePath: parsed.absolutePath,
+        watchKind: 'created',
+        op: {
+          kind: 'create-bytes',
+          node,
+          bytes: parsed.item.bytes,
+          metaBytes: estimateNodeMetaBytes(node),
+        },
+      })
+      rememberChild(parsed.locationId, parentId, node)
+    }
+  }
+
+  const results: FilesNode[] = []
+  for (let offset = 0; offset < prepared.length; offset += batchSize) {
+    const slice = prepared.slice(offset, offset + batchSize)
+    const committed = await commitFilesBatch(slice.map((item) => item.op))
+    results.push(...committed)
+    emitFilesVfsChanged(
+      slice.map((item) => ({ kind: item.watchKind, path: item.absolutePath })),
+    )
+  }
+  return results
+}
+
 export { isFilesAbsolutePath } from './files-path.ts'
+export { FILES_BATCH_DEFAULT_SIZE } from './files-storage.ts'

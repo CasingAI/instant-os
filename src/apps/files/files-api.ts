@@ -34,9 +34,13 @@ import {
   renameNode,
   resolveFilesAbsolutePath,
   resolveNodeByAbsolutePath,
+  upsertFilesBatch,
   writeBinaryFile,
   writeTextFile,
+  type FilesUpsertBatchItem,
 } from './files-vfs.ts'
+
+export type { FilesUpsertBatchItem }
 import {
   subscribeFilesWatch,
   type FilesWatchChange,
@@ -310,6 +314,26 @@ export async function filesWriteBinary(path: string, bytes: ArrayBuffer): Promis
   }
   const node = await writeBinaryFile(absolutePath, bytes)
   return toEntry(node)
+}
+
+/**
+ * 批量 upsert 本地卷文件：路径不存在则创建、存在则覆写；自动创建缺失父目录。
+ * 底层按批提交 IndexedDB 事务（默认 64）。
+ */
+export async function filesUpsertBatch(
+  items: readonly FilesUpsertBatchItem[],
+  options?: { batchSize?: number },
+): Promise<FilesApiEntry[]> {
+  const normalized = items.map((item) => {
+    const path = assertAbsolutePath(item.path)
+    if (isFilesNamespaceRoot(path)) {
+      throw new Error('不能写入命名空间根')
+    }
+    if ('text' in item) return { path, text: item.text }
+    return { path, bytes: item.bytes }
+  })
+  const nodes = await upsertFilesBatch(normalized, options)
+  return Promise.all(nodes.map((node) => toEntry(node)))
 }
 
 export async function filesRename(path: string, nextName: string): Promise<FilesApiEntry> {

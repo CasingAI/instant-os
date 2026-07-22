@@ -18,7 +18,6 @@ import {
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
-  materializeFilesToRepo,
   removeWorkingTreePath,
   syncWorkingTreeToFileIndex,
   unzipGithubZipball,
@@ -106,9 +105,17 @@ async function rematerializeFromZip(params: {
   onProgress?.('下载压缩包…')
   const zip = await githubDownloadZipball(meta.owner, meta.repo, params.ref, onProgress)
   const files = await unzipGithubZipball(zip)
-  await materializeFilesToRepo(meta.owner, meta.repo, files, onProgress)
-  const working = await collectWorkingTreeFiles(meta.owner, meta.repo)
-  const fileIndex = await persistBaselineFromFiles(working)
+  onProgress?.('写入基线快照…')
+  const fileIndex = await persistBaselineFromFiles(files)
+  const fromIndex = currentFileIndex(meta)
+  onProgress?.('增量同步工作区…')
+  await syncWorkingTreeToFileIndex(
+    meta.owner,
+    meta.repo,
+    fromIndex,
+    fileIndex,
+    onProgress,
+  )
   const next = withBranchSnapshot(
     meta,
     branch,

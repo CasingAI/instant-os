@@ -3,16 +3,16 @@ import { osNowMs } from '../../os/os-clock.ts'
 import { assertAdditionalBytesAvailable, listChildNodes } from '../files/files-storage.ts'
 import {
   filesCreateBinary,
-  filesCreateText,
   filesList,
   filesMkdir,
   filesReadBlob,
   filesReadText,
   filesRemove,
   filesStat,
+  filesUpsertBatch,
   filesWriteBinary,
-  filesWriteText,
   type FilesApiEntry,
+  type FilesUpsertBatchItem,
 } from '../files/files-api.ts'
 import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import { resolveNodeByAbsolutePath } from '../files/files-vfs.ts'
@@ -37,7 +37,8 @@ import {
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 
-const TEXT_DECODER = new TextDecoder('utf-8')
+/** 基线 blob 预取并发 */
+const BASELINE_PREFETCH_CONCURRENCY = 12
 
 function normalizeZipPath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\\/g, '/')
@@ -113,21 +114,12 @@ export async function writeWorkingTreeFile(
   absolutePath: string,
   bytes: Uint8Array,
 ): Promise<void> {
+  // 始终按原始字节落盘，保证与 fileIndex/基线 hash 一致；文本编辑靠读路径从 bytes 解码
   await ensureParentDirs(absolutePath)
   const existing = await filesStat(absolutePath)
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
   const buffer = copy.buffer
-  if (isProbablyTextBytes(bytes)) {
-    const text = TEXT_DECODER.decode(bytes)
-    if (existing) {
-      if (existing.kind !== 'file') throw new Error(`路径冲突：${absolutePath}`)
-      await filesWriteText(absolutePath, text)
-    } else {
-      await filesCreateText(absolutePath, text)
-    }
-    return
-  }
   if (existing) {
     if (existing.kind !== 'file') throw new Error(`路径冲突：${absolutePath}`)
     await filesWriteBinary(absolutePath, buffer)
@@ -136,10 +128,45 @@ export async function writeWorkingTreeFile(
   }
 }
 
+function toUpsertBatchItem(absolutePath: string, bytes: Uint8Array): FilesUpsertBatchItem {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return { path: absolutePath, bytes: copy.buffer }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const runners = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= items.length) return
+        results[index] = await worker(items[index]!, index)
+      }
+    },
+  )
+  await Promise.all(runners)
+  return results
+}
+
 export async function removeWorkingTreePath(absolutePath: string): Promise<void> {
   const existing = await filesStat(absolutePath)
   if (!existing) return
-  await filesRemove(absolutePath)
+  try {
+    await filesRemove(absolutePath)
+  } catch (error) {
+    // 并发删除或路径已消失时忽略
+    if (error instanceof Error && error.message === '项目不存在') return
+    throw error
+  }
 }
 
 export async function clearDirectoryContents(dirPath: string): Promise<void> {
@@ -238,6 +265,7 @@ export async function collectWorkingTreeFileStats(
 
 /**
  * 按 fileIndex diff 操作增量更新工作区：只删/写有差异的路径，不清空整树。
+ * upsert：并发预取基线后批量写入；remove：逐个删除。
  */
 export async function applyFileIndexOpsToWorkingTree(
   owner: string,
@@ -251,40 +279,58 @@ export async function applyFileIndexOpsToWorkingTree(
   }
 
   const repoPath = await ensureRepoRootFolder(owner, repo)
+  const removes = ops.filter((op) => op.kind === 'remove')
+  const upserts = ops.filter((op) => op.kind === 'upsert')
+
   let totalUpsertBytes = 0
-  for (const op of ops) {
-    if (op.kind === 'upsert') totalUpsertBytes += op.byteSize
+  for (const op of upserts) {
+    totalUpsertBytes += op.byteSize
   }
   if (totalUpsertBytes > 0) {
-    await assertAdditionalBytesAvailable(totalUpsertBytes + ops.length * 64)
+    await assertAdditionalBytesAvailable(totalUpsertBytes + upserts.length * 64)
   }
 
   let applied = 0
   let lastProgressAt = 0
   const progressIntervalMs = 1000
-  for (const op of ops) {
-    const absolute = joinFilesAbsolutePath(repoPath, ...op.path.split('/'))
-    if (op.kind === 'remove') {
-      await removeWorkingTreePath(absolute)
-    } else {
-      const bytes = await readBaselineBytes(op.hash)
-      if (bytes === undefined) {
-        throw new Error(`缺少基线快照：${op.path}`)
-      }
-      await writeWorkingTreeFile(absolute, bytes)
-    }
-    applied += 1
+  const total = ops.length
+  const report = () => {
     const now = osNowMs()
-    if (
-      applied === ops.length ||
-      shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)
-    ) {
+    if (applied === total || shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)) {
       lastProgressAt = now
-      onProgress?.(`同步文件 ${applied}/${ops.length}…`, {
-        fraction: applied / ops.length,
+      onProgress?.(`同步文件 ${applied}/${total}…`, {
+        fraction: total > 0 ? applied / total : undefined,
       })
     }
   }
+
+  for (const op of removes) {
+    const absolute = joinFilesAbsolutePath(repoPath, ...op.path.split('/'))
+    await removeWorkingTreePath(absolute)
+    applied += 1
+    report()
+  }
+
+  if (upserts.length > 0) {
+    onProgress?.(`预取基线 ${upserts.length} 个文件…`)
+    const payloads = await mapWithConcurrency(
+      upserts,
+      BASELINE_PREFETCH_CONCURRENCY,
+      async (op) => {
+        const bytes = await readBaselineBytes(op.hash)
+        if (bytes === undefined) {
+          throw new Error(`缺少基线快照：${op.path}`)
+        }
+        const absolute = joinFilesAbsolutePath(repoPath, ...op.path.split('/'))
+        return toUpsertBatchItem(absolute, bytes)
+      },
+    )
+    onProgress?.(`批量写入 ${payloads.length} 个文件…`)
+    await filesUpsertBatch(payloads)
+    applied += upserts.length
+    report()
+  }
+
   onProgress?.(`已同步 ${ops.length} 个文件`)
 }
 
@@ -320,25 +366,16 @@ export async function materializeFilesToRepo(
   }
   await assertAdditionalBytesAvailable(totalBytes + files.size * 64)
 
-  let written = 0
-  let lastProgressAt = 0
-  const progressIntervalMs = 1000
+  const payloads: FilesUpsertBatchItem[] = []
   for (const [relativePath, bytes] of files) {
     const absolute = joinFilesAbsolutePath(repoPath, ...relativePath.split('/'))
-    await writeWorkingTreeFile(absolute, bytes)
-    written += 1
-    const now = osNowMs()
-    if (
-      written === files.size ||
-      shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)
-    ) {
-      lastProgressAt = now
-      onProgress?.(`写入文件 ${written}/${files.size}…`, {
-        fraction: files.size > 0 ? written / files.size : undefined,
-      })
-    }
+    payloads.push(toUpsertBatchItem(absolute, bytes))
   }
-  onProgress?.(`已写入 ${files.size} 个文件`)
+  onProgress?.(`批量写入 ${payloads.length} 个文件…`, {
+    fraction: payloads.length > 0 ? 0.2 : 1,
+  })
+  await filesUpsertBatch(payloads)
+  onProgress?.(`已写入 ${files.size} 个文件`, { fraction: 1 })
 }
 
 export async function unzipGithubZipball(buffer: ArrayBuffer): Promise<Map<string, Uint8Array>> {

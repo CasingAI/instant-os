@@ -525,3 +525,135 @@ export async function deleteSubtree(params: {
   await waitForTransaction(tx)
   emitFilesDataStorageChanged()
 }
+
+/** 单次批量提交建议条数（降低 IndexedDB 事务固定开销） */
+export const FILES_BATCH_DEFAULT_SIZE = 64
+
+export type FilesStorageBatchOp =
+  | { kind: 'create-folder'; node: FilesNode; metaBytes: number }
+  | { kind: 'create-text'; node: FilesNode; text: string; metaBytes: number }
+  | { kind: 'create-bytes'; node: FilesNode; bytes: ArrayBuffer; metaBytes: number }
+  | {
+      kind: 'write-text'
+      id: string
+      text: string
+      previousByteSize: number
+      nameMetaDelta: number
+    }
+  | {
+      kind: 'write-bytes'
+      id: string
+      bytes: ArrayBuffer
+      previousByteSize: number
+      nameMetaDelta: number
+    }
+
+function batchOpNeededBytes(op: FilesStorageBatchOp): number {
+  switch (op.kind) {
+    case 'create-folder':
+      return op.metaBytes
+    case 'create-text':
+      return op.metaBytes + estimateTextBytes(op.text)
+    case 'create-bytes':
+      return op.metaBytes + op.bytes.byteLength
+    case 'write-text':
+      return estimateTextBytes(op.text) - op.previousByteSize + op.nameMetaDelta
+    case 'write-bytes':
+      return op.bytes.byteLength - op.previousByteSize + op.nameMetaDelta
+  }
+}
+
+/**
+ * 在同一 IndexedDB 事务内提交多条建写操作；写前按本批净增量做一次容量预检。
+ * 返回与 ops 同序的结果节点（create/write 后的节点）。
+ */
+export async function commitFilesBatch(
+  ops: readonly FilesStorageBatchOp[],
+): Promise<FilesNode[]> {
+  if (ops.length === 0) return []
+
+  let needed = 0
+  for (const op of ops) {
+    needed += batchOpNeededBytes(op)
+  }
+  const total = await assertCapacity(needed)
+
+  const db = await openFilesDb()
+  const tx = db.transaction(
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  const nodes = tx.objectStore(FILES_NODES_STORE)
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
+  const meta = tx.objectStore(FILES_META_STORE)
+  const results: FilesNode[] = []
+
+  for (const op of ops) {
+    if (op.kind === 'create-folder') {
+      nodes.put(nodeToRecord(op.node))
+      results.push(op.node)
+      continue
+    }
+    if (op.kind === 'create-text') {
+      const textBytes = estimateTextBytes(op.text)
+      const node: FilesNode = { ...op.node, byteSize: textBytes }
+      nodes.put(nodeToRecord(node))
+      blobs.put({ id: node.id, text: op.text } satisfies FilesBlobRecord)
+      results.push(node)
+      continue
+    }
+    if (op.kind === 'create-bytes') {
+      const contentBytes = op.bytes.byteLength
+      const node: FilesNode = { ...op.node, byteSize: contentBytes }
+      nodes.put(nodeToRecord(node))
+      blobs.put({ id: node.id, bytes: op.bytes } satisfies FilesBlobRecord)
+      results.push(node)
+      continue
+    }
+    if (op.kind === 'write-text') {
+      const existing = await requestToPromise(
+        nodes.get(op.id) as IDBRequest<FilesNodeRecord | undefined>,
+      )
+      if (!existing) {
+        throw new Error('文件不存在')
+      }
+      const textBytes = estimateTextBytes(op.text)
+      const updated: FilesNodeRecord = {
+        ...existing,
+        byteSize: textBytes,
+        updatedAt: osNowMs(),
+        attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
+      }
+      nodes.put(updated)
+      blobs.put({ id: op.id, text: op.text } satisfies FilesBlobRecord)
+      results.push(recordToNode(updated))
+      continue
+    }
+
+    const existing = await requestToPromise(
+      nodes.get(op.id) as IDBRequest<FilesNodeRecord | undefined>,
+    )
+    if (!existing) {
+      throw new Error('文件不存在')
+    }
+    const contentBytes = op.bytes.byteLength
+    const updated: FilesNodeRecord = {
+      ...existing,
+      byteSize: contentBytes,
+      updatedAt: osNowMs(),
+      attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
+    }
+    nodes.put(updated)
+    blobs.put({ id: op.id, bytes: op.bytes } satisfies FilesBlobRecord)
+    results.push(recordToNode(updated))
+  }
+
+  meta.put({
+    key: 'byte-total',
+    totalBytes: Math.max(0, total + needed),
+  } satisfies FilesMetaRecord)
+
+  await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
+  return results
+}
