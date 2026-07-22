@@ -16,6 +16,7 @@ import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
 import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
 import { HelpApp } from '../apps/help/help-app.tsx'
 import { TerminalApp } from '../apps/terminal/terminal-app.tsx'
+import { VirtualJsApp } from '../apps/virtual-js/virtual-js-app.tsx'
 import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
@@ -32,7 +33,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, VirtualJsIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -240,6 +241,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
+  withAbout({
+    id: 'virtual-js',
+    name: 'Virtual JS',
+    icon: VirtualJsIcon,
+    dock: true,
+    desktop: true,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
@@ -271,6 +279,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'github-desktop': GithubDesktopApp,
   help: HelpApp,
   terminal: TerminalApp,
+  'virtual-js': VirtualJsApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {

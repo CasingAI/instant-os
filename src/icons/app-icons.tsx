@@ -1285,3 +1285,23 @@ export function TerminalIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function VirtualJsIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#f7df1e" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <text
+          x="32"
+          y="40"
+          text-anchor="middle"
+          fill="#1a1a1c"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          font-size="22"
+          font-weight="800"
+        >
+          JS
+        </text>
+      </svg>
+    </AppIconTile>
+  )
+}

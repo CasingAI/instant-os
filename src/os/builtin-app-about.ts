@@ -235,4 +235,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '帮助应用在需要动手改系统时会打开终端；敏感步骤一律弹出对话框确认。普通用户日常腾空间仍请使用系统设置。',
     ],
   },
+  'virtual-js': {
+    version: 'QuickJS 实例演示',
+    paragraphs: [
+      'Virtual JS 接通系统级 QuickJS 服务：每个窗口对应一个隔离 JS 实例，多次运行会保留全局变量；关闭窗口后实例销毁。',
+      '当前为纯引擎演示，无 Node / VFS / npm。与「终端」职责不同——终端面向文件与特权操作，Virtual JS 面向可复用的 JS 执行环境。',
+    ],
+  },
 }
