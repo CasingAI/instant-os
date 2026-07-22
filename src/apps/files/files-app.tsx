@@ -84,6 +84,10 @@ const VIEW_MODE_STORAGE_KEY = 'files.viewMode'
 const VIEWPORT_META_DEBOUNCE_MS = 100
 const VIEWPORT_META_CONCURRENCY = 8
 const VIEWPORT_META_ROOT_MARGIN = '96px'
+/** 目录拉取超过此时长才显示加载卡片，避免快请求闪一下 */
+const LOADING_SHOW_DELAY_MS = 200
+/** 加载卡片一旦出现，至少展示此时长 */
+const LOADING_MIN_VISIBLE_MS = 300
 
 type FilesViewMode = 'grid' | 'list'
 
@@ -284,7 +288,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [folderId, setFolderId] = useState<string | undefined>(undefined)
   const [pathNodes, setPathNodes] = useState<FilesNode[]>([])
   const [items, setItems] = useState<FilesNode[]>([])
-  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(true)
+  const [showLoadingCard, setShowLoadingCard] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined)
   const [backgroundContextMenu, setBackgroundContextMenu] = useState<
@@ -318,6 +323,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const lastPointerTypeRef = useRef<string>('mouse')
   const actionSheetOpenedByLongPressRef = useRef(false)
   const refreshGenRef = useRef(0)
+  const loadingShowDelayRef = useRef<number | undefined>(undefined)
+  const loadingHideDelayRef = useRef<number | undefined>(undefined)
+  const loadingCardShownAtRef = useRef<number | undefined>(undefined)
   const viewportMetaGenRef = useRef(0)
   const viewportMetaPendingRef = useRef(new Set<string>())
   const viewportMetaInFlightRef = useRef(new Set<string>())
@@ -461,10 +469,78 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [scheduleViewportMetaFlush],
   )
 
+  const clearLoadingTimers = useCallback(() => {
+    if (loadingShowDelayRef.current !== undefined) {
+      window.clearTimeout(loadingShowDelayRef.current)
+      loadingShowDelayRef.current = undefined
+    }
+    if (loadingHideDelayRef.current !== undefined) {
+      window.clearTimeout(loadingHideDelayRef.current)
+      loadingHideDelayRef.current = undefined
+    }
+  }, [])
+
+  const beginRefreshingUi = useCallback(
+    (gen: number) => {
+      clearLoadingTimers()
+      loadingCardShownAtRef.current = undefined
+      setRefreshing(true)
+      setShowLoadingCard(false)
+
+      const revealCard = () => {
+        if (gen !== refreshGenRef.current) return
+        loadingCardShownAtRef.current = Date.now()
+        setShowLoadingCard(true)
+      }
+
+      if (itemsRef.current.length === 0) {
+        revealCard()
+        return
+      }
+
+      loadingShowDelayRef.current = window.setTimeout(() => {
+        loadingShowDelayRef.current = undefined
+        revealCard()
+      }, LOADING_SHOW_DELAY_MS)
+    },
+    [clearLoadingTimers],
+  )
+
+  const endRefreshingUi = useCallback(
+    (gen: number) => {
+      clearLoadingTimers()
+
+      const finish = () => {
+        if (gen !== refreshGenRef.current) return
+        loadingCardShownAtRef.current = undefined
+        setShowLoadingCard(false)
+        setRefreshing(false)
+      }
+
+      const shownAt = loadingCardShownAtRef.current
+      if (shownAt === undefined) {
+        finish()
+        return
+      }
+
+      const remaining = LOADING_MIN_VISIBLE_MS - (Date.now() - shownAt)
+      if (remaining <= 0) {
+        finish()
+        return
+      }
+
+      loadingHideDelayRef.current = window.setTimeout(() => {
+        loadingHideDelayRef.current = undefined
+        finish()
+      }, remaining)
+    },
+    [clearLoadingTimers],
+  )
+
   const refresh = useCallback(async (options?: { quiet?: boolean }) => {
     const gen = ++refreshGenRef.current
     resetViewportMeta()
-    if (!options?.quiet) setLoading(true)
+    if (!options?.quiet) beginRefreshingUi(gen)
     setError(undefined)
     try {
       if (locationId === 'repo') {
@@ -483,9 +559,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       setItems([])
       setPathNodes([])
     } finally {
-      if (gen === refreshGenRef.current && !options?.quiet) setLoading(false)
+      if (gen === refreshGenRef.current && !options?.quiet) endRefreshingUi(gen)
     }
-  }, [folderId, locationId, resetViewportMeta])
+  }, [beginRefreshingUi, endRefreshingUi, folderId, locationId, resetViewportMeta])
+
+  useEffect(() => () => clearLoadingTimers(), [clearLoadingTimers])
 
   const refreshLocations = useCallback(async () => {
     try {
@@ -522,7 +600,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const itemIdsKey = useMemo(() => items.map((item) => item.id).join('\0'), [items])
 
   useEffect(() => {
-    if (loading) return
+    if (refreshing) return
     const root = browserRef.current
     if (!root) return
 
@@ -545,7 +623,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
 
     return () => observer.disconnect()
-  }, [enqueueViewportMeta, itemIdsKey, loading, viewMode])
+  }, [enqueueViewportMeta, itemIdsKey, refreshing, viewMode])
 
   const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
     const applyBrowse = (nextLocationId: FilesLocationId, nextFolderId: string | undefined) => {
@@ -652,17 +730,17 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [navigateToDocumentPath, pendingDocumentId])
 
   useEffect(() => {
-    if (!pendingSelectName || loading) return
+    if (!pendingSelectName || refreshing) return
     const match = items.find((node) => node.name === pendingSelectName)
     if (!match) return
     setPendingSelectName(undefined)
     setSelectedId(match.id)
     setSelectNonce((value) => value + 1)
-  }, [items, loading, pendingSelectName])
+  }, [items, pendingSelectName, refreshing])
 
   // 等目录切换动画 / 窄屏滑入结束后再滚入，避免 transform 过程中 scrollIntoView 无效
   useEffect(() => {
-    if (!selectedId || loading) return
+    if (!selectedId || refreshing) return
     if (!items.some((node) => node.id === selectedId)) return
 
     let cancelled = false
@@ -700,7 +778,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       for (const timer of timers) window.clearTimeout(timer)
       for (const frame of frames) window.cancelAnimationFrame(frame)
     }
-  }, [folderMotion, items, loading, scrollSelectedIntoView, selectNonce, selectedId])
+  }, [folderMotion, items, refreshing, scrollSelectedIntoView, selectNonce, selectedId])
 
   // 选中高亮约 2.5s 后淡出清除
   useEffect(() => {
@@ -1715,7 +1793,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           }}
         >
           {error ? <div class="files__banner files__banner--error">{error}</div> : undefined}
-          {loading ? (
+          {showLoadingCard ? (
             <div class="files__empty">正在加载…</div>
           ) : items.length === 0 ? (
             <div class="files__empty">
