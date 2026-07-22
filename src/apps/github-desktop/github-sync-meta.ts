@@ -29,6 +29,11 @@ export type GithubRepoSyncMeta = {
   updatedAt: number
   /** 最近一次成功 Fetch（含拉取后附带刷新）的时间戳 */
   lastFetchedAt?: number
+  /**
+   * 对齐 Desktop `Repository.missing`：
+   * 克隆失败占位、或本地工作树丢失时为 true，可点进后「重新克隆」。
+   */
+  missing?: boolean
 }
 
 /** 磁盘上可能仍是 v1 */
@@ -226,11 +231,36 @@ export async function saveGithubRepoMeta(meta: GithubRepoSyncMeta): Promise<void
   const db = await openDb()
   const tx = db.transaction(STORE, 'readwrite')
   const normalized: GithubRepoSyncMeta = { ...meta, version: 2 }
+  if (!normalized.missing) {
+    delete normalized.missing
+  }
   tx.objectStore(STORE).put({
     ...normalized,
     id: githubRepoId(meta.owner, meta.repo),
   } satisfies RepoRecord)
   await waitForTransaction(tx)
+}
+
+/** 克隆失败或工作树丢失时写入/更新占位记录，便于列表保留并可重新克隆 */
+export async function saveGithubMissingRepoMeta(
+  owner: string,
+  repo: string,
+): Promise<GithubRepoSyncMeta> {
+  const existing = await getGithubRepoMeta(owner, repo)
+  const meta: GithubRepoSyncMeta = existing
+    ? { ...existing, missing: true, updatedAt: Date.now() }
+    : {
+        version: 2,
+        owner,
+        repo,
+        currentBranch: 'main',
+        defaultBranch: 'main',
+        branches: {},
+        updatedAt: Date.now(),
+        missing: true,
+      }
+  await saveGithubRepoMeta(meta)
+  return meta
 }
 
 export async function deleteGithubRepoMeta(owner: string, repo: string): Promise<void> {

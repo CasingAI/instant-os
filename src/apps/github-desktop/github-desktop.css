@@ -1,25 +1,44 @@
+/* GitHub Desktop — iOS 6 系统灰拟物风（与 VS Code / 设置 / 浏览器等应用统一） */
+
 .github-desktop {
-  --gd-bg: #ffffff;
-  --gd-text: #24292f;
-  --gd-muted: #57606a;
-  --gd-border: #d0d7de;
-  --gd-alt: #f6f8fa;
-  --gd-hover: #f3f4f6;
-  --gd-selected: #ddf4ff;
-  --gd-accent: #0969da;
-  --gd-accent-hover: #0860ca;
+  --gd-bg-top: #ececec;
+  --gd-bg-bottom: #d8d8d8;
+  --gd-bg: #fafafa;
+  --gd-surface: #ffffff;
+  --gd-well: #f0f0f0;
+  --gd-text: #1a1a1a;
+  --gd-muted: #666666;
+  --gd-border: #a8a8a8;
+  --gd-border-light: #c8c8c8;
+  --gd-alt: linear-gradient(180deg, #f4f4f4 0%, #e8e8e8 100%);
+  --gd-hover: rgba(0, 0, 0, 0.05);
+  --gd-selected: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  --gd-selected-text: #ffffff;
+  --gd-accent: #2f87e2;
+  --gd-accent-deep: #1f6ec7;
+  --gd-accent-border: #145da8;
+  --gd-accent-hover: #1f6ec7;
   --gd-success: #1a7f37;
   --gd-warning: #9a6700;
-  --gd-danger: #cf222e;
-  --gd-toolbar-bg: #24292f;
-  --gd-toolbar-text: #ffffff;
-  --gd-toolbar-muted: #d1d5da;
-  --gd-toolbar-hover: #2f363d;
-  --gd-toolbar-border: #000000;
-  --gd-toolbar-progress: #2f363d;
-  --gd-toolbar-badge: #586069;
-  --gd-toolbar-active-bg: #ffffff;
-  --gd-toolbar-active-text: #24292f;
+  --gd-danger: #c9302a;
+  --gd-radius: 6px;
+  --gd-shadow-out:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(0, 0, 0, 0.14);
+  --gd-shadow-in: inset 0 1px 3px rgba(0, 0, 0, 0.14);
+  --gd-plain-btn: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --gd-plain-btn-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --gd-blue-btn: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  --gd-blue-btn-active: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
+  --gd-toolbar-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  --gd-toolbar-text: #1a1a1a;
+  --gd-toolbar-muted: #666666;
+  --gd-toolbar-hover: rgba(0, 0, 0, 0.06);
+  --gd-toolbar-border: #a8a8a8;
+  --gd-toolbar-progress: rgba(47, 135, 226, 0.42);
+  --gd-toolbar-badge: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 100%);
+  --gd-toolbar-active-bg: linear-gradient(180deg, #f8f8f8 0%, #e4e4e4 100%);
+  --gd-toolbar-active-text: #1a1a1a;
   --gd-diff-bg: #ffffff;
   --gd-diff-text: #24292e;
   --gd-diff-border: #e1e4e8;
@@ -43,11 +62,12 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--gd-bg);
+  background: linear-gradient(180deg, var(--gd-bg-top) 0%, var(--gd-bg-bottom) 100%);
   color: var(--gd-text);
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--app-text-font-family);
   font-size: 12px;
   line-height: 1.4;
+  overflow: hidden;
 }
 
 .github-desktop button,
@@ -60,16 +80,23 @@
 .github-desktop__btn {
   appearance: none;
   border: 1px solid var(--gd-border);
-  background: var(--gd-alt);
+  background: var(--gd-plain-btn);
   color: var(--gd-text);
-  border-radius: 6px;
+  border-radius: var(--gd-radius);
   padding: 5px 12px;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 600;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  box-shadow: var(--gd-shadow-out);
 }
 
 .github-desktop__btn:hover:not(:disabled) {
-  background: #fff;
+  background: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
+}
+
+.github-desktop__btn:active:not(:disabled) {
+  background: var(--gd-plain-btn-active);
+  box-shadow: var(--gd-shadow-in);
 }
 
 .github-desktop__btn:disabled {
@@ -78,15 +105,24 @@
 }
 
 .github-desktop__btn--primary {
-  background: var(--gd-accent);
-  border-color: var(--gd-accent);
+  background: var(--gd-blue-btn);
+  border-color: var(--gd-accent-border);
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 .github-desktop__btn--primary:hover:not(:disabled) {
-  background: var(--gd-accent-hover);
-  border-color: var(--gd-accent-hover);
+  background: linear-gradient(180deg, #7fc0ff 0%, #3a92ea 55%, #2578d4 100%);
+  border-color: var(--gd-accent-border);
+}
+
+.github-desktop__btn--primary:active:not(:disabled) {
+  background: var(--gd-blue-btn-active);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
 }
 
 .github-desktop__btn--link {
@@ -95,14 +131,17 @@
   color: var(--gd-accent);
   padding: 0;
   font-weight: 600;
+  text-shadow: none;
+  box-shadow: none;
 }
 
 .github-desktop__btn--link:hover:not(:disabled) {
   text-decoration: underline;
   background: transparent;
+  color: var(--gd-accent-hover);
 }
 
-/* —— Toolbar（对齐官方 #desktop-app-toolbar / toolbar-button） —— */
+/* —— Toolbar（系统灰拟物顶栏） —— */
 .github-desktop__toolbar {
   display: flex;
   flex-direction: row;
@@ -114,6 +153,9 @@
   background: var(--gd-toolbar-bg);
   color: var(--gd-toolbar-text);
   border-bottom: 1px solid var(--gd-toolbar-border);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72),
+    0 4px 10px -6px rgba(0, 0, 0, 0.16);
 }
 
 .github-desktop__toolbar-btn {
@@ -126,7 +168,7 @@
   height: 100%;
   padding: 10px;
   border: none;
-  border-right: 1px solid var(--gd-toolbar-border);
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 0;
   background: transparent;
   color: var(--gd-toolbar-text);
@@ -147,24 +189,24 @@
 .github-desktop__toolbar-btn.is-open,
 .github-desktop__toolbar-btn.is-open:hover:not(:disabled),
 .github-desktop__toolbar-btn.is-open:focus {
-  /* 对齐 Desktop foldout open：白底深字；必须写 background-color，避免被透明底吃掉 */
-  color: #24292f;
-  background: #ffffff;
-  background-color: #ffffff;
-  border-right-color: #ffffff;
+  color: var(--gd-toolbar-active-text);
+  background: var(--gd-toolbar-active-bg);
+  background-color: #e8e8e8;
+  border-right-color: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .github-desktop__toolbar-btn.is-open .github-desktop__toolbar-btn-title,
 .github-desktop__toolbar-btn.is-open .github-desktop__toolbar-caret {
-  color: #24292f;
+  color: var(--gd-toolbar-active-text);
 }
 
 .github-desktop__toolbar-btn.is-open .github-desktop__toolbar-btn-description {
-  color: #586069;
+  color: var(--gd-toolbar-muted);
 }
 
 .github-desktop__toolbar-btn.is-open .github-desktop__toolbar-icon {
-  color: #24292f;
+  color: var(--gd-accent);
 }
 
 .github-desktop__toolbar-btn--repo {
@@ -255,10 +297,11 @@
 
 .github-desktop__toolbar-btn-title {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__toolbar-btn-description {
@@ -267,6 +310,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .github-desktop__toolbar-caret {
@@ -284,14 +328,19 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 13px;
+  height: 15px;
   padding: 0 6px;
   border-radius: 8px;
+  border: 1px solid var(--gd-accent-border);
   background: var(--gd-toolbar-badge);
   color: #fff;
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 1px 1px rgba(0, 0, 0, 0.15);
 }
 
 .github-desktop__toolbar-ahead-behind span {
@@ -315,11 +364,14 @@
   /* 父级 toolbar-wrap 高度≈50px，不能用 100%-50px，否则 max-height 变成 0 */
   max-height: min(420px, 60vh);
   overflow: auto;
-  background: #fff;
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
   color: var(--gd-text);
-  border-right: 1px solid var(--gd-border);
-  border-bottom: 1px solid var(--gd-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--gd-border);
+  border-top: none;
+  border-radius: 0 0 var(--gd-radius) var(--gd-radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 20px -4px rgba(0, 0, 0, 0.22);
 }
 
 .github-desktop__toolbar-foldout--branch {
@@ -341,24 +393,39 @@
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-bottom: 1px solid var(--gd-border);
-  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .github-desktop__foldout-item:hover {
-  background: var(--gd-hover);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
 }
 
 .github-desktop__foldout-item.is-active {
+  color: var(--gd-selected-text);
   background: var(--gd-selected);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+
+.github-desktop__foldout-item.is-active strong,
+.github-desktop__foldout-item.is-active span {
+  color: inherit;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .github-desktop__foldout-item strong {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__foldout-item span {
@@ -372,8 +439,9 @@
 
 .github-desktop__foldout-footer {
   padding: 8px 12px;
-  border-top: 1px solid var(--gd-border);
-  background: var(--gd-alt);
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .github-desktop__toolbar-wrap {
@@ -394,10 +462,12 @@
   gap: 10px;
   flex-shrink: 0;
   padding: 8px 14px;
-  background: var(--gd-banner-bg);
-  border-bottom: 1px solid var(--gd-banner-border);
-  color: var(--gd-banner-text);
+  background: linear-gradient(180deg, #fff4e8 0%, #ffe8cc 100%);
+  border-bottom: 1px solid #d4a060;
+  color: #7a4a00;
   font-size: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .github-desktop__banner p {
@@ -420,7 +490,9 @@
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(280px, 1fr);
   min-height: 0;
-  background: var(--gd-bg);
+  gap: 0;
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .github-desktop__blank-left {
@@ -428,17 +500,21 @@
   flex-direction: column;
   justify-content: center;
   gap: 14px;
-  padding: 40px 36px;
-  border-right: 1px solid var(--gd-border);
-  background: linear-gradient(160deg, #f6f8fa 0%, #ffffff 55%);
+  padding: 36px 32px;
+  margin-right: 8px;
+  border: 1px solid var(--gd-border);
+  border-radius: var(--gd-radius);
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+  box-shadow: var(--gd-shadow-out);
 }
 
 .github-desktop__blank-left h2 {
   margin: 0;
-  font-size: 32px;
-  font-weight: 300;
+  font-size: 28px;
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--gd-text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .github-desktop__blank-left p {
@@ -447,6 +523,7 @@
   max-width: 360px;
   font-size: 13px;
   line-height: 1.5;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__blank-actions {
@@ -464,29 +541,35 @@
   gap: 8px;
   padding: 10px 16px;
   border: 1px solid var(--gd-border);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--gd-radius);
+  background: var(--gd-plain-btn);
   color: var(--gd-text);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   text-align: left;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  box-shadow: var(--gd-shadow-out);
 }
 
 .github-desktop__blank-cta:hover:not(:disabled) {
-  border-color: var(--gd-accent);
-  color: var(--gd-accent);
+  border-color: var(--gd-border);
+  background: linear-gradient(180deg, #fff 0%, #f2f2f2 55%, #e4e4e4 100%);
 }
 
 .github-desktop__blank-cta--primary {
-  background: var(--gd-accent);
-  border-color: var(--gd-accent);
+  background: var(--gd-blue-btn);
+  border-color: var(--gd-accent-border);
   color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 .github-desktop__blank-cta--primary:hover:not(:disabled) {
-  background: var(--gd-accent-hover);
-  border-color: var(--gd-accent-hover);
+  background: linear-gradient(180deg, #7fc0ff 0%, #3a92ea 55%, #2578d4 100%);
+  border-color: var(--gd-accent-border);
   color: #fff;
 }
 
@@ -499,81 +582,39 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 28px 24px;
+  padding: 36px 32px;
+  margin-left: 8px;
+  border: 1px solid var(--gd-border);
+  border-radius: var(--gd-radius);
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+  box-shadow: var(--gd-shadow-out);
 }
 
 .github-desktop__blank-right h3 {
   margin: 0 0 12px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.github-desktop__blank-list {
+.github-desktop__local-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid var(--gd-border);
-  border-radius: 6px;
-  background: #fff;
 }
 
-.github-desktop__blank-empty {
-  padding: 24px 16px;
-  color: var(--gd-muted);
-  text-align: center;
+.github-desktop__local-list .settings__option-row:hover .settings__row-hint,
+.github-desktop__local-list .settings__option-row:active .settings__row-hint {
+  color: rgba(255, 255, 255, 0.75);
 }
 
-.github-desktop__repo-row {
-  display: flex;
-  align-items: stretch;
-  border-bottom: 1px solid var(--gd-border);
+.github-desktop__local-list-item--cloning .settings__row-hint {
+  color: var(--gd-accent);
 }
 
-.github-desktop__repo-row:last-child {
-  border-bottom: none;
-}
-
-.github-desktop__repo-row-main {
-  appearance: none;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.github-desktop__repo-row-main:hover {
-  background: var(--gd-hover);
-}
-
-.github-desktop__repo-row-main strong {
-  font-size: 13px;
-}
-
-.github-desktop__repo-row-main span {
-  color: var(--gd-muted);
-  font-size: 11px;
-}
-
-.github-desktop__repo-row-delete {
-  appearance: none;
-  padding: 0 12px;
-  border: none;
-  border-left: 1px solid var(--gd-border);
-  background: transparent;
-  color: var(--gd-muted);
-  cursor: pointer;
-}
-
-.github-desktop__repo-row-delete:hover:not(:disabled) {
+.github-desktop__local-list-item--missing .settings__row-hint {
   color: var(--gd-danger);
-  background: #fff5f5;
 }
 
 /* —— Cloning —— */
@@ -591,13 +632,94 @@
 .github-desktop__cloning h2 {
   margin: 0;
   font-size: 22px;
-  font-weight: 600;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.github-desktop__cloning-progress {
+  width: min(320px, 70%);
+  height: 10px;
+  border: 1px solid var(--gd-border);
+  border-radius: 5px;
+  background: var(--gd-well);
+  box-shadow: var(--gd-shadow-in);
+  overflow: hidden;
+}
+
+.github-desktop__cloning-progress::-webkit-progress-bar {
+  background: var(--gd-well);
+}
+
+.github-desktop__cloning-progress::-webkit-progress-value {
+  background: var(--gd-blue-btn);
+  border-radius: 4px;
 }
 
 .github-desktop__cloning p {
   margin: 0;
   color: var(--gd-muted);
   max-width: 420px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.github-desktop__missing {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px;
+  text-align: center;
+}
+
+.github-desktop__missing h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.github-desktop__missing p {
+  margin: 0;
+  color: var(--gd-muted);
+  max-width: 460px;
+  line-height: 1.45;
+  font-size: 13px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.github-desktop__missing code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--gd-text);
+  word-break: break-all;
+  padding: 2px 6px;
+  border: 1px solid var(--gd-border);
+  border-radius: 4px;
+  background: var(--gd-well);
+  box-shadow: var(--gd-shadow-in);
+}
+
+.github-desktop__missing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.github-desktop__foldout-item--cloning span {
+  color: var(--gd-accent);
+}
+
+.github-desktop__foldout-item--missing span {
+  color: var(--gd-danger);
+}
+
+.github-desktop__foldout-item.is-active.github-desktop__foldout-item--cloning span,
+.github-desktop__foldout-item.is-active.github-desktop__foldout-item--missing span {
+  color: inherit;
 }
 
 .github-desktop__spinner {
@@ -607,6 +729,8 @@
   border-top-color: var(--gd-accent);
   border-radius: 50%;
   animation: gd-spin 0.8s linear infinite;
+  box-shadow: var(--gd-shadow-out);
+  background: var(--gd-surface);
 }
 
 @keyframes gd-spin {
@@ -622,6 +746,8 @@
   display: grid;
   grid-template-columns: 250px 1fr;
   min-height: 0;
+  gap: 0;
+  padding: 0;
 }
 
 .github-desktop__sidebar {
@@ -629,35 +755,49 @@
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--gd-border);
-  background: var(--gd-bg);
+  background: linear-gradient(180deg, #e8e8ec 0%, #dcdce0 100%);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.45),
+    2px 0 8px -4px rgba(0, 0, 0, 0.12);
 }
 
 .github-desktop__tabs {
   display: flex;
   flex-shrink: 0;
-  height: 29px;
+  height: 32px;
+  padding: 4px 6px 0;
+  gap: 2px;
   border-bottom: 1px solid var(--gd-border);
-  background: var(--gd-alt);
+  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .github-desktop__tab {
   appearance: none;
   flex: 1;
-  border: none;
-  border-bottom: 3px solid transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
   background: transparent;
   color: var(--gd-muted);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__tab:hover {
   color: var(--gd-text);
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .github-desktop__tab.is-active {
   color: var(--gd-text);
-  border-bottom-color: var(--gd-accent);
+  border-color: var(--gd-border);
+  border-bottom-color: #f4f4f4;
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 -1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .github-desktop__tab-badge {
@@ -665,11 +805,14 @@
   margin-left: 4px;
   padding: 0 5px;
   border-radius: 10px;
-  background: var(--gd-border);
-  color: var(--gd-text);
+  border: 1px solid var(--gd-accent-border);
+  background: var(--gd-blue-btn);
+  color: #fff;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 16px;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .github-desktop__changes-header {
@@ -677,17 +820,21 @@
   align-items: center;
   height: 29px;
   padding: 0 10px;
-  border-bottom: 1px solid var(--gd-border);
-  color: var(--gd-muted);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  color: #555;
   font-size: 11px;
+  font-weight: 600;
   flex-shrink: 0;
-  background: var(--gd-alt);
+  background: linear-gradient(180deg, #f4f4f4 0%, #e8e8e8 100%);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .github-desktop__changes-list {
   flex: 1;
   overflow: auto;
   min-height: 0;
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f4 100%);
 }
 
 .github-desktop__change {
@@ -705,11 +852,19 @@
 }
 
 .github-desktop__change:hover {
-  background: var(--gd-hover);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .github-desktop__change.is-selected {
+  color: var(--gd-selected-text);
   background: var(--gd-selected);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+.github-desktop__change.is-selected .github-desktop__change-path {
+  color: inherit;
 }
 
 .github-desktop__change-kind {
@@ -746,6 +901,7 @@
   padding: 24px 16px;
   color: var(--gd-muted);
   text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__commit {
@@ -754,8 +910,9 @@
   gap: 8px;
   padding: 10px;
   border-top: 1px solid var(--gd-border);
-  background: var(--gd-alt);
+  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .github-desktop__commit input,
@@ -763,10 +920,11 @@
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--gd-border);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
   color: var(--gd-text);
   padding: 6px 8px;
+  box-shadow: var(--gd-shadow-in);
 }
 
 .github-desktop__commit input {
@@ -780,17 +938,26 @@
 
 .github-desktop__commit-btn {
   width: 100%;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
-  background: var(--gd-accent);
+  height: 30px;
+  border: 1px solid var(--gd-accent-border);
+  border-radius: var(--gd-radius);
+  background: var(--gd-blue-btn);
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 .github-desktop__commit-btn:hover:not(:disabled) {
-  background: var(--gd-accent-hover);
+  background: linear-gradient(180deg, #7fc0ff 0%, #3a92ea 55%, #2578d4 100%);
+}
+
+.github-desktop__commit-btn:active:not(:disabled) {
+  background: var(--gd-blue-btn-active);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
 }
 
 .github-desktop__commit-btn:disabled {
@@ -803,7 +970,9 @@
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  background: var(--gd-diff-bg);
+  background: var(--gd-well);
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: inset 2px 0 6px -4px rgba(0, 0, 0, 0.1);
 }
 
 .github-desktop__diff-empty {
@@ -816,13 +985,15 @@
   color: var(--gd-muted);
   padding: 32px;
   text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__diff-empty h3 {
   margin: 0;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--gd-text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .github-desktop__diff-panel {
@@ -831,6 +1002,13 @@
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.github-desktop__diff-panel .github-desktop__diff-view,
+.github-desktop__history-patch .github-desktop__diff-view {
+  margin: 0;
 }
 
 .github-desktop__diff-notice {
@@ -838,9 +1016,11 @@
   padding: 8px 12px;
   font-size: 12px;
   line-height: 1.4;
-  color: #9a6700;
-  background: #fff8c5;
-  border-bottom: 1px solid var(--gd-border);
+  color: #7a4a00;
+  background: linear-gradient(180deg, #fff4e8 0%, #ffe8cc 100%);
+  border-bottom: 1px solid #d4a060;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .github-desktop__diff-view {
@@ -848,6 +1028,8 @@
   min-height: 0;
   min-width: 0;
   overflow: auto;
+  border: 1px solid var(--gd-border);
+  border-radius: 4px;
   background: var(--gd-diff-bg);
   color: var(--gd-diff-text);
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -855,6 +1037,17 @@
   line-height: 20px;
   user-select: text;
   cursor: text;
+  box-shadow: var(--gd-shadow-in);
+}
+
+.github-desktop__history-patch {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--gd-well);
+  padding: 8px;
+  box-sizing: border-box;
 }
 
 .github-desktop__diff-rows {
@@ -985,7 +1178,7 @@
   width: 100%;
   padding: 8px 12px;
   border: none;
-  border-bottom: 1px solid var(--gd-border);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -993,11 +1186,19 @@
 }
 
 .github-desktop__history-item:hover {
-  background: var(--gd-hover);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .github-desktop__history-item.is-selected {
+  color: var(--gd-selected-text);
   background: var(--gd-selected);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+.github-desktop__history-item.is-selected .github-desktop__history-meta {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .github-desktop__history-message {
@@ -1026,18 +1227,22 @@
   flex-shrink: 0;
   padding: 12px 16px;
   border-bottom: 1px solid var(--gd-border);
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .github-desktop__history-detail-head h3 {
   margin: 0 0 4px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .github-desktop__history-detail-head p {
   margin: 0;
   font-size: 12px;
   color: var(--gd-muted);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .github-desktop__history-files {
@@ -1045,85 +1250,161 @@
   max-height: 160px;
   overflow: auto;
   border-bottom: 1px solid var(--gd-border);
-}
-
-.github-desktop__history-patch {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--gd-diff-bg);
+  background: var(--gd-surface);
+  box-shadow: var(--gd-shadow-in);
 }
 
 /* —— Clone dialog —— */
+.github-desktop__clone-modal .window-modal__body--scroll {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: min(420px, 58vh);
+  max-height: min(420px, 58vh);
+  padding-bottom: 0;
+}
+
 .github-desktop__clone-dialog {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: 10px;
-  min-height: 320px;
+}
+
+.github-desktop__clone-source-tabs {
+  flex-shrink: 0;
+}
+
+.github-desktop__clone-github-panel,
+.github-desktop__clone-url-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+}
+
+.github-desktop__clone-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.github-desktop__clone-filter {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.github-desktop__clone-refresh {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #a8a8a8;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff 0%, #f0f0f0 100%);
+  color: #444;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.github-desktop__clone-refresh:hover:not(:disabled) {
+  background: linear-gradient(180deg, #fafafa 0%, #e8e8e8 100%);
+}
+
+.github-desktop__clone-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.github-desktop__clone-refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.github-desktop__clone-refresh-icon.is-spinning {
+  animation: gd-sync-spin 1s linear infinite;
+}
+
+.github-desktop__clone-url-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.github-desktop__clone-url-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.github-desktop__clone-url-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--gd-muted);
+}
+
+.github-desktop__clone-url-hint strong {
+  color: var(--gd-text);
+  font-weight: 600;
+}
+
+.github-desktop__clone-url-hint--error {
+  color: #82071e;
 }
 
 .github-desktop__clone-error {
   padding: 8px 10px;
-  border-radius: 6px;
-  background: #ffebe9;
-  border: 1px solid #ff8182;
-  color: #82071e;
-}
-
-.github-desktop__clone-filter {
-  width: 100%;
-  margin-bottom: 8px;
-  box-sizing: border-box;
+  border-radius: var(--gd-radius);
+  background: linear-gradient(180deg, #fff6f5 0%, #fceceb 100%);
+  border: 1px solid #e34b3f;
+  color: #a12622;
+  flex-shrink: 0;
+  box-shadow: var(--gd-shadow-in);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .github-desktop__clone-list {
   flex: 1;
-  min-height: 180px;
-  max-height: 240px;
+  min-height: 0;
   overflow: auto;
-  border: 1px solid var(--gd-border);
-  border-radius: 6px;
 }
 
-.github-desktop__clone-item {
-  appearance: none;
+.github-desktop__clone-list .settings__option-row:hover .settings__row-hint,
+.github-desktop__clone-list .settings__option-row:active .settings__row-hint {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.github-desktop__clone-path-row {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-bottom: 1px solid var(--gd-border);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  color: inherit;
+  gap: 6px;
+  margin: 0 -16px;
+  padding: 12px 16px 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.16);
+  background: linear-gradient(180deg, #ececec 0%, #e6e6e6 100%);
+  box-shadow:
+    0 -5px 14px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  position: relative;
+  z-index: 1;
 }
 
-.github-desktop__clone-item:last-child {
-  border-bottom: none;
-}
-
-.github-desktop__clone-item:hover {
-  background: var(--gd-hover);
-}
-
-.github-desktop__clone-item.is-selected {
-  background: var(--gd-selected);
-}
-
-.github-desktop__clone-item strong {
-  font-size: 12px;
-}
-
-.github-desktop__clone-item span {
-  color: var(--gd-muted);
-  font-size: 11px;
-}
-
-.github-desktop__clone-fields {
-  margin-top: 10px;
+.github-desktop__clone-modal .window-modal__actions {
+  padding: 4px 16px 12px;
+  background: linear-gradient(180deg, #e6e6e6 0%, #e0e0e0 100%);
 }
 
 .github-desktop__clone-path {
@@ -1140,12 +1421,6 @@
   line-height: 1.4;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
   word-break: break-all;
-}
-
-.github-desktop__clone-loading {
-  padding: 32px 16px;
-  text-align: center;
-  color: #666;
 }
 
 .github-desktop__prefs {
@@ -1304,11 +1579,18 @@
 @media (max-width: 720px) {
   .github-desktop__blank {
     grid-template-columns: 1fr;
+    padding: 12px;
   }
 
   .github-desktop__blank-left {
-    border-right: none;
-    border-bottom: 1px solid var(--gd-border);
+    margin-right: 0;
+    margin-bottom: 8px;
+  }
+
+  .github-desktop__blank-right {
+    margin-left: 0;
+    margin-top: 8px;
+    padding: 24px 20px;
   }
 
   .github-desktop__repo {

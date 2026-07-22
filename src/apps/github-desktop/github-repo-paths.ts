@@ -18,3 +18,42 @@ export function parseGithubRepoId(id: string): { owner: string; repo: string } |
   if (!owner || !repo) return undefined
   return { owner, repo }
 }
+
+/** 从 GitHub 仓库 URL 或 git@github.com SSH 地址解析 owner/repo */
+export function parseGithubRepoUrl(input: string): { owner: string; repo: string } | undefined {
+  const trimmed = input.trim()
+  if (!trimmed) return undefined
+
+  const sshMatch = /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i.exec(trimmed)
+  if (sshMatch) {
+    const owner = sshMatch[1]?.trim()
+    const repo = sshMatch[2]?.trim()
+    if (owner && repo) return { owner, repo }
+  }
+
+  let urlStr = trimmed
+  if (!/^[a-z]+:/i.test(trimmed)) {
+    urlStr = `https://${trimmed}`
+  }
+
+  try {
+    const url = new URL(urlStr)
+    const host = url.hostname.toLowerCase()
+    if (host !== 'github.com' && host !== 'www.github.com') return undefined
+
+    const parts = url.pathname.split('/').filter(Boolean)
+    if (parts.length < 2) return undefined
+
+    const owner = parts[0]?.trim()
+    let repo = parts[1]?.trim()
+    if (!owner || !repo) return undefined
+
+    if (repo.endsWith('.git')) {
+      repo = repo.slice(0, -4)
+    }
+
+    return { owner, repo }
+  } catch {
+    return undefined
+  }
+}

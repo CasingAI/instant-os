@@ -296,3 +296,13 @@ export async function deleteLocalGithubRepository(owner: string, repo: string): 
     await filesRemove(ownerPath).catch(() => undefined)
   }
 }
+
+/** 本地工作树目录是否还在（对齐 Desktop 判断 missing） */
+export async function isGithubRepoWorkingTreePresent(
+  owner: string,
+  repo: string,
+): Promise<boolean> {
+  const root = githubRepoRootPath(owner, repo)
+  const stat = await filesStat(root)
+  return Boolean(stat)
+}

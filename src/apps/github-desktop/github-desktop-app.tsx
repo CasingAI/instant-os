@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { GithubDesktopIcon } from '../../icons/app-icons.tsx'
+import { GithubDesktopIcon, ReloadIcon } from '../../icons/app-icons.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import {
@@ -25,7 +25,6 @@ import {
   GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE,
   githubGetAuthenticatedUser,
   githubGetCommit,
-  githubListBranches,
   githubListUserRepos,
   type GithubBranch,
   type GithubCommitDetail,
@@ -74,7 +73,7 @@ import {
 } from './github-desktop-missing-email-notification-store.ts'
 import { fetchGithubRemote } from './github-fetch.ts'
 import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
-import { githubRepoRootPath } from './github-repo-paths.ts'
+import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
 import {
   currentHeadSha,
   deleteGithubRepoMeta,
@@ -84,20 +83,30 @@ import {
   listGithubLocalCommits,
   listGithubRepoMeta,
   putCachedGithubCommitDetail,
+  saveGithubMissingRepoMeta,
   saveGithubRepoMeta,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
-  cloneGithubRepository,
   deleteLocalGithubRepository,
+  isGithubRepoWorkingTreePresent,
 } from './github-working-tree.ts'
+import {
+  getGithubCloningProgress,
+  getGithubCloningRepository,
+  listGithubCloningRepositories,
+  startGithubClone,
+  subscribeGithubCloningRepositories,
+  type GithubCloningRepository,
+} from './github-cloning-store.ts'
 import './github-desktop.css'
 
 const APP_ID = 'github-desktop' as const
 
 type View =
   | { kind: 'home' }
-  | { kind: 'cloning'; owner: string; repo: string }
+  | { kind: 'cloning'; id: number; owner: string; repo: string }
+  | { kind: 'missing'; meta: GithubRepoSyncMeta }
   | { kind: 'repo'; meta: GithubRepoSyncMeta }
 
 type SidebarTab = 'changes' | 'history'
@@ -107,7 +116,6 @@ type BusyKind =
   | 'fetch'
   | 'commit'
   | 'switch'
-  | 'clone'
   | 'load'
   | 'delete'
   | 'rebuild'
@@ -222,6 +230,9 @@ export function GithubDesktopApp() {
   const [proxyConnected, setProxyConnected] = useState(() => isProxyServerConnected())
   const [view, setView] = useState<View>({ kind: 'home' })
   const [localRepos, setLocalRepos] = useState<GithubRepoSyncMeta[]>([])
+  const [cloningRepos, setCloningRepos] = useState<GithubCloningRepository[]>(() =>
+    listGithubCloningRepositories().slice(),
+  )
   const [user, setUser] = useState<GithubUser | undefined>()
   /** 本地缓存头像的 blob URL；优先于远程 avatarUrl */
   const [avatarDisplayUrl, setAvatarDisplayUrl] = useState<string | undefined>()
@@ -242,12 +253,12 @@ export function GithubDesktopApp() {
   const [desktopPrefs, setDesktopPrefs] = useState<GithubDesktopPrefs>(() => loadGithubDesktopPrefs())
   const [accountRefreshing, setAccountRefreshing] = useState(false)
   const [accountError, setAccountError] = useState<string | undefined>()
+  const [cloneSourceTab, setCloneSourceTab] = useState<'github' | 'url'>('github')
   const [cloneFilter, setCloneFilter] = useState('')
+  const [cloneUrl, setCloneUrl] = useState('')
   const [remoteRepos, setRemoteRepos] = useState<GithubRepoSummary[]>([])
   const [cloneOwner, setCloneOwner] = useState('')
   const [cloneRepo, setCloneRepo] = useState('')
-  const [cloneBranch, setCloneBranch] = useState('')
-  const [cloneBranches, setCloneBranches] = useState<GithubBranch[]>([])
 
   const [changes, setChanges] = useState<GithubChange[]>([])
   const [selectedPath, setSelectedPath] = useState<string | undefined>()
@@ -270,7 +281,8 @@ export function GithubDesktopApp() {
   const [selectedHistoryFile, setSelectedHistoryFile] = useState<string | undefined>()
 
   const busy = busyKind !== undefined
-  const showToolbar = view.kind === 'repo' || view.kind === 'cloning'
+  const showToolbar =
+    view.kind === 'repo' || view.kind === 'cloning' || view.kind === 'missing'
   const repoHeadSha = view.kind === 'repo' ? currentHeadSha(view.meta) : ''
   const canPull =
     view.kind === 'repo' &&
@@ -314,6 +326,12 @@ export function GithubDesktopApp() {
   useEffect(() => {
     return subscribeGithubCredentials(() => {
       setHasToken(hasGithubCredentials())
+    })
+  }, [])
+
+  useEffect(() => {
+    return subscribeGithubCloningRepositories(() => {
+      setCloningRepos(listGithubCloningRepositories().slice())
     })
   }, [])
 
@@ -406,9 +424,11 @@ export function GithubDesktopApp() {
     }
   }, [hasToken])
 
-  const openPreferences = useCallback((tab: 'accounts' | 'integrations' | 'git' = 'accounts') => {
+  const openPreferences = useCallback((tab?: 'accounts' | 'integrations' | 'git') => {
+    const resolvedTab =
+      tab === 'accounts' || tab === 'integrations' || tab === 'git' ? tab : 'accounts'
     setPrefsOpen(true)
-    setPrefsTab(tab)
+    setPrefsTab(resolvedTab)
     setAccountError(undefined)
     const prefs = loadGithubDesktopPrefs()
     // 首次打开 Git：用账户缓存预填空姓名/邮箱
@@ -721,8 +741,45 @@ export function GithubDesktopApp() {
   const closeCloneDialog = useCallback(() => {
     setCloneDialogOpen(false)
     setCloneDialogError(undefined)
+    setCloneSourceTab('github')
     setCloneFilter('')
+    setCloneUrl('')
   }, [])
+
+  const loadCloneRepos = useCallback(
+    async (preserveSelection = false) => {
+      setCloneDialogError(undefined)
+      setCloneDialogLoading(true)
+      try {
+        const repos = await githubListUserRepos({ perPage: 50 })
+        setRemoteRepos(repos)
+        if (preserveSelection) {
+          const stillSelected = repos.find(
+            (item) => item.owner === cloneOwner && item.name === cloneRepo,
+          )
+          if (!stillSelected) {
+            const first = repos[0]
+            setCloneOwner(first?.owner ?? '')
+            setCloneRepo(first?.name ?? '')
+          }
+        } else {
+          const first = repos[0]
+          setCloneOwner(first?.owner ?? '')
+          setCloneRepo(first?.name ?? '')
+        }
+      } catch (err) {
+        setCloneDialogError(err instanceof Error ? err.message : String(err))
+        setRemoteRepos([])
+        if (!preserveSelection) {
+          setCloneOwner('')
+          setCloneRepo('')
+        }
+      } finally {
+        setCloneDialogLoading(false)
+      }
+    },
+    [cloneOwner, cloneRepo],
+  )
 
   const openClone = useCallback(async () => {
     if (!hasToken) {
@@ -734,46 +791,21 @@ export function GithubDesktopApp() {
     }
     setCloneDialogOpen(true)
     setCloneDialogError(undefined)
+    setCloneSourceTab('github')
     setCloneFilter('')
-    setCloneDialogLoading(true)
-    try {
-      const repos = await githubListUserRepos({ perPage: 50 })
-      setRemoteRepos(repos)
-      const first = repos[0]
-      if (first) {
-        setCloneOwner(first.owner)
-        setCloneRepo(first.name)
-        setCloneBranch(first.defaultBranch)
-        const branchList = await githubListBranches(first.owner, first.name)
-        setCloneBranches(branchList)
-      } else {
-        setCloneOwner('')
-        setCloneRepo('')
-        setCloneBranch('')
-        setCloneBranches([])
-      }
-    } catch (err) {
-      setCloneDialogError(err instanceof Error ? err.message : String(err))
-      setRemoteRepos([])
-    } finally {
-      setCloneDialogLoading(false)
-    }
-  }, [hasToken, modal])
+    setCloneUrl('')
+    setCloneOwner('')
+    setCloneRepo('')
+    await loadCloneRepos(false)
+  }, [hasToken, modal, loadCloneRepos])
 
   const handleSelectRemote = useCallback(
-    async (fullName: string) => {
+    (fullName: string) => {
       const hit = remoteRepos.find((item) => item.fullName === fullName)
       if (!hit) return
       setCloneOwner(hit.owner)
       setCloneRepo(hit.name)
-      setCloneBranch(hit.defaultBranch)
       setCloneDialogError(undefined)
-      try {
-        const branchList = await githubListBranches(hit.owner, hit.name)
-        setCloneBranches(branchList)
-      } catch (err) {
-        setCloneDialogError(err instanceof Error ? err.message : String(err))
-      }
     },
     [remoteRepos],
   )
@@ -853,59 +885,122 @@ export function GithubDesktopApp() {
     else handleFetch()
   }, [canPull, handleFetch, handlePull])
 
+  const beginClone = useCallback(
+    async (owner: string, repo: string) => {
+      const alreadyCloning = listGithubCloningRepositories().find(
+        (entry) => entry.owner === owner && entry.repo === repo,
+      )
+      if (alreadyCloning) {
+        setView({
+          kind: 'cloning',
+          id: alreadyCloning.id,
+          owner: alreadyCloning.owner,
+          repo: alreadyCloning.repo,
+        })
+        return
+      }
+
+      // 一开始就写入可恢复占位：刷新/中断后列表仍有记录，可点进重新克隆
+      await saveGithubMissingRepoMeta(owner, repo)
+      await refreshLocalRepos()
+
+      const { repository, promise } = startGithubClone({ owner, repo })
+      setView({ kind: 'cloning', id: repository.id, owner, repo })
+
+      try {
+        const meta = await promise
+        await refreshLocalRepos()
+        await refreshRepoState(meta)
+        await syncRemoteCaches(meta)
+      } catch (err) {
+        const missingMeta = await saveGithubMissingRepoMeta(owner, repo)
+        await refreshLocalRepos()
+        setView((prev) =>
+          prev.kind === 'cloning' && prev.id === repository.id
+            ? { kind: 'missing', meta: missingMeta }
+            : prev,
+        )
+        await showError('克隆失败', err)
+      }
+    },
+    [refreshLocalRepos, refreshRepoState, syncRemoteCaches, showError],
+  )
+
   const handleClone = useCallback(async () => {
     if (!proxyConnected) {
       setCloneDialogError(GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE)
       return
     }
-    const owner = cloneOwner.trim()
-    const repo = cloneRepo.trim()
-    if (!owner || !repo) {
+    let owner = cloneOwner.trim()
+    let repo = cloneRepo.trim()
+
+    if (cloneSourceTab === 'url') {
+      const parsed = parseGithubRepoUrl(cloneUrl)
+      if (!parsed) {
+        setCloneDialogError('请输入有效的 GitHub 仓库 URL')
+        return
+      }
+      owner = parsed.owner
+      repo = parsed.repo
+    } else if (!owner || !repo) {
       setCloneDialogError('请选择要克隆的仓库')
       return
     }
-    closeCloneDialog()
-    setView({ kind: 'cloning', owner, repo })
-    setBusyKind('clone')
-    setProgressLabel('正在准备克隆…')
-    try {
-      const meta = await cloneGithubRepository({
-        owner,
-        repo,
-        branch: cloneBranch.trim() || undefined,
-        onProgress: setProgressLabel,
-      })
-      await refreshLocalRepos()
-      await refreshRepoState(meta)
-      await syncRemoteCaches(meta)
-      setProgressLabel(undefined)
-    } catch (err) {
-      setProgressLabel(undefined)
-      setView({ kind: 'home' })
-      await showError('克隆失败', err)
-    } finally {
-      setBusyKind(undefined)
+
+    const alreadyCloning = listGithubCloningRepositories().some(
+      (entry) => entry.owner === owner && entry.repo === repo,
+    )
+    if (alreadyCloning) {
+      setCloneDialogError(`正在克隆 ${owner}/${repo}，请稍候`)
+      return
     }
+
+    closeCloneDialog()
+    await beginClone(owner, repo)
   }, [
     proxyConnected,
+    cloneSourceTab,
+    cloneUrl,
     cloneOwner,
     cloneRepo,
-    cloneBranch,
     closeCloneDialog,
-    refreshLocalRepos,
-    refreshRepoState,
-    syncRemoteCaches,
-    showError,
+    beginClone,
   ])
+
+  const handleSelectCloning = useCallback((entry: GithubCloningRepository) => {
+    setRepoFoldoutOpen(false)
+    setView({ kind: 'cloning', id: entry.id, owner: entry.owner, repo: entry.repo })
+  }, [])
 
   const handleOpenLocal = useCallback(
     (meta: GithubRepoSyncMeta) => {
       setRepoFoldoutOpen(false)
       void runBusy('load', '加载仓库…', '打开仓库失败', async () => {
+        const present = await isGithubRepoWorkingTreePresent(meta.owner, meta.repo)
+        if (meta.missing || !present) {
+          const missingMeta = await saveGithubMissingRepoMeta(meta.owner, meta.repo)
+          await refreshLocalRepos()
+          setView({ kind: 'missing', meta: missingMeta })
+          return
+        }
         await refreshRepoState(meta)
       })
     },
-    [runBusy, refreshRepoState],
+    [runBusy, refreshRepoState, refreshLocalRepos],
+  )
+
+  const handleCloneAgain = useCallback(
+    (meta: GithubRepoSyncMeta) => {
+      if (!proxyConnected) {
+        void modal.alert({
+          title: '需要代理服务器',
+          message: GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE,
+        })
+        return
+      }
+      void beginClone(meta.owner, meta.repo)
+    },
+    [proxyConnected, modal, beginClone],
   )
 
   const handleDeleteLocal = useCallback(
@@ -1021,10 +1116,25 @@ export function GithubDesktopApp() {
     )
   }, [remoteRepos, cloneFilter])
 
-  const cloneLocalPath =
-    cloneOwner.trim() && cloneRepo.trim()
-      ? githubRepoRootPath(cloneOwner.trim(), cloneRepo.trim())
-      : '/repo/github/…'
+  const parsedCloneUrl = useMemo(() => parseGithubRepoUrl(cloneUrl), [cloneUrl])
+
+  const cloneLocalPath = useMemo(() => {
+    if (cloneSourceTab === 'url') {
+      return parsedCloneUrl
+        ? githubRepoRootPath(parsedCloneUrl.owner, parsedCloneUrl.repo)
+        : '/repo/github/…'
+    }
+    if (cloneOwner.trim() && cloneRepo.trim()) {
+      return githubRepoRootPath(cloneOwner.trim(), cloneRepo.trim())
+    }
+    return '/repo/github/…'
+  }, [cloneSourceTab, parsedCloneUrl, cloneOwner, cloneRepo])
+
+  const canCloneFromGithub =
+    Boolean(cloneOwner.trim()) && Boolean(cloneRepo.trim())
+  const canCloneFromUrl = Boolean(parsedCloneUrl)
+  const canClone =
+    cloneSourceTab === 'url' ? canCloneFromUrl : canCloneFromGithub
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
@@ -1046,7 +1156,7 @@ export function GithubDesktopApp() {
             type: 'action',
             label: '设置…',
             shortcut: '⌘,',
-            onClick: openPreferences,
+            onClick: () => openPreferences(),
           },
           { type: 'separator' },
           {
@@ -1219,6 +1329,29 @@ export function GithubDesktopApp() {
     setSyncMenuOpen((open) => !open)
   }, [])
 
+  const activeCloning =
+    view.kind === 'cloning' ? getGithubCloningRepository(view.id) : undefined
+  const activeCloningProgress =
+    view.kind === 'cloning' ? getGithubCloningProgress(view.id) : undefined
+  const cloningTitleOwner = activeCloning?.owner ?? (view.kind === 'cloning' ? view.owner : undefined)
+  const cloningTitleRepo = activeCloning?.repo ?? (view.kind === 'cloning' ? view.repo : undefined)
+  const toolbarRepoTitle =
+    view.kind === 'repo'
+      ? view.meta.repo
+      : view.kind === 'missing'
+        ? view.meta.repo
+        : cloningTitleRepo
+  const toolbarRepoDescription =
+    view.kind === 'cloning' ? '正在克隆…' : view.kind === 'missing' ? '找不到本地仓库' : '当前仓库'
+  const toolbarRepoFullName =
+    view.kind === 'repo'
+      ? `${view.meta.owner}/${view.meta.repo}`
+      : view.kind === 'missing'
+        ? `${view.meta.owner}/${view.meta.repo}`
+        : cloningTitleOwner && cloningTitleRepo
+          ? `${cloningTitleOwner}/${cloningTitleRepo}`
+          : undefined
+
   return (
     <div class="github-desktop">
       {showToolbar ? (
@@ -1229,29 +1362,16 @@ export function GithubDesktopApp() {
               class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--repo${
                 repoFoldoutOpen ? ' is-open' : ''
               }`}
-              disabled={busy && busyKind === 'clone'}
               onClick={toggleRepoFoldout}
-              title={
-                view.kind === 'repo'
-                  ? `${view.meta.owner}/${view.meta.repo}`
-                  : view.kind === 'cloning'
-                    ? `${view.owner}/${view.repo}`
-                    : undefined
-              }
+              title={toolbarRepoFullName}
             >
               <span class="github-desktop__toolbar-icon">
                 <RepoIcon />
               </span>
               <span class="github-desktop__toolbar-btn-text">
-                <span class="github-desktop__toolbar-btn-description">
-                  {view.kind === 'cloning' ? '正在克隆…' : '当前仓库'}
-                </span>
+                <span class="github-desktop__toolbar-btn-description">{toolbarRepoDescription}</span>
                 <span class="github-desktop__toolbar-btn-title">
-                  {view.kind === 'repo'
-                    ? view.meta.repo
-                    : view.kind === 'cloning'
-                      ? view.repo
-                      : '选择仓库'}
+                  {toolbarRepoTitle ?? '选择仓库'}
                 </span>
               </span>
               <span class="github-desktop__toolbar-caret">
@@ -1342,16 +1462,35 @@ export function GithubDesktopApp() {
 
           {repoFoldoutOpen ? (
             <div class="github-desktop__toolbar-foldout">
+              {cloningRepos.map((entry) => {
+                const active = view.kind === 'cloning' && view.id === entry.id
+                return (
+                  <button
+                    key={`cloning-${entry.id}`}
+                    type="button"
+                    class={`github-desktop__foldout-item github-desktop__foldout-item--cloning${active ? ' is-active' : ''}`}
+                    onClick={() => {
+                      closeToolbarMenus()
+                      handleSelectCloning(entry)
+                    }}
+                  >
+                    <strong>{entry.repo}</strong>
+                    <span>
+                      {entry.owner}/{entry.repo} · 正在克隆…
+                    </span>
+                  </button>
+                )
+              })}
               {localRepos.map((repo) => {
                 const active =
-                  view.kind === 'repo' &&
+                  (view.kind === 'repo' || view.kind === 'missing') &&
                   view.meta.owner === repo.owner &&
                   view.meta.repo === repo.repo
                 return (
                   <button
                     key={`${repo.owner}/${repo.repo}`}
                     type="button"
-                    class={`github-desktop__foldout-item${active ? ' is-active' : ''}`}
+                    class={`github-desktop__foldout-item${repo.missing ? ' github-desktop__foldout-item--missing' : ''}${active ? ' is-active' : ''}`}
                     onClick={() => {
                       closeToolbarMenus()
                       handleOpenLocal(repo)
@@ -1359,7 +1498,9 @@ export function GithubDesktopApp() {
                   >
                     <strong>{repo.repo}</strong>
                     <span>
-                      {repo.owner}/{repo.repo} · {repo.currentBranch}
+                      {repo.missing
+                        ? `${repo.owner}/${repo.repo} · 找不到本地文件`
+                        : `${repo.owner}/${repo.repo} · ${repo.currentBranch}`}
                     </span>
                   </button>
                 )
@@ -1441,7 +1582,7 @@ export function GithubDesktopApp() {
                 <p>
                   已登录为 <strong>@{user.login}</strong>
                   {' · '}
-                  <button type="button" class="github-desktop__btn--link" onClick={openPreferences}>
+                  <button type="button" class="github-desktop__btn--link" onClick={() => openPreferences()}>
                     设置
                   </button>
                 </p>
@@ -1449,7 +1590,7 @@ export function GithubDesktopApp() {
                 <p>
                   已配置 Token
                   {' · '}
-                  <button type="button" class="github-desktop__btn--link" onClick={openPreferences}>
+                  <button type="button" class="github-desktop__btn--link" onClick={() => openPreferences()}>
                     查看账户
                   </button>
                 </p>
@@ -1499,39 +1640,50 @@ export function GithubDesktopApp() {
             </div>
             <div class="github-desktop__blank-right">
               <h3>本地仓库</h3>
-              <div class="github-desktop__blank-list">
-                {localRepos.length === 0 ? (
-                  <div class="github-desktop__blank-empty">
+              <div class="settings__list github-desktop__local-list" role="list" aria-label="本地仓库">
+                {cloningRepos.length === 0 && localRepos.length === 0 ? (
+                  <div class="settings__empty">
                     还没有本地副本。克隆后会保存在 /repo/github/…
                   </div>
                 ) : (
-                  localRepos.map((repo) => (
-                    <div key={`${repo.owner}/${repo.repo}`} class="github-desktop__repo-row">
+                  <>
+                    {cloningRepos.map((entry) => (
                       <button
+                        key={`cloning-${entry.id}`}
                         type="button"
-                        class="github-desktop__repo-row-main"
-                        onClick={() => handleOpenLocal(repo)}
+                        class="settings__option-row github-desktop__local-list-item--cloning"
+                        onClick={() => handleSelectCloning(entry)}
                       >
-                        <strong>
-                          {repo.owner}/{repo.repo}
-                        </strong>
-                        <span>
-                          {repo.currentBranch} · {shortSha(currentHeadSha(repo) || '???????')}
+                        <span class="settings__row-meta">
+                          <span class="settings__option-label">
+                            {entry.owner}/{entry.repo}
+                          </span>
+                          <span class="settings__row-hint">
+                            {getGithubCloningProgress(entry.id) ?? '正在克隆…'}
+                          </span>
                         </span>
                       </button>
+                    ))}
+                    {localRepos.map((repo) => (
                       <button
+                        key={`${repo.owner}/${repo.repo}`}
                         type="button"
-                        class="github-desktop__repo-row-delete"
-                        title="删除本地仓库"
-                        disabled={busy}
-                        onClick={() => {
-                          void handleDeleteLocal(repo)
-                        }}
+                        class={`settings__option-row${repo.missing ? ' github-desktop__local-list-item--missing' : ''}`}
+                        onClick={() => handleOpenLocal(repo)}
                       >
-                        删除
+                        <span class="settings__row-meta">
+                          <span class="settings__option-label">
+                            {repo.owner}/{repo.repo}
+                          </span>
+                          <span class="settings__row-hint">
+                            {repo.missing
+                              ? '找不到本地文件 · 可重新克隆'
+                              : `${repo.currentBranch} · ${shortSha(currentHeadSha(repo) || '???????')}`}
+                          </span>
+                        </span>
                       </button>
-                    </div>
-                  ))
+                    ))}
+                  </>
                 )}
               </div>
             </div>
@@ -1542,9 +1694,40 @@ export function GithubDesktopApp() {
           <div class="github-desktop__cloning">
             <div class="github-desktop__spinner" />
             <h2>
-              正在克隆 {view.owner}/{view.repo}
+              正在克隆 {cloningTitleOwner}/{cloningTitleRepo}
             </h2>
-            <p>{progressLabel ?? '请稍候…'}</p>
+            <progress class="github-desktop__cloning-progress" />
+            <p>{activeCloningProgress ?? '请稍候…'}</p>
+          </div>
+        ) : undefined}
+
+        {view.kind === 'missing' ? (
+          <div class="github-desktop__missing">
+            <h2>找不到 “{view.meta.repo}”</h2>
+            <p>
+              本地路径 <code>{githubRepoRootPath(view.meta.owner, view.meta.repo)}</code>{' '}
+              不可用。可能是上次克隆未完成、失败，或文件已被移除。
+            </p>
+            <div class="github-desktop__missing-actions">
+              <button
+                type="button"
+                class="github-desktop__blank-cta github-desktop__blank-cta--primary"
+                disabled={busy}
+                onClick={() => handleCloneAgain(view.meta)}
+              >
+                重新克隆
+              </button>
+              <button
+                type="button"
+                class="github-desktop__blank-cta"
+                disabled={busy}
+                onClick={() => {
+                  void handleDeleteLocal(view.meta)
+                }}
+              >
+                移除
+              </button>
+            </div>
           </div>
         ) : undefined}
 
@@ -1777,6 +1960,7 @@ export function GithubDesktopApp() {
         title="克隆仓库"
         wide
         scrollBody
+        panelClass="github-desktop__clone-modal"
         onClose={closeCloneDialog}
         actions={[
           {
@@ -1791,8 +1975,7 @@ export function GithubDesktopApp() {
             disabled:
               cloneDialogLoading ||
               !proxyConnected ||
-              !cloneOwner.trim() ||
-              !cloneRepo.trim() ||
+              !canClone ||
               busy,
             onClick: () => {
               void handleClone()
@@ -1801,6 +1984,19 @@ export function GithubDesktopApp() {
         ]}
       >
         <div class="github-desktop__clone-dialog">
+          <SegmentedControl
+            value={cloneSourceTab}
+            ariaLabel="克隆来源"
+            className="github-desktop__clone-source-tabs"
+            items={[
+              { id: 'github', label: 'GitHub.com' },
+              { id: 'url', label: 'URL' },
+            ]}
+            onChange={(tab) => {
+              setCloneSourceTab(tab)
+              setCloneDialogError(undefined)
+            }}
+          />
           {cloneDialogError ? (
             <div class="github-desktop__clone-error">{cloneDialogError}</div>
           ) : undefined}
@@ -1812,62 +2008,115 @@ export function GithubDesktopApp() {
               </button>
             </div>
           ) : undefined}
-          <input
-            class="settings__input github-desktop__clone-filter"
-            value={cloneFilter}
-            placeholder="过滤仓库…"
-            disabled={cloneDialogLoading}
-            onInput={(event) => setCloneFilter((event.target as HTMLInputElement).value)}
-          />
-          <div class="github-desktop__clone-list">
-            {cloneDialogLoading ? (
-              <div class="github-desktop__clone-loading">正在加载仓库列表…</div>
-            ) : filteredRemotes.length === 0 ? (
-              <div class="github-desktop__clone-loading">没有匹配的仓库</div>
-            ) : (
-              filteredRemotes.map((repo) => {
-                const selected = cloneOwner === repo.owner && cloneRepo === repo.name
-                return (
-                  <button
-                    key={repo.fullName}
-                    type="button"
-                    class={`github-desktop__clone-item${selected ? ' is-selected' : ''}`}
-                    onClick={() => {
-                      void handleSelectRemote(repo.fullName)
-                    }}
+          {cloneSourceTab === 'github' ? (
+            <div class="github-desktop__clone-github-panel">
+              <div class="github-desktop__clone-filter-row">
+                <input
+                  class="settings__input github-desktop__clone-filter"
+                  value={cloneFilter}
+                  placeholder="过滤仓库…"
+                  disabled={cloneDialogLoading}
+                  onInput={(event) => setCloneFilter((event.target as HTMLInputElement).value)}
+                />
+                <button
+                  type="button"
+                  class="github-desktop__clone-refresh"
+                  disabled={cloneDialogLoading || busy}
+                  aria-label="刷新仓库列表"
+                  title="刷新仓库列表"
+                  onClick={() => {
+                    void loadCloneRepos(true)
+                  }}
+                >
+                  <span
+                    class={`github-desktop__clone-refresh-icon${cloneDialogLoading ? ' is-spinning' : ''}`}
+                    aria-hidden="true"
                   >
-                    <strong>
-                      {repo.fullName}
-                      {repo.private ? '（私有）' : ''}
-                    </strong>
-                    <span>{repo.description || `默认分支 ${repo.defaultBranch}`}</span>
-                  </button>
-                )
-              })
-            )}
-          </div>
-          <div class="settings__form github-desktop__clone-fields">
-            <SettingsChoiceField
-              label="分支"
-              value={cloneBranch}
-              options={(cloneBranches.length > 0
-                ? cloneBranches
-                : cloneBranch
-                  ? [{ name: cloneBranch, commitSha: '', protected: false }]
-                  : []
-              ).map((branch) => ({
-                id: branch.name,
-                label: branch.name,
-              }))}
-              onChange={setCloneBranch}
-              wideLayout
-              presentation="form"
-              disabled={cloneDialogLoading || busy || !cloneBranch}
-            />
-            <div class="settings__field">
-              <span class="settings__field-label">本地路径</span>
-              <div class="github-desktop__clone-path">{cloneLocalPath}</div>
+                    <ReloadIcon size={14} />
+                  </span>
+                </button>
+              </div>
+              <div
+                class="settings__list github-desktop__clone-list"
+                role="radiogroup"
+                aria-label="仓库列表"
+              >
+                {cloneDialogLoading && remoteRepos.length === 0 ? (
+                  <div class="settings__empty">正在加载仓库列表…</div>
+                ) : filteredRemotes.length === 0 ? (
+                  <div class="settings__empty">
+                    {cloneFilter.trim() ? '没有匹配的仓库' : '没有可克隆的仓库'}
+                  </div>
+                ) : (
+                  filteredRemotes.map((repo) => {
+                    const selected = cloneOwner === repo.owner && cloneRepo === repo.name
+                    return (
+                      <button
+                        key={repo.fullName}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        class="settings__option-row"
+                        onClick={() => {
+                          handleSelectRemote(repo.fullName)
+                        }}
+                      >
+                        <span class="settings__row-meta">
+                          <span class="settings__option-label">
+                            {repo.fullName}
+                            {repo.private ? '（私有）' : ''}
+                          </span>
+                          <span class="settings__row-hint">
+                            {repo.description || `默认分支 ${repo.defaultBranch}`}
+                          </span>
+                        </span>
+                        {selected ? (
+                          <span class="settings__option-check" aria-hidden="true">
+                            ✓
+                          </span>
+                        ) : undefined}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
             </div>
+          ) : (
+            <div class="github-desktop__clone-url-panel">
+              <label class="github-desktop__clone-url-label">
+                <span class="settings__field-label">仓库 URL</span>
+                <input
+                  class="settings__input github-desktop__clone-url-input"
+                  value={cloneUrl}
+                  placeholder="https://github.com/owner/repo"
+                  disabled={busy}
+                  onInput={(event) => {
+                    setCloneUrl((event.target as HTMLInputElement).value)
+                    setCloneDialogError(undefined)
+                  }}
+                />
+              </label>
+              {cloneUrl.trim() && !parsedCloneUrl ? (
+                <p class="github-desktop__clone-url-hint github-desktop__clone-url-hint--error">
+                  请输入有效的 GitHub 仓库 URL
+                </p>
+              ) : parsedCloneUrl ? (
+                <p class="github-desktop__clone-url-hint">
+                  将克隆 <strong>
+                    {parsedCloneUrl.owner}/{parsedCloneUrl.repo}
+                  </strong>
+                  ，使用仓库默认分支
+                </p>
+              ) : (
+                <p class="github-desktop__clone-url-hint">
+                  支持 https://github.com/owner/repo 或 git@github.com:owner/repo.git
+                </p>
+              )}
+            </div>
+          )}
+          <div class="github-desktop__clone-path-row">
+            <span class="settings__field-label">本地路径</span>
+            <div class="github-desktop__clone-path">{cloneLocalPath}</div>
           </div>
         </div>
       </WindowModal>
