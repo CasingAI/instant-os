@@ -1026,14 +1026,66 @@
 }
 
 .github-desktop__commit {
+  --gd-commit-surface: #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-top: 1px solid var(--gd-border);
+  background: linear-gradient(180deg, #d8d8d8 0%, #ccc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.github-desktop__commit-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
-  border-top: 1px solid var(--gd-border);
-  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
-  flex-shrink: 0;
+  padding: 10px 10px 8px;
+  background: var(--gd-commit-surface);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.github-desktop__commit-tabs {
+  display: flex;
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 6px 4px;
+  gap: 2px;
+  border-top: 1px solid var(--gd-border);
+  background: linear-gradient(180deg, #d0d0d0 0%, #c4c4c4 100%);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.4);
+  position: relative;
+  z-index: 1;
+}
+
+.github-desktop__commit-tab {
+  appearance: none;
+  flex: 1;
+  border: 1px solid transparent;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  color: var(--gd-muted);
+  font-weight: 700;
+  cursor: pointer;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.github-desktop__commit-tab:hover {
+  color: var(--gd-text);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.github-desktop__commit-tab.is-active,
+.github-desktop__commit-tab.is-active:hover {
+  position: relative;
+  z-index: 2;
+  color: var(--gd-text);
+  border: 1px solid var(--gd-border);
+  border-top: none;
+  margin-top: -1px;
+  padding-top: 1px;
+  background: var(--gd-commit-surface);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .github-desktop__commit input,

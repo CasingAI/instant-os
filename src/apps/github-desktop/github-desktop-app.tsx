@@ -51,6 +51,7 @@ import {
   type GithubChange,
   type GithubChangePreview,
 } from './github-changes.ts'
+import { generateGithubCommitMessage } from './github-commit-agent.ts'
 import { commitAndPushGithubChanges, summarizeChanges } from './github-commit.ts'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
 import {
@@ -99,6 +100,7 @@ import {
   subscribeGithubCloningRepositories,
   type GithubCloningRepository,
 } from './github-cloning-store.ts'
+import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
 import '../../ui/ios-check-toggle.css'
 import './github-desktop.css'
@@ -112,6 +114,7 @@ type View =
   | { kind: 'repo'; meta: GithubRepoSyncMeta }
 
 type SidebarTab = 'changes' | 'history'
+type CommitMode = 'manual' | 'auto'
 
 type BusyKind =
   | 'pull'
@@ -316,6 +319,8 @@ export function GithubDesktopApp() {
   const [diffLoading, setDiffLoading] = useState(false)
   const [commitSummary, setCommitSummary] = useState('')
   const [commitDescription, setCommitDescription] = useState('')
+  const [commitMode, setCommitMode] = useState<CommitMode>('auto')
+  const aiReady = useOpenAiReady()
   const [branches, setBranches] = useState<GithubBranch[]>([])
   /** 最近一次 Fetch 看到的远端 tip；与本地 tip 不同时主按钮变为「拉取」 */
   const [remoteHeadSha, setRemoteHeadSha] = useState<string | undefined>()
@@ -1109,6 +1114,22 @@ export function GithubDesktopApp() {
     [modal, runBusy, refreshLocalRepos],
   )
 
+  const pushCommit = useCallback(
+    async (message: string, selectedPaths: ReadonlySet<string>) => {
+      if (view.kind !== 'repo') return
+      const next = await commitAndPushGithubChanges({
+        meta: view.meta,
+        message,
+        selectedPaths,
+      })
+      setCommitSummary('')
+      setCommitDescription('')
+      await refreshRepoState(next)
+      await syncRemoteCaches(next)
+    },
+    [view, refreshRepoState, syncRemoteCaches],
+  )
+
   const handleCommit = useCallback(() => {
     if (view.kind !== 'repo') return
     const message = buildGithubCommitMessage(
@@ -1120,26 +1141,28 @@ export function GithubDesktopApp() {
     const selectedPaths = new Set(stagedChanges.map((change) => change.path))
     if (selectedPaths.size === 0) return
     void runBusy('commit', '提交并推送…', '提交失败', async () => {
-      const next = await commitAndPushGithubChanges({
-        meta: view.meta,
-        message,
-        selectedPaths,
-      })
-      setCommitSummary('')
-      setCommitDescription('')
-      await refreshRepoState(next)
-      await syncRemoteCaches(next)
+      await pushCommit(message, selectedPaths)
     })
-  }, [
-    view,
-    commitSummary,
-    commitDescription,
-    desktopPrefs,
-    stagedChanges,
-    runBusy,
-    refreshRepoState,
-    syncRemoteCaches,
-  ])
+  }, [view, commitSummary, commitDescription, desktopPrefs, stagedChanges, runBusy, pushCommit])
+
+  const handleAutoCommit = useCallback(() => {
+    if (view.kind !== 'repo') return
+    const selectedPaths = new Set(stagedChanges.map((change) => change.path))
+    if (selectedPaths.size === 0) return
+    void runBusy('commit', '正在生成提交说明…', '自动提交失败', async () => {
+      const generated = await generateGithubCommitMessage({
+        meta: view.meta,
+        changes: stagedChanges,
+      })
+      const message = buildGithubCommitMessage(
+        generated.summary,
+        generated.description,
+        resolveCommitCoAuthors(desktopPrefs),
+      )
+      setProgressLabel('提交并推送…')
+      await pushCommit(message, selectedPaths)
+    })
+  }, [view, stagedChanges, desktopPrefs, runBusy, pushCommit])
 
   const handleRebuildBaseline = useCallback(() => {
     if (view.kind !== 'repo') return
@@ -1938,35 +1961,82 @@ export function GithubDesktopApp() {
                     </span>
                   </div>
                   <div class="github-desktop__commit">
-                    <input
-                      value={commitSummary}
-                      disabled={busy || changes.length === 0}
-                      placeholder="摘要（必填）"
-                      onInput={(event) =>
-                        setCommitSummary((event.target as HTMLInputElement).value)
-                      }
-                    />
-                    <textarea
-                      value={commitDescription}
-                      disabled={busy || changes.length === 0}
-                      placeholder="描述"
-                      onInput={(event) =>
-                        setCommitDescription((event.target as HTMLTextAreaElement).value)
-                      }
-                    />
-                    <button
-                      type="button"
-                      class="github-desktop__commit-btn"
-                      disabled={
-                        busy ||
-                        changes.length === 0 ||
-                        stagedChanges.length === 0 ||
-                        !commitSummary.trim()
-                      }
-                      onClick={handleCommit}
-                    >
-                      提交到 {view.meta.currentBranch}
-                    </button>
+                    <div class="github-desktop__commit-panel">
+                      {commitMode === 'manual' ? (
+                        <>
+                          <input
+                            value={commitSummary}
+                            disabled={busy || changes.length === 0}
+                            placeholder="摘要（必填）"
+                            onInput={(event) =>
+                              setCommitSummary((event.target as HTMLInputElement).value)
+                            }
+                          />
+                          <textarea
+                            value={commitDescription}
+                            disabled={busy || changes.length === 0}
+                            placeholder="描述"
+                            onInput={(event) =>
+                              setCommitDescription((event.target as HTMLTextAreaElement).value)
+                            }
+                          />
+                          <button
+                            type="button"
+                            class="github-desktop__commit-btn"
+                            disabled={
+                              busy ||
+                              changes.length === 0 ||
+                              stagedChanges.length === 0 ||
+                              !commitSummary.trim()
+                            }
+                            onClick={handleCommit}
+                          >
+                            提交到 {view.meta.currentBranch}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          class="github-desktop__commit-btn github-desktop__commit-btn--auto"
+                          disabled={
+                            busy ||
+                            !aiReady ||
+                            changes.length === 0 ||
+                            stagedChanges.length === 0
+                          }
+                          title={
+                            aiReady
+                              ? '由 AI 生成提交说明并提交'
+                              : '请先在设置中配置 AI API Key'
+                          }
+                          onClick={handleAutoCommit}
+                        >
+                          {busyKind === 'commit'
+                            ? '正在处理…'
+                            : `AI 提交到 ${view.meta.currentBranch}`}
+                        </button>
+                      )}
+                    </div>
+                    <div class="github-desktop__commit-tabs" role="tablist" aria-label="提交方式">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={commitMode === 'auto'}
+                        class={`github-desktop__commit-tab${commitMode === 'auto' ? ' is-active' : ''}`}
+                        onClick={() => setCommitMode('auto')}
+                      >
+                        自动
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={commitMode === 'manual'}
+                        class={`github-desktop__commit-tab${commitMode === 'manual' ? ' is-active' : ''}`}
+                        onClick={() => setCommitMode('manual')}
+                      >
+                        手动
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : (
