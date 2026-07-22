@@ -103,10 +103,29 @@ export async function baselineMissingForIndex(
 export async function baselineBlobsAbsentForIndex(
   fileIndex: Record<string, GithubFileIndexEntry>,
 ): Promise<boolean> {
-  for (const entry of Object.values(fileIndex)) {
-    if (!(await baselineBlobExists(entry.hash))) return true
-  }
-  return false
+  const hashes = Object.values(fileIndex).map((entry) => entry.hash)
+  if (hashes.length === 0) return false
+
+  const concurrency = 24
+  let nextIndex = 0
+  let absent = false
+
+  const runners = Array.from(
+    { length: Math.min(concurrency, hashes.length) },
+    async () => {
+      while (!absent) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= hashes.length) return
+        if (!(await baselineBlobExists(hashes[index]!))) {
+          absent = true
+          return
+        }
+      }
+    },
+  )
+  await Promise.all(runners)
+  return absent
 }
 
 /** 用 fileIndex + 本地 blob 组装文件映射；任一 blob 缺失则返回 undefined */

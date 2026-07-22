@@ -23,6 +23,8 @@ export type GithubFileIndexEntry = {
 export type GithubBranchSnapshot = {
   tipSha: string
   fileIndex: Record<string, GithubFileIndexEntry>
+  /** 基线 blob 已齐全；切换分支时可跳过全量存在性扫描 */
+  baselineComplete?: boolean
 }
 
 export type GithubLocalCommit = {
@@ -265,6 +267,13 @@ export function withBranchSnapshot(
 function branchHasLocalSnapshot(snapshot: GithubBranchSnapshot | undefined): boolean {
   if (!snapshot) return false
   return Object.keys(snapshot.fileIndex).length > 0 || Boolean(snapshot.tipSha)
+}
+
+/** 本地快照是否可信任其基线 blob 齐全（避免切换时全量 stat 扫描） */
+export function branchBaselineTrusted(snapshot: GithubBranchSnapshot | undefined): boolean {
+  if (!snapshot) return false
+  if (snapshot.baselineComplete) return true
+  return Object.keys(snapshot.fileIndex).length > 0 && Boolean(snapshot.tipSha)
 }
 
 /** 合并持久化的远端分支列表与本地快照，供分支下拉使用 */

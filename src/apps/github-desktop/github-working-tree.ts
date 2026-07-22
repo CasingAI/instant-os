@@ -9,6 +9,7 @@ import {
   filesReadBlob,
   filesReadText,
   filesRemove,
+  filesRemoveBatch,
   filesStat,
   filesUpsertBatch,
   filesWriteBinary,
@@ -180,9 +181,11 @@ export async function clearDirectoryContents(dirPath: string): Promise<void> {
     return
   }
   const children = await filesList(dirPath)
-  for (const child of children) {
-    await filesRemove(child.path)
-  }
+  if (children.length === 0) return
+  await filesRemoveBatch(
+    children.map((child) => child.path),
+    { skipMissing: true },
+  )
 }
 
 export async function ensureRepoRootFolder(owner: string, repo: string): Promise<string> {
@@ -282,7 +285,7 @@ export async function collectWorkingTreeFileStats(
 
 /**
  * 按 fileIndex diff 操作增量更新工作区：只删/写有差异的路径，不清空整树。
- * upsert：并发预取基线后批量写入；remove：逐个删除。
+ * upsert：并发预取基线后批量写入；remove：批量删除。
  */
 export async function applyFileIndexOpsToWorkingTree(
   owner: string,
@@ -321,10 +324,12 @@ export async function applyFileIndexOpsToWorkingTree(
     }
   }
 
-  for (const op of removes) {
-    const absolute = joinFilesAbsolutePath(repoPath, ...op.path.split('/'))
-    await removeWorkingTreePath(absolute)
-    applied += 1
+  if (removes.length > 0) {
+    const removePaths = removes.map((op) =>
+      joinFilesAbsolutePath(repoPath, ...op.path.split('/')),
+    )
+    await filesRemoveBatch(removePaths, { skipMissing: true })
+    applied += removes.length
     report()
   }
 

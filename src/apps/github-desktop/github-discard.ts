@@ -17,9 +17,9 @@ import {
 import { shouldReportGithubProgress, type GithubProgress } from './github-progress.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import {
-  removeWorkingTreePath,
   writeWorkingTreeFile,
 } from './github-working-tree.ts'
+import { filesRemoveBatch } from '../files/files-api.ts'
 
 const MISSING_BASELINE_MESSAGE =
   '本地基线不完整，无法丢弃更改。请使用菜单「仓库 → 重建本地基线」或重新克隆。'
@@ -58,23 +58,45 @@ export async function discardGithubChanges(params: {
   )
 
   const touchedPaths = new Set<string>()
+  const addedPaths: string[] = []
+  const restoreChanges: GithubChange[] = []
+
   for (const change of changes) {
     touchedPaths.add(change.path)
     if (change.kind === 'added') {
-      await removeWorkingTreePath(change.absolutePath)
+      addedPaths.push(change.absolutePath)
     } else {
-      const entry = fileIndex[change.path]
-      if (!entry) {
-        throw new Error(`无法丢弃 ${change.path}：缺少基线索引`)
-      }
-      const bytes = await readBaselineBytes(entry.hash)
-      if (bytes === undefined) {
-        throw new Error(`无法丢弃 ${change.path}：缺少基线快照`)
-      }
-      const absolute =
-        change.absolutePath || joinFilesAbsolutePath(root, ...change.path.split('/'))
-      await writeWorkingTreeFile(absolute, bytes)
+      restoreChanges.push(change)
     }
+  }
+
+  if (addedPaths.length > 0) {
+    await filesRemoveBatch(addedPaths, { skipMissing: true })
+    applied += addedPaths.length
+    const now = osNowMs()
+    if (
+      applied === changes.length ||
+      shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)
+    ) {
+      lastProgressAt = now
+      onProgress?.(`还原文件 ${applied}/${changes.length}…`, {
+        fraction: applied / changes.length,
+      })
+    }
+  }
+
+  for (const change of restoreChanges) {
+    const entry = fileIndex[change.path]
+    if (!entry) {
+      throw new Error(`无法丢弃 ${change.path}：缺少基线索引`)
+    }
+    const bytes = await readBaselineBytes(entry.hash)
+    if (bytes === undefined) {
+      throw new Error(`无法丢弃 ${change.path}：缺少基线快照`)
+    }
+    const absolute =
+      change.absolutePath || joinFilesAbsolutePath(root, ...change.path.split('/'))
+    await writeWorkingTreeFile(absolute, bytes)
     applied += 1
     const now = osNowMs()
     if (

@@ -15,6 +15,7 @@ import {
 } from './github-changes.ts'
 import type { GithubProgress } from './github-progress.ts'
 import {
+  branchBaselineTrusted,
   currentFileIndex,
   currentHeadSha,
   saveGithubRepoMeta,
@@ -24,11 +25,11 @@ import {
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import {
-  removeWorkingTreePath,
   syncWorkingTreeToFileIndex,
   unzipGithubZipball,
   writeWorkingTreeFile,
 } from './github-working-tree.ts'
+import { filesRemoveBatch } from '../files/files-api.ts'
 
 /** 变更文件数超过此阈值时回退整包 zip */
 const INCREMENTAL_FILE_LIMIT = 80
@@ -66,21 +67,32 @@ export async function pullGithubRepository(params: {
   }
 
   const root = githubRepoRootPath(meta.owner, meta.repo)
-  let applied = 0
+  const removedPaths: string[] = []
+  const writeFiles: typeof compare.files = []
+
   for (const file of compare.files) {
-    const absolute = joinFilesAbsolutePath(root, ...file.filename.split('/'))
     if (file.status === 'removed') {
-      await removeWorkingTreePath(absolute)
+      removedPaths.push(joinFilesAbsolutePath(root, ...file.filename.split('/')))
     } else {
-      // 增量拉取写工作区：同样必须是 raw 正文，否则工作区会被 Contents JSON 污染
-      const bytes = await githubGetFileContent(
-        meta.owner,
-        meta.repo,
-        file.filename,
-        remoteSha,
-      )
-      await writeWorkingTreeFile(absolute, bytes)
+      writeFiles.push(file)
     }
+  }
+
+  if (removedPaths.length > 0) {
+    await filesRemoveBatch(removedPaths, { skipMissing: true })
+  }
+
+  let applied = removedPaths.length
+  for (const file of writeFiles) {
+    const absolute = joinFilesAbsolutePath(root, ...file.filename.split('/'))
+    // 增量拉取写工作区：同样必须是 raw 正文，否则工作区会被 Contents JSON 污染
+    const bytes = await githubGetFileContent(
+      meta.owner,
+      meta.repo,
+      file.filename,
+      remoteSha,
+    )
+    await writeWorkingTreeFile(absolute, bytes)
     applied += 1
     if (applied % 10 === 0) {
       onProgress?.(`应用变更 ${applied}/${compare.files.length}…`)
@@ -96,7 +108,7 @@ export async function pullGithubRepository(params: {
   const next = withBranchSnapshot(
     meta,
     meta.currentBranch,
-    { tipSha: remoteSha, fileIndex },
+    { tipSha: remoteSha, fileIndex, baselineComplete: true },
   )
   next.updatedAt = osNowMs()
   await saveGithubRepoMeta(next)
@@ -135,7 +147,7 @@ async function rematerializeFromZip(params: {
   const next = withBranchSnapshot(
     meta,
     branch,
-    { tipSha: params.headSha, fileIndex },
+    { tipSha: params.headSha, fileIndex, baselineComplete: true },
     { currentBranch: branch },
   )
   next.updatedAt = osNowMs()
@@ -169,7 +181,15 @@ export async function switchGithubBranch(params: {
   params.onProgress?.(`切换到 ${branch}…`)
 
   const cached = params.meta.branches[branch]
-  if (cached && !(await baselineBlobsAbsentForIndex(cached.fileIndex))) {
+  let baselineAbsent = true
+  if (cached) {
+    if (branchBaselineTrusted(cached)) {
+      baselineAbsent = false
+    } else {
+      baselineAbsent = await baselineBlobsAbsentForIndex(cached.fileIndex)
+    }
+  }
+  if (cached && !baselineAbsent) {
     const fromIndex = currentFileIndex(params.meta)
     params.onProgress?.('从本地快照增量同步工作区…')
     await syncWorkingTreeToFileIndex(
@@ -188,7 +208,7 @@ export async function switchGithubBranch(params: {
       withBranchSnapshot(
         params.meta,
         branch,
-        { tipSha: cached.tipSha, fileIndex: stampedIndex },
+        { tipSha: cached.tipSha, fileIndex: stampedIndex, baselineComplete: true },
         { currentBranch: branch },
       ),
       branch,

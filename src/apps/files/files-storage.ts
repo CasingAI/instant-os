@@ -519,6 +519,97 @@ export async function collectSubtreeIds(rootId: string): Promise<{
   return { nodeIds, fileIds, reclaimBytes }
 }
 
+export type MergedSubtreeCollection = {
+  nodeIds: string[]
+  fileIds: string[]
+  reclaimBytes: number
+  bytesByNodeId: Map<string, number>
+}
+
+/** 在单个只读事务内收集多棵子树；节点 id 去重，避免路径列表含父子重叠时重复删除。 */
+export async function collectSubtreesBatch(
+  rootIds: readonly string[],
+): Promise<MergedSubtreeCollection> {
+  if (rootIds.length === 0) {
+    return { nodeIds: [], fileIds: [], reclaimBytes: 0, bytesByNodeId: new Map() }
+  }
+
+  const db = await openFilesDb()
+  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const store = tx.objectStore(FILES_NODES_STORE)
+  const index = store.index('by-parent')
+
+  const seenNodeIds = new Set<string>()
+  const nodeIds: string[] = []
+  const fileIds: string[] = []
+  const bytesByNodeId = new Map<string, number>()
+  let reclaimBytes = 0
+
+  const visit = async (id: string): Promise<void> => {
+    if (seenNodeIds.has(id)) return
+    const record = await requestToPromise(store.get(id) as IDBRequest<FilesNodeRecord | undefined>)
+    if (!record) return
+    seenNodeIds.add(record.id)
+    const metaBytes = estimateNodeMetaBytes(recordToNode(record))
+    let nodeBytes = metaBytes
+    nodeIds.push(record.id)
+    if (record.kind === 'file') {
+      fileIds.push(record.id)
+      nodeBytes += record.byteSize
+    }
+    bytesByNodeId.set(record.id, nodeBytes)
+    reclaimBytes += nodeBytes
+    if (record.kind !== 'file') {
+      const children = await requestToPromise(
+        index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
+      )
+      for (const child of children ?? []) {
+        await visit(child.id)
+      }
+    }
+  }
+
+  for (const rootId of rootIds) {
+    await visit(rootId)
+  }
+  await waitForTransaction(tx)
+  return { nodeIds, fileIds, reclaimBytes, bytesByNodeId }
+}
+
+const LARGE_SUBTREE_DELETE_THRESHOLD = 2000
+
+export async function deleteSubtreesMerged(
+  merged: MergedSubtreeCollection,
+  options?: { batchSize?: number },
+): Promise<void> {
+  if (merged.nodeIds.length === 0) return
+
+  const batchSize = Math.max(1, options?.batchSize ?? FILES_BATCH_DEFAULT_SIZE)
+  if (merged.nodeIds.length <= LARGE_SUBTREE_DELETE_THRESHOLD) {
+    await deleteSubtree({
+      nodeIds: merged.nodeIds,
+      fileIds: merged.fileIds,
+      reclaimBytes: merged.reclaimBytes,
+    })
+    return
+  }
+
+  for (let offset = 0; offset < merged.nodeIds.length; offset += batchSize) {
+    const nodeChunk = merged.nodeIds.slice(offset, offset + batchSize)
+    const nodeChunkSet = new Set(nodeChunk)
+    const fileChunk = merged.fileIds.filter((id) => nodeChunkSet.has(id))
+    let reclaimChunk = 0
+    for (const id of nodeChunk) {
+      reclaimChunk += merged.bytesByNodeId.get(id) ?? 0
+    }
+    await deleteSubtree({
+      nodeIds: nodeChunk,
+      fileIds: fileChunk,
+      reclaimBytes: reclaimChunk,
+    })
+  }
+}
+
 export async function deleteSubtree(params: {
   nodeIds: string[]
   fileIds: string[]

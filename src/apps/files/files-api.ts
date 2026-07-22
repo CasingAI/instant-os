@@ -32,6 +32,7 @@ import {
   readFileBlob,
   readTextFile,
   removeNode,
+  removeNodesByPathsBatch,
   renameNode,
   resolveFilesAbsolutePath,
   resolveNodeByAbsolutePath,
@@ -40,9 +41,10 @@ import {
   writeTextFile,
   type FilesSubtreeFileEntry,
   type FilesUpsertBatchItem,
+  type FilesRemoveBatchOptions,
 } from './files-vfs.ts'
 
-export type { FilesUpsertBatchItem, FilesSubtreeFileEntry }
+export type { FilesUpsertBatchItem, FilesSubtreeFileEntry, FilesRemoveBatchOptions }
 import {
   subscribeFilesWatch,
   type FilesWatchChange,
@@ -359,6 +361,28 @@ export async function filesUpsertBatch(
   })
   const nodes = await upsertFilesBatch(normalized, options)
   return Promise.all(nodes.map((node) => toEntry(node)))
+}
+
+/**
+ * 批量删除本地卷路径；不存在时 skipMissing 为 true 则跳过。
+ * 底层合并子树收集与 IndexedDB 删除事务（默认按 64 分块）。
+ */
+export async function filesRemoveBatch(
+  paths: readonly string[],
+  options?: FilesRemoveBatchOptions,
+): Promise<void> {
+  const normalized = paths.map((path) => {
+    const absolutePath = assertAbsolutePath(path)
+    if (isFilesNamespaceRoot(absolutePath)) {
+      throw new Error('不能删除命名空间根')
+    }
+    const parsed = parseFilesAbsolutePath(absolutePath)
+    if (!parsed || parsed.segments.length === 0) {
+      throw new Error('不能删除卷根')
+    }
+    return absolutePath
+  })
+  await removeNodesByPathsBatch(normalized, options)
 }
 
 export async function filesRename(path: string, nextName: string): Promise<FilesApiEntry> {

@@ -4,11 +4,13 @@ import {
   assertAdditionalBytesAvailable,
   backfillContentRevisionIds,
   collectSubtreeIds,
+  collectSubtreesBatch,
   commitFilesBatch,
   createFileWithBlob,
   createFileWithBytes,
   createFolderNode,
   deleteSubtree,
+  deleteSubtreesMerged,
   estimateNodeMetaBytes,
   estimateTextBytes,
   FILES_BATCH_DEFAULT_SIZE,
@@ -54,6 +56,7 @@ import { getCachedMount, listMounts } from './files-mount-store.ts'
 import {
   filesLocationPathRoot,
   isFilesAbsolutePath,
+  isFilesNamespaceRoot,
   joinFilesAbsolutePath,
   normalizeFilesNodeName,
   parseFilesAbsolutePath,
@@ -763,6 +766,11 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
   return renamed
 }
 
+export type FilesRemoveBatchOptions = {
+  skipMissing?: boolean
+  batchSize?: number
+}
+
 export async function removeNode(id: string): Promise<void> {
   const node = await getNodeOrThrow(id)
   assertNodeWritable(node)
@@ -775,6 +783,73 @@ export async function removeNode(id: string): Promise<void> {
   const subtree = await collectSubtreeIds(id)
   await deleteSubtree(subtree)
   emitFilesVfsChanged({ kind: 'deleted', path })
+}
+
+/**
+ * 按绝对路径批量删除本地卷节点；挂载路径单独走 removeMountNode。
+ * 合并子树收集与 IndexedDB 删除事务；默认 skipMissing 为 false。
+ */
+export async function removeNodesByPathsBatch(
+  paths: readonly string[],
+  options?: FilesRemoveBatchOptions,
+): Promise<void> {
+  if (paths.length === 0) return
+  const skipMissing = options?.skipMissing ?? false
+  const batchSize = options?.batchSize
+
+  const mountDeletes: { id: string; path: string }[] = []
+  const localRootIds: string[] = []
+  const deletedPaths: string[] = []
+
+  for (const rawPath of paths) {
+    const absolutePath = rawPath.trim().replace(/\/+$/, '') || '/'
+    if (!isFilesAbsolutePath(absolutePath)) {
+      throw new Error('路径必须是以 / 开头的全局绝对路径')
+    }
+    if (isFilesNamespaceRoot(absolutePath)) {
+      throw new Error('不能删除命名空间根')
+    }
+    const parsed = parseFilesAbsolutePath(absolutePath)
+    if (!parsed || parsed.segments.length === 0) {
+      throw new Error('不能删除卷根')
+    }
+    if (isMountLocationId(parsed.locationId)) {
+      const node = await resolveNodeByAbsolutePath(absolutePath)
+      if (!node) {
+        if (skipMissing) continue
+        throw new Error('项目不存在')
+      }
+      assertNodeWritable(node)
+      mountDeletes.push({ id: node.id, path: absolutePath })
+      deletedPaths.push(absolutePath)
+      continue
+    }
+    if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+      throw new Error('此位置不支持批量删除')
+    }
+
+    const node = await resolveNodeByAbsolutePath(absolutePath)
+    if (!node) {
+      if (skipMissing) continue
+      throw new Error('项目不存在')
+    }
+    assertNodeWritable(node)
+    localRootIds.push(node.id)
+    deletedPaths.push(absolutePath)
+  }
+
+  for (const mount of mountDeletes) {
+    await removeMountNode(mount.id)
+  }
+
+  if (localRootIds.length > 0) {
+    const merged = await collectSubtreesBatch(localRootIds)
+    await deleteSubtreesMerged(merged, { batchSize })
+  }
+
+  if (deletedPaths.length > 0) {
+    emitFilesVfsChanged(deletedPaths.map((path) => ({ kind: 'deleted' as const, path })))
+  }
 }
 
 export async function getNodeOrThrow(id: string): Promise<FilesNode> {
