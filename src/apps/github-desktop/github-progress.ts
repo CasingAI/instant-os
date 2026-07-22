@@ -6,3 +6,12 @@ export type GithubProgressDetail = {
 }
 
 export type GithubProgress = (message: string, detail?: GithubProgressDetail) => void
+
+/** 限制进度回调频率，避免大量小步骤时 UI 刷新过于密集 */
+export function shouldReportGithubProgress(
+  lastReportedAtMs: number,
+  nowMs: number,
+  intervalMs = 1000,
+): boolean {
+  return nowMs - lastReportedAtMs >= intervalMs
+}

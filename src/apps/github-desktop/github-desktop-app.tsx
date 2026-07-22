@@ -60,6 +60,7 @@ import {
 } from './github-changes.ts'
 import { generateGithubCommitMessage } from './github-commit-agent.ts'
 import { commitAndPushGithubChanges, summarizeChanges } from './github-commit.ts'
+import { discardGithubChanges } from './github-discard.ts'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
 import {
   buildGithubCommitMessage,
@@ -137,6 +138,7 @@ type BusyKind =
   | 'load'
   | 'delete'
   | 'rebuild'
+  | 'discard'
   | undefined
 
 type ChangeKindMarkKind = 'added' | 'modified' | 'deleted'
@@ -286,12 +288,16 @@ function resolveToolbarRepoIconKind(view: View): ToolbarRepoIconKind {
   if (view.kind === 'cloning') return 'cloning'
   if (view.kind === 'missing') return 'missing'
   if (view.kind === 'repo') {
-    const remote = view.meta.remote
-    if (remote?.private) return 'private'
-    if (remote?.fork) return 'fork'
-    return 'repo'
+    return resolveLocalRepoIconKind(view.meta)
   }
   return 'default'
+}
+
+function resolveLocalRepoIconKind(meta: GithubRepoSyncMeta): ToolbarRepoIconKind {
+  if (meta.missing) return 'missing'
+  if (meta.remote?.private) return 'private'
+  if (meta.remote?.fork) return 'fork'
+  return 'repo'
 }
 
 function ToolbarRepoIcon({ kind }: { kind: ToolbarRepoIconKind }) {
@@ -380,12 +386,16 @@ export function GithubDesktopApp() {
   /** 本地缓存头像的 blob URL；优先于远程 avatarUrl */
   const [avatarDisplayUrl, setAvatarDisplayUrl] = useState<string | undefined>()
   const [busyKind, setBusyKind] = useState<BusyKind>()
+  const busyKindRef = useRef<BusyKind>(undefined)
+  const repoWatchTimerRef = useRef<number | undefined>(undefined)
   const [progressLabel, setProgressLabel] = useState<string | undefined>()
   /** 0–1，对齐 GitHub Desktop 工具栏按钮进度条；未知进度时用不确定动画 */
   const [progressValue, setProgressValue] = useState<number | undefined>()
   const [repoFoldoutOpen, setRepoFoldoutOpen] = useState(false)
   const [branchFoldoutOpen, setBranchFoldoutOpen] = useState(false)
   const [syncMenuOpen, setSyncMenuOpen] = useState(false)
+  const [repoFoldoutFilter, setRepoFoldoutFilter] = useState('')
+  const [branchFoldoutFilter, setBranchFoldoutFilter] = useState('')
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('changes')
 
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
@@ -697,42 +707,63 @@ export function GithubDesktopApp() {
   }, [])
 
   const refreshRepoChanges = useCallback(async (owner: string, repo: string) => {
-    const latest = await getGithubRepoMeta(owner, repo)
-    if (!latest) return
-    setView((prev) =>
-      prev.kind === 'repo' && prev.meta.owner === latest.owner && prev.meta.repo === latest.repo
-        ? { kind: 'repo', meta: latest }
-        : prev,
-    )
-    const nextChanges = await detectGithubChanges(latest)
-    await ensureBaselineIfClean(latest, nextChanges.length > 0)
-    setChanges(nextChanges)
-    setSelectedPath((prev) => {
-      if (prev && nextChanges.some((item) => item.path === prev)) return prev
-      return nextChanges[0]?.path
-    })
+    if (busyKindRef.current) return
+    try {
+      const latest = await getGithubRepoMeta(owner, repo)
+      if (!latest) return
+      if (busyKindRef.current) return
+      setView((prev) =>
+        prev.kind === 'repo' && prev.meta.owner === latest.owner && prev.meta.repo === latest.repo
+          ? { kind: 'repo', meta: latest }
+          : prev,
+      )
+      const nextChanges = await detectGithubChanges(latest)
+      if (busyKindRef.current) return
+      await ensureBaselineIfClean(latest, nextChanges.length > 0)
+      setChanges(nextChanges)
+      setSelectedPath((prev) => {
+        if (prev && nextChanges.some((item) => item.path === prev)) return prev
+        return nextChanges[0]?.path
+      })
+    } catch {
+      // 工作区重写中途扫描可能遇到短暂不一致，忽略即可
+    }
   }, [])
 
   const repoWatchKey =
     view.kind === 'repo' ? `${view.meta.owner}/${view.meta.repo}` : undefined
 
   useEffect(() => {
+    busyKindRef.current = busyKind
+    if (busyKind && repoWatchTimerRef.current !== undefined) {
+      window.clearTimeout(repoWatchTimerRef.current)
+      repoWatchTimerRef.current = undefined
+    }
+  }, [busyKind])
+
+  useEffect(() => {
     if (!repoWatchKey) return
     const [owner, repo] = repoWatchKey.split('/')
     if (!owner || !repo) return
     const root = githubRepoRootPath(owner, repo)
-    let timer: number | undefined
     let cancelled = false
     const unwatch = filesWatch(root, () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        if (cancelled) return
+      if (busyKindRef.current) return
+      if (repoWatchTimerRef.current !== undefined) {
+        window.clearTimeout(repoWatchTimerRef.current)
+      }
+      repoWatchTimerRef.current = window.setTimeout(() => {
+        repoWatchTimerRef.current = undefined
+        if (cancelled || busyKindRef.current) return
         void refreshRepoChanges(owner, repo)
       }, 100)
     })
     return () => {
       cancelled = true
-      window.clearTimeout(timer)
+      if (repoWatchTimerRef.current !== undefined) {
+        window.clearTimeout(repoWatchTimerRef.current)
+        repoWatchTimerRef.current = undefined
+      }
       unwatch()
     }
   }, [repoWatchKey, refreshRepoChanges])
@@ -891,6 +922,12 @@ export function GithubDesktopApp() {
 
   const runBusy = useCallback(
     async (kind: Exclude<BusyKind, undefined>, label: string, errorTitle: string, task: () => Promise<void>) => {
+      if (kind === 'switch' || kind === 'pull' || kind === 'discard') {
+        setChanges([])
+        setSelectedPath(undefined)
+        setDiffPreview(undefined)
+      }
+      busyKindRef.current = kind
       setBusyKind(kind)
       setProgressLabel(label)
       setProgressValue(0.08)
@@ -903,6 +940,7 @@ export function GithubDesktopApp() {
         setProgressValue(undefined)
         await showError(errorTitle, err)
       } finally {
+        busyKindRef.current = undefined
         setBusyKind(undefined)
       }
     },
@@ -1374,6 +1412,45 @@ export function GithubDesktopApp() {
     [view, runBusy, refreshRepoState, reportSyncProgress],
   )
 
+  const handleDiscardAll = useCallback(() => {
+    if (view.kind !== 'repo' || changes.length === 0) return
+    void modal
+      .confirm({
+        title: '丢弃全部更改',
+        message:
+          '将把工作区恢复为当前分支最后一次同步的状态，未提交的本地修改会全部丢失。此操作无法撤销。',
+        confirmLabel: '丢弃全部',
+        confirmTone: 'danger',
+      })
+      .then((confirmed) => {
+        if (!confirmed) return
+        void runBusy('discard', '正在丢弃更改…', '丢弃更改失败', async () => {
+          await discardGithubChanges({
+            meta: view.meta,
+            changes,
+            discardAll: true,
+            onProgress: reportSyncProgress,
+          })
+          await refreshRepoState(view.meta)
+        })
+      })
+  }, [view, changes, modal, runBusy, refreshRepoState, reportSyncProgress])
+
+  const handleDiscardChange = useCallback(
+    (change: GithubChange) => {
+      if (view.kind !== 'repo') return
+      void runBusy('discard', `丢弃 ${change.path}…`, '丢弃更改失败', async () => {
+        await discardGithubChanges({
+          meta: view.meta,
+          changes: [change],
+          discardAll: false,
+        })
+        await refreshRepoState(view.meta)
+      })
+    },
+    [view, runBusy, refreshRepoState],
+  )
+
   const goHome = useCallback(() => {
     setView({ kind: 'home' })
     setRepoFoldoutOpen(false)
@@ -1585,7 +1662,8 @@ export function GithubDesktopApp() {
     busyKind === 'fetch' ||
     busyKind === 'switch' ||
     busyKind === 'commit' ||
-    busyKind === 'rebuild'
+    busyKind === 'rebuild' ||
+    busyKind === 'discard'
 
   const syncButtonTitle = (() => {
     if (busyKind === 'pull') return '拉取 origin'
@@ -1620,6 +1698,8 @@ export function GithubDesktopApp() {
     setRepoFoldoutOpen(false)
     setBranchFoldoutOpen(false)
     setSyncMenuOpen(false)
+    setRepoFoldoutFilter('')
+    setBranchFoldoutFilter('')
   }, [])
 
   const toolbarWrapRef = useRef<HTMLDivElement>(null)
@@ -1648,13 +1728,21 @@ export function GithubDesktopApp() {
   const toggleRepoFoldout = useCallback(() => {
     setBranchFoldoutOpen(false)
     setSyncMenuOpen(false)
-    setRepoFoldoutOpen((open) => !open)
+    setBranchFoldoutFilter('')
+    setRepoFoldoutOpen((open) => {
+      if (open) setRepoFoldoutFilter('')
+      return !open
+    })
   }, [])
 
   const toggleBranchFoldout = useCallback(() => {
     setRepoFoldoutOpen(false)
     setSyncMenuOpen(false)
-    setBranchFoldoutOpen((open) => !open)
+    setRepoFoldoutFilter('')
+    setBranchFoldoutOpen((open) => {
+      if (open) setBranchFoldoutFilter('')
+      return !open
+    })
   }, [])
 
   const toggleSyncMenu = useCallback(() => {
@@ -1676,6 +1764,38 @@ export function GithubDesktopApp() {
       ),
     [localRepos, cloningRepos],
   )
+  const filteredCloningRepos = useMemo(() => {
+    const q = repoFoldoutFilter.trim().toLowerCase()
+    if (!q) return cloningRepos
+    return cloningRepos.filter(
+      (entry) =>
+        entry.repo.toLowerCase().includes(q) ||
+        entry.owner.toLowerCase().includes(q) ||
+        `${entry.owner}/${entry.repo}`.toLowerCase().includes(q),
+    )
+  }, [cloningRepos, repoFoldoutFilter])
+  const filteredListedLocalRepos = useMemo(() => {
+    const q = repoFoldoutFilter.trim().toLowerCase()
+    if (!q) return listedLocalRepos
+    return listedLocalRepos.filter((repo) => {
+      const fullName = `${repo.owner}/${repo.repo}`.toLowerCase()
+      const visibility = repo.remote
+        ? formatGithubRepoVisibilityLabel(repo.remote).toLowerCase()
+        : ''
+      return (
+        fullName.includes(q) ||
+        repo.repo.toLowerCase().includes(q) ||
+        repo.owner.toLowerCase().includes(q) ||
+        repo.currentBranch.toLowerCase().includes(q) ||
+        visibility.includes(q)
+      )
+    })
+  }, [listedLocalRepos, repoFoldoutFilter])
+  const filteredBranchList = useMemo(() => {
+    const q = branchFoldoutFilter.trim().toLowerCase()
+    if (!q) return branchList
+    return branchList.filter((branch) => branch.name.toLowerCase().includes(q))
+  }, [branchList, branchFoldoutFilter])
   const cloningTitleOwner = activeCloning?.owner ?? (view.kind === 'cloning' ? view.owner : undefined)
   const cloningTitleRepo = activeCloning?.repo ?? (view.kind === 'cloning' ? view.repo : undefined)
   const toolbarRepoTitle =
@@ -1814,53 +1934,84 @@ export function GithubDesktopApp() {
 
           {repoFoldoutOpen ? (
             <div class="github-desktop__toolbar-foldout">
-              {cloningRepos.map((entry) => {
-                const active = view.kind === 'cloning' && view.id === entry.id
-                return (
-                  <button
-                    key={`cloning-${entry.id}`}
-                    type="button"
-                    class={`github-desktop__foldout-item github-desktop__foldout-item--cloning${active ? ' is-active' : ''}`}
-                    onClick={() => {
-                      closeToolbarMenus()
-                      handleSelectCloning(entry)
-                    }}
-                  >
-                    <strong>{entry.repo}</strong>
-                    <span>
-                      {entry.owner}/{entry.repo} · 正在克隆…
-                    </span>
-                  </button>
-                )
-              })}
-              {listedLocalRepos.map((repo) => {
-                const active =
-                  (view.kind === 'repo' || view.kind === 'missing') &&
-                  view.meta.owner === repo.owner &&
-                  view.meta.repo === repo.repo
-                return (
-                  <button
-                    key={`${repo.owner}/${repo.repo}`}
-                    type="button"
-                    class={`github-desktop__foldout-item${repo.missing ? ' github-desktop__foldout-item--missing' : ''}${active ? ' is-active' : ''}`}
-                    onClick={() => {
-                      closeToolbarMenus()
-                      handleOpenLocal(repo)
-                    }}
-                  >
-                    <strong>{repo.repo}</strong>
-                    <span>
-                      {repo.missing
-                        ? `${repo.owner}/${repo.repo} · 找不到本地文件`
-                        : `${repo.owner}/${repo.repo} · ${repo.currentBranch}${
-                            repo.remote
-                              ? ` · ${formatGithubRepoVisibilityLabel(repo.remote)}`
-                              : ''
-                          }`}
-                    </span>
-                  </button>
-                )
-              })}
+              <div class="github-desktop__foldout-filter-wrap">
+                <input
+                  class="settings__input github-desktop__foldout-filter"
+                  value={repoFoldoutFilter}
+                  placeholder="过滤仓库…"
+                  aria-label="过滤仓库"
+                  autoFocus
+                  onInput={(event) =>
+                    setRepoFoldoutFilter((event.target as HTMLInputElement).value)
+                  }
+                />
+              </div>
+              {filteredCloningRepos.length === 0 &&
+              filteredListedLocalRepos.length === 0 ? (
+                <div class="github-desktop__foldout-empty">
+                  {repoFoldoutFilter.trim() ? '没有匹配的仓库' : '没有本地仓库'}
+                </div>
+              ) : (
+                <>
+                  {filteredCloningRepos.map((entry) => {
+                    const active = view.kind === 'cloning' && view.id === entry.id
+                    return (
+                      <button
+                        key={`cloning-${entry.id}`}
+                        type="button"
+                        class={`github-desktop__foldout-item github-desktop__foldout-item--with-icon github-desktop__foldout-item--cloning${active ? ' is-active' : ''}`}
+                        onClick={() => {
+                          closeToolbarMenus()
+                          handleSelectCloning(entry)
+                        }}
+                      >
+                        <span class="github-desktop__foldout-item-icon">
+                          <ToolbarRepoIcon kind="cloning" />
+                        </span>
+                        <span class="github-desktop__foldout-item-body">
+                          <strong>{entry.repo}</strong>
+                          <span>
+                            {entry.owner}/{entry.repo} · 正在克隆…
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                  {filteredListedLocalRepos.map((repo) => {
+                    const active =
+                      (view.kind === 'repo' || view.kind === 'missing') &&
+                      view.meta.owner === repo.owner &&
+                      view.meta.repo === repo.repo
+                    return (
+                      <button
+                        key={`${repo.owner}/${repo.repo}`}
+                        type="button"
+                        class={`github-desktop__foldout-item github-desktop__foldout-item--with-icon${repo.missing ? ' github-desktop__foldout-item--missing' : ''}${active ? ' is-active' : ''}`}
+                        onClick={() => {
+                          closeToolbarMenus()
+                          handleOpenLocal(repo)
+                        }}
+                      >
+                        <span class="github-desktop__foldout-item-icon">
+                          <ToolbarRepoIcon kind={resolveLocalRepoIconKind(repo)} />
+                        </span>
+                        <span class="github-desktop__foldout-item-body">
+                          <strong>{repo.repo}</strong>
+                          <span>
+                            {repo.missing
+                              ? `${repo.owner}/${repo.repo} · 找不到本地文件`
+                              : `${repo.owner}/${repo.repo} · ${repo.currentBranch}${
+                                  repo.remote
+                                    ? ` · ${formatGithubRepoVisibilityLabel(repo.remote)}`
+                                    : ''
+                                }`}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </>
+              )}
               <div class="github-desktop__foldout-footer">
                 <button
                   type="button"
@@ -1878,24 +2029,42 @@ export function GithubDesktopApp() {
 
           {branchFoldoutOpen && view.kind === 'repo' ? (
             <div class="github-desktop__toolbar-foldout github-desktop__toolbar-foldout--branch">
-              {branchList.map((branch) => {
-                const active = branch.name === view.meta.currentBranch
-                return (
-                  <button
-                    key={branch.name}
-                    type="button"
-                    class={`github-desktop__foldout-item${active ? ' is-active' : ''}`}
-                    disabled={busy}
-                    onClick={() => {
-                      closeToolbarMenus()
-                      if (!active) handleSwitchBranch(branch.name)
-                    }}
-                  >
-                    <strong>{branch.name}</strong>
-                    <span>{shortSha(branch.commitSha || '???????')}</span>
-                  </button>
-                )
-              })}
+              <div class="github-desktop__foldout-filter-wrap">
+                <input
+                  class="settings__input github-desktop__foldout-filter"
+                  value={branchFoldoutFilter}
+                  placeholder="过滤分支…"
+                  aria-label="过滤分支"
+                  autoFocus
+                  onInput={(event) =>
+                    setBranchFoldoutFilter((event.target as HTMLInputElement).value)
+                  }
+                />
+              </div>
+              {filteredBranchList.length === 0 ? (
+                <div class="github-desktop__foldout-empty">
+                  {branchFoldoutFilter.trim() ? '没有匹配的分支' : '没有分支'}
+                </div>
+              ) : (
+                filteredBranchList.map((branch) => {
+                  const active = branch.name === view.meta.currentBranch
+                  return (
+                    <button
+                      key={branch.name}
+                      type="button"
+                      class={`github-desktop__foldout-item${active ? ' is-active' : ''}`}
+                      disabled={busy}
+                      onClick={() => {
+                        closeToolbarMenus()
+                        if (!active) handleSwitchBranch(branch.name)
+                      }}
+                    >
+                      <strong>{branch.name}</strong>
+                      <span>{shortSha(branch.commitSha || '???????')}</span>
+                    </button>
+                  )
+                })
+              )}
             </div>
           ) : undefined}
 
@@ -2151,6 +2320,15 @@ export function GithubDesktopApp() {
                             <span class="github-desktop__change-path">{change.path}</span>
                             <ChangeKindMark kind={change.kind} />
                           </button>
+                          <button
+                            type="button"
+                            class="github-desktop__change-discard"
+                            disabled={busy}
+                            title={`丢弃对 ${change.path} 的更改`}
+                            onClick={() => handleDiscardChange(change)}
+                          >
+                            丢弃
+                          </button>
                         </div>
                       )
                     })}
@@ -2172,6 +2350,16 @@ export function GithubDesktopApp() {
                           ? '未选择文件'
                           : summarizeChanges(stagedChanges)}
                     </span>
+                    {changes.length > 0 ? (
+                      <button
+                        type="button"
+                        class="github-desktop__discard-all"
+                        disabled={busy}
+                        onClick={handleDiscardAll}
+                      >
+                        丢弃全部
+                      </button>
+                    ) : undefined}
                   </div>
                   <div class="github-desktop__commit">
                     <div class="github-desktop__commit-panel">

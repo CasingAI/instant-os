@@ -23,7 +23,7 @@ import {
 } from './github-api.ts'
 import { githubRepoRootPath } from './github-repo-paths.ts'
 import { deleteGithubNodeSubtree, ensureGithubRepoRootFolder } from './github-objects-vfs.ts'
-import type { GithubProgress } from './github-progress.ts'
+import { shouldReportGithubProgress, type GithubProgress } from './github-progress.ts'
 import { persistBaselineFromFiles } from './github-baseline.ts'
 import {
   getGithubRepoMeta,
@@ -160,7 +160,15 @@ async function listFilesRecursive(dirPath: string): Promise<FilesApiEntry[]> {
   while (stack.length > 0) {
     const current = stack.pop()
     if (!current) continue
-    const children = await filesList(current)
+    const folder = await filesStat(current)
+    if (!folder || folder.kind !== 'folder') continue
+    let children: FilesApiEntry[]
+    try {
+      children = await filesList(current)
+    } catch {
+      // 工作区重写中途目录可能已被删除（如切换分支）
+      continue
+    }
     for (const child of children) {
       if (child.kind === 'folder') {
         stack.push(child.path)
@@ -219,11 +227,18 @@ export async function materializeFilesToRepo(
   await assertAdditionalBytesAvailable(totalBytes + files.size * 64)
 
   let written = 0
+  let lastProgressAt = 0
+  const progressIntervalMs = 1000
   for (const [relativePath, bytes] of files) {
     const absolute = joinFilesAbsolutePath(repoPath, ...relativePath.split('/'))
     await writeWorkingTreeFile(absolute, bytes)
     written += 1
-    if (written % 40 === 0 || written === files.size) {
+    const now = osNowMs()
+    if (
+      written === files.size ||
+      shouldReportGithubProgress(lastProgressAt, now, progressIntervalMs)
+    ) {
+      lastProgressAt = now
       onProgress?.(`写入文件 ${written}/${files.size}…`, {
         fraction: files.size > 0 ? written / files.size : undefined,
       })
