@@ -34,3 +34,13 @@
   color: #fff;
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.15);
 }
+
+.ios-check-toggle--small {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.ios-check-toggle--small .ios-check-toggle__mark {
+  font-size: 10px;
+}

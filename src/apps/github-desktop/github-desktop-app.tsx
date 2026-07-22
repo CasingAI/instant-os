@@ -99,6 +99,8 @@ import {
   subscribeGithubCloningRepositories,
   type GithubCloningRepository,
 } from './github-cloning-store.ts'
+import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
+import '../../ui/ios-check-toggle.css'
 import './github-desktop.css'
 
 const APP_ID = 'github-desktop' as const
@@ -121,10 +123,56 @@ type BusyKind =
   | 'rebuild'
   | undefined
 
-function changeKindMark(kind: GithubChange['kind']): string {
-  if (kind === 'added') return 'A'
-  if (kind === 'deleted') return 'D'
-  return 'M'
+type ChangeKindMarkKind = 'added' | 'modified' | 'deleted'
+
+function commitFileStatusKind(status: string): ChangeKindMarkKind {
+  const normalized = status.toLowerCase()
+  if (normalized === 'added') return 'added'
+  if (normalized === 'removed' || normalized === 'deleted') return 'deleted'
+  return 'modified'
+}
+
+function ChangeKindMark({ kind }: { kind: ChangeKindMarkKind }) {
+  return (
+    <span class={`github-desktop__change-kind github-desktop__change-kind--${kind}`}>
+      <svg
+        class="github-desktop__change-kind-icon"
+        viewBox="0 0 10 10"
+        width="10"
+        height="10"
+        aria-hidden="true"
+      >
+        {kind === 'added' ? (
+          <>
+            <path
+              d="M5 2v6"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              fill="none"
+            />
+            <path
+              d="M2 5h6"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </>
+        ) : kind === 'deleted' ? (
+          <path
+            d="M2 5h6"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            fill="none"
+          />
+        ) : (
+          <circle cx="5" cy="5" r="2" fill="currentColor" />
+        )}
+      </svg>
+    </span>
+  )
 }
 
 function commitSummaryLine(message: string): string {
@@ -261,6 +309,8 @@ export function GithubDesktopApp() {
   const [cloneRepo, setCloneRepo] = useState('')
 
   const [changes, setChanges] = useState<GithubChange[]>([])
+  /** 未勾选、不参与本次提交的路径 */
+  const [unstagedPaths, setUnstagedPaths] = useState<Set<string>>(() => new Set())
   const [selectedPath, setSelectedPath] = useState<string | undefined>()
   const [diffPreview, setDiffPreview] = useState<GithubChangePreview | undefined>()
   const [diffLoading, setDiffLoading] = useState(false)
@@ -569,6 +619,42 @@ export function GithubDesktopApp() {
       unwatch()
     }
   }, [repoWatchKey, refreshRepoChanges])
+
+  useEffect(() => {
+    setUnstagedPaths((prev) => {
+      const paths = new Set(changes.map((change) => change.path))
+      const next = new Set<string>()
+      for (const path of prev) {
+        if (paths.has(path)) next.add(path)
+      }
+      return next
+    })
+  }, [changes])
+
+  const stagedChanges = useMemo(
+    () => changes.filter((change) => !unstagedPaths.has(change.path)),
+    [changes, unstagedPaths],
+  )
+
+  const toggleChangeStaged = useCallback((path: string, staged: boolean) => {
+    setUnstagedPaths((prev) => {
+      const next = new Set(prev)
+      if (staged) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
+  const allChangesStaged =
+    changes.length > 0 && stagedChanges.length === changes.length
+
+  const toggleAllChangesStaged = useCallback(
+    (staged: boolean) => {
+      if (staged) setUnstagedPaths(new Set())
+      else setUnstagedPaths(new Set(changes.map((change) => change.path)))
+    },
+    [changes],
+  )
 
   useEffect(() => {
     if (view.kind !== 'repo' || !selectedPath) {
@@ -1031,17 +1117,29 @@ export function GithubDesktopApp() {
       resolveCommitCoAuthors(desktopPrefs),
     )
     if (!message.trim()) return
+    const selectedPaths = new Set(stagedChanges.map((change) => change.path))
+    if (selectedPaths.size === 0) return
     void runBusy('commit', '提交并推送…', '提交失败', async () => {
       const next = await commitAndPushGithubChanges({
         meta: view.meta,
         message,
+        selectedPaths,
       })
       setCommitSummary('')
       setCommitDescription('')
       await refreshRepoState(next)
       await syncRemoteCaches(next)
     })
-  }, [view, commitSummary, commitDescription, desktopPrefs, runBusy, refreshRepoState, syncRemoteCaches])
+  }, [
+    view,
+    commitSummary,
+    commitDescription,
+    desktopPrefs,
+    stagedChanges,
+    runBusy,
+    refreshRepoState,
+    syncRemoteCaches,
+  ])
 
   const handleRebuildBaseline = useCallback(() => {
     if (view.kind !== 'repo') return
@@ -1774,7 +1872,7 @@ export function GithubDesktopApp() {
                   class={`github-desktop__tab${sidebarTab === 'changes' ? ' is-active' : ''}`}
                   onClick={() => setSidebarTab('changes')}
                 >
-                  Changes
+                  更改
                   {changes.length > 0 ? (
                     <span class="github-desktop__tab-badge">{changes.length}</span>
                   ) : undefined}
@@ -1784,39 +1882,66 @@ export function GithubDesktopApp() {
                   class={`github-desktop__tab${sidebarTab === 'history' ? ' is-active' : ''}`}
                   onClick={() => setSidebarTab('history')}
                 >
-                  History
+                  历史
                 </button>
               </div>
 
               {sidebarTab === 'changes' ? (
                 <>
-                  <div class="github-desktop__changes-header">
-                    {changes.length === 0 ? 'No local changes' : summarizeChanges(changes)}
-                  </div>
                   <div class="github-desktop__changes-list">
-                    {changes.map((change) => (
-                      <button
-                        key={change.path}
-                        type="button"
-                        class={`github-desktop__change${
-                          selectedPath === change.path ? ' is-selected' : ''
-                        }`}
-                        onClick={() => setSelectedPath(change.path)}
-                      >
-                        <span
-                          class={`github-desktop__change-kind github-desktop__change-kind--${change.kind}`}
+                    {changes.map((change) => {
+                      const staged = !unstagedPaths.has(change.path)
+                      return (
+                        <div
+                          key={change.path}
+                          class={`github-desktop__change${
+                            selectedPath === change.path ? ' is-selected' : ''
+                          }`}
                         >
-                          {changeKindMark(change.kind)}
-                        </span>
-                        <span class="github-desktop__change-path">{change.path}</span>
-                      </button>
-                    ))}
+                          <span class="github-desktop__change-check">
+                            <IosCheckToggle
+                              checked={staged}
+                              disabled={busy}
+                              size="small"
+                              label={`将 ${change.path} 包含在本次提交中`}
+                              onChange={(checked) => toggleChangeStaged(change.path, checked)}
+                            />
+                          </span>
+                          <button
+                            type="button"
+                            class="github-desktop__change-main"
+                            onClick={() => setSelectedPath(change.path)}
+                          >
+                            <span class="github-desktop__change-path">{change.path}</span>
+                            <ChangeKindMark kind={change.kind} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div class="github-desktop__changes-header github-desktop__changes-header--footer">
+                    {changes.length > 0 ? (
+                      <IosCheckToggle
+                        checked={allChangesStaged}
+                        disabled={busy}
+                        size="small"
+                        label={allChangesStaged ? '取消全选变更文件' : '全选变更文件'}
+                        onChange={toggleAllChangesStaged}
+                      />
+                    ) : undefined}
+                    <span class="github-desktop__changes-header-text">
+                      {changes.length === 0
+                        ? '无本地更改'
+                        : stagedChanges.length === 0
+                          ? '未选择文件'
+                          : summarizeChanges(stagedChanges)}
+                    </span>
                   </div>
                   <div class="github-desktop__commit">
                     <input
                       value={commitSummary}
                       disabled={busy || changes.length === 0}
-                      placeholder="Summary（必填）"
+                      placeholder="摘要（必填）"
                       onInput={(event) =>
                         setCommitSummary((event.target as HTMLInputElement).value)
                       }
@@ -1824,7 +1949,7 @@ export function GithubDesktopApp() {
                     <textarea
                       value={commitDescription}
                       disabled={busy || changes.length === 0}
-                      placeholder="Description"
+                      placeholder="描述"
                       onInput={(event) =>
                         setCommitDescription((event.target as HTMLTextAreaElement).value)
                       }
@@ -1832,22 +1957,20 @@ export function GithubDesktopApp() {
                     <button
                       type="button"
                       class="github-desktop__commit-btn"
-                      disabled={busy || changes.length === 0 || !commitSummary.trim()}
+                      disabled={
+                        busy ||
+                        changes.length === 0 ||
+                        stagedChanges.length === 0 ||
+                        !commitSummary.trim()
+                      }
                       onClick={handleCommit}
                     >
-                      Commit to {view.meta.currentBranch}
+                      提交到 {view.meta.currentBranch}
                     </button>
                   </div>
                 </>
               ) : (
                 <>
-                  <div class="github-desktop__changes-header">
-                    {historyLoading
-                      ? '加载提交历史…'
-                      : historyError
-                        ? '无法加载历史'
-                        : `${historyCommits.length} commits`}
-                  </div>
                   <div class="github-desktop__changes-list">
                     {historyError ? (
                       <div class="github-desktop__sidebar-empty">{historyError}</div>
@@ -1876,6 +1999,13 @@ export function GithubDesktopApp() {
                         </button>
                       ))
                     )}
+                  </div>
+                  <div class="github-desktop__changes-header github-desktop__changes-header--footer">
+                    {historyLoading
+                      ? '加载提交历史…'
+                      : historyError
+                        ? '无法加载历史'
+                        : `${historyCommits.length} 条提交`}
                   </div>
                 </>
               )}
@@ -1916,8 +2046,8 @@ export function GithubDesktopApp() {
                             }`}
                             onClick={() => setSelectedHistoryFile(file.filename)}
                           >
-                            <span class="github-desktop__change-kind">{file.status[0]?.toUpperCase() ?? 'M'}</span>
                             <span class="github-desktop__change-path">{file.filename}</span>
+                            <ChangeKindMark kind={commitFileStatusKind(file.status)} />
                           </button>
                         ))
                       )}
@@ -1952,7 +2082,7 @@ export function GithubDesktopApp() {
                 )
               ) : changes.length === 0 ? (
                 <div class="github-desktop__diff-empty">
-                  <h3>No local changes</h3>
+                  <h3>无本地更改</h3>
                   <p>当前工作区与最近一次同步的快照一致。</p>
                 </div>
               ) : !selectedPath ? (
