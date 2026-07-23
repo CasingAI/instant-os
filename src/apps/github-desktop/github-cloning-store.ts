@@ -65,11 +65,19 @@ function setProgress(id: number, label: string, fraction?: number) {
   if (!progressById.has(id) && !repositories.some((entry) => entry.id === id)) {
     return
   }
-  progressById.set(id, { label, fraction })
+  const previous = progressById.get(id)?.fraction
+  const nextFraction =
+    fraction === undefined
+      ? previous
+      : previous === undefined
+        ? fraction
+        : Math.max(previous, fraction)
+  progressById.set(id, { label, fraction: nextFraction })
   notifySubscribers()
 }
 
-function resolveCloneOverallFraction(message: string, detailFraction?: number): number | undefined {
+/** 将各阶段进度映射到 0–1 总进度；无明细时也返回阶段基线，避免 indeterminate 循环条。 */
+function resolveCloneOverallFraction(message: string, detailFraction?: number): number {
   if (detailFraction === undefined) {
     const match = /(\d+)\s*\/\s*(\d+)/.exec(message)
     if (match) {
@@ -78,18 +86,28 @@ function resolveCloneOverallFraction(message: string, detailFraction?: number): 
       if (total > 0) detailFraction = done / total
     }
   }
-  if (detailFraction === undefined) return undefined
+
+  if (message.includes('读取仓库信息')) return 0.06
+  if (message.includes('建立同步快照')) return 0.96
+  if (message.includes('获取 commit SHA')) return 0.66
+  if (message.includes('解析压缩包') || message.includes('解压')) return 0.62
+  if (message.includes('清理本地工作树')) return 0.68
+
+  if (
+    message.includes('写入') ||
+    message.includes('批量写入') ||
+    message.includes('已写入')
+  ) {
+    const stage = detailFraction ?? 0.2
+    return 0.7 + stage * 0.25
+  }
 
   if (message.includes('下载') || message.includes('压缩包')) {
-    return 0.12 + detailFraction * 0.48
+    const stage = detailFraction ?? 0
+    return 0.1 + stage * 0.5
   }
-  if (message.includes('写入文件')) {
-    return 0.62 + detailFraction * 0.33
-  }
-  if (message.includes('解析压缩包')) return 0.62
-  if (message.includes('建立同步快照')) return 0.96
-  if (message.includes('获取 commit SHA')) return 0.6
-  return detailFraction
+
+  return detailFraction ?? 0.08
 }
 
 /**
@@ -109,7 +127,10 @@ export function startGithubClone(params: {
     repo: params.repo,
   }
   repositories.push(repository)
-  progressById.set(repository.id, { label: `正在克隆 ${params.owner}/${params.repo}…` })
+  progressById.set(repository.id, {
+    label: `正在克隆 ${params.owner}/${params.repo}…`,
+    fraction: 0.04,
+  })
   notifySubscribers()
 
   const onProgress: GithubProgress = (message, detail) => {

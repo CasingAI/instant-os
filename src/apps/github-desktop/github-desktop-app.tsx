@@ -2438,7 +2438,7 @@ export function GithubDesktopApp() {
             <progress
               class="github-desktop__cloning-progress"
               max={1}
-              value={activeCloningFraction}
+              value={activeCloningFraction ?? 0.04}
             />
             <p>{activeCloningProgress ?? '请稍候…'}</p>
           </div>
