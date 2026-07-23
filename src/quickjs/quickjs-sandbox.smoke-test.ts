@@ -148,9 +148,189 @@ async function testInstance() {
   }
   rootedCwd.destroy()
 
+  const pathRequire = await instance.eval(`
+    const __path = require('path');
+    __path.join('/user', 'docs', 'a.txt')
+  `)
+  if (!pathRequire.ok || pathRequire.value !== '/user/docs/a.txt') {
+    throw new Error(`unexpected require('path') join: ${JSON.stringify(pathRequire)}`)
+  }
+
+  const pathNodePrefix = await instance.eval(`
+    require('node:path').resolve('rel')
+  `)
+  if (!pathNodePrefix.ok || pathNodePrefix.value !== '/user/docs/rel') {
+    throw new Error(`unexpected require('node:path') resolve: ${JSON.stringify(pathNodePrefix)}`)
+  }
+
+  const pathImport = await instance.eval(`
+    import path from 'path';
+    export default path.dirname('/user/docs/a.txt');
+  `)
+  if (!pathImport.ok) {
+    throw new Error(`unexpected import path failure: ${JSON.stringify(pathImport)}`)
+  }
+  const pathImportDefault =
+    pathImport.value &&
+    typeof pathImport.value === 'object' &&
+    'default' in pathImport.value
+      ? (pathImport.value as { default: unknown }).default
+      : pathImport.value
+  if (pathImportDefault !== '/user/docs') {
+    throw new Error(`unexpected import path default export: ${JSON.stringify(pathImport)}`)
+  }
+
+  const pathImportStar = await instance.eval(`
+    import * as pathMod from 'node:path';
+    export default pathMod.extname('file.tar.gz');
+  `)
+  if (!pathImportStar.ok) {
+    throw new Error(`unexpected import * path failure: ${JSON.stringify(pathImportStar)}`)
+  }
+  const pathImportStarDefault =
+    pathImportStar.value &&
+    typeof pathImportStar.value === 'object' &&
+    'default' in pathImportStar.value
+      ? (pathImportStar.value as { default: unknown }).default
+      : pathImportStar.value
+  if (pathImportStarDefault !== '.gz') {
+    throw new Error(`unexpected import * path: ${JSON.stringify(pathImportStar)}`)
+  }
+
+  await instance.eval('process.chdir("/user")')
+  const resolveAfterChdir = await instance.eval(`
+    require('path').resolve('x')
+  `)
+  if (!resolveAfterChdir.ok || resolveAfterChdir.value !== '/user/x') {
+    throw new Error(`resolve should follow chdir: ${JSON.stringify(resolveAfterChdir)}`)
+  }
+
+  const missingBuiltin = await instance.eval(`require('fs')`)
+  if (
+    missingBuiltin.ok ||
+    !missingBuiltin.error.includes('not implemented yet') ||
+    !missingBuiltin.error.includes("'fs'")
+  ) {
+    throw new Error(`expected unimplemented builtin error: ${JSON.stringify(missingBuiltin)}`)
+  }
+
+  const missingThirdParty = await instance.eval(`require('lodash')`)
+  if (
+    missingThirdParty.ok ||
+    !missingThirdParty.error.includes('only supports implemented Node builtins')
+  ) {
+    throw new Error(`expected third-party require error: ${JSON.stringify(missingThirdParty)}`)
+  }
+
   const snapshot = instance.getSnapshot()
   if (snapshot.destroyed || snapshot.busy) {
     throw new Error(`unexpected snapshot before destroy: ${JSON.stringify(snapshot)}`)
+  }
+
+  // --- L1.2 timers / microtasks / async bridge ---
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+  const timerInstance = await createQuickJsInstance()
+  const microOrder = await timerInstance.eval(`
+    var __order = []
+    queueMicrotask(function () { __order.push('micro') })
+    setTimeout(function () { __order.push('timeout'); console.log('order:' + __order.join(',')) }, 30)
+    __order.push('sync')
+    __order.slice()
+  `)
+  // 最后表达式在 drain 之前求值，故返回值只有 sync；微任务在返回前排空
+  if (!microOrder.ok || JSON.stringify(microOrder.value) !== JSON.stringify(['sync'])) {
+    throw new Error(
+      `expected sync-only return value before drain snapshot, got: ${JSON.stringify(microOrder)}`,
+    )
+  }
+  const orderAfterDrain = await timerInstance.eval('__order.slice()')
+  if (!orderAfterDrain.ok || JSON.stringify(orderAfterDrain.value) !== JSON.stringify(['sync', 'micro'])) {
+    throw new Error(
+      `expected micro drained before first eval returned: ${JSON.stringify(orderAfterDrain)}`,
+    )
+  }
+  if (microOrder.consoleLines.some((line) => line.text.includes('order:'))) {
+    throw new Error('timeout should not have fired before eval returned')
+  }
+
+  const duringTimer = await timerInstance.eval('"while-timer-pending"')
+  if (!duringTimer.ok || duringTimer.value !== 'while-timer-pending') {
+    throw new Error(`eval while timer pending should work: ${JSON.stringify(duringTimer)}`)
+  }
+
+  await sleep(80)
+  const afterTimerSnap = timerInstance.getSnapshot()
+  if (!afterTimerSnap.consoleLines.some((line) => line.text === 'order:sync,micro,timeout')) {
+    throw new Error(
+      `expected timeout console after wait: ${JSON.stringify(afterTimerSnap.consoleLines)}`,
+    )
+  }
+
+  const cleared = await timerInstance.eval(`
+    var __cleared = false
+    var id = setTimeout(function () { __cleared = true; console.log('should-not-fire') }, 20)
+    clearTimeout(id)
+    'cleared'
+  `)
+  if (!cleared.ok || cleared.value !== 'cleared') {
+    throw new Error(`clearTimeout eval failed: ${JSON.stringify(cleared)}`)
+  }
+  await sleep(50)
+  if (timerInstance.getSnapshot().consoleLines.some((line) => line.text === 'should-not-fire')) {
+    throw new Error('clearTimeout should prevent callback')
+  }
+
+  await timerInstance.eval(`
+    var __ticks = 0
+    var __iid = setInterval(function () {
+      __ticks += 1
+      console.log('tick-' + __ticks)
+      if (__ticks >= 3) {
+        clearInterval(__iid)
+        console.log('cleared-from-callback')
+      }
+    }, 25)
+  `)
+  await sleep(200)
+  const intervalSnap = timerInstance.getSnapshot()
+  const tickLines = intervalSnap.consoleLines.filter((line) => line.text.startsWith('tick-'))
+  if (tickLines.length !== 3) {
+    throw new Error(`expected 3 ticks then self-clear, got: ${JSON.stringify(tickLines)}`)
+  }
+  if (!intervalSnap.consoleLines.some((line) => line.text === 'cleared-from-callback')) {
+    throw new Error('expected clearInterval from inside callback to succeed')
+  }
+  await sleep(80)
+  const tickLinesAfter = timerInstance
+    .getSnapshot()
+    .consoleLines.filter((line) => line.text.startsWith('tick-'))
+  if (tickLinesAfter.length !== 3) {
+    throw new Error(`interval should stay cleared, got: ${JSON.stringify(tickLinesAfter)}`)
+  }
+
+  const promiseJob = await timerInstance.eval(`
+    var __p = false
+    Promise.resolve().then(function () { __p = true; console.log('promise-job') })
+    'scheduled'
+  `)
+  if (!promiseJob.ok || promiseJob.value !== 'scheduled') {
+    throw new Error(`promise job eval failed: ${JSON.stringify(promiseJob)}`)
+  }
+  if (!promiseJob.consoleLines.some((line) => line.text === 'promise-job')) {
+    throw new Error(
+      `executePendingJobs should run promise then before eval returns: ${JSON.stringify(promiseJob.consoleLines)}`,
+    )
+  }
+
+  await timerInstance.eval(`
+    setTimeout(function () { console.log('after-destroy-should-not') }, 20)
+  `)
+  timerInstance.destroy()
+  await sleep(50)
+  // destroyed instance snapshot still readable
+  if (!timerInstance.getSnapshot().destroyed) {
+    throw new Error('expected timerInstance destroyed')
   }
 
   instance.destroy()

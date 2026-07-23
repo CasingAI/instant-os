@@ -99,10 +99,11 @@ export type QuickJsEvalResult = QuickJsEvalSuccess | QuickJsEvalFailure
 
 export type QuickJsInstanceSnapshot = {
   destroyed: boolean
+  /** 此刻是否正在执行一段同步 JS 切片（含定时器回调）；挂起 timer 时仍可为 false。 */
   busy: boolean
   /** 实例当前工作目录（process.cwd）。 */
   cwd: string
-  /** 当前 process.exitCode。 */
+  /** 当前 process.exitCode（不由最后表达式推断）。 */
   exitCode: number
   consoleLines: QuickJsConsoleLine[]
 }
@@ -118,10 +119,18 @@ export type QuickJsInstance = {
   getSnapshot: () => QuickJsInstanceSnapshot
   /** 只读宿主配置（env / argv / 工作区 / 权限配额）；不含 UI 订阅噪音。 */
   getHostConfig: () => QuickJsHostConfig
+  /**
+   * 往常驻实例塞一段代码并跑完当前同步切片（含微任务 / Promise jobs）。
+   * 不等待未到期的 setTimeout/setInterval；有挂起定时器时仍可再次 eval（仅 busy 时拒绝）。
+   * 返回值中的 value 仅作 REPL 展示；exitCode 只反映 process.exit / exitCode。
+   */
   eval: (code: string, options?: QuickJsEvalOptions) => Promise<QuickJsEvalResult>
-  /** 中断当前正在执行的 eval（若有）。 */
+  /**
+   * 中断当前同步切片（若有），并取消全部挂起定时器 / 待办宿主任务。
+   * 实例仍存活，可继续 eval。
+   */
   abort: () => void
-  /** 释放 runtime/context；之后不可再 eval。 */
+  /** 清调度器并释放 runtime/context；之后不可再 eval。 */
   destroy: () => void
   /** 仅清空宿主侧控制台缓冲，不影响 JS 全局状态。 */
   clearConsole: () => void

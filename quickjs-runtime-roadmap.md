@@ -102,6 +102,7 @@
    - 宿主异步（VFS、后续网络）完成后，把续体安全调度回该 QuickJS 实例。
    - 与现有 `busy` / `abort` / 超时模型协调：长时间异步任务可取消。
    - 与 L1.16 `nextTick` 共存时：同步结束后先排空 nextTick 队列，再触发到期定时器。
+   - **语义约定（L1.2）**：实例常驻到 `destroy`；`busy` 仅同步切片；挂起 timer 不阻止再 `eval`；`abort` 清定时器但保留实例；退出码只认 `process.exit` / `exitCode`（不用最后表达式）。
 
 7. **薄 `events`（及可选极薄 `stream`）**
    - 先满足「依赖能加载、事件能订阅」的最小集，不为完整 Node streams 花过大成本。
@@ -115,21 +116,21 @@
 **状态**：`doing` · 里程碑 M1 · Script Host
 
 - [x] **L1.1 实例宿主选项**：创建实例时可挂载工作区根、`env`、`argv`、权限/配额；门面类型补齐。系统默认 env 在设置中配置，终端创建时装入；实例继承而非探测主机。
-- [ ] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌；与 `busy`/`abort`/超时协调
-- [ ] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载
+- [x] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌（`executePendingJobs` + `settleGuestPromise`）；切片 `busy`；`abort`/`destroy` 清调度器；L1.16 nextTick 钩子已预留未实现
+- [x] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载（`import` / `require` / `node:path`；共享 Node 内建注册表）
 - [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
 - [ ] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（或等价互转）；`TextEncoder` / `TextDecoder`
 - [ ] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、exists；路径落在卷模型；大文件限额策略写明
 - [ ] **L1.7 同步 I/O 策略落地**：文档 + 实现约定（内存工作区 / 仅 async / 预加载）；避免 UI 线程直打持久化 Sync
-- [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错
-- [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可，服务常见互操作
+- [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错（**内建 `setModuleLoader` 钩子已由 L1.3 起，本项扩展到 VFS 文件**）
+- [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可，服务常见互操作（**内建-only `require` 已由 L1.3 起，本项扩展到文件级 CJS**）
 - [ ] **L1.10 入口 `package.json` 子集**：目录入口的 `main` / `module` / 基础 `exports`
 - [ ] **L1.11 薄 `events`**：最小 EventEmitter，保证常见依赖能加载
 - [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
 - [ ] **L1.13 Virtual JS**：支持运行工作区文件 / 指定入口（不只粘贴 `eval`）
 - [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（若 L1.16 已做）
 - [ ] **L1.15 验收勾选**：对照上方「成功标准」全部通过后，将看板 L1 → `done`，焦点移到 L2
-- [ ] **L1.16 `process.nextTick`**：宿主侧优先队列；同步 `eval` 返回前（及与 L1.2 同环时先于定时器）按 FIFO 排空；挂到 `process.nextTick`；递归深度/次数保护；不改 QuickJS 引擎内部
+- [ ] **L1.16 `process.nextTick`**：宿主侧优先队列；同步 `eval` 返回前（及与 L1.2 同环时先于定时器）按 FIFO 排空；挂到 `process.nextTick`；递归深度/次数保护；不改 QuickJS 引擎内部；**drain 钩子已由 L1.2 预留**
 
 ### 本层明确不做
 
@@ -428,3 +429,5 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | L1 → `doing`；完成 L1.1：系统默认 env（设置可配）+ 终端装入 + QuickJS 宿主创建选项 / `getHostConfig`。 |
 | 2026-07-23 | `nextTick` 从 L1.4 拆出为独立 **L1.16**（宿主优先队列）；L1.4 仅保留 cwd/env/argv/exitCode/exit + stdout/stderr。 |
 | 2026-07-23 | 完成 L1.4：注入 `process` 子集；`exit` 结束本轮 eval 并记码（不销毁实例）；stdout/stderr → console 通道。 |
+| 2026-07-23 | 完成 L1.3：`path` POSIX 子集 + Node 内建注册表；`setModuleLoader`（import）与同表薄 `require`；L1.8/L1.9 文件级加载仍待扩展。 |
+| 2026-07-23 | 完成 L1.2：宿主定时器 + `queueMicrotask` + `executePendingJobs` 桥；常驻实例 / 切片 `busy`；`abort` 清定时器；退出码不跟最后表达式；L1.16 钩子预留。 |

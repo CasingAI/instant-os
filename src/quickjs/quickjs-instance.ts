@@ -20,6 +20,8 @@ import type {
   QuickJsInstanceOptions,
   QuickJsInstanceSnapshot,
 } from './quickjs-instance-types.ts'
+import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
+import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
 import {
   createProcessState,
   injectProcess,
@@ -212,8 +214,9 @@ type InstanceState = {
 }
 
 /**
- * 创建与宿主会话同寿的 QuickJS 实例。
- * 同一实例内多次 eval 共享上下文与全局变量；关闭宿主时应 destroy。
+ * 创建与宿主会话同寿的 QuickJS 实例（常驻到 destroy）。
+ * 同一实例内多次 eval 共享上下文；busy 仅表示此刻正在跑一段同步 JS 切片。
+ * 挂起的定时器不阻止再次 eval；退出码只认 process.exit / exitCode。
  */
 export async function createQuickJsInstance(
   options: QuickJsInstanceOptions = {},
@@ -226,6 +229,8 @@ export async function createQuickJsInstance(
 
   let evalDeadline = Date.now() + defaultTimeoutMs
   let abortRequested = false
+  let evalSeq = 0
+  let activeSliceTimeoutMs = defaultTimeoutMs
   const processState = createProcessState(hostConfig.workspaceRoot, hostConfig.env)
 
   const runtime: QuickJSRuntime = module.newRuntime({
@@ -265,6 +270,42 @@ export async function createQuickJsInstance(
     return line
   }
 
+  const tryBeginSlice = (timeoutMs: number): boolean => {
+    if (state.destroyed || state.busy) {
+      return false
+    }
+    abortRequested = false
+    processState.exitRequested = false
+    activeSliceTimeoutMs = timeoutMs
+    evalDeadline = Date.now() + timeoutMs
+    state.busy = true
+    notify()
+    return true
+  }
+
+  const endSlice = () => {
+    if (state.destroyed) {
+      return
+    }
+    abortRequested = false
+    processState.exitRequested = false
+    state.busy = false
+    notify()
+  }
+
+  const asyncBridge = createQuickJsAsyncBridge({
+    runtime,
+    context,
+    isDestroyed: () => state.destroyed,
+    isBusy: () => state.busy,
+    tryBeginSlice,
+    endSlice,
+    getSliceTimeoutMs: () => activeSliceTimeoutMs ?? defaultTimeoutMs,
+    reportError: (message) => {
+      pushConsole('error', message)
+    },
+  })
+
   injectConsole(context, (level, text) => {
     pushConsole(level, text)
   })
@@ -285,6 +326,12 @@ export async function createQuickJsInstance(
       },
     },
   )
+
+  injectNodeBuiltins(runtime, context, {
+    getCwd: () => processState.cwd,
+  })
+
+  asyncBridge.injectGlobals()
 
   if (options.globals !== undefined) {
     injectSerializableGlobals(context, options.globals)
@@ -337,11 +384,13 @@ export async function createQuickJsInstance(
   const abort = () => {
     if (state.destroyed) return
     abortRequested = true
+    asyncBridge.clearAll()
   }
 
   const destroy = () => {
     if (state.destroyed) return
     abortRequested = true
+    asyncBridge.clearAll()
     state.destroyed = true
     state.busy = false
     listeners.clear()
@@ -354,22 +403,18 @@ export async function createQuickJsInstance(
     evalOptions: QuickJsEvalOptions = {},
   ): Promise<QuickJsEvalResult> => {
     assertAlive()
-    if (state.busy) {
+    const timeoutMs = evalOptions.timeoutMs ?? defaultTimeoutMs
+    if (!tryBeginSlice(timeoutMs)) {
       throw new Error(`QuickJS instance ${instanceId} is already evaluating`)
     }
 
-    const timeoutMs = evalOptions.timeoutMs ?? defaultTimeoutMs
     const consoleStartIndex = state.consoleLines.length
-    abortRequested = false
-    processState.exitRequested = false
-    evalDeadline = Date.now() + timeoutMs
-    state.busy = true
-    notify()
-
     const consoleSlice = () => state.consoleLines.slice(consoleStartIndex)
 
     try {
-      const evalResult = context.evalCode(code, `${instanceId}.js`)
+      evalSeq += 1
+      // 每次独立文件名：避免 ESM 模块缓存 / 同名脚本重复声明干扰连续测试
+      const evalResult = context.evalCode(code, `${instanceId}-eval-${evalSeq}.js`)
 
       if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
@@ -394,6 +439,8 @@ export async function createQuickJsInstance(
       }
 
       try {
+        // 同步结束后排空微任务 / Promise jobs；不等待未到期定时器
+        asyncBridge.drainAfterSync()
         syncExitCodeFromGuest(context, processState)
         if (processState.exitRequested) {
           return {
@@ -415,12 +462,8 @@ export async function createQuickJsInstance(
         evalResult.value.dispose()
       }
     } finally {
-      abortRequested = false
-      processState.exitRequested = false
-      if (!state.destroyed) {
-        state.busy = false
-        notify()
-      }
+      endSlice()
+      asyncBridge.flushHostTasks()
     }
   }
 
