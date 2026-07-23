@@ -105,7 +105,12 @@ export async function runTerminalNpmOrNpx(
       const installed = await listInstalled(projectRoot)
       const names =
         args.length > 0 ? args : installed.map((p) => `${p.name}@latest`)
-      const task = await installPackages({ projectRoot, packages: names, signal })
+      const task = await installPackages({
+        projectRoot,
+        packages: names,
+        signal,
+        preferLock: false,
+      })
       for (const line of task.logs) {
         io.write(`[${line.level}] ${line.message}`)
       }

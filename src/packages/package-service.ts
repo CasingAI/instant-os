@@ -16,8 +16,10 @@ import {
   storePackageDir,
   ensureStoreRoot,
 } from './package-store.ts'
+import { satisfiesSemver } from './package-semver.ts'
 import type {
   InstantPackageLock,
+  PackageLockEntry,
   PackageLogLevel,
   PackageServiceConfig,
   PackageTask,
@@ -25,7 +27,10 @@ import type {
 } from './package-types.ts'
 import { DEFAULT_PACKAGE_SERVICE_CONFIG } from './package-types.ts'
 
-let config: PackageServiceConfig = { ...DEFAULT_PACKAGE_SERVICE_CONFIG }
+let config: PackageServiceConfig = {
+  ...DEFAULT_PACKAGE_SERVICE_CONFIG,
+  allowedHosts: [...DEFAULT_PACKAGE_SERVICE_CONFIG.allowedHosts],
+}
 const tasks = new Map<string, PackageTask>()
 const taskOrder: string[] = []
 
@@ -34,7 +39,29 @@ export function getPackageServiceConfig(): PackageServiceConfig {
 }
 
 export function setPackageServiceConfig(patch: Partial<PackageServiceConfig>): void {
-  config = { ...config, ...patch }
+  config = {
+    ...config,
+    ...patch,
+    allowedHosts: patch.allowedHosts
+      ? [...patch.allowedHosts]
+      : [...config.allowedHosts],
+  }
+}
+
+/** 放行 tarball / 镜像 CDN 主机（在已信任当前 registry 的前提下） */
+export function allowPackageHost(hostname: string): void {
+  const host = hostname.trim().toLowerCase()
+  if (!host || config.allowedHosts.includes(host)) return
+  config = { ...config, allowedHosts: [...config.allowedHosts, host] }
+}
+
+function ensureTarballHostAllowed(tarballUrl: string): void {
+  try {
+    const host = new URL(tarballUrl).hostname
+    allowPackageHost(host)
+  } catch {
+    // downloadTarball 会再报无效 URL
+  }
 }
 
 function newTaskId(): string {
@@ -160,11 +187,41 @@ type ResolvedNode = {
   name: string
   version: string
   meta: RegistryPackageVersion
+  fromLock?: boolean
+}
+
+function metaFromLockEntry(entry: PackageLockEntry): RegistryPackageVersion {
+  return {
+    version: entry.version,
+    dist: {
+      tarball: entry.resolved ?? '',
+      integrity: entry.integrity,
+    },
+    dependencies: entry.dependencies,
+    hasNative: false,
+  }
+}
+
+function tryNodeFromLock(
+  name: string,
+  range: string,
+  lock: InstantPackageLock,
+): ResolvedNode | undefined {
+  const entry = lock.packages[name]
+  if (!entry) return undefined
+  if (!satisfiesSemver(entry.version, range)) return undefined
+  return {
+    name,
+    version: entry.version,
+    meta: metaFromLockEntry(entry),
+    fromLock: true,
+  }
 }
 
 async function resolveTree(
   roots: { name: string; range: string }[],
   task: PackageTask,
+  options: { preferLock: boolean; lock: InstantPackageLock },
 ): Promise<ResolvedNode[]> {
   const resolved = new Map<string, ResolvedNode>()
   const queue: ResolveQueueItem[] = roots.map((r) => ({ ...r }))
@@ -174,6 +231,22 @@ async function resolveTree(
     const next = queue.shift()!
     const key = next.name
     if (resolved.has(key)) continue
+
+    if (options.preferLock) {
+      const fromLock = tryNodeFromLock(next.name, next.range, options.lock)
+      if (fromLock) {
+        log(task, 'info', `锁命中 ${fromLock.name}@${fromLock.version}（满足 ${next.range}）`)
+        assertNotNative(fromLock.name, fromLock.version, fromLock.meta)
+        resolved.set(key, fromLock)
+        for (const [dep, range] of Object.entries(fromLock.meta.dependencies ?? {})) {
+          if (!resolved.has(dep)) {
+            queue.push({ name: dep, range })
+          }
+        }
+        continue
+      }
+    }
+
     log(task, 'info', `解析 ${next.name}@${next.range}`)
     let meta: RegistryPackageVersion
     try {
@@ -191,6 +264,7 @@ async function resolveTree(
       }
       throw error
     }
+    if (meta.dist.tarball) ensureTarballHostAllowed(meta.dist.tarball)
     assertNotNative(next.name, meta.version, meta)
     resolved.set(key, { name: next.name, version: meta.version, meta })
     for (const [dep, range] of Object.entries(meta.dependencies ?? {})) {
@@ -219,9 +293,24 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
     log(task, 'info', `缓存命中 ${node.name}@${node.version}`)
     return storePath
   }
+
+  let tarballUrl = node.meta.dist.tarball
+  if (!tarballUrl) {
+    log(task, 'info', `锁无 resolved，向 registry 补全 ${node.name}@${node.version}`)
+    const meta = await resolveRegistryVersion(
+      node.name,
+      node.version,
+      config,
+      task.abortController.signal,
+    )
+    tarballUrl = meta.dist.tarball
+    node.meta = meta
+  }
+
+  ensureTarballHostAllowed(tarballUrl)
   log(task, 'info', `下载 ${node.name}@${node.version}`)
   const tarball = await downloadTarball(
-    node.meta.dist.tarball,
+    tarballUrl,
     config,
     task.abortController.signal,
   )
@@ -271,6 +360,8 @@ export async function installPackages(params: {
   projectRoot: string
   packages?: string[]
   signal?: AbortSignal
+  /** 默认：无 CLI 包名时锁优先；有显式包名 / update 时走 registry */
+  preferLock?: boolean
 }): Promise<Omit<PackageTask, 'abortController'>> {
   await ensureStoreRoot(config)
   const task: PackageTask = {
@@ -307,8 +398,9 @@ export async function installPackages(params: {
     }
 
     const roots: { name: string; range: string }[] = []
-    if (params.packages && params.packages.length > 0) {
-      for (const spec of params.packages) {
+    const hasCliPackages = Boolean(params.packages && params.packages.length > 0)
+    if (hasCliPackages) {
+      for (const spec of params.packages!) {
         roots.push(parseSpec(spec))
       }
     } else {
@@ -324,8 +416,12 @@ export async function installPackages(params: {
       return serializeTaskForEvent(task)
     }
 
-    const tree = await resolveTree(roots, task)
     const lock = await readLock(projectRoot)
+    const preferLock = params.preferLock ?? !hasCliPackages
+    if (preferLock) {
+      log(task, 'info', '安装策略：锁优先（满足 package.json 范围则跳过 registry 解析）')
+    }
+    const tree = await resolveTree(roots, task, { preferLock, lock })
 
     for (const node of tree) {
       task.abortController.signal.throwIfAborted()

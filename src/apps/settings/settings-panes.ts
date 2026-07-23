@@ -16,6 +16,7 @@ import {
   SpeechPaneIcon,
   StoragePaneIcon,
   SystemEnvPaneIcon,
+  NpmPaneIcon,
   DockPaneIcon,
   WallpaperPaneIcon,
 } from './settings-pane-icons.tsx'
@@ -32,6 +33,7 @@ export type SettingsPaneId =
   | 'wallpaper'
   | 'dock'
   | 'proxy-server'
+  | 'npm'
   | 'system-env'
   | 'resources'
   | 'safari'
@@ -51,6 +53,7 @@ export type SettingsRoute =
   | { view: 'wallpaper' }
   | { view: 'dock' }
   | { view: 'proxy-server' }
+  | { view: 'npm' }
   | { view: 'system-env' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
@@ -100,6 +103,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
   { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' } },
+  { id: 'npm', label: 'NPM', Icon: NpmPaneIcon, route: { view: 'npm' } },
   { id: 'system-env', label: '环境变量', Icon: SystemEnvPaneIcon, route: { view: 'system-env' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
   {
@@ -175,6 +179,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'dock'
     case 'proxy-server':
       return 'proxy-server'
+    case 'npm':
+      return 'npm'
     case 'system-env':
       return 'system-env'
     case 'resources':
@@ -204,6 +210,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'wallpaper':
     case 'dock':
     case 'proxy-server':
+    case 'npm':
     case 'system-env':
     case 'resources':
     case 'safari-usage':

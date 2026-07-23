@@ -7,9 +7,18 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - `npm install` / `uninstall` / `update` / `ls` / `outdated` / `run` / `bin`
 - `npx <pkg>`（已装优先；否则先 install 再跑 bin）
 - 锁文件：`instant-lock.json`（非 package-lock.json 字节兼容）
-- 布局：全局 CAS store（`/user/.instant-pkg-store`）+ 项目 `node_modules` **符号链接**
+- **锁优先安装**：`npm install`（无新包名）时，若锁内精确版本仍满足 `package.json` 范围，则跳过 registry 解析；store 命中则不下 tarball；锁有 `resolved` 时可直接下包
+- `npm update` / `npm install <pkg>`：重新向 registry 按范围解析
+- 布局：全局 CAS store（`/user/.instant-pkg-store`）+ 项目 `node_modules` **符号链接**（接近 pnpm，故意保留）
+- **可配置 registry**：设置 → NPM（官方 / npmmirror / 自定义 npm 兼容源）；持久化并接到 PackageService
 - 纯 JS lifecycle / scripts：经 QuickJS 执行（`node` shebang 映射为 Instant 宿主）
 - 拒绝：`.node` / gypfile / node-gyp 类原生包
+
+## 源站选择
+
+- 主路径使用 **npm 兼容 registry 协议**（packument + tarball），默认 `registry.npmjs.org`。
+- 加速应换 **同协议镜像**（如 npmmirror）或自定义 Verdaccio，而不是 jsDelivr。
+- **不做**：以 jsDelivr Data/CDN API 作为安装源（缺完整 packument、无整包 tarball 安装管线）。
 
 ## 明确不做
 
@@ -17,8 +26,9 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - workspaces / monorepo 协议
 - 完整 peer 依赖算法、overrides、npm hooks 插件
 - 任意 shell 脚本、`child_process`、真实 OS 进程
-- 官方 npm 配置文件全兼容（`.npmrc` 仅预留 registry 配置入口）
+- 官方 `.npmrc` / `package-lock.json` 字节全兼容；scoped 多 registry 表；多源自动故障转移
 - 挂载卷上创建 symlink
+- jsDelivr 作 `node_modules` 安装源
 
 ## 能装 ≠ 能跑
 
@@ -53,3 +63,4 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 
 - 终端本地命令 `npm` / `npx` 与 **包管理** App 共用 PackageService，逻辑零分叉。
 - 安装进度与日志可在两端观察；取消走同一任务 abort。
+- registry 在 **设置 → NPM** 配置；与终端共用同一 `PackageServiceConfig`。

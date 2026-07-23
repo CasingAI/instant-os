@@ -265,3 +265,17 @@ export function SystemEnvPaneIcon() {
     </AppIconTile>
   )
 }
+
+export function NpmPaneIcon() {
+  return (
+    <AppIconTile color="#cb3837" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (42 / 72)}px`, fontWeight: 700 }}
+        aria-hidden="true"
+      >
+        npm
+      </span>
+    </AppIconTile>
+  )
+}
