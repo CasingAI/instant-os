@@ -22,6 +22,7 @@ import type {
 } from './quickjs-instance-types.ts'
 import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
+import { injectTextEncoding } from './quickjs-text-encoding.ts'
 import {
   createProcessState,
   injectProcess,
@@ -326,6 +327,8 @@ export async function createQuickJsInstance(
       },
     },
   )
+
+  injectTextEncoding(context)
 
   injectNodeBuiltins(runtime, context, {
     getCwd: () => processState.cwd,

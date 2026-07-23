@@ -66,7 +66,58 @@ function tryNormalizeAbsolute(raw: string | undefined): string | undefined {
   }
 }
 
+function tryDecodeBinaryWriteChunk(
+  context: QuickJSContext,
+  handle: QuickJSHandle,
+): string | undefined {
+  try {
+    const lifetime = context.getArrayBuffer(handle)
+    try {
+      return new TextDecoder('utf-8').decode(lifetime.value)
+    } finally {
+      lifetime.dispose()
+    }
+  } catch {
+    // TypedArray / Buffer 视图
+  }
+
+  let bufferHandle: QuickJSHandle | undefined
+  let offsetHandle: QuickJSHandle | undefined
+  let lengthHandle: QuickJSHandle | undefined
+  try {
+    bufferHandle = context.getProp(handle, 'buffer')
+    if (context.typeof(bufferHandle) === 'undefined') {
+      return undefined
+    }
+    offsetHandle = context.getProp(handle, 'byteOffset')
+    lengthHandle = context.getProp(handle, 'byteLength')
+    const offset = context.typeof(offsetHandle) === 'number' ? context.getNumber(offsetHandle) : 0
+    const length =
+      context.typeof(lengthHandle) === 'number' ? context.getNumber(lengthHandle) : undefined
+    const lifetime = context.getArrayBuffer(bufferHandle)
+    try {
+      const view = lifetime.value
+      const slice =
+        length === undefined ? view.subarray(offset) : view.subarray(offset, offset + length)
+      return new TextDecoder('utf-8').decode(slice)
+    } finally {
+      lifetime.dispose()
+    }
+  } catch {
+    return undefined
+  } finally {
+    lengthHandle?.dispose()
+    offsetHandle?.dispose()
+    bufferHandle?.dispose()
+  }
+}
+
 function formatWriteChunk(context: QuickJSContext, handle: QuickJSHandle): string {
+  const fromBinary = tryDecodeBinaryWriteChunk(context, handle)
+  if (fromBinary !== undefined) {
+    return fromBinary
+  }
+
   try {
     const dumped = context.dump(handle)
     if (typeof dumped === 'string') {
@@ -80,6 +131,19 @@ function formatWriteChunk(context: QuickJSContext, handle: QuickJSHandle): strin
       typeof dumped === 'bigint'
     ) {
       return String(dumped)
+    }
+    // Buffer.toJSON() → { type: 'Buffer', data: number[] }
+    if (
+      typeof dumped === 'object' &&
+      dumped !== null &&
+      (dumped as { type?: unknown }).type === 'Buffer' &&
+      Array.isArray((dumped as { data?: unknown }).data)
+    ) {
+      const data = (dumped as { data: number[] }).data
+      return new TextDecoder('utf-8').decode(Uint8Array.from(data))
+    }
+    if (Array.isArray(dumped) && dumped.every((item) => typeof item === 'number')) {
+      return new TextDecoder('utf-8').decode(Uint8Array.from(dumped as number[]))
     }
     try {
       return JSON.stringify(dumped)

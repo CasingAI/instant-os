@@ -119,7 +119,7 @@
 - [x] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌（`executePendingJobs` + `settleGuestPromise`）；切片 `busy`；`abort`/`destroy` 清调度器；L1.16 nextTick 钩子已预留未实现
 - [x] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载（`import` / `require` / `node:path`；共享 Node 内建注册表）
 - [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
-- [ ] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（或等价互转）；`TextEncoder` / `TextDecoder`
+- [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L1.8/VFS，不走本管线
 - [ ] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、exists；路径落在卷模型；大文件限额策略写明
 - [ ] **L1.7 同步 I/O 策略落地**：文档 + 实现约定（内存工作区 / 仅 async / 预加载）；避免 UI 线程直打持久化 Sync
 - [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错（**内建 `setModuleLoader` 钩子已由 L1.3 起，本项扩展到 VFS 文件**）
@@ -431,3 +431,18 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.4：注入 `process` 子集；`exit` 结束本轮 eval 并记码（不销毁实例）；stdout/stderr → console 通道。 |
 | 2026-07-23 | 完成 L1.3：`path` POSIX 子集 + Node 内建注册表；`setModuleLoader`（import）与同表薄 `require`；L1.8/L1.9 文件级加载仍待扩展。 |
 | 2026-07-23 | 完成 L1.2：宿主定时器 + `queueMicrotask` + `executePendingJobs` 桥；常驻实例 / 切片 `busy`；`abort` 清定时器；退出码不跟最后表达式；L1.16 钩子预留。 |
+| 2026-07-23 | L1.5 范围澄清：本期 Buffer + UTF-8 编解码；完整 charset / `string_decoder` / 独立 Buffer 配额记入文末「远期目标」。 |
+| 2026-07-23 | 完成 L1.5：feross/buffer 预打包注入 guest（全局 + `buffer`/`node:buffer`）+ 宿主 `TextEncoder`/`TextDecoder` 桥；stdout 可写 Buffer。 |
+| 2026-07-23 | Guest 内建 vendor：`vendor:quickjs-guest` + 清单驱动；替换一次性 `vendor-quickjs-buffer`；普通 npm 仍等 L1.8/VFS。 |
+
+---
+
+## 远期目标（L1 之后按需）
+
+> 不阻塞当前层验收；有明确依赖或产品需求时再开项。与「本层明确不做」不同：这里是**以后可以做**，不是永久排除。
+
+### 编解码与二进制（承接 L1.5 缺口）
+
+- [ ] **F.1 多编码 / 完整 charset**：在 UTF-8 之外支持常见 legacy 编码（按需表驱动或受控依赖）；`TextDecoder` 非 UTF-8 不再一律拒绝。
+- [ ] **F.2 `string_decoder`**：流式解码（不完整多字节序列跨 chunk）；通常在薄 `stream` / 流式 `fs` 读真正落地后再做。
+- [ ] **F.3 独立 Buffer 配额**：单次 `alloc` / `from` 软上限与更清晰的错误信息（与堆 `memoryLimitBytes`、文件 `maxFileBytes` 分层说明）；L1.5 仅靠堆限额。

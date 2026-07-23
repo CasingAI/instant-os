@@ -90,6 +90,42 @@ export default {
 `,
   },
   {
+    id: 'buffer-basics',
+    title: 'Buffer · 编解码',
+    blurb: '全局 Buffer；utf8 / hex / base64；Uint8Array 子类',
+    source: `(function () {
+  var viaRequire = require('buffer').Buffer
+  console.log('same as global?', Buffer === viaRequire)
+  var buf = Buffer.from('hello')
+  console.log('utf8', buf.toString('utf8'))
+  console.log('hex', buf.toString('hex'))
+  console.log('base64', buf.toString('base64'))
+  console.log('isBuffer', Buffer.isBuffer(buf), 'instanceof Uint8Array', buf instanceof Uint8Array)
+  process.stdout.write(Buffer.from('stdout via Buffer'))
+  return Buffer.from('hi', 'utf8').toString('hex')
+})()
+`,
+  },
+  {
+    id: 'buffer-import-encoder',
+    title: 'Buffer · import + TextEncoder',
+    blurb: 'node:buffer 与 TextEncoder/TextDecoder 往返',
+    source: `import { Buffer as Buf } from 'node:buffer'
+
+var enc = new TextEncoder()
+var bytes = enc.encode('Instant')
+var dec = new TextDecoder()
+var text = dec.decode(bytes)
+var fromBuf = Buf.from(bytes).toString('utf8')
+
+console.log('encoding', enc.encoding)
+console.log('roundtrip', text, fromBuf)
+console.log('same Buffer?', Buf === Buffer)
+
+export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
+`,
+  },
+  {
     id: 'process-basics',
     title: 'process · 基础',
     blurb: 'cwd / env / argv / stdout / stderr',

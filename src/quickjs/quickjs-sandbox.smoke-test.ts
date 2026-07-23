@@ -323,6 +323,90 @@ async function testInstance() {
     )
   }
 
+  const bufferBasics = await timerInstance.eval(`
+    var fromGlobal = Buffer.from('hi')
+    var viaRequire = require('buffer').Buffer
+    var same = Buffer === viaRequire
+    var hex = fromGlobal.toString('hex')
+    var b64 = Buffer.from([104, 105]).toString('base64')
+    var back = Buffer.from(hex, 'hex').toString('utf8')
+    var isU8 = fromGlobal instanceof Uint8Array
+    var isBuf = Buffer.isBuffer(fromGlobal)
+    ;({ same: same, hex: hex, b64: b64, back: back, isU8: isU8, isBuf: isBuf })
+  `)
+  if (!bufferBasics.ok) {
+    throw new Error(`Buffer basics failed: ${JSON.stringify(bufferBasics)}`)
+  }
+  const bufVal = bufferBasics.value as Record<string, unknown>
+  if (
+    bufVal.same !== true ||
+    bufVal.hex !== '6869' ||
+    bufVal.b64 !== 'aGk=' ||
+    bufVal.back !== 'hi' ||
+    bufVal.isU8 !== true ||
+    bufVal.isBuf !== true
+  ) {
+    throw new Error(`unexpected Buffer basics: ${JSON.stringify(bufVal)}`)
+  }
+
+  const bufferImport = await timerInstance.eval(`
+import { Buffer as BufNamed } from 'node:buffer'
+import bufMod from 'buffer'
+export default {
+  sameNamed: BufNamed === Buffer,
+  sameDefault: bufMod.Buffer === Buffer,
+  kMax: typeof bufMod.kMaxLength === 'number',
+}
+`)
+  if (!bufferImport.ok) {
+    throw new Error(`buffer import failed: ${JSON.stringify(bufferImport)}`)
+  }
+  const importVal = (bufferImport.value as { default?: Record<string, unknown> }).default ??
+    (bufferImport.value as Record<string, unknown>)
+  if (importVal.sameNamed !== true || importVal.sameDefault !== true || importVal.kMax !== true) {
+    throw new Error(`unexpected buffer import: ${JSON.stringify(bufferImport.value)}`)
+  }
+
+  const textEnc = await timerInstance.eval(`
+    var enc = new TextEncoder()
+    var bytes = enc.encode('你好')
+    var dec = new TextDecoder()
+    var text = dec.decode(bytes)
+    var bad = null
+    try { new TextDecoder('gbk') } catch (e) { bad = String(e && e.message ? e.message : e) }
+    ;({
+      encoding: enc.encoding,
+      text: text,
+      byteLength: bytes.byteLength,
+      badOk: typeof bad === 'string' && bad.indexOf('utf-8') !== -1
+    })
+  `)
+  if (!textEnc.ok) {
+    throw new Error(`TextEncoder/Decoder failed: ${JSON.stringify(textEnc)}`)
+  }
+  const teVal = textEnc.value as Record<string, unknown>
+  if (
+    teVal.encoding !== 'utf-8' ||
+    teVal.text !== '你好' ||
+    teVal.byteLength !== 6 ||
+    teVal.badOk !== true
+  ) {
+    throw new Error(`unexpected TextEncoder result: ${JSON.stringify(teVal)}`)
+  }
+
+  const stdoutBuf = await timerInstance.eval(`
+    process.stdout.write(Buffer.from('stdout-buf-ok'))
+    'done'
+  `)
+  if (!stdoutBuf.ok || stdoutBuf.value !== 'done') {
+    throw new Error(`stdout Buffer write failed: ${JSON.stringify(stdoutBuf)}`)
+  }
+  if (!stdoutBuf.consoleLines.some((line) => line.text === 'stdout-buf-ok')) {
+    throw new Error(
+      `expected stdout Buffer decoded in console: ${JSON.stringify(stdoutBuf.consoleLines)}`,
+    )
+  }
+
   await timerInstance.eval(`
     setTimeout(function () { console.log('after-destroy-should-not') }, 20)
   `)

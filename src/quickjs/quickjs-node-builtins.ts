@@ -1,4 +1,5 @@
 import type { QuickJSContext, QuickJSHandle, QuickJSRuntime } from 'quickjs-emscripten'
+import { buildBufferModuleSource, injectBuffer } from './quickjs-buffer.ts'
 import { createPosixPathApi, type QuickJsPathApi } from './quickjs-path.ts'
 
 /** 实例私有：内建模块对象挂载点（非公开脚本 API）。 */
@@ -215,6 +216,7 @@ function buildPathModuleSource(): string {
 }
 
 const PATH_MODULE_SOURCE = buildPathModuleSource()
+const BUFFER_MODULE_SOURCE = buildBufferModuleSource(BUILTINS_GLOBAL_KEY)
 
 function lookupBuiltinHandle(
   context: QuickJSContext,
@@ -238,22 +240,25 @@ function lookupBuiltinHandle(
 
 /**
  * 注入 Node 内建注册表：setModuleLoader（import）+ 全局 require，同表同对象。
- * 本轮仅注册 path / node:path（及 path/posix 别名）。
+ * 已实现：path、buffer（及 node: 前缀 / path/posix 别名）。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSRuntime,
   context: QuickJSContext,
   options: { getCwd: () => string },
 ): QuickJsNodeBuiltinRegistry {
-  const implemented = new Set<string>(['path'])
+  const implemented = new Set<string>(['path', 'buffer'])
   const listImplemented = () => [...implemented]
 
   const pathApi = createPosixPathApi(options.getCwd)
   const pathHandle = createPathModuleHandle(context, pathApi)
+  const bufferHandle = injectBuffer(context)
 
   const namespace = context.newObject()
   context.setProp(namespace, 'path', pathHandle)
   pathHandle.dispose()
+  context.setProp(namespace, 'buffer', bufferHandle)
+  bufferHandle.dispose()
   context.setProp(context.global, BUILTINS_GLOBAL_KEY, namespace)
   namespace.dispose()
 
@@ -261,6 +266,9 @@ export function injectNodeBuiltins(
     const canonical = toCanonicalBuiltinId(moduleName)
     if (canonical === 'path') {
       return PATH_MODULE_SOURCE
+    }
+    if (canonical === 'buffer') {
+      return BUFFER_MODULE_SOURCE
     }
     if (canonical === 'path/win32') {
       return {
