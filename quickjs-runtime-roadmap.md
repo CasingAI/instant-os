@@ -110,7 +110,7 @@
    - L1.12（可选）：极薄 `stream`，仅在卡依赖时再加。
 
 8. **Virtual JS / 文档同步升级**
-   - Virtual JS：除粘贴运行外，支持「运行当前文件 / 指定入口」。
+   - Virtual JS：除粘贴运行外，支持「运行当前文件 / 指定入口」（L1.13 已落地）。
    - 关于文案与路线说明与本文件对齐。
 
 ### Todo（L1）
@@ -129,7 +129,7 @@
 - [x] **L1.10 入口 `package.json` 子集**：CJS 目录 `require` 读 `exports["."]`（字符串或 require/node/default）/ `main` → 再回退 `index`；有 `exports` 不回退 `main`。不做：ESM folder mains、`"module"` 字段、子路径 `exports`、裸名（L2）
 - [x] **L1.11 薄 `events`**：手写最小 EventEmitter（`on`/`once`/`off`/`emit`/`removeAllListeners`/`listenerCount`；`error` 无监听抛错）；`events`/`node:events` 同一构造函数；CJS 导出即构造函数。不做：vendor 整包、挂全局、`prepend*`、`captureRejections`、`stream`（L1.12）、`nextTick` 异步辅助
 - [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
-- [ ] **L1.13 Virtual JS**：支持运行工作区文件 / 指定入口（不只粘贴 `eval`）
+- [x] **L1.13 Virtual JS**：打开工作区 `.js`/`.mjs`/`.cjs` 作入口（`eval` + `filename`）；保存/重新加载；「演示入口」写入 `/user/virtual-js-demo` 多文件相对 import；内置用例仍为粘贴 eval
 - [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（若 L1.16 已做）
 - [ ] **L1.15 验收勾选**：对照上方「成功标准」全部通过后，将看板 L1 → `done`，焦点移到 L2
 - [x] **L1.16 `process.nextTick`**：宿主 FIFO 队列；与 `queueMicrotask` / Promise jobs **同相**排空（先于定时器；**不**保证 Node「严格先于 then」）；挂 `process.nextTick`；单次 drain / 队列上限；`abort`/`destroy` 清队列；不改引擎
@@ -443,6 +443,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.10：CJS 目录入口 `exports["."]` / `main` → index；exports 覆盖 main；目录别名供嵌套 sync require；不做 ESM folder mains / `"module"` / 子路径。 |
 | 2026-07-23 | 完成 L1.11：手写薄 EventEmitter（guest 源注入）；`events`/`node:events` 同构造函数；不做 vendor / 全局 / prepend / stream。 |
 | 2026-07-23 | 完成 L1.16：`process.nextTick` 宿主 FIFO；与 microtask/Promise **同相**（先于定时器，不保证先于 then）；drain/队列上限；abort 清队列。 |
+| 2026-07-23 | 完成 L1.13：Virtual JS 打开/保存工作区入口 + `filename` 相对 import；演示项目 `/user/virtual-js-demo`。 |
 
 ---
 

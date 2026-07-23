@@ -9,15 +9,26 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import {
   DEFAULT_VIRTUAL_JS_SAMPLE_ID,
   formatVirtualJsSampleTitle,
   getVirtualJsSample,
   VIRTUAL_JS_SAMPLE_LIST,
 } from './virtual-js-samples.ts'
+import {
+  readVirtualJsWorkspaceFile,
+  saveVirtualJsWorkspaceFile,
+  seedVirtualJsDemoProject,
+  virtualJsFileBasename,
+} from './virtual-js-workspace.ts'
 import './virtual-js.css'
 
 const APP_ID = 'virtual-js' as const
+/** 工作区文件模式（非内置用例）。 */
+const WORKSPACE_FILE_SAMPLE_ID = '__workspace_file__' as const
+const SCRIPT_ACCEPT_EXTENSIONS = ['js', 'mjs', 'cjs'] as const
+const WORKSPACE_ROOT = '/user'
 
 type OutputKind = 'log' | 'info' | 'warn' | 'error' | 'result' | 'result-error'
 
@@ -117,6 +128,7 @@ function initialSampleSource(): string {
 export function VirtualJsApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
+  const { showSystemOpenDialog, dialog: openDialog } = useSystemOpenDialog()
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   const mountedRef = useRef(true)
   const outputSeqRef = useRef(0)
@@ -124,12 +136,20 @@ export function VirtualJsApp() {
   const activeSampleButtonRef = useRef<HTMLButtonElement | null>(null)
   const [activeSampleId, setActiveSampleId] = useState(DEFAULT_VIRTUAL_JS_SAMPLE_ID)
   const [source, setSource] = useState(initialSampleSource)
+  /** 工作区入口绝对路径；有值时 Run 走 filename，相对 import 相对该文件。 */
+  const [entryPath, setEntryPath] = useState<string | undefined>(undefined)
+  const [fileDirty, setFileDirty] = useState(false)
   const [outputLines, setOutputLines] = useState<OutputLine[]>([])
   const [uiState, setUiState] = useState<InstanceUiState>('boot')
   const [bootError, setBootError] = useState<string | undefined>(undefined)
   const [testingAll, setTestingAll] = useState(false)
 
+  const fileMode = entryPath !== undefined
+
   const activeSample = useMemo(() => {
+    if (activeSampleId === WORKSPACE_FILE_SAMPLE_ID) {
+      return undefined
+    }
     const fromList = VIRTUAL_JS_SAMPLE_LIST.find((sample) => sample.id === activeSampleId)
     if (fromList !== undefined) {
       return fromList
@@ -137,10 +157,20 @@ export function VirtualJsApp() {
     return VIRTUAL_JS_SAMPLE_LIST[0]
   }, [activeSampleId])
 
-  const activeSampleLabel = useMemo(
-    () => (activeSample !== undefined ? formatVirtualJsSampleTitle(activeSample) : '脚本'),
-    [activeSample],
-  )
+  const activeSampleLabel = useMemo(() => {
+    if (entryPath !== undefined) {
+      const name = virtualJsFileBasename(entryPath)
+      return fileDirty ? `${name} · 未保存` : name
+    }
+    return activeSample !== undefined ? formatVirtualJsSampleTitle(activeSample) : '脚本'
+  }, [activeSample, entryPath, fileDirty])
+
+  const editorBlurb = useMemo(() => {
+    if (entryPath !== undefined) {
+      return `入口 ${entryPath} · 相对 import 相对该文件`
+    }
+    return activeSample?.blurb
+  }, [activeSample?.blurb, entryPath])
 
   useEffect(() => {
     activeSampleButtonRef.current?.scrollIntoView({
@@ -210,8 +240,8 @@ export function VirtualJsApp() {
     setBootError(undefined)
     try {
       const instance = await createQuickJsInstance({
-        // Virtual JS 默认可读写用户卷，便于内置 fs 样例
-        workspaceRoot: '/user',
+        // Virtual JS 默认可读写用户卷，便于内置 fs 样例与打开工作区文件
+        workspaceRoot: WORKSPACE_ROOT,
       })
       bindInstance(instance)
     } catch (error) {
@@ -248,9 +278,11 @@ export function VirtualJsApp() {
         return
       }
 
-      const switching = sample.id !== activeSampleId
+      const switching = sample.id !== activeSampleId || entryPath !== undefined
       setActiveSampleId(sample.id)
       setSource(sample.source)
+      setEntryPath(undefined)
+      setFileDirty(false)
 
       if (!switching) {
         return
@@ -263,8 +295,103 @@ export function VirtualJsApp() {
       appendOutput('info', `已切换「${formatVirtualJsSampleTitle(sample)}」· 实例已重建`)
       await createInstance()
     },
-    [activeSampleId, appendOutput, createInstance, testingAll, uiState],
+    [activeSampleId, appendOutput, createInstance, entryPath, testingAll, uiState],
   )
+
+  const openWorkspaceEntry = useCallback(
+    async (path: string, options?: { info?: string }) => {
+      const text = await readVirtualJsWorkspaceFile(path)
+      if (!mountedRef.current) {
+        return
+      }
+      setActiveSampleId(WORKSPACE_FILE_SAMPLE_ID)
+      setEntryPath(path)
+      setSource(text)
+      setFileDirty(false)
+      if (uiState === 'busy') {
+        instanceRef.current?.abort()
+      }
+      setOutputLines([])
+      appendOutput(
+        'info',
+        options?.info ?? `已打开工作区入口 ${path} · 运行时相对 import 相对该文件`,
+      )
+      await createInstance()
+    },
+    [appendOutput, createInstance, uiState],
+  )
+
+  const handleOpenFile = useCallback(async () => {
+    if (testingAll || uiState === 'busy' || uiState === 'boot') {
+      return
+    }
+    const path = await showSystemOpenDialog({
+      title: '打开脚本入口',
+      acceptExtensions: SCRIPT_ACCEPT_EXTENSIONS,
+    })
+    if (path === undefined || !mountedRef.current) {
+      return
+    }
+    try {
+      await openWorkspaceEntry(path)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendOutput('result-error', `打开失败：${message}`)
+    }
+  }, [appendOutput, openWorkspaceEntry, showSystemOpenDialog, testingAll, uiState])
+
+  const handleOpenDemoEntry = useCallback(async () => {
+    if (testingAll || uiState === 'busy' || uiState === 'boot') {
+      return
+    }
+    try {
+      const path = await seedVirtualJsDemoProject()
+      if (!mountedRef.current) {
+        return
+      }
+      await openWorkspaceEntry(path, {
+        info: `已写入演示项目并打开 ${path}（含 ./lib.js 相对 import）`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendOutput('result-error', `演示入口失败：${message}`)
+    }
+  }, [appendOutput, openWorkspaceEntry, testingAll, uiState])
+
+  const handleReloadFile = useCallback(async () => {
+    if (testingAll || entryPath === undefined) {
+      return
+    }
+    try {
+      const text = await readVirtualJsWorkspaceFile(entryPath)
+      if (!mountedRef.current) {
+        return
+      }
+      setSource(text)
+      setFileDirty(false)
+      appendOutput('info', `已从磁盘重新加载 ${entryPath}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendOutput('result-error', `重新加载失败：${message}`)
+    }
+  }, [appendOutput, entryPath, testingAll])
+
+  const handleSaveFile = useCallback(async () => {
+    if (testingAll || entryPath === undefined) {
+      return
+    }
+    try {
+      await saveVirtualJsWorkspaceFile(entryPath, source)
+      if (!mountedRef.current) {
+        return
+      }
+      setFileDirty(false)
+      appendOutput('info', `已保存 ${entryPath}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendOutput('result-error', `保存失败：${message}`)
+    }
+  }, [appendOutput, entryPath, source, testingAll])
 
   const destroyInstanceWithExitCode = useCallback(
     (exitCode: number, reason: 'stop' | 'process.exit') => {
@@ -290,6 +417,7 @@ export function VirtualJsApp() {
     async (
       code: string,
       title: string,
+      evalOptions?: { filename?: string },
     ): Promise<SuiteCaseResult> => {
       let instance = instanceRef.current
       if (instance === undefined || instance.getSnapshot().destroyed) {
@@ -305,11 +433,15 @@ export function VirtualJsApp() {
       setUiState('busy')
       try {
         const snap = instance.getSnapshot()
+        const entryHint =
+          evalOptions?.filename !== undefined ? ` entry=${evalOptions.filename}` : ''
         appendOutput(
           'info',
-          `── run · cwd=${snap.cwd} exitCode=${snap.exitCode} · ${title} ──`,
+          `── run · cwd=${snap.cwd} exitCode=${snap.exitCode}${entryHint} · ${title} ──`,
         )
-        const result = await instance.eval(code)
+        const result = await instance.eval(code, {
+          filename: evalOptions?.filename,
+        })
         // console 已由 subscribe 流式追加；这里只展示 REPL 结果 / exit
         syncConsoleFromInstance(instance)
         if (result.ok) {
@@ -357,8 +489,12 @@ export function VirtualJsApp() {
     if (testingAll || uiState === 'busy') {
       return
     }
-    await evalSource(source, activeSampleLabel)
-  }, [activeSampleLabel, evalSource, source, testingAll, uiState])
+    await evalSource(
+      source,
+      activeSampleLabel,
+      entryPath !== undefined ? { filename: entryPath } : undefined,
+    )
+  }, [activeSampleLabel, entryPath, evalSource, source, testingAll, uiState])
 
   const handleStopTestAll = useCallback(() => {
     testAllAbortRef.current = true
@@ -398,6 +534,8 @@ export function VirtualJsApp() {
       const labeled = formatVirtualJsSampleTitle(sample)
       setActiveSampleId(sample.id)
       setSource(sample.source)
+      setEntryPath(undefined)
+      setFileDirty(false)
 
       if (instanceRef.current?.getSnapshot().busy) {
         instanceRef.current.abort()
@@ -479,26 +617,43 @@ export function VirtualJsApp() {
   }, [destroyInstanceWithExitCode, handleStopTestAll, testingAll])
 
   const handleResetSample = useCallback(() => {
+    if (fileMode) {
+      void handleReloadFile()
+      return
+    }
     if (activeSample === undefined) {
       return
     }
     setSource(activeSample.source)
-  }, [activeSample])
+    setFileDirty(false)
+  }, [activeSample, fileMode, handleReloadFile])
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
         void handleRun()
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && fileMode) {
+        event.preventDefault()
+        void handleSaveFile()
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') {
+        event.preventDefault()
+        void handleOpenFile()
       }
     },
-    [handleRun],
+    [fileMode, handleOpenFile, handleRun, handleSaveFile],
   )
 
   const canRun = uiState === 'ready' && !testingAll
   const canStop = uiState === 'ready' || uiState === 'busy' || testingAll
   const canRecreate = uiState !== 'busy' && uiState !== 'boot' && !testingAll
   const canStartTestAll = uiState !== 'boot' && uiState !== 'busy'
+  const canFileActions = !testingAll && uiState !== 'boot' && uiState !== 'busy'
+  const canSaveFile = canFileActions && fileMode
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
@@ -524,11 +679,42 @@ export function VirtualJsApp() {
         ],
       },
       {
+        label: '文件',
+        items: [
+          {
+            type: 'action',
+            label: '打开…',
+            shortcut: '⌘O',
+            disabled: !canFileActions,
+            onClick: () => void handleOpenFile(),
+          },
+          {
+            type: 'action',
+            label: '打开演示入口',
+            disabled: !canFileActions,
+            onClick: () => void handleOpenDemoEntry(),
+          },
+          {
+            type: 'action',
+            label: '保存',
+            shortcut: '⌘S',
+            disabled: !canSaveFile,
+            onClick: () => void handleSaveFile(),
+          },
+          {
+            type: 'action',
+            label: '从磁盘重新加载',
+            disabled: !canSaveFile,
+            onClick: () => void handleReloadFile(),
+          },
+        ],
+      },
+      {
         label: '运行',
         items: [
           {
             type: 'action',
-            label: '运行',
+            label: fileMode ? '运行入口文件' : '运行',
             shortcut: '⌘↩',
             disabled: !canRun,
             onClick: () => void handleRun(),
@@ -554,7 +740,7 @@ export function VirtualJsApp() {
           },
           {
             type: 'action',
-            label: '重置当前用例',
+            label: fileMode ? '重新加载文件' : '重置当前用例',
             disabled: testingAll,
             onClick: handleResetSample,
           },
@@ -568,15 +754,22 @@ export function VirtualJsApp() {
       },
     ]
   }, [
+    canFileActions,
     canRecreate,
     canRun,
+    canSaveFile,
     canStartTestAll,
     canStop,
     closeWindowsForApp,
+    fileMode,
     handleClearOutput,
+    handleOpenDemoEntry,
+    handleOpenFile,
     handleRecreateInstance,
+    handleReloadFile,
     handleResetSample,
     handleRun,
+    handleSaveFile,
     handleStop,
     handleTestAll,
     minimizeWindow,
@@ -589,17 +782,44 @@ export function VirtualJsApp() {
 
   return (
     <div class="virtual-js-app">
+      {openDialog}
       <div class="virtual-js-app__toolbar">
         <span class="virtual-js-app__status" data-state={testingAll ? 'busy' : uiState}>
           {bootError ? `错误：${bootError}` : statusLabel(uiState, testingAll)}
         </span>
         <button
           type="button"
+          class="virtual-js-app__button"
+          disabled={!canFileActions}
+          onClick={() => void handleOpenFile()}
+          title="打开 VFS 中的 .js / .mjs / .cjs 作为入口"
+        >
+          打开
+        </button>
+        <button
+          type="button"
+          class="virtual-js-app__button"
+          disabled={!canFileActions}
+          onClick={() => void handleOpenDemoEntry()}
+          title="写入 /user/virtual-js-demo 并打开 main.js"
+        >
+          演示入口
+        </button>
+        <button
+          type="button"
+          class="virtual-js-app__button"
+          disabled={!canSaveFile}
+          onClick={() => void handleSaveFile()}
+        >
+          保存
+        </button>
+        <button
+          type="button"
           class="virtual-js-app__button virtual-js-app__button--primary"
           disabled={!canRun}
           onClick={() => void handleRun()}
         >
-          运行
+          {fileMode ? '运行入口' : '运行'}
         </button>
         <button
           type="button"
@@ -637,7 +857,7 @@ export function VirtualJsApp() {
           disabled={testingAll}
           onClick={handleResetSample}
         >
-          重置用例
+          {fileMode ? '重新加载' : '重置用例'}
         </button>
         <button
           type="button"
@@ -654,7 +874,7 @@ export function VirtualJsApp() {
           <div class="virtual-js-app__samples-head">测试用例</div>
           <ul class="virtual-js-app__sample-list">
             {VIRTUAL_JS_SAMPLE_LIST.map((sample) => {
-              const selected = sample.id === activeSampleId
+              const selected = !fileMode && sample.id === activeSampleId
               return (
                 <li key={sample.id}>
                   <button
@@ -684,7 +904,7 @@ export function VirtualJsApp() {
         <div class="virtual-js-app__main">
           <div class="virtual-js-app__editor-meta">
             <span class="virtual-js-app__editor-title">{activeSampleLabel}</span>
-            <span class="virtual-js-app__editor-blurb">{activeSample?.blurb}</span>
+            <span class="virtual-js-app__editor-blurb">{editorBlurb}</span>
           </div>
           <div class="virtual-js-app__editor">
             <textarea
@@ -692,7 +912,12 @@ export function VirtualJsApp() {
               value={source}
               spellCheck={false}
               readOnly={testingAll}
-              onInput={(event) => setSource((event.target as HTMLTextAreaElement).value)}
+              onInput={(event) => {
+                setSource((event.target as HTMLTextAreaElement).value)
+                if (fileMode) {
+                  setFileDirty(true)
+                }
+              }}
               onKeyDown={handleKeyDown}
               aria-label="QuickJS 源代码"
             />
@@ -701,8 +926,8 @@ export function VirtualJsApp() {
           <div class="virtual-js-app__output" role="log" aria-live="polite">
             {outputLines.length === 0 ? (
               <p class="virtual-js-app__output-empty">
-                「运行」往同一进程塞代码。「测试全部」会依次跑完所有用例并在此汇总。
-                「停止」或脚本里 process.exit 都会销毁实例并显示 exitCode。
+                「打开 / 演示入口」从工作区跑多文件脚本；「运行」粘贴求值或按入口 filename 解析相对
+                import。「测试全部」依次跑内置用例。「停止」或 process.exit 销毁实例。
               </p>
             ) : (
               outputLines.map((line) => (
