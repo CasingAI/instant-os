@@ -75,6 +75,11 @@ export type QuickJsInstanceOptions = {
 export type QuickJsEvalOptions = {
   /** 覆盖实例默认超时。 */
   timeoutMs?: number
+  /**
+   * 本轮入口模块文件名（绝对 VFS 路径，或相对 cwd）。
+   * 未传时为 `{cwd}/[eval-{n}].js`，使相对 `import` 相对 cwd（类 Node eval）。
+   */
+  filename?: string
 }
 
 export type QuickJsEvalSuccess = {

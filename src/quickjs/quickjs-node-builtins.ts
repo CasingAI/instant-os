@@ -12,6 +12,10 @@ import {
   injectFs,
 } from './quickjs-fs.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
+import {
+  loadEsmModuleSourceFromVfs,
+  normalizeModuleRequest,
+} from './quickjs-module-loader.ts'
 import { createPosixPathApi, type QuickJsPathApi } from './quickjs-path.ts'
 
 /** 实例私有：内建模块对象挂载点（非公开脚本 API）。 */
@@ -102,7 +106,7 @@ function toCanonicalBuiltinId(raw: string): string {
   return id
 }
 
-function formatMissingModuleError(requested: string, implemented: string[]): Error {
+function formatMissingBuiltinError(requested: string, implemented: string[]): Error {
   const id = normalizeModuleId(requested)
   const implementedHint =
     implemented.length > 0 ? implemented.map((name) => `'${name}'`).join(', ') : '(none)'
@@ -114,8 +118,24 @@ function formatMissingModuleError(requested: string, implemented: string[]): Err
   }
 
   return new Error(
-    `Cannot find module '${requested}'. Instant require/import currently only supports implemented Node builtins (not third-party or file paths). Implemented: ${implementedHint}`,
+    `Cannot find module '${requested}'. Instant require currently only supports implemented Node builtins (file-level require with CJS extension probing is L1.9; use import './file.js' for ESM). Bare packages are L2. Implemented: ${implementedHint}`,
   )
+}
+
+function builtinModuleSource(canonical: string): string | undefined {
+  if (canonical === 'path') {
+    return PATH_MODULE_SOURCE
+  }
+  if (canonical === 'buffer') {
+    return BUFFER_MODULE_SOURCE
+  }
+  if (canonical === 'fs') {
+    return FS_MODULE_SOURCE
+  }
+  if (canonical === 'fs/promises') {
+    return FS_PROMISES_MODULE_SOURCE
+  }
+  return undefined
 }
 
 function dumpArgString(context: QuickJSContext, handle: QuickJSHandle): string {
@@ -253,8 +273,9 @@ function lookupBuiltinHandle(
 }
 
 /**
- * 注入 Node 内建注册表：setModuleLoader（import）+ 全局 require，同表同对象。
- * 已实现：path、buffer、fs、fs/promises（及 node: 前缀 / path/posix 别名）。
+ * 注入 Node 内建注册表：setModuleLoader（ESM import + VFS 文件）+ 全局 require（仅内建）。
+ * 已实现内建：path、buffer、fs、fs/promises（及 node: / path/posix 别名）。
+ * 文件级 require / CJS 扩展名补全见 L1.9。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSAsyncRuntime,
@@ -289,29 +310,78 @@ export function injectNodeBuiltins(
   context.setProp(context.global, BUILTINS_GLOBAL_KEY, namespace)
   namespace.dispose()
 
-  runtime.setModuleLoader((moduleName) => {
-    const canonical = toCanonicalBuiltinId(moduleName)
-    if (canonical === 'path') {
-      return PATH_MODULE_SOURCE
-    }
-    if (canonical === 'buffer') {
-      return BUFFER_MODULE_SOURCE
-    }
-    if (canonical === 'fs') {
-      return FS_MODULE_SOURCE
-    }
-    if (canonical === 'fs/promises') {
-      return FS_PROMISES_MODULE_SOURCE
-    }
-    if (canonical === 'path/win32') {
-      return {
-        error: new Error(
-          `Cannot find module '${moduleName}'. Instant path is POSIX-only; path/win32 is not supported.`,
-        ),
+  const resolveOptions = {
+    getCwd: options.getCwd,
+    isImplementedBuiltin: (id: string) => implemented.has(id),
+    isKnownNodeBuiltin: (id: string) => KNOWN_NODE_BUILTIN_IDS.has(id),
+    listImplemented,
+    toCanonicalBuiltinId,
+  }
+
+  /** normalizer 失败后引擎仍可能以空名调 loader；用此带回真实错误。 */
+  let lastModuleNormalizeError: Error | undefined
+
+  runtime.setModuleLoader(
+    async (moduleName) => {
+      if (!moduleName) {
+        const err =
+          lastModuleNormalizeError ??
+          new Error(
+            `Cannot find module ''. Module normalizer failed without a message.`,
+          )
+        lastModuleNormalizeError = undefined
+        return { error: err }
       }
-    }
-    return { error: formatMissingModuleError(moduleName, listImplemented()) }
-  })
+      lastModuleNormalizeError = undefined
+
+      // 已经过 normalizer：内建为 canonical id，文件为绝对路径
+      if (moduleName.startsWith('/')) {
+        try {
+          return await loadEsmModuleSourceFromVfs(moduleName, options.fsOps)
+        } catch (error) {
+          return {
+            error: error instanceof Error ? error : new Error(String(error)),
+          }
+        }
+      }
+
+      const canonical = toCanonicalBuiltinId(moduleName)
+      if (canonical === 'path/win32') {
+        return {
+          error: new Error(
+            `Cannot find module '${moduleName}'. Instant path is POSIX-only; path/win32 is not supported.`,
+          ),
+        }
+      }
+      const source = builtinModuleSource(canonical)
+      if (source !== undefined) {
+        return source
+      }
+      return { error: formatMissingBuiltinError(moduleName, listImplemented()) }
+    },
+    (baseModuleName, requestedName) => {
+      try {
+        const resolved = normalizeModuleRequest(baseModuleName, requestedName, resolveOptions)
+        if (resolved.kind === 'builtin') {
+          if (resolved.id === 'path/win32') {
+            const error = new Error(
+              `Cannot find module '${requestedName}'. Instant path is POSIX-only; path/win32 is not supported.`,
+            )
+            lastModuleNormalizeError = error
+            return { error }
+          }
+          lastModuleNormalizeError = undefined
+          return resolved.id
+        }
+        lastModuleNormalizeError = undefined
+        return resolved.absolutePath
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error))
+        lastModuleNormalizeError = err
+        return { error: err }
+      }
+    },
+  )
 
   const requireFn = context.newFunction('require', (idHandle) => {
     const requested = dumpArgString(context, idHandle)
@@ -323,7 +393,7 @@ export function injectNodeBuiltins(
     }
     const handle = lookupBuiltinHandle(context, canonical)
     if (handle === undefined) {
-      throw formatMissingModuleError(requested, listImplemented())
+      throw formatMissingBuiltinError(requested, listImplemented())
     }
     return handle
   })

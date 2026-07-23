@@ -37,9 +37,9 @@
 
 **缺口（相对 L1）**
 
-- [ ] 模块加载（当前只能整段源码）
-- [ ] 文件系统、路径、进程、二进制缓冲等宿主 API
-- [ ] 异步调度桥（宿主 Promise / I/O 回调回灌实例）
+- [x] 模块加载（ESM 文件 + 内建；文件级 CJS require 仍待 L1.9）
+- [x] 文件系统、路径、进程、二进制缓冲等宿主 API
+- [x] 异步调度桥（宿主 Promise / I/O 回调回灌实例）
 - [ ] 包安装、伪进程、构建后端（属 L2+）
 
 ---
@@ -74,7 +74,8 @@
 
 1. **模块系统（最关键）**
    - 支持 ESM 加载；视需要提供薄 CJS `require` 兼容层。
-   - 解析相对路径、文件扩展名补全、目录 `package.json` 的 `main`/`module`/`exports`（可先做子集）。
+   - 解析相对路径；ESM 须显式扩展名（对齐 Node；CJS `require` 的扩展名/index 补全见 L1.9）。
+   - 目录 `package.json` 的 `main`/`module`/`exports`（可先做子集，L1.10）。
    - 支持 `node:` 前缀中「已实现」的内建模块；未实现的给出清晰错误。
    - 实例级模块缓存：同一文件在同一实例内只求值一次（与 Node 语义对齐的方向）。
 
@@ -119,11 +120,11 @@
 - [x] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌（`executePendingJobs` + `settleGuestPromise`）；切片 `busy`；`abort`/`destroy` 清调度器；L1.16 nextTick 钩子已预留未实现
 - [x] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载（`import` / `require` / `node:path`；共享 Node 内建注册表）
 - [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
-- [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L1.8/VFS，不走本管线
+- [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L2 / `node_modules`，不走本管线
 - [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/symlink/chmod（见远期）
 - [x] **L1.7 同步 I/O 策略落地**：文档化 Asyncify 策略（统一长驻实例、禁嵌套挂起、沙箱可 sync）；明确不做预加载 / 内存工作区 / 通用双轨 / 嵌套挂起排队。**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
-- [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错（**内建 `setModuleLoader` 钩子已由 L1.3 起，本项扩展到 VFS 文件**）。注意：Asyncify 下 Sync 路径内禁止再挂起（含可挂起 import）
-- [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可，服务常见互操作（**内建-only `require` 已由 L1.3 起，本项扩展到文件级 CJS**）
+- [x] **L1.8 模块加载器（ESM）**：VFS 相对/绝对路径；Node ESM **不**自动补扩展名（须 `.js`/`.mjs`/`.cjs`）；实例级缓存；未实现 `node:` 清晰报错；粘贴 eval 入口 `{cwd}/[eval-n].js`。内建钩子自 L1.3；本项扩到文件。CJS 文件 `require`+扩展名补全见 L1.9。Asyncify：Sync 路径内禁止再挂起（含可挂起 import）
+- [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可；**内建-only `require` 已由 L1.3 起，本项扩展到文件级 CJS（含扩展名 / index 补全，对齐 Node `require`）**
 - [ ] **L1.10 入口 `package.json` 子集**：目录入口的 `main` / `module` / 基础 `exports`
 - [ ] **L1.11 薄 `events`**：最小 EventEmitter，保证常见依赖能加载
 - [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
@@ -436,6 +437,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | Guest 内建 vendor：`vendor:quickjs-guest` + 清单驱动；替换一次性 `vendor-quickjs-buffer`；普通 npm 仍等 L1.8/VFS。 |
 | 2026-07-23 | 完成 L1.6：实例改走 Asyncify；`fs`/`fs/promises` 接 Files/VFS（回调 + promises + Sync）；权限根 + `maxFileBytes`；L1.7 收窄为 Sync 策略优化。 |
 | 2026-07-23 | 完成 L1.7：文档化 Asyncify 策略（长驻统一 Asyncify、禁嵌套挂起、沙箱可 sync）；明确不做预加载/内存工作区/通用双轨/嵌套排队。 |
+| 2026-07-23 | 完成 L1.8：ESM 文件 import（相对导入方 / eval→cwd、绝对路径+读权限、显式扩展名、实例缓存）；CJS 文件 require 与扩展名补全留 L1.9。 |
 
 ---
 

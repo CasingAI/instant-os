@@ -577,6 +577,148 @@ export default {
     // best-effort cleanup
   }
 
+  // --- L1.8 ESM multi-file modules ---
+  const esmRoot = '/user/qjs-esm-smoke'
+  try {
+    await filesRemove(esmRoot)
+  } catch {
+    // ok if missing
+  }
+  await filesMkdir(esmRoot)
+  const esmInstance = await createQuickJsInstance({ workspaceRoot: esmRoot })
+  const writeMods = await esmInstance.eval(`
+    var fs = require('fs')
+    fs.writeFileSync('lib.js', [
+      'export const answer = 42',
+      'export default function greeter(n) { return "hi-" + n }',
+      '',
+    ].join('\\n'))
+    fs.writeFileSync('counter.js', [
+      'globalThis.__esmLoadCount = (globalThis.__esmLoadCount || 0) + 1',
+      'export const loads = globalThis.__esmLoadCount',
+      '',
+    ].join('\\n'))
+    'written'
+  `)
+  if (!writeMods.ok || writeMods.value !== 'written') {
+    throw new Error(`esm write setup failed: ${JSON.stringify(writeMods)}`)
+  }
+
+  const relativeImport = await esmInstance.eval(`
+    import greeter, { answer } from './lib.js'
+    globalThis.__esmRel = greeter(answer)
+  `)
+  if (!relativeImport.ok) {
+    throw new Error(`relative ESM import failed: ${JSON.stringify(relativeImport)}`)
+  }
+  const relativeValue = await esmInstance.eval('globalThis.__esmRel')
+  if (!relativeValue.ok || relativeValue.value !== 'hi-42') {
+    throw new Error(`relative ESM import value: ${JSON.stringify(relativeValue)}`)
+  }
+
+  const absoluteImport = await esmInstance.eval(`
+    import { answer } from '${esmRoot}/lib.js'
+    globalThis.__esmAbs = answer
+  `)
+  if (!absoluteImport.ok) {
+    throw new Error(`absolute ESM import failed: ${JSON.stringify(absoluteImport)}`)
+  }
+  const absoluteValue = await esmInstance.eval('globalThis.__esmAbs')
+  if (!absoluteValue.ok || absoluteValue.value !== 42) {
+    throw new Error(`absolute ESM import value: ${JSON.stringify(absoluteValue)}`)
+  }
+
+  const cached = await esmInstance.eval(`
+    import { loads as a } from './counter.js'
+    import { loads as b } from './counter.js'
+    globalThis.__esmCache = [a, b, globalThis.__esmLoadCount]
+  `)
+  if (!cached.ok) {
+    throw new Error(`cache ESM import failed: ${JSON.stringify(cached)}`)
+  }
+  const cachedValue = await esmInstance.eval('globalThis.__esmCache')
+  if (!cachedValue.ok || JSON.stringify(cachedValue.value) !== JSON.stringify([1, 1, 1])) {
+    throw new Error(`expected instance module cache: ${JSON.stringify(cachedValue)}`)
+  }
+
+  const cachedAgain = await esmInstance.eval(`
+    import { loads } from './counter.js'
+    globalThis.__esmCache2 = loads
+  `)
+  if (!cachedAgain.ok) {
+    throw new Error(`second cache import failed: ${JSON.stringify(cachedAgain)}`)
+  }
+  const cachedAgainValue = await esmInstance.eval('globalThis.__esmCache2')
+  if (!cachedAgainValue.ok || cachedAgainValue.value !== 1) {
+    throw new Error(`module cache should survive later eval: ${JSON.stringify(cachedAgainValue)}`)
+  }
+
+  const missingExt = await esmInstance.eval(`
+    import './lib'
+  `)
+  if (
+    missingExt.ok ||
+    !missingExt.error.includes('explicit file extension') ||
+    !missingExt.error.includes('./lib')
+  ) {
+    throw new Error(`expected missing extension error: ${JSON.stringify(missingExt)}`)
+  }
+
+  const bareImport = await esmInstance.eval(`
+    import 'lodash'
+  `)
+  if (bareImport.ok || !bareImport.error.includes('node_modules') || !bareImport.error.includes('L2')) {
+    throw new Error(`expected bare import L2 error: ${JSON.stringify(bareImport)}`)
+  }
+
+  const requireFile = await esmInstance.eval(`
+    require('./lib.js')
+  `)
+  if (
+    requireFile.ok ||
+    !requireFile.error.includes('only supports implemented Node builtins') ||
+    !requireFile.error.includes('L1.9')
+  ) {
+    throw new Error(`expected file require deferred to L1.9: ${JSON.stringify(requireFile)}`)
+  }
+
+  const deniedEsm = await createQuickJsInstance({
+    workspaceRoot: esmRoot,
+    permissions: { fsReadRoots: [], fsWriteRoots: [esmRoot] },
+  })
+  const deniedImport = await deniedEsm.eval(`
+    import { answer } from './lib.js'
+    globalThis.__denied = answer
+  `)
+  if (deniedImport.ok || !deniedImport.error.toLowerCase().includes('permission')) {
+    throw new Error(`expected ESM read permission denial: ${JSON.stringify(deniedImport)}`)
+  }
+  deniedEsm.destroy()
+
+  const namedEntry = await esmInstance.eval(
+    `
+    import greeter from '../lib.js'
+    globalThis.__namedEntry = greeter(1)
+  `,
+    { filename: `${esmRoot}/apps/entry.js` },
+  )
+  if (!namedEntry.ok) {
+    throw new Error(`filename option eval failed: ${JSON.stringify(namedEntry)}`)
+  }
+  const namedEntryValue = await esmInstance.eval('globalThis.__namedEntry')
+  if (!namedEntryValue.ok || namedEntryValue.value !== 'hi-1') {
+    throw new Error(
+      `filename option should resolve relative to entry dir: ${JSON.stringify(namedEntryValue)}`,
+    )
+  }
+
+  esmInstance.destroy()
+  try {
+    await filesRemove(esmRoot)
+  } catch {
+    // best-effort cleanup
+  }
+
   await timerInstance.eval(`
     setTimeout(function () { console.log('after-destroy-should-not') }, 20)
   `)

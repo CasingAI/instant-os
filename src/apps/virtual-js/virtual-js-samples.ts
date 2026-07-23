@@ -325,6 +325,25 @@ require('http')
 })()
 `,
   },
+  {
+    id: 'esm-files',
+    title: 'ESM · 多文件 import',
+    blurb: '先写 VFS，再 dynamic import；须写全 .js（Node ESM）',
+    suiteSettleMs: 1500,
+    source: `(async function () {
+  var fs = require('fs')
+  fs.mkdirSync('virtual-js-esm-demo', { recursive: true })
+  fs.writeFileSync(
+    'virtual-js-esm-demo/lib.js',
+    'export const msg = "from-lib";\\nexport default function twice(n) { return n * 2 }\\n',
+  )
+  var mod = await import('./virtual-js-esm-demo/lib.js')
+  console.log('msg', mod.msg)
+  console.log('twice(21)', mod.default(21))
+  process.exit(0)
+})()
+`,
+  },
 ]
 
 /** 侧栏展示用：带序号，且最新用例在前。 */

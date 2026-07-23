@@ -21,6 +21,7 @@ import type {
   QuickJsInstanceSnapshot,
 } from './quickjs-instance-types.ts'
 import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
+import { resolveEvalModuleFilename } from './quickjs-module-loader.ts'
 import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
 import { injectTextEncoding } from './quickjs-text-encoding.ts'
 import {
@@ -426,9 +427,14 @@ export async function createQuickJsInstance(
 
     try {
       evalSeq += 1
-      // 每次独立文件名：避免 ESM 模块缓存 / 同名脚本重复声明干扰连续测试
-      // Asyncify：切片内可能 *Sync 挂起，须用 evalCodeAsync（勿在 Sync 路径再嵌套挂起）
-      const evalResult = await context.evalCodeAsync(code, `${instanceId}-eval-${evalSeq}.js`)
+      // 默认 `{cwd}/[eval-n].js`：相对 import 相对 cwd；传入 filename 可作「跑文件」入口
+      // Asyncify：切片内可能 *Sync / 可挂起 import，须用 evalCodeAsync（勿在 Sync 路径再嵌套挂起）
+      const evalFilename = resolveEvalModuleFilename(
+        evalOptions.filename,
+        processState.cwd,
+        evalSeq,
+      )
+      const evalResult = await context.evalCodeAsync(code, evalFilename)
 
       if (state.destroyed) {
         return {
