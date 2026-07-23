@@ -2,6 +2,7 @@ import { gunzipSync } from 'fflate'
 import {
   filesCreateText,
   filesLstat,
+  filesList,
   filesMkdir,
   filesReadText,
   filesRemove,
@@ -65,6 +66,19 @@ export async function isPackageInStore(
   return pkg?.kind === 'file'
 }
 
+/** 列出 CAS 中某包已解压的版本目录名（未校验 package.json） */
+export async function listStorePackageVersions(
+  config: PackageServiceConfig,
+  name: string,
+): Promise<string[]> {
+  const safeName = name.startsWith('@') ? name.replace('/', '__') : name
+  const dir = `${config.storeRoot}/v1/${safeName}`
+  const st = await filesStat(dir)
+  if (st?.kind !== 'folder') return []
+  const entries = await filesList(dir)
+  return entries.filter((e) => e.kind === 'folder').map((e) => e.name)
+}
+
 export type ExtractTarballProgress = {
   done: number
   total: number
@@ -73,7 +87,48 @@ export type ExtractTarballProgress = {
 }
 
 /**
- * 将 npm tarball（gzip + tar，内容通常在 package/ 前缀下）解压到 CAS 目录。
+ * npm tarball 通常只有一层根目录（多为 `package/`；部分 @types 用包名或带版本的目录名）。
+ * 若所有文件共享同一顶层段，则剥掉它；否则原样保留。
+ */
+export function stripTarballRootPrefix(rawPath: string, root: string | undefined): string {
+  if (!root) return rawPath
+  if (rawPath === root) return ''
+  const prefix = `${root}/`
+  return rawPath.startsWith(prefix) ? rawPath.slice(prefix.length) : rawPath
+}
+
+export function detectTarballRootDir(paths: Iterable<string>): string | undefined {
+  let root: string | undefined
+  for (const path of paths) {
+    if (!path || path.endsWith('/')) continue
+    const slash = path.indexOf('/')
+    // 有文件落在归档根部 → 不能安全剥一层
+    if (slash <= 0) return undefined
+    const seg = path.slice(0, slash)
+    if (root === undefined) root = seg
+    else if (root !== seg) return undefined
+  }
+  return root
+}
+
+/**
+ * 规范化 tarball 内相对路径：去掉空段与 `.`，遇 `..` 或绝对路径则拒绝。
+ * 例如 `./dist/cjs/index.js` → `dist/cjs/index.js`
+ */
+export function normalizeTarballRelPath(rel: string): string | undefined {
+  if (!rel || rel.startsWith('/')) return undefined
+  const parts: string[] = []
+  for (const seg of rel.split('/')) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') return undefined
+    parts.push(seg)
+  }
+  if (parts.length === 0) return undefined
+  return parts.join('/')
+}
+
+/**
+ * 将 npm tarball（gzip + tar）解压到 CAS 目录。
  */
 export async function extractTarballToStore(params: {
   config: PackageServiceConfig
@@ -101,14 +156,16 @@ export async function extractTarballToStore(params: {
   }
 
   const entries = untarBytes(tarBytes)
-  const writeEntries: { rel: string; data: Uint8Array }[] = []
+  const rootDir = detectTarballRootDir(Object.keys(entries))
+  const writeMap = new Map<string, Uint8Array>()
   for (const [rawPath, data] of Object.entries(entries)) {
-    let rel = rawPath.replace(/^package\//, '')
-    if (!rel || rel.endsWith('/')) continue
-    // 安全：拒绝跳出
-    if (rel.includes('..') || rel.startsWith('/')) continue
-    writeEntries.push({ rel, data })
+    const stripped = stripTarballRootPrefix(rawPath, rootDir)
+    const rel = normalizeTarballRelPath(stripped)
+    if (!rel) continue
+    // 同路径多条目（如 `./dist/...` 与 `dist/...`）后者覆盖前者
+    writeMap.set(rel, data)
   }
+  const writeEntries = [...writeMap.entries()].map(([rel, data]) => ({ rel, data }))
   const total = writeEntries.length
   await ensureDir(dest)
 

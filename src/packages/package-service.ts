@@ -12,11 +12,12 @@ import {
   extractTarballToStore,
   isPackageInStore,
   linkPackageIntoProject,
+  listStorePackageVersions,
   readStorePackageJson,
   storePackageDir,
   ensureStoreRoot,
 } from './package-store.ts'
-import { satisfiesSemver } from './package-semver.ts'
+import { maxSatisfying, satisfiesSemver } from './package-semver.ts'
 import type {
   InstantPackageLock,
   PackageLockEntry,
@@ -262,6 +263,30 @@ function tryNodeFromLock(
   }
 }
 
+/** 锁未命中时：若 CAS 已有满足范围的版本，用本地 package.json 继续解析，免打 registry */
+async function tryNodeFromStore(
+  name: string,
+  range: string,
+): Promise<ResolvedNode | undefined> {
+  const versions = await listStorePackageVersions(config, name)
+  if (versions.length === 0) return undefined
+  const version = maxSatisfying(versions, range)
+  if (!version) return undefined
+  if (!(await isPackageInStore(config, name, version))) return undefined
+  const storePath = storePackageDir(config, name, version)
+  const pkg = await readStorePackageJson(storePath)
+  return {
+    name,
+    version,
+    meta: {
+      version,
+      dist: { tarball: '' },
+      dependencies: (pkg.dependencies as Record<string, string> | undefined) ?? undefined,
+      hasNative: pkg.gypfile === true,
+    },
+  }
+}
+
 async function resolveTree(
   roots: { name: string; range: string }[],
   task: PackageTask,
@@ -283,6 +308,23 @@ async function resolveTree(
         assertNotNative(fromLock.name, fromLock.version, fromLock.meta)
         resolved.set(key, fromLock)
         for (const [dep, range] of Object.entries(fromLock.meta.dependencies ?? {})) {
+          if (!resolved.has(dep)) {
+            queue.push({ name: dep, range })
+          }
+        }
+        continue
+      }
+
+      const fromStore = await tryNodeFromStore(next.name, next.range)
+      if (fromStore) {
+        log(
+          task,
+          'info',
+          `本地 store 命中 ${fromStore.name}@${fromStore.version}（满足 ${next.range}，跳过 registry）`,
+        )
+        assertNotNative(fromStore.name, fromStore.version, fromStore.meta)
+        resolved.set(key, fromStore)
+        for (const [dep, range] of Object.entries(fromStore.meta.dependencies ?? {})) {
           if (!resolved.has(dep)) {
             queue.push({ name: dep, range })
           }
@@ -474,8 +516,12 @@ export async function installPackages(params: {
   task.status = 'running'
   publishTask(task)
 
+  let projectRootForLock = params.projectRoot
+  let lockForPersist: InstantPackageLock | undefined
+
   try {
     const projectRoot = await resolvePackageProjectRoot(params.projectRoot)
+    projectRootForLock = projectRoot
     if (projectRoot !== params.projectRoot) {
       log(task, 'info', `项目根：${projectRoot}（由 ${params.projectRoot} 向上定位 package.json）`)
       task.projectRoot = projectRoot
@@ -509,9 +555,10 @@ export async function installPackages(params: {
     }
 
     const lock = await readLock(projectRoot)
+    lockForPersist = lock
     const preferLock = params.preferLock ?? !hasCliPackages
     if (preferLock) {
-      log(task, 'info', '安装策略：锁优先（满足 package.json 范围则跳过 registry 解析）')
+      log(task, 'info', '安装策略：锁优先（满足 package.json 范围则跳过 registry 解析；其次复用本地 store）')
     }
     const tree = await resolveTree(roots, task, { preferLock, lock })
 
@@ -532,7 +579,7 @@ export async function installPackages(params: {
       lock.packages[node.name] = {
         name: node.name,
         version: node.version,
-        resolved: node.meta.dist.tarball,
+        resolved: node.meta.dist.tarball || undefined,
         integrity: node.meta.dist.integrity,
         dependencies: node.meta.dependencies,
       }
@@ -562,6 +609,15 @@ export async function installPackages(params: {
       task.status = 'failed'
       task.error = error instanceof Error ? error.message : String(error)
       log(task, 'error', task.error)
+    }
+    // 中途失败也落盘已链接部分，下次锁优先可少打 registry
+    if (lockForPersist && Object.keys(lockForPersist.packages).length > 0) {
+      try {
+        await writeLock(projectRootForLock, lockForPersist)
+        log(task, 'info', `已写入部分锁（${Object.keys(lockForPersist.packages).length} 个包）`)
+      } catch {
+        // ignore persist errors
+      }
     }
     clearProgress(task)
     publishTask(task)

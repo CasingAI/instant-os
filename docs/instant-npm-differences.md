@@ -7,7 +7,7 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - `npm install` / `uninstall` / `update` / `ls` / `outdated` / `run` / `bin`
 - `npx <pkg>`（已装优先；否则先 install 再跑 bin）
 - 锁文件：`instant-lock.json`（非 package-lock.json 字节兼容）
-- **锁优先安装**：`npm install`（无新包名）时，若锁内精确版本仍满足 `package.json` 范围，则跳过 registry 解析；store 命中则不下 tarball；锁有 `resolved` 时可直接下包
+- **锁优先安装**：`npm install`（无新包名）时，若锁内精确版本仍满足 `package.json` 范围，则跳过 registry 解析；锁未命中时再尝试本地 CAS store；store 命中则不下 tarball；锁有 `resolved` 时可直接下包。安装中途失败也会写入**已链接部分**的锁，避免下次整树重新打 registry。
 - `npm update` / `npm install <pkg>`：重新向 registry 按范围解析
 - 布局：全局 CAS store（`/user/.instant-pkg-store`）+ 项目 `node_modules` **符号链接**（接近 pnpm，故意保留）
 - **可配置 registry**：设置 → NPM（官方 / npmmirror / 自定义 npm 兼容源）；持久化并接到 PackageService
