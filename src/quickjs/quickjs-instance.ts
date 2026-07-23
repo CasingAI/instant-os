@@ -334,6 +334,9 @@ export async function createQuickJsInstance(
 
   injectTextEncoding(context)
 
+  /** 当前 eval 切片的入口路径（`eval({ filename })`）；供顶层 CJS require 相对解析。 */
+  let activeEvalFilename: string | undefined
+
   injectNodeBuiltins(runtime, context, {
     getCwd: () => processState.cwd,
     asyncBridge,
@@ -343,6 +346,7 @@ export async function createQuickJsInstance(
       maxFileBytes: hostConfig.quotas.maxFileBytes,
       isDestroyed: () => state.destroyed,
     },
+    getEvalParentFilename: () => activeEvalFilename,
   })
 
   asyncBridge.injectGlobals()
@@ -434,6 +438,7 @@ export async function createQuickJsInstance(
         processState.cwd,
         evalSeq,
       )
+      activeEvalFilename = evalFilename
       const evalResult = await context.evalCodeAsync(code, evalFilename)
 
       if (state.destroyed) {
@@ -505,6 +510,7 @@ export async function createQuickJsInstance(
       }
       throw error
     } finally {
+      activeEvalFilename = undefined
       endSlice()
       if (!state.destroyed) {
         asyncBridge.flushHostTasks()

@@ -16,6 +16,12 @@ import {
 import { buildUtilModuleSource, injectUtil } from './quickjs-util.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import {
+  buildCjsGuestRequireSource,
+  CJS_EVAL_PARENT_GLOBAL_KEY,
+  CJS_FETCH_GLOBAL_KEY,
+  CJS_RESOLVE_GLOBAL_KEY,
+} from './quickjs-cjs-guest-require.ts'
+import {
   createCjsRequireApi,
   createModuleErrorHandle,
 } from './quickjs-cjs-require.ts'
@@ -304,6 +310,8 @@ export function injectNodeBuiltins(
     getCwd: () => string
     asyncBridge: QuickJsAsyncBridge
     fsOps: QuickJsFsHostOps
+    /** 当前 eval 入口（供顶层 CJS require 相对路径）。 */
+    getEvalParentFilename?: () => string | undefined
   },
 ): QuickJsNodeBuiltinRegistry {
   const implemented = new Set<string>([
@@ -439,6 +447,7 @@ export function injectNodeBuiltins(
   const cjs = createCjsRequireApi(context, {
     getCwd: options.getCwd,
     fsOps: options.fsOps,
+    getEvalParentFilename: options.getEvalParentFilename,
     lookupBuiltin: (canonicalId) => lookupBuiltinHandle(context, canonicalId),
     toCanonicalBuiltinId,
     isImplementedBuiltin: (id) => implemented.has(id),
@@ -448,33 +457,56 @@ export function injectNodeBuiltins(
       formatMissingBuiltinError(requested, listImplemented()),
   })
 
-  // 顶层 require：Asyncify（宿主递归加载文件，避免嵌套挂起）
-  const requireFn = context.newAsyncifiedFunction('require', async (idHandle) => {
-    try {
-      const requested = dumpArgString(context, idHandle)
-      return await cjs.load(requested, cjs.evalParentFilename())
-    } catch (error) {
-      return context.fail(createModuleErrorHandle(context, error))
-    }
-  })
+  // 回合制：asyncified 桥只取料；guest 薄 require 在解冻后执行模块体
+  const fetchFn = context.newAsyncifiedFunction(
+    CJS_FETCH_GLOBAL_KEY,
+    async (idHandle, parentHandle) => {
+      try {
+        const requested = dumpArgString(context, idHandle)
+        const parentFilename = dumpArgString(context, parentHandle)
+        return await cjs.fetchModule(requested, parentFilename)
+      } catch (error) {
+        return context.fail(createModuleErrorHandle(context, error))
+      }
+    },
+  )
+  context.setProp(context.global, CJS_FETCH_GLOBAL_KEY, fetchFn)
+  fetchFn.dispose()
 
-  const resolveFn = context.newAsyncifiedFunction('resolve', async (idHandle) => {
-    try {
-      const requested = dumpArgString(context, idHandle)
-      const resolved = await cjs.resolve(requested, cjs.evalParentFilename())
-      return context.newString(resolved)
-    } catch (error) {
-      return context.fail(createModuleErrorHandle(context, error))
-    }
-  })
-  context.setProp(requireFn, 'resolve', resolveFn)
+  const resolveFn = context.newAsyncifiedFunction(
+    CJS_RESOLVE_GLOBAL_KEY,
+    async (idHandle, parentHandle) => {
+      try {
+        const requested = dumpArgString(context, idHandle)
+        const parentFilename = dumpArgString(context, parentHandle)
+        const resolved = await cjs.resolve(requested, parentFilename)
+        return context.newString(resolved)
+      } catch (error) {
+        return context.fail(createModuleErrorHandle(context, error))
+      }
+    },
+  )
+  context.setProp(context.global, CJS_RESOLVE_GLOBAL_KEY, resolveFn)
   resolveFn.dispose()
 
-  const cacheHandle = cjs.getRequireCacheHandle()
-  context.setProp(requireFn, 'cache', cacheHandle)
+  const evalParentFn = context.newFunction(CJS_EVAL_PARENT_GLOBAL_KEY, () => {
+    return context.newString(cjs.evalParentFilename())
+  })
+  context.setProp(context.global, CJS_EVAL_PARENT_GLOBAL_KEY, evalParentFn)
+  evalParentFn.dispose()
 
-  context.setProp(context.global, 'require', requireFn)
-  requireFn.dispose()
+  const guestRequireResult = context.evalCode(
+    buildCjsGuestRequireSource(),
+    'instant-cjs-guest-require.js',
+  )
+  if (guestRequireResult.error) {
+    const err = context.dump(guestRequireResult.error)
+    guestRequireResult.error.dispose()
+    throw new Error(
+      `Failed to install guest CJS require: ${typeof err === 'string' ? err : JSON.stringify(err)}`,
+    )
+  }
+  guestRequireResult.value.dispose()
 
   return { listImplemented }
 }

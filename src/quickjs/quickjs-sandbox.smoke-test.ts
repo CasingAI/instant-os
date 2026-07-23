@@ -1013,6 +1013,67 @@ export default {
     throw new Error(`expected ERR_REQUIRE_ESM for .mjs: ${JSON.stringify(mjsRequire)}`)
   }
 
+  // 回合制回归：模块体在 require 加载期调用 fs.*Sync（不得 Already suspended）
+  const syncInModuleSetup = await cjsInstance.eval(`
+    var fs = require('fs')
+    fs.writeFileSync('sync-in-mod-data.txt', 'payload-ok')
+    fs.writeFileSync(
+      'sync-in-mod.js',
+      [
+        "var fs = require('fs')",
+        "var t = fs.readFileSync(__dirname + '/sync-in-mod-data.txt', 'utf8')",
+        "module.exports = { text: t, exists: fs.existsSync(__dirname + '/sync-in-mod-data.txt') }",
+        '',
+      ].join('\\n'),
+    )
+    'sync-in-mod-written'
+  `)
+  if (!syncInModuleSetup.ok || syncInModuleSetup.value !== 'sync-in-mod-written') {
+    throw new Error(`sync-in-module setup failed: ${JSON.stringify(syncInModuleSetup)}`)
+  }
+  const syncInModule = await cjsInstance.eval(`
+    var m = require('./sync-in-mod.js')
+    globalThis.__syncInMod = m
+  `)
+  if (!syncInModule.ok) {
+    throw new Error(`sync-in-module require failed: ${JSON.stringify(syncInModule)}`)
+  }
+  const syncInModuleValue = await cjsInstance.eval('globalThis.__syncInMod')
+  if (
+    !syncInModuleValue.ok ||
+    typeof syncInModuleValue.value !== 'object' ||
+    syncInModuleValue.value === null ||
+    (syncInModuleValue.value as { text?: unknown; exists?: unknown }).text !== 'payload-ok' ||
+    (syncInModuleValue.value as { text?: unknown; exists?: unknown }).exists !== true
+  ) {
+    throw new Error(`sync-in-module value: ${JSON.stringify(syncInModuleValue)}`)
+  }
+
+  // eval({ filename }) 应对齐顶层 require 的父路径（npx 跑 bin 入口）
+  const namedCjsSetup = await cjsInstance.eval(`
+    var fs = require('fs')
+    fs.mkdirSync('bin-entry', { recursive: true })
+    fs.writeFileSync('bin-entry/lib.js', 'module.exports = { tag: "from-lib" }\\n')
+    fs.writeFileSync(
+      'bin-entry/cli.js',
+      "var m = require('./lib')\\nglobalThis.__namedCjs = m.tag\\n",
+    )
+    'named-cjs-written'
+  `)
+  if (!namedCjsSetup.ok || namedCjsSetup.value !== 'named-cjs-written') {
+    throw new Error(`named CJS setup failed: ${JSON.stringify(namedCjsSetup)}`)
+  }
+  const namedCjs = await cjsInstance.eval("var m = require('./lib')\nglobalThis.__namedCjs = m.tag\n", {
+    filename: `${cjsRoot}/bin-entry/cli.js`,
+  })
+  if (!namedCjs.ok) {
+    throw new Error(`named CJS eval filename require failed: ${JSON.stringify(namedCjs)}`)
+  }
+  const namedCjsValue = await cjsInstance.eval('globalThis.__namedCjs')
+  if (!namedCjsValue.ok || namedCjsValue.value !== 'from-lib') {
+    throw new Error(`named CJS require parent: ${JSON.stringify(namedCjsValue)}`)
+  }
+
   const deniedCjs = await createQuickJsInstance({
     workspaceRoot: cjsRoot,
     permissions: { fsReadRoots: [], fsWriteRoots: [cjsRoot] },
