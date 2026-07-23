@@ -344,6 +344,41 @@ require('http')
 })()
 `,
   },
+  {
+    id: 'cjs-files',
+    title: 'CJS · require 多文件',
+    blurb: '扩展名/index 探测；相对路径相对调用方目录（对齐 Node）',
+    source: `(function () {
+  var fs = require('fs')
+  fs.mkdirSync('virtual-js-cjs-demo/lib', { recursive: true })
+  fs.mkdirSync('virtual-js-cjs-demo/pkg', { recursive: true })
+  fs.writeFileSync(
+    'virtual-js-cjs-demo/lib/b.js',
+    'module.exports = { tag: "b", n: 3 }\\n',
+  )
+  fs.writeFileSync(
+    'virtual-js-cjs-demo/lib/a.js',
+    'var b = require("./b"); module.exports = { tag: "a", from: b.tag, n: b.n * 2 }\\n',
+  )
+  fs.writeFileSync(
+    'virtual-js-cjs-demo/pkg/index.js',
+    'module.exports = { index: true }\\n',
+  )
+  fs.writeFileSync(
+    'virtual-js-cjs-demo/data.json',
+    JSON.stringify({ hello: 'cjs' }),
+  )
+  var a = require('./virtual-js-cjs-demo/lib/a')
+  var pkg = require('./virtual-js-cjs-demo/pkg')
+  var data = require('./virtual-js-cjs-demo/data')
+  console.log('a', a.tag, a.from, a.n)
+  console.log('pkg.index', pkg.index)
+  console.log('data.hello', data.hello)
+  console.log('resolve', require.resolve('./virtual-js-cjs-demo/lib/a.js'))
+  process.exit(0)
+})()
+`,
+  },
 ]
 
 /** 侧栏展示用：带序号，且最新用例在前。 */

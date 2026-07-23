@@ -219,7 +219,8 @@ async function testInstance() {
   const missingThirdParty = await instance.eval(`require('lodash')`)
   if (
     missingThirdParty.ok ||
-    !missingThirdParty.error.includes('only supports implemented Node builtins')
+    !missingThirdParty.error.includes('node_modules') ||
+    !missingThirdParty.error.includes('L2')
   ) {
     throw new Error(`expected third-party require error: ${JSON.stringify(missingThirdParty)}`)
   }
@@ -671,15 +672,12 @@ export default {
     throw new Error(`expected bare import L2 error: ${JSON.stringify(bareImport)}`)
   }
 
-  const requireFile = await esmInstance.eval(`
+  // ESM 文件用 export 语法；CJS require 应在求值期失败（非「仅内建」推迟）
+  const requireEsmSyntax = await esmInstance.eval(`
     require('./lib.js')
   `)
-  if (
-    requireFile.ok ||
-    !requireFile.error.includes('only supports implemented Node builtins') ||
-    !requireFile.error.includes('L1.9')
-  ) {
-    throw new Error(`expected file require deferred to L1.9: ${JSON.stringify(requireFile)}`)
+  if (requireEsmSyntax.ok) {
+    throw new Error(`expected require of ESM-syntax file to fail: ${JSON.stringify(requireEsmSyntax)}`)
   }
 
   const deniedEsm = await createQuickJsInstance({
@@ -715,6 +713,173 @@ export default {
   esmInstance.destroy()
   try {
     await filesRemove(esmRoot)
+  } catch {
+    // best-effort cleanup
+  }
+
+  // --- L1.9 CJS require (extension probe, parent path, cache, json, cycles) ---
+  const cjsRoot = '/user/qjs-cjs-smoke'
+  try {
+    await filesRemove(cjsRoot)
+  } catch {
+    // ok if missing
+  }
+  await filesMkdir(cjsRoot)
+  const cjsInstance = await createQuickJsInstance({ workspaceRoot: cjsRoot })
+  const cjsSetup = await cjsInstance.eval(`
+    var fs = require('fs')
+    fs.mkdirSync('lib', { recursive: true })
+    fs.mkdirSync('pkg', { recursive: true })
+    fs.writeFileSync('lib/b.js', 'module.exports = { where: "lib-b", n: 7 }\\n')
+    fs.writeFileSync(
+      'lib/a.js',
+      [
+        'var b = require("./b")',
+        'module.exports = { from: "lib-a", b: b.where, n: b.n }',
+        '',
+      ].join('\\n'),
+    )
+    fs.writeFileSync('top.js', 'module.exports = { top: true }\\n')
+    fs.writeFileSync('data.json', JSON.stringify({ hello: 'cjs-json' }))
+    fs.writeFileSync('pkg/index.js', 'module.exports = { index: true }\\n')
+    fs.writeFileSync(
+      'cycle-a.js',
+      [
+        'exports.name = "a"',
+        'exports.other = require("./cycle-b").name',
+        '',
+      ].join('\\n'),
+    )
+    fs.writeFileSync(
+      'cycle-b.js',
+      [
+        'exports.name = "b"',
+        'exports.other = require("./cycle-a").name',
+        '',
+      ].join('\\n'),
+    )
+    fs.writeFileSync(
+      'counter-cjs.js',
+      [
+        'globalThis.__cjsLoadCount = (globalThis.__cjsLoadCount || 0) + 1',
+        'module.exports = { loads: globalThis.__cjsLoadCount }',
+        '',
+      ].join('\\n'),
+    )
+    'cjs-written'
+  `)
+  if (!cjsSetup.ok || cjsSetup.value !== 'cjs-written') {
+    throw new Error(`cjs setup failed: ${JSON.stringify(cjsSetup)}`)
+  }
+
+  const parentPath = await cjsInstance.eval(`
+    var a = require('./lib/a')
+    globalThis.__cjsParent = a
+  `)
+  if (!parentPath.ok) {
+    throw new Error(`parent-path require failed: ${JSON.stringify(parentPath)}`)
+  }
+  const parentValue = await cjsInstance.eval('globalThis.__cjsParent')
+  if (
+    !parentValue.ok ||
+    JSON.stringify(parentValue.value) !== JSON.stringify({ from: 'lib-a', b: 'lib-b', n: 7 })
+  ) {
+    throw new Error(`parent-path require value: ${JSON.stringify(parentValue)}`)
+  }
+
+  const probeExt = await cjsInstance.eval(`
+    var top = require('./top')
+    globalThis.__cjsProbe = top.top
+  `)
+  if (!probeExt.ok) {
+    throw new Error(`extension probe failed: ${JSON.stringify(probeExt)}`)
+  }
+  const probeValue = await cjsInstance.eval('globalThis.__cjsProbe')
+  if (!probeValue.ok || probeValue.value !== true) {
+    throw new Error(`extension probe value: ${JSON.stringify(probeValue)}`)
+  }
+
+  const indexReq = await cjsInstance.eval(`
+    var pkg = require('./pkg')
+    globalThis.__cjsIndex = pkg.index
+  `)
+  if (!indexReq.ok) {
+    throw new Error(`index require failed: ${JSON.stringify(indexReq)}`)
+  }
+  const indexValue = await cjsInstance.eval('globalThis.__cjsIndex')
+  if (!indexValue.ok || indexValue.value !== true) {
+    throw new Error(`index require value: ${JSON.stringify(indexValue)}`)
+  }
+
+  const jsonReq = await cjsInstance.eval(`
+    var data = require('./data')
+    globalThis.__cjsJson = data.hello
+  `)
+  if (!jsonReq.ok) {
+    throw new Error(`json require failed: ${JSON.stringify(jsonReq)}`)
+  }
+  const jsonValue = await cjsInstance.eval('globalThis.__cjsJson')
+  if (!jsonValue.ok || jsonValue.value !== 'cjs-json') {
+    throw new Error(`json require value: ${JSON.stringify(jsonValue)}`)
+  }
+
+  const cycleReq = await cjsInstance.eval(`
+    var a = require('./cycle-a')
+    globalThis.__cjsCycle = [a.name, a.other]
+  `)
+  if (!cycleReq.ok) {
+    throw new Error(`cycle require failed: ${JSON.stringify(cycleReq)}`)
+  }
+  const cycleValue = await cjsInstance.eval('globalThis.__cjsCycle')
+  if (!cycleValue.ok || JSON.stringify(cycleValue.value) !== JSON.stringify(['a', 'b'])) {
+    throw new Error(`cycle require value: ${JSON.stringify(cycleValue)}`)
+  }
+
+  const cjsCache = await cjsInstance.eval(`
+    var x = require('./counter-cjs')
+    var y = require('./counter-cjs')
+    globalThis.__cjsCache = [x.loads, y.loads, globalThis.__cjsLoadCount]
+  `)
+  if (!cjsCache.ok) {
+    throw new Error(`cjs cache failed: ${JSON.stringify(cjsCache)}`)
+  }
+  const cjsCacheValue = await cjsInstance.eval('globalThis.__cjsCache')
+  if (!cjsCacheValue.ok || JSON.stringify(cjsCacheValue.value) !== JSON.stringify([1, 1, 1])) {
+    throw new Error(`cjs cache value: ${JSON.stringify(cjsCacheValue)}`)
+  }
+
+  const resolvePath = await cjsInstance.eval(`
+    require.resolve('./lib/a.js')
+  `)
+  if (!resolvePath.ok || resolvePath.value !== `${cjsRoot}/lib/a.js`) {
+    throw new Error(`require.resolve failed: ${JSON.stringify(resolvePath)}`)
+  }
+
+  const mjsRequire = await cjsInstance.eval(`
+    var fs = require('fs')
+    fs.writeFileSync('only.mjs', 'export const x = 1\\n')
+    require('./only.mjs')
+  `)
+  if (
+    mjsRequire.ok ||
+    (!mjsRequire.error.includes('ERR_REQUIRE_ESM') && !mjsRequire.error.includes('ES Module'))
+  ) {
+    throw new Error(`expected ERR_REQUIRE_ESM for .mjs: ${JSON.stringify(mjsRequire)}`)
+  }
+
+  const deniedCjs = await createQuickJsInstance({
+    workspaceRoot: cjsRoot,
+    permissions: { fsReadRoots: [], fsWriteRoots: [cjsRoot] },
+  })
+  const deniedReq = await deniedCjs.eval(`require('./top.js')`)
+  if (deniedReq.ok || !deniedReq.error.toLowerCase().includes('permission')) {
+    throw new Error(`expected CJS read permission denial: ${JSON.stringify(deniedReq)}`)
+  }
+  deniedCjs.destroy()
+
+  cjsInstance.destroy()
+  try {
+    await filesRemove(cjsRoot)
   } catch {
     // best-effort cleanup
   }

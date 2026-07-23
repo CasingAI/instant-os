@@ -37,7 +37,7 @@
 
 **缺口（相对 L1）**
 
-- [x] 模块加载（ESM 文件 + 内建；文件级 CJS require 仍待 L1.9）
+- [x] 模块加载（ESM 文件 + 内建；文件级 CJS require 见 L1.9）
 - [x] 文件系统、路径、进程、二进制缓冲等宿主 API
 - [x] 异步调度桥（宿主 Promise / I/O 回调回灌实例）
 - [ ] 包安装、伪进程、构建后端（属 L2+）
@@ -124,7 +124,7 @@
 - [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/symlink/chmod（见远期）
 - [x] **L1.7 同步 I/O 策略落地**：文档化 Asyncify 策略（统一长驻实例、禁嵌套挂起、沙箱可 sync）；明确不做预加载 / 内存工作区 / 通用双轨 / 嵌套挂起排队。**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
 - [x] **L1.8 模块加载器（ESM）**：VFS 相对/绝对路径；Node ESM **不**自动补扩展名（须 `.js`/`.mjs`/`.cjs`）；实例级缓存；未实现 `node:` 清晰报错；粘贴 eval 入口 `{cwd}/[eval-n].js`。内建钩子自 L1.3；本项扩到文件。CJS 文件 `require`+扩展名补全见 L1.9。Asyncify：Sync 路径内禁止再挂起（含可挂起 import）
-- [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可；**内建-only `require` 已由 L1.3 起，本项扩展到文件级 CJS（含扩展名 / index 补全，对齐 Node `require`）**
+- [x] **L1.9 薄 CJS `require`（可选但建议）**：文件级 CJS（扩展名 / index / `.json` 探测）；顶层相对 cwd、模块内相对调用方；宿主递归预载静态 `require('…')` 以避免嵌套 Asyncify；实例缓存与循环依赖；`require.resolve` / `require.cache`。不做：`package.json` main/exports（L1.10）、裸名（L2）、`.node`、完整 Module API
 - [ ] **L1.10 入口 `package.json` 子集**：目录入口的 `main` / `module` / 基础 `exports`
 - [ ] **L1.11 薄 `events`**：最小 EventEmitter，保证常见依赖能加载
 - [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
@@ -438,6 +438,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.6：实例改走 Asyncify；`fs`/`fs/promises` 接 Files/VFS（回调 + promises + Sync）；权限根 + `maxFileBytes`；L1.7 收窄为 Sync 策略优化。 |
 | 2026-07-23 | 完成 L1.7：文档化 Asyncify 策略（长驻统一 Asyncify、禁嵌套挂起、沙箱可 sync）；明确不做预加载/内存工作区/通用双轨/嵌套排队。 |
 | 2026-07-23 | 完成 L1.8：ESM 文件 import（相对导入方 / eval→cwd、绝对路径+读权限、显式扩展名、实例缓存）；CJS 文件 require 与扩展名补全留 L1.9。 |
+| 2026-07-23 | 完成 L1.9：文件级 CJS require（扩展名/index/.json、父路径、宿主预载避嵌套 Asyncify、缓存/循环、`resolve`/`cache`）；package.json 入口留 L1.10。 |
 
 ---
 

@@ -13,6 +13,10 @@ import {
 } from './quickjs-fs.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import {
+  createCjsRequireApi,
+  createModuleErrorHandle,
+} from './quickjs-cjs-require.ts'
+import {
   loadEsmModuleSourceFromVfs,
   normalizeModuleRequest,
 } from './quickjs-module-loader.ts'
@@ -118,7 +122,7 @@ function formatMissingBuiltinError(requested: string, implemented: string[]): Er
   }
 
   return new Error(
-    `Cannot find module '${requested}'. Instant require currently only supports implemented Node builtins (file-level require with CJS extension probing is L1.9; use import './file.js' for ESM). Bare packages are L2. Implemented: ${implementedHint}`,
+    `Cannot find module '${requested}'. Bare package names (node_modules) are not resolved yet (L2). Instant require loads relative/absolute files (CJS, with extension/index probing) and implemented Node builtins. Implemented builtins: ${implementedHint}`,
   )
 }
 
@@ -273,9 +277,8 @@ function lookupBuiltinHandle(
 }
 
 /**
- * 注入 Node 内建注册表：setModuleLoader（ESM import + VFS 文件）+ 全局 require（仅内建）。
+ * 注入 Node 内建注册表：setModuleLoader（ESM）+ 全局 require（内建 + 文件级 CJS）。
  * 已实现内建：path、buffer、fs、fs/promises（及 node: / path/posix 别名）。
- * 文件级 require / CJS 扩展名补全见 L1.9。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSAsyncRuntime,
@@ -383,20 +386,43 @@ export function injectNodeBuiltins(
     },
   )
 
-  const requireFn = context.newFunction('require', (idHandle) => {
-    const requested = dumpArgString(context, idHandle)
-    const canonical = toCanonicalBuiltinId(requested)
-    if (canonical === 'path/win32') {
-      throw new Error(
-        `Cannot find module '${requested}'. Instant path is POSIX-only; path/win32 is not supported.`,
-      )
-    }
-    const handle = lookupBuiltinHandle(context, canonical)
-    if (handle === undefined) {
-      throw formatMissingBuiltinError(requested, listImplemented())
-    }
-    return handle
+  const cjs = createCjsRequireApi(context, {
+    getCwd: options.getCwd,
+    fsOps: options.fsOps,
+    lookupBuiltin: (canonicalId) => lookupBuiltinHandle(context, canonicalId),
+    toCanonicalBuiltinId,
+    isImplementedBuiltin: (id) => implemented.has(id),
+    isKnownNodeBuiltin: (id) => KNOWN_NODE_BUILTIN_IDS.has(id),
+    listImplemented,
+    formatMissingModuleError: (requested) =>
+      formatMissingBuiltinError(requested, listImplemented()),
   })
+
+  // 顶层 require：Asyncify（宿主递归加载文件，避免嵌套挂起）
+  const requireFn = context.newAsyncifiedFunction('require', async (idHandle) => {
+    try {
+      const requested = dumpArgString(context, idHandle)
+      return await cjs.load(requested, cjs.evalParentFilename())
+    } catch (error) {
+      return context.fail(createModuleErrorHandle(context, error))
+    }
+  })
+
+  const resolveFn = context.newAsyncifiedFunction('resolve', async (idHandle) => {
+    try {
+      const requested = dumpArgString(context, idHandle)
+      const resolved = await cjs.resolve(requested, cjs.evalParentFilename())
+      return context.newString(resolved)
+    } catch (error) {
+      return context.fail(createModuleErrorHandle(context, error))
+    }
+  })
+  context.setProp(requireFn, 'resolve', resolveFn)
+  resolveFn.dispose()
+
+  const cacheHandle = cjs.getRequireCacheHandle()
+  context.setProp(requireFn, 'cache', cacheHandle)
+
   context.setProp(context.global, 'require', requireFn)
   requireFn.dispose()
 

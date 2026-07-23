@@ -1,9 +1,9 @@
 /**
- * 模块路径解析与 ESM 文件加载（L1.8）。
+ * 模块路径解析与 ESM / CJS 文件加载（L1.8 / L1.9）。
  *
  * Node 双轨：
  * - ESM `import`：不探扩展名（须写全 `.js` / `.mjs` / `.cjs`）
- * - CJS `require` 文件级补全：见 {@link resolveCjsSpecifier}（L1.9）
+ * - CJS `require`：扩展名 / index 探测（见 {@link resolveCjsSpecifierAsync}）
  */
 import { createPosixPathApi } from './quickjs-path.ts'
 import {
@@ -16,6 +16,15 @@ import { filesReadText, filesStat } from '../apps/files/files-api.ts'
 
 /** ESM 允许的显式扩展名（对齐 Node ESM；不做自动补全）。 */
 const ESM_FILE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs'])
+
+/** CJS require 可加载的文件扩展名（不做 .node）。 */
+const CJS_FILE_EXTENSIONS = new Set(['.js', '.cjs', '.json'])
+
+/** LOAD_AS_FILE 探测用扩展名（顺序对齐 Node，省略 .node）。 */
+const CJS_PROBE_EXTENSIONS = ['.js', '.json'] as const
+
+/** LOAD_INDEX 文件名。 */
+const CJS_INDEX_NAMES = ['index.js', 'index.json'] as const
 
 export type QuickJsModuleResolveKind = 'builtin' | 'file' | 'bare'
 
@@ -105,9 +114,109 @@ export function resolveEsmSpecifier(
   return absolutePath
 }
 
+function pathExtname(absolutePath: string): string {
+  return createPosixPathApi(() => '/').extname(absolutePath).toLowerCase()
+}
+
+function pathJoin(dir: string, name: string): string {
+  return createPosixPathApi(() => '/').join(dir, name)
+}
+
+async function statKind(
+  absolutePath: string,
+): Promise<'file' | 'folder' | undefined> {
+  const entry = await filesStat(absolutePath)
+  if (entry === undefined) {
+    return undefined
+  }
+  return entry.kind === 'folder' ? 'folder' : 'file'
+}
+
 /**
- * CJS 式扩展名 / 目录 index 探测（L1.9）。
- * L1.8 仅占位，避免与 ESM 解析混用。
+ * CJS LOAD_AS_FILE + LOAD_INDEX（无 package.json main，见 L1.10）。
+ * 返回最终可加载的绝对文件路径。
+ */
+export async function resolveCjsSpecifierAsync(
+  baseModuleName: string,
+  requestedName: string,
+  getCwd: () => string,
+): Promise<string> {
+  const absolutePath = resolvePathAgainstBase(baseModuleName, requestedName, getCwd)
+  const ext = pathExtname(absolutePath)
+
+  if (ext === '.mjs') {
+    throw new QuickJsModuleError(
+      'ERR_REQUIRE_ESM',
+      `Must use import to load ES Module: ${absolutePath}`,
+    )
+  }
+
+  const tryAsFile = async (candidate: string): Promise<string | undefined> => {
+    const kind = await statKind(candidate)
+    if (kind !== 'file') {
+      return undefined
+    }
+    const candidateExt = pathExtname(candidate)
+    if (candidateExt === '.mjs') {
+      throw new QuickJsModuleError(
+        'ERR_REQUIRE_ESM',
+        `Must use import to load ES Module: ${candidate}`,
+      )
+    }
+    if (candidateExt && !CJS_FILE_EXTENSIONS.has(candidateExt) && candidateExt !== '') {
+      // 无扩展名的文件 Node 仍可当 JS 加载；有未知扩展名时仍尝试当作 JS 文本
+      if (candidateExt !== '.js' && candidateExt !== '.cjs' && candidateExt !== '.json') {
+        // 允许无标准扩展名的精确文件（Node LOAD_AS_FILE 第一步）
+      }
+    }
+    return candidate
+  }
+
+  const tryAsDirectory = async (dirPath: string): Promise<string | undefined> => {
+    const kind = await statKind(dirPath)
+    if (kind !== 'folder') {
+      return undefined
+    }
+    for (const indexName of CJS_INDEX_NAMES) {
+      const found = await tryAsFile(pathJoin(dirPath, indexName))
+      if (found !== undefined) {
+        return found
+      }
+    }
+    return undefined
+  }
+
+  // LOAD_AS_FILE(X)：精确路径 → X.js → X.json
+  const exact = await tryAsFile(absolutePath)
+  if (exact !== undefined) {
+    return exact
+  }
+
+  for (const probeExt of CJS_PROBE_EXTENSIONS) {
+    // 已有同类扩展名时不重复追加（./foo.js 不试 ./foo.js.js）
+    if (ext === probeExt) {
+      continue
+    }
+    const found = await tryAsFile(`${absolutePath}${probeExt}`)
+    if (found !== undefined) {
+      return found
+    }
+  }
+
+  // LOAD_AS_DIRECTORY(X)（跳过 package.json main）
+  const asDir = await tryAsDirectory(absolutePath)
+  if (asDir !== undefined) {
+    return asDir
+  }
+
+  throw new QuickJsModuleError(
+    'ERR_MODULE_NOT_FOUND',
+    `Cannot find module '${requestedName}' (resolved base '${absolutePath}'). Instant CJS require probes .js/.json and index.js/index.json; package.json main/exports are L1.10; bare packages are L2.`,
+  )
+}
+
+/**
+ * @deprecated 使用 {@link resolveCjsSpecifierAsync}。保留同步占位以免旧引用静默走错路径。
  */
 export function resolveCjsSpecifier(
   _baseModuleName: string,
@@ -116,8 +225,54 @@ export function resolveCjsSpecifier(
 ): string {
   throw new QuickJsModuleError(
     'ERR_NOT_IMPLEMENTED',
-    `Cannot find module '${requestedName}'. File-level require with CJS extension probing is L1.9; use ESM import './file.js' for now.`,
+    `Cannot find module '${requestedName}'. Use resolveCjsSpecifierAsync (CJS require is async on the host).`,
   )
+}
+
+/**
+ * 从 CJS 源码提取静态 `require('…')` / `require("…")` 说明符（薄实现，供宿主预载）。
+ */
+export function extractStaticRequireSpecifiers(source: string): string[] {
+  const results: string[] = []
+  const seen = new Set<string>()
+  const re = /require\s*\(\s*(['"])([^'"]+)\1\s*\)/g
+  for (const match of source.matchAll(re)) {
+    const id = match[2]
+    if (id === undefined || id.length === 0 || seen.has(id)) {
+      continue
+    }
+    seen.add(id)
+    results.push(id)
+  }
+  return results
+}
+
+/** 按缓存键做同步 CJS 路径解析（扩展名 / index；不访问 VFS）。 */
+export function resolveCjsFromCacheKeys(
+  baseModuleName: string,
+  requestedName: string,
+  getCwd: () => string,
+  hasCached: (absolutePath: string) => boolean,
+): string | undefined {
+  const absolutePath = resolvePathAgainstBase(baseModuleName, requestedName, getCwd)
+  const ext = pathExtname(absolutePath)
+
+  const candidates: string[] = [absolutePath]
+  for (const probeExt of CJS_PROBE_EXTENSIONS) {
+    if (ext !== probeExt) {
+      candidates.push(`${absolutePath}${probeExt}`)
+    }
+  }
+  for (const indexName of CJS_INDEX_NAMES) {
+    candidates.push(pathJoin(absolutePath, indexName))
+  }
+
+  for (const candidate of candidates) {
+    if (hasCached(candidate)) {
+      return candidate
+    }
+  }
+  return undefined
 }
 
 export type NormalizeModuleRequestOptions = {
