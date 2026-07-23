@@ -1,3 +1,5 @@
+import 'fake-indexeddb/auto'
+import { filesMkdir, filesRemove, filesStat } from '../apps/files/files-api.ts'
 import { createQuickJsInstance } from './quickjs-instance.ts'
 import { runQuickJsSandbox } from './quickjs-sandbox.ts'
 
@@ -205,11 +207,11 @@ async function testInstance() {
     throw new Error(`resolve should follow chdir: ${JSON.stringify(resolveAfterChdir)}`)
   }
 
-  const missingBuiltin = await instance.eval(`require('fs')`)
+  const missingBuiltin = await instance.eval(`require('http')`)
   if (
     missingBuiltin.ok ||
     !missingBuiltin.error.includes('not implemented yet') ||
-    !missingBuiltin.error.includes("'fs'")
+    !missingBuiltin.error.includes("'http'")
   ) {
     throw new Error(`expected unimplemented builtin error: ${JSON.stringify(missingBuiltin)}`)
   }
@@ -405,6 +407,174 @@ export default {
     throw new Error(
       `expected stdout Buffer decoded in console: ${JSON.stringify(stdoutBuf.consoleLines)}`,
     )
+  }
+
+  // --- L1.6 fs / fs.promises / Sync (Asyncify) ---
+  const fsRoot = '/user/qjs-fs-smoke'
+  const existing = await filesStat(fsRoot)
+  if (existing !== undefined) {
+    await filesRemove(fsRoot)
+  }
+  await filesMkdir(fsRoot)
+
+  const fsInstance = await createQuickJsInstance({
+    workspaceRoot: fsRoot,
+    timeoutMs: 15_000,
+  })
+
+  const fsAsyncOk = await fsInstance.eval(`
+    var __fsAsyncDone = false
+    var __fsAsyncResult = null
+    var __fsAsyncError = null
+    ;(async function () {
+      try {
+        var fs = require('fs/promises')
+        await fs.writeFile('hello.txt', 'hello-async')
+        var text = await fs.readFile('hello.txt', 'utf8')
+        await fs.appendFile('hello.txt', '-more')
+        var text2 = await fs.readFile('hello.txt', 'utf8')
+        await fs.mkdir('sub', { recursive: true })
+        await fs.writeFile('sub/a.txt', 'a')
+        var names = await fs.readdir('.')
+        var st = await fs.stat('hello.txt')
+        await fs.rename('sub/a.txt', 'sub/b.txt')
+        var exists = true
+        try { await fs.access('sub/b.txt') } catch (e) { exists = false }
+        await fs.unlink('sub/b.txt')
+        await fs.rm('sub', { recursive: true, force: true })
+        __fsAsyncResult = {
+          text: text,
+          text2: text2,
+          namesOk: names.indexOf('hello.txt') !== -1,
+          isFile: st.isFile(),
+          size: st.size,
+          exists: exists
+        }
+      } catch (e) {
+        __fsAsyncError = String(e && e.message ? e.message : e)
+      } finally {
+        __fsAsyncDone = true
+      }
+    })()
+    'started'
+  `)
+  if (!fsAsyncOk.ok) {
+    throw new Error(`fs async start failed: ${JSON.stringify(fsAsyncOk)}`)
+  }
+  for (let i = 0; i < 50; i++) {
+    await sleep(20)
+    const done = await fsInstance.eval('__fsAsyncDone')
+    if (done.ok && done.value === true) break
+  }
+  const fsAsyncResult = await fsInstance.eval(
+    '__fsAsyncError ? { error: __fsAsyncError } : __fsAsyncResult',
+  )
+  if (!fsAsyncResult.ok) {
+    throw new Error(`fs async result failed: ${JSON.stringify(fsAsyncResult)}`)
+  }
+  const far = fsAsyncResult.value as Record<string, unknown>
+  if (far.error) {
+    throw new Error(`fs async error: ${far.error}`)
+  }
+  if (
+    far.text !== 'hello-async' ||
+    far.text2 !== 'hello-async-more' ||
+    far.namesOk !== true ||
+    far.isFile !== true ||
+    far.exists !== true
+  ) {
+    throw new Error(`unexpected fs async result: ${JSON.stringify(far)}`)
+  }
+
+  const fsSync = await fsInstance.eval(`
+    var fs = require('fs')
+    fs.writeFileSync('sync.txt', 'sync-ok')
+    var t = fs.readFileSync('sync.txt', 'utf8')
+    var st = fs.statSync('sync.txt')
+    ;({ t: t, isFile: st.isFile(), size: st.size })
+  `)
+  if (!fsSync.ok) {
+    throw new Error(`fs sync failed: ${JSON.stringify(fsSync)}`)
+  }
+  const fsv = fsSync.value as Record<string, unknown>
+  if (fsv.t !== 'sync-ok' || fsv.isFile !== true) {
+    throw new Error(`unexpected fs sync result: ${JSON.stringify(fsv)}`)
+  }
+
+  const fsImport = await fsInstance.eval(`
+    import fs from 'node:fs'
+    import fsp from 'node:fs/promises'
+    export default {
+      hasSync: typeof fs.readFileSync === 'function',
+      hasPromises: typeof fsp.writeFile === 'function',
+      samePromises: fs.promises === fsp,
+    }
+  `)
+  if (!fsImport.ok) {
+    throw new Error(`fs import failed: ${JSON.stringify(fsImport)}`)
+  }
+  const fsImportVal =
+    fsImport.value && typeof fsImport.value === 'object' && 'default' in fsImport.value
+      ? (fsImport.value as { default: Record<string, unknown> }).default
+      : (fsImport.value as Record<string, unknown>)
+  if (
+    fsImportVal.hasSync !== true ||
+    fsImportVal.hasPromises !== true ||
+    fsImportVal.samePromises !== true
+  ) {
+    throw new Error(`unexpected fs import: ${JSON.stringify(fsImport)}`)
+  }
+
+  const denied = await createQuickJsInstance({ timeoutMs: 5000 })
+  const deniedResult = await denied.eval(`
+    try {
+      require('fs').readFileSync('/user/qjs-fs-smoke/sync.txt', 'utf8')
+      'ok'
+    } catch (e) {
+      String(e && e.code ? e.code : e)
+    }
+  `)
+  denied.destroy()
+  if (!deniedResult.ok || deniedResult.value !== 'EACCES') {
+    throw new Error(`expected EACCES without workspace: ${JSON.stringify(deniedResult)}`)
+  }
+
+  const tiny = await createQuickJsInstance({
+    workspaceRoot: fsRoot,
+    maxFileBytes: 8,
+    timeoutMs: 5000,
+  })
+  const tooLarge = await tiny.eval(`
+    try {
+      require('fs').writeFileSync('big.txt', '0123456789')
+      'ok'
+    } catch (e) {
+      String(e && e.code ? e.code : e)
+    }
+  `)
+  tiny.destroy()
+  if (!tooLarge.ok || tooLarge.value !== 'ERR_FS_FILE_TOO_LARGE') {
+    throw new Error(`expected file too large: ${JSON.stringify(tooLarge)}`)
+  }
+
+  // destroy 后不可再 eval
+  const hang = await createQuickJsInstance({ workspaceRoot: fsRoot, timeoutMs: 5_000 })
+  hang.destroy()
+  let hangThrew = false
+  try {
+    await hang.eval(`require('fs').readFileSync('sync.txt', 'utf8')`)
+  } catch {
+    hangThrew = true
+  }
+  if (!hangThrew) {
+    throw new Error('expected eval after destroy to throw')
+  }
+
+  fsInstance.destroy()
+  try {
+    await filesRemove(fsRoot)
+  } catch {
+    // best-effort cleanup
   }
 
   await timerInstance.eval(`

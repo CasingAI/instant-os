@@ -11,8 +11,9 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import {
   DEFAULT_VIRTUAL_JS_SAMPLE_ID,
+  formatVirtualJsSampleTitle,
   getVirtualJsSample,
-  VIRTUAL_JS_SAMPLES,
+  VIRTUAL_JS_SAMPLE_LIST,
 } from './virtual-js-samples.ts'
 import './virtual-js.css'
 
@@ -27,6 +28,27 @@ type OutputLine = {
 }
 
 type InstanceUiState = 'boot' | 'ready' | 'busy' | 'stopped' | 'error'
+
+type SuiteCaseResult = {
+  title: string
+  ok: boolean
+  summary: string
+  exited: boolean
+}
+
+function sleep(ms: number, shouldAbort: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const tick = () => {
+      if (shouldAbort() || Date.now() - started >= ms) {
+        resolve()
+        return
+      }
+      window.setTimeout(tick, 50)
+    }
+    window.setTimeout(tick, Math.min(50, ms))
+  })
+}
 
 function formatValue(value: unknown): string {
   if (typeof value === 'string') {
@@ -70,7 +92,10 @@ function consoleLineToOutput(line: QuickJsConsoleLine): OutputLine {
   }
 }
 
-function statusLabel(state: InstanceUiState): string {
+function statusLabel(state: InstanceUiState, testingAll: boolean): string {
+  if (testingAll) {
+    return '测试全部进行中…'
+  }
   switch (state) {
     case 'boot':
       return '正在创建实例…'
@@ -95,16 +120,35 @@ export function VirtualJsApp() {
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   const mountedRef = useRef(true)
   const outputSeqRef = useRef(0)
+  const testAllAbortRef = useRef(false)
+  const activeSampleButtonRef = useRef<HTMLButtonElement | null>(null)
   const [activeSampleId, setActiveSampleId] = useState(DEFAULT_VIRTUAL_JS_SAMPLE_ID)
   const [source, setSource] = useState(initialSampleSource)
   const [outputLines, setOutputLines] = useState<OutputLine[]>([])
   const [uiState, setUiState] = useState<InstanceUiState>('boot')
   const [bootError, setBootError] = useState<string | undefined>(undefined)
+  const [testingAll, setTestingAll] = useState(false)
 
-  const activeSample = useMemo(
-    () => getVirtualJsSample(activeSampleId) ?? VIRTUAL_JS_SAMPLES[0],
-    [activeSampleId],
+  const activeSample = useMemo(() => {
+    const fromList = VIRTUAL_JS_SAMPLE_LIST.find((sample) => sample.id === activeSampleId)
+    if (fromList !== undefined) {
+      return fromList
+    }
+    return VIRTUAL_JS_SAMPLE_LIST[0]
+  }, [activeSampleId])
+
+  const activeSampleLabel = useMemo(
+    () => (activeSample !== undefined ? formatVirtualJsSampleTitle(activeSample) : '脚本'),
+    [activeSample],
   )
+
+  useEffect(() => {
+    activeSampleButtonRef.current?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+      behavior: 'smooth',
+    })
+  }, [activeSampleId])
 
   const appendOutput = useCallback((kind: OutputKind, text: string) => {
     outputSeqRef.current += 1
@@ -165,7 +209,10 @@ export function VirtualJsApp() {
     setUiState('boot')
     setBootError(undefined)
     try {
-      const instance = await createQuickJsInstance()
+      const instance = await createQuickJsInstance({
+        // Virtual JS 默认可读写用户卷，便于内置 fs 样例
+        workspaceRoot: '/user',
+      })
       bindInstance(instance)
     } catch (error) {
       if (!mountedRef.current) return
@@ -182,6 +229,7 @@ export function VirtualJsApp() {
 
     return () => {
       mountedRef.current = false
+      testAllAbortRef.current = true
       unsubRef.current?.()
       unsubRef.current = undefined
       instanceRef.current?.destroy()
@@ -191,7 +239,11 @@ export function VirtualJsApp() {
 
   const loadSample = useCallback(
     async (sampleId: string) => {
-      const sample = getVirtualJsSample(sampleId)
+      if (testingAll) {
+        return
+      }
+
+      const sample = VIRTUAL_JS_SAMPLE_LIST.find((item) => item.id === sampleId)
       if (sample === undefined) {
         return
       }
@@ -208,10 +260,10 @@ export function VirtualJsApp() {
         instanceRef.current?.abort()
       }
       setOutputLines([])
-      appendOutput('info', `已切换「${sample.title}」· 实例已重建`)
+      appendOutput('info', `已切换「${formatVirtualJsSampleTitle(sample)}」· 实例已重建`)
       await createInstance()
     },
-    [activeSampleId, appendOutput, createInstance, uiState],
+    [activeSampleId, appendOutput, createInstance, testingAll, uiState],
   )
 
   const destroyInstanceWithExitCode = useCallback(
@@ -234,52 +286,92 @@ export function VirtualJsApp() {
     [appendOutput, syncConsoleFromInstance],
   )
 
+  const evalSource = useCallback(
+    async (
+      code: string,
+      title: string,
+    ): Promise<SuiteCaseResult> => {
+      let instance = instanceRef.current
+      if (instance === undefined || instance.getSnapshot().destroyed) {
+        await createInstance()
+        instance = instanceRef.current
+      }
+      if (instance === undefined || instance.getSnapshot().destroyed) {
+        const summary = '实例不可用'
+        appendOutput('result-error', summary)
+        return { title, ok: false, summary, exited: false }
+      }
+
+      setUiState('busy')
+      try {
+        const snap = instance.getSnapshot()
+        appendOutput(
+          'info',
+          `── run · cwd=${snap.cwd} exitCode=${snap.exitCode} · ${title} ──`,
+        )
+        const result = await instance.eval(code)
+        // console 已由 subscribe 流式追加；这里只展示 REPL 结果 / exit
+        syncConsoleFromInstance(instance)
+        if (result.ok) {
+          if (result.exited) {
+            // Virtual JS：实例=进程，process.exit 即结束进程（销毁实例）
+            destroyInstanceWithExitCode(result.exitCode, 'process.exit')
+            return {
+              title,
+              ok: true,
+              summary: `process.exit(${result.exitCode})`,
+              exited: true,
+            }
+          }
+          const formatted = formatValue(result.value)
+          appendOutput('result', formatted)
+          if (result.exitCode !== 0) {
+            appendOutput('info', `exitCode=${result.exitCode}`)
+          }
+          setUiState(instance.getSnapshot().destroyed ? 'error' : 'ready')
+          return {
+            title,
+            ok: true,
+            summary:
+              result.exitCode === 0
+                ? formatted
+                : `${formatted} · exitCode=${result.exitCode}`,
+            exited: false,
+          }
+        }
+
+        appendOutput('result-error', result.error)
+        setUiState(instance.getSnapshot().destroyed ? 'error' : 'ready')
+        return { title, ok: false, summary: result.error, exited: false }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        appendOutput('result-error', message)
+        setUiState(instanceRef.current?.getSnapshot().destroyed ? 'error' : 'ready')
+        return { title, ok: false, summary: message, exited: false }
+      }
+    },
+    [appendOutput, createInstance, destroyInstanceWithExitCode, syncConsoleFromInstance],
+  )
+
   const handleRun = useCallback(async () => {
-    const instance = instanceRef.current
-    if (!instance || instance.getSnapshot().destroyed || uiState === 'busy') {
+    if (testingAll || uiState === 'busy') {
+      return
+    }
+    await evalSource(source, activeSampleLabel)
+  }, [activeSampleLabel, evalSource, source, testingAll, uiState])
+
+  const handleStopTestAll = useCallback(() => {
+    testAllAbortRef.current = true
+  }, [])
+
+  const handleTestAll = useCallback(async () => {
+    if (testingAll) {
+      handleStopTestAll()
       return
     }
 
-    setUiState('busy')
-    try {
-      const snap = instance.getSnapshot()
-      appendOutput(
-        'info',
-        `── run · cwd=${snap.cwd} exitCode=${snap.exitCode} · ${activeSample?.title ?? 'custom'} ──`,
-      )
-      const result = await instance.eval(source)
-      // console 已由 subscribe 流式追加；这里只展示 REPL 结果 / exit
-      syncConsoleFromInstance(instance)
-      if (result.ok) {
-        if (result.exited) {
-          // Virtual JS：实例=进程，process.exit 即结束进程（销毁实例）
-          destroyInstanceWithExitCode(result.exitCode, 'process.exit')
-          return
-        }
-        appendOutput('result', formatValue(result.value))
-        if (result.exitCode !== 0) {
-          appendOutput('info', `exitCode=${result.exitCode}`)
-        }
-        setUiState(instance.getSnapshot().destroyed ? 'error' : 'ready')
-      } else {
-        appendOutput('result-error', result.error)
-        setUiState(instance.getSnapshot().destroyed ? 'error' : 'ready')
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      appendOutput('result-error', message)
-      setUiState(instanceRef.current?.getSnapshot().destroyed ? 'error' : 'ready')
-    }
-  }, [
-    activeSample?.title,
-    appendOutput,
-    destroyInstanceWithExitCode,
-    source,
-    syncConsoleFromInstance,
-    uiState,
-  ])
-
-  const handleClearOutput = useCallback(() => {
+    testAllAbortRef.current = false
+    setTestingAll(true)
     setOutputLines([])
     seenConsoleIdsRef.current = new Set()
     try {
@@ -287,25 +379,104 @@ export function VirtualJsApp() {
     } catch {
       // 实例已销毁时忽略
     }
-  }, [])
+
+    const total = VIRTUAL_JS_SAMPLE_LIST.length
+    appendOutput(
+      'info',
+      `══ 测试全部开始 · 共 ${total} 个用例 · 同步 exit 后立刻切换 ══`,
+    )
+
+    const suiteResults: SuiteCaseResult[] = []
+
+    for (let index = 0; index < total; index += 1) {
+      if (testAllAbortRef.current || !mountedRef.current) {
+        appendOutput('warn', '══ 测试全部已中止 ══')
+        break
+      }
+
+      const sample = VIRTUAL_JS_SAMPLE_LIST[index]!
+      const labeled = formatVirtualJsSampleTitle(sample)
+      setActiveSampleId(sample.id)
+      setSource(sample.source)
+
+      if (instanceRef.current?.getSnapshot().busy) {
+        instanceRef.current.abort()
+      }
+
+      appendOutput('info', `── [${index + 1}/${total}] ${labeled} ──`)
+      await createInstance()
+
+      if (testAllAbortRef.current || !mountedRef.current) {
+        appendOutput('warn', '══ 测试全部已中止 ══')
+        break
+      }
+
+      const caseResult = await evalSource(sample.source, labeled)
+      suiteResults.push(caseResult)
+
+      // 定时器 / 异步收尾：eval 可能先返回，等 suiteSettleMs 让回调跑完
+      const settleMs = sample.suiteSettleMs ?? 0
+      if (settleMs > 0 && !caseResult.exited && index < total - 1) {
+        await sleep(settleMs, () => testAllAbortRef.current || !mountedRef.current)
+      }
+    }
+
+    if (mountedRef.current && suiteResults.length > 0) {
+      const passed = suiteResults.filter((item) => item.ok).length
+      appendOutput(
+        'info',
+        `══ 测试全部汇总 · ${passed}/${suiteResults.length} 通过 ══`,
+      )
+      for (const item of suiteResults) {
+        appendOutput(
+          item.ok ? 'result' : 'result-error',
+          `${item.ok ? '✓' : '✗'} ${item.title} → ${item.summary}`,
+        )
+      }
+    }
+
+    if (mountedRef.current) {
+      setTestingAll(false)
+      testAllAbortRef.current = false
+    }
+  }, [appendOutput, createInstance, evalSource, handleStopTestAll, testingAll])
+
+  const handleClearOutput = useCallback(() => {
+    if (testingAll) {
+      return
+    }
+    setOutputLines([])
+    seenConsoleIdsRef.current = new Set()
+    try {
+      instanceRef.current?.clearConsole()
+    } catch {
+      // 实例已销毁时忽略
+    }
+  }, [testingAll])
 
   const handleRecreateInstance = useCallback(async () => {
+    if (testingAll) {
+      return
+    }
     if (uiState === 'busy') {
       instanceRef.current?.abort()
     }
     // 重建实例不清输出历史（由外层面板保留）
     appendOutput('info', '已重建 QuickJS 实例（全局变量已清空；输出历史保留）')
     await createInstance()
-  }, [appendOutput, createInstance, uiState])
+  }, [appendOutput, createInstance, testingAll, uiState])
 
   const handleStop = useCallback(() => {
+    if (testingAll) {
+      handleStopTestAll()
+    }
     const instance = instanceRef.current
     if (instance === undefined) {
       return
     }
     const exitCode = instance.getSnapshot().exitCode
     destroyInstanceWithExitCode(exitCode, 'stop')
-  }, [destroyInstanceWithExitCode])
+  }, [destroyInstanceWithExitCode, handleStopTestAll, testingAll])
 
   const handleResetSample = useCallback(() => {
     if (activeSample === undefined) {
@@ -324,9 +495,10 @@ export function VirtualJsApp() {
     [handleRun],
   )
 
-  const canRun = uiState === 'ready'
-  const canStop = uiState === 'ready' || uiState === 'busy'
-  const canRecreate = uiState !== 'busy' && uiState !== 'boot'
+  const canRun = uiState === 'ready' && !testingAll
+  const canStop = uiState === 'ready' || uiState === 'busy' || testingAll
+  const canRecreate = uiState !== 'busy' && uiState !== 'boot' && !testingAll
+  const canStartTestAll = uiState !== 'boot' && uiState !== 'busy'
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
@@ -363,6 +535,12 @@ export function VirtualJsApp() {
           },
           {
             type: 'action',
+            label: testingAll ? '停止测试全部' : '测试全部',
+            disabled: testingAll ? false : !canStartTestAll,
+            onClick: () => void handleTestAll(),
+          },
+          {
+            type: 'action',
             label: '停止（销毁实例）',
             disabled: !canStop,
             onClick: handleStop,
@@ -371,11 +549,13 @@ export function VirtualJsApp() {
           {
             type: 'action',
             label: '清空输出',
+            disabled: testingAll,
             onClick: handleClearOutput,
           },
           {
             type: 'action',
             label: '重置当前用例',
+            disabled: testingAll,
             onClick: handleResetSample,
           },
           {
@@ -390,6 +570,7 @@ export function VirtualJsApp() {
   }, [
     canRecreate,
     canRun,
+    canStartTestAll,
     canStop,
     closeWindowsForApp,
     handleClearOutput,
@@ -397,8 +578,10 @@ export function VirtualJsApp() {
     handleResetSample,
     handleRun,
     handleStop,
+    handleTestAll,
     minimizeWindow,
     showBuiltinAbout,
+    testingAll,
     windows,
   ])
 
@@ -407,8 +590,8 @@ export function VirtualJsApp() {
   return (
     <div class="virtual-js-app">
       <div class="virtual-js-app__toolbar">
-        <span class="virtual-js-app__status" data-state={uiState}>
-          {bootError ? `错误：${bootError}` : statusLabel(uiState)}
+        <span class="virtual-js-app__status" data-state={testingAll ? 'busy' : uiState}>
+          {bootError ? `错误：${bootError}` : statusLabel(uiState, testingAll)}
         </span>
         <button
           type="button"
@@ -420,6 +603,19 @@ export function VirtualJsApp() {
         </button>
         <button
           type="button"
+          class={
+            testingAll
+              ? 'virtual-js-app__button virtual-js-app__button--primary'
+              : 'virtual-js-app__button'
+          }
+          disabled={testingAll ? false : !canStartTestAll}
+          onClick={() => void handleTestAll()}
+          title="依次运行全部用例；同步脚本 process.exit 后立刻切换，定时器用例等收尾"
+        >
+          {testingAll ? '停止测试' : '测试全部'}
+        </button>
+        <button
+          type="button"
           class="virtual-js-app__button"
           disabled={!canStop}
           onClick={handleStop}
@@ -427,10 +623,20 @@ export function VirtualJsApp() {
         >
           停止
         </button>
-        <button type="button" class="virtual-js-app__button" onClick={handleClearOutput}>
+        <button
+          type="button"
+          class="virtual-js-app__button"
+          disabled={testingAll}
+          onClick={handleClearOutput}
+        >
           清空输出
         </button>
-        <button type="button" class="virtual-js-app__button" onClick={handleResetSample}>
+        <button
+          type="button"
+          class="virtual-js-app__button"
+          disabled={testingAll}
+          onClick={handleResetSample}
+        >
           重置用例
         </button>
         <button
@@ -447,21 +653,26 @@ export function VirtualJsApp() {
         <aside class="virtual-js-app__samples" aria-label="内置测试用例">
           <div class="virtual-js-app__samples-head">测试用例</div>
           <ul class="virtual-js-app__sample-list">
-            {VIRTUAL_JS_SAMPLES.map((sample) => {
+            {VIRTUAL_JS_SAMPLE_LIST.map((sample) => {
               const selected = sample.id === activeSampleId
               return (
                 <li key={sample.id}>
                   <button
                     type="button"
+                    ref={selected ? activeSampleButtonRef : undefined}
                     class={
                       selected
                         ? 'virtual-js-app__sample virtual-js-app__sample--active'
                         : 'virtual-js-app__sample'
                     }
                     aria-current={selected ? 'true' : undefined}
+                    disabled={testingAll}
                     onClick={() => void loadSample(sample.id)}
                   >
-                    <span class="virtual-js-app__sample-title">{sample.title}</span>
+                    <span class="virtual-js-app__sample-title">
+                      <span class="virtual-js-app__sample-seq">#{sample.seq}</span>
+                      {sample.title}
+                    </span>
                     <span class="virtual-js-app__sample-blurb">{sample.blurb}</span>
                   </button>
                 </li>
@@ -472,7 +683,7 @@ export function VirtualJsApp() {
 
         <div class="virtual-js-app__main">
           <div class="virtual-js-app__editor-meta">
-            <span class="virtual-js-app__editor-title">{activeSample?.title ?? '脚本'}</span>
+            <span class="virtual-js-app__editor-title">{activeSampleLabel}</span>
             <span class="virtual-js-app__editor-blurb">{activeSample?.blurb}</span>
           </div>
           <div class="virtual-js-app__editor">
@@ -480,6 +691,7 @@ export function VirtualJsApp() {
               class="virtual-js-app__textarea"
               value={source}
               spellCheck={false}
+              readOnly={testingAll}
               onInput={(event) => setSource((event.target as HTMLTextAreaElement).value)}
               onKeyDown={handleKeyDown}
               aria-label="QuickJS 源代码"
@@ -489,8 +701,8 @@ export function VirtualJsApp() {
           <div class="virtual-js-app__output" role="log" aria-live="polite">
             {outputLines.length === 0 ? (
               <p class="virtual-js-app__output-empty">
-                「运行」往同一进程塞代码。「停止」或脚本里 process.exit
-                都会销毁实例并显示 exitCode。之后需「重建实例」或切换用例。
+                「运行」往同一进程塞代码。「测试全部」会依次跑完所有用例并在此汇总。
+                「停止」或脚本里 process.exit 都会销毁实例并显示 exitCode。
               </p>
             ) : (
               outputLines.map((line) => (

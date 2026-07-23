@@ -1,12 +1,12 @@
 import {
   shouldInterruptAfterDeadline,
-  type QuickJSContext,
+  type QuickJSAsyncContext,
+  type QuickJSAsyncRuntime,
   type QuickJSHandle,
-  type QuickJSRuntime,
 } from 'quickjs-emscripten'
 import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
 import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
-import { loadQuickJsRuntime } from './quickjs-runtime.ts'
+import { createQuickJsAsyncContext } from './quickjs-runtime.ts'
 import type {
   QuickJsConsoleLevel,
   QuickJsConsoleLine,
@@ -110,7 +110,7 @@ function freezeHostConfig(config: QuickJsHostConfig): QuickJsHostConfig {
   }
 }
 
-function formatQuickJsError(context: QuickJSContext, errorHandle: QuickJSHandle): string {
+function formatQuickJsError(context: QuickJSAsyncContext, errorHandle: QuickJSHandle): string {
   try {
     const dumped = context.dump(errorHandle)
     if (typeof dumped === 'string') {
@@ -156,7 +156,7 @@ function formatConsoleArg(value: unknown): string {
   }
 }
 
-function dumpEvalValue(context: QuickJSContext, handle: QuickJSHandle): unknown {
+function dumpEvalValue(context: QuickJSAsyncContext, handle: QuickJSHandle): unknown {
   try {
     return context.dump(handle)
   } catch {
@@ -169,7 +169,7 @@ function dumpEvalValue(context: QuickJSContext, handle: QuickJSHandle): unknown 
 }
 
 function injectSerializableGlobals(
-  context: QuickJSContext,
+  context: QuickJSAsyncContext,
   globals: Record<string, unknown>,
 ): void {
   for (const [name, value] of Object.entries(globals)) {
@@ -180,7 +180,7 @@ function injectSerializableGlobals(
 }
 
 function injectConsole(
-  context: QuickJSContext,
+  context: QuickJSAsyncContext,
   onConsole: (level: QuickJsConsoleLevel, text: string) => void,
 ): void {
   const consoleObject = context.newObject()
@@ -223,7 +223,6 @@ export async function createQuickJsInstance(
   options: QuickJsInstanceOptions = {},
 ): Promise<QuickJsInstance> {
   const hostConfig = freezeHostConfig(resolveHostConfig(options))
-  const module = await loadQuickJsRuntime()
   const defaultTimeoutMs = hostConfig.quotas.timeoutMs
   instanceSeq += 1
   const instanceId = `qjs-instance-${instanceSeq}`
@@ -234,18 +233,18 @@ export async function createQuickJsInstance(
   let activeSliceTimeoutMs = defaultTimeoutMs
   const processState = createProcessState(hostConfig.workspaceRoot, hostConfig.env)
 
-  const runtime: QuickJSRuntime = module.newRuntime({
-    memoryLimitBytes: hostConfig.quotas.memoryLimitBytes,
-    maxStackSizeBytes: hostConfig.quotas.maxStackSizeBytes,
-    interruptHandler: (rt) => {
-      if (abortRequested || processState.exitRequested) {
-        return true
-      }
-      return shouldInterruptAfterDeadline(evalDeadline)(rt)
-    },
+  // 每实例独立 Asyncify WASM：Sync fs 可挂起且互不抢挂起槽
+  const context: QuickJSAsyncContext = await createQuickJsAsyncContext()
+  const runtime: QuickJSAsyncRuntime = context.runtime
+  runtime.setMemoryLimit(hostConfig.quotas.memoryLimitBytes)
+  runtime.setMaxStackSize(hostConfig.quotas.maxStackSizeBytes)
+  runtime.setInterruptHandler((rt) => {
+    if (abortRequested || processState.exitRequested) {
+      return true
+    }
+    return shouldInterruptAfterDeadline(evalDeadline)(rt)
   })
 
-  const context = runtime.newContext()
   const listeners = new Set<QuickJsInstanceListener>()
   const state: InstanceState = {
     destroyed: false,
@@ -332,6 +331,13 @@ export async function createQuickJsInstance(
 
   injectNodeBuiltins(runtime, context, {
     getCwd: () => processState.cwd,
+    asyncBridge,
+    fsOps: {
+      getCwd: () => processState.cwd,
+      permissions: hostConfig.permissions,
+      maxFileBytes: hostConfig.quotas.maxFileBytes,
+      isDestroyed: () => state.destroyed,
+    },
   })
 
   asyncBridge.injectGlobals()
@@ -397,8 +403,8 @@ export async function createQuickJsInstance(
     state.destroyed = true
     state.busy = false
     listeners.clear()
+    // Asyncify：只 dispose context。再 dispose runtime 会踩 HostRef（见 quickjs-emscripten）。
     context.dispose()
-    runtime.dispose()
   }
 
   const evalCode = async (
@@ -417,7 +423,18 @@ export async function createQuickJsInstance(
     try {
       evalSeq += 1
       // 每次独立文件名：避免 ESM 模块缓存 / 同名脚本重复声明干扰连续测试
-      const evalResult = context.evalCode(code, `${instanceId}-eval-${evalSeq}.js`)
+      // Asyncify：可能挂起（*Sync fs），须用 evalCodeAsync
+      const evalResult = await context.evalCodeAsync(code, `${instanceId}-eval-${evalSeq}.js`)
+
+      if (state.destroyed) {
+        return {
+          ok: false,
+          error: 'QuickJS instance destroyed during evaluation',
+          exited: false,
+          exitCode: processState.exitCode,
+          consoleLines: consoleSlice(),
+        }
+      }
 
       if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
@@ -462,11 +479,26 @@ export async function createQuickJsInstance(
           consoleLines: consoleSlice(),
         }
       } finally {
-        evalResult.value.dispose()
+        if (evalResult.value.alive) {
+          evalResult.value.dispose()
+        }
       }
+    } catch (error) {
+      if (state.destroyed) {
+        return {
+          ok: false,
+          error: 'QuickJS instance destroyed during evaluation',
+          exited: false,
+          exitCode: processState.exitCode,
+          consoleLines: consoleSlice(),
+        }
+      }
+      throw error
     } finally {
       endSlice()
-      asyncBridge.flushHostTasks()
+      if (!state.destroyed) {
+        asyncBridge.flushHostTasks()
+      }
     }
   }
 

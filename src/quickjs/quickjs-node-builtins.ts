@@ -1,5 +1,17 @@
-import type { QuickJSContext, QuickJSHandle, QuickJSRuntime } from 'quickjs-emscripten'
+import type {
+  QuickJSAsyncContext,
+  QuickJSAsyncRuntime,
+  QuickJSContext,
+  QuickJSHandle,
+} from 'quickjs-emscripten'
+import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { buildBufferModuleSource, injectBuffer } from './quickjs-buffer.ts'
+import {
+  buildFsModuleSource,
+  buildFsPromisesModuleSource,
+  injectFs,
+} from './quickjs-fs.ts'
+import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import { createPosixPathApi, type QuickJsPathApi } from './quickjs-path.ts'
 
 /** 实例私有：内建模块对象挂载点（非公开脚本 API）。 */
@@ -217,6 +229,8 @@ function buildPathModuleSource(): string {
 
 const PATH_MODULE_SOURCE = buildPathModuleSource()
 const BUFFER_MODULE_SOURCE = buildBufferModuleSource(BUILTINS_GLOBAL_KEY)
+const FS_MODULE_SOURCE = buildFsModuleSource(BUILTINS_GLOBAL_KEY)
+const FS_PROMISES_MODULE_SOURCE = buildFsPromisesModuleSource(BUILTINS_GLOBAL_KEY)
 
 function lookupBuiltinHandle(
   context: QuickJSContext,
@@ -240,25 +254,38 @@ function lookupBuiltinHandle(
 
 /**
  * 注入 Node 内建注册表：setModuleLoader（import）+ 全局 require，同表同对象。
- * 已实现：path、buffer（及 node: 前缀 / path/posix 别名）。
+ * 已实现：path、buffer、fs、fs/promises（及 node: 前缀 / path/posix 别名）。
  */
 export function injectNodeBuiltins(
-  runtime: QuickJSRuntime,
-  context: QuickJSContext,
-  options: { getCwd: () => string },
+  runtime: QuickJSAsyncRuntime,
+  context: QuickJSAsyncContext,
+  options: {
+    getCwd: () => string
+    asyncBridge: QuickJsAsyncBridge
+    fsOps: QuickJsFsHostOps
+  },
 ): QuickJsNodeBuiltinRegistry {
-  const implemented = new Set<string>(['path', 'buffer'])
+  const implemented = new Set<string>(['path', 'buffer', 'fs', 'fs/promises'])
   const listImplemented = () => [...implemented]
 
   const pathApi = createPosixPathApi(options.getCwd)
   const pathHandle = createPathModuleHandle(context, pathApi)
   const bufferHandle = injectBuffer(context)
+  const { fsHandle, promisesHandle } = injectFs({
+    context,
+    asyncBridge: options.asyncBridge,
+    ops: options.fsOps,
+  })
 
   const namespace = context.newObject()
   context.setProp(namespace, 'path', pathHandle)
   pathHandle.dispose()
   context.setProp(namespace, 'buffer', bufferHandle)
   bufferHandle.dispose()
+  context.setProp(namespace, 'fs', fsHandle)
+  context.setProp(namespace, 'fs/promises', promisesHandle)
+  fsHandle.dispose()
+  promisesHandle.dispose()
   context.setProp(context.global, BUILTINS_GLOBAL_KEY, namespace)
   namespace.dispose()
 
@@ -269,6 +296,12 @@ export function injectNodeBuiltins(
     }
     if (canonical === 'buffer') {
       return BUFFER_MODULE_SOURCE
+    }
+    if (canonical === 'fs') {
+      return FS_MODULE_SOURCE
+    }
+    if (canonical === 'fs/promises') {
+      return FS_PROMISES_MODULE_SOURCE
     }
     if (canonical === 'path/win32') {
       return {

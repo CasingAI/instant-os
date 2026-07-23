@@ -139,6 +139,16 @@
 .virtual-js-app__sample-title {
   font-size: 12.5px;
   color: #e8e8ed;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.virtual-js-app__sample-seq {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: #6e6e78;
+  min-width: 1.75em;
 }
 
 .virtual-js-app__sample-blurb {

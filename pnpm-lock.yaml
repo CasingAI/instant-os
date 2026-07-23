@@ -66,6 +66,9 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       vite:
         specifier: ^8.0.12
         version: 8.0.16(@types/node@24.13.1)(esbuild@0.28.1)
@@ -610,6 +613,10 @@ packages:
 
   estree-walker@2.0.2:
     resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
+
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -1415,6 +1422,8 @@ snapshots:
   escalade@3.2.0: {}
 
   estree-walker@2.0.2: {}
+
+  fake-indexeddb@6.2.5: {}
 
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:

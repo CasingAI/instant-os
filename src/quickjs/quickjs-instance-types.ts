@@ -22,7 +22,7 @@ export type QuickJsHostQuotas = {
   timeoutMs: number
   memoryLimitBytes: number
   maxStackSizeBytes: number
-  /** 单文件读写上限（字节）；L1.6 起执行，本阶段只保存。 */
+  /** 单文件读写上限（字节）；L1.6 起执行硬拒绝。 */
   maxFileBytes: number
 }
 

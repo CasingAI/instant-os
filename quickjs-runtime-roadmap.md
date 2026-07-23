@@ -51,7 +51,7 @@
 2. **实例与宿主会话同寿**：一个终端会话或一个 Virtual JS 窗口对应一个实例；关闭即销毁，全局状态随之消失。
 3. **优先接现有系统能力**：`fs` 走 Files/VFS，而不是另起一套内存盘然后双写。
 4. **纯 JS / WASM 优先**：凡依赖原生 addon 或本机 bash 的路径，一律视为「需裁剪或替换」，不是「再补几个 API」。
-5. **同步 I/O 要谨慎**：Node 风格的 `*Sync` 若直接打到持久化 VFS，会卡死 UI。优先内存工作区、批量预加载，或先提供 async 子集。
+5. **同步 I/O 走 Asyncify**：`*Sync` 在 guest 侧外观阻塞，宿主仍异步打 VFS（L1.6）。代价是 WASM ~2×、全体 JS 更慢、同模块不可嵌套挂起；优化与预加载见 L1.7。勿在 UI 线程忙等 IndexedDB。
 6. **权限默认最小**：可读工作区、可写约定目录、网络按白名单；禁止逃逸到宿主真实磁盘。
 
 ---
@@ -120,9 +120,9 @@
 - [x] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载（`import` / `require` / `node:path`；共享 Node 内建注册表）
 - [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
 - [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L1.8/VFS，不走本管线
-- [ ] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、exists；路径落在卷模型；大文件限额策略写明
-- [ ] **L1.7 同步 I/O 策略落地**：文档 + 实现约定（内存工作区 / 仅 async / 预加载）；避免 UI 线程直打持久化 Sync
-- [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错（**内建 `setModuleLoader` 钩子已由 L1.3 起，本项扩展到 VFS 文件**）
+- [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/symlink/chmod（见远期）
+- [ ] **L1.7 同步 I/O 策略落地**：文档 + 优化（预加载 / 内存工作区 / 挂起排队 / 体积）；**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
+- [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错（**内建 `setModuleLoader` 钩子已由 L1.3 起，本项扩展到 VFS 文件**）。注意：Asyncify 下 Sync 路径内禁止再挂起（含可挂起 import）
 - [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可，服务常见互操作（**内建-only `require` 已由 L1.3 起，本项扩展到文件级 CJS**）
 - [ ] **L1.10 入口 `package.json` 子集**：目录入口的 `main` / `module` / 基础 `exports`
 - [ ] **L1.11 薄 `events`**：最小 EventEmitter，保证常见依赖能加载
@@ -434,6 +434,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | L1.5 范围澄清：本期 Buffer + UTF-8 编解码；完整 charset / `string_decoder` / 独立 Buffer 配额记入文末「远期目标」。 |
 | 2026-07-23 | 完成 L1.5：feross/buffer 预打包注入 guest（全局 + `buffer`/`node:buffer`）+ 宿主 `TextEncoder`/`TextDecoder` 桥；stdout 可写 Buffer。 |
 | 2026-07-23 | Guest 内建 vendor：`vendor:quickjs-guest` + 清单驱动；替换一次性 `vendor-quickjs-buffer`；普通 npm 仍等 L1.8/VFS。 |
+| 2026-07-23 | 完成 L1.6：实例改走 Asyncify；`fs`/`fs/promises` 接 Files/VFS（回调 + promises + Sync）；权限根 + `maxFileBytes`；L1.7 收窄为 Sync 策略优化。 |
 
 ---
 
@@ -446,3 +447,10 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 - [ ] **F.1 多编码 / 完整 charset**：在 UTF-8 之外支持常见 legacy 编码（按需表驱动或受控依赖）；`TextDecoder` 非 UTF-8 不再一律拒绝。
 - [ ] **F.2 `string_decoder`**：流式解码（不完整多字节序列跨 chunk）；通常在薄 `stream` / 流式 `fs` 读真正落地后再做。
 - [ ] **F.3 独立 Buffer 配额**：单次 `alloc` / `from` 软上限与更清晰的错误信息（与堆 `memoryLimitBytes`、文件 `maxFileBytes` 分层说明）；L1.5 仅靠堆限额。
+
+### 文件系统更深对齐（承接 L1.6 缺口）
+
+- [ ] **F.4 fd / `open` / 定位读写**：真实句柄表与位置指针（当前 VFS 为路径/blob）。
+- [ ] **F.5 `fs.watch` / 流式读写**：对接 `filesWatch` 与薄 `stream`；语义对齐 Node 有限子集。
+- [ ] **F.6 符号链接 / Unix mode**：`lstat`/`symlink`/`chmod`（当前卷模型无 symlink，仅有 writable）。
+- [ ] **F.7 append/rename 原子性与跨卷 `EXDEV`**：减少读改写竞态；跨卷移动错误码更贴近 Node。

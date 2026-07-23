@@ -3,6 +3,11 @@ export type VirtualJsSample = {
   title: string
   blurb: string
   source: string
+  /**
+   * 「测试全部」：eval 返回后额外等待（给 setTimeout / 异步收尾），默认 0。
+   * 同步且脚本内已 process.exit 的用例应保持 0，结束后立刻切下一个。
+   */
+  suiteSettleMs?: number
 }
 
 /**
@@ -10,6 +15,9 @@ export type VirtualJsSample = {
  * - 脚本用例包在 IIFE 里，避免 const/let 污染全局、也避免 ASI 把 ({…}) 当成函数调用
  * - 需要测「全局保持」的用例除外
  * - ESM 用例保持顶层 import/export（每次 eval 已用独立文件名）
+ * - 无定时器/可同步收尾的用例在末尾 process.exit，便于「测试全部」立刻切下一个
+ * - 刻意不 exit 的：exitCode 演示、全局保持、空白草稿、期望抛错的用例
+ * - **新用例追加在数组末尾**；侧栏按序号倒序展示（最新在最上）
  */
 export const VIRTUAL_JS_SAMPLES: VirtualJsSample[] = [
   {
@@ -27,8 +35,8 @@ export const VIRTUAL_JS_SAMPLES: VirtualJsSample[] = [
   console.log('basename', path.basename('/user/docs/a.txt', '.txt'))
   console.log('extname', path.extname('archive.tar.gz'))
   console.log('isAbsolute', path.isAbsolute('/x'), path.isAbsolute('x'))
-
-  return path.join(process.cwd(), 'out')
+  console.log('→', path.join(process.cwd(), 'out'))
+  process.exit(0)
 })()
 `,
   },
@@ -49,6 +57,7 @@ export default {
   resolved: resolve('rel', 'file.js'),
   posixSep: path.posix.sep,
 }
+process.exit(0)
 `,
   },
   {
@@ -67,7 +76,8 @@ export default {
   console.log('resolve abs', path.resolve('/tmp', 'x'))
 
   process.chdir('/user')
-  return path.resolve('.', 'docs', '../x')
+  console.log('→', path.resolve('.', 'docs', '../x'))
+  process.exit(0)
 })()
 `,
   },
@@ -84,8 +94,7 @@ export default {
   console.log('normalize', path.normalize('/user//docs/../docs/./a'))
   console.log('relative', path.relative('/user/docs', '/user/docs/a/b'))
   console.log('relative up', path.relative('/user/docs/a', '/user/x'))
-
-  return parsed
+  process.exit(0)
 })()
 `,
   },
@@ -102,7 +111,8 @@ export default {
   console.log('base64', buf.toString('base64'))
   console.log('isBuffer', Buffer.isBuffer(buf), 'instanceof Uint8Array', buf instanceof Uint8Array)
   process.stdout.write(Buffer.from('stdout via Buffer'))
-  return Buffer.from('hi', 'utf8').toString('hex')
+  console.log('→', Buffer.from('hi', 'utf8').toString('hex'))
+  process.exit(0)
 })()
 `,
   },
@@ -121,8 +131,8 @@ var fromBuf = Buf.from(bytes).toString('utf8')
 console.log('encoding', enc.encoding)
 console.log('roundtrip', text, fromBuf)
 console.log('same Buffer?', Buf === Buffer)
-
-export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
+console.log('→', JSON.stringify({ text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }))
+process.exit(0)
 `,
   },
   {
@@ -135,12 +145,12 @@ export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
   process.stderr.write('stderr ok')
   console.log('argv', JSON.stringify(process.argv))
   console.log('USER', process.env.USER)
-
-  return {
+  console.log('→', JSON.stringify({
     cwd: process.cwd(),
     home: process.env.HOME,
     argv: process.argv,
-  }
+  }))
+  process.exit(0)
 })()
 `,
   },
@@ -158,7 +168,7 @@ export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
   {
     id: 'process-exit',
     title: 'process · exit',
-    blurb: 'exit 结束本轮；后面代码不应执行；实例可继续用',
+    blurb: 'exit 结束本轮；后面代码不应执行',
     source: `(function () {
   process.stdout.write('before exit')
   process.exit(2)
@@ -169,7 +179,8 @@ export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
   {
     id: 'timers-microtask',
     title: '定时器 · microtask',
-    blurb: 'queueMicrotask 先于 setTimeout；运行后实例仍在，可再跑',
+    blurb: 'queueMicrotask 先于 setTimeout；收尾 process.exit',
+    suiteSettleMs: 120,
     source: `(function () {
   var order = []
   console.log('sync start')
@@ -180,6 +191,7 @@ export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
   setTimeout(function () {
     order.push('timeout')
     console.log('timeout', order.join(','))
+    process.exit(0)
   }, 40)
   order.push('sync')
   return order
@@ -189,7 +201,8 @@ export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
   {
     id: 'timers-interval-abort',
     title: '定时器 · interval',
-    blurb: 'setInterval 持续打点；点「停止」会清掉挂起定时器',
+    blurb: 'setInterval 打满 5 次后 process.exit；也可点「停止」中断',
+    suiteSettleMs: 1200,
     source: `(function () {
   var n = 0
   var id = setInterval(function () {
@@ -198,6 +211,7 @@ export default { text: text, fromBuf: fromBuf, byteLength: bytes.byteLength }
     if (n >= 5) {
       clearInterval(id)
       console.log('cleared after 5')
+      process.exit(0)
     }
   }, 200)
   console.log('interval id', id)
@@ -242,7 +256,7 @@ __n
   console.info('info line')
   console.warn('warn line')
   console.error('error line')
-  return 'console ok'
+  process.exit(0)
 })()
 `,
   },
@@ -250,8 +264,8 @@ __n
     id: 'require-errors',
     title: 'require 报错',
     blurb: '未实现内建 vs 第三方；应看到清晰错误',
-    source: `// 改下面一行分别试：'fs' / 'lodash' / './x.js'
-require('fs')
+    source: `// 改下面一行分别试：'http' / 'lodash' / './x.js'
+require('http')
 `,
   },
   {
@@ -273,10 +287,72 @@ require('fs')
 })()
 `,
   },
+  {
+    id: 'fs-promises',
+    title: 'fs · promises',
+    blurb: '读写追加 / mkdir / readdir；相对 cwd（工作区 /user）',
+    suiteSettleMs: 1500,
+    source: `(async function () {
+  var fs = require('fs/promises')
+  var dir = 'virtual-js-fs-demo'
+  await fs.mkdir(dir, { recursive: true })
+  var file = dir + '/note.txt'
+  await fs.writeFile(file, 'hello')
+  await fs.appendFile(file, ' world')
+  var text = await fs.readFile(file, 'utf8')
+  var names = await fs.readdir(dir)
+  var st = await fs.stat(file)
+  console.log('text', text)
+  console.log('names', names.join(','))
+  console.log('size', st.size, 'isFile', st.isFile())
+  process.exit(0)
+})()
+`,
+  },
+  {
+    id: 'fs-sync',
+    title: 'fs · Sync (Asyncify)',
+    blurb: 'guest 侧看起来阻塞；宿主仍异步打 VFS',
+    source: `(function () {
+  var fs = require('fs')
+  var file = 'virtual-js-fs-demo/sync.txt'
+  fs.mkdirSync('virtual-js-fs-demo', { recursive: true })
+  fs.writeFileSync(file, 'sync-hi')
+  var text = fs.readFileSync(file, 'utf8')
+  console.log('readFileSync', text)
+  console.log('existsSync', fs.existsSync(file))
+  process.exit(0)
+})()
+`,
+  },
 ]
 
-export const DEFAULT_VIRTUAL_JS_SAMPLE_ID = VIRTUAL_JS_SAMPLES[0]!.id
+/** 侧栏展示用：带序号，且最新用例在前。 */
+export type VirtualJsSampleListItem = VirtualJsSample & {
+  /** 创作顺序序号（1 = 最早；越大越新） */
+  seq: number
+}
+
+/**
+ * 侧栏 / 跑全部：按序号倒序（最新在前）。
+ * 新用例请追加在 `VIRTUAL_JS_SAMPLES` 末尾。
+ */
+export const VIRTUAL_JS_SAMPLE_LIST: VirtualJsSampleListItem[] = VIRTUAL_JS_SAMPLES.map(
+  (sample, index) => ({
+    ...sample,
+    seq: index + 1,
+  }),
+).reverse()
+
+/** 默认打开最新一条用例。 */
+export const DEFAULT_VIRTUAL_JS_SAMPLE_ID = VIRTUAL_JS_SAMPLE_LIST[0]!.id
 
 export function getVirtualJsSample(id: string): VirtualJsSample | undefined {
   return VIRTUAL_JS_SAMPLES.find((sample) => sample.id === id)
+}
+
+export function formatVirtualJsSampleTitle(
+  sample: Pick<VirtualJsSampleListItem, 'seq' | 'title'>,
+): string {
+  return `#${sample.seq} ${sample.title}`
 }
