@@ -379,6 +379,47 @@ require('http')
 })()
 `,
   },
+  {
+    id: 'cjs-package-json',
+    title: 'CJS · package.json 入口',
+    blurb: '目录 require：main / exports["."]（对齐 Node；ESM 目录仍须写全路径）',
+    source: `(function () {
+  var fs = require('fs')
+  fs.mkdirSync('virtual-js-pkg-demo/with-main/lib', { recursive: true })
+  fs.writeFileSync(
+    'virtual-js-pkg-demo/with-main/lib/entry.js',
+    'module.exports = { via: "main" }\\n',
+  )
+  fs.writeFileSync(
+    'virtual-js-pkg-demo/with-main/package.json',
+    JSON.stringify({ name: 'with-main', main: 'lib/entry.js' }),
+  )
+  fs.mkdirSync('virtual-js-pkg-demo/with-exports/dist', { recursive: true })
+  fs.writeFileSync(
+    'virtual-js-pkg-demo/with-exports/dist/index.js',
+    'module.exports = { via: "exports" }\\n',
+  )
+  fs.writeFileSync(
+    'virtual-js-pkg-demo/with-exports/old.js',
+    'module.exports = { via: "ignored-main" }\\n',
+  )
+  fs.writeFileSync(
+    'virtual-js-pkg-demo/with-exports/package.json',
+    JSON.stringify({
+      name: 'with-exports',
+      main: 'old.js',
+      exports: { '.': './dist/index.js' },
+    }),
+  )
+  var a = require('./virtual-js-pkg-demo/with-main')
+  var b = require('./virtual-js-pkg-demo/with-exports')
+  console.log('main', a.via)
+  console.log('exports-over-main', b.via)
+  console.log('resolve', require.resolve('./virtual-js-pkg-demo/with-main'))
+  process.exit(0)
+})()
+`,
+  },
 ]
 
 /** 侧栏展示用：带序号，且最新用例在前。 */

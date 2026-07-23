@@ -1,8 +1,9 @@
 /**
- * L1.9 文件级 CJS `require`（对齐 Node 薄子集）。
+ * L1.9 / L1.10 文件级 CJS `require`（对齐 Node 薄子集）。
  *
  * Asyncify 约束：asyncified `require` 内不可再调 asyncified（含 fs.*Sync / 嵌套 asyncified require）。
  * 因此文件加载在宿主侧递归完成：静态 `require('…')` 预载入缓存，模块体用同步 `require`（只打缓存 + 内建）。
+ * L1.10：目录 → package.json 入口后，用 directoryAlias 供嵌套 sync require 命中。
  */
 import type { QuickJSAsyncContext, QuickJSHandle } from 'quickjs-emscripten'
 import {
@@ -151,8 +152,17 @@ export function createCjsRequireApi(
   host: QuickJsCjsRequireHost,
 ): QuickJsCjsRequireApi {
   const cache = new Map<string, CacheEntry>()
+  /** 目录绝对路径 → 入口文件（package.json main/exports 解析结果）。 */
+  const directoryAliases = new Map<string, string>()
   const requireCacheHandle = context.newObject()
   let disposed = false
+
+  const rememberDirectoryAlias = (directoryAlias: string | undefined, filePath: string): void => {
+    if (directoryAlias === undefined) {
+      return
+    }
+    directoryAliases.set(directoryAlias, filePath)
+  }
 
   const evalParentFilename = (): string => {
     const pathApi = createPosixPathApi(host.getCwd)
@@ -191,12 +201,13 @@ export function createCjsRequireApi(
       }
     }
 
-    // 文件：只打缓存（扩展名 / index 与解析时一致）
+    // 文件：只打缓存（扩展名 / index / 目录别名）
     const cachedPath = resolveCjsFromCacheKeys(
       parentFilename,
       trimmed,
       host.getCwd,
       (p) => cache.has(p),
+      (dir) => directoryAliases.get(dir),
     )
     if (cachedPath !== undefined) {
       const entry = cache.get(cachedPath)
@@ -256,11 +267,13 @@ export function createCjsRequireApi(
       throw host.formatMissingModuleError(requested)
     }
 
-    const absolutePath = await resolveCjsSpecifierAsync(
+    const resolved = await resolveCjsSpecifierAsync(
       parentFilename,
       trimmed,
       host.getCwd,
     )
+    const absolutePath = resolved.absolutePath
+    rememberDirectoryAlias(resolved.directoryAlias, absolutePath)
 
     const existing = cache.get(absolutePath)
     if (existing !== undefined) {
@@ -406,7 +419,9 @@ export function createCjsRequireApi(
       }
       throw host.formatMissingModuleError(requested)
     }
-    return resolveCjsSpecifierAsync(parentFilename, trimmed, host.getCwd)
+    const resolved = await resolveCjsSpecifierAsync(parentFilename, trimmed, host.getCwd)
+    rememberDirectoryAlias(resolved.directoryAlias, resolved.absolutePath)
+    return resolved.absolutePath
   }
 
   return {
@@ -426,6 +441,7 @@ export function createCjsRequireApi(
         }
       }
       cache.clear()
+      directoryAliases.clear()
       if (requireCacheHandle.alive) {
         requireCacheHandle.dispose()
       }

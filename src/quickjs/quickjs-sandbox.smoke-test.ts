@@ -877,6 +877,134 @@ export default {
   }
   deniedCjs.destroy()
 
+  // --- L1.10 package.json main / exports["."] ---
+  const pkgRoot = '/user/qjs-pkg-smoke'
+  try {
+    await filesRemove(pkgRoot)
+  } catch {
+    // ok if missing
+  }
+  await filesMkdir(pkgRoot)
+  const pkgInstance = await createQuickJsInstance({ workspaceRoot: pkgRoot })
+  const pkgSetup = await pkgInstance.eval(`
+    var fs = require('fs')
+    fs.mkdirSync('with-main/lib', { recursive: true })
+    fs.writeFileSync('with-main/lib/entry.js', 'module.exports = { via: "main" }\\n')
+    fs.writeFileSync(
+      'with-main/package.json',
+      JSON.stringify({ name: 'with-main', main: 'lib/entry.js' }),
+    )
+    fs.mkdirSync('with-exports/dist', { recursive: true })
+    fs.writeFileSync('with-exports/dist/index.js', 'module.exports = { via: "exports" }\\n')
+    fs.writeFileSync('with-exports/old.js', 'module.exports = { via: "main-ignored" }\\n')
+    fs.writeFileSync(
+      'with-exports/package.json',
+      JSON.stringify({
+        name: 'with-exports',
+        main: 'old.js',
+        exports: { '.': './dist/index.js' },
+      }),
+    )
+    fs.mkdirSync('exports-cond/lib', { recursive: true })
+    fs.writeFileSync('exports-cond/lib/cjs.js', 'module.exports = { via: "require-cond" }\\n')
+    fs.writeFileSync(
+      'exports-cond/package.json',
+      JSON.stringify({
+        name: 'exports-cond',
+        exports: { '.': { require: './lib/cjs.js', default: './lib/cjs.js' } },
+      }),
+    )
+    fs.mkdirSync('exports-missing', { recursive: true })
+    fs.writeFileSync(
+      'exports-missing/package.json',
+      JSON.stringify({ name: 'exports-missing', exports: { './other': './x.js' } }),
+    )
+    fs.mkdirSync('nested-req', { recursive: true })
+    fs.writeFileSync(
+      'nested-req/package.json',
+      JSON.stringify({ name: 'nested-req', main: 'lib/entry.js' }),
+    )
+    fs.mkdirSync('nested-req/lib', { recursive: true })
+    fs.writeFileSync('nested-req/lib/entry.js', 'module.exports = { tag: "nested-entry" }\\n')
+    fs.writeFileSync(
+      'nested-req/user.js',
+      "module.exports = require('./')\\n",
+    )
+    'pkg-written'
+  `)
+  if (!pkgSetup.ok || pkgSetup.value !== 'pkg-written') {
+    throw new Error(`pkg setup failed: ${JSON.stringify(pkgSetup)}`)
+  }
+
+  const mainReq = await pkgInstance.eval(`
+    var m = require('./with-main')
+    globalThis.__pkgMain = m.via
+  `)
+  if (!mainReq.ok) {
+    throw new Error(`package main require failed: ${JSON.stringify(mainReq)}`)
+  }
+  const mainValue = await pkgInstance.eval('globalThis.__pkgMain')
+  if (!mainValue.ok || mainValue.value !== 'main') {
+    throw new Error(`package main value: ${JSON.stringify(mainValue)}`)
+  }
+
+  const exportsReq = await pkgInstance.eval(`
+    var m = require('./with-exports')
+    globalThis.__pkgExports = m.via
+  `)
+  if (!exportsReq.ok) {
+    throw new Error(`package exports require failed: ${JSON.stringify(exportsReq)}`)
+  }
+  const exportsValue = await pkgInstance.eval('globalThis.__pkgExports')
+  if (!exportsValue.ok || exportsValue.value !== 'exports') {
+    throw new Error(`exports should win over main: ${JSON.stringify(exportsValue)}`)
+  }
+
+  const condReq = await pkgInstance.eval(`
+    var m = require('./exports-cond')
+    globalThis.__pkgCond = m.via
+  `)
+  if (!condReq.ok) {
+    throw new Error(`exports condition require failed: ${JSON.stringify(condReq)}`)
+  }
+  const condValue = await pkgInstance.eval('globalThis.__pkgCond')
+  if (!condValue.ok || condValue.value !== 'require-cond') {
+    throw new Error(`exports condition value: ${JSON.stringify(condValue)}`)
+  }
+
+  const missingDot = await pkgInstance.eval(`require('./exports-missing')`)
+  if (
+    missingDot.ok ||
+    (!missingDot.error.includes('ERR_PACKAGE_PATH_NOT_EXPORTED') &&
+      !missingDot.error.includes('not defined by "exports"'))
+  ) {
+    throw new Error(`expected ERR_PACKAGE_PATH_NOT_EXPORTED: ${JSON.stringify(missingDot)}`)
+  }
+
+  const resolvePkg = await pkgInstance.eval(`require.resolve('./with-main')`)
+  if (!resolvePkg.ok || resolvePkg.value !== `${pkgRoot}/with-main/lib/entry.js`) {
+    throw new Error(`require.resolve package dir: ${JSON.stringify(resolvePkg)}`)
+  }
+
+  const nestedPkg = await pkgInstance.eval(`
+    var m = require('./nested-req/user')
+    globalThis.__pkgNested = m.tag
+  `)
+  if (!nestedPkg.ok) {
+    throw new Error(`nested sync require via package main failed: ${JSON.stringify(nestedPkg)}`)
+  }
+  const nestedValue = await pkgInstance.eval('globalThis.__pkgNested')
+  if (!nestedValue.ok || nestedValue.value !== 'nested-entry') {
+    throw new Error(`nested package alias value: ${JSON.stringify(nestedValue)}`)
+  }
+
+  pkgInstance.destroy()
+  try {
+    await filesRemove(pkgRoot)
+  } catch {
+    // best-effort cleanup
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)

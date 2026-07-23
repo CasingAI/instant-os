@@ -1,9 +1,9 @@
 /**
- * 模块路径解析与 ESM / CJS 文件加载（L1.8 / L1.9）。
+ * 模块路径解析与 ESM / CJS 文件加载（L1.8 / L1.9 / L1.10）。
  *
  * Node 双轨：
- * - ESM `import`：不探扩展名（须写全 `.js` / `.mjs` / `.cjs`）
- * - CJS `require`：扩展名 / index 探测（见 {@link resolveCjsSpecifierAsync}）
+ * - ESM `import`：不探扩展名（须写全 `.js` / `.mjs` / `.cjs`）；无 folder mains
+ * - CJS `require`：扩展名 / package.json 入口 / index 探测（见 {@link resolveCjsSpecifierAsync}）
  */
 import { createPosixPathApi } from './quickjs-path.ts'
 import {
@@ -16,9 +16,6 @@ import { filesReadText, filesStat } from '../apps/files/files-api.ts'
 
 /** ESM 允许的显式扩展名（对齐 Node ESM；不做自动补全）。 */
 const ESM_FILE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs'])
-
-/** CJS require 可加载的文件扩展名（不做 .node）。 */
-const CJS_FILE_EXTENSIONS = new Set(['.js', '.cjs', '.json'])
 
 /** LOAD_AS_FILE 探测用扩展名（顺序对齐 Node，省略 .node）。 */
 const CJS_PROBE_EXTENSIONS = ['.js', '.json'] as const
@@ -132,15 +129,135 @@ async function statKind(
   return entry.kind === 'folder' ? 'folder' : 'file'
 }
 
+function pathNormalize(absolutePath: string): string {
+  return createPosixPathApi(() => '/').normalize(absolutePath)
+}
+
+function pathResolve(fromDir: string, relative: string): string {
+  return createPosixPathApi(() => fromDir).resolve(fromDir, relative)
+}
+
+function isPathInsidePackageRoot(packageRoot: string, candidate: string): boolean {
+  const root = pathNormalize(packageRoot).replace(/\/+$/, '') || '/'
+  const target = pathNormalize(candidate)
+  if (root === '/') {
+    return target.startsWith('/')
+  }
+  return target === root || target.startsWith(`${root}/`)
+}
+
+/** CJS 条件：require → node → default（L1.10 单层子集）。 */
+const CJS_EXPORT_CONDITIONS = ['require', 'node', 'default'] as const
+
 /**
- * CJS LOAD_AS_FILE + LOAD_INDEX（无 package.json main，见 L1.10）。
- * 返回最终可加载的绝对文件路径。
+ * 解析 package.json 的 exports["."] / 顶层字符串 exports（仅 CJS）。
+ * 有 exports 字段时不回退 main。
+ */
+function resolvePackageExportsDot(
+  packageRoot: string,
+  exportsField: unknown,
+): string {
+  let target: unknown = exportsField
+
+  if (target !== null && typeof target === 'object' && !Array.isArray(target)) {
+    const map = target as Record<string, unknown>
+    if (!Object.prototype.hasOwnProperty.call(map, '.')) {
+      throw new QuickJsModuleError(
+        'ERR_PACKAGE_PATH_NOT_EXPORTED',
+        `Package subpath '.' is not defined by "exports" in ${pathJoin(packageRoot, 'package.json')}`,
+      )
+    }
+    target = map['.']
+  }
+
+  if (target !== null && typeof target === 'object' && !Array.isArray(target)) {
+    const conditions = target as Record<string, unknown>
+    let matched: unknown
+    for (const condition of CJS_EXPORT_CONDITIONS) {
+      if (Object.prototype.hasOwnProperty.call(conditions, condition)) {
+        matched = conditions[condition]
+        break
+      }
+    }
+    if (matched === undefined) {
+      throw new QuickJsModuleError(
+        'ERR_PACKAGE_PATH_NOT_EXPORTED',
+        `No "exports" main entry (require/node/default) in ${pathJoin(packageRoot, 'package.json')}`,
+      )
+    }
+    target = matched
+  }
+
+  if (typeof target !== 'string' || !target.startsWith('./')) {
+    throw new QuickJsModuleError(
+      'ERR_INVALID_PACKAGE_TARGET',
+      `Invalid "exports" target for '.' in ${pathJoin(packageRoot, 'package.json')} (L1.10 expects a string starting with ./)`,
+    )
+  }
+
+  const resolved = pathResolve(packageRoot, target)
+  if (!isPathInsidePackageRoot(packageRoot, resolved)) {
+    throw new QuickJsModuleError(
+      'ERR_INVALID_PACKAGE_TARGET',
+      `Invalid "exports" target '${target}' escapes package root ${packageRoot}`,
+    )
+  }
+  return resolved
+}
+
+async function tryReadPackageJson(
+  dirPath: string,
+): Promise<Record<string, unknown> | undefined> {
+  const pkgPath = pathJoin(dirPath, 'package.json')
+  const kind = await statKind(pkgPath)
+  if (kind !== 'file') {
+    return undefined
+  }
+  let text: string
+  try {
+    text = await filesReadText(pkgPath)
+  } catch {
+    return undefined
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new QuickJsModuleError(
+        'ERR_INVALID_PACKAGE_CONFIG',
+        `Invalid package.json (not an object): ${pkgPath}`,
+      )
+    }
+    return parsed as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof QuickJsModuleError) {
+      throw error
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    throw new QuickJsModuleError(
+      'ERR_INVALID_PACKAGE_CONFIG',
+      `Invalid package.json ${pkgPath}: ${message}`,
+    )
+  }
+}
+
+export type ResolveCjsResult = {
+  /** 最终可加载的绝对文件路径。 */
+  absolutePath: string
+  /**
+   * 若经 LOAD_AS_DIRECTORY 解析，记录目录绝对路径，
+   * 供嵌套 sync require 在 package.json main 非 index 时命中缓存。
+   */
+  directoryAlias?: string
+}
+
+/**
+ * CJS LOAD_AS_FILE + LOAD_AS_DIRECTORY（含 package.json exports["."] / main → index）。
  */
 export async function resolveCjsSpecifierAsync(
   baseModuleName: string,
   requestedName: string,
   getCwd: () => string,
-): Promise<string> {
+): Promise<ResolveCjsResult> {
   const absolutePath = resolvePathAgainstBase(baseModuleName, requestedName, getCwd)
   const ext = pathExtname(absolutePath)
 
@@ -163,24 +280,80 @@ export async function resolveCjsSpecifierAsync(
         `Must use import to load ES Module: ${candidate}`,
       )
     }
-    if (candidateExt && !CJS_FILE_EXTENSIONS.has(candidateExt) && candidateExt !== '') {
-      // 无扩展名的文件 Node 仍可当 JS 加载；有未知扩展名时仍尝试当作 JS 文本
-      if (candidateExt !== '.js' && candidateExt !== '.cjs' && candidateExt !== '.json') {
-        // 允许无标准扩展名的精确文件（Node LOAD_AS_FILE 第一步）
-      }
-    }
     return candidate
   }
 
-  const tryAsDirectory = async (dirPath: string): Promise<string | undefined> => {
+  /** 对入口路径做 LOAD_AS_FILE：精确 → .js → .json；也可再当目录 index。 */
+  const resolveEntryTarget = async (entryPath: string): Promise<string | undefined> => {
+    const exact = await tryAsFile(entryPath)
+    if (exact !== undefined) {
+      return exact
+    }
+    const entryExt = pathExtname(entryPath)
+    for (const probeExt of CJS_PROBE_EXTENSIONS) {
+      if (entryExt === probeExt) {
+        continue
+      }
+      const found = await tryAsFile(`${entryPath}${probeExt}`)
+      if (found !== undefined) {
+        return found
+      }
+    }
+    // main 指向子目录时：再试该目录的 index（无递归 package.json，避免嵌套复杂度）
+    const asSubDir = await statKind(entryPath)
+    if (asSubDir === 'folder') {
+      for (const indexName of CJS_INDEX_NAMES) {
+        const found = await tryAsFile(pathJoin(entryPath, indexName))
+        if (found !== undefined) {
+          return found
+        }
+      }
+    }
+    return undefined
+  }
+
+  const tryAsDirectory = async (
+    dirPath: string,
+  ): Promise<ResolveCjsResult | undefined> => {
     const kind = await statKind(dirPath)
     if (kind !== 'folder') {
       return undefined
     }
+
+    const pkg = await tryReadPackageJson(dirPath)
+
+    if (pkg !== undefined && Object.prototype.hasOwnProperty.call(pkg, 'exports')) {
+      const entryTarget = resolvePackageExportsDot(dirPath, pkg.exports)
+      const resolved = await resolveEntryTarget(entryTarget)
+      if (resolved === undefined) {
+        throw new QuickJsModuleError(
+          'ERR_MODULE_NOT_FOUND',
+          `Cannot find module '${requestedName}' (package exports '.' → '${entryTarget}')`,
+        )
+      }
+      return { absolutePath: resolved, directoryAlias: dirPath }
+    }
+
+    if (pkg !== undefined && typeof pkg.main === 'string' && pkg.main.length > 0) {
+      const mainRel = pkg.main.startsWith('./') ? pkg.main : `./${pkg.main}`
+      const entryTarget = pathResolve(dirPath, mainRel)
+      if (!isPathInsidePackageRoot(dirPath, entryTarget)) {
+        throw new QuickJsModuleError(
+          'ERR_INVALID_PACKAGE_CONFIG',
+          `Invalid "main" target '${pkg.main}' escapes package root ${dirPath}`,
+        )
+      }
+      const resolved = await resolveEntryTarget(entryTarget)
+      if (resolved !== undefined) {
+        return { absolutePath: resolved, directoryAlias: dirPath }
+      }
+      // main 无效时 Node 仍会尝试 index；与常见实现一致
+    }
+
     for (const indexName of CJS_INDEX_NAMES) {
       const found = await tryAsFile(pathJoin(dirPath, indexName))
       if (found !== undefined) {
-        return found
+        return { absolutePath: found, directoryAlias: dirPath }
       }
     }
     return undefined
@@ -189,7 +362,7 @@ export async function resolveCjsSpecifierAsync(
   // LOAD_AS_FILE(X)：精确路径 → X.js → X.json
   const exact = await tryAsFile(absolutePath)
   if (exact !== undefined) {
-    return exact
+    return { absolutePath: exact }
   }
 
   for (const probeExt of CJS_PROBE_EXTENSIONS) {
@@ -199,11 +372,11 @@ export async function resolveCjsSpecifierAsync(
     }
     const found = await tryAsFile(`${absolutePath}${probeExt}`)
     if (found !== undefined) {
-      return found
+      return { absolutePath: found }
     }
   }
 
-  // LOAD_AS_DIRECTORY(X)（跳过 package.json main）
+  // LOAD_AS_DIRECTORY(X)：package.json exports/main → index
   const asDir = await tryAsDirectory(absolutePath)
   if (asDir !== undefined) {
     return asDir
@@ -211,7 +384,7 @@ export async function resolveCjsSpecifierAsync(
 
   throw new QuickJsModuleError(
     'ERR_MODULE_NOT_FOUND',
-    `Cannot find module '${requestedName}' (resolved base '${absolutePath}'). Instant CJS require probes .js/.json and index.js/index.json; package.json main/exports are L1.10; bare packages are L2.`,
+    `Cannot find module '${requestedName}' (resolved base '${absolutePath}'). Instant CJS require probes .js/.json, package.json exports['.']/main, and index.js/index.json; bare packages are L2.`,
   )
 }
 
@@ -247,12 +420,14 @@ export function extractStaticRequireSpecifiers(source: string): string[] {
   return results
 }
 
-/** 按缓存键做同步 CJS 路径解析（扩展名 / index；不访问 VFS）。 */
+/** 按缓存键做同步 CJS 路径解析（扩展名 / index / 目录别名；不访问 VFS）。 */
 export function resolveCjsFromCacheKeys(
   baseModuleName: string,
   requestedName: string,
   getCwd: () => string,
   hasCached: (absolutePath: string) => boolean,
+  /** L1.10：LOAD_AS_DIRECTORY 解析出的 目录 → 入口文件 */
+  resolveDirectoryAlias?: (dirAbsolutePath: string) => string | undefined,
 ): string | undefined {
   const absolutePath = resolvePathAgainstBase(baseModuleName, requestedName, getCwd)
   const ext = pathExtname(absolutePath)
@@ -265,6 +440,11 @@ export function resolveCjsFromCacheKeys(
   }
   for (const indexName of CJS_INDEX_NAMES) {
     candidates.push(pathJoin(absolutePath, indexName))
+  }
+
+  const aliasTarget = resolveDirectoryAlias?.(absolutePath)
+  if (aliasTarget !== undefined) {
+    candidates.push(aliasTarget)
   }
 
   for (const candidate of candidates) {
