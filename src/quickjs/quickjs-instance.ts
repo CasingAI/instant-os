@@ -469,7 +469,7 @@ export async function createQuickJsInstance(
       }
 
       try {
-        // 同步结束后排空微任务 / Promise jobs；不等待未到期定时器
+        // 同步结束后排空微任务 / nextTick / Promise jobs；不等待未到期定时器
         asyncBridge.drainAfterSync()
         syncExitCodeFromGuest(context, processState)
         if (processState.exitRequested) {

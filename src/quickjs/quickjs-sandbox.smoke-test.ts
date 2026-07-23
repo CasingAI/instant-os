@@ -326,6 +326,125 @@ async function testInstance() {
     )
   }
 
+  // --- L1.16 process.nextTick（与 Promise 同相，先于定时器）---
+  const nextTickBasics = await timerInstance.eval(`
+    var __nt = []
+    process.nextTick(function (a, b) {
+      __nt.push('tick:' + a + ':' + b)
+    }, 'x', 1)
+    __nt.push('sync')
+    __nt.slice()
+  `)
+  if (!nextTickBasics.ok || JSON.stringify(nextTickBasics.value) !== JSON.stringify(['sync'])) {
+    throw new Error(
+      `nextTick return should be sync-only before drain: ${JSON.stringify(nextTickBasics)}`,
+    )
+  }
+  const nextTickAfter = await timerInstance.eval('__nt.slice()')
+  if (
+    !nextTickAfter.ok ||
+    JSON.stringify(nextTickAfter.value) !== JSON.stringify(['sync', 'tick:x:1'])
+  ) {
+    throw new Error(
+      `nextTick should drain before eval returns: ${JSON.stringify(nextTickAfter)}`,
+    )
+  }
+
+  const nextTickBeforeTimeout = await timerInstance.eval(`
+    var __phase = []
+    process.nextTick(function () { __phase.push('nextTick') })
+    Promise.resolve().then(function () { __phase.push('promise') })
+    queueMicrotask(function () { __phase.push('micro') })
+    setTimeout(function () {
+      __phase.push('timeout')
+      console.log('phase:' + __phase.join(','))
+    }, 20)
+    __phase.push('sync')
+    'scheduled'
+  `)
+  if (!nextTickBeforeTimeout.ok) {
+    throw new Error(`nextTick phase eval failed: ${JSON.stringify(nextTickBeforeTimeout)}`)
+  }
+  const phaseAfterDrain = await timerInstance.eval('__phase.slice()')
+  if (!phaseAfterDrain.ok || !Array.isArray(phaseAfterDrain.value)) {
+    throw new Error(`phase after drain failed: ${JSON.stringify(phaseAfterDrain)}`)
+  }
+  const phaseList = phaseAfterDrain.value as string[]
+  if (phaseList[0] !== 'sync') {
+    throw new Error(`expected sync first: ${JSON.stringify(phaseList)}`)
+  }
+  if (phaseList.includes('timeout')) {
+    throw new Error(`timeout must not run in drain: ${JSON.stringify(phaseList)}`)
+  }
+  for (const name of ['nextTick', 'promise', 'micro'] as const) {
+    if (!phaseList.includes(name)) {
+      throw new Error(`expected ${name} in micro-phase: ${JSON.stringify(phaseList)}`)
+    }
+  }
+  await sleep(60)
+  const phaseSnap = timerInstance.getSnapshot()
+  const phaseLine = phaseSnap.consoleLines.find((line) => line.text.startsWith('phase:'))
+  if (phaseLine === undefined || !phaseLine.text.endsWith(',timeout')) {
+    throw new Error(
+      `expected timeout last in phase console: ${JSON.stringify(phaseSnap.consoleLines)}`,
+    )
+  }
+
+  const nextTickAbort = await createQuickJsInstance()
+  await nextTickAbort.eval(`
+    setTimeout(function () { console.log('aborted-timeout-ran') }, 30)
+    'armed'
+  `)
+  nextTickAbort.abort()
+  await sleep(80)
+  const abortSnap = nextTickAbort.getSnapshot()
+  if (abortSnap.consoleLines.some((line) => line.text === 'aborted-timeout-ran')) {
+    throw new Error('abort should clear pending timers')
+  }
+  // abort 清队列后，新一轮 nextTick 仍应可用（cleared 标志在再次入队时复位）
+  const afterAbortTick = await nextTickAbort.eval(`
+    var __afterAbort = false
+    process.nextTick(function () { __afterAbort = true })
+    'queued'
+  `)
+  if (!afterAbortTick.ok) {
+    throw new Error(`nextTick after abort failed: ${JSON.stringify(afterAbortTick)}`)
+  }
+  const afterAbortFlag = await nextTickAbort.eval('__afterAbort')
+  if (!afterAbortFlag.ok || afterAbortFlag.value !== true) {
+    throw new Error(
+      `nextTick should work again after abort: ${JSON.stringify(afterAbortFlag)}`,
+    )
+  }
+  nextTickAbort.destroy()
+
+  const nextTickDepth = await timerInstance.eval(`
+    var __depth = 0
+    function boom() {
+      __depth += 1
+      process.nextTick(boom)
+    }
+    process.nextTick(boom)
+    'started'
+  `)
+  if (!nextTickDepth.ok) {
+    throw new Error(`nextTick depth eval failed: ${JSON.stringify(nextTickDepth)}`)
+  }
+  const depthSnap = timerInstance.getSnapshot()
+  if (
+    !depthSnap.consoleLines.some(
+      (line) => line.level === 'error' && line.text.includes('nextTick drain limit'),
+    )
+  ) {
+    throw new Error(
+      `expected nextTick drain limit error: ${JSON.stringify(depthSnap.consoleLines)}`,
+    )
+  }
+  const depthAfter = await timerInstance.eval('__depth')
+  if (!depthAfter.ok || typeof depthAfter.value !== 'number' || depthAfter.value < 1000) {
+    throw new Error(`expected substantial nextTick depth before limit: ${JSON.stringify(depthAfter)}`)
+  }
+
   const bufferBasics = await timerInstance.eval(`
     var fromGlobal = Buffer.from('hi')
     var viaRequire = require('buffer').Buffer

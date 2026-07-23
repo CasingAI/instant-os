@@ -8,6 +8,10 @@ import type {
 const MAX_TIMERS = 256
 const MAX_DRAIN_ROUNDS = 10_000
 const MAX_MICROTASKS_PER_DRAIN = 10_000
+/** 单次 drainAfterSync 内最多执行的 nextTick 回调数（防死循环）。 */
+const MAX_NEXTTICKS_PER_DRAIN = 10_000
+/** 队列积压上限（含尚未执行的项）。 */
+const MAX_NEXTTICK_QUEUE = 10_000
 
 type HostTimerKind = 'timeout' | 'interval'
 
@@ -24,6 +28,11 @@ type HostTimerEntry = {
   handlesDisposed: boolean
 }
 
+type NextTickEntry = {
+  callback: QuickJSHandle
+  args: QuickJSHandle[]
+}
+
 export type QuickJsAsyncBridgeOptions = {
   runtime: QuickJSRuntime
   context: QuickJSContext
@@ -35,16 +44,18 @@ export type QuickJsAsyncBridgeOptions = {
   getSliceTimeoutMs: () => number
   /** 定时器 / 微任务内未捕获错误 → 宿主 console。 */
   reportError: (message: string) => void
-  /**
-   * L1.16 预留：同步切片排空微任务与 pending jobs 之后调用。
-   * 本轮为空实现。
-   */
-  drainNextTickQueue?: () => void
 }
 
 export type QuickJsAsyncBridge = {
+  /**
+   * 注入定时器 / queueMicrotask，并在已有 `process` 上挂 `nextTick`
+   *（须先 injectProcess）。
+   */
   injectGlobals: () => void
-  /** 当前同步切片结束后调用：微任务 → pendingJobs → nextTick 钩子。 */
+  /**
+   * 当前同步切片结束后调用：微任务 ↔ nextTick ↔ Promise jobs 同相轮转排空
+   *（均先于定时器；不保证相对 Promise 的 Node 严格序）。
+   */
   drainAfterSync: () => void
   /** 在非 busy 时执行；若 busy 则排队。 */
   enqueueHostTask: (task: () => void) => void
@@ -103,8 +114,8 @@ function readDelayMs(context: QuickJSContext, handle: QuickJSHandle | undefined)
 }
 
 /**
- * 宿主侧异步桥：定时器、queueMicrotask、pendingJobs 排空与 Promise 续体回灌。
- * 与实例 busy 切片协作；不实现 process.nextTick（见 L1.16）。
+ * 宿主侧异步桥：定时器、queueMicrotask、process.nextTick、pendingJobs 与 Promise 续体回灌。
+ * nextTick 与 Promise 同相（先于定时器），不保证 Node「严格先于 then」序。
  */
 export function createQuickJsAsyncBridge(
   options: QuickJsAsyncBridgeOptions,
@@ -114,6 +125,7 @@ export function createQuickJsAsyncBridge(
   let nextTimerId = 1
   const timers = new Map<number, HostTimerEntry>()
   const microtasks: QuickJSHandle[] = []
+  const nextTicks: NextTickEntry[] = []
   const hostTasks: Array<() => void> = []
   let drainingHostTasks = false
   let cleared = false
@@ -131,6 +143,17 @@ export function createQuickJsAsyncBridge(
       return
     }
     entry.handlesDisposed = true
+    if (entry.callback.alive) {
+      entry.callback.dispose()
+    }
+    for (const arg of entry.args) {
+      if (arg.alive) {
+        arg.dispose()
+      }
+    }
+  }
+
+  const disposeNextTickEntry = (entry: NextTickEntry) => {
     if (entry.callback.alive) {
       entry.callback.dispose()
     }
@@ -165,6 +188,12 @@ export function createQuickJsAsyncBridge(
         handle.dispose()
       }
     }
+    while (nextTicks.length > 0) {
+      const entry = nextTicks.shift()
+      if (entry !== undefined) {
+        disposeNextTickEntry(entry)
+      }
+    }
     hostTasks.length = 0
   }
 
@@ -180,12 +209,35 @@ export function createQuickJsAsyncBridge(
     result.value.dispose()
   }
 
+  const enqueueNextTick = (callbackHandle: QuickJSHandle, argHandles: QuickJSHandle[]) => {
+    if (options.isDestroyed()) {
+      return
+    }
+    if (context.typeof(callbackHandle) !== 'function') {
+      throw new TypeError(
+        'The "callback" argument must be of type function. Received type ' +
+          context.typeof(callbackHandle),
+      )
+    }
+    if (nextTicks.length >= MAX_NEXTTICK_QUEUE) {
+      throw new Error(
+        `process.nextTick queue overflow (max ${MAX_NEXTTICK_QUEUE}); possible infinite loop`,
+      )
+    }
+    cleared = false
+    nextTicks.push({
+      callback: callbackHandle.dup(),
+      args: argHandles.map((handle) => handle.dup()),
+    })
+  }
+
   const drainAfterSync = () => {
     if (options.isDestroyed()) {
       return
     }
 
     let rounds = 0
+    let nextTickCount = 0
     while (rounds < MAX_DRAIN_ROUNDS) {
       rounds += 1
 
@@ -208,10 +260,36 @@ export function createQuickJsAsyncBridge(
         }
       }
 
-      options.drainNextTickQueue?.()
+      while (nextTicks.length > 0 && nextTickCount < MAX_NEXTTICKS_PER_DRAIN) {
+        nextTickCount += 1
+        const entry = nextTicks.shift()
+        if (entry === undefined) {
+          break
+        }
+        try {
+          runGuestCallback(entry.callback, entry.args)
+        } finally {
+          disposeNextTickEntry(entry)
+        }
+        if (options.isDestroyed()) {
+          return
+        }
+      }
+      if (nextTickCount >= MAX_NEXTTICKS_PER_DRAIN && nextTicks.length > 0) {
+        options.reportError(
+          `process.nextTick drain limit exceeded (max ${MAX_NEXTTICKS_PER_DRAIN}); remaining callbacks dropped`,
+        )
+        while (nextTicks.length > 0) {
+          const entry = nextTicks.shift()
+          if (entry !== undefined) {
+            disposeNextTickEntry(entry)
+          }
+        }
+        break
+      }
 
       if (!runtime.hasPendingJob()) {
-        if (microtasks.length === 0) {
+        if (microtasks.length === 0 && nextTicks.length === 0) {
           break
         }
         continue
@@ -420,6 +498,21 @@ export function createQuickJsAsyncBridge(
     })
     context.setProp(context.global, 'queueMicrotask', queueMicrotaskFn)
     queueMicrotaskFn.dispose()
+
+    // L1.16：挂到已有 process（须先 injectProcess）
+    const processHandle = context.getProp(context.global, 'process')
+    try {
+      if (context.typeof(processHandle) === 'object') {
+        const nextTickFn = context.newFunction('nextTick', (callbackHandle, ...rest) => {
+          enqueueNextTick(callbackHandle, rest)
+          return context.undefined
+        })
+        context.setProp(processHandle, 'nextTick', nextTickFn)
+        nextTickFn.dispose()
+      }
+    } finally {
+      processHandle.dispose()
+    }
   }
 
   const createDeferredPromise = () => context.newPromise()

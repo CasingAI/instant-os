@@ -199,6 +199,32 @@ process.exit(0)
 `,
   },
   {
+    id: 'process-nexttick',
+    title: 'process · nextTick',
+    blurb: 'nextTick 与 Promise 同相、先于 setTimeout（非 Node 严格序）',
+    suiteSettleMs: 120,
+    source: `(function () {
+  var order = []
+  console.log('sync start')
+  process.nextTick(function (label) {
+    order.push(label)
+    console.log('nextTick', order.join(','))
+  }, 'nextTick')
+  Promise.resolve().then(function () {
+    order.push('promise')
+    console.log('promise', order.join(','))
+  })
+  setTimeout(function () {
+    order.push('timeout')
+    console.log('timeout', order.join(','))
+    process.exit(0)
+  }, 40)
+  order.push('sync')
+  return order
+})()
+`,
+  },
+  {
     id: 'timers-interval-abort',
     title: '定时器 · interval',
     blurb: 'setInterval 打满 5 次后 process.exit；也可点「停止」中断',

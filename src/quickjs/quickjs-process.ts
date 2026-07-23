@@ -196,7 +196,8 @@ function createWriteStream(
 }
 
 /**
- * 注入 globalThis.process 子集（无 nextTick）。
+ * 注入 globalThis.process 子集（cwd/env/argv/exit/stdio）。
+ * `nextTick` 由异步桥在 injectGlobals 时挂上（须本函数先执行）。
  * env / argv 为 guest 内可变拷贝；cwd / exitCode 经桥与宿主 state 同步。
  */
 export function injectProcess(

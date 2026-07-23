@@ -102,7 +102,7 @@
    - `setTimeout` / `setInterval` / `clear*` / `queueMicrotask`。
    - 宿主异步（VFS、后续网络）完成后，把续体安全调度回该 QuickJS 实例。
    - 与现有 `busy` / `abort` / 超时模型协调：长时间异步任务可取消。
-   - 与 L1.16 `nextTick` 共存时：同步结束后先排空 nextTick 队列，再触发到期定时器。
+   - 与 L1.16 `nextTick` 共存时：同步结束后微任务 / nextTick / Promise jobs 同相排空，再触发到期定时器（不保证 nextTick 严格先于 then）。
    - **语义约定（L1.2）**：实例常驻到 `destroy`；`busy` 仅同步切片；挂起 timer 不阻止再 `eval`；`abort` 清定时器但保留实例；退出码只认 `process.exit` / `exitCode`（不用最后表达式）。
 
 7. **薄 `events`（及可选极薄 `stream`）**
@@ -118,9 +118,9 @@
 **状态**：`doing` · 里程碑 M1 · Script Host
 
 - [x] **L1.1 实例宿主选项**：创建实例时可挂载工作区根、`env`、`argv`、权限/配额；门面类型补齐。系统默认 env 在设置中配置，终端创建时装入；实例继承而非探测主机。
-- [x] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌（`executePendingJobs` + `settleGuestPromise`）；切片 `busy`；`abort`/`destroy` 清调度器；L1.16 nextTick 钩子已预留未实现
+- [x] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌（`executePendingJobs` + `settleGuestPromise`）；切片 `busy`；`abort`/`destroy` 清调度器；L1.16 `nextTick` 已接入同相 drain
 - [x] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载（`import` / `require` / `node:path`；共享 Node 内建注册表）
-- [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
+- [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（`nextTick` 见 L1.16）
 - [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L2 / `node_modules`，不走本管线
 - [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/symlink/chmod（见远期）
 - [x] **L1.7 同步 I/O 策略落地**：文档化 Asyncify 策略（统一长驻实例、禁嵌套挂起、沙箱可 sync）；明确不做预加载 / 内存工作区 / 通用双轨 / 嵌套挂起排队。**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
@@ -132,7 +132,7 @@
 - [ ] **L1.13 Virtual JS**：支持运行工作区文件 / 指定入口（不只粘贴 `eval`）
 - [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（若 L1.16 已做）
 - [ ] **L1.15 验收勾选**：对照上方「成功标准」全部通过后，将看板 L1 → `done`，焦点移到 L2
-- [ ] **L1.16 `process.nextTick`**：宿主侧优先队列；同步 `eval` 返回前（及与 L1.2 同环时先于定时器）按 FIFO 排空；挂到 `process.nextTick`；递归深度/次数保护；不改 QuickJS 引擎内部；**drain 钩子已由 L1.2 预留**
+- [x] **L1.16 `process.nextTick`**：宿主 FIFO 队列；与 `queueMicrotask` / Promise jobs **同相**排空（先于定时器；**不**保证 Node「严格先于 then」）；挂 `process.nextTick`；单次 drain / 队列上限；`abort`/`destroy` 清队列；不改引擎
 
 ### 本层明确不做
 
@@ -442,6 +442,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.9：文件级 CJS require（扩展名/index/.json、父路径、宿主预载避嵌套 Asyncify、缓存/循环、`resolve`/`cache`）；package.json 入口留 L1.10。 |
 | 2026-07-23 | 完成 L1.10：CJS 目录入口 `exports["."]` / `main` → index；exports 覆盖 main；目录别名供嵌套 sync require；不做 ESM folder mains / `"module"` / 子路径。 |
 | 2026-07-23 | 完成 L1.11：手写薄 EventEmitter（guest 源注入）；`events`/`node:events` 同构造函数；不做 vendor / 全局 / prepend / stream。 |
+| 2026-07-23 | 完成 L1.16：`process.nextTick` 宿主 FIFO；与 microtask/Promise **同相**（先于定时器，不保证先于 then）；drain/队列上限；abort 清队列。 |
 
 ---
 
