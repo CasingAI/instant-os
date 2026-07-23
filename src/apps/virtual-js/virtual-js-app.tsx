@@ -14,11 +14,11 @@ import './virtual-js.css'
 const APP_ID = 'virtual-js' as const
 
 const DEFAULT_SOURCE = `// Virtual JS — 系统 QuickJS 实例演示
-// 同一窗口内多次运行会保留全局变量；关闭窗口后实例销毁。
+// 同一窗口内多次运行会保留全局变量与 process 状态；关闭窗口后实例销毁。
 
-var greeting = "hello Virtual JS"
-console.log(greeting)
-greeting + "!"
+process.stdout.write("cwd=" + process.cwd() + " HOME=" + process.env.HOME)
+process.argv
+// 需要结束本轮时可调用 process.exit(code)；不会销毁实例
 `
 
 type OutputKind = 'log' | 'info' | 'warn' | 'error' | 'result' | 'result-error'
@@ -141,7 +141,14 @@ export function VirtualJsApp() {
         setOutputLines((prev) => [...prev, consoleLineToOutput(line)])
       }
       if (result.ok) {
-        appendOutput('result', formatValue(result.value))
+        if (result.exited) {
+          appendOutput('result', `process.exit → ${result.exitCode}`)
+        } else {
+          appendOutput('result', formatValue(result.value))
+          if (result.exitCode !== 0) {
+            appendOutput('info', `exitCode=${result.exitCode}`)
+          }
+        }
       } else {
         appendOutput('result-error', result.error)
       }

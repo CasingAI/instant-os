@@ -245,6 +245,7 @@ export function TerminalPanel({
       clear: () => session.clear(),
       abort: () => session.abort(),
       getCwd: () => session.getCwd(),
+      getEnv: () => session.getEnv(),
       cd: (path) => session.cd(path),
       getSnapshot: () => session.getSnapshot(),
     }

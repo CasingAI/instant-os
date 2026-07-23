@@ -15,6 +15,7 @@ import {
   SafariUsagePaneIcon,
   SpeechPaneIcon,
   StoragePaneIcon,
+  SystemEnvPaneIcon,
   DockPaneIcon,
   WallpaperPaneIcon,
 } from './settings-pane-icons.tsx'
@@ -31,6 +32,7 @@ export type SettingsPaneId =
   | 'wallpaper'
   | 'dock'
   | 'proxy-server'
+  | 'system-env'
   | 'resources'
   | 'safari'
   | 'news'
@@ -49,6 +51,7 @@ export type SettingsRoute =
   | { view: 'wallpaper' }
   | { view: 'dock' }
   | { view: 'proxy-server' }
+  | { view: 'system-env' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
   | { view: 'resources' }
@@ -97,6 +100,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
   { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' } },
+  { id: 'system-env', label: '环境变量', Icon: SystemEnvPaneIcon, route: { view: 'system-env' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
   {
     id: 'safari',
@@ -171,6 +175,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'dock'
     case 'proxy-server':
       return 'proxy-server'
+    case 'system-env':
+      return 'system-env'
     case 'resources':
     case 'resources-3d':
     case 'resources-3d-detail':
@@ -198,6 +204,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'wallpaper':
     case 'dock':
     case 'proxy-server':
+    case 'system-env':
     case 'resources':
     case 'safari-usage':
     case 'news':

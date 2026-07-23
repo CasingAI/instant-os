@@ -247,3 +247,21 @@ export function ProxyServerPaneIcon() {
     </AppIconTile>
   )
 }
+
+export function SystemEnvPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#5a7a8f" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="3" y="4" width="16" height="14" rx="1.5" fill="#fff" opacity="0.95" />
+        <path
+          d="M6 8 H16 M6 11 H14 M6 14 H12"
+          stroke="#5a7a8f"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          opacity="0.85"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}

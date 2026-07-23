@@ -14,7 +14,7 @@
 | 层级 | 状态 | 说明 |
 |------|------|------|
 | L0 基线 | `done` | 实例服务 + Virtual JS REPL 已落地 |
-| L1 迷你 Node 宿主 | `todo` | **当前焦点** |
+| L1 迷你 Node 宿主 | `doing` | **当前焦点** |
 | L2 包与依赖 | `blocked` | 依赖 L1 |
 | L3 样例构建 | `blocked` | 依赖 L2 |
 | L4 自举 | `blocked` | 依赖 L3 |
@@ -22,7 +22,7 @@
 状态枚举：`todo`（未开始）/ `doing`（进行中）/ `done`（已验收）/ `blocked`（被下层挡住）/ `cancelled`。
 
 **当前焦点**：L1  
-**上次更新**：2026-07-22
+**上次更新**：2026-07-23
 
 ---
 
@@ -88,9 +88,10 @@
    - `url` / `URL` / `URLSearchParams` 的常用能力，供模块解析与后续网络使用。
 
 4. **`process` 子集**
-   - `cwd`、`chdir`（若允许）、`env`、`argv`、`exitCode`、`nextTick`。
-   - stdout / stderr 接到宿主输出通道（与现有 console 捕获协同）。
+   - `cwd`、`chdir`（若允许）、`env`、`argv`、`exitCode`。
+   - stdout / stderr 接到宿主输出通道（与现有 console 捕获协同；与 `console.*` 同管道、按级别区分即可）。
    - 不实现真实进程退出杀死 OS；`exit` 映射为「结束当前任务并记录码」。
+   - `nextTick` 不在本项：见 L1.16（宿主调度队列，非引擎内建）。
 
 5. **`Buffer` 与文本编解码**
    - 提供与常见 npm 包兼容的 `Buffer` 表面，或等价互转层。
@@ -100,6 +101,7 @@
    - `setTimeout` / `setInterval` / `clear*` / `queueMicrotask`。
    - 宿主异步（VFS、后续网络）完成后，把续体安全调度回该 QuickJS 实例。
    - 与现有 `busy` / `abort` / 超时模型协调：长时间异步任务可取消。
+   - 与 L1.16 `nextTick` 共存时：同步结束后先排空 nextTick 队列，再触发到期定时器。
 
 7. **薄 `events`（及可选极薄 `stream`）**
    - 先满足「依赖能加载、事件能订阅」的最小集，不为完整 Node streams 花过大成本。
@@ -110,12 +112,12 @@
 
 ### Todo（L1）
 
-**状态**：`todo` · 里程碑 M1 · Script Host
+**状态**：`doing` · 里程碑 M1 · Script Host
 
-- [ ] **L1.1 实例宿主选项**：创建实例时可挂载工作区根、`env`、`argv`、权限/配额；门面类型补齐
+- [x] **L1.1 实例宿主选项**：创建实例时可挂载工作区根、`env`、`argv`、权限/配额；门面类型补齐。系统默认 env 在设置中配置，终端创建时装入；实例继承而非探测主机。
 - [ ] **L1.2 异步桥与定时器**：`setTimeout` / `setInterval` / `clear*` / `queueMicrotask`；宿主 Promise 续体回灌；与 `busy`/`abort`/超时协调
 - [ ] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载
-- [ ] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode` / `nextTick`；stdout/stderr 接到宿主；`exit` 映射为结束任务
+- [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
 - [ ] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（或等价互转）；`TextEncoder` / `TextDecoder`
 - [ ] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、exists；路径落在卷模型；大文件限额策略写明
 - [ ] **L1.7 同步 I/O 策略落地**：文档 + 实现约定（内存工作区 / 仅 async / 预加载）；避免 UI 线程直打持久化 Sync
@@ -125,8 +127,9 @@
 - [ ] **L1.11 薄 `events`**：最小 EventEmitter，保证常见依赖能加载
 - [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
 - [ ] **L1.13 Virtual JS**：支持运行工作区文件 / 指定入口（不只粘贴 `eval`）
-- [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器
+- [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（若 L1.16 已做）
 - [ ] **L1.15 验收勾选**：对照上方「成功标准」全部通过后，将看板 L1 → `done`，焦点移到 L2
+- [ ] **L1.16 `process.nextTick`**：宿主侧优先队列；同步 `eval` 返回前（及与 L1.2 同环时先于定时器）按 FIFO 排空；挂到 `process.nextTick`；递归深度/次数保护；不改 QuickJS 引擎内部
 
 ### 本层明确不做
 
@@ -422,3 +425,6 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 |------|------|
 | 2026-07-22 | 初版：基于现有 QuickJS 实例服务与 Virtual JS 演示，定义 L1–L4 目标与工作项。 |
 | 2026-07-22 | 补充状态看板与 L0–L4 / 跨层可勾选 Todo，便于模型记录进度。 |
+| 2026-07-23 | L1 → `doing`；完成 L1.1：系统默认 env（设置可配）+ 终端装入 + QuickJS 宿主创建选项 / `getHostConfig`。 |
+| 2026-07-23 | `nextTick` 从 L1.4 拆出为独立 **L1.16**（宿主优先队列）；L1.4 仅保留 cwd/env/argv/exitCode/exit + stdout/stderr。 |
+| 2026-07-23 | 完成 L1.4：注入 `process` 子集；`exit` 结束本轮 eval 并记码（不销毁实例）；stdout/stderr → console 通道。 |

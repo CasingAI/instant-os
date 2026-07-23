@@ -2,6 +2,7 @@ import { filesStat } from '../apps/files/files-api.ts'
 import { resolveActorLabel } from '../ai/ai-usage-context.ts'
 import { isStreamAbortError } from '../ai/stream-abort.ts'
 import { osNowMs } from '../os/os-clock.ts'
+import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
 import { askTerminalAgent } from './terminal-agent.ts'
 import { runTerminalLiveDemo } from './terminal-demo.ts'
 import { TERMINAL_HELP_TEXT } from './terminal-help-text.ts'
@@ -22,6 +23,8 @@ import type {
 
 export type TerminalSessionOptions = {
   initialCwd?: string
+  /** 会话初始环境变量；未传则拷贝系统默认 env。 */
+  initialEnv?: Record<string, string>
   usageActor: string
   thinkingEnabled?: boolean
 }
@@ -38,6 +41,8 @@ export type TerminalSession = {
   clear: () => void
   abort: () => void
   getCwd: () => string
+  /** 当前会话环境变量浅拷贝（含随 cwd 更新的 PWD）。 */
+  getEnv: () => Record<string, string>
   cd: (path: string) => Promise<void>
   setThinkingEnabled: (enabled: boolean) => void
   getThinkingEnabled: () => boolean
@@ -74,6 +79,10 @@ function looksLikeMarkdown(text: string): boolean {
 
 export function createTerminalSession(options: TerminalSessionOptions): TerminalSession {
   let cwd = options.initialCwd?.trim() || getDefaultTerminalCwd()
+  const env: Record<string, string> = {
+    ...(options.initialEnv !== undefined ? { ...options.initialEnv } : getResolvedSystemEnv()),
+  }
+  env.PWD = cwd
   let lines: TerminalLine[] = []
   let busy = false
   let thinkingEnabled = options.thinkingEnabled ?? false
@@ -171,6 +180,7 @@ export function createTerminalSession(options: TerminalSessionOptions): Terminal
       throw new Error(`不是目录: ${resolved}`)
     }
     cwd = entry.path
+    env.PWD = cwd
     emit()
   }
 
@@ -451,6 +461,7 @@ export function createTerminalSession(options: TerminalSessionOptions): Terminal
       }
     },
     getCwd: () => cwd,
+    getEnv: () => ({ ...env }),
     cd: async (path) => {
       await changeCwd(path)
     },

@@ -9,14 +9,65 @@ export type QuickJsConsoleLine = {
   at: number
 }
 
-/** 创建实例时的默认限额与可选初始全局变量。 */
+/** 实例级文件系统 / 网络权限（创建时绑定，脚本不可自行放大）。 */
+export type QuickJsHostPermissions = {
+  fsReadRoots: string[]
+  fsWriteRoots: string[]
+  /** L1 默认拒绝；真正开通属 L2。 */
+  network: false
+}
+
+/** 实例资源配额（含已有 runtime 限额）。 */
+export type QuickJsHostQuotas = {
+  timeoutMs: number
+  memoryLimitBytes: number
+  maxStackSizeBytes: number
+  /** 单文件读写上限（字节）；L1.6 起执行，本阶段只保存。 */
+  maxFileBytes: number
+}
+
+/**
+ * 创建时冻结的宿主上下文（env / argv / 工作区 / 权限配额）。
+ * 活状态 `cwd` / `exitCode` 见 snapshot 与 eval 结果；脚本侧 `process` 由 L1.4 注入。
+ */
+export type QuickJsHostConfig = {
+  workspaceRoot: string | undefined
+  env: Record<string, string>
+  argv: string[]
+  permissions: QuickJsHostPermissions
+  quotas: QuickJsHostQuotas
+}
+
+/** 创建实例时的宿主选项、默认限额与可选初始全局变量。 */
 export type QuickJsInstanceOptions = {
-  /** 单次 eval 默认超时（毫秒），默认 5000。 */
+  /**
+   * VFS 工作区根（绝对路径）。
+   * 未传表示无工作区（仅粘贴 eval）；后续 fs / 模块应对相对路径拒绝。
+   */
+  workspaceRoot?: string
+  /**
+   * 环境变量整表。
+   * 若传入则整表使用传入拷贝；未传则使用系统默认 env。
+   */
+  env?: Record<string, string>
+  /** 伪 process.argv；默认 `['instant-node']`。 */
+  argv?: string[]
+  /**
+   * 权限覆盖。未传时：无 workspaceRoot → 读写根为空；
+   * 有 workspaceRoot → 读写根默认为该根；network 始终 false。
+   */
+  permissions?: {
+    fsReadRoots?: string[]
+    fsWriteRoots?: string[]
+  }
+  /** 单次 eval 默认超时（毫秒），默认 5000。属配额。 */
   timeoutMs?: number
-  /** QuickJS 堆内存上限（字节），默认 16 MiB。 */
+  /** QuickJS 堆内存上限（字节），默认 16 MiB。属配额。 */
   memoryLimitBytes?: number
-  /** 栈大小上限（字节），默认 512 KiB。 */
+  /** 栈大小上限（字节），默认 512 KiB。属配额。 */
   maxStackSizeBytes?: number
+  /** 单文件读写上限（字节），默认 2 MiB。属配额；L1.6 起执行。 */
+  maxFileBytes?: number
   /** 注入到隔离上下文 globalThis 的可序列化全局变量（仅创建时一次）。 */
   globals?: Record<string, unknown>
 }
@@ -29,12 +80,18 @@ export type QuickJsEvalOptions = {
 export type QuickJsEvalSuccess = {
   ok: true
   value: unknown
+  /** 本轮结束时的 process.exitCode。 */
+  exitCode: number
+  /** 是否由 process.exit 结束本轮任务。 */
+  exited: boolean
   consoleLines: QuickJsConsoleLine[]
 }
 
 export type QuickJsEvalFailure = {
   ok: false
   error: string
+  exitCode: number
+  exited: boolean
   consoleLines: QuickJsConsoleLine[]
 }
 
@@ -43,6 +100,10 @@ export type QuickJsEvalResult = QuickJsEvalSuccess | QuickJsEvalFailure
 export type QuickJsInstanceSnapshot = {
   destroyed: boolean
   busy: boolean
+  /** 实例当前工作目录（process.cwd）。 */
+  cwd: string
+  /** 当前 process.exitCode。 */
+  exitCode: number
   consoleLines: QuickJsConsoleLine[]
 }
 
@@ -55,6 +116,8 @@ export type QuickJsInstanceListener = () => void
 export type QuickJsInstance = {
   subscribe: (listener: QuickJsInstanceListener) => () => void
   getSnapshot: () => QuickJsInstanceSnapshot
+  /** 只读宿主配置（env / argv / 工作区 / 权限配额）；不含 UI 订阅噪音。 */
+  getHostConfig: () => QuickJsHostConfig
   eval: (code: string, options?: QuickJsEvalOptions) => Promise<QuickJsEvalResult>
   /** 中断当前正在执行的 eval（若有）。 */
   abort: () => void

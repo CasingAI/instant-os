@@ -4,21 +4,33 @@ import {
   type QuickJSHandle,
   type QuickJSRuntime,
 } from 'quickjs-emscripten'
+import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
+import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
 import { loadQuickJsRuntime } from './quickjs-runtime.ts'
 import type {
   QuickJsConsoleLevel,
   QuickJsConsoleLine,
   QuickJsEvalOptions,
   QuickJsEvalResult,
+  QuickJsHostConfig,
+  QuickJsHostPermissions,
+  QuickJsHostQuotas,
   QuickJsInstance,
   QuickJsInstanceListener,
   QuickJsInstanceOptions,
   QuickJsInstanceSnapshot,
 } from './quickjs-instance-types.ts'
+import {
+  createProcessState,
+  injectProcess,
+  syncExitCodeFromGuest,
+} from './quickjs-process.ts'
 
 const DEFAULT_TIMEOUT_MS = 5000
 const DEFAULT_MEMORY_LIMIT_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_STACK_SIZE_BYTES = 512 * 1024
+const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024
+const DEFAULT_ARGV = ['instant-node'] as const
 
 const CONSOLE_LEVELS: QuickJsConsoleLevel[] = ['log', 'info', 'warn', 'error']
 
@@ -28,6 +40,71 @@ let instanceSeq = 0
 function nextConsoleLineId(): string {
   consoleLineSeq += 1
   return `qjs-console-${consoleLineSeq}`
+}
+
+function resolveWorkspaceRoot(raw: string | undefined): string | undefined {
+  if (raw === undefined) {
+    return undefined
+  }
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  try {
+    return normalizeTerminalAbsolutePath(trimmed)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Invalid QuickJS workspaceRoot: ${message}`)
+  }
+}
+
+function resolveHostPermissions(
+  workspaceRoot: string | undefined,
+  permissions: QuickJsInstanceOptions['permissions'],
+): QuickJsHostPermissions {
+  const defaultRoots = workspaceRoot !== undefined ? [workspaceRoot] : []
+  return {
+    fsReadRoots: permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultRoots],
+    fsWriteRoots:
+      permissions?.fsWriteRoots !== undefined ? [...permissions.fsWriteRoots] : [...defaultRoots],
+    network: false,
+  }
+}
+
+function resolveHostQuotas(options: QuickJsInstanceOptions): QuickJsHostQuotas {
+  return {
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    memoryLimitBytes: options.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_BYTES,
+    maxStackSizeBytes: options.maxStackSizeBytes ?? DEFAULT_MAX_STACK_SIZE_BYTES,
+    maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
+  }
+}
+
+function resolveHostConfig(options: QuickJsInstanceOptions): QuickJsHostConfig {
+  const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot)
+  const env = options.env !== undefined ? { ...options.env } : getResolvedSystemEnv()
+  const argv = options.argv !== undefined ? [...options.argv] : [...DEFAULT_ARGV]
+  return {
+    workspaceRoot,
+    env,
+    argv,
+    permissions: resolveHostPermissions(workspaceRoot, options.permissions),
+    quotas: resolveHostQuotas(options),
+  }
+}
+
+function freezeHostConfig(config: QuickJsHostConfig): QuickJsHostConfig {
+  return {
+    workspaceRoot: config.workspaceRoot,
+    env: Object.freeze({ ...config.env }),
+    argv: Object.freeze([...config.argv]) as string[],
+    permissions: Object.freeze({
+      fsReadRoots: Object.freeze([...config.permissions.fsReadRoots]) as string[],
+      fsWriteRoots: Object.freeze([...config.permissions.fsWriteRoots]) as string[],
+      network: false as const,
+    }),
+    quotas: Object.freeze({ ...config.quotas }),
+  }
 }
 
 function formatQuickJsError(context: QuickJSContext, errorHandle: QuickJSHandle): string {
@@ -141,19 +218,21 @@ type InstanceState = {
 export async function createQuickJsInstance(
   options: QuickJsInstanceOptions = {},
 ): Promise<QuickJsInstance> {
+  const hostConfig = freezeHostConfig(resolveHostConfig(options))
   const module = await loadQuickJsRuntime()
-  const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const defaultTimeoutMs = hostConfig.quotas.timeoutMs
   instanceSeq += 1
   const instanceId = `qjs-instance-${instanceSeq}`
 
   let evalDeadline = Date.now() + defaultTimeoutMs
   let abortRequested = false
+  const processState = createProcessState(hostConfig.workspaceRoot, hostConfig.env)
 
   const runtime: QuickJSRuntime = module.newRuntime({
-    memoryLimitBytes: options.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_BYTES,
-    maxStackSizeBytes: options.maxStackSizeBytes ?? DEFAULT_MAX_STACK_SIZE_BYTES,
+    memoryLimitBytes: hostConfig.quotas.memoryLimitBytes,
+    maxStackSizeBytes: hostConfig.quotas.maxStackSizeBytes,
     interruptHandler: (rt) => {
-      if (abortRequested) {
+      if (abortRequested || processState.exitRequested) {
         return true
       }
       return shouldInterruptAfterDeadline(evalDeadline)(rt)
@@ -190,6 +269,23 @@ export async function createQuickJsInstance(
     pushConsole(level, text)
   })
 
+  injectProcess(
+    context,
+    processState,
+    { env: { ...hostConfig.env }, argv: [...hostConfig.argv] },
+    {
+      requestExit: () => {
+        processState.exitRequested = true
+      },
+      writeStdout: (text) => {
+        pushConsole('log', text)
+      },
+      writeStderr: (text) => {
+        pushConsole('error', text)
+      },
+    },
+  )
+
   if (options.globals !== undefined) {
     injectSerializableGlobals(context, options.globals)
   }
@@ -200,10 +296,29 @@ export async function createQuickJsInstance(
     }
   }
 
-  const getSnapshot = (): QuickJsInstanceSnapshot => ({
-    destroyed: state.destroyed,
-    busy: state.busy,
-    consoleLines: state.consoleLines,
+  const getSnapshot = (): QuickJsInstanceSnapshot => {
+    if (!state.destroyed && !state.busy) {
+      syncExitCodeFromGuest(context, processState)
+    }
+    return {
+      destroyed: state.destroyed,
+      busy: state.busy,
+      cwd: processState.cwd,
+      exitCode: processState.exitCode,
+      consoleLines: state.consoleLines,
+    }
+  }
+
+  const getHostConfig = (): QuickJsHostConfig => ({
+    workspaceRoot: hostConfig.workspaceRoot,
+    env: { ...hostConfig.env },
+    argv: [...hostConfig.argv],
+    permissions: {
+      fsReadRoots: [...hostConfig.permissions.fsReadRoots],
+      fsWriteRoots: [...hostConfig.permissions.fsWriteRoots],
+      network: false,
+    },
+    quotas: { ...hostConfig.quotas },
   })
 
   const subscribe = (listener: QuickJsInstanceListener): (() => void) => {
@@ -246,33 +361,62 @@ export async function createQuickJsInstance(
     const timeoutMs = evalOptions.timeoutMs ?? defaultTimeoutMs
     const consoleStartIndex = state.consoleLines.length
     abortRequested = false
+    processState.exitRequested = false
     evalDeadline = Date.now() + timeoutMs
     state.busy = true
     notify()
+
+    const consoleSlice = () => state.consoleLines.slice(consoleStartIndex)
 
     try {
       const evalResult = context.evalCode(code, `${instanceId}.js`)
 
       if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
+        if (processState.exitRequested) {
+          syncExitCodeFromGuest(context, processState)
+          return {
+            ok: true,
+            value: undefined,
+            exited: true,
+            exitCode: processState.exitCode,
+            consoleLines: consoleSlice(),
+          }
+        }
+        syncExitCodeFromGuest(context, processState)
         return {
           ok: false,
           error: abortRequested ? `interrupted: ${error}` : error,
-          consoleLines: state.consoleLines.slice(consoleStartIndex),
+          exited: false,
+          exitCode: processState.exitCode,
+          consoleLines: consoleSlice(),
         }
       }
 
       try {
+        syncExitCodeFromGuest(context, processState)
+        if (processState.exitRequested) {
+          return {
+            ok: true,
+            value: undefined,
+            exited: true,
+            exitCode: processState.exitCode,
+            consoleLines: consoleSlice(),
+          }
+        }
         return {
           ok: true,
           value: dumpEvalValue(context, evalResult.value),
-          consoleLines: state.consoleLines.slice(consoleStartIndex),
+          exited: false,
+          exitCode: processState.exitCode,
+          consoleLines: consoleSlice(),
         }
       } finally {
         evalResult.value.dispose()
       }
     } finally {
       abortRequested = false
+      processState.exitRequested = false
       if (!state.destroyed) {
         state.busy = false
         notify()
@@ -283,6 +427,7 @@ export async function createQuickJsInstance(
   return {
     subscribe,
     getSnapshot,
+    getHostConfig,
     eval: evalCode,
     abort,
     destroy,

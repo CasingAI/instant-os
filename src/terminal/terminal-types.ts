@@ -52,6 +52,7 @@ export type TerminalHandle = {
   clear: () => void
   abort: () => void
   getCwd: () => string
+  getEnv: () => Record<string, string>
   cd: (path: string) => Promise<void>
   getSnapshot: () => TerminalSessionSnapshot
 }
