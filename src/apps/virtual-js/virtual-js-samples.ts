@@ -420,6 +420,29 @@ require('http')
 })()
 `,
   },
+  {
+    id: 'events-emitter',
+    title: '薄 events · EventEmitter',
+    blurb: '内建 events / node:events：on / once / emit（error 无监听抛错）',
+    source: `(function () {
+  var EventEmitter = require('events')
+  var ee = new EventEmitter()
+  ee.on('tick', function (n) { console.log('tick', n) })
+  ee.once('done', function () { console.log('done once') })
+  ee.emit('tick', 1)
+  ee.emit('tick', 2)
+  ee.emit('done')
+  ee.emit('done')
+  try {
+    ee.emit('error', new Error('no listener'))
+  } catch (e) {
+    console.log('error-threw', e.message)
+  }
+  console.log('same', EventEmitter === require('node:events'))
+  process.exit(0)
+})()
+`,
+  },
 ]
 
 /** 侧栏展示用：带序号，且最新用例在前。 */

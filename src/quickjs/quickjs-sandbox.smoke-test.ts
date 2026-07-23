@@ -1005,6 +1005,86 @@ export default {
     // best-effort cleanup
   }
 
+  // --- L1.11 thin events / EventEmitter ---
+  const eventsBasics = await timerInstance.eval(`
+    var EE = require('events')
+    var sameCtor = EE === require('node:events') && EE === EE.EventEmitter
+    var notGlobal = typeof globalThis.EventEmitter === 'undefined'
+    var ee = new EE()
+    var seen = []
+    ee.on('ping', function (n) { seen.push(n) })
+    ee.emit('ping', 1)
+    ee.emit('ping', 2)
+    var onceHit = 0
+    ee.once('once', function () { onceHit++ })
+    ee.emit('once')
+    ee.emit('once')
+    var errThrew = false
+    try { ee.emit('error', new Error('boom')) } catch (e) {
+      errThrew = String(e && e.message ? e.message : e).indexOf('boom') !== -1
+    }
+    function Sub() { EE.call(this) }
+    Sub.prototype = Object.create(EE.prototype)
+    Sub.prototype.constructor = Sub
+    var sub = new Sub()
+    var subOk = false
+    sub.on('x', function (v) { subOk = v === 7 })
+    sub.emit('x', 7)
+    ;({
+      sameCtor: sameCtor,
+      notGlobal: notGlobal,
+      seen: seen.join(','),
+      onceHit: onceHit,
+      errThrew: errThrew,
+      subOk: subOk,
+      count: ee.listenerCount('ping'),
+    })
+  `)
+  if (!eventsBasics.ok) {
+    throw new Error(`events basics failed: ${JSON.stringify(eventsBasics)}`)
+  }
+  const evVal = eventsBasics.value as Record<string, unknown>
+  if (
+    evVal.sameCtor !== true ||
+    evVal.notGlobal !== true ||
+    evVal.seen !== '1,2' ||
+    evVal.onceHit !== 1 ||
+    evVal.errThrew !== true ||
+    evVal.subOk !== true ||
+    evVal.count !== 1
+  ) {
+    throw new Error(`unexpected events basics: ${JSON.stringify(evVal)}`)
+  }
+
+  const eventsImport = await timerInstance.eval(`
+import EENamed from 'events'
+import { EventEmitter as EENamed2 } from 'node:events'
+export default {
+  sameDefault: EENamed === EENamed.EventEmitter,
+  sameNamed: EENamed2 === EENamed,
+  works: (function () {
+    var e = new EENamed()
+    var n = 0
+    e.on('t', function () { n++ })
+    e.emit('t')
+    return n === 1
+  })(),
+}
+`)
+  if (!eventsImport.ok) {
+    throw new Error(`events import failed: ${JSON.stringify(eventsImport)}`)
+  }
+  const evImportVal =
+    (eventsImport.value as { default?: Record<string, unknown> }).default ??
+    (eventsImport.value as Record<string, unknown>)
+  if (
+    evImportVal.sameDefault !== true ||
+    evImportVal.sameNamed !== true ||
+    evImportVal.works !== true
+  ) {
+    throw new Error(`unexpected events import: ${JSON.stringify(eventsImport.value)}`)
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)

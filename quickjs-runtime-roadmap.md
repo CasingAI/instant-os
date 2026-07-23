@@ -106,7 +106,8 @@
    - **语义约定（L1.2）**：实例常驻到 `destroy`；`busy` 仅同步切片；挂起 timer 不阻止再 `eval`；`abort` 清定时器但保留实例；退出码只认 `process.exit` / `exitCode`（不用最后表达式）。
 
 7. **薄 `events`（及可选极薄 `stream`）**
-   - 先满足「依赖能加载、事件能订阅」的最小集，不为完整 Node streams 花过大成本。
+   - L1.11：最小 EventEmitter（能加载、能订阅/触发；`error` 无监听抛错）；不为完整 Node events / streams 花过大成本。
+   - L1.12（可选）：极薄 `stream`，仅在卡依赖时再加。
 
 8. **Virtual JS / 文档同步升级**
    - Virtual JS：除粘贴运行外，支持「运行当前文件 / 指定入口」。
@@ -126,7 +127,7 @@
 - [x] **L1.8 模块加载器（ESM）**：VFS 相对/绝对路径；Node ESM **不**自动补扩展名（须 `.js`/`.mjs`/`.cjs`）；实例级缓存；未实现 `node:` 清晰报错；粘贴 eval 入口 `{cwd}/[eval-n].js`。内建钩子自 L1.3；本项扩到文件。CJS 文件 `require`+扩展名补全见 L1.9。Asyncify：Sync 路径内禁止再挂起（含可挂起 import）
 - [x] **L1.9 薄 CJS `require`（可选但建议）**：文件级 CJS（扩展名 / index / `.json` 探测）；顶层相对 cwd、模块内相对调用方；宿主递归预载静态 `require('…')` 以避免嵌套 Asyncify；实例缓存与循环依赖；`require.resolve` / `require.cache`。不做：裸名（L2）、`.node`、完整 Module API（`package.json` 入口见 L1.10）
 - [x] **L1.10 入口 `package.json` 子集**：CJS 目录 `require` 读 `exports["."]`（字符串或 require/node/default）/ `main` → 再回退 `index`；有 `exports` 不回退 `main`。不做：ESM folder mains、`"module"` 字段、子路径 `exports`、裸名（L2）
-- [ ] **L1.11 薄 `events`**：最小 EventEmitter，保证常见依赖能加载
+- [x] **L1.11 薄 `events`**：手写最小 EventEmitter（`on`/`once`/`off`/`emit`/`removeAllListeners`/`listenerCount`；`error` 无监听抛错）；`events`/`node:events` 同一构造函数；CJS 导出即构造函数。不做：vendor 整包、挂全局、`prepend*`、`captureRejections`、`stream`（L1.12）、`nextTick` 异步辅助
 - [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
 - [ ] **L1.13 Virtual JS**：支持运行工作区文件 / 指定入口（不只粘贴 `eval`）
 - [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（若 L1.16 已做）
@@ -440,6 +441,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.8：ESM 文件 import（相对导入方 / eval→cwd、绝对路径+读权限、显式扩展名、实例缓存）；CJS 文件 require 与扩展名补全留 L1.9。 |
 | 2026-07-23 | 完成 L1.9：文件级 CJS require（扩展名/index/.json、父路径、宿主预载避嵌套 Asyncify、缓存/循环、`resolve`/`cache`）；package.json 入口留 L1.10。 |
 | 2026-07-23 | 完成 L1.10：CJS 目录入口 `exports["."]` / `main` → index；exports 覆盖 main；目录别名供嵌套 sync require；不做 ESM folder mains / `"module"` / 子路径。 |
+| 2026-07-23 | 完成 L1.11：手写薄 EventEmitter（guest 源注入）；`events`/`node:events` 同构造函数；不做 vendor / 全局 / prepend / stream。 |
 
 ---
 
