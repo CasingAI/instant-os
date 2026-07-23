@@ -86,6 +86,9 @@ export async function fetchPackageMetadata(
       },
       dependencies: meta.dependencies as Record<string, string> | undefined,
       peerDependencies: meta.peerDependencies as Record<string, string> | undefined,
+      peerDependenciesMeta: meta.peerDependenciesMeta as
+        | Record<string, { optional?: boolean }>
+        | undefined,
       bin: meta.bin as string | Record<string, string> | undefined,
       main: typeof meta.main === 'string' ? meta.main : undefined,
       module: typeof meta.module === 'string' ? meta.module : undefined,

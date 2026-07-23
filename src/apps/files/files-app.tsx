@@ -790,16 +790,27 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [selectNonce, selectedId])
 
   useEffect(() => {
-    let timer: number | undefined
+    let trailingTimer: number | undefined
+    let maxTimer: number | undefined
+    const flush = () => {
+      window.clearTimeout(trailingTimer)
+      window.clearTimeout(maxTimer)
+      trailingTimer = undefined
+      maxTimer = undefined
+      void refresh({ quiet: true })
+    }
     const onVfsChanged = () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        void refresh({ quiet: true })
-      }, 80)
+      // 尾随 debounce：安静 80ms 后刷；连续风暴时至少每 300ms 刷一次
+      window.clearTimeout(trailingTimer)
+      trailingTimer = window.setTimeout(flush, 80)
+      if (maxTimer === undefined) {
+        maxTimer = window.setTimeout(flush, 300)
+      }
     }
     window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
     return () => {
-      window.clearTimeout(timer)
+      window.clearTimeout(trailingTimer)
+      window.clearTimeout(maxTimer)
       window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
     }
   }, [refresh])
@@ -1144,11 +1155,51 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       closeTransientMenus()
       if (node.kind === 'folder') {
         enterFolder(node)
-      } else {
-        void openFile(node)
+        return
       }
+      if (node.kind === 'symlink') {
+        void (async () => {
+          try {
+            const linkPath = await resolveFilesAbsolutePath(node)
+            const target = await resolveNodeByAbsolutePath(linkPath, { follow: true })
+            if (target?.kind === 'folder') {
+              clearSelection()
+              setFolderMotion('push')
+              if (target.locationId !== locationId) {
+                setLocationId(target.locationId)
+              }
+              setFolderId(target.id)
+              return
+            }
+            if (target?.kind === 'file') {
+              await openFile(target)
+              return
+            }
+            await modal.alert({
+              title: '无法打开',
+              message: '符号链接目标无效或已断开',
+              themeColor: THEME,
+            })
+          } catch (err) {
+            await modal.alert({
+              title: '无法打开',
+              message: formatError(err),
+              themeColor: THEME,
+            })
+          }
+        })()
+        return
+      }
+      void openFile(node)
     },
-    [closeTransientMenus, enterFolder, openFile],
+    [
+      clearSelection,
+      closeTransientMenus,
+      enterFolder,
+      locationId,
+      modal,
+      openFile,
+    ],
   )
 
   const handleCopy = useCallback((node: FilesNode) => {

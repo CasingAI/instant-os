@@ -1,6 +1,7 @@
 import { gunzipSync } from 'fflate'
 import {
   filesCreateText,
+  filesLstat,
   filesMkdir,
   filesReadText,
   filesRemove,
@@ -8,6 +9,7 @@ import {
   filesSymlink,
   filesWriteText,
 } from '../apps/files/files-api.ts'
+import { runWithFilesVfsChangeBatch } from '../apps/files/files-vfs.ts'
 import { untarBytes } from './package-untar.ts'
 import type { PackageServiceConfig } from './package-types.ts'
 
@@ -94,28 +96,31 @@ export async function extractTarballToStore(params: {
   await ensureDir(dest)
 
   let fileCount = 0
-  for (const [rawPath, data] of Object.entries(entries)) {
-    signal?.throwIfAborted()
-    let rel = rawPath.replace(/^package\//, '')
-    if (!rel || rel.endsWith('/')) continue
-    // 安全：拒绝跳出
-    if (rel.includes('..') || rel.startsWith('/')) continue
-    const outPath = `${dest}/${rel}`
-    const parent = outPath.slice(0, outPath.lastIndexOf('/'))
-    await ensureDir(parent)
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(data)
-    // 含 \0 的当二进制：用 latin1 往返不完美；简化为 utf-8 文本写入
-    // 对 .node 等：仍写入以便安装器检测拒绝
-    try {
-      await filesCreateText(outPath, text)
-    } catch {
-      await filesWriteText(outPath, text)
+  // 解压期合并 VFS 通知：否则每写一个文件就重置 UI debounce，链接要等整次安装结束才看得见
+  await runWithFilesVfsChangeBatch(async () => {
+    for (const [rawPath, data] of Object.entries(entries)) {
+      signal?.throwIfAborted()
+      let rel = rawPath.replace(/^package\//, '')
+      if (!rel || rel.endsWith('/')) continue
+      // 安全：拒绝跳出
+      if (rel.includes('..') || rel.startsWith('/')) continue
+      const outPath = `${dest}/${rel}`
+      const parent = outPath.slice(0, outPath.lastIndexOf('/'))
+      await ensureDir(parent)
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(data)
+      // 含 \0 的当二进制：用 latin1 往返不完美；简化为 utf-8 文本写入
+      // 对 .node 等：仍写入以便安装器检测拒绝
+      try {
+        await filesCreateText(outPath, text)
+      } catch {
+        await filesWriteText(outPath, text)
+      }
+      fileCount += 1
+      if (fileCount > config.maxProjectFiles) {
+        throw new Error('解压文件数超过配额')
+      }
     }
-    fileCount += 1
-    if (fileCount > config.maxProjectFiles) {
-      throw new Error('解压文件数超过配额')
-    }
-  }
+  })
 
   const marker = await filesStat(`${dest}/package.json`)
   if (!marker) {
@@ -143,28 +148,24 @@ export async function linkPackageIntoProject(params: {
     linkPath = `${nm}/${name}`
   }
 
-  const existing = await filesStat(linkPath)
+  // 必须用 lstat：stat 会跟随已有链接，误判成 store 目录
+  const existing = await filesLstat(linkPath)
   if (existing) {
     await filesRemove(linkPath)
   }
 
-  // 相对链接：从 link 父目录到 store
-  const linkParent = linkPath.slice(0, linkPath.lastIndexOf('/'))
-  const target = relativePath(linkParent, storePath)
-  await filesSymlink(target, linkPath)
-}
-
-function relativePath(fromDir: string, toPath: string): string {
-  const fromParts = fromDir.split('/').filter(Boolean)
-  const toParts = toPath.split('/').filter(Boolean)
-  let i = 0
-  while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) {
-    i += 1
+  // 绝对目标：跨 /user ↔ /dev 等卷时相对路径易碎，且便于核对链接是否落在项目旁
+  try {
+    await filesSymlink(storePath, linkPath)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('不支持创建符号链接')) {
+      throw new Error(
+        `无法在 ${projectRoot}/node_modules 创建链接（当前卷不支持 symlink）。请将项目放在 /user 或 /dev 下再安装。`,
+      )
+    }
+    throw error
   }
-  const ups = fromParts.length - i
-  const downs = toParts.slice(i)
-  const rel = [...Array(ups).fill('..'), ...downs].join('/')
-  return rel || '.'
 }
 
 export async function readStorePackageJson(

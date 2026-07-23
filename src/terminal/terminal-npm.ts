@@ -6,6 +6,7 @@ import {
   installPackages,
   listInstalled,
   outdatedPackages,
+  resolvePackageProjectRoot,
   uninstallPackages,
   subscribePackageEvents,
 } from '../packages/package-public.ts'
@@ -38,7 +39,11 @@ export async function runTerminalNpmOrNpx(
   signal: AbortSignal,
 ): Promise<void> {
   const rest = restLine.trim() ? restLine.trim().split(/\s+/) : []
-  const projectRoot = io.getCwd()
+  const cwd = io.getCwd()
+  const projectRoot = await resolvePackageProjectRoot(cwd)
+  if (projectRoot !== cwd) {
+    io.write(`在 ${projectRoot}（由 cwd 向上定位 package.json）`)
+  }
   const logKey = `npm-${Date.now()}`
 
   if (head === 'npm') {

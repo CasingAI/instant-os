@@ -70,6 +70,7 @@ export type RegistryPackageVersion = {
   }
   dependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
   bin?: string | Record<string, string>
   main?: string
   module?: string

@@ -83,10 +83,48 @@ import {
 /** 虚拟文件系统内容变更（新建 / 写入 / 重命名 / 删除等），供文件管理器等订阅刷新 */
 export const FILES_VFS_CHANGED_EVENT = 'instant-os-files-vfs-changed'
 
-function emitFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChange[]): void {
+/** 批量写入时合并变更通知，避免解压等场景每文件打断 UI debounce */
+let vfsChangeBatchDepth = 0
+const vfsChangeBatchPending: FilesWatchChange[] = []
+
+export function beginFilesVfsChangeBatch(): void {
+  vfsChangeBatchDepth += 1
+}
+
+export function endFilesVfsChangeBatch(): void {
+  if (vfsChangeBatchDepth <= 0) return
+  vfsChangeBatchDepth -= 1
+  if (vfsChangeBatchDepth > 0) return
+  if (vfsChangeBatchPending.length === 0) return
+  const pending = vfsChangeBatchPending.splice(0, vfsChangeBatchPending.length)
+  flushFilesVfsChanged(pending)
+}
+
+export async function runWithFilesVfsChangeBatch<T>(fn: () => Promise<T>): Promise<T> {
+  beginFilesVfsChangeBatch()
+  try {
+    return await fn()
+  } finally {
+    endFilesVfsChangeBatch()
+  }
+}
+
+function flushFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChange[]): void {
   notifyFilesWatch(change)
   if (typeof window === 'undefined') return
   window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
+}
+
+function emitFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChange[]): void {
+  if (vfsChangeBatchDepth > 0) {
+    if (Array.isArray(change)) {
+      vfsChangeBatchPending.push(...change)
+    } else {
+      vfsChangeBatchPending.push(change)
+    }
+    return
+  }
+  flushFilesVfsChanged(change)
 }
 
 async function emitNodeCreated(node: FilesNode): Promise<void> {

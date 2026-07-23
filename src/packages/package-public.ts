@@ -6,6 +6,7 @@ export {
   listInstalled,
   listPackageTasks,
   outdatedPackages,
+  resolvePackageProjectRoot,
   setPackageServiceConfig,
   uninstallPackages,
 } from './package-service.ts'

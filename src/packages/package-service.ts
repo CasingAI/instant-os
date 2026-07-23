@@ -78,6 +78,24 @@ export function cancelPackageTask(id: string): boolean {
   return true
 }
 
+/**
+ * 从 cwd 向上查找最近的 package.json 所在目录（对齐桌面 npm）。
+ * 找不到则回退为 cwd，安装时会在该处创建/写入 package.json 与 node_modules。
+ */
+export async function resolvePackageProjectRoot(cwd: string): Promise<string> {
+  let cursor = cwd.trim().replace(/\/+$/, '') || '/'
+  const seen = new Set<string>()
+  while (!seen.has(cursor)) {
+    seen.add(cursor)
+    const st = await filesStat(`${cursor}/package.json`)
+    if (st?.kind === 'file') return cursor
+    if (cursor === '/') break
+    const idx = cursor.lastIndexOf('/')
+    cursor = idx <= 0 ? '/' : cursor.slice(0, idx)
+  }
+  return cwd.trim().replace(/\/+$/, '') || '/'
+}
+
 async function readProjectPackageJson(
   projectRoot: string,
 ): Promise<Record<string, unknown>> {
@@ -131,6 +149,13 @@ function assertNotNative(name: string, version: string, meta: RegistryPackageVer
   }
 }
 
+type ResolveQueueItem = {
+  name: string
+  range: string
+  /** peer 降级安装：解析失败只告警，不中断整棵树 */
+  soft?: boolean
+}
+
 type ResolvedNode = {
   name: string
   version: string
@@ -142,7 +167,7 @@ async function resolveTree(
   task: PackageTask,
 ): Promise<ResolvedNode[]> {
   const resolved = new Map<string, ResolvedNode>()
-  const queue = [...roots]
+  const queue: ResolveQueueItem[] = roots.map((r) => ({ ...r }))
 
   while (queue.length > 0) {
     task.abortController.signal.throwIfAborted()
@@ -150,12 +175,22 @@ async function resolveTree(
     const key = next.name
     if (resolved.has(key)) continue
     log(task, 'info', `解析 ${next.name}@${next.range}`)
-    const meta = await resolveRegistryVersion(
-      next.name,
-      next.range,
-      config,
-      task.abortController.signal,
-    )
+    let meta: RegistryPackageVersion
+    try {
+      meta = await resolveRegistryVersion(
+        next.name,
+        next.range,
+        config,
+        task.abortController.signal,
+      )
+    } catch (error) {
+      if (next.soft) {
+        const reason = error instanceof Error ? error.message : String(error)
+        log(task, 'warn', `跳过 peer ${next.name}@${next.range}（${reason}）`)
+        continue
+      }
+      throw error
+    }
     assertNotNative(next.name, meta.version, meta)
     resolved.set(key, { name: next.name, version: meta.version, meta })
     for (const [dep, range] of Object.entries(meta.dependencies ?? {})) {
@@ -163,11 +198,15 @@ async function resolveTree(
         queue.push({ name: dep, range })
       }
     }
+    const peerMeta = meta.peerDependenciesMeta ?? {}
     for (const [dep, range] of Object.entries(meta.peerDependencies ?? {})) {
-      if (!resolved.has(dep)) {
-        log(task, 'warn', `peer 依赖降级尝试: ${dep}@${range}`)
-        queue.push({ name: dep, range })
+      if (resolved.has(dep)) continue
+      if (peerMeta[dep]?.optional === true) {
+        log(task, 'info', `跳过 optional peer ${dep}@${range}`)
+        continue
       }
+      log(task, 'warn', `peer 依赖降级尝试: ${dep}@${range}`)
+      queue.push({ name: dep, range, soft: true })
     }
   }
 
@@ -205,7 +244,7 @@ async function linkBins(
   const bin = pkg.bin
   if (!bin) return
   const binDir = `${projectRoot}/node_modules/.bin`
-  const { filesMkdir, filesStat, filesSymlink, filesRemove } = await import(
+  const { filesMkdir, filesStat, filesLstat, filesSymlink, filesRemove } = await import(
     '../apps/files/files-api.ts'
   )
   const st = await filesStat(binDir)
@@ -222,24 +261,10 @@ async function linkBins(
   for (const [binName, rel] of Object.entries(entries)) {
     const targetFile = `${storePath}/${rel.replace(/^\.\//, '')}`
     const linkPath = `${binDir}/${binName}`
-    const existing = await filesStat(linkPath)
+    const existing = await filesLstat(linkPath)
     if (existing) await filesRemove(linkPath)
-    const fromDir = binDir
-    const relTarget = relativePath(fromDir, targetFile)
-    await filesSymlink(relTarget, linkPath)
+    await filesSymlink(targetFile, linkPath)
   }
-}
-
-function relativePath(fromDir: string, toPath: string): string {
-  const fromParts = fromDir.split('/').filter(Boolean)
-  const toParts = toPath.split('/').filter(Boolean)
-  let i = 0
-  while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) {
-    i += 1
-  }
-  const ups = fromParts.length - i
-  const downs = toParts.slice(i)
-  return [...Array(ups).fill('..'), ...downs].join('/') || '.'
 }
 
 export async function installPackages(params: {
@@ -268,7 +293,14 @@ export async function installPackages(params: {
   publishTask(task)
 
   try {
-    const pkgJson = await readProjectPackageJson(params.projectRoot)
+    const projectRoot = await resolvePackageProjectRoot(params.projectRoot)
+    if (projectRoot !== params.projectRoot) {
+      log(task, 'info', `项目根：${projectRoot}（由 ${params.projectRoot} 向上定位 package.json）`)
+      task.projectRoot = projectRoot
+      publishTask(task)
+    }
+
+    const pkgJson = await readProjectPackageJson(projectRoot)
     const deps = {
       ...((pkgJson.dependencies as Record<string, string> | undefined) ?? {}),
       ...((pkgJson.devDependencies as Record<string, string> | undefined) ?? {}),
@@ -293,7 +325,7 @@ export async function installPackages(params: {
     }
 
     const tree = await resolveTree(roots, task)
-    const lock = await readLock(params.projectRoot)
+    const lock = await readLock(projectRoot)
 
     for (const node of tree) {
       task.abortController.signal.throwIfAborted()
@@ -304,11 +336,11 @@ export async function installPackages(params: {
         throw new Error(`拒绝原生包 ${node.name}@${node.version}`)
       }
       await linkPackageIntoProject({
-        projectRoot: params.projectRoot,
+        projectRoot,
         name: node.name,
         storePath,
       })
-      await linkBins(params.projectRoot, node.name, storePath)
+      await linkBins(projectRoot, node.name, storePath)
       lock.packages[node.name] = {
         name: node.name,
         version: node.version,
@@ -321,13 +353,17 @@ export async function installPackages(params: {
         depsMap[node.name] = `^${node.version}`
         pkgJson.dependencies = depsMap
       }
-      log(task, 'info', `已链接 ${node.name}@${node.version}`)
+      log(task, 'info', `已链接 ${projectRoot}/node_modules/${node.name} → ${storePath}`)
+      // 让出事件循环，使 Files / Code 能在下一个包开始前刷新并绘制链接
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0)
+      })
     }
 
-    await writeLock(params.projectRoot, lock)
-    await writeProjectPackageJson(params.projectRoot, pkgJson)
+    await writeLock(projectRoot, lock)
+    await writeProjectPackageJson(projectRoot, pkgJson)
     task.status = 'succeeded'
-    log(task, 'info', '安装完成')
+    log(task, 'info', `安装完成（node_modules → ${projectRoot}/node_modules）`)
     return serializeTaskForEvent(task)
   } catch (error) {
     if (task.abortController.signal.aborted) {

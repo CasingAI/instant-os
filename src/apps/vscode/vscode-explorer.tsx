@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
+import { FILES_VFS_CHANGED_EVENT } from '../files/files-vfs.ts'
 import { parseFilesAbsolutePath } from '../files/files-path.ts'
 import { VscodeFileIcon, VscodeFolderIcon, VscodeTreeTwistie } from './vscode-file-icons.tsx'
 import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
@@ -26,6 +27,8 @@ type TreeNodeProps = {
   selectedPath?: string
   revealPath?: string
   revealNonce?: number
+  /** VFS 变更世代：递增时已展开目录重新拉列表 */
+  vfsEpoch?: number
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   defaultExpanded?: boolean
   workspaceFolder?: string
@@ -48,9 +51,27 @@ function copyToClipboard(text: string) {
 
 function sortEntries(entries: FilesApiEntry[]): FilesApiEntry[] {
   return [...entries].sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1
+    const aFolder = a.kind === 'folder'
+    const bFolder = b.kind === 'folder'
+    if (aFolder !== bFolder) return aFolder ? -1 : 1
     return a.name.localeCompare(b.name, 'zh-CN')
   })
+}
+
+/** 目录符号链接在树里按文件夹展开（filesList 会跟随链接） */
+async function listExplorerChildren(dirPath: string): Promise<FilesApiEntry[]> {
+  const listed = await filesList(dirPath)
+  const enriched = await Promise.all(
+    listed.map(async (entry) => {
+      if (entry.kind !== 'symlink') return entry
+      const followed = await filesStat(entry.path)
+      if (followed?.kind === 'folder') {
+        return { ...entry, kind: 'folder' as const }
+      }
+      return entry
+    }),
+  )
+  return sortEntries(enriched)
 }
 
 function folderDisplayName(path: string, name: string): string {
@@ -84,6 +105,7 @@ function TreeNode({
   selectedPath,
   revealPath,
   revealNonce = 0,
+  vfsEpoch = 0,
   problemDecorations,
   defaultExpanded = false,
   workspaceFolder,
@@ -109,8 +131,8 @@ function TreeNode({
     setLoading(true)
     setError(undefined)
     try {
-      const listed = await filesList(entry.path)
-      setChildren(sortEntries(listed))
+      const listed = await listExplorerChildren(entry.path)
+      setChildren(listed)
     } catch (err) {
       setError(err instanceof Error ? err.message : '无法列出目录')
       setChildren([])
@@ -118,6 +140,12 @@ function TreeNode({
       setLoading(false)
     }
   }, [entry.path])
+
+  // npm install 等会边写边链：已展开目录跟随 VFS 世代刷新
+  useEffect(() => {
+    if (!isFolder || !expanded || vfsEpoch === 0) return
+    setChildren(undefined)
+  }, [expanded, isFolder, vfsEpoch])
 
   const openEntryContextMenu = useCallback(
     (event: MouseEvent) => {
@@ -267,6 +295,7 @@ function TreeNode({
               selectedPath={selectedPath}
               revealPath={revealPath}
               revealNonce={revealNonce}
+              vfsEpoch={vfsEpoch}
               problemDecorations={problemDecorations}
               workspaceFolder={workspaceFolder}
               onOpenFile={onOpenFile}
@@ -294,6 +323,32 @@ export function VscodeExplorer({
   const [root, setRoot] = useState<FilesApiEntry | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
+  const [vfsEpoch, setVfsEpoch] = useState(0)
+
+  useEffect(() => {
+    let trailingTimer: number | undefined
+    let maxTimer: number | undefined
+    const flush = () => {
+      window.clearTimeout(trailingTimer)
+      window.clearTimeout(maxTimer)
+      trailingTimer = undefined
+      maxTimer = undefined
+      setVfsEpoch((value) => value + 1)
+    }
+    const onVfsChanged = () => {
+      window.clearTimeout(trailingTimer)
+      trailingTimer = window.setTimeout(flush, 80)
+      if (maxTimer === undefined) {
+        maxTimer = window.setTimeout(flush, 300)
+      }
+    }
+    window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    return () => {
+      window.clearTimeout(trailingTimer)
+      window.clearTimeout(maxTimer)
+      window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    }
+  }, [])
 
   useEffect(() => {
     if (!workspaceFolder) {
@@ -352,6 +407,7 @@ export function VscodeExplorer({
             selectedPath={selectedPath}
             revealPath={revealPath}
             revealNonce={revealNonce}
+            vfsEpoch={vfsEpoch}
             problemDecorations={problemDecorations}
             defaultExpanded
             workspaceFolder={workspaceFolder}
