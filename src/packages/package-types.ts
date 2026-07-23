@@ -19,6 +19,14 @@ export type PackageLogLine = {
   message: string
 }
 
+/** 安装过程进度（不写入 logs，避免刷屏） */
+export type PackageTaskProgress = {
+  phase: 'download' | 'extract'
+  /** 0–100；总量未知时省略 */
+  percent?: number
+  detail: string
+}
+
 export type PackageTask = {
   id: string
   kind: PackageTaskKind
@@ -28,6 +36,8 @@ export type PackageTask = {
   updatedAt: number
   packages: string[]
   logs: PackageLogLine[]
+  /** 当前下载/解压进度；阶段结束或任务结束时清空 */
+  progress?: PackageTaskProgress
   error?: string
   abortController: AbortController
 }
@@ -102,4 +112,9 @@ export const DEFAULT_PACKAGE_SERVICE_CONFIG: PackageServiceConfig = {
 export type PackageServiceEvent =
   | { type: 'task'; task: Omit<PackageTask, 'abortController'> }
   | { type: 'log'; taskId: string; line: PackageLogLine }
+  | {
+      type: 'progress'
+      taskId: string
+      progress: PackageTaskProgress | undefined
+    }
   | { type: 'store'; usedBytes: number }

@@ -65,6 +65,13 @@ export async function isPackageInStore(
   return pkg?.kind === 'file'
 }
 
+export type ExtractTarballProgress = {
+  done: number
+  total: number
+  bytesWritten: number
+  currentPath?: string
+}
+
 /**
  * 将 npm tarball（gzip + tar，内容通常在 package/ 前缀下）解压到 CAS 目录。
  */
@@ -74,8 +81,9 @@ export async function extractTarballToStore(params: {
   version: string
   tarball: Uint8Array
   signal?: AbortSignal
+  onProgress?: (progress: ExtractTarballProgress) => void
 }): Promise<string> {
-  const { config, name, version, tarball, signal } = params
+  const { config, name, version, tarball, signal, onProgress } = params
   const dest = storePackageDir(config, name, version)
   if (await isPackageInStore(config, name, version)) {
     return dest
@@ -93,17 +101,23 @@ export async function extractTarballToStore(params: {
   }
 
   const entries = untarBytes(tarBytes)
+  const writeEntries: { rel: string; data: Uint8Array }[] = []
+  for (const [rawPath, data] of Object.entries(entries)) {
+    let rel = rawPath.replace(/^package\//, '')
+    if (!rel || rel.endsWith('/')) continue
+    // 安全：拒绝跳出
+    if (rel.includes('..') || rel.startsWith('/')) continue
+    writeEntries.push({ rel, data })
+  }
+  const total = writeEntries.length
   await ensureDir(dest)
 
   let fileCount = 0
+  let bytesWritten = 0
   // 解压期合并 VFS 通知：否则每写一个文件就重置 UI debounce，链接要等整次安装结束才看得见
   await runWithFilesVfsChangeBatch(async () => {
-    for (const [rawPath, data] of Object.entries(entries)) {
+    for (const { rel, data } of writeEntries) {
       signal?.throwIfAborted()
-      let rel = rawPath.replace(/^package\//, '')
-      if (!rel || rel.endsWith('/')) continue
-      // 安全：拒绝跳出
-      if (rel.includes('..') || rel.startsWith('/')) continue
       const outPath = `${dest}/${rel}`
       const parent = outPath.slice(0, outPath.lastIndexOf('/'))
       await ensureDir(parent)
@@ -116,6 +130,13 @@ export async function extractTarballToStore(params: {
         await filesWriteText(outPath, text)
       }
       fileCount += 1
+      bytesWritten += data.byteLength
+      onProgress?.({
+        done: fileCount,
+        total,
+        bytesWritten,
+        currentPath: rel,
+      })
       if (fileCount > config.maxProjectFiles) {
         throw new Error('解压文件数超过配额')
       }

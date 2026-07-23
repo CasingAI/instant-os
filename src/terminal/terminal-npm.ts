@@ -9,6 +9,7 @@ import {
   resolvePackageProjectRoot,
   uninstallPackages,
   subscribePackageEvents,
+  type PackageTaskProgress,
 } from '../packages/package-public.ts'
 import { runNpmScript, runNpx } from '../packages/package-run.ts'
 
@@ -30,6 +31,36 @@ function usage(): string {
   npm run <script> [-- args…]
   npm bin
   npx <pkg> [args…]`
+}
+
+function progressBar(percent: number, width = 24): string {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)))
+  const filled = Math.round((clamped / 100) * width)
+  const empty = width - filled
+  return `\`${'█'.repeat(filled)}${'░'.repeat(empty)}\` **${clamped}%**`
+}
+
+function formatInstallLiveBlock(options: {
+  logLine?: string
+  progress?: PackageTaskProgress
+}): string {
+  const lines = ['**npm install**', '']
+  if (options.progress) {
+    if (options.progress.percent !== undefined) {
+      lines.push(progressBar(options.progress.percent))
+      lines.push('')
+    }
+    lines.push(options.progress.detail)
+  } else if (options.logLine) {
+    lines.push('```')
+    lines.push(options.logLine)
+    lines.push('```')
+  } else {
+    lines.push('```')
+    lines.push('…')
+    lines.push('```')
+  }
+  return lines.join('\n')
 }
 
 export async function runTerminalNpmOrNpx(
@@ -56,11 +87,29 @@ export async function runTerminalNpmOrNpx(
     }
 
     if (sub === 'i' || sub === 'install') {
+      let lastLog: string | undefined
+      let lastProgress: PackageTaskProgress | undefined
       const unsub = subscribePackageEvents((event) => {
-        if (event.type === 'log') {
+        if (event.type === 'progress') {
+          lastProgress = event.progress
           io.upsertBlock({
             key: logKey,
-            text: `**npm install**\n\n\`\`\`\n${event.line.message}\n\`\`\``,
+            text: formatInstallLiveBlock({
+              progress: lastProgress,
+              logLine: lastLog,
+            }),
+            format: 'markdown',
+          })
+          return
+        }
+        if (event.type === 'log') {
+          lastLog = event.line.message
+          io.upsertBlock({
+            key: logKey,
+            text: formatInstallLiveBlock({
+              progress: lastProgress,
+              logLine: lastLog,
+            }),
             format: 'markdown',
           })
         }

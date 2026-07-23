@@ -126,21 +126,75 @@ export async function resolveRegistryVersion(
   return meta.versions[version]!
 }
 
+export type DownloadTarballProgress = {
+  received: number
+  /** Content-Length；未知时为 undefined */
+  total?: number
+}
+
 export async function downloadTarball(
   tarballUrl: string,
   config: PackageServiceConfig,
   signal?: AbortSignal,
+  onProgress?: (progress: DownloadTarballProgress) => void,
 ): Promise<Uint8Array> {
   assertAllowedUrl(tarballUrl, config)
   const response = await fetchWithLimits(tarballUrl, config, signal)
   if (!response.ok) {
     throw new Error(`下载 tarball 失败: HTTP ${response.status}`)
   }
-  const buffer = new Uint8Array(await response.arrayBuffer())
-  if (buffer.byteLength > config.maxTarballBytes) {
+
+  const contentLengthHeader = response.headers.get('content-length')
+  const totalFromHeader =
+    contentLengthHeader && /^\d+$/.test(contentLengthHeader)
+      ? Number(contentLengthHeader)
+      : undefined
+  if (totalFromHeader !== undefined && totalFromHeader > config.maxTarballBytes) {
     throw new Error(
-      `tarball 超过上限（${config.maxTarballBytes} bytes）：${buffer.byteLength}`,
+      `tarball 超过上限（${config.maxTarballBytes} bytes）：${totalFromHeader}`,
     )
   }
+
+  const body = response.body
+  if (!body) {
+    const buffer = new Uint8Array(await response.arrayBuffer())
+    if (buffer.byteLength > config.maxTarballBytes) {
+      throw new Error(
+        `tarball 超过上限（${config.maxTarballBytes} bytes）：${buffer.byteLength}`,
+      )
+    }
+    onProgress?.({ received: buffer.byteLength, total: buffer.byteLength })
+    return buffer
+  }
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    signal?.throwIfAborted()
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value || value.byteLength === 0) continue
+    received += value.byteLength
+    if (received > config.maxTarballBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw new Error(
+        `tarball 超过上限（${config.maxTarballBytes} bytes）：${received}`,
+      )
+    }
+    chunks.push(value)
+    onProgress?.({
+      received,
+      total: totalFromHeader,
+    })
+  }
+
+  const buffer = new Uint8Array(received)
+  let offset = 0
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  onProgress?.({ received: buffer.byteLength, total: buffer.byteLength })
   return buffer
 }

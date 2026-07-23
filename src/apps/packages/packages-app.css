@@ -113,6 +113,32 @@
   opacity: 1 !important;
 }
 
+.packages-app__progress {
+  margin-top: 10px;
+  max-width: 420px;
+}
+
+.packages-app__progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.packages-app__progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #0071e3;
+  transition: width 0.12s ease-out;
+}
+
+.packages-app__progress-detail {
+  margin: 6px 0 0 !important;
+  font-size: 12px;
+  opacity: 0.75;
+  word-break: break-all;
+}
+
 .packages-app__cancel {
   align-self: flex-start;
   border: none;

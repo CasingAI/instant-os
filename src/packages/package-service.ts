@@ -23,6 +23,7 @@ import type {
   PackageLogLevel,
   PackageServiceConfig,
   PackageTask,
+  PackageTaskProgress,
   RegistryPackageVersion,
 } from './package-types.ts'
 import { DEFAULT_PACKAGE_SERVICE_CONFIG } from './package-types.ts'
@@ -70,6 +71,49 @@ function newTaskId(): string {
 
 function publishTask(task: PackageTask): void {
   emitPackageEvent({ type: 'task', task: serializeTaskForEvent(task) })
+}
+
+function setProgress(task: PackageTask, progress: PackageTaskProgress | undefined): void {
+  task.progress = progress
+  task.updatedAt = Date.now()
+  emitPackageEvent({ type: 'progress', taskId: task.id, progress })
+  publishTask(task)
+}
+
+function clearProgress(task: PackageTask): void {
+  if (task.progress === undefined) return
+  setProgress(task, undefined)
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** 节流进度上报；force、完成（percent===100）或首次时立即发出 */
+function createThrottledProgressReporter(
+  task: PackageTask,
+  minIntervalMs = 100,
+): {
+  report: (progress: PackageTaskProgress, force?: boolean) => void
+  clear: () => void
+} {
+  let lastAt = 0
+  return {
+    report(progress, force = false) {
+      const now = Date.now()
+      const done = progress.percent === 100
+      if (!force && !done && lastAt > 0 && now - lastAt < minIntervalMs) {
+        return
+      }
+      lastAt = now
+      setProgress(task, progress)
+    },
+    clear() {
+      clearProgress(task)
+    },
+  }
 }
 
 function log(task: PackageTask, level: PackageLogLevel, message: string): void {
@@ -308,20 +352,67 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
   }
 
   ensureTarballHostAllowed(tarballUrl)
-  log(task, 'info', `下载 ${node.name}@${node.version}`)
-  const tarball = await downloadTarball(
-    tarballUrl,
-    config,
-    task.abortController.signal,
-  )
-  log(task, 'info', `解压 ${node.name}@${node.version}（${tarball.byteLength} bytes）`)
-  return extractTarballToStore({
-    config,
-    name: node.name,
-    version: node.version,
-    tarball,
-    signal: task.abortController.signal,
-  })
+  const label = `${node.name}@${node.version}`
+  const reporter = createThrottledProgressReporter(task)
+  log(task, 'info', `下载 ${label}`)
+  try {
+    const tarball = await downloadTarball(
+      tarballUrl,
+      config,
+      task.abortController.signal,
+      ({ received, total }) => {
+        const sizePart =
+          total && total > 0
+            ? `${formatByteSize(received)} / ${formatByteSize(total)}`
+            : formatByteSize(received)
+        reporter.report({
+          phase: 'download',
+          percent:
+            total && total > 0
+              ? Math.min(100, Math.round((received / total) * 100))
+              : undefined,
+          detail: `下载 ${label}  ${sizePart}`,
+        })
+      },
+    )
+    reporter.report(
+      {
+        phase: 'download',
+        percent: 100,
+        detail: `下载 ${label}  ${formatByteSize(tarball.byteLength)}`,
+      },
+      true,
+    )
+
+    log(task, 'info', `解压 ${label}（${formatByteSize(tarball.byteLength)}）`)
+    const dest = await extractTarballToStore({
+      config,
+      name: node.name,
+      version: node.version,
+      tarball,
+      signal: task.abortController.signal,
+      onProgress: ({ done, total, bytesWritten, currentPath }) => {
+        const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 100
+        const pathHint = currentPath ? `  ${currentPath}` : ''
+        reporter.report({
+          phase: 'extract',
+          percent,
+          detail: `解压 ${label}  ${done}/${total}  ${formatByteSize(bytesWritten)}${pathHint}`,
+        })
+      },
+    })
+    reporter.report(
+      {
+        phase: 'extract',
+        percent: 100,
+        detail: `解压 ${label}  完成`,
+      },
+      true,
+    )
+    return dest
+  } finally {
+    reporter.clear()
+  }
 }
 
 async function linkBins(
@@ -412,6 +503,7 @@ export async function installPackages(params: {
     if (roots.length === 0) {
       log(task, 'warn', '没有要安装的依赖')
       task.status = 'succeeded'
+      clearProgress(task)
       publishTask(task)
       return serializeTaskForEvent(task)
     }
@@ -459,6 +551,7 @@ export async function installPackages(params: {
     await writeLock(projectRoot, lock)
     await writeProjectPackageJson(projectRoot, pkgJson)
     task.status = 'succeeded'
+    clearProgress(task)
     log(task, 'info', `安装完成（node_modules → ${projectRoot}/node_modules）`)
     return serializeTaskForEvent(task)
   } catch (error) {
@@ -470,6 +563,7 @@ export async function installPackages(params: {
       task.error = error instanceof Error ? error.message : String(error)
       log(task, 'error', task.error)
     }
+    clearProgress(task)
     publishTask(task)
     return serializeTaskForEvent(task)
   }

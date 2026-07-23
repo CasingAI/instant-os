@@ -142,6 +142,21 @@ export function PackagesApp() {
                   {selected.error && (
                     <p class="packages-app__error">{selected.error}</p>
                   )}
+                  {selected.status === 'running' && selected.progress && (
+                    <div class="packages-app__progress">
+                      {selected.progress.percent !== undefined && (
+                        <div class="packages-app__progress-track">
+                          <div
+                            class="packages-app__progress-fill"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, selected.progress.percent))}%`,
+                            }}
+                          />
+                        </div>
+                      )}
+                      <p class="packages-app__progress-detail">{selected.progress.detail}</p>
+                    </div>
+                  )}
                 </div>
                 {(selected.status === 'running' || selected.status === 'pending') && (
                   <button

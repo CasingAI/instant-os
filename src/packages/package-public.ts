@@ -22,6 +22,7 @@ export type {
   PackageServiceEvent,
   PackageTask,
   PackageTaskKind,
+  PackageTaskProgress,
   PackageTaskStatus,
 } from './package-types.ts'
 export { DEFAULT_PACKAGE_SERVICE_CONFIG } from './package-types.ts'
