@@ -31,6 +31,8 @@ import {
   mkdir,
   readFileBlob,
   readTextFile,
+  readlinkAtAbsolutePath,
+  createSymlink,
   removeNode,
   removeNodesByPathsBatch,
   renameNode,
@@ -57,13 +59,15 @@ export type { FilesWatchChange, FilesWatchListener, FilesWatchOptions }
 export type FilesApiEntry = {
   path: string
   name: string
-  kind: 'file' | 'folder'
+  kind: 'file' | 'folder' | 'symlink'
   mimeType?: string
   byteSize: number
   createdAt: number
   updatedAt: number
   /** 内容版本戳；仅文件有意义，旧记录可能缺省 */
   contentRevisionId?: string
+  /** 符号链接目标；仅 kind=symlink 时由 lstat 等暴露 */
+  target?: string
   writable: boolean
 }
 
@@ -81,9 +85,9 @@ function assertAbsolutePath(path: string): string {
   return trimmed.replace(/\/+$/, '') || '/'
 }
 
-async function toEntry(node: FilesNode): Promise<FilesApiEntry> {
+async function toEntry(node: FilesNode, pathOverride?: string): Promise<FilesApiEntry> {
   const entry: FilesApiEntry = {
-    path: await resolveFilesAbsolutePath(node),
+    path: pathOverride ?? (await resolveFilesAbsolutePath(node)),
     name: node.name,
     kind: node.kind,
     mimeType: node.mimeType,
@@ -94,6 +98,9 @@ async function toEntry(node: FilesNode): Promise<FilesApiEntry> {
   }
   if (node.contentRevisionId !== undefined) {
     entry.contentRevisionId = node.contentRevisionId
+  }
+  if (node.kind === 'symlink' && node.target !== undefined) {
+    entry.target = node.target
   }
   return entry
 }
@@ -167,7 +174,7 @@ async function resolveParentForCreate(absolutePath: string): Promise<{
     filesLocationPathRoot(parsed.locationId),
     ...parentSegments,
   )
-  const parent = await resolveNodeByAbsolutePath(parentPath)
+  const parent = await resolveNodeByAbsolutePath(parentPath, { follow: true })
   if (!parent || parent.kind !== 'folder') {
     throw new Error('父文件夹不存在')
   }
@@ -202,7 +209,7 @@ export async function filesList(dirPath: string): Promise<FilesApiEntry[]> {
     return Promise.all(children.map((child) => toEntry(child)))
   }
 
-  const node = await resolveNodeByAbsolutePath(absolutePath)
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
   if (!node) {
     throw new Error('文件夹不存在')
   }
@@ -230,7 +237,7 @@ export async function filesBackfillSubtreeContentRevisionIds(
   return backfillSubtreeContentRevisionIds(assertAbsolutePath(rootPath))
 }
 
-/** 查询路径对应条目；命名空间根 `/` 与卷根均可查询 */
+/** 查询路径对应条目（跟随符号链接，对齐 Node `stat`） */
 export async function filesStat(path: string): Promise<FilesApiEntry | undefined> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
@@ -244,9 +251,51 @@ export async function filesStat(path: string): Promise<FilesApiEntry | undefined
     return volumeRootEntry(parsed.locationId)
   }
 
-  const node = await resolveNodeByAbsolutePath(absolutePath)
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
   if (!node) return undefined
-  return toEntry(node)
+  return toEntry(node, absolutePath)
+}
+
+/** 不跟随符号链接的 stat（对齐 Node `lstat`） */
+export async function filesLstat(path: string): Promise<FilesApiEntry | undefined> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    return namespaceRootEntry()
+  }
+
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  if (!parsed) return undefined
+
+  if (parsed.segments.length === 0) {
+    return volumeRootEntry(parsed.locationId)
+  }
+
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
+  if (!node) return undefined
+  return toEntry(node, absolutePath)
+}
+
+/** 创建符号链接（第一期仅 `/user` / `/dev`） */
+export async function filesSymlink(target: string, linkPath: string): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(linkPath)
+  const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
+  if (existing) {
+    throw new Error('路径已存在')
+  }
+  const parent = await resolveParentForCreate(absolutePath)
+  const node = await createSymlink({
+    locationId: parent.locationId,
+    parentId: parent.parentId,
+    name: parent.name,
+    target,
+  })
+  return toEntry(node, absolutePath)
+}
+
+/** 读取符号链接目标字符串 */
+export async function filesReadlink(path: string): Promise<string> {
+  const absolutePath = assertAbsolutePath(path)
+  return readlinkAtAbsolutePath(absolutePath)
 }
 
 export async function filesReadText(path: string): Promise<string> {
@@ -281,7 +330,7 @@ export async function filesWriteText(path: string, text: string): Promise<FilesA
 /** 创建文件夹（父目录须已存在；路径为新文件夹的完整路径） */
 export async function filesMkdir(path: string): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
-  const existing = await resolveNodeByAbsolutePath(absolutePath)
+  const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
     throw new Error('路径已存在')
   }
@@ -297,7 +346,7 @@ export async function filesMkdir(path: string): Promise<FilesApiEntry> {
 /** 创建新文本文件（不可覆盖已有路径） */
 export async function filesCreateText(path: string, text = ''): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
-  const existing = await resolveNodeByAbsolutePath(absolutePath)
+  const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
     throw new Error('路径已存在')
   }
@@ -318,7 +367,7 @@ export async function filesCreateBinary(
   mimeType?: string,
 ): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
-  const existing = await resolveNodeByAbsolutePath(absolutePath)
+  const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
     throw new Error('路径已存在')
   }
@@ -394,7 +443,7 @@ export async function filesRename(path: string, nextName: string): Promise<Files
   if (!parsed || parsed.segments.length === 0) {
     throw new Error('不能重命名卷根')
   }
-  const node = await resolveNodeByAbsolutePath(absolutePath)
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (!node) {
     throw new Error('项目不存在')
   }
@@ -411,7 +460,7 @@ export async function filesRemove(path: string): Promise<void> {
   if (!parsed || parsed.segments.length === 0) {
     throw new Error('不能删除卷根')
   }
-  const node = await resolveNodeByAbsolutePath(absolutePath)
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (!node) {
     throw new Error('项目不存在')
   }

@@ -16,6 +16,7 @@ import {
   classifyModuleSpecifier,
   extractStaticRequireSpecifiers,
   QuickJsModuleError,
+  resolveBareSpecifierAsync,
   resolveCjsFromCacheKeys,
   resolveCjsSpecifierAsync,
 } from './quickjs-module-loader.ts'
@@ -154,6 +155,8 @@ export function createCjsRequireApi(
   const cache = new Map<string, CacheEntry>()
   /** 目录绝对路径 → 入口文件（package.json main/exports 解析结果）。 */
   const directoryAliases = new Map<string, string>()
+  /** 裸名 → 已解析入口文件（供 sync require 命中）。 */
+  const bareResolved = new Map<string, string>()
   const requireCacheHandle = context.newObject()
   let disposed = false
 
@@ -197,6 +200,14 @@ export function createCjsRequireApi(
         throw host.formatMissingModuleError(requested)
       }
       if (kind === 'bare') {
+        // 宿主预载阶段已解析的裸名 → 文件路径
+        const cachedBare = bareResolved.get(`${parentFilename}\0${trimmed}`) ?? bareResolved.get(trimmed)
+        if (cachedBare !== undefined) {
+          const entry = cache.get(cachedBare)
+          if (entry !== undefined) {
+            return getExportsHandle(entry)
+          }
+        }
         throw host.formatMissingModuleError(requested)
       }
     }
@@ -264,7 +275,18 @@ export function createCjsRequireApi(
           return handle
         }
       }
-      throw host.formatMissingModuleError(requested)
+      if (kind === 'builtin' || host.isKnownNodeBuiltin(canonical) || trimmed.startsWith('node:')) {
+        throw host.formatMissingModuleError(requested)
+      }
+      // bare package → node_modules
+      const barePath = await resolveBareSpecifierAsync(parentFilename, trimmed, 'require')
+      bareResolved.set(`${parentFilename}\0${trimmed}`, barePath)
+      bareResolved.set(trimmed, barePath)
+      const existingBare = cache.get(barePath)
+      if (existingBare !== undefined) {
+        return getExportsHandle(existingBare)
+      }
+      return loadFileModule(barePath)
     }
 
     const resolved = await resolveCjsSpecifierAsync(
@@ -275,6 +297,15 @@ export function createCjsRequireApi(
     const absolutePath = resolved.absolutePath
     rememberDirectoryAlias(resolved.directoryAlias, absolutePath)
 
+    const existing = cache.get(absolutePath)
+    if (existing !== undefined) {
+      return getExportsHandle(existing)
+    }
+
+    return loadFileModule(absolutePath)
+  }
+
+  const loadFileModule = async (absolutePath: string): Promise<QuickJSHandle> => {
     const existing = cache.get(absolutePath)
     if (existing !== undefined) {
       return getExportsHandle(existing)
@@ -336,15 +367,22 @@ export function createCjsRequireApi(
         const depKind = classifyModuleSpecifier(dep)
         if (depKind === 'file') {
           await load(dep, absolutePath)
-        } else {
-          // 内建 / 裸名：尝试走 load（内建成功；裸名抛错——与 Node 在求值期失败略有不同，但更早暴露）
+        } else if (depKind === 'bare') {
           const canonical = host.toCanonicalBuiltinId(dep)
-          if (host.isImplementedBuiltin(canonical) || host.isKnownNodeBuiltin(canonical)) {
-            // 内建不进文件缓存；求值时 syncLookup 再取
+          if (
+            host.isImplementedBuiltin(canonical) ||
+            host.isKnownNodeBuiltin(canonical)
+          ) {
             continue
           }
-          if (depKind === 'bare' && !host.isImplementedBuiltin(canonical)) {
-            // 预载阶段不因第三方裸名失败（可能在条件分支）；求值时再报错
+          try {
+            await load(dep, absolutePath)
+          } catch {
+            // 条件分支中的可选依赖：求值时再报错
+          }
+        } else {
+          const canonical = host.toCanonicalBuiltinId(dep)
+          if (host.isImplementedBuiltin(canonical) || host.isKnownNodeBuiltin(canonical)) {
             continue
           }
         }

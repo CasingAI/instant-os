@@ -207,6 +207,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '日志保存在 IndexedDB 数据空间中，不会占用 localStorage。',
     ],
   },
+  packages: {
+    version: 'Instant npm',
+    paragraphs: [
+      '包管理显示 PackageService 的安装任务、日志与取消操作；与终端 npm / npx 共用同一套宿主安装器。',
+      '依赖以内容寻址方式缓存在系统 store，工作区 node_modules 使用符号链接。不支持原生 addon 与官方 npm 二进制。',
+    ],
+  },
   keychain: {
     version: '凭证与 API Key',
     paragraphs: [

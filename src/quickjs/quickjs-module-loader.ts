@@ -39,14 +39,6 @@ export class QuickJsModuleError extends Error {
   }
 }
 
-function stripNodePrefix(raw: string): string {
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('node:')) {
-    return trimmed.slice('node:'.length)
-  }
-  return trimmed
-}
-
 /** 是否为相对或绝对文件说明符（非裸名、非 node:）。 */
 export function isFileModuleSpecifier(requested: string): boolean {
   const trimmed = requested.trim()
@@ -119,14 +111,230 @@ function pathJoin(dir: string, name: string): string {
   return createPosixPathApi(() => '/').join(dir, name)
 }
 
+function pathDirname(absolutePath: string): string {
+  return createPosixPathApi(() => '/').dirname(absolutePath)
+}
+
 async function statKind(
   absolutePath: string,
-): Promise<'file' | 'folder' | undefined> {
+): Promise<'file' | 'folder' | 'symlink' | undefined> {
   const entry = await filesStat(absolutePath)
   if (entry === undefined) {
     return undefined
   }
-  return entry.kind === 'folder' ? 'folder' : 'file'
+  if (entry.kind === 'folder') return 'folder'
+  if (entry.kind === 'symlink') return 'symlink'
+  return 'file'
+}
+
+/** 解析裸包名中的包名与子路径（如 `lodash/get` → name=lodash, subpath=get） */
+export function splitBarePackageName(requested: string): {
+  packageName: string
+  subpath: string | undefined
+} {
+  const trimmed = requested.trim()
+  if (trimmed.startsWith('@')) {
+    const parts = trimmed.split('/')
+    if (parts.length < 2) {
+      return { packageName: trimmed, subpath: undefined }
+    }
+    const packageName = `${parts[0]}/${parts[1]}`
+    const rest = parts.slice(2).join('/')
+    return { packageName, subpath: rest || undefined }
+  }
+  const slash = trimmed.indexOf('/')
+  if (slash === -1) {
+    return { packageName: trimmed, subpath: undefined }
+  }
+  return {
+    packageName: trimmed.slice(0, slash),
+    subpath: trimmed.slice(slash + 1) || undefined,
+  }
+}
+
+/**
+ * 从 importing 文件向上查找 `node_modules/<pkg>`（跟随 symlink）。
+ */
+export async function findPackageRootFromImporter(
+  importerAbsolutePath: string,
+  packageName: string,
+): Promise<string | undefined> {
+  let dir = pathDirname(importerAbsolutePath)
+  const pathApi = createPosixPathApi(() => '/')
+  for (;;) {
+    const candidate = pathApi.join(dir, 'node_modules', ...packageName.split('/'))
+    const kind = await statKind(candidate)
+    // filesStat 跟随 symlink → 目录或文件包根
+    if (kind === 'folder' || kind === 'file') {
+      // 包根应是目录（含 package.json）
+      if (kind === 'folder') {
+        const pkgJson = await statKind(pathJoin(candidate, 'package.json'))
+        if (pkgJson === 'file') return candidate
+      }
+    }
+    const parent = pathDirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return undefined
+}
+
+const ESM_EXPORT_CONDITIONS = ['import', 'node', 'default'] as const
+
+function resolveExportsWithConditions(
+  packageRoot: string,
+  exportsField: unknown,
+  conditions: readonly string[],
+  subpath: string | undefined,
+): string {
+  let target: unknown = exportsField
+  const exportKey = subpath ? `./${subpath}` : '.'
+
+  if (target !== null && typeof target === 'object' && !Array.isArray(target)) {
+    const map = target as Record<string, unknown>
+    if (Object.prototype.hasOwnProperty.call(map, exportKey)) {
+      target = map[exportKey]
+    } else if (exportKey !== '.') {
+      throw new QuickJsModuleError(
+        'ERR_PACKAGE_PATH_NOT_EXPORTED',
+        `Package subpath '${exportKey}' is not defined by "exports" in ${pathJoin(packageRoot, 'package.json')}`,
+      )
+    } else if (Object.prototype.hasOwnProperty.call(map, '.')) {
+      target = map['.']
+    }
+  }
+
+  if (target !== null && typeof target === 'object' && !Array.isArray(target)) {
+    const conditionsMap = target as Record<string, unknown>
+    let matched: unknown
+    for (const condition of conditions) {
+      if (Object.prototype.hasOwnProperty.call(conditionsMap, condition)) {
+        matched = conditionsMap[condition]
+        break
+      }
+    }
+    if (matched === undefined) {
+      throw new QuickJsModuleError(
+        'ERR_PACKAGE_PATH_NOT_EXPORTED',
+        `No matching "exports" condition in ${pathJoin(packageRoot, 'package.json')}`,
+      )
+    }
+    target = matched
+  }
+
+  if (typeof target !== 'string' || !target.startsWith('./')) {
+    throw new QuickJsModuleError(
+      'ERR_INVALID_PACKAGE_TARGET',
+      `Invalid "exports" target in ${pathJoin(packageRoot, 'package.json')}`,
+    )
+  }
+  const resolved = pathResolve(packageRoot, target)
+  if (!isPathInsidePackageRoot(packageRoot, resolved)) {
+    throw new QuickJsModuleError(
+      'ERR_INVALID_PACKAGE_TARGET',
+      `Invalid "exports" target escapes package root`,
+    )
+  }
+  return resolved
+}
+
+/**
+ * 将裸名解析为绝对文件路径（CJS：require 条件；ESM：import 条件）。
+ */
+export async function resolveBareSpecifierAsync(
+  importerAbsolutePath: string,
+  requestedName: string,
+  mode: 'require' | 'import',
+): Promise<string> {
+  const { packageName, subpath } = splitBarePackageName(requestedName)
+  const packageRoot = await findPackageRootFromImporter(importerAbsolutePath, packageName)
+  if (!packageRoot) {
+    throw new QuickJsModuleError(
+      'ERR_MODULE_NOT_FOUND',
+      `Cannot find module '${requestedName}' in node_modules (from '${importerAbsolutePath}')`,
+    )
+  }
+
+  const pkgJsonPath = pathJoin(packageRoot, 'package.json')
+  const pkgText = await filesReadText(pkgJsonPath)
+  const pkg = JSON.parse(pkgText) as {
+    main?: string
+    module?: string
+    exports?: unknown
+  }
+
+  if (pkg.exports !== undefined) {
+    const conditions = mode === 'import' ? ESM_EXPORT_CONDITIONS : CJS_EXPORT_CONDITIONS
+    return resolveExportsWithConditions(packageRoot, pkg.exports, conditions, subpath)
+  }
+
+  if (subpath) {
+    const candidate = pathJoin(packageRoot, subpath)
+    const asFile = await resolveCjsEntryLike(candidate)
+    if (asFile) return asFile
+    throw new QuickJsModuleError(
+      'ERR_MODULE_NOT_FOUND',
+      `Cannot find module '${requestedName}'`,
+    )
+  }
+
+  if (mode === 'import' && typeof pkg.module === 'string') {
+    const modPath = pathResolve(packageRoot, pkg.module.startsWith('.') ? pkg.module : `./${pkg.module}`)
+    const kind = await statKind(modPath)
+    if (kind === 'file') return modPath
+  }
+
+  if (typeof pkg.main === 'string') {
+    const mainPath = pathResolve(packageRoot, pkg.main.startsWith('.') ? pkg.main : `./${pkg.main}`)
+    const resolved = await resolveCjsEntryLike(mainPath)
+    if (resolved) return resolved
+  }
+
+  const indexJs = pathJoin(packageRoot, 'index.js')
+  const indexKind = await statKind(indexJs)
+  if (indexKind === 'file') return indexJs
+
+  throw new QuickJsModuleError(
+    'ERR_MODULE_NOT_FOUND',
+    `Cannot find module '${requestedName}' (no main/index in ${packageRoot})`,
+  )
+}
+
+async function resolveCjsEntryLike(entryPath: string): Promise<string | undefined> {
+  const kind = await statKind(entryPath)
+  if (kind === 'file') return entryPath
+  for (const ext of CJS_PROBE_EXTENSIONS) {
+    const found = await statKind(`${entryPath}${ext}`)
+    if (found === 'file') return `${entryPath}${ext}`
+  }
+  if (kind === 'folder') {
+    for (const name of CJS_INDEX_NAMES) {
+      const idx = pathJoin(entryPath, name)
+      const found = await statKind(idx)
+      if (found === 'file') return idx
+    }
+  }
+  return undefined
+}
+
+/** 同步 normalizer 用：把裸名编码成 loader 可识别的伪模块名 */
+export const BARE_MODULE_PREFIX = 'instant-bare:'
+
+export function encodeBareModuleName(baseModuleName: string, requestedName: string): string {
+  return `${BARE_MODULE_PREFIX}${encodeURIComponent(baseModuleName)}:${encodeURIComponent(requestedName)}`
+}
+
+export function tryDecodeBareModuleName(
+  moduleName: string,
+): { baseModuleName: string; requestedName: string } | undefined {
+  if (!moduleName.startsWith(BARE_MODULE_PREFIX)) return undefined
+  const rest = moduleName.slice(BARE_MODULE_PREFIX.length)
+  const colon = rest.indexOf(':')
+  if (colon === -1) return undefined
+  return {
+    baseModuleName: decodeURIComponent(rest.slice(0, colon)),
+    requestedName: decodeURIComponent(rest.slice(colon + 1)),
+  }
 }
 
 function pathNormalize(absolutePath: string): string {
@@ -467,7 +675,7 @@ export type NormalizeModuleRequestOptions = {
 }
 
 /**
- * 共享入口：内建 id / ESM 文件绝对路径；裸名拒绝（L2）。
+ * 共享入口：内建 id / ESM 文件绝对路径 / 裸名编码（loader 异步解析）。
  */
 export function normalizeModuleRequest(
   baseModuleName: string,
@@ -499,15 +707,11 @@ export function normalizeModuleRequest(
     return { kind: 'builtin', id: canonical }
   }
 
-  // 裸名第三方
-  const implementedHint =
-    options.listImplemented().length > 0
-      ? options.listImplemented().map((name) => `'${name}'`).join(', ')
-      : '(none)'
-  throw new QuickJsModuleError(
-    'ERR_MODULE_NOT_FOUND',
-    `Cannot find module '${requestedName}'. Bare package names (node_modules) are not resolved yet (L2). Instant ESM loads relative/absolute file paths and implemented Node builtins. Implemented builtins: ${implementedHint}`,
-  )
+  // 裸名：编码后交 async loader 解析 node_modules
+  return {
+    kind: 'file',
+    absolutePath: encodeBareModuleName(baseModuleName, trimmed),
+  }
 }
 
 /** Asyncify 下从 VFS 读 ESM 源码（挂起）；同栈勿再嵌套可挂起桥。 */

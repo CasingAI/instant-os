@@ -24,11 +24,12 @@ import { runTerminalPrivilege, getTerminalStorageKeyDenial } from './terminal-pr
 function formatEntryLine(entry: {
   path: string
   name: string
-  kind: 'file' | 'folder'
+  kind: 'file' | 'folder' | 'symlink'
   byteSize: number
   writable: boolean
 }): string {
-  const kind = entry.kind === 'folder' ? 'dir' : 'file'
+  const kind =
+    entry.kind === 'folder' ? 'dir' : entry.kind === 'symlink' ? 'link' : 'file'
   const mode = entry.writable ? 'rw' : 'ro'
   const size = entry.kind === 'folder' ? '-' : String(entry.byteSize)
   return `${kind}\t${mode}\t${size}\t${entry.name}`

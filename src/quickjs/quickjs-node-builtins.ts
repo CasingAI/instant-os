@@ -20,6 +20,8 @@ import {
 import {
   loadEsmModuleSourceFromVfs,
   normalizeModuleRequest,
+  resolveBareSpecifierAsync,
+  tryDecodeBareModuleName,
 } from './quickjs-module-loader.ts'
 import { createPosixPathApi, type QuickJsPathApi } from './quickjs-path.ts'
 
@@ -123,7 +125,7 @@ function formatMissingBuiltinError(requested: string, implemented: string[]): Er
   }
 
   return new Error(
-    `Cannot find module '${requested}'. Bare package names (node_modules) are not resolved yet (L2). Instant require loads relative/absolute files (CJS, with extension/index probing) and implemented Node builtins. Implemented builtins: ${implementedHint}`,
+    `Cannot find module '${requested}'. Bare package name not found in node_modules (or not installed). Instant require loads relative/absolute files, node_modules packages, and implemented Node builtins. Implemented builtins: ${implementedHint}`,
   )
 }
 
@@ -345,7 +347,23 @@ export function injectNodeBuiltins(
       }
       lastModuleNormalizeError = undefined
 
-      // 已经过 normalizer：内建为 canonical id，文件为绝对路径
+      // 已经过 normalizer：内建为 canonical id，文件为绝对路径，裸名为 instant-bare:…
+      const bare = tryDecodeBareModuleName(moduleName)
+      if (bare) {
+        try {
+          const absolute = await resolveBareSpecifierAsync(
+            bare.baseModuleName,
+            bare.requestedName,
+            'import',
+          )
+          return await loadEsmModuleSourceFromVfs(absolute, options.fsOps)
+        } catch (error) {
+          return {
+            error: error instanceof Error ? error : new Error(String(error)),
+          }
+        }
+      }
+
       if (moduleName.startsWith('/')) {
         try {
           return await loadEsmModuleSourceFromVfs(moduleName, options.fsOps)

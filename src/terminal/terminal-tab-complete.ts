@@ -9,10 +9,13 @@ const LOCAL_COMMANDS = [
   'cd',
   'ls',
   'demo',
+  'npm',
+  'npx',
   'mount',
   'umount',
   'unmount',
   'storage',
+  'account',
 ] as const
 
 /** 这些命令的参数位按路径补全（不必是本地命令） */

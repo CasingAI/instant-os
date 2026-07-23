@@ -7,6 +7,7 @@ import { askTerminalAgent } from './terminal-agent.ts'
 import { runTerminalLiveDemo } from './terminal-demo.ts'
 import { TERMINAL_HELP_TEXT } from './terminal-help-text.ts'
 import { runTerminalLocalLs } from './terminal-local-ls.ts'
+import { runTerminalNpmOrNpx, cancelActivePackageTasks } from './terminal-npm.ts'
 import {
   runTerminalLocalPrivilegeCommand,
   runTerminalPrivilegeRequest,
@@ -268,6 +269,38 @@ export function createTerminalSession(options: TerminalSessionOptions): Terminal
         )
       } catch (error) {
         if (isStreamAbortError(error, signal)) {
+          appendLine({ kind: 'error', text: '^C' })
+          return
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        appendLine({ kind: 'error', text: message })
+      } finally {
+        abortController = undefined
+      }
+      return
+    }
+
+    if (head === 'npm' || head === 'npx') {
+      abortController = new AbortController()
+      const signal = abortController.signal
+      try {
+        await runTerminalNpmOrNpx(
+          head,
+          rest,
+          {
+            write: (text, format = 'plain') => {
+              appendLine({ kind: 'output', text, format })
+            },
+            upsertBlock,
+            removeBlock,
+            getCwd: () => cwd,
+            getEnv: () => ({ ...env }),
+          },
+          signal,
+        )
+      } catch (error) {
+        if (isStreamAbortError(error, signal) || signal.aborted) {
+          cancelActivePackageTasks()
           appendLine({ kind: 'error', text: '^C' })
           return
         }

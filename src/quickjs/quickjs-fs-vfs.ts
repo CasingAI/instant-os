@@ -2,12 +2,15 @@ import {
   filesCreateBinary,
   filesCreateText,
   filesList,
+  filesLstat,
   filesMkdir,
   filesReadBlob,
   filesReadText,
+  filesReadlink,
   filesRemove,
   filesRename,
   filesStat,
+  filesSymlink,
   filesWriteBinary,
   filesWriteText,
   filesMove,
@@ -61,6 +64,7 @@ export type QuickJsFsHostOps = {
 }
 
 function entryToStats(entry: FilesApiEntry): QuickJsFsStats {
+  const isSymbolicLink = entry.kind === 'symlink'
   const isFile = entry.kind === 'file'
   const isDirectory = entry.kind === 'folder'
   const mtimeMs = entry.updatedAt
@@ -77,12 +81,12 @@ function entryToStats(entry: FilesApiEntry): QuickJsFsStats {
     atime: new Date(mtimeMs),
     isFile,
     isDirectory,
-    isSymbolicLink: false,
+    isSymbolicLink,
     isBlockDevice: false,
     isCharacterDevice: false,
     isFIFO: false,
     isSocket: false,
-    mode: isDirectory ? 0o40755 : 0o100644,
+    mode: isSymbolicLink ? 0o120777 : isDirectory ? 0o40755 : 0o100644,
     uid: 0,
     gid: 0,
     ino: 0,
@@ -125,6 +129,52 @@ export async function fsHostStat(ops: QuickJsFsHostOps, rawPath: unknown): Promi
     return entryToStats(entry)
   } catch (error) {
     throw toQuickJsFsError(error, 'stat')
+  }
+}
+
+export async function fsHostLstat(ops: QuickJsFsHostOps, rawPath: unknown): Promise<QuickJsFsStats> {
+  const absolute = await resolvePath(ops, rawPath, 'read', 'lstat')
+  assertAlive(ops)
+  try {
+    const entry = await filesLstat(absolute)
+    assertAlive(ops)
+    if (entry === undefined) {
+      throw new QuickJsFsError('ENOENT', `ENOENT: no such file or directory, lstat '${absolute}'`, {
+        path: absolute,
+        syscall: 'lstat',
+      })
+    }
+    return entryToStats(entry)
+  } catch (error) {
+    throw toQuickJsFsError(error, 'lstat')
+  }
+}
+
+export async function fsHostSymlink(
+  ops: QuickJsFsHostOps,
+  target: unknown,
+  linkPath: unknown,
+): Promise<void> {
+  const absolute = await resolvePath(ops, linkPath, 'write', 'symlink')
+  assertAlive(ops)
+  const targetStr = typeof target === 'string' ? target : String(target ?? '')
+  try {
+    await filesSymlink(targetStr, absolute)
+    assertAlive(ops)
+  } catch (error) {
+    throw toQuickJsFsError(error, 'symlink')
+  }
+}
+
+export async function fsHostReadlink(ops: QuickJsFsHostOps, rawPath: unknown): Promise<string> {
+  const absolute = await resolvePath(ops, rawPath, 'read', 'readlink')
+  assertAlive(ops)
+  try {
+    const target = await filesReadlink(absolute)
+    assertAlive(ops)
+    return target
+  } catch (error) {
+    throw toQuickJsFsError(error, 'readlink')
   }
 }
 

@@ -219,8 +219,7 @@ async function testInstance() {
   const missingThirdParty = await instance.eval(`require('lodash')`)
   if (
     missingThirdParty.ok ||
-    !missingThirdParty.error.includes('node_modules') ||
-    !missingThirdParty.error.includes('L2')
+    !missingThirdParty.error.includes('node_modules')
   ) {
     throw new Error(`expected third-party require error: ${JSON.stringify(missingThirdParty)}`)
   }
@@ -787,8 +786,8 @@ export default {
   const bareImport = await esmInstance.eval(`
     import 'lodash'
   `)
-  if (bareImport.ok || !bareImport.error.includes('node_modules') || !bareImport.error.includes('L2')) {
-    throw new Error(`expected bare import L2 error: ${JSON.stringify(bareImport)}`)
+  if (bareImport.ok || !bareImport.error.includes('node_modules')) {
+    throw new Error(`expected bare import node_modules error: ${JSON.stringify(bareImport)}`)
   }
 
   // ESM 文件用 export 语法；CJS require 应在求值期失败（非「仅内建」推迟）
@@ -1209,6 +1208,53 @@ export default {
     await filesRemove(cjsRoot)
   } catch {
     // best-effort cleanup
+  }
+
+  // --- L2.0 symlink ---
+  const linkRoot = '/user/qjs-symlink-smoke'
+  try {
+    await filesRemove(linkRoot)
+  } catch {
+    // ok
+  }
+  await filesMkdir(linkRoot)
+  const linkInstance = await createQuickJsInstance({ workspaceRoot: linkRoot })
+  const linkSetup = await linkInstance.eval(`
+    var fs = require('fs')
+    fs.writeFileSync('real.txt', 'via-link')
+    fs.symlinkSync('real.txt', 'alias.txt')
+    var linkTarget = fs.readlinkSync('alias.txt')
+    var followed = fs.readFileSync('alias.txt', 'utf8')
+    var lst = fs.lstatSync('alias.txt')
+    var st = fs.statSync('alias.txt')
+    ;({
+      linkTarget: linkTarget,
+      followed: followed,
+      lIsLink: lst.isSymbolicLink(),
+      lIsFile: lst.isFile(),
+      sIsFile: st.isFile(),
+      sIsLink: st.isSymbolicLink(),
+    })
+  `)
+  if (!linkSetup.ok) {
+    throw new Error(`symlink setup failed: ${JSON.stringify(linkSetup)}`)
+  }
+  const linkVal = linkSetup.value as Record<string, unknown>
+  if (
+    linkVal.linkTarget !== 'real.txt' ||
+    linkVal.followed !== 'via-link' ||
+    linkVal.lIsLink !== true ||
+    linkVal.lIsFile !== false ||
+    linkVal.sIsFile !== true ||
+    linkVal.sIsLink !== false
+  ) {
+    throw new Error(`unexpected symlink semantics: ${JSON.stringify(linkSetup.value)}`)
+  }
+  linkInstance.destroy()
+  try {
+    await filesRemove(linkRoot)
+  } catch {
+    // best-effort
   }
 
   await timerInstance.eval(`

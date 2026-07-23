@@ -22,6 +22,7 @@ import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
 import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
+import { PackagesApp } from '../apps/packages/packages-app.tsx'
 import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
 import { GithubDesktopApp } from '../apps/github-desktop/github-desktop-app.tsx'
 import { FilesApp } from '../apps/files/files-app.tsx'
@@ -33,7 +34,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, VirtualJsIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, VirtualJsIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -214,6 +215,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: false,
   }),
   withAbout({
+    id: 'packages',
+    name: '包管理',
+    icon: PackagesIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
     id: 'keychain',
     name: '钥匙串',
     icon: KeychainIcon,
@@ -275,6 +283,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'system-info': SystemInfoApp,
   'task-manager': TaskManagerApp,
   'event-log': EventLogApp,
+  packages: PackagesApp,
   keychain: KeychainApp,
   'github-desktop': GithubDesktopApp,
   help: HelpApp,

@@ -40,6 +40,8 @@ type FilesNodeRecord = {
   updatedAt: number
   /** 内容版本戳；旧记录 / 文件夹可能缺失 */
   contentRevisionId?: string
+  /** 符号链接目标；仅 kind=symlink */
+  target?: string
   /** 旧数据可能缺失；读取时按位置默认补齐 */
   attributes?: FilesNodeAttributes
 }
@@ -150,6 +152,9 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
   if (record.contentRevisionId !== undefined) {
     node.contentRevisionId = record.contentRevisionId
   }
+  if (record.target !== undefined) {
+    node.target = record.target
+  }
   return node
 }
 
@@ -170,6 +175,9 @@ function nodeToRecord(node: FilesNode): FilesNodeRecord {
   }
   if (node.contentRevisionId !== undefined) {
     record.contentRevisionId = node.contentRevisionId
+  }
+  if (node.target !== undefined) {
+    record.target = node.target
   }
   return record
 }
@@ -352,6 +360,17 @@ export async function createFolderNode(params: {
   return params.node
 }
 
+/** 创建符号链接节点（无 blob；target 存在节点元数据） */
+export async function createSymlinkNode(params: {
+  node: FilesNode
+  metaBytes: number
+}): Promise<FilesNode> {
+  if (params.node.kind !== 'symlink' || params.node.target === undefined) {
+    throw new Error('createSymlinkNode 需要 kind=symlink 且带 target')
+  }
+  return createFolderNode(params)
+}
+
 export async function writeBlobText(params: {
   id: string
   text: string
@@ -522,7 +541,7 @@ export async function collectSubtreeIds(rootId: string): Promise<{
     if (record.kind === 'file') {
       fileIds.push(record.id)
       reclaimBytes += record.byteSize
-    } else {
+    } else if (record.kind === 'folder') {
       const children = await requestToPromise(
         index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
       )
@@ -530,6 +549,7 @@ export async function collectSubtreeIds(rootId: string): Promise<{
         await visit(child.id)
       }
     }
+    // symlink：叶子，无 blob、不递归
   }
 
   await visit(rootId)
@@ -577,7 +597,7 @@ export async function collectSubtreesBatch(
     }
     bytesByNodeId.set(record.id, nodeBytes)
     reclaimBytes += nodeBytes
-    if (record.kind !== 'file') {
+    if (record.kind === 'folder') {
       const children = await requestToPromise(
         index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
       )
@@ -831,7 +851,7 @@ export async function listLocalVolumeFileNodes(
     for (const child of children ?? []) {
       if (child.kind === 'folder') {
         folderQueue.push(child.id)
-      } else {
+      } else if (child.kind === 'file') {
         files.push({
           id: child.id,
           parentId: child.parentId === FILES_ROOT_PARENT_KEY ? undefined : child.parentId,
@@ -874,6 +894,7 @@ export async function backfillContentRevisionIds(
         folderQueue.push(child.id)
         continue
       }
+      if (child.kind !== 'file') continue
       if (child.contentRevisionId !== undefined) continue
       const updated: FilesNodeRecord = {
         ...child,
@@ -921,7 +942,7 @@ export async function listLocalVolumeSubtreeNodes(
           name: child.name,
         })
         folderQueue.push(child.id)
-      } else {
+      } else if (child.kind === 'file') {
         files.push({
           id: child.id,
           parentId: child.parentId === FILES_ROOT_PARENT_KEY ? undefined : child.parentId,

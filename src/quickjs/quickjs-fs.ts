@@ -9,13 +9,16 @@ import {
   fsHostAccess,
   fsHostAppendFile,
   fsHostExists,
+  fsHostLstat,
   fsHostMkdir,
   fsHostReadFile,
   fsHostReaddir,
+  fsHostReadlink,
   fsHostRename,
   fsHostRm,
   fsHostRmdir,
   fsHostStat,
+  fsHostSymlink,
   fsHostUnlink,
   fsHostWriteFile,
 } from './quickjs-fs-vfs.ts'
@@ -420,8 +423,22 @@ export function injectFs(options: InjectFsOptions): {
 
   bindPromise(
     'lstat',
-    async (args) => fsHostStat(ops, dumpPrimitive(context, args[0]!)),
+    async (args) => fsHostLstat(ops, dumpPrimitive(context, args[0]!)),
     hostStatsToGuest,
+  )
+
+  bindPromise(
+    'symlink',
+    async (args) => {
+      await fsHostSymlink(ops, dumpPrimitive(context, args[0]!), dumpPrimitive(context, args[1]!))
+    },
+    encodeVoid,
+  )
+
+  bindPromise(
+    'readlink',
+    async (args) => fsHostReadlink(ops, dumpPrimitive(context, args[0]!)),
+    encodeMkdirResult,
   )
 
   bindPromise(
@@ -629,10 +646,44 @@ export function injectFs(options: InjectFsOptions): {
       const hasCb = isGuestFunction(context, last)
       return {
         callback: hasCb ? last : undefined,
-        work: () => fsHostStat(ops, dumpPrimitive(context, args[0]!)),
+        work: () => fsHostLstat(ops, dumpPrimitive(context, args[0]!)),
       }
     },
     hostStatsToGuest,
+  )
+
+  bindCallbackAndSync(
+    'symlink',
+    'symlinkSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      return {
+        callback: hasCb ? last : undefined,
+        work: async () => {
+          await fsHostSymlink(
+            ops,
+            dumpPrimitive(context, args[0]!),
+            dumpPrimitive(context, args[1]!),
+          )
+        },
+      }
+    },
+    encodeVoid,
+  )
+
+  bindCallbackAndSync(
+    'readlink',
+    'readlinkSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      return {
+        callback: hasCb ? last : undefined,
+        work: () => fsHostReadlink(ops, dumpPrimitive(context, args[0]!)),
+      }
+    },
+    encodeMkdirResult,
   )
 
   bindCallbackAndSync(
@@ -791,6 +842,10 @@ export function buildFsModuleSource(builtinsGlobalKey: string): string {
     'statSync',
     'lstat',
     'lstatSync',
+    'symlink',
+    'symlinkSync',
+    'readlink',
+    'readlinkSync',
     'rename',
     'renameSync',
     'unlink',
@@ -818,6 +873,8 @@ export function buildFsPromisesModuleSource(builtinsGlobalKey: string): string {
     'readdir',
     'stat',
     'lstat',
+    'symlink',
+    'readlink',
     'rename',
     'unlink',
     'rm',

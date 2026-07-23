@@ -16,6 +16,7 @@ export const TERMINAL_HELP_TEXT = `Instant OS 终端
   pwd / cd [路径]      工作目录
   ls [路径]            列出目录（Markdown 表）
   demo                 演示 Live Markdown（进度条原地刷新 + 表格）
+  npm / npx            Instant 包管理（install/run/bin 等；见 npm help）
   mount                挂载本机文件夹（对话框确认）
   umount <路径|标签>   卸载挂载卷
   storage ls           列出 localStorage 键

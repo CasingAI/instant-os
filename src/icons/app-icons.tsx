@@ -1201,6 +1201,23 @@ export function EventLogIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function PackagesIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#0f766e" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <path
+          d="M32 10 L50 20 L50 40 L32 50 L14 40 L14 20 Z"
+          fill="#134e4a"
+          stroke="#5eead4"
+          stroke-width="2"
+        />
+        <path d="M32 10 L32 50" stroke="#5eead4" stroke-width="2" />
+        <path d="M14 20 L32 30 L50 20" fill="none" stroke="#5eead4" stroke-width="2" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function HelpIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#e8b014" size={size}>

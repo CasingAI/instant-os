@@ -3,7 +3,7 @@
 > 目标：把当前「会话级 QuickJS 实例」（可多次 `eval`、保留全局、关闭即销毁）逐步补齐成可在 Instant OS 内执行脚本、安装纯 JS 依赖、最终驱动构建流水线的宿主环境。  
 > 非目标：在浏览器沙箱里 1:1 复刻桌面 Node + 官方 Vite 原生二进制链路。
 
-本文按 **L1 → L4** 递进。每一层有明确「目标 / 交付物 / 大致工作 / Todo / 明确不做 / 验收标准」。上层依赖下层；未完成下层时，不要提前承诺上层能力。
+本文按 **L1 → L2 → L2.5 → L3 → L4** 递进。每一层有明确「目标 / 交付物 / 大致工作 / Todo / 明确不做 / 验收标准」。上层依赖下层；未完成下层时，不要提前承诺上层能力。
 
 ---
 
@@ -14,14 +14,15 @@
 | 层级 | 状态 | 说明 |
 |------|------|------|
 | L0 基线 | `done` | 实例服务 + Virtual JS REPL 已落地 |
-| L1 迷你 Node 宿主 | `doing` | **当前焦点** |
-| L2 包与依赖 | `blocked` | 依赖 L1 |
-| L3 样例构建 | `blocked` | 依赖 L2 |
+| L1 迷你 Node 宿主 | `done` | 实例宿主 + Virtual JS 文件入口 |
+| L2 包与 npm 兼容面 | `done` | PackageService + symlink + 终端 npm/npx + Packages App |
+| L2.5 Node CLI 内建面 | `todo` | **当前焦点** · 能装 ≠ 能跑；补齐 assert 等常用内建 |
+| L3 样例构建 | `blocked` | 依赖 L2.5 |
 | L4 自举 | `blocked` | 依赖 L3 |
 
 状态枚举：`todo`（未开始）/ `doing`（进行中）/ `done`（已验收）/ `blocked`（被下层挡住）/ `cancelled`。
 
-**当前焦点**：L1  
+**当前焦点**：L2.5  
 **上次更新**：2026-07-23
 
 ---
@@ -122,16 +123,16 @@
 - [x] **L1.3 `path`**：POSIX 路径工具，作为内建模块可加载（`import` / `require` / `node:path`；共享 Node 内建注册表）
 - [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（`nextTick` 见 L1.16）
 - [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L2 / `node_modules`，不走本管线
-- [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/symlink/chmod（见远期）
+- [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/chmod（见远期）；**symlink 升为 L2.0 前置**
 - [x] **L1.7 同步 I/O 策略落地**：文档化 Asyncify 策略（统一长驻实例、禁嵌套挂起、沙箱可 sync）；明确不做预加载 / 内存工作区 / 通用双轨 / 嵌套挂起排队。**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
 - [x] **L1.8 模块加载器（ESM）**：VFS 相对/绝对路径；Node ESM **不**自动补扩展名（须 `.js`/`.mjs`/`.cjs`）；实例级缓存；未实现 `node:` 清晰报错；粘贴 eval 入口 `{cwd}/[eval-n].js`。内建钩子自 L1.3；本项扩到文件。CJS 文件 `require`+扩展名补全见 L1.9。Asyncify：Sync 路径内禁止再挂起（含可挂起 import）
 - [x] **L1.9 薄 CJS `require`（可选但建议）**：文件级 CJS（扩展名 / index / `.json` 探测）；顶层相对 cwd、模块内相对调用方；宿主递归预载静态 `require('…')` 以避免嵌套 Asyncify；实例缓存与循环依赖；`require.resolve` / `require.cache`。不做：裸名（L2）、`.node`、完整 Module API（`package.json` 入口见 L1.10）
 - [x] **L1.10 入口 `package.json` 子集**：CJS 目录 `require` 读 `exports["."]`（字符串或 require/node/default）/ `main` → 再回退 `index`；有 `exports` 不回退 `main`。不做：ESM folder mains、`"module"` 字段、子路径 `exports`、裸名（L2）
 - [x] **L1.11 薄 `events`**：手写最小 EventEmitter（`on`/`once`/`off`/`emit`/`removeAllListeners`/`listenerCount`；`error` 无监听抛错）；`events`/`node:events` 同一构造函数；CJS 导出即构造函数。不做：vendor 整包、挂全局、`prepend*`、`captureRejections`、`stream`（L1.12）、`nextTick` 异步辅助
-- [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加
+- [ ] **L1.12（可选）极薄 `stream`**：仅在卡依赖时再加（不阻塞 L1 验收；**升格见 L2.5.6**）
 - [x] **L1.13 Virtual JS**：打开工作区 `.js`/`.mjs`/`.cjs` 作入口（`eval` + `filename`）；保存/重新加载；「演示入口」写入 `/user/virtual-js-demo` 多文件相对 import；内置用例仍为粘贴 eval
-- [ ] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（若 L1.16 已做）
-- [ ] **L1.15 验收勾选**：对照上方「成功标准」全部通过后，将看板 L1 → `done`，焦点移到 L2
+- [x] **L1.14 冒烟测试**：多文件 import、读写 VFS、全局保持、中断/销毁、定时器、`nextTick`（`test:quickjs`）
+- [x] **L1.15 验收勾选**：对照上方「成功标准」全部通过后，将看板 L1 → `done`，焦点移到 L2
 - [x] **L1.16 `process.nextTick`**：宿主 FIFO 队列；与 `queueMicrotask` / Promise jobs **同相**排空（先于定时器；**不**保证 Node「严格先于 then」）；挂 `process.nextTick`；单次 drain / 队列上限；`abort`/`destroy` 清队列；不改引擎
 
 ### 本层明确不做
@@ -150,74 +151,146 @@
 
 ---
 
-## L2 — 包与依赖图（自研安装器地基）
+## L2 — 包与 npm 兼容面（PackageService + 终端 + 管理 App）
 
 ### 目标
 
-在 L1 之上，让实例能解析并加载 **已安装到 VFS 的第三方纯 JS 包**，并具备「从 registry 安装依赖树」的最小闭环。  
-这一层结束后，用户可以在 Instant OS 里对纯 JS 生态做有限的「装包 → 引用 → 运行」，为终端替换与工具链铺路。
+在 L1 之上交付 **Instant 包管理体系**：宿主级 PackageService（CAS store + symlink 布局）、QuickJS 裸名解析、终端本地 `npm`/`npx`（核心命令 + 纯 JS scripts）、独立 Packages 管理 App。  
+实现形态是宿主 TypeScript 系统服务，**不是**嵌入真实 Node/`npm` 二进制；终端与 App 只是入口。
 
 ### 成功标准（验收）
 
-- 给定锁文件或 `package.json`，能把依赖安装进工作区 `node_modules`（或等价布局）。
-- 业务代码可通过裸模块名解析到正确入口（含基础 `exports` 条件）。
-- 遇到原生绑定 / 不支持的 `postinstall` 时失败信息可读，且不污染实例稳定性。
-- 安装过程可取消；重复安装可利用缓存加快。
+- VFS / QuickJS `fs` 支持 symlink 语义子集（读跟随、`lstat`/`readlink`/`symlink`）。
+- 给定 `package.json` 或锁文件，能把依赖装进工作区 `node_modules`（symlink 指入全局 CAS store）。
+- 业务代码可通过裸模块名解析到正确入口（含基础 `exports` 条件）；解析跟随 symlink。
+- 终端可跑：`npm install|uninstall|update|ls|outdated|run|bin` 与 `npx`；日志可见、可取消。
+- Packages App 能显示任务/日志/store 占用并取消任务（与终端共用同一服务）。
+- 遇到原生绑定失败信息可读；同版本包在 store 中不重复存实体。
 
 ### 大致要做的事
 
-1. **包入口解析增强**
-   - 完善 `package.json`：`exports`、条件导出（`import` / `require` / `default` 等子集）、子路径。
-   - 向上查找 `node_modules`（含简单的作用域包）；与 VS Code 侧已有解析经验可对照，但运行时解析必须落在 QuickJS 加载器内。
+1. **L2.0 VFS 符号链接（前置，原 F.6）**
+   - `FilesNodeKind` 增加 `symlink`；存链接目标字符串；同卷优先；循环深度上限。
+   - QuickJS：`fs.symlink` / `readlink` / `lstat` / `Stats.isSymbolicLink`。
+   - 第一期：仅用户可写卷可创建 symlink；挂载卷可不支持创建。
 
-2. **受控网络**
-   - 为实例提供受策略约束的 `fetch`（或更窄的「registry 客户端」）。
-   - 超时、大小限制、域名白名单（例如 npm registry / 镜像）。
-   - 响应可写入 VFS 缓存层。
+2. **PackageService（系统服务）**
+   - Registry 客户端（白名单、超时、体积上限）。
+   - semver 求解（常见范围；peer 降级警告）。
+   - CAS store + 项目 `node_modules` symlink 布局；自研锁文件。
+   - 任务模型：进度事件、可取消、配额、结构化日志。
+   - 原生 / `.node` 拒绝；lifecycle 尽量用 QuickJS 跑纯 JS，否则跳过并记录。
 
-3. **极简安装器**
-   - 解析 semver 范围与依赖树（可先支持常见范围，复杂 peer 依赖可降级策略）。
-   - 下载 tarball、解压到 VFS、写锁文件。
-   - 默认跳过或沙箱化 lifecycle scripts；原生 addon 直接拒绝。
+3. **加载器**
+   - 裸名向上查 `node_modules`（含作用域包）；`exports` 条件与子路径子集；跟随 symlink。
 
-4. **缓存与内容寻址**
-   - 包 tarball / 解压结果缓存，避免重复下载。
-   - 尽量与现有 Files / GitHub 对象存储思路一致，减少双份内容。
+4. **终端 `npm` / `npx`**
+   - 本地快路径（非 AI）；stdio / live block；会话绑定 QuickJS 跑 `run`/`npx`。
+   - 能力票：网络/安装确认（或信任工作区）。
 
-5. **权限与配额**
-   - 安装目录可写、源码目录默认可读；限制 `node_modules` 体积与文件数。
-   - AI 用量无关；但网络与存储操作应打事件日志，便于调试。
+5. **Packages 管理 App**
+   - 任务、日志、store 清理、取消；不复制装包逻辑。
 
-6. **演示路径**
-   - Virtual JS 或终端：演示 `install` 某个纯 JS 小包并 `import` 运行。
+6. **Scripts / npx 语义**
+   - `node` shebang → Instant QuickJS；`PATH` 含 `.bin`；`npm_lifecycle_event` 等常用 env 子集。
 
 ### Todo（L2）
 
-**状态**：`blocked`（待 L1）· 里程碑 M2 · Packages
+**状态**：`doing` · 里程碑 M2 · Packages
 
-- [ ] **L2.1 裸模块名解析**：向上查找 `node_modules`（含作用域包）
-- [ ] **L2.2 `exports` / 条件导出子集**：`import` / `require` / `default` 等；子路径导入
-- [ ] **L2.3 受控 `fetch` / registry 客户端**：白名单、超时、体积上限
-- [ ] **L2.4 极简安装器**：semver 范围、依赖树、下载 tarball、解压进 VFS、写锁文件
-- [ ] **L2.5 lifecycle / 原生策略**：跳过或拒绝 `postinstall`；拒绝 `.node` / native addon，错误可读
-- [ ] **L2.6 安装缓存**：tarball / 解压结果复用；尽量贴近现有内容存储思路
-- [ ] **L2.7 权限与配额**：`node_modules` 可写范围、体积/文件数上限；网络与存储打事件日志
-- [ ] **L2.8 取消安装**：与实例 `abort` / 任务取消对齐
-- [ ] **L2.9 演示闭环**：Virtual JS 或终端安装一个纯 JS 小包并成功 `import` 运行
-- [ ] **L2.10 解析与安装测试集** + 「允许/拒绝包类型」约定文档
-- [ ] **L2.11 验收勾选**：对照成功标准通过后，看板 L2 → `done`，焦点移到 L3
+- [x] **L2.0 VFS + QuickJS symlink 子集**：kind、创建/读链、跟随与 `lstat`、循环上限；用户可写卷
+- [x] **L2.1 裸模块名解析**：向上查找 `node_modules`（含作用域包）；跟随 symlink
+- [x] **L2.2 `exports` / 条件导出子集**：`import` / `require` / `default` 等；子路径导入
+- [x] **L2.3 Registry 客户端**：白名单、超时、体积上限；metadata + tarball
+- [x] **L2.4 PackageService 安装器**：semver、依赖树、CAS 解压、symlink 布局、写锁文件
+- [x] **L2.5 lifecycle / 原生策略**：纯 JS scripts 走 QuickJS；拒绝 `.node` / native；不可跑则跳过并记录
+- [x] **L2.6 CAS 去重与配额**：同版本实体一份；store / 项目体积与文件数上限；事件日志
+- [x] **L2.7 取消安装**：任务 abort 与终端/App 对齐
+- [x] **L2.8 终端 `npm` / `npx`**：install/uninstall/update/ls/outdated/run/bin + npx；tab/help；能力票
+- [x] **L2.9 Packages 管理 App**：任务/日志/store/取消；桌面与程序坞可见（与终端并列）
+- [x] **L2.10 Scripts / npx 语义**：`.bin`、env 子集、shebang→QuickJS
+- [x] **L2.11 演示闭环**：终端装纯 JS 小包 → 裸 import → `npm run` / `npx`（本地 symlink + bare require 冒烟；registry 装包需联网）
+- [x] **L2.12 测试集 + 差异文档**：「允许/拒绝」包类型；与桌面 npm 差异清单（`docs/instant-npm-differences.md`）
+- [x] **L2.13 验收勾选**：对照成功标准通过后，看板 L2 → `done`，焦点移到 L2.5
 
 ### 本层明确不做
 
-- 完整 npm/yarn/pnpm 兼容（workspaces、plugins、完整 peer 算法可延后）。
-- 任意 `postinstall` 编译原生模块。
+- 完整 npm CLI 大表（publish / login / workspaces / audit 插件生态等可延后）。
+- 任意 `postinstall` 编译原生模块；真实 Node 子进程 / 官方 npm 二进制。
 - 完整 `http.Server` / 任意出站代理。
+- 挂载卷上创建 symlink（第一期）。
+- **完整 Node 内建矩阵**（L2 只保证装包与加载器；`npx` 能否跑通常见 CLI 属 L2.5）。
 
 ### 交付物
 
-- 安装器模块（系统服务或可被终端调用的门面）。
-- 加载器对 `node_modules` 的解析测试集。
-- 「允许 / 拒绝」包类型的文档约定（纯 JS 白名单生态）。
+- PackageService 模块（系统门面；终端与 App 共用）。
+- VFS symlink + 加载器 `node_modules` 测试集。
+- 终端 `npm`/`npx` 本地命令；Packages 管理 App。
+- 「允许 / 拒绝」包类型与桌面 npm 差异文档。
+
+---
+
+## L2.5 — Node CLI 内建面（能装之后能跑）
+
+### 目标
+
+L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 QuickJS 侧 **常用 Node 内建模块**，让一类「纯 JS CLI」在 `npx` / `npm run` 下真正跑完，而不是一 `require('assert')` 就停。
+
+**已观测缺口（2026-07-23）**：`npx cowsay "Hello World"` 已装上并进入 `cowsay` → `yargs`，随后因未实现 `assert` 失败。当前已实现内建仅为：`path`、`buffer`、`events`、`fs`、`fs/promises`。`assert` 等仅在「已知未实现」名单里用于清晰报错。
+
+### 成功标准（验收）
+
+- `npx cowsay "Hello World"`（或等价纯 JS CLI 冒烟）能把 stdout 打到终端，不以「builtin not implemented」退出。
+- 未实现的 `node:` / 内建名仍给出「已知未实现 + 已实现列表」错误；实现后可从同一注册表加载。
+- 差异文档写明：Instant Node 内建是 **子集滚动补齐**，不是桌面 Node 全表。
+- 不引入真实 Node 进程、不开放原生 addon。
+
+### 大致要做的事
+
+1. **按真实 CLI 依赖滚动补内建**（优先撞墙的，而不是一次写完 `builtinModules`）
+   - 第一刀：`assert` 子集（`ok` / `equal` / `strictEqual` / `deepEqual` 等常用；`strict` 命名空间可后置）。
+   - 随后按 cowsay / yargs / 其它小 CLI 再撞：`util`、`os`、`url`、`querystring`、`string_decoder`、薄 `stream`（承接 L1.12）、`tty` 假实现等。
+   - `process` 在 L1 已有 cwd/env/argv/exit；本层只补 CLI 真正用到的缺口（如 `versions`、`platform`、`stdout.isTTY` 假值等），不重做一整套。
+
+2. **实现策略**
+   - 与现有 Node 内建注册表同一路径：`import` / `require` / `node:` 同源。
+   - 优先手写薄实现或受控 vendor（对齐 L1.5 buffer 清单模式）；禁止把桌面 Node 原生绑定塞进 guest。
+   - 每补一个模块：冒烟 + 更新「已实现列表」与差异文档。
+
+3. **验收样例集（最小）**
+   - 锚定：`npx cowsay …`。
+   - 可选加 1～2 个无原生、依赖面窄的纯 JS CLI，避免只过单一包。
+
+### Todo（L2.5）
+
+**状态**：`todo` · 里程碑 M2.5 · CLI Builtins · **当前焦点**
+
+- [ ] **L2.5.0 缺口清单**：根据 `npx cowsay` 与已知 CLI，列出「下一刀内建」优先级；同步 `docs/instant-npm-differences.md`（能装 ≠ 能跑）
+- [ ] **L2.5.1 `assert` 子集**：覆盖 yargs/cowsay 路径；`assert` / `node:assert` 同源
+- [ ] **L2.5.2 冒烟 `npx cowsay`**：装 → 跑 → stdout 可见；记录仍缺的下一模块（若有）
+- [ ] **L2.5.3 `util` 子集**：按实际撞墙补（`inspect` / `inherits` / `types` / `promisify` 等按需）
+- [ ] **L2.5.4 `os` 子集**：`platform` / `arch` / `EOL` / `tmpdir` 等假值或 VFS 约定；供 CLI 探测环境
+- [ ] **L2.5.5 `url` / `querystring` 常用面**：模块解析与 CLI 参数链需要时落地（全局 `URL` 已有则对齐模块导出）
+- [ ] **L2.5.6 薄 `stream`（升格 L1.12）**：仅卡依赖时实现可读/可写最小面；不追求完整 Node streams
+- [ ] **L2.5.7 `string_decoder` / `tty` 假实现**：流式解码与 `isTTY` 等按需；避免 CLI 在探测终端时硬崩
+- [ ] **L2.5.8 `process` CLI 缺口**：`versions`、`platform`、stdio 伪 TTY 等；仍不实现真退出杀 OS
+- [ ] **L2.5.9 滚动补齐协议**：新报错「not implemented yet」→ 记入本层 Todo 或远期；禁止静默当裸包 404
+- [ ] **L2.5.10 差异文档 + 已实现表**：维护「已实现 / 明确不做 / 滚动中」三栏
+- [ ] **L2.5.11 验收勾选**：对照成功标准通过后，看板 L2.5 → `done`，焦点移到 L3
+
+### 本层明确不做
+
+- 一次实现完整 Node `builtinModules` 列表。
+- `child_process` / 真多进程（L3 伪进程另开）。
+- `http`/`https`/`net`/`tls` 服务端与任意出站（网络白名单另议；不为本层默认目标）。
+- `fs` 的 fd / watch / 完整 stream 读写（仍见远期 F.4/F.5）。
+- 保证任意 npm CLI「装上就能跑」。
+
+### 交付物
+
+- 内建注册表扩展（至少 `assert`，并按撞墙滚动）。
+- `npx cowsay`（及可选第二样例）冒烟通过记录。
+- 更新后的差异文档：能装 / 能跑边界与已实现内建表。
 
 ---
 
@@ -226,7 +299,8 @@
 ### 目标
 
 具备「在 Instant OS 内启动构建类工具」的能力：不是只 `eval` 一段库代码，而是能以 **CLI 入口** 的方式跑打包/编译流程，并把产物写回 VFS。  
-这一层追求的是 **等价构建能力**（产出可部署的前端包），而不是必须跑通桌面版 Vite 官方二进制。
+这一层追求的是 **等价构建能力**（产出可部署的前端包），而不是必须跑通桌面版 Vite 官方二进制。  
+**前置**：L2.5 至少让「纯 JS CLI 入口 + 常用内建」可跑；否则构建工具会在装好后卡在 `assert`/`util` 一类缺口上。
 
 ### 成功标准（验收）
 
@@ -260,7 +334,7 @@
 
 ### Todo（L3）
 
-**状态**：`blocked`（待 L2）· 里程碑 M3 · Build Sample
+**状态**：`blocked`（待 L2.5）· 里程碑 M3 · Build Sample
 
 - [ ] **L3.1 伪 `child_process` / 任务编排**：新实例或 Worker、共享 VFS 视图、`argv`/exit/stdio；并发上限
 - [ ] **L3.2 选定构建后端**：纯 JS 或官方 WASM 打包/压缩/CSS；作为系统运行时资产接入
@@ -361,16 +435,18 @@
 | 可观测性 | 统一日志：模块解析失败、fs 拒绝、安装拒绝、构建阶段。 |
 | 测试策略 | 每层必有冒烟；加载器与 fs 契约测试可在 Node 下跑部分逻辑，桥接测试在浏览器跑。 |
 | Virtual JS 角色 | L1 起从「演示 eval」升级为「演示宿主能力」；不替代终端的特权文件操作叙事，但可共享同一实例服务。 |
-| 终端关系 | 终端替换是并行叙事：终端负责会话 UX 与特权命令；QuickJS 实例负责该会话的 JS 世界。L1 完成后再谈深度整合。 |
+| 终端关系 | 终端负责会话 UX 与特权命令；QuickJS 负责该会话的 JS 世界。L2：终端本地 `npm`/`npx` 调 PackageService；`run`/`npx` 绑定会话 QuickJS。安装器是系统服务，不是 guest 自举的 npm。 |
+| Packages App | L2 管理面：任务/日志/store；与终端共用 PackageService，零分叉。 |
+| Node 内建面 | L1 交付 path/buffer/events/fs；L2.5 按 CLI 撞墙滚动补 assert/util/os/…；未实现保持清晰报错。 |
 
 ### Todo（跨层）
 
 随各层推进勾选；不必等某一层全部完成才开始，但不得与「禁止跳层交付」冲突。
 
-- [ ] **X.1 会话能力票模型**：fs / 网络 / 子任务 / 配额的统一描述与默认拒绝
+- [ ] **X.1 会话能力票模型**：fs / 网络 / 子任务 / 配额的统一描述与默认拒绝（含安装/registry）
 - [ ] **X.2 统一可观测日志通道**：解析失败、fs 拒绝、安装拒绝、构建阶段
 - [ ] **X.3 测试分层约定**：哪些在 Node 冒烟、哪些必须浏览器桥接测
-- [ ] **X.4 终端 ↔ QuickJS 实例绑定方案**（L1 验收后再做深度整合设计）
+- [ ] **X.4 终端 ↔ QuickJS 实例绑定方案**（L2 `npm run`/`npx` 已用任务级实例；会话长驻绑定可在 L3 加深）
 - [ ] **X.5 每层完成后更新本文件看板 + 变更记录**
 
 ---
@@ -380,14 +456,20 @@
 ```text
 L1 模块 + VFS/fs + path/process/Buffer + 异步桥
         ↓
-L2 包解析 + 受控网络 + 极简 install + 缓存
+L2.0 VFS symlink
+        ↓
+L2 PackageService + CAS + 链接安装 + 裸名加载器
+        ↓
+L2 终端 npm/npx + Packages App + run/npx 语义
+        ↓
+L2.5 Node CLI 内建（assert → util/os/stream…；npx cowsay 冒烟）
         ↓
 L3 伪进程 + 内嵌 WASM/纯 JS 构建后端 + 样例项目打通
         ↓
 L4 本仓库 Instant 剖面 + 自举与大规模缓存
 ```
 
-**原则**：每一层先做「最小可演示闭环」，再加兼容面。避免在 L1 未验收时并行铺开安装器与 Vite 替代实现导致接口反复横跳。
+**原则**：每一层先做「最小可演示闭环」，再加兼容面。安装器内核只实现一次；终端与 App 零分叉。**能装（L2）不等于能跑 CLI（L2.5）**；避免在内建面未过关时并行铺开 Vite 替代实现。
 
 ---
 
@@ -395,9 +477,12 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 
 1. **原生绑定**：生态中大量工具不能「装上就能跑」；策略是拒绝 + 换可嵌入实现。
 2. **同步 API 性能**：若过早暴露大量 `*Sync` 且直打持久化，L3 会不可用；L1 就要定策略。
-3. **与桌面 Vite 的期望差**：对外沟通应是「系统内构建管线」，不是「原样 npm run build」。
-4. **内存**：浏览器页内跑 tsc + 打包 + Monaco/Three 级依赖，必须外置 runtime 与缓存，否则自举会爆。
-5. **安全**：一旦开放网络与 fs，实例就等于弱虚拟机；权限与配额必须和 API 同步上线。
+3. **与桌面 Vite / npm 的期望差**：对外沟通应是「Instant npm 兼容面 / 系统内构建管线」，附差异清单，不是「原样 npm / vite」。
+4. **能装 ≠ 能跑**：L2 装上纯 JS CLI 后，仍可能卡在未实现 Node 内建（已观测：`npx cowsay` → `yargs` → `assert`）。须走 L2.5 滚动补齐，不要误判为安装器 bug。
+5. **内存**：浏览器页内跑 tsc + 打包 + Monaco/Three 级依赖，必须外置 runtime 与缓存，否则自举会爆。
+6. **安全**：一旦开放网络与 fs，实例就等于弱虚拟机；权限与配额必须和 API 同步上线。
+7. **symlink 与卷模型**：挂载卷/IndexedDB 语义不一致时，第一期限用户可写卷创建链接。
+8. **store 体积**：配额 + Packages App 清理与安装同步上线。
 
 ---
 
@@ -406,7 +491,8 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 里程碑 | 对应 | 一句话 |
 |--------|------|--------|
 | M1 · Script Host | L1 | 能跑工作区多文件脚本 |
-| M2 · Packages | L2 | 能装并引用纯 JS 包 |
+| M2 · Packages | L2 | PackageService + symlink store + 终端 npm/npx + Packages App |
+| M2.5 · CLI Builtins | L2.5 | assert 等常用内建 + `npx cowsay` 级纯 JS CLI 可跑 |
 | M3 · Build Sample | L3 | 能构建官方样例前端 |
 | M4 · Self Host | L4 | 能构建 Instant 自举剖面 |
 
@@ -444,6 +530,10 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.11：手写薄 EventEmitter（guest 源注入）；`events`/`node:events` 同构造函数；不做 vendor / 全局 / prepend / stream。 |
 | 2026-07-23 | 完成 L1.16：`process.nextTick` 宿主 FIFO；与 microtask/Promise **同相**（先于定时器，不保证先于 then）；drain/队列上限；abort 清队列。 |
 | 2026-07-23 | 完成 L1.13：Virtual JS 打开/保存工作区入口 + `filename` 相对 import；演示项目 `/user/virtual-js-demo`。 |
+| 2026-07-23 | **L2 重定稿**：F.6 symlink → L2.0 前置；PackageService（CAS + symlink 布局）；终端 `npm`/`npx` 核心命令+scripts；Packages 管理 App；明确不做官方 npm 二进制 / publish/login/workspaces。 |
+| 2026-07-23 | L1.14/L1.15 验收：`test:quickjs` 冒烟通过；看板 L1 → `done`，焦点 → L2。 |
+| 2026-07-23 | L2 落地：VFS symlink；PackageService（CAS+链接布局）；裸名解析；终端 npm/npx；Packages App；`docs/instant-npm-differences.md`；看板 L2 → `done`，焦点 → L3。 |
+| 2026-07-23 | **增补 L2.5 Node CLI 内建面**：观测 `npx cowsay` 卡在未实现 `assert`；明确能装≠能跑；Todo：assert→util/os/url/stream/tty/process 缺口滚动补齐；看板焦点 → L2.5，L3 改 `blocked`（待 L2.5）。 |
 
 ---
 
@@ -461,5 +551,5 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 
 - [ ] **F.4 fd / `open` / 定位读写**：真实句柄表与位置指针（当前 VFS 为路径/blob）。
 - [ ] **F.5 `fs.watch` / 流式读写**：对接 `filesWatch` 与薄 `stream`；语义对齐 Node 有限子集。
-- [ ] **F.6 符号链接 / Unix mode**：`lstat`/`symlink`/`chmod`（当前卷模型无 symlink，仅有 writable）。
+- [ ] **F.6 Unix mode / `chmod`**：`chmod` 等（symlink 已升入 L2.0；当前卷模型仅有 writable）。
 - [ ] **F.7 append/rename 原子性与跨卷 `EXDEV`**：减少读改写竞态；跨卷移动错误码更贴近 Node。

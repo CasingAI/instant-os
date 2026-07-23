@@ -5,7 +5,7 @@ export type MountFilesLocationId = `mount:${string}`
 
 export type FilesLocationId = BuiltinFilesLocationId | MountFilesLocationId
 
-export type FilesNodeKind = 'folder' | 'file'
+export type FilesNodeKind = 'folder' | 'file' | 'symlink'
 
 /** 节点自身的文件属性（类 POSIX / Finder 信息，不依赖调用方写死位置） */
 export type FilesNodeAttributes = {
@@ -31,7 +31,17 @@ export type FilesNode = {
    * 仅文件有意义；文件夹 / 旧记录可能缺省。
    */
   contentRevisionId?: string
+  /**
+   * 符号链接目标（相对或绝对路径字符串）。
+   * 仅 `kind === 'symlink'` 有意义；无独立 blob。
+   */
+  target?: string
   attributes: FilesNodeAttributes
+}
+
+/** 第一期允许创建 symlink 的卷（挂载卷 / 投影卷拒绝） */
+export function canCreateSymlinkOnLocation(locationId: FilesLocationId): boolean {
+  return locationId === 'local' || locationId === 'dev'
 }
 
 /** 每次内容写入时生成的版本戳 */

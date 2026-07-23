@@ -9,6 +9,7 @@ import {
   createFileWithBlob,
   createFileWithBytes,
   createFolderNode,
+  createSymlinkNode,
   deleteSubtree,
   deleteSubtreesMerged,
   estimateNodeMetaBytes,
@@ -65,6 +66,7 @@ import {
   FILES_LOCATIONS,
   FILES_TEXT_MIME,
   defaultFilesNodeAttributes,
+  canCreateSymlinkOnLocation,
   isFilesLocationWritable,
   isFilesNodeWritable,
   isMountLocationId,
@@ -449,27 +451,102 @@ export async function resolveFilesAbsolutePath(node: FilesNode): Promise<string>
   return joinFilesAbsolutePath(root, ...parentChain.map((item) => item.name), node.name)
 }
 
-/** 按全局绝对路径解析节点（文件或文件夹） */
+export const FILES_SYMLINK_MAX_DEPTH = 40
+
+export type ResolveNodeByAbsolutePathOptions = {
+  /** 默认 true（stat / 读内容）；false 时末段返回链接节点本身（lstat / readlink） */
+  follow?: boolean
+}
+
+function dirnameAbsolute(absolutePath: string): string {
+  const trimmed = absolutePath.replace(/\/+$/, '') || '/'
+  if (trimmed === '/') return '/'
+  const idx = trimmed.lastIndexOf('/')
+  if (idx <= 0) return '/'
+  return trimmed.slice(0, idx) || '/'
+}
+
+function resolveSymlinkTargetPath(linkAbsolutePath: string, target: string): string {
+  const trimmed = target.trim()
+  if (!trimmed) {
+    throw new Error('符号链接目标为空')
+  }
+  if (trimmed.startsWith('/')) {
+    return trimmed.replace(/\/+$/, '') || '/'
+  }
+  const base = dirnameAbsolute(linkAbsolutePath)
+  const parts = trimmed.split('/').filter((p) => p.length > 0 && p !== '.')
+  const stack =
+    base === '/'
+      ? []
+      : base
+          .split('/')
+          .filter((p) => p.length > 0)
+  for (const part of parts) {
+    if (part === '..') {
+      stack.pop()
+    } else {
+      stack.push(part)
+    }
+  }
+  return stack.length === 0 ? '/' : `/${stack.join('/')}`
+}
+
+/** 按全局绝对路径解析节点（文件、文件夹或符号链接） */
 export async function resolveNodeByAbsolutePath(
   absolutePath: string,
+  options?: ResolveNodeByAbsolutePathOptions,
 ): Promise<FilesNode | undefined> {
+  const follow = options?.follow !== false
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed) return undefined
   if (parsed.segments.length === 0) return undefined
 
-  // 挂载卷：直接走 FSA handle，禁止逐层 list
+  // 挂载卷：直接走 FSA handle，禁止逐层 list；第一期不支持 symlink
   if (isMountLocationId(parsed.locationId)) {
     return resolveMountRelativePath(parsed.locationId, parsed.segments.join('/'))
   }
 
+  let cursorPath = filesLocationPathRoot(parsed.locationId)
   let parentId: string | undefined
+  let depth = 0
+
   for (let index = 0; index < parsed.segments.length; index += 1) {
     const name = parsed.segments[index]
     if (!name) return undefined
     const children = await listDirectory(parsed.locationId, parentId)
     const hit = children.find((child) => child.name === name)
     if (!hit) return undefined
-    if (index === parsed.segments.length - 1) return hit
+
+    const isLast = index === parsed.segments.length - 1
+    cursorPath = joinFilesAbsolutePath(cursorPath, name)
+
+    if (hit.kind === 'symlink') {
+      if (isLast && !follow) {
+        return hit
+      }
+      depth += 1
+      if (depth > FILES_SYMLINK_MAX_DEPTH) {
+        throw new Error('符号链接层级过深（可能存在循环）')
+      }
+      const target = hit.target
+      if (target === undefined) return undefined
+      const nextAbsolute = resolveSymlinkTargetPath(cursorPath, target)
+      // 重新从根解析目标路径（跟随）
+      const redirected = await resolveNodeByAbsolutePath(nextAbsolute, { follow: true })
+      if (!redirected) return undefined
+      if (isLast) return redirected
+      if (redirected.kind !== 'folder') return undefined
+      parentId = redirected.id
+      cursorPath = await resolveFilesAbsolutePath(redirected)
+      // 继续用剩余 segments：需把剩余段接到已解析文件夹之后
+      const rest = parsed.segments.slice(index + 1)
+      if (rest.length === 0) return redirected
+      const continued = joinFilesAbsolutePath(cursorPath, ...rest)
+      return resolveNodeByAbsolutePath(continued, { follow })
+    }
+
+    if (isLast) return hit
     if (hit.kind !== 'folder') return undefined
     parentId = hit.id
   }
@@ -480,9 +557,64 @@ export async function resolveNodeByAbsolutePath(
 export async function resolveFileNodeByAbsolutePath(
   absolutePath: string,
 ): Promise<FilesNode | undefined> {
-  const node = await resolveNodeByAbsolutePath(absolutePath)
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
   if (!node || node.kind !== 'file') return undefined
   return node
+}
+
+/** 在 linkPath 创建符号链接，目标为 target（相对或绝对字符串，原样存储） */
+export async function createSymlink(params: {
+  locationId: FilesLocationId
+  parentId: string | undefined
+  name: string
+  target: string
+}): Promise<FilesNode> {
+  if (!canCreateSymlinkOnLocation(params.locationId)) {
+    throw new Error('当前卷不支持创建符号链接')
+  }
+  await assertCanCreateIn(params.locationId, params.parentId)
+  const trimmedName = normalizeFilesNodeName(params.name)
+  const target = params.target.trim()
+  if (!target) {
+    throw new Error('符号链接目标不能为空')
+  }
+
+  const names = await siblingNames(params.locationId, params.parentId)
+  if (names.has(trimmedName)) {
+    throw new Error('路径已存在')
+  }
+
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: params.locationId,
+    parentId: params.parentId,
+    name: trimmedName,
+    kind: 'symlink',
+    mimeType: undefined,
+    byteSize: estimateTextBytes(target),
+    createdAt: now,
+    updatedAt: now,
+    target,
+    attributes: defaultFilesNodeAttributes(params.locationId),
+  }
+  const created = await createSymlinkNode({
+    node,
+    metaBytes: estimateNodeMetaBytes(node) + estimateTextBytes(target),
+  })
+  await emitNodeCreated(created)
+  return created
+}
+
+export async function readlinkAtAbsolutePath(absolutePath: string): Promise<string> {
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
+  if (!node) {
+    throw new Error('路径不存在')
+  }
+  if (node.kind !== 'symlink' || node.target === undefined) {
+    throw new Error('不是符号链接')
+  }
+  return node.target
 }
 
 export type FilesSubtreeFileEntry = {
@@ -905,6 +1037,9 @@ async function estimateCopyBytesForNode(node: FilesNode): Promise<number> {
     const { text } = await readTextFileByNodeIdUnmetered(node.id)
     return estimateNodeMetaBytes(node) + estimateTextBytes(text)
   }
+  if (node.kind === 'symlink') {
+    return estimateNodeMetaBytes(node) + estimateTextBytes(node.target ?? '')
+  }
 
   let total = estimateNodeMetaBytes(node)
   const children = await listDirectory(node.locationId, node.id)
@@ -971,6 +1106,15 @@ async function copyNodeTree(
       parentId: destParentId,
       name: source.name,
       text,
+    })
+  }
+
+  if (source.kind === 'symlink') {
+    return createSymlink({
+      locationId: destLocationId,
+      parentId: destParentId,
+      name: source.name,
+      target: source.target ?? '',
     })
   }
 
