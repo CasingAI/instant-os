@@ -247,6 +247,10 @@ function isGuestFunction(context: QuickJSAsyncContext, handle: QuickJSHandle | u
 
 /**
  * 注入 fs / fs.promises（回调 + Promise + Asyncify Sync），返回 module handles。
+ *
+ * Sync（`newAsyncifiedFunction`）：guest 外观阻塞，宿主仍异步打 VFS；同调用栈勿再挂起。
+ * 新脚本/宿主桥优先 `fs.promises`（或回调）；`*Sync` 仅为 Node 兼容。
+ * 预加载 / 内存工作区属 VFS 或上层性能，不在本模块。
  */
 export function injectFs(options: InjectFsOptions): {
   fsHandle: QuickJSHandle
@@ -485,6 +489,7 @@ export function injectFs(options: InjectFsOptions): {
     context.setProp(fsObject, name, cbFn)
     cbFn.dispose()
 
+    // Asyncify Sync：挂起等 VFS；此栈内禁止再进可挂起桥（含再 Sync / 可挂起 import）
     const syncFn = context.newAsyncifiedFunction(syncName, async (...argHandles) => {
       try {
         const parsed = parseArgs(argHandles)

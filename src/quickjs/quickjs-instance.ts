@@ -218,6 +218,10 @@ type InstanceState = {
  * 创建与宿主会话同寿的 QuickJS 实例（常驻到 destroy）。
  * 同一实例内多次 eval 共享上下文；busy 仅表示此刻正在跑一段同步 JS 切片。
  * 挂起的定时器不阻止再次 eval；退出码只认 process.exit / exitCode。
+ *
+ * Asyncify 策略（L1.7）：长驻实例统一 Asyncify（不做 sync/Asyncify 通用双轨）；
+ * 每实例独立 WASM；同栈禁止嵌套挂起；destroy 只 dispose context。
+ * `*Sync` fs 经 Asyncify 挂起打 VFS；新代码优先 `fs.promises`。预加载/内存盘不归本层。
  */
 export async function createQuickJsInstance(
   options: QuickJsInstanceOptions = {},
@@ -233,7 +237,7 @@ export async function createQuickJsInstance(
   let activeSliceTimeoutMs = defaultTimeoutMs
   const processState = createProcessState(hostConfig.workspaceRoot, hostConfig.env)
 
-  // 每实例独立 Asyncify WASM：Sync fs 可挂起且互不抢挂起槽
+  // 每实例独立 Asyncify WASM：*Sync 可挂起；多实例互不抢槽；勿嵌套挂起
   const context: QuickJSAsyncContext = await createQuickJsAsyncContext()
   const runtime: QuickJSAsyncRuntime = context.runtime
   runtime.setMemoryLimit(hostConfig.quotas.memoryLimitBytes)
@@ -403,7 +407,7 @@ export async function createQuickJsInstance(
     state.destroyed = true
     state.busy = false
     listeners.clear()
-    // Asyncify：只 dispose context。再 dispose runtime 会踩 HostRef（见 quickjs-emscripten）。
+    // Asyncify：只 dispose context（runtime 随 context 释放；再 dispose runtime 会踩 HostRef）
     context.dispose()
   }
 
@@ -423,7 +427,7 @@ export async function createQuickJsInstance(
     try {
       evalSeq += 1
       // 每次独立文件名：避免 ESM 模块缓存 / 同名脚本重复声明干扰连续测试
-      // Asyncify：可能挂起（*Sync fs），须用 evalCodeAsync
+      // Asyncify：切片内可能 *Sync 挂起，须用 evalCodeAsync（勿在 Sync 路径再嵌套挂起）
       const evalResult = await context.evalCodeAsync(code, `${instanceId}-eval-${evalSeq}.js`)
 
       if (state.destroyed) {

@@ -51,7 +51,7 @@
 2. **实例与宿主会话同寿**：一个终端会话或一个 Virtual JS 窗口对应一个实例；关闭即销毁，全局状态随之消失。
 3. **优先接现有系统能力**：`fs` 走 Files/VFS，而不是另起一套内存盘然后双写。
 4. **纯 JS / WASM 优先**：凡依赖原生 addon 或本机 bash 的路径，一律视为「需裁剪或替换」，不是「再补几个 API」。
-5. **同步 I/O 走 Asyncify**：`*Sync` 在 guest 侧外观阻塞，宿主仍异步打 VFS（L1.6）。代价是 WASM ~2×、全体 JS 更慢、同模块不可嵌套挂起；优化与预加载见 L1.7。勿在 UI 线程忙等 IndexedDB。
+5. **同步 I/O 走 Asyncify**：`*Sync` 在 guest 侧外观阻塞，宿主仍异步打 VFS（L1.6）。代价是 WASM ~2×、全体 JS 更慢、同模块不可嵌套挂起。策略见 L1.7（文档）：长驻实例统一 Asyncify，不做内存工作区/通用双轨。勿在 UI 线程忙等 IndexedDB。
 6. **权限默认最小**：可读工作区、可写约定目录、网络按白名单；禁止逃逸到宿主真实磁盘。
 
 ---
@@ -121,7 +121,7 @@
 - [x] **L1.4 `process` 子集**：`cwd` / `env` / `argv` / `exitCode`；stdout/stderr 接到宿主（与 console 同管道）；`exit` 映射为结束任务（不含 `nextTick`，见 L1.16）
 - [x] **L1.5 `Buffer` + 编解码**：`Buffer` 表面（feross/buffer 经 `vendor:quickjs-guest` 清单预打包注入 guest）+ 宿主桥 `TextEncoder` / `TextDecoder`（UTF-8）；全局与 `buffer`/`node:buffer` 同对象。完整 charset、`string_decoder`、独立 Buffer 配额见文末「远期目标」。后续含 npm 依赖的 guest 内建走同一清单；普通第三方包仍等 L1.8/VFS，不走本管线
 - [x] **L1.6 `fs` / `fs/promises` → VFS**：读、写、追加、mkdir、readdir、stat、rename、unlink、rm/rmdir、access/exists；`fs` 回调 + `fs.promises` + `*Sync`（实例改走 Asyncify WASM，`newAsyncifiedFunction`）；路径落在卷模型；大文件硬拒绝 `maxFileBytes`。不做：fd/流/watch/symlink/chmod（见远期）
-- [ ] **L1.7 同步 I/O 策略落地**：文档 + 优化（预加载 / 内存工作区 / 挂起排队 / 体积）；**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
+- [x] **L1.7 同步 I/O 策略落地**：文档化 Asyncify 策略（统一长驻实例、禁嵌套挂起、沙箱可 sync）；明确不做预加载 / 内存工作区 / 通用双轨 / 嵌套挂起排队。**Sync 表面已由 L1.6 Asyncify 提供**，本项不再是「第一次实现 Sync」
 - [ ] **L1.8 模块加载器（ESM）**：相对路径、扩展名补全、实例级模块缓存；未实现 `node:` 清晰报错（**内建 `setModuleLoader` 钩子已由 L1.3 起，本项扩展到 VFS 文件**）。注意：Asyncify 下 Sync 路径内禁止再挂起（含可挂起 import）
 - [ ] **L1.9 薄 CJS `require`（可选但建议）**：够用即可，服务常见互操作（**内建-only `require` 已由 L1.3 起，本项扩展到文件级 CJS**）
 - [ ] **L1.10 入口 `package.json` 子集**：目录入口的 `main` / `module` / 基础 `exports`
@@ -435,6 +435,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | 完成 L1.5：feross/buffer 预打包注入 guest（全局 + `buffer`/`node:buffer`）+ 宿主 `TextEncoder`/`TextDecoder` 桥；stdout 可写 Buffer。 |
 | 2026-07-23 | Guest 内建 vendor：`vendor:quickjs-guest` + 清单驱动；替换一次性 `vendor-quickjs-buffer`；普通 npm 仍等 L1.8/VFS。 |
 | 2026-07-23 | 完成 L1.6：实例改走 Asyncify；`fs`/`fs/promises` 接 Files/VFS（回调 + promises + Sync）；权限根 + `maxFileBytes`；L1.7 收窄为 Sync 策略优化。 |
+| 2026-07-23 | 完成 L1.7：文档化 Asyncify 策略（长驻统一 Asyncify、禁嵌套挂起、沙箱可 sync）；明确不做预加载/内存工作区/通用双轨/嵌套排队。 |
 
 ---
 
