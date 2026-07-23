@@ -143,6 +143,34 @@ async function testInstance() {
     throw new Error(`exitCode should persist across evals: ${JSON.stringify(afterExit)}`)
   }
 
+  const processProbe = await instance.eval(`
+    ;({
+      version: process.version,
+      node: process.versions && process.versions.node,
+      electronUndefined: process.versions.electron === undefined,
+      platform: process.platform,
+      arch: process.arch,
+      stdoutNotTTY: process.stdout.isTTY === false,
+      isElectronApp: !!process.versions.electron,
+    })
+  `)
+  if (!processProbe.ok) {
+    throw new Error(`process CLI probe failed: ${JSON.stringify(processProbe)}`)
+  }
+  const probe = processProbe.value as Record<string, unknown>
+  if (
+    typeof probe.version !== 'string' ||
+    !String(probe.version).startsWith('v') ||
+    typeof probe.node !== 'string' ||
+    probe.electronUndefined !== true ||
+    probe.platform !== 'linux' ||
+    probe.arch !== 'x64' ||
+    probe.stdoutNotTTY !== true ||
+    probe.isElectronApp !== false
+  ) {
+    throw new Error(`unexpected process CLI probe: ${JSON.stringify(probe)}`)
+  }
+
   const rootedCwd = await createQuickJsInstance({ workspaceRoot: '/user/project' })
   const cwdFromRoot = await rootedCwd.eval('process.cwd()')
   if (!cwdFromRoot.ok || cwdFromRoot.value !== '/user/project') {
@@ -1201,6 +1229,78 @@ export default {
     evImportVal.works !== true
   ) {
     throw new Error(`unexpected events import: ${JSON.stringify(eventsImport.value)}`)
+  }
+
+  // --- L2.5.1 / L2.5.3 thin assert + util ---
+  const assertBasics = await timerInstance.eval(`
+    var assert = require('assert')
+    var same = assert === require('node:assert') && assert.strict === assert
+    assert.ok(true)
+    assert.equal(1, '1')
+    assert.strictEqual(1, 1)
+    assert.notStrictEqual(1, '1')
+    assert.deepEqual({ a: 1 }, { a: 1 })
+    assert.deepStrictEqual({ a: 1 }, { a: 1 })
+    var threw = false
+    try { assert.strictEqual(1, 2) } catch (e) {
+      threw = e instanceof assert.AssertionError && e.code === 'ERR_ASSERTION'
+    }
+    var util = require('util')
+    var sameUtil = util === require('node:util')
+    var inspected = util.inspect({ x: 1, y: [2] })
+    function Base() {}
+    function Child() { Base.call(this) }
+    util.inherits(Child, Base)
+    var child = new Child()
+    ;({
+      same: same,
+      threw: threw,
+      sameUtil: sameUtil,
+      inspectedHasX: inspected.indexOf('x') !== -1,
+      inheritsOk: child instanceof Base,
+      typesDate: util.types.isDate(new Date()),
+    })
+  `)
+  if (!assertBasics.ok) {
+    throw new Error(`assert/util basics failed: ${JSON.stringify(assertBasics)}`)
+  }
+  const assertVal = assertBasics.value as Record<string, unknown>
+  if (
+    assertVal.same !== true ||
+    assertVal.threw !== true ||
+    assertVal.sameUtil !== true ||
+    assertVal.inspectedHasX !== true ||
+    assertVal.inheritsOk !== true ||
+    assertVal.typesDate !== true
+  ) {
+    throw new Error(`unexpected assert/util basics: ${JSON.stringify(assertVal)}`)
+  }
+
+  const assertImport = await timerInstance.eval(`
+import assertDefault, { strictEqual, notStrictEqual } from 'assert'
+import { inspect as utilInspect } from 'node:util'
+export default {
+  callable: typeof assertDefault === 'function',
+  namedOk: (function () {
+    strictEqual(1, 1)
+    notStrictEqual(1, 2)
+    return true
+  })(),
+  utilInspect: typeof utilInspect === 'function' && utilInspect(3) === '3',
+}
+`)
+  if (!assertImport.ok) {
+    throw new Error(`assert/util import failed: ${JSON.stringify(assertImport)}`)
+  }
+  const assertImportVal =
+    (assertImport.value as { default?: Record<string, unknown> }).default ??
+    (assertImport.value as Record<string, unknown>)
+  if (
+    assertImportVal.callable !== true ||
+    assertImportVal.namedOk !== true ||
+    assertImportVal.utilInspect !== true
+  ) {
+    throw new Error(`unexpected assert/util import: ${JSON.stringify(assertImport.value)}`)
   }
 
   cjsInstance.destroy()

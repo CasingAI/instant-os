@@ -24,9 +24,20 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 
 安装成功只保证 tarball 进 store、裸名可解析、bin 能启动。Guest 实际执行仍依赖 Instant Node **内建子集**。
 
-- **已实现（L1）**：`path`、`buffer`、`events`、`fs`、`fs/promises`
-- **滚动补齐（路线图 L2.5）**：按 CLI 撞墙补 `assert`、`util`、`os`、`url` / `querystring`、薄 `stream`、`string_decoder`、`tty` 假实现、`process` CLI 缺口等
-- **已观测**：`npx cowsay` 可装并进入 `yargs`，因未实现 `assert` 失败——属内建缺口，不是安装器失败
+### 已实现 / 明确不做 / 滚动中
+
+| 栏 | 内容 |
+|----|------|
+| **已实现** | `path`、`buffer`、`events`、`assert`、`util`（薄：`inspect` / `inherits` / `promisify` / `types` 子集）、`fs`、`fs/promises`；`process` CLI 探测假值：`version` / `versions.node` / `platform` / `arch` / stdio `isTTY: false` |
+| **明确不做（本层）** | 完整 `builtinModules`；`child_process`；`http`/`https`/`net`/`tls` 服务端；原生 addon；完整 Node `process.versions` 矩阵（v8/openssl/…） |
+| **滚动中（撞墙再补）** | `os`、`url` / `querystring`、薄 `stream`、`string_decoder`、`tty` 模块假实现 |
+
+### 兼容锚点（设计约定）
+
+- **设计目标**：内建 API 形状对齐 **Node 20 LTS 文档子集**（当前标签 `process.versions.node = "20.18.0"`）。
+- **不是承诺**：标签只服务 `engines` / 常见嗅探（如 yargs 读 `versions.electron`）；真实能力以「已实现」表为准，缺的仍报 `not implemented yet`。
+- **为何不报更高版本**：版本号越高，包越可能按版本打开我们尚未实现的代码路径；20.x 足够过多数 `engines`，又比盲目宣称 latest 更稳。
+- **下一刀**：终端再跑 `npx cowsay`；若仍失败，按报错补「滚动中」项
 - 未实现内建会报「known but not implemented」并列出已实现列表；不假装成裸包 404
 
 ## 允许 / 拒绝的包类型

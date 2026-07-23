@@ -5,6 +5,7 @@ import type {
   QuickJSHandle,
 } from 'quickjs-emscripten'
 import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
+import { buildAssertModuleSource, injectAssert } from './quickjs-assert.ts'
 import { buildBufferModuleSource, injectBuffer } from './quickjs-buffer.ts'
 import { buildEventsModuleSource, injectEvents } from './quickjs-events.ts'
 import {
@@ -12,6 +13,7 @@ import {
   buildFsPromisesModuleSource,
   injectFs,
 } from './quickjs-fs.ts'
+import { buildUtilModuleSource, injectUtil } from './quickjs-util.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import {
   createCjsRequireApi,
@@ -139,6 +141,12 @@ function builtinModuleSource(canonical: string): string | undefined {
   if (canonical === 'events') {
     return EVENTS_MODULE_SOURCE
   }
+  if (canonical === 'assert') {
+    return ASSERT_MODULE_SOURCE
+  }
+  if (canonical === 'util') {
+    return UTIL_MODULE_SOURCE
+  }
   if (canonical === 'fs') {
     return FS_MODULE_SOURCE
   }
@@ -260,6 +268,8 @@ function buildPathModuleSource(): string {
 const PATH_MODULE_SOURCE = buildPathModuleSource()
 const BUFFER_MODULE_SOURCE = buildBufferModuleSource(BUILTINS_GLOBAL_KEY)
 const EVENTS_MODULE_SOURCE = buildEventsModuleSource(BUILTINS_GLOBAL_KEY)
+const ASSERT_MODULE_SOURCE = buildAssertModuleSource(BUILTINS_GLOBAL_KEY)
+const UTIL_MODULE_SOURCE = buildUtilModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_MODULE_SOURCE = buildFsModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_PROMISES_MODULE_SOURCE = buildFsPromisesModuleSource(BUILTINS_GLOBAL_KEY)
 
@@ -285,7 +295,7 @@ function lookupBuiltinHandle(
 
 /**
  * 注入 Node 内建注册表：setModuleLoader（ESM）+ 全局 require（内建 + 文件级 CJS）。
- * 已实现内建：path、buffer、events、fs、fs/promises（及 node: / path/posix 别名）。
+ * 已实现内建：path、buffer、events、assert、util、fs、fs/promises（及 node: / path/posix 别名）。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSAsyncRuntime,
@@ -296,13 +306,23 @@ export function injectNodeBuiltins(
     fsOps: QuickJsFsHostOps
   },
 ): QuickJsNodeBuiltinRegistry {
-  const implemented = new Set<string>(['path', 'buffer', 'events', 'fs', 'fs/promises'])
+  const implemented = new Set<string>([
+    'path',
+    'buffer',
+    'events',
+    'assert',
+    'util',
+    'fs',
+    'fs/promises',
+  ])
   const listImplemented = () => [...implemented]
 
   const pathApi = createPosixPathApi(options.getCwd)
   const pathHandle = createPathModuleHandle(context, pathApi)
   const bufferHandle = injectBuffer(context)
   const eventsHandle = injectEvents(context)
+  const assertHandle = injectAssert(context)
+  const utilHandle = injectUtil(context)
   const { fsHandle, promisesHandle } = injectFs({
     context,
     asyncBridge: options.asyncBridge,
@@ -316,6 +336,10 @@ export function injectNodeBuiltins(
   bufferHandle.dispose()
   context.setProp(namespace, 'events', eventsHandle)
   eventsHandle.dispose()
+  context.setProp(namespace, 'assert', assertHandle)
+  assertHandle.dispose()
+  context.setProp(namespace, 'util', utilHandle)
+  utilHandle.dispose()
   context.setProp(namespace, 'fs', fsHandle)
   context.setProp(namespace, 'fs/promises', promisesHandle)
   fsHandle.dispose()

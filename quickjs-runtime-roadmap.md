@@ -16,7 +16,7 @@
 | L0 基线 | `done` | 实例服务 + Virtual JS REPL 已落地 |
 | L1 迷你 Node 宿主 | `done` | 实例宿主 + Virtual JS 文件入口 |
 | L2 包与 npm 兼容面 | `done` | PackageService + symlink + 终端 npm/npx + Packages App |
-| L2.5 Node CLI 内建面 | `todo` | **当前焦点** · 能装 ≠ 能跑；补齐 assert 等常用内建 |
+| L2.5 Node CLI 内建面 | `doing` | **当前焦点** · assert + 薄 util 已接入；cowsay 全链路待终端冒烟 |
 | L3 样例构建 | `blocked` | 依赖 L2.5 |
 | L4 自举 | `blocked` | 依赖 L3 |
 
@@ -236,7 +236,8 @@
 
 L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 QuickJS 侧 **常用 Node 内建模块**，让一类「纯 JS CLI」在 `npx` / `npm run` 下真正跑完，而不是一 `require('assert')` 就停。
 
-**已观测缺口（2026-07-23）**：`npx cowsay "Hello World"` 已装上并进入 `cowsay` → `yargs`，随后因未实现 `assert` 失败。当前已实现内建仅为：`path`、`buffer`、`events`、`fs`、`fs/promises`。`assert` 等仅在「已知未实现」名单里用于清晰报错。
+**已观测缺口（2026-07-23）**：`npx cowsay "Hello World"` 已装上并进入 `cowsay` → `yargs`，随后因未实现 `assert` 失败。  
+**第一刀进展**：已实现内建现为：`path`、`buffer`、`events`、`assert`、`util`、`fs`、`fs/promises`。yargs 15 加载期还需要的 `util.inspect` 已一并补上；全链路 `npx cowsay` 仍待 Instant 终端验收（可能继续撞 `os` / `process` CLI 缺口等）。
 
 ### 成功标准（验收）
 
@@ -263,19 +264,19 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 
 ### Todo（L2.5）
 
-**状态**：`todo` · 里程碑 M2.5 · CLI Builtins · **当前焦点**
+**状态**：`doing` · 里程碑 M2.5 · CLI Builtins · **当前焦点**
 
-- [ ] **L2.5.0 缺口清单**：根据 `npx cowsay` 与已知 CLI，列出「下一刀内建」优先级；同步 `docs/instant-npm-differences.md`（能装 ≠ 能跑）
-- [ ] **L2.5.1 `assert` 子集**：覆盖 yargs/cowsay 路径；`assert` / `node:assert` 同源
-- [ ] **L2.5.2 冒烟 `npx cowsay`**：装 → 跑 → stdout 可见；记录仍缺的下一模块（若有）
-- [ ] **L2.5.3 `util` 子集**：按实际撞墙补（`inspect` / `inherits` / `types` / `promisify` 等按需）
+- [x] **L2.5.0 缺口清单**：根据 `npx cowsay` 与已知 CLI，列出「下一刀内建」优先级；同步 `docs/instant-npm-differences.md`（能装 ≠ 能跑）
+- [x] **L2.5.1 `assert` 子集**：覆盖 yargs/cowsay 路径；`assert` / `node:assert` 同源
+- [ ] **L2.5.2 冒烟 `npx cowsay`**：装 → 跑 → stdout 可见；记录仍缺的下一模块（若有）（guest 侧 assert/util 冒烟已过；全链路待 Instant 终端验证）
+- [x] **L2.5.3 `util` 子集**：按实际撞墙补（`inspect` / `inherits` / `types` / `promisify` 等按需）— 第一刀已落地（yargs 15 加载期 `require('util')`）
 - [ ] **L2.5.4 `os` 子集**：`platform` / `arch` / `EOL` / `tmpdir` 等假值或 VFS 约定；供 CLI 探测环境
 - [ ] **L2.5.5 `url` / `querystring` 常用面**：模块解析与 CLI 参数链需要时落地（全局 `URL` 已有则对齐模块导出）
 - [ ] **L2.5.6 薄 `stream`（升格 L1.12）**：仅卡依赖时实现可读/可写最小面；不追求完整 Node streams
 - [ ] **L2.5.7 `string_decoder` / `tty` 假实现**：流式解码与 `isTTY` 等按需；避免 CLI 在探测终端时硬崩
-- [ ] **L2.5.8 `process` CLI 缺口**：`versions`、`platform`、stdio 伪 TTY 等；仍不实现真退出杀 OS
-- [ ] **L2.5.9 滚动补齐协议**：新报错「not implemented yet」→ 记入本层 Todo 或远期；禁止静默当裸包 404
-- [ ] **L2.5.10 差异文档 + 已实现表**：维护「已实现 / 明确不做 / 滚动中」三栏
+- [x] **L2.5.8 `process` CLI 缺口**：`versions`、`platform`、stdio 伪 TTY 等；仍不实现真退出杀 OS（已注入 `version`/`versions.node`/`platform`/`arch`/`isTTY:false`；兼容标签 Node 20.18.0）
+- [x] **L2.5.9 滚动补齐协议**：新报错「not implemented yet」→ 记入本层 Todo 或远期；禁止静默当裸包 404（差异文档三栏已立）
+- [x] **L2.5.10 差异文档 + 已实现表**：维护「已实现 / 明确不做 / 滚动中」三栏
 - [ ] **L2.5.11 验收勾选**：对照成功标准通过后，看板 L2.5 → `done`，焦点移到 L3
 
 ### 本层明确不做
@@ -534,6 +535,8 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | L1.14/L1.15 验收：`test:quickjs` 冒烟通过；看板 L1 → `done`，焦点 → L2。 |
 | 2026-07-23 | L2 落地：VFS symlink；PackageService（CAS+链接布局）；裸名解析；终端 npm/npx；Packages App；`docs/instant-npm-differences.md`；看板 L2 → `done`，焦点 → L3。 |
 | 2026-07-23 | **增补 L2.5 Node CLI 内建面**：观测 `npx cowsay` 卡在未实现 `assert`；明确能装≠能跑；Todo：assert→util/os/url/stream/tty/process 缺口滚动补齐；看板焦点 → L2.5，L3 改 `blocked`（待 L2.5）。 |
+| 2026-07-23 | L2.5 第一刀：手写薄 `assert` + `util`（inspect/inherits/promisify/types）；接入内建注册表；`test:quickjs` 冒烟；差异文档三栏；看板 L2.5 → `doing`；全链路 `npx cowsay` 待终端验收。 |
+| 2026-07-23 | L2.5.8：`process.versions`/`version`/`platform`/`arch`/`isTTY` 假值；兼容锚点文档化为 Node 20.18.0 子集（非完整实现承诺）；修复 yargs `versions.electron` 探测崩。 |
 
 ---
 

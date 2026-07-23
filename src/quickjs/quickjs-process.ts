@@ -184,6 +184,7 @@ function injectJsonValue(context: QuickJSContext, target: QuickJSHandle, key: st
 function createWriteStream(
   context: QuickJSContext,
   write: (text: string) => void,
+  options?: { isTTY?: boolean },
 ): QuickJSHandle {
   const stream = context.newObject()
   const writeFn = context.newFunction('write', (chunkHandle) => {
@@ -192,11 +193,25 @@ function createWriteStream(
   })
   context.setProp(stream, 'write', writeFn)
   writeFn.dispose()
+  // 保守假值：非 TTY，避免 CLI 走彩色/交互分支；缺省仍可读（undefined→falsy）
+  injectJsonValue(context, stream, 'isTTY', options?.isTTY === true)
   return stream
 }
 
 /**
- * 注入 globalThis.process 子集（cwd/env/argv/exit/stdio）。
+ * Instant guest 宣称的 Node 兼容标签（非完整 Node 实现承诺）。
+ * 用于 engines / `process.versions.node` 嗅探；API 设计以该主线的文档子集为锚，
+ * 实际能力以已实现内建表为准。
+ */
+export const INSTANT_NODE_COMPAT_VERSION = '20.18.0'
+
+/** `process.versions` 最小假对象：保证 `.electron` 等探测不崩；不伪造 electron。 */
+export const INSTANT_PROCESS_VERSIONS = {
+  node: INSTANT_NODE_COMPAT_VERSION,
+} as const
+
+/**
+ * 注入 globalThis.process 子集（cwd/env/argv/exit/stdio + CLI 探测假值）。
  * `nextTick` 由异步桥在 injectGlobals 时挂上（须本函数先执行）。
  * env / argv 为 guest 内可变拷贝；cwd / exitCode 经桥与宿主 state 同步。
  */
@@ -211,6 +226,11 @@ export function injectProcess(
   injectJsonValue(context, processObject, 'env', seed.env)
   injectJsonValue(context, processObject, 'argv', seed.argv)
   injectJsonValue(context, processObject, 'exitCode', state.exitCode)
+  // L2.5.8：CLI 常用探测面（yargs 读 process.versions.electron）
+  injectJsonValue(context, processObject, 'version', `v${INSTANT_NODE_COMPAT_VERSION}`)
+  injectJsonValue(context, processObject, 'versions', { ...INSTANT_PROCESS_VERSIONS })
+  injectJsonValue(context, processObject, 'platform', 'linux')
+  injectJsonValue(context, processObject, 'arch', 'x64')
 
   const cwdFn = context.newFunction('cwd', () => context.newString(state.cwd))
   context.setProp(processObject, 'cwd', cwdFn)
@@ -251,11 +271,11 @@ export function injectProcess(
   context.setProp(processObject, 'exit', exitFn)
   exitFn.dispose()
 
-  const stdout = createWriteStream(context, hooks.writeStdout)
+  const stdout = createWriteStream(context, hooks.writeStdout, { isTTY: false })
   context.setProp(processObject, 'stdout', stdout)
   stdout.dispose()
 
-  const stderr = createWriteStream(context, hooks.writeStderr)
+  const stderr = createWriteStream(context, hooks.writeStderr, { isTTY: false })
   context.setProp(processObject, 'stderr', stderr)
   stderr.dispose()
 
