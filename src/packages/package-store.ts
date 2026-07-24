@@ -1,4 +1,3 @@
-import { gunzipSync } from 'fflate'
 import {
   filesCreateText,
   filesLstat,
@@ -10,13 +9,13 @@ import {
   filesSymlink,
   filesWriteText,
 } from '../apps/files/files-api.ts'
-import { runWithFilesVfsChangeBatch } from '../apps/files/files-vfs.ts'
+import { decodeGzipTar } from '../archive/archive-extract.ts'
+import { materializeArchiveEntries } from '../archive/archive-materialize.ts'
 import {
   DEFAULT_PACKAGE_STORE_ROOT,
   PACKAGE_STORE_COMPLETE_MARKER,
 } from './package-store-paths.ts'
 import { ensureNpmStoreNamespace } from './package-store-vfs.ts'
-import { untarBytes } from './package-untar.ts'
 import type { PackageServiceConfig } from './package-types.ts'
 
 export function storePackageDir(
@@ -177,56 +176,32 @@ export async function extractTarballToStore(params: {
     if (signal?.aborted) {
       throw new Error('aborted')
     }
-    let tarBytes: Uint8Array
-    try {
-      tarBytes = gunzipSync(tarball)
-    } catch {
-      tarBytes = tarball
-    }
 
-    const entries = untarBytes(tarBytes)
-    const rootDir = detectTarballRootDir(Object.keys(entries))
+    const decoded = decodeGzipTar(tarball)
+    const rootDir = detectTarballRootDir(decoded.keys())
     const writeMap = new Map<string, Uint8Array>()
-    for (const [rawPath, data] of Object.entries(entries)) {
+    for (const [rawPath, data] of decoded) {
       const stripped = stripTarballRootPrefix(rawPath, rootDir)
       const rel = normalizeTarballRelPath(stripped)
       if (!rel) continue
       // 同路径多条目（如 `./dist/...` 与 `dist/...`）后者覆盖前者
       writeMap.set(rel, data)
     }
-    const writeEntries = [...writeMap.entries()].map(([rel, data]) => ({ rel, data }))
-    const total = writeEntries.length
+
+    if (writeMap.size > config.maxProjectFiles) {
+      throw new Error('解压文件数超过配额')
+    }
+
     await ensureDir(dest)
 
-    let fileCount = 0
-    let bytesWritten = 0
-    // 解压期合并 VFS 通知：否则每写一个文件就重置 UI debounce，链接要等整次安装结束才看得见
-    await runWithFilesVfsChangeBatch(async () => {
-      for (const { rel, data } of writeEntries) {
-        signal?.throwIfAborted()
-        const outPath = `${dest}/${rel}`
-        const parent = outPath.slice(0, outPath.lastIndexOf('/'))
-        await ensureDir(parent)
-        const text = new TextDecoder('utf-8', { fatal: false }).decode(data)
-        // 含 \0 的当二进制：用 latin1 往返不完美；简化为 utf-8 文本写入
-        // 对 .node 等：仍写入以便安装器检测拒绝
-        try {
-          await filesCreateText(outPath, text)
-        } catch {
-          await filesWriteText(outPath, text)
-        }
-        fileCount += 1
-        bytesWritten += data.byteLength
-        onProgress?.({
-          done: fileCount,
-          total,
-          bytesWritten,
-          currentPath: rel,
-        })
-        if (fileCount > config.maxProjectFiles) {
-          throw new Error('解压文件数超过配额')
-        }
-      }
+    await materializeArchiveEntries({
+      destRoot: dest,
+      entries: [...writeMap.entries()].map(([relativePath, bytes]) => ({
+        relativePath,
+        bytes,
+      })),
+      signal,
+      onProgress,
     })
 
     const pkgJson = await filesStat(`${dest}/package.json`)

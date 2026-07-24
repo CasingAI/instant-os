@@ -1,4 +1,5 @@
-import { unzipSync } from 'fflate'
+import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
+import { unzipBytes } from '../../archive/archive-unzip.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import { assertAdditionalBytesAvailable, listChildNodes } from '../files/files-storage.ts'
 import {
@@ -43,45 +44,6 @@ import {
 
 /** 基线 blob 预取并发 */
 const BASELINE_PREFETCH_CONCURRENCY = 12
-
-function normalizeZipPath(path: string): string {
-  return path.replace(/^\/+/, '').replace(/\\/g, '/')
-}
-
-function stripZipRoot(files: Record<string, Uint8Array>): Map<string, Uint8Array> {
-  const map = new Map<string, Uint8Array>()
-  const keys = Object.keys(files).filter((key) => !key.endsWith('/'))
-  if (keys.length === 0) return map
-
-  let commonRoot: string | undefined
-  for (const key of keys) {
-    const normalized = normalizeZipPath(key)
-    const slash = normalized.indexOf('/')
-    if (slash <= 0) {
-      commonRoot = undefined
-      break
-    }
-    const root = normalized.slice(0, slash)
-    if (commonRoot === undefined) commonRoot = root
-    else if (commonRoot !== root) {
-      commonRoot = undefined
-      break
-    }
-  }
-
-  for (const key of keys) {
-    const normalized = normalizeZipPath(key)
-    const relative =
-      commonRoot && normalized.startsWith(`${commonRoot}/`)
-        ? normalized.slice(commonRoot.length + 1)
-        : normalized
-    if (!relative || relative.endsWith('/')) continue
-    const bytes = files[key]
-    if (!bytes) continue
-    map.set(relative, bytes)
-  }
-  return map
-}
 
 export function isProbablyTextBytes(bytes: Uint8Array): boolean {
   if (bytes.byteLength === 0) return true
@@ -388,21 +350,28 @@ export async function materializeFilesToRepo(
   }
   await assertAdditionalBytesAvailable(totalBytes + files.size * 64)
 
-  const payloads: FilesUpsertBatchItem[] = []
-  for (const [relativePath, bytes] of files) {
-    const absolute = joinFilesAbsolutePath(repoPath, ...relativePath.split('/'))
-    payloads.push(toUpsertBatchItem(absolute, bytes))
-  }
-  onProgress?.(`批量写入 ${payloads.length} 个文件…`, {
-    fraction: payloads.length > 0 ? 0.2 : 1,
+  const total = files.size
+  onProgress?.(total > 0 ? `批量写入 0/${total} 个文件…` : '无文件可写入', {
+    fraction: total > 0 ? 0.2 : 1,
   })
-  await filesUpsertBatch(payloads)
+  await materializeArchiveEntries({
+    destRoot: repoPath,
+    entries: [...files.entries()].map(([relativePath, bytes]) => ({
+      relativePath,
+      bytes,
+    })),
+    onProgress: (progress) => {
+      onProgress?.(`批量写入 ${progress.done}/${progress.total} 个文件…`, {
+        fraction:
+          progress.total > 0 ? 0.2 + (0.8 * progress.done) / progress.total : 1,
+      })
+    },
+  })
   onProgress?.(`已写入 ${files.size} 个文件`, { fraction: 1 })
 }
 
 export async function unzipGithubZipball(buffer: ArrayBuffer): Promise<Map<string, Uint8Array>> {
-  const unzipped = unzipSync(new Uint8Array(buffer))
-  return stripZipRoot(unzipped)
+  return unzipBytes(new Uint8Array(buffer))
 }
 
 export async function cloneGithubRepository(params: {

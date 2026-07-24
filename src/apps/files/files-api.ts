@@ -394,11 +394,11 @@ export async function filesWriteBinary(path: string, bytes: ArrayBuffer): Promis
 
 /**
  * 批量 upsert 本地卷文件：路径不存在则创建、存在则覆写；自动创建缺失父目录。
- * 底层按批提交 IndexedDB 事务（默认 64）。
+ * 底层按批提交 IndexedDB 事务（默认最多 64 条，且内容合计不超过约 4 MiB）。
  */
 export async function filesUpsertBatch(
   items: readonly FilesUpsertBatchItem[],
-  options?: { batchSize?: number },
+  options?: { batchSize?: number; maxBatchBytes?: number },
 ): Promise<FilesApiEntry[]> {
   const normalized = items.map((item) => {
     const path = assertAbsolutePath(item.path)

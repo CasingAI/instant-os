@@ -678,6 +678,9 @@ export async function deleteSubtree(params: {
 /** 单次批量提交建议条数（降低 IndexedDB 事务固定开销） */
 export const FILES_BATCH_DEFAULT_SIZE = 64
 
+/** 单次批量提交内容字节上限（与条数上限同时生效；单条超限则单独成批） */
+export const FILES_BATCH_DEFAULT_MAX_BYTES = 4 * 1024 * 1024
+
 export type FilesStorageBatchOp =
   | { kind: 'create-folder'; node: FilesNode; metaBytes: number }
   | { kind: 'create-text'; node: FilesNode; text: string; metaBytes: number }

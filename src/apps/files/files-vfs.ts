@@ -14,6 +14,7 @@ import {
   deleteSubtreesMerged,
   estimateNodeMetaBytes,
   estimateTextBytes,
+  FILES_BATCH_DEFAULT_MAX_BYTES,
   FILES_BATCH_DEFAULT_SIZE,
   getNode,
   listChildNodes,
@@ -1180,14 +1181,16 @@ type PreparedUpsert = {
 
 /**
  * 按绝对路径批量 upsert 本地卷文件（存在则覆写、不存在则精确名创建）。
- * 自动补齐缺失父目录；挂载卷不支持。默认每批 FILES_BATCH_DEFAULT_SIZE 条提交。
+ * 自动补齐缺失父目录；挂载卷不支持。默认每批 FILES_BATCH_DEFAULT_SIZE 条，
+ * 且内容合计不超过 FILES_BATCH_DEFAULT_MAX_BYTES。
  */
 export async function upsertFilesBatch(
   items: readonly FilesUpsertBatchItem[],
-  options?: { batchSize?: number },
+  options?: { batchSize?: number; maxBatchBytes?: number },
 ): Promise<FilesNode[]> {
   if (items.length === 0) return []
   const batchSize = Math.max(1, options?.batchSize ?? FILES_BATCH_DEFAULT_SIZE)
+  const maxBatchBytes = Math.max(1, options?.maxBatchBytes ?? FILES_BATCH_DEFAULT_MAX_BYTES)
 
   type ParsedItem = {
     absolutePath: string
@@ -1483,8 +1486,30 @@ export async function upsertFilesBatch(
   }
 
   const results: FilesNode[] = []
-  for (let offset = 0; offset < prepared.length; offset += batchSize) {
-    const slice = prepared.slice(offset, offset + batchSize)
+  const preparedBytes = (item: PreparedUpsert): number => {
+    const op = item.op
+    if (op.kind === 'create-text' || op.kind === 'write-text') {
+      return estimateTextBytes(op.text)
+    }
+    if (op.kind === 'create-bytes' || op.kind === 'write-bytes') {
+      return op.bytes.byteLength
+    }
+    return 0
+  }
+
+  let offset = 0
+  while (offset < prepared.length) {
+    const first = prepared[offset]!
+    let end = offset + 1
+    let batchBytes = preparedBytes(first)
+    while (end < prepared.length && end - offset < batchSize) {
+      const nextBytes = preparedBytes(prepared[end]!)
+      if (batchBytes + nextBytes > maxBatchBytes) break
+      batchBytes += nextBytes
+      end += 1
+    }
+    const slice = prepared.slice(offset, end)
+    offset = end
     const startedAt = performance.now()
     const committed = await commitFilesBatch(slice.map((item) => item.op))
     const durationMs = performance.now() - startedAt
@@ -1523,4 +1548,4 @@ export async function upsertFilesBatch(
 }
 
 export { isFilesAbsolutePath } from './files-path.ts'
-export { FILES_BATCH_DEFAULT_SIZE } from './files-storage.ts'
+export { FILES_BATCH_DEFAULT_MAX_BYTES, FILES_BATCH_DEFAULT_SIZE } from './files-storage.ts'
