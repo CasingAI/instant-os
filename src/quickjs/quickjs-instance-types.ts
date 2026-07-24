@@ -13,6 +13,8 @@ export type QuickJsConsoleLine = {
 export type QuickJsHostPermissions = {
   fsReadRoots: string[]
   fsWriteRoots: string[]
+  /** 写操作拒绝前缀（须在 write root 内才生效）；用于 npm 场景禁改 node_modules。 */
+  fsWriteDenyRoots: string[]
   /** L1 默认拒绝；真正开通属 L2。 */
   network: false
 }
@@ -65,6 +67,7 @@ export type QuickJsInstanceOptions = {
   permissions?: {
     fsReadRoots?: string[]
     fsWriteRoots?: string[]
+    fsWriteDenyRoots?: string[]
   }
   /** 单次 eval 默认超时（毫秒），默认 5000。属配额。 */
   timeoutMs?: number

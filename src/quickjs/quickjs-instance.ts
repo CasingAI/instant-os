@@ -71,6 +71,8 @@ function resolveHostPermissions(
     fsReadRoots: permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultRoots],
     fsWriteRoots:
       permissions?.fsWriteRoots !== undefined ? [...permissions.fsWriteRoots] : [...defaultRoots],
+    fsWriteDenyRoots:
+      permissions?.fsWriteDenyRoots !== undefined ? [...permissions.fsWriteDenyRoots] : [],
     network: false,
   }
 }
@@ -105,6 +107,7 @@ function freezeHostConfig(config: QuickJsHostConfig): QuickJsHostConfig {
     permissions: Object.freeze({
       fsReadRoots: Object.freeze([...config.permissions.fsReadRoots]) as string[],
       fsWriteRoots: Object.freeze([...config.permissions.fsWriteRoots]) as string[],
+      fsWriteDenyRoots: Object.freeze([...config.permissions.fsWriteDenyRoots]) as string[],
       network: false as const,
     }),
     quotas: Object.freeze({ ...config.quotas }),
@@ -385,6 +388,7 @@ export async function createQuickJsInstance(
     permissions: {
       fsReadRoots: [...hostConfig.permissions.fsReadRoots],
       fsWriteRoots: [...hostConfig.permissions.fsWriteRoots],
+      fsWriteDenyRoots: [...hostConfig.permissions.fsWriteDenyRoots],
       network: false,
     },
     quotas: { ...hostConfig.quotas },

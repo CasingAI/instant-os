@@ -43,6 +43,18 @@ export function assertFsPermission(
       { path: absolutePath, syscall },
     )
   }
+  if (mode === 'write' && permissions.fsWriteDenyRoots.length > 0) {
+    const denied = permissions.fsWriteDenyRoots.some((root) =>
+      isPathUnderFsRoot(absolutePath, root),
+    )
+    if (denied) {
+      throw new QuickJsFsError(
+        'EACCES',
+        `permission denied, ${syscall} '${absolutePath}'`,
+        { path: absolutePath, syscall },
+      )
+    }
+  }
 }
 
 /**

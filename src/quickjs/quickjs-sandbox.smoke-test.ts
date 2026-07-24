@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto'
-import { filesMkdir, filesRemove, filesStat } from '../apps/files/files-api.ts'
+import { filesCreateText, filesMkdir, filesRemove, filesStat, filesSymlink } from '../apps/files/files-api.ts'
+import { npmScriptGuestPermissions } from '../packages/package-run.ts'
 import { createQuickJsInstance } from './quickjs-instance.ts'
 import { runQuickJsSandbox } from './quickjs-sandbox.ts'
 
@@ -42,6 +43,9 @@ async function testInstance() {
   }
   if (host.permissions.fsReadRoots.length !== 0 || host.permissions.fsWriteRoots.length !== 0) {
     throw new Error(`expected empty fs roots without workspace, got ${JSON.stringify(host.permissions)}`)
+  }
+  if (host.permissions.fsWriteDenyRoots.length !== 0) {
+    throw new Error(`expected empty fsWriteDenyRoots without workspace`)
   }
 
   const withRoot = await createQuickJsInstance({
@@ -1527,6 +1531,84 @@ export default {
   linkInstance.destroy()
   try {
     await filesRemove(linkRoot)
+  } catch {
+    // best-effort
+  }
+
+  // --- npm guest: 可读 store、禁写 node_modules（权限形态与 npmScriptGuestPermissions 一致）---
+  const npmAclProject = '/user/qjs-npm-guest-acl'
+  const npmAclFakeStoreRoot = '/user/qjs-npm-guest-acl-store'
+  const npmAclPkgStore = `${npmAclFakeStoreRoot}/pkg/1.0.0`
+  try {
+    await filesRemove(npmAclProject)
+  } catch {
+    // ok
+  }
+  try {
+    await filesRemove(npmAclFakeStoreRoot)
+  } catch {
+    // ok
+  }
+  await filesMkdir(npmAclFakeStoreRoot)
+  await filesMkdir(`${npmAclFakeStoreRoot}/pkg`)
+  await filesMkdir(npmAclPkgStore)
+  await filesCreateText(`${npmAclPkgStore}/package.json`, '{"name":"acl-smoke"}')
+  await filesCreateText(`${npmAclPkgStore}/entry.js`, 'module.exports = 1')
+  await filesMkdir(npmAclProject)
+  await filesCreateText(`${npmAclProject}/src.js`, '// app')
+  await filesMkdir(`${npmAclProject}/node_modules`)
+  await filesSymlink(npmAclPkgStore, `${npmAclProject}/node_modules/acl-smoke`)
+
+  const npmAclPerms = npmScriptGuestPermissions(npmAclProject)
+  npmAclPerms.fsReadRoots = [npmAclProject, npmAclFakeStoreRoot]
+
+  const npmAclInstance = await createQuickJsInstance({
+    workspaceRoot: npmAclProject,
+    permissions: npmAclPerms,
+  })
+  const readStore = await npmAclInstance.eval(`
+    var fs = require('fs')
+  fs.readFileSync('${npmAclPkgStore}/entry.js', 'utf8')
+  `)
+  if (!readStore.ok) {
+    throw new Error(`npm guest should read store: ${readStore.error}`)
+  }
+  const writeSrc = await npmAclInstance.eval(`
+    var fs = require('fs')
+    fs.writeFileSync('src.js', 'ok')
+    'done'
+  `)
+  if (!writeSrc.ok || writeSrc.value !== 'done') {
+    throw new Error(`npm guest should write project src: ${JSON.stringify(writeSrc)}`)
+  }
+  const denyNm = await npmAclInstance.eval(`
+    var fs = require('fs')
+    try {
+      fs.writeFileSync('node_modules/acl-smoke/hack.js', 'x')
+      'allowed'
+    } catch (e) {
+      e.code || e.message
+    }
+  `)
+  if (denyNm.ok && denyNm.value === 'allowed') {
+    throw new Error('npm guest must not write node_modules')
+  }
+  const denyStore = await npmAclInstance.eval(`
+    var fs = require('fs')
+    try {
+      fs.writeFileSync('${npmAclPkgStore}/hack.js', 'x')
+      'allowed'
+    } catch (e) {
+      e.code || e.message
+    }
+  `)
+  if (denyStore.ok && denyStore.value === 'allowed') {
+    throw new Error('npm guest must not write store path')
+  }
+  npmAclInstance.destroy()
+  try {
+    await filesRemove(npmAclProject)
+    await filesRemove(npmAclFakeStoreRoot)
   } catch {
     // best-effort
   }

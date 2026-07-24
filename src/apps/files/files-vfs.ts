@@ -1045,6 +1045,23 @@ export async function removeNode(
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
   assertNodeWritable(node)
+  await removeNodeInner(node, options)
+}
+
+/** 系统层删除（绕过节点 writable 检查），供 PackageService 清理只读 store 等。 */
+export async function removeNodeForced(
+  id: string,
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+): Promise<void> {
+  const node = await getNodeOrThrow(id)
+  await removeNodeInner(node, options)
+}
+
+async function removeNodeInner(
+  node: FilesNode,
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+): Promise<void> {
+  const id = node.id
   const path = await resolveFilesAbsolutePath(node)
   if (isMountNodeId(id)) {
     options?.onProgress?.({ done: 0, total: 1 })

@@ -9,6 +9,21 @@ import {
 } from '../apps/files/files-api.ts'
 import { createQuickJsInstance } from '../quickjs/quickjs-instance.ts'
 import type { QuickJsEvalResult } from '../quickjs/quickjs-instance-types.ts'
+import { getPackageServiceConfig } from './package-service.ts'
+
+/** npm run / npx：可读全局 store，可写项目源码，不可改 node_modules 与 store。 */
+export function npmScriptGuestPermissions(projectRoot: string): {
+  fsReadRoots: string[]
+  fsWriteRoots: string[]
+  fsWriteDenyRoots: string[]
+} {
+  const storeRoot = getPackageServiceConfig().storeRoot
+  return {
+    fsReadRoots: [projectRoot, storeRoot],
+    fsWriteRoots: [projectRoot],
+    fsWriteDenyRoots: [`${projectRoot}/node_modules`],
+  }
+}
 
 /** install lifecycle 默认超时（高于普通 eval 的 5s） */
 export const LIFECYCLE_SCRIPT_TIMEOUT_MS = 60_000
@@ -166,6 +181,7 @@ export async function runNpmScript(params: {
     cwd: packageRoot,
     timeoutMs: params.timeoutMs,
     argv: ['instant-node', entryFile, ...args],
+    permissions: npmScriptGuestPermissions(params.projectRoot),
     env: {
       ...params.env,
       npm_lifecycle_event: params.scriptName,
@@ -298,6 +314,7 @@ export async function runNpx(params: {
     workspaceRoot: params.projectRoot,
     cwd: pkgRoot,
     argv: ['instant-node', entryFile, ...(params.args ?? [])],
+    permissions: npmScriptGuestPermissions(params.projectRoot),
     env: {
       ...params.env,
       PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,

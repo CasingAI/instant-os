@@ -5,12 +5,13 @@ import { osNowMs } from '../os/os-clock.ts'
 import { filesLocationPathRoot, joinFilesAbsolutePath, parseFilesAbsolutePath } from '../apps/files/files-path.ts'
 import {
   createFolderNode,
+  collectSubtreeIds,
   estimateNodeMetaBytes,
   newFilesNodeId,
   updateNodeAttributes,
 } from '../apps/files/files-storage.ts'
 import type { FilesNode, FilesNodeAttributes } from '../apps/files/files-types.ts'
-import { resolveNodeByAbsolutePath } from '../apps/files/files-vfs.ts'
+import { removeNodeForced, resolveNodeByAbsolutePath } from '../apps/files/files-vfs.ts'
 import { DEFAULT_PACKAGE_STORE_ROOT } from './package-store-paths.ts'
 
 const DEV_FILES_ROOT = filesLocationPathRoot('dev')
@@ -74,4 +75,23 @@ async function ensureDevSystemFolder(
 /** 确保 `/dev/npm` 存在且可写，供普通 files API 继续建子树 */
 export async function ensureNpmStoreNamespace(): Promise<void> {
   await ensureDevSystemFolder(DEFAULT_PACKAGE_STORE_ROOT, WORKSPACE_ATTRIBUTES)
+}
+
+const STORE_PACKAGE_READONLY: FilesNodeAttributes = { readable: true, writable: false }
+
+/** 将已提交的版本目录整树标为只读（幂等）。 */
+export async function freezeStorePackageTree(storePath: string): Promise<void> {
+  const node = await resolveNodeByAbsolutePath(storePath)
+  if (!node || node.kind !== 'folder') return
+  const subtree = await collectSubtreeIds(node.id)
+  for (const id of subtree.nodeIds) {
+    await updateNodeAttributes(id, STORE_PACKAGE_READONLY)
+  }
+}
+
+/** PackageService 专用：删除 store 子树（含只读节点）。 */
+export async function removeStoreTreeForced(absolutePath: string): Promise<void> {
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
+  if (!node) return
+  await removeNodeForced(node.id)
 }

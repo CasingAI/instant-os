@@ -10,6 +10,7 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - **锁优先安装**：`npm install`（无新包名）时，若锁内精确版本仍满足 `package.json` 范围，则跳过 registry 解析；锁未命中时再尝试本地 CAS store；store 命中则不下 tarball；锁有 `resolved` 时可直接下包。安装中途失败也会写入**已链接部分**的锁，避免下次整树重新打 registry。
 - `npm update` / `npm install <pkg>`：重新向 registry 按范围解析
 - 布局：全局 CAS store（`/dev/npm`）+ 项目 `node_modules` **符号链接**（接近 pnpm，故意保留）；版本目录内有 `.instant-ok` 才算完整缓存命中（半成品会清掉重解）
+- **Guest 文件权限**：`npm run` / `npx` / lifecycle 脚本在 QuickJS 中可读全局 store（经 `node_modules` 链接解析后的真实路径），可写项目内源码；**不可**改 `node_modules` 与 store 包内容。仅 PackageService（安装/卸载）可写 store 与链接树；提交后的版本目录在 VFS 层标为只读。
 - **可配置 registry**：设置 → NPM（官方 / npmmirror / 自定义 npm 兼容源）；持久化并接到 PackageService
 - **install lifecycle（可选）**：默认 **忽略** scripts（`ignoreScripts: true`）。设置 → NPM 打开「运行 install 脚本」，或单次 `npm install --scripts` / `--ignore-scripts` 覆盖。启用后顺序对齐 npm：根 `preinstall` → 装链依赖 → 依赖拓扑序 `preinstall`/`install`/`postinstall` → 根 `install`/`postinstall`/`prepare`。纯 JS 经 QuickJS；不支持的命令形态 warn 并跳过；可跑但失败则整次 install 失败。
 - 拒绝：`.node` / gypfile / node-gyp 类原生包

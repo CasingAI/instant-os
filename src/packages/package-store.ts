@@ -15,7 +15,7 @@ import {
   DEFAULT_PACKAGE_STORE_ROOT,
   PACKAGE_STORE_COMPLETE_MARKER,
 } from './package-store-paths.ts'
-import { ensureNpmStoreNamespace } from './package-store-vfs.ts'
+import { ensureNpmStoreNamespace, freezeStorePackageTree, removeStoreTreeForced } from './package-store-vfs.ts'
 import type { PackageServiceConfig } from './package-types.ts'
 
 export function storePackageDir(
@@ -67,10 +67,14 @@ async function ensureDir(path: string): Promise<void> {
 async function removeStoreDirBestEffort(path: string): Promise<void> {
   try {
     const existing = await filesLstat(path)
-    if (existing) await filesRemove(path)
+    if (existing) await removeStoreTreeForced(path)
   } catch {
     // ignore cleanup errors
   }
+}
+
+async function ensureStorePackageFrozen(storePath: string): Promise<void> {
+  await freezeStorePackageTree(storePath)
 }
 
 export async function isPackageInStore(
@@ -80,7 +84,9 @@ export async function isPackageInStore(
 ): Promise<boolean> {
   const dir = storePackageDir(config, name, version)
   const marker = await filesStat(storeCompleteMarkerPath(dir))
-  return marker?.kind === 'file'
+  if (marker?.kind !== 'file') return false
+  await ensureStorePackageFrozen(dir)
+  return true
 }
 
 /** 列出 CAS 中某包已完整提交的版本目录名（需有 .instant-ok） */
@@ -215,6 +221,7 @@ export async function extractTarballToStore(params: {
     } catch {
       await filesWriteText(storeCompleteMarkerPath(dest), '')
     }
+    await freezeStorePackageTree(dest)
     return dest
   } catch (error) {
     await removeStoreDirBestEffort(dest)
@@ -228,6 +235,7 @@ export async function linkPackageIntoProject(params: {
   storePath: string
 }): Promise<void> {
   const { projectRoot, name, storePath } = params
+  await ensureStorePackageFrozen(storePath)
   const nm = `${projectRoot}/node_modules`
   await ensureDir(nm)
 
