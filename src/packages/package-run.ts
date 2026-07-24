@@ -12,6 +12,7 @@ import type {
   QuickJsEvalResult,
   QuickJsInstanceOptions,
 } from '../quickjs/quickjs-instance-types.ts'
+import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
 import { getPackageServiceConfig } from './package-service.ts'
 
 /** npm run / npx guest 堆上限（高于 Virtual JS 默认，便于读 node_modules 大文件）。 */
@@ -91,14 +92,80 @@ function normalizeAbsolutePosix(path: string): string {
 }
 
 /**
+ * 判断文本是否为 npm/pnpm 风格的 `.bin` shell shim（非 node 入口）。
+ * Instant 无真实 shell，需从中抽出 `exec node <file>` 的真实 JS 路径。
+ */
+export function looksLikeShellBinShim(source: string): boolean {
+  const firstLine = source.split('\n', 1)[0] ?? ''
+  if (/^#!/.test(firstLine)) {
+    if (/\bnode(?:js)?\b/i.test(firstLine)) return false
+    if (/\b(?:sh|bash|dash|zsh)\b/i.test(firstLine)) return true
+    return true
+  }
+  return /exec\s+(?:"\$basedir\/node"|'\$basedir\/node'|\$basedir\/node|node)\s+/.test(
+    source,
+  )
+}
+
+/**
+ * 从 npm/pnpm `.bin` shell shim 抽出 `exec node <path>` 的目标，并把 `$basedir` 展开为 `.bin` 目录。
+ * 找不到则返回 undefined。
+ */
+export function extractNodePathFromBinShim(
+  source: string,
+  basedir: string,
+): string | undefined {
+  const re =
+    /exec\s+(?:"\$basedir\/node"|'\$basedir\/node'|\$basedir\/node|node)\s+("([^"]+)"|'([^']+)'|(\S+))/g
+  let lastRaw: string | undefined
+  for (let match = re.exec(source); match; match = re.exec(source)) {
+    lastRaw = match[2] ?? match[3] ?? match[4]
+  }
+  if (!lastRaw) return undefined
+
+  const expanded = lastRaw.replaceAll('$basedir', basedir)
+  const absolute = expanded.startsWith('/')
+    ? expanded
+    : `${basedir}/${expanded}`
+  return normalizeAbsolutePosix(absolute)
+}
+
+/** npm 占位包 `tsc`（basarat/tsc）的特征文案；命中则绝不是微软 TypeScript 编译器。 */
+export function isDeprecatedNpmTscPlaceholderSource(source: string): boolean {
+  return source.includes('This is not the tsc command you are looking for')
+}
+
+async function tryResolveTypescriptTscBin(
+  projectRoot: string,
+): Promise<string | undefined> {
+  const candidate = normalizeAbsolutePosix(
+    `${projectRoot}/node_modules/typescript/bin/tsc`,
+  )
+  const st = await filesStat(candidate)
+  if (!st || st.kind === 'folder') return undefined
+  return candidate
+}
+
+/**
  * 解析 node_modules/.bin 入口为真实文件路径。
  * 必须用 lstat：filesStat 会跟随链接，导致 filename 留在 .bin/，相对 require 基路径错误。
+ * 若目标是 pnpm/npm 的 shell shim，则继续解析到真正的 node 入口脚本。
+ *
+ * 对 `tsc`：只要存在 `typescript` 包，就优先用其 bin，避开 npm 同名占位包 `tsc`。
  */
 async function resolveBinEntryFile(
   projectRoot: string,
   binName: string,
 ): Promise<string> {
-  const binLink = `${projectRoot}/node_modules/.bin/${binName}`
+  if (binName === 'tsc') {
+    const typescriptBin = await tryResolveTypescriptTscBin(projectRoot)
+    if (typescriptBin !== undefined) {
+      return typescriptBin
+    }
+  }
+
+  const binDir = `${projectRoot}/node_modules/.bin`
+  const binLink = `${binDir}/${binName}`
   const st = await filesLstat(binLink)
   if (!st) {
     throw new Error(`找不到 bin: ${binName}`)
@@ -108,10 +175,45 @@ async function resolveBinEntryFile(
     const target = await filesReadlink(binLink)
     entryFile = target.startsWith('/')
       ? target
-      : normalizeAbsolutePosix(`${projectRoot}/node_modules/.bin/${target}`)
+      : normalizeAbsolutePosix(`${binDir}/${target}`)
   } else {
     entryFile = binLink
   }
+
+  // 宿主 pnpm/npm 常把 `.bin/*` 写成 shell 包装；Instant 只跑 QuickJS，需抽出真实 JS。
+  try {
+    const source = await filesReadText(entryFile)
+    if (looksLikeShellBinShim(source)) {
+      const resolved = extractNodePathFromBinShim(source, binDir)
+      if (!resolved) {
+        throw new Error(
+          `无法从 shell bin shim 解析 node 入口: ${binName} (${entryFile})`,
+        )
+      }
+      entryFile = resolved
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('无法从 shell bin shim')) {
+      throw error
+    }
+    // 读失败则仍返回已解析路径，让后续 eval 报更明确的错
+  }
+
+  if (binName === 'tsc') {
+    try {
+      const source = await filesReadText(entryFile)
+      if (isDeprecatedNpmTscPlaceholderSource(source)) {
+        throw new Error(
+          'node_modules/.bin/tsc 指向了 npm 占位包「tsc」，不是 TypeScript 编译器。请安装 typescript（npm install -D typescript），不要安装名为 tsc 的包。',
+        )
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('npm 占位包')) {
+        throw error
+      }
+    }
+  }
+
   return entryFile
 }
 
@@ -132,6 +234,39 @@ async function tryReadPackageJson(
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`无法读取 ${path}: ${message}`)
   }
+}
+
+/** 按 `&&` 拆成顺序子命令（忽略引号内的 `&&`）。 */
+export function splitNpmScriptSegments(command: string): string[] {
+  const segments: string[] = []
+  let current = ''
+  let quote: '"' | "'" | undefined
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!
+    if (quote !== undefined) {
+      current += ch
+      if (ch === quote) quote = undefined
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      current += ch
+      continue
+    }
+    if (ch === '&' && command[i + 1] === '&') {
+      const trimmed = current.trim()
+      if (trimmed.length > 0) segments.push(trimmed)
+      current = ''
+      i++
+      continue
+    }
+    current += ch
+  }
+
+  const trimmed = current.trim()
+  if (trimmed.length > 0) segments.push(trimmed)
+  return segments
 }
 
 /** 将 npm script 命令粗解析为可在 QuickJS 中执行的入口（仅支持 `node <file>` / 直接 `.js` / `.bin` 名） */
@@ -158,6 +293,87 @@ export function parseScriptCommand(command: string): {
   return { kind: 'bin', target: parts[0]!, args: parts.slice(1) }
 }
 
+async function runParsedScriptCommand(params: {
+  projectRoot: string
+  packageRoot: string
+  parsed: ReturnType<typeof parseScriptCommand>
+  scriptName: string
+  extraArgs?: string[]
+  env?: Record<string, string>
+  signal?: AbortSignal
+  onConsole?: (level: string, text: string) => void
+  timeoutMs?: number
+}): Promise<QuickJsEvalResult> {
+  const parsed = params.parsed
+  if (parsed.kind === 'unsupported' || !parsed.target) {
+    throw new Error('empty or unsupported script segment')
+  }
+
+  const args = [...parsed.args, ...(params.extraArgs ?? [])]
+  let entryFile: string
+  if (parsed.kind === 'node-file') {
+    entryFile = parsed.target.startsWith('/')
+      ? parsed.target
+      : `${params.packageRoot}/${parsed.target.replace(/^\.\//, '')}`
+  } else {
+    entryFile = await resolveBinEntryFile(params.projectRoot, parsed.target)
+  }
+
+  const entryStat = await filesStat(entryFile)
+  if (!entryStat || entryStat.kind === 'folder') {
+    throw new Error(`script 入口不存在: ${entryFile}`)
+  }
+  entryFile = normalizeAbsolutePosix(entryFile)
+
+  appendSystemDebugLog({
+    layer: 'npm',
+    op: 'script-start',
+    detail: `${params.scriptName} → ${shortenDebugPath(entryFile)}`,
+    force: true,
+  })
+
+  const source = await filesReadText(entryFile)
+  const code = source.replace(/^#![^\n]*\n/, '')
+
+  const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
+  const instance = await createQuickJsInstance(
+    npmScriptGuestInstanceOptions({
+      workspaceRoot: params.projectRoot,
+      cwd: params.packageRoot,
+      timeoutMs,
+      argv: ['instant-node', entryFile, ...args],
+      permissions: npmScriptGuestPermissions(params.projectRoot),
+      env: {
+        ...params.env,
+        npm_lifecycle_event: params.scriptName,
+        npm_package_json: `${params.packageRoot}/package.json`,
+        INIT_CWD: params.env?.INIT_CWD ?? params.projectRoot,
+        PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
+      },
+    }),
+  )
+
+  try {
+    params.signal?.throwIfAborted()
+    const result = await instance.eval(code, {
+      filename: entryFile,
+      timeoutMs,
+    })
+    for (const line of result.consoleLines) {
+      params.onConsole?.(line.level, line.text)
+    }
+    appendSystemDebugLog({
+      layer: 'npm',
+      op: result.ok ? 'script-done' : 'script-fail',
+      detail: `${params.scriptName} ${result.ok ? 'ok' : result.error ?? 'error'}`,
+      force: true,
+    })
+    return result
+  } finally {
+    instance.destroy()
+  }
+}
+
 export async function runNpmScript(params: {
   projectRoot: string
   /**
@@ -180,66 +396,52 @@ export async function runNpmScript(params: {
   if (!command) {
     throw new Error(`缺少 script: ${params.scriptName}`)
   }
-  const parsed = parseScriptCommand(command)
-  if (parsed.kind === 'unsupported' || !parsed.target) {
-    throw new Error(
-      `不支持的 script 命令（仅支持 node <file> / *.js / .bin 名）: ${command}`,
-    )
+
+  const segments = splitNpmScriptSegments(command)
+  if (segments.length === 0) {
+    throw new Error(`不支持的 script 命令（仅支持 node <file> / *.js / .bin 名）: ${command}`)
   }
 
-  const args = [...parsed.args, ...(params.extraArgs ?? [])]
-  let entryFile: string
-  if (parsed.kind === 'node-file') {
-    entryFile = parsed.target.startsWith('/')
-      ? parsed.target
-      : `${packageRoot}/${parsed.target.replace(/^\.\//, '')}`
-  } else {
-    entryFile = await resolveBinEntryFile(params.projectRoot, parsed.target)
-  }
+  appendSystemDebugLog({
+    layer: 'npm',
+    op: 'run-start',
+    detail: `${params.scriptName} (${segments.length} segment${segments.length > 1 ? 's' : ''})`,
+    force: true,
+  })
 
-  // 跟随到真实文件（读内容 / 校验存在）
-  const entryStat = await filesStat(entryFile)
-  if (!entryStat || entryStat.kind === 'folder') {
-    throw new Error(`script 入口不存在: ${entryFile}`)
-  }
-  // eval filename / argv 用规范化真实路径，保证相对 require 相对包内入口
-  entryFile = normalizeAbsolutePosix(entryFile)
-
-  const source = await filesReadText(entryFile)
-  // 去掉 shebang
-  const code = source.replace(/^#![^\n]*\n/, '')
-
-  const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
-  const instance = await createQuickJsInstance(
-    npmScriptGuestInstanceOptions({
-      workspaceRoot: params.projectRoot,
-      cwd: packageRoot,
-      timeoutMs,
-      argv: ['instant-node', entryFile, ...args],
-      permissions: npmScriptGuestPermissions(params.projectRoot),
-      env: {
-        ...params.env,
-        npm_lifecycle_event: params.scriptName,
-        npm_package_json: `${packageRoot}/package.json`,
-        INIT_CWD: params.env?.INIT_CWD ?? params.projectRoot,
-        PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
-      },
-    }),
-  )
-
-  try {
-    params.signal?.throwIfAborted()
-    const result = await instance.eval(code, {
-      filename: entryFile,
-      timeoutMs,
+  let lastResult: QuickJsEvalResult | undefined
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]!
+    appendSystemDebugLog({
+      layer: 'npm',
+      op: 'segment-start',
+      detail: `${i + 1}/${segments.length} ${segment.slice(0, 120)}`,
+      force: true,
     })
-    for (const line of result.consoleLines) {
-      params.onConsole?.(line.level, line.text)
+    const parsed = parseScriptCommand(segment)
+    if (parsed.kind === 'unsupported' || !parsed.target) {
+      throw new Error(
+        `不支持的 script 命令（仅支持 node <file> / *.js / .bin 名）: ${segment}`,
+      )
     }
-    return { ...result, scriptCommand: command }
-  } finally {
-    instance.destroy()
+    const extraArgs = i === segments.length - 1 ? params.extraArgs : undefined
+    lastResult = await runParsedScriptCommand({
+      projectRoot: params.projectRoot,
+      packageRoot,
+      parsed,
+      scriptName: params.scriptName,
+      extraArgs,
+      env: params.env,
+      signal: params.signal,
+      onConsole: params.onConsole,
+      timeoutMs: params.timeoutMs,
+    })
+    if (!lastResult.ok || lastResult.exitCode !== 0) {
+      return { ...lastResult, scriptCommand: command }
+    }
   }
+
+  return { ...lastResult!, scriptCommand: command }
 }
 
 /**
@@ -267,8 +469,12 @@ export async function runLifecycleScripts(params: {
     const command = scripts[scriptName]
     if (!command) continue
 
-    const parsed = parseScriptCommand(command)
-    if (parsed.kind === 'unsupported' || !parsed.target) {
+    const segments = splitNpmScriptSegments(command)
+    const unsupported = segments.find((segment) => {
+      const parsed = parseScriptCommand(segment)
+      return parsed.kind === 'unsupported' || !parsed.target
+    })
+    if (unsupported !== undefined) {
       params.onSkip?.(
         scriptName,
         command,

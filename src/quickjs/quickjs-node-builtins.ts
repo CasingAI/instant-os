@@ -13,7 +13,11 @@ import {
   buildFsPromisesModuleSource,
   injectFs,
 } from './quickjs-fs.ts'
-import { buildOsModuleSource, injectOs } from './quickjs-os.ts'
+import { buildModuleModuleSource, injectModule } from './quickjs-module.ts'
+import {
+  buildOsModuleSource,
+  injectOs,
+} from './quickjs-os.ts'
 import {
   buildPerfHooksModuleSource,
   injectPerfHooks,
@@ -108,6 +112,7 @@ const PATH_EXPORT_KEYS = [
 
 export type QuickJsNodeBuiltinRegistry = {
   listImplemented: () => string[]
+  dispose?: () => void
 }
 
 function normalizeModuleId(raw: string): string {
@@ -169,6 +174,9 @@ function builtinModuleSource(canonical: string): string | undefined {
   }
   if (canonical === 'fs/promises') {
     return FS_PROMISES_MODULE_SOURCE
+  }
+  if (canonical === 'module') {
+    return MODULE_MODULE_SOURCE
   }
   return undefined
 }
@@ -291,6 +299,7 @@ const OS_MODULE_SOURCE = buildOsModuleSource(BUILTINS_GLOBAL_KEY)
 const PERF_HOOKS_MODULE_SOURCE = buildPerfHooksModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_MODULE_SOURCE = buildFsModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_PROMISES_MODULE_SOURCE = buildFsPromisesModuleSource(BUILTINS_GLOBAL_KEY)
+const MODULE_MODULE_SOURCE = buildModuleModuleSource(BUILTINS_GLOBAL_KEY)
 
 function lookupBuiltinHandle(
   context: QuickJSContext,
@@ -314,10 +323,11 @@ function lookupBuiltinHandle(
 
 /**
  * 注入 Node 内建注册表：setModuleLoader（ESM）+ 全局 require（内建 + 文件级 CJS）。
- * 已实现内建：path、buffer、events、assert、util、os、perf_hooks、fs、fs/promises
+ * 已实现内建：path、buffer、events、assert、util、os、perf_hooks、fs、fs/promises、module
  * （及 node: / path/posix 别名）。
  *
  * `perf_hooks`：W3C 计时面桥接宿主真实 Performance；Node 专有 API 不做——见 quickjs-perf-hooks.ts。
+ * `module`：薄 stub（enableCompileCache / flushCompileCache 等）；createRequire 未接——见 quickjs-module.ts。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSAsyncRuntime,
@@ -340,6 +350,7 @@ export function injectNodeBuiltins(
     'perf_hooks',
     'fs',
     'fs/promises',
+    'module',
   ])
   const listImplemented = () => [...implemented]
 
@@ -351,7 +362,7 @@ export function injectNodeBuiltins(
   const utilHandle = injectUtil(context)
   const osHandle = injectOs(context)
   const perfHooksHandle = injectPerfHooks(context)
-  const { fsHandle, promisesHandle } = injectFs({
+  const { fsHandle, promisesHandle, disposeFsWatchers } = injectFs({
     context,
     asyncBridge: options.asyncBridge,
     ops: options.fsOps,
@@ -376,6 +387,9 @@ export function injectNodeBuiltins(
   context.setProp(namespace, 'fs/promises', promisesHandle)
   fsHandle.dispose()
   promisesHandle.dispose()
+  const moduleHandle = injectModule(context)
+  context.setProp(namespace, 'module', moduleHandle)
+  moduleHandle.dispose()
   context.setProp(context.global, BUILTINS_GLOBAL_KEY, namespace)
   namespace.dispose()
 
@@ -532,5 +546,5 @@ export function injectNodeBuiltins(
   }
   guestRequireResult.value.dispose()
 
-  return { listImplemented }
+  return { listImplemented, dispose: disposeFsWatchers }
 }

@@ -5,6 +5,7 @@ import {
   type QuickJSHandle,
 } from 'quickjs-emscripten'
 import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
+import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
 import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
 import { createQuickJsAsyncContext } from './quickjs-runtime.ts'
 import type {
@@ -344,7 +345,7 @@ export async function createQuickJsInstance(
   /** 当前 eval 切片的入口路径（`eval({ filename })`）；供顶层 CJS require 相对解析。 */
   let activeEvalFilename: string | undefined
 
-  injectNodeBuiltins(runtime, context, {
+  const nodeBuiltins = injectNodeBuiltins(runtime, context, {
     getCwd: () => processState.cwd,
     asyncBridge,
     fsOps: {
@@ -415,8 +416,15 @@ export async function createQuickJsInstance(
 
   const destroy = () => {
     if (state.destroyed) return
+    appendSystemDebugLog({
+      layer: 'qjs',
+      op: 'destroy',
+      detail: instanceId,
+      force: true,
+    })
     abortRequested = true
     asyncBridge.clearAll()
+    nodeBuiltins.dispose?.()
     state.destroyed = true
     state.busy = false
     listeners.clear()
@@ -447,6 +455,13 @@ export async function createQuickJsInstance(
         evalSeq,
       )
       activeEvalFilename = evalFilename
+      appendSystemDebugLog({
+        layer: 'qjs',
+        op: 'eval-start',
+        detail: `${instanceId} ${shortenDebugPath(evalFilename)}`,
+        force: true,
+      })
+      const evalStartedAt = performance.now()
       const evalResult = await context.evalCodeAsync(code, evalFilename)
 
       if (state.destroyed) {
@@ -461,6 +476,13 @@ export async function createQuickJsInstance(
 
       if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
+        appendSystemDebugLog({
+          layer: 'qjs',
+          op: 'eval-error',
+          detail: `${instanceId} ${error.slice(0, 200)}`,
+          durationMs: Math.round(performance.now() - evalStartedAt),
+          force: true,
+        })
         if (processState.exitRequested) {
           syncExitCodeFromGuest(context, processState)
           return {
@@ -486,6 +508,13 @@ export async function createQuickJsInstance(
         asyncBridge.drainAfterSync()
         syncExitCodeFromGuest(context, processState)
         if (processState.exitRequested) {
+          appendSystemDebugLog({
+            layer: 'qjs',
+            op: 'eval-exit',
+            detail: instanceId,
+            durationMs: Math.round(performance.now() - evalStartedAt),
+            force: true,
+          })
           return {
             ok: true,
             value: undefined,
@@ -494,6 +523,13 @@ export async function createQuickJsInstance(
             consoleLines: consoleSlice(),
           }
         }
+        appendSystemDebugLog({
+          layer: 'qjs',
+          op: 'eval-done',
+          detail: instanceId,
+          durationMs: Math.round(performance.now() - evalStartedAt),
+          force: true,
+        })
         return {
           ok: true,
           value: dumpEvalValue(context, evalResult.value),

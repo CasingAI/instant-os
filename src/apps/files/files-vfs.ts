@@ -1,4 +1,5 @@
 import { recordFilesIoByteEvent } from '../../os/files-io-metrics.ts'
+import { recordSlowVfsResolve } from '../../os/system-debug-log.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import {
   assertAdditionalBytesAvailable,
@@ -86,6 +87,29 @@ import {
 /** 虚拟文件系统内容变更（新建 / 写入 / 重命名 / 删除等），供文件管理器等订阅刷新 */
 export const FILES_VFS_CHANGED_EVENT = 'instant-os-files-vfs-changed'
 
+/**
+ * listDirectory / resolveNode 内存缓存。
+ * tsc 等工具会反复解析同目录下大量文件；无缓存时每段路径都打 IndexedDB，主线程会被微任务链打满。
+ */
+const listDirectoryCache = new Map<string, FilesNode[]>()
+const resolveNodeCache = new Map<string, FilesNode | undefined>()
+
+function listDirectoryCacheKey(
+  locationId: FilesLocationId,
+  folderId: string | undefined,
+): string {
+  return `${locationId}\0${folderId ?? ''}`
+}
+
+function resolveNodeCacheKey(absolutePath: string, follow: boolean): string {
+  return `${follow ? '1' : '0'}\0${absolutePath}`
+}
+
+export function invalidateFilesVfsPathCaches(): void {
+  listDirectoryCache.clear()
+  resolveNodeCache.clear()
+}
+
 /** 批量写入时合并变更通知，避免解压等场景每文件打断 UI debounce */
 let vfsChangeBatchDepth = 0
 const vfsChangeBatchPending: FilesWatchChange[] = []
@@ -113,12 +137,15 @@ export async function runWithFilesVfsChangeBatch<T>(fn: () => Promise<T>): Promi
 }
 
 function flushFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChange[]): void {
+  invalidateFilesVfsPathCaches()
   notifyFilesWatch(change)
   if (typeof window === 'undefined') return
   window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
 }
 
 function emitFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChange[]): void {
+  // 批量期间也立刻清缓存，避免半写入状态被 resolve 命中旧目录列表
+  invalidateFilesVfsPathCaches()
   if (vfsChangeBatchDepth > 0) {
     if (Array.isArray(change)) {
       vfsChangeBatchPending.push(...change)
@@ -290,16 +317,24 @@ export async function listDirectory(
   locationId: FilesLocationId,
   folderId: string | undefined,
 ): Promise<FilesNode[]> {
+  const cacheKey = listDirectoryCacheKey(locationId, folderId)
+  const cached = listDirectoryCache.get(cacheKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  let listed: FilesNode[]
   if (isMountLocationId(locationId)) {
-    return listMountDirectory(locationId, folderId)
+    listed = await listMountDirectory(locationId, folderId)
+  } else if (locationId === 'models3d') {
+    listed = await listModels3dDirectory(folderId)
+  } else if (locationId === 'source') {
+    listed = await listSourceDirectory(folderId)
+  } else {
+    listed = await listChildNodes(locationId, folderId)
   }
-  if (locationId === 'models3d') {
-    return listModels3dDirectory(folderId)
-  }
-  if (locationId === 'source') {
-    return listSourceDirectory(folderId)
-  }
-  return listChildNodes(locationId, folderId)
+  listDirectoryCache.set(cacheKey, listed)
+  return listed
 }
 
 export async function resolvePathNodes(
@@ -535,6 +570,28 @@ function resolveSymlinkTargetPath(linkAbsolutePath: string, target: string): str
 
 /** 按全局绝对路径解析节点（文件、文件夹或符号链接） */
 export async function resolveNodeByAbsolutePath(
+  absolutePath: string,
+  options?: ResolveNodeByAbsolutePathOptions,
+): Promise<FilesNode | undefined> {
+  const follow = options?.follow !== false
+  const cacheKey = resolveNodeCacheKey(absolutePath, follow)
+  if (resolveNodeCache.has(cacheKey)) {
+    return resolveNodeCache.get(cacheKey)
+  }
+
+  const t0 = performance.now()
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  const segmentCount = parsed?.segments.length ?? 0
+  try {
+    const node = await resolveNodeByAbsolutePathInner(absolutePath, options)
+    resolveNodeCache.set(cacheKey, node)
+    return node
+  } finally {
+    recordSlowVfsResolve(absolutePath, segmentCount, performance.now() - t0)
+  }
+}
+
+async function resolveNodeByAbsolutePathInner(
   absolutePath: string,
   options?: ResolveNodeByAbsolutePathOptions,
 ): Promise<FilesNode | undefined> {

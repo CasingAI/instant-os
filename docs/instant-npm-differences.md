@@ -26,7 +26,7 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - publish / login / logout / whoami
 - workspaces / monorepo 协议
 - 完整 peer 依赖算法、overrides、npm hooks 插件
-- 任意 shell 脚本、`child_process`、真实 OS 进程
+- 任意 shell 脚本、`child_process`、真实 OS 进程（**例外**：`npm run` 支持用 `&&` 串联多条「node / .js / .bin」子命令，按顺序执行；前一段非零 `exitCode` 时中止后续；`.bin` 若为 npm/pnpm 的 shell shim，会解析其中的 `exec node <file>` 再跑 QuickJS；`tsc` 命令优先解析 `typescript` 包 bin，避开 npm 同名占位包；不支持 `cd`、管道、`||`、变量展开等）
 - 官方 `.npmrc` / `package-lock.json` 字节全兼容；scoped 多 registry 表；多源自动故障转移
 - 挂载卷上创建 symlink
 - jsDelivr 作 `node_modules` 安装源
@@ -39,7 +39,7 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 
 | 栏 | 内容 |
 |----|------|
-| **已实现** | `path`、`buffer`、`events`、`assert`、`util`（薄：`inspect` / `inherits` / `promisify` / `types` 子集）、`os`（薄：platform/arch/EOL/tmpdir/homedir 等假值）、`perf_hooks`（薄：**宿主真实** `performance` 桥——`now` / `timeOrigin` / User Timing `mark`·`measure`·`clear*` / `getEntries*`；条目为 plain 对象，非 Entry 类；**无** Observer / ELU / `nodeTiming` / `timerify`）、`fs`、`fs/promises`；`process` CLI 探测假值：`version` / `versions.node` / `platform` / `arch` / `execPath` / stdout·stderr `isTTY: false` / `stdin.isTTY: true` |
+| **已实现** | `path`、`buffer`、`events`、`assert`、`util`（薄：`inspect` / `inherits` / `promisify` / `types` 子集）、`os`（薄：platform/arch/EOL/tmpdir/homedir 等假值）、`perf_hooks`（薄：**宿主真实** `performance` 桥——`now` / `timeOrigin` / User Timing `mark`·`measure`·`clear*` / `getEntries*`；条目为 plain 对象，非 Entry 类；**无** Observer / ELU / `nodeTiming` / `timerify`）、`fs`、`fs/promises`（含 `realpath`/`realpathSync.native`、`copyFile`、`mkdtemp`、`truncate`、`readdir`+`withFileTypes`、`constants`、假 `chmod`/`chown`、`watch`/`watchFile`/`unwatchFile`；**无** fd/`open`/流式读写）；`module`（薄：`enableCompileCache` / `flushCompileCache` / `getCompileCacheDir` no-op；`createRequire` / `Module` 未接）；`process` CLI 探测假值：`version` / `versions.node` / `platform` / `arch` / `execPath` / stdout·stderr `isTTY: false` / `stdin.isTTY: true` |
 | **明确不做（本层）** | 完整 `builtinModules`；`child_process`；`http`/`https`/`net`/`tls` 服务端；原生 addon；完整 Node `process.versions` 矩阵（v8/openssl/…）；`perf_hooks` 的 Observer / libuv 专有指标 |
 | **滚动中（撞墙再补）** | `url` / `querystring`、薄 `stream`、`string_decoder`、`tty` 模块假实现（cowsay / L3.0 探针均未点名）；`PerformanceObserver`（宿主有真 API，未桥） |
 
@@ -48,8 +48,12 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - **设计目标**：内建 API 形状对齐 **Node 20 LTS 文档子集**（当前标签 `process.versions.node = "20.18.0"`）。
 - **不是承诺**：标签只服务 `engines` / 常见嗅探（如 yargs 读 `versions.electron`）；真实能力以「已实现」表为准，缺的仍报 `not implemented yet`。
 - **为何不报更高版本**：版本号越高，包越可能按版本打开我们尚未实现的代码路径；20.x 足够过多数 `engines`，又比盲目宣称 latest 更稳。
-- **验收锚点（L2.5）**：`npm run test:quickjs-cowsay`（install cowsay → `npx cowsay "Hello World"` → stdout 含 ASCII 牛）；`.bin` 经 lstat 解析真实入口
-- **验收锚点（L3.0）**：`npm run test:quickjs` 中 `perf_hooks` CJS/ESM 探针（`now` + mark/measure 走宿主 Performance）；不以「装上 Vite 就能跑」为验收
+- **验收锚点（L2.5）**：`npm run test:quickjs-cowsay`（install cowsay → `npx cowsay "Hello World"` → stdout 含 ASCII 牛）；`.bin` 经 lstat 解析真实入口；宿主 pnpm/npm 的 shell shim 会再抽 `exec node` 目标
+- **验收锚点（L3.0）**：`npm run test:quickjs` 中 `perf_hooks` / 薄 `module` CJS/ESM 探针；不以「装上 Vite 就能跑完整 build」为验收
+- **系统诊断日志**：「事件日志 → 系统」与设置 → 开发者选项中的开关；内存环 + `localStorage` 快照（跨标签可读），用于推断 `npm run` / QuickJS 卡死前在做什么。整页冻住时请**新开标签页**查看「上次会话残留」；与 AI 事件日志（IndexedDB）无关
+- **VFS 路径缓存**：`listDirectory` / `resolveNode` 命中内存缓存，避免 tsc 读 `typescript/lib/*.d.ts` 时对同目录反复打 IndexedDB；变更时失效
+- **fs 宿主让出**：QuickJS 宿主 fs 每若干次调用插入一次宏任务让出，减轻 Asyncify 微任务链把主线程打满导致的整页冻死
+
 - 未实现内建会报「known but not implemented」并列出已实现列表；不假装成裸包 404
 
 ## 允许 / 拒绝的包类型

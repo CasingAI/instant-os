@@ -733,7 +733,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | L2.5.8：`process.versions`/`version`/`platform`/`arch`/`isTTY` 假值；兼容锚点文档化为 Node 20.18.0 子集（非完整实现承诺）；修复 yargs `versions.electron` 探测崩。 |
 | 2026-07-23 | **L2.5 收口**：薄 `os`；`process.execPath` + `stdin.isTTY`；修 `npm run` `.bin` lstat→真实入口；`test:quickjs-cowsay` 全链路通过；看板 L2.5 → `done`，焦点 → L3。 |
 | 2026-07-23 | **L3 拆分**：原单块 L3 扩为 L3.0（构建内建/`perf_hooks`）→ L3.1（伪进程）→ L3.2（系统打包后端）→ L3.3（样例 dist）→ L3.4（硬化）；看板焦点 → L3.0；L4 改待 L3.4。 |
-| 2026-07-24 | **L3.0 收口**：薄 `perf_hooks` 桥接宿主真实 Performance（`now`/`timeOrigin`/User Timing/`getEntries*`）；明确不做 Observer/ELU/`nodeTiming`；`test:quickjs` 探针通过；看板 L3.0 → `done`，焦点 → L3.1。 |
+| 2026-07-24 | **Guest fs 路径面**：`realpath`+`.native`、`copyFile`、`mkdtemp`、`truncate`、`readdir`+`Dirent`、`constants`、假 `chmod`/`chown`、`watch`/`watchFile`；`test:quickjs` 冒烟；差异文档与 F.5/F.6 备注更新。 |
 
 ---
 
@@ -750,6 +750,6 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 ### 文件系统更深对齐（承接 L1.6 缺口）
 
 - [ ] **F.4 fd / `open` / 定位读写**：真实句柄表与位置指针（当前 VFS 为路径/blob）。
-- [ ] **F.5 `fs.watch` / 流式读写**：对接 `filesWatch` 与薄 `stream`；语义对齐 Node 有限子集。
-- [ ] **F.6 Unix mode / `chmod`**：`chmod` 等（symlink 已升入 L2.0；当前卷模型仅有 writable）。
+- [x] **F.5 `fs.watch`（路径面）**：已接 `filesWatch` 薄 `watch`/`watchFile`；**流式读写**仍待薄 `stream`。
+- [x] **F.6 Unix mode / `chmod`（假实现）**：`chmod`/`chown` 仅校验路径存在；卷模型仍无真 mode。
 - [ ] **F.7 append/rename 原子性与跨卷 `EXDEV`**：减少读改写竞态；跨卷移动错误码更贴近 Node。

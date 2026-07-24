@@ -29,10 +29,13 @@ import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { generatedAppIdToSlug } from '../appstore/store-agent.ts'
+import { SystemDebugLogPanel } from './system-debug-log-panel.tsx'
 import './event-log.css'
 
 const APP_ID = 'event-log' as const
 const LOG_LIMIT = 200
+
+type EventLogTab = 'ai' | 'system'
 
 type EnrichedEventLogRecord = AiEventLogRecord & {
   actorName: string
@@ -113,6 +116,7 @@ export function EventLogApp() {
   const [loading, setLoading] = useState(true)
   const [stackedDetailOpen, setStackedDetailOpen] = useState(false)
   const [pinnedDay, setPinnedDay] = useState<string | undefined>()
+  const [activeTab, setActiveTab] = useState<EventLogTab>('ai')
   const listRef = useRef<HTMLDivElement>(null)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
   const osNow = useOsNowDate(60_000)
@@ -294,10 +298,10 @@ export function EventLogApp() {
   return (
     <div
       ref={hostRef}
-      class={`event-log${narrowLayout ? ' event-log--narrow' : ''}${showStackedDetail ? ' event-log--detail-open' : ''}`}
+      class={`event-log${narrowLayout ? ' event-log--narrow' : ''}${showStackedDetail && activeTab === 'ai' ? ' event-log--detail-open' : ''}`}
     >
       <header class="event-log__header">
-        {showStackedDetail ? (
+        {showStackedDetail && activeTab === 'ai' ? (
           <IosNavBackButton
             class="event-log__back"
             iconSize={14}
@@ -308,20 +312,50 @@ export function EventLogApp() {
         ) : undefined}
         <div class="event-log__header-copy">
           <h2 class="event-log__title">
-            {showStackedDetail && selected ? selected.actorName : 'AI 生成事件'}
+            {activeTab === 'system'
+              ? '系统诊断'
+              : showStackedDetail && selected
+                ? selected.actorName
+                : 'AI 生成事件'}
           </h2>
           <p class="event-log__subtitle">
-            {showStackedDetail && selected
-              ? selected.behaviorLabel
-              : loading
-                ? '正在加载…'
-                : records.length === 0
-                  ? '暂无记录'
-                  : `最近 ${records.length} 条 · 保存在 IndexedDB`}
+            {activeTab === 'system'
+              ? 'npm / QuickJS / 文件系统采样面包屑'
+              : showStackedDetail && selected
+                ? selected.behaviorLabel
+                : loading
+                  ? '正在加载…'
+                  : records.length === 0
+                    ? '暂无记录'
+                    : `最近 ${records.length} 条 · 保存在 IndexedDB`}
           </p>
         </div>
       </header>
 
+      <div class="event-log__tabs" role="tablist" aria-label="日志类型">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'ai'}
+          class={`event-log__tab${activeTab === 'ai' ? ' event-log__tab--active' : ''}`}
+          onClick={() => setActiveTab('ai')}
+        >
+          AI
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'system'}
+          class={`event-log__tab${activeTab === 'system' ? ' event-log__tab--active' : ''}`}
+          onClick={() => setActiveTab('system')}
+        >
+          系统
+        </button>
+      </div>
+
+      {activeTab === 'system' ? (
+        <SystemDebugLogPanel narrowLayout={narrowLayout} />
+      ) : (
       <div class="event-log__body">
         <section class="event-log__list-panel" aria-label="事件列表">
           <div class="event-log__panel-header">
@@ -500,6 +534,7 @@ export function EventLogApp() {
           )}
         </section>
       </div>
+      )}
     </div>
   )
 }

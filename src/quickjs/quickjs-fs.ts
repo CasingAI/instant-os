@@ -3,25 +3,51 @@ import type {
   QuickJSHandle,
 } from 'quickjs-emscripten'
 import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
+import { filesWatch } from '../apps/files/files-api.ts'
+import type { FilesWatchChange } from '../apps/files/files-api.ts'
 import { QuickJsFsError, isQuickJsFsError, toQuickJsFsError } from './quickjs-fs-errors.ts'
-import type { QuickJsFsHostOps, QuickJsFsStats } from './quickjs-fs-vfs.ts'
+import { resolveGuestFsPath } from './quickjs-fs-path.ts'
+import { createPosixPathApi } from './quickjs-path.ts'
+import type { QuickJsFsDirent, QuickJsFsHostOps, QuickJsFsStats } from './quickjs-fs-vfs.ts'
 import {
   fsHostAccess,
   fsHostAppendFile,
+  fsHostChmod,
+  fsHostChown,
+  fsHostCopyFile,
   fsHostExists,
   fsHostLstat,
   fsHostMkdir,
+  fsHostMkdtemp,
   fsHostReadFile,
   fsHostReaddir,
   fsHostReadlink,
+  fsHostRealpath,
   fsHostRename,
   fsHostRm,
   fsHostRmdir,
   fsHostStat,
   fsHostSymlink,
+  fsHostTruncate,
   fsHostUnlink,
   fsHostWriteFile,
 } from './quickjs-fs-vfs.ts'
+
+/** Node `fs.constants` 子集（access / open 标志）。 */
+export const INSTANT_FS_CONSTANTS = {
+  F_OK: 0,
+  R_OK: 4,
+  W_OK: 2,
+  X_OK: 1,
+  COPYFILE_EXCL: 1,
+  O_RDONLY: 0,
+  O_WRONLY: 1,
+  O_RDWR: 2,
+  O_CREAT: 64,
+  O_EXCL: 128,
+  O_TRUNC: 512,
+  O_APPEND: 1024,
+} as const
 
 const TMP_AB_KEY = '__instantFsTmpArrayBuffer'
 
@@ -241,6 +267,79 @@ function encodeMkdirResult(context: QuickJSAsyncContext, path: string | undefine
   return context.newString(path)
 }
 
+function encodeReaddirResult(
+  context: QuickJSAsyncContext,
+  names: string[] | QuickJsFsDirent[],
+): QuickJSHandle {
+  if (names.length === 0) {
+    return encodeStringArray(context, [])
+  }
+  if (typeof names[0] === 'string') {
+    return encodeStringArray(context, names as string[])
+  }
+  const arr = context.newArray()
+  let index = 0
+  for (const entry of names as QuickJsFsDirent[]) {
+    const h = direntToGuest(context, entry)
+    context.setProp(arr, String(index), h)
+    h.dispose()
+    index += 1
+  }
+  const lenHandle = context.newNumber(index)
+  context.setProp(arr, 'length', lenHandle)
+  lenHandle.dispose()
+  return arr
+}
+
+function direntToGuest(context: QuickJSAsyncContext, entry: QuickJsFsDirent): QuickJSHandle {
+  const obj = context.newObject()
+  const nameHandle = context.newString(entry.name)
+  context.setProp(obj, 'name', nameHandle)
+  nameHandle.dispose()
+  const bindBool = (method: string, value: boolean) => {
+    const fn = context.newFunction(method, () => (value ? context.true : context.false))
+    context.setProp(obj, method, fn)
+    fn.dispose()
+  }
+  bindBool('isFile', entry.isFile)
+  bindBool('isDirectory', entry.isDirectory)
+  bindBool('isSymbolicLink', entry.isSymbolicLink)
+  return obj
+}
+
+function parseReaddirOptions(
+  context: QuickJSAsyncContext,
+  args: QuickJSHandle[],
+  hasCb: boolean,
+): { withFileTypes?: boolean } | undefined {
+  const optsHandle = hasCb
+    ? args.length >= 3 && context.typeof(args[1]!) === 'object'
+      ? args[1]
+      : undefined
+    : args.length >= 2 && context.typeof(args[1]!) === 'object'
+      ? args[1]
+      : undefined
+  if (optsHandle === undefined) {
+    return undefined
+  }
+  return dumpPrimitive(context, optsHandle) as { withFileTypes?: boolean }
+}
+
+function mapFilesWatchEvent(change: FilesWatchChange): 'rename' | 'change' {
+  return change.kind === 'modified' ? 'change' : 'rename'
+}
+
+function injectFsConstants(context: QuickJSAsyncContext, fsObject: QuickJSHandle): void {
+  const constants = context.newObject()
+  for (const [key, value] of Object.entries(INSTANT_FS_CONSTANTS)) {
+    const num = context.newNumber(value)
+    context.setProp(constants, key, num)
+    num.dispose()
+  }
+  context.setProp(fsObject, 'constants', constants)
+  constants.dispose()
+}
+
 function isGuestFunction(context: QuickJSAsyncContext, handle: QuickJSHandle | undefined): boolean {
   if (handle === undefined) {
     return false
@@ -258,6 +357,7 @@ function isGuestFunction(context: QuickJSAsyncContext, handle: QuickJSHandle | u
 export function injectFs(options: InjectFsOptions): {
   fsHandle: QuickJSHandle
   promisesHandle: QuickJSHandle
+  disposeFsWatchers: () => void
 } {
   const { context, asyncBridge, ops } = options
 
@@ -358,6 +458,23 @@ export function injectFs(options: InjectFsOptions): {
 
   const promises = context.newObject()
   const fsObject = context.newObject()
+  const activeWatchCleanups = new Set<() => void>()
+  const watchFileEntries = new Map<string, () => void>()
+  let fsInjectDisposed = false
+
+  const disposeFsWatchers = () => {
+    if (fsInjectDisposed) {
+      return
+    }
+    fsInjectDisposed = true
+    for (const cleanup of [...activeWatchCleanups]) {
+      cleanup()
+    }
+    activeWatchCleanups.clear()
+    watchFileEntries.clear()
+  }
+
+  injectFsConstants(context, fsObject)
 
   // ---- promises API ----
   const bindPromise = <T>(
@@ -411,8 +528,71 @@ export function injectFs(options: InjectFsOptions): {
 
   bindPromise(
     'readdir',
-    async (args) => fsHostReaddir(ops, dumpPrimitive(context, args[0]!)),
-    encodeStringArray,
+    async (args) => {
+      const opts =
+        args.length >= 2 && context.typeof(args[1]!) === 'object'
+          ? (dumpPrimitive(context, args[1]!) as { withFileTypes?: boolean })
+          : undefined
+      return fsHostReaddir(ops, dumpPrimitive(context, args[0]!), opts)
+    },
+    encodeReaddirResult,
+  )
+
+  bindPromise(
+    'realpath',
+    async (args) => fsHostRealpath(ops, dumpPrimitive(context, args[0]!)),
+    encodeMkdirResult,
+  )
+
+  bindPromise(
+    'copyFile',
+    async (args) => {
+      const mode =
+        args.length >= 3 && context.typeof(args[2]!) === 'number'
+          ? context.getNumber(args[2]!)
+          : undefined
+      await fsHostCopyFile(
+        ops,
+        dumpPrimitive(context, args[0]!),
+        dumpPrimitive(context, args[1]!),
+        mode,
+      )
+    },
+    encodeVoid,
+  )
+
+  bindPromise(
+    'mkdtemp',
+    async (args) => fsHostMkdtemp(ops, dumpPrimitive(context, args[0]!)),
+    encodeMkdirResult,
+  )
+
+  bindPromise(
+    'truncate',
+    async (args) => {
+      const len =
+        args.length >= 2 && context.typeof(args[1]!) === 'number'
+          ? context.getNumber(args[1]!)
+          : 0
+      await fsHostTruncate(ops, dumpPrimitive(context, args[0]!), len)
+    },
+    encodeVoid,
+  )
+
+  bindPromise(
+    'chmod',
+    async (args) => {
+      await fsHostChmod(ops, dumpPrimitive(context, args[0]!))
+    },
+    encodeVoid,
+  )
+
+  bindPromise(
+    'chown',
+    async (args) => {
+      await fsHostChown(ops, dumpPrimitive(context, args[0]!))
+    },
+    encodeVoid,
   )
 
   bindPromise(
@@ -616,12 +796,143 @@ export function injectFs(options: InjectFsOptions): {
     (args) => {
       const last = args[args.length - 1]
       const hasCb = isGuestFunction(context, last)
+      const opts = parseReaddirOptions(context, args, hasCb)
       return {
         callback: hasCb ? last : undefined,
-        work: () => fsHostReaddir(ops, dumpPrimitive(context, args[0]!)),
+        work: () => fsHostReaddir(ops, dumpPrimitive(context, args[0]!), opts),
       }
     },
-    encodeStringArray,
+    encodeReaddirResult,
+  )
+
+  bindCallbackAndSync(
+    'realpath',
+    'realpathSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      return {
+        callback: hasCb ? last : undefined,
+        work: () => fsHostRealpath(ops, dumpPrimitive(context, args[0]!)),
+      }
+    },
+    encodeMkdirResult,
+  )
+
+  const realpathSyncHandle = context.getProp(fsObject, 'realpathSync')
+  const realpathNativeFn = context.newAsyncifiedFunction('native', async (pathHandle) => {
+    try {
+      const value = await fsHostRealpath(ops, dumpPrimitive(context, pathHandle))
+      return context.newString(value)
+    } catch (error) {
+      return context.fail(createGuestFsError(context, error))
+    }
+  })
+  context.setProp(realpathSyncHandle, 'native', realpathNativeFn)
+  realpathNativeFn.dispose()
+  realpathSyncHandle.dispose()
+
+  bindCallbackAndSync(
+    'copyFile',
+    'copyFileSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      const modeArg = hasCb
+        ? args.length >= 4
+          ? args[2]
+          : undefined
+        : args.length >= 3
+          ? args[2]
+          : undefined
+      const mode =
+        modeArg !== undefined && context.typeof(modeArg) === 'number'
+          ? context.getNumber(modeArg)
+          : undefined
+      return {
+        callback: hasCb ? last : undefined,
+        work: async () => {
+          await fsHostCopyFile(
+            ops,
+            dumpPrimitive(context, args[0]!),
+            dumpPrimitive(context, args[1]!),
+            mode,
+          )
+        },
+      }
+    },
+    encodeVoid,
+  )
+
+  bindCallbackAndSync(
+    'mkdtemp',
+    'mkdtempSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      return {
+        callback: hasCb ? last : undefined,
+        work: () => fsHostMkdtemp(ops, dumpPrimitive(context, args[0]!)),
+      }
+    },
+    encodeMkdirResult,
+  )
+
+  bindCallbackAndSync(
+    'truncate',
+    'truncateSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      const lenArg = hasCb
+        ? args.length >= 3
+          ? args[1]
+          : undefined
+        : args.length >= 2
+          ? args[1]
+          : undefined
+      const len =
+        lenArg !== undefined && context.typeof(lenArg) === 'number' ? context.getNumber(lenArg) : 0
+      return {
+        callback: hasCb ? last : undefined,
+        work: async () => {
+          await fsHostTruncate(ops, dumpPrimitive(context, args[0]!), len)
+        },
+      }
+    },
+    encodeVoid,
+  )
+
+  bindCallbackAndSync(
+    'chmod',
+    'chmodSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      return {
+        callback: hasCb ? last : undefined,
+        work: async () => {
+          await fsHostChmod(ops, dumpPrimitive(context, args[0]!))
+        },
+      }
+    },
+    encodeVoid,
+  )
+
+  bindCallbackAndSync(
+    'chown',
+    'chownSync',
+    (args) => {
+      const last = args[args.length - 1]
+      const hasCb = isGuestFunction(context, last)
+      return {
+        callback: hasCb ? last : undefined,
+        work: async () => {
+          await fsHostChown(ops, dumpPrimitive(context, args[0]!))
+        },
+      }
+    },
+    encodeVoid,
   )
 
   bindCallbackAndSync(
@@ -780,6 +1091,171 @@ export function injectFs(options: InjectFsOptions): {
     encodeVoid,
   )
 
+  const pathForWatch = () => createPosixPathApi(ops.getCwd)
+
+  const emitWatchEvent = (
+    listener: QuickJSHandle,
+    watcher: QuickJSHandle,
+    event: 'rename' | 'change',
+    filename: string,
+  ) => {
+    if (ops.isDestroyed() || fsInjectDisposed) {
+      return
+    }
+    const eventHandle = context.newString(event)
+    const fileHandle = context.newString(filename)
+    try {
+      const result = context.callFunction(listener, watcher, eventHandle, fileHandle)
+      if (result.error) {
+        result.error.dispose()
+      } else {
+        result.value.dispose()
+      }
+    } catch {
+      // instance 已销毁时忽略迟到的 watch 回调
+    } finally {
+      eventHandle.dispose()
+      fileHandle.dispose()
+    }
+  }
+
+  const watchFn = context.newFunction('watch', (...argHandles) => {
+    const pathRaw = dumpPrimitive(context, argHandles[0]!)
+    let options: { recursive?: boolean } | undefined
+    let listener: QuickJSHandle | undefined
+    if (argHandles.length >= 2) {
+      if (isGuestFunction(context, argHandles[1])) {
+        listener = argHandles[1]
+      } else if (context.typeof(argHandles[1]!) === 'object') {
+        options = dumpPrimitive(context, argHandles[1]!) as { recursive?: boolean }
+        if (argHandles.length >= 3 && isGuestFunction(context, argHandles[2])) {
+          listener = argHandles[2]
+        }
+      }
+    }
+
+    const watcher = context.newObject()
+    let closed = false
+    let unsub: (() => void) | undefined
+
+    const cleanup = () => {
+      if (closed) {
+        return
+      }
+      closed = true
+      unsub?.()
+      activeWatchCleanups.delete(cleanup)
+    }
+    activeWatchCleanups.add(cleanup)
+
+    const closeFn = context.newFunction('close', () => {
+      cleanup()
+      return context.undefined
+    })
+    context.setProp(watcher, 'close', closeFn)
+    closeFn.dispose()
+
+    try {
+      const absolute = resolveGuestFsPath(pathRaw, ops.getCwd)
+      unsub = filesWatch(
+        absolute,
+        (change) => {
+          if (closed || ops.isDestroyed() || fsInjectDisposed || listener === undefined) {
+            return
+          }
+          const event = mapFilesWatchEvent(change)
+          const filename = pathForWatch().basename(change.path)
+          emitWatchEvent(listener, watcher, event, filename)
+        },
+        { recursive: options?.recursive !== false },
+      )
+    } catch {
+      cleanup()
+    }
+
+    return watcher
+  })
+  context.setProp(fsObject, 'watch', watchFn)
+  watchFn.dispose()
+
+  const watchFileFn = context.newFunction('watchFile', (...argHandles) => {
+    let listener: QuickJSHandle | undefined
+    if (argHandles.length >= 2 && isGuestFunction(context, argHandles[1])) {
+      listener = argHandles[1]
+    } else if (argHandles.length >= 3 && isGuestFunction(context, argHandles[2])) {
+      listener = argHandles[2]
+    }
+    if (listener === undefined) {
+      return context.undefined
+    }
+
+    const absolute = resolveGuestFsPath(dumpPrimitive(context, argHandles[0]!), ops.getCwd)
+    watchFileEntries.get(absolute)?.()
+
+    let closed = false
+    let unsub: (() => void) | undefined
+    const cleanup = () => {
+      if (closed) {
+        return
+      }
+      closed = true
+      unsub?.()
+      watchFileEntries.delete(absolute)
+      activeWatchCleanups.delete(cleanup)
+    }
+    activeWatchCleanups.add(cleanup)
+    watchFileEntries.set(absolute, cleanup)
+
+    try {
+      unsub = filesWatch(
+        absolute,
+        () => {
+          if (closed || ops.isDestroyed() || fsInjectDisposed) {
+            return
+          }
+          void (async () => {
+            try {
+              const stats = await fsHostStat(ops, absolute)
+              if (closed || ops.isDestroyed()) {
+                return
+              }
+              const statHandle = hostStatsToGuest(context, stats)
+              const result = context.callFunction(
+                listener!,
+                context.undefined,
+                statHandle,
+                statHandle,
+              )
+              statHandle.dispose()
+              if (result.error) {
+                result.error.dispose()
+              } else {
+                result.value.dispose()
+              }
+            } catch {
+              // ignore stat failures during watch
+            }
+          })()
+        },
+        { recursive: false },
+      )
+    } catch {
+      cleanup()
+    }
+
+    return context.undefined
+  })
+  context.setProp(fsObject, 'watchFile', watchFileFn)
+  watchFileFn.dispose()
+
+  const unwatchFileFn = context.newFunction('unwatchFile', (pathHandle) => {
+    const absolute = resolveGuestFsPath(dumpPrimitive(context, pathHandle), ops.getCwd)
+    watchFileEntries.get(absolute)?.()
+    return context.undefined
+  })
+  context.setProp(fsObject, 'unwatchFile', unwatchFileFn)
+  unwatchFileFn.dispose()
+
   // exists / existsSync（Node 已弃用但常用）
   const existsCb = context.newFunction('exists', (pathHandle, cbHandle) => {
     if (isGuestFunction(context, cbHandle)) {
@@ -823,7 +1299,7 @@ export function injectFs(options: InjectFsOptions): {
 
   context.setProp(fsObject, 'promises', promises)
 
-  return { fsHandle: fsObject, promisesHandle: promises }
+  return { fsHandle: fsObject, promisesHandle: promises, disposeFsWatchers }
 }
 
 export function buildFsModuleSource(builtinsGlobalKey: string): string {
@@ -856,6 +1332,22 @@ export function buildFsModuleSource(builtinsGlobalKey: string): string {
     'rmdirSync',
     'access',
     'accessSync',
+    'realpath',
+    'realpathSync',
+    'copyFile',
+    'copyFileSync',
+    'mkdtemp',
+    'mkdtempSync',
+    'truncate',
+    'truncateSync',
+    'chmod',
+    'chmodSync',
+    'chown',
+    'chownSync',
+    'watch',
+    'watchFile',
+    'unwatchFile',
+    'constants',
     'exists',
     'existsSync',
     'promises',
@@ -880,6 +1372,12 @@ export function buildFsPromisesModuleSource(builtinsGlobalKey: string): string {
     'rm',
     'rmdir',
     'access',
+    'realpath',
+    'copyFile',
+    'mkdtemp',
+    'truncate',
+    'chmod',
+    'chown',
   ]
   const named = keys.map((key) => `export const ${key} = __m.${key};`).join('\n')
   return `const __m = globalThis.${builtinsGlobalKey}['fs/promises'];\n${named}\nexport default __m;\n`

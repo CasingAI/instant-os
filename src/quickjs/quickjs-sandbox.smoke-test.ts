@@ -1,6 +1,11 @@
 import 'fake-indexeddb/auto'
 import { filesCreateText, filesMkdir, filesRemove, filesStat, filesSymlink } from '../apps/files/files-api.ts'
-import { npmScriptGuestPermissions } from '../packages/package-run.ts'
+import {
+  extractNodePathFromBinShim,
+  isDeprecatedNpmTscPlaceholderSource,
+  looksLikeShellBinShim,
+  npmScriptGuestPermissions,
+} from '../packages/package-run.ts'
 import { createQuickJsInstance } from './quickjs-instance.ts'
 import { runQuickJsSandbox } from './quickjs-sandbox.ts'
 
@@ -1418,6 +1423,63 @@ export default {
     throw new Error(`unexpected os import: ${JSON.stringify(osImport.value)}`)
   }
 
+  // --- thin module (vite CLI 入口会 import 'node:module') ---
+  const moduleBasics = await timerInstance.eval(`
+    var mod = require('module')
+    var same = mod === require('node:module')
+    mod.enableCompileCache()
+    mod.flushCompileCache()
+    ;({
+      same: same,
+      hasEnable: typeof mod.enableCompileCache === 'function',
+      hasFlush: typeof mod.flushCompileCache === 'function',
+      cacheDir: mod.getCompileCacheDir(),
+      createRequireThrows: (function () {
+        try {
+          mod.createRequire('/tmp/x.js')
+          return false
+        } catch (e) {
+          return String(e && e.message ? e.message : e).indexOf('not implemented') >= 0
+        }
+      })(),
+    })
+  `)
+  if (!moduleBasics.ok) {
+    throw new Error(`module basics failed: ${JSON.stringify(moduleBasics)}`)
+  }
+  const moduleVal = moduleBasics.value as Record<string, unknown>
+  if (
+    moduleVal.same !== true ||
+    moduleVal.hasEnable !== true ||
+    moduleVal.hasFlush !== true ||
+    moduleVal.cacheDir !== undefined ||
+    moduleVal.createRequireThrows !== true
+  ) {
+    throw new Error(`unexpected module basics: ${JSON.stringify(moduleVal)}`)
+  }
+
+  const moduleImport = await timerInstance.eval(`
+import modDefault, { enableCompileCache, flushCompileCache } from 'node:module'
+export default {
+  sameDefault: modDefault.enableCompileCache === enableCompileCache,
+  enableType: typeof enableCompileCache,
+  flushType: typeof flushCompileCache,
+}
+`)
+  if (!moduleImport.ok) {
+    throw new Error(`module import failed: ${JSON.stringify(moduleImport)}`)
+  }
+  const moduleImportVal =
+    (moduleImport.value as { default?: Record<string, unknown> }).default ??
+    (moduleImport.value as Record<string, unknown>)
+  if (
+    moduleImportVal.sameDefault !== true ||
+    moduleImportVal.enableType !== 'function' ||
+    moduleImportVal.flushType !== 'function'
+  ) {
+    throw new Error(`unexpected module import: ${JSON.stringify(moduleImport.value)}`)
+  }
+
   // --- L3.0.1 / L3.0.2 perf_hooks（宿主真实 Performance 桥）---
   const perfBasics = await timerInstance.eval(`
     var ph = require('perf_hooks')
@@ -1528,6 +1590,80 @@ export default {
   ) {
     throw new Error(`unexpected symlink semantics: ${JSON.stringify(linkSetup.value)}`)
   }
+
+  const realpathProbe = await linkInstance.eval(`
+    var fs = require('fs')
+    var rp = fs.realpathSync('alias.txt')
+    var viaNative = fs.realpathSync.native('alias.txt')
+    var viaPromise
+    fs.promises.realpath('alias.txt').then(function (p) { viaPromise = p })
+    ;({
+      rp: rp,
+      viaNative: viaNative,
+      hasNativeFn: typeof fs.realpathSync.native === 'function',
+      constantsFok: fs.constants.F_OK === 0,
+      copyOk: (function () {
+        fs.copyFileSync('real.txt', 'copy.txt')
+        return fs.readFileSync('copy.txt', 'utf8')
+      })(),
+      mkdtempPath: fs.mkdtempSync('tmpdirXXXXXX'),
+      truncated: (function () {
+        fs.writeFileSync('trunc.txt', 'abcdef')
+        fs.truncateSync('trunc.txt', 3)
+        return fs.readFileSync('trunc.txt', 'utf8')
+      })(),
+      chmodOk: (function () {
+        fs.chmodSync('real.txt', 0o644)
+        fs.chownSync('real.txt', 0, 0)
+        return true
+      })(),
+      dirent: (function () {
+        var list = fs.readdirSync('.', { withFileTypes: true })
+        var ent = list.filter(function (d) { return d.name === 'real.txt' })[0]
+        return ent ? { name: ent.name, isFile: ent.isFile() } : null
+      })(),
+    })
+  `)
+  if (!realpathProbe.ok) {
+    throw new Error(`fs extended probe failed: ${JSON.stringify(realpathProbe)}`)
+  }
+  const rpVal = realpathProbe.value as Record<string, unknown>
+  const expectedReal = `${linkRoot}/real.txt`
+  if (
+    rpVal.rp !== expectedReal ||
+    rpVal.viaNative !== expectedReal ||
+    rpVal.hasNativeFn !== true ||
+    rpVal.constantsFok !== true ||
+    rpVal.copyOk !== 'via-link' ||
+    typeof rpVal.mkdtempPath !== 'string' ||
+    !(rpVal.mkdtempPath as string).includes('tmpdir') ||
+    rpVal.truncated !== 'abc' ||
+    rpVal.chmodOk !== true ||
+    (rpVal.dirent as { isFile?: boolean } | null)?.isFile !== true
+  ) {
+    throw new Error(`unexpected fs extended probe: ${JSON.stringify(realpathProbe.value)}`)
+  }
+
+  const watchProbe = await linkInstance.eval(`
+    var fs = require('fs')
+    var events = []
+    var w = fs.watch('.', function (ev, file) {
+      events.push(ev + ':' + file)
+    })
+    fs.writeFileSync('watched.txt', '1')
+    var closed = false
+    w.close()
+    closed = true
+    ;({ count: events.length, hasClose: typeof w.close === 'function', closed: closed })
+  `)
+  if (!watchProbe.ok) {
+    throw new Error(`fs watch probe failed: ${JSON.stringify(watchProbe)}`)
+  }
+  const watchVal = watchProbe.value as { count?: number; hasClose?: boolean }
+  if (watchVal.hasClose !== true) {
+    throw new Error(`unexpected fs watch probe: ${JSON.stringify(watchProbe.value)}`)
+  }
+
   linkInstance.destroy()
   try {
     await filesRemove(linkRoot)
@@ -1642,7 +1778,46 @@ export default {
   console.log('quickjs-instance smoke test passed')
 }
 
+async function testBinShimParse() {
+  const basedir = '/proj/node_modules/.bin'
+  const pnpmShim = `#!/bin/sh
+basedir=$(dirname "$(echo "$0" | sed -e 's,\\\\,/,g')")
+if [ -x "$basedir/node" ]; then
+  exec "$basedir/node"  "$basedir/../.pnpm/typescript@6.0.3/node_modules/typescript/bin/tsc" "$@"
+else
+  exec node  "$basedir/../.pnpm/typescript@6.0.3/node_modules/typescript/bin/tsc" "$@"
+fi
+`
+  if (!looksLikeShellBinShim(pnpmShim)) {
+    throw new Error('expected pnpm shim to look like shell bin shim')
+  }
+  const resolved = extractNodePathFromBinShim(pnpmShim, basedir)
+  const expected =
+    '/proj/node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/bin/tsc'
+  if (resolved !== expected) {
+    throw new Error(`unexpected shim resolve: ${resolved} (want ${expected})`)
+  }
+
+  const nodeShebang = `#!/usr/bin/env node
+require('../lib/tsc.js')
+`
+  if (looksLikeShellBinShim(nodeShebang)) {
+    throw new Error('node shebang entry should not look like shell shim')
+  }
+
+  if (
+    !isDeprecatedNpmTscPlaceholderSource(
+      'This is not the tsc command you are looking for',
+    )
+  ) {
+    throw new Error('expected placeholder detector to match')
+  }
+
+  console.log('bin-shim parse smoke test passed')
+}
+
 async function main() {
+  await testBinShimParse()
   await testSandbox()
   await testInstance()
 }

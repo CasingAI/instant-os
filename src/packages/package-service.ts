@@ -669,6 +669,15 @@ async function linkBins(
       ? { [name.includes('/') ? name.split('/').pop()! : name]: bin }
       : ((bin ?? {}) as Record<string, string>)
   for (const [binName, rel] of Object.entries(entries)) {
+    // 禁止 npm 占位包 `tsc` 覆盖 `typescript` 已链接的编译器入口
+    if (binName === 'tsc' && name === 'tsc') {
+      const typescriptLinked = await filesStat(
+        `${projectRoot}/node_modules/typescript/bin/tsc`,
+      )
+      if (typescriptLinked && typescriptLinked.kind !== 'folder') {
+        continue
+      }
+    }
     const targetFile = `${storePath}/${rel.replace(/^\.\//, '')}`
     const linkPath = `${binDir}/${binName}`
     const existing = await filesLstat(linkPath)

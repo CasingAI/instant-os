@@ -10,6 +10,10 @@ import {
   patchExperimentalSettings,
 } from '../../os/experimental-settings-storage.ts'
 import {
+  loadSystemDebugLogSettings,
+  patchSystemDebugLogSettings,
+} from '../../os/system-debug-log-settings-storage.ts'
+import {
   DATA_CAPACITY_BYTES,
   clearDevDataStorageFill,
   fillDataStorageToCapacityForDev,
@@ -64,6 +68,9 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
   )
   const [alwaysShowCursor, setAlwaysShowCursor] = useState(
     () => loadExperimentalSettings().alwaysShowCursor,
+  )
+  const [systemDebugLog, setSystemDebugLog] = useState(
+    () => loadSystemDebugLogSettings().enabled,
   )
   const [saveError, setSaveError] = useState(false)
   const [devUrl, setDevUrl] = useState('http://localhost:6175/')
@@ -125,6 +132,15 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
 
     setSaveError(false)
     setAlwaysShowCursor(checked)
+  }
+
+  const handleToggleSystemDebugLog = (checked: boolean) => {
+    if (!patchSystemDebugLogSettings({ enabled: checked })) {
+      setSaveError(true)
+      return
+    }
+    setSaveError(false)
+    setSystemDebugLog(checked)
   }
 
   const handleAddDevExtApp = async () => {
@@ -423,6 +439,12 @@ export function DeveloperSettingsView({ onBack }: DeveloperSettingsViewProps) {
               description="开启后，启动界面与冷启动过渡期间也会显示系统鼠标指针，便于调试与录屏。"
               checked={alwaysShowCursor}
               onChange={handleToggleAlwaysShowCursor}
+            />
+            <DeveloperFeature
+              title="系统诊断日志"
+              description="在「事件日志 → 系统」记录 npm run / QuickJS / 文件系统采样面包屑，并节流写入 localStorage（跨标签可读）。整页卡死后请新开标签页查看「上次会话残留」；不保证卡死当下 UI 仍可操作。"
+              checked={systemDebugLog}
+              onChange={handleToggleSystemDebugLog}
             />
             <DeveloperFeature
               title="停用窗口合成器加速"

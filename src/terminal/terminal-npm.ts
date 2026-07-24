@@ -265,6 +265,8 @@ export async function runTerminalNpmOrNpx(
       })
       if (!result.ok) {
         io.write(result.error)
+      } else if (result.exitCode !== 0) {
+        io.write(`npm run ${scriptName} 退出码 ${result.exitCode}`)
       }
       return
     }
