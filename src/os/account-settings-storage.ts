@@ -115,6 +115,8 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     typeof record.thinkingEnabled === 'boolean'
       ? record.thinkingEnabled
       : false
+  const useProxy =
+    typeof record.useProxy === 'boolean' ? record.useProxy : false
   const baseURL =
     typeof record.baseURL === 'string' ? record.baseURL.trim() : ''
   const id =
@@ -159,6 +161,7 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     enabledModels,
     defaultModel,
     thinkingEnabled,
+    useProxy,
   }
 }
 
@@ -390,6 +393,7 @@ export function accountSettingsToOpenAiConfig(
     defaultModel: ref.modelId,
     providerId: entry.providerId,
     thinkingEnabled: entry.thinkingEnabled,
+    useProxy: entry.useProxy,
   }
 }
 
@@ -418,6 +422,7 @@ export function openAiConfigForModelRef(
     defaultModel: ref.modelId,
     providerId: entry.providerId,
     thinkingEnabled: entry.thinkingEnabled,
+    useProxy: entry.useProxy,
   }
 }
 

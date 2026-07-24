@@ -62,6 +62,7 @@ export function AiProviderForm({
     newEntry.id = entry.id
     newEntry.name = entry.name
     newEntry.apiKey = entry.apiKey
+    newEntry.useProxy = entry.useProxy
     if (entry.baseURL) {
       newEntry.baseURL = entry.baseURL
     }
@@ -340,6 +341,12 @@ export function AiProviderForm({
           onChange={(thinkingEnabled) => onChange({ ...entry, thinkingEnabled })}
         />
       )}
+
+      <SettingsSwitchRow
+        label="使用代理服务器访问"
+        checked={entry.useProxy}
+        onChange={(useProxy) => onChange({ ...entry, useProxy })}
+      />
     </>
   )
 

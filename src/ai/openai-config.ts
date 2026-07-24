@@ -14,6 +14,8 @@ export type OpenAiConfig = {
   defaultModel: string
   providerId: AiProviderId
   thinkingEnabled: boolean
+  /** 是否经系统代理服务器访问 */
+  useProxy?: boolean
 }
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
@@ -63,6 +65,8 @@ export function mergeOpenAiConfig(
     overrides?.thinkingEnabled ??
     stored?.thinkingEnabled ??
     getDefaultThinkingEnabled(providerId)
+  const useProxy =
+    overrides?.useProxy ?? stored?.useProxy ?? false
 
   if (!apiKey) {
     throw new Error(
@@ -76,6 +80,7 @@ export function mergeOpenAiConfig(
     defaultModel,
     providerId,
     thinkingEnabled,
+    useProxy,
   }
 }
 

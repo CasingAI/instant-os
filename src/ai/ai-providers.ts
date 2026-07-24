@@ -66,6 +66,8 @@ export type AiProviderEntry = {
   enabledModels: AiModelEntry[]
   defaultModel: string
   thinkingEnabled: boolean
+  /** 是否经系统代理服务器访问该供应商 */
+  useProxy: boolean
 }
 
 /** 某能力下的首选模型指针（供应商条目 id + 模型 id） */
@@ -606,6 +608,7 @@ export function defaultProviderEntry(
       enabledModels: [],
       defaultModel: '',
       thinkingEnabled: false,
+      useProxy: false,
     }
   }
 
@@ -617,6 +620,7 @@ export function defaultProviderEntry(
     enabledModels: buildEnabledModelsFromPreset(providerId),
     defaultModel: preset?.defaultModel ?? '',
     thinkingEnabled: getDefaultThinkingEnabled(providerId),
+    useProxy: false,
   }
 }
 

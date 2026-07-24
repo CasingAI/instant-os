@@ -83,6 +83,7 @@ function providersEqual(
       entry.baseURL === other.baseURL &&
       entry.defaultModel === other.defaultModel &&
       entry.thinkingEnabled === other.thinkingEnabled &&
+      entry.useProxy === other.useProxy &&
       entry.enabledModels.length === other.enabledModels.length &&
       entry.enabledModels.every(
         (m, j) =>
@@ -1018,6 +1019,7 @@ function ProviderSettingsForm({
     newEntry.id = entry.id
     newEntry.name = entry.name
     newEntry.apiKey = entry.apiKey
+    newEntry.useProxy = entry.useProxy
     if (entry.baseURL) newEntry.baseURL = entry.baseURL
     onChange(newEntry)
   }
@@ -1274,6 +1276,19 @@ function ProviderSettingsForm({
           </div>
         </div>
       )}
+
+      <div class="settings__list">
+        <div class="settings__row settings__row--switch">
+          <span class="settings__row-name">使用代理服务器访问</span>
+          <IosSwitch
+            checked={entry.useProxy}
+            onChange={(useProxy) =>
+              onChange({ ...entry, useProxy })
+            }
+            label="使用代理服务器访问"
+          />
+        </div>
+      </div>
     </div>
   )
 }

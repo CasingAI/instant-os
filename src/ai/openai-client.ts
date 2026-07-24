@@ -1,6 +1,11 @@
 import OpenAI from 'openai'
 import type { AiModelCapability } from './ai-providers.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
+import {
+  isProxyServerConnected,
+  proxiedFetch,
+  ProxyServerApiError,
+} from '../os/proxy-server-api.ts'
 
 let cachedClient: OpenAI | undefined
 let cachedConfigKey: string | undefined
@@ -11,7 +16,24 @@ export function clearOpenAiClientCache(): void {
 }
 
 function configCacheKey(config: OpenAiConfig): string {
-  return `${config.apiKey}|${config.baseURL ?? ''}|${config.defaultModel}|${config.providerId}|${config.thinkingEnabled}`
+  return `${config.apiKey}|${config.baseURL ?? ''}|${config.defaultModel}|${config.providerId}|${config.thinkingEnabled}|${config.useProxy ?? false}`
+}
+
+/**
+ * 当供应商要求走代理时，返回一个内部调用 proxiedFetch 的 fetch 替身。
+ * 代理未连接时仍返回一个函数，让运行时抛出可读错误而非静默直连。
+ */
+function createProxyFetch(): typeof fetch {
+  return (input, init) => {
+    if (!isProxyServerConnected()) {
+      return Promise.reject(
+        new ProxyServerApiError(
+          '代理服务器未连接，请先在「系统设置 -> 代理服务器」中连接',
+        ),
+      )
+    }
+    return proxiedFetch(input, init)
+  }
 }
 
 export function createOpenAiClient(
@@ -23,6 +45,7 @@ export function createOpenAiClient(
     apiKey: config.apiKey,
     baseURL: config.baseURL,
     dangerouslyAllowBrowser: true,
+    ...(config.useProxy ? { fetch: createProxyFetch() } : {}),
   })
 }
 
