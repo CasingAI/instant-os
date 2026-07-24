@@ -31,6 +31,8 @@ export type TerminalPanelProps = {
 /** Braille 旋转帧，表示模型仍在执行（工具调用 / 输出等） */
 const STATUS_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
 
+const COMMAND_HISTORY_LIMIT = 200
+
 function TerminalStatusSpinner() {
   const [frame, setFrame] = useState(0)
 
@@ -141,6 +143,12 @@ export function TerminalPanel({
   const justSubmittedRef = useRef(false)
   /** 组字结束后紧跟的 Enter 多半是「确认选词」，不要当成提交 */
   const imeGuardUntilRef = useRef(0)
+  /** 用户提交过的命令，旧 → 新 */
+  const commandHistoryRef = useRef<string[]>([])
+  /** -1 = 正在编辑当前草稿；≥0 = 浏览历史中的条目 */
+  const historyIndexRef = useRef(-1)
+  /** 第一次按 ↑ 离开草稿时暂存，↓ 回到最新时恢复 */
+  const historyDraftRef = useRef('')
 
   const focusInput = () => {
     const node = inputRef.current
@@ -151,13 +159,60 @@ export function TerminalPanel({
     })
   }
 
+  const applyDraft = (value: string) => {
+    draftRef.current = value
+    setDraft(value)
+  }
+
   const clearDraft = () => {
-    draftRef.current = ''
-    setDraft('')
+    applyDraft('')
+  }
+
+  const resetHistoryBrowse = () => {
+    historyIndexRef.current = -1
+    historyDraftRef.current = ''
+  }
+
+  const rememberCommand = (raw: string) => {
+    const command = raw.replace(/\r$/, '')
+    if (!command.trim()) return
+    const history = commandHistoryRef.current
+    if (history[history.length - 1] === command) return
+    const next = [...history, command]
+    commandHistoryRef.current =
+      next.length > COMMAND_HISTORY_LIMIT ? next.slice(-COMMAND_HISTORY_LIMIT) : next
+  }
+
+  const browseHistory = (direction: 'older' | 'newer') => {
+    const history = commandHistoryRef.current
+    if (history.length === 0) return
+
+    let index = historyIndexRef.current
+    if (index < 0) {
+      if (direction === 'newer') return
+      historyDraftRef.current = draftRef.current
+      index = history.length - 1
+    } else if (direction === 'older') {
+      if (index <= 0) return
+      index -= 1
+    } else {
+      index += 1
+      if (index >= history.length) {
+        historyIndexRef.current = -1
+        applyDraft(historyDraftRef.current)
+        historyDraftRef.current = ''
+        return
+      }
+    }
+
+    historyIndexRef.current = index
+    applyDraft(history[index] ?? '')
   }
 
   const submitDraft = () => {
     const line = draftRef.current
+    rememberCommand(line)
+    resetHistoryBrowse()
     justSubmittedRef.current = true
     imeGuardUntilRef.current = Date.now() + 150
     clearDraft()
@@ -180,7 +235,7 @@ export function TerminalPanel({
     try {
       const result = await completeTerminalTab(draftRef.current, session.getCwd())
       if (result.nextDraft !== draftRef.current) {
-        setDraft(result.nextDraft)
+        applyDraft(result.nextDraft)
       }
       if (result.candidates && result.candidates.length > 0) {
         session.write(result.candidates.join('  '))
@@ -340,6 +395,12 @@ export function TerminalPanel({
               if (composing) return
               event.preventDefault()
               void applyTabComplete()
+              return
+            }
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              if (composing) return
+              event.preventDefault()
+              browseHistory(event.key === 'ArrowUp' ? 'older' : 'newer')
               return
             }
             if (event.key === 'Enter') {
