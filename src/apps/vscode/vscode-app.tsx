@@ -61,7 +61,6 @@ import {
   getFocusedCloseTarget,
   getGroupActiveItem,
   countOtherItemsInGroup,
-  layoutHasItems,
   moveEditorItemToGroup,
   openAiChatInFocusedGroup,
   openMarkdownPreviewToSide,
@@ -252,7 +251,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const sidebarRef = useRef<HTMLElement>(null)
   const explorerBtnRef = useRef<HTMLButtonElement>(null)
   const searchBtnRef = useRef<HTMLButtonElement>(null)
-  const aiBtnRef = useRef<HTMLButtonElement>(null)
   const settingsBtnRef = useRef<HTMLButtonElement>(null)
   const [tabs, setTabs] = useState<VscodeTab[]>([])
   const [sessionReady, setSessionReady] = useState(false)
@@ -352,12 +350,26 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   editorLayoutRef.current = editorLayout
   sessionReadyRef.current = sessionReady
 
-  // 管理欢迎tab：当没有任何tab时自动添加欢迎tab
+  // 管理欢迎tab：空布局时自动补欢迎页；欢迎页与真实标签共存时自动关闭欢迎页
   useEffect(() => {
-    // 只在完全没有item时添加欢迎tab
-    if (!layoutHasItems(editorLayout)) {
-      setEditorLayout(openWelcomeInFocusedGroup(editorLayout))
-    }
+    setEditorLayout((current) => {
+      let hasWelcome = false
+      let hasOther = false
+      for (const group of Object.values(current.groups)) {
+        for (const item of group.items) {
+          if (item.kind === 'welcome') hasWelcome = true
+          else hasOther = true
+        }
+        if (hasWelcome && hasOther) break
+      }
+      if (hasWelcome && hasOther) {
+        return removeWelcomeFromLayout(current)
+      }
+      if (!hasWelcome && !hasOther) {
+        return openWelcomeInFocusedGroup(current)
+      }
+      return current
+    })
   }, [editorLayout])
 
   const focusedGroup = editorLayout.groups[editorLayout.focusedGroupId]
@@ -2223,20 +2235,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 stroke="currentColor"
                 stroke-width="2.6"
                 stroke-linecap="round"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            ref={aiBtnRef}
-            class="vscode__activity-btn"
-            title="AI"
-            onClick={() => openOrFocusAiChat()}
-          >
-            <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 3c4.2 0 7.5 3.1 7.5 7 0 2.4-1.2 4.5-3 5.8V19a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-3.2C5.7 14.5 4.5 12.4 4.5 10 4.5 6.1 7.8 3 12 3zm0 2C9 5 6.5 7.2 6.5 10c0 1.8 1 3.4 2.5 4.3.6.4 1 1 1 1.7V19h4v-3c0-.7.4-1.3 1-1.7 1.5-.9 2.5-2.5 2.5-4.3 0-2.8-2.5-5-5.5-5z"
-                fill="currentColor"
               />
             </svg>
           </button>
