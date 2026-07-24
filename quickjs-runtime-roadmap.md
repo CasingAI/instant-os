@@ -17,8 +17,8 @@
 | L1 迷你 Node 宿主 | `done` | 实例宿主 + Virtual JS 文件入口 |
 | L2 包与 npm 兼容面 | `done` | PackageService + symlink + 终端 npm/npx + Packages App |
 | L2.5 Node CLI 内建面 | `done` | assert/util/os + cowsay 全链路；`.bin` 真实路径 |
-| L3.0 构建 CLI 内建面 | `todo` | **当前焦点** · `perf_hooks` 等构建向缺口，撞墙补 |
-| L3.1 伪进程 / 任务编排 | `blocked` | 依赖 L3.0 |
+| L3.0 构建 CLI 内建面 | `done` | `perf_hooks` 宿主 Performance 桥 + `test:quickjs` 探针 |
+| L3.1 伪进程 / 任务编排 | `todo` | **当前焦点** · 伪 child_process / 子任务 |
 | L3.2 系统构建后端 | `blocked` | 依赖 L3.1 |
 | L3.3 样例构建闭环 | `blocked` | 依赖 L3.2 |
 | L3.4 构建硬化 | `blocked` | 依赖 L3.3 |
@@ -26,8 +26,8 @@
 
 状态枚举：`todo`（未开始）/ `doing`（进行中）/ `done`（已验收）/ `blocked`（被下层挡住）/ `cancelled`。
 
-**当前焦点**：L3.0  
-**上次更新**：2026-07-23
+**当前焦点**：L3.1  
+**上次更新**：2026-07-24
 
 ---
 
@@ -327,35 +327,45 @@ L2.5 证明：**能装 ≠ 能跑小 CLI**。L3 再拆一层认识：**能跑 co
 
 ### 目标
 
-在 L2.5（cowsay 级）之上，补齐**构建类工具**常见会撞的 Node 内建子集。观测点：桌面/`npm run` 路径已出现 `perf_hooks` 等「known but not implemented」。
+在 L2.5（cowsay 级）之上，补齐**构建类工具**常见会撞的 Node 内建子集。观测点：终端/`npm run` 路径已出现 `perf_hooks`「known but not implemented」。
 
 **前置**：L2.5 `done`。
 
+### 已观测缺口与优先表（L3.0.0）
+
+| 优先级 | 模块 / 面 | 说明 |
+|--------|-----------|------|
+| **P0** | `perf_hooks` | 必写。W3C 计时面（`now` / `timeOrigin` / User Timing / `getEntries*`）**桥接宿主真实** `globalThis.performance`；`perf_hooks` / `node:perf_hooks` 同源 |
+| **P1** | `url` / `querystring`、薄 `stream`、`string_decoder`、`tty` | L2.5 滚下；仅探针点名再补 |
+| **不做真接** | `PerformanceObserver`；`eventLoopUtilization` / `monitorEventLoopDelay` / `nodeTiming` 真值；`timerify` / histogram / GC·http 条目 | 无 libuv / 本层范围外 |
+
+**薄探针**：`test:quickjs` guest 冒烟（CJS + ESM）；不以 Vite/`tsc` 全链路为验收。
+
 ### 成功标准（验收）
 
-- `require('perf_hooks')` / `node:perf_hooks` 同源可用（最小面：至少 `performance.now` 或等价计时；Observer 可后置）。
-- 选定一条**薄探针**（guest 冒烟或极简 CLI 入口）：不以「builtin not implemented」退出；若再撞墙，记入本层 Todo 并补最小面。
+- `require('perf_hooks')` / `node:perf_hooks` 同源可用；`now` 与 mark/measure 走宿主真实 API。
+- 薄探针不以「builtin not implemented」退出；若再撞墙，记入本层 Todo 并补最小面。
 - 差异文档三栏更新；未实现名仍报「已知未实现 + 已实现列表」。
 
 ### 大致要做的事
 
-1. 按真实构建探针撞墙滚动：`perf_hooks` 优先；L2.5 未撞的 `url` / `querystring` / 薄 `stream` / `string_decoder` / `tty` 仅在点名时落地。
-2. 同一内建注册表路径；手写薄实现或受控 vendor；禁止桌面 Node 原生绑定。
+1. `perf_hooks` 宿主桥（非 guest `Date.now` 假时钟）；P1 仅点名落地。
+2. 同一内建注册表路径；禁止桌面 Node 原生绑定。
 3. 每补一模块：冒烟 + 差异文档。
 
 ### Todo（L3.0）
 
-**状态**：`todo` · 里程碑 M3.0 · Build Builtins · **当前焦点**
+**状态**：`done` · 里程碑 M3.0 · Build Builtins · 焦点已移至 L3.1
 
-- [ ] **L3.0.0 缺口清单**：根据 `perf_hooks` 与候选薄探针，列出优先补齐表；同步差异文档「滚动中」
-- [ ] **L3.0.1 `perf_hooks` 子集**：`performance.now`（及探针实际用到的符号）；`node:perf_hooks` 同源
-- [ ] **L3.0.2 薄探针冒烟**：脚本或 CLI 入口跑通；记录仍缺模块
-- [ ] **L3.0.3 滚动补齐**：探针路径上点名的 `url` / `stream` / … 按需最小面
-- [ ] **L3.0.4 验收勾选**：对照成功标准；看板 L3.0 → `done`，焦点 → L3.1
+- [x] **L3.0.0 缺口清单**：根据 `perf_hooks` 与候选薄探针，列出优先补齐表；同步差异文档「滚动中」
+- [x] **L3.0.1 `perf_hooks` 子集**：宿主桥 `now` / `timeOrigin` / User Timing / `getEntries*`；`node:perf_hooks` 同源
+- [x] **L3.0.2 薄探针冒烟**：`test:quickjs` CJS/ESM；本轮未再撞其它内建
+- [x] **L3.0.3 滚动补齐**：本轮探针未点名 `url` / `stream` / …，无新增实现
+- [x] **L3.0.4 验收勾选**：对照成功标准；看板 L3.0 → `done`，焦点 → L3.1
 
 ### 本层明确不做
 
-- 完整 Performance Timeline / User Timing 全 API。
+- 完整 Performance Timeline / Observer；Node 专有 ELU / `nodeTiming` 真值。
 - 为通过本层而嵌入完整打包器（属 L3.2）。
 
 ### 交付物
@@ -387,7 +397,7 @@ L2.5 证明：**能装 ≠ 能跑小 CLI**。L3 再拆一层认识：**能跑 co
 
 ### Todo（L3.1）
 
-**状态**：`blocked`（待 L3.0）· 里程碑 M3.1 · Process Orchestra
+**状态**：`todo`（待开工）· 里程碑 M3.1 · Process Orchestra · **当前焦点**
 
 - [ ] **L3.1.1 子任务模型**：生命周期、并发上限、与会话能力票对齐
 - [ ] **L3.1.2 伪 `child_process` 子集**（或 Instant 命名 API）：spawn/fork 语义之一；argv/env/cwd
@@ -723,6 +733,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | L2.5.8：`process.versions`/`version`/`platform`/`arch`/`isTTY` 假值；兼容锚点文档化为 Node 20.18.0 子集（非完整实现承诺）；修复 yargs `versions.electron` 探测崩。 |
 | 2026-07-23 | **L2.5 收口**：薄 `os`；`process.execPath` + `stdin.isTTY`；修 `npm run` `.bin` lstat→真实入口；`test:quickjs-cowsay` 全链路通过；看板 L2.5 → `done`，焦点 → L3。 |
 | 2026-07-23 | **L3 拆分**：原单块 L3 扩为 L3.0（构建内建/`perf_hooks`）→ L3.1（伪进程）→ L3.2（系统打包后端）→ L3.3（样例 dist）→ L3.4（硬化）；看板焦点 → L3.0；L4 改待 L3.4。 |
+| 2026-07-24 | **L3.0 收口**：薄 `perf_hooks` 桥接宿主真实 Performance（`now`/`timeOrigin`/User Timing/`getEntries*`）；明确不做 Observer/ELU/`nodeTiming`；`test:quickjs` 探针通过；看板 L3.0 → `done`，焦点 → L3.1。 |
 
 ---
 

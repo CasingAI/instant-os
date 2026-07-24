@@ -14,6 +14,10 @@ import {
   injectFs,
 } from './quickjs-fs.ts'
 import { buildOsModuleSource, injectOs } from './quickjs-os.ts'
+import {
+  buildPerfHooksModuleSource,
+  injectPerfHooks,
+} from './quickjs-perf-hooks.ts'
 import { buildUtilModuleSource, injectUtil } from './quickjs-util.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import {
@@ -157,6 +161,9 @@ function builtinModuleSource(canonical: string): string | undefined {
   if (canonical === 'os') {
     return OS_MODULE_SOURCE
   }
+  if (canonical === 'perf_hooks') {
+    return PERF_HOOKS_MODULE_SOURCE
+  }
   if (canonical === 'fs') {
     return FS_MODULE_SOURCE
   }
@@ -281,6 +288,7 @@ const EVENTS_MODULE_SOURCE = buildEventsModuleSource(BUILTINS_GLOBAL_KEY)
 const ASSERT_MODULE_SOURCE = buildAssertModuleSource(BUILTINS_GLOBAL_KEY)
 const UTIL_MODULE_SOURCE = buildUtilModuleSource(BUILTINS_GLOBAL_KEY)
 const OS_MODULE_SOURCE = buildOsModuleSource(BUILTINS_GLOBAL_KEY)
+const PERF_HOOKS_MODULE_SOURCE = buildPerfHooksModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_MODULE_SOURCE = buildFsModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_PROMISES_MODULE_SOURCE = buildFsPromisesModuleSource(BUILTINS_GLOBAL_KEY)
 
@@ -306,7 +314,10 @@ function lookupBuiltinHandle(
 
 /**
  * 注入 Node 内建注册表：setModuleLoader（ESM）+ 全局 require（内建 + 文件级 CJS）。
- * 已实现内建：path、buffer、events、assert、util、os、fs、fs/promises（及 node: / path/posix 别名）。
+ * 已实现内建：path、buffer、events、assert、util、os、perf_hooks、fs、fs/promises
+ * （及 node: / path/posix 别名）。
+ *
+ * `perf_hooks`：W3C 计时面桥接宿主真实 Performance；Node 专有 API 不做——见 quickjs-perf-hooks.ts。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSAsyncRuntime,
@@ -326,6 +337,7 @@ export function injectNodeBuiltins(
     'assert',
     'util',
     'os',
+    'perf_hooks',
     'fs',
     'fs/promises',
   ])
@@ -338,6 +350,7 @@ export function injectNodeBuiltins(
   const assertHandle = injectAssert(context)
   const utilHandle = injectUtil(context)
   const osHandle = injectOs(context)
+  const perfHooksHandle = injectPerfHooks(context)
   const { fsHandle, promisesHandle } = injectFs({
     context,
     asyncBridge: options.asyncBridge,
@@ -357,6 +370,8 @@ export function injectNodeBuiltins(
   utilHandle.dispose()
   context.setProp(namespace, 'os', osHandle)
   osHandle.dispose()
+  context.setProp(namespace, 'perf_hooks', perfHooksHandle)
+  perfHooksHandle.dispose()
   context.setProp(namespace, 'fs', fsHandle)
   context.setProp(namespace, 'fs/promises', promisesHandle)
   fsHandle.dispose()

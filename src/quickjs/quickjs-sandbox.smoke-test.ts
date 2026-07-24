@@ -1414,6 +1414,69 @@ export default {
     throw new Error(`unexpected os import: ${JSON.stringify(osImport.value)}`)
   }
 
+  // --- L3.0.1 / L3.0.2 perf_hooks（宿主真实 Performance 桥）---
+  const perfBasics = await timerInstance.eval(`
+    var ph = require('perf_hooks')
+    var same = ph === require('node:perf_hooks')
+    var performance = ph.performance
+    var t0 = performance.now()
+    var t1 = performance.now()
+    performance.clearMarks('instant-perf-smoke-a')
+    performance.clearMeasures('instant-perf-smoke')
+    performance.mark('instant-perf-smoke-a')
+    performance.mark('instant-perf-smoke-b')
+    performance.measure('instant-perf-smoke', 'instant-perf-smoke-a', 'instant-perf-smoke-b')
+    var measures = performance.getEntriesByType('measure').filter(function (e) {
+      return e.name === 'instant-perf-smoke'
+    })
+    performance.clearMarks('instant-perf-smoke-a')
+    performance.clearMarks('instant-perf-smoke-b')
+    performance.clearMeasures('instant-perf-smoke')
+    ;({
+      same: same,
+      nowNumber: typeof t0 === 'number' && typeof t1 === 'number',
+      nowMonotonic: t1 >= t0,
+      timeOriginNumber: typeof performance.timeOrigin === 'number',
+      measureHit: measures.length === 1 && typeof measures[0].duration === 'number',
+    })
+  `)
+  if (!perfBasics.ok) {
+    throw new Error(`perf_hooks basics failed: ${JSON.stringify(perfBasics)}`)
+  }
+  const perfVal = perfBasics.value as Record<string, unknown>
+  if (
+    perfVal.same !== true ||
+    perfVal.nowNumber !== true ||
+    perfVal.nowMonotonic !== true ||
+    perfVal.timeOriginNumber !== true ||
+    perfVal.measureHit !== true
+  ) {
+    throw new Error(`unexpected perf_hooks basics: ${JSON.stringify(perfVal)}`)
+  }
+
+  const perfImport = await timerInstance.eval(`
+import phDefault, { performance as perfNamed } from 'perf_hooks'
+import { performance as nodePerf } from 'node:perf_hooks'
+export default {
+  sameDefault: phDefault.performance === perfNamed,
+  sameNode: perfNamed === nodePerf,
+  nowOk: typeof perfNamed.now() === 'number',
+}
+`)
+  if (!perfImport.ok) {
+    throw new Error(`perf_hooks import failed: ${JSON.stringify(perfImport)}`)
+  }
+  const perfImportVal =
+    (perfImport.value as { default?: Record<string, unknown> }).default ??
+    (perfImport.value as Record<string, unknown>)
+  if (
+    perfImportVal.sameDefault !== true ||
+    perfImportVal.sameNode !== true ||
+    perfImportVal.nowOk !== true
+  ) {
+    throw new Error(`unexpected perf_hooks import: ${JSON.stringify(perfImport.value)}`)
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)
