@@ -76,6 +76,7 @@ import {
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
+import { isBinaryFile } from './is-binary-file.ts'
 import {
   notifyFilesWatch,
   type FilesWatchChange,
@@ -801,14 +802,7 @@ async function readTextFileByNodeIdUnmetered(
     throw new Error('文件不存在')
   }
   const text = await readBlobText(id)
-  if (text.length > 0) {
-    return { node, text }
-  }
-  const bytes = await readBlobBytes(id)
-  if (bytes) {
-    return { node, text: new TextDecoder().decode(bytes) }
-  }
-  return { node, text: '' }
+  return { node, text }
 }
 
 /** 读取文件二进制内容（挂载卷 File，或本地卷已存的 bytes） */
@@ -848,9 +842,10 @@ async function readFileBlobByNodeIdUnmetered(
     const type = node.mimeType ?? 'application/octet-stream'
     return { node, blob: new Blob([new Uint8Array(bytes)], { type }) }
   }
-  const text = await readBlobText(id)
-  const type = node.mimeType ?? 'text/plain'
-  return { node, blob: new Blob([text], { type }) }
+  return {
+    node,
+    blob: new Blob([], { type: node.mimeType ?? 'application/octet-stream' }),
+  }
 }
 
 export async function writeTextFile(ref: string, text: string): Promise<FilesNode> {
@@ -1073,8 +1068,8 @@ export async function estimateCopyBytes(sourceId: string): Promise<number> {
 
 async function estimateCopyBytesForNode(node: FilesNode): Promise<number> {
   if (node.kind === 'file') {
-    const { text } = await readTextFileByNodeIdUnmetered(node.id)
-    return estimateNodeMetaBytes(node) + estimateTextBytes(text)
+    const { blob } = await readFileBlobByNodeIdUnmetered(node.id)
+    return estimateNodeMetaBytes(node) + blob.size
   }
   if (node.kind === 'symlink') {
     return estimateNodeMetaBytes(node) + estimateTextBytes(node.target ?? '')
@@ -1139,7 +1134,26 @@ async function copyNodeTree(
   destParentId: string | undefined,
 ): Promise<FilesNode> {
   if (source.kind === 'file') {
-    const { text } = await readTextFileByNodeId(source.id)
+    const { node, blob } = await readFileBlobByNodeId(source.id)
+    const bytes = await blob.arrayBuffer()
+    const asBinary = isBinaryFile({
+      fileName: source.name,
+      mimeType: node.mimeType ?? source.mimeType ?? blob.type,
+      bytes,
+    })
+    if (asBinary) {
+      if (isMountLocationId(destLocationId)) {
+        throw new Error('挂载卷暂不支持粘贴二进制文件')
+      }
+      return createBinaryFile({
+        locationId: destLocationId,
+        parentId: destParentId,
+        name: source.name,
+        bytes,
+        mimeType: node.mimeType ?? source.mimeType ?? 'application/octet-stream',
+      })
+    }
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes))
     return createTextFile({
       locationId: destLocationId,
       parentId: destParentId,

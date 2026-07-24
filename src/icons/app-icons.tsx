@@ -1218,6 +1218,32 @@ export function PackagesIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function ArchiveUtilityIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#78716c" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="18" y="12" width="28" height="40" rx="3" fill="#44403c" />
+        <rect x="20" y="14" width="24" height="36" rx="2" fill="#f5f5f4" />
+        <path
+          d="M26 12 H38 V18 H26 Z"
+          fill="#a8a29e"
+        />
+        <path d="M28 22 H36" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path d="M28 28 H36" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path d="M28 34 H36" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path d="M28 40 H34" stroke="#78716c" stroke-width="2" stroke-linecap="round" />
+        <path
+          d="M40 36 L48 42 L40 48 Z"
+          fill="#d6d3d1"
+          stroke="#57534e"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function HelpIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#e8b014" size={size}>

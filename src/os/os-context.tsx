@@ -96,6 +96,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   'github-desktop': { title: 'GitHub Desktop', width: 980, height: 680 },
   help: { title: '帮助', width: 820, height: 640 },
   terminal: { title: '终端', width: 760, height: 520 },
+  'archive-utility': { title: '压缩包实用工具', width: 320, height: 120 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {

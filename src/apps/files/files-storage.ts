@@ -48,9 +48,12 @@ type FilesNodeRecord = {
 
 type FilesBlobRecord = {
   id: string
-  /** 文本内容；与 bytes 可并存，读取方按用途择一 */
+  /**
+   * @deprecated 仅兼容旧数据；新写入只存 bytes。迁移后应清空。
+   * 与 bytes 可并存；读取优先 bytes。
+   */
   text?: string
-  /** 二进制内容（图片等）；无则不可当作二进制文件读取 */
+  /** 文件内容（UTF-8 文本或任意二进制） */
   bytes?: ArrayBuffer
 }
 
@@ -186,6 +189,19 @@ export function estimateTextBytes(text: string): number {
   return new TextEncoder().encode(text).length
 }
 
+/** 将文本编码为可写入 IndexedDB 的 ArrayBuffer（拷贝自 TextEncoder 视图） */
+export function encodeTextToArrayBuffer(text: string): ArrayBuffer {
+  const bytes = new TextEncoder().encode(text)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy.buffer
+}
+
+export function decodeBytesToText(bytes: ArrayBuffer | Uint8Array): string {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  return new TextDecoder('utf-8', { fatal: false }).decode(view)
+}
+
 export function estimateNodeMetaBytes(
   node: Pick<FilesNode, 'name' | 'kind' | 'mimeType' | 'locationId' | 'attributes'>,
 ): number {
@@ -272,10 +288,14 @@ export async function readBlobText(id: string): Promise<string> {
     tx.objectStore(FILES_BLOBS_STORE).get(id) as IDBRequest<FilesBlobRecord | undefined>,
   )
   await waitForTransaction(tx)
-  return record?.text ?? ''
+  if (!record) return ''
+  if (record.bytes !== undefined) {
+    return decodeBytesToText(record.bytes)
+  }
+  return record.text ?? ''
 }
 
-/** 读取本地卷二进制内容；无 bytes 时返回 undefined（不把文本当二进制） */
+/** 读取本地卷内容字节；仅有旧 text 时按 UTF-8 编码返回（兼容迁移前数据） */
 export async function readBlobBytes(id: string): Promise<ArrayBuffer | undefined> {
   const db = await openFilesDb()
   const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
@@ -283,7 +303,10 @@ export async function readBlobBytes(id: string): Promise<ArrayBuffer | undefined
     tx.objectStore(FILES_BLOBS_STORE).get(id) as IDBRequest<FilesBlobRecord | undefined>,
   )
   await waitForTransaction(tx)
-  return record?.bytes
+  if (!record) return undefined
+  if (record.bytes !== undefined) return record.bytes
+  if (record.text !== undefined) return encodeTextToArrayBuffer(record.text)
+  return undefined
 }
 
 export async function createFileWithBlob(params: {
@@ -303,7 +326,10 @@ export async function createFileWithBlob(params: {
   const db = await openFilesDb()
   const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
   tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node))
-  tx.objectStore(FILES_BLOBS_STORE).put({ id: node.id, text: params.text } satisfies FilesBlobRecord)
+  tx.objectStore(FILES_BLOBS_STORE).put({
+    id: node.id,
+    bytes: encodeTextToArrayBuffer(params.text),
+  } satisfies FilesBlobRecord)
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: total + needed,
@@ -401,7 +427,10 @@ export async function writeBlobText(params: {
 
   const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
-  writeTx.objectStore(FILES_BLOBS_STORE).put({ id: params.id, text: params.text } satisfies FilesBlobRecord)
+  writeTx.objectStore(FILES_BLOBS_STORE).put({
+    id: params.id,
+    bytes: encodeTextToArrayBuffer(params.text),
+  } satisfies FilesBlobRecord)
   writeTx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: Math.max(0, total + needed),
@@ -754,7 +783,10 @@ export async function commitFilesBatch(
         contentRevisionId: newContentRevisionId(),
       }
       nodes.put(nodeToRecord(node))
-      blobs.put({ id: node.id, text: op.text } satisfies FilesBlobRecord)
+      blobs.put({
+        id: node.id,
+        bytes: encodeTextToArrayBuffer(op.text),
+      } satisfies FilesBlobRecord)
       results.push(node)
       continue
     }
@@ -786,7 +818,10 @@ export async function commitFilesBatch(
         attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
       }
       nodes.put(updated)
-      blobs.put({ id: op.id, text: op.text } satisfies FilesBlobRecord)
+      blobs.put({
+        id: op.id,
+        bytes: encodeTextToArrayBuffer(op.text),
+      } satisfies FilesBlobRecord)
       results.push(recordToNode(updated))
       continue
     }

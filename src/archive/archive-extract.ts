@@ -56,18 +56,21 @@ export async function extractGzipTarToDirectory(params: {
   return { ...written, entries: map }
 }
 
-/** 解压 zip 到目录（自动剥公共根）。 */
+/** 解压 zip 到目录；默认自动剥公共根，传 stripRoot: false 保留归档内路径。 */
 export async function extractZipToDirectory(params: {
   destRoot: string
   zip: Uint8Array
   /** 若提供则跳过解码 */
   entries?: ReadonlyMap<string, Uint8Array>
+  stripRoot?: boolean
   signal?: AbortSignal
   maxBatchFiles?: number
   maxBatchBytes?: number
   onProgress?: (progress: ArchiveExtractProgress) => void
 }): Promise<ArchiveExtractResult> {
-  const map = params.entries ? new Map(params.entries) : unzipBytes(params.zip)
+  const map = params.entries
+    ? new Map(params.entries)
+    : unzipBytes(params.zip, { stripRoot: params.stripRoot })
   const entryList = [...map.entries()].map(([relativePath, bytes]) => ({
     relativePath,
     bytes,

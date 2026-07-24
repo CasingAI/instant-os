@@ -1,0 +1,96 @@
+.archive-utility-app {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.archive-utility-progress-host {
+  position: fixed;
+  inset: 0;
+  z-index: 11850;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.archive-utility-progress {
+  pointer-events: auto;
+  width: min(320px, calc(100vw - 48px));
+  padding: 16px 18px 14px;
+  border-radius: 14px;
+  background: rgba(248, 248, 250, 0.92);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.22),
+    0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  color: #1c1c1e;
+}
+
+.archive-utility-progress__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.archive-utility-progress__detail {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  color: #636366;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-utility-progress__track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(60, 60, 67, 0.12);
+  overflow: hidden;
+}
+
+.archive-utility-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--archive-utility-theme, #6b7280);
+  transition: width 0.18s ease-out;
+}
+
+.archive-utility-progress__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.archive-utility-progress__btn {
+  appearance: none;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(120, 120, 128, 0.16);
+  color: #1c1c1e;
+  cursor: pointer;
+}
+
+.archive-utility-progress__btn:hover {
+  background: rgba(120, 120, 128, 0.24);
+}
+
+.archive-utility-progress__btn:active {
+  background: rgba(120, 120, 128, 0.32);
+}
+
+.archive-utility-progress__btn--primary {
+  background: var(--archive-utility-theme, #6b7280);
+  color: #fff;
+}
+
+.archive-utility-progress__btn--primary:hover {
+  filter: brightness(1.05);
+}
+
+.archive-utility-progress__btn--primary:active {
+  filter: brightness(0.95);
+}

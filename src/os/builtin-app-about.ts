@@ -214,6 +214,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '依赖以内容寻址方式缓存在系统 store，工作区 node_modules 使用符号链接；install 对齐锁优先。可在设置 → NPM 更换 registry。不支持原生 addon 与官方 npm 二进制。',
     ],
   },
+  'archive-utility': {
+    version: '解压缩',
+    paragraphs: [
+      '压缩包实用工具用于打开 .zip、.tar、.tar.gz / .tgz、.gz 等归档：内容解压到压缩包所在目录，行为类似 macOS「归档实用工具」。',
+      '不提供预览或编辑；仅在解压较慢时显示小型进度对话框。可在「文件」中设为默认打开程序。',
+    ],
+  },
   keychain: {
     version: '凭证与 API Key',
     paragraphs: [

@@ -43,7 +43,26 @@ export function stripZipRoot(files: Record<string, Uint8Array>): Map<string, Uin
   return map
 }
 
-/** 解压 zip 为相对路径 → 字节；自动剥一层公共根目录。 */
-export function unzipBytes(buffer: Uint8Array): Map<string, Uint8Array> {
+/** 解压 zip 为相对路径 → 字节；保留归档内路径（含顶层目录）。 */
+export function unzipBytesPreserveRoot(buffer: Uint8Array): Map<string, Uint8Array> {
+  const unzipped = unzipSync(buffer)
+  const map = new Map<string, Uint8Array>()
+  for (const [key, bytes] of Object.entries(unzipped)) {
+    if (!bytes || key.endsWith('/')) continue
+    const relative = normalizeZipPath(key)
+    if (!relative || relative.split('/').includes('..')) continue
+    map.set(relative, bytes)
+  }
+  return map
+}
+
+/** 解压 zip 为相对路径 → 字节；默认剥一层公共根目录。 */
+export function unzipBytes(
+  buffer: Uint8Array,
+  options?: { stripRoot?: boolean },
+): Map<string, Uint8Array> {
+  if (options?.stripRoot === false) {
+    return unzipBytesPreserveRoot(buffer)
+  }
   return stripZipRoot(unzipSync(buffer))
 }
