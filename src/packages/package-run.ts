@@ -8,8 +8,41 @@ import {
   filesStat,
 } from '../apps/files/files-api.ts'
 import { createQuickJsInstance } from '../quickjs/quickjs-instance.ts'
-import type { QuickJsEvalResult } from '../quickjs/quickjs-instance-types.ts'
+import type {
+  QuickJsEvalResult,
+  QuickJsInstanceOptions,
+} from '../quickjs/quickjs-instance-types.ts'
 import { getPackageServiceConfig } from './package-service.ts'
+
+/** npm run / npx guest 堆上限（高于 Virtual JS 默认，便于读 node_modules 大文件）。 */
+export const NPM_SCRIPT_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024
+/** 未显式传入时的 script eval 超时（构建级）。 */
+export const NPM_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000
+/** guest fs 不限制单文件体积（仍受堆与宿主 Files 约束）。 */
+export const NPM_SCRIPT_MAX_FILE_BYTES = Number.POSITIVE_INFINITY
+
+function resolveNpmScriptTimeoutMs(override: number | undefined): number {
+  return override ?? NPM_SCRIPT_TIMEOUT_MS
+}
+
+function npmScriptGuestInstanceOptions(
+  params: Pick<
+    QuickJsInstanceOptions,
+    'workspaceRoot' | 'cwd' | 'argv' | 'permissions' | 'env'
+  > & { timeoutMs?: number },
+): QuickJsInstanceOptions {
+  const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
+  return {
+    workspaceRoot: params.workspaceRoot,
+    cwd: params.cwd,
+    timeoutMs,
+    memoryLimitBytes: NPM_SCRIPT_MEMORY_LIMIT_BYTES,
+    maxFileBytes: NPM_SCRIPT_MAX_FILE_BYTES,
+    argv: params.argv,
+    permissions: params.permissions,
+    env: params.env,
+  }
+}
 
 /** npm run / npx：可读全局 store，可写项目源码，不可改 node_modules 与 store。 */
 export function npmScriptGuestPermissions(projectRoot: string): {
@@ -176,26 +209,29 @@ export async function runNpmScript(params: {
   // 去掉 shebang
   const code = source.replace(/^#![^\n]*\n/, '')
 
-  const instance = await createQuickJsInstance({
-    workspaceRoot: params.projectRoot,
-    cwd: packageRoot,
-    timeoutMs: params.timeoutMs,
-    argv: ['instant-node', entryFile, ...args],
-    permissions: npmScriptGuestPermissions(params.projectRoot),
-    env: {
-      ...params.env,
-      npm_lifecycle_event: params.scriptName,
-      npm_package_json: `${packageRoot}/package.json`,
-      INIT_CWD: params.env?.INIT_CWD ?? params.projectRoot,
-      PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
-    },
-  })
+  const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
+  const instance = await createQuickJsInstance(
+    npmScriptGuestInstanceOptions({
+      workspaceRoot: params.projectRoot,
+      cwd: packageRoot,
+      timeoutMs,
+      argv: ['instant-node', entryFile, ...args],
+      permissions: npmScriptGuestPermissions(params.projectRoot),
+      env: {
+        ...params.env,
+        npm_lifecycle_event: params.scriptName,
+        npm_package_json: `${packageRoot}/package.json`,
+        INIT_CWD: params.env?.INIT_CWD ?? params.projectRoot,
+        PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
+      },
+    }),
+  )
 
   try {
     params.signal?.throwIfAborted()
     const result = await instance.eval(code, {
       filename: entryFile,
-      timeoutMs: params.timeoutMs,
+      timeoutMs,
     })
     for (const line of result.consoleLines) {
       params.onConsole?.(line.level, line.text)
@@ -271,6 +307,8 @@ export async function runNpx(params: {
   env?: Record<string, string>
   signal?: AbortSignal
   onConsole?: (level: string, text: string) => void
+  /** 覆盖实例默认超时 */
+  timeoutMs?: number
   /** 若未安装则先 install */
   ensureInstalled?: (spec: string) => Promise<void>
 }): Promise<QuickJsEvalResult> {
@@ -310,19 +348,23 @@ export async function runNpx(params: {
   let entryFile = normalizeAbsolutePosix(`${pkgRoot}/${rel.replace(/^\.\//, '')}`)
   const source = (await filesReadText(entryFile)).replace(/^#![^\n]*\n/, '')
 
-  const instance = await createQuickJsInstance({
-    workspaceRoot: params.projectRoot,
-    cwd: pkgRoot,
-    argv: ['instant-node', entryFile, ...(params.args ?? [])],
-    permissions: npmScriptGuestPermissions(params.projectRoot),
-    env: {
-      ...params.env,
-      PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
-    },
-  })
+  const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
+  const instance = await createQuickJsInstance(
+    npmScriptGuestInstanceOptions({
+      workspaceRoot: params.projectRoot,
+      cwd: pkgRoot,
+      timeoutMs,
+      argv: ['instant-node', entryFile, ...(params.args ?? [])],
+      permissions: npmScriptGuestPermissions(params.projectRoot),
+      env: {
+        ...params.env,
+        PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
+      },
+    }),
+  )
   try {
     params.signal?.throwIfAborted()
-    const result = await instance.eval(source, { filename: entryFile })
+    const result = await instance.eval(source, { filename: entryFile, timeoutMs })
     for (const line of result.consoleLines) {
       params.onConsole?.(line.level, line.text)
     }
