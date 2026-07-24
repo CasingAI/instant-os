@@ -505,10 +505,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       const startWidth = sidebarWidthRef.current
 
       const onMove = (moveEvent: PointerEvent) => {
-        const next = Math.min(
-          420,
-          Math.max(160, Math.round(startWidth + (moveEvent.clientX - startX))),
-        )
+        const next = Math.max(0, Math.round(startWidth + (moveEvent.clientX - startX)))
         updatePrefs({ sidebarWidth: next })
       }
       const onUp = (upEvent: PointerEvent) => {

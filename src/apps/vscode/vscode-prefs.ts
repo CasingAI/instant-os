@@ -141,8 +141,8 @@ export function loadVscodePrefs(): VscodePrefs {
           ? clamp(parsed.terminalHeight, 120, 720)
           : DEFAULT_PREFS.terminalHeight,
       sidebarWidth:
-        typeof parsed.sidebarWidth === 'number'
-          ? clamp(parsed.sidebarWidth, 160, 420)
+        typeof parsed.sidebarWidth === 'number' && Number.isFinite(parsed.sidebarWidth)
+          ? Math.max(0, parsed.sidebarWidth)
           : DEFAULT_PREFS.sidebarWidth,
       workspaceFolder: normalizeWorkspaceFolder(parsed.workspaceFolder),
       search: normalizeSearchPrefs(parsed.search),
