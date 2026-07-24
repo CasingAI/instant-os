@@ -10,6 +10,9 @@ import {
 import { createQuickJsInstance } from '../quickjs/quickjs-instance.ts'
 import type { QuickJsEvalResult } from '../quickjs/quickjs-instance-types.ts'
 
+/** install lifecycle 默认超时（高于普通 eval 的 5s） */
+export const LIFECYCLE_SCRIPT_TIMEOUT_MS = 60_000
+
 function parseBinField(
   name: string,
   bin: unknown,
@@ -64,8 +67,23 @@ async function resolveBinEntryFile(
   return entryFile
 }
 
-async function readPackageJson(projectRoot: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await filesReadText(`${projectRoot}/package.json`)) as Record<string, unknown>
+async function readPackageJson(packageRoot: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await filesReadText(`${packageRoot}/package.json`)) as Record<string, unknown>
+}
+
+/** 无 package.json 时返回 undefined（lifecycle 静默跳过，不抛「文件不存在」） */
+async function tryReadPackageJson(
+  packageRoot: string,
+): Promise<Record<string, unknown> | undefined> {
+  const path = `${packageRoot}/package.json`
+  const st = await filesStat(path)
+  if (!st || st.kind === 'folder') return undefined
+  try {
+    return JSON.parse(await filesReadText(path)) as Record<string, unknown>
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`无法读取 ${path}: ${message}`)
+  }
 }
 
 /** 将 npm script 命令粗解析为可在 QuickJS 中执行的入口（仅支持 `node <file>` / 直接 `.js` / `.bin` 名） */
@@ -94,13 +112,21 @@ export function parseScriptCommand(command: string): {
 
 export async function runNpmScript(params: {
   projectRoot: string
+  /**
+   * 读 scripts / 相对入口 / process.cwd 的包根。
+   * 默认等于 projectRoot（根项目 `npm run`）。
+   */
+  packageRoot?: string
   scriptName: string
   extraArgs?: string[]
   env?: Record<string, string>
   signal?: AbortSignal
   onConsole?: (level: string, text: string) => void
+  /** 覆盖实例默认超时 */
+  timeoutMs?: number
 }): Promise<QuickJsEvalResult & { scriptCommand?: string }> {
-  const pkg = await readPackageJson(params.projectRoot)
+  const packageRoot = params.packageRoot ?? params.projectRoot
+  const pkg = await readPackageJson(packageRoot)
   const scripts = (pkg.scripts as Record<string, string> | undefined) ?? {}
   const command = scripts[params.scriptName]
   if (!command) {
@@ -118,7 +144,7 @@ export async function runNpmScript(params: {
   if (parsed.kind === 'node-file') {
     entryFile = parsed.target.startsWith('/')
       ? parsed.target
-      : `${params.projectRoot}/${parsed.target.replace(/^\.\//, '')}`
+      : `${packageRoot}/${parsed.target.replace(/^\.\//, '')}`
   } else {
     entryFile = await resolveBinEntryFile(params.projectRoot, parsed.target)
   }
@@ -137,24 +163,88 @@ export async function runNpmScript(params: {
 
   const instance = await createQuickJsInstance({
     workspaceRoot: params.projectRoot,
+    cwd: packageRoot,
+    timeoutMs: params.timeoutMs,
     argv: ['instant-node', entryFile, ...args],
     env: {
       ...params.env,
       npm_lifecycle_event: params.scriptName,
-      npm_package_json: `${params.projectRoot}/package.json`,
+      npm_package_json: `${packageRoot}/package.json`,
+      INIT_CWD: params.env?.INIT_CWD ?? params.projectRoot,
       PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,
     },
   })
 
   try {
     params.signal?.throwIfAborted()
-    const result = await instance.eval(code, { filename: entryFile })
+    const result = await instance.eval(code, {
+      filename: entryFile,
+      timeoutMs: params.timeoutMs,
+    })
     for (const line of result.consoleLines) {
       params.onConsole?.(line.level, line.text)
     }
     return { ...result, scriptCommand: command }
   } finally {
     instance.destroy()
+  }
+}
+
+/**
+ * 按顺序跑若干 lifecycle 脚本。
+ * 缺脚本静默跳过；命令形态不支持则 onSkip；可跑但失败则抛错。
+ */
+export async function runLifecycleScripts(params: {
+  projectRoot: string
+  packageRoot: string
+  scriptNames: readonly string[]
+  env?: Record<string, string>
+  signal?: AbortSignal
+  timeoutMs?: number
+  onConsole?: (level: string, text: string) => void
+  onSkip?: (scriptName: string, command: string, reason: string) => void
+  onRun?: (scriptName: string, command: string) => void
+}): Promise<void> {
+  const pkg = await tryReadPackageJson(params.packageRoot)
+  if (!pkg) return
+  const scripts = (pkg.scripts as Record<string, string> | undefined) ?? {}
+  const timeoutMs = params.timeoutMs ?? LIFECYCLE_SCRIPT_TIMEOUT_MS
+
+  for (const scriptName of params.scriptNames) {
+    params.signal?.throwIfAborted()
+    const command = scripts[scriptName]
+    if (!command) continue
+
+    const parsed = parseScriptCommand(command)
+    if (parsed.kind === 'unsupported' || !parsed.target) {
+      params.onSkip?.(
+        scriptName,
+        command,
+        '不支持的命令形态（仅 node <file> / *.js / .bin）',
+      )
+      continue
+    }
+
+    params.onRun?.(scriptName, command)
+    try {
+      const result = await runNpmScript({
+        projectRoot: params.projectRoot,
+        packageRoot: params.packageRoot,
+        scriptName,
+        env: params.env,
+        signal: params.signal,
+        onConsole: params.onConsole,
+        timeoutMs,
+      })
+      if (!result.ok) {
+        throw new Error(
+          `lifecycle ${scriptName} 失败（${params.packageRoot}）: ${result.error}`,
+        )
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`lifecycle ${scriptName} 失败（${params.packageRoot}）: ${message}`)
+    }
   }
 }
 
@@ -206,6 +296,7 @@ export async function runNpx(params: {
 
   const instance = await createQuickJsInstance({
     workspaceRoot: params.projectRoot,
+    cwd: pkgRoot,
     argv: ['instant-node', entryFile, ...(params.args ?? [])],
     env: {
       ...params.env,

@@ -9,6 +9,11 @@ export type NpmRegistrySettings = {
   preset: NpmRegistryPresetId
   /** 自定义源根 URL；preset 为 custom 时生效 */
   customRegistryUrl: string
+  /**
+   * 为 true 时 install 忽略 lifecycle 脚本。
+   * 默认 true；与 PackageServiceConfig.ignoreScripts 对齐。
+   */
+  ignoreScripts: boolean
 }
 
 export const NPM_REGISTRY_SETTINGS_CHANGED_EVENT = 'instant-os:npm-registry-settings-changed'
@@ -35,6 +40,7 @@ const DEFAULT_SETTINGS: NpmRegistrySettings = {
   version: 1,
   preset: 'npmjs',
   customRegistryUrl: '',
+  ignoreScripts: true,
 }
 
 /** 规范化 registry 根 URL：保留 origin + pathname（去尾斜杠），仅 http(s) */
@@ -65,10 +71,15 @@ function normalizeSettings(raw: unknown): NpmRegistrySettings {
       : 'npmjs'
   const customRegistryUrl =
     typeof record.customRegistryUrl === 'string' ? record.customRegistryUrl.trim() : ''
+  const ignoreScripts =
+    typeof record.ignoreScripts === 'boolean'
+      ? record.ignoreScripts
+      : DEFAULT_SETTINGS.ignoreScripts
   return {
     version: 1,
     preset,
     customRegistryUrl,
+    ignoreScripts,
   }
 }
 
@@ -120,6 +131,7 @@ export function applyNpmRegistrySettingsToPackageService(
   setPackageServiceConfig({
     registryUrl,
     allowedHosts: buildAllowedHostsForNpmSettings(settings),
+    ignoreScripts: settings.ignoreScripts,
   })
   return { ok: true, registryUrl }
 }

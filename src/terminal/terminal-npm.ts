@@ -23,14 +23,42 @@ export type TerminalNpmIo = {
 
 function usage(): string {
   return `用法:
-  npm install [pkg…]
+  npm install [pkg…] [--scripts|--ignore-scripts]
   npm uninstall <pkg…>
-  npm update [pkg…]
+  npm update [pkg…] [--scripts|--ignore-scripts]
   npm ls
   npm outdated
   npm run <script> [-- args…]
   npm bin
-  npx <pkg> [args…]`
+  npx <pkg> [args…]
+
+说明:
+  默认忽略 install lifecycle 脚本（设置 → NPM 可改）。
+  --scripts 本次启用；--ignore-scripts 本次忽略。`
+}
+
+/** 从 install/update 参数中拆出包名与 scripts 覆盖旗标 */
+function parseInstallCliArgs(args: string[]): {
+  packages: string[]
+  ignoreScripts?: boolean
+} {
+  let ignoreScripts: boolean | undefined
+  const packages: string[] = []
+  for (const arg of args) {
+    if (arg === '--ignore-scripts') {
+      ignoreScripts = true
+      continue
+    }
+    if (arg === '--scripts' || arg === '--no-ignore-scripts') {
+      ignoreScripts = false
+      continue
+    }
+    if (arg.startsWith('-')) {
+      continue
+    }
+    packages.push(arg)
+  }
+  return { packages, ignoreScripts }
 }
 
 function progressBar(percent: number, width = 24): string {
@@ -87,6 +115,7 @@ export async function runTerminalNpmOrNpx(
     }
 
     if (sub === 'i' || sub === 'install') {
+      const { packages, ignoreScripts } = parseInstallCliArgs(args)
       let lastLog: string | undefined
       let lastProgress: PackageTaskProgress | undefined
       const unsub = subscribePackageEvents((event) => {
@@ -117,8 +146,9 @@ export async function runTerminalNpmOrNpx(
       try {
         const task = await installPackages({
           projectRoot,
-          packages: args.length > 0 ? args : undefined,
+          packages: packages.length > 0 ? packages : undefined,
           signal,
+          ignoreScripts,
         })
         io.removeBlock(logKey)
         for (const line of task.logs) {
@@ -151,14 +181,18 @@ export async function runTerminalNpmOrNpx(
     }
 
     if (sub === 'update' || sub === 'upgrade') {
+      const { packages: cliPackages, ignoreScripts } = parseInstallCliArgs(args)
       const installed = await listInstalled(projectRoot)
       const names =
-        args.length > 0 ? args : installed.map((p) => `${p.name}@latest`)
+        cliPackages.length > 0
+          ? cliPackages
+          : installed.map((p) => `${p.name}@latest`)
       const task = await installPackages({
         projectRoot,
         packages: names,
         signal,
         preferLock: false,
+        ignoreScripts,
       })
       for (const line of task.logs) {
         io.write(`[${line.level}] ${line.message}`)

@@ -18,6 +18,7 @@ import {
   storePackageDir,
   ensureStoreRoot,
 } from './package-store.ts'
+import { runLifecycleScripts } from './package-run.ts'
 import { maxSatisfying, satisfiesSemver } from './package-semver.ts'
 import type {
   InstantPackageLock,
@@ -29,6 +30,10 @@ import type {
   RegistryPackageVersion,
 } from './package-types.ts'
 import { DEFAULT_PACKAGE_SERVICE_CONFIG } from './package-types.ts'
+
+const ROOT_PREINSTALL = ['preinstall'] as const
+const ROOT_POST_INSTALL = ['install', 'postinstall', 'prepare'] as const
+const DEP_LIFECYCLE = ['preinstall', 'install', 'postinstall'] as const
 
 let config: PackageServiceConfig = {
   ...DEFAULT_PACKAGE_SERVICE_CONFIG,
@@ -471,6 +476,114 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
   }
 }
 
+/** 依赖先于依赖者；有环则退回原序并打 warn。 */
+function topoSortResolvedNodes(
+  nodes: ResolvedNode[],
+  onCycle?: () => void,
+): ResolvedNode[] {
+  const byName = new Map(nodes.map((n) => [n.name, n]))
+  const inDegree = new Map<string, number>()
+  const dependents = new Map<string, string[]>()
+
+  for (const n of nodes) {
+    inDegree.set(n.name, 0)
+  }
+  for (const n of nodes) {
+    for (const dep of Object.keys(n.meta.dependencies ?? {})) {
+      if (!byName.has(dep)) continue
+      const list = dependents.get(dep) ?? []
+      list.push(n.name)
+      dependents.set(dep, list)
+      inDegree.set(n.name, (inDegree.get(n.name) ?? 0) + 1)
+    }
+  }
+
+  const queue = nodes.filter((n) => (inDegree.get(n.name) ?? 0) === 0).map((n) => n.name)
+  const order: string[] = []
+  while (queue.length > 0) {
+    const name = queue.shift()!
+    order.push(name)
+    for (const next of dependents.get(name) ?? []) {
+      const deg = (inDegree.get(next) ?? 1) - 1
+      inDegree.set(next, deg)
+      if (deg === 0) queue.push(next)
+    }
+  }
+
+  if (order.length !== nodes.length) {
+    onCycle?.()
+    return nodes
+  }
+  return order.map((name) => byName.get(name)!)
+}
+
+function projectNodeModulesPackagePath(projectRoot: string, name: string): string {
+  return `${projectRoot}/node_modules/${name}`
+}
+
+async function runInstallLifecycles(params: {
+  task: PackageTask
+  projectRoot: string
+  tree: ResolvedNode[]
+  phase: 'root-preinstall' | 'deps-and-root-post'
+}): Promise<void> {
+  const { task, projectRoot, tree, phase } = params
+  const onConsole = (_level: string, text: string) => {
+    log(task, 'info', text)
+  }
+  const onSkip = (scriptName: string, command: string, reason: string) => {
+    log(task, 'warn', `跳过 ${scriptName}（${reason}）: ${command}`)
+  }
+  const onRun = (scriptName: string, command: string) => {
+    log(task, 'info', `lifecycle ${scriptName}: ${command}`)
+  }
+  const env = { INIT_CWD: projectRoot }
+
+  if (phase === 'root-preinstall') {
+    await runLifecycleScripts({
+      projectRoot,
+      packageRoot: projectRoot,
+      scriptNames: ROOT_PREINSTALL,
+      env,
+      signal: task.abortController.signal,
+      onConsole,
+      onSkip,
+      onRun,
+    })
+    return
+  }
+
+  const ordered = topoSortResolvedNodes(tree, () => {
+    log(task, 'warn', '依赖图疑似有环，lifecycle 退回解析序')
+  })
+  for (const node of ordered) {
+    task.abortController.signal.throwIfAborted()
+    const packageRoot = projectNodeModulesPackagePath(projectRoot, node.name)
+    log(task, 'info', `lifecycle ${node.name}@${node.version}`)
+    await runLifecycleScripts({
+      projectRoot,
+      packageRoot,
+      scriptNames: DEP_LIFECYCLE,
+      env,
+      signal: task.abortController.signal,
+      onConsole,
+      onSkip,
+      onRun,
+    })
+  }
+
+  await runLifecycleScripts({
+    projectRoot,
+    packageRoot: projectRoot,
+    scriptNames: ROOT_POST_INSTALL,
+    env,
+    signal: task.abortController.signal,
+    onConsole,
+    onSkip,
+    onRun,
+  })
+}
+
 async function linkBins(
   projectRoot: string,
   name: string,
@@ -509,6 +622,11 @@ export async function installPackages(params: {
   signal?: AbortSignal
   /** 默认：无 CLI 包名时锁优先；有显式包名 / update 时走 registry */
   preferLock?: boolean
+  /**
+   * 覆盖全局 `config.ignoreScripts`。
+   * 未传则用设置/默认（默认忽略 scripts）。
+   */
+  ignoreScripts?: boolean
 }): Promise<Omit<PackageTask, 'abortController'>> {
   await ensureStoreRoot(config)
   const task: PackageTask = {
@@ -532,6 +650,7 @@ export async function installPackages(params: {
 
   let projectRootForLock = params.projectRoot
   let lockForPersist: InstantPackageLock | undefined
+  const ignoreScripts = params.ignoreScripts ?? config.ignoreScripts
 
   try {
     const projectRoot = await resolvePackageProjectRoot(params.projectRoot)
@@ -542,10 +661,28 @@ export async function installPackages(params: {
       publishTask(task)
     }
 
+    if (ignoreScripts) {
+      log(
+        task,
+        'info',
+        '忽略 lifecycle 脚本（ignoreScripts；设置 → NPM 开启「运行 install 脚本」，或加 --scripts）',
+      )
+    }
+
     const pkgJson = await readProjectPackageJson(projectRoot)
     const deps = {
       ...((pkgJson.dependencies as Record<string, string> | undefined) ?? {}),
       ...((pkgJson.devDependencies as Record<string, string> | undefined) ?? {}),
+    }
+
+    if (!ignoreScripts) {
+      log(task, 'info', '将执行 lifecycle 脚本（经 QuickJS）')
+      await runInstallLifecycles({
+        task,
+        projectRoot,
+        tree: [],
+        phase: 'root-preinstall',
+      })
     }
 
     const roots: { name: string; range: string }[] = []
@@ -562,6 +699,14 @@ export async function installPackages(params: {
 
     if (roots.length === 0) {
       log(task, 'warn', '没有要安装的依赖')
+      if (!ignoreScripts) {
+        await runInstallLifecycles({
+          task,
+          projectRoot,
+          tree: [],
+          phase: 'deps-and-root-post',
+        })
+      }
       task.status = 'succeeded'
       clearProgress(task)
       publishTask(task)
@@ -606,6 +751,15 @@ export async function installPackages(params: {
       // 让出事件循环，使 Files / Code 能在下一个包开始前刷新并绘制链接
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 0)
+      })
+    }
+
+    if (!ignoreScripts) {
+      await runInstallLifecycles({
+        task,
+        projectRoot,
+        tree,
+        phase: 'deps-and-root-post',
       })
     }
 

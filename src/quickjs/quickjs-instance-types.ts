@@ -46,6 +46,12 @@ export type QuickJsInstanceOptions = {
    */
   workspaceRoot?: string
   /**
+   * 初始 `process.cwd`（绝对 VFS 路径）。
+   * 未传时与既有规则一致（优先 workspaceRoot，否则 env / 默认 cwd）。
+   * 可与 workspaceRoot 分离：例如 npm lifecycle 的 cwd 为包目录，读写根仍为项目根。
+   */
+  cwd?: string
+  /**
    * 环境变量整表。
    * 若传入则整表使用传入拷贝；未传则使用系统默认 env。
    */

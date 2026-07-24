@@ -22,7 +22,15 @@ export type InjectProcessHooks = {
 export function resolveInitialProcessCwd(
   workspaceRoot: string | undefined,
   env: Record<string, string>,
+  explicitCwd?: string,
 ): string {
+  if (explicitCwd !== undefined) {
+    const trimmed = explicitCwd.trim()
+    if (trimmed) {
+      return normalizeTerminalAbsolutePath(trimmed)
+    }
+  }
+
   if (workspaceRoot !== undefined) {
     return workspaceRoot
   }
@@ -43,9 +51,10 @@ export function resolveInitialProcessCwd(
 export function createProcessState(
   workspaceRoot: string | undefined,
   env: Record<string, string>,
+  explicitCwd?: string,
 ): QuickJsProcessState {
   return {
-    cwd: resolveInitialProcessCwd(workspaceRoot, env),
+    cwd: resolveInitialProcessCwd(workspaceRoot, env, explicitCwd),
     exitCode: 0,
     exitRequested: false,
   }

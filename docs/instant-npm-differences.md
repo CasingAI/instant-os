@@ -11,7 +11,7 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 - `npm update` / `npm install <pkg>`：重新向 registry 按范围解析
 - 布局：全局 CAS store（`/user/.instant-pkg-store`）+ 项目 `node_modules` **符号链接**（接近 pnpm，故意保留）
 - **可配置 registry**：设置 → NPM（官方 / npmmirror / 自定义 npm 兼容源）；持久化并接到 PackageService
-- 纯 JS lifecycle / scripts：经 QuickJS 执行（`node` shebang 映射为 Instant 宿主）
+- **install lifecycle（可选）**：默认 **忽略** scripts（`ignoreScripts: true`）。设置 → NPM 打开「运行 install 脚本」，或单次 `npm install --scripts` / `--ignore-scripts` 覆盖。启用后顺序对齐 npm：根 `preinstall` → 装链依赖 → 依赖拓扑序 `preinstall`/`install`/`postinstall` → 根 `install`/`postinstall`/`prepare`。纯 JS 经 QuickJS；不支持的命令形态 warn 并跳过；可跑但失败则整次 install 失败。
 - 拒绝：`.node` / gypfile / node-gyp 类原生包
 
 ## 源站选择
@@ -58,10 +58,13 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 | 纯 JS / 可解析 ESM·CJS | 允许安装；能否跑通取决于内建覆盖（见上） |
 | 仅含可选 native、默认走 JS 路径 | 尽力；装上后若入口要 `.node` 则运行失败 |
 | 强制 node-gyp / prebuild / binding.gyp | 安装期拒绝 |
-| `postinstall` 编译原生 | 拒绝 / 跳过并记录 |
+| `postinstall` 编译原生 | 拒绝原生包；若仍落到可跑 JS 脚本且启用 scripts，失败则中止 install |
+| 需联网的 postinstall | Guest 无网络权限时会失败（默认仍 ignoreScripts，多数情况碰不到） |
+| 含 shell / 系统二进制的 lifecycle | 跳过并 warn（无真实 shell） |
 
 ## 终端与 App
 
 - 终端本地命令 `npm` / `npx` 与 **包管理** App 共用 PackageService，逻辑零分叉。
 - 安装进度与日志可在两端观察；取消走同一任务 abort。
-- registry 在 **设置 → NPM** 配置；与终端共用同一 `PackageServiceConfig`。
+- registry 与 **是否运行 install 脚本** 在 **设置 → NPM** 配置；与终端共用同一 `PackageServiceConfig`。
+- 重复 `npm install` 在启用 scripts 时可能再次跑依赖 lifecycle（未做「仅新增包才跑」的增量优化）。

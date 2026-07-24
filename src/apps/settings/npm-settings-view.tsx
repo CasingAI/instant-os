@@ -14,6 +14,7 @@ import { getPackageServiceConfig } from '../../packages/package-public.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
+import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
 import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
 
 type NpmSettingsViewProps = {
@@ -34,6 +35,9 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
   )
   const [customRegistryUrl, setCustomRegistryUrl] = useState(
     () => loadNpmRegistrySettings().customRegistryUrl,
+  )
+  const [ignoreScripts, setIgnoreScripts] = useState(
+    () => loadNpmRegistrySettings().ignoreScripts,
   )
   const [activeRegistryUrl, setActiveRegistryUrl] = useState(
     () => getPackageServiceConfig().registryUrl,
@@ -60,6 +64,7 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
       const settings = loadNpmRegistrySettings()
       setPreset(settings.preset)
       setCustomRegistryUrl(settings.customRegistryUrl)
+      setIgnoreScripts(settings.ignoreScripts)
       setActiveRegistryUrl(getPackageServiceConfig().registryUrl)
     }
     sync()
@@ -86,6 +91,7 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
         version: 1,
         preset,
         customRegistryUrl,
+        ignoreScripts,
       })
       if (!ok) {
         setStatusKind('error')
@@ -94,7 +100,11 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
       }
       setActiveRegistryUrl(getPackageServiceConfig().registryUrl)
       setStatusKind('success')
-      setStatusMessage(`已应用 ${getPackageServiceConfig().registryUrl}`)
+      setStatusMessage(
+        `已应用 ${getPackageServiceConfig().registryUrl}；install 脚本${
+          getPackageServiceConfig().ignoreScripts ? '已忽略' : '已启用'
+        }`,
+      )
     } finally {
       setBusy(false)
     }
@@ -132,20 +142,22 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
     if (busy) return
     setPreset('npmjs')
     setCustomRegistryUrl('')
+    setIgnoreScripts(true)
     const ok = saveNpmRegistrySettings({
       version: 1,
       preset: 'npmjs',
       customRegistryUrl: '',
+      ignoreScripts: true,
     })
     if (!ok) {
       setStatusKind('error')
-      setStatusMessage('无法恢复默认源')
+      setStatusMessage('无法恢复默认')
       return
     }
     applyNpmRegistrySettingsToPackageService()
     setActiveRegistryUrl(getPackageServiceConfig().registryUrl)
     setStatusKind('success')
-    setStatusMessage('已恢复官方 npm')
+    setStatusMessage('已恢复官方 npm，并忽略 install 脚本')
   }
 
   return (
@@ -197,6 +209,14 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
                 </span>
               </div>
             )}
+            <SettingsSwitchRow
+              label="运行 install 脚本"
+              checked={!ignoreScripts}
+              onChange={(enabled) => {
+                setIgnoreScripts(!enabled)
+                setStatusMessage(undefined)
+              }}
+            />
           </div>
 
           <div class="settings__actions settings__actions--form">
@@ -222,7 +242,7 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
               disabled={busy}
               onClick={handleReset}
             >
-              恢复官方源
+              恢复默认
             </button>
           </div>
 
@@ -244,7 +264,17 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
           <p class="settings__section-footnote">
             仅支持 npm 兼容协议（packument + tarball）。jsDelivr 等 CDN 不能作为安装源。当前解析到的有效 URL：
             {' '}
-            {resolveNpmRegistryUrl({ version: 1, preset, customRegistryUrl }) ?? '（无效）'}
+            {resolveNpmRegistryUrl({
+              version: 1,
+              preset,
+              customRegistryUrl,
+              ignoreScripts,
+            }) ?? '（无效）'}
+          </p>
+          <p class="settings__section-footnote">
+            「运行 install 脚本」默认关闭。开启后会经 QuickJS 执行 preinstall / install / postinstall /
+            prepare。单次安装也可用{' '}
+            <code>npm install --scripts</code> 或 <code>--ignore-scripts</code> 覆盖。
           </p>
         </section>
       </div>

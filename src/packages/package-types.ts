@@ -97,6 +97,11 @@ export type PackageServiceConfig = {
   maxProjectFiles: number
   fetchTimeoutMs: number
   allowedHosts: readonly string[]
+  /**
+   * 为 true 时 install 不跑 lifecycle（preinstall/install/postinstall/prepare）。
+   * 默认 true（更安全）；设置 → NPM 或 CLI `--scripts` / `--ignore-scripts` 可覆盖。
+   */
+  ignoreScripts: boolean
 }
 
 export const DEFAULT_PACKAGE_SERVICE_CONFIG: PackageServiceConfig = {
@@ -107,6 +112,7 @@ export const DEFAULT_PACKAGE_SERVICE_CONFIG: PackageServiceConfig = {
   maxProjectFiles: 50_000,
   fetchTimeoutMs: 60_000,
   allowedHosts: ['registry.npmjs.org', 'registry.npmmirror.com', 'cdn.npmmirror.com'],
+  ignoreScripts: true,
 }
 
 export type PackageServiceEvent =

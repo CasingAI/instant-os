@@ -236,7 +236,11 @@ export async function createQuickJsInstance(
   let abortRequested = false
   let evalSeq = 0
   let activeSliceTimeoutMs = defaultTimeoutMs
-  const processState = createProcessState(hostConfig.workspaceRoot, hostConfig.env)
+  const processState = createProcessState(
+    hostConfig.workspaceRoot,
+    hostConfig.env,
+    options.cwd,
+  )
 
   // 每实例独立 Asyncify WASM：*Sync 可挂起；多实例互不抢槽；勿嵌套挂起
   const context: QuickJSAsyncContext = await createQuickJsAsyncContext()
