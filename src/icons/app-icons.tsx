@@ -1303,6 +1303,36 @@ export function HelpIcon({ size = 64 }: IconProps) {
 }
 
 
+export function NewTerminalIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#1e3a2f" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="6" y="9" width="52" height="46" rx="6" fill="#142820" />
+        <rect x="7.4" y="10.4" width="49.2" height="43.2" rx="4.8" fill="#0a1410" />
+        <path
+          d="M16.5 24.5l10 8.2-10 8.2"
+          fill="none"
+          stroke="#9cf0b8"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <text
+          x="44"
+          y="41"
+          text-anchor="middle"
+          fill="#f7df1e"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          font-size="14"
+          font-weight="800"
+        >
+          JS
+        </text>
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function TerminalIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#2c2c2e" size={size}>

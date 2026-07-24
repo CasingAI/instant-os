@@ -71,7 +71,7 @@ export function TerminalApp() {
       {
         label: '终端',
         items: [
-          ...aboutAppMenuPrefix('关于终端', () => showBuiltinAbout(APP_ID)),
+          ...aboutAppMenuPrefix('关于终端（弃用）', () => showBuiltinAbout(APP_ID)),
           {
             type: 'action',
             label: '隐藏终端',

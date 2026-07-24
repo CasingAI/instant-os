@@ -244,10 +244,17 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   terminal: {
-    version: '系统终端',
+    version: '系统终端（弃用）',
     paragraphs: [
-      '终端面向高级用户：类 Unix / 自然语言操作虚拟文件系统，并作为敏感存储变更等需确认操作的统一入口。挂载本机文件夹也可在「文件」应用侧栏直接完成，终端 mount/umount 为备用入口。',
-      '帮助应用在需要动手改系统时会打开终端；敏感步骤一律弹出对话框确认。普通用户日常腾空间仍请使用系统设置。',
+      '本应用已弃用：原「终端」面向自然语言 / 类 Unix 命令与特权确认，仍保留供帮助应用拉起敏感操作确认。',
+      '日常执行 JavaScript / Node 风格脚本请改用「新终端」或「Virtual JS」。挂载本机文件夹仍可在「文件」应用侧栏完成。',
+    ],
+  },
+  'new-terminal': {
+    version: 'Node 风格 JS REPL',
+    paragraphs: [
+      '新终端在终端式界面中直接执行 JavaScript：底层与 Virtual JS 相同，使用系统 QuickJS + Node 兼容层（process、fs、require 等），工作区默认为 /user。',
+      '同一窗口内多次回车共享一个 JS 全局环境；清屏仅清空输出，.reset 或菜单「重建实例」可重置运行时。原「终端」已弃用，特权确认仍会打开旧终端。',
     ],
   },
   'virtual-js': {
