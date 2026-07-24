@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的 `demo` 命令，
+ * 一个带 live block 动画的演示脚本，展示模拟终端的输出能力。并非原生 JS 运行时。
+ * 真终端（terminal-app）不需要此演示。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import type { TerminalUpsertBlockOptions } from './terminal-types.ts'
 
 export type TerminalDemoSink = {

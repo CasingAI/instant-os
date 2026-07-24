@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此面板为模拟终端的 UI 壳层，内部通过 TerminalSession / askTerminalAgent
+ * 驱动 LLM 调文件工具实现自然语言壳层演示，并非原生 JS 运行时。
+ * 真终端使用 terminal-repl-panel.tsx（QuickJS 直接执行 JS）。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { Ref } from 'preact'
 import {

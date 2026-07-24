@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的本地 `ls` 命令，
+ * 通过 filesList 列出目录并格式化为表格输出。是模拟终端本地快路径的一部分。
+ * 真终端（terminal-app）通过 QuickJS guest 的 fs.readdir 或宿主输出实现类似功能。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { filesList, type FilesApiEntry } from '../apps/files/files-api.ts'
 import { formatFilesByteSize } from '../apps/files/files-path.ts'
 import { resolveTerminalPath } from './terminal-path.ts'

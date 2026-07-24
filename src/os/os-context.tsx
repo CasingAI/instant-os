@@ -117,6 +117,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   'github-desktop': { title: 'GitHub Desktop', width: 980, height: 680 },
   help: { title: '帮助', width: 820, height: 640 },
   terminal: { title: '终端', width: 760, height: 520 },
+  /** @deprecated 模拟终端已弃用，窗口尺寸保留仅为过渡，后续移除 */
   'simulated-terminal': { title: '模拟终端', width: 760, height: 520 },
   'archive-utility': { title: '压缩包实用工具', width: 420, height: 120 },
 }
@@ -312,6 +313,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       throw new Error('请使用 openExtApp 打开外链应用')
     }
 
+    /** @deprecated 模拟终端已弃用，此 terminalAction 注入逻辑保留仅为过渡，后续移除 */
     if (appId === 'simulated-terminal' && options?.terminalAction) {
       enqueueTerminalPendingAction(options.terminalAction)
     }

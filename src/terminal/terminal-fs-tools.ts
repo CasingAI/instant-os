@@ -1,3 +1,10 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件定义模拟终端的 AI 文件工具集（write_text / create_text / mkdir /
+ * rename / remove / copy / move / storage_* 等），由 LLM agent 调用以操作虚拟文件系统。
+ * 这些工具通过 files-api 写盘，但写入决策由 LLM 而非用户直接控制——这是模拟终端的核心特征。
+ * 真终端（terminal-app）通过 QuickJS 的 fsWriteRoots 门禁控制写入，不经过这套工具。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { defineTool } from '../ai/agent-tool.ts'
 import { getLocalStorageKeyLabel } from '../ai/storage-inspection.ts'
 import {

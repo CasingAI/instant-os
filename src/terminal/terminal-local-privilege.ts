@@ -1,3 +1,10 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的本地特权命令（mount / umount / storage / account 等），
+ * 这些命令通过特权确认对话框实现敏感操作，是模拟终端本地快路径的一部分。
+ * 真终端（terminal-app）通过 terminal-repl-panel.tsx 的 .reset / .clear 等命令处理，
+ * 特权操作走向不同路径。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { getLocalStorageKeyLabel } from '../ai/storage-inspection.ts'
 import { getLocalStorageKeyBytes } from '../os/device-storage.ts'
 import { formatStorageSize } from '../os/format-storage-size.ts'

@@ -7,7 +7,9 @@ export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'texted
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
   documentId?: string
-  /** 打开/聚焦终端时注入的待确认特权操作 */
+  /** 打开/聚焦终端时注入的待确认特权操作。
+   * @deprecated 此字段仅服务于已弃用的模拟终端（simulated-terminal）。
+   * 模拟终端移除后此字段应一并移除或迁移到真终端的特权路径。 */
   terminalAction?: TerminalPrivilegeRequest
 }
 export type GeneratedAppId = `gen:${string}`

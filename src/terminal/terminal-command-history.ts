@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的命令历史持久化（去重、去邻重、localStorage 存储）。
+ * 复用提示：app-storage（settings 中的存储用量统计）仍引用 DEVICE_STORAGE_KEYS.terminalCommandHistory，
+ * 迁移完成前不要删除。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../os/device-storage.ts'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.terminalCommandHistory

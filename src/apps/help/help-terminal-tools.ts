@@ -79,6 +79,7 @@ export const HELP_TERMINAL_REQUEST_TOOLS = [
         return 'unmount 需要提供 mount_path（可用终端 umount 先列出挂载卷）'
       }
 
+      /** @deprecated 目标 app（simulated-terminal）已弃用，后续应改为打开真终端（terminal）或移除此路径 */
       try {
         osOpenApp('simulated-terminal', {
           terminalAction: {

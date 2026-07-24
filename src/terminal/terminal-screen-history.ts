@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的屏幕历史格式化，
+ * 将终端已显示的行转换为 LLM 可读的上下文片段，用于 AI agent 理解指代与延续操作。
+ * 真终端（terminal-app）不需要此功能（用户直接输入 JS，不经过 LLM）。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import type { TerminalLine, TerminalLineSource } from './terminal-types.ts'
 
 const MAX_HISTORY_LINES = 80

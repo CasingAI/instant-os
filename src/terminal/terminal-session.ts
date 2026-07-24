@@ -1,3 +1,11 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的命令分发与会话生命周期：
+ * 本地快路径（ls/cd/pwd/help/demo/npm/特权命令）和 AI agent 路径（askTerminalAgent）。
+ * 复用提示：生成应用（generated-app-terminal-host）仍通过 createTerminalSession 创建会话，
+ * 迁移完成前不要删除。真终端（terminal-app）使用 terminal-repl-panel.tsx + QuickJS 直接执行，
+ * 不依赖此会话模型。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { filesStat } from '../apps/files/files-api.ts'
 import { resolveActorLabel } from '../ai/ai-usage-context.ts'
 import { isStreamAbortError } from '../ai/stream-abort.ts'

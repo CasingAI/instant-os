@@ -261,6 +261,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
+  /** @deprecated 模拟终端已弃用，此 AppDefinition 保留仅为过渡，后续移除。AppDefinition 结构体见 types.ts:AppDefinition */
   withAbout({
     id: 'simulated-terminal',
     name: '模拟终端',
@@ -308,6 +309,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   'github-desktop': GithubDesktopApp,
   help: HelpApp,
   terminal: TerminalApp,
+  /** @deprecated 模拟终端已弃用，组件映射保留仅为过渡，后续移除 */
   'simulated-terminal': SimulatedTerminalApp,
   'virtual-js': VirtualJsApp,
 }

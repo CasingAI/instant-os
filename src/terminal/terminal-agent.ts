@@ -1,3 +1,10 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的 AI agent 路径：
+ * 将用户输入送给 LLM，通过 createTerminalFsTools / createTerminalLiveOutputTools 工具集
+ * 实现自然语言壳层演示。并非原生 JS 运行时。
+ * 真终端（terminal-app）使用 QuickJS 直接执行 JS，不经过此 agent 层。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { createAgent } from '../ai/create-agent.ts'
 import type {
   AgentTextDeltaEvent,

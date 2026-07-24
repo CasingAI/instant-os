@@ -116,6 +116,7 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
       DEVICE_STORAGE_KEYS.vscodeSession,
     ])
   }
+  /** @deprecated 模拟终端已弃用，此分支保留仅为过渡，后续移除 */
   if (appId === 'simulated-terminal') {
     return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.terminalCommandHistory)
   }

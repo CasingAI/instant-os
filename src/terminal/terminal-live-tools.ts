@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件定义模拟终端的 live output 工具（clear_screen / upsert_output_block /
+ * remove_output_block），由 LLM agent 调用以管理终端输出展示。并非原生 JS 运行时能力。
+ * 真终端（terminal-app）使用终端 REPL 的 console 输出与 .clear 命令，不经过这套工具。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { defineTool } from '../ai/agent-tool.ts'
 import type { TerminalUpsertBlockOptions } from './terminal-types.ts'
 

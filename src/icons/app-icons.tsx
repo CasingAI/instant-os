@@ -1303,6 +1303,10 @@ export function HelpIcon({ size = 64 }: IconProps) {
 }
 
 
+/**
+ * @deprecated 模拟终端已弃用，此图标随 simulated-terminal app 一并保留，后续移除。
+ * 真终端图标使用 TerminalIcon（同文件，未被弃用）。
+ */
 export function SimulatedTerminalIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#1e3a2f" size={size}>

@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件实现模拟终端的 tab 补全功能，
+ * 通过 filesList 列出匹配路径与本地命令关键词。是模拟终端输入体验的一部分。
+ * 真终端（terminal-app）的终端 REPL 暂未实现 tab 补全。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 import { filesList } from '../apps/files/files-api.ts'
 import { listTerminalMountSummaries } from './terminal-privilege.ts'
 import { resolveTerminalPath } from './terminal-path.ts'

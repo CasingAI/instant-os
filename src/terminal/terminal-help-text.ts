@@ -1,3 +1,9 @@
+/**
+ * @deprecated 随模拟终端弃用。此文件定义模拟终端的 `help` 文本，
+ * 描述虚拟文件系统路径约定、本地命令表与使用说明。
+ * 真终端（terminal-app）有独立的欢迎信息与 help 输出，不使用此文本。
+ * 保留仅为过渡，新功能不要加在这里。
+ */
 export const TERMINAL_HELP_TEXT = `Instant OS 终端
 
 面向高级用户。不是真实 Unix shell（无进程/管道/环境变量）。

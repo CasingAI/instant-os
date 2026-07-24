@@ -250,6 +250,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '工作区默认为 /user，同一窗口内多次回车共享一个全局环境；清屏仅清空输出，.reset 或菜单「重建实例」可重置运行时。',
     ],
   },
+  /** @deprecated 模拟终端已弃用，此 about 条目保留仅为过渡，后续移除 */
   'simulated-terminal': {
     version: '类 Unix 壳层演示（模拟）',
     paragraphs: [
