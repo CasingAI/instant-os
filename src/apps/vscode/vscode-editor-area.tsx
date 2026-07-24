@@ -151,6 +151,9 @@ type VscodeEditorAreaProps = {
     fontSize: number
     minimap: boolean
     wordWrap: boolean
+    completionEnabled?: boolean
+    completionDebounceMs?: number
+    completionModelKey?: string | undefined
   }
   revealPosition: (MonacoRevealPosition & { path: string }) | undefined
   onRevealPositionApplied: () => void
@@ -906,6 +909,9 @@ function VscodeEditorGroupView({
                   : undefined
               }
               onRevealPositionApplied={onRevealPositionApplied}
+              completionEnabled={prefs.completionEnabled === true}
+              completionDebounceMs={prefs.completionDebounceMs}
+              completionModelKey={prefs.completionModelKey}
             />
           </>
           )

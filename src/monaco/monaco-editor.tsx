@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'preact/hooks'
 import type * as Monaco from 'monaco-editor'
+import {
+  registerVscodeCompletionInline,
+  type VscodeCompletionInlineHandle,
+} from '../apps/vscode/vscode-completion-inline.ts'
 import { monacoLanguageFromFileName, fileNameFromPath } from './monaco-language.ts'
 import { ensureMonacoEnvironment, monaco } from './monaco-setup.ts'
 import type { MonacoEditorTheme } from './monaco-themes.ts'
@@ -35,6 +39,10 @@ export type MonacoEditorProps = {
   /** 打开资源后定位光标（例如转到定义） */
   revealPosition?: MonacoRevealPosition
   onRevealPositionApplied?: () => void
+  /** AI 内联代码补全（幽灵文本） */
+  completionEnabled?: boolean
+  completionDebounceMs?: number
+  completionModelKey?: string | undefined
 }
 
 function getOrCreatePathModel(
@@ -142,6 +150,9 @@ export function MonacoEditor({
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
+  completionEnabled = false,
+  completionDebounceMs = 400,
+  completionModelKey,
 }: MonacoEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | undefined>(undefined)
@@ -154,6 +165,9 @@ export function MonacoEditor({
   const suppressChangeRef = useRef(false)
   /** opener 已切到目标 model，等待父组件同步 modelPath，期间勿用旧 path 抢回 */
   const pendingOpenPathRef = useRef<string | undefined>(undefined)
+  const completionHandleRef = useRef<VscodeCompletionInlineHandle | undefined>(undefined)
+  const completionModelKeyRef = useRef(completionModelKey)
+  const readOnlyRef = useRef(readOnly)
 
   onChangeRef.current = onChange
   onCursorChangeRef.current = onCursorChange
@@ -161,6 +175,8 @@ export function MonacoEditor({
   onOpenPathRef.current = onOpenPath
   onRevealPositionAppliedRef.current = onRevealPositionApplied
   modelPathRef.current = modelPath
+  completionModelKeyRef.current = completionModelKey
+  readOnlyRef.current = readOnly
 
   useEffect(() => {
     ensureMonacoEnvironment()
@@ -191,7 +207,7 @@ export function MonacoEditor({
       padding: { top: 8, bottom: 8 },
       tabSize: 2,
       renderWhitespace: 'selection',
-      // 依赖包等文件常含 LS/PS，默认 prompt 会打扰；用户暂无此设置项
+      // 依赖包等文件常含 LS/PS，默认 prompt 会打断；用户暂无此设置项
       unusualLineTerminators: 'off',
       readOnly,
       // Cmd/Ctrl+点击转到定义
@@ -199,6 +215,9 @@ export function MonacoEditor({
       gotoLocation: {
         multiple: 'goto',
         multipleDefinitions: 'goto',
+      },
+      inlineSuggest: {
+        enabled: true,
       },
     })
 
@@ -279,7 +298,17 @@ export function MonacoEditor({
 
     editorRef.current = editor
 
+    completionHandleRef.current = registerVscodeCompletionInline({
+      editor,
+      enabled: completionEnabled,
+      debounceMs: completionDebounceMs,
+      getModelKey: () => completionModelKeyRef.current,
+      getContextExtras: () => ({ readOnly: readOnlyRef.current }),
+    })
+
     return () => {
+      completionHandleRef.current?.dispose()
+      completionHandleRef.current = undefined
       opener.dispose()
       // Monaco WordHighlighter 在 dispose 时会取消未完成的 Delayer，产生无害的 Canceled rejection；
       // 先卸下 model，减少贡献点在销毁路径上的异步高亮任务。
@@ -296,6 +325,14 @@ export function MonacoEditor({
     // 仅挂载时创建；后续通过 effect 同步 props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    completionHandleRef.current?.setEnabled(completionEnabled && !readOnly)
+  }, [completionEnabled, readOnly])
+
+  useEffect(() => {
+    completionHandleRef.current?.setDebounceMs(completionDebounceMs)
+  }, [completionDebounceMs])
 
   useEffect(() => {
     const editor = editorRef.current

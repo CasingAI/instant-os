@@ -120,6 +120,11 @@ import {
   type VscodeAiClosedChatSession,
   type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
+import {
+  formatVscodeAiModelRefKey,
+  labelForVscodeAiModel,
+  useVscodeAiTextModels,
+} from './vscode-ai-models.ts'
 import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
 import './vscode.css'
 
@@ -244,6 +249,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
+  const textModels = useVscodeAiTextModels()
+  const completionModelOptions = useMemo(
+    () =>
+      textModels.map((model) => ({
+        key: formatVscodeAiModelRefKey({
+          providerEntryId: model.providerEntryId,
+          modelId: model.modelId,
+        }),
+        label: labelForVscodeAiModel(model),
+      })),
+    [textModels],
+  )
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [activityCaretTop, setActivityCaretTop] = useState(78)
   const [caretReady, setCaretReady] = useState(false)
@@ -2339,6 +2356,45 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     label="自动换行"
                   />
                 </div>
+                <div class="vscode__setting vscode__setting--row">
+                  <span>代码补全</span>
+                  <IosSwitch
+                    checked={prefs.completionEnabled}
+                    onChange={(checked) => updatePrefs({ completionEnabled: checked })}
+                    label="代码补全"
+                  />
+                </div>
+                {prefs.completionEnabled ? (
+                  <label class="vscode__setting">
+                    <span>补全模型</span>
+                    <select
+                      class="vscode__setting-select"
+                      value={
+                        prefs.completionModelKey ??
+                        prefs.aiModelKey ??
+                        completionModelOptions[0]?.key ??
+                        ''
+                      }
+                      disabled={completionModelOptions.length === 0}
+                      onChange={(event) => {
+                        const value = (event.target as HTMLSelectElement).value
+                        updatePrefs({
+                          completionModelKey: value.trim() ? value : undefined,
+                        })
+                      }}
+                    >
+                      {completionModelOptions.length === 0 ? (
+                        <option value="">未配置文本模型</option>
+                      ) : (
+                        completionModelOptions.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.label}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                ) : undefined}
               </div>
             ) : undefined}
           </aside>
@@ -2366,6 +2422,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 fontSize: prefs.fontSize,
                 minimap: prefs.minimap,
                 wordWrap: prefs.wordWrap,
+                completionEnabled: prefs.completionEnabled,
+                completionDebounceMs: prefs.completionDebounceMs,
+                completionModelKey: prefs.completionModelKey ?? prefs.aiModelKey,
               }}
               revealPosition={revealPosition}
               onRevealPositionApplied={() => setRevealPosition(undefined)}

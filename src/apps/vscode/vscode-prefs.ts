@@ -36,6 +36,12 @@ export type VscodePrefs = {
   aiMode: VscodeAiMode
   /** providerEntryId:modelId；未设置时用钥匙串文本首选 */
   aiModelKey: string | undefined
+  /** AI 内联代码补全（幽灵文本）；默认关闭，需用户主动开启 */
+  completionEnabled: boolean
+  /** 补全专用模型；未设置时复用 aiModelKey / 文本首选 */
+  completionModelKey: string | undefined
+  /** 停止输入后触发补全的防抖毫秒数 */
+  completionDebounceMs: number
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodePrefs
@@ -56,6 +62,8 @@ export const DEFAULT_SEARCH_PREFS: VscodeSearchPrefs = {
   searchEditorContextLines: 1,
 }
 
+const DEFAULT_COMPLETION_DEBOUNCE_MS = 400
+
 const DEFAULT_PREFS: VscodePrefs = {
   theme: 'light-plus',
   fontSize: 13,
@@ -70,6 +78,9 @@ const DEFAULT_PREFS: VscodePrefs = {
   search: { ...DEFAULT_SEARCH_PREFS },
   aiMode: 'ask',
   aiModelKey: undefined,
+  completionEnabled: false,
+  completionModelKey: undefined,
+  completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
 }
 
 function normalizePanelTab(value: unknown): VscodePanelTab {
@@ -151,6 +162,15 @@ export function loadVscodePrefs(): VscodePrefs {
         typeof parsed.aiModelKey === 'string' && parsed.aiModelKey.trim()
           ? parsed.aiModelKey.trim()
           : undefined,
+      completionEnabled: parsed.completionEnabled === true,
+      completionModelKey:
+        typeof parsed.completionModelKey === 'string' && parsed.completionModelKey.trim()
+          ? parsed.completionModelKey.trim()
+          : undefined,
+      completionDebounceMs:
+        typeof parsed.completionDebounceMs === 'number' && Number.isFinite(parsed.completionDebounceMs)
+          ? clamp(Math.round(parsed.completionDebounceMs), 100, 2000)
+          : DEFAULT_PREFS.completionDebounceMs,
     }
   } catch {
     return { ...DEFAULT_PREFS, search: { ...DEFAULT_SEARCH_PREFS } }
