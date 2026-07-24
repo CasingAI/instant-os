@@ -76,6 +76,7 @@ import {
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
+import { filesWorkloadUnits } from './files-op-progress-policy.ts'
 import { isBinaryFile } from './is-binary-file.ts'
 import {
   notifyFilesWatch,
@@ -937,17 +938,123 @@ export type FilesRemoveBatchOptions = {
   batchSize?: number
 }
 
-export async function removeNode(id: string): Promise<void> {
+export type FilesVfsOpProgress = {
+  done: number
+  total: number
+}
+
+export type FilesCopyWorkload = {
+  nodeCount: number
+  byteSize: number
+  totalUnits: number
+}
+
+export type FilesDeleteWorkload = {
+  nodeCount: number
+  byteSize: number
+  totalUnits: number
+}
+
+const LARGE_SUBTREE_DELETE_THRESHOLD = 2000
+
+function nodeWorkloadUnits(node: FilesNode): number {
+  return filesWorkloadUnits(1, node.byteSize)
+}
+
+export async function estimateCopyWorkload(sourceId: string): Promise<FilesCopyWorkload> {
+  const source = await getNodeOrThrow(sourceId)
+  const stats = await estimateCopyWorkloadForNode(source)
+  return {
+    ...stats,
+    totalUnits: filesWorkloadUnits(stats.nodeCount, stats.byteSize),
+  }
+}
+
+async function estimateCopyWorkloadForNode(
+  node: FilesNode,
+): Promise<{ nodeCount: number; byteSize: number }> {
+  if (node.kind === 'file' || node.kind === 'symlink') {
+    return { nodeCount: 1, byteSize: node.byteSize }
+  }
+  let nodeCount = 1
+  let byteSize = node.byteSize
+  const children = await listDirectory(node.locationId, node.id)
+  for (const child of children) {
+    const sub = await estimateCopyWorkloadForNode(child)
+    nodeCount += sub.nodeCount
+    byteSize += sub.byteSize
+  }
+  return { nodeCount, byteSize }
+}
+
+export async function estimateDeleteWorkload(nodeId: string): Promise<FilesDeleteWorkload> {
+  if (isMountNodeId(nodeId)) {
+    return { nodeCount: 1, byteSize: 0, totalUnits: 1 }
+  }
+  const subtree = await collectSubtreeIds(nodeId)
+  return {
+    nodeCount: subtree.nodeIds.length,
+    byteSize: subtree.reclaimBytes,
+    totalUnits: filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes),
+  }
+}
+
+async function deleteLocalSubtreeWithProgress(
+  subtree: Awaited<ReturnType<typeof collectSubtreeIds>>,
+  onProgress?: (progress: FilesVfsOpProgress) => void,
+): Promise<void> {
+  const total = filesWorkloadUnits(subtree.nodeIds.length, subtree.reclaimBytes)
+  onProgress?.({ done: 0, total })
+
+  if (subtree.nodeIds.length <= LARGE_SUBTREE_DELETE_THRESHOLD) {
+    await deleteSubtree(subtree)
+    onProgress?.({ done: total, total })
+    return
+  }
+
+  const batchSize = FILES_BATCH_DEFAULT_SIZE
+  let deletedNodes = 0
+  let reclaimAssigned = 0
+  for (let offset = 0; offset < subtree.nodeIds.length; offset += batchSize) {
+    const nodeChunk = subtree.nodeIds.slice(offset, offset + batchSize)
+    const nodeChunkSet = new Set(nodeChunk)
+    const fileChunk = subtree.fileIds.filter((id) => nodeChunkSet.has(id))
+    const isLast = offset + nodeChunk.length >= subtree.nodeIds.length
+    const reclaimChunk = isLast
+      ? subtree.reclaimBytes - reclaimAssigned
+      : Math.round((subtree.reclaimBytes * nodeChunk.length) / subtree.nodeIds.length)
+    reclaimAssigned += reclaimChunk
+    deletedNodes += nodeChunk.length
+    const done = Math.min(
+      total,
+      Math.round((deletedNodes / subtree.nodeIds.length) * total),
+    )
+    await deleteSubtree({
+      nodeIds: nodeChunk,
+      fileIds: fileChunk,
+      reclaimBytes: reclaimChunk,
+    })
+    onProgress?.({ done, total })
+  }
+  onProgress?.({ done: total, total })
+}
+
+export async function removeNode(
+  id: string,
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+): Promise<void> {
   const node = await getNodeOrThrow(id)
   assertNodeWritable(node)
   const path = await resolveFilesAbsolutePath(node)
   if (isMountNodeId(id)) {
+    options?.onProgress?.({ done: 0, total: 1 })
     await removeMountNode(id)
+    options?.onProgress?.({ done: 1, total: 1 })
     emitFilesVfsChanged({ kind: 'deleted', path })
     return
   }
   const subtree = await collectSubtreeIds(id)
-  await deleteSubtree(subtree)
+  await deleteLocalSubtreeWithProgress(subtree, options?.onProgress)
   emitFilesVfsChanged({ kind: 'deleted', path })
 }
 
@@ -1106,6 +1213,7 @@ export async function copyNodeTo(params: {
   sourceId: string
   destLocationId: FilesLocationId
   destParentId: string | undefined
+  onProgress?: (progress: FilesVfsOpProgress) => void
 }): Promise<FilesNode> {
   const source = await getNodeOrThrow(params.sourceId)
   await assertCanCreateIn(params.destLocationId, params.destParentId)
@@ -1125,13 +1233,26 @@ export async function copyNodeTo(params: {
     await assertAdditionalBytesAvailable(needed)
   }
 
-  return copyNodeTree(source, params.destLocationId, params.destParentId)
+  const workload = await estimateCopyWorkloadForNode(source)
+  const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
+  const progressState = { done: 0 }
+  params.onProgress?.({ done: 0, total })
+
+  const reportNodeDone = (node: FilesNode) => {
+    progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(node))
+    params.onProgress?.({ done: progressState.done, total })
+  }
+
+  const result = await copyNodeTree(source, params.destLocationId, params.destParentId, reportNodeDone)
+  params.onProgress?.({ done: total, total })
+  return result
 }
 
 async function copyNodeTree(
   source: FilesNode,
   destLocationId: FilesLocationId,
   destParentId: string | undefined,
+  reportNodeDone: (node: FilesNode) => void,
 ): Promise<FilesNode> {
   if (source.kind === 'file') {
     const { node, blob } = await readFileBlobByNodeId(source.id)
@@ -1141,34 +1262,40 @@ async function copyNodeTree(
       mimeType: node.mimeType ?? source.mimeType ?? blob.type,
       bytes,
     })
+    let created: FilesNode
     if (asBinary) {
       if (isMountLocationId(destLocationId)) {
         throw new Error('挂载卷暂不支持粘贴二进制文件')
       }
-      return createBinaryFile({
+      created = await createBinaryFile({
         locationId: destLocationId,
         parentId: destParentId,
         name: source.name,
         bytes,
         mimeType: node.mimeType ?? source.mimeType ?? 'application/octet-stream',
       })
+    } else {
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes))
+      created = await createTextFile({
+        locationId: destLocationId,
+        parentId: destParentId,
+        name: source.name,
+        text,
+      })
     }
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes))
-    return createTextFile({
-      locationId: destLocationId,
-      parentId: destParentId,
-      name: source.name,
-      text,
-    })
+    reportNodeDone(source)
+    return created
   }
 
   if (source.kind === 'symlink') {
-    return createSymlink({
+    const created = await createSymlink({
       locationId: destLocationId,
       parentId: destParentId,
       name: source.name,
       target: source.target ?? '',
     })
+    reportNodeDone(source)
+    return created
   }
 
   const folder = await mkdir({
@@ -1176,9 +1303,10 @@ async function copyNodeTree(
     parentId: destParentId,
     name: source.name,
   })
+  reportNodeDone(source)
   const children = await listDirectory(source.locationId, source.id)
   for (const child of children) {
-    await copyNodeTree(child, destLocationId, folder.id)
+    await copyNodeTree(child, destLocationId, folder.id, reportNodeDone)
   }
   return folder
 }

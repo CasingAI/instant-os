@@ -45,11 +45,19 @@ import {
   type FilesNode,
   type MountFilesLocationId,
 } from './files-types.ts'
+import { FilesOpProgressDialog } from './files-op-progress-dialog.tsx'
+import { estimateFilesOpDurationMs } from './files-op-progress-policy.ts'
+import {
+  runFilesOpWithProgress,
+  type FilesOpProgressUiState,
+} from './files-run-with-op-progress.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
   createTextFile,
   enrichFilesNodeMeta,
+  estimateCopyWorkload,
+  estimateDeleteWorkload,
   filesNodeNeedsViewportMeta,
   getFilesLocationLabel,
   getNodeOrThrow,
@@ -312,6 +320,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [selectNonce, setSelectNonce] = useState(0)
   const [pendingSelectName, setPendingSelectName] = useState<string | undefined>(undefined)
+  const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const browserRef = useRef<HTMLDivElement>(null)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
@@ -1217,10 +1226,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (!entry || !canCreateHere) return
     closeTransientMenus()
     try {
-      await copyNodeTo({
-        sourceId: entry.nodeId,
-        destLocationId: locationId,
-        destParentId: folderId,
+      const workload = await estimateCopyWorkload(entry.nodeId)
+      await runFilesOpWithProgress({
+        kind: 'paste',
+        totalWork: workload.totalUnits,
+        estimatedTotalMs: estimateFilesOpDurationMs(workload.totalUnits),
+        onUiChange: setOpProgressUi,
+        task: async (report) => {
+          await copyNodeTo({
+            sourceId: entry.nodeId,
+            destLocationId: locationId,
+            destParentId: folderId,
+            onProgress: report,
+          })
+        },
       })
       await refresh()
     } catch (err) {
@@ -1340,7 +1359,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       })
       if (!ok) return
       try {
-        await removeNode(node.id)
+        const workload = await estimateDeleteWorkload(node.id)
+        await runFilesOpWithProgress({
+          kind: 'delete',
+          totalWork: workload.totalUnits,
+          estimatedTotalMs: estimateFilesOpDurationMs(workload.totalUnits),
+          onUiChange: setOpProgressUi,
+          task: async (report) => {
+            await removeNode(node.id, { onProgress: report })
+          },
+        })
         await refresh()
       } catch (err) {
         await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
@@ -2206,6 +2234,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           </dl>
         ) : undefined}
       </WindowModal>
+      <FilesOpProgressDialog
+        open={opProgressUi !== undefined}
+        title={opProgressUi?.title ?? ''}
+        remainingLabel={opProgressUi?.remainingLabel ?? ''}
+        fraction={opProgressUi?.fraction ?? 0}
+        themeColor={THEME}
+      />
     </div>
   )
 }
