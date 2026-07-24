@@ -30,6 +30,10 @@ const WORKSPACE_FILE_SAMPLE_ID = '__workspace_file__' as const
 const SCRIPT_ACCEPT_EXTENSIONS = ['js', 'mjs', 'cjs'] as const
 const WORKSPACE_ROOT = '/user'
 
+function menuCheckPrefix(active: boolean): string {
+  return active ? '✓ ' : ''
+}
+
 type OutputKind = 'log' | 'info' | 'warn' | 'error' | 'result' | 'result-error'
 
 type OutputLine = {
@@ -143,6 +147,9 @@ export function VirtualJsApp() {
   const [uiState, setUiState] = useState<InstanceUiState>('boot')
   const [bootError, setBootError] = useState<string | undefined>(undefined)
   const [testingAll, setTestingAll] = useState(false)
+  const [readOnly, setReadOnly] = useState(false)
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
 
   const fileMode = entryPath !== undefined
 
@@ -242,6 +249,7 @@ export function VirtualJsApp() {
       const instance = await createQuickJsInstance({
         // Virtual JS 默认可读写用户卷，便于内置 fs 样例与打开工作区文件
         workspaceRoot: WORKSPACE_ROOT,
+        readOnly: readOnlyRef.current,
       })
       bindInstance(instance)
     } catch (error) {
@@ -266,6 +274,16 @@ export function VirtualJsApp() {
       instanceRef.current = undefined
     }
   }, [createInstance])
+
+  // readOnly 变化时重建实例（权限在创建时冻结，不可中途变更）
+  const firstReadOnlyRef = useRef(true)
+  useEffect(() => {
+    if (firstReadOnlyRef.current) {
+      firstReadOnlyRef.current = false
+      return
+    }
+    void createInstance()
+  }, [readOnly, createInstance])
 
   const loadSample = useCallback(
     async (sampleId: string) => {
@@ -750,6 +768,12 @@ export function VirtualJsApp() {
             disabled: !canRecreate,
             onClick: () => void handleRecreateInstance(),
           },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: `${menuCheckPrefix(readOnly)}只读模式`,
+            onClick: () => setReadOnly((value) => !value),
+          },
         ],
       },
     ]
@@ -773,6 +797,7 @@ export function VirtualJsApp() {
     handleStop,
     handleTestAll,
     minimizeWindow,
+    readOnly,
     showBuiltinAbout,
     testingAll,
     windows,

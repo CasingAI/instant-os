@@ -31,6 +31,8 @@ export type TerminalReplPanelProps = {
   handleRef?: Ref<TerminalReplHandle | null>
   welcomeLines?: readonly string[]
   ariaLabel?: string
+  /** 只读模式：禁止任何 VFS 写操作（创建实例时冻结，切换会重建实例）。 */
+  readOnly?: boolean
 }
 
 type DisplayLine =
@@ -72,6 +74,7 @@ export function TerminalReplPanel({
   handleRef,
   welcomeLines,
   ariaLabel = '终端',
+  readOnly = false,
 }: TerminalReplPanelProps) {
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   const mountedRef = useRef(true)
@@ -89,6 +92,8 @@ export function TerminalReplPanel({
   const justSubmittedRef = useRef(false)
   const workspaceRootRef = useRef(workspaceRoot)
   workspaceRootRef.current = workspaceRoot
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
 
   const [lines, setLines] = useState<DisplayLine[]>(() =>
     (welcomeLines ?? []).map((text, index) => ({
@@ -175,6 +180,7 @@ export function TerminalReplPanel({
       const instance = await createQuickJsInstance({
         workspaceRoot: root,
         cwd: root,
+        readOnly: readOnlyRef.current,
       })
       bindInstance(instance)
     } catch (error) {
@@ -198,6 +204,16 @@ export function TerminalReplPanel({
       instanceRef.current = undefined
     }
   }, [createInstance])
+
+  // readOnly 变化时重建实例（权限在创建时冻结，不可中途变更）
+  const firstReadOnlyRef = useRef(true)
+  useEffect(() => {
+    if (firstReadOnlyRef.current) {
+      firstReadOnlyRef.current = false
+      return
+    }
+    void createInstance()
+  }, [readOnly, createInstance])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -444,6 +460,11 @@ export function TerminalReplPanel({
       {bootError ? (
         <div class="terminal-repl-shell__banner" role="alert">
           实例启动失败：{bootError}
+        </div>
+      ) : undefined}
+      {readOnly ? (
+        <div class="terminal-repl-shell__banner terminal-repl-shell__banner--readonly">
+          只读模式 · 写操作将被拒绝
         </div>
       ) : undefined}
       <div

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'preact/hooks'
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -10,12 +10,17 @@ import './terminal-repl-shell.css'
 const APP_ID = 'terminal' as const
 const WORKSPACE_ROOT = '/user'
 
+function menuCheckPrefix(active: boolean): string {
+  return active ? '✓ ' : ''
+}
+
 /** 系统终端：原生 QuickJS / Node 兼容运行时，可操作虚拟文件系统与宿主能力。 */
 export function TerminalApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const handleRef = useRef<TerminalReplHandle | null>(null)
   const busyRef = useRef(false)
+  const [readOnly, setReadOnly] = useState(false)
 
   const welcomeLines = useMemo(
     () => [
@@ -80,6 +85,12 @@ export function TerminalApp() {
             disabled: !busyRef.current,
             onClick: handleAbort,
           },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: `${menuCheckPrefix(readOnly)}只读模式`,
+            onClick: () => setReadOnly((value) => !value),
+          },
         ],
       },
     ]
@@ -88,6 +99,7 @@ export function TerminalApp() {
     closeWindowsForApp,
     handleAbort,
     minimizeWindow,
+    readOnly,
     resetInstance,
     showBuiltinAbout,
     windows,
@@ -101,6 +113,7 @@ export function TerminalApp() {
         workspaceRoot={WORKSPACE_ROOT}
         handleRef={handleRef}
         welcomeLines={welcomeLines}
+        readOnly={readOnly}
       />
     </div>
   )

@@ -66,12 +66,17 @@ function resolveWorkspaceRoot(raw: string | undefined): string | undefined {
 function resolveHostPermissions(
   workspaceRoot: string | undefined,
   permissions: QuickJsInstanceOptions['permissions'],
+  readOnly: boolean,
 ): QuickJsHostPermissions {
   const defaultRoots = workspaceRoot !== undefined ? [workspaceRoot] : []
   return {
     fsReadRoots: permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultRoots],
-    fsWriteRoots:
-      permissions?.fsWriteRoots !== undefined ? [...permissions.fsWriteRoots] : [...defaultRoots],
+    // readOnly 强制清空写根，忽略外部传入的 fsWriteRoots
+    fsWriteRoots: readOnly
+      ? []
+      : permissions?.fsWriteRoots !== undefined
+        ? [...permissions.fsWriteRoots]
+        : [...defaultRoots],
     fsWriteDenyRoots:
       permissions?.fsWriteDenyRoots !== undefined ? [...permissions.fsWriteDenyRoots] : [],
     network: false,
@@ -95,7 +100,7 @@ function resolveHostConfig(options: QuickJsInstanceOptions): QuickJsHostConfig {
     workspaceRoot,
     env,
     argv,
-    permissions: resolveHostPermissions(workspaceRoot, options.permissions),
+    permissions: resolveHostPermissions(workspaceRoot, options.permissions, options.readOnly === true),
     quotas: resolveHostQuotas(options),
   }
 }

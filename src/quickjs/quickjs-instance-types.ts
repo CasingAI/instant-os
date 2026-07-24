@@ -61,6 +61,15 @@ export type QuickJsInstanceOptions = {
   /** 伪 process.argv；默认 `['instant-node']`。 */
   argv?: string[]
   /**
+   * 实例只读模式。为 `true` 时强制 `fsWriteRoots` 为空，任何 VFS 写操作（writeFile /
+   * mkdir / rm / rename 等）在进入 VFS 之前就被 `assertFsPermission` 拒绝，脚本侧收到
+   * `EACCES`。读取根不受影响。
+   *
+   * 权限在创建时冻结；切换需重建实例。
+   * 未来当 JS 可修改系统配置等通道时，此标志可统一关掉所有写入通道。
+   */
+  readOnly?: boolean
+  /**
    * 权限覆盖。未传时：无 workspaceRoot → 读写根为空；
    * 有 workspaceRoot → 读写根默认为该根；network 始终 false。
    */
