@@ -53,6 +53,7 @@ import {
   addFileTabToFocusedGroup,
   createEditorLayoutWithTabs,
   createEmptyEditorLayout,
+  findAiChatItem,
   focusEditorGroup,
   focusEditorItem,
   focusEditorTab,
@@ -61,6 +62,7 @@ import {
   countOtherItemsInGroup,
   layoutHasItems,
   moveEditorItemToGroup,
+  openAiChatInFocusedGroup,
   openMarkdownPreviewToSide,
   openSearchEditorInFocusedGroup,
   removeEditorItem,
@@ -104,9 +106,18 @@ import {
   searchVscodeWorkspaceFilesDetailed,
   type VscodeWorkspaceSearchHit,
 } from './vscode-workspace-search.ts'
-import { VscodeAiPanel } from './vscode-ai-panel.tsx'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
-import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
+import {
+  buildVscodeAiChatSession,
+  loadVscodeAiChatStore,
+  pushClosedVscodeAiChatSession,
+  saveVscodeAiChatStore,
+  titleFromVscodeAiMessages,
+  vscodeAiChatWorkspaceKey,
+  type VscodeAiChatSession,
+  type VscodeAiClosedChatSession,
+  type VscodeAiPendingEdit,
+} from './vscode-ai-chat-storage.ts'
 import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
 import './vscode.css'
 
@@ -130,7 +141,7 @@ type DirtyPromptState = {
   resolve: (choice: DirtyChoice) => void
 }
 
-type SidebarView = 'explorer' | 'search' | 'ai' | 'settings'
+type SidebarView = 'explorer' | 'search' | 'settings'
 
 const VSCODE_THEME_OPTIONS = [
   { id: 'vs-dark', label: '深色' },
@@ -250,6 +261,29 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [searchEditorSessions, setSearchEditorSessions] = useState<
     Map<string, VscodeSearchEditorSession>
   >(() => new Map())
+  const [aiChatSessions, setAiChatSessions] = useState<Map<string, VscodeAiChatSession>>(
+    () => new Map(),
+  )
+  const [closedAiChats, setClosedAiChats] = useState<VscodeAiClosedChatSession[]>(() => {
+    const store = loadVscodeAiChatStore(loadVscodePrefs().workspaceFolder)
+    let closed = [...store.closedSessions]
+    for (const session of store.openSessions) {
+      closed = pushClosedVscodeAiChatSession(closed, session)
+    }
+    if (store.openSessions.length > 0) {
+      saveVscodeAiChatStore({
+        workspaceKey: store.workspaceKey,
+        openSessions: [],
+        closedSessions: closed,
+      })
+    }
+    return closed
+  })
+  const aiChatSessionsRef = useRef(aiChatSessions)
+  const closedAiChatsRef = useRef(closedAiChats)
+  const aiWorkspaceFolderRef = useRef(prefs.workspaceFolder)
+  aiChatSessionsRef.current = aiChatSessions
+  closedAiChatsRef.current = closedAiChats
   const [quickSearchOpen, setQuickSearchOpen] = useState(false)
   const cursorRef = useRef<VscodeCursorPos>({ line: 1, column: 1 })
   const selectionTextRef = useRef<string | undefined>(undefined)
@@ -984,6 +1018,50 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     updatePrefs({ workspaceFolder: undefined })
   }, [updatePrefs])
 
+  useEffect(() => {
+    const previousFolder = aiWorkspaceFolderRef.current
+    aiWorkspaceFolderRef.current = prefs.workspaceFolder
+
+    if (previousFolder !== prefs.workspaceFolder && aiChatSessionsRef.current.size > 0) {
+      const previousStore = loadVscodeAiChatStore(previousFolder)
+      let previousClosed = [...previousStore.closedSessions]
+      for (const session of aiChatSessionsRef.current.values()) {
+        previousClosed = pushClosedVscodeAiChatSession(previousClosed, session)
+      }
+      saveVscodeAiChatStore({
+        workspaceKey: vscodeAiChatWorkspaceKey(previousFolder),
+        openSessions: [],
+        closedSessions: previousClosed,
+      })
+    }
+
+    const store = loadVscodeAiChatStore(prefs.workspaceFolder)
+    let closed = [...store.closedSessions]
+    for (const session of store.openSessions) {
+      closed = pushClosedVscodeAiChatSession(closed, session)
+    }
+    if (store.openSessions.length > 0) {
+      saveVscodeAiChatStore({
+        workspaceKey: store.workspaceKey,
+        openSessions: [],
+        closedSessions: closed,
+      })
+    }
+    setAiChatSessions(new Map())
+    setClosedAiChats(closed)
+    setEditorLayout((layout) => {
+      let next = layout
+      for (const group of Object.values(layout.groups)) {
+        for (const item of [...group.items]) {
+          if (item.kind !== 'aiChat') continue
+          next = removeEditorItem(next, item.id)
+        }
+      }
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [prefs.workspaceFolder])
+
   // 只关心「打开了哪些文件标签」，忽略焦点切换，避免无谓触发 TS sync
   const openFileTabIdKey = useMemo(() => {
     const ids: string[] = []
@@ -1239,6 +1317,145 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     }
   }, [])
 
+  const persistAiChatStore = useCallback(
+    (
+      openMap: ReadonlyMap<string, VscodeAiChatSession>,
+      closed: readonly VscodeAiClosedChatSession[],
+    ) => {
+      saveVscodeAiChatStore({
+        workspaceKey: vscodeAiChatWorkspaceKey(prefs.workspaceFolder),
+        openSessions: [...openMap.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+        closedSessions: [...closed],
+      })
+    },
+    [prefs.workspaceFolder],
+  )
+
+  const openNewAiChat = useCallback(() => {
+    const session = buildVscodeAiChatSession()
+    setAiChatSessions((prev) => {
+      const next = new Map(prev)
+      next.set(session.id, session)
+      persistAiChatStore(next, closedAiChatsRef.current)
+      return next
+    })
+    setEditorLayout((layout) => {
+      const next = openAiChatInFocusedGroup(layout, session.id)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [persistAiChatStore])
+
+  const openOrFocusAiChat = useCallback(() => {
+    const layout = editorLayoutRef.current
+    let latest:
+      | { groupId: string; itemId: string; updatedAt: number }
+      | undefined
+    for (const group of Object.values(layout.groups)) {
+      for (const item of group.items) {
+        if (item.kind !== 'aiChat') continue
+        const session = aiChatSessionsRef.current.get(item.sessionId)
+        const updatedAt = session?.updatedAt ?? 0
+        if (!latest || updatedAt >= latest.updatedAt) {
+          latest = { groupId: group.id, itemId: item.id, updatedAt }
+        }
+      }
+    }
+    if (latest) {
+      setEditorLayout((current) => {
+        const next = focusEditorItem(current, latest!.groupId, latest!.itemId)
+        editorLayoutRef.current = next
+        return next
+      })
+      return
+    }
+    openNewAiChat()
+  }, [openNewAiChat])
+
+  const closeAiChatItem = useCallback(
+    (itemId: string) => {
+      let sessionId: string | undefined
+      for (const group of Object.values(editorLayoutRef.current.groups)) {
+        const item = group.items.find((entry) => entry.id === itemId)
+        if (item?.kind === 'aiChat') {
+          sessionId = item.sessionId
+          break
+        }
+      }
+      setEditorLayout((layout) => {
+        const next = removeEditorItem(layout, itemId)
+        editorLayoutRef.current = next
+        return next
+      })
+      if (!sessionId) return
+      const session = aiChatSessionsRef.current.get(sessionId)
+      const nextOpen = new Map(aiChatSessionsRef.current)
+      nextOpen.delete(sessionId)
+      const nextClosed = session
+        ? pushClosedVscodeAiChatSession(closedAiChatsRef.current, session)
+        : closedAiChatsRef.current
+      setAiChatSessions(nextOpen)
+      setClosedAiChats(nextClosed)
+      persistAiChatStore(nextOpen, nextClosed)
+    },
+    [persistAiChatStore],
+  )
+
+  const restoreClosedAiChat = useCallback(
+    (sessionId: string) => {
+      const existingOpen = findAiChatItem(editorLayoutRef.current, sessionId)
+      if (existingOpen) {
+        setEditorLayout((layout) => {
+          const next = focusEditorItem(layout, existingOpen.groupId, existingOpen.item.id)
+          editorLayoutRef.current = next
+          return next
+        })
+        return
+      }
+      const closed = closedAiChatsRef.current.find((session) => session.id === sessionId)
+      if (!closed) return
+      const session = buildVscodeAiChatSession({
+        id: closed.id,
+        title: closed.title,
+        messages: closed.messages,
+        updatedAt: Date.now(),
+      })
+      const nextClosed = closedAiChatsRef.current.filter((entry) => entry.id !== sessionId)
+      setClosedAiChats(nextClosed)
+      setAiChatSessions((prev) => {
+        const next = new Map(prev)
+        next.set(session.id, session)
+        persistAiChatStore(next, nextClosed)
+        return next
+      })
+      setEditorLayout((layout) => {
+        const next = openAiChatInFocusedGroup(layout, session.id)
+        editorLayoutRef.current = next
+        return next
+      })
+    },
+    [persistAiChatStore],
+  )
+
+  const updateAiChatMessages = useCallback(
+    (sessionId: string, messages: VscodeAiChatSession['messages']) => {
+      setAiChatSessions((prev) => {
+        const current = prev.get(sessionId)
+        if (!current) return prev
+        const next = new Map(prev)
+        next.set(sessionId, {
+          ...current,
+          messages,
+          title: titleFromVscodeAiMessages(messages),
+          updatedAt: Date.now(),
+        })
+        persistAiChatStore(next, closedAiChatsRef.current)
+        return next
+      })
+    },
+    [persistAiChatStore],
+  )
+
   const handleCloseTab = useCallback(() => {
     const target = getFocusedCloseTarget(editorLayoutRef.current)
     if (!target) return
@@ -1250,8 +1467,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       closeSearchEditorItem(target.itemId)
       return
     }
+    if (target.kind === 'aiChat') {
+      closeAiChatItem(target.itemId)
+      return
+    }
     void closeTab(target.tabId)
-  }, [closePreviewItem, closeSearchEditorItem, closeTab])
+  }, [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab])
 
   const closeOtherInGroup = useCallback(
     async (groupId: string, keepItemId: string) => {
@@ -1279,10 +1500,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           closeSearchEditorItem(item.id)
           continue
         }
+        if (item.kind === 'aiChat') {
+          closeAiChatItem(item.id)
+          continue
+        }
         await closeTab(item.tabId)
       }
     },
-    [closePreviewItem, closeSearchEditorItem, closeTab],
+    [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab],
   )
 
   const handleCloseOtherTabs = useCallback(() => {
@@ -1703,7 +1928,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           {
             type: 'action',
             label: 'AI',
-            onClick: () => activateSidebar('ai'),
+            onClick: () => openOrFocusAiChat(),
           },
           {
             type: 'action',
@@ -1750,6 +1975,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     minimizeWindow,
     openDialogOpen,
     openMarkdownPreviewBeside,
+    openOrFocusAiChat,
     pickAndOpen,
     pickAndOpenFolder,
     prefs.panelTab,
@@ -1842,7 +2068,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (!prefs.sidebarVisible) return undefined
     if (sidebarView === 'explorer') return explorerBtnRef.current ?? undefined
     if (sidebarView === 'search') return searchBtnRef.current ?? undefined
-    if (sidebarView === 'ai') return aiBtnRef.current ?? undefined
     return settingsBtnRef.current ?? undefined
   }, [prefs.sidebarVisible, sidebarView])
 
@@ -1961,9 +2186,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           <button
             type="button"
             ref={aiBtnRef}
-            class={`vscode__activity-btn${sidebarView === 'ai' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
+            class="vscode__activity-btn"
             title="AI"
-            onClick={() => activateSidebar('ai')}
+            onClick={() => openOrFocusAiChat()}
           >
             <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -2024,22 +2249,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onOpenHit={openSearchHit}
                 onUpdateOpenFileText={updateOpenFileTextByPath}
                 onOpenSearchEditor={(payload) => void openSearchEditorFromPanel(payload)}
-              />
-            ) : undefined}
-
-            {sidebarView === 'ai' ? (
-              <VscodeAiPanel
-                mode={prefs.aiMode}
-                onModeChange={(aiMode) => updatePrefs({ aiMode })}
-                aiModelKey={prefs.aiModelKey}
-                onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
-                workspaceFolder={prefs.workspaceFolder}
-                getContext={getVscodeAiContext}
-                getOpenFilesForSearch={() => openSearchFiles}
-                problems={problems}
-                terminalSession={terminalSession}
-                onApplyEdit={applyVscodeAiEdit}
-                onRejectEdit={() => undefined}
               />
             ) : undefined}
 
@@ -2159,6 +2368,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onSearchEditorContextLinesChange={(sessionId, lines) =>
                   void refreshSearchEditorContext(sessionId, lines)
                 }
+                aiChatSessions={aiChatSessions}
+                closedAiChats={closedAiChats}
+                onNewAiChat={openNewAiChat}
+                onRestoreAiChat={restoreClosedAiChat}
+                onCloseAiChat={closeAiChatItem}
+                onAiChatMessagesChange={updateAiChatMessages}
+                aiMode={prefs.aiMode}
+                onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
+                aiModelKey={prefs.aiModelKey}
+                onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
+                getAiContext={getVscodeAiContext}
+                getOpenFilesForSearch={() => openSearchFiles}
+                problems={problems}
+                terminalSession={terminalSession}
+                onApplyAiEdit={applyVscodeAiEdit}
+                onRejectAiEdit={() => undefined}
               />
             ) : (
               <div class="vscode__editor">

@@ -21,9 +21,6 @@ import type { VscodeAiToolsHost } from './vscode-ai-tools.ts'
 import type { VscodeAiRunCommandHost } from './vscode-ai-run-command.ts'
 import {
   createVscodeAiChatMessage,
-  loadVscodeAiChatThread,
-  saveVscodeAiChatThread,
-  vscodeAiChatWorkspaceKey,
   type VscodeAiChatMessage,
   type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
@@ -45,6 +42,9 @@ const SAMPLE_PROMPTS = [
 ] as const
 
 export type VscodeAiPanelProps = {
+  sessionId: string
+  messages: VscodeAiChatMessage[]
+  onMessagesChange: (messages: VscodeAiChatMessage[]) => void
   mode: VscodeAiMode
   onModeChange: (mode: VscodeAiMode) => void
   aiModelKey: string | undefined
@@ -158,6 +158,9 @@ function PendingEditCard({
 }
 
 export function VscodeAiPanel({
+  sessionId,
+  messages,
+  onMessagesChange,
   mode,
   onModeChange,
   aiModelKey,
@@ -183,9 +186,6 @@ export function VscodeAiPanel({
     onAiModelKeyChange(resolvedModelKey)
   }, [aiModelKey, onAiModelKeyChange, resolvedModelKey])
 
-  const [messages, setMessages] = useState<VscodeAiChatMessage[]>(() =>
-    loadVscodeAiChatThread(workspaceFolder).messages,
-  )
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [liveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
@@ -194,18 +194,20 @@ export function VscodeAiPanel({
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
+  const sessionIdRef = useRef(sessionId)
 
   useEffect(() => {
-    setMessages(loadVscodeAiChatThread(workspaceFolder).messages)
+    if (sessionIdRef.current === sessionId) return
+    sessionIdRef.current = sessionId
+    setDraft('')
+    setBusy(false)
+    setLiveTimeline([])
+    setLiveAnswer('')
+    abortRef.current?.abort()
+    abortRef.current = undefined
     historyRef.current = []
-  }, [workspaceFolder])
-
-  useEffect(() => {
-    saveVscodeAiChatThread({
-      workspaceKey: vscodeAiChatWorkspaceKey(workspaceFolder),
-      messages,
-    })
-  }, [messages, workspaceFolder])
+    pendingEditsRef.current = []
+  }, [sessionId])
 
   const runCommandHost = useMemo<VscodeAiRunCommandHost>(
     () => ({
@@ -249,9 +251,9 @@ export function VscodeAiPanel({
 
   const handleClear = useCallback(() => {
     if (busy) return
-    setMessages([])
+    onMessagesChange([])
     historyRef.current = []
-  }, [busy])
+  }, [busy, onMessagesChange])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -269,7 +271,8 @@ export function VscodeAiPanel({
       pendingEditsRef.current = []
 
       const userMessage = createVscodeAiChatMessage('user', text)
-      setMessages((current) => [...current, userMessage])
+      const withUser = [...messages, userMessage]
+      onMessagesChange(withUser)
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -298,12 +301,12 @@ export function VscodeAiPanel({
           pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
           incomplete: result.incomplete,
         })
-        setMessages((current) => [...current, assistantMessage])
+        onMessagesChange([...withUser, assistantMessage])
       } catch (error) {
         const assistantMessage = createVscodeAiChatMessage('assistant', formatError(error), {
           isError: true,
         })
-        setMessages((current) => [...current, assistantMessage])
+        onMessagesChange([...withUser, assistantMessage])
       } finally {
         setBusy(false)
         setLiveTimeline([])
@@ -311,14 +314,14 @@ export function VscodeAiPanel({
         abortRef.current = undefined
       }
     },
-    [aiModelKey, busy, draft, getContext, liveAnswer, mode, toolsHost],
+    [aiModelKey, busy, draft, getContext, liveAnswer, messages, mode, onMessagesChange, toolsHost],
   )
 
   const applyEdit = useCallback(
     async (edit: VscodeAiPendingEdit) => {
       await onApplyEdit(edit)
-      setMessages((current) =>
-        current.map((message) => {
+      onMessagesChange(
+        messages.map((message) => {
           if (!message.pendingEdits) return message
           return {
             ...message,
@@ -329,7 +332,7 @@ export function VscodeAiPanel({
         }),
       )
     },
-    [onApplyEdit],
+    [messages, onApplyEdit, onMessagesChange],
   )
 
   const showWelcome = messages.length === 0 && !busy

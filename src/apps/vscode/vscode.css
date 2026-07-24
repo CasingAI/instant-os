@@ -2424,6 +2424,15 @@
   background: var(--vscode-paper);
 }
 
+.vscode__ai-chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--vscode-paper);
+}
+
 .vscode__markdown-preview {
   box-sizing: border-box;
   padding: 24px 32px 48px;

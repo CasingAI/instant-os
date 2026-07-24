@@ -8,6 +8,7 @@ export type VscodeGroupItem =
   | { kind: 'file'; id: string; tabId: string }
   | { kind: 'preview'; id: string; sourcePath: string }
   | { kind: 'searchEditor'; id: string; sessionId: string }
+  | { kind: 'aiChat'; id: string; sessionId: string }
 
 export type VscodeEditorGroupState = {
   id: string
@@ -173,12 +174,14 @@ export function getFocusedCloseTarget(
   | { kind: 'file'; tabId: string }
   | { kind: 'preview'; itemId: string }
   | { kind: 'searchEditor'; itemId: string }
+  | { kind: 'aiChat'; itemId: string }
   | undefined {
   const group = layout.groups[layout.focusedGroupId]
   const item = getGroupActiveItem(group)
   if (!item) return undefined
   if (item.kind === 'file') return { kind: 'file', tabId: item.tabId }
   if (item.kind === 'searchEditor') return { kind: 'searchEditor', itemId: item.id }
+  if (item.kind === 'aiChat') return { kind: 'aiChat', itemId: item.id }
   return { kind: 'preview', itemId: item.id }
 }
 
@@ -384,6 +387,54 @@ export function openSearchEditorInFocusedGroup(
 
   const itemId = `search-editor-item-${sessionId}`
   const item: VscodeGroupItem = { kind: 'searchEditor', id: itemId, sessionId }
+  return {
+    ...layout,
+    focusedGroupId,
+    groups: {
+      ...layout.groups,
+      [focusedGroupId]: {
+        ...group,
+        items: [...group.items, item],
+        activeItemId: itemId,
+      },
+    },
+  }
+}
+
+export function findAiChatItem(
+  layout: VscodeEditorLayoutState,
+  sessionId: string,
+): { groupId: string; item: Extract<VscodeGroupItem, { kind: 'aiChat' }> } | undefined {
+  for (const group of Object.values(layout.groups)) {
+    const item = group.items.find(
+      (entry): entry is Extract<VscodeGroupItem, { kind: 'aiChat' }> =>
+        entry.kind === 'aiChat' && entry.sessionId === sessionId,
+    )
+    if (item) return { groupId: group.id, item }
+  }
+  return undefined
+}
+
+export function openAiChatInFocusedGroup(
+  layout: VscodeEditorLayoutState,
+  sessionId: string,
+): VscodeEditorLayoutState {
+  const existing = findAiChatItem(layout, sessionId)
+  if (existing) {
+    return focusEditorItem(layout, existing.groupId, existing.item.id)
+  }
+
+  let focusedGroupId = layout.focusedGroupId
+  let group = layout.groups[focusedGroupId]
+  if (!group) {
+    const fresh = createEmptyEditorLayout()
+    focusedGroupId = fresh.focusedGroupId
+    group = fresh.groups[focusedGroupId]!
+    layout = fresh
+  }
+
+  const itemId = `ai-chat-item-${sessionId}`
+  const item: VscodeGroupItem = { kind: 'aiChat', id: itemId, sessionId }
   return {
     ...layout,
     focusedGroupId,

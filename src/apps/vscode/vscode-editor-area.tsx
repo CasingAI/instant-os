@@ -21,6 +21,19 @@ import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
 import { VscodeSearchEditor } from './vscode-search-editor.tsx'
 import type { VscodeSearchEditorSession } from './vscode-search-editor-session.ts'
 import type { VscodeWorkspaceSearchHit } from './vscode-workspace-search-core.ts'
+import { VscodeAiPanel } from './vscode-ai-panel.tsx'
+import type { VscodeAiMode } from './vscode-ai-mode.ts'
+import type {
+  VscodeAiChatMessage,
+  VscodeAiChatSession,
+  VscodeAiClosedChatSession,
+  VscodeAiPendingEdit,
+} from './vscode-ai-chat-storage.ts'
+import type { VscodeAiContextInput } from './vscode-ai-context.ts'
+import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
+import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
+import type { TerminalSession } from '../../terminal/terminal-session.ts'
+import { HistoryIcon, PlusIcon } from '../../icons/app-icons.tsx'
 
 type DropZone = VscodeSplitEdge
 
@@ -41,34 +54,41 @@ type DisplayTab = {
 function computeTabSnapshot(
   item: VscodeGroupItem,
   tabs: readonly VscodeTab[],
+  aiChatSessions: ReadonlyMap<string, VscodeAiChatSession> | undefined,
 ): TabVisualSnapshot {
   const fileTab = item.kind === 'file' ? tabs.find((tab) => tab.id === item.tabId) : undefined
   const previewSource =
     item.kind === 'preview' ? tabs.find((tab) => tab.path === item.sourcePath) : undefined
+  const aiSession =
+    item.kind === 'aiChat' ? aiChatSessions?.get(item.sessionId) : undefined
 
   const title =
     item.kind === 'searchEditor'
       ? '搜索编辑器'
-      : item.kind === 'preview'
-        ? `Preview ${previewSource?.name ?? 'Markdown'}`
-        : fileTab
-          ? fileTab.deleted
-            ? `${fileTab.name}（已删除）`
-            : fileTab.conflict
-              ? `${fileTab.name}（冲突）`
-              : fileTab.binaryPrompt
-                ? `${fileTab.name}（二进制）`
-                : fileTab.name
-          : '未知文件'
+      : item.kind === 'aiChat'
+        ? aiSession?.title || '新对话'
+        : item.kind === 'preview'
+          ? `Preview ${previewSource?.name ?? 'Markdown'}`
+          : fileTab
+            ? fileTab.deleted
+              ? `${fileTab.name}（已删除）`
+              : fileTab.conflict
+                ? `${fileTab.name}（冲突）`
+                : fileTab.binaryPrompt
+                  ? `${fileTab.name}（二进制）`
+                  : fileTab.name
+            : '未知文件'
 
   return {
     title,
     pathTitle:
       item.kind === 'searchEditor'
         ? 'Search Editor'
-        : item.kind === 'preview'
-          ? previewSource?.path ?? item.sourcePath
-          : fileTab?.path ?? '',
+        : item.kind === 'aiChat'
+          ? 'AI Chat'
+          : item.kind === 'preview'
+            ? previewSource?.path ?? item.sourcePath
+            : fileTab?.path ?? '',
     dirty: fileTab ? isVscodeTabDirty(fileTab) : false,
     deleted: Boolean(fileTab?.deleted),
     conflict: Boolean(fileTab?.conflict),
@@ -152,6 +172,22 @@ type VscodeEditorAreaProps = {
   onCloseSearchEditor?: (itemId: string) => void
   onSearchEditorOpenHit?: (hit: VscodeWorkspaceSearchHit) => void
   onSearchEditorContextLinesChange?: (sessionId: string, lines: number) => void
+  aiChatSessions?: ReadonlyMap<string, VscodeAiChatSession>
+  closedAiChats?: readonly VscodeAiClosedChatSession[]
+  onNewAiChat?: () => void
+  onRestoreAiChat?: (sessionId: string) => void
+  onCloseAiChat?: (itemId: string) => void
+  onAiChatMessagesChange?: (sessionId: string, messages: VscodeAiChatMessage[]) => void
+  aiMode?: VscodeAiMode
+  onAiModeChange?: (mode: VscodeAiMode) => void
+  aiModelKey?: string | undefined
+  onAiModelKeyChange?: (key: string) => void
+  getAiContext?: () => VscodeAiContextInput
+  getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
+  problems?: readonly MonacoProblem[]
+  terminalSession?: TerminalSession
+  onApplyAiEdit?: (edit: VscodeAiPendingEdit) => Promise<void>
+  onRejectAiEdit?: (editId: string) => void
 }
 
 function pathInWorkspace(workspaceFolder: string | undefined, path: string | undefined): boolean {
@@ -165,7 +201,7 @@ function pathForGroupItem(
   tabs: readonly VscodeTab[],
 ): string | undefined {
   if (item.kind === 'preview') return item.sourcePath
-  if (item.kind === 'searchEditor') return undefined
+  if (item.kind === 'searchEditor' || item.kind === 'aiChat') return undefined
   return tabs.find((tab) => tab.id === item.tabId)?.path
 }
 
@@ -250,6 +286,22 @@ function VscodeEditorGroupView({
   onCloseSearchEditor,
   onSearchEditorOpenHit,
   onSearchEditorContextLinesChange,
+  aiChatSessions,
+  closedAiChats,
+  onNewAiChat,
+  onRestoreAiChat,
+  onCloseAiChat,
+  onAiChatMessagesChange,
+  aiMode,
+  onAiModeChange,
+  aiModelKey,
+  onAiModelKeyChange,
+  getAiContext,
+  getOpenFilesForSearch,
+  problems,
+  terminalSession,
+  onApplyAiEdit,
+  onRejectAiEdit,
 }: GroupViewProps) {
   const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
@@ -268,14 +320,14 @@ function VscodeEditorGroupView({
   const peekPointerIdRef = useRef<number | undefined>(undefined)
 
   for (const item of group.items) {
-    visualsRef.current.set(item.id, computeTabSnapshot(item, tabs))
+    visualsRef.current.set(item.id, computeTabSnapshot(item, tabs, aiChatSessions))
   }
 
   const [displayTabs, setDisplayTabs] = useState<DisplayTab[]>(() =>
     group.items.map((item) => ({
       item,
       exiting: false,
-      snapshot: computeTabSnapshot(item, tabs),
+      snapshot: computeTabSnapshot(item, tabs, aiChatSessions),
     })),
   )
 
@@ -309,7 +361,7 @@ function VscodeEditorGroupView({
       const result: DisplayTab[] = group.items.map((item) => ({
         item,
         exiting: false,
-        snapshot: visualsRef.current.get(item.id) ?? computeTabSnapshot(item, tabs),
+        snapshot: visualsRef.current.get(item.id) ?? computeTabSnapshot(item, tabs, aiChatSessions),
       }))
 
       for (const entry of exitingEntries) {
@@ -320,7 +372,7 @@ function VscodeEditorGroupView({
 
       return result
     })
-  }, [group.items, layout, tabs])
+  }, [aiChatSessions, group.items, layout, tabs])
 
   const clearPeek = useCallback(() => {
     peekPointerIdRef.current = undefined
@@ -382,6 +434,7 @@ function VscodeEditorGroupView({
           onClick: () => {
             if (item.kind === 'file') onCloseFileTab(item.tabId)
             else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
+            else if (item.kind === 'aiChat') onCloseAiChat?.(item.id)
             else onClosePreview(item.id)
           },
         },
@@ -437,6 +490,7 @@ function VscodeEditorGroupView({
       onCloseOtherInGroup,
       onClosePreview,
       onCloseSearchEditor,
+      onCloseAiChat,
       onFocusGroup,
       onOpenInFiles,
       onRevealInExplorer,
@@ -603,6 +657,7 @@ function VscodeEditorGroupView({
                 if (entry.exiting) return
                 if (entry.item.kind === 'file') onCloseFileTab(entry.item.tabId)
                 else if (entry.item.kind === 'searchEditor') onCloseSearchEditor?.(entry.item.id)
+                else if (entry.item.kind === 'aiChat') onCloseAiChat?.(entry.item.id)
                 else onClosePreview(entry.item.id)
               }}
               onExitComplete={() => finishTabExit(entry.item.id)}
@@ -624,18 +679,61 @@ function VscodeEditorGroupView({
             />
           ))}
         </div>
-        {showPreviewAction ? (
+        {showPreviewAction || onNewAiChat ? (
           <div class="vscode__tab-actions">
-            <button
-              type="button"
-              class="vscode__tab-action"
-              title="在侧边打开预览"
-              aria-label="在侧边打开预览"
-              disabled={loading || dialogBlocked}
-              onClick={() => onOpenMarkdownPreview(group.id)}
-            >
-              <EyeIcon />
-            </button>
+            {onNewAiChat ? (
+              <button
+                type="button"
+                class="vscode__tab-action"
+                title="新建 AI 对话"
+                aria-label="新建 AI 对话"
+                disabled={loading || dialogBlocked}
+                onClick={() => onNewAiChat()}
+              >
+                <PlusIcon />
+              </button>
+            ) : undefined}
+            {onNewAiChat ? (
+              <button
+                type="button"
+                class="vscode__tab-action"
+                title="已关闭的对话"
+                aria-label="已关闭的对话"
+                disabled={loading || dialogBlocked}
+                onClick={(event) => {
+                  const items =
+                    closedAiChats && closedAiChats.length > 0
+                      ? closedAiChats.map((session) => ({
+                          type: 'action' as const,
+                          label: session.title,
+                          onClick: () => onRestoreAiChat?.(session.id),
+                        }))
+                      : [
+                          {
+                            type: 'action' as const,
+                            label: '暂无已关闭的对话',
+                            disabled: true,
+                            onClick: () => undefined,
+                          },
+                        ]
+                  showIconContextMenu(event, items)
+                }}
+              >
+                <HistoryIcon />
+              </button>
+            ) : undefined}
+            {showPreviewAction ? (
+              <button
+                type="button"
+                class="vscode__tab-action"
+                title="在侧边打开预览"
+                aria-label="在侧边打开预览"
+                disabled={loading || dialogBlocked}
+                onClick={() => onOpenMarkdownPreview(group.id)}
+              >
+                <EyeIcon />
+              </button>
+            ) : undefined}
           </div>
         ) : undefined}
       </div>
@@ -658,6 +756,33 @@ function VscodeEditorGroupView({
           <div class="vscode__preview-body">
             <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
           </div>
+        ) : activeItem?.kind === 'aiChat' ? (
+          (() => {
+            const session = aiChatSessions?.get(activeItem.sessionId)
+            if (!session || !getAiContext || !terminalSession || !aiMode || !onAiModeChange) {
+              return <div class="vscode__group-empty">对话已关闭</div>
+            }
+            return (
+              <div class="vscode__ai-chat-body">
+                <VscodeAiPanel
+                  sessionId={session.id}
+                  messages={session.messages}
+                  onMessagesChange={(next) => onAiChatMessagesChange?.(session.id, next)}
+                  mode={aiMode}
+                  onModeChange={onAiModeChange}
+                  aiModelKey={aiModelKey}
+                  onAiModelKeyChange={(key) => onAiModelKeyChange?.(key)}
+                  workspaceFolder={workspaceFolder}
+                  getContext={getAiContext}
+                  getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}
+                  problems={problems ?? []}
+                  terminalSession={terminalSession}
+                  onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
+                  onRejectEdit={onRejectAiEdit ?? (() => undefined)}
+                />
+              </div>
+            )
+          })()
         ) : activeItem?.kind === 'searchEditor' ? (
           (() => {
             const session = searchEditorSessions?.get(activeItem.sessionId)
