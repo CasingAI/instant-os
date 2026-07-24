@@ -6,6 +6,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import {
   cancelPackageTask,
+  formatProgressLine,
   getPackageServiceConfig,
   listPackageTasks,
   subscribePackageEvents,
@@ -144,18 +145,43 @@ export function PackagesApp() {
                   )}
                   {selected.status === 'running' && selected.progress && (
                     <div class="packages-app__progress">
-                      {selected.progress.percent !== undefined && (
-                        <div class="packages-app__progress-track">
-                          <div
-                            class="packages-app__progress-fill"
-                            style={{
-                              width: `${Math.max(0, Math.min(100, selected.progress.percent))}%`,
-                            }}
-                          />
-                        </div>
+                      {selected.progress.counters ? (
+                        <p class="packages-app__progress-detail packages-app__progress-detail--mono">
+                          {[
+                            selected.progress.packagesPlus !== undefined
+                              ? `Packages: +${selected.progress.packagesPlus}`
+                              : undefined,
+                            formatProgressLine(selected.progress.counters, {
+                              done: selected.progress.done,
+                            }),
+                            selected.progress.fetchHint,
+                          ]
+                            .filter(Boolean)
+                            .join('\n')}
+                        </p>
+                      ) : (
+                        <>
+                          {selected.progress.percent !== undefined && (
+                            <div class="packages-app__progress-track">
+                              <div
+                                class="packages-app__progress-fill"
+                                style={{
+                                  width: `${Math.max(0, Math.min(100, selected.progress.percent))}%`,
+                                }}
+                              />
+                            </div>
+                          )}
+                          <p class="packages-app__progress-detail">{selected.progress.detail}</p>
+                        </>
                       )}
-                      <p class="packages-app__progress-detail">{selected.progress.detail}</p>
                     </div>
+                  )}
+                  {selected.installReport && selected.status === 'succeeded' && (
+                    <p class="packages-app__progress-detail packages-app__progress-detail--mono">
+                      {selected.installReport.alreadyUpToDate
+                        ? 'Already up to date'
+                        : formatProgressLine(selected.installReport.counters, { done: true })}
+                    </p>
                   )}
                 </div>
                 {(selected.status === 'running' || selected.status === 'pending') && (

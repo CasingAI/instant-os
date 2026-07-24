@@ -18,10 +18,14 @@ import {
   storePackageDir,
   ensureStoreRoot,
 } from './package-store.ts'
+import { emptyCounters } from './package-install-report.ts'
 import { runLifecycleScripts } from './package-run.ts'
 import { maxSatisfying, satisfiesSemver } from './package-semver.ts'
 import type {
   InstantPackageLock,
+  PackageInstallCounters,
+  PackageInstallDepChange,
+  PackageInstallReport,
   PackageLockEntry,
   PackageLogLevel,
   PackageServiceConfig,
@@ -306,10 +310,31 @@ async function tryNodeFromStore(
   }
 }
 
+function publishInstallProgress(
+  task: PackageTask,
+  counters: PackageInstallCounters,
+  patch: Partial<PackageTaskProgress> & Pick<PackageTaskProgress, 'phase' | 'detail'>,
+): void {
+  setProgress(task, {
+    counters: { ...counters },
+    packagesPlus: patch.packagesPlus ?? task.progress?.packagesPlus,
+    packagesMinus: patch.packagesMinus ?? task.progress?.packagesMinus,
+    fetchHint: patch.fetchHint,
+    done: patch.done,
+    percent: patch.percent,
+    phase: patch.phase,
+    detail: patch.detail,
+  })
+}
+
 async function resolveTree(
   roots: { name: string; range: string }[],
   task: PackageTask,
-  options: { preferLock: boolean; lock: InstantPackageLock },
+  options: {
+    preferLock: boolean
+    lock: InstantPackageLock
+    counters: PackageInstallCounters
+  },
 ): Promise<ResolvedNode[]> {
   const resolved = new Map<string, ResolvedNode>()
   const queue: ResolveQueueItem[] = roots.map((r) => ({ ...r }))
@@ -326,6 +351,11 @@ async function resolveTree(
         log(task, 'info', `锁命中 ${fromLock.name}@${fromLock.version}（满足 ${next.range}）`)
         assertNotNative(fromLock.name, fromLock.version, fromLock.meta)
         resolved.set(key, fromLock)
+        options.counters.resolved = resolved.size
+        publishInstallProgress(task, options.counters, {
+          phase: 'resolve',
+          detail: `resolved ${fromLock.name}@${fromLock.version}`,
+        })
         for (const [dep, range] of Object.entries(fromLock.meta.dependencies ?? {})) {
           if (!resolved.has(dep)) {
             queue.push({ name: dep, range })
@@ -343,6 +373,11 @@ async function resolveTree(
         )
         assertNotNative(fromStore.name, fromStore.version, fromStore.meta)
         resolved.set(key, fromStore)
+        options.counters.resolved = resolved.size
+        publishInstallProgress(task, options.counters, {
+          phase: 'resolve',
+          detail: `resolved ${fromStore.name}@${fromStore.version}`,
+        })
         for (const [dep, range] of Object.entries(fromStore.meta.dependencies ?? {})) {
           if (!resolved.has(dep)) {
             queue.push({ name: dep, range })
@@ -372,6 +407,11 @@ async function resolveTree(
     if (meta.dist.tarball) ensureTarballHostAllowed(meta.dist.tarball)
     assertNotNative(next.name, meta.version, meta)
     resolved.set(key, { name: next.name, version: meta.version, meta })
+    options.counters.resolved = resolved.size
+    publishInstallProgress(task, options.counters, {
+      phase: 'resolve',
+      detail: `resolved ${next.name}@${meta.version}`,
+    })
     for (const [dep, range] of Object.entries(meta.dependencies ?? {})) {
       if (!resolved.has(dep)) {
         queue.push({ name: dep, range })
@@ -392,11 +432,16 @@ async function resolveTree(
   return [...resolved.values()]
 }
 
-async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<string> {
+async function materializeNode(
+  node: ResolvedNode,
+  task: PackageTask,
+  counters: PackageInstallCounters,
+  packagesPlus: number,
+): Promise<{ storePath: string; downloaded: boolean }> {
   const storePath = storePackageDir(config, node.name, node.version)
   if (await isPackageInStore(config, node.name, node.version)) {
     log(task, 'info', `缓存命中 ${node.name}@${node.version}`)
-    return storePath
+    return { storePath, downloaded: false }
   }
 
   let tarballUrl = node.meta.dist.tarball
@@ -433,6 +478,9 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
               ? Math.min(100, Math.round((received / total) * 100))
               : undefined,
           detail: `下载 ${label}  ${sizePart}`,
+          counters: { ...counters },
+          packagesPlus,
+          fetchHint: `Downloading ${label}: ${sizePart}`,
         })
       },
     )
@@ -441,6 +489,9 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
         phase: 'download',
         percent: 100,
         detail: `下载 ${label}  ${formatByteSize(tarball.byteLength)}`,
+        counters: { ...counters },
+        packagesPlus,
+        fetchHint: `Downloading ${label}: ${formatByteSize(tarball.byteLength)}`,
       },
       true,
     )
@@ -459,6 +510,9 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
           phase: 'extract',
           percent,
           detail: `解压 ${label}  ${done}/${total}  ${formatByteSize(bytesWritten)}${pathHint}`,
+          counters: { ...counters },
+          packagesPlus,
+          fetchHint: `Extracting ${label}`,
         })
       },
     })
@@ -467,12 +521,18 @@ async function materializeNode(node: ResolvedNode, task: PackageTask): Promise<s
         phase: 'extract',
         percent: 100,
         detail: `解压 ${label}  完成`,
+        counters: { ...counters },
+        packagesPlus,
       },
       true,
     )
-    return dest
+    return { storePath: dest, downloaded: true }
   } finally {
-    reporter.clear()
+    publishInstallProgress(task, counters, {
+      phase: 'link',
+      detail: `fetched ${label}`,
+      packagesPlus,
+    })
   }
 }
 
@@ -651,6 +711,8 @@ export async function installPackages(params: {
   let projectRootForLock = params.projectRoot
   let lockForPersist: InstantPackageLock | undefined
   const ignoreScripts = params.ignoreScripts ?? config.ignoreScripts
+  const counters = emptyCounters()
+  const startedAt = Date.now()
 
   try {
     const projectRoot = await resolvePackageProjectRoot(params.projectRoot)
@@ -674,6 +736,13 @@ export async function installPackages(params: {
       ...((pkgJson.dependencies as Record<string, string> | undefined) ?? {}),
       ...((pkgJson.devDependencies as Record<string, string> | undefined) ?? {}),
     }
+    const directDepNames = new Set(Object.keys(deps))
+    const prodDepNames = new Set(
+      Object.keys((pkgJson.dependencies as Record<string, string> | undefined) ?? {}),
+    )
+    const devDepNames = new Set(
+      Object.keys((pkgJson.devDependencies as Record<string, string> | undefined) ?? {}),
+    )
 
     if (!ignoreScripts) {
       log(task, 'info', '将执行 lifecycle 脚本（经 QuickJS）')
@@ -708,6 +777,14 @@ export async function installPackages(params: {
         })
       }
       task.status = 'succeeded'
+      task.installReport = {
+        counters: emptyCounters(),
+        addedCount: 0,
+        removedCount: 0,
+        alreadyUpToDate: true,
+        durationMs: Date.now() - startedAt,
+        depChanges: [],
+      }
       clearProgress(task)
       publishTask(task)
       return serializeTaskForEvent(task)
@@ -716,25 +793,90 @@ export async function installPackages(params: {
     const lock = await readLock(projectRoot)
     lockForPersist = lock
     const preferLock = params.preferLock ?? !hasCliPackages
+    const previousLockVersions = new Map(
+      Object.entries(lock.packages).map(([name, entry]) => [name, entry.version]),
+    )
     if (preferLock) {
       log(task, 'info', '安装策略：锁优先（满足 package.json 范围则跳过 registry 解析；其次复用本地 store）')
     }
-    const tree = await resolveTree(roots, task, { preferLock, lock })
+
+    publishInstallProgress(task, counters, {
+      phase: 'resolve',
+      detail: 'Resolving dependencies',
+      packagesPlus: 0,
+    })
+    const tree = await resolveTree(roots, task, { preferLock, lock, counters })
+    counters.resolved = tree.length
+
+    const { filesStat } = await import('../apps/files/files-api.ts')
+    let packagesPlus = 0
+    for (const node of tree) {
+      const prev = previousLockVersions.get(node.name)
+      const linkPath = projectNodeModulesPackagePath(projectRoot, node.name)
+      const linkExists = Boolean(await filesStat(linkPath))
+      if (prev !== node.version || !linkExists) {
+        packagesPlus += 1
+      }
+    }
+
+    publishInstallProgress(task, counters, {
+      phase: 'link',
+      detail: `Packages +${packagesPlus}`,
+      packagesPlus,
+    })
+
+    const depChanges: PackageInstallDepChange[] = []
+    let linkedNew = 0
 
     for (const node of tree) {
       task.abortController.signal.throwIfAborted()
-      const storePath = await materializeNode(node, task)
-      // 安装后扫一眼是否含 .node
+      const { storePath, downloaded } = await materializeNode(
+        node,
+        task,
+        counters,
+        packagesPlus,
+      )
+      if (downloaded) {
+        counters.downloaded += 1
+      } else {
+        counters.reused += 1
+      }
+
       const pkg = await readStorePackageJson(storePath)
       if (pkg.gypfile === true) {
         throw new Error(`拒绝原生包 ${node.name}@${node.version}`)
       }
+
+      const linkPath = projectNodeModulesPackagePath(projectRoot, node.name)
+      const prevVersion = previousLockVersions.get(node.name)
+      const linkExisted = Boolean(await filesStat(linkPath))
+      const isNewOrChanged = prevVersion !== node.version || !linkExisted
+
       await linkPackageIntoProject({
         projectRoot,
         name: node.name,
         storePath,
       })
       await linkBins(projectRoot, node.name, storePath)
+
+      if (isNewOrChanged) {
+        linkedNew += 1
+        counters.added += 1
+        let section: PackageInstallDepChange['section'] = 'transitive'
+        if (hasCliPackages && params.packages?.some((s) => parseSpec(s).name === node.name)) {
+          section = 'dependencies'
+        } else if (prodDepNames.has(node.name)) {
+          section = 'dependencies'
+        } else if (devDepNames.has(node.name)) {
+          section = 'devDependencies'
+        } else if (directDepNames.has(node.name)) {
+          section = 'dependencies'
+        }
+        if (section !== 'transitive') {
+          depChanges.push({ name: node.name, version: node.version, section })
+        }
+      }
+
       lock.packages[node.name] = {
         name: node.name,
         version: node.version,
@@ -746,15 +888,30 @@ export async function installPackages(params: {
         const depsMap = (pkgJson.dependencies as Record<string, string> | undefined) ?? {}
         depsMap[node.name] = `^${node.version}`
         pkgJson.dependencies = depsMap
+        if (!depChanges.some((d) => d.name === node.name)) {
+          depChanges.push({ name: node.name, version: node.version, section: 'dependencies' })
+        } else {
+          const existing = depChanges.find((d) => d.name === node.name)
+          if (existing) existing.section = 'dependencies'
+        }
       }
       log(task, 'info', `已链接 ${projectRoot}/node_modules/${node.name} → ${storePath}`)
-      // 让出事件循环，使 Files / Code 能在下一个包开始前刷新并绘制链接
+      publishInstallProgress(task, counters, {
+        phase: 'link',
+        detail: `linked ${node.name}@${node.version}`,
+        packagesPlus,
+      })
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 0)
       })
     }
 
     if (!ignoreScripts) {
+      publishInstallProgress(task, counters, {
+        phase: 'lifecycle',
+        detail: 'Running lifecycle scripts',
+        packagesPlus,
+      })
       await runInstallLifecycles({
         task,
         projectRoot,
@@ -765,9 +922,28 @@ export async function installPackages(params: {
 
     await writeLock(projectRoot, lock)
     await writeProjectPackageJson(projectRoot, pkgJson)
+
+    const alreadyUpToDate =
+      !hasCliPackages && packagesPlus === 0 && counters.downloaded === 0 && linkedNew === 0
+
+    const report: PackageInstallReport = {
+      counters: { ...counters },
+      addedCount: alreadyUpToDate ? 0 : packagesPlus,
+      removedCount: 0,
+      alreadyUpToDate,
+      durationMs: Date.now() - startedAt,
+      depChanges,
+      contextLine:
+        alreadyUpToDate && preferLock && previousLockVersions.size > 0
+          ? 'Lockfile is up to date, resolution step is skipped'
+          : undefined,
+    }
+
     task.status = 'succeeded'
+    task.installReport = report
     clearProgress(task)
     log(task, 'info', `安装完成（node_modules → ${projectRoot}/node_modules）`)
+    publishTask(task)
     return serializeTaskForEvent(task)
   } catch (error) {
     if (task.abortController.signal.aborted) {
@@ -778,7 +954,14 @@ export async function installPackages(params: {
       task.error = error instanceof Error ? error.message : String(error)
       log(task, 'error', task.error)
     }
-    // 中途失败也落盘已链接部分，下次锁优先可少打 registry
+    task.installReport = {
+      counters: { ...counters },
+      addedCount: counters.added,
+      removedCount: 0,
+      alreadyUpToDate: false,
+      durationMs: Date.now() - startedAt,
+      depChanges: [],
+    }
     if (lockForPersist && Object.keys(lockForPersist.packages).length > 0) {
       try {
         await writeLock(projectRootForLock, lockForPersist)

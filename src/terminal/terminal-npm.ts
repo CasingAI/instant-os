@@ -1,5 +1,6 @@
 /**
  * 终端本地命令：npm / npx → PackageService + QuickJS scripts。
+ * 安装默认输出对齐 pnpm reporter 版式（Packages / Progress / Done in）。
  */
 import {
   cancelPackageTask,
@@ -11,6 +12,14 @@ import {
   subscribePackageEvents,
   type PackageTaskProgress,
 } from '../packages/package-public.ts'
+import {
+  formatInstallFailurePlain,
+  formatInstallLivePlain,
+  formatInstallSuccessPlain,
+  formatInstallWarningLines,
+  formatPackagesLine,
+  formatDuration,
+} from '../packages/package-install-report.ts'
 import { runNpmScript, runNpx } from '../packages/package-run.ts'
 
 export type TerminalNpmIo = {
@@ -61,34 +70,71 @@ function parseInstallCliArgs(args: string[]): {
   return { packages, ignoreScripts }
 }
 
-function progressBar(percent: number, width = 24): string {
-  const clamped = Math.max(0, Math.min(100, Math.round(percent)))
-  const filled = Math.round((clamped / 100) * width)
-  const empty = width - filled
-  return `\`${'█'.repeat(filled)}${'░'.repeat(empty)}\` **${clamped}%**`
+function writeInstallWarnings(
+  io: TerminalNpmIo,
+  logs: { level: string; message: string; at: number }[],
+): void {
+  const lines = formatInstallWarningLines(
+    logs.map((line) => ({
+      at: line.at,
+      level: line.level as 'info' | 'warn' | 'error',
+      message: line.message,
+    })),
+  )
+  for (const line of lines) {
+    io.write(line)
+  }
 }
 
-function formatInstallLiveBlock(options: {
-  logLine?: string
-  progress?: PackageTaskProgress
-}): string {
-  const lines = ['**npm install**', '']
-  if (options.progress) {
-    if (options.progress.percent !== undefined) {
-      lines.push(progressBar(options.progress.percent))
-      lines.push('')
+async function runInstallWithReporter(
+  io: TerminalNpmIo,
+  logKey: string,
+  run: () => ReturnType<typeof installPackages>,
+): Promise<void> {
+  let lastProgress: PackageTaskProgress | undefined
+  const unsub = subscribePackageEvents((event) => {
+    if (event.type !== 'progress' || !event.progress) return
+    lastProgress = event.progress
+    io.upsertBlock({
+      key: logKey,
+      text: formatInstallLivePlain(event.progress),
+      format: 'plain',
+    })
+  })
+  try {
+    const task = await run()
+    io.removeBlock(logKey)
+    writeInstallWarnings(io, task.logs)
+
+    if (task.status === 'failed') {
+      io.write(
+        formatInstallFailurePlain({
+          progress: lastProgress,
+          report: task.installReport,
+          error: task.error ?? 'install failed',
+        }),
+      )
+      return
     }
-    lines.push(options.progress.detail)
-  } else if (options.logLine) {
-    lines.push('```')
-    lines.push(options.logLine)
-    lines.push('```')
-  } else {
-    lines.push('```')
-    lines.push('…')
-    lines.push('```')
+    if (task.status === 'cancelled') {
+      io.write(
+        formatInstallFailurePlain({
+          progress: lastProgress,
+          report: task.installReport,
+          cancelled: true,
+        }),
+      )
+      return
+    }
+    if (task.installReport) {
+      io.write(formatInstallSuccessPlain(task.installReport))
+    } else {
+      io.write('Done')
+    }
+  } finally {
+    unsub()
+    io.removeBlock(logKey)
   }
-  return lines.join('\n')
 }
 
 export async function runTerminalNpmOrNpx(
@@ -116,55 +162,14 @@ export async function runTerminalNpmOrNpx(
 
     if (sub === 'i' || sub === 'install') {
       const { packages, ignoreScripts } = parseInstallCliArgs(args)
-      let lastLog: string | undefined
-      let lastProgress: PackageTaskProgress | undefined
-      const unsub = subscribePackageEvents((event) => {
-        if (event.type === 'progress') {
-          lastProgress = event.progress
-          io.upsertBlock({
-            key: logKey,
-            text: formatInstallLiveBlock({
-              progress: lastProgress,
-              logLine: lastLog,
-            }),
-            format: 'markdown',
-          })
-          return
-        }
-        if (event.type === 'log') {
-          lastLog = event.line.message
-          io.upsertBlock({
-            key: logKey,
-            text: formatInstallLiveBlock({
-              progress: lastProgress,
-              logLine: lastLog,
-            }),
-            format: 'markdown',
-          })
-        }
-      })
-      try {
-        const task = await installPackages({
+      await runInstallWithReporter(io, logKey, () =>
+        installPackages({
           projectRoot,
           packages: packages.length > 0 ? packages : undefined,
           signal,
           ignoreScripts,
-        })
-        io.removeBlock(logKey)
-        for (const line of task.logs) {
-          io.write(`[${line.level}] ${line.message}`)
-        }
-        if (task.status === 'failed') {
-          io.write(task.error ?? 'install failed')
-        } else if (task.status === 'cancelled') {
-          io.write('^C')
-        } else {
-          io.write(`ok (${task.status})`)
-        }
-      } finally {
-        unsub()
-        io.removeBlock(logKey)
-      }
+        }),
+      )
       return
     }
 
@@ -173,10 +178,24 @@ export async function runTerminalNpmOrNpx(
         io.write('npm uninstall 需要包名')
         return
       }
+      const startedAt = Date.now()
       const task = await uninstallPackages({ projectRoot, packages: args })
-      for (const line of task.logs) {
-        io.write(`[${line.level}] ${line.message}`)
+      writeInstallWarnings(io, task.logs)
+      if (task.status === 'failed') {
+        io.write(task.error ?? 'uninstall failed')
+        return
       }
+      const removed = args.length
+      io.write(
+        [
+          formatPackagesLine(0, removed),
+          '-'.repeat(Math.min(removed, 60)),
+          '',
+          ...args.map((name) => `- ${name}`),
+          '',
+          `Done in ${formatDuration(Date.now() - startedAt)}`,
+        ].join('\n'),
+      )
       return
     }
 
@@ -187,16 +206,15 @@ export async function runTerminalNpmOrNpx(
         cliPackages.length > 0
           ? cliPackages
           : installed.map((p) => `${p.name}@latest`)
-      const task = await installPackages({
-        projectRoot,
-        packages: names,
-        signal,
-        preferLock: false,
-        ignoreScripts,
-      })
-      for (const line of task.logs) {
-        io.write(`[${line.level}] ${line.message}`)
-      }
+      await runInstallWithReporter(io, logKey, () =>
+        installPackages({
+          projectRoot,
+          packages: names,
+          signal,
+          preferLock: false,
+          ignoreScripts,
+        }),
+      )
       return
     }
 
@@ -281,7 +299,6 @@ export async function runTerminalNpmOrNpx(
 
 /** abort 时取消仍在跑的安装任务（尽力） */
 export function cancelActivePackageTasks(): void {
-  // 列出并取消 running
   void import('../packages/package-public.ts').then(({ listPackageTasks }) => {
     for (const task of listPackageTasks()) {
       if (task.status === 'running' || task.status === 'pending') {

@@ -17,6 +17,8 @@ export {
 export { subscribePackageEvents } from './package-events.ts'
 export type {
   InstantPackageLock,
+  PackageInstallCounters,
+  PackageInstallReport,
   PackageLogLine,
   PackageServiceConfig,
   PackageServiceEvent,
@@ -26,3 +28,8 @@ export type {
   PackageTaskStatus,
 } from './package-types.ts'
 export { DEFAULT_PACKAGE_SERVICE_CONFIG } from './package-types.ts'
+export {
+  formatInstallLivePlain,
+  formatInstallSuccessPlain,
+  formatProgressLine,
+} from './package-install-report.ts'

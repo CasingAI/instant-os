@@ -66,5 +66,6 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 
 - 终端本地命令 `npm` / `npx` 与 **包管理** App 共用 PackageService，逻辑零分叉。
 - 安装进度与日志可在两端观察；取消走同一任务 abort。
+- 终端默认安装输出对齐 **pnpm reporter 版式**（`Packages: +N`、`Progress: resolved/reused/downloaded/added`、直接依赖 diff、`Done in`）；内部管线 info 仍写入任务日志供包管理 App 查看，不默认刷进终端。
 - registry 与 **是否运行 install 脚本** 在 **设置 → NPM** 配置；与终端共用同一 `PackageServiceConfig`。
 - 重复 `npm install` 在启用 scripts 时可能再次跑依赖 lifecycle（未做「仅新增包才跑」的增量优化）。
