@@ -1364,6 +1364,56 @@ export default {
     throw new Error(`unexpected assert/util import: ${JSON.stringify(assertImport.value)}`)
   }
 
+  // --- L2.5.4 thin os ---
+  const osBasics = await timerInstance.eval(`
+    var os = require('os')
+    var same = os === require('node:os')
+    ;({
+      same: same,
+      platform: os.platform(),
+      arch: os.arch(),
+      eol: os.EOL === '\\n',
+      tmpdir: os.tmpdir(),
+      homedir: os.homedir(),
+    })
+  `)
+  if (!osBasics.ok) {
+    throw new Error(`os basics failed: ${JSON.stringify(osBasics)}`)
+  }
+  const osVal = osBasics.value as Record<string, unknown>
+  if (
+    osVal.same !== true ||
+    osVal.platform !== 'linux' ||
+    osVal.arch !== 'x64' ||
+    osVal.eol !== true ||
+    osVal.tmpdir !== '/tmp' ||
+    osVal.homedir !== '/user'
+  ) {
+    throw new Error(`unexpected os basics: ${JSON.stringify(osVal)}`)
+  }
+
+  const osImport = await timerInstance.eval(`
+import osDefault, { platform, tmpdir } from 'os'
+export default {
+  sameDefault: osDefault.platform === platform,
+  platform: platform(),
+  tmpdir: tmpdir(),
+}
+`)
+  if (!osImport.ok) {
+    throw new Error(`os import failed: ${JSON.stringify(osImport)}`)
+  }
+  const osImportVal =
+    (osImport.value as { default?: Record<string, unknown> }).default ??
+    (osImport.value as Record<string, unknown>)
+  if (
+    osImportVal.sameDefault !== true ||
+    osImportVal.platform !== 'linux' ||
+    osImportVal.tmpdir !== '/tmp'
+  ) {
+    throw new Error(`unexpected os import: ${JSON.stringify(osImport.value)}`)
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)

@@ -231,6 +231,8 @@ export function injectProcess(
   injectJsonValue(context, processObject, 'versions', { ...INSTANT_PROCESS_VERSIONS })
   injectJsonValue(context, processObject, 'platform', 'linux')
   injectJsonValue(context, processObject, 'arch', 'x64')
+  // yargs / CLI 常用：execPath 仅作路径前缀探测，非真实二进制
+  injectJsonValue(context, processObject, 'execPath', '/instant/bin/node')
 
   const cwdFn = context.newFunction('cwd', () => context.newString(state.cwd))
   context.setProp(processObject, 'cwd', cwdFn)
@@ -278,6 +280,12 @@ export function injectProcess(
   const stderr = createWriteStream(context, hooks.writeStderr, { isTTY: false })
   context.setProp(processObject, 'stderr', stderr)
   stderr.dispose()
+
+  // 无真实 stdin：标为 TTY，使 get-stdin 等在无管道时立刻返回空串，避免 for-await 挂起
+  const stdin = context.newObject()
+  injectJsonValue(context, stdin, 'isTTY', true)
+  context.setProp(processObject, 'stdin', stdin)
+  stdin.dispose()
 
   context.setProp(context.global, 'process', processObject)
   processObject.dispose()

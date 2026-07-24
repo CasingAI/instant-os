@@ -2,6 +2,7 @@
  * 运行 package.json scripts / npx bin（宿主编排 → QuickJS）。
  */
 import {
+  filesLstat,
   filesReadText,
   filesReadlink,
   filesStat,
@@ -21,6 +22,46 @@ function parseBinField(
     return bin as Record<string, string>
   }
   return {}
+}
+
+/** 规范化绝对 POSIX 路径（展开 . / ..），供 .bin 相对链接解析。 */
+function normalizeAbsolutePosix(path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  const out: string[] = []
+  for (const part of parts) {
+    if (part === '.') continue
+    if (part === '..') {
+      out.pop()
+      continue
+    }
+    out.push(part)
+  }
+  return `/${out.join('/')}`
+}
+
+/**
+ * 解析 node_modules/.bin 入口为真实文件路径。
+ * 必须用 lstat：filesStat 会跟随链接，导致 filename 留在 .bin/，相对 require 基路径错误。
+ */
+async function resolveBinEntryFile(
+  projectRoot: string,
+  binName: string,
+): Promise<string> {
+  const binLink = `${projectRoot}/node_modules/.bin/${binName}`
+  const st = await filesLstat(binLink)
+  if (!st) {
+    throw new Error(`找不到 bin: ${binName}`)
+  }
+  let entryFile: string
+  if (st.kind === 'symlink') {
+    const target = await filesReadlink(binLink)
+    entryFile = target.startsWith('/')
+      ? target
+      : normalizeAbsolutePosix(`${projectRoot}/node_modules/.bin/${target}`)
+  } else {
+    entryFile = binLink
+  }
+  return entryFile
 }
 
 async function readPackageJson(projectRoot: string): Promise<Record<string, unknown>> {
@@ -79,31 +120,16 @@ export async function runNpmScript(params: {
       ? parsed.target
       : `${params.projectRoot}/${parsed.target.replace(/^\.\//, '')}`
   } else {
-    const binLink = `${params.projectRoot}/node_modules/.bin/${parsed.target}`
-    const st = await filesStat(binLink)
-    if (!st) {
-      throw new Error(`找不到 bin: ${parsed.target}`)
-    }
-    if (st.kind === 'symlink') {
-      const target = await filesReadlink(binLink)
-      entryFile = target.startsWith('/')
-        ? target
-        : `${params.projectRoot}/node_modules/.bin/${target}`
-      // 规范化相对路径
-      if (!entryFile.startsWith('/')) {
-        entryFile = `${params.projectRoot}/${entryFile}`
-      }
-    } else {
-      entryFile = binLink
-    }
+    entryFile = await resolveBinEntryFile(params.projectRoot, parsed.target)
   }
 
-  // 跟随到真实文件
+  // 跟随到真实文件（读内容 / 校验存在）
   const entryStat = await filesStat(entryFile)
   if (!entryStat || entryStat.kind === 'folder') {
-    // filesStat 跟随 symlink；若仍失败尝试读源码路径
     throw new Error(`script 入口不存在: ${entryFile}`)
   }
+  // eval filename / argv 用规范化真实路径，保证相对 require 相对包内入口
+  entryFile = normalizeAbsolutePosix(entryFile)
 
   const source = await filesReadText(entryFile)
   // 去掉 shebang
@@ -175,7 +201,7 @@ export async function runNpx(params: {
   }
   const binName = binNames[0]!
   const rel = bins[binName]!
-  const entryFile = `${pkgRoot}/${rel.replace(/^\.\//, '')}`
+  let entryFile = normalizeAbsolutePosix(`${pkgRoot}/${rel.replace(/^\.\//, '')}`)
   const source = (await filesReadText(entryFile)).replace(/^#![^\n]*\n/, '')
 
   const instance = await createQuickJsInstance({

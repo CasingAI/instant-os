@@ -3,7 +3,7 @@
 > 目标：把当前「会话级 QuickJS 实例」（可多次 `eval`、保留全局、关闭即销毁）逐步补齐成可在 Instant OS 内执行脚本、安装纯 JS 依赖、最终驱动构建流水线的宿主环境。  
 > 非目标：在浏览器沙箱里 1:1 复刻桌面 Node + 官方 Vite 原生二进制链路。
 
-本文按 **L1 → L2 → L2.5 → L3 → L4** 递进。每一层有明确「目标 / 交付物 / 大致工作 / Todo / 明确不做 / 验收标准」。上层依赖下层；未完成下层时，不要提前承诺上层能力。
+本文按 **L1 → L2 → L2.5 → L3.0–L3.4 → L4** 递进。每一层有明确「目标 / 交付物 / 大致工作 / Todo / 明确不做 / 验收标准」。上层依赖下层；未完成下层时，不要提前承诺上层能力。
 
 ---
 
@@ -16,13 +16,17 @@
 | L0 基线 | `done` | 实例服务 + Virtual JS REPL 已落地 |
 | L1 迷你 Node 宿主 | `done` | 实例宿主 + Virtual JS 文件入口 |
 | L2 包与 npm 兼容面 | `done` | PackageService + symlink + 终端 npm/npx + Packages App |
-| L2.5 Node CLI 内建面 | `doing` | **当前焦点** · assert + 薄 util 已接入；cowsay 全链路待终端冒烟 |
-| L3 样例构建 | `blocked` | 依赖 L2.5 |
-| L4 自举 | `blocked` | 依赖 L3 |
+| L2.5 Node CLI 内建面 | `done` | assert/util/os + cowsay 全链路；`.bin` 真实路径 |
+| L3.0 构建 CLI 内建面 | `todo` | **当前焦点** · `perf_hooks` 等构建向缺口，撞墙补 |
+| L3.1 伪进程 / 任务编排 | `blocked` | 依赖 L3.0 |
+| L3.2 系统构建后端 | `blocked` | 依赖 L3.1 |
+| L3.3 样例构建闭环 | `blocked` | 依赖 L3.2 |
+| L3.4 构建硬化 | `blocked` | 依赖 L3.3 |
+| L4 自举 | `blocked` | 依赖 L3.4 |
 
 状态枚举：`todo`（未开始）/ `doing`（进行中）/ `done`（已验收）/ `blocked`（被下层挡住）/ `cancelled`。
 
-**当前焦点**：L2.5  
+**当前焦点**：L3.0  
 **上次更新**：2026-07-23
 
 ---
@@ -237,7 +241,7 @@
 L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 QuickJS 侧 **常用 Node 内建模块**，让一类「纯 JS CLI」在 `npx` / `npm run` 下真正跑完，而不是一 `require('assert')` 就停。
 
 **已观测缺口（2026-07-23）**：`npx cowsay "Hello World"` 已装上并进入 `cowsay` → `yargs`，随后因未实现 `assert` 失败。  
-**第一刀进展**：已实现内建现为：`path`、`buffer`、`events`、`assert`、`util`、`fs`、`fs/promises`。yargs 15 加载期还需要的 `util.inspect` 已一并补上；全链路 `npx cowsay` 仍待 Instant 终端验收（可能继续撞 `os` / `process` CLI 缺口等）。
+**验收进展（2026-07-23）**：已实现内建：`path`、`buffer`、`events`、`assert`、`util`、`os`、`fs`、`fs/promises`；`process` CLI 假值含 `execPath` / `stdin.isTTY`。`npm run test:quickjs-cowsay` 全链路通过（install → npx → ASCII 牛）；`.bin` 经 lstat 解析真实入口。`url` / `stream` / `tty` 等 cowsay 路径未撞墙，仍留滚动清单。
 
 ### 成功标准（验收）
 
@@ -264,20 +268,20 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 
 ### Todo（L2.5）
 
-**状态**：`doing` · 里程碑 M2.5 · CLI Builtins · **当前焦点**
+**状态**：`done` · 里程碑 M2.5 · CLI Builtins · 焦点已移至 L3
 
 - [x] **L2.5.0 缺口清单**：根据 `npx cowsay` 与已知 CLI，列出「下一刀内建」优先级；同步 `docs/instant-npm-differences.md`（能装 ≠ 能跑）
 - [x] **L2.5.1 `assert` 子集**：覆盖 yargs/cowsay 路径；`assert` / `node:assert` 同源
-- [ ] **L2.5.2 冒烟 `npx cowsay`**：装 → 跑 → stdout 可见；记录仍缺的下一模块（若有）（guest 侧 assert/util 冒烟已过；全链路待 Instant 终端验证）
+- [x] **L2.5.2 冒烟 `npx cowsay`**：装 → 跑 → stdout 可见；记录仍缺的下一模块（若有）（`npm run test:quickjs-cowsay`）
 - [x] **L2.5.3 `util` 子集**：按实际撞墙补（`inspect` / `inherits` / `types` / `promisify` 等按需）— 第一刀已落地（yargs 15 加载期 `require('util')`）
-- [ ] **L2.5.4 `os` 子集**：`platform` / `arch` / `EOL` / `tmpdir` 等假值或 VFS 约定；供 CLI 探测环境
-- [ ] **L2.5.5 `url` / `querystring` 常用面**：模块解析与 CLI 参数链需要时落地（全局 `URL` 已有则对齐模块导出）
-- [ ] **L2.5.6 薄 `stream`（升格 L1.12）**：仅卡依赖时实现可读/可写最小面；不追求完整 Node streams
-- [ ] **L2.5.7 `string_decoder` / `tty` 假实现**：流式解码与 `isTTY` 等按需；避免 CLI 在探测终端时硬崩
-- [x] **L2.5.8 `process` CLI 缺口**：`versions`、`platform`、stdio 伪 TTY 等；仍不实现真退出杀 OS（已注入 `version`/`versions.node`/`platform`/`arch`/`isTTY:false`；兼容标签 Node 20.18.0）
+- [x] **L2.5.4 `os` 子集**：`platform` / `arch` / `EOL` / `tmpdir` 等假值或 VFS 约定；供 CLI 探测环境
+- [ ] **L2.5.5 `url` / `querystring` 常用面**：模块解析与 CLI 参数链需要时落地（全局 `URL` 已有则对齐模块导出）— cowsay 未撞；**滚动至 L3.0**
+- [ ] **L2.5.6 薄 `stream`（升格 L1.12）**：仅卡依赖时实现可读/可写最小面；不追求完整 Node streams — 未撞；**滚动至 L3.0**
+- [ ] **L2.5.7 `string_decoder` / `tty` 假实现**：流式解码与 `isTTY` 等按需；避免 CLI 在探测终端时硬崩 — 未撞（`process.stdin.isTTY` 已假实现）；**滚动至 L3.0**
+- [x] **L2.5.8 `process` CLI 缺口**：`versions`、`platform`、stdio 伪 TTY 等；仍不实现真退出杀 OS（已注入 `version`/`versions.node`/`platform`/`arch`/`execPath`/`isTTY:false`/`stdin.isTTY:true`；兼容标签 Node 20.18.0）
 - [x] **L2.5.9 滚动补齐协议**：新报错「not implemented yet」→ 记入本层 Todo 或远期；禁止静默当裸包 404（差异文档三栏已立）
 - [x] **L2.5.10 差异文档 + 已实现表**：维护「已实现 / 明确不做 / 滚动中」三栏
-- [ ] **L2.5.11 验收勾选**：对照成功标准通过后，看板 L2.5 → `done`，焦点移到 L3
+- [x] **L2.5.11 验收勾选**：对照成功标准通过后，看板 L2.5 → `done`，焦点移到 L3
 
 ### 本层明确不做
 
@@ -295,70 +299,234 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 
 ---
 
-## L3 — 可运行构建工具（CLI 形态）
+## L3 总览 — 从「能跑小 CLI」到「能产出 dist」
+
+L2.5 证明：**能装 ≠ 能跑小 CLI**。L3 再拆一层认识：**能跑 cowsay ≠ 能跑构建工具链**。
+
+原先单块「L3 样例构建」把兼容面、编排、产品选型、样例与硬化捆在一起，验收只能卡在最后一环。现拆为四层，每层一句验收、禁止跳层交付：
+
+| 子层 | 一句话 | 验收锚点（示意） |
+|------|--------|------------------|
+| **L3.0** | 构建向 Node 内建继续撞墙补 | `perf_hooks`（及后续点名模块）可 `require`；选定薄探针不因「not implemented」退出 |
+| **L3.1** | 伪进程 / 多实例编排 | 父实例能拉起子实例，带 argv / exit / stdio；有并发上限 |
+| **L3.2** | 系统内嵌构建后端 | 纯 JS/WASM 打包器作**系统资产**；单文件或小图写出产物到 VFS（**不**指望官方 Vite npm 包） |
+| **L3.3** | 官方样例闭环 | 小前端：install → Instant build → `dist`；TS 策略在本层定死 |
+| **L3.4** | 硬化 | Worker / 内存盘 / 缓存 / 进度可取消 / 性能基线；主 UI 可交互 |
+
+**总目标（L3.4 完成后才算「L3 大阶段」完成）**：在 Instant OS 内以 CLI/专用命令形态跑通等价构建，产出可部署前端包；不是桌面 Vite 字节级复刻。
+
+**明确不做（贯穿 L3.*）**：
+
+- 保证与本仓库桌面 `vite build` 字节级一致。
+- 支持任意 Node CLI 生态；`npm install vite` 后原样跑官方二进制链路。
+- 一次实现完整 `builtinModules`（仍撞墙滚动）。
+
+---
+
+## L3.0 — 构建 CLI 内建面
 
 ### 目标
 
-具备「在 Instant OS 内启动构建类工具」的能力：不是只 `eval` 一段库代码，而是能以 **CLI 入口** 的方式跑打包/编译流程，并把产物写回 VFS。  
-这一层追求的是 **等价构建能力**（产出可部署的前端包），而不是必须跑通桌面版 Vite 官方二进制。  
-**前置**：L2.5 至少让「纯 JS CLI 入口 + 常用内建」可跑；否则构建工具会在装好后卡在 `assert`/`util` 一类缺口上。
+在 L2.5（cowsay 级）之上，补齐**构建类工具**常见会撞的 Node 内建子集。观测点：桌面/`npm run` 路径已出现 `perf_hooks` 等「known but not implemented」。
+
+**前置**：L2.5 `done`。
 
 ### 成功标准（验收）
 
-- 能对一个小型样例前端项目执行「安装依赖 → 构建 → 产出 dist」全流程（工具链为系统选定的纯 JS/WASM 后端）。
-- 构建过程有日志、可取消、失败时有明确阶段错误。
-- 伪多进程或 Worker 化后，主 UI 仍可交互。
+- `require('perf_hooks')` / `node:perf_hooks` 同源可用（最小面：至少 `performance.now` 或等价计时；Observer 可后置）。
+- 选定一条**薄探针**（guest 冒烟或极简 CLI 入口）：不以「builtin not implemented」退出；若再撞墙，记入本层 Todo 并补最小面。
+- 差异文档三栏更新；未实现名仍报「已知未实现 + 已实现列表」。
 
 ### 大致要做的事
 
-1. **伪 `child_process` / 任务编排**
-   - 不真 fork：再开 QuickJS 实例或 Worker，共享（或快照）VFS 视图。
-   - 模拟 `argv`、exit code、stdout/stderr 管道。
-   - 防止失控的实例风暴（并发上限）。
+1. 按真实构建探针撞墙滚动：`perf_hooks` 优先；L2.5 未撞的 `url` / `querystring` / 薄 `stream` / `string_decoder` / `tty` 仅在点名时落地。
+2. 同一内建注册表路径；手写薄实现或受控 vendor；禁止桌面 Node 原生绑定。
+3. 每补一模块：冒烟 + 差异文档。
 
-2. **选定并内嵌构建后端**
-   - 优先：纯 JS 或官方 WASM 版打包/压缩/CSS 工具，作为系统运行时资产，而不是指望 `npm install vite` 后调用原生绑定。
-   - 定义 Instant 构建配置约定（入口、别名、静态资源、目标环境）。
+### Todo（L3.0）
 
-3. **TypeScript 策略**
-   - 短期：构建前剥离类型 / 使用可嵌入的 TS 转译路径。
-   - 或对样例项目先限制为 JS/JSX，降低第一刀复杂度。
+**状态**：`todo` · 里程碑 M3.0 · Build Builtins · **当前焦点**
 
-4. **长时间任务 UX**
-   - 进度、日志面板（终端或 Virtual JS）。
-   - 内存与超时分级：REPL 小、build 大。
-   - 增量与缓存：模块图、转译结果、内容哈希。
-
-5. **Worker 与性能**
-   - 重计算离开 UI 线程。
-   - 工作区可预加载为内存盘，避免同步桥接持久层。
-
-### Todo（L3）
-
-**状态**：`blocked`（待 L2.5）· 里程碑 M3 · Build Sample
-
-- [ ] **L3.1 伪 `child_process` / 任务编排**：新实例或 Worker、共享 VFS 视图、`argv`/exit/stdio；并发上限
-- [ ] **L3.2 选定构建后端**：纯 JS 或官方 WASM 打包/压缩/CSS；作为系统运行时资产接入
-- [ ] **L3.3 Instant 构建配置约定**：入口、别名、静态资源、目标环境
-- [ ] **L3.4 TypeScript 策略落地**：类型剥离 / 可嵌入转译，或样例先限 JS/JSX
-- [ ] **L3.5 样例前端项目**：可安装依赖并产出 `dist`
-- [ ] **L3.6 构建 UX**：日志、进度、可取消、分阶段错误；REPL vs build 的内存/超时分级
-- [ ] **L3.7 构建缓存**：模块图 / 转译结果 / 内容哈希（最小可用即可）
-- [ ] **L3.8 Worker 化 + 内存工作区**：重活离 UI；避免 Sync 打持久化
-- [ ] **L3.9 一键路径**：终端或专用命令跑通样例「install → build」
-- [ ] **L3.10 性能基线记录**（体积、耗时、内存）
-- [ ] **L3.11 验收勾选**：对照成功标准通过后，看板 L3 → `done`，焦点移到 L4
+- [ ] **L3.0.0 缺口清单**：根据 `perf_hooks` 与候选薄探针，列出优先补齐表；同步差异文档「滚动中」
+- [ ] **L3.0.1 `perf_hooks` 子集**：`performance.now`（及探针实际用到的符号）；`node:perf_hooks` 同源
+- [ ] **L3.0.2 薄探针冒烟**：脚本或 CLI 入口跑通；记录仍缺模块
+- [ ] **L3.0.3 滚动补齐**：探针路径上点名的 `url` / `stream` / … 按需最小面
+- [ ] **L3.0.4 验收勾选**：对照成功标准；看板 L3.0 → `done`，焦点 → L3.1
 
 ### 本层明确不做
 
-- 保证与本仓库桌面 `vite build` 字节级一致。
-- 支持任意 Node CLI 生态（大量工具仍会因原生绑定失败）。
+- 完整 Performance Timeline / User Timing 全 API。
+- 为通过本层而嵌入完整打包器（属 L3.2）。
 
 ### 交付物
 
-- 系统内「构建运行时」与样例项目。
-- 终端或专用命令：对样例执行 build 的一键路径。
-- 性能基线记录（体积、耗时、内存）。
+- 扩展后的内建注册表与冒烟。
+- 更新后的 `docs/instant-npm-differences.md` 三栏。
+
+---
+
+## L3.1 — 伪进程 / 任务编排
+
+### 目标
+
+让 guest 能以「子任务」方式再开执行上下文（不真 fork OS 进程）：共享或快照 VFS 视图，传递 argv，回收 exit code 与 stdio。
+
+**前置**：L3.0（构建探针不再卡在内建上；编排层可独立测，但看板仍串行）。
+
+### 成功标准（验收）
+
+- 存在伪 `child_process`（或 Instant 等价 API）：父上下文可启动子 QuickJS 实例（或约定 Worker 包装），传入 argv / env 子集。
+- 子任务 stdout/stderr 可汇入父侧日志；exit code 可读；结束后可销毁。
+- 并发上限生效；超额拒绝并有明确错误。
+
+### 大致要做的事
+
+1. 宿主编排：实例池 / 一对一子实例；权限票含「子任务」。
+2. stdio 管道或回调聚合；`process.exit` 在子任务内只结束子上下文。
+3. 冒烟：父脚本拉起子脚本写文件或打印，父侧可见结果。
+
+### Todo（L3.1）
+
+**状态**：`blocked`（待 L3.0）· 里程碑 M3.1 · Process Orchestra
+
+- [ ] **L3.1.1 子任务模型**：生命周期、并发上限、与会话能力票对齐
+- [ ] **L3.1.2 伪 `child_process` 子集**（或 Instant 命名 API）：spawn/fork 语义之一；argv/env/cwd
+- [ ] **L3.1.3 stdio + exit**：管道或事件；exit code 回传
+- [ ] **L3.1.4 冒烟**：父→子→父可见输出/文件副作用
+- [ ] **L3.1.5 验收勾选**：看板 L3.1 → `done`，焦点 → L3.2
+
+### 本层明确不做
+
+- 真 OS 多进程、任意原生 `spawn` 桌面二进制。
+- 完整 Node `child_process` 矩阵（`execFile`/`fork` IPC 全套可后置）。
+
+### 交付物
+
+- 子任务 API + 冒烟记录。
+
+---
+
+## L3.2 — 系统构建后端
+
+### 目标
+
+选定并**内嵌**纯 JS 或官方 WASM 打包/压缩（及必要的 CSS）工具，作为 **Instant 系统运行时资产**，而不是用户项目 `node_modules` 里的官方 Vite。
+
+**前置**：L3.1（若后端仅宿主调用可不强依赖伪进程，但产品路径上构建 CLI 常需子任务；看板仍串行）。
+
+### 成功标准（验收）
+
+- 系统可对「单入口 JS/JSX（或已定 TS 剥离结果）」执行打包/转换，产物写入 VFS 指定路径。
+- 有 Instant 构建配置约定初稿：入口、别名、目标环境、输出目录。
+- 文档写明：这是 Instant 构建管线，不是 `vite` npm 包兼容层。
+
+### 大致要做的事
+
+1. 选型（如 esbuild-wasm 或同类）并 vendor 进仓库/镜像。
+2. 宿主或 guest 薄封装：读 VFS → 调用后端 → 写回 VFS。
+3. 配置约定与最小 CLI/API（名称可与桌面不同）。
+
+### Todo（L3.2）
+
+**状态**：`blocked`（待 L3.1）· 里程碑 M3.2 · Embed Bundler
+
+- [ ] **L3.2.1 选型决议**：记录候选与否决（为何不嵌官方 Vite）
+- [ ] **L3.2.2 接入系统资产**：加载 WASM/纯 JS 后端；版本钉扎
+- [ ] **L3.2.3 最小 API**：一文件或一小图 → 输出文件落 VFS
+- [ ] **L3.2.4 配置约定 v0**：入口 / 别名 / outfile / platform
+- [ ] **L3.2.5 验收勾选**：看板 L3.2 → `done`，焦点 → L3.3
+
+### 本层明确不做
+
+- 完整 Vite 插件生态、HMR、Rolldown 原生路径。
+- TypeScript 项目引用全集（策略在 L3.3 定；本层可只吃已是 JS 的输入）。
+
+### 交付物
+
+- 内嵌构建后端 + 配置约定短文 + 单文件冒烟。
+
+---
+
+## L3.3 — 样例构建闭环
+
+### 目标
+
+官方小型前端样例在 Instant 内走通：**安装依赖 → Instant build → 产出 `dist`**。TypeScript 策略在本层拍板（剥离 / 可嵌入转译 / 或样例先限 JS/JSX）。
+
+**前置**：L3.2。
+
+### 成功标准（验收）
+
+- 样例项目可 `npm install`（Instant）且一键/专用命令 build 成功，`dist` 内有可预览静态资源。
+- 失败时有阶段错误（install / transform / bundle / write）。
+- 与桌面构建的差异写入清单（功能开关、已知限制）。
+
+### 大致要做的事
+
+1. 样例仓库或 `/user` 演示项目（依赖面可控、无原生强制）。
+2. TS 策略落地并文档化。
+3. 终端或专用命令绑定 L3.2 管线。
+
+### Todo（L3.3）
+
+**状态**：`blocked`（待 L3.2）· 里程碑 M3.3 · Build Sample
+
+- [ ] **L3.3.1 样例项目**：结构、依赖白名单、README
+- [ ] **L3.3.2 TypeScript 策略**：剥离 / 嵌入转译 / 先 JS；写进差异文档
+- [ ] **L3.3.3 一键路径**：终端或 App 命令「install → build」
+- [ ] **L3.3.4 阶段错误**：日志可区分失败阶段
+- [ ] **L3.3.5 验收勾选**：看板 L3.3 → `done`，焦点 → L3.4
+
+### 本层明确不做
+
+- Instant App 本仓库自举（L4）。
+- 任意第三方模板「装上就能 build」。
+
+### 交付物
+
+- 样例项目 + 一键 build 路径 + 差异说明。
+
+---
+
+## L3.4 — 构建硬化（Worker / 缓存 / UX）
+
+### 目标
+
+长时间构建不冻死 UI：Worker 化、内存工作区、最小缓存、进度与取消、性能基线。
+
+**前置**：L3.3（先有正确闭环，再硬化）。
+
+### 成功标准（验收）
+
+- 构建可取消；进行中主 UI 可交互（Worker 或等价让出）。
+- 存在最小缓存（内容哈希或模块图之一即可）并有命中日志。
+- 记录一版性能基线（体积、耗时、内存量级）。
+
+### 大致要做的事
+
+1. 重计算离 UI 线程；VFS 快照或内存盘策略。
+2. REPL vs build 的内存/超时分级。
+3. 进度面板（终端或专用 UI）。
+
+### Todo（L3.4）
+
+**状态**：`blocked`（待 L3.3）· 里程碑 M3.4 · Build Harden
+
+- [ ] **L3.4.1 Worker（或等价）**：构建离主线程；会话仍可操作
+- [ ] **L3.4.2 内存工作区策略**：避免 Sync 直打持久化成为热路径
+- [ ] **L3.4.3 最小缓存**：哈希或模块图；可关闭
+- [ ] **L3.4.4 UX**：进度、日志、取消；超时分级
+- [ ] **L3.4.5 性能基线**：表格或短文落库
+- [ ] **L3.4.6 验收勾选**：看板 L3.4 → `done`，焦点 → L4（L3 大阶段完成）
+
+### 本层明确不做
+
+- 完美增量编译与桌面 Vite 缓存字节兼容。
+- L4 级超大依赖外置（Monaco/Three 自举优化）。
+
+### 交付物
+
+- 可取消的构建 UX + 基线记录；L3 大阶段收口声明。
 
 ---
 
@@ -367,7 +535,8 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 ### 目标
 
 在 Instant OS 内，对 **本仓库（或裁剪后的自举剖面）** 执行构建，得到可预览/可导出的产物。  
-这是愿景终点，但必须以 **工程裁剪 + 等价工具链** 为前提；不是把当前 `package.json` 脚本原样搬进 QuickJS。
+这是愿景终点，但必须以 **工程裁剪 + 等价工具链** 为前提；不是把当前 `package.json` 脚本原样搬进 QuickJS。  
+**前置**：L3.4（样例闭环 + 硬化已具备）。
 
 ### 成功标准（验收）
 
@@ -398,7 +567,7 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 
 ### Todo（L4）
 
-**状态**：`blocked`（待 L3）· 里程碑 M4 · Self Host
+**状态**：`blocked`（待 L3.4）· 里程碑 M4 · Self Host
 
 - [ ] **L4.1 定义 Instant 自举剖面**：哪些包/脚本进入剖面，哪些必须预置或外置
 - [ ] **L4.2 去掉 bash vendor 假设**：`vendor:*.sh` 改为预置资产或纯 JS 流程
@@ -438,7 +607,7 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 | Virtual JS 角色 | L1 起从「演示 eval」升级为「演示宿主能力」；不替代终端的特权文件操作叙事，但可共享同一实例服务。 |
 | 终端关系 | 终端负责会话 UX 与特权命令；QuickJS 负责该会话的 JS 世界。L2：终端本地 `npm`/`npx` 调 PackageService；`run`/`npx` 绑定会话 QuickJS。安装器是系统服务，不是 guest 自举的 npm。 |
 | Packages App | L2 管理面：任务/日志/store；与终端共用 PackageService，零分叉。 |
-| Node 内建面 | L1 交付 path/buffer/events/fs；L2.5 按 CLI 撞墙滚动补 assert/util/os/…；未实现保持清晰报错。 |
+| Node 内建面 | L1 交付 path/buffer/events/fs；L2.5 补 cowsay 向 assert/util/os；**L3.0** 补构建向（`perf_hooks` 等）撞墙滚动；未实现保持清晰报错。 |
 
 ### Todo（跨层）
 
@@ -447,7 +616,7 @@ L2 解决了 **能装包、能解析裸名、能启动 bin**；本层补齐 Quic
 - [ ] **X.1 会话能力票模型**：fs / 网络 / 子任务 / 配额的统一描述与默认拒绝（含安装/registry）
 - [ ] **X.2 统一可观测日志通道**：解析失败、fs 拒绝、安装拒绝、构建阶段
 - [ ] **X.3 测试分层约定**：哪些在 Node 冒烟、哪些必须浏览器桥接测
-- [ ] **X.4 终端 ↔ QuickJS 实例绑定方案**（L2 `npm run`/`npx` 已用任务级实例；会话长驻绑定可在 L3 加深）
+- [ ] **X.4 终端 ↔ QuickJS 实例绑定方案**（L2 `npm run`/`npx` 已用任务级实例；会话长驻 / 子任务绑定在 L3.1 加深）
 - [ ] **X.5 每层完成后更新本文件看板 + 变更记录**
 
 ---
@@ -463,27 +632,37 @@ L2 PackageService + CAS + 链接安装 + 裸名加载器
         ↓
 L2 终端 npm/npx + Packages App + run/npx 语义
         ↓
-L2.5 Node CLI 内建（assert → util/os/stream…；npx cowsay 冒烟）
+L2.5 Node CLI 内建（assert/util/os；npx cowsay 冒烟）
         ↓
-L3 伪进程 + 内嵌 WASM/纯 JS 构建后端 + 样例项目打通
+L3.0 构建 CLI 内建（perf_hooks…；薄探针冒烟）
+        ↓
+L3.1 伪进程 / 子任务编排
+        ↓
+L3.2 系统内嵌 WASM/纯 JS 构建后端
+        ↓
+L3.3 样例 install → Instant build → dist
+        ↓
+L3.4 Worker / 缓存 / UX / 基线（L3 大阶段收口）
         ↓
 L4 本仓库 Instant 剖面 + 自举与大规模缓存
 ```
 
-**原则**：每一层先做「最小可演示闭环」，再加兼容面。安装器内核只实现一次；终端与 App 零分叉。**能装（L2）不等于能跑 CLI（L2.5）**；避免在内建面未过关时并行铺开 Vite 替代实现。
+**原则**：每一层先做「最小可演示闭环」，再加兼容面。安装器内核只实现一次；终端与 App 零分叉。  
+**能装（L2）≠ 能跑小 CLI（L2.5）≠ 能跑构建工具链（L3.*）**。避免在 L3.0 未过关时并行铺开 Vite 替代实现；避免在 L3.2 未选型时承诺样例 dist。
 
 ---
 
 ## 风险与硬墙（提前写清）
 
 1. **原生绑定**：生态中大量工具不能「装上就能跑」；策略是拒绝 + 换可嵌入实现。
-2. **同步 API 性能**：若过早暴露大量 `*Sync` 且直打持久化，L3 会不可用；L1 就要定策略。
+2. **同步 API 性能**：若过早暴露大量 `*Sync` 且直打持久化，L3.4 会不可用；L1 就要定策略。
 3. **与桌面 Vite / npm 的期望差**：对外沟通应是「Instant npm 兼容面 / 系统内构建管线」，附差异清单，不是「原样 npm / vite」。
-4. **能装 ≠ 能跑**：L2 装上纯 JS CLI 后，仍可能卡在未实现 Node 内建（已观测：`npx cowsay` → `yargs` → `assert`）。须走 L2.5 滚动补齐，不要误判为安装器 bug。
-5. **内存**：浏览器页内跑 tsc + 打包 + Monaco/Three 级依赖，必须外置 runtime 与缓存，否则自举会爆。
-6. **安全**：一旦开放网络与 fs，实例就等于弱虚拟机；权限与配额必须和 API 同步上线。
-7. **symlink 与卷模型**：挂载卷/IndexedDB 语义不一致时，第一期限用户可写卷创建链接。
-8. **store 体积**：配额 + Packages App 清理与安装同步上线。
+4. **能装 ≠ 能跑**：L2 装上纯 JS CLI 后，仍可能卡在未实现 Node 内建（已观测：`npx cowsay` → `yargs` → `assert`）。须走 L2.5 / L3.0 滚动补齐，不要误判为安装器 bug。
+5. **能跑小 CLI ≠ 能构建**：`perf_hooks` 等属 L3.0；官方 Vite 属明确不做，改走 L3.2 系统后端。
+6. **内存**：浏览器页内跑 tsc + 打包 + Monaco/Three 级依赖，必须外置 runtime 与缓存，否则自举会爆。
+7. **安全**：一旦开放网络与 fs，实例就等于弱虚拟机；权限与配额必须和 API 同步上线。
+8. **symlink 与卷模型**：挂载卷/IndexedDB 语义不一致时，第一期限用户可写卷创建链接。
+9. **store 体积**：配额 + Packages App 清理与安装同步上线。
 
 ---
 
@@ -494,7 +673,11 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | M1 · Script Host | L1 | 能跑工作区多文件脚本 |
 | M2 · Packages | L2 | PackageService + symlink store + 终端 npm/npx + Packages App |
 | M2.5 · CLI Builtins | L2.5 | assert 等常用内建 + `npx cowsay` 级纯 JS CLI 可跑 |
-| M3 · Build Sample | L3 | 能构建官方样例前端 |
+| M3.0 · Build Builtins | L3.0 | 构建向内建（含 `perf_hooks`）+ 薄探针可跑 |
+| M3.1 · Process Orchestra | L3.1 | 伪进程 / 子任务：argv·exit·stdio |
+| M3.2 · Embed Bundler | L3.2 | 系统内嵌纯 JS/WASM 打包后端 |
+| M3.3 · Build Sample | L3.3 | 官方样例 install → build → dist |
+| M3.4 · Build Harden | L3.4 | Worker / 缓存 / UX / 基线；L3 大阶段收口 |
 | M4 · Self Host | L4 | 能构建 Instant 自举剖面 |
 
 ---
@@ -507,7 +690,7 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
   2. 开始某层时：看板该层 → `doing`，写上「当前焦点」。
   3. 某层 Todo 全勾且验收通过：该层 → `done`，下一层从 `blocked` → `todo`/`doing`。
   4. 每改 Todo/看板，同步改「上次更新」日期，并在变更记录加一行。
-- 若战略从「自研等价构建」改为「嵌入某特定 WASM 工具链」，先更新 L3/L4 再改代码。
+- 若战略从「自研等价构建」改为「嵌入某特定 WASM 工具链」，先更新 **L3.2**（及受影响的 L3.3/L4）再改代码。
 
 ### 变更记录
 
@@ -538,6 +721,8 @@ L4 本仓库 Instant 剖面 + 自举与大规模缓存
 | 2026-07-23 | **增补 L2.5 Node CLI 内建面**：观测 `npx cowsay` 卡在未实现 `assert`；明确能装≠能跑；Todo：assert→util/os/url/stream/tty/process 缺口滚动补齐；看板焦点 → L2.5，L3 改 `blocked`（待 L2.5）。 |
 | 2026-07-23 | L2.5 第一刀：手写薄 `assert` + `util`（inspect/inherits/promisify/types）；接入内建注册表；`test:quickjs` 冒烟；差异文档三栏；看板 L2.5 → `doing`；全链路 `npx cowsay` 待终端验收。 |
 | 2026-07-23 | L2.5.8：`process.versions`/`version`/`platform`/`arch`/`isTTY` 假值；兼容锚点文档化为 Node 20.18.0 子集（非完整实现承诺）；修复 yargs `versions.electron` 探测崩。 |
+| 2026-07-23 | **L2.5 收口**：薄 `os`；`process.execPath` + `stdin.isTTY`；修 `npm run` `.bin` lstat→真实入口；`test:quickjs-cowsay` 全链路通过；看板 L2.5 → `done`，焦点 → L3。 |
+| 2026-07-23 | **L3 拆分**：原单块 L3 扩为 L3.0（构建内建/`perf_hooks`）→ L3.1（伪进程）→ L3.2（系统打包后端）→ L3.3（样例 dist）→ L3.4（硬化）；看板焦点 → L3.0；L4 改待 L3.4。 |
 
 ---
 

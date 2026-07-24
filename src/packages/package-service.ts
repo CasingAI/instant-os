@@ -1,4 +1,5 @@
 import {
+  filesCreateText,
   filesReadText,
   filesStat,
   filesWriteText,
@@ -179,11 +180,24 @@ async function readProjectPackageJson(
   return JSON.parse(await filesReadText(path)) as Record<string, unknown>
 }
 
+/** 路径不存在则创建，存在则覆写（filesWriteText 仅支持已有文件） */
+async function upsertTextFile(path: string, text: string): Promise<void> {
+  const st = await filesStat(path)
+  if (st?.kind === 'file') {
+    await filesWriteText(path, text)
+    return
+  }
+  if (st) {
+    throw new Error(`路径已存在且非文件: ${path}`)
+  }
+  await filesCreateText(path, text)
+}
+
 async function writeProjectPackageJson(
   projectRoot: string,
   pkg: Record<string, unknown>,
 ): Promise<void> {
-  await filesWriteText(`${projectRoot}/package.json`, `${JSON.stringify(pkg, null, 2)}\n`)
+  await upsertTextFile(`${projectRoot}/package.json`, `${JSON.stringify(pkg, null, 2)}\n`)
 }
 
 async function readLock(projectRoot: string): Promise<InstantPackageLock> {
@@ -196,7 +210,7 @@ async function readLock(projectRoot: string): Promise<InstantPackageLock> {
 }
 
 async function writeLock(projectRoot: string, lock: InstantPackageLock): Promise<void> {
-  await filesWriteText(
+  await upsertTextFile(
     `${projectRoot}/instant-lock.json`,
     `${JSON.stringify(lock, null, 2)}\n`,
   )

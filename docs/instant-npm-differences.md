@@ -38,16 +38,17 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 
 | 栏 | 内容 |
 |----|------|
-| **已实现** | `path`、`buffer`、`events`、`assert`、`util`（薄：`inspect` / `inherits` / `promisify` / `types` 子集）、`fs`、`fs/promises`；`process` CLI 探测假值：`version` / `versions.node` / `platform` / `arch` / stdio `isTTY: false` |
+| **已实现** | `path`、`buffer`、`events`、`assert`、`util`（薄：`inspect` / `inherits` / `promisify` / `types` 子集）、`os`（薄：platform/arch/EOL/tmpdir/homedir 等假值）、`fs`、`fs/promises`；`process` CLI 探测假值：`version` / `versions.node` / `platform` / `arch` / `execPath` / stdout·stderr `isTTY: false` / `stdin.isTTY: true` |
 | **明确不做（本层）** | 完整 `builtinModules`；`child_process`；`http`/`https`/`net`/`tls` 服务端；原生 addon；完整 Node `process.versions` 矩阵（v8/openssl/…） |
-| **滚动中（撞墙再补）** | `os`、`url` / `querystring`、薄 `stream`、`string_decoder`、`tty` 模块假实现 |
+| **滚动中（撞墙再补）** | `perf_hooks`（**L3.0 优先**）、`url` / `querystring`、薄 `stream`、`string_decoder`、`tty` 模块假实现（cowsay 未撞） |
 
 ### 兼容锚点（设计约定）
 
 - **设计目标**：内建 API 形状对齐 **Node 20 LTS 文档子集**（当前标签 `process.versions.node = "20.18.0"`）。
 - **不是承诺**：标签只服务 `engines` / 常见嗅探（如 yargs 读 `versions.electron`）；真实能力以「已实现」表为准，缺的仍报 `not implemented yet`。
 - **为何不报更高版本**：版本号越高，包越可能按版本打开我们尚未实现的代码路径；20.x 足够过多数 `engines`，又比盲目宣称 latest 更稳。
-- **下一刀**：终端再跑 `npx cowsay`；若仍失败，按报错补「滚动中」项
+- **验收锚点（L2.5）**：`npm run test:quickjs-cowsay`（install cowsay → `npx cowsay "Hello World"` → stdout 含 ASCII 牛）；`.bin` 经 lstat 解析真实入口
+- **下一刀（L3.0）**：构建向内建，优先 `perf_hooks`；不以「装上 Vite 就能跑」为验收
 - 未实现内建会报「known but not implemented」并列出已实现列表；不假装成裸包 404
 
 ## 允许 / 拒绝的包类型
