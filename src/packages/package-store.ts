@@ -4,6 +4,7 @@ import {
   filesLstat,
   filesList,
   filesMkdir,
+  filesMove,
   filesReadText,
   filesRemove,
   filesStat,
@@ -11,6 +12,11 @@ import {
   filesWriteText,
 } from '../apps/files/files-api.ts'
 import { runWithFilesVfsChangeBatch } from '../apps/files/files-vfs.ts'
+import {
+  DEFAULT_PACKAGE_STORE_ROOT,
+  LEGACY_PACKAGE_STORE_ROOT,
+} from './package-store-paths.ts'
+import { ensureNpmStoreNamespace } from './package-store-vfs.ts'
 import { untarBytes } from './package-untar.ts'
 import type { PackageServiceConfig } from './package-types.ts'
 
@@ -260,6 +266,36 @@ export async function estimateStoreBytes(config: PackageServiceConfig): Promise<
   return st.byteSize
 }
 
+/**
+ * 将旧 `/user/.instant-pkg-store` 迁入 `/dev/npm`，并在旧路径放兼容 symlink。
+ * 仅在默认 storeRoot 下执行；已是 symlink 或无可迁内容时跳过。
+ */
+async function migrateLegacyPackageStoreIfNeeded(): Promise<void> {
+  const legacy = await filesLstat(LEGACY_PACKAGE_STORE_ROOT)
+  if (!legacy) return
+  if (legacy.kind === 'symlink') return
+  if (legacy.kind !== 'folder') return
+
+  const children = await filesList(LEGACY_PACKAGE_STORE_ROOT)
+  for (const child of children) {
+    const destPath = `${DEFAULT_PACKAGE_STORE_ROOT}/${child.name}`
+    const destExisting = await filesLstat(destPath)
+    if (destExisting) continue
+    await filesMove(`${LEGACY_PACKAGE_STORE_ROOT}/${child.name}`, DEFAULT_PACKAGE_STORE_ROOT)
+  }
+
+  const remaining = await filesList(LEGACY_PACKAGE_STORE_ROOT)
+  if (remaining.length > 0) return
+
+  await filesRemove(LEGACY_PACKAGE_STORE_ROOT)
+  await filesSymlink(DEFAULT_PACKAGE_STORE_ROOT, LEGACY_PACKAGE_STORE_ROOT)
+}
+
 export async function ensureStoreRoot(config: PackageServiceConfig): Promise<void> {
+  if (config.storeRoot === DEFAULT_PACKAGE_STORE_ROOT) {
+    await ensureNpmStoreNamespace()
+    await migrateLegacyPackageStoreIfNeeded()
+    return
+  }
   await ensureDir(config.storeRoot)
 }

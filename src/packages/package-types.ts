@@ -1,5 +1,7 @@
 /** Instant PackageService 类型（L2） */
 
+import { DEFAULT_PACKAGE_STORE_ROOT } from './package-store-paths.ts'
+
 export type PackageId = string
 
 export type PackageTaskKind =
@@ -144,7 +146,7 @@ export type PackageServiceConfig = {
 
 export const DEFAULT_PACKAGE_SERVICE_CONFIG: PackageServiceConfig = {
   registryUrl: 'https://registry.npmjs.org',
-  storeRoot: '/user/.instant-pkg-store',
+  storeRoot: DEFAULT_PACKAGE_STORE_ROOT,
   maxTarballBytes: 32 * 1024 * 1024,
   maxStoreBytes: 512 * 1024 * 1024,
   maxProjectFiles: 50_000,
