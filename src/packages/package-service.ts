@@ -506,13 +506,14 @@ async function materializeNode(
       onProgress: ({ done, total, bytesWritten, currentPath }) => {
         const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 100
         const pathHint = currentPath ? `  ${currentPath}` : ''
+        const filesPart = `${done}/${total}`
         reporter.report({
           phase: 'extract',
           percent,
-          detail: `解压 ${label}  ${done}/${total}  ${formatByteSize(bytesWritten)}${pathHint}`,
+          detail: `解压 ${label}  ${filesPart} (${percent}%)  ${formatByteSize(bytesWritten)}${pathHint}`,
           counters: { ...counters },
           packagesPlus,
-          fetchHint: `Extracting ${label}`,
+          fetchHint: `Extracting ${label}: ${filesPart} (${percent}%)`,
         })
       },
     })
