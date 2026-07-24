@@ -46,6 +46,7 @@ export const DEVICE_STORAGE_KEYS = {
   icodeProjects: 'instant-os-icode-projects',
   vscodePrefs: 'instant-os-vscode-prefs',
   vscodeSession: 'instant-os-vscode-session',
+  vscodeAiChat: 'instant-os-vscode-ai-chat',
   terminalCommandHistory: 'instant-os-terminal-command-history',
   systemDebugLogSettings: 'instant-os-system-debug-log-settings',
 } as const

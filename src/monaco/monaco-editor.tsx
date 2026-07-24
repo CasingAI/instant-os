@@ -26,6 +26,7 @@ export type MonacoEditorProps = {
   wordWrap?: 'on' | 'off' | 'wordWrapColumn' | 'bounded'
   className?: string
   onCursorChange?: (line: number, column: number) => void
+  onSelectionChange?: (selectionText: string | undefined) => void
   /**
    * Go to Definition 等打开其它资源时回调。
    * 返回 true 表示已处理（应打开/切换标签）；false 则交回默认行为。
@@ -137,6 +138,7 @@ export function MonacoEditor({
   wordWrap = 'on',
   className,
   onCursorChange,
+  onSelectionChange,
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
@@ -145,6 +147,7 @@ export function MonacoEditor({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | undefined>(undefined)
   const onChangeRef = useRef(onChange)
   const onCursorChangeRef = useRef(onCursorChange)
+  const onSelectionChangeRef = useRef(onSelectionChange)
   const onOpenPathRef = useRef(onOpenPath)
   const onRevealPositionAppliedRef = useRef(onRevealPositionApplied)
   const modelPathRef = useRef(modelPath)
@@ -154,6 +157,7 @@ export function MonacoEditor({
 
   onChangeRef.current = onChange
   onCursorChangeRef.current = onCursorChange
+  onSelectionChangeRef.current = onSelectionChange
   onOpenPathRef.current = onOpenPath
   onRevealPositionAppliedRef.current = onRevealPositionApplied
   modelPathRef.current = modelPath
@@ -190,6 +194,7 @@ export function MonacoEditor({
       // 依赖包等文件常含 LS/PS，默认 prompt 会打扰；用户暂无此设置项
       unusualLineTerminators: 'off',
       readOnly,
+      'editor.inlineSuggest.enabled': true,
       // Cmd/Ctrl+点击转到定义
       links: true,
       gotoLocation: {
@@ -212,6 +217,21 @@ export function MonacoEditor({
 
     editor.onDidChangeCursorPosition((event) => {
       onCursorChangeRef.current?.(event.position.lineNumber, event.position.column)
+    })
+
+    editor.onDidChangeCursorSelection((event) => {
+      const model = editor.getModel()
+      if (!model) {
+        onSelectionChangeRef.current?.(undefined)
+        return
+      }
+      const selection = event.selection
+      if (selection.isEmpty()) {
+        onSelectionChangeRef.current?.(undefined)
+        return
+      }
+      const text = model.getValueInRange(selection)
+      onSelectionChangeRef.current?.(text || undefined)
     })
 
     const opener = monaco.editor.registerEditorOpener({

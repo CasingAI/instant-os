@@ -1,0 +1,162 @@
+/* VS Code 侧栏 AI：复用 help-app 拟物风，并做窄栏适配 */
+
+.vscode-ai.help-app {
+  --help-chat-max: 100%;
+  --help-bubble-max: 100%;
+  --help-welcome-max: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.vscode-ai__toolbar {
+  padding: 0 10px;
+  height: 40px;
+}
+
+.vscode-ai__toolbar .help-app__toolbar-title {
+  font-size: 13px;
+}
+
+.vscode-ai__toolbar .help-app__toolbar-hint {
+  font-size: 10px;
+}
+
+.vscode-ai__chat {
+  padding: 12px 10px 8px;
+}
+
+.vscode-ai__welcome {
+  margin-top: 16px;
+}
+
+.vscode-ai__welcome .help-app__welcome-icon {
+  width: 56px;
+  height: 56px;
+}
+
+.vscode-ai__welcome .help-app__welcome-title {
+  font-size: 17px;
+}
+
+.vscode-ai__welcome .help-app__welcome-sub {
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.vscode-ai__welcome .help-app__samples {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.vscode-ai__welcome .help-app__sample {
+  text-align: left;
+}
+
+.help-app__messages .help-app__bubble {
+  font-size: 12px;
+}
+
+.vscode-ai__edit-card {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(196, 181, 160, 0.45);
+}
+
+.vscode-ai__edit-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--help-ink-muted);
+  margin-bottom: 4px;
+}
+
+.vscode-ai__edit-card-path {
+  font-size: 11px;
+  word-break: break-all;
+  margin-bottom: 8px;
+  color: var(--help-ink);
+}
+
+.vscode-ai__edit-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vscode-ai__composer-wrap {
+  padding: 0 10px 10px;
+}
+
+.vscode-ai__composer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.vscode-ai__composer .help-app__input {
+  max-height: 96px;
+  font-size: 12px;
+}
+
+.vscode-ai__composer-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.vscode-ai__footer-field {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vscode-ai__footer-field--mode {
+  flex: 0 1 88px;
+}
+
+.vscode-ai__footer-field--model {
+  flex: 1 1 100px;
+}
+
+.vscode-ai__footer-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.vscode-ai__footer-select {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--help-radius);
+  border: 1px solid var(--help-border);
+  background: linear-gradient(180deg, #fffdf8 0%, var(--help-paper) 100%);
+  box-shadow: var(--help-shadow);
+  color: var(--help-ink);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.vscode-ai__footer-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.vscode-ai__composer-footer .help-app__send,
+.vscode-ai__composer-footer .help-app__stop {
+  flex-shrink: 0;
+}

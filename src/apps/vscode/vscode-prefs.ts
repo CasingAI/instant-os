@@ -1,5 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import { isMonacoEditorTheme, type MonacoEditorTheme } from '../../monaco/monaco-themes.ts'
+import { normalizeVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 
 export type VscodePanelTab = 'problems' | 'terminal' | 'logs'
 
@@ -32,6 +33,10 @@ export type VscodePrefs = {
   /** 当前工作区文件夹绝对路径；未打开时为 undefined */
   workspaceFolder: string | undefined
   search: VscodeSearchPrefs
+  aiMode: VscodeAiMode
+  inlineCompletionEnabled: boolean
+  /** providerEntryId:modelId；未设置时用钥匙串文本首选 */
+  aiModelKey: string | undefined
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodePrefs
@@ -64,6 +69,9 @@ const DEFAULT_PREFS: VscodePrefs = {
   sidebarWidth: 240,
   workspaceFolder: undefined,
   search: { ...DEFAULT_SEARCH_PREFS },
+  aiMode: 'ask',
+  inlineCompletionEnabled: true,
+  aiModelKey: undefined,
 }
 
 function normalizePanelTab(value: unknown): VscodePanelTab {
@@ -140,6 +148,12 @@ export function loadVscodePrefs(): VscodePrefs {
           : DEFAULT_PREFS.sidebarWidth,
       workspaceFolder: normalizeWorkspaceFolder(parsed.workspaceFolder),
       search: normalizeSearchPrefs(parsed.search),
+      aiMode: normalizeVscodeAiMode(parsed.aiMode),
+      inlineCompletionEnabled: parsed.inlineCompletionEnabled !== false,
+      aiModelKey:
+        typeof parsed.aiModelKey === 'string' && parsed.aiModelKey.trim()
+          ? parsed.aiModelKey.trim()
+          : undefined,
     }
   } catch {
     return { ...DEFAULT_PREFS, search: { ...DEFAULT_SEARCH_PREFS } }

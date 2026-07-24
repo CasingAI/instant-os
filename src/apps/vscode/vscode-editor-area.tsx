@@ -143,6 +143,7 @@ type VscodeEditorAreaProps = {
   onOpenMarkdownPreview: (groupId: string) => void
   onTabTextChange: (tabId: string, text: string) => void
   onCursorChange: (line: number, column: number) => void
+  onSelectionChange?: (selectionText: string | undefined) => void
   onOpenPath: (path: string, reveal?: MonacoRevealPosition) => boolean | Promise<boolean>
   onResolveConflict: (tabId: string, choice: 'draft' | 'disk') => void
   onConfirmBinaryPrompt: (tabId: string) => void
@@ -241,6 +242,7 @@ function VscodeEditorGroupView({
   onOpenMarkdownPreview,
   onTabTextChange,
   onCursorChange,
+  onSelectionChange,
   onOpenPath,
   onResolveConflict,
   onConfirmBinaryPrompt,
@@ -733,6 +735,7 @@ function VscodeEditorGroupView({
               wordWrap={prefs.wordWrap ? 'on' : 'off'}
               active={isActiveWindow && focused}
               onCursorChange={onCursorChange}
+              onSelectionChange={onSelectionChange}
               onOpenPath={onOpenPath}
               revealPosition={
                 revealPosition && revealPosition.path === activeFileTab.path

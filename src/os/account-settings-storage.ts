@@ -9,6 +9,7 @@ import {
   parseStoredModelCapabilities,
   reconcilePreferredByCapability,
   applyTextPreferredToProviders,
+  modelHasCapability,
   resolvePreferredModelRef,
   resolveProviderEntryBaseURL,
   type AccountSettingsV2,
@@ -383,6 +384,34 @@ export function accountSettingsToOpenAiConfig(
 
   const baseURL = resolveProviderEntryBaseURL(entry)
 
+  return {
+    apiKey: entry.apiKey,
+    baseURL: baseURL || undefined,
+    defaultModel: ref.modelId,
+    providerId: entry.providerId,
+    thinkingEnabled: entry.thinkingEnabled,
+  }
+}
+
+export function openAiConfigForModelRef(
+  settings: AccountSettingsV2,
+  ref: PreferredModelRef,
+  capability: AiModelCapability = 'text',
+): Partial<OpenAiConfig> | undefined {
+  const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
+  if (!entry || !isProviderEntryValid(entry)) {
+    return undefined
+  }
+  const model = entry.enabledModels.find((item) => item.modelId === ref.modelId)
+  if (!model) {
+    return undefined
+  }
+  if (
+    !modelHasCapability(entry.providerId, model.modelId, capability, model.capabilities)
+  ) {
+    return undefined
+  }
+  const baseURL = resolveProviderEntryBaseURL(entry)
   return {
     apiKey: entry.apiKey,
     baseURL: baseURL || undefined,

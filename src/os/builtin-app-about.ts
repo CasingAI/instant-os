@@ -91,6 +91,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: '代码编辑器',
     paragraphs: [
       'Virtual Studio Code Desktop 是基于 Monaco 的轻量代码编辑器：文件夹浏览、多标签编辑、系统终端与简易编辑器设置。',
+      '内置 AI 侧栏支持 Ask / Edit / Agent 三种模式，可感知工作区、读写文件、搜索与运行 npm/终端命令（敏感操作需确认）；编辑器支持 Copilot 式行内补全。',
       '默认作为常见源码后缀的打开程序；.txt 仍由文本编辑处理，.html 等网页文件默认仍由网络浏览器打开。只读卷可预览但不可保存。',
     ],
   },

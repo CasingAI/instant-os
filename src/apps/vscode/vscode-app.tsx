@@ -5,6 +5,8 @@ import {
   MONACO_SELECTABLE_LANGUAGES,
   monacoLanguageLabel,
   parentDirFromPath,
+  fileNameFromPath,
+  monacoLanguageFromFileName,
 } from '../../monaco/monaco-language.ts'
 import { monacoEditorBackgroundForTheme } from '../../monaco/monaco-themes.ts'
 import {
@@ -102,6 +104,16 @@ import {
   searchVscodeWorkspaceFilesDetailed,
   type VscodeWorkspaceSearchHit,
 } from './vscode-workspace-search.ts'
+import { VscodeAiPanel } from './vscode-ai-panel.tsx'
+import type { VscodeAiContextInput } from './vscode-ai-context.ts'
+import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
+import {
+  ensureVscodeInlineCompletionProvider,
+  setVscodeInlineCompletionOptions,
+  disposeVscodeInlineCompletionProvider,
+} from './vscode-ai-inline-completion.ts'
+import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
+import { monaco } from '../../monaco/monaco-setup.ts'
 import './vscode.css'
 
 const SESSION_PERSIST_DEBOUNCE_MS = 400
@@ -124,7 +136,7 @@ type DirtyPromptState = {
   resolve: (choice: DirtyChoice) => void
 }
 
-type SidebarView = 'explorer' | 'search' | 'settings'
+type SidebarView = 'explorer' | 'search' | 'ai' | 'settings'
 
 const VSCODE_THEME_OPTIONS = [
   { id: 'vs-dark', label: '深色' },
@@ -232,6 +244,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const sidebarRef = useRef<HTMLElement>(null)
   const explorerBtnRef = useRef<HTMLButtonElement>(null)
   const searchBtnRef = useRef<HTMLButtonElement>(null)
+  const aiBtnRef = useRef<HTMLButtonElement>(null)
   const settingsBtnRef = useRef<HTMLButtonElement>(null)
   const [tabs, setTabs] = useState<VscodeTab[]>([])
   const [sessionReady, setSessionReady] = useState(false)
@@ -245,6 +258,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   >(() => new Map())
   const [quickSearchOpen, setQuickSearchOpen] = useState(false)
   const cursorRef = useRef<VscodeCursorPos>({ line: 1, column: 1 })
+  const selectionTextRef = useRef<string | undefined>(undefined)
   const cursorSetterRef = useRef<(line: number, column: number) => void>(() => undefined)
   const [gotoLineOpen, setGotoLineOpen] = useState(false)
   const [gotoLineInput, setGotoLineInput] = useState('1')
@@ -696,6 +710,97 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     cursorRef.current = { line, column }
     cursorSetterRef.current(line, column)
   }, [])
+
+  const applySelection = useCallback((selectionText: string | undefined) => {
+    selectionTextRef.current = selectionText
+  }, [])
+
+  const getVscodeAiContext = useCallback((): VscodeAiContextInput => {
+    const activeId = activeTabIdRef.current
+    const active = tabsRef.current.find((tab) => tab.id === activeId)
+    return {
+      workspaceFolder: prefs.workspaceFolder,
+      tabs: tabsRef.current,
+      activeTabId: activeId,
+      editor: {
+        activePath: active?.path,
+        cursorLine: cursorRef.current.line,
+        cursorColumn: cursorRef.current.column,
+        selectionText: selectionTextRef.current,
+      },
+      problems,
+    }
+  }, [prefs.workspaceFolder, problems])
+
+  const applyVscodeAiEdit = useCallback(
+    async (edit: VscodeAiPendingEdit) => {
+      const existing = tabsRef.current.find((tab) => tab.path === edit.path)
+      if (existing) {
+        setTabs((current) =>
+          current.map((tab) =>
+            tab.id === existing.id
+              ? { ...tab, text: edit.nextText, savedText: edit.nextText }
+              : tab,
+          ),
+        )
+        ensureMonacoPathModel(
+          edit.path,
+          edit.nextText,
+          monacoLanguageFromFileName(fileNameFromPath(edit.path)),
+          { overwrite: true },
+        )
+      }
+      try {
+        const node = await resolveNodeByAbsolutePath(edit.path)
+        if (node && node.kind === 'file') {
+          await writeTextFile(edit.path, edit.nextText)
+        } else {
+          await filesCreateText(edit.path, edit.nextText)
+        }
+      } catch {
+        await filesCreateText(edit.path, edit.nextText)
+      }
+      if (!existing) {
+        await openDocument(edit.path)
+      }
+    },
+    [openDocument],
+  )
+
+  useEffect(() => {
+    ensureVscodeInlineCompletionProvider()
+    return () => {
+      disposeVscodeInlineCompletionProvider()
+    }
+  }, [])
+
+  useEffect(() => {
+    setVscodeInlineCompletionOptions({
+      enabled: prefs.inlineCompletionEnabled && isActiveWindow,
+      getModelKey: () => prefs.aiModelKey,
+      getActiveEditor: () => {
+        const activeId = activeTabIdRef.current
+        const tab = tabsRef.current.find((item) => item.id === activeId)
+        if (!tab || tab.binaryPrompt) return undefined
+        const editors = monaco.editor.getEditors()
+        const editor = editors.find((item) => item.getModel()?.uri.path === tab.path)
+        if (!editor) return undefined
+        const model = editor.getModel()
+        const position = editor.getPosition()
+        if (!model || !position) return undefined
+        const offset = model.getOffsetAt(position)
+        const full = model.getValue()
+        return {
+          path: tab.path,
+          readOnly: !tab.writable,
+          getPrefixSuffix: () => ({
+            prefix: full.slice(0, offset),
+            suffix: full.slice(offset),
+          }),
+        }
+      },
+    })
+  }, [isActiveWindow, prefs.inlineCompletionEnabled, prefs.aiModelKey])
 
   const confirmGotoLine = useCallback(() => {
     if (!activeTab) {
@@ -1641,6 +1746,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           },
           {
             type: 'action',
+            label: 'AI',
+            onClick: () => activateSidebar('ai'),
+          },
+          {
+            type: 'action',
             label: '在文件中替换',
             shortcut: '⇧⌘H',
             onClick: () => activateSearchSidebar({ expandReplace: true }),
@@ -1776,6 +1886,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (!prefs.sidebarVisible) return undefined
     if (sidebarView === 'explorer') return explorerBtnRef.current ?? undefined
     if (sidebarView === 'search') return searchBtnRef.current ?? undefined
+    if (sidebarView === 'ai') return aiBtnRef.current ?? undefined
     return settingsBtnRef.current ?? undefined
   }, [prefs.sidebarVisible, sidebarView])
 
@@ -1891,6 +2002,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               />
             </svg>
           </button>
+          <button
+            type="button"
+            ref={aiBtnRef}
+            class={`vscode__activity-btn${sidebarView === 'ai' && prefs.sidebarVisible ? ' vscode__activity-btn--active' : ''}`}
+            title="AI"
+            onClick={() => activateSidebar('ai')}
+          >
+            <svg class="vscode__activity-glyph" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 3c4.2 0 7.5 3.1 7.5 7 0 2.4-1.2 4.5-3 5.8V19a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-3.2C5.7 14.5 4.5 12.4 4.5 10 4.5 6.1 7.8 3 12 3zm0 2C9 5 6.5 7.2 6.5 10c0 1.8 1 3.4 2.5 4.3.6.4 1 1 1 1.7V19h4v-3c0-.7.4-1.3 1-1.7 1.5-.9 2.5-2.5 2.5-4.3 0-2.8-2.5-5-5.5-5z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
           <div class="vscode__activity-spacer" />
           <button
             type="button"
@@ -1946,6 +2071,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               />
             ) : undefined}
 
+            {sidebarView === 'ai' ? (
+              <VscodeAiPanel
+                mode={prefs.aiMode}
+                onModeChange={(aiMode) => updatePrefs({ aiMode })}
+                aiModelKey={prefs.aiModelKey}
+                onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
+                workspaceFolder={prefs.workspaceFolder}
+                getContext={getVscodeAiContext}
+                getOpenFilesForSearch={() => openSearchFiles}
+                problems={problems}
+                terminalSession={terminalSession}
+                onApplyEdit={applyVscodeAiEdit}
+                onRejectEdit={() => undefined}
+              />
+            ) : undefined}
+
             {sidebarView === 'settings' ? (
               <div class="vscode__settings">
                 <div class="vscode__sidebar-header">设置</div>
@@ -1989,6 +2130,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     checked={prefs.wordWrap}
                     onChange={(checked) => updatePrefs({ wordWrap: checked })}
                     label="自动换行"
+                  />
+                </div>
+                <div class="vscode__setting vscode__setting--row">
+                  <span>AI 行内补全</span>
+                  <IosSwitch
+                    checked={prefs.inlineCompletionEnabled}
+                    onChange={(checked) => updatePrefs({ inlineCompletionEnabled: checked })}
+                    label="AI 行内补全"
                   />
                 </div>
               </div>
@@ -2049,6 +2198,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onOpenMarkdownPreview={openMarkdownPreviewBeside}
                 onTabTextChange={updateTabText}
                 onCursorChange={applyCursor}
+                onSelectionChange={applySelection}
                 onOpenPath={handleEditorOpenPath}
                 onResolveConflict={resolveTabConflict}
                 onConfirmBinaryPrompt={confirmBinaryPrompt}
