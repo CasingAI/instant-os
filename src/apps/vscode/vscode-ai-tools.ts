@@ -444,7 +444,7 @@ export function createVscodeAiTools(
       ? [
           defineTool({
             name: 'run_in_terminal',
-            description: '在 VS Code 内嵌终端执行一行命令（需用户确认）',
+            description: '在 VS Code 内嵌终端执行一段 JavaScript（需用户确认）',
             parameters: {
               type: 'object',
               additionalProperties: false,
@@ -525,7 +525,7 @@ export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   move: '移动',
   copy: '复制',
   remove: '删除',
-  run_in_terminal: '运行终端命令',
+  run_in_terminal: '运行 JavaScript',
   npm_run: '运行 npm script',
   npx: '运行 npx',
 }

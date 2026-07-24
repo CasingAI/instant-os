@@ -59,6 +59,7 @@ const MODULE_LABELS: Record<string, string> = {
   settings: '系统设置',
   help: '帮助',
   terminal: '终端',
+  'simulated-terminal': '模拟终端',
   files: '文件',
   'system-info': '系统信息',
   'task-manager': '性能监视器',

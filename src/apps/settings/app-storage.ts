@@ -116,7 +116,7 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
       DEVICE_STORAGE_KEYS.vscodeSession,
     ])
   }
-  if (appId === 'terminal') {
+  if (appId === 'simulated-terminal') {
     return getLocalStorageKeyBytes(DEVICE_STORAGE_KEYS.terminalCommandHistory)
   }
   if (appId === 'scene3d-lab') {

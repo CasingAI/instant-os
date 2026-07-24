@@ -1,66 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { TerminalPanel } from '../../terminal/terminal-panel.tsx'
-import type { TerminalHandle } from '../../terminal/terminal-types.ts'
-import {
-  subscribeTerminalPendingActions,
-  takeTerminalPendingAction,
-} from '../../terminal/terminal-pending-actions.ts'
+import { useCallback, useMemo, useRef } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import './terminal-app.css'
+import { TerminalReplPanel, type TerminalReplHandle } from './terminal-repl-panel.tsx'
+import './terminal-repl-shell.css'
 
 const APP_ID = 'terminal' as const
+const WORKSPACE_ROOT = '/user'
 
-function menuCheckPrefix(active: boolean): string {
-  return active ? '✓ ' : ''
-}
-
+/** 系统终端：原生 QuickJS / Node 兼容运行时，可操作虚拟文件系统与宿主能力。 */
 export function TerminalApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
-  const handleRef = useRef<TerminalHandle | null>(null)
-  const [thinkingEnabled, setThinkingEnabled] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const drainingPendingRef = useRef(false)
+  const handleRef = useRef<TerminalReplHandle | null>(null)
+  const busyRef = useRef(false)
 
-  const drainPendingActions = useCallback(async () => {
-    if (drainingPendingRef.current) return
-    drainingPendingRef.current = true
-    try {
-      while (true) {
-        const handle = handleRef.current
-        if (!handle) break
-        const action = takeTerminalPendingAction()
-        if (!action) break
-        handle.write(`[特权] 来源 ${action.source}：${action.summary || action.kind}`)
-        await handle.runPrivilege(action)
-      }
-    } finally {
-      drainingPendingRef.current = false
-    }
-  }, [])
+  const welcomeLines = useMemo(
+    () => [
+      '终端 · 系统原生 JavaScript 运行时（QuickJS + Node 兼容层）',
+      `工作区 ${WORKSPACE_ROOT} · 回车执行 · ⌘K 清屏 · .reset 重建实例`,
+    ],
+    [],
+  )
 
-  useEffect(() => {
-    const tryDrain = () => {
-      void drainPendingActions()
-    }
-    tryDrain()
-    const timer = window.setInterval(tryDrain, 250)
-    const unsubscribe = subscribeTerminalPendingActions(tryDrain)
-    return () => {
-      window.clearInterval(timer)
-      unsubscribe()
-    }
-  }, [drainPendingActions])
-
-  const handleClear = useCallback(() => {
+  const clearScreen = useCallback(() => {
     handleRef.current?.clear()
   }, [])
 
-  const handleStop = useCallback(() => {
+  const resetInstance = useCallback(() => {
+    void handleRef.current?.runCode('.reset')
+  }, [])
+
+  const handleAbort = useCallback(() => {
     handleRef.current?.abort()
   }, [])
 
@@ -71,7 +44,7 @@ export function TerminalApp() {
       {
         label: '终端',
         items: [
-          ...aboutAppMenuPrefix('关于终端（弃用）', () => showBuiltinAbout(APP_ID)),
+          ...aboutAppMenuPrefix('关于终端', () => showBuiltinAbout(APP_ID)),
           {
             type: 'action',
             label: '隐藏终端',
@@ -94,47 +67,40 @@ export function TerminalApp() {
             type: 'action',
             label: '清屏',
             shortcut: '⌘K',
-            onClick: handleClear,
+            onClick: clearScreen,
+          },
+          {
+            type: 'action',
+            label: '重建实例',
+            onClick: resetInstance,
           },
           {
             type: 'action',
             label: '停止',
-            disabled: !busy,
-            onClick: handleStop,
-          },
-        ],
-      },
-      {
-        label: '视图',
-        items: [
-          {
-            type: 'action',
-            label: `${menuCheckPrefix(thinkingEnabled)}深度思考`,
-            onClick: () => setThinkingEnabled((value) => !value),
+            disabled: !busyRef.current,
+            onClick: handleAbort,
           },
         ],
       },
     ]
   }, [
-    busy,
+    clearScreen,
     closeWindowsForApp,
-    handleClear,
-    handleStop,
+    handleAbort,
     minimizeWindow,
+    resetInstance,
     showBuiltinAbout,
-    thinkingEnabled,
     windows,
   ])
 
   useAppMenuBar(APP_ID, menuBar)
 
   return (
-    <div class="terminal-app">
-      <TerminalPanel
-        usageActor={APP_ID}
-        thinkingEnabled={thinkingEnabled}
+    <div class="terminal-repl-app">
+      <TerminalReplPanel
+        workspaceRoot={WORKSPACE_ROOT}
         handleRef={handleRef}
-        onBusyChange={setBusy}
+        welcomeLines={welcomeLines}
       />
     </div>
   )

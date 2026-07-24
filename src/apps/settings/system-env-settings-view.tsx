@@ -120,7 +120,7 @@ export function SystemEnvSettingsView({ onBack }: SystemEnvSettingsViewProps) {
         <section class="settings__section">
           <h2 class="settings__section-title">环境变量</h2>
           <p class="settings__section-subtitle">
-            系统默认环境变量，供新终端会话与脚本宿主继承。修改后不会热更新已打开的会话，需关闭后重新打开。
+            系统默认环境变量，供终端会话与脚本宿主继承。修改后不会热更新已打开的会话，需关闭后重新打开。
           </p>
 
           <div class="settings__box settings__box--system-env">

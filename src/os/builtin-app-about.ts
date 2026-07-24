@@ -90,8 +90,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   vscode: {
     version: '代码编辑器',
     paragraphs: [
-      'Virtual Studio Code Desktop 是基于 Monaco 的轻量代码编辑器：文件夹浏览、多标签编辑、系统终端与简易编辑器设置。',
-      '内置 AI 侧栏支持 Ask / Edit / Agent 三种模式，可感知工作区、读写文件、搜索与运行 npm/终端命令（敏感操作需确认）。',
+      'Virtual Studio Code Desktop 是基于 Monaco 的轻量代码编辑器：文件夹浏览、多标签编辑、内嵌终端（QuickJS REPL）与简易编辑器设置。',
+      '内置 AI 侧栏支持 Ask / Edit / Agent 三种模式，可感知工作区、读写文件、搜索与在终端运行 JavaScript / npm（敏感操作需确认）。',
       '默认作为常见源码后缀的打开程序；.txt 仍由文本编辑处理，.html 等网页文件默认仍由网络浏览器打开。只读卷可预览但不可保存。',
     ],
   },
@@ -244,17 +244,17 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   terminal: {
-    version: '系统终端（弃用）',
+    version: '系统原生终端',
     paragraphs: [
-      '本应用已弃用：原「终端」面向自然语言 / 类 Unix 命令与特权确认，仍保留供帮助应用拉起敏感操作确认。',
-      '日常执行 JavaScript / Node 风格脚本请改用「新终端」或「Virtual JS」。挂载本机文件夹仍可在「文件」应用侧栏完成。',
+      '终端是系统的原生 JavaScript 运行环境：基于 QuickJS + Node 兼容层（process、fs、require 等），可在终端式 REPL 中直接执行 JS 代码操作整个虚拟系统。',
+      '工作区默认为 /user，同一窗口内多次回车共享一个全局环境；清屏仅清空输出，.reset 或菜单「重建实例」可重置运行时。',
     ],
   },
-  'new-terminal': {
-    version: 'Node 风格 JS REPL',
+  'simulated-terminal': {
+    version: '类 Unix 壳层演示（模拟）',
     paragraphs: [
-      '新终端在终端式界面中直接执行 JavaScript：底层与 Virtual JS 相同，使用系统 QuickJS + Node 兼容层（process、fs、require 等），工作区默认为 /user。',
-      '同一窗口内多次回车共享一个 JS 全局环境；清屏仅清空输出，.reset 或菜单「重建实例」可重置运行时。原「终端」已弃用，特权确认仍会打开旧终端。',
+      '模拟终端提供自然语言 / 类 Unix 命令行演示，面向高级用户的文件系统浏览与特权操作确认入口。',
+      '它不是原生 JS 运行环境——需要真正执行 JavaScript 或 Node 脚本，请使用「终端」。',
     ],
   },
   'virtual-js': {

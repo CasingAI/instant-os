@@ -116,8 +116,8 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   keychain: { title: '钥匙串', width: 680, height: 560 },
   'github-desktop': { title: 'GitHub Desktop', width: 980, height: 680 },
   help: { title: '帮助', width: 820, height: 640 },
-  'new-terminal': { title: '新终端', width: 760, height: 520 },
-  terminal: { title: '终端（弃用）', width: 760, height: 520 },
+  terminal: { title: '终端', width: 760, height: 520 },
+  'simulated-terminal': { title: '模拟终端', width: 760, height: 520 },
   'archive-utility': { title: '压缩包实用工具', width: 420, height: 120 },
 }
 
@@ -312,7 +312,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       throw new Error('请使用 openExtApp 打开外链应用')
     }
 
-    if (appId === 'terminal' && options?.terminalAction) {
+    if (appId === 'simulated-terminal' && options?.terminalAction) {
       enqueueTerminalPendingAction(options.terminalAction)
     }
 

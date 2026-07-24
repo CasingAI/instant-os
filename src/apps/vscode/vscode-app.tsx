@@ -22,14 +22,15 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs, useWindowCloseGuard } from '../../os/os-context.tsx'
 import {
-  createTerminalSession,
-  TerminalPanel,
   TERMINAL_COLORS_DARK,
   TERMINAL_COLORS_HIGH_CONTRAST,
   TERMINAL_COLORS_LIGHT,
   type TerminalColors,
 } from '../../terminal/terminal-public.ts'
-import type { TerminalSession } from '../../terminal/terminal-session.ts'
+import {
+  TerminalReplPanel,
+  type TerminalReplHandle,
+} from '../terminal/terminal-repl-panel.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -303,14 +304,31 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     createEmptyEditorLayout(),
   )
 
-  const terminalSessionRef = useRef<TerminalSession | undefined>(undefined)
-  if (!terminalSessionRef.current) {
-    terminalSessionRef.current = createTerminalSession({
-      usageActor: APP_ID,
-      initialCwd: '/user',
-    })
-  }
-  const terminalSession = terminalSessionRef.current
+  const terminalReplRef = useRef<TerminalReplHandle | null>(null)
+  const [terminalRepl, setTerminalRepl] = useState<TerminalReplHandle | null>(null)
+  const bindTerminalRepl = useCallback((handle: TerminalReplHandle | null) => {
+    terminalReplRef.current = handle
+    setTerminalRepl(handle)
+  }, [])
+  const terminalWorkspaceRoot = prefs.workspaceFolder?.trim() || '/user'
+  const terminalReplWelcome = useMemo(
+    () => [
+      '终端 · QuickJS Node 兼容 REPL',
+      `工作区 ${terminalWorkspaceRoot} · 回车执行 JavaScript`,
+    ],
+    [terminalWorkspaceRoot],
+  )
+  const terminalReplPanel = (
+    <TerminalReplPanel
+      key={terminalWorkspaceRoot}
+      workspaceRoot={terminalWorkspaceRoot}
+      handleRef={bindTerminalRepl}
+      className="vscode__terminal-panel"
+      colors={terminalColorsForTheme(prefs.theme)}
+      welcomeLines={terminalReplWelcome}
+      ariaLabel="VS Code 终端"
+    />
+  )
   const mainPaneRef = useRef<HTMLDivElement>(null)
   const terminalHeightRef = useRef(prefs.terminalHeight)
   terminalHeightRef.current = prefs.terminalHeight
@@ -377,8 +395,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         )
       }
       mountedRef.current = false
-      terminalSessionRef.current?.destroy()
-      terminalSessionRef.current = undefined
     }
   }, [])
 
@@ -591,16 +607,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   useEffect(() => {
     if (!activeTab) return
     const dir = parentDirFromPath(activeTab.path)
-    if (terminalSession.getCwd() === dir) return
-    void terminalSession.cd(dir).catch(() => undefined)
-  }, [activeTab, terminalSession])
+    const terminal = terminalReplRef.current
+    if (!terminal || terminal.getCwd() === dir) return
+    void terminal.chdir(dir).catch(() => undefined)
+  }, [activeTab])
 
   useEffect(() => {
     const folder = prefs.workspaceFolder
     if (!folder || activeTab) return
-    if (terminalSession.getCwd() === folder) return
-    void terminalSession.cd(folder).catch(() => undefined)
-  }, [activeTab, prefs.workspaceFolder, terminalSession])
+    const terminal = terminalReplRef.current
+    if (!terminal || terminal.getCwd() === folder) return
+    void terminal.chdir(folder).catch(() => undefined)
+  }, [activeTab, prefs.workspaceFolder])
 
   const openDocument = useCallback(
     async (
@@ -996,11 +1014,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       updatePrefs({ workspaceFolder: path, sidebarVisible: true })
       setSidebarView('explorer')
       setRevealPath(path)
-      if (terminalSession.getCwd() !== path) {
-        void terminalSession.cd(path).catch(() => undefined)
+      if (terminalReplRef.current?.getCwd() !== path) {
+        void terminalReplRef.current?.chdir(path).catch(() => undefined)
       }
     },
-    [terminalSession, updatePrefs],
+    [updatePrefs],
   )
 
   const pickAndOpenFolder = useCallback(async (): Promise<boolean> => {
@@ -2381,7 +2399,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 getAiContext={getVscodeAiContext}
                 getOpenFilesForSearch={() => openSearchFiles}
                 problems={problems}
-                terminalSession={terminalSession}
+                terminalRepl={terminalRepl ?? undefined}
                 onApplyAiEdit={applyVscodeAiEdit}
                 onRejectAiEdit={() => undefined}
               />
@@ -2477,12 +2495,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   class={`vscode__panel-body${prefs.panelTab === 'terminal' ? '' : ' vscode__panel-body--hidden'}`}
                   hidden={prefs.panelTab !== 'terminal'}
                 >
-                  <TerminalPanel
-                    session={terminalSession}
-                    usageActor={APP_ID}
-                    className="vscode__terminal-panel"
-                    colors={terminalColorsForTheme(prefs.theme)}
-                  />
+                  {terminalReplPanel}
                 </div>
                 <div
                   class={`vscode__panel-body${prefs.panelTab === 'logs' ? '' : ' vscode__panel-body--hidden'}`}
@@ -2492,7 +2505,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 </div>
               </div>
             </>
-          ) : undefined}
+          ) : (
+            <div class="vscode__terminal-keeper" hidden aria-hidden="true">
+              {terminalReplPanel}
+            </div>
+          )}
         </div>
       </div>
 

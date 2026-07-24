@@ -4,7 +4,7 @@ import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpMarkdown } from '../help/help-markdown.tsx'
 import { HelpIcon } from '../../icons/app-icons.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import type { TerminalSession } from '../../terminal/terminal-session.ts'
+import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import {
   isVscodeAiMode,
@@ -53,7 +53,7 @@ export type VscodeAiPanelProps = {
   getContext: () => VscodeAiContextInput
   getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
   problems: readonly MonacoProblem[]
-  terminalSession: TerminalSession
+  terminalRepl: TerminalReplHandle
   onApplyEdit: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectEdit: (editId: string) => void
 }
@@ -169,7 +169,7 @@ export function VscodeAiPanel({
   getContext,
   getOpenFilesForSearch,
   problems,
-  terminalSession,
+  terminalRepl,
   onApplyEdit,
   onRejectEdit,
 }: VscodeAiPanelProps) {
@@ -211,7 +211,7 @@ export function VscodeAiPanel({
 
   const runCommandHost = useMemo<VscodeAiRunCommandHost>(
     () => ({
-      terminalSession,
+      terminalRepl,
       workspaceFolder,
       confirm: (request) =>
         modal.confirm({
@@ -221,7 +221,7 @@ export function VscodeAiPanel({
           cancelLabel: '取消',
         }),
     }),
-    [modal, terminalSession, workspaceFolder],
+    [modal, terminalRepl, workspaceFolder],
   )
 
   const toolsHost = useMemo<VscodeAiToolsHost>(

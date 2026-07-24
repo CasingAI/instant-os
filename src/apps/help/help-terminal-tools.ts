@@ -80,7 +80,7 @@ export const HELP_TERMINAL_REQUEST_TOOLS = [
       }
 
       try {
-        osOpenApp('terminal', {
+        osOpenApp('simulated-terminal', {
           terminalAction: {
             id: createTerminalPrivilegeId(),
             kind: kindRaw,

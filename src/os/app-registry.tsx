@@ -16,7 +16,7 @@ import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
 import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
 import { HelpApp } from '../apps/help/help-app.tsx'
 import { TerminalApp } from '../apps/terminal/terminal-app.tsx'
-import { NewTerminalApp } from '../apps/new-terminal/new-terminal-app.tsx'
+import { SimulatedTerminalApp } from '../apps/simulated-terminal/simulated-terminal-app.tsx'
 import { VirtualJsApp } from '../apps/virtual-js/virtual-js-app.tsx'
 import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
@@ -36,7 +36,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, NewTerminalIcon, VirtualJsIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -255,18 +255,18 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
   }),
   withAbout({
-    id: 'new-terminal',
-    name: '新终端',
-    icon: NewTerminalIcon,
+    id: 'terminal',
+    name: '终端',
+    icon: TerminalIcon,
     dock: true,
     desktop: true,
   }),
   withAbout({
-    id: 'terminal',
-    name: '终端（弃用）',
-    icon: TerminalIcon,
-    dock: true,
-    desktop: true,
+    id: 'simulated-terminal',
+    name: '模拟终端',
+    icon: SimulatedTerminalIcon,
+    dock: false,
+    desktop: false,
   }),
   withAbout({
     id: 'virtual-js',
@@ -307,8 +307,8 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   keychain: KeychainApp,
   'github-desktop': GithubDesktopApp,
   help: HelpApp,
-  'new-terminal': NewTerminalApp,
   terminal: TerminalApp,
+  'simulated-terminal': SimulatedTerminalApp,
   'virtual-js': VirtualJsApp,
 }
 

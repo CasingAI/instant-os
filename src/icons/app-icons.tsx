@@ -1303,7 +1303,7 @@ export function HelpIcon({ size = 64 }: IconProps) {
 }
 
 
-export function NewTerminalIcon({ size = 64 }: IconProps) {
+export function SimulatedTerminalIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#1e3a2f" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">

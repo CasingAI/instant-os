@@ -1,4 +1,4 @@
-import type { TerminalSession } from '../../terminal/terminal-session.ts'
+import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import { runNpmScript, runNpx } from '../../packages/package-run.ts'
 import type { QuickJsEvalResult } from '../../quickjs/quickjs-instance-types.ts'
 
@@ -8,9 +8,9 @@ export type VscodeAiRunConfirmRequest = {
 }
 
 export type VscodeAiRunCommandHost = {
-  confirm: (request: VscodeAiRunConfirmRequest) => Promise<boolean>
-  terminalSession: TerminalSession | undefined
+  terminalRepl: TerminalReplHandle | undefined
   workspaceFolder: string | undefined
+  confirm: (request: VscodeAiRunConfirmRequest) => Promise<boolean>
 }
 
 const OUTPUT_LINE_LIMIT = 120
@@ -39,30 +39,17 @@ export async function runVscodeAiTerminalLine(
 ): Promise<string> {
   const trimmed = line.trim()
   if (!trimmed) return '命令为空'
-  const session = host.terminalSession
-  if (!session) return '终端未就绪'
+  const terminal = host.terminalRepl
+  if (!terminal) return '终端未就绪'
 
   const ok = await host.confirm({
-    title: '运行终端命令',
+    title: '运行 JavaScript',
     message: `AI 请求在终端执行：\n\n${trimmed}`,
   })
   if (!ok) return '用户取消执行'
 
-  const before = session.getSnapshot().lines.length
-  await session.submit(trimmed, { source: 'program' })
-
-  let attempts = 0
-  while (session.getSnapshot().busy && attempts < 600) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    attempts += 1
-  }
-
-  const afterLines = session.getSnapshot().lines.slice(before)
-  const text = afterLines
-    .map((entry) => entry.text)
-    .filter((entry) => entry.trim().length > 0)
-    .join('\n')
-  return truncateOutput(text || '（无输出）')
+  const output = await terminal.runCode(trimmed, { source: 'program' })
+  return truncateOutput(output || '（无输出）')
 }
 
 export async function runVscodeAiNpmScript(

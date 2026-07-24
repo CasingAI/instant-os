@@ -32,7 +32,7 @@ import type {
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
 import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
-import type { TerminalSession } from '../../terminal/terminal-session.ts'
+import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import { HistoryIcon, PlusIcon } from '../../icons/app-icons.tsx'
 
 type DropZone = VscodeSplitEdge
@@ -185,7 +185,7 @@ type VscodeEditorAreaProps = {
   getAiContext?: () => VscodeAiContextInput
   getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
   problems?: readonly MonacoProblem[]
-  terminalSession?: TerminalSession
+  terminalRepl?: TerminalReplHandle
   onApplyAiEdit?: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectAiEdit?: (editId: string) => void
 }
@@ -299,7 +299,7 @@ function VscodeEditorGroupView({
   getAiContext,
   getOpenFilesForSearch,
   problems,
-  terminalSession,
+  terminalRepl,
   onApplyAiEdit,
   onRejectAiEdit,
 }: GroupViewProps) {
@@ -759,7 +759,7 @@ function VscodeEditorGroupView({
         ) : activeItem?.kind === 'aiChat' ? (
           (() => {
             const session = aiChatSessions?.get(activeItem.sessionId)
-            if (!session || !getAiContext || !terminalSession || !aiMode || !onAiModeChange) {
+            if (!session || !getAiContext || !terminalRepl || !aiMode || !onAiModeChange) {
               return <div class="vscode__group-empty">对话已关闭</div>
             }
             return (
@@ -776,7 +776,7 @@ function VscodeEditorGroupView({
                   getContext={getAiContext}
                   getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}
                   problems={problems ?? []}
-                  terminalSession={terminalSession}
+                  terminalRepl={terminalRepl}
                   onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
                   onRejectEdit={onRejectAiEdit ?? (() => undefined)}
                 />
