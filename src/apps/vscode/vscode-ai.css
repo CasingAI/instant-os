@@ -9,19 +9,6 @@
   border-radius: 0;
 }
 
-.vscode-ai__toolbar {
-  padding: 0 10px;
-  height: 40px;
-}
-
-.vscode-ai__toolbar .help-app__toolbar-title {
-  font-size: 13px;
-}
-
-.vscode-ai__toolbar .help-app__toolbar-hint {
-  font-size: 10px;
-}
-
 .vscode-ai__chat {
   padding: 12px 10px 8px;
 }
@@ -159,4 +146,169 @@
 .vscode-ai__composer-footer .help-app__send,
 .vscode-ai__composer-footer .help-app__stop {
   flex-shrink: 0;
+}
+
+/* ── 深色模式：跟随 VS Code 深色外壳，覆写 help-app 拟物变量 ── */
+
+.vscode--chrome-dark .vscode-ai {
+  --help-bg: #1e1e24;
+  --help-surface: #26262c;
+  --help-paper: #2a2a30;
+  --help-ink: #d4d4d8;
+  --help-ink-muted: #888890;
+  --help-border: #3a3a42;
+  --help-border-light: #32323a;
+  --help-accent: #4ea0ef;
+  --help-accent-dark: #6cb3ff;
+  --help-accent-gloss: linear-gradient(180deg, #5aa8f0 0%, #3a8fd4 55%, #2a6fc0 100%);
+  --help-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  --help-shadow-deep:
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.03) inset;
+
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -30%, #26262e 0%, transparent 55%),
+    linear-gradient(180deg, #222228 0%, var(--help-bg) 100%);
+}
+
+/* 欢迎页标题文字阴影 */
+.vscode--chrome-dark .vscode-ai .help-app__welcome-title {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* 示例按钮：深色卡片，去亮色渐变 */
+.vscode--chrome-dark .vscode-ai .help-app__sample {
+  background: linear-gradient(180deg, #2e2e36 0%, #26262e 100%);
+  border: 1px solid var(--help-border);
+  color: var(--help-ink);
+  box-shadow: var(--help-shadow);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__sample:hover:not(:disabled) {
+  background: linear-gradient(180deg, #363640 0%, #2a2a32 100%);
+  border-color: #4a4a52;
+}
+
+/* 助手气泡 */
+.vscode--chrome-dark .vscode-ai .help-app__message--assistant .help-app__bubble {
+  background: linear-gradient(180deg, #2a2a32 0%, var(--help-paper) 100%);
+  border: 1px solid var(--help-border);
+}
+
+/* 用户气泡：深蓝灰，不刺眼 */
+.vscode--chrome-dark .vscode-ai .help-app__message--user .help-app__bubble {
+  background: linear-gradient(180deg, #1a3a5c 0%, #142e4a 100%);
+  border: 1px solid #2a6fad;
+  color: #c8dcf0;
+}
+
+/* 错误气泡 */
+.vscode--chrome-dark .vscode-ai .help-app__bubble--error {
+  background: linear-gradient(180deg, #3a2222 0%, #2e1a1a 100%);
+  border: 1px solid #6a3030;
+  color: #e0a0a0;
+}
+
+/* 用户头像 */
+.vscode--chrome-dark .vscode-ai .help-app__message--user .help-app__avatar {
+  background: linear-gradient(180deg, #2f87e2 0%, #1f6ec7 100%);
+}
+
+/* 错误头像 */
+.vscode--chrome-dark .vscode-ai .help-app__message--error .help-app__avatar {
+  background: linear-gradient(180deg, #a05050 0%, #7a2828 100%);
+}
+
+/* 分隔线 */
+.vscode--chrome-dark .vscode-ai .help-app__investigation,
+.vscode--chrome-dark .vscode-ai .help-app__live-answer,
+.vscode--chrome-dark .vscode-ai__edit-card {
+  border-top-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__live-answer--streaming {
+  border-top-color: rgba(108, 179, 255, 0.25);
+}
+
+/* Markdown 内联代码 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown code {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Markdown 代码块 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown pre {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--help-border);
+}
+
+/* Markdown 引用 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown blockquote {
+  background: rgba(255, 255, 255, 0.03);
+  border-left-color: var(--help-border);
+}
+
+/* Markdown 表格 */
+.vscode--chrome-dark .vscode-ai .help-app__markdown-table-wrap {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__markdown th {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__markdown td {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.vscode--chrome-dark .vscode-ai .help-app__markdown th,
+.vscode--chrome-dark .vscode-ai .help-app__markdown td {
+  border-right-color: rgba(58, 58, 66, 0.55);
+  border-bottom-color: rgba(58, 58, 66, 0.55);
+}
+
+/* 流式光标 */
+.vscode--chrome-dark .vscode-ai .help-app__stream-caret {
+  background: linear-gradient(180deg, #5aa8f0 0%, #3a8fd4 100%);
+}
+
+/* 活动项完成态 */
+.vscode--chrome-dark .vscode-ai .help-app__activity-item--done {
+  color: #5a8a60;
+}
+
+/* 输入框区域：与背景融合 */
+.vscode--chrome-dark .vscode-ai .help-app__composer-wrap {
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.08) 100%);
+}
+
+/* 输入框容器 */
+.vscode--chrome-dark .vscode-ai .help-app__composer {
+  background: linear-gradient(180deg, #2a2a32 0%, var(--help-surface) 100%);
+  border: 1px solid var(--help-border);
+}
+
+/* 输入框文字颜色 */
+.vscode--chrome-dark .vscode-ai .help-app__input {
+  color: var(--help-ink);
+}
+
+/* 模式/模型选择框 */
+.vscode--chrome-dark .vscode-ai .vscode-ai__footer-select {
+  background: linear-gradient(180deg, #363640 0%, var(--help-paper) 100%);
+  border: 1px solid var(--help-border);
+}
+
+/* 发送按钮 */
+.vscode--chrome-dark .vscode-ai .help-app__send {
+  background: var(--help-accent-gloss);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+/* 停止按钮 */
+.vscode--chrome-dark .vscode-ai .help-app__stop {
+  background: linear-gradient(180deg, #3a3a42 0%, #2a2a32 100%);
+  border-color: rgba(255, 255, 255, 0.08);
 }

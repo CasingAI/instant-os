@@ -249,12 +249,6 @@ export function VscodeAiPanel({
     scrollToBottom()
   }, [messages, liveTimeline, liveAnswer, scrollToBottom])
 
-  const handleClear = useCallback(() => {
-    if (busy) return
-    onMessagesChange([])
-    historyRef.current = []
-  }, [busy, onMessagesChange])
-
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = undefined
@@ -340,18 +334,6 @@ export function VscodeAiPanel({
 
   return (
     <div class="help-app vscode-ai help-app--width-full">
-      <header class="help-app__toolbar vscode-ai__toolbar">
-        <span class="help-app__toolbar-title">AI</span>
-        <button
-          type="button"
-          class="help-app__clear"
-          onClick={handleClear}
-          disabled={busy || messages.length === 0}
-        >
-          清空
-        </button>
-      </header>
-
       <div class="help-app__chat vscode-ai__chat" ref={scrollRef}>
         {showWelcome ? (
           <div class="help-app__welcome vscode-ai__welcome">
