@@ -6,6 +6,11 @@ import {
 } from './terminal-colors.ts'
 import { TerminalMarkdown } from './terminal-markdown.tsx'
 import { createTerminalSession, type TerminalSession } from './terminal-session.ts'
+import {
+  loadTerminalCommandHistory,
+  pushTerminalCommandHistory,
+  saveTerminalCommandHistory,
+} from './terminal-command-history.ts'
 import { completeTerminalTab } from './terminal-tab-complete.ts'
 import type { TerminalHandle, TerminalLine, TerminalSessionSnapshot } from './terminal-types.ts'
 import './terminal-panel.css'
@@ -30,8 +35,6 @@ export type TerminalPanelProps = {
 
 /** Braille 旋转帧，表示模型仍在执行（工具调用 / 输出等） */
 const STATUS_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
-
-const COMMAND_HISTORY_LIMIT = 200
 
 function TerminalStatusSpinner() {
   const [frame, setFrame] = useState(0)
@@ -143,8 +146,8 @@ export function TerminalPanel({
   const justSubmittedRef = useRef(false)
   /** 组字结束后紧跟的 Enter 多半是「确认选词」，不要当成提交 */
   const imeGuardUntilRef = useRef(0)
-  /** 用户提交过的命令，旧 → 新 */
-  const commandHistoryRef = useRef<string[]>([])
+  /** 用户提交过的命令，旧 → 新；跨会话持久化 */
+  const commandHistoryRef = useRef<string[]>(loadTerminalCommandHistory())
   /** -1 = 正在编辑当前草稿；≥0 = 浏览历史中的条目 */
   const historyIndexRef = useRef(-1)
   /** 第一次按 ↑ 离开草稿时暂存，↓ 回到最新时恢复 */
@@ -174,13 +177,10 @@ export function TerminalPanel({
   }
 
   const rememberCommand = (raw: string) => {
-    const command = raw.replace(/\r$/, '')
-    if (!command.trim()) return
-    const history = commandHistoryRef.current
-    if (history[history.length - 1] === command) return
-    const next = [...history, command]
-    commandHistoryRef.current =
-      next.length > COMMAND_HISTORY_LIMIT ? next.slice(-COMMAND_HISTORY_LIMIT) : next
+    const next = pushTerminalCommandHistory(commandHistoryRef.current, raw)
+    if (next === commandHistoryRef.current) return
+    commandHistoryRef.current = next
+    saveTerminalCommandHistory(next)
   }
 
   const browseHistory = (direction: 'older' | 'newer') => {
