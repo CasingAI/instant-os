@@ -1,96 +1,84 @@
 .archive-utility-app {
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
+  padding: 12px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 8px;
+  background: #f5f5f5;
+  color: #1c1c1e;
+}
+
+.archive-utility-app--hidden {
+  padding: 0;
   background: transparent;
 }
 
-.archive-utility-progress-host {
-  position: fixed;
-  inset: 0;
-  z-index: 11850;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.archive-utility-progress {
-  pointer-events: auto;
-  width: min(320px, calc(100vw - 48px));
-  padding: 16px 18px 14px;
-  border-radius: 14px;
-  background: rgba(248, 248, 250, 0.92);
-  box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.22),
-    0 0 0 0.5px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  color: #1c1c1e;
-}
-
-.archive-utility-progress__title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.archive-utility-progress__detail {
-  margin: 8px 0 12px;
-  font-size: 12px;
-  color: #636366;
-  font-variant-numeric: tabular-nums;
-}
-
-.archive-utility-progress__track {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(60, 60, 67, 0.12);
+.archive-utility-app__track {
+  position: relative;
+  height: 14px;
   overflow: hidden;
+  border-radius: 3px;
+  border: 1px solid #888;
+  background: linear-gradient(180deg, #d4d4d4 0%, #ebebeb 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+  flex-shrink: 0;
 }
 
-.archive-utility-progress__fill {
+.archive-utility-app__fill {
+  position: relative;
   height: 100%;
-  border-radius: inherit;
-  background: var(--archive-utility-theme, #6b7280);
+  min-width: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #7eb6f0 0%, #3b82c4 55%, #2f6fa8 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset -1px 0 0 rgba(0, 0, 0, 0.12);
   transition: width 0.18s ease-out;
 }
 
-.archive-utility-progress__actions {
+.archive-utility-app__stripe {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(255, 255, 255, 0.22) 6px,
+    rgba(255, 255, 255, 0.22) 12px
+  );
+  pointer-events: none;
+}
+
+.archive-utility-app__meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-utility-app__meta > div {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 
-.archive-utility-progress__btn {
-  appearance: none;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  background: rgba(120, 120, 128, 0.16);
+.archive-utility-app__meta dt {
+  margin: 0;
+  color: #636366;
+  flex-shrink: 0;
+}
+
+.archive-utility-app__meta dd {
+  margin: 0;
   color: #1c1c1e;
-  cursor: pointer;
-}
-
-.archive-utility-progress__btn:hover {
-  background: rgba(120, 120, 128, 0.24);
-}
-
-.archive-utility-progress__btn:active {
-  background: rgba(120, 120, 128, 0.32);
-}
-
-.archive-utility-progress__btn--primary {
-  background: var(--archive-utility-theme, #6b7280);
-  color: #fff;
-}
-
-.archive-utility-progress__btn--primary:hover {
-  filter: brightness(1.05);
-}
-
-.archive-utility-progress__btn--primary:active {
-  filter: brightness(0.95);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

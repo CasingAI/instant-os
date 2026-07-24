@@ -1,4 +1,5 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentType } from 'preact'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { GeneratedApp } from '../apps/generated/generated-app.tsx'
 import { ExtApp } from '../apps/ext/ext-app.tsx'
 import { APP_COMPONENTS } from '../os/app-registry.tsx'
@@ -23,7 +24,177 @@ type WindowFrameProps = {
   window: WindowState
 }
 
-export function WindowFrame({ window }: WindowFrameProps) {
+function renderAppBody(
+  window: WindowState,
+  AppComponent: ComponentType<{ windowId?: string }> | undefined,
+) {
+  if (isExtAppId(window.appId)) {
+    return <ExtApp appId={window.appId} windowId={window.id} />
+  }
+  if (isGeneratedAppId(window.appId)) {
+    return <GeneratedApp appId={window.appId} windowId={window.id} />
+  }
+  return AppComponent ? <AppComponent windowId={window.id} /> : undefined
+}
+
+/**
+ * 无窗口应用宿主：默认不可见；展开为 panel 时使用与普通窗口相同的系统标题栏，
+ * 且保持 App 挂载路径稳定，避免解压过程中组件卸载。
+ */
+function WindowlessAppHost({ window }: WindowFrameProps) {
+  const {
+    activeWindowId,
+    focusWindow,
+    moveWindow,
+    releaseAnchoredWindow,
+    applyWindowSnap,
+    closeWindow,
+    finalizeWindowClose,
+    minimizeWindow,
+    toggleFullscreen,
+  } = useOs()
+  const AppComponent = isGeneratedAppId(window.appId)
+    ? undefined
+    : APP_COMPONENTS[window.appId as BuiltinAppId]
+  const revealed = !!window.windowlessPanel && !window.minimized
+  const isActive = activeWindowId === window.id
+  const isClosing = window.closing
+  const [isEntering, setIsEntering] = useState(false)
+  const wasRevealedRef = useRef(false)
+
+  useLayoutEffect(() => {
+    const wasRevealed = wasRevealedRef.current
+    wasRevealedRef.current = revealed
+    if (revealed && !wasRevealed && window.enterAnimation === 'scale-in') {
+      setIsEntering(true)
+    }
+    if (!revealed) {
+      setIsEntering(false)
+    }
+  }, [revealed, window.enterAnimation])
+
+  const getDragBounds = useCallback(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
+    [window.x, window.y, window.width, window.height],
+  )
+
+  const { dragging, snapPreview, onTitlebarPointerDown } = useWindowDrag(
+    window.id,
+    false,
+    getDragBounds,
+    moveWindow,
+    focusWindow,
+    releaseAnchoredWindow,
+    applyWindowSnap,
+    undefined,
+    revealed && !isEntering,
+  )
+
+  useEffect(() => {
+    if (!window.closing) return
+    finalizeWindowClose(window.id)
+  }, [finalizeWindowClose, window.closing, window.id])
+
+  if (isClosing) {
+    return undefined
+  }
+
+  const closeDisabled = !!window.chromeCloseDisabled
+  const minimizeDisabled = !!window.chromeMinimizeDisabled
+  const zoomDisabled = !!window.chromeZoomDisabled
+  const isDialogChrome = window.chromeKind === 'dialog'
+
+  return (
+    <>
+      {dragging && <SnapPreview target={snapPreview} />}
+      <section
+        class={
+          revealed
+            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${isEntering ? ' window-frame--entering' : ''}`
+            : 'windowless-app-host'
+        }
+        style={{
+          zIndex: window.zIndex,
+          left: `${window.x}px`,
+          top: `${window.y}px`,
+          width: `${window.width}px`,
+          height: `${window.height}px`,
+        }}
+        onAnimationEnd={(event) => {
+          if (event.animationName === 'window-frame-open') {
+            setIsEntering(false)
+          }
+        }}
+        onPointerDownCapture={
+          revealed
+            ? (event) => {
+                if (event.button !== 0) return
+                focusWindow(window.id)
+              }
+            : undefined
+        }
+      >
+        <div class={revealed ? 'window-frame__chrome' : 'windowless-app-host__chrome'}>
+          {revealed ? (
+            <header class="window-frame__titlebar" onPointerDown={onTitlebarPointerDown}>
+              <div class="window-frame__controls">
+                <button
+                  type="button"
+                  class="window-frame__control window-frame__control--close"
+                  aria-label="关闭"
+                  disabled={closeDisabled}
+                  aria-disabled={closeDisabled || undefined}
+                  onClick={() => {
+                    if (closeDisabled) return
+                    closeWindow(window.id)
+                  }}
+                />
+                {isDialogChrome ? undefined : (
+                  <>
+                    <button
+                      type="button"
+                      class="window-frame__control window-frame__control--minimize"
+                      aria-label="最小化"
+                      disabled={minimizeDisabled}
+                      aria-disabled={minimizeDisabled || undefined}
+                      onClick={() => {
+                        if (minimizeDisabled) return
+                        minimizeWindow(window.id)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="window-frame__control window-frame__control--fullscreen"
+                      aria-label="全屏"
+                      disabled={zoomDisabled}
+                      aria-disabled={zoomDisabled || undefined}
+                      onClick={() => {
+                        if (zoomDisabled) return
+                        toggleFullscreen(window.id)
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+              <span class="window-frame__title">{window.title}</span>
+              <span class="window-frame__title-trailing" aria-live="polite" />
+            </header>
+          ) : undefined}
+          <div class={revealed ? 'window-frame__content' : 'windowless-app-host__content'}>
+            <WindowModalProvider>{renderAppBody(window, AppComponent)}</WindowModalProvider>
+          </div>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function ChromeWindowFrame({ window }: WindowFrameProps) {
   const {
     activeWindowId,
     desktopRevealed,
@@ -98,6 +269,9 @@ export function WindowFrame({ window }: WindowFrameProps) {
   const immersiveFullscreen = window.fullscreen && hasImmersiveFullscreen
   const showImmersiveChrome = immersiveFullscreen && chromeRevealed && isActive
   const showMinimizeVisual = isMinimizing || minimizeVisualSettled
+  const closeDisabled = !!window.chromeCloseDisabled
+  const minimizeDisabled = !!window.chromeMinimizeDisabled
+  const zoomDisabled = !!window.chromeZoomDisabled
 
   useLayoutEffect(() => {
     const wasMinimized = prevMinimizedRef.current
@@ -169,19 +343,34 @@ export function WindowFrame({ window }: WindowFrameProps) {
                 type="button"
                 class="window-frame__control window-frame__control--close"
                 aria-label="关闭"
-                onClick={() => closeWindow(window.id)}
+                disabled={closeDisabled}
+                aria-disabled={closeDisabled || undefined}
+                onClick={() => {
+                  if (closeDisabled) return
+                  closeWindow(window.id)
+                }}
               />
               <button
                 type="button"
                 class="window-frame__control window-frame__control--minimize"
                 aria-label="最小化"
-                onClick={() => minimizeWindow(window.id)}
+                disabled={minimizeDisabled}
+                aria-disabled={minimizeDisabled || undefined}
+                onClick={() => {
+                  if (minimizeDisabled) return
+                  minimizeWindow(window.id)
+                }}
               />
               <button
                 type="button"
                 class="window-frame__control window-frame__control--fullscreen"
                 aria-label={window.fullscreen ? '退出全屏' : '全屏'}
-                onClick={() => toggleFullscreen(window.id)}
+                disabled={zoomDisabled}
+                aria-disabled={zoomDisabled || undefined}
+                onClick={() => {
+                  if (zoomDisabled) return
+                  toggleFullscreen(window.id)
+                }}
               />
             </div>
             <span class="window-frame__title">
@@ -198,15 +387,7 @@ export function WindowFrame({ window }: WindowFrameProps) {
             {!isActive && !isDesktopRevealed && (
               <div class="window-frame__focus-catcher" aria-hidden="true" />
             )}
-            <WindowModalProvider>
-              {isExtAppId(window.appId) ? (
-                <ExtApp appId={window.appId} windowId={window.id} />
-              ) : isGeneratedAppId(window.appId) ? (
-                <GeneratedApp appId={window.appId} windowId={window.id} />
-              ) : (
-                AppComponent && <AppComponent windowId={window.id} />
-              )}
-            </WindowModalProvider>
+            <WindowModalProvider>{renderAppBody(window, AppComponent)}</WindowModalProvider>
           </div>
         </div>
         {canResize && (
@@ -232,6 +413,13 @@ export function WindowFrame({ window }: WindowFrameProps) {
       </section>
     </>
   )
+}
+
+export function WindowFrame({ window }: WindowFrameProps) {
+  if (window.windowless) {
+    return <WindowlessAppHost window={window} />
+  }
+  return <ChromeWindowFrame window={window} />
 }
 
 export function WindowManager() {

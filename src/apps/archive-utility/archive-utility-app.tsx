@@ -1,7 +1,7 @@
 import { gunzipSync } from 'fflate'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { createPortal } from 'preact/compat'
 import {
+  decodeGzipTar,
   extractGzipTarToDirectory,
   extractZipToDirectory,
 } from '../../archive/archive-extract.ts'
@@ -13,7 +13,6 @@ import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import { getFloatingOverlayRoot } from '../../ui/floating-overlay-root.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { filesReadBlob, filesStat } from '../files/files-api.ts'
 import { assertAdditionalBytesAvailable, FilesStorageFullError } from '../files/files-storage.ts'
@@ -23,12 +22,18 @@ import {
   resolveArchiveUtilityFormat,
   stripArchiveExtension,
 } from './archive-utility-format.ts'
+import {
+  allocateUniqueFileName,
+  remapEntriesAwayFromExisting,
+} from './archive-utility-conflict.ts'
 import './archive-utility.css'
 
 const APP_ID = 'archive-utility' as const
 const THEME = '#6b7280'
 const PROGRESS_ELAPSED_MS = 1000
 const PROGRESS_ETA_TOTAL_MS = 5000
+const PANEL_WIDTH = 420
+const PANEL_HEIGHT = 120
 
 registerFileOpenHandler({
   appId: APP_ID,
@@ -72,6 +77,24 @@ function shouldShowProgress(elapsedMs: number, progress: ProgressState | undefin
   return estimatedTotalMs > PROGRESS_ETA_TOTAL_MS
 }
 
+function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  const seconds = totalSec % 60
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} 字节`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
 /** ZIP 本地头 / 空归档中央目录 / 分卷等均以 PK 开头 */
 function looksLikeZip(bytes: Uint8Array): boolean {
   return bytes.byteLength >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b
@@ -95,8 +118,9 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     setWindowTitle,
     closeWindow,
     closeWindowsForApp,
-    minimizeWindow,
-    restoreWindow,
+    revealWindowlessPanel,
+    bypassWindowCloseGuard,
+    registerWindowCloseGuard,
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
@@ -109,9 +133,11 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
   const [progress, setProgress] = useState<ProgressState | undefined>(undefined)
   const [showProgressUi, setShowProgressUi] = useState(false)
+  const [clockMs, setClockMs] = useState(0)
 
   const abortRef = useRef<AbortController | undefined>(undefined)
   const userCancelRef = useRef(false)
+  const allowCloseRef = useRef(false)
   const runIdRef = useRef(0)
   const startedPathRef = useRef<string | undefined>(undefined)
   const progressShownRef = useRef(false)
@@ -121,13 +147,15 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
   const windowIdRef = useRef(windowId)
   const closeWindowRef = useRef(closeWindow)
-  const minimizeWindowRef = useRef(minimizeWindow)
-  const restoreWindowRef = useRef(restoreWindow)
+  const bypassCloseRef = useRef(bypassWindowCloseGuard)
+  const revealPanelRef = useRef(revealWindowlessPanel)
+  const setTitleRef = useRef(setWindowTitle)
   const modalRef = useRef(modal)
   windowIdRef.current = windowId
   closeWindowRef.current = closeWindow
-  minimizeWindowRef.current = minimizeWindow
-  restoreWindowRef.current = restoreWindow
+  bypassCloseRef.current = bypassWindowCloseGuard
+  revealPanelRef.current = revealWindowlessPanel
+  setTitleRef.current = setWindowTitle
   modalRef.current = modal
 
   useEffect(() => {
@@ -141,21 +169,38 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
 
   useEffect(() => {
     if (!windowId) return
-    setWindowTitle(windowId, '压缩包实用工具')
-  }, [setWindowTitle, windowId])
+    allowCloseRef.current = false
+    registerWindowCloseGuard(windowId, () => {
+      // 对话框关闭键：终止解压并放行关闭
+      userCancelRef.current = true
+      allowCloseRef.current = true
+      abortRef.current?.abort()
+      return true
+    })
+    return () => registerWindowCloseGuard(windowId, undefined)
+  }, [registerWindowCloseGuard, windowId])
 
   const finishClose = useCallback(() => {
     const id = windowIdRef.current
-    if (id) closeWindowRef.current(id)
+    if (!id) return
+    allowCloseRef.current = true
+    bypassCloseRef.current(id)
+    closeWindowRef.current(id)
   }, [])
 
   const showErrorAndClose = useCallback(
     async (message: string) => {
-      const id = windowIdRef.current
-      if (id) {
-        restoreWindowRef.current(id)
-      }
       setShowProgressUi(false)
+      const id = windowIdRef.current
+      // 错误对话框需要可见宿主：若进度窗尚未展开，先展开再 alert
+      if (id && !progressShownRef.current) {
+        revealPanelRef.current(id, {
+          title: '压缩包实用工具',
+          width: PANEL_WIDTH,
+          height: PANEL_HEIGHT,
+          chromeKind: 'dialog',
+        })
+      }
       await modalRef.current.alert({
         title: '无法解压',
         message,
@@ -167,9 +212,19 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     [finishClose],
   )
 
-  const cancelExtract = useCallback(() => {
-    userCancelRef.current = true
-    abortRef.current?.abort()
+  const revealProgressPanel = useCallback((archiveName: string) => {
+    const id = windowIdRef.current
+    if (!id || progressShownRef.current) return
+    progressShownRef.current = true
+    setShowProgressUi(true)
+    const title = `正在解压 ${archiveName}`
+    setTitleRef.current(id, title)
+    revealPanelRef.current(id, {
+      title,
+      width: PANEL_WIDTH,
+      height: PANEL_HEIGHT,
+      chromeKind: 'dialog',
+    })
   }, [])
 
   useEffect(() => {
@@ -184,6 +239,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     const runId = runIdRef.current + 1
     runIdRef.current = runId
     userCancelRef.current = false
+    allowCloseRef.current = false
     abortRef.current?.abort()
     const abort = new AbortController()
     abortRef.current = abort
@@ -192,18 +248,16 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     latestProgressRef.current = undefined
     setProgress(undefined)
     setShowProgressUi(false)
+    setClockMs(0)
 
-    const id = windowIdRef.current
-    if (id) {
-      minimizeWindowRef.current(id)
-    }
+    const archiveName = fileBaseName(documentId)
 
     const tickProgressUi = () => {
       if (!mountedRef.current || runIdRef.current !== runId) return
       const elapsed = performance.now() - startAtRef.current
+      setClockMs(elapsed)
       if (!progressShownRef.current && shouldShowProgress(elapsed, latestProgressRef.current)) {
-        progressShownRef.current = true
-        setShowProgressUi(true)
+        revealProgressPanel(archiveName)
       }
     }
 
@@ -271,7 +325,6 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           } catch {
             throw new Error('无法解析 ZIP（文件可能已损坏）')
           }
-          // 仅「极小的空归档」视为成功；有体积却解出 0 个文件 → 内容异常
           if (entries.size === 0) {
             if (bytes.byteLength > 64) {
               throw new Error(
@@ -279,6 +332,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
               )
             }
           } else {
+            entries = await remapEntriesAwayFromExisting(destRoot, entries)
             await extractZipToDirectory({
               destRoot,
               zip: bytes,
@@ -295,9 +349,12 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             )
           }
           try {
+            let entries = decodeGzipTar(bytes)
+            entries = await remapEntriesAwayFromExisting(destRoot, entries)
             await extractGzipTarToDirectory({
               destRoot,
               tarball: bytes,
+              entries,
               signal: abort.signal,
               onProgress,
             })
@@ -307,9 +364,12 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           }
         } else if (format === 'tar') {
           try {
+            let entries = decodeGzipTar(bytes)
+            entries = await remapEntriesAwayFromExisting(destRoot, entries)
             await extractGzipTarToDirectory({
               destRoot,
               tarball: bytes,
+              entries,
               signal: abort.signal,
               onProgress,
             })
@@ -329,7 +389,8 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           } catch {
             throw new Error('无法解压该 gzip 文件（文件可能已损坏）')
           }
-          const outName = stripArchiveExtension(fileBaseName(archivePath)) || 'archive'
+          const desiredName = stripArchiveExtension(fileBaseName(archivePath)) || 'archive'
+          const outName = await allocateUniqueFileName(destRoot, desiredName)
           await assertAdditionalBytesAvailable(inflated.byteLength + 64)
           await materializeArchiveEntries({
             destRoot,
@@ -360,7 +421,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
         window.clearInterval(progressTimer)
       }
     })()
-  }, [documentId, finishClose, showErrorAndClose])
+  }, [documentId, finishClose, revealProgressPanel, showErrorAndClose])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
@@ -375,6 +436,8 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
             shortcut: '⌘Q',
             onClick: () => {
               userCancelRef.current = true
+              allowCloseRef.current = true
+              if (windowId) bypassWindowCloseGuard(windowId)
               abortRef.current?.abort()
               closeWindowsForApp(APP_ID)
             },
@@ -382,7 +445,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
         ],
       },
     ]
-  }, [closeWindowsForApp, showBuiltinAbout])
+  }, [bypassWindowCloseGuard, closeWindowsForApp, showBuiltinAbout, windowId])
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)
 
@@ -391,51 +454,53 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       ? Math.min(100, Math.round((progress.done / progress.total) * 100))
       : undefined
 
-  const progressPortal = showProgressUi
-    ? createPortal(
-        <div class="archive-utility-progress-host">
-          <div
-            class="archive-utility-progress"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="archive-utility-progress-title"
-            style={{ '--archive-utility-theme': THEME } as Record<string, string>}
-          >
-            <h3 class="archive-utility-progress__title" id="archive-utility-progress-title">
-              正在解压
-            </h3>
-            <p class="archive-utility-progress__detail">
-              {progress && progress.total > 0
-                ? `${progress.done}/${progress.total}${percent !== undefined ? `（${percent}%）` : ''}`
-                : '准备中…'}
-            </p>
-            <div class="archive-utility-progress__track" aria-hidden="true">
-              <div
-                class="archive-utility-progress__fill"
-                style={{
-                  width: `${percent ?? 8}%`,
-                }}
-              />
-            </div>
-            <div class="archive-utility-progress__actions">
-              <button
-                type="button"
-                class="archive-utility-progress__btn"
-                onClick={cancelExtract}
-              >
-                停止
-              </button>
-            </div>
-          </div>
-        </div>,
-        getFloatingOverlayRoot(),
-      )
-    : undefined
+  const remainingMs = (() => {
+    if (!progress || progress.total <= 0 || progress.done <= 0 || clockMs <= 0) {
+      return undefined
+    }
+    const rate = progress.done / clockMs
+    if (rate <= 0) return undefined
+    return Math.max(0, (progress.total - progress.done) / rate)
+  })()
+
+  if (!showProgressUi) {
+    return <div class="archive-utility-app archive-utility-app--hidden" aria-hidden="true" />
+  }
+
+  const fillPercent = percent ?? 8
 
   return (
-    <>
-      <div class="archive-utility-app" aria-hidden="true" />
-      {progressPortal}
-    </>
+    <div class="archive-utility-app">
+      <div class="archive-utility-app__track" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+        <div
+          class="archive-utility-app__fill"
+          style={{ width: `${fillPercent}%` }}
+        >
+          <div class="archive-utility-app__stripe" aria-hidden="true" />
+        </div>
+      </div>
+      <dl class="archive-utility-app__meta">
+        <div>
+          <dt>已用时间</dt>
+          <dd>{formatDuration(clockMs)}</dd>
+        </div>
+        <div>
+          <dt>剩余时间</dt>
+          <dd>{remainingMs === undefined ? '计算中…' : formatDuration(remainingMs)}</dd>
+        </div>
+        <div>
+          <dt>进度</dt>
+          <dd>
+            {progress && progress.total > 0
+              ? `${progress.done}/${progress.total}${percent !== undefined ? `（${percent}%）` : ''}`
+              : '准备中…'}
+          </dd>
+        </div>
+        <div>
+          <dt>已写入</dt>
+          <dd>{formatBytes(progress?.bytesWritten ?? 0)}</dd>
+        </div>
+      </dl>
+    </div>
   )
 }

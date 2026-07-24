@@ -33,6 +33,11 @@ export type AppDefinition = {
   desktop?: boolean
   /** 允许同一应用同时打开多扇窗口（文档类应用） */
   multiWindow?: boolean
+  /**
+   * 无窗口应用：仍有内部 WindowState 以挂载逻辑 / 菜单，
+   * 默认不渲染可见窗框；耗时长时可展开为系统进度窗口。
+   */
+  windowless?: boolean
 }
 
 export type WindowRestoredBounds = {
@@ -62,6 +67,25 @@ export type WindowState = {
   fullscreen: boolean
   restoredBounds?: WindowRestoredBounds
   enterAnimation?: WindowEnterAnimation
+  /** 无窗口应用会话：默认不渲染可见窗框 */
+  windowless?: boolean
+  /**
+   * 无窗口应用临时展开为系统进度/面板窗口（统一标题栏、可拖动）。
+   * 切换时保持同一宿主树，避免应用组件卸载。
+   */
+  windowlessPanel?: boolean
+  /**
+   * 标题栏控件样式：
+   * - window：普通三键（关闭 / 最小化 / 缩放）
+   * - dialog：小型对话框，只提供关闭键
+   */
+  chromeKind?: 'window' | 'dialog'
+  /** 禁用红色关闭按钮 */
+  chromeCloseDisabled?: boolean
+  /** 禁用黄色最小化（仅 chromeKind=window） */
+  chromeMinimizeDisabled?: boolean
+  /** 禁用绿色全屏/缩放（仅 chromeKind=window） */
+  chromeZoomDisabled?: boolean
   closing?: boolean
   zIndex: number
   x: number

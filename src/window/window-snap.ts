@@ -70,9 +70,10 @@ export function fitFloatingWindowBounds(
   y: number,
   width: number,
   height: number,
+  options?: { minWidth?: number; minHeight?: number },
 ): WindowBounds {
   const work = getMaximizedBounds()
-  const size = clampFloatingSize(width, height)
+  const size = clampFloatingSize(width, height, options)
   let nextX = x
   let nextY = y
 

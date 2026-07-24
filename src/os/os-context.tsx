@@ -3,6 +3,10 @@ import { createContext } from 'preact'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { persistWindowSize, resolveWindowDimensions } from '../window/window-bounds-storage.ts'
 import { getFullscreenBounds, getMaximizedBounds } from '../window/window-metrics.ts'
+import {
+  MIN_DIALOG_WINDOW_HEIGHT,
+  MIN_DIALOG_WINDOW_WIDTH,
+} from '../window/window-resize.ts'
 import { DOCK_SETTINGS_CHANGED_EVENT } from '../dock/dock-settings-storage.ts'
 import { DOCK_VIEWPORT_FIT_CHANGED_EVENT } from '../dock/use-dock-viewport-fit.ts'
 import {
@@ -16,6 +20,7 @@ import {
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { isMultiWindowApp } from './app-multi-window.ts'
+import { isWindowlessApp } from './app-windowless.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
 import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
@@ -62,6 +67,22 @@ type OsContextValue = {
   setWindowDocumentId: (windowId: string, documentId: string | undefined) => void
   setWindowDocumentEdited: (windowId: string, edited: boolean) => void
   setWindowDocumentReadOnly: (windowId: string, readOnly: boolean) => void
+  /**
+   * 将无窗口会话展开为可拖动的系统面板窗口（统一标题栏）。
+   * 用于解压进度等；默认按小型对话框样式（只提供关闭键）。
+   */
+  revealWindowlessPanel: (
+    windowId: string,
+    options?: {
+      title?: string
+      width?: number
+      height?: number
+      chromeKind?: 'window' | 'dialog'
+      chromeCloseDisabled?: boolean
+      chromeMinimizeDisabled?: boolean
+      chromeZoomDisabled?: boolean
+    },
+  ) => void
   closeProcessIsolatedApps: () => void
 }
 
@@ -96,7 +117,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   'github-desktop': { title: 'GitHub Desktop', width: 980, height: 680 },
   help: { title: '帮助', width: 820, height: 640 },
   terminal: { title: '终端', width: 760, height: 520 },
-  'archive-utility': { title: '压缩包实用工具', width: 320, height: 120 },
+  'archive-utility': { title: '压缩包实用工具', width: 420, height: 120 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {
@@ -133,6 +154,10 @@ function pickTopVisibleWindowId(
     if (excludeIds?.has(window.id) || window.closing || window.minimized) {
       continue
     }
+    // 未展开的无窗口会话不算「可见窗」
+    if (window.windowless && !window.windowlessPanel) {
+      continue
+    }
     if (window.zIndex > topZ) {
       topZ = window.zIndex
       topId = window.id
@@ -148,6 +173,7 @@ function createWindow(
 ): WindowState {
   windowCounter += 1
   const nextZ = bumpZIndex()
+  const windowless = isWindowlessApp(appId)
   const defaults = isGeneratedAppId(appId) || isExtAppId(appId)
     ? { title: titleOverride ?? '微应用', ...GENERATED_APP_DEFAULTS }
     : { ...DEFAULT_WINDOWS[appId], title: titleOverride ?? DEFAULT_WINDOWS[appId]?.title ?? '应用' }
@@ -158,6 +184,33 @@ function createWindow(
   const offset = (windowCounter % 6) * 28
   const cascadeX = 80 + offset
   const cascadeY = 48 + offset
+
+  // 无窗口应用：不占可视窗框，也不走窄屏最大化；尺寸先按默认面板居中，
+  // 避免之后展开时 left/top 过渡从 (0,0) 飘到屏幕中央。
+  // 对话框高度不受普通窗口 MIN_WINDOW_HEIGHT(160) 约束。
+  if (windowless) {
+    const panelWidth = Math.max(MIN_DIALOG_WINDOW_WIDTH, defaults.width ?? width)
+    const panelHeight = Math.max(MIN_DIALOG_WINDOW_HEIGHT, defaults.height ?? height)
+    const work = getMaximizedBounds()
+    const x = Math.round(work.x + Math.max(0, (work.width - panelWidth) / 2))
+    const y = Math.round(work.y + Math.max(24, (work.height - panelHeight) / 3))
+    const bounds = fitFloatingWindowBounds(x, y, panelWidth, panelHeight, {
+      minWidth: MIN_DIALOG_WINDOW_WIDTH,
+      minHeight: MIN_DIALOG_WINDOW_HEIGHT,
+    })
+    return {
+      id: `${appId}-${windowCounter}`,
+      appId,
+      title: defaults.title,
+      documentId: options?.documentId,
+      minimized: false,
+      maximized: false,
+      fullscreen: false,
+      windowless: true,
+      zIndex: nextZ,
+      ...bounds,
+    }
+  }
 
   if (isNarrowWorkArea()) {
     const restoredBounds = fitFloatingWindowBounds(cascadeX, cascadeY, width, height)
@@ -287,7 +340,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         }
 
         const nextWindow = createWindow(appId, undefined, {
-          enterAnimation: 'scale-in',
+          enterAnimation: isWindowlessApp(appId) ? undefined : 'scale-in',
           documentId,
         })
         resolvedActiveId = nextWindow.id
@@ -406,6 +459,70 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       )
     })
   }, [])
+
+  const revealWindowlessPanel = useCallback(
+    (
+      windowId: string,
+      options?: {
+        title?: string
+        width?: number
+        height?: number
+        chromeKind?: 'window' | 'dialog'
+        chromeCloseDisabled?: boolean
+        chromeMinimizeDisabled?: boolean
+        chromeZoomDisabled?: boolean
+      },
+    ) => {
+      startDesktopRestore()
+      const nextZ = bumpZIndex()
+      setWindows((current) => {
+        const target = current.find((window) => window.id === windowId && !window.closing)
+        if (!target?.windowless) return current
+
+        const chromeKind = options?.chromeKind ?? 'dialog'
+        const width = Math.max(
+          MIN_DIALOG_WINDOW_WIDTH,
+          options?.width ?? target.width ?? 420,
+        )
+        const height = Math.max(
+          MIN_DIALOG_WINDOW_HEIGHT,
+          options?.height ?? target.height ?? 220,
+        )
+        const work = getMaximizedBounds()
+        const x = Math.round(work.x + Math.max(0, (work.width - width) / 2))
+        const y = Math.round(work.y + Math.max(24, (work.height - height) / 3))
+        const bounds = fitFloatingWindowBounds(x, y, width, height, {
+          minWidth: MIN_DIALOG_WINDOW_WIDTH,
+          minHeight: MIN_DIALOG_WINDOW_HEIGHT,
+        })
+
+        return current.map((window) =>
+          window.id === windowId
+            ? {
+                ...window,
+                ...bounds,
+                title: options?.title ?? window.title,
+                windowlessPanel: true,
+                enterAnimation: 'scale-in',
+                chromeKind,
+                chromeCloseDisabled: options?.chromeCloseDisabled ?? false,
+                chromeMinimizeDisabled:
+                  chromeKind === 'dialog' ? true : (options?.chromeMinimizeDisabled ?? false),
+                chromeZoomDisabled:
+                  chromeKind === 'dialog' ? true : (options?.chromeZoomDisabled ?? false),
+                minimized: false,
+                maximized: false,
+                fullscreen: false,
+                snap: undefined,
+                zIndex: nextZ,
+              }
+            : window,
+        )
+      })
+      setActiveWindowId(windowId)
+    },
+    [startDesktopRestore],
+  )
 
   const openGeneratedApp = useCallback((appId: GeneratedAppId, title: string) => {
     startDesktopRestore()
@@ -987,9 +1104,10 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       setWindowDocumentId,
       setWindowDocumentEdited,
       setWindowDocumentReadOnly,
+      revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])

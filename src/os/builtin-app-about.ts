@@ -218,7 +218,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: '解压缩',
     paragraphs: [
       '压缩包实用工具用于打开 .zip、.tar、.tar.gz / .tgz、.gz 等归档：内容解压到压缩包所在目录，行为类似 macOS「归档实用工具」。',
-      '不提供预览或编辑；仅在解压较慢时显示小型进度对话框。可在「文件」中设为默认打开程序。',
+      '无窗口应用：不提供预览或编辑。解压较快时不显示界面；耗时较长时展开为可拖动的系统进度窗口（统一标题栏），显示进度与时间信息。可在「文件」中设为默认打开程序。',
     ],
   },
   keychain: {

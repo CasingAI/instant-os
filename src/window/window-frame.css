@@ -4,6 +4,30 @@
   pointer-events: none;
 }
 
+/* 无窗口应用宿主：预先落在最终面板坐标，不可见；展开时位置不变，只播进入动画 */
+.windowless-app-host {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.windowless-app-host__chrome,
+.windowless-app-host__content {
+  display: contents;
+}
+
+.windowless-app-host .window-modal-overlay-root {
+  pointer-events: none;
+}
+
+.window-frame__control:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
 .window-frame {
   position: absolute;
   display: flex;
@@ -86,6 +110,8 @@
 .window-frame--entering {
   animation: window-frame-open 0.26s cubic-bezier(0.19, 1, 0.22, 1) both;
   transform-origin: 50% 50%;
+  /* 进入时禁止 left/top 过渡，避免从旧坐标「飘」到目标位置 */
+  transition: box-shadow 0.15s ease !important;
 }
 
 .window-frame--closing {
@@ -208,6 +234,10 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+}
+
+.window-frame--dialog .window-frame__titlebar {
+  grid-template-columns: 40px 1fr 40px;
 }
 
 .window-frame--dragging .window-frame__titlebar {
