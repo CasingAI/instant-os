@@ -1544,13 +1544,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           continue
         }
         if (item.kind === 'welcome') {
-          // 欢迎tab在关闭其他tab时保留
+          closeWelcomeTab()
           continue
         }
         await closeTab(item.tabId)
       }
     },
-    [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab],
+    [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab, closeWelcomeTab],
   )
 
   const handleCloseOtherTabs = useCallback(() => {

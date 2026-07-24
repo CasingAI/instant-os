@@ -440,7 +440,7 @@ function VscodeEditorGroupView({
         {
           type: 'action',
           label: '关闭',
-          disabled: loading || dialogBlocked,
+          disabled: loading || dialogBlocked || (item.kind === 'welcome' && group.items.length <= 1),
           onClick: () => {
             if (item.kind === 'file') onCloseFileTab(item.tabId)
             else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
@@ -660,6 +660,7 @@ function VscodeEditorGroupView({
               enter={!entry.exiting && !initialItemIdsRef.current!.has(entry.item.id)}
               exiting={entry.exiting}
               expanded={!entry.exiting && expandedTabId === entry.item.id}
+              closable={!(entry.item.kind === 'welcome' && group.items.length <= 1)}
               onActivate={() => {
                 if (entry.exiting) return
                 onActivateItem(group.id, entry.item.id)
@@ -925,6 +926,7 @@ type TabChipProps = {
   enter?: boolean
   exiting?: boolean
   expanded?: boolean
+  closable?: boolean
   onActivate: () => void
   onClose: () => void
   onExitComplete: () => void
@@ -943,6 +945,7 @@ function EditorTabChip({
   enter = false,
   exiting = false,
   expanded = false,
+  closable = true,
   onActivate,
   onClose,
   onExitComplete,
@@ -1044,18 +1047,20 @@ function EditorTabChip({
         setActiveEditorDrag(undefined)
       }}
     >
-      <button
-        type="button"
-        class="vscode__tab-close"
-        aria-label={`关闭 ${title}`}
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation()
-          onClose()
-        }}
-      >
-        ×
-      </button>
+      {closable ? (
+        <button
+          type="button"
+          class="vscode__tab-close"
+          aria-label={`关闭 ${title}`}
+          disabled={disabled}
+          onClick={(event) => {
+            event.stopPropagation()
+            onClose()
+          }}
+        >
+          ×
+        </button>
+      ) : undefined}
       <button type="button" class="vscode__tab-main" title={pathTitle} onClick={onActivate}>
         {dirty ? <span class="vscode__tab-dot" aria-hidden="true" /> : undefined}
         <span class="vscode__tab-title">{title}</span>
