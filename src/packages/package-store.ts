@@ -4,7 +4,6 @@ import {
   filesLstat,
   filesList,
   filesMkdir,
-  filesMove,
   filesReadText,
   filesRemove,
   filesStat,
@@ -14,7 +13,7 @@ import {
 import { runWithFilesVfsChangeBatch } from '../apps/files/files-vfs.ts'
 import {
   DEFAULT_PACKAGE_STORE_ROOT,
-  LEGACY_PACKAGE_STORE_ROOT,
+  PACKAGE_STORE_COMPLETE_MARKER,
 } from './package-store-paths.ts'
 import { ensureNpmStoreNamespace } from './package-store-vfs.ts'
 import { untarBytes } from './package-untar.ts'
@@ -37,6 +36,10 @@ export function storeTarballPath(
   version: string,
 ): string {
   return `${storePackageDir(config, name, version)}.tgz`
+}
+
+function storeCompleteMarkerPath(storePath: string): string {
+  return `${storePath}/${PACKAGE_STORE_COMPLETE_MARKER}`
 }
 
 async function ensureDir(path: string): Promise<void> {
@@ -62,17 +65,26 @@ async function ensureDir(path: string): Promise<void> {
   }
 }
 
+async function removeStoreDirBestEffort(path: string): Promise<void> {
+  try {
+    const existing = await filesLstat(path)
+    if (existing) await filesRemove(path)
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
 export async function isPackageInStore(
   config: PackageServiceConfig,
   name: string,
   version: string,
 ): Promise<boolean> {
   const dir = storePackageDir(config, name, version)
-  const pkg = await filesStat(`${dir}/package.json`)
-  return pkg?.kind === 'file'
+  const marker = await filesStat(storeCompleteMarkerPath(dir))
+  return marker?.kind === 'file'
 }
 
-/** 列出 CAS 中某包已解压的版本目录名（未校验 package.json） */
+/** 列出 CAS 中某包已完整提交的版本目录名（需有 .instant-ok） */
 export async function listStorePackageVersions(
   config: PackageServiceConfig,
   name: string,
@@ -82,7 +94,13 @@ export async function listStorePackageVersions(
   const st = await filesStat(dir)
   if (st?.kind !== 'folder') return []
   const entries = await filesList(dir)
-  return entries.filter((e) => e.kind === 'folder').map((e) => e.name)
+  const versions: string[] = []
+  for (const entry of entries) {
+    if (entry.kind !== 'folder') continue
+    const marker = await filesStat(storeCompleteMarkerPath(`${dir}/${entry.name}`))
+    if (marker?.kind === 'file') versions.push(entry.name)
+  }
+  return versions
 }
 
 export type ExtractTarballProgress = {
@@ -135,6 +153,7 @@ export function normalizeTarballRelPath(rel: string): string | undefined {
 
 /**
  * 将 npm tarball（gzip + tar）解压到 CAS 目录。
+ * 仅在全部写完并确认 package.json 后写入 `.instant-ok`；半成品不视为缓存命中。
  */
 export async function extractTarballToStore(params: {
   config: PackageServiceConfig
@@ -150,67 +169,82 @@ export async function extractTarballToStore(params: {
     return dest
   }
 
-  signal?.throwIfAborted?.()
-  if (signal?.aborted) {
-    throw new Error('aborted')
-  }
-  let tarBytes: Uint8Array
+  // 无完成标记的目录视为半成品，清掉再解
+  await removeStoreDirBestEffort(dest)
+
   try {
-    tarBytes = gunzipSync(tarball)
-  } catch {
-    tarBytes = tarball
-  }
-
-  const entries = untarBytes(tarBytes)
-  const rootDir = detectTarballRootDir(Object.keys(entries))
-  const writeMap = new Map<string, Uint8Array>()
-  for (const [rawPath, data] of Object.entries(entries)) {
-    const stripped = stripTarballRootPrefix(rawPath, rootDir)
-    const rel = normalizeTarballRelPath(stripped)
-    if (!rel) continue
-    // 同路径多条目（如 `./dist/...` 与 `dist/...`）后者覆盖前者
-    writeMap.set(rel, data)
-  }
-  const writeEntries = [...writeMap.entries()].map(([rel, data]) => ({ rel, data }))
-  const total = writeEntries.length
-  await ensureDir(dest)
-
-  let fileCount = 0
-  let bytesWritten = 0
-  // 解压期合并 VFS 通知：否则每写一个文件就重置 UI debounce，链接要等整次安装结束才看得见
-  await runWithFilesVfsChangeBatch(async () => {
-    for (const { rel, data } of writeEntries) {
-      signal?.throwIfAborted()
-      const outPath = `${dest}/${rel}`
-      const parent = outPath.slice(0, outPath.lastIndexOf('/'))
-      await ensureDir(parent)
-      const text = new TextDecoder('utf-8', { fatal: false }).decode(data)
-      // 含 \0 的当二进制：用 latin1 往返不完美；简化为 utf-8 文本写入
-      // 对 .node 等：仍写入以便安装器检测拒绝
-      try {
-        await filesCreateText(outPath, text)
-      } catch {
-        await filesWriteText(outPath, text)
-      }
-      fileCount += 1
-      bytesWritten += data.byteLength
-      onProgress?.({
-        done: fileCount,
-        total,
-        bytesWritten,
-        currentPath: rel,
-      })
-      if (fileCount > config.maxProjectFiles) {
-        throw new Error('解压文件数超过配额')
-      }
+    signal?.throwIfAborted?.()
+    if (signal?.aborted) {
+      throw new Error('aborted')
     }
-  })
+    let tarBytes: Uint8Array
+    try {
+      tarBytes = gunzipSync(tarball)
+    } catch {
+      tarBytes = tarball
+    }
 
-  const marker = await filesStat(`${dest}/package.json`)
-  if (!marker) {
-    throw new Error(`tarball 解压后缺少 package.json: ${name}@${version}`)
+    const entries = untarBytes(tarBytes)
+    const rootDir = detectTarballRootDir(Object.keys(entries))
+    const writeMap = new Map<string, Uint8Array>()
+    for (const [rawPath, data] of Object.entries(entries)) {
+      const stripped = stripTarballRootPrefix(rawPath, rootDir)
+      const rel = normalizeTarballRelPath(stripped)
+      if (!rel) continue
+      // 同路径多条目（如 `./dist/...` 与 `dist/...`）后者覆盖前者
+      writeMap.set(rel, data)
+    }
+    const writeEntries = [...writeMap.entries()].map(([rel, data]) => ({ rel, data }))
+    const total = writeEntries.length
+    await ensureDir(dest)
+
+    let fileCount = 0
+    let bytesWritten = 0
+    // 解压期合并 VFS 通知：否则每写一个文件就重置 UI debounce，链接要等整次安装结束才看得见
+    await runWithFilesVfsChangeBatch(async () => {
+      for (const { rel, data } of writeEntries) {
+        signal?.throwIfAborted()
+        const outPath = `${dest}/${rel}`
+        const parent = outPath.slice(0, outPath.lastIndexOf('/'))
+        await ensureDir(parent)
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(data)
+        // 含 \0 的当二进制：用 latin1 往返不完美；简化为 utf-8 文本写入
+        // 对 .node 等：仍写入以便安装器检测拒绝
+        try {
+          await filesCreateText(outPath, text)
+        } catch {
+          await filesWriteText(outPath, text)
+        }
+        fileCount += 1
+        bytesWritten += data.byteLength
+        onProgress?.({
+          done: fileCount,
+          total,
+          bytesWritten,
+          currentPath: rel,
+        })
+        if (fileCount > config.maxProjectFiles) {
+          throw new Error('解压文件数超过配额')
+        }
+      }
+    })
+
+    const pkgJson = await filesStat(`${dest}/package.json`)
+    if (!pkgJson) {
+      throw new Error(`tarball 解压后缺少 package.json: ${name}@${version}`)
+    }
+
+    // 全部成功后再写完成标记；此前中断不会被 isPackageInStore 命中
+    try {
+      await filesCreateText(storeCompleteMarkerPath(dest), '')
+    } catch {
+      await filesWriteText(storeCompleteMarkerPath(dest), '')
+    }
+    return dest
+  } catch (error) {
+    await removeStoreDirBestEffort(dest)
+    throw error
   }
-  return dest
 }
 
 export async function linkPackageIntoProject(params: {
@@ -266,35 +300,9 @@ export async function estimateStoreBytes(config: PackageServiceConfig): Promise<
   return st.byteSize
 }
 
-/**
- * 将旧 `/user/.instant-pkg-store` 迁入 `/dev/npm`，并在旧路径放兼容 symlink。
- * 仅在默认 storeRoot 下执行；已是 symlink 或无可迁内容时跳过。
- */
-async function migrateLegacyPackageStoreIfNeeded(): Promise<void> {
-  const legacy = await filesLstat(LEGACY_PACKAGE_STORE_ROOT)
-  if (!legacy) return
-  if (legacy.kind === 'symlink') return
-  if (legacy.kind !== 'folder') return
-
-  const children = await filesList(LEGACY_PACKAGE_STORE_ROOT)
-  for (const child of children) {
-    const destPath = `${DEFAULT_PACKAGE_STORE_ROOT}/${child.name}`
-    const destExisting = await filesLstat(destPath)
-    if (destExisting) continue
-    await filesMove(`${LEGACY_PACKAGE_STORE_ROOT}/${child.name}`, DEFAULT_PACKAGE_STORE_ROOT)
-  }
-
-  const remaining = await filesList(LEGACY_PACKAGE_STORE_ROOT)
-  if (remaining.length > 0) return
-
-  await filesRemove(LEGACY_PACKAGE_STORE_ROOT)
-  await filesSymlink(DEFAULT_PACKAGE_STORE_ROOT, LEGACY_PACKAGE_STORE_ROOT)
-}
-
 export async function ensureStoreRoot(config: PackageServiceConfig): Promise<void> {
   if (config.storeRoot === DEFAULT_PACKAGE_STORE_ROOT) {
     await ensureNpmStoreNamespace()
-    await migrateLegacyPackageStoreIfNeeded()
     return
   }
   await ensureDir(config.storeRoot)

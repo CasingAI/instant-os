@@ -11,5 +11,5 @@ export const DEFAULT_PACKAGE_STORE_ROOT = joinFilesAbsolutePath(
   PACKAGE_STORE_NAMESPACE,
 )
 
-/** 旧版落在用户卷下的 store；迁移后可变为指向新根的兼容 symlink */
-export const LEGACY_PACKAGE_STORE_ROOT = '/user/.instant-pkg-store'
+/** 版本目录内表示解压已完整提交的标记文件名 */
+export const PACKAGE_STORE_COMPLETE_MARKER = '.instant-ok'
