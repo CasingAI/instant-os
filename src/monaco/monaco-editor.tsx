@@ -194,7 +194,6 @@ export function MonacoEditor({
       // 依赖包等文件常含 LS/PS，默认 prompt 会打扰；用户暂无此设置项
       unusualLineTerminators: 'off',
       readOnly,
-      'editor.inlineSuggest.enabled': true,
       // Cmd/Ctrl+点击转到定义
       links: true,
       gotoLocation: {

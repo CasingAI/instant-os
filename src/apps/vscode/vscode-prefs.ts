@@ -34,7 +34,6 @@ export type VscodePrefs = {
   workspaceFolder: string | undefined
   search: VscodeSearchPrefs
   aiMode: VscodeAiMode
-  inlineCompletionEnabled: boolean
   /** providerEntryId:modelId；未设置时用钥匙串文本首选 */
   aiModelKey: string | undefined
 }
@@ -70,7 +69,6 @@ const DEFAULT_PREFS: VscodePrefs = {
   workspaceFolder: undefined,
   search: { ...DEFAULT_SEARCH_PREFS },
   aiMode: 'ask',
-  inlineCompletionEnabled: true,
   aiModelKey: undefined,
 }
 
@@ -149,7 +147,6 @@ export function loadVscodePrefs(): VscodePrefs {
       workspaceFolder: normalizeWorkspaceFolder(parsed.workspaceFolder),
       search: normalizeSearchPrefs(parsed.search),
       aiMode: normalizeVscodeAiMode(parsed.aiMode),
-      inlineCompletionEnabled: parsed.inlineCompletionEnabled !== false,
       aiModelKey:
         typeof parsed.aiModelKey === 'string' && parsed.aiModelKey.trim()
           ? parsed.aiModelKey.trim()

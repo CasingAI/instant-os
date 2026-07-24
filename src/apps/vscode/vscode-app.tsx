@@ -107,13 +107,7 @@ import {
 import { VscodeAiPanel } from './vscode-ai-panel.tsx'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
-import {
-  ensureVscodeInlineCompletionProvider,
-  setVscodeInlineCompletionOptions,
-  disposeVscodeInlineCompletionProvider,
-} from './vscode-ai-inline-completion.ts'
 import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
-import { monaco } from '../../monaco/monaco-setup.ts'
 import './vscode.css'
 
 const SESSION_PERSIST_DEBOUNCE_MS = 400
@@ -766,41 +760,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     },
     [openDocument],
   )
-
-  useEffect(() => {
-    ensureVscodeInlineCompletionProvider()
-    return () => {
-      disposeVscodeInlineCompletionProvider()
-    }
-  }, [])
-
-  useEffect(() => {
-    setVscodeInlineCompletionOptions({
-      enabled: prefs.inlineCompletionEnabled && isActiveWindow,
-      getModelKey: () => prefs.aiModelKey,
-      getActiveEditor: () => {
-        const activeId = activeTabIdRef.current
-        const tab = tabsRef.current.find((item) => item.id === activeId)
-        if (!tab || tab.binaryPrompt) return undefined
-        const editors = monaco.editor.getEditors()
-        const editor = editors.find((item) => item.getModel()?.uri.path === tab.path)
-        if (!editor) return undefined
-        const model = editor.getModel()
-        const position = editor.getPosition()
-        if (!model || !position) return undefined
-        const offset = model.getOffsetAt(position)
-        const full = model.getValue()
-        return {
-          path: tab.path,
-          readOnly: !tab.writable,
-          getPrefixSuffix: () => ({
-            prefix: full.slice(0, offset),
-            suffix: full.slice(offset),
-          }),
-        }
-      },
-    })
-  }, [isActiveWindow, prefs.inlineCompletionEnabled, prefs.aiModelKey])
 
   const confirmGotoLine = useCallback(() => {
     if (!activeTab) {
@@ -2130,14 +2089,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     checked={prefs.wordWrap}
                     onChange={(checked) => updatePrefs({ wordWrap: checked })}
                     label="自动换行"
-                  />
-                </div>
-                <div class="vscode__setting vscode__setting--row">
-                  <span>AI 行内补全</span>
-                  <IosSwitch
-                    checked={prefs.inlineCompletionEnabled}
-                    onChange={(checked) => updatePrefs({ inlineCompletionEnabled: checked })}
-                    label="AI 行内补全"
                   />
                 </div>
               </div>
