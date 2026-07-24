@@ -44,6 +44,28 @@
     0 0 0 2px rgba(74, 144, 226, 0.25);
 }
 
+/* ── Dark variant（由调用方按需启用，不依赖外层暗色作用域）── */
+
+.settings-choice-field__trigger--dark {
+  border-color: #5a5a62;
+  background-color: #1e1e24;
+  color: #e8e8ea;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.settings-choice-field__trigger--dark:hover {
+  border-color: #6a6a72;
+}
+
+.settings-choice-field__trigger--dark.settings-choice-field__trigger--open,
+.settings-choice-field__trigger--dark:focus-visible {
+  outline: none;
+  border-color: #4ea0ef;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.4),
+    0 0 0 2px rgba(78, 160, 239, 0.3);
+}
+
 .settings-choice-field__trigger-label {
   min-width: 0;
   overflow: hidden;

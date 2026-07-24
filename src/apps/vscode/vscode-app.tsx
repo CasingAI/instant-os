@@ -66,8 +66,10 @@ import {
   openAiChatInFocusedGroup,
   openMarkdownPreviewToSide,
   openSearchEditorInFocusedGroup,
+  openWelcomeInFocusedGroup,
   removeEditorItem,
   removeFileTabFromLayout,
+  removeWelcomeFromLayout,
   setBranchRatio,
   splitEditorWithItem,
   type VscodeEditorLayoutState,
@@ -313,8 +315,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const terminalWorkspaceRoot = prefs.workspaceFolder?.trim() || '/user'
   const terminalReplWelcome = useMemo(
     () => [
-      '终端 · QuickJS Node 兼容 REPL',
-      `工作区 ${terminalWorkspaceRoot} · 回车执行 JavaScript`,
+    '终端 · InstantREPL',
+      // `工作区 ${terminalWorkspaceRoot} · 回车执行 JavaScript`,
     ],
     [terminalWorkspaceRoot],
   )
@@ -350,6 +352,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   editorLayoutRef.current = editorLayout
   sessionReadyRef.current = sessionReady
 
+  // 管理欢迎tab：当没有任何tab时自动添加欢迎tab
+  useEffect(() => {
+    // 只在完全没有item时添加欢迎tab
+    if (!layoutHasItems(editorLayout)) {
+      setEditorLayout(openWelcomeInFocusedGroup(editorLayout))
+    }
+  }, [editorLayout])
+
   const focusedGroup = editorLayout.groups[editorLayout.focusedGroupId]
   const focusedItem =
     focusedGroup?.items.find((item) => item.id === focusedGroup.activeItemId) ??
@@ -372,7 +382,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const writable = activeTab?.writable ?? false
   const showMarkdownPreviewAction =
     focusedItem?.kind === 'file' && activeTab?.language === 'markdown'
-  const hasEditorItems = layoutHasItems(editorLayout)
   const hasOtherTabsInFocusedGroup =
     focusedItem !== undefined &&
     countOtherItemsInGroup(editorLayout, editorLayout.focusedGroupId, focusedItem.id) > 0
@@ -1302,6 +1311,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     })
   }, [])
 
+  const closeWelcomeTab = useCallback(() => {
+    setEditorLayout((layout) => {
+      const next = removeWelcomeFromLayout(layout)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [])
+
   const closeTab = useCallback(
     async (tabId: string) => {
       const proceed = await ensureTabCleanOrConfirm(tabId)
@@ -1489,8 +1506,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       closeAiChatItem(target.itemId)
       return
     }
+    if (target.kind === 'welcome') {
+      closeWelcomeTab()
+      return
+    }
     void closeTab(target.tabId)
-  }, [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab])
+  }, [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab, closeWelcomeTab])
 
   const closeOtherInGroup = useCallback(
     async (groupId: string, keepItemId: string) => {
@@ -1520,6 +1541,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         }
         if (item.kind === 'aiChat') {
           closeAiChatItem(item.id)
+          continue
+        }
+        if (item.kind === 'welcome') {
+          // 欢迎tab在关闭其他tab时保留
           continue
         }
         await closeTab(item.tabId)
@@ -2284,6 +2309,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   presentation="form"
                   fieldClass="vscode__setting"
                   labelClass=""
+                  dark={isVscodeChromeDark(prefs.theme)}
                 />
                 <label class="vscode__setting">
                   <span>字号</span>
@@ -2331,106 +2357,80 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
         <div class="vscode__main" ref={mainPaneRef}>
           <div class="vscode__editor-pane">
-            {hasEditorItems ? (
-              <VscodeEditorArea
-                layout={editorLayout}
-                tabs={tabs}
-                loading={loading}
-                dialogBlocked={openDialogOpen || !!dirtyPrompt}
-                isActiveWindow={isActiveWindow}
-                prefs={{
-                  theme: prefs.theme,
-                  fontSize: prefs.fontSize,
-                  minimap: prefs.minimap,
-                  wordWrap: prefs.wordWrap,
-                }}
-                revealPosition={revealPosition}
-                onRevealPositionApplied={() => setRevealPosition(undefined)}
-                onFocusGroup={(groupId) =>
-                  setEditorLayout((current) => focusEditorGroup(current, groupId))
-                }
-                onActivateItem={(groupId, itemId) =>
-                  setEditorLayout((current) => focusEditorItem(current, groupId, itemId))
-                }
-                onCloseFileTab={(tabId) => void closeTab(tabId)}
-                onClosePreview={closePreviewItem}
-                onCloseOtherInGroup={(groupId, keepItemId) =>
-                  void closeOtherInGroup(groupId, keepItemId)
-                }
-                onRevealInExplorer={revealInExplorer}
-                onOpenInFiles={openInFiles}
-                workspaceFolder={prefs.workspaceFolder}
-                onMoveItemToGroup={(itemId, targetGroupId, targetIndex) =>
-                  setEditorLayout((current) =>
-                    moveEditorItemToGroup(current, itemId, targetGroupId, targetIndex),
-                  )
-                }
-                onSplitItemToEdge={(itemId, targetGroupId, edge) =>
-                  setEditorLayout((current) =>
-                    splitEditorWithItem(current, itemId, targetGroupId, edge),
-                  )
-                }
-                onOpenMarkdownPreview={openMarkdownPreviewBeside}
-                onTabTextChange={updateTabText}
-                onCursorChange={applyCursor}
-                onSelectionChange={applySelection}
-                onOpenPath={handleEditorOpenPath}
-                onResolveConflict={resolveTabConflict}
-                onConfirmBinaryPrompt={confirmBinaryPrompt}
-                onSetBranchRatio={(branchId, ratio) =>
-                  setEditorLayout((current) => setBranchRatio(current, branchId, ratio))
-                }
-                searchEditorSessions={searchEditorSessions}
-                onCloseSearchEditor={closeSearchEditorItem}
-                onSearchEditorOpenHit={openSearchHit}
-                onSearchEditorContextLinesChange={(sessionId, lines) =>
-                  void refreshSearchEditorContext(sessionId, lines)
-                }
-                aiChatSessions={aiChatSessions}
-                closedAiChats={closedAiChats}
-                onNewAiChat={openNewAiChat}
-                onRestoreAiChat={restoreClosedAiChat}
-                onCloseAiChat={closeAiChatItem}
-                onAiChatMessagesChange={updateAiChatMessages}
-                aiMode={prefs.aiMode}
-                onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
-                aiModelKey={prefs.aiModelKey}
-                onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
-                getAiContext={getVscodeAiContext}
-                getOpenFilesForSearch={() => openSearchFiles}
-                problems={problems}
-                terminalRepl={terminalRepl ?? undefined}
-                onApplyAiEdit={applyVscodeAiEdit}
-                onRejectAiEdit={() => undefined}
-              />
-            ) : (
-              <div class="vscode__editor">
-                <div class="vscode__welcome">
-                  <h1>Virtual Studio Code Desktop</h1>
-                  <p>
-                    {prefs.workspaceFolder
-                      ? '从左侧文件夹列表打开文件，或使用菜单「文件 → 打开…」。'
-                      : '打开一个文件夹作为工作区，或直接打开单个文件。'}
-                  </p>
-                  <div class="vscode__welcome-actions">
-                    <button
-                      type="button"
-                      class="vscode__welcome-btn"
-                      onClick={() => void pickAndOpenFolder()}
-                    >
-                      打开文件夹
-                    </button>
-                    <button
-                      type="button"
-                      class="vscode__welcome-btn vscode__welcome-btn--secondary"
-                      onClick={() => void pickAndOpen()}
-                    >
-                      打开文件
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+            <VscodeEditorArea
+              layout={editorLayout}
+              tabs={tabs}
+              loading={loading}
+              dialogBlocked={openDialogOpen || !!dirtyPrompt}
+              isActiveWindow={isActiveWindow}
+              prefs={{
+                theme: prefs.theme,
+                fontSize: prefs.fontSize,
+                minimap: prefs.minimap,
+                wordWrap: prefs.wordWrap,
+              }}
+              revealPosition={revealPosition}
+              onRevealPositionApplied={() => setRevealPosition(undefined)}
+              onFocusGroup={(groupId) =>
+                setEditorLayout((current) => focusEditorGroup(current, groupId))
+              }
+              onActivateItem={(groupId, itemId) =>
+                setEditorLayout((current) => focusEditorItem(current, groupId, itemId))
+              }
+              onCloseFileTab={(tabId) => void closeTab(tabId)}
+              onClosePreview={closePreviewItem}
+              onCloseOtherInGroup={(groupId, keepItemId) =>
+                void closeOtherInGroup(groupId, keepItemId)
+              }
+              onRevealInExplorer={revealInExplorer}
+              onOpenInFiles={openInFiles}
+              workspaceFolder={prefs.workspaceFolder}
+              onMoveItemToGroup={(itemId, targetGroupId, targetIndex) =>
+                setEditorLayout((current) =>
+                  moveEditorItemToGroup(current, itemId, targetGroupId, targetIndex),
+                )
+              }
+              onSplitItemToEdge={(itemId, targetGroupId, edge) =>
+                setEditorLayout((current) =>
+                  splitEditorWithItem(current, itemId, targetGroupId, edge),
+                )
+              }
+              onOpenMarkdownPreview={openMarkdownPreviewBeside}
+              onTabTextChange={updateTabText}
+              onCursorChange={applyCursor}
+              onSelectionChange={applySelection}
+              onOpenPath={handleEditorOpenPath}
+              onResolveConflict={resolveTabConflict}
+              onConfirmBinaryPrompt={confirmBinaryPrompt}
+              onSetBranchRatio={(branchId, ratio) =>
+                setEditorLayout((current) => setBranchRatio(current, branchId, ratio))
+              }
+              searchEditorSessions={searchEditorSessions}
+              onCloseSearchEditor={closeSearchEditorItem}
+              onSearchEditorOpenHit={openSearchHit}
+              onSearchEditorContextLinesChange={(sessionId, lines) =>
+                void refreshSearchEditorContext(sessionId, lines)
+              }
+              aiChatSessions={aiChatSessions}
+              closedAiChats={closedAiChats}
+              onNewAiChat={openNewAiChat}
+              onRestoreAiChat={restoreClosedAiChat}
+              onCloseAiChat={closeAiChatItem}
+              onAiChatMessagesChange={updateAiChatMessages}
+              aiMode={prefs.aiMode}
+              onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
+              aiModelKey={prefs.aiModelKey}
+              onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
+              getAiContext={getVscodeAiContext}
+              getOpenFilesForSearch={() => openSearchFiles}
+              problems={problems}
+              terminalRepl={terminalRepl ?? undefined}
+              onApplyAiEdit={applyVscodeAiEdit}
+              onRejectAiEdit={() => undefined}
+              pickAndOpenFolder={pickAndOpenFolder}
+              pickAndOpen={pickAndOpen}
+              onCloseWelcome={closeWelcomeTab}
+            />
           </div>
 
           {prefs.terminalVisible ? (

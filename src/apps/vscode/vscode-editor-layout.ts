@@ -9,6 +9,7 @@ export type VscodeGroupItem =
   | { kind: 'preview'; id: string; sourcePath: string }
   | { kind: 'searchEditor'; id: string; sessionId: string }
   | { kind: 'aiChat'; id: string; sessionId: string }
+  | { kind: 'welcome'; id: string }
 
 export type VscodeEditorGroupState = {
   id: string
@@ -175,6 +176,7 @@ export function getFocusedCloseTarget(
   | { kind: 'preview'; itemId: string }
   | { kind: 'searchEditor'; itemId: string }
   | { kind: 'aiChat'; itemId: string }
+  | { kind: 'welcome'; itemId: string }
   | undefined {
   const group = layout.groups[layout.focusedGroupId]
   const item = getGroupActiveItem(group)
@@ -182,6 +184,7 @@ export function getFocusedCloseTarget(
   if (item.kind === 'file') return { kind: 'file', tabId: item.tabId }
   if (item.kind === 'searchEditor') return { kind: 'searchEditor', itemId: item.id }
   if (item.kind === 'aiChat') return { kind: 'aiChat', itemId: item.id }
+  if (item.kind === 'welcome') return { kind: 'welcome', itemId: item.id }
   return { kind: 'preview', itemId: item.id }
 }
 
@@ -713,4 +716,63 @@ export function setBranchRatio(
 
 export function layoutHasItems(layout: VscodeEditorLayoutState): boolean {
   return Object.values(layout.groups).some((group) => group.items.length > 0)
+}
+
+export function openWelcomeInFocusedGroup(
+  layout: VscodeEditorLayoutState,
+): VscodeEditorLayoutState {
+  // 检查是否已经存在欢迎tab
+  for (const group of Object.values(layout.groups)) {
+    const existing = group.items.find((item) => item.kind === 'welcome')
+    if (existing) {
+      return focusEditorItem(layout, group.id, existing.id)
+    }
+  }
+
+  let focusedGroupId = layout.focusedGroupId
+  let group = layout.groups[focusedGroupId]
+  if (!group) {
+    const fresh = createEmptyEditorLayout()
+    focusedGroupId = fresh.focusedGroupId
+    group = fresh.groups[focusedGroupId]!
+    layout = fresh
+  }
+
+  const itemId = 'welcome-tab'
+  const item: VscodeGroupItem = { kind: 'welcome', id: itemId }
+  return {
+    ...layout,
+    focusedGroupId,
+    groups: {
+      ...layout.groups,
+      [focusedGroupId]: {
+        ...group,
+        items: [...group.items, item],
+        activeItemId: itemId,
+      },
+    },
+  }
+}
+
+export function removeWelcomeFromLayout(
+  layout: VscodeEditorLayoutState,
+): VscodeEditorLayoutState {
+  let changed = false
+  const nextGroups = { ...layout.groups }
+  for (const group of Object.values(nextGroups)) {
+    const welcomeIndex = group.items.findIndex((item) => item.kind === 'welcome')
+    if (welcomeIndex !== -1) {
+      changed = true
+      const nextItems = [...group.items]
+      nextItems.splice(welcomeIndex, 1)
+      nextGroups[group.id] = {
+        ...group,
+        items: nextItems,
+        activeItemId: group.activeItemId === 'welcome-tab'
+          ? nextItems[nextItems.length - 1]?.id
+          : group.activeItemId,
+      }
+    }
+  }
+  return changed ? { ...layout, groups: nextGroups } : layout
 }

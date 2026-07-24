@@ -69,15 +69,17 @@ function computeTabSnapshot(
         ? aiSession?.title || '新对话'
         : item.kind === 'preview'
           ? `Preview ${previewSource?.name ?? 'Markdown'}`
-          : fileTab
-            ? fileTab.deleted
-              ? `${fileTab.name}（已删除）`
-              : fileTab.conflict
-                ? `${fileTab.name}（冲突）`
-                : fileTab.binaryPrompt
-                  ? `${fileTab.name}（二进制）`
-                  : fileTab.name
-            : '未知文件'
+          : item.kind === 'welcome'
+            ? '欢迎'
+            : fileTab
+              ? fileTab.deleted
+                ? `${fileTab.name}（已删除）`
+                : fileTab.conflict
+                  ? `${fileTab.name}（冲突）`
+                  : fileTab.binaryPrompt
+                    ? `${fileTab.name}（二进制）`
+                    : fileTab.name
+              : '未知文件'
 
   return {
     title,
@@ -88,7 +90,9 @@ function computeTabSnapshot(
           ? 'AI Chat'
           : item.kind === 'preview'
             ? previewSource?.path ?? item.sourcePath
-            : fileTab?.path ?? '',
+            : item.kind === 'welcome'
+              ? 'Welcome'
+              : fileTab?.path ?? '',
     dirty: fileTab ? isVscodeTabDirty(fileTab) : false,
     deleted: Boolean(fileTab?.deleted),
     conflict: Boolean(fileTab?.conflict),
@@ -186,6 +190,9 @@ type VscodeEditorAreaProps = {
   getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
   problems?: readonly MonacoProblem[]
   terminalRepl?: TerminalReplHandle
+  pickAndOpenFolder?: () => Promise<boolean>
+  pickAndOpen?: () => Promise<boolean>
+  onCloseWelcome?: () => void
   onApplyAiEdit?: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectAiEdit?: (editId: string) => void
 }
@@ -201,7 +208,7 @@ function pathForGroupItem(
   tabs: readonly VscodeTab[],
 ): string | undefined {
   if (item.kind === 'preview') return item.sourcePath
-  if (item.kind === 'searchEditor' || item.kind === 'aiChat') return undefined
+  if (item.kind === 'searchEditor' || item.kind === 'aiChat' || item.kind === 'welcome') return undefined
   return tabs.find((tab) => tab.id === item.tabId)?.path
 }
 
@@ -302,6 +309,9 @@ function VscodeEditorGroupView({
   terminalRepl,
   onApplyAiEdit,
   onRejectAiEdit,
+  pickAndOpenFolder,
+  pickAndOpen,
+  onCloseWelcome,
 }: GroupViewProps) {
   const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
@@ -435,6 +445,7 @@ function VscodeEditorGroupView({
             if (item.kind === 'file') onCloseFileTab(item.tabId)
             else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
             else if (item.kind === 'aiChat') onCloseAiChat?.(item.id)
+            else if (item.kind === 'welcome') onCloseWelcome?.()
             else onClosePreview(item.id)
           },
         },
@@ -658,6 +669,7 @@ function VscodeEditorGroupView({
                 if (entry.item.kind === 'file') onCloseFileTab(entry.item.tabId)
                 else if (entry.item.kind === 'searchEditor') onCloseSearchEditor?.(entry.item.id)
                 else if (entry.item.kind === 'aiChat') onCloseAiChat?.(entry.item.id)
+                else if (entry.item.kind === 'welcome') onCloseWelcome?.()
                 else onClosePreview(entry.item.id)
               }}
               onExitComplete={() => finishTabExit(entry.item.id)}
@@ -799,6 +811,31 @@ function VscodeEditorGroupView({
               />
             )
           })()
+        ) : activeItem?.kind === 'welcome' ? (
+          <div class="vscode__welcome">
+            <h1>Virtual Studio Code Desktop</h1>
+            <p>
+              {workspaceFolder
+                ? '从左侧文件夹列表打开文件，或使用菜单「文件 → 打开…」。'
+                : '打开一个文件夹作为工作区，或直接打开单个文件。'}
+            </p>
+            <div class="vscode__welcome-actions">
+              <button
+                type="button"
+                class="vscode__welcome-btn"
+                onClick={() => void pickAndOpenFolder?.()}
+              >
+                打开文件夹
+              </button>
+              <button
+                type="button"
+                class="vscode__welcome-btn vscode__welcome-btn--secondary"
+                onClick={() => void pickAndOpen?.()}
+              >
+                打开文件
+              </button>
+            </div>
+          </div>
         ) : activeFileTab ? (
           activeFileTab.binaryPrompt ? (
             <div class="vscode__binary-prompt" role="status">
@@ -988,7 +1025,7 @@ function EditorTabChip({
       role="tab"
       aria-selected={active}
       aria-hidden={exiting ? true : undefined}
-      draggable={!exiting}
+      draggable={!exiting && item.kind !== 'welcome'}
       onContextMenu={onContextMenu}
       onMouseEnter={onMouseEnter}
       onPointerDown={onPeekStart}

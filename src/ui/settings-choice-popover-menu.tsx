@@ -13,6 +13,7 @@ type SettingsChoicePopoverMenuProps = {
   value: string
   label: string
   onChange: (value: string) => void
+  dark?: boolean
 }
 
 export function SettingsChoicePopoverMenu({
@@ -22,6 +23,7 @@ export function SettingsChoicePopoverMenu({
   value,
   label,
   onChange,
+  dark,
 }: SettingsChoicePopoverMenuProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ top: 0, left: 0 })
@@ -71,7 +73,7 @@ export function SettingsChoicePopoverMenu({
   return createPortal(
     <div
       ref={panelRef}
-      class="settings-choice-popover"
+      class={`settings-choice-popover${dark ? ' settings-choice-popover--dark' : ''}`}
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,

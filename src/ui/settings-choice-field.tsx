@@ -16,6 +16,7 @@ type SettingsChoiceFieldProps = {
   fieldClass?: string
   labelClass?: string
   disabled?: boolean
+  dark?: boolean
 }
 
 export function SettingsChoiceField({
@@ -30,6 +31,7 @@ export function SettingsChoiceField({
   fieldClass = 'settings__field',
   labelClass = 'settings__field-label',
   disabled,
+  dark,
 }: SettingsChoiceFieldProps) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -85,6 +87,7 @@ export function SettingsChoiceField({
       options={options}
       value={value}
       label={label}
+      dark={dark}
       onChange={handleSelect}
     />
   )
@@ -108,7 +111,7 @@ export function SettingsChoiceField({
           <button
             ref={triggerRef}
             type="button"
-            class={`settings-choice-field__trigger${open ? ' settings-choice-field__trigger--open' : ''}`}
+            class={`settings-choice-field__trigger${open ? ' settings-choice-field__trigger--open' : ''}${dark ? ' settings-choice-field__trigger--dark' : ''}`}
             aria-haspopup="listbox"
             aria-expanded={open}
             disabled={disabled}

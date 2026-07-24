@@ -19,7 +19,7 @@ export function TerminalApp() {
 
   const welcomeLines = useMemo(
     () => [
-      '终端 · 系统原生 JavaScript 运行时（QuickJS + Node 兼容层）',
+      '终端 · InstantREPL',
       `工作区 ${WORKSPACE_ROOT} · 回车执行 · ⌘K 清屏 · .reset 重建实例`,
     ],
     [],
