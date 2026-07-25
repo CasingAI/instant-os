@@ -14,9 +14,13 @@ import {
   SettingsChoiceFieldDemo,
   SettingsNavRowDemo,
   SettingsSwitchRowDemo,
+  SettingsInlineInputRowDemo,
   DocumentTabBarDemo,
   AdaptiveActionMenuDemo,
   WindowModalDemo,
+  IosNavBackButtonDemo,
+  EmojiPickerPopoverDemo,
+  AiModelCapabilityTagsDemo,
 } from './ui-kit-demo-instances.tsx'
 import './ui-kit.css'
 
@@ -35,9 +39,13 @@ const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'settings-choice-field': SettingsChoiceFieldDemo,
   'settings-nav-row': SettingsNavRowDemo,
   'settings-switch-row': SettingsSwitchRowDemo,
+  'settings-inline-input-row': SettingsInlineInputRowDemo,
   'document-tab-bar': DocumentTabBarDemo,
   'adaptive-action-menu': AdaptiveActionMenuDemo,
   'window-modal': WindowModalDemo,
+  'ios-nav-back-button': IosNavBackButtonDemo,
+  'emoji-picker-popover': EmojiPickerPopoverDemo,
+  'ai-model-capability-tags': AiModelCapabilityTagsDemo,
 }
 
 function buildCategorySections(): CategorySection[] {
@@ -104,7 +112,7 @@ function ComponentCard({ component }: { component: ComponentDemo }) {
             </button>
           </div>
           <pre class="ui-kit__card-code-block">
-            <code>{component.importPath}\n\n{component.codeExample}</code>
+            <code>{`${component.importPath}\n\n${component.codeExample}`}</code>
           </pre>
         </div>
       )}

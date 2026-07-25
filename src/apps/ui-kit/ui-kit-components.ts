@@ -18,7 +18,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'ios-switch',
     name: 'IosSwitch',
-    description: 'iOS 6 风格 ON/OFF 滑块开关',
+    description: 'iOS 6 风格 ON/OFF 滑块开关；可单独使用，也可嵌在设置行里',
     category: 'form',
     importPath: "import { IosSwitch } from '../../ui/ios-switch.tsx'",
     props: [
@@ -35,24 +35,27 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'ios-check-toggle',
     name: 'IosCheckToggle',
-    description: 'iOS 风格复选框切换',
+    description: 'iOS 风格复选框；支持 default / small 尺寸与 disabled',
     category: 'form',
     importPath: "import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'",
     props: [
       { name: 'checked', type: 'boolean', description: '选中状态' },
       { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
-      { name: 'label', type: 'string', description: '显示标签' },
+      { name: 'label', type: 'string', description: '无障碍标签' },
+      { name: 'size', type: "'default' | 'small'", description: '尺寸' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
     ],
     codeExample: `<IosCheckToggle
   checked={agreed}
   onChange={setAgreed}
   label="同意条款"
+  size="small"
 />`,
   },
   {
     id: 'segmented-control',
     name: 'SegmentedControl',
-    description: '分段选择器，支持徽章和脏状态指示',
+    description: '分段选择器；支持徽章数量与脏状态小橙点',
     category: 'form',
     importPath: "import { SegmentedControl } from '../../ui/segmented-control.tsx'",
     props: [
@@ -74,7 +77,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-choice-field',
     name: 'SettingsChoiceField',
-    description: '设置选项字段，宽窄屏自适应',
+    description: '设置选项字段；form / list 内置触发器，或 children 自定义；支持宽窄屏与 dark',
     category: 'settings',
     importPath: "import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'",
     props: [
@@ -83,54 +86,25 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'options', type: 'SettingsChoiceOption[]', description: '选项列表' },
       { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
       { name: 'wideLayout', type: 'boolean', description: '是否宽屏布局' },
-      { name: 'children', type: '(props: SettingsChoiceTriggerProps) => VNode', description: '自定义 trigger 渲染，传入后 trigger 与 popover 分离' },
+      { name: 'presentation', type: "'form' | 'list'", description: '内置触发器样式' },
+      { name: 'dark', type: 'boolean?', description: '深色弹出菜单' },
+      { name: 'children', type: '(props: SettingsChoiceTriggerProps) => VNode', description: '自定义 trigger 渲染' },
     ],
-    codeExample: `// 方式一：内置 trigger（form）
+    codeExample: `// 内置 form
 <SettingsChoiceField
   label="主题" value={theme}
-  options={[...]}
-  onChange={setTheme}
-  wideLayout={true}
-  presentation="form"
+  options={[...]} onChange={setTheme}
+  wideLayout presentation="form"
 />
 
-// 方式二：内置 trigger（list）
-<SettingsChoiceField
-  label="语言" value={lang}
-  options={[...]}
-  onChange={setLang}
-  wideLayout={true}
-  presentation="list"
-/>
-
-// 方式三：自定义 trigger（children）
-<SettingsChoiceField
-  label="地区" value={region}
-  options={[...]}
-  onChange={setRegion}
-  wideLayout={true}
->
-  {({ open, setOpen, triggerRef, displayValue }) => (
-    <button
-      ref={triggerRef}
-      onClick={() => setOpen(!open)}
-    >
-      🌍 {displayValue} {open ? '▲' : '▼'}
-    </button>
-  )}
-</SettingsChoiceField>
-
-// 方式四：自定义 trigger + dark 主题
+// 自定义 trigger + dark
 <SettingsChoiceField
   label="排序" value={sort}
-  options={[...]}
-  onChange={setSort}
-  wideLayout={true}
-  dark
+  options={[...]} onChange={setSort}
+  wideLayout dark
 >
   {({ open, setOpen, triggerRef, displayValue }) => (
-    <button ref={triggerRef} onClick={() => setOpen(!open)}
-      style={{ background: '#5856d6', color: '#fff' }}>
+    <button ref={triggerRef} onClick={() => setOpen(!open)}>
       {displayValue}
     </button>
   )}
@@ -139,7 +113,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-nav-row',
     name: 'SettingsNavRow',
-    description: '设置导航行，带右侧值和箭头',
+    description: '设置导航行；右侧值、密钥圆点掩码、禁用态',
     category: 'settings',
     importPath: "import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'",
     props: [
@@ -147,17 +121,25 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'value', type: 'string', description: '右侧显示值' },
       { name: 'onClick', type: '() => void', description: '点击回调' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'secretLength', type: 'number?', description: '密钥长度；有值时显示圆点掩码' },
     ],
     codeExample: `<SettingsNavRow
   label="账号设置"
   value="user@example.com"
   onClick={() => navigate('account')}
+/>
+
+<SettingsNavRow
+  label="API Key"
+  value=""
+  secretLength={24}
+  onClick={openSecretEditor}
 />`,
   },
   {
     id: 'settings-switch-row',
     name: 'SettingsSwitchRow',
-    description: '设置开关行，集成标签和开关',
+    description: '设置开关行；标签 + IosSwitch 组合，常成组出现',
     category: 'settings',
     importPath: "import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'",
     props: [
@@ -172,9 +154,30 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'settings-inline-input-row',
+    name: 'SettingsInlineInputRow',
+    description: '设置内联输入行；文本 / URL / 密码',
+    category: 'settings',
+    importPath: "import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签' },
+      { name: 'value', type: 'string', description: '输入值' },
+      { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
+      { name: 'type', type: "'text' | 'password' | 'url'", description: '输入类型' },
+      { name: 'placeholder', type: 'string?', description: '占位文案' },
+    ],
+    codeExample: `<SettingsInlineInputRow
+  label="服务地址"
+  value={url}
+  onChange={setUrl}
+  type="url"
+  placeholder="https://"
+/>`,
+  },
+  {
     id: 'document-tab-bar',
     name: 'DocumentTabBar',
-    description: '文档标签栏，支持拖拽和关闭动画',
+    description: '文档标签栏；脏状态、关闭动画、拥挤时悬停加宽、minTabsToShow',
     category: 'navigation',
     importPath: "import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'",
     props: [
@@ -182,18 +185,20 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'activeTabId', type: 'string | undefined', description: '当前激活标签' },
       { name: 'onActivate', type: '(tabId: string) => void', description: '激活回调' },
       { name: 'onClose', type: '(tabId: string) => void', description: '关闭回调' },
+      { name: 'minTabsToShow', type: 'number?', description: '低于此数量时隐藏标签栏，默认 2' },
     ],
     codeExample: `<DocumentTabBar
   tabs={openFiles}
   activeTabId={currentFile}
   onActivate={openFile}
   onClose={closeFile}
+  minTabsToShow={2}
 />`,
   },
   {
     id: 'adaptive-action-menu',
     name: 'AdaptiveActionMenu',
-    description: '自适应操作菜单，宽屏显示下拉，窄屏显示底部面板',
+    description: '自适应操作菜单；宽屏下拉，窄屏底部面板',
     category: 'navigation',
     importPath: "import { AdaptiveActionMenu } from '../../ui/adaptive-action-menu.tsx'",
     props: [
@@ -202,6 +207,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'items', type: 'AdaptiveActionMenuItem[]', description: '菜单项列表' },
       { name: 'narrowLayout', type: 'boolean', description: '是否窄屏布局' },
       { name: 'onClose', type: '() => void', description: '关闭回调' },
+      { name: 'mount', type: "'contained' | 'portal'", description: '挂载方式' },
     ],
     codeExample: `<AdaptiveActionMenu
   open={menuOpen}
@@ -214,9 +220,62 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'ios-nav-back-button',
+    name: 'IosNavBackButton',
+    description: 'iOS 风格返回按钮；用于子页标题栏',
+    category: 'navigation',
+    importPath: "import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '返回目标名称' },
+      { name: 'onClick', type: '(event) => void', description: '点击回调' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'iconSize', type: 'number?', description: '箭头图标尺寸，默认 13' },
+    ],
+    codeExample: `<IosNavBackButton
+  label="设置"
+  onClick={() => navigateBack()}
+/>`,
+  },
+  {
+    id: 'emoji-picker-popover',
+    name: 'EmojiPickerPopover',
+    description: '表情选择弹出层；默认触发器或自定义 children 内容',
+    category: 'picker',
+    importPath: "import { EmojiPickerPopover } from '../../ui/emoji-picker-popover.tsx'",
+    props: [
+      { name: 'value', type: 'string', description: '当前表情' },
+      { name: 'onChange', type: '(emoji: string) => void', description: '选择回调' },
+      { name: 'triggerLabel', type: 'string?', description: '默认触发器文案' },
+      { name: 'children', type: 'ComponentChildren?', description: '自定义触发器内容' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    ],
+    codeExample: `<EmojiPickerPopover
+  value={emoji}
+  onChange={setEmoji}
+  triggerLabel="选择图标"
+/>`,
+  },
+  {
+    id: 'ai-model-capability-tags',
+    name: 'AiModelCapabilityTags',
+    description: 'AI 模型能力标签；视觉能力可切换编辑',
+    category: 'other',
+    importPath: "import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'",
+    props: [
+      { name: 'capabilities', type: 'readonly AiModelCapability[]', description: '已启用能力' },
+      { name: 'visionEditable', type: 'boolean?', description: '是否允许切换视觉能力' },
+      { name: 'onVisionChange', type: '(supportsVision: boolean) => void?', description: '视觉能力变化回调' },
+    ],
+    codeExample: `<AiModelCapabilityTags
+  capabilities={['text', 'vision']}
+  visionEditable
+  onVisionChange={setSupportsVision}
+/>`,
+  },
+  {
     id: 'window-modal',
     name: 'WindowModal',
-    description: '窗口模态对话框，带标题、内容和操作按钮',
+    description: '窗口模态对话框；primary / secondary / danger 按钮，支持 wide / scrollBody',
     category: 'window',
     importPath: "import { WindowModal } from '../../window/window-modal.tsx'",
     props: [
@@ -224,18 +283,21 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'title', type: 'string', description: '对话框标题' },
       { name: 'onClose', type: '() => void', description: '关闭回调' },
       { name: 'actions', type: 'WindowModalAction[]?', description: '操作按钮列表' },
+      { name: 'wide', type: 'boolean?', description: '宽对话框' },
+      { name: 'scrollBody', type: 'boolean?', description: '内容区可滚动' },
       { name: 'children', type: 'ComponentChildren', description: '内容区域' },
     ],
     codeExample: `<WindowModal
   open={dialogOpen}
-  title="确认操作"
+  title="删除项目"
+  role="alertdialog"
   onClose={handleClose}
   actions={[
     { label: '取消', onClick: handleClose },
-    { label: '确认', tone: 'primary', onClick: handleConfirm }
+    { label: '删除', tone: 'danger', onClick: handleDelete }
   ]}
 >
-  <p>确定要执行此操作吗？</p>
+  <p>此操作无法撤销。</p>
 </WindowModal>`,
   },
 ]
@@ -244,5 +306,7 @@ export const COMPONENT_CATEGORIES = [
   { id: 'form', name: '表单控件' },
   { id: 'settings', name: '设置组件' },
   { id: 'navigation', name: '导航交互' },
+  { id: 'picker', name: '选择器' },
+  { id: 'other', name: '其他' },
   { id: 'window', name: '窗口系统' },
 ] as const

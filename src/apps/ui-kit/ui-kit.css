@@ -140,8 +140,8 @@
   padding: 20px 16px;
   min-height: 80px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: stretch;
   background: #fafafa;
   border-bottom: 1px solid #e5e5e5;
 }
@@ -332,7 +332,7 @@
 .ui-kit-demo__variants {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
+  gap: 12px;
   width: 100%;
 }
 
@@ -344,6 +344,11 @@
   background: #fff;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
+  min-width: 0;
+}
+
+.ui-kit-demo__variant--wide {
+  grid-column: 1 / -1;
 }
 
 .ui-kit-demo__variant-label {
@@ -352,6 +357,126 @@
   color: #aaa;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.ui-kit-demo__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ui-kit-demo__row--labeled {
+  gap: 8px;
+}
+
+.ui-kit-demo__hint {
+  font-size: 12px;
+  color: #666;
+}
+
+.ui-kit-demo__status {
+  margin: 0;
+  font-size: 12px;
+  color: #666;
+}
+
+.ui-kit-demo__settings-group {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ui-kit-demo__settings-group .settings__row {
+  border-radius: 0;
+}
+
+.ui-kit-demo__tab-host {
+  background: #f5f5f5;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 36px;
+}
+
+.ui-kit-demo__menu-host {
+  position: relative;
+  min-height: 72px;
+}
+
+.ui-kit-demo__ghost-btn {
+  padding: 7px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f7f7f7;
+  color: #333;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ui-kit-demo__ghost-btn:hover {
+  background: #efefef;
+}
+
+.ui-kit-demo__ghost-btn--accent {
+  border: none;
+  background: #5856d6;
+  color: #fff;
+}
+
+.ui-kit-demo__ghost-btn--accent:hover {
+  background: #6c6add;
+}
+
+.ui-kit-demo__custom-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #f9f9f9;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ui-kit-demo__custom-trigger--accent {
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #5856d6, #7b78ee);
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 2px 6px rgba(88, 86, 214, 0.3);
+}
+
+.ui-kit-demo__custom-trigger-caret {
+  font-size: 10px;
+  color: #999;
+}
+
+.ui-kit-demo__custom-trigger--accent .ui-kit-demo__custom-trigger-caret {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ui-kit-demo__nav-chrome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.ui-kit-demo__nav-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #222;
+}
+
+.ui-kit-demo__emoji-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
 }
 
 /* ── 窄屏模式 ── */
