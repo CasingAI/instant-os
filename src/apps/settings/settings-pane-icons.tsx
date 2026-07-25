@@ -86,6 +86,20 @@ export function DateTimePaneIcon() {
   )
 }
 
+export function BackgroundRefreshPaneIcon() {
+  return (
+    <AppIconTile color="#34a0a4" size={PANE_ICON_SIZE}>
+      <span
+        class="app-icon-tile__emoji"
+        style={{ fontSize: `${PANE_ICON_SIZE * (50 / 72)}px` }}
+        aria-hidden="true"
+      >
+        🔄
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function NotificationCenterPaneIcon() {
   const svgSize = paneSvg(22)
   return (

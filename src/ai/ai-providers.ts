@@ -1,3 +1,5 @@
+import { getModelPricing } from './ai-model-pricing-cache.ts'
+
 export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'mimo-token-plan' | 'custom'
 
 /** 内置模型能力：文本 / 视觉 / 语音识别 / 语音合成 */
@@ -35,6 +37,15 @@ export type AiModelPreset = {
   name: string
   /** 该模型支持的能力标注 */
   capabilities: readonly AiModelCapability[]
+  /**
+   * 内置的静态定价快照（作为无网络时的兜底）；
+   * 远端定价由 ai-model-pricing-cache 按 `providerId:modelId` 单独缓存并优先取用。
+   */
+  pricing?: {
+    inputPricePerMillion: number
+    outputPricePerMillion: number
+    currency: 'USD' | 'CNY'
+  }
 }
 
 export type AiProviderPreset = {
@@ -209,6 +220,23 @@ export function findAiModelPreset(
   modelId: string,
 ): AiModelPreset | undefined {
   return findAiProviderPreset(providerId)?.models.find((model) => model.id === modelId)
+}
+
+/**
+ * 解析模型定价：优先远端缓存（背景刷新写入），否则回退到预设内置快照。
+ * 都缺失时返回 undefined。
+ */
+export function resolveModelPricing(
+  providerId: AiProviderId,
+  modelId: string,
+):
+  | { inputPricePerMillion: number; outputPricePerMillion: number; currency: 'USD' | 'CNY' }
+  | undefined {
+  const cached = getModelPricing(providerId, modelId)
+  if (cached) {
+    return cached
+  }
+  return findAiModelPreset(providerId, modelId)?.pricing
 }
 
 export function isKnownModel(providerId: AiProviderId, modelId: string): boolean {

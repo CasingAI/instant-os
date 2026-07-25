@@ -19,6 +19,7 @@ import {
 } from '../window/window-snap.ts'
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
+import { startBackgroundRefreshService } from './background-refresh-service.ts'
 import { isMultiWindowApp } from './app-multi-window.ts'
 import { isWindowlessApp } from './app-windowless.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
@@ -296,6 +297,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       }),
     )
   }, [])
+
+  // 系统级背景刷新：随 OS 挂载启动，按用户设置的间隔定期更新模型定价等远端数据
+  useEffect(() => startBackgroundRefreshService(), [])
 
   const closeGuardsRef = useRef(new Map<AppId, AppCloseGuard>())
   const bypassCloseGuardRef = useRef(new Set<AppId>())

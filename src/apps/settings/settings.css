@@ -347,6 +347,10 @@
   margin-top: 14px;
 }
 
+.settings__section + .settings__section {
+  margin-top: 22px;
+}
+
 .settings__section:first-child {
   margin-top: 0;
 }
@@ -1122,6 +1126,17 @@
 .settings__row--show-all:hover,
 .settings__row--show-all:active {
   color: #fff;
+}
+
+.settings__row--show-all:disabled {
+  color: #8e8e93;
+  cursor: default;
+}
+
+.settings__row--show-all:disabled:hover,
+.settings__row--show-all:disabled:active {
+  color: #8e8e93;
+  background: #fff;
 }
 
 .settings__app-icon {

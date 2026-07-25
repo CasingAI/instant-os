@@ -36,6 +36,8 @@ import { DockSettingsView } from './dock-settings-view.tsx'
 import { DeveloperSettingsView } from './developer-settings-view.tsx'
 import { ExternalBridgeConsentsView } from './external-bridge-consents-view.tsx'
 import { ProxyServerSettingsView } from './proxy-server-settings-view.tsx'
+import { BackgroundRefreshSettingsView } from './background-refresh-settings-view.tsx'
+import { BackgroundRefreshTaskDetailView } from './background-refresh-task-detail-view.tsx'
 import { NpmSettingsView } from './npm-settings-view.tsx'
 import { SystemEnvSettingsView } from './system-env-settings-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
@@ -240,6 +242,10 @@ export function SettingsApp() {
   const showWallpaper = view === 'wallpaper'
   const showDock = view === 'dock'
   const showProxyServer = view === 'proxy-server'
+  const showBackgroundRefresh = view === 'background-refresh'
+  const keepBackgroundRefresh =
+    showBackgroundRefresh || view === 'background-refresh-task'
+  const showBackgroundRefreshTask = view === 'background-refresh-task'
   const showNpm = view === 'npm'
   const showSystemEnv = view === 'system-env'
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
@@ -424,6 +430,22 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showProxyServer} keep={showProxyServer}>
         <ProxyServerSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showBackgroundRefresh} keep={keepBackgroundRefresh}>
+        <BackgroundRefreshSettingsView
+          onBack={() => setRoute({ view: 'root' })}
+          onOpenTask={(taskId) => setRoute({ view: 'background-refresh-task', taskId })}
+        />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showBackgroundRefreshTask} keep={showBackgroundRefreshTask}>
+        {showBackgroundRefreshTask && (
+          <BackgroundRefreshTaskDetailView
+            taskId={route.taskId}
+            onBack={() => setRoute({ view: 'background-refresh' })}
+          />
+        )}
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showNpm} keep={showNpm}>

@@ -44,6 +44,9 @@ importers:
       preact:
         specifier: ^10.29.1
         version: 10.29.2
+      pricetoken:
+        specifier: 0.13.10
+        version: 0.13.10
       quickjs-emscripten:
         specifier: ^0.32.0
         version: 0.32.0
@@ -810,6 +813,10 @@ packages:
   preact@10.29.2:
     resolution: {integrity: sha512-7tNmwg/7mzzAoB/8kSg6Hl37JraAZw3Z3A0JSY7VXlZwo82Xn0G7wKbNNs2qoF4ZEEsQGTwDAroNdqKs1ofJxQ==}
 
+  pricetoken@0.13.10:
+    resolution: {integrity: sha512-mpLUBoGOmVVC0f4rQUvsemY9ZSSUk4xU/uq0G8MO9jMcjF1W14IAeMC2Qi1J01UE10Fs0Ns7FpMB/JOfKfjvOA==}
+    engines: {node: '>=18'}
+
   quickjs-emscripten-core@0.32.0:
     resolution: {integrity: sha512-QFnPfjFey8EqknSrSxe1hZrf1/8z7/6s1QzGOmKo6++02r7QRRX7ZoyNaZh7JuVjWsVW87KnQrbZqnHkOAzUyg==}
 
@@ -1552,6 +1559,8 @@ snapshots:
       source-map-js: 1.2.1
 
   preact@10.29.2: {}
+
+  pricetoken@0.13.10: {}
 
   quickjs-emscripten-core@0.32.0:
     dependencies:

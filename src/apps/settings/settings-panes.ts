@@ -1,9 +1,11 @@
 import type { ComponentChild } from 'preact'
+import type { BackgroundRefreshTaskId } from '../../os/background-refresh-settings-storage.ts'
 import type { ExperimentalSettings } from '../../os/experimental-settings-storage.ts'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import {
   AccountPaneIcon,
   AiUsagePaneIcon,
+  BackgroundRefreshPaneIcon,
   DisplayPaneIcon,
   DateTimePaneIcon,
   DeveloperPaneIcon,
@@ -33,6 +35,7 @@ export type SettingsPaneId =
   | 'wallpaper'
   | 'dock'
   | 'proxy-server'
+  | 'background-refresh'
   | 'npm'
   | 'system-env'
   | 'resources'
@@ -53,6 +56,8 @@ export type SettingsRoute =
   | { view: 'wallpaper' }
   | { view: 'dock' }
   | { view: 'proxy-server' }
+  | { view: 'background-refresh' }
+  | { view: 'background-refresh-task'; taskId: BackgroundRefreshTaskId }
   | { view: 'npm' }
   | { view: 'system-env' }
   | { view: 'display-emoji' }
@@ -103,6 +108,12 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   { id: 'wallpaper', label: '壁纸', Icon: WallpaperPaneIcon, route: { view: 'wallpaper' } },
   { id: 'dock', label: '程序坞', Icon: DockPaneIcon, route: { view: 'dock' } },
   { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' } },
+  {
+    id: 'background-refresh',
+    label: '背景刷新',
+    Icon: BackgroundRefreshPaneIcon,
+    route: { view: 'background-refresh' },
+  },
   { id: 'npm', label: 'NPM', Icon: NpmPaneIcon, route: { view: 'npm' } },
   { id: 'system-env', label: '环境变量', Icon: SystemEnvPaneIcon, route: { view: 'system-env' } },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
@@ -179,6 +190,9 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'dock'
     case 'proxy-server':
       return 'proxy-server'
+    case 'background-refresh':
+    case 'background-refresh-task':
+      return 'background-refresh'
     case 'npm':
       return 'npm'
     case 'system-env':
@@ -210,6 +224,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'wallpaper':
     case 'dock':
     case 'proxy-server':
+    case 'background-refresh':
     case 'npm':
     case 'system-env':
     case 'resources':
