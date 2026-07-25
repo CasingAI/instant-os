@@ -7,6 +7,7 @@ import {
   collectSubtreeIds,
   collectSubtreesBatch,
   commitFilesBatch,
+  cloneFileNodeWithSharedBlob,
   createFileWithBlob,
   createFileWithBytes,
   createFolderNode,
@@ -1241,14 +1242,23 @@ export async function enrichFilesNodeMeta(nodeId: string): Promise<FilesNode | u
   }
 }
 
-/** 估算复制整棵子树到本地存储时需要的额外字节（内容 + 元数据） */
-export async function estimateCopyBytes(sourceId: string): Promise<number> {
+/** 估算复制整棵子树到本地存储时需要的额外字节（内容 + 元数据；可共享 blob 时仅元数据） */
+export async function estimateCopyBytes(
+  sourceId: string,
+  destLocationId: FilesLocationId = 'local',
+): Promise<number> {
   const source = await getNodeOrThrow(sourceId)
-  return estimateCopyBytesForNode(source)
+  return estimateCopyBytesForNode(source, destLocationId)
 }
 
-async function estimateCopyBytesForNode(node: FilesNode): Promise<number> {
+async function estimateCopyBytesForNode(
+  node: FilesNode,
+  destLocationId: FilesLocationId,
+): Promise<number> {
   if (node.kind === 'file') {
+    if (canShareBlobOnCopy(node, destLocationId)) {
+      return estimateNodeMetaBytes(node)
+    }
     const { blob } = await readFileBlobByNodeIdUnmetered(node.id)
     return estimateNodeMetaBytes(node) + blob.size
   }
@@ -1259,7 +1269,7 @@ async function estimateCopyBytesForNode(node: FilesNode): Promise<number> {
   let total = estimateNodeMetaBytes(node)
   const children = await listDirectory(node.locationId, node.id)
   for (const child of children) {
-    total += await estimateCopyBytesForNode(child)
+    total += await estimateCopyBytesForNode(child, destLocationId)
   }
   return total
 }
@@ -1303,7 +1313,7 @@ export async function copyNodeTo(params: {
 
   const usesLocalQuota = !isMountLocationId(params.destLocationId)
   if (usesLocalQuota) {
-    const needed = await estimateCopyBytesForNode(source)
+    const needed = await estimateCopyBytesForNode(source, params.destLocationId)
     await assertAdditionalBytesAvailable(needed)
   }
 
@@ -1322,6 +1332,48 @@ export async function copyNodeTo(params: {
   return result
 }
 
+/** IndexedDB 本地卷之间复制文件时可共享 blob（写时复制） */
+function canShareBlobOnCopy(source: FilesNode, destLocationId: FilesLocationId): boolean {
+  if (isMountLocationId(destLocationId)) return false
+  if (isMountNodeId(source.id)) return false
+  if (source.id.startsWith('models3d:') || source.id.startsWith('source:')) return false
+  return (
+    (source.locationId === 'local' || source.locationId === 'dev') &&
+    (destLocationId === 'local' || destLocationId === 'dev')
+  )
+}
+
+async function cloneSharedLocalFile(
+  source: FilesNode,
+  destLocationId: FilesLocationId,
+  destParentId: string | undefined,
+): Promise<FilesNode> {
+  await assertCanCreateIn(destLocationId, destParentId)
+  const desired = normalizeFilesNodeName(source.name.trim() || '未命名')
+  const names = await siblingNames(destLocationId, destParentId)
+  const name = uniqueName(names, desired)
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: destLocationId,
+    parentId: destParentId,
+    name,
+    kind: 'file',
+    mimeType: source.mimeType ?? FILES_TEXT_MIME,
+    byteSize: source.byteSize,
+    createdAt: now,
+    updatedAt: now,
+    attributes: defaultFilesNodeAttributes(destLocationId),
+  }
+  const created = await cloneFileNodeWithSharedBlob({
+    sourceNodeId: source.id,
+    node,
+    metaBytes: estimateNodeMetaBytes(node),
+  })
+  await emitNodeCreated(created)
+  return created
+}
+
 async function copyNodeTree(
   source: FilesNode,
   destLocationId: FilesLocationId,
@@ -1329,6 +1381,12 @@ async function copyNodeTree(
   reportNodeDone: (node: FilesNode) => void,
 ): Promise<FilesNode> {
   if (source.kind === 'file') {
+    if (canShareBlobOnCopy(source, destLocationId)) {
+      const created = await cloneSharedLocalFile(source, destLocationId, destParentId)
+      reportNodeDone(source)
+      return created
+    }
+
     const { node, blob } = await readFileBlobByNodeId(source.id)
     const bytes = await blob.arrayBuffer()
     const asBinary = isBinaryFile({

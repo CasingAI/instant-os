@@ -20,7 +20,7 @@ import {
 } from './files-types.ts'
 
 export const FILES_DB_NAME = 'instant-os-files'
-export const FILES_DB_VERSION = 2
+export const FILES_DB_VERSION = 3
 export const FILES_NODES_STORE = 'nodes'
 export const FILES_BLOBS_STORE = 'blobs'
 export const FILES_META_STORE = 'meta'
@@ -40,6 +40,11 @@ type FilesNodeRecord = {
   updatedAt: number
   /** 内容版本戳；旧记录 / 文件夹可能缺失 */
   contentRevisionId?: string
+  /**
+   * 指向 blobs 表条目。缺省兼容旧数据：等同 node.id。
+   * 仅 kind=file 有意义；clone 共享时多个节点可指向同一 blobId。
+   */
+  blobId?: string
   /** 符号链接目标；仅 kind=symlink */
   target?: string
   /** 旧数据可能缺失；读取时按位置默认补齐 */
@@ -55,6 +60,8 @@ type FilesBlobRecord = {
   text?: string
   /** 文件内容（UTF-8 文本或任意二进制） */
   bytes?: ArrayBuffer
+  /** 引用计数；缺省兼容旧数据：按 1 */
+  refCount?: number
 }
 
 type FilesMetaRecord = {
@@ -108,6 +115,36 @@ function openFilesDb(): Promise<IDBDatabase> {
           cursor.continue()
         }
       }
+
+      // v3：为文件节点补 blobId，为 blob 补 refCount（写时复制 / clone 共享）
+      if (oldVersion > 0 && oldVersion < 3 && tx) {
+        const nodeStore = tx.objectStore(FILES_NODES_STORE)
+        const blobStore = tx.objectStore(FILES_BLOBS_STORE)
+        const nodeCursorReq = nodeStore.openCursor()
+        nodeCursorReq.onsuccess = () => {
+          const cursor = nodeCursorReq.result
+          if (!cursor) return
+          const record = cursor.value as FilesNodeRecord
+          if (record.kind === 'file' && record.blobId === undefined) {
+            const updateReq = cursor.update({ ...record, blobId: record.id })
+            updateReq.onsuccess = () => cursor.continue()
+            return
+          }
+          cursor.continue()
+        }
+        const blobCursorReq = blobStore.openCursor()
+        blobCursorReq.onsuccess = () => {
+          const cursor = blobCursorReq.result
+          if (!cursor) return
+          const record = cursor.value as FilesBlobRecord
+          if (record.refCount === undefined) {
+            const updateReq = cursor.update({ ...record, refCount: 1 })
+            updateReq.onsuccess = () => cursor.continue()
+            return
+          }
+          cursor.continue()
+        }
+      }
     }
 
     request.onsuccess = () => resolve(request.result)
@@ -118,6 +155,69 @@ function openFilesDb(): Promise<IDBDatabase> {
   })
 
   return dbPromise
+}
+
+/** 测试用：关闭并删除文件 DB，重置单例 */
+export async function resetFilesDbForTests(): Promise<void> {
+  if (dbPromise) {
+    try {
+      const db = await dbPromise
+      db.close()
+    } catch {
+      // ignore open failures while resetting
+    }
+    dbPromise = undefined
+  }
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(FILES_DB_NAME)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error ?? new Error('无法删除文件 IndexedDB'))
+    request.onblocked = () => resolve()
+  })
+}
+
+function resolveNodeBlobId(record: FilesNodeRecord): string {
+  return record.blobId ?? record.id
+}
+
+function resolveBlobRefCount(record: FilesBlobRecord): number {
+  return record.refCount ?? 1
+}
+
+function blobPayloadBytes(record: FilesBlobRecord): number {
+  if (record.bytes !== undefined) return record.bytes.byteLength
+  if (record.text !== undefined) return estimateTextBytes(record.text)
+  return 0
+}
+
+export function newFilesBlobId(): string {
+  return `blob:${crypto.randomUUID()}`
+}
+
+/** 测试用：查看文件节点当前 blob 引用 */
+export async function getFileBlobRefForTests(
+  nodeId: string,
+): Promise<{ blobId: string; refCount: number; byteLength: number } | undefined> {
+  const db = await openFilesDb()
+  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const node = await requestToPromise(
+    tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!node || node.kind !== 'file') {
+    await waitForTransaction(tx)
+    return undefined
+  }
+  const blobId = resolveNodeBlobId(node)
+  const blob = await requestToPromise(
+    tx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(tx)
+  if (!blob) return undefined
+  return {
+    blobId,
+    refCount: resolveBlobRefCount(blob),
+    byteLength: blobPayloadBytes(blob),
+  }
 }
 
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
@@ -161,7 +261,7 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
   return node
 }
 
-function nodeToRecord(node: FilesNode): FilesNodeRecord {
+function nodeToRecord(node: FilesNode, blobId?: string): FilesNodeRecord {
   const record: FilesNodeRecord = {
     id: node.id,
     locationId: node.locationId,
@@ -181,6 +281,9 @@ function nodeToRecord(node: FilesNode): FilesNodeRecord {
   }
   if (node.target !== undefined) {
     record.target = node.target
+  }
+  if (node.kind === 'file') {
+    record.blobId = blobId ?? node.id
   }
   return record
 }
@@ -281,11 +384,19 @@ export async function getNode(id: string): Promise<FilesNode | undefined> {
   return record ? recordToNode(record) : undefined
 }
 
-export async function readBlobText(id: string): Promise<string> {
+export async function readBlobText(nodeId: string): Promise<string> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
+  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const nodeRecord = await requestToPromise(
+    tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!nodeRecord || nodeRecord.kind !== 'file') {
+    await waitForTransaction(tx)
+    return ''
+  }
+  const blobId = resolveNodeBlobId(nodeRecord)
   const record = await requestToPromise(
-    tx.objectStore(FILES_BLOBS_STORE).get(id) as IDBRequest<FilesBlobRecord | undefined>,
+    tx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
   )
   await waitForTransaction(tx)
   if (!record) return ''
@@ -296,11 +407,19 @@ export async function readBlobText(id: string): Promise<string> {
 }
 
 /** 读取本地卷内容字节；仅有旧 text 时按 UTF-8 编码返回（兼容迁移前数据） */
-export async function readBlobBytes(id: string): Promise<ArrayBuffer | undefined> {
+export async function readBlobBytes(nodeId: string): Promise<ArrayBuffer | undefined> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
+  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const nodeRecord = await requestToPromise(
+    tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!nodeRecord || nodeRecord.kind !== 'file') {
+    await waitForTransaction(tx)
+    return undefined
+  }
+  const blobId = resolveNodeBlobId(nodeRecord)
   const record = await requestToPromise(
-    tx.objectStore(FILES_BLOBS_STORE).get(id) as IDBRequest<FilesBlobRecord | undefined>,
+    tx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
   )
   await waitForTransaction(tx)
   if (!record) return undefined
@@ -322,13 +441,15 @@ export async function createFileWithBlob(params: {
     byteSize: textBytes,
     contentRevisionId: newContentRevisionId(),
   }
+  const blobId = node.id
 
   const db = await openFilesDb()
   const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node))
+  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
   tx.objectStore(FILES_BLOBS_STORE).put({
-    id: node.id,
+    id: blobId,
     bytes: encodeTextToArrayBuffer(params.text),
+    refCount: 1,
   } satisfies FilesBlobRecord)
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
@@ -352,19 +473,79 @@ export async function createFileWithBytes(params: {
     byteSize: contentBytes,
     contentRevisionId: newContentRevisionId(),
   }
+  const blobId = node.id
 
   const db = await openFilesDb()
   const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node))
+  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
   tx.objectStore(FILES_BLOBS_STORE).put({
-    id: node.id,
+    id: blobId,
     bytes: params.bytes,
+    refCount: 1,
   } satisfies FilesBlobRecord)
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: total + needed,
   } satisfies FilesMetaRecord)
   await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
+  return node
+}
+
+/**
+ * 复制文件节点并共享同一 blob（APFS clone 语义）。
+ * 配额只增加目标节点元数据；不拷贝内容字节。
+ */
+export async function cloneFileNodeWithSharedBlob(params: {
+  sourceNodeId: string
+  node: FilesNode
+  metaBytes: number
+}): Promise<FilesNode> {
+  const total = await assertCapacity(params.metaBytes)
+
+  const db = await openFilesDb()
+  const readTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const source = await requestToPromise(
+    readTx
+      .objectStore(FILES_NODES_STORE)
+      .get(params.sourceNodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!source || source.kind !== 'file') {
+    await waitForTransaction(readTx)
+    throw new Error('源文件不存在')
+  }
+  const blobId = resolveNodeBlobId(source)
+  const blob = await requestToPromise(
+    readTx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(readTx)
+  if (!blob) {
+    throw new Error('源文件内容不存在')
+  }
+
+  const node: FilesNode = {
+    ...params.node,
+    kind: 'file',
+    byteSize: source.byteSize,
+    mimeType: params.node.mimeType ?? source.mimeType,
+    contentRevisionId: source.contentRevisionId ?? newContentRevisionId(),
+  }
+
+  const writeTx = db.transaction(
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  const nextRef = resolveBlobRefCount(blob) + 1
+  writeTx.objectStore(FILES_BLOBS_STORE).put({
+    ...blob,
+    refCount: nextRef,
+  } satisfies FilesBlobRecord)
+  writeTx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
+  writeTx.objectStore(FILES_META_STORE).put({
+    key: 'byte-total',
+    totalBytes: total + params.metaBytes,
+  } satisfies FilesMetaRecord)
+  await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
   return node
 }
@@ -404,40 +585,14 @@ export async function writeBlobText(params: {
   nameMetaDelta: number
 }): Promise<FilesNode> {
   const textBytes = estimateTextBytes(params.text)
-  const needed = textBytes - params.previousByteSize + params.nameMetaDelta
-  const total = await assertCapacity(needed)
-
-  const db = await openFilesDb()
-  const readTx = db.transaction(FILES_NODES_STORE, 'readonly')
-  const existing = await requestToPromise(
-    readTx.objectStore(FILES_NODES_STORE).get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
-  )
-  await waitForTransaction(readTx)
-  if (!existing) {
-    throw new Error('文件不存在')
-  }
-
-  const updated: FilesNodeRecord = {
-    ...existing,
-    byteSize: textBytes,
-    updatedAt: osNowMs(),
-    contentRevisionId: newContentRevisionId(),
-    attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
-  }
-
-  const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
-  writeTx.objectStore(FILES_NODES_STORE).put(updated)
-  writeTx.objectStore(FILES_BLOBS_STORE).put({
+  const bytes = encodeTextToArrayBuffer(params.text)
+  return writeFileContentCow({
     id: params.id,
-    bytes: encodeTextToArrayBuffer(params.text),
-  } satisfies FilesBlobRecord)
-  writeTx.objectStore(FILES_META_STORE).put({
-    key: 'byte-total',
-    totalBytes: Math.max(0, total + needed),
-  } satisfies FilesMetaRecord)
-  await waitForTransaction(writeTx)
-  emitFilesDataStorageChanged()
-  return recordToNode(updated)
+    bytes,
+    contentByteSize: textBytes,
+    previousByteSize: params.previousByteSize,
+    nameMetaDelta: params.nameMetaDelta,
+  })
 }
 
 export async function writeBlobBytes(params: {
@@ -446,34 +601,84 @@ export async function writeBlobBytes(params: {
   previousByteSize: number
   nameMetaDelta: number
 }): Promise<FilesNode> {
-  const contentBytes = params.bytes.byteLength
-  const needed = contentBytes - params.previousByteSize + params.nameMetaDelta
-  const total = await assertCapacity(needed)
+  return writeFileContentCow({
+    id: params.id,
+    bytes: params.bytes,
+    contentByteSize: params.bytes.byteLength,
+    previousByteSize: params.previousByteSize,
+    nameMetaDelta: params.nameMetaDelta,
+  })
+}
 
+async function writeFileContentCow(params: {
+  id: string
+  bytes: ArrayBuffer
+  contentByteSize: number
+  previousByteSize: number
+  nameMetaDelta: number
+}): Promise<FilesNode> {
   const db = await openFilesDb()
-  const readTx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const readTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const existing = await requestToPromise(
     readTx.objectStore(FILES_NODES_STORE).get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
   )
-  await waitForTransaction(readTx)
-  if (!existing) {
+  if (!existing || existing.kind !== 'file') {
+    await waitForTransaction(readTx)
     throw new Error('文件不存在')
   }
+  const oldBlobId = resolveNodeBlobId(existing)
+  const oldBlob = await requestToPromise(
+    readTx.objectStore(FILES_BLOBS_STORE).get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(readTx)
+
+  const refCount = oldBlob ? resolveBlobRefCount(oldBlob) : 1
+  const shared = refCount > 1
+  const needed = shared
+    ? params.contentByteSize + params.nameMetaDelta
+    : params.contentByteSize - params.previousByteSize + params.nameMetaDelta
+  const total = await assertCapacity(needed)
 
   const updated: FilesNodeRecord = {
     ...existing,
-    byteSize: contentBytes,
+    byteSize: params.contentByteSize,
     updatedAt: osNowMs(),
     contentRevisionId: newContentRevisionId(),
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
-  const writeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const writeTx = db.transaction(
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  const blobs = writeTx.objectStore(FILES_BLOBS_STORE)
+
+  if (shared) {
+    const newBlobId = newFilesBlobId()
+    updated.blobId = newBlobId
+    blobs.put({
+      id: newBlobId,
+      bytes: params.bytes,
+      refCount: 1,
+    } satisfies FilesBlobRecord)
+    if (oldBlob) {
+      const nextRef = refCount - 1
+      if (nextRef <= 0) {
+        blobs.delete(oldBlobId)
+      } else {
+        blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+      }
+    }
+  } else {
+    updated.blobId = oldBlobId
+    blobs.put({
+      id: oldBlobId,
+      bytes: params.bytes,
+      refCount: 1,
+    } satisfies FilesBlobRecord)
+  }
+
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
-  writeTx.objectStore(FILES_BLOBS_STORE).put({
-    id: params.id,
-    bytes: params.bytes,
-  } satisfies FilesBlobRecord)
   writeTx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: Math.max(0, total + needed),
@@ -554,12 +759,14 @@ export async function collectSubtreeIds(rootId: string): Promise<{
   reclaimBytes: number
 }> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const store = tx.objectStore(FILES_NODES_STORE)
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const index = store.index('by-parent')
 
   const nodeIds: string[] = []
   const fileIds: string[] = []
+  const releaseByBlobId = new Map<string, number>()
   let reclaimBytes = 0
 
   const visit = async (id: string): Promise<void> => {
@@ -569,7 +776,8 @@ export async function collectSubtreeIds(rootId: string): Promise<{
     reclaimBytes += estimateNodeMetaBytes(recordToNode(record))
     if (record.kind === 'file') {
       fileIds.push(record.id)
-      reclaimBytes += record.byteSize
+      const blobId = resolveNodeBlobId(record)
+      releaseByBlobId.set(blobId, (releaseByBlobId.get(blobId) ?? 0) + 1)
     } else if (record.kind === 'folder') {
       const children = await requestToPromise(
         index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
@@ -582,6 +790,17 @@ export async function collectSubtreeIds(rootId: string): Promise<{
   }
 
   await visit(rootId)
+
+  for (const [blobId, releases] of releaseByBlobId) {
+    const blob = await requestToPromise(
+      blobs.get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    if (!blob) continue
+    if (releases >= resolveBlobRefCount(blob)) {
+      reclaimBytes += blobPayloadBytes(blob)
+    }
+  }
+
   await waitForTransaction(tx)
   return { nodeIds, fileIds, reclaimBytes }
 }
@@ -602,14 +821,17 @@ export async function collectSubtreesBatch(
   }
 
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const store = tx.objectStore(FILES_NODES_STORE)
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const index = store.index('by-parent')
 
   const seenNodeIds = new Set<string>()
   const nodeIds: string[] = []
   const fileIds: string[] = []
   const bytesByNodeId = new Map<string, number>()
+  const releaseByBlobId = new Map<string, number>()
+  const fileBlobId = new Map<string, string>()
   let reclaimBytes = 0
 
   const visit = async (id: string): Promise<void> => {
@@ -618,14 +840,15 @@ export async function collectSubtreesBatch(
     if (!record) return
     seenNodeIds.add(record.id)
     const metaBytes = estimateNodeMetaBytes(recordToNode(record))
-    let nodeBytes = metaBytes
     nodeIds.push(record.id)
+    bytesByNodeId.set(record.id, metaBytes)
+    reclaimBytes += metaBytes
     if (record.kind === 'file') {
       fileIds.push(record.id)
-      nodeBytes += record.byteSize
+      const blobId = resolveNodeBlobId(record)
+      fileBlobId.set(record.id, blobId)
+      releaseByBlobId.set(blobId, (releaseByBlobId.get(blobId) ?? 0) + 1)
     }
-    bytesByNodeId.set(record.id, nodeBytes)
-    reclaimBytes += nodeBytes
     if (record.kind === 'folder') {
       const children = await requestToPromise(
         index.getAll([record.locationId, record.id]) as IDBRequest<FilesNodeRecord[]>,
@@ -639,6 +862,23 @@ export async function collectSubtreesBatch(
   for (const rootId of rootIds) {
     await visit(rootId)
   }
+
+  for (const [blobId, releases] of releaseByBlobId) {
+    const blob = await requestToPromise(
+      blobs.get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    if (!blob) continue
+    if (releases < resolveBlobRefCount(blob)) continue
+    const content = blobPayloadBytes(blob)
+    reclaimBytes += content
+    // 将内容字节挂到该 blob 的第一个文件节点上，便于分块删除进度估算
+    for (const [fileId, id] of fileBlobId) {
+      if (id !== blobId) continue
+      bytesByNodeId.set(fileId, (bytesByNodeId.get(fileId) ?? 0) + content)
+      break
+    }
+  }
+
   await waitForTransaction(tx)
   return { nodeIds, fileIds, reclaimBytes, bytesByNodeId }
 }
@@ -665,6 +905,7 @@ export async function deleteSubtreesMerged(
     const nodeChunk = merged.nodeIds.slice(offset, offset + batchSize)
     const nodeChunkSet = new Set(nodeChunk)
     const fileChunk = merged.fileIds.filter((id) => nodeChunkSet.has(id))
+    // reclaimBytes 仅作进度提示；实际配额在 deleteSubtree 内按引用计数重算
     let reclaimChunk = 0
     for (const id of nodeChunk) {
       reclaimChunk += merged.bytesByNodeId.get(id) ?? 0
@@ -689,15 +930,47 @@ export async function deleteSubtree(params: {
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const meta = tx.objectStore(FILES_META_STORE)
 
+  let reclaimBytes = 0
+  const fileIdSet = new Set(params.fileIds)
+
   for (const id of params.fileIds) {
-    blobs.delete(id)
+    const record = await requestToPromise(
+      nodes.get(id) as IDBRequest<FilesNodeRecord | undefined>,
+    )
+    if (!record || record.kind !== 'file') continue
+    reclaimBytes += estimateNodeMetaBytes(recordToNode(record))
+    const blobId = resolveNodeBlobId(record)
+    const blob = await requestToPromise(
+      blobs.get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    if (!blob) continue
+    const nextRef = resolveBlobRefCount(blob) - 1
+    if (nextRef <= 0) {
+      reclaimBytes += blobPayloadBytes(blob)
+      blobs.delete(blobId)
+    } else {
+      blobs.put({ ...blob, refCount: nextRef } satisfies FilesBlobRecord)
+    }
   }
+
   for (const id of params.nodeIds) {
+    if (fileIdSet.has(id)) {
+      nodes.delete(id)
+      continue
+    }
+    const record = await requestToPromise(
+      nodes.get(id) as IDBRequest<FilesNodeRecord | undefined>,
+    )
+    if (record) {
+      reclaimBytes += estimateNodeMetaBytes(recordToNode(record))
+    }
     nodes.delete(id)
   }
+
+  void params.reclaimBytes
   meta.put({
     key: 'byte-total',
-    totalBytes: Math.max(0, total - params.reclaimBytes),
+    totalBytes: Math.max(0, total - reclaimBytes),
   } satisfies FilesMetaRecord)
 
   await waitForTransaction(tx)
@@ -715,6 +988,12 @@ export type FilesStorageBatchOp =
   | { kind: 'create-text'; node: FilesNode; text: string; metaBytes: number }
   | { kind: 'create-bytes'; node: FilesNode; bytes: ArrayBuffer; metaBytes: number }
   | {
+      kind: 'clone-shared'
+      node: FilesNode
+      sourceNodeId: string
+      metaBytes: number
+    }
+  | {
       kind: 'write-text'
       id: string
       text: string
@@ -729,7 +1008,7 @@ export type FilesStorageBatchOp =
       nameMetaDelta: number
     }
 
-function batchOpNeededBytes(op: FilesStorageBatchOp): number {
+function batchCreateNeededBytes(op: FilesStorageBatchOp): number | undefined {
   switch (op.kind) {
     case 'create-folder':
       return op.metaBytes
@@ -737,10 +1016,10 @@ function batchOpNeededBytes(op: FilesStorageBatchOp): number {
       return op.metaBytes + estimateTextBytes(op.text)
     case 'create-bytes':
       return op.metaBytes + op.bytes.byteLength
-    case 'write-text':
-      return estimateTextBytes(op.text) - op.previousByteSize + op.nameMetaDelta
-    case 'write-bytes':
-      return op.bytes.byteLength - op.previousByteSize + op.nameMetaDelta
+    case 'clone-shared':
+      return op.metaBytes
+    default:
+      return undefined
   }
 }
 
@@ -753,13 +1032,64 @@ export async function commitFilesBatch(
 ): Promise<FilesNode[]> {
   if (ops.length === 0) return []
 
+  const db = await openFilesDb()
+
+  // 预读 write / clone 目标的引用计数，以便正确估算配额
+  const probeIds = new Set<string>()
+  for (const op of ops) {
+    if (op.kind === 'write-text' || op.kind === 'write-bytes') probeIds.add(op.id)
+    if (op.kind === 'clone-shared') probeIds.add(op.sourceNodeId)
+  }
+
+  const refByNodeId = new Map<string, number>()
+  const blobIdByNodeId = new Map<string, string>()
+  const sourceRecordById = new Map<string, FilesNodeRecord>()
+  if (probeIds.size > 0) {
+    const probeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+    for (const id of probeIds) {
+      const existing = await requestToPromise(
+        probeTx.objectStore(FILES_NODES_STORE).get(id) as IDBRequest<FilesNodeRecord | undefined>,
+      )
+      if (!existing || existing.kind !== 'file') continue
+      sourceRecordById.set(id, existing)
+      const blobId = resolveNodeBlobId(existing)
+      blobIdByNodeId.set(id, blobId)
+      const blob = await requestToPromise(
+        probeTx
+          .objectStore(FILES_BLOBS_STORE)
+          .get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+      )
+      refByNodeId.set(id, blob ? resolveBlobRefCount(blob) : 1)
+    }
+    await waitForTransaction(probeTx)
+  }
+
   let needed = 0
   for (const op of ops) {
-    needed += batchOpNeededBytes(op)
+    const createNeeded = batchCreateNeededBytes(op)
+    if (createNeeded !== undefined) {
+      needed += createNeeded
+      continue
+    }
+    if (op.kind === 'write-text') {
+      const textBytes = estimateTextBytes(op.text)
+      const ref = refByNodeId.get(op.id) ?? 1
+      needed +=
+        ref > 1
+          ? textBytes + op.nameMetaDelta
+          : textBytes - op.previousByteSize + op.nameMetaDelta
+      continue
+    }
+    if (op.kind === 'write-bytes') {
+      const ref = refByNodeId.get(op.id) ?? 1
+      needed +=
+        ref > 1
+          ? op.bytes.byteLength + op.nameMetaDelta
+          : op.bytes.byteLength - op.previousByteSize + op.nameMetaDelta
+    }
   }
   const total = await assertCapacity(needed)
 
-  const db = await openFilesDb()
   const tx = db.transaction(
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
     'readwrite',
@@ -768,6 +1098,11 @@ export async function commitFilesBatch(
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const meta = tx.objectStore(FILES_META_STORE)
   const results: FilesNode[] = []
+  /** 本事务内对 blob 引用的增量（clone / COW），避免重复读过期快照 */
+  const liveRefDelta = new Map<string, number>()
+
+  const liveRef = (blobId: string, base: number): number =>
+    base + (liveRefDelta.get(blobId) ?? 0)
 
   for (const op of ops) {
     if (op.kind === 'create-folder') {
@@ -782,10 +1117,12 @@ export async function commitFilesBatch(
         byteSize: textBytes,
         contentRevisionId: newContentRevisionId(),
       }
-      nodes.put(nodeToRecord(node))
+      const blobId = node.id
+      nodes.put(nodeToRecord(node, blobId))
       blobs.put({
-        id: node.id,
+        id: blobId,
         bytes: encodeTextToArrayBuffer(op.text),
+        refCount: 1,
       } satisfies FilesBlobRecord)
       results.push(node)
       continue
@@ -797,8 +1134,36 @@ export async function commitFilesBatch(
         byteSize: contentBytes,
         contentRevisionId: newContentRevisionId(),
       }
-      nodes.put(nodeToRecord(node))
-      blobs.put({ id: node.id, bytes: op.bytes } satisfies FilesBlobRecord)
+      const blobId = node.id
+      nodes.put(nodeToRecord(node, blobId))
+      blobs.put({ id: blobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+      results.push(node)
+      continue
+    }
+    if (op.kind === 'clone-shared') {
+      const source = sourceRecordById.get(op.sourceNodeId)
+      if (!source || source.kind !== 'file') {
+        throw new Error('源文件不存在')
+      }
+      const blobId = blobIdByNodeId.get(op.sourceNodeId) ?? resolveNodeBlobId(source)
+      const baseRef = refByNodeId.get(op.sourceNodeId) ?? 1
+      const nextRef = liveRef(blobId, baseRef) + 1
+      liveRefDelta.set(blobId, (liveRefDelta.get(blobId) ?? 0) + 1)
+      const existingBlob = await requestToPromise(
+        blobs.get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+      )
+      if (!existingBlob) {
+        throw new Error('源文件内容不存在')
+      }
+      blobs.put({ ...existingBlob, refCount: nextRef } satisfies FilesBlobRecord)
+      const node: FilesNode = {
+        ...op.node,
+        kind: 'file',
+        byteSize: source.byteSize,
+        mimeType: op.node.mimeType ?? source.mimeType,
+        contentRevisionId: source.contentRevisionId ?? newContentRevisionId(),
+      }
+      nodes.put(nodeToRecord(node, blobId))
       results.push(node)
       continue
     }
@@ -810,6 +1175,10 @@ export async function commitFilesBatch(
         throw new Error('文件不存在')
       }
       const textBytes = estimateTextBytes(op.text)
+      const bytes = encodeTextToArrayBuffer(op.text)
+      const oldBlobId = resolveNodeBlobId(existing)
+      const baseRef = refByNodeId.get(op.id) ?? 1
+      const refCount = liveRef(oldBlobId, baseRef)
       const updated: FilesNodeRecord = {
         ...existing,
         byteSize: textBytes,
@@ -817,11 +1186,24 @@ export async function commitFilesBatch(
         contentRevisionId: newContentRevisionId(),
         attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
       }
+      if (refCount > 1) {
+        const newBlobId = newFilesBlobId()
+        updated.blobId = newBlobId
+        blobs.put({ id: newBlobId, bytes, refCount: 1 } satisfies FilesBlobRecord)
+        const oldBlob = await requestToPromise(
+          blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+        )
+        if (oldBlob) {
+          const nextRef = refCount - 1
+          liveRefDelta.set(oldBlobId, (liveRefDelta.get(oldBlobId) ?? 0) - 1)
+          if (nextRef <= 0) blobs.delete(oldBlobId)
+          else blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+        }
+      } else {
+        updated.blobId = oldBlobId
+        blobs.put({ id: oldBlobId, bytes, refCount: 1 } satisfies FilesBlobRecord)
+      }
       nodes.put(updated)
-      blobs.put({
-        id: op.id,
-        bytes: encodeTextToArrayBuffer(op.text),
-      } satisfies FilesBlobRecord)
       results.push(recordToNode(updated))
       continue
     }
@@ -833,6 +1215,9 @@ export async function commitFilesBatch(
       throw new Error('文件不存在')
     }
     const contentBytes = op.bytes.byteLength
+    const oldBlobId = resolveNodeBlobId(existing)
+    const baseRef = refByNodeId.get(op.id) ?? 1
+    const refCount = liveRef(oldBlobId, baseRef)
     const updated: FilesNodeRecord = {
       ...existing,
       byteSize: contentBytes,
@@ -840,8 +1225,24 @@ export async function commitFilesBatch(
       contentRevisionId: newContentRevisionId(),
       attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
     }
+    if (refCount > 1) {
+      const newBlobId = newFilesBlobId()
+      updated.blobId = newBlobId
+      blobs.put({ id: newBlobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+      const oldBlob = await requestToPromise(
+        blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+      )
+      if (oldBlob) {
+        const nextRef = refCount - 1
+        liveRefDelta.set(oldBlobId, (liveRefDelta.get(oldBlobId) ?? 0) - 1)
+        if (nextRef <= 0) blobs.delete(oldBlobId)
+        else blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+      }
+    } else {
+      updated.blobId = oldBlobId
+      blobs.put({ id: oldBlobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+    }
     nodes.put(updated)
-    blobs.put({ id: op.id, bytes: op.bytes } satisfies FilesBlobRecord)
     results.push(recordToNode(updated))
   }
 

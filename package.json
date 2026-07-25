@@ -17,6 +17,7 @@
     "test:vscode-ts-resolve": "node --experimental-strip-types src/apps/vscode/vscode-typescript-module-resolve.gpt-tokenizer.test.ts",
     "test:quickjs": "node --experimental-strip-types src/quickjs/quickjs-sandbox.smoke-test.ts",
     "test:quickjs-cowsay": "node --experimental-strip-types src/quickjs/quickjs-cowsay.smoke-test.ts",
+    "test:files-cow": "node --experimental-strip-types src/apps/files/files-storage-cow.test.ts",
     "vendor:quickjs-guest": "node scripts/vendor-quickjs-guest-builtins.mjs"
   },
   "dependencies": {
