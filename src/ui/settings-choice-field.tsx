@@ -1,8 +1,17 @@
+import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { SettingsChoiceOption } from './settings-choice-option-list.tsx'
 import { SettingsChoicePopoverMenu } from './settings-choice-popover-menu.tsx'
 import { SettingsNavRow } from './settings-nav-row.tsx'
 import './settings-choice-field.css'
+
+export type SettingsChoiceTriggerProps = {
+  open: boolean
+  setOpen: (open: boolean) => void
+  triggerRef: { current: HTMLButtonElement | null }
+  displayValue: string
+  disabled?: boolean
+}
 
 type SettingsChoiceFieldProps = {
   label: string
@@ -17,6 +26,8 @@ type SettingsChoiceFieldProps = {
   labelClass?: string
   disabled?: boolean
   dark?: boolean
+  /** 自定义 trigger 渲染。传入后由外部控制 trigger，popover 仍由组件管理 */
+  children?: (props: SettingsChoiceTriggerProps) => ComponentChildren
 }
 
 export function SettingsChoiceField({
@@ -32,6 +43,7 @@ export function SettingsChoiceField({
   labelClass = 'settings__field-label',
   disabled,
   dark,
+  children,
 }: SettingsChoiceFieldProps) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -91,6 +103,21 @@ export function SettingsChoiceField({
       onChange={handleSelect}
     />
   )
+
+  if (children) {
+    return (
+      <>
+        {children({
+          open,
+          setOpen: (next: boolean) => setOpen(next),
+          triggerRef,
+          displayValue: resolvedDisplay,
+          disabled,
+        })}
+        {popoverMenu}
+      </>
+    )
+  }
 
   if (!wideLayout) {
     return (

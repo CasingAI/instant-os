@@ -83,18 +83,58 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'options', type: 'SettingsChoiceOption[]', description: '选项列表' },
       { name: 'onChange', type: '(value: string) => void', description: '变化回调' },
       { name: 'wideLayout', type: 'boolean', description: '是否宽屏布局' },
+      { name: 'children', type: '(props: SettingsChoiceTriggerProps) => VNode', description: '自定义 trigger 渲染，传入后 trigger 与 popover 分离' },
     ],
-    codeExample: `<SettingsChoiceField
-  label="主题"
-  value={theme}
-  options={[
-    { id: 'auto', label: '自动' },
-    { id: 'light', label: '浅色' },
-    { id: 'dark', label: '深色' }
-  ]}
+    codeExample: `// 方式一：内置 trigger（form）
+<SettingsChoiceField
+  label="主题" value={theme}
+  options={[...]}
   onChange={setTheme}
-  wideLayout={wide}
-/>`,
+  wideLayout={true}
+  presentation="form"
+/>
+
+// 方式二：内置 trigger（list）
+<SettingsChoiceField
+  label="语言" value={lang}
+  options={[...]}
+  onChange={setLang}
+  wideLayout={true}
+  presentation="list"
+/>
+
+// 方式三：自定义 trigger（children）
+<SettingsChoiceField
+  label="地区" value={region}
+  options={[...]}
+  onChange={setRegion}
+  wideLayout={true}
+>
+  {({ open, setOpen, triggerRef, displayValue }) => (
+    <button
+      ref={triggerRef}
+      onClick={() => setOpen(!open)}
+    >
+      🌍 {displayValue} {open ? '▲' : '▼'}
+    </button>
+  )}
+</SettingsChoiceField>
+
+// 方式四：自定义 trigger + dark 主题
+<SettingsChoiceField
+  label="排序" value={sort}
+  options={[...]}
+  onChange={setSort}
+  wideLayout={true}
+  dark
+>
+  {({ open, setOpen, triggerRef, displayValue }) => (
+    <button ref={triggerRef} onClick={() => setOpen(!open)}
+      style={{ background: '#5856d6', color: '#fff' }}>
+      {displayValue}
+    </button>
+  )}
+</SettingsChoiceField>`,
   },
   {
     id: 'settings-nav-row',

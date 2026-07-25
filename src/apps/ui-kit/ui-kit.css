@@ -327,6 +327,33 @@
   color: #444;
 }
 
+/* ── Demo 变体展示 ── */
+
+.ui-kit-demo__variants {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.ui-kit-demo__variant {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+}
+
+.ui-kit-demo__variant-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* ── 窄屏模式 ── */
 
 .ui-kit--narrow {
