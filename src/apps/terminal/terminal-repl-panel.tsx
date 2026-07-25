@@ -26,7 +26,11 @@ export type TerminalReplHandle = {
   clear: () => void
   abort: () => void
   focus: () => void
+  /** 向终端输出区追加一行信息（不经过 REPL 执行） */
+  appendInfo: (text: string) => void
   getLastChanges: () => TerminalChangeSet | undefined
+  /** 仅清除「上一轮可撤销」记录（文件已由外部回滚时用） */
+  clearLastChanges: () => void
   /** @returns 是否成功撤销（有可撤销变更时为 true） */
   revertLastChanges: () => Promise<boolean>
 }
@@ -391,6 +395,10 @@ export function TerminalReplPanel({
     return instanceRef.current?.getLastChanges()
   }, [])
 
+  const clearLastChanges = useCallback(() => {
+    instanceRef.current?.clearLastChanges()
+  }, [])
+
   const revertLastChanges = useCallback(async (): Promise<boolean> => {
     const instance = instanceRef.current
     if (!instance || instance.getSnapshot().destroyed) {
@@ -412,6 +420,13 @@ export function TerminalReplPanel({
     }
   }, [appendLine])
 
+  const appendInfo = useCallback(
+    (text: string) => {
+      appendLine({ kind: 'info', text })
+    },
+    [appendLine],
+  )
+
   useEffect(() => {
     const handle: TerminalReplHandle = {
       runCode,
@@ -420,7 +435,9 @@ export function TerminalReplPanel({
       clear: clearScreen,
       abort: handleAbort,
       focus: focusInput,
+      appendInfo,
       getLastChanges,
+      clearLastChanges,
       revertLastChanges,
     }
 
@@ -436,7 +453,9 @@ export function TerminalReplPanel({
     }
     return undefined
   }, [
+    appendInfo,
     chdir,
+    clearLastChanges,
     clearScreen,
     cwd,
     focusInput,

@@ -107,9 +107,15 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
   const agentTerm = input.agentTerminal
   if (agentTerm) {
     if (agentTerm.status === 'alive' && agentTerm.sessionId) {
-      lines.push(
-        `Agent 终端：session=${agentTerm.sessionId} cwd=${agentTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
-      )
+      if (agentTerm.recovering) {
+        lines.push(
+          `Agent 终端：session=${agentTerm.sessionId} 会话存在，正在恢复；cwd=${agentTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+        )
+      } else {
+        lines.push(
+          `Agent 终端：session=${agentTerm.sessionId} cwd=${agentTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+        )
+      }
     } else if (agentTerm.status === 'closed') {
       lines.push('Agent 终端：已关闭。下次 run_in_terminal 会自动新开（结果里 kind=rebuilt）')
     } else {

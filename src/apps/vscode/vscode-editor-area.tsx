@@ -34,7 +34,10 @@ import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
-import type { VscodeAgentTerminalEnsureResult } from './vscode-ai-run-command.ts'
+import type {
+  VscodeAgentTerminalEnsureResult,
+  VscodeAiLastChangeSource,
+} from './vscode-ai-run-command.ts'
 import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 import { HistoryIcon, PlusIcon } from '../../icons/app-icons.tsx'
 
@@ -196,7 +199,12 @@ type VscodeEditorAreaProps = {
   getAiContext?: () => VscodeAiContextInput
   getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
   problems?: readonly MonacoProblem[]
-  npmLastChanges?: { current: TerminalChangeSet | undefined }
+  getNpmLastChangesSlot?: (chatSessionId: string) => {
+    current: TerminalChangeSet | undefined
+  }
+  getLastChangeSourceSlot?: (chatSessionId: string) => {
+    current: VscodeAiLastChangeSource | undefined
+  }
   onTerminalChangesAvailable?: (available: boolean) => void
   ensureAgentTerminal?: (
     chatSessionId: string,
@@ -321,7 +329,8 @@ function VscodeEditorGroupView({
   getAiContext,
   getOpenFilesForSearch,
   problems,
-  npmLastChanges,
+  getNpmLastChangesSlot,
+  getLastChangeSourceSlot,
   onTerminalChangesAvailable,
   ensureAgentTerminal,
   getAgentTerminalHandle,
@@ -817,7 +826,12 @@ function VscodeEditorGroupView({
                   getContext={getAiContext}
                   getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}
                   problems={problems ?? []}
-                  npmLastChanges={npmLastChanges ?? { current: undefined }}
+                  getNpmLastChangesSlot={
+                    getNpmLastChangesSlot ?? (() => ({ current: undefined }))
+                  }
+                  getLastChangeSourceSlot={
+                    getLastChangeSourceSlot ?? (() => ({ current: undefined }))
+                  }
                   onChangesAvailable={onTerminalChangesAvailable}
                   ensureAgentTerminal={ensureAgentTerminal}
                   getAgentTerminalHandle={getAgentTerminalHandle}

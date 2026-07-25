@@ -3,10 +3,12 @@ import type OpenAI from 'openai'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { HelpIcon } from '../../icons/app-icons.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type {
   VscodeAgentTerminalEnsureResult,
+  VscodeAiLastChangeSource,
 } from './vscode-ai-run-command.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
@@ -26,11 +28,17 @@ import {
   type VscodeAiTimelineItem,
 } from './vscode-ai-agent.ts'
 import type { VscodeAiToolsHost } from './vscode-ai-tools.ts'
-import type { VscodeAiRunCommandHost } from './vscode-ai-run-command.ts'
+import {
+  collectPathsFromChangeSets,
+  revertVscodeAiChangeSessions,
+  type VscodeAiRunCommandHost,
+} from './vscode-ai-run-command.ts'
+import { VscodeAiUnifiedDiffView } from './vscode-ai-change-review.tsx'
 import {
   createVscodeAiChatMessage,
   type VscodeAiChatMessage,
   type VscodeAiPendingEdit,
+  type VscodeAiReviewStatus,
 } from './vscode-ai-chat-storage.ts'
 import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
 import {
@@ -42,6 +50,8 @@ import {
 import { osNowMs } from '../../os/os-clock.ts'
 import '../help/help.css'
 import './vscode-ai.css'
+
+const VSCODE_AI_MODAL_THEME = '#2f87e2'
 
 const SAMPLE_PROMPTS = [
   '这个项目结构是怎样的？',
@@ -72,8 +82,14 @@ export type VscodeAiPanelProps = {
   getContext: () => VscodeAiContextInput
   getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
   problems: readonly MonacoProblem[]
-  /** npm/npx 受控变更槽（与内嵌终端共用回滚状态） */
-  npmLastChanges: { current: TerminalChangeSet | undefined }
+  /** 按对话取 npm/npx 受控变更槽 */
+  getNpmLastChangesSlot: (chatSessionId: string) => {
+    current: TerminalChangeSet | undefined
+  }
+  /** 按对话取最近一次有 fs 改动的来源 */
+  getLastChangeSourceSlot: (chatSessionId: string) => {
+    current: VscodeAiLastChangeSource | undefined
+  }
   onChangesAvailable?: (available: boolean) => void
   ensureAgentTerminal: (chatSessionId: string, chatTitle: string) => Promise<VscodeAgentTerminalEnsureResult>
   getAgentTerminalHandle: (chatSessionId: string) => TerminalReplHandle | undefined
@@ -395,11 +411,27 @@ function PendingEditCard({
   onApply: () => void
   onReject: () => void
 }) {
-  if (edit.status !== 'pending') return undefined
+  if (edit.status === 'applied') {
+    return (
+      <div class="vscode-ai__edit-card">
+        <div class="vscode-ai__edit-card-title">已应用修改</div>
+        <div class="vscode-ai__edit-card-path">{edit.path}</div>
+      </div>
+    )
+  }
+  if (edit.status === 'rejected') {
+    return (
+      <div class="vscode-ai__edit-card">
+        <div class="vscode-ai__edit-card-title">已拒绝修改</div>
+        <div class="vscode-ai__edit-card-path">{edit.path}</div>
+      </div>
+    )
+  }
   return (
     <div class="vscode-ai__edit-card">
       <div class="vscode-ai__edit-card-title">修改提案</div>
       <div class="vscode-ai__edit-card-path">{edit.path}</div>
+      <VscodeAiUnifiedDiffView original={edit.previousText} modified={edit.nextText} />
       <div class="vscode-ai__edit-card-actions">
         <button type="button" class="help-app__sample" onClick={onApply}>
           应用
@@ -425,7 +457,8 @@ export function VscodeAiPanel({
   getContext,
   getOpenFilesForSearch,
   problems,
-  npmLastChanges,
+  getNpmLastChangesSlot,
+  getLastChangeSourceSlot,
   onChangesAvailable,
   ensureAgentTerminal,
   getAgentTerminalHandle,
@@ -433,6 +466,7 @@ export function VscodeAiPanel({
   onApplyEdit,
   onRejectEdit,
 }: VscodeAiPanelProps) {
+  const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
   const resolvedModelKey = useMemo(
     () => resolveVscodeAiModelRefKey(aiModelKey),
@@ -471,6 +505,10 @@ export function VscodeAiPanel({
   const sessionIdRef = useRef(sessionId)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const turnChangeSessionsRef = useRef<TerminalChangeSet[]>([])
+  const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
+  const [editingDraft, setEditingDraft] = useState('')
+  const [reviewBusy, setReviewBusy] = useState(false)
 
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return
@@ -487,6 +525,9 @@ export function VscodeAiPanel({
     abortRef.current = undefined
     historyRef.current = []
     pendingEditsRef.current = []
+    turnChangeSessionsRef.current = []
+    setEditingUserId(undefined)
+    setEditingDraft('')
   }, [sessionId])
 
   const chatTitle = useMemo(() => {
@@ -497,7 +538,9 @@ export function VscodeAiPanel({
   const runCommandHost = useMemo<VscodeAiRunCommandHost>(
     () => ({
       workspaceFolder,
-      npmLastChanges,
+      npmLastChanges: getNpmLastChangesSlot(sessionId),
+      lastChangeSource: getLastChangeSourceSlot(sessionId),
+      turnChangeSessions: turnChangeSessionsRef,
       onChangesAvailable,
       ensureAgentTerminal: () =>
         ensureAgentTerminal(sessionIdRef.current, messagesRef.current.find((m) => m.role === 'user')?.content?.trim().slice(0, 40) || chatTitle),
@@ -509,11 +552,39 @@ export function VscodeAiPanel({
       ensureAgentTerminal,
       getAgentTerminalHandle,
       getAgentTerminalSnapshot,
-      npmLastChanges,
+      getLastChangeSourceSlot,
+      getNpmLastChangesSlot,
       onChangesAvailable,
+      sessionId,
       workspaceFolder,
     ],
   )
+
+  const pendingReview = useMemo(() => {
+    const paths = new Set<string>()
+    const sessionIds: string[] = []
+    for (const message of messages) {
+      if (message.role !== 'assistant') continue
+      const status: VscodeAiReviewStatus | undefined =
+        message.reviewStatus ??
+        (message.changeSessionIds?.length || message.terminalChangeReview?.status === 'pending'
+          ? message.terminalChangeReview?.status ?? 'pending'
+          : undefined)
+      if (status !== 'pending') continue
+      const ids =
+        message.changeSessionIds ??
+        (message.terminalChangeReview ? [message.terminalChangeReview.sessionId] : [])
+      for (const id of ids) {
+        if (!sessionIds.includes(id)) sessionIds.push(id)
+      }
+      const messagePaths =
+        message.changePaths ??
+        message.terminalChangeReview?.files.map((file) => file.path) ??
+        []
+      for (const path of messagePaths) paths.add(path)
+    }
+    return { fileCount: paths.size, sessionIds }
+  }, [messages])
 
   const contextWithTerminal = useCallback((): VscodeAiContextInput => {
     const base = getContext()
@@ -551,11 +622,83 @@ export function VscodeAiPanel({
     abortRef.current = undefined
   }, [])
 
+  const rebuildHistoryFromMessages = useCallback((source: readonly VscodeAiChatMessage[]) => {
+    const next: OpenAI.Chat.ChatCompletionMessageParam[] = []
+    for (const message of source) {
+      if (message.role === 'user') {
+        next.push({ role: 'user', content: message.content })
+        continue
+      }
+      if (message.role === 'assistant' && !message.isError) {
+        next.push({ role: 'assistant', content: message.content })
+      }
+    }
+    return next
+  }, [])
+
+  const collectSessionIdsAfter = useCallback(
+    (source: readonly VscodeAiChatMessage[], fromIndex: number): string[] => {
+      const ids: string[] = []
+      for (let index = fromIndex; index < source.length; index += 1) {
+        const message = source[index]
+        if (message.role !== 'assistant') continue
+        const sessionIds =
+          message.changeSessionIds ??
+          (message.terminalChangeReview ? [message.terminalChangeReview.sessionId] : [])
+        for (const id of sessionIds) {
+          if (!ids.includes(id)) ids.push(id)
+        }
+      }
+      return ids
+    },
+    [],
+  )
+
+  const turnChangeExtras = useCallback(() => {
+    const sessions = turnChangeSessionsRef.current
+    if (sessions.length === 0) return undefined
+    return {
+      changeSessionIds: sessions.map((session) => session.sessionId),
+      changePaths: collectPathsFromChangeSets(sessions),
+      reviewStatus: 'pending' as const,
+    }
+  }, [])
+
   const send = useCallback(
-    async (textOverride?: string) => {
+    async (textOverride?: string, options?: { replaceFromUserId?: string }) => {
       const text = (textOverride ?? draft).trim()
       if (!text || busy) return
-      if (!textOverride) setDraft('')
+
+      let withUser: VscodeAiChatMessage[]
+      if (options?.replaceFromUserId) {
+        const index = messages.findIndex((message) => message.id === options.replaceFromUserId)
+        if (index < 0 || messages[index]?.role !== 'user') return
+        const sessionIds = collectSessionIdsAfter(messages, index + 1)
+        if (sessionIds.length > 0) {
+          setReviewBusy(true)
+          try {
+            await revertVscodeAiChangeSessions(runCommandHost, sessionIds)
+          } finally {
+            setReviewBusy(false)
+          }
+        }
+        const editedUser: VscodeAiChatMessage = {
+          ...messages[index],
+          content: text,
+          createdAt: Date.now(),
+        }
+        withUser = [...messages.slice(0, index), editedUser]
+        historyRef.current = rebuildHistoryFromMessages(messages.slice(0, index))
+        onMessagesChange(withUser)
+        setEditingUserId(undefined)
+        setEditingDraft('')
+      } else {
+        if (!textOverride) setDraft('')
+        const userMessage = createVscodeAiChatMessage('user', text)
+        withUser = [...messages, userMessage]
+        onMessagesChange(withUser)
+      }
+
       setBusy(true)
       setLiveTimeline([])
       setLiveAnswer('')
@@ -564,10 +707,7 @@ export function VscodeAiPanel({
       liveToolCallCountRef.current = 0
       liveStartedAtRef.current = osNowMs()
       pendingEditsRef.current = []
-
-      const userMessage = createVscodeAiChatMessage('user', text)
-      const withUser = [...messages, userMessage]
-      onMessagesChange(withUser)
+      turnChangeSessionsRef.current = []
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -605,6 +745,7 @@ export function VscodeAiPanel({
                 })
               : undefined
 
+        const changeExtras = turnChangeExtras()
         const assistantMessage = createVscodeAiChatMessage(
           'assistant',
           result.text || liveAnswerRef.current,
@@ -612,6 +753,7 @@ export function VscodeAiPanel({
             pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
             incomplete: result.incomplete,
             investigation,
+            ...changeExtras,
           },
         )
         onMessagesChange([...withUser, assistantMessage])
@@ -628,9 +770,11 @@ export function VscodeAiPanel({
         const content = aborted
           ? liveAnswerRef.current.trim() || formatError(error)
           : formatError(error)
+        const changeExtras = turnChangeExtras()
         const assistantMessage = createVscodeAiChatMessage('assistant', content, {
           isError: !aborted,
           investigation,
+          ...changeExtras,
         })
         onMessagesChange([...withUser, assistantMessage])
       } finally {
@@ -646,13 +790,101 @@ export function VscodeAiPanel({
     [
       aiModelKey,
       busy,
+      collectSessionIdsAfter,
       contextWithTerminal,
       draft,
       messages,
       mode,
       onMessagesChange,
+      rebuildHistoryFromMessages,
+      runCommandHost,
       toolsHost,
+      turnChangeExtras,
     ],
+  )
+
+  const keepAllPendingChanges = useCallback(() => {
+    onMessagesChange(
+      messages.map((message) => {
+        if (message.role !== 'assistant') return message
+        const status =
+          message.reviewStatus ??
+          (message.changeSessionIds?.length || message.terminalChangeReview?.status === 'pending'
+            ? message.terminalChangeReview?.status ?? 'pending'
+            : undefined)
+        if (status !== 'pending') return message
+        return {
+          ...message,
+          reviewStatus: 'kept' as const,
+          terminalChangeReview: message.terminalChangeReview
+            ? { ...message.terminalChangeReview, status: 'kept' as const }
+            : message.terminalChangeReview,
+        }
+      }),
+    )
+  }, [messages, onMessagesChange])
+
+  const undoAllPendingChanges = useCallback(async () => {
+    if (reviewBusy || pendingReview.sessionIds.length === 0) return
+    setReviewBusy(true)
+    try {
+      await revertVscodeAiChangeSessions(runCommandHost, pendingReview.sessionIds)
+      onMessagesChange(
+        messages.map((message) => {
+          if (message.role !== 'assistant') return message
+          const status =
+            message.reviewStatus ??
+            (message.changeSessionIds?.length || message.terminalChangeReview?.status === 'pending'
+              ? message.terminalChangeReview?.status ?? 'pending'
+              : undefined)
+          if (status !== 'pending') return message
+          return {
+            ...message,
+            reviewStatus: 'reverted' as const,
+            terminalChangeReview: message.terminalChangeReview
+              ? { ...message.terminalChangeReview, status: 'reverted' as const }
+              : message.terminalChangeReview,
+          }
+        }),
+      )
+    } finally {
+      setReviewBusy(false)
+    }
+  }, [messages, onMessagesChange, pendingReview.sessionIds, reviewBusy, runCommandHost])
+
+  const beginEditUserMessage = useCallback((message: VscodeAiChatMessage) => {
+    if (message.role !== 'user') return
+    setEditingUserId(message.id)
+    setEditingDraft(message.content)
+  }, [])
+
+  const cancelEditUserMessage = useCallback(() => {
+    setEditingUserId(undefined)
+    setEditingDraft('')
+  }, [])
+
+  const resubmitEditedUserMessage = useCallback(
+    async (messageId: string) => {
+      const text = editingDraft.trim()
+      if (!text || busy || reviewBusy) return
+      const index = messages.findIndex((message) => message.id === messageId)
+      if (index < 0) return
+      const hasLater = index < messages.length - 1
+      const hasLaterChanges = collectSessionIdsAfter(messages, index + 1).length > 0
+      if (hasLater || hasLaterChanges) {
+        const ok = await modal.confirm({
+          title: '从此消息重新发送？',
+          message:
+            '将丢弃此消息之后的对话，并回滚之后 Agent 产生的文件改动，然后按新文案重新发送。',
+          confirmLabel: '重新发送',
+          cancelLabel: '取消',
+          themeColor: VSCODE_AI_MODAL_THEME,
+        })
+        if (!ok) return
+      }
+      await send(text, { replaceFromUserId: messageId })
+    },
+    [busy, collectSessionIdsAfter, editingDraft, messages, modal, reviewBusy, send],
   )
 
   const applyEdit = useCallback(
@@ -671,6 +903,24 @@ export function VscodeAiPanel({
       )
     },
     [messages, onApplyEdit, onMessagesChange],
+  )
+
+  const rejectEdit = useCallback(
+    (editId: string) => {
+      onRejectEdit(editId)
+      onMessagesChange(
+        messages.map((message) => {
+          if (!message.pendingEdits) return message
+          return {
+            ...message,
+            pendingEdits: message.pendingEdits.map((item) =>
+              item.id === editId ? { ...item, status: 'rejected' as const } : item,
+            ),
+          }
+        }),
+      )
+    },
+    [messages, onMessagesChange, onRejectEdit],
   )
 
   const showWelcome = messages.length === 0 && !busy
@@ -717,24 +967,65 @@ export function VscodeAiPanel({
                   )}
                 </span>
                 <div
-                  class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
+                  class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}${message.role === 'user' ? ' vscode-ai__bubble--user' : ''}`}
                 >
                   {message.investigation ? (
                     <InvestigationPanel investigation={message.investigation} />
                   ) : undefined}
-                  {message.role === 'assistant' && !message.isError ? (
+                  {message.role === 'user' && editingUserId === message.id ? (
+                    <div class="vscode-ai__user-edit">
+                      <textarea
+                        class="help-app__input vscode-ai__user-edit-input"
+                        rows={3}
+                        value={editingDraft}
+                        disabled={busy || reviewBusy}
+                        onInput={(event) =>
+                          setEditingDraft((event.target as HTMLTextAreaElement).value)
+                        }
+                      />
+                      <div class="vscode-ai__user-edit-actions">
+                        <button
+                          type="button"
+                          class="help-app__sample"
+                          disabled={busy || reviewBusy || !editingDraft.trim()}
+                          onClick={() => void resubmitEditedUserMessage(message.id)}
+                        >
+                          发送
+                        </button>
+                        <button
+                          type="button"
+                          class="help-app__sample"
+                          disabled={busy || reviewBusy}
+                          onClick={cancelEditUserMessage}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : message.role === 'assistant' && !message.isError ? (
                     <div class="help-app__answer">
                       <HelpMarkdown text={message.content} />
                     </div>
                   ) : (
                     <div class="help-app__answer help-app__answer--plain">{message.content}</div>
                   )}
+                  {message.role === 'user' && editingUserId !== message.id ? (
+                    <button
+                      type="button"
+                      class="vscode-ai__edit-msg"
+                      disabled={busy || reviewBusy}
+                      title="编辑并从此处分叉重发"
+                      onClick={() => beginEditUserMessage(message)}
+                    >
+                      编辑
+                    </button>
+                  ) : undefined}
                   {message.pendingEdits?.map((edit) => (
                     <PendingEditCard
                       key={edit.id}
                       edit={edit}
                       onApply={() => void applyEdit(edit)}
-                      onReject={() => onRejectEdit(edit.id)}
+                      onReject={() => rejectEdit(edit.id)}
                     />
                   ))}
                 </div>
@@ -761,6 +1052,31 @@ export function VscodeAiPanel({
       </div>
 
       <div class="help-app__composer-wrap vscode-ai__composer-wrap">
+        {pendingReview.fileCount > 0 ? (
+          <div class="vscode-ai__review-bar" role="status">
+            <span class="vscode-ai__review-bar-label">
+              已修改 {pendingReview.fileCount} 个文件
+            </span>
+            <div class="vscode-ai__review-bar-actions">
+              <button
+                type="button"
+                class="help-app__sample"
+                disabled={busy || reviewBusy}
+                onClick={keepAllPendingChanges}
+              >
+                Keep All
+              </button>
+              <button
+                type="button"
+                class="help-app__sample"
+                disabled={busy || reviewBusy}
+                onClick={() => void undoAllPendingChanges()}
+              >
+                Undo All
+              </button>
+            </div>
+          </div>
+        ) : undefined}
         <div class="help-app__composer vscode-ai__composer">
           <textarea
             class="help-app__input"

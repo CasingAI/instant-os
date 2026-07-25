@@ -29,7 +29,11 @@ import {
 } from '../../terminal/terminal-public.ts'
 import { TERMINAL_FS_MODE_LABEL } from '../../terminal/terminal-fs-mode.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
-import { revertVscodeTerminalAndNpmChanges } from './vscode-ai-run-command.ts'
+import {
+  revertVscodeAiLastChanges,
+  revertVscodeTerminalAndNpmChanges,
+  type VscodeAiLastChangeSource,
+} from './vscode-ai-run-command.ts'
 import {
   TerminalReplPanel,
   type TerminalReplHandle,
@@ -329,6 +333,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [editorLayout, setEditorLayout] = useState<VscodeEditorLayoutState>(() =>
     createEmptyEditorLayout(),
   )
+  const editorLayoutRef = useRef(editorLayout)
 
   const bootTerminalRef = useRef<{ sessions: VscodeTerminalSession[]; activeId: string } | null>(
     null,
@@ -361,11 +366,76 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const closedAgentChatIdsRef = useRef(new Set<string>())
   const activeTerminalHandleRef = useRef<TerminalReplHandle | null>(null)
   const [canRevertTerminal, setCanRevertTerminal] = useState(false)
-  const npmLastChangesRef = useRef<{ current: TerminalChangeSet | undefined }>({
-    current: undefined,
-  })
+  const npmLastChangesByChatRef = useRef(new Map<string, TerminalChangeSet>())
+  const lastChangeSourceByChatRef = useRef(new Map<string, VscodeAiLastChangeSource>())
   const activeTerminalSession = terminalSessions.find((s) => s.id === activeTerminalSessionId)
   const activeTerminalFsMode = activeTerminalSession?.fsMode ?? 'controlled'
+
+  const getNpmLastChangesSlot = useCallback((chatSessionId: string) => {
+    return {
+      get current() {
+        return npmLastChangesByChatRef.current.get(chatSessionId)
+      },
+      set current(value: TerminalChangeSet | undefined) {
+        if (value && value.changes.length > 0) {
+          npmLastChangesByChatRef.current.set(chatSessionId, value)
+        } else {
+          npmLastChangesByChatRef.current.delete(chatSessionId)
+        }
+      },
+    }
+  }, [])
+
+  const getLastChangeSourceSlot = useCallback((chatSessionId: string) => {
+    return {
+      get current() {
+        return lastChangeSourceByChatRef.current.get(chatSessionId)
+      },
+      set current(value: VscodeAiLastChangeSource | undefined) {
+        if (value) lastChangeSourceByChatRef.current.set(chatSessionId, value)
+        else lastChangeSourceByChatRef.current.delete(chatSessionId)
+      },
+    }
+  }, [])
+
+  const getFocusedEditorItem = useCallback(() => {
+    const layout = editorLayoutRef.current
+    const group = layout.groups[layout.focusedGroupId]
+    return group?.items.find((item) => item.id === group.activeItemId) ?? group?.items[0]
+  }, [])
+
+  const refreshCanRevertTerminal = useCallback(() => {
+    const focused = getFocusedEditorItem()
+    if (focused?.kind === 'aiChat') {
+      const chatId = focused.sessionId
+      const agentSession = terminalSessionsRef.current.find(
+        (s) => s.kind === 'agent' && s.ownerChatId === chatId,
+      )
+      const terminalHas =
+        (agentSession
+          ? terminalHandlesRef.current.get(agentSession.id)?.getLastChanges()?.changes.length
+          : 0) ?? 0
+      const npmHas = (npmLastChangesByChatRef.current.get(chatId)?.changes.length ?? 0) > 0
+      setCanRevertTerminal(terminalHas > 0 || npmHas)
+      return
+    }
+
+    const activeId = activeTerminalSessionIdRef.current
+    const session = terminalSessionsRef.current.find((s) => s.id === activeId)
+    if (!session || session.fsMode !== 'controlled') {
+      setCanRevertTerminal(false)
+      return
+    }
+    const terminalHas =
+      (terminalHandlesRef.current.get(activeId)?.getLastChanges()?.changes.length ?? 0) > 0
+    if (session.kind === 'agent' && session.ownerChatId) {
+      const npmHas =
+        (npmLastChangesByChatRef.current.get(session.ownerChatId)?.changes.length ?? 0) > 0
+      setCanRevertTerminal(terminalHas || npmHas)
+      return
+    }
+    setCanRevertTerminal(terminalHas)
+  }, [getFocusedEditorItem])
 
   const syncActiveTerminalHandle = useCallback(() => {
     const handle =
@@ -387,12 +457,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
       if (sessionId === activeTerminalSessionIdRef.current) {
         activeTerminalHandleRef.current = handle
-        const changes = handle?.getLastChanges()
-        const npmHas = (npmLastChangesRef.current.current?.changes.length ?? 0) > 0
-        setCanRevertTerminal((changes?.changes.length ?? 0) > 0 || npmHas)
       }
+      refreshCanRevertTerminal()
     },
-    [],
+    [refreshCanRevertTerminal],
   )
 
   const waitForTerminalHandle = useCallback((sessionId: string) => {
@@ -416,18 +484,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     return promise
   }, [])
 
-  const handleTerminalChangesAvailable = useCallback((available: boolean) => {
-    const npmHas = (npmLastChangesRef.current.current?.changes.length ?? 0) > 0
-    setCanRevertTerminal(available || npmHas)
-  }, [])
-
-  const handleRevertTerminalChanges = useCallback(() => {
-    void revertVscodeTerminalAndNpmChanges({
-      terminalRepl: activeTerminalHandleRef.current ?? undefined,
-      npmLastChanges: npmLastChangesRef.current,
-      onChangesAvailable: setCanRevertTerminal,
-    })
-  }, [])
+  const handleTerminalChangesAvailable = useCallback(() => {
+    refreshCanRevertTerminal()
+  }, [refreshCanRevertTerminal])
 
   const addUserTerminalSession = useCallback(() => {
     setTerminalSessions((prev) => {
@@ -453,7 +512,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       closedAgentChatIdsRef.current.add(target.ownerChatId)
     }
     terminalHandlesRef.current.delete(sessionId)
-    handleWaitersRef.current.delete(sessionId)
+    const waiter = handleWaitersRef.current.get(sessionId)
+    if (waiter) {
+      waiter.reject(new Error('终端会话已关闭'))
+      handleWaitersRef.current.delete(sessionId)
+    }
     const next = sessions.filter((s) => s.id !== sessionId)
     if (next.length === 0) {
       const fresh = createUserTerminalSession('controlled')
@@ -466,8 +529,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
     }
     syncActiveTerminalHandle()
-    setCanRevertTerminal(false)
-  }, [syncActiveTerminalHandle])
+    refreshCanRevertTerminal()
+  }, [refreshCanRevertTerminal, syncActiveTerminalHandle])
 
   const ensureAgentTerminal = useCallback(
     async (chatSessionId: string, chatTitle: string) => {
@@ -476,20 +539,16 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         (s) => s.kind === 'agent' && s.ownerChatId === chatSessionId,
       )
       if (existing) {
-        const handle = terminalHandlesRef.current.get(existing.id)
-        if (handle) {
-          setActiveTerminalSessionId(existing.id)
-          setPrefs((current) => ({
-            ...current,
-            terminalVisible: true,
-            panelTab: 'terminal',
-          }))
+        try {
+          const handle = await waitForTerminalHandle(existing.id)
           return {
             handle,
             sessionId: existing.id,
             created: false,
             reason: 'reused' as const,
           }
+        } catch {
+          // handle 超时则下方重建
         }
       }
 
@@ -531,14 +590,75 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         if (handle) {
           return { sessionId: session.id, cwd: handle.getCwd(), status: 'alive' }
         }
+        const fallbackCwd = prefs.workspaceFolder?.trim() || '/user'
+        return {
+          sessionId: session.id,
+          cwd: fallbackCwd,
+          status: 'alive',
+          recovering: true,
+        }
       }
       if (closedAgentChatIdsRef.current.has(chatSessionId)) {
         return { status: 'closed' }
       }
       return { status: 'none' }
     },
-    [],
+    [prefs.workspaceFolder],
   )
+
+  const handleRevertTerminalChanges = useCallback(() => {
+    void (async () => {
+      const focused = getFocusedEditorItem()
+      let message: string
+      let feedbackHandle: TerminalReplHandle | undefined
+
+      if (focused?.kind === 'aiChat') {
+        const chatId = focused.sessionId
+        message = await revertVscodeAiLastChanges({
+          workspaceFolder: undefined,
+          npmLastChanges: getNpmLastChangesSlot(chatId),
+          lastChangeSource: getLastChangeSourceSlot(chatId),
+          turnChangeSessions: { current: [] },
+          onChangesAvailable: () => refreshCanRevertTerminal(),
+          ensureAgentTerminal: async () => {
+            throw new Error('unused')
+          },
+          getAgentTerminalHandle: () => getAgentTerminalHandle(chatId),
+          getAgentTerminalSnapshot: () => getAgentTerminalSnapshot(chatId),
+        })
+        feedbackHandle = getAgentTerminalHandle(chatId)
+      } else {
+        const activeSession = terminalSessionsRef.current.find(
+          (s) => s.id === activeTerminalSessionIdRef.current,
+        )
+        const ownerChatId =
+          activeSession?.kind === 'agent' ? activeSession.ownerChatId : undefined
+        message = await revertVscodeTerminalAndNpmChanges({
+          terminalRepl: activeTerminalHandleRef.current ?? undefined,
+          npmLastChanges: ownerChatId
+            ? getNpmLastChangesSlot(ownerChatId)
+            : { current: undefined },
+          lastChangeSource: ownerChatId
+            ? getLastChangeSourceSlot(ownerChatId)
+            : { current: undefined },
+          onChangesAvailable: () => refreshCanRevertTerminal(),
+        })
+        feedbackHandle = activeTerminalHandleRef.current ?? undefined
+      }
+
+      if (feedbackHandle && !message.startsWith('已撤销终端改动')) {
+        feedbackHandle.appendInfo(message)
+      }
+      refreshCanRevertTerminal()
+    })()
+  }, [
+    getAgentTerminalHandle,
+    getAgentTerminalSnapshot,
+    getFocusedEditorItem,
+    getLastChangeSourceSlot,
+    getNpmLastChangesSlot,
+    refreshCanRevertTerminal,
+  ])
 
   const terminalWorkspaceRoot = prefs.workspaceFolder?.trim() || '/user'
   const terminalReplWelcome = useMemo(() => ['终端 · InstantREPL'], [])
@@ -619,7 +739,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef<string | undefined>(undefined)
-  const editorLayoutRef = useRef(editorLayout)
   const loadingPathRef = useRef<string | undefined>(undefined)
   const lastOpenedPendingDocumentIdRef = useRef<string | undefined>(undefined)
   const mountedRef = useRef(true)
@@ -912,7 +1031,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }, [activeTerminalSessionId, syncActiveTerminalHandle, terminalSessions])
 
   useEffect(() => {
+    refreshCanRevertTerminal()
+  }, [activeTerminalSessionId, focusedItem, refreshCanRevertTerminal])
+
+  useEffect(() => {
     if (!activeTab) return
+    const session = terminalSessionsRef.current.find((s) => s.id === activeTerminalSessionId)
+    if (session?.kind === 'agent') return
     const dir = parentDirFromPath(activeTab.path)
     const terminal = activeTerminalHandleRef.current
     if (!terminal || terminal.getCwd() === dir) return
@@ -922,6 +1047,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   useEffect(() => {
     const folder = prefs.workspaceFolder
     if (!folder || activeTab) return
+    const session = terminalSessionsRef.current.find((s) => s.id === activeTerminalSessionId)
+    if (session?.kind === 'agent') return
     const terminal = activeTerminalHandleRef.current
     if (!terminal || terminal.getCwd() === folder) return
     void terminal.chdir(folder).catch(() => undefined)
@@ -1385,6 +1512,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       editorLayoutRef.current = next
       return next
     })
+
+    if (previousFolder !== prefs.workspaceFolder) {
+      for (const waiter of handleWaitersRef.current.values()) {
+        waiter.reject(new Error('工作区已切换'))
+      }
+      handleWaitersRef.current.clear()
+      terminalHandlesRef.current.clear()
+      closedAgentChatIdsRef.current.clear()
+      npmLastChangesByChatRef.current.clear()
+      lastChangeSourceByChatRef.current.clear()
+      const fresh = createUserTerminalSession('controlled')
+      setTerminalSessions([fresh])
+      setActiveTerminalSessionId(fresh.id)
+      activeTerminalHandleRef.current = null
+      setCanRevertTerminal(false)
+    }
   }, [prefs.workspaceFolder])
 
   // 只关心「打开了哪些文件标签」，忽略焦点切换，避免无谓触发 TS sync
@@ -2255,7 +2398,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           {
             type: 'action',
             label: '撤销上一轮终端改动',
-            disabled: !canRevertTerminal || activeTerminalFsMode !== 'controlled',
+            disabled:
+              !canRevertTerminal ||
+              (focusedItem?.kind !== 'aiChat' && activeTerminalFsMode !== 'controlled'),
             onClick: () => handleRevertTerminalChanges(),
           },
           ...(['normal', 'readonly', 'controlled'] as const).map((mode) => ({
@@ -2271,8 +2416,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     : session,
                 ),
               )
-              setCanRevertTerminal(false)
-              npmLastChangesRef.current.current = undefined
+              refreshCanRevertTerminal()
             },
           })),
           { type: 'separator' },
@@ -2333,6 +2477,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     closeWorkspaceFolder,
     dirty,
     dirtyPrompt,
+    focusedItem?.kind,
     handleCloseOtherTabs,
     handleCloseTab,
     handleRevertTerminalChanges,
@@ -2349,6 +2494,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     prefs.sidebarVisible,
     prefs.terminalVisible,
     prefs.workspaceFolder,
+    refreshCanRevertTerminal,
     showBuiltinAbout,
     showMarkdownPreviewAction,
     activeTerminalFsMode,
@@ -2775,7 +2921,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               getAiContext={getVscodeAiContext}
               getOpenFilesForSearch={() => openSearchFiles}
               problems={problems}
-              npmLastChanges={npmLastChangesRef.current}
+              getNpmLastChangesSlot={getNpmLastChangesSlot}
+              getLastChangeSourceSlot={getLastChangeSourceSlot}
               onTerminalChangesAvailable={handleTerminalChangesAvailable}
               ensureAgentTerminal={ensureAgentTerminal}
               getAgentTerminalHandle={getAgentTerminalHandle}
@@ -2789,82 +2936,83 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </div>
 
           {prefs.terminalVisible ? (
-            <>
-              <div
-                class="vscode__terminal-sash"
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="调整面板高度"
-                onPointerDown={onTerminalSashPointerDown}
-              />
-              <div class="vscode__terminal" style={{ height: `${prefs.terminalHeight}px` }}>
-                <div class="vscode__panel-header vscode__panel-header--tabs" role="tablist" aria-label="面板">
-                  <button
-                    type="button"
-                    role="tab"
-                    class={`vscode__panel-tab${prefs.panelTab === 'problems' ? ' vscode__panel-tab--active' : ''}`}
-                    aria-selected={prefs.panelTab === 'problems'}
-                    onClick={() => updatePrefs({ panelTab: 'problems' })}
-                  >
-                    问题
-                    {problems.length > 0 ? (
-                      <span class="vscode__panel-tab-count">{problems.length}</span>
-                    ) : undefined}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    class={`vscode__panel-tab${prefs.panelTab === 'terminal' ? ' vscode__panel-tab--active' : ''}`}
-                    aria-selected={prefs.panelTab === 'terminal'}
-                    onClick={() => updatePrefs({ panelTab: 'terminal' })}
-                  >
-                    终端
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    class={`vscode__panel-tab${prefs.panelTab === 'logs' ? ' vscode__panel-tab--active' : ''}`}
-                    aria-selected={prefs.panelTab === 'logs'}
-                    onClick={() => updatePrefs({ panelTab: 'logs' })}
-                  >
-                    日志
-                  </button>
-                  <span class="vscode__panel-header-spacer" aria-hidden="true" />
-                  <button
-                    type="button"
-                    class="vscode__panel-close"
-                    aria-label="关闭面板"
-                    title="关闭面板"
-                    onClick={() => updatePrefs({ terminalVisible: false })}
-                  >
-                    ×
-                  </button>
-                </div>
-                <div
-                  class={`vscode__panel-body${prefs.panelTab === 'problems' ? '' : ' vscode__panel-body--hidden'}`}
-                  hidden={prefs.panelTab !== 'problems'}
-                >
-                  <VscodeProblemsPanel problems={problems} onSelect={openProblem} />
-                </div>
-                <div
-                  class={`vscode__panel-body${prefs.panelTab === 'terminal' ? '' : ' vscode__panel-body--hidden'}`}
-                  hidden={prefs.panelTab !== 'terminal'}
-                >
-                  {terminalSessionsPanel}
-                </div>
-                <div
-                  class={`vscode__panel-body${prefs.panelTab === 'logs' ? '' : ' vscode__panel-body--hidden'}`}
-                  hidden={prefs.panelTab !== 'logs'}
-                >
-                  <VscodeLogPanel />
-                </div>
-              </div>
-            </>
-          ) : (
-            <div class="vscode__terminal-keeper" hidden aria-hidden="true">
+            <div
+              class="vscode__terminal-sash"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="调整面板高度"
+              onPointerDown={onTerminalSashPointerDown}
+            />
+          ) : null}
+          <div
+            class="vscode__terminal"
+            style={
+              prefs.terminalVisible ? { height: `${prefs.terminalHeight}px` } : undefined
+            }
+            hidden={!prefs.terminalVisible}
+            aria-hidden={!prefs.terminalVisible}
+          >
+            <div class="vscode__panel-header vscode__panel-header--tabs" role="tablist" aria-label="面板">
+              <button
+                type="button"
+                role="tab"
+                class={`vscode__panel-tab${prefs.panelTab === 'problems' ? ' vscode__panel-tab--active' : ''}`}
+                aria-selected={prefs.panelTab === 'problems'}
+                onClick={() => updatePrefs({ panelTab: 'problems' })}
+              >
+                问题
+                {problems.length > 0 ? (
+                  <span class="vscode__panel-tab-count">{problems.length}</span>
+                ) : undefined}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class={`vscode__panel-tab${prefs.panelTab === 'terminal' ? ' vscode__panel-tab--active' : ''}`}
+                aria-selected={prefs.panelTab === 'terminal'}
+                onClick={() => updatePrefs({ panelTab: 'terminal' })}
+              >
+                终端
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class={`vscode__panel-tab${prefs.panelTab === 'logs' ? ' vscode__panel-tab--active' : ''}`}
+                aria-selected={prefs.panelTab === 'logs'}
+                onClick={() => updatePrefs({ panelTab: 'logs' })}
+              >
+                日志
+              </button>
+              <span class="vscode__panel-header-spacer" aria-hidden="true" />
+              <button
+                type="button"
+                class="vscode__panel-close"
+                aria-label="关闭面板"
+                title="关闭面板"
+                onClick={() => updatePrefs({ terminalVisible: false })}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              class={`vscode__panel-body${prefs.panelTab === 'problems' ? '' : ' vscode__panel-body--hidden'}`}
+              hidden={prefs.panelTab !== 'problems'}
+            >
+              <VscodeProblemsPanel problems={problems} onSelect={openProblem} />
+            </div>
+            <div
+              class={`vscode__panel-body${prefs.panelTab === 'terminal' ? '' : ' vscode__panel-body--hidden'}`}
+              hidden={prefs.panelTab !== 'terminal'}
+            >
               {terminalSessionsPanel}
             </div>
-          )}
+            <div
+              class={`vscode__panel-body${prefs.panelTab === 'logs' ? '' : ' vscode__panel-body--hidden'}`}
+              hidden={prefs.panelTab !== 'logs'}
+            >
+              <VscodeLogPanel />
+            </div>
+          </div>
         </div>
       </div>
 

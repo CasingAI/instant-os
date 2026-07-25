@@ -86,9 +86,32 @@ export type VscodeAiAgentResult = {
   messages?: OpenAI.Chat.ChatCompletionMessageParam[]
 }
 
+function formatArgsSuffix(args: unknown): string {
+  if (!Array.isArray(args)) return ''
+  const parts = args.filter((item): item is string => typeof item === 'string')
+  if (parts.length === 0) return ''
+  return ` ${parts.join(' ')}`
+}
+
 function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: string } {
   const label = VSCODE_AI_TOOL_LABELS[event.toolName] ?? event.toolName
   const args = event.arguments
+  if (event.toolName === 'run_in_terminal') {
+    const command = typeof args.command === 'string' ? args.command.trim() : ''
+    return { label, detail: command ? command.slice(0, 48) : undefined }
+  }
+  if (event.toolName === 'npm_run') {
+    const script = typeof args.script === 'string' ? args.script.trim() : ''
+    if (!script) return { label }
+    const detail = `npm run ${script}${formatArgsSuffix(args.args)}`
+    return { label, detail: detail.slice(0, 48) }
+  }
+  if (event.toolName === 'npx') {
+    const pkg = typeof args.package === 'string' ? args.package.trim() : ''
+    if (!pkg) return { label }
+    const detail = `npx ${pkg}${formatArgsSuffix(args.args)}`
+    return { label, detail: detail.slice(0, 48) }
+  }
   const path =
     typeof args.path === 'string'
       ? args.path

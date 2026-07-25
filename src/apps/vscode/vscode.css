@@ -1731,6 +1731,11 @@
   overflow: hidden;
 }
 
+/* class 的 display:flex 会盖过 UA 的 [hidden]{display:none}，保活挂载时需显式关掉 */
+.vscode__terminal[hidden] {
+  display: none;
+}
+
 /* 全宽细线：平时微可见，悬停/拖拽高亮 */
 .vscode__terminal-sash {
   flex-shrink: 0;

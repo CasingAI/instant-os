@@ -620,6 +620,10 @@ export async function createQuickJsInstance(
 
   const getLastChanges = (): TerminalChangeSet | undefined => lastChanges
 
+  const clearLastChanges = (): void => {
+    lastChanges = undefined
+  }
+
   const revertLastChanges = async (): Promise<void> => {
     assertAlive()
     const changeSet = lastChanges
@@ -634,6 +638,7 @@ export async function createQuickJsInstance(
     getHostConfig,
     eval: evalCode,
     getLastChanges,
+    clearLastChanges,
     revertLastChanges,
     abort,
     destroy,

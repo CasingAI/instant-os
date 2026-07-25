@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
 import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
@@ -11,6 +12,26 @@ export type VscodeAiPendingEdit = {
   status: 'pending' | 'applied' | 'rejected'
 }
 
+/** Agent 受控终端/npm 本轮已写入的改动审查（Keep=保留，Revert=整轮回滚） */
+export type VscodeAiTerminalChangeReviewFile = {
+  path: string
+  kind: TerminalChangeKind
+  fromPath?: string
+  beforeBlobId?: string
+  isDirectory?: boolean
+  byteSize?: number
+}
+
+export type VscodeAiTerminalChangeReview = {
+  sessionId: string
+  source: 'terminal' | 'npm'
+  sealedAt: number
+  status: 'pending' | 'kept' | 'reverted'
+  files: VscodeAiTerminalChangeReviewFile[]
+}
+
+export type VscodeAiReviewStatus = 'pending' | 'kept' | 'reverted'
+
 export type VscodeAiChatMessage = {
   id: string
   role: VscodeAiChatRole
@@ -18,6 +39,14 @@ export type VscodeAiChatMessage = {
   createdAt: number
   isError?: boolean
   pendingEdits?: VscodeAiPendingEdit[]
+  /** @deprecated 旧气泡审查卡；仅兼容存储，UI 不再展示 */
+  terminalChangeReview?: VscodeAiTerminalChangeReview
+  /** 本轮 Agent 产生的受控 ChangeSet sessionId（时间序） */
+  changeSessionIds?: string[]
+  /** 本轮涉及路径（去重，供审查条计数） */
+  changePaths?: string[]
+  /** 是否仍计入输入框上方未审查改动 */
+  reviewStatus?: VscodeAiReviewStatus
   incomplete?: boolean
   investigation?: VscodeAiInvestigation
 }
@@ -79,7 +108,60 @@ function messageStoredLength(message: VscodeAiChatMessage): number {
       // ignore
     }
   }
+  if (message.terminalChangeReview) {
+    try {
+      len += JSON.stringify(message.terminalChangeReview).length
+    } catch {
+      // ignore
+    }
+  }
+  if (message.changeSessionIds?.length) {
+    len += message.changeSessionIds.join(',').length
+  }
+  if (message.changePaths?.length) {
+    len += message.changePaths.join(',').length
+  }
   return len
+}
+
+function normalizeStringList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const list = raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+  return list.length > 0 ? list : undefined
+}
+
+function normalizeReviewStatus(raw: unknown): VscodeAiReviewStatus | undefined {
+  if (raw === 'pending' || raw === 'kept' || raw === 'reverted') return raw
+  return undefined
+}
+
+const CHANGE_KINDS = new Set<TerminalChangeKind>(['added', 'modified', 'deleted', 'renamed'])
+
+function normalizeTerminalChangeReview(raw: unknown): VscodeAiTerminalChangeReview | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entry = raw as Partial<VscodeAiTerminalChangeReview>
+  if (typeof entry.sessionId !== 'string' || !entry.sessionId.trim()) return undefined
+  if (entry.source !== 'terminal' && entry.source !== 'npm') return undefined
+  if (typeof entry.sealedAt !== 'number' || !Number.isFinite(entry.sealedAt)) return undefined
+  if (entry.status !== 'pending' && entry.status !== 'kept' && entry.status !== 'reverted') {
+    return undefined
+  }
+  if (!Array.isArray(entry.files) || entry.files.length === 0) return undefined
+  const files = entry.files.filter(
+    (file): file is VscodeAiTerminalChangeReviewFile =>
+      !!file &&
+      typeof file === 'object' &&
+      typeof file.path === 'string' &&
+      CHANGE_KINDS.has(file.kind),
+  )
+  if (files.length === 0) return undefined
+  return {
+    sessionId: entry.sessionId,
+    source: entry.source,
+    sealedAt: entry.sealedAt,
+    status: entry.status,
+    files,
+  }
 }
 
 function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined {
@@ -164,7 +246,34 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
         const investigation = normalizeInvestigation(
           (message as { investigation?: unknown }).investigation,
         )
-        return investigation ? { ...message, investigation } : { ...message, investigation: undefined }
+        const terminalChangeReview = normalizeTerminalChangeReview(
+          (message as { terminalChangeReview?: unknown }).terminalChangeReview,
+        )
+        const changeSessionIds = normalizeStringList(
+          (message as { changeSessionIds?: unknown }).changeSessionIds,
+        )
+        const changePaths = normalizeStringList((message as { changePaths?: unknown }).changePaths)
+        let reviewStatus = normalizeReviewStatus(
+          (message as { reviewStatus?: unknown }).reviewStatus,
+        )
+        if (!reviewStatus && terminalChangeReview) {
+          reviewStatus = terminalChangeReview.status
+        }
+        if (!reviewStatus && changeSessionIds?.length) {
+          reviewStatus = 'pending'
+        }
+        return {
+          ...message,
+          investigation,
+          terminalChangeReview,
+          changeSessionIds,
+          changePaths:
+            changePaths ??
+            (terminalChangeReview
+              ? [...new Set(terminalChangeReview.files.map((file) => file.path))]
+              : undefined),
+          reviewStatus,
+        }
       }),
   )
   const updatedAt =
@@ -317,7 +426,14 @@ export function createVscodeAiChatMessage(
   content: string,
   extras?: Pick<
     VscodeAiChatMessage,
-    'isError' | 'pendingEdits' | 'incomplete' | 'investigation'
+    | 'isError'
+    | 'pendingEdits'
+    | 'terminalChangeReview'
+    | 'changeSessionIds'
+    | 'changePaths'
+    | 'reviewStatus'
+    | 'incomplete'
+    | 'investigation'
   >,
 ): VscodeAiChatMessage {
   return {
@@ -327,6 +443,10 @@ export function createVscodeAiChatMessage(
     createdAt: Date.now(),
     isError: extras?.isError,
     pendingEdits: extras?.pendingEdits,
+    terminalChangeReview: extras?.terminalChangeReview,
+    changeSessionIds: extras?.changeSessionIds,
+    changePaths: extras?.changePaths,
+    reviewStatus: extras?.reviewStatus,
     incomplete: extras?.incomplete,
     investigation: extras?.investigation,
   }

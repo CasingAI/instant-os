@@ -48,4 +48,6 @@ export type VscodeAgentTerminalSnapshot = {
   sessionId?: string
   cwd?: string
   status: 'none' | 'alive' | 'closed'
+  /** tab 仍在但 handle 尚未就绪（例如面板刚恢复） */
+  recovering?: boolean
 }
