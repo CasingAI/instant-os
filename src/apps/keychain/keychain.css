@@ -17,8 +17,8 @@
   min-height: 0;
 }
 
-/* 静止时也走 layer，保证 key 稳定；仅当前层可见 */
-.keychain-stack:not([class*='keychain-stack--']) .keychain-stack__layer:not([hidden]) {
+/* 静止时也走 layer，保证 key 稳定；仅当前层可见（勿穿透嵌套子栈） */
+.keychain-stack:not([class*='keychain-stack--']) > .keychain-stack__layer:not([hidden]) {
   position: absolute;
   inset: 0;
 }
@@ -90,6 +90,29 @@
 .keychain-stack--push
   .keychain-stack__layer
   .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
+}
+
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer
+  > .settings,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer
+  > .settings,
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
   > .settings,
 .keychain-stack--pop
   .keychain-stack__layer
@@ -112,25 +135,33 @@
 .keychain-stack--pop .settings__nav {
   grid-row: 1;
   grid-column: 1;
-  position: relative;
+  /* 压过 settings.css 的 sticky，否则 display:contents 下交叉淡移叠不住 */
+  position: relative !important;
   z-index: 3;
 }
 
 /*
- * 钥匙串 Header 不用 drop shadow。
- * 原因：交叉淡移时 opacity 作用在同一元素上，阴影必跟着闪；
- * 转场时再挂/撕一层替代阴影，也会在开头结尾「蹦出来」。
- * 分隔只靠 border-bottom；并关掉 settings-nav-elevate。
+ * 钥匙串 Header 不用 drop shadow / scroll elevate。
+ * elevate 的 animation-timeline 会盖住转场 keyframes（嵌套子栈尤甚：
+ * 外层 idle 时本栈 --push 的 animation 被 timeline 劫持成「跟滚动走」）。
+ * 分隔只靠 border-bottom。
  */
 .keychain-stack .settings:has(> .settings__nav) > .settings__nav {
   box-shadow: none !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
 }
 
+/*
+ * 只关本栈 idle 页的 elevate（特异性已高于 settings-nav-elevate）。
+ * 绝不能 !important：嵌套 idle 子栈在父栈 --push 时仍匹配本规则，
+ * !important 会盖掉父级的 keychain-nav-enter/leave。
+ */
 .keychain-stack:not([class*='keychain-stack--'])
-  .settings:has(> .settings__nav)
+  > .keychain-stack__layer
+  > .settings:has(> .settings__nav)
   > .settings__nav {
-  animation: none !important;
-  animation-timeline: auto !important;
+  animation: none;
 }
 
 /*
@@ -161,22 +192,30 @@
 }
 
 .keychain-stack--push .keychain-stack__layer--under .settings__nav {
-  animation: keychain-nav-leave-push 0.35s ease-in-out both;
+  animation: keychain-nav-leave-push 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
   z-index: 3;
 }
 
 .keychain-stack--push .keychain-stack__layer--over .settings__nav {
-  animation: keychain-nav-enter-push 0.35s ease-in-out both;
+  animation: keychain-nav-enter-push 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
   z-index: 4;
 }
 
 .keychain-stack--pop .keychain-stack__layer--over .settings__nav {
-  animation: keychain-nav-leave-pop 0.35s ease-in-out both;
+  animation: keychain-nav-leave-pop 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
   z-index: 4;
 }
 
 .keychain-stack--pop .keychain-stack__layer--under .settings__nav {
-  animation: keychain-nav-enter-pop 0.35s ease-in-out both;
+  animation: keychain-nav-enter-pop 0.35s ease-in-out both !important;
+  animation-timeline: auto !important;
+  animation-range: normal !important;
   z-index: 3;
 }
 
