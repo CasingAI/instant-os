@@ -21,17 +21,140 @@ import type { VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
 import './vscode-ai-model-picker.css'
 
 const MAIN_PANEL_WIDTH = 280
-const MAIN_PANEL_FALLBACK_HEIGHT = 280
-const TIP_WIDTH = 240
+const MAIN_PANEL_FALLBACK_HEIGHT = 288
+const TIP_WIDTH = 248
 const TIP_FALLBACK_HEIGHT = 110
-const EDIT_WIDTH = 200
+const EDIT_WIDTH = 208
 const EDIT_FALLBACK_HEIGHT = 120
 const ARROW_EDGE_PAD = 14
-/** 与 CSS 箭头外伸一致；间距仅多 1px，尖端贴近锚点但不压框 */
-const PICKER_ARROW_OUTSET = 7
-const PICKER_PANEL_GAP = PICKER_ARROW_OUTSET + 1
+/** 与 CSS --picker-arrow-size 一致；箭头计入壳尺寸，尖端与锚点间距 1px */
+const PICKER_ARROW_SIZE = 8
+const PICKER_ARROW_HALF = 6
+const PICKER_RADIUS = 8
+const PICKER_BORDER_INSET = 1
+const PICKER_PANEL_GAP = 1
 
 type ArrowSide = 'top' | 'bottom' | 'left' | 'right'
+
+/** 圆角矩形 + 箭头的一体气泡 path（chrome/face 共用同一坐标系） */
+function bubbleClipPath(
+  width: number,
+  height: number,
+  arrow: ArrowSide,
+  arrowOffset: number,
+  inset: number,
+): string {
+  if (width <= 0 || height <= 0) return ''
+
+  const as = PICKER_ARROW_SIZE
+  const ah = Math.max(PICKER_ARROW_HALF - inset * 0.7, 3)
+  const r = Math.max(PICKER_RADIUS - inset, 0)
+  const left = inset
+  const top = inset
+  const right = width - inset
+  const bottom = height - inset
+
+  let bodyLeft = left
+  let bodyTop = top
+  let bodyRight = right
+  let bodyBottom = bottom
+  let tipX = 0
+  let tipY = 0
+  let baseA = 0
+  let baseB = 0
+
+  if (arrow === 'bottom') {
+    bodyBottom = height - as - inset
+    tipX = arrowOffset
+    tipY = bottom
+    baseA = arrowOffset - ah
+    baseB = arrowOffset + ah
+  } else if (arrow === 'top') {
+    bodyTop = as + inset
+    tipX = arrowOffset
+    tipY = top
+    baseA = arrowOffset - ah
+    baseB = arrowOffset + ah
+  } else if (arrow === 'left') {
+    bodyLeft = as + inset
+    tipX = left
+    tipY = arrowOffset
+    baseA = arrowOffset - ah
+    baseB = arrowOffset + ah
+  } else {
+    bodyRight = width - as - inset
+    tipX = right
+    tipY = arrowOffset
+    baseA = arrowOffset - ah
+    baseB = arrowOffset + ah
+  }
+
+  const rr = Math.min(
+    r,
+    Math.max(0, (bodyRight - bodyLeft) / 2),
+    Math.max(0, (bodyBottom - bodyTop) / 2),
+  )
+
+  const f = (n: number) => Number(n.toFixed(2))
+  const parts: string[] = []
+
+  if (arrow === 'bottom') {
+    parts.push(`M ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+    parts.push(`L ${f(bodyRight - rr)} ${f(bodyTop)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight)} ${f(bodyTop + rr)}`)
+    parts.push(`L ${f(bodyRight)} ${f(bodyBottom - rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight - rr)} ${f(bodyBottom)}`)
+    parts.push(`L ${f(baseB)} ${f(bodyBottom)}`)
+    parts.push(`L ${f(tipX)} ${f(tipY)}`)
+    parts.push(`L ${f(baseA)} ${f(bodyBottom)}`)
+    parts.push(`L ${f(bodyLeft + rr)} ${f(bodyBottom)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft)} ${f(bodyBottom - rr)}`)
+    parts.push(`L ${f(bodyLeft)} ${f(bodyTop + rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+  } else if (arrow === 'top') {
+    parts.push(`M ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+    parts.push(`L ${f(baseA)} ${f(bodyTop)}`)
+    parts.push(`L ${f(tipX)} ${f(tipY)}`)
+    parts.push(`L ${f(baseB)} ${f(bodyTop)}`)
+    parts.push(`L ${f(bodyRight - rr)} ${f(bodyTop)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight)} ${f(bodyTop + rr)}`)
+    parts.push(`L ${f(bodyRight)} ${f(bodyBottom - rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight - rr)} ${f(bodyBottom)}`)
+    parts.push(`L ${f(bodyLeft + rr)} ${f(bodyBottom)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft)} ${f(bodyBottom - rr)}`)
+    parts.push(`L ${f(bodyLeft)} ${f(bodyTop + rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+  } else if (arrow === 'left') {
+    parts.push(`M ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+    parts.push(`L ${f(bodyRight - rr)} ${f(bodyTop)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight)} ${f(bodyTop + rr)}`)
+    parts.push(`L ${f(bodyRight)} ${f(bodyBottom - rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight - rr)} ${f(bodyBottom)}`)
+    parts.push(`L ${f(bodyLeft + rr)} ${f(bodyBottom)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft)} ${f(bodyBottom - rr)}`)
+    parts.push(`L ${f(bodyLeft)} ${f(baseB)}`)
+    parts.push(`L ${f(tipX)} ${f(tipY)}`)
+    parts.push(`L ${f(bodyLeft)} ${f(baseA)}`)
+    parts.push(`L ${f(bodyLeft)} ${f(bodyTop + rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+  } else {
+    parts.push(`M ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+    parts.push(`L ${f(bodyRight - rr)} ${f(bodyTop)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight)} ${f(bodyTop + rr)}`)
+    parts.push(`L ${f(bodyRight)} ${f(baseA)}`)
+    parts.push(`L ${f(tipX)} ${f(tipY)}`)
+    parts.push(`L ${f(bodyRight)} ${f(baseB)}`)
+    parts.push(`L ${f(bodyRight)} ${f(bodyBottom - rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyRight - rr)} ${f(bodyBottom)}`)
+    parts.push(`L ${f(bodyLeft + rr)} ${f(bodyBottom)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft)} ${f(bodyBottom - rr)}`)
+    parts.push(`L ${f(bodyLeft)} ${f(bodyTop + rr)}`)
+    parts.push(`A ${f(rr)} ${f(rr)} 0 0 1 ${f(bodyLeft + rr)} ${f(bodyTop)}`)
+  }
+
+  parts.push('Z')
+  return parts.join(' ')
+}
 
 type AnchoredPanelPosition = {
   top: number
@@ -123,8 +246,97 @@ function arrowStyle(position: AnchoredPanelPosition): Record<string, string> {
   return {
     top: `${position.top}px`,
     left: `${position.left}px`,
-    '--picker-arrow-offset': `${position.arrowOffset}px`,
+    '--picker-arrow-size': `${PICKER_ARROW_SIZE}px`,
   }
+}
+
+function PickerBubbleShell({
+  panelRef,
+  className,
+  arrow,
+  position,
+  role,
+  ariaLabel,
+  onMouseEnter,
+  children,
+}: {
+  panelRef?: RefObject<HTMLDivElement>
+  className: string
+  arrow: ArrowSide
+  position: AnchoredPanelPosition
+  role?: 'listbox'
+  ariaLabel?: string
+  onMouseEnter?: () => void
+  children: ComponentChildren
+}) {
+  const chromeRef = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState({ width: 0, height: 0 })
+
+  const setShellRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (panelRef) {
+        ;(panelRef as { current: HTMLDivElement | null }).current = node
+      }
+    },
+    [panelRef],
+  )
+
+  useLayoutEffect(() => {
+    const el = chromeRef.current
+    if (!el) return
+    const measure = () => {
+      setBox({ width: el.offsetWidth, height: el.offsetHeight })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [arrow, position.arrowOffset])
+
+  const shapePath = bubbleClipPath(
+    box.width,
+    box.height,
+    arrow,
+    position.arrowOffset,
+    0,
+  )
+
+  return (
+    <div
+      ref={setShellRef}
+      class={`${className} vscode-ai-model-picker__shell--arrow-${arrow}`}
+      style={arrowStyle(position)}
+      role={role}
+      aria-label={ariaLabel}
+      onMouseEnter={onMouseEnter}
+    >
+      <div
+        ref={chromeRef}
+        class="vscode-ai-model-picker__chrome"
+        style={shapePath ? { clipPath: `path('${shapePath}')` } : undefined}
+      >
+        <div class="vscode-ai-model-picker__face">{children}</div>
+      </div>
+      {shapePath && box.width > 0 && box.height > 0 ? (
+        <svg
+          class="vscode-ai-model-picker__stroke"
+          width={box.width}
+          height={box.height}
+          viewBox={`0 0 ${box.width} ${box.height}`}
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d={shapePath}
+            fill="none"
+            stroke="currentColor"
+            stroke-width={PICKER_BORDER_INSET}
+            stroke-linejoin="round"
+          />
+        </svg>
+      ) : undefined}
+    </div>
+  )
 }
 
 function EditPencilIcon() {
@@ -381,12 +593,13 @@ export function VscodeAiModelPicker({
   const floating = open
     ? createPortal(
         <>
-          <div
-            ref={panelRef}
-            class={`vscode-ai-model-picker__panel vscode-ai-model-picker__shell--arrow-${mainPosition.arrow}${darkClass}`}
-            style={arrowStyle(mainPosition)}
+          <PickerBubbleShell
+            panelRef={panelRef}
+            className={`vscode-ai-model-picker__panel${darkClass}`}
+            arrow={mainPosition.arrow}
+            position={mainPosition}
             role="listbox"
-            aria-label={ariaLabel ?? label}
+            ariaLabel={ariaLabel ?? label}
           >
             <div class="vscode-ai-model-picker__search-wrap">
               <input
@@ -464,13 +677,14 @@ export function VscodeAiModelPicker({
                 })
               )}
             </div>
-          </div>
+          </PickerBubbleShell>
 
           {showTip && hoveredModel ? (
-            <div
-              ref={tipRef}
-              class={`vscode-ai-model-picker__tip vscode-ai-model-picker__shell--arrow-${tipPosition.arrow}${tipDarkClass}`}
-              style={arrowStyle(tipPosition)}
+            <PickerBubbleShell
+              panelRef={tipRef}
+              className={`vscode-ai-model-picker__tip${tipDarkClass}`}
+              arrow={tipPosition.arrow}
+              position={tipPosition}
             >
               <p class="vscode-ai-model-picker__tip-title">
                 {labelForVscodeAiModel(hoveredModel)}
@@ -481,14 +695,15 @@ export function VscodeAiModelPicker({
               <p class="vscode-ai-model-picker__tip-meta">
                 {formatVscodeAiModelContextLabel(hoveredModel.modelId)}
               </p>
-            </div>
+            </PickerBubbleShell>
           ) : undefined}
 
           {editModel && editKey ? (
-            <div
-              ref={editPanelRef}
-              class={`vscode-ai-model-picker__edit-panel vscode-ai-model-picker__shell--arrow-${editPosition.arrow}${editDarkClass}`}
-              style={arrowStyle(editPosition)}
+            <PickerBubbleShell
+              panelRef={editPanelRef}
+              className={`vscode-ai-model-picker__edit-panel${editDarkClass}`}
+              arrow={editPosition.arrow}
+              position={editPosition}
               onMouseEnter={() => setHoveredKey(editKey)}
             >
               {supportsThinkingParam(editModel.providerId) ? (
@@ -536,7 +751,7 @@ export function VscodeAiModelPicker({
               !resolveVscodeAiFastPair(editModel, models) ? (
                 <div class="vscode-ai-model-picker__empty">无可调选项</div>
               ) : undefined}
-            </div>
+            </PickerBubbleShell>
           ) : undefined}
         </>,
         getFloatingOverlayRoot(),
