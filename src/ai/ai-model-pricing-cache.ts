@@ -129,3 +129,31 @@ export function formatPricePerMillion(entry: ModelPricingEntry | undefined): str
     entry.outputPricePerMillion,
   )} / 1M`
 }
+
+/** 按输入/输出 token 与单价估算本次请求成本 */
+export function estimateRequestCost(
+  pricing: ModelPricingEntry,
+  promptTokens: number,
+  completionTokens: number,
+): number {
+  const prompt = Math.max(0, promptTokens)
+  const completion = Math.max(0, completionTokens)
+  return (
+    (prompt * pricing.inputPricePerMillion +
+      completion * pricing.outputPricePerMillion) /
+    1_000_000
+  )
+}
+
+/** 格式化请求成本，如 `$0.0123` */
+export function formatRequestCost(
+  amount: number,
+  currency: ModelPricingEntry['currency'],
+): string {
+  const symbol = currency === 'CNY' ? '¥' : '$'
+  if (!Number.isFinite(amount) || amount < 0) return '—'
+  if (amount === 0) return `${symbol}0`
+  if (amount >= 1) return `${symbol}${amount.toFixed(2)}`
+  if (amount >= 0.01) return `${symbol}${amount.toFixed(3)}`
+  return `${symbol}${amount.toFixed(4)}`
+}

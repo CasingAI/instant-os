@@ -1,9 +1,11 @@
 import {
   listEnabledModelsForCapability,
   resolvePreferredModelRef,
+  type AiTokenizerFamily,
   type FlatEnabledModel,
   type PreferredModelRef,
 } from '../../ai/ai-providers.ts'
+import { resolveTokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from '../../ai/openai-config.ts'
 import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
 import {
@@ -86,6 +88,27 @@ export function openAiConfigForVscodeAiModelKey(
     }
   }
   return mergeOpenAiConfig(undefined, 'text')
+}
+
+/** 解析 VS Code 模型键对应的词表族（条目覆盖 > modelId 推断） */
+export function tokenizerFamilyForVscodeAiModelKey(
+  storedKey: string | undefined,
+): AiTokenizerFamily | undefined {
+  const key = resolveVscodeAiModelRefKey(storedKey)
+  const settings = loadAccountSettings()
+  const ref = key ? parseVscodeAiModelRefKey(key) : undefined
+  const modelId =
+    ref?.modelId ?? openAiConfigForVscodeAiModelKey(storedKey).defaultModel
+  let override: AiTokenizerFamily | undefined
+  if (settings && ref) {
+    const provider = settings.providers.find(
+      (entry) => entry.id === ref.providerEntryId,
+    )
+    override = provider?.enabledModels.find(
+      (model) => model.modelId === ref.modelId,
+    )?.tokenizerFamily
+  }
+  return resolveTokenizerFamily(modelId, override)
 }
 
 export function useVscodeAiTextModels(): FlatEnabledModel[] {

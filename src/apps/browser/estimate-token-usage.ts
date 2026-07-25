@@ -2,6 +2,7 @@ import {
   countTokensWithModelTokenizer,
   isModelTokenizerReady,
   prepareTokenEstimation,
+  type TokenizerFamily,
 } from '../../ai/model-tokenizer.ts'
 import { DEFAULT_CHARS_PER_TOKEN, getCharsPerToken } from '../../ai/token-chars-ratio.ts'
 
@@ -10,6 +11,8 @@ export { prepareTokenEstimation }
 export type EstimateTokenOptions = {
   /** 估算时字符/token 的下限（例如 HTML 流式输出用更高下限，避免角标虚高） */
   minCharsPerToken?: number
+  /** 词表族覆盖（自定义模型手动指定时） */
+  tokenizerFamily?: TokenizerFamily
 }
 
 function estimateTokensFromChars(
@@ -33,7 +36,11 @@ export function estimateTokensFromText(
   if (!text) {
     return 0
   }
-  const precise = countTokensWithModelTokenizer(text, model)
+  const precise = countTokensWithModelTokenizer(
+    text,
+    model,
+    options?.tokenizerFamily,
+  )
   if (precise !== undefined) {
     return Math.max(1, precise)
   }
@@ -44,9 +51,11 @@ export function estimatePromptTokens(
   systemPrompt: string,
   userPrompt: string,
   model?: string,
+  options?: EstimateTokenOptions,
 ): number {
   const content =
-    estimateTokensFromText(systemPrompt, model) + estimateTokensFromText(userPrompt, model)
+    estimateTokensFromText(systemPrompt, model, options) +
+    estimateTokensFromText(userPrompt, model, options)
   return content + 8
 }
 
@@ -56,11 +65,15 @@ export function estimatePromptTokens(
  * - 本地 tokenizer 已就绪 → 否（精确分词）
  * - 否则字符粗估 → 是
  */
-export function resolveUsageEstimated(hasApiUsage: boolean, model?: string): boolean {
+export function resolveUsageEstimated(
+  hasApiUsage: boolean,
+  model?: string,
+  tokenizerFamily?: TokenizerFamily,
+): boolean {
   if (hasApiUsage) {
     return false
   }
-  return !isModelTokenizerReady(model)
+  return !isModelTokenizerReady(model, tokenizerFamily)
 }
 
 export type LiveTokenUsage = {

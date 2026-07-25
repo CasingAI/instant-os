@@ -154,6 +154,31 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'settings-check-row',
+    name: 'SettingsCheckRow',
+    description: '设置勾选行；左侧标签、右侧无边框勾，整行点按切换；禁用态灰底灰字',
+    category: 'settings',
+    importPath: "import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '标签文本' },
+      { name: 'checked', type: 'boolean', description: '选中状态' },
+      { name: 'onChange', type: '(checked: boolean) => void', description: '状态变化回调' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用（锁定项）' },
+    ],
+    codeExample: `<SettingsCheckRow
+  label="图像识别"
+  checked={supportsVision}
+  onChange={setSupportsVision}
+/>
+
+<SettingsCheckRow
+  label="文本"
+  checked
+  disabled
+  onChange={() => undefined}
+/>`,
+  },
+  {
     id: 'settings-inline-input-row',
     name: 'SettingsInlineInputRow',
     description: '设置内联输入行；文本 / URL / 密码',

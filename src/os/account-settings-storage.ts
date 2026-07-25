@@ -7,6 +7,8 @@ import {
   isProviderEntryValid,
   normalizeStoredModel,
   parseStoredModelCapabilities,
+  parseStoredPricingModelKey,
+  parseStoredTokenizerFamily,
   reconcilePreferredByCapability,
   applyTextPreferredToProviders,
   modelHasCapability,
@@ -139,10 +141,18 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
             : modelId
         if (modelId) {
           const capabilities = parseStoredModelCapabilities(modelRecord.capabilities)
+          const pricingModelKey = parseStoredPricingModelKey(
+            modelRecord.pricingModelKey,
+          )
+          const tokenizerFamily = parseStoredTokenizerFamily(
+            modelRecord.tokenizerFamily,
+          )
           enabledModels.push({
             modelId,
             name,
             ...(capabilities ? { capabilities } : {}),
+            ...(pricingModelKey ? { pricingModelKey } : {}),
+            ...(tokenizerFamily ? { tokenizerFamily } : {}),
           })
         }
       }

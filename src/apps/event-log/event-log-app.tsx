@@ -12,7 +12,13 @@ import {
   summarizeEventLogResponse,
   type AiEventLogRecord,
 } from '../../ai/ai-event-log.ts'
+import {
+  estimateRequestCost,
+  formatRequestCost,
+} from '../../ai/ai-model-pricing-cache.ts'
+import { resolvePricingForLoggedModel } from '../../ai/ai-providers.ts'
 import { formatUsageDayLabel, formatUsageTime } from '../../ai/ai-token-usage.ts'
+import { loadAccountSettings } from '../../os/account-settings-storage.ts'
 import { formatTokenCount } from '../browser/format-token-count.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -231,6 +237,29 @@ export function EventLogApp() {
   const showJumpToToday = hasTodayGroup && pinnedDay !== undefined && pinnedDay !== todayKey
 
   const selected = enrichedRecords.find((record) => record.id === selectedId)
+  const selectedRequestCost = useMemo(() => {
+    if (
+      !selected?.model ||
+      selected.promptTokens === undefined ||
+      selected.completionTokens === undefined
+    ) {
+      return undefined
+    }
+    const pricing = resolvePricingForLoggedModel(
+      selected.model,
+      loadAccountSettings()?.providers ?? [],
+    )
+    if (!pricing) return undefined
+    const amount = estimateRequestCost(
+      pricing,
+      selected.promptTokens,
+      selected.completionTokens,
+    )
+    return {
+      label: formatRequestCost(amount, pricing.currency),
+      estimated: selected.usageEstimated === true,
+    }
+  }, [selected])
   const showStackedDetail = narrowLayout && stackedDetailOpen && selected !== undefined
 
   const syncPinnedDay = useCallback(() => {
@@ -475,6 +504,15 @@ export function EventLogApp() {
                       {selected.promptTokens !== undefined && selected.completionTokens !== undefined
                         ? `（输入 ${formatTokenCount(selected.promptTokens)} / 输出 ${formatTokenCount(selected.completionTokens)}）`
                         : ''}
+                    </dd>
+                  </>
+                )}
+                {selectedRequestCost && (
+                  <>
+                    <dt>成本</dt>
+                    <dd>
+                      {selectedRequestCost.estimated ? '约 ' : ''}
+                      {selectedRequestCost.label}
                     </dd>
                   </>
                 )}

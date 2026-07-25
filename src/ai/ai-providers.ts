@@ -1,4 +1,29 @@
-import { getModelPricing } from './ai-model-pricing-cache.ts'
+import {
+  getModelPricing,
+  loadModelPricingCache,
+  pricingCacheKey,
+  type ModelPricingEntry,
+} from './ai-model-pricing-cache.ts'
+
+/** 本地词表族（与 /assets/tokenizers 目录对应） */
+export const AI_TOKENIZER_FAMILIES = [
+  'deepseek-v4',
+  'mimo',
+  'mimo-v2-flash',
+  'mimo-v2.5',
+] as const
+export type AiTokenizerFamily = (typeof AI_TOKENIZER_FAMILIES)[number]
+
+export const AI_TOKENIZER_FAMILY_LABELS: Record<AiTokenizerFamily, string> = {
+  'deepseek-v4': 'DeepSeek V4',
+  mimo: 'MiMo（通用）',
+  'mimo-v2-flash': 'MiMo V2 Flash',
+  'mimo-v2.5': 'MiMo V2.5',
+}
+
+export function isAiTokenizerFamily(value: string): value is AiTokenizerFamily {
+  return (AI_TOKENIZER_FAMILIES as readonly string[]).includes(value)
+}
 
 export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'mimo-token-plan' | 'custom'
 
@@ -66,6 +91,13 @@ export type AiModelEntry = {
    * 第三方自定义模型仅允许 text / vision；识别与合成暂不开放。
    */
   capabilities?: AiModelCapability[]
+  /**
+   * 定价别名：使用哪个缓存键 `${providerId}:${modelId}` 的单价。
+   * 未设时按自身 provider + modelId 查询。
+   */
+  pricingModelKey?: string
+  /** 词表族覆盖；用于 VS Code 等本地 token 预估。未设时按 modelId 推断。 */
+  tokenizerFamily?: AiTokenizerFamily
 }
 
 export type AiProviderEntry = {
@@ -229,14 +261,160 @@ export function findAiModelPreset(
 export function resolveModelPricing(
   providerId: AiProviderId,
   modelId: string,
-):
-  | { inputPricePerMillion: number; outputPricePerMillion: number; currency: 'USD' | 'CNY' }
-  | undefined {
+): ModelPricingEntry | undefined {
   const cached = getModelPricing(providerId, modelId)
   if (cached) {
     return cached
   }
   return findAiModelPreset(providerId, modelId)?.pricing
+}
+
+/** 解析定价缓存键 `provider:modelId` 对应的单价 */
+export function resolvePricingByModelKey(
+  pricingModelKey: string | undefined,
+): ModelPricingEntry | undefined {
+  if (!pricingModelKey) return undefined
+  const separator = pricingModelKey.indexOf(':')
+  if (separator <= 0) return undefined
+  const providerId = pricingModelKey.slice(0, separator)
+  const modelId = pricingModelKey.slice(separator + 1)
+  if (!providerId || !modelId) return undefined
+  const cached = getModelPricing(providerId, modelId)
+  if (cached) return cached
+  if (
+    providerId === 'openai' ||
+    providerId === 'deepseek' ||
+    providerId === 'mimo' ||
+    providerId === 'mimo-token-plan'
+  ) {
+    return findAiModelPreset(providerId, modelId)?.pricing
+  }
+  return undefined
+}
+
+/** 自定义模型条目：优先定价别名，否则按自身 id 查 */
+export function resolveModelEntryPricing(
+  providerId: AiProviderId,
+  entry: Pick<AiModelEntry, 'modelId' | 'pricingModelKey'>,
+): ModelPricingEntry | undefined {
+  return (
+    resolvePricingByModelKey(entry.pricingModelKey) ??
+    resolveModelPricing(providerId, entry.modelId)
+  )
+}
+
+/**
+ * 为 modelId 自动匹配定价键：先本供应商精确命中，再按 modelId 在缓存/预设中兜底。
+ */
+export function matchPricingModelKey(
+  providerId: AiProviderId,
+  modelId: string,
+): string | undefined {
+  const trimmed = modelId.trim()
+  if (!trimmed) return undefined
+  if (resolveModelPricing(providerId, trimmed)) {
+    return pricingCacheKey(providerId, trimmed)
+  }
+
+  const cache = loadModelPricingCache()
+  const suffix = `:${trimmed}`
+  for (const key of Object.keys(cache.prices)) {
+    if (key.endsWith(suffix)) return key
+  }
+
+  for (const preset of AI_PROVIDER_PRESETS) {
+    if (preset.id === 'custom') continue
+    if (preset.models.some((model) => model.id === trimmed)) {
+      return pricingCacheKey(preset.id, trimmed)
+    }
+  }
+  return undefined
+}
+
+export type PricingModelOption = {
+  key: string
+  providerId: string
+  modelId: string
+  label: string
+}
+
+function pricingProviderLabel(providerId: string): string {
+  return (
+    AI_PROVIDER_PRESETS.find((item) => item.id === providerId)?.name ?? providerId
+  )
+}
+
+/**
+ * 可选定价模型列表：只包含定价缓存里真正有单价的条目。
+ * 不把「无价格的内置预设」混进来，避免把供应商名里的 (API) 误看成定价。
+ */
+export function listPricingModelOptions(): PricingModelOption[] {
+  const options: PricingModelOption[] = []
+  const cache = loadModelPricingCache()
+
+  for (const key of Object.keys(cache.prices)) {
+    const separator = key.indexOf(':')
+    if (separator <= 0) continue
+    const providerId = key.slice(0, separator)
+    const modelId = key.slice(separator + 1)
+    if (!providerId || !modelId) continue
+
+    const knownName =
+      providerId === 'openai' ||
+      providerId === 'deepseek' ||
+      providerId === 'mimo' ||
+      providerId === 'mimo-token-plan'
+        ? findAiModelPreset(providerId, modelId)?.name
+        : undefined
+    const modelName = knownName ?? modelId
+    options.push({
+      key,
+      providerId,
+      modelId,
+      label: `${modelName} · ${pricingProviderLabel(providerId)}`,
+    })
+  }
+
+  return options.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+}
+
+/** 从账户设置中按 modelId 反查定价（同名时优先已配置 pricingModelKey 的条目） */
+export function resolvePricingForLoggedModel(
+  modelId: string | undefined,
+  providers: readonly AiProviderEntry[],
+): ModelPricingEntry | undefined {
+  if (!modelId) return undefined
+  let fallback: ModelPricingEntry | undefined
+  for (const provider of providers) {
+    for (const model of provider.enabledModels) {
+      if (model.modelId !== modelId) continue
+      const pricing = resolveModelEntryPricing(provider.providerId, model)
+      if (!pricing) continue
+      if (model.pricingModelKey) return pricing
+      fallback ??= pricing
+    }
+  }
+  if (fallback) return fallback
+
+  for (const preset of AI_PROVIDER_PRESETS) {
+    if (preset.id === 'custom') continue
+    const pricing = resolveModelPricing(preset.id, modelId)
+    if (pricing) return pricing
+  }
+  return undefined
+}
+
+export function parseStoredTokenizerFamily(
+  value: unknown,
+): AiTokenizerFamily | undefined {
+  return typeof value === 'string' && isAiTokenizerFamily(value) ? value : undefined
+}
+
+export function parseStoredPricingModelKey(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.indexOf(':') <= 0) return undefined
+  return trimmed
 }
 
 export function isKnownModel(providerId: AiProviderId, modelId: string): boolean {

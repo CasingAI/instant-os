@@ -22,7 +22,10 @@ import {
 import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
-import { openAiConfigForVscodeAiModelKey } from './vscode-ai-models.ts'
+import {
+  openAiConfigForVscodeAiModelKey,
+  tokenizerFamilyForVscodeAiModelKey,
+} from './vscode-ai-models.ts'
 import {
   applyVscodeAiPromptTokenUpdate,
   measureVscodeAiContextUsage,
@@ -296,14 +299,16 @@ export async function askVscodeAiAgent(options: {
   const modelConfig: OpenAiConfig = openAiConfigForVscodeAiModelKey(options.modelKey)
   const client = createOpenAiClient(modelConfig, 'text')
   const model = modelConfig.defaultModel
+  const tokenizerFamily = tokenizerFamilyForVscodeAiModelKey(options.modelKey)
 
-  await prepareVscodeAiContextUsage(model)
+  await prepareVscodeAiContextUsage(model, tokenizerFamily)
   let contextUsage = measureVscodeAiContextUsage({
     mode: options.mode,
     context: options.context,
     history: options.history,
     userMessage: options.userMessage,
     model,
+    tokenizerFamily,
     tools,
   })
 

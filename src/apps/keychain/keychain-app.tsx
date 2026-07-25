@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
-import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'preact/hooks'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
-import { AiModelCapabilityTags } from '../../ui/ai-model-capability-tags.tsx'
+import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
+import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
+import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
+import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from '../settings/settings-layout-breakpoints.ts'
+import { KeychainTextFieldDialog } from './keychain-text-field-dialog.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -16,30 +25,44 @@ import {
   type AccountSettingsV2,
 } from '../../os/account-settings-storage.ts'
 import {
+  formatPricePerMillion,
+  subscribeModelPricingCache,
+} from '../../ai/ai-model-pricing-cache.ts'
+import { refreshModelPricing } from '../../ai/fetch-model-pricing.ts'
+import {
   AI_MODEL_CAPABILITIES,
   AI_MODEL_CAPABILITY_LABELS,
   AI_PROVIDER_PRESETS,
+  AI_TOKENIZER_FAMILIES,
+  AI_TOKENIZER_FAMILY_LABELS,
   CURRENT_PRESET_SYNC_REVISION,
   applyTextPreferredToProviders,
   buildCustomModelCapabilities,
   defaultProviderEntry,
+  findAiModelPreset,
   findAiProviderPreset,
   isCustomProvider,
   isProviderEntryValid,
   listEnabledModelsForCapability,
+  listPricingModelOptions,
+  matchPricingModelKey,
   modelCapabilitiesEqual,
   normalizeCustomModelCapabilities,
   preferredByCapabilityEqual,
   reconcilePreferredByCapability,
   resolveModelCapabilities,
+  resolvePricingByModelKey,
   type AiModelCapability,
   type AiModelEntry,
   type AiProviderEntry,
   type AiProviderId,
+  type AiTokenizerFamily,
   type FlatEnabledModel,
   type PreferredByCapability,
   type PreferredModelRef,
 } from '../../ai/ai-providers.ts'
+import { resolveTokenizerFamily } from '../../ai/model-tokenizer.ts'
+import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
 import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import {
@@ -52,17 +75,84 @@ import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { GithubCredentialsDialog } from './github-credentials-dialog.tsx'
 import '../../ui/ios-nav-back.css'
-import '../../ui/ios-check-toggle.css'
-import '../../ui/ai-model-capability-tags.css'
 import '../settings/settings.css'
 import './keychain.css'
 
-type Screen = 'root' | 'github' | 'ai-providers' | 'provider-settings'
+type Screen =
+  | 'root'
+  | 'github'
+  | 'ai-providers'
+  | 'provider-settings'
+  | 'model-settings'
+  | 'add-model'
+
+type FieldEditTarget = 'name' | 'baseURL' | 'apiKey'
+
+const FIELD_EDIT_META: Record<
+  FieldEditTarget,
+  {
+    title: string
+    label: string
+    type: 'text' | 'url' | 'password'
+    placeholder: string
+    message?: string
+    allowEmpty?: boolean
+  }
+> = {
+  name: {
+    title: '名称',
+    label: '名称',
+    type: 'text',
+    placeholder: '可选',
+    allowEmpty: true,
+  },
+  baseURL: {
+    title: 'Base URL',
+    label: 'Base URL',
+    type: 'url',
+    placeholder: 'https://api.example.com/v1',
+    message: 'OpenAI 兼容接口的 Base URL，通常以 /v1 结尾。',
+    allowEmpty: false,
+  },
+  apiKey: {
+    title: 'API Key',
+    label: 'API Key',
+    type: 'password',
+    placeholder: 'sk-...',
+    message: '填写供应商 API Key，仅保存在本机。',
+    allowEmpty: false,
+  },
+}
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
   id: item.id,
   label: item.name,
 }))
+
+function providerEntryEqual(a: AiProviderEntry, b: AiProviderEntry): boolean {
+  return (
+    a.id === b.id &&
+    a.providerId === b.providerId &&
+    a.name === b.name &&
+    a.apiKey === b.apiKey &&
+    a.baseURL === b.baseURL &&
+    a.defaultModel === b.defaultModel &&
+    a.thinkingEnabled === b.thinkingEnabled &&
+    a.useProxy === b.useProxy &&
+    a.enabledModels.length === b.enabledModels.length &&
+    a.enabledModels.every(
+      (m, j) =>
+        m.modelId === b.enabledModels[j].modelId &&
+        m.name === b.enabledModels[j].name &&
+        m.pricingModelKey === b.enabledModels[j].pricingModelKey &&
+        m.tokenizerFamily === b.enabledModels[j].tokenizerFamily &&
+        modelCapabilitiesEqual(
+          m.capabilities,
+          b.enabledModels[j].capabilities,
+        ),
+    )
+  )
+}
 
 function providersEqual(
   a: AiProviderEntry[],
@@ -73,39 +163,83 @@ function providersEqual(
   if (!preferredByCapabilityEqual(prefA, prefB) || a.length !== b.length) {
     return false
   }
-  return a.every((entry, i) => {
-    const other = b[i]
-    return (
-      entry.id === other.id &&
-      entry.providerId === other.providerId &&
-      entry.name === other.name &&
-      entry.apiKey === other.apiKey &&
-      entry.baseURL === other.baseURL &&
-      entry.defaultModel === other.defaultModel &&
-      entry.thinkingEnabled === other.thinkingEnabled &&
-      entry.useProxy === other.useProxy &&
-      entry.enabledModels.length === other.enabledModels.length &&
-      entry.enabledModels.every(
-        (m, j) =>
-          m.modelId === other.enabledModels[j].modelId &&
-          m.name === other.enabledModels[j].name &&
-          modelCapabilitiesEqual(
-            m.capabilities,
-            other.enabledModels[j].capabilities,
-          ),
-      )
-    )
-  })
+  return a.every((entry, i) => providerEntryEqual(entry, b[i]))
 }
 
-function cloneProviders(providers: AiProviderEntry[]): AiProviderEntry[] {
-  return providers.map((p) => ({
-    ...p,
-    enabledModels: p.enabledModels.map((m) => ({
+function cloneEntry(entry: AiProviderEntry): AiProviderEntry {
+  return {
+    ...entry,
+    enabledModels: entry.enabledModels.map((m) => ({
       ...m,
       capabilities: m.capabilities ? [...m.capabilities] : undefined,
     })),
-  }))
+  }
+}
+
+function cloneProviders(providers: AiProviderEntry[]): AiProviderEntry[] {
+  return providers.map((p) => cloneEntry(p))
+}
+
+function formatCapabilitiesSummary(
+  capabilities: readonly AiModelCapability[],
+): string {
+  if (capabilities.length === 0) return ''
+  return capabilities.map((cap) => AI_MODEL_CAPABILITY_LABELS[cap]).join('、')
+}
+
+function listProviderModelRows(entry: AiProviderEntry): Array<{
+  modelId: string
+  name: string
+  enabled: boolean
+  isFromPreset: boolean
+  capabilities: readonly AiModelCapability[]
+}> {
+  const isCustom = isCustomProvider(entry.providerId)
+  const preset = findAiProviderPreset(entry.providerId)
+  const rows: Array<{
+    modelId: string
+    name: string
+    enabled: boolean
+    isFromPreset: boolean
+    capabilities: readonly AiModelCapability[]
+  }> = []
+
+  if (isCustom) {
+    for (const model of entry.enabledModels) {
+      rows.push({
+        modelId: model.modelId,
+        name: model.name,
+        enabled: true,
+        isFromPreset: false,
+        capabilities: normalizeCustomModelCapabilities(model.capabilities),
+      })
+    }
+    return rows
+  }
+
+  const seen = new Set<string>()
+  for (const pm of preset?.models ?? []) {
+    seen.add(pm.id)
+    rows.push({
+      modelId: pm.id,
+      name: pm.name,
+      enabled: entry.enabledModels.some((m) => m.modelId === pm.id),
+      isFromPreset: true,
+      capabilities: resolveModelCapabilities(entry.providerId, pm.id),
+    })
+  }
+  for (const em of entry.enabledModels) {
+    if (seen.has(em.modelId)) continue
+    seen.add(em.modelId)
+    rows.push({
+      modelId: em.modelId,
+      name: em.name,
+      enabled: true,
+      isFromPreset: false,
+      capabilities: normalizeCustomModelCapabilities(em.capabilities),
+    })
+  }
+  return rows
 }
 
 function clonePreferred(
@@ -264,11 +398,27 @@ export function KeychainApp() {
   const [editingEntry, setEditingEntry] = useState<AiProviderEntry | undefined>(
     undefined,
   )
+  const [editingBaseline, setEditingBaseline] = useState<
+    AiProviderEntry | undefined
+  >(undefined)
+  const [editingModelId, setEditingModelId] = useState<string | undefined>(
+    undefined,
+  )
+  const [fieldDialog, setFieldDialog] = useState<FieldEditTarget | undefined>(
+    undefined,
+  )
+  const providerSettingsHostRef = useRef<HTMLDivElement>(null)
+  const [wideLayout, setWideLayout] = useState(false)
 
   const entryValid = useMemo(
-    () => editingEntry && isProviderEntryValid(editingEntry),
+    () => Boolean(editingEntry && isProviderEntryValid(editingEntry)),
     [editingEntry],
   )
+
+  const providerFormDirty = useMemo(() => {
+    if (!editingEntry || !editingBaseline) return false
+    return !providerEntryEqual(editingEntry, editingBaseline)
+  }, [editingEntry, editingBaseline])
 
   const hasAnyModel = useMemo(
     () => workingProviders.some((p) => p.enabledModels.length > 0),
@@ -356,27 +506,6 @@ export function KeychainApp() {
 
   useAppMenuBar('keychain', menuBar)
 
-  const handleSave = useCallback(() => {
-    const synced = syncPreferences(workingProviders, preferredByCapability)
-    const settings: AccountSettingsV2 = {
-      version: 2,
-      providers: synced.providers.map((p) => ({
-        ...p,
-        enabledModels: p.enabledModels.map((m) => ({ ...m })),
-      })),
-      preferredIndex: synced.preferredIndex,
-      preferredByCapability: synced.preferredByCapability,
-      presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
-    }
-    saveAccountSettings(settings)
-    setWorkingProviders(cloneProviders(settings.providers))
-    setPreferredByCapability(clonePreferred(settings.preferredByCapability))
-    setSavedSnapshot({
-      providers: cloneProviders(settings.providers),
-      preferredByCapability: clonePreferred(settings.preferredByCapability),
-    })
-  }, [workingProviders, preferredByCapability, syncPreferences])
-
   const handleCancelChanges = useCallback(() => {
     if (!savedSnapshot) {
       setWorkingProviders([])
@@ -402,13 +531,25 @@ export function KeychainApp() {
     setCapabilityOrder(nextOrder)
   }, [savedSnapshot])
 
+  const clearProviderEdit = useCallback(() => {
+    setIsAddingProvider(false)
+    setEditingEntry(undefined)
+    setEditingBaseline(undefined)
+    setEditingModelId(undefined)
+    setFieldDialog(undefined)
+    setEditingProviderIndex(-1)
+  }, [])
+
   const handleAddProvider = useCallback(() => {
     const entry = defaultProviderEntry()
     const newIndex = workingProviders.length
     setWorkingProviders((prev) => [...prev, entry])
     setEditingProviderIndex(newIndex)
-    setEditingEntry(structuredClone(entry))
+    setEditingEntry(cloneEntry(entry))
+    setEditingBaseline(cloneEntry(entry))
     setIsAddingProvider(true)
+    setEditingModelId(undefined)
+    setFieldDialog(undefined)
     setScreen('provider-settings')
   }, [workingProviders.length])
 
@@ -417,11 +558,11 @@ export function KeychainApp() {
       const provider = workingProviders[providerIndex]
       if (!provider) return
       setEditingProviderIndex(providerIndex)
-      setEditingEntry({
-        ...provider,
-        enabledModels: provider.enabledModels.map((m) => ({ ...m })),
-      })
+      setEditingEntry(cloneEntry(provider))
+      setEditingBaseline(cloneEntry(provider))
       setIsAddingProvider(false)
+      setEditingModelId(undefined)
+      setFieldDialog(undefined)
       setScreen('provider-settings')
     },
     [workingProviders],
@@ -475,6 +616,42 @@ export function KeychainApp() {
     [],
   )
 
+  const persistProviders = useCallback(
+    (
+      providers: AiProviderEntry[],
+      preferred: PreferredByCapability,
+    ) => {
+      const synced = syncPreferences(providers, preferred)
+      const settings: AccountSettingsV2 = {
+        version: 2,
+        providers: synced.providers.map((p) => ({
+          ...p,
+          enabledModels: p.enabledModels.map((m) => ({ ...m })),
+        })),
+        preferredIndex: synced.preferredIndex,
+        preferredByCapability: synced.preferredByCapability,
+        presetSyncRevision: CURRENT_PRESET_SYNC_REVISION,
+      }
+      saveAccountSettings(settings)
+      setWorkingProviders(cloneProviders(settings.providers))
+      setPreferredByCapability(clonePreferred(settings.preferredByCapability))
+      setSavedSnapshot({
+        providers: cloneProviders(settings.providers),
+        preferredByCapability: clonePreferred(settings.preferredByCapability),
+      })
+      refreshCapabilityOrders(
+        settings.providers,
+        settings.preferredByCapability,
+      )
+      return synced
+    },
+    [syncPreferences, refreshCapabilityOrders],
+  )
+
+  const handleSave = useCallback(() => {
+    persistProviders(workingProviders, preferredByCapability)
+  }, [workingProviders, preferredByCapability, persistProviders])
+
   useEffect(() => {
     return subscribeOpenAiConfig(() => {
       const next = loadInitialState()
@@ -484,8 +661,7 @@ export function KeychainApp() {
       if (next.providers.length === 0) {
         setSavedSnapshot(undefined)
         setScreen('ai-providers')
-        setIsAddingProvider(false)
-        setEditingEntry(undefined)
+        clearProviderEdit()
       } else {
         setSavedSnapshot({
           providers: cloneProviders(next.providers),
@@ -493,39 +669,31 @@ export function KeychainApp() {
         })
       }
     })
-  }, [refreshCapabilityOrders])
+  }, [refreshCapabilityOrders, clearProviderEdit])
 
-  const handleProviderDone = useCallback(() => {
-    if (!editingEntry) return
+  const mergeEditingEntryIntoProviders = useCallback((): AiProviderEntry[] => {
+    if (!editingEntry) return workingProviders
+    const next = [...workingProviders]
+    if (editingProviderIndex >= 0 && editingProviderIndex < next.length) {
+      next[editingProviderIndex] = cloneEntry(editingEntry)
+    } else {
+      next.push(cloneEntry(editingEntry))
+    }
+    return next
+  }, [editingEntry, editingProviderIndex, workingProviders])
 
-    setWorkingProviders((prev) => {
-      const next = [...prev]
-      if (editingProviderIndex >= 0 && editingProviderIndex < next.length) {
-        next[editingProviderIndex] = {
-          ...editingEntry,
-          enabledModels: editingEntry.enabledModels.map((m) => ({ ...m })),
-        }
-      } else {
-        next.push({
-          ...editingEntry,
-          enabledModels: editingEntry.enabledModels.map((m) => ({ ...m })),
-        })
-      }
-      const synced = syncPreferences(next, preferredByCapability)
-      setPreferredByCapability(synced.preferredByCapability)
-      refreshCapabilityOrders(synced.providers, synced.preferredByCapability)
-      return synced.providers
-    })
-
+  const handleProviderSave = useCallback(() => {
+    if (!editingEntry || !isProviderEntryValid(editingEntry)) return
+    const nextProviders = mergeEditingEntryIntoProviders()
+    persistProviders(nextProviders, preferredByCapability)
+    clearProviderEdit()
     setScreen('ai-providers')
-    setIsAddingProvider(false)
-    setEditingEntry(undefined)
   }, [
     editingEntry,
-    editingProviderIndex,
+    mergeEditingEntryIntoProviders,
     preferredByCapability,
-    syncPreferences,
-    refreshCapabilityOrders,
+    persistProviders,
+    clearProviderEdit,
   ])
 
   const handleProviderCancel = useCallback(() => {
@@ -534,11 +702,23 @@ export function KeychainApp() {
         prev.filter((_, i) => i !== editingProviderIndex),
       )
     }
-
+    clearProviderEdit()
     setScreen('ai-providers')
-    setIsAddingProvider(false)
-    setEditingEntry(undefined)
-  }, [isAddingProvider, editingProviderIndex])
+  }, [isAddingProvider, editingProviderIndex, clearProviderEdit])
+
+  const handleProviderBack = useCallback(() => {
+    if (providerFormDirty || isAddingProvider) {
+      handleProviderCancel()
+      return
+    }
+    clearProviderEdit()
+    setScreen('ai-providers')
+  }, [
+    providerFormDirty,
+    isAddingProvider,
+    handleProviderCancel,
+    clearProviderEdit,
+  ])
 
   const handleProviderDelete = useCallback(async () => {
     if (editingProviderIndex < 0) return
@@ -572,9 +752,8 @@ export function KeychainApp() {
       setPreferredByCapability({})
       setSavedSnapshot(undefined)
       refreshCapabilityOrders([], {})
+      clearProviderEdit()
       setScreen('ai-providers')
-      setIsAddingProvider(false)
-      setEditingEntry(undefined)
       return
     }
 
@@ -582,9 +761,8 @@ export function KeychainApp() {
     setWorkingProviders(synced.providers)
     setPreferredByCapability(synced.preferredByCapability)
     refreshCapabilityOrders(synced.providers, synced.preferredByCapability)
+    clearProviderEdit()
     setScreen('ai-providers')
-    setIsAddingProvider(false)
-    setEditingEntry(undefined)
   }, [
     editingProviderIndex,
     workingProviders,
@@ -592,34 +770,175 @@ export function KeychainApp() {
     modal,
     syncPreferences,
     refreshCapabilityOrders,
+    clearProviderEdit,
   ])
+
+  const handleOpenModelSettings = useCallback((modelId: string) => {
+    setEditingModelId(modelId)
+    setScreen('model-settings')
+  }, [])
+
+  const handleOpenAddModel = useCallback(() => {
+    setScreen('add-model')
+  }, [])
+
+  const handleModelSettingsBack = useCallback(() => {
+    setEditingModelId(undefined)
+    setScreen('provider-settings')
+  }, [])
+
+  const handleAddModelCancel = useCallback(() => {
+    setScreen('provider-settings')
+  }, [])
+
+  const handleAddModelComplete = useCallback(
+    (result: {
+      modelId: string
+      supportsVision: boolean
+      pricingModelKey?: string
+      tokenizerFamily?: AiTokenizerFamily
+    }) => {
+      setEditingEntry((prev) => {
+        if (!prev) return prev
+        if (prev.enabledModels.some((m) => m.modelId === result.modelId)) {
+          return prev
+        }
+        return {
+          ...prev,
+          enabledModels: [
+            ...prev.enabledModels,
+            {
+              modelId: result.modelId,
+              name: result.modelId,
+              capabilities: buildCustomModelCapabilities(result.supportsVision),
+              ...(result.pricingModelKey
+                ? { pricingModelKey: result.pricingModelKey }
+                : {}),
+              ...(result.tokenizerFamily
+                ? { tokenizerFamily: result.tokenizerFamily }
+                : {}),
+            },
+          ],
+          defaultModel: prev.defaultModel || result.modelId,
+        }
+      })
+      setScreen('provider-settings')
+    },
+    [],
+  )
+
+  const handleOpenFieldDialog = useCallback((field: FieldEditTarget) => {
+    setFieldDialog(field)
+  }, [])
+
+  const handleFieldDialogSave = useCallback(
+    (field: FieldEditTarget, value: string) => {
+      setEditingEntry((prev) => {
+        if (!prev) return prev
+        if (field === 'name') {
+          return { ...prev, name: value || undefined }
+        }
+        if (field === 'baseURL') {
+          return { ...prev, baseURL: value || undefined }
+        }
+        return { ...prev, apiKey: value }
+      })
+    },
+    [],
+  )
+
+  useLayoutEffect(() => {
+    if (
+      screen !== 'provider-settings' &&
+      screen !== 'model-settings' &&
+      screen !== 'add-model'
+    ) {
+      return
+    }
+    const host = providerSettingsHostRef.current
+    if (!host) return
+    const sync = () => {
+      setWideLayout(host.clientWidth >= SETTINGS_WIDE_LAYOUT_MIN_WIDTH)
+    }
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [screen])
+
+  if (screen === 'add-model' && editingEntry) {
+    return (
+      <div class="settings" ref={providerSettingsHostRef}>
+        <AddModelView
+          providerId={editingEntry.providerId}
+          existingModelIds={editingEntry.enabledModels.map((m) => m.modelId)}
+          isCustomProvider={isCustomProvider(editingEntry.providerId)}
+          onCancel={handleAddModelCancel}
+          onComplete={handleAddModelComplete}
+        />
+      </div>
+    )
+  }
+
+  if (screen === 'model-settings' && editingEntry && editingModelId) {
+    const providerTitle = getProviderDisplayName(editingEntry) || '供应商'
+    return (
+      <div class="settings" ref={providerSettingsHostRef}>
+        <ModelSettingsView
+          entry={editingEntry}
+          modelId={editingModelId}
+          backLabel={providerTitle}
+          onBack={handleModelSettingsBack}
+          onChange={setEditingEntry}
+        />
+      </div>
+    )
+  }
 
   if (screen === 'provider-settings') {
     const settingsTitle =
       getProviderDisplayName(
         editingEntry ?? workingProviders[editingProviderIndex],
       ) || '供应商'
+    const showSave = isAddingProvider || providerFormDirty
+    const showDelete = !isAddingProvider && !providerFormDirty
+    const fieldMeta = fieldDialog ? FIELD_EDIT_META[fieldDialog] : undefined
+    const fieldValue =
+      editingEntry && fieldDialog
+        ? fieldDialog === 'name'
+          ? (editingEntry.name ?? '')
+          : fieldDialog === 'baseURL'
+            ? (editingEntry.baseURL ?? '')
+            : editingEntry.apiKey
+        : ''
 
     return (
-      <div class="settings">
+      <div class="settings" ref={providerSettingsHostRef}>
         <div class="settings__nav keychain__nav">
-          <IosNavBackButton
-            label="AI 模型供应商"
-            disabled={!isAddingProvider && !entryValid}
-            onClick={
-              isAddingProvider ? handleProviderCancel : handleProviderDone
-            }
-          />
-          {isAddingProvider ? (
+          {showSave ? (
+            <button
+              type="button"
+              class="settings__btn settings__btn--plain"
+              onClick={handleProviderCancel}
+            >
+              取消
+            </button>
+          ) : (
+            <IosNavBackButton
+              label="AI 模型供应商"
+              onClick={handleProviderBack}
+            />
+          )}
+          {showSave ? (
             <button
               type="button"
               class="settings__btn settings__btn--default"
               disabled={!entryValid}
-              onClick={handleProviderDone}
+              onClick={handleProviderSave}
             >
-              完成
+              保存
             </button>
-          ) : (
+          ) : showDelete ? (
             <button
               type="button"
               class="settings__btn settings__btn--danger"
@@ -627,7 +946,7 @@ export function KeychainApp() {
             >
               删除
             </button>
-          )}
+          ) : null}
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
@@ -635,11 +954,30 @@ export function KeychainApp() {
             {editingEntry && (
               <ProviderSettingsForm
                 entry={editingEntry}
+                wideLayout={wideLayout}
                 onChange={setEditingEntry}
+                onOpenModel={handleOpenModelSettings}
+                onAddModel={handleOpenAddModel}
+                onOpenFieldEdit={handleOpenFieldDialog}
               />
             )}
           </section>
         </div>
+
+        {editingEntry && fieldMeta && fieldDialog && (
+          <KeychainTextFieldDialog
+            open
+            title={fieldMeta.title}
+            label={fieldMeta.label}
+            value={fieldValue}
+            type={fieldMeta.type}
+            placeholder={fieldMeta.placeholder}
+            message={fieldMeta.message}
+            allowEmpty={fieldMeta.allowEmpty}
+            onClose={() => setFieldDialog(undefined)}
+            onSave={(value) => handleFieldDialogSave(fieldDialog, value)}
+          />
+        )}
       </div>
     )
   }
@@ -997,20 +1335,30 @@ function CapabilitySection({
 
 function ProviderSettingsForm({
   entry,
+  wideLayout,
   onChange,
+  onOpenModel,
+  onAddModel,
+  onOpenFieldEdit,
 }: {
   entry: AiProviderEntry
+  wideLayout: boolean
   onChange: (entry: AiProviderEntry) => void
+  onOpenModel: (modelId: string) => void
+  onAddModel: () => void
+  onOpenFieldEdit: (field: FieldEditTarget) => void
 }) {
-  const [customModelInput, setCustomModelInput] = useState('')
-  const [customModelSupportsVision, setCustomModelSupportsVision] =
-    useState(false)
   const isCustom = isCustomProvider(entry.providerId)
   const preset = findAiProviderPreset(entry.providerId)
   const showThinking =
     entry.providerId === 'deepseek' ||
     entry.providerId === 'mimo' ||
     entry.providerId === 'mimo-token-plan'
+  const modelRows = listProviderModelRows(entry)
+  const providerLabel = preset?.name ?? entry.providerId
+  const nameValue = entry.name?.trim() || '可选'
+  const baseUrlValue = entry.baseURL?.trim() || '未设置'
+  const apiKeyConfigured = entry.apiKey.length > 0
 
   const handleProviderChange = (value: string) => {
     const providerId = value as AiProviderId
@@ -1024,13 +1372,476 @@ function ProviderSettingsForm({
     onChange(newEntry)
   }
 
-  const handleModelToggle = (modelId: string, name: string) => {
-    const enabled = entry.enabledModels.some((m) => m.modelId === modelId)
+  return (
+    <div class="keychain__form-stack">
+      <div class="keychain__form-group">
+        <div class="settings__list">
+          {/* 供应商始终用专用选择弹出菜单（SettingsChoicePopoverMenu） */}
+          <SettingsChoiceField
+            label="供应商"
+            value={entry.providerId}
+            displayValue={providerLabel}
+            options={PROVIDER_OPTIONS}
+            onChange={(value) => handleProviderChange(value)}
+            wideLayout
+            presentation="list"
+          />
+          {wideLayout ? (
+            <>
+              <SettingsInlineInputRow
+                label="名称"
+                type="text"
+                value={entry.name ?? ''}
+                placeholder="可选"
+                onChange={(name) =>
+                  onChange({ ...entry, name: name || undefined })
+                }
+              />
+              {isCustom && (
+                <SettingsInlineInputRow
+                  label="Base URL"
+                  type="url"
+                  value={entry.baseURL ?? ''}
+                  placeholder="https://api.example.com/v1"
+                  onChange={(baseURL) =>
+                    onChange({ ...entry, baseURL: baseURL || undefined })
+                  }
+                />
+              )}
+              <SettingsInlineInputRow
+                label="API Key"
+                type="password"
+                value={entry.apiKey}
+                placeholder="sk-..."
+                onChange={(apiKey) => onChange({ ...entry, apiKey })}
+              />
+            </>
+          ) : (
+            <>
+              <SettingsNavRow
+                label="名称"
+                value={nameValue}
+                onClick={() => onOpenFieldEdit('name')}
+              />
+              {isCustom && (
+                <SettingsNavRow
+                  label="Base URL"
+                  value={baseUrlValue}
+                  onClick={() => onOpenFieldEdit('baseURL')}
+                />
+              )}
+              <SettingsNavRow
+                label="API Key"
+                value={apiKeyConfigured ? '已配置' : '未配置'}
+                secretLength={
+                  apiKeyConfigured ? entry.apiKey.length : undefined
+                }
+                onClick={() => onOpenFieldEdit('apiKey')}
+              />
+            </>
+          )}
+        </div>
+      </div>
+
+      <div class="keychain__form-group">
+        <h3 class="keychain__form-group-title">启用的模型</h3>
+        <div class="settings__list">
+          {modelRows.length === 0 ? (
+            <div class="settings__row settings__row--static">
+              <span class="settings__row-name settings__row-hint">
+                尚未添加模型
+              </span>
+            </div>
+          ) : (
+            modelRows.map((row) => (
+              <SettingsNavRow
+                key={row.modelId}
+                label={row.name}
+                value={
+                  row.enabled
+                    ? formatCapabilitiesSummary(row.capabilities) || '已启用'
+                    : '未启用'
+                }
+                onClick={() => onOpenModel(row.modelId)}
+              />
+            ))
+          )}
+          <SettingsNavRow
+            label={isCustom ? '添加模型…' : '添加自定义模型…'}
+            value=""
+            onClick={onAddModel}
+          />
+        </div>
+      </div>
+
+      <div class="keychain__form-group">
+        <div class="settings__list">
+          {showThinking && (
+            <SettingsSwitchRow
+              label="思考模式"
+              checked={entry.thinkingEnabled}
+              onChange={(thinkingEnabled) =>
+                onChange({ ...entry, thinkingEnabled })
+              }
+            />
+          )}
+          <SettingsSwitchRow
+            label="使用代理服务器访问"
+            checked={entry.useProxy}
+            onChange={(useProxy) => onChange({ ...entry, useProxy })}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const PRICING_NONE_OPTION_ID = ''
+const TOKENIZER_NONE_OPTION_ID = ''
+
+type AddModelPicker = 'pricing' | 'tokenizer'
+
+function AddModelView({
+  providerId,
+  existingModelIds,
+  isCustomProvider: customProvider,
+  onCancel,
+  onComplete,
+}: {
+  providerId: AiProviderId
+  existingModelIds: readonly string[]
+  isCustomProvider: boolean
+  onCancel: () => void
+  onComplete: (result: {
+    modelId: string
+    supportsVision: boolean
+    pricingModelKey?: string
+    tokenizerFamily?: AiTokenizerFamily
+  }) => void
+}) {
+  const [draftModelId, setDraftModelId] = useState('')
+  const [supportsVision, setSupportsVision] = useState(false)
+  const [detailsRevealed, setDetailsRevealed] = useState(false)
+  const [pricingModelKey, setPricingModelKey] = useState<string | undefined>()
+  const [tokenizerFamily, setTokenizerFamily] = useState<
+    AiTokenizerFamily | undefined
+  >()
+  const [pricingTouched, setPricingTouched] = useState(false)
+  const [tokenizerTouched, setTokenizerTouched] = useState(false)
+  const [modelIdDialogOpen, setModelIdDialogOpen] = useState(false)
+  const [picker, setPicker] = useState<AddModelPicker | undefined>()
+  const [pricingRevision, setPricingRevision] = useState(0)
+
+  useEffect(
+    () => subscribeModelPricingCache(() => setPricingRevision((value) => value + 1)),
+    [],
+  )
+
+  useEffect(() => {
+    if (picker !== 'pricing') return
+    void refreshModelPricing()
+  }, [picker])
+
+  const trimmed = draftModelId.trim()
+  const duplicate = trimmed.length > 0 && existingModelIds.includes(trimmed)
+  const canSubmit = trimmed.length > 0 && !duplicate
+  const capabilities = buildCustomModelCapabilities(supportsVision)
+  const title = customProvider ? '添加模型' : '添加自定义模型'
+
+  const pricingOptions = useMemo(() => {
+    void pricingRevision
+    const items = listPricingModelOptions().map((option) => {
+      const pricing = resolvePricingByModelKey(option.key)
+      const price = formatPricePerMillion(pricing)
+      return {
+        id: option.key,
+        label: price === '—' ? option.label : `${option.label}（${price}）`,
+      }
+    })
+    return [{ id: PRICING_NONE_OPTION_ID, label: '未匹配' }, ...items]
+  }, [pricingRevision])
+
+  const tokenizerOptions = useMemo(
+    () => [
+      { id: TOKENIZER_NONE_OPTION_ID, label: '未匹配' },
+      ...AI_TOKENIZER_FAMILIES.map((family) => ({
+        id: family,
+        label: AI_TOKENIZER_FAMILY_LABELS[family],
+      })),
+    ],
+    [],
+  )
+
+  const pricingLabel =
+    pricingOptions.find((option) => option.id === (pricingModelKey ?? ''))
+      ?.label ?? '未匹配'
+  const tokenizerLabel =
+    tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
+      ?.label ?? '未匹配'
+
+  const applyModelId = (next: string) => {
+    setDraftModelId(next)
+    const nextTrimmed = next.trim()
+    if (!nextTrimmed) return
+
+    setDetailsRevealed(true)
+
+    const matchedPricing = matchPricingModelKey(providerId, nextTrimmed)
+    if (!pricingTouched) {
+      setPricingModelKey(matchedPricing)
+    }
+
+    const matchedTokenizer = resolveTokenizerFamily(nextTrimmed)
+    if (!tokenizerTouched) {
+      setTokenizerFamily(matchedTokenizer)
+    }
+
+    const matchedPreset =
+      findAiModelPreset(providerId, nextTrimmed) ??
+      AI_PROVIDER_PRESETS.flatMap((item) => [...item.models]).find(
+        (model) => model.id === nextTrimmed,
+      )
+    if (matchedPreset?.capabilities.includes('vision')) {
+      setSupportsVision(true)
+    }
+  }
+
+  const handleCapabilityToggle = (
+    capability: AiModelCapability,
+    checked: boolean,
+  ) => {
+    if (capability !== 'vision') return
+    setSupportsVision(checked)
+  }
+
+  if (picker === 'pricing') {
+    return (
+      <SettingsChoicePickerView
+        title="定价"
+        backLabel={title}
+        options={pricingOptions}
+        value={pricingModelKey ?? PRICING_NONE_OPTION_ID}
+        searchable
+        searchPlaceholder="搜索模型或供应商"
+        titleInNav
+        closeOnSelect={false}
+        onChange={(value) => {
+          setPricingTouched(true)
+          setPricingModelKey(value || undefined)
+        }}
+        onBack={() => setPicker(undefined)}
+      />
+    )
+  }
+
+  if (picker === 'tokenizer') {
+    return (
+      <SettingsChoicePickerView
+        title="词表"
+        backLabel={title}
+        options={tokenizerOptions}
+        value={tokenizerFamily ?? TOKENIZER_NONE_OPTION_ID}
+        searchable
+        searchPlaceholder="搜索词表"
+        titleInNav
+        closeOnSelect={false}
+        onChange={(value) => {
+          setTokenizerTouched(true)
+          setTokenizerFamily(
+            value ? (value as AiTokenizerFamily) : undefined,
+          )
+        }}
+        onBack={() => setPicker(undefined)}
+      />
+    )
+  }
+
+  return (
+    <>
+      <div class="settings__nav keychain__nav">
+        <button
+          type="button"
+          class="settings__btn settings__btn--plain"
+          onClick={onCancel}
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          class="settings__btn settings__btn--default"
+          disabled={!canSubmit}
+          onClick={() =>
+            onComplete({
+              modelId: trimmed,
+              supportsVision,
+              pricingModelKey,
+              tokenizerFamily,
+            })
+          }
+        >
+          下一步
+        </button>
+      </div>
+      <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <h2 class="settings__section-title">{title}</h2>
+
+          <div class="keychain__form-stack">
+            <div class="keychain__form-group">
+              <div class="settings__list">
+                <SettingsNavRow
+                  label="模型 ID"
+                  value={trimmed || '未设置'}
+                  onClick={() => setModelIdDialogOpen(true)}
+                />
+              </div>
+              {duplicate && (
+                <p class="settings__section-footnote settings__form-status--error">
+                  该模型已存在
+                </p>
+              )}
+            </div>
+
+            {detailsRevealed && (
+              <>
+                <div class="keychain__form-group">
+                  <h3 class="keychain__form-group-title">能力</h3>
+                  <div class="settings__list">
+                    {AI_MODEL_CAPABILITIES.map((capability) => {
+                      const active = capabilities.includes(capability)
+                      const label = AI_MODEL_CAPABILITY_LABELS[capability]
+                      const canToggle = capability === 'vision'
+                      const checked = capability === 'text' ? true : active
+
+                      return (
+                        <SettingsCheckRow
+                          key={capability}
+                          label={label}
+                          checked={checked}
+                          disabled={!canToggle}
+                          onChange={(next) =>
+                            handleCapabilityToggle(capability, next)
+                          }
+                        />
+                      )
+                    })}
+                  </div>
+                  <p class="settings__section-footnote">
+                    自定义模型始终支持文本；可开启图像识别。语音识别与合成暂不支持手动标注。
+                  </p>
+                </div>
+
+                <div class="keychain__form-group">
+                  <h3 class="keychain__form-group-title">补充信息</h3>
+                  <div class="settings__list">
+                    <SettingsNavRow
+                      label="定价"
+                      value={pricingLabel}
+                      onClick={() => setPicker('pricing')}
+                    />
+                    <SettingsNavRow
+                      label="词表"
+                      value={tokenizerLabel}
+                      onClick={() => setPicker('tokenizer')}
+                    />
+                  </div>
+                  <p class="settings__section-footnote">
+                    定价用于事件日志估算成本；词表用于本地 token 预估。未自动匹配时可手动选择。
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <KeychainTextFieldDialog
+        open={modelIdDialogOpen}
+        title="模型 ID"
+        label="模型 ID"
+        value={draftModelId}
+        type="text"
+        placeholder="model-id"
+        message="填写要添加的模型 ID。"
+        allowEmpty
+        onClose={() => setModelIdDialogOpen(false)}
+        onSave={applyModelId}
+      />
+    </>
+  )
+}
+
+function ModelSettingsView({
+  entry,
+  modelId,
+  backLabel,
+  onBack,
+  onChange,
+}: {
+  entry: AiProviderEntry
+  modelId: string
+  backLabel: string
+  onBack: () => void
+  onChange: (entry: AiProviderEntry) => void
+}) {
+  const isCustomProviderEntry = isCustomProvider(entry.providerId)
+  const rows = listProviderModelRows(entry)
+  const editingRow = rows.find((row) => row.modelId === modelId)
+  const modelEntry = entry.enabledModels.find((m) => m.modelId === modelId)
+  const title = editingRow?.name ?? modelId
+  const [picker, setPicker] = useState<AddModelPicker | undefined>()
+  const [pricingRevision, setPricingRevision] = useState(0)
+
+  useEffect(
+    () => subscribeModelPricingCache(() => setPricingRevision((value) => value + 1)),
+    [],
+  )
+
+  useEffect(() => {
+    if (picker !== 'pricing') return
+    void refreshModelPricing()
+  }, [picker])
+
+  const pricingOptions = useMemo(() => {
+    void pricingRevision
+    const items = listPricingModelOptions().map((option) => {
+      const pricing = resolvePricingByModelKey(option.key)
+      const price = formatPricePerMillion(pricing)
+      return {
+        id: option.key,
+        label: price === '—' ? option.label : `${option.label}（${price}）`,
+      }
+    })
+    return [{ id: PRICING_NONE_OPTION_ID, label: '未匹配' }, ...items]
+  }, [pricingRevision])
+
+  const tokenizerOptions = useMemo(
+    () => [
+      { id: TOKENIZER_NONE_OPTION_ID, label: '未匹配' },
+      ...AI_TOKENIZER_FAMILIES.map((family) => ({
+        id: family,
+        label: AI_TOKENIZER_FAMILY_LABELS[family],
+      })),
+    ],
+    [],
+  )
+
+  const updateModelEntry = (patch: Partial<AiModelEntry>) => {
+    const next = entry.enabledModels.map((m) =>
+      m.modelId === modelId ? { ...m, ...patch } : m,
+    )
+    onChange({ ...entry, enabledModels: next })
+  }
+
+  const handleToggleEnabled = (enabled: boolean) => {
+    if (!editingRow) return
+    const { modelId: id, name } = editingRow
     let next: AiModelEntry[]
     if (enabled) {
-      next = entry.enabledModels.filter((m) => m.modelId !== modelId)
+      if (entry.enabledModels.some((m) => m.modelId === id)) return
+      next = [...entry.enabledModels, { modelId: id, name }]
     } else {
-      next = [...entry.enabledModels, { modelId, name }]
+      next = entry.enabledModels.filter((m) => m.modelId !== id)
     }
     const nextDefault = next.some((m) => m.modelId === entry.defaultModel)
       ? entry.defaultModel
@@ -1038,257 +1849,190 @@ function ProviderSettingsForm({
     onChange({ ...entry, enabledModels: next, defaultModel: nextDefault })
   }
 
-  const handleRemoveCustomModel = (modelId: string) => {
+  const handleRemove = () => {
     const next = entry.enabledModels.filter((m) => m.modelId !== modelId)
     const nextDefault = next.some((m) => m.modelId === entry.defaultModel)
       ? entry.defaultModel
       : (next[0]?.modelId ?? '')
     onChange({ ...entry, enabledModels: next, defaultModel: nextDefault })
+    onBack()
   }
 
-  const handleAddCustomModel = () => {
-    const modelId = customModelInput.trim()
-    if (!modelId) return
-    if (entry.enabledModels.some((m) => m.modelId === modelId)) return
-    const nextModels = [
-      ...entry.enabledModels,
-      {
-        modelId,
-        name: modelId,
-        capabilities: buildCustomModelCapabilities(customModelSupportsVision),
-      },
-    ]
-    onChange({
-      ...entry,
-      enabledModels: nextModels,
-      defaultModel: entry.defaultModel || modelId,
+  const handleVisionChange = (supportsVision: boolean) => {
+    updateModelEntry({
+      capabilities: [...buildCustomModelCapabilities(supportsVision)],
     })
-    setCustomModelInput('')
-    setCustomModelSupportsVision(false)
   }
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') handleAddCustomModel()
+  const showRemove = Boolean(editingRow && !editingRow.isFromPreset)
+  const showEnableSwitch = Boolean(
+    editingRow && editingRow.isFromPreset && !isCustomProviderEntry,
+  )
+  const capabilitiesEditable = Boolean(
+    editingRow && !editingRow.isFromPreset,
+  )
+  const displayedCapabilities = editingRow?.capabilities ?? []
+  const pricingModelKey = modelEntry?.pricingModelKey
+  const tokenizerFamily = modelEntry?.tokenizerFamily
+  const pricingLabel =
+    pricingOptions.find((option) => option.id === (pricingModelKey ?? ''))
+      ?.label ?? '未匹配'
+  const tokenizerLabel =
+    tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
+      ?.label ?? '未匹配'
+
+  const handleCapabilityToggle = (
+    capability: AiModelCapability,
+    checked: boolean,
+  ) => {
+    if (!capabilitiesEditable) return
+    if (capability !== 'vision') return
+    handleVisionChange(checked)
   }
 
-  const renderModelCards = () => {
-    const rows: Array<{
-      modelId: string
-      name: string
-      enabled: boolean
-      isFromPreset: boolean
-      capabilities: readonly AiModelCapability[]
-    }> = []
-
-    if (isCustom) {
-      for (const model of entry.enabledModels) {
-        rows.push({
-          modelId: model.modelId,
-          name: model.name,
-          enabled: true,
-          isFromPreset: false,
-          capabilities: normalizeCustomModelCapabilities(model.capabilities),
-        })
-      }
-    } else {
-      const seen = new Set<string>()
-      for (const pm of preset?.models ?? []) {
-        seen.add(pm.id)
-        rows.push({
-          modelId: pm.id,
-          name: pm.name,
-          enabled: entry.enabledModels.some((m) => m.modelId === pm.id),
-          isFromPreset: true,
-          capabilities: resolveModelCapabilities(entry.providerId, pm.id),
-        })
-      }
-      for (const em of entry.enabledModels) {
-        if (seen.has(em.modelId)) continue
-        seen.add(em.modelId)
-        rows.push({
-          modelId: em.modelId,
-          name: em.name,
-          enabled: true,
-          isFromPreset: false,
-          capabilities: normalizeCustomModelCapabilities(em.capabilities),
-        })
-      }
-    }
-
-    const addCapabilities = buildCustomModelCapabilities(
-      customModelSupportsVision,
-    )
-
+  if (picker === 'pricing') {
     return (
-      <div class="ai-model-cards">
-        {rows.length === 0 && (
-          <div class="ai-model-card__empty">尚未添加模型，请在下方添加</div>
-        )}
-        {rows.map((row) => {
-          return (
-            <div
-              key={row.modelId}
-              class={`ai-model-card${!row.enabled ? ' ai-model-card--disabled' : ''}`}
-            >
-              <div class="ai-model-card__header">
-                {!isCustom && (
-                  <IosCheckToggle
-                    checked={row.enabled}
-                    label={
-                      row.enabled ? `禁用 ${row.name}` : `启用 ${row.name}`
-                    }
-                    onChange={() => handleModelToggle(row.modelId, row.name)}
-                  />
-                )}
-                <span class="ai-model-card__title">{row.name}</span>
-                {!row.isFromPreset && (
-                  <div class="ai-model-card__actions">
-                    <button
-                      type="button"
-                      class="settings__btn settings__btn--small settings__btn--danger"
-                      onClick={() => handleRemoveCustomModel(row.modelId)}
-                    >
-                      移除
-                    </button>
-                  </div>
-                )}
-              </div>
-              <AiModelCapabilityTags capabilities={row.capabilities} />
-            </div>
-          )
-        })}
-        <div class="ai-model-card ai-model-card--add">
-          <div class="ai-model-card__header">
-            <input
-              class="settings__input ai-model-card__title-input"
-              type="text"
-              value={customModelInput}
-              placeholder={isCustom ? '添加模型...' : '添加自定义模型...'}
-              autoComplete="off"
-              onInput={(e) =>
-                setCustomModelInput((e.currentTarget as HTMLInputElement).value)
-              }
-              onKeyDown={handleKeyDown}
-            />
-            <div class="ai-model-card__actions">
-              <button
-                type="button"
-                class="settings__btn settings__btn--small settings__btn--default"
-                disabled={!customModelInput.trim()}
-                onClick={handleAddCustomModel}
-              >
-                添加
-              </button>
-            </div>
-          </div>
-          <AiModelCapabilityTags
-            capabilities={addCapabilities}
-            visionEditable
-            onVisionChange={setCustomModelSupportsVision}
-          />
-        </div>
-      </div>
+      <SettingsChoicePickerView
+        title="定价"
+        backLabel={title}
+        options={pricingOptions}
+        value={pricingModelKey ?? PRICING_NONE_OPTION_ID}
+        searchable
+        searchPlaceholder="搜索模型或供应商"
+        titleInNav
+        closeOnSelect={false}
+        onChange={(value) =>
+          updateModelEntry({
+            pricingModelKey: value || undefined,
+          })
+        }
+        onBack={() => setPicker(undefined)}
+      />
+    )
+  }
+
+  if (picker === 'tokenizer') {
+    return (
+      <SettingsChoicePickerView
+        title="词表"
+        backLabel={title}
+        options={tokenizerOptions}
+        value={tokenizerFamily ?? TOKENIZER_NONE_OPTION_ID}
+        searchable
+        searchPlaceholder="搜索词表"
+        titleInNav
+        closeOnSelect={false}
+        onChange={(value) =>
+          updateModelEntry({
+            tokenizerFamily: value
+              ? (value as AiTokenizerFamily)
+              : undefined,
+          })
+        }
+        onBack={() => setPicker(undefined)}
+      />
     )
   }
 
   return (
-    <div class="settings__form">
-      <SettingsChoiceField
-        label="供应商"
-        value={entry.providerId}
-        displayValue={preset?.name ?? entry.providerId}
-        options={PROVIDER_OPTIONS}
-        onChange={(value) => handleProviderChange(value)}
-        wideLayout
-        presentation="form"
-      />
-
-      <label class="settings__field">
-        <span class="settings__field-label">名称（可选）</span>
-        <input
-          class="settings__input"
-          type="text"
-          value={entry.name ?? ''}
-          placeholder="为供应商取个名字"
-          autoComplete="off"
-          onInput={(e) =>
-            onChange({
-              ...entry,
-              name: (e.currentTarget as HTMLInputElement).value || undefined,
-            })
-          }
-        />
-      </label>
-
-      {isCustom && (
-        <label class="settings__field">
-          <span class="settings__field-label">Base URL</span>
-          <input
-            class="settings__input"
-            type="url"
-            value={entry.baseURL ?? ''}
-            placeholder="https://api.example.com/v1"
-            autoComplete="off"
-            onInput={(e) =>
-              onChange({
-                ...entry,
-                baseURL:
-                  (e.currentTarget as HTMLInputElement).value || undefined,
-              })
-            }
-          />
-        </label>
-      )}
-
-      <label class="settings__field">
-        <span class="settings__field-label">API Key</span>
-        <input
-          class="settings__input"
-          type="password"
-          value={entry.apiKey}
-          placeholder="sk-..."
-          autoComplete="off"
-          onInput={(e) =>
-            onChange({
-              ...entry,
-              apiKey: (e.currentTarget as HTMLInputElement).value,
-            })
-          }
-        />
-      </label>
-
-      <div class="settings__field settings__field--stacked">
-        <span class="settings__field-label">启用的模型</span>
-        {renderModelCards()}
+    <>
+      <div class="settings__nav keychain__nav">
+        <IosNavBackButton label={backLabel} onClick={onBack} />
+        {showRemove ? (
+          <button
+            type="button"
+            class="settings__btn settings__btn--danger"
+            onClick={handleRemove}
+          >
+            移除
+          </button>
+        ) : null}
       </div>
+      <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <h2 class="settings__section-title">{title}</h2>
 
-      {showThinking && (
-        <div class="settings__list">
-          <div class="settings__row settings__row--switch">
-            <span class="settings__row-name">思考模式</span>
-            <IosSwitch
-              checked={entry.thinkingEnabled}
-              onChange={(thinkingEnabled) =>
-                onChange({ ...entry, thinkingEnabled })
-              }
-              label="思考模式"
-            />
-          </div>
-        </div>
-      )}
+          {editingRow ? (
+            <div class="keychain__form-stack">
+              <div class="keychain__form-group">
+                <div class="settings__list">
+                  <div class="settings__row settings__row--static">
+                    <span class="settings__row-name">名称</span>
+                    <span class="settings__row-size">{editingRow.name}</span>
+                  </div>
+                  <div class="settings__row settings__row--static">
+                    <span class="settings__row-name">模型 ID</span>
+                    <span class="settings__row-size">{editingRow.modelId}</span>
+                  </div>
+                  {showEnableSwitch && (
+                    <SettingsSwitchRow
+                      label="启用"
+                      checked={editingRow.enabled}
+                      onChange={handleToggleEnabled}
+                    />
+                  )}
+                </div>
+              </div>
 
-      <div class="settings__list">
-        <div class="settings__row settings__row--switch">
-          <span class="settings__row-name">使用代理服务器访问</span>
-          <IosSwitch
-            checked={entry.useProxy}
-            onChange={(useProxy) =>
-              onChange({ ...entry, useProxy })
-            }
-            label="使用代理服务器访问"
-          />
-        </div>
+              <div class="keychain__form-group">
+                <h3 class="keychain__form-group-title">能力</h3>
+                <div class="settings__list">
+                  {AI_MODEL_CAPABILITIES.map((capability) => {
+                    const active = displayedCapabilities.includes(capability)
+                    const label = AI_MODEL_CAPABILITY_LABELS[capability]
+                    const canToggle =
+                      capabilitiesEditable && capability === 'vision'
+                    const checked =
+                      capability === 'text' && capabilitiesEditable
+                        ? true
+                        : active
+
+                    return (
+                      <SettingsCheckRow
+                        key={capability}
+                        label={label}
+                        checked={checked}
+                        disabled={!canToggle}
+                        onChange={(next) =>
+                          handleCapabilityToggle(capability, next)
+                        }
+                      />
+                    )
+                  })}
+                </div>
+                {capabilitiesEditable && (
+                  <p class="settings__section-footnote">
+                    自定义模型始终支持文本；可开启图像识别。语音识别与合成暂不支持手动标注。
+                  </p>
+                )}
+              </div>
+
+              {capabilitiesEditable && (
+                <div class="keychain__form-group">
+                  <h3 class="keychain__form-group-title">补充信息</h3>
+                  <div class="settings__list">
+                    <SettingsNavRow
+                      label="定价"
+                      value={pricingLabel}
+                      onClick={() => setPicker('pricing')}
+                    />
+                    <SettingsNavRow
+                      label="词表"
+                      value={tokenizerLabel}
+                      onClick={() => setPicker('tokenizer')}
+                    />
+                  </div>
+                  <p class="settings__section-footnote">
+                    定价用于事件日志估算成本；词表用于本地 token 预估。
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div class="settings__box settings__empty">找不到该模型</div>
+          )}
+        </section>
       </div>
-    </div>
+    </>
   )
 }

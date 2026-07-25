@@ -1,11 +1,6 @@
 import { PriceTokenClient, type ModelPricing } from 'pricetoken'
 import { patchBackgroundRefreshTaskState } from '../os/background-refresh-settings-storage.ts'
-import {
-  AI_PROVIDER_PRESETS,
-  isKnownModel,
-  normalizeStoredModel,
-  type AiProviderId,
-} from './ai-providers.ts'
+import { normalizeStoredModel, type AiProviderId } from './ai-providers.ts'
 import {
   pricingCacheKey,
   saveModelPricingCache,
@@ -43,51 +38,39 @@ function normalizeSdkProvider(provider: string): AiProviderId | undefined {
   return undefined
 }
 
-/** 预设模型 id → providerId 索引（用于无 provider 对应时的全局兜底匹配） */
-function buildPresetIndex(): Map<string, AiProviderId> {
-  const index = new Map<string, AiProviderId>()
-  for (const preset of AI_PROVIDER_PRESETS) {
-    if (preset.id === 'custom') continue
-    for (const model of preset.models) {
-      index.set(model.id, preset.id)
-    }
-  }
-  return index
-}
-
 /**
- * 把 SDK 返回的定价映射到本系统的 `${providerId}:${modelId}` 缓存键。
- * - provider 一致时先经 normalizeStoredModel 做旧名规范化
- *   （如 deepseek-chat → deepseek-v4-flash），再匹配预设；
- * - 否则按 modelId 在全部预设中兜底匹配（如 gpt-4o → openai）。
- * 仅保留已知预设模型，其余供应商（anthropic、google 等）丢弃。
+ * 把 SDK 返回的定价映射到 `${provider}:${modelId}` 缓存键。
+ * - 认识的供应商：规范化旧名（如 deepseek-chat → deepseek-v4-flash）后写入；
+ * - 其他供应商（anthropic、google 等）：按 SDK 原始 provider/modelId 全量保留，
+ *   供自定义模型手动匹配单价。
  */
 export function mapSdkPricingToTable(
   models: readonly ModelPricing[],
 ): Record<string, ModelPricingEntry> {
-  const presetIndex = buildPresetIndex()
   const prices: Record<string, ModelPricingEntry> = {}
 
   for (const model of models) {
+    const rawProvider = model.provider?.trim().toLowerCase()
+    const rawModelId = model.modelId?.trim()
+    if (!rawProvider || !rawModelId) continue
+
     const entry: ModelPricingEntry = {
       inputPricePerMillion: model.inputPerMTok,
       outputPricePerMillion: model.outputPerMTok,
       currency: 'USD',
     }
 
-    const providerId = normalizeSdkProvider(model.provider)
-    if (providerId) {
-      const normalized = normalizeStoredModel(providerId, model.modelId)
-      if (isKnownModel(providerId, normalized)) {
-        prices[pricingCacheKey(providerId, normalized)] = entry
-        continue
+    const knownProvider = normalizeSdkProvider(rawProvider)
+    if (knownProvider) {
+      const normalized = normalizeStoredModel(knownProvider, rawModelId)
+      prices[pricingCacheKey(knownProvider, normalized)] = entry
+      if (normalized !== rawModelId) {
+        prices[pricingCacheKey(knownProvider, rawModelId)] = entry
       }
+      continue
     }
 
-    const fallbackProvider = presetIndex.get(model.modelId)
-    if (fallbackProvider) {
-      prices[pricingCacheKey(fallbackProvider, model.modelId)] = entry
-    }
+    prices[pricingCacheKey(rawProvider, rawModelId)] = entry
   }
   return prices
 }
@@ -106,7 +89,7 @@ export async function refreshModelPricing(): Promise<PricingRefreshOutcome> {
       return {
         ok: false,
         updatedCount: 0,
-        message: '远端响应中没有匹配到本系统的模型定价',
+        message: '远端响应中没有可用的模型定价',
       }
     }
 

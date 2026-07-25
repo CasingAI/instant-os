@@ -46,6 +46,7 @@ import {
   labelForVscodeAiModel,
   openAiConfigForVscodeAiModelKey,
   resolveVscodeAiModelRefKey,
+  tokenizerFamilyForVscodeAiModelKey,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
 import {
@@ -596,6 +597,10 @@ export function VscodeAiPanel({
     () => openAiConfigForVscodeAiModelKey(resolvedModelKey).defaultModel,
     [resolvedModelKey],
   )
+  const resolvedTokenizerFamily = useMemo(
+    () => tokenizerFamilyForVscodeAiModelKey(resolvedModelKey),
+    [resolvedModelKey],
+  )
 
   useLayoutEffect(() => {
     const el = composerInputRef.current
@@ -727,8 +732,8 @@ export function VscodeAiPanel({
   )
 
   useEffect(() => {
-    void prepareVscodeAiContextUsage(resolvedModelId)
-  }, [resolvedModelId])
+    void prepareVscodeAiContextUsage(resolvedModelId, resolvedTokenizerFamily)
+  }, [resolvedModelId, resolvedTokenizerFamily])
 
   const scrollToBottom = useCallback(() => {
     const node = scrollRef.current
@@ -765,7 +770,10 @@ export function VscodeAiPanel({
     let cancelled = false
     const timer = window.setTimeout(() => {
       void (async () => {
-        await prepareVscodeAiContextUsage(resolvedModelId)
+        await prepareVscodeAiContextUsage(
+          resolvedModelId,
+          resolvedTokenizerFamily,
+        )
         if (cancelled || busyRef.current) return
         const history =
           historyRef.current.length > 0
@@ -777,6 +785,7 @@ export function VscodeAiPanel({
           history,
           userMessage: draft,
           model: resolvedModelId,
+          tokenizerFamily: resolvedTokenizerFamily,
           toolsHost,
         })
         if (cancelled || busyRef.current) return
@@ -796,6 +805,7 @@ export function VscodeAiPanel({
     problems,
     rebuildHistoryFromMessages,
     resolvedModelId,
+    resolvedTokenizerFamily,
     toolsHost,
     workspaceFolder,
   ])

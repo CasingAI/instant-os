@@ -23,6 +23,25 @@
   min-height: 88px;
 }
 
+/* ── 供应商 / 模型详情分组（对齐 settings__section 间距）── */
+
+.keychain__form-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.keychain__form-group + .keychain__form-group {
+  margin-top: 22px;
+}
+
+.keychain__form-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
 /* ── 模型列表（对齐 settings__list）── */
 
 .keychain__list {
@@ -180,16 +199,4 @@
   color: #fff;
   text-shadow: none;
   box-shadow: none;
-}
-
-/* 模型添加行内输入在卡片里撑满 */
-
-.ai-model-card__header .settings__input.ai-model-card__title-input {
-  flex: 1;
-  min-width: 0;
-  height: 24px;
-}
-
-.ai-model-card__actions .settings__btn--small {
-  min-width: 0;
 }

@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import { toChatCompletionTool, type AgentTool } from '../../ai/agent-tool.ts'
+import type { TokenizerFamily } from '../../ai/model-tokenizer.ts'
 import {
   estimateTokensFromText,
   prepareTokenEstimation,
@@ -84,9 +85,13 @@ export function resolveModelContextWindow(modelId: string | undefined): number {
   return DEFAULT_CONTEXT_WINDOW
 }
 
-function estimate(text: string, model: string | undefined): number {
+function estimate(
+  text: string,
+  model: string | undefined,
+  tokenizerFamily?: TokenizerFamily,
+): number {
   if (!text) return 0
-  return estimateTokensFromText(text, model)
+  return estimateTokensFromText(text, model, { tokenizerFamily })
 }
 
 function contentToText(content: unknown): string {
@@ -179,17 +184,19 @@ export function measureVscodeAiContextUsage(options: {
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
   userMessage?: string
   model?: string
+  tokenizerFamily?: TokenizerFamily
   /** 传入则跳过 createVscodeAiTools（避免无 host 时无法计量） */
   tools?: AgentTool[]
   toolsHost?: VscodeAiToolsHost
 }): VscodeAiContextUsage {
   const model = options.model
+  const tokenizerFamily = options.tokenizerFamily
   const buckets = emptyBuckets()
 
   const systemPrompt = buildVscodeAiSystemPrompt(options.mode)
   const workspaceSection = buildVscodeAiContextSection(options.context)
-  buckets.system = estimate(systemPrompt, model) + 4
-  buckets.workspace = estimate(workspaceSection, model) + 8
+  buckets.system = estimate(systemPrompt, model, tokenizerFamily) + 4
+  buckets.workspace = estimate(workspaceSection, model, tokenizerFamily) + 8
 
   const tools =
     options.tools ??
@@ -198,25 +205,25 @@ export function measureVscodeAiContextUsage(options: {
       : undefined)
   if (tools && tools.length > 0) {
     const toolsJson = JSON.stringify(tools.map(toChatCompletionTool))
-    buckets.tools = estimate(toolsJson, model) + tools.length * 4
+    buckets.tools = estimate(toolsJson, model, tokenizerFamily) + tools.length * 4
   }
 
   for (const message of options.history ?? []) {
     const reasoning = assistantReasoningText(message)
     if (reasoning) {
-      buckets.reasoning += estimate(reasoning, model)
+      buckets.reasoning += estimate(reasoning, model, tokenizerFamily)
     }
     const text = messagePlainText(message)
     if (!text) continue
     // 历史里可能夹带旧 system；归入 conversation，避免与本次 system 重复归类
     const category =
       message.role === 'system' ? 'conversation' : categorizeHistoryMessage(message)
-    buckets[category] += estimate(text, model) + 4
+    buckets[category] += estimate(text, model, tokenizerFamily) + 4
   }
 
   const userMessage = options.userMessage?.trim()
   if (userMessage) {
-    buckets.conversation += estimate(userMessage, model) + 4
+    buckets.conversation += estimate(userMessage, model, tokenizerFamily) + 4
   }
 
   const breakdown = toBreakdown(buckets)
@@ -225,7 +232,7 @@ export function measureVscodeAiContextUsage(options: {
   return {
     totalTokens,
     contextWindow: resolveModelContextWindow(model),
-    estimated: resolveUsageEstimated(false, model),
+    estimated: resolveUsageEstimated(false, model, tokenizerFamily),
     breakdown,
   }
 }
@@ -341,6 +348,9 @@ export function applyVscodeAiPromptTokenUpdate(
   }
 }
 
-export async function prepareVscodeAiContextUsage(model?: string): Promise<void> {
-  await prepareTokenEstimation(model)
+export async function prepareVscodeAiContextUsage(
+  model?: string,
+  tokenizerFamily?: TokenizerFamily,
+): Promise<void> {
+  await prepareTokenEstimation(model, tokenizerFamily)
 }
