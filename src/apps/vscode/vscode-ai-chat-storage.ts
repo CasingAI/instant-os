@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
 
@@ -18,6 +19,7 @@ export type VscodeAiChatMessage = {
   isError?: boolean
   pendingEdits?: VscodeAiPendingEdit[]
   incomplete?: boolean
+  investigation?: VscodeAiInvestigation
 }
 
 export type VscodeAiChatSession = {
@@ -68,13 +70,73 @@ export function titleFromVscodeAiMessages(messages: readonly VscodeAiChatMessage
   return `${compact.slice(0, 28)}…`
 }
 
+function messageStoredLength(message: VscodeAiChatMessage): number {
+  let len = message.content.length
+  if (message.investigation) {
+    try {
+      len += JSON.stringify(message.investigation).length
+    } catch {
+      // ignore
+    }
+  }
+  return len
+}
+
+function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entry = raw as Partial<VscodeAiInvestigation>
+  if (!Array.isArray(entry.timeline) || !Array.isArray(entry.activities)) return undefined
+  if (typeof entry.toolCallCount !== 'number' || typeof entry.durationMs !== 'number') {
+    return undefined
+  }
+  const timeline = entry.timeline.filter(
+    (item): item is VscodeAiInvestigation['timeline'][number] => {
+      if (!item || typeof item !== 'object') return false
+      if (item.kind === 'activity') {
+        return typeof item.id === 'string' && typeof item.label === 'string'
+      }
+      if (item.kind === 'reasoning') {
+        return (
+          typeof item.id === 'string' &&
+          typeof item.content === 'string' &&
+          typeof item.startedAt === 'number'
+        )
+      }
+      return false
+    },
+  )
+  if (timeline.length === 0 && entry.activities.length === 0) {
+    return undefined
+  }
+  return {
+    activities: entry.activities.filter(
+      (item): item is VscodeAiInvestigation['activities'][number] =>
+        !!item &&
+        typeof item === 'object' &&
+        typeof item.id === 'string' &&
+        typeof item.label === 'string',
+    ),
+    timeline,
+    reasoningText:
+      typeof entry.reasoningText === 'string' && entry.reasoningText.trim()
+        ? entry.reasoningText
+        : undefined,
+    reasoningDurationMs:
+      typeof entry.reasoningDurationMs === 'number' && Number.isFinite(entry.reasoningDurationMs)
+        ? entry.reasoningDurationMs
+        : undefined,
+    toolCallCount: entry.toolCallCount,
+    durationMs: entry.durationMs,
+  }
+}
+
 function clampMessages(messages: readonly VscodeAiChatMessage[]): VscodeAiChatMessage[] {
   let total = 0
   const next: VscodeAiChatMessage[] = []
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
     if (!message) continue
-    const len = message.content.length
+    const len = messageStoredLength(message)
     if (total + len > MAX_CONTENT_CHARS) break
     total += len
     next.unshift(message)
@@ -88,15 +150,22 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
   if (typeof entry.id !== 'string' || !entry.id.trim()) return undefined
   if (!Array.isArray(entry.messages)) return undefined
   const messages = clampMessages(
-    entry.messages.filter(
-      (message): message is VscodeAiChatMessage =>
-        !!message &&
-        typeof message === 'object' &&
-        typeof message.id === 'string' &&
-        (message.role === 'user' || message.role === 'assistant') &&
-        typeof message.content === 'string' &&
-        typeof message.createdAt === 'number',
-    ),
+    entry.messages
+      .filter(
+        (message): message is VscodeAiChatMessage =>
+          !!message &&
+          typeof message === 'object' &&
+          typeof message.id === 'string' &&
+          (message.role === 'user' || message.role === 'assistant') &&
+          typeof message.content === 'string' &&
+          typeof message.createdAt === 'number',
+      )
+      .map((message) => {
+        const investigation = normalizeInvestigation(
+          (message as { investigation?: unknown }).investigation,
+        )
+        return investigation ? { ...message, investigation } : { ...message, investigation: undefined }
+      }),
   )
   const updatedAt =
     typeof entry.updatedAt === 'number' && Number.isFinite(entry.updatedAt)
@@ -246,7 +315,10 @@ export function saveVscodeAiChatThread(thread: VscodeAiChatThread): void {
 export function createVscodeAiChatMessage(
   role: VscodeAiChatRole,
   content: string,
-  extras?: Pick<VscodeAiChatMessage, 'isError' | 'pendingEdits' | 'incomplete'>,
+  extras?: Pick<
+    VscodeAiChatMessage,
+    'isError' | 'pendingEdits' | 'incomplete' | 'investigation'
+  >,
 ): VscodeAiChatMessage {
   return {
     id: `vscode-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -256,6 +328,7 @@ export function createVscodeAiChatMessage(
     isError: extras?.isError,
     pendingEdits: extras?.pendingEdits,
     incomplete: extras?.incomplete,
+    investigation: extras?.investigation,
   }
 }
 

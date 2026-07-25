@@ -19,7 +19,10 @@ import {
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
 import {
   askVscodeAiAgent,
+  buildVscodeAiInvestigationFromTimeline,
   type VscodeAiActivity,
+  type VscodeAiInvestigation,
+  type VscodeAiInvestigationStep,
   type VscodeAiTimelineItem,
 } from './vscode-ai-agent.ts'
 import type { VscodeAiToolsHost } from './vscode-ai-tools.ts'
@@ -36,6 +39,7 @@ import {
   resolveVscodeAiModelRefKey,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
+import { osNowMs } from '../../os/os-clock.ts'
 import '../help/help.css'
 import './vscode-ai.css'
 
@@ -50,6 +54,10 @@ const VSCODE_AI_MODE_OPTIONS = (['ask', 'edit', 'agent'] as const).map((item) =>
   id: item as string,
   label: VSCODE_AI_MODE_LABELS[item],
 }))
+
+const INVESTIGATION_STEP_STAGGER_MS = 55
+const INVESTIGATION_STEP_ANIM_MS = 320
+const INVESTIGATION_COLLAPSE_MS = 280
 
 export type VscodeAiPanelProps = {
   sessionId: string
@@ -80,6 +88,42 @@ function formatError(err: unknown): string {
   return String(err)
 }
 
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) {
+    return '不到 1 秒'
+  }
+  const seconds = durationMs / 1000
+  if (seconds < 10) {
+    return `${seconds.toFixed(1)} 秒`
+  }
+  return `${Math.round(seconds)} 秒`
+}
+
+function formatThinkingDuration(durationMs: number): string {
+  if (durationMs < 1000) {
+    return '思考了不到 1 秒'
+  }
+  const seconds = durationMs / 1000
+  if (seconds < 10) {
+    return `思考了 ${seconds.toFixed(1)} 秒`
+  }
+  return `思考了 ${Math.round(seconds)} 秒`
+}
+
+function formatInvestigationSummary(investigation: VscodeAiInvestigation): string {
+  const parts = ['已完成调查']
+  if (investigation.reasoningDurationMs !== undefined) {
+    parts.push(formatThinkingDuration(investigation.reasoningDurationMs))
+  }
+  parts.push(
+    investigation.toolCallCount > 0
+      ? `调用 ${investigation.toolCallCount} 个工具`
+      : '未调用工具',
+  )
+  parts.push(`用时 ${formatDuration(investigation.durationMs)}`)
+  return parts.join(' · ')
+}
+
 function ActivityRow({
   activity,
   live,
@@ -108,6 +152,198 @@ function ActivityRow({
   )
 }
 
+function ReasoningStatus({
+  text,
+  streaming,
+  durationMs,
+}: {
+  text: string
+  streaming?: boolean
+  durationMs?: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const reasoningBody = text.trim()
+
+  if (streaming) {
+    return (
+      <div class="help-app__reasoning-status help-app__reasoning-status--live" aria-live="polite">
+        <span class="help-app__reasoning-status-label">模型正在思考</span>
+      </div>
+    )
+  }
+
+  if (durationMs === undefined) {
+    return undefined
+  }
+
+  return (
+    <div
+      class={`help-app__reasoning-panel${expanded ? ' help-app__reasoning-panel--expanded' : ''}`}
+    >
+      <button
+        type="button"
+        class="help-app__reasoning-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span
+          class={`help-app__investigation-chevron${expanded ? ' help-app__investigation-chevron--expanded' : ''}`}
+          aria-hidden="true"
+        />
+        <span class="help-app__reasoning-summary">
+          {formatThinkingDuration(durationMs)}
+        </span>
+      </button>
+      {expanded ? (
+        <pre class="help-app__reasoning-body">
+          {reasoningBody || '（这次没有留下可展示的思考原文）'}
+        </pre>
+      ) : undefined}
+    </div>
+  )
+}
+
+function InvestigationSteps({
+  timeline,
+  exiting = false,
+}: {
+  timeline: VscodeAiInvestigationStep[]
+  exiting?: boolean
+}) {
+  if (timeline.length === 0) {
+    return undefined
+  }
+
+  return (
+    <div class="help-app__investigation-steps">
+      {timeline.map((item, index) => {
+        const stepStyle = exiting
+          ? undefined
+          : {
+              animationDelay: `${index * INVESTIGATION_STEP_STAGGER_MS}ms`,
+              animationDuration: `${INVESTIGATION_STEP_ANIM_MS}ms`,
+            }
+
+        return (
+          <div
+            key={item.id}
+            class={`help-app__investigation-step${exiting ? ' help-app__investigation-step--out' : ''}`}
+            style={stepStyle}
+          >
+            {item.kind === 'activity' ? (
+              <ol class="help-app__activity-list help-app__activity-list--inline">
+                <ActivityRow activity={item} />
+              </ol>
+            ) : (
+              <ReasoningStatus text={item.content} durationMs={item.durationMs} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function InvestigationPanel({
+  investigation,
+}: {
+  investigation: VscodeAiInvestigation
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [bodyMounted, setBodyMounted] = useState(false)
+  const [clipOpen, setClipOpen] = useState(false)
+  const [exiting, setExiting] = useState(false)
+  const exitTimerRef = useRef<number | undefined>(undefined)
+  const openFrameRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    return () => {
+      if (exitTimerRef.current !== undefined) {
+        window.clearTimeout(exitTimerRef.current)
+      }
+      if (openFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(openFrameRef.current)
+      }
+    }
+  }, [])
+
+  if (investigation.timeline.length === 0) {
+    return undefined
+  }
+
+  const handleToggle = () => {
+    if (exitTimerRef.current !== undefined) {
+      window.clearTimeout(exitTimerRef.current)
+      exitTimerRef.current = undefined
+    }
+    if (openFrameRef.current !== undefined) {
+      window.cancelAnimationFrame(openFrameRef.current)
+      openFrameRef.current = undefined
+    }
+
+    if (!expanded) {
+      setExiting(false)
+      setBodyMounted(true)
+      setExpanded(true)
+      setClipOpen(false)
+      openFrameRef.current = window.requestAnimationFrame(() => {
+        openFrameRef.current = window.requestAnimationFrame(() => {
+          openFrameRef.current = undefined
+          setClipOpen(true)
+        })
+      })
+      return
+    }
+
+    setExpanded(false)
+    setExiting(true)
+    setClipOpen(false)
+    exitTimerRef.current = window.setTimeout(() => {
+      exitTimerRef.current = undefined
+      setExiting(false)
+      setBodyMounted(false)
+    }, INVESTIGATION_COLLAPSE_MS)
+  }
+
+  return (
+    <div
+      class={`help-app__investigation${expanded ? ' help-app__investigation--expanded' : ''}${exiting ? ' help-app__investigation--exiting' : ''}`}
+    >
+      <button
+        type="button"
+        class="help-app__investigation-toggle"
+        aria-expanded={expanded}
+        onClick={handleToggle}
+      >
+        <span
+          class={`help-app__investigation-chevron${expanded ? ' help-app__investigation-chevron--expanded' : ''}`}
+          aria-hidden="true"
+        />
+        <span class="help-app__investigation-summary">
+          {formatInvestigationSummary(investigation)}
+        </span>
+      </button>
+      {bodyMounted ? (
+        <div
+          class={`help-app__investigation-clip${clipOpen ? ' help-app__investigation-clip--open' : ''}`}
+          style={{
+            ['--help-investigation-collapse-ms' as string]: `${INVESTIGATION_COLLAPSE_MS}ms`,
+          }}
+        >
+          <div class="help-app__investigation-clip-inner">
+            <div class="help-app__investigation-body">
+              <InvestigationSteps
+                timeline={investigation.timeline}
+                exiting={exiting}
+              />
+            </div>
+          </div>
+        </div>
+      ) : undefined}
+    </div>
+  )
+}
+
 function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
   if (items.length === 0) return undefined
   return (
@@ -132,9 +368,12 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
         }
         if (item.kind === 'reasoning') {
           return (
-            <div key={item.id} class="help-app__reasoning-status help-app__reasoning-status--live">
-              <span class="help-app__reasoning-status-label">模型正在思考</span>
-            </div>
+            <ReasoningStatus
+              key={item.id}
+              text={item.content}
+              streaming={!item.done}
+              durationMs={item.durationMs}
+            />
           )
         }
         return (
@@ -225,6 +464,10 @@ export function VscodeAiPanel({
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
+  const liveTimelineRef = useRef<VscodeAiTimelineItem[]>([])
+  const liveAnswerRef = useRef('')
+  const liveToolCallCountRef = useRef(0)
+  const liveStartedAtRef = useRef(0)
   const sessionIdRef = useRef(sessionId)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
@@ -236,6 +479,10 @@ export function VscodeAiPanel({
     setBusy(false)
     setLiveTimeline([])
     setLiveAnswer('')
+    liveTimelineRef.current = []
+    liveAnswerRef.current = ''
+    liveToolCallCountRef.current = 0
+    liveStartedAtRef.current = 0
     abortRef.current?.abort()
     abortRef.current = undefined
     historyRef.current = []
@@ -312,6 +559,10 @@ export function VscodeAiPanel({
       setBusy(true)
       setLiveTimeline([])
       setLiveAnswer('')
+      liveTimelineRef.current = []
+      liveAnswerRef.current = ''
+      liveToolCallCountRef.current = 0
+      liveStartedAtRef.current = osNowMs()
       pendingEditsRef.current = []
 
       const userMessage = createVscodeAiChatMessage('user', text)
@@ -331,6 +582,9 @@ export function VscodeAiPanel({
           signal: controller.signal,
           modelKey: aiModelKey,
           onProgress: (progress) => {
+            liveTimelineRef.current = progress.timeline
+            liveAnswerRef.current = progress.answerText
+            liveToolCallCountRef.current = progress.toolCallCount
             setLiveTimeline(progress.timeline)
             setLiveAnswer(progress.answerText)
             pendingEditsRef.current = progress.pendingEdits
@@ -341,20 +595,51 @@ export function VscodeAiPanel({
           historyRef.current = result.messages
         }
 
-        const assistantMessage = createVscodeAiChatMessage('assistant', result.text || liveAnswer, {
-          pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
-          incomplete: result.incomplete,
-        })
+        const investigation =
+          result.investigation.timeline.length > 0
+            ? result.investigation
+            : liveTimelineRef.current.length > 0
+              ? buildVscodeAiInvestigationFromTimeline(liveTimelineRef.current, {
+                  toolCallCount: liveToolCallCountRef.current,
+                  startedAt: liveStartedAtRef.current,
+                })
+              : undefined
+
+        const assistantMessage = createVscodeAiChatMessage(
+          'assistant',
+          result.text || liveAnswerRef.current,
+          {
+            pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
+            incomplete: result.incomplete,
+            investigation,
+          },
+        )
         onMessagesChange([...withUser, assistantMessage])
       } catch (error) {
-        const assistantMessage = createVscodeAiChatMessage('assistant', formatError(error), {
-          isError: true,
+        const snapshotTimeline = liveTimelineRef.current
+        const investigation =
+          snapshotTimeline.length > 0
+            ? buildVscodeAiInvestigationFromTimeline(snapshotTimeline, {
+                toolCallCount: liveToolCallCountRef.current,
+                startedAt: liveStartedAtRef.current,
+              })
+            : undefined
+        const aborted = isStreamAbortError(error, controller.signal)
+        const content = aborted
+          ? liveAnswerRef.current.trim() || formatError(error)
+          : formatError(error)
+        const assistantMessage = createVscodeAiChatMessage('assistant', content, {
+          isError: !aborted,
+          investigation,
         })
         onMessagesChange([...withUser, assistantMessage])
       } finally {
         setBusy(false)
         setLiveTimeline([])
         setLiveAnswer('')
+        liveTimelineRef.current = []
+        liveAnswerRef.current = ''
+        liveToolCallCountRef.current = 0
         abortRef.current = undefined
       }
     },
@@ -363,7 +648,6 @@ export function VscodeAiPanel({
       busy,
       contextWithTerminal,
       draft,
-      liveAnswer,
       messages,
       mode,
       onMessagesChange,
@@ -433,8 +717,11 @@ export function VscodeAiPanel({
                   )}
                 </span>
                 <div
-                  class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}`}
+                  class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
                 >
+                  {message.investigation ? (
+                    <InvestigationPanel investigation={message.investigation} />
+                  ) : undefined}
                   {message.role === 'assistant' && !message.isError ? (
                     <div class="help-app__answer">
                       <HelpMarkdown text={message.content} />

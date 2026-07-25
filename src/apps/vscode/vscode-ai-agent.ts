@@ -44,6 +44,8 @@ export type VscodeAiTimelineItem =
       id: string
       content: string
       done: boolean
+      startedAt: number
+      durationMs?: number
     }
   | {
       kind: 'text'
@@ -51,6 +53,20 @@ export type VscodeAiTimelineItem =
       content: string
       done: boolean
     }
+
+export type VscodeAiInvestigationStep =
+  | Extract<VscodeAiTimelineItem, { kind: 'activity' }>
+  | Extract<VscodeAiTimelineItem, { kind: 'reasoning' }>
+
+export type VscodeAiInvestigation = {
+  activities: VscodeAiActivity[]
+  /** 与输出过程一致的步骤顺序（工具 / 思考穿插，不含正文） */
+  timeline: VscodeAiInvestigationStep[]
+  reasoningText?: string
+  reasoningDurationMs?: number
+  toolCallCount: number
+  durationMs: number
+}
 
 export type VscodeAiAgentProgress = {
   activities: VscodeAiActivity[]
@@ -65,6 +81,7 @@ export type VscodeAiAgentResult = {
   text: string
   toolCallCount: number
   pendingEdits: VscodeAiPendingEdit[]
+  investigation: VscodeAiInvestigation
   incomplete?: boolean
   messages?: OpenAI.Chat.ChatCompletionMessageParam[]
 }
@@ -86,18 +103,108 @@ function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: 
 }
 
 function markTimelineDone(timeline: VscodeAiTimelineItem[]): VscodeAiTimelineItem[] {
+  const now = osNowMs()
   return timeline.map((item) => {
-    if (item.kind === 'activity' && !item.done) {
-      return { ...item, done: true }
+    if (item.done) {
+      return item
     }
-    if (item.kind === 'reasoning' && !item.done) {
-      return { ...item, done: true }
+    if (item.kind === 'reasoning') {
+      return {
+        ...item,
+        done: true,
+        durationMs: Math.max(0, now - item.startedAt),
+      }
     }
-    if (item.kind === 'text' && !item.done) {
-      return { ...item, done: true }
-    }
-    return item
+    return { ...item, done: true }
   })
+}
+
+function activitiesFromTimeline(timeline: VscodeAiTimelineItem[]): VscodeAiActivity[] {
+  return timeline
+    .filter(
+      (item): item is Extract<VscodeAiTimelineItem, { kind: 'activity' }> =>
+        item.kind === 'activity',
+    )
+    .map((item) => ({
+      id: item.id,
+      label: item.label,
+      detail: item.detail,
+      done: item.done,
+    }))
+}
+
+function combinedReasoningText(timeline: VscodeAiTimelineItem[]): string {
+  return timeline
+    .filter(
+      (item): item is Extract<VscodeAiTimelineItem, { kind: 'reasoning' }> =>
+        item.kind === 'reasoning',
+    )
+    .map((item) => item.content)
+    .join('\n\n')
+    .trim()
+}
+
+function totalReasoningDurationMs(timeline: VscodeAiTimelineItem[]): number | undefined {
+  let total = 0
+  let hasReasoning = false
+  const now = osNowMs()
+  for (const item of timeline) {
+    if (item.kind !== 'reasoning') {
+      continue
+    }
+    hasReasoning = true
+    if (item.durationMs !== undefined) {
+      total += item.durationMs
+    } else if (!item.done) {
+      total += Math.max(0, now - item.startedAt)
+    }
+  }
+  return hasReasoning ? total : undefined
+}
+
+function investigationStepsFromTimeline(
+  timeline: VscodeAiTimelineItem[],
+): VscodeAiInvestigationStep[] {
+  const now = osNowMs()
+  return timeline
+    .filter(
+      (item): item is VscodeAiInvestigationStep =>
+        item.kind === 'activity' || item.kind === 'reasoning',
+    )
+    .map((item) => {
+      if (item.kind === 'reasoning') {
+        return {
+          ...item,
+          done: true,
+          durationMs: item.durationMs ?? Math.max(0, now - item.startedAt),
+        }
+      }
+      return { ...item, done: true }
+    })
+}
+
+export function buildVscodeAiInvestigationFromTimeline(
+  timeline: VscodeAiTimelineItem[],
+  options?: { toolCallCount?: number; startedAt?: number },
+): VscodeAiInvestigation {
+  const finalizedTimeline = markTimelineDone(timeline)
+  const activities = activitiesFromTimeline(finalizedTimeline).map((item) => ({
+    ...item,
+    done: true,
+  }))
+  const reasoningText = combinedReasoningText(finalizedTimeline)
+  const toolCallCount =
+    options?.toolCallCount ??
+    activities.length
+  const startedAt = options?.startedAt ?? osNowMs()
+  return {
+    activities,
+    timeline: investigationStepsFromTimeline(finalizedTimeline),
+    reasoningText: reasoningText || undefined,
+    reasoningDurationMs: totalReasoningDurationMs(finalizedTimeline),
+    toolCallCount,
+    durationMs: Math.max(0, osNowMs() - startedAt),
+  }
 }
 
 export async function askVscodeAiAgent(options: {
@@ -140,6 +247,7 @@ export async function askVscodeAiAgent(options: {
     },
   })
 
+  const startedAt = osNowMs()
   let toolCallCount = 0
   const activities: VscodeAiActivity[] = []
   let timeline: VscodeAiTimelineItem[] = []
@@ -198,11 +306,13 @@ export async function askVscodeAiAgent(options: {
       timeline = [...timeline.slice(0, -1), { ...last, content: reasoningText }]
     } else {
       reasoningItemId = `vscode-ai-reason-${osNowMs()}`
+      timeline = markTimelineDone(timeline)
       timeline.push({
         kind: 'reasoning',
         id: reasoningItemId,
         content: reasoningText,
         done: false,
+        startedAt: osNowMs(),
       })
     }
     emit()
@@ -220,10 +330,16 @@ export async function askVscodeAiAgent(options: {
   timeline = markTimelineDone(timeline)
   emit()
 
+  const investigation = buildVscodeAiInvestigationFromTimeline(timeline, {
+    toolCallCount,
+    startedAt,
+  })
+
   return {
     text: result.text.trim() || answerText.trim(),
     toolCallCount,
     pendingEdits,
+    investigation,
     incomplete: result.incomplete,
     messages: result.messages,
   }
