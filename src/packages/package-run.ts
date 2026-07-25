@@ -29,7 +29,7 @@ function resolveNpmScriptTimeoutMs(override: number | undefined): number {
 function npmScriptGuestInstanceOptions(
   params: Pick<
     QuickJsInstanceOptions,
-    'workspaceRoot' | 'cwd' | 'argv' | 'permissions' | 'env'
+    'workspaceRoot' | 'cwd' | 'argv' | 'permissions' | 'env' | 'fsMode'
   > & { timeoutMs?: number },
 ): QuickJsInstanceOptions {
   const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
@@ -42,6 +42,7 @@ function npmScriptGuestInstanceOptions(
     argv: params.argv,
     permissions: params.permissions,
     env: params.env,
+    fsMode: params.fsMode,
   }
 }
 
@@ -303,6 +304,7 @@ async function runParsedScriptCommand(params: {
   signal?: AbortSignal
   onConsole?: (level: string, text: string) => void
   timeoutMs?: number
+  fsMode?: QuickJsInstanceOptions['fsMode']
 }): Promise<QuickJsEvalResult> {
   const parsed = params.parsed
   if (parsed.kind === 'unsupported' || !parsed.target) {
@@ -343,6 +345,7 @@ async function runParsedScriptCommand(params: {
       timeoutMs,
       argv: ['instant-node', entryFile, ...args],
       permissions: npmScriptGuestPermissions(params.projectRoot),
+      fsMode: params.fsMode,
       env: {
         ...params.env,
         npm_lifecycle_event: params.scriptName,
@@ -388,6 +391,8 @@ export async function runNpmScript(params: {
   onConsole?: (level: string, text: string) => void
   /** 覆盖实例默认超时 */
   timeoutMs?: number
+  /** 受控模式下记录 ChangeSet，结果附带 `changes` */
+  fsMode?: QuickJsInstanceOptions['fsMode']
 }): Promise<QuickJsEvalResult & { scriptCommand?: string }> {
   const packageRoot = params.packageRoot ?? params.projectRoot
   const pkg = await readPackageJson(packageRoot)
@@ -435,6 +440,7 @@ export async function runNpmScript(params: {
       signal: params.signal,
       onConsole: params.onConsole,
       timeoutMs: params.timeoutMs,
+      fsMode: params.fsMode,
     })
     if (!lastResult.ok || lastResult.exitCode !== 0) {
       return { ...lastResult, scriptCommand: command }
@@ -515,6 +521,8 @@ export async function runNpx(params: {
   onConsole?: (level: string, text: string) => void
   /** 覆盖实例默认超时 */
   timeoutMs?: number
+  /** 受控模式下记录 ChangeSet，结果附带 `changes` */
+  fsMode?: QuickJsInstanceOptions['fsMode']
   /** 若未安装则先 install */
   ensureInstalled?: (spec: string) => Promise<void>
 }): Promise<QuickJsEvalResult> {
@@ -562,6 +570,7 @@ export async function runNpx(params: {
       timeoutMs,
       argv: ['instant-node', entryFile, ...(params.args ?? [])],
       permissions: npmScriptGuestPermissions(params.projectRoot),
+      fsMode: params.fsMode,
       env: {
         ...params.env,
         PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,

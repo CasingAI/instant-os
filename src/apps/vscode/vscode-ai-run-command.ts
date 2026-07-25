@@ -1,16 +1,31 @@
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import { runNpmScript, runNpx } from '../../packages/package-public.ts'
 import type { QuickJsEvalResult } from '../../quickjs/quickjs-instance-types.ts'
+import {
+  formatTerminalChangeSummary,
+  type TerminalChangeSet,
+} from '../../terminal/terminal-changeset.ts'
+import { revertTerminalChangeSet } from '../../terminal/terminal-changeset-journal.ts'
+import type {
+  VscodeAgentTerminalEnsureReason,
+  VscodeAgentTerminalSnapshot,
+} from './vscode-terminal-sessions.ts'
 
-export type VscodeAiRunConfirmRequest = {
-  title: string
-  message: string
+export type VscodeAgentTerminalEnsureResult = {
+  handle: TerminalReplHandle
+  sessionId: string
+  created: boolean
+  reason: VscodeAgentTerminalEnsureReason
 }
 
 export type VscodeAiRunCommandHost = {
-  terminalRepl: TerminalReplHandle | undefined
   workspaceFolder: string | undefined
-  confirm: (request: VscodeAiRunConfirmRequest) => Promise<boolean>
+  /** npm/npx 等独立实例最近一次受控 ChangeSet（内嵌终端走 handle） */
+  npmLastChanges: { current: TerminalChangeSet | undefined }
+  onChangesAvailable?: (available: boolean) => void
+  ensureAgentTerminal: () => Promise<VscodeAgentTerminalEnsureResult>
+  getAgentTerminalHandle: () => TerminalReplHandle | undefined
+  getAgentTerminalSnapshot: () => VscodeAgentTerminalSnapshot
 }
 
 const OUTPUT_LINE_LIMIT = 120
@@ -33,23 +48,111 @@ function formatQuickJsResult(result: QuickJsEvalResult): string {
   return [status, consoleText].filter(Boolean).join('\n')
 }
 
+function appendChangeSummary(base: string, changeSet: TerminalChangeSet | undefined): string {
+  if (!changeSet || changeSet.changes.length === 0) return base
+  return `${base}\n${formatTerminalChangeSummary(changeSet)}`
+}
+
+function formatTerminalBanner(result: VscodeAgentTerminalEnsureResult): string {
+  const cwd = result.handle.getCwd()
+  if (result.reason === 'reused') {
+    return `[terminal session=${result.sessionId} kind=reused] cwd=${cwd}`
+  }
+  if (result.reason === 'rebuilt') {
+    return `[terminal session=${result.sessionId} kind=rebuilt] 上一会话已关闭，已新开；cwd 已重置为 ${cwd}`
+  }
+  return `[terminal session=${result.sessionId} kind=new] 已新开 Agent 终端；cwd=${cwd}`
+}
+
+function rememberNpmChanges(
+  host: VscodeAiRunCommandHost,
+  changeSet: TerminalChangeSet | undefined,
+): void {
+  host.npmLastChanges.current =
+    changeSet && changeSet.changes.length > 0 ? changeSet : undefined
+  const terminalHas =
+    (host.getAgentTerminalHandle()?.getLastChanges()?.changes.length ?? 0) > 0
+  const npmHas = host.npmLastChanges.current !== undefined
+  host.onChangesAvailable?.(terminalHas || npmHas)
+}
+
+export function getVscodeAiLastChangeSet(
+  host: VscodeAiRunCommandHost,
+): TerminalChangeSet | undefined {
+  const terminalChanges = host.getAgentTerminalHandle()?.getLastChanges()
+  if (terminalChanges && terminalChanges.changes.length > 0) {
+    return terminalChanges
+  }
+  const npm = host.npmLastChanges.current
+  if (npm && npm.changes.length > 0) return npm
+  return undefined
+}
+
+export async function revertVscodeAiLastChanges(host: VscodeAiRunCommandHost): Promise<string> {
+  const terminal = host.getAgentTerminalHandle()
+  const terminalChanges = terminal?.getLastChanges()
+  if (terminal && terminalChanges && terminalChanges.changes.length > 0) {
+    const ok = await terminal.revertLastChanges()
+    if (!ok) return '撤销失败'
+    const npmHas = (host.npmLastChanges.current?.changes.length ?? 0) > 0
+    host.onChangesAvailable?.(npmHas)
+    return `已撤销终端改动（${formatTerminalChangeSummary(terminalChanges)}）`
+  }
+
+  const npm = host.npmLastChanges.current
+  if (npm && npm.changes.length > 0) {
+    await revertTerminalChangeSet(npm)
+    host.npmLastChanges.current = undefined
+    host.onChangesAvailable?.(false)
+    return `已撤销 npm/npx 改动（${formatTerminalChangeSummary(npm)}）`
+  }
+
+  return '无可撤销变更'
+}
+
+/** 菜单「撤销上一轮」：针对指定 handle（当前活动终端）+ npm */
+export async function revertVscodeTerminalAndNpmChanges(params: {
+  terminalRepl: TerminalReplHandle | undefined
+  npmLastChanges: { current: TerminalChangeSet | undefined }
+  onChangesAvailable?: (available: boolean) => void
+}): Promise<string> {
+  const terminal = params.terminalRepl
+  const terminalChanges = terminal?.getLastChanges()
+  if (terminal && terminalChanges && terminalChanges.changes.length > 0) {
+    const ok = await terminal.revertLastChanges()
+    if (!ok) return '撤销失败'
+    const npmHas = (params.npmLastChanges.current?.changes.length ?? 0) > 0
+    params.onChangesAvailable?.(npmHas)
+    return `已撤销终端改动（${formatTerminalChangeSummary(terminalChanges)}）`
+  }
+
+  const npm = params.npmLastChanges.current
+  if (npm && npm.changes.length > 0) {
+    await revertTerminalChangeSet(npm)
+    params.npmLastChanges.current = undefined
+    params.onChangesAvailable?.(false)
+    return `已撤销 npm/npx 改动（${formatTerminalChangeSummary(npm)}）`
+  }
+
+  return '无可撤销变更'
+}
+
 export async function runVscodeAiTerminalLine(
   host: VscodeAiRunCommandHost,
   line: string,
 ): Promise<string> {
   const trimmed = line.trim()
   if (!trimmed) return '命令为空'
-  const terminal = host.terminalRepl
-  if (!terminal) return '终端未就绪'
 
-  const ok = await host.confirm({
-    title: '运行 JavaScript',
-    message: `AI 请求在终端执行：\n\n${trimmed}`,
-  })
-  if (!ok) return '用户取消执行'
-
-  const output = await terminal.runCode(trimmed, { source: 'program' })
-  return truncateOutput(output || '（无输出）')
+  const ensured = await host.ensureAgentTerminal()
+  const banner = formatTerminalBanner(ensured)
+  const output = await ensured.handle.runCode(trimmed, { source: 'program' })
+  const changes = ensured.handle.getLastChanges()
+  const npmHas = (host.npmLastChanges.current?.changes.length ?? 0) > 0
+  host.onChangesAvailable?.((changes?.changes.length ?? 0) > 0 || npmHas)
+  return truncateOutput(
+    `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`,
+  )
 }
 
 export async function runVscodeAiNpmScript(
@@ -60,20 +163,18 @@ export async function runVscodeAiNpmScript(
   const root = host.workspaceFolder?.trim()
   if (!root) return '未打开工作区文件夹，无法运行 npm script'
 
-  const ok = await host.confirm({
-    title: '运行 npm script',
-    message: `AI 请求执行：npm run ${scriptName}${extraArgs?.length ? ` ${extraArgs.join(' ')}` : ''}\n\n工作区：${root}`,
-  })
-  if (!ok) return '用户取消执行'
-
   try {
     const result = await runNpmScript({
       projectRoot: root,
       scriptName,
       extraArgs,
+      fsMode: 'controlled',
       onConsole: () => undefined,
     })
-    return truncateOutput(formatQuickJsResult(result) || '（无输出）')
+    rememberNpmChanges(host, result.changes)
+    return truncateOutput(
+      appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes),
+    )
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
@@ -87,20 +188,18 @@ export async function runVscodeAiNpx(
   const root = host.workspaceFolder?.trim()
   if (!root) return '未打开工作区文件夹，无法运行 npx'
 
-  const ok = await host.confirm({
-    title: '运行 npx',
-    message: `AI 请求执行：npx ${packageSpec}${extraArgs?.length ? ` ${extraArgs.join(' ')}` : ''}\n\n工作区：${root}`,
-  })
-  if (!ok) return '用户取消执行'
-
   try {
     const result = await runNpx({
       projectRoot: root,
       packageSpec,
       args: extraArgs,
+      fsMode: 'controlled',
       onConsole: () => undefined,
     })
-    return truncateOutput(formatQuickJsResult(result) || '（无输出）')
+    rememberNpmChanges(host, result.changes)
+    return truncateOutput(
+      appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes),
+    )
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }

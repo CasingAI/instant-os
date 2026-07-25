@@ -4,9 +4,13 @@ import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { HelpIcon } from '../../icons/app-icons.tsx'
-import { useWindowModal } from '../../window/window-modal-context.tsx'
-import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
+import type {
+  VscodeAgentTerminalEnsureResult,
+} from './vscode-ai-run-command.ts'
+import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
+import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
+import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 import {
   isVscodeAiMode,
   VSCODE_AI_MODE_LABELS,
@@ -60,7 +64,12 @@ export type VscodeAiPanelProps = {
   getContext: () => VscodeAiContextInput
   getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
   problems: readonly MonacoProblem[]
-  terminalRepl: TerminalReplHandle
+  /** npm/npx 受控变更槽（与内嵌终端共用回滚状态） */
+  npmLastChanges: { current: TerminalChangeSet | undefined }
+  onChangesAvailable?: (available: boolean) => void
+  ensureAgentTerminal: (chatSessionId: string, chatTitle: string) => Promise<VscodeAgentTerminalEnsureResult>
+  getAgentTerminalHandle: (chatSessionId: string) => TerminalReplHandle | undefined
+  getAgentTerminalSnapshot: (chatSessionId: string) => VscodeAgentTerminalSnapshot
   onApplyEdit: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectEdit: (editId: string) => void
 }
@@ -177,11 +186,14 @@ export function VscodeAiPanel({
   getContext,
   getOpenFilesForSearch,
   problems,
-  terminalRepl,
+  npmLastChanges,
+  onChangesAvailable,
+  ensureAgentTerminal,
+  getAgentTerminalHandle,
+  getAgentTerminalSnapshot,
   onApplyEdit,
   onRejectEdit,
 }: VscodeAiPanelProps) {
-  const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
   const resolvedModelKey = useMemo(
     () => resolveVscodeAiModelRefKey(aiModelKey),
@@ -214,6 +226,8 @@ export function VscodeAiPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
   const sessionIdRef = useRef(sessionId)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return
@@ -228,34 +242,51 @@ export function VscodeAiPanel({
     pendingEditsRef.current = []
   }, [sessionId])
 
+  const chatTitle = useMemo(() => {
+    const firstUser = messages.find((m) => m.role === 'user')?.content?.trim()
+    return firstUser?.slice(0, 40) || '对话'
+  }, [messages])
+
   const runCommandHost = useMemo<VscodeAiRunCommandHost>(
     () => ({
-      terminalRepl,
       workspaceFolder,
-      confirm: (request) =>
-        modal.confirm({
-          title: request.title,
-          message: request.message,
-          confirmLabel: '运行',
-          cancelLabel: '取消',
-        }),
+      npmLastChanges,
+      onChangesAvailable,
+      ensureAgentTerminal: () =>
+        ensureAgentTerminal(sessionIdRef.current, messagesRef.current.find((m) => m.role === 'user')?.content?.trim().slice(0, 40) || chatTitle),
+      getAgentTerminalHandle: () => getAgentTerminalHandle(sessionIdRef.current),
+      getAgentTerminalSnapshot: () => getAgentTerminalSnapshot(sessionIdRef.current),
     }),
-    [modal, terminalRepl, workspaceFolder],
+    [
+      chatTitle,
+      ensureAgentTerminal,
+      getAgentTerminalHandle,
+      getAgentTerminalSnapshot,
+      npmLastChanges,
+      onChangesAvailable,
+      workspaceFolder,
+    ],
   )
+
+  const contextWithTerminal = useCallback((): VscodeAiContextInput => {
+    const base = getContext()
+    return {
+      ...base,
+      agentTerminal: getAgentTerminalSnapshot(sessionId),
+    }
+  }, [getAgentTerminalSnapshot, getContext, sessionId])
 
   const toolsHost = useMemo<VscodeAiToolsHost>(
     () => ({
-      getContext,
+      getContext: contextWithTerminal,
       getProblems: () => problems,
       getOpenFilesForSearch,
       onProposeEdit: (edit) => {
         pendingEditsRef.current = [...pendingEditsRef.current, edit]
       },
       runCommandHost,
-      privilegeSource: 'user',
-      privilegeActorLabel: 'VS Code AI',
     }),
-    [getContext, getOpenFilesForSearch, problems, runCommandHost],
+    [contextWithTerminal, getOpenFilesForSearch, problems, runCommandHost],
   )
 
   const scrollToBottom = useCallback(() => {
@@ -294,7 +325,7 @@ export function VscodeAiPanel({
         const result = await askVscodeAiAgent({
           mode,
           userMessage: text,
-          context: getContext(),
+          context: contextWithTerminal(),
           toolsHost,
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
           signal: controller.signal,
@@ -327,7 +358,17 @@ export function VscodeAiPanel({
         abortRef.current = undefined
       }
     },
-    [aiModelKey, busy, draft, getContext, liveAnswer, messages, mode, onMessagesChange, toolsHost],
+    [
+      aiModelKey,
+      busy,
+      contextWithTerminal,
+      draft,
+      liveAnswer,
+      messages,
+      mode,
+      onMessagesChange,
+      toolsHost,
+    ],
   )
 
   const applyEdit = useCallback(

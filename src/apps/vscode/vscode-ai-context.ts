@@ -1,5 +1,6 @@
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type { VscodeTab } from './vscode-tabs.ts'
+import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 
 export type VscodeAiEditorSnapshot = {
   activePath: string | undefined
@@ -14,6 +15,8 @@ export type VscodeAiContextInput = {
   activeTabId: string | undefined
   editor: VscodeAiEditorSnapshot
   problems: readonly MonacoProblem[]
+  /** 本对话绑定的 Agent 终端状态（关闭后为 closed，尚未创建过为 none） */
+  agentTerminal?: VscodeAgentTerminalSnapshot
 }
 
 function normalizeRoot(path: string | undefined): string | undefined {
@@ -101,6 +104,18 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
     const warnings = input.problems.filter((p) => p.severity === 'warning').length
     lines.push(`Problems：${errors} 个错误，${warnings} 个警告（共 ${problemCount} 条）`)
   }
+  const agentTerm = input.agentTerminal
+  if (agentTerm) {
+    if (agentTerm.status === 'alive' && agentTerm.sessionId) {
+      lines.push(
+        `Agent 终端：session=${agentTerm.sessionId} cwd=${agentTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+      )
+    } else if (agentTerm.status === 'closed') {
+      lines.push('Agent 终端：已关闭。下次 run_in_terminal 会自动新开（结果里 kind=rebuilt）')
+    } else {
+      lines.push('Agent 终端：尚未创建。首次 run_in_terminal 会自动新开')
+    }
+  }
   return lines.join('\n')
 }
 
@@ -109,8 +124,8 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
     mode === 'ask'
       ? '当前模式：Ask（只读）。你只能使用读取类工具，不得修改文件或执行命令。'
       : mode === 'edit'
-        ? '当前模式：Edit。你可以读取工作区，并通过 propose_file_edit 提交修改提案；用户确认后才会写入。不得删除、移动文件或执行终端/npm。'
-        : '当前模式：Agent。你可以读写工作区文件、执行终端命令与 npm/npx（工具会触发用户确认）。删除等破坏性操作会弹出系统确认。'
+        ? '当前模式：Edit。你可以读取工作区，并通过 propose_file_edit 提交修改提案；用户确认后才会写入。不得执行终端/npm。'
+        : '当前模式：Agent。没有独立的读/写文件工具。读文件、列目录、改代码、删文件、改目录结构等一律通过受控终端（run_in_terminal / npm_run / npx）用 fs 等完成，自动执行无需用户确认。同对话复用同一终端会话；若结果标明 kind=rebuilt，说明上一会话已关闭，cwd 与内存状态已重置。多文件改动尽量合并进同一次 run_in_terminal 以便整轮回滚。需要撤销用 revert_terminal_changes。'
 
   return `你是 Virtual Studio Code Desktop 内置的 AI 编程助手，帮助用户理解、修改 Instant OS 虚拟文件系统中的项目代码。
 
@@ -118,9 +133,10 @@ ${modeLine}
 
 环境说明：
 - 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）
-- 没有真实 shell、管道或网络下载；终端命令走虚拟终端与 QuickJS npm 链
+- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更
+- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）
 - /system 与 /models 等只读卷不可写入
 - 回答用简洁中文 Markdown；引用路径时用反引号
-- 修改代码前先 read_file 确认现状；多文件改动逐步进行
-- 不要编造未执行的工具结果；用户取消确认时如实说明`
+- 修改前先在终端里读确认现状
+- 不要编造未执行的工具结果`
 }
