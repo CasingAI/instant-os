@@ -40,6 +40,7 @@ import { BackgroundRefreshSettingsView } from './background-refresh-settings-vie
 import { BackgroundRefreshTaskDetailView } from './background-refresh-task-detail-view.tsx'
 import { NpmSettingsView } from './npm-settings-view.tsx'
 import { SystemEnvSettingsView } from './system-env-settings-view.tsx'
+import { StartupItemsSettingsView } from './startup-items-settings-view.tsx'
 import { WallpaperView } from './wallpaper-view.tsx'
 import { ResourcesView } from './resources-view.tsx'
 import { Resources3dView } from './resources-3d-view.tsx'
@@ -248,6 +249,7 @@ export function SettingsApp() {
   const showBackgroundRefreshTask = view === 'background-refresh-task'
   const showNpm = view === 'npm'
   const showSystemEnv = view === 'system-env'
+  const showStartupItems = view === 'startup-items'
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
   const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
@@ -454,6 +456,10 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showSystemEnv} keep={showSystemEnv}>
         <SystemEnvSettingsView onBack={() => setRoute({ view: 'root' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showStartupItems} keep={showStartupItems}>
+        <StartupItemsSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showEmoji && !showEmojiCalibration} keep={showEmoji}>

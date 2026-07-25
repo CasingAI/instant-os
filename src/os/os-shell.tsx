@@ -16,6 +16,7 @@ import { MenuBar } from './menu-bar.tsx'
 import { OsProvider } from './os-context.tsx'
 import { FullscreenChromeRevealProvider } from './fullscreen-chrome-reveal-context.tsx'
 import { ImmersiveDesktopBackdrop } from './immersive-desktop-backdrop.tsx'
+import { StartupItemsBootstrap } from './startup-items-bootstrap.tsx'
 import { useWallpaper } from './use-wallpaper.ts'
 import { WindowManager } from '../window/window-frame.tsx'
 import { MonacoDialogHost } from '../monaco/monaco-dialog-host.tsx'
@@ -34,6 +35,7 @@ function OsShellContent() {
 
   return (
     <div class="os-shell" ref={shellRef}>
+      <StartupItemsBootstrap />
       <ImmersiveDesktopBackdrop />
       <MenuBar />
       <Desktop />

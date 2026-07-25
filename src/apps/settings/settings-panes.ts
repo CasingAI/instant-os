@@ -18,6 +18,7 @@ import {
   SpeechPaneIcon,
   StoragePaneIcon,
   SystemEnvPaneIcon,
+  StartupItemsPaneIcon,
   NpmPaneIcon,
   DockPaneIcon,
   WallpaperPaneIcon,
@@ -38,6 +39,7 @@ export type SettingsPaneId =
   | 'background-refresh'
   | 'npm'
   | 'system-env'
+  | 'startup-items'
   | 'resources'
   | 'safari'
   | 'news'
@@ -60,6 +62,7 @@ export type SettingsRoute =
   | { view: 'background-refresh-task'; taskId: BackgroundRefreshTaskId }
   | { view: 'npm' }
   | { view: 'system-env' }
+  | { view: 'startup-items' }
   | { view: 'display-emoji' }
   | { view: 'display-emoji-calibration' }
   | { view: 'resources' }
@@ -116,6 +119,12 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   },
   { id: 'npm', label: 'NPM', Icon: NpmPaneIcon, route: { view: 'npm' } },
   { id: 'system-env', label: '环境变量', Icon: SystemEnvPaneIcon, route: { view: 'system-env' } },
+  {
+    id: 'startup-items',
+    label: '启动项',
+    Icon: StartupItemsPaneIcon,
+    route: { view: 'startup-items' },
+  },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' } },
   {
     id: 'safari',
@@ -197,6 +206,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'npm'
     case 'system-env':
       return 'system-env'
+    case 'startup-items':
+      return 'startup-items'
     case 'resources':
     case 'resources-3d':
     case 'resources-3d-detail':
@@ -227,6 +238,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'background-refresh':
     case 'npm':
     case 'system-env':
+    case 'startup-items':
     case 'resources':
     case 'safari-usage':
     case 'news':

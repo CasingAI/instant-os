@@ -1420,6 +1420,39 @@
   margin-bottom: 4px;
 }
 
+.settings__list--startup-items {
+  margin-bottom: 4px;
+}
+
+.settings__startup-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.settings__startup-item + .settings__startup-item {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.settings__startup-item-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings__input--startup-command {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+}
+
 .settings__btn {
   min-width: 84px;
   height: 26px;

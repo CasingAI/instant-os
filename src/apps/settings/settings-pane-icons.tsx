@@ -280,6 +280,18 @@ export function SystemEnvPaneIcon() {
   )
 }
 
+export function StartupItemsPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#3f8f6b" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <circle cx="11" cy="11" r="7.5" fill="#fff" opacity="0.95" />
+        <path d="M9.2 7.8 L15.2 11 L9.2 14.2 Z" fill="#3f8f6b" opacity="0.9" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function NpmPaneIcon() {
   return (
     <AppIconTile color="#cb3837" size={PANE_ICON_SIZE}>
