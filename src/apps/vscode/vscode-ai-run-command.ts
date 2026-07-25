@@ -1,5 +1,5 @@
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
-import { runNpmScript, runNpx } from '../../packages/package-run.ts'
+import { runNpmScript, runNpx } from '../../packages/package-public.ts'
 import type { QuickJsEvalResult } from '../../quickjs/quickjs-instance-types.ts'
 
 export type VscodeAiRunConfirmRequest = {

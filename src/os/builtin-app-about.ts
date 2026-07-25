@@ -211,7 +211,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   packages: {
     version: 'Instant npm',
     paragraphs: [
-      '包管理显示 PackageService 的安装任务、日志与取消操作；与终端 npm / npx 共用同一套宿主安装器。',
+      '包管理是 Instant PackageService 的 GUI：可打开项目安装、卸载、更新依赖，并浏览全局 CAS 缓存；与终端 npm / npx CLI 适配器共用同一套宿主安装器。',
       '依赖以内容寻址方式缓存在系统 store，工作区 node_modules 使用符号链接；install 对齐锁优先。可在设置 → NPM 更换 registry。不支持原生 addon 与官方 npm 二进制。',
     ],
   },

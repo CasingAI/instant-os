@@ -1,17 +1,21 @@
 /**
- * 终端本地命令：npm / npx → PackageService + QuickJS scripts。
+ * npm / npx CLI 适配器：字符串命令 → PackageService。
  * 安装默认输出对齐 pnpm reporter 版式（Packages / Progress / Done in）。
+ * 供模拟终端（及未来真终端本地命令）使用；能力本体在 package-public。
  */
 import {
   cancelPackageTask,
   installPackages,
   listInstalled,
+  listPackageTasks,
   outdatedPackages,
   resolvePackageProjectRoot,
-  uninstallPackages,
+  runNpmScript,
+  runNpx,
   subscribePackageEvents,
+  uninstallPackages,
   type PackageTaskProgress,
-} from '../packages/package-public.ts'
+} from './package-public.ts'
 import {
   formatInstallFailurePlain,
   formatInstallLivePlain,
@@ -19,16 +23,18 @@ import {
   formatInstallWarningLines,
   formatPackagesLine,
   formatDuration,
-} from '../packages/package-install-report.ts'
-import { runNpmScript, runNpx } from '../packages/package-run.ts'
+} from './package-install-report.ts'
 
-export type TerminalNpmIo = {
+export type PackageCliIo = {
   write: (text: string, format?: 'plain' | 'markdown') => void
   upsertBlock: (options: { key: string; text: string; format?: 'plain' | 'markdown' }) => void
   removeBlock: (key: string) => void
   getCwd: () => string
   getEnv: () => Record<string, string>
 }
+
+/** @deprecated 使用 PackageCliIo */
+export type TerminalNpmIo = PackageCliIo
 
 function usage(): string {
   return `用法:
@@ -71,7 +77,7 @@ function parseInstallCliArgs(args: string[]): {
 }
 
 function writeInstallWarnings(
-  io: TerminalNpmIo,
+  io: PackageCliIo,
   logs: { level: string; message: string; at: number }[],
 ): void {
   const lines = formatInstallWarningLines(
@@ -87,7 +93,7 @@ function writeInstallWarnings(
 }
 
 async function runInstallWithReporter(
-  io: TerminalNpmIo,
+  io: PackageCliIo,
   logKey: string,
   run: () => ReturnType<typeof installPackages>,
 ): Promise<void> {
@@ -140,7 +146,7 @@ async function runInstallWithReporter(
 export async function runTerminalNpmOrNpx(
   head: string,
   restLine: string,
-  io: TerminalNpmIo,
+  io: PackageCliIo,
   signal: AbortSignal,
 ): Promise<void> {
   const rest = restLine.trim() ? restLine.trim().split(/\s+/) : []
@@ -295,17 +301,14 @@ export async function runTerminalNpmOrNpx(
     if (!result.ok) {
       io.write(result.error)
     }
-    return
   }
 }
 
 /** abort 时取消仍在跑的安装任务（尽力） */
 export function cancelActivePackageTasks(): void {
-  void import('../packages/package-public.ts').then(({ listPackageTasks }) => {
-    for (const task of listPackageTasks()) {
-      if (task.status === 'running' || task.status === 'pending') {
-        cancelPackageTask(task.id)
-      }
+  for (const task of listPackageTasks()) {
+    if (task.status === 'running' || task.status === 'pending') {
+      cancelPackageTask(task.id)
     }
-  })
+  }
 }

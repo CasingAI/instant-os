@@ -10,13 +10,16 @@ import {
   resolveRegistryVersion,
 } from './package-registry.ts'
 import {
+  estimateStoreBytes,
   extractTarballToStore,
   isPackageInStore,
   linkPackageIntoProject,
+  listCachedStorePackages as listCachedStorePackagesInStore,
   listStorePackageVersions,
   readStorePackageJson,
   storePackageDir,
   ensureStoreRoot,
+  type CachedStorePackage,
 } from './package-store.ts'
 import { emptyCounters } from './package-install-report.ts'
 import { runLifecycleScripts } from './package-run.ts'
@@ -140,11 +143,6 @@ export function listPackageTasks(): Omit<PackageTask, 'abortController'>[] {
     .map((id) => tasks.get(id))
     .filter((t): t is PackageTask => t !== undefined)
     .map(serializeTaskForEvent)
-}
-
-export function getPackageTask(id: string): Omit<PackageTask, 'abortController'> | undefined {
-  const task = tasks.get(id)
-  return task ? serializeTaskForEvent(task) : undefined
 }
 
 export function cancelPackageTask(id: string): boolean {
@@ -1041,20 +1039,239 @@ export async function listInstalled(projectRoot: string): Promise<
   return Object.values(lock.packages).map((p) => ({ name: p.name, version: p.version }))
 }
 
-export async function outdatedPackages(projectRoot: string): Promise<
-  { name: string; current: string; latest: string }[]
-> {
+export type InstalledPackageDetail = {
+  name: string
+  version: string
+  resolved?: string
+  integrity?: string
+  lockDependencies: { name: string; range: string }[]
+  description?: string
+  license?: string
+  homepage?: string
+  main?: string
+  module?: string
+  binLabels: string[]
+  storePath: string
+  linkPath: string
+  inStore: boolean
+}
+
+function projectLinkPath(projectRoot: string, name: string): string {
+  if (name.startsWith('@')) {
+    const [scope, pkg] = name.split('/')
+    return `${projectRoot}/node_modules/${scope}/${pkg}`
+  }
+  return `${projectRoot}/node_modules/${name}`
+}
+
+function formatBinLabels(bin: unknown): string[] {
+  if (typeof bin === 'string') return [bin]
+  if (bin && typeof bin === 'object' && !Array.isArray(bin)) {
+    return Object.keys(bin as Record<string, unknown>).sort()
+  }
+  return []
+}
+
+/** 项目已装包详情：锁条目 + store 内 package.json（若已缓存） */
+export async function getInstalledPackageDetail(
+  projectRoot: string,
+  name: string,
+): Promise<InstalledPackageDetail> {
   const lock = await readLock(projectRoot)
+  const entry = lock.packages[name]
+  if (!entry) {
+    throw new Error(`未安装: ${name}`)
+  }
+
+  const storePath = storePackageDir(config, entry.name, entry.version)
+  const inStore = await isPackageInStore(config, entry.name, entry.version)
+
+  let description: string | undefined
+  let license: string | undefined
+  let homepage: string | undefined
+  let main: string | undefined
+  let moduleField: string | undefined
+  let binLabels: string[] = []
+
+  if (inStore) {
+    try {
+      const pkg = await readStorePackageJson(storePath)
+      description = typeof pkg.description === 'string' ? pkg.description : undefined
+      license = typeof pkg.license === 'string' ? pkg.license : undefined
+      homepage = typeof pkg.homepage === 'string' ? pkg.homepage : undefined
+      main = typeof pkg.main === 'string' ? pkg.main : undefined
+      moduleField = typeof pkg.module === 'string' ? pkg.module : undefined
+      binLabels = formatBinLabels(pkg.bin)
+    } catch {
+      // store 半损坏时仍返回锁信息
+    }
+  }
+
+  const lockDependencies = Object.entries(entry.dependencies ?? {})
+    .map(([depName, range]) => ({ name: depName, range }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+
+  return {
+    name: entry.name,
+    version: entry.version,
+    resolved: entry.resolved,
+    integrity: entry.integrity,
+    lockDependencies,
+    description,
+    license,
+    homepage,
+    main,
+    module: moduleField,
+    binLabels,
+    storePath,
+    linkPath: projectLinkPath(projectRoot, entry.name),
+    inStore,
+  }
+}
+
+export type CachedStorePackageDetail = {
+  name: string
+  version: string
+  /** store 中该包全部已完整缓存的版本 */
+  versions: string[]
+  description?: string
+  license?: string
+  homepage?: string
+  main?: string
+  module?: string
+  binLabels: string[]
+  dependencies: { name: string; range: string }[]
+  storePath: string
+}
+
+/** 全局 CAS 缓存包详情（读 store 内 package.json） */
+export async function getCachedStorePackageDetail(
+  name: string,
+  version?: string,
+): Promise<CachedStorePackageDetail> {
+  const versions = await listStorePackageVersions(config, name)
+  if (versions.length === 0) {
+    throw new Error(`缓存中无此包: ${name}`)
+  }
+  const sorted = [...versions].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  )
+  const selected =
+    version && sorted.includes(version) ? version : sorted[sorted.length - 1]!
+  const storePath = storePackageDir(config, name, selected)
+
+  let description: string | undefined
+  let license: string | undefined
+  let homepage: string | undefined
+  let main: string | undefined
+  let moduleField: string | undefined
+  let binLabels: string[] = []
+  let dependencies: { name: string; range: string }[] = []
+
+  try {
+    const pkg = await readStorePackageJson(storePath)
+    description = typeof pkg.description === 'string' ? pkg.description : undefined
+    license = typeof pkg.license === 'string' ? pkg.license : undefined
+    homepage = typeof pkg.homepage === 'string' ? pkg.homepage : undefined
+    main = typeof pkg.main === 'string' ? pkg.main : undefined
+    moduleField = typeof pkg.module === 'string' ? pkg.module : undefined
+    binLabels = formatBinLabels(pkg.bin)
+    const deps = pkg.dependencies
+    if (deps && typeof deps === 'object' && !Array.isArray(deps)) {
+      dependencies = Object.entries(deps as Record<string, string>)
+        .map(([depName, range]) => ({ name: depName, range }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`无法读取缓存包 ${name}@${selected}: ${message}`)
+  }
+
+  return {
+    name,
+    version: selected,
+    versions: sorted,
+    description,
+    license,
+    homepage,
+    main,
+    module: moduleField,
+    binLabels,
+    dependencies,
+    storePath,
+  }
+}
+
+export async function outdatedPackages(
+  projectRoot: string,
+  options?: {
+    onProgress?: (info: {
+      checked: number
+      total: number
+      name: string
+      current: string
+      latest?: string
+      outdated: boolean
+    }) => void
+  },
+): Promise<{ name: string; current: string; latest: string }[]> {
+  const lock = await readLock(projectRoot)
+  const entries = Object.values(lock.packages)
+  const total = entries.length
   const out: { name: string; current: string; latest: string }[] = []
-  for (const entry of Object.values(lock.packages)) {
+  let checked = 0
+  for (const entry of entries) {
+    checked += 1
     try {
       const latest = await resolveRegistryVersion(entry.name, 'latest', config)
-      if (latest.version !== entry.version) {
+      const outdated = latest.version !== entry.version
+      if (outdated) {
         out.push({ name: entry.name, current: entry.version, latest: latest.version })
       }
+      options?.onProgress?.({
+        checked,
+        total,
+        name: entry.name,
+        current: entry.version,
+        latest: latest.version,
+        outdated,
+      })
     } catch {
-      // skip
+      options?.onProgress?.({
+        checked,
+        total,
+        name: entry.name,
+        current: entry.version,
+        outdated: false,
+      })
     }
   }
   return out
+}
+
+/** 读取项目 package.json 的 scripts 键名（无文件或不合法时返回空列表） */
+export async function listPackageScripts(projectRoot: string): Promise<string[]> {
+  const path = `${projectRoot}/package.json`
+  const st = await filesStat(path)
+  if (!st || st.kind === 'folder') return []
+  try {
+    const pkg = JSON.parse(await filesReadText(path)) as Record<string, unknown>
+    const scripts = pkg.scripts
+    if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) return []
+    return Object.keys(scripts as Record<string, unknown>).sort()
+  } catch {
+    return []
+  }
+}
+
+export type { CachedStorePackage }
+
+/** 全局 CAS store（`/dev/npm`）中已完整缓存的包 */
+export async function listCachedStorePackages(): Promise<CachedStorePackage[]> {
+  return listCachedStorePackagesInStore(config)
+}
+
+/** 全局 store 根目录体积粗估（字节） */
+export async function estimatePackageStoreBytes(): Promise<number> {
+  return estimateStoreBytes(config)
 }

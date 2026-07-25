@@ -107,7 +107,7 @@ export function WindowModal({
     return () => window.clearTimeout(timer)
   }, [open, visible])
 
-  if (!visible) {
+  if (!visible && !open) {
     return undefined
   }
 

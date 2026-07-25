@@ -1,20 +1,30 @@
-/** 启动时应用已保存的 NPM 源设置（须在 re-export 前副作用执行） */
+/** Instant PackageService 对外门面（系统服务入口）。启动时应用已保存的 NPM 源设置。 */
 import '../os/npm-registry-settings-storage.ts'
 
 export {
   allowPackageHost,
   cancelPackageTask,
+  estimatePackageStoreBytes,
+  getCachedStorePackageDetail,
+  getInstalledPackageDetail,
   getPackageServiceConfig,
-  getPackageTask,
   installPackages,
+  listCachedStorePackages,
   listInstalled,
+  listPackageScripts,
   listPackageTasks,
   outdatedPackages,
   resolvePackageProjectRoot,
   setPackageServiceConfig,
   uninstallPackages,
 } from './package-service.ts'
+export { runNpmScript, runNpx } from './package-run.ts'
 export { subscribePackageEvents } from './package-events.ts'
+export type {
+  CachedStorePackage,
+  CachedStorePackageDetail,
+  InstalledPackageDetail,
+} from './package-service.ts'
 export type {
   InstantPackageLock,
   PackageInstallCounters,

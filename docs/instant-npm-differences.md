@@ -69,8 +69,10 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 
 ## 终端与 App
 
-- 终端本地命令 `npm` / `npx` 与 **包管理** App 共用 PackageService，逻辑零分叉。
-- 安装进度与日志可在两端观察；取消走同一任务 abort。
-- 终端默认安装输出对齐 **pnpm reporter 版式**（`Packages: +N`、`Progress: resolved/reused/downloaded/added`、直接依赖 diff、`Done in`）；内部管线 info 仍写入任务日志供包管理 App 查看，不默认刷进终端。
-- registry 与 **是否运行 install 脚本** 在 **设置 → NPM** 配置；与终端共用同一 `PackageServiceConfig`。
+- **PackageService**（`package-public`）是系统级包管理服务：install / uninstall / update / ls / outdated / run / npx、任务与事件均以此为唯一真相源。
+- **包管理** App 为 GUI 主入口：分段页「项目 / 全局缓存」——选择项目后安装与管理依赖，浏览全局 CAS store 已缓存版本；安装/更新/检查进度走窗口内安装会话。
+- 模拟终端的 `npm` / `npx` 为薄 CLI 适配器（`package-cli-adapter`），与包管理 App 共用 PackageService，逻辑零分叉；真终端尚未接 CLI。
+- 安装进度与日志可在 App 安装会话与终端两端观察；取消走同一任务 abort。
+- 终端默认安装输出对齐 **pnpm reporter 版式**（`Packages: +N`、`Progress: resolved/reused/downloaded/added`、直接依赖 diff、`Done in`）；内部管线 info 仍写入任务日志，不默认刷进终端。
+- registry 与 **是否运行 install 脚本** 在 **设置 → NPM** 配置；与终端 / App 共用同一 `PackageServiceConfig`。
 - 重复 `npm install` 在启用 scripts 时可能再次跑依赖 lifecycle（未做「仅新增包才跑」的增量优化）。

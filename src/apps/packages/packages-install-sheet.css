@@ -1,0 +1,144 @@
+/* 安装会话：跟系统 WindowModal 同一套浅色皮肤，进出场动画由 window-modal 提供 */
+
+.packages-install-sheet.window-modal {
+  width: min(100%, 440px);
+  max-height: min(640px, calc(100% - 48px));
+  overflow: hidden;
+}
+
+.packages-install-sheet .window-modal__body {
+  padding: 0;
+  max-height: none;
+  overflow: hidden;
+}
+
+.packages-install-sheet .window-modal__actions {
+  margin-top: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  background: linear-gradient(180deg, #f3f3f3 0%, #e8e8e8 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.packages-install-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  min-height: 0;
+  color: #222;
+}
+
+.packages-install-sheet__status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 1.35em;
+}
+
+.packages-install-sheet__status-phase {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f6ec7;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.packages-install-sheet__status-phase--out {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+.packages-install-sheet__status-phase--in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.packages-install-sheet__status-pct {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.75em;
+  text-align: right;
+  color: #9a9a9a;
+  opacity: 0.55;
+  transition: opacity 0.25s ease, color 0.25s ease;
+}
+
+.packages-install-sheet__status-pct--on {
+  color: #555;
+  opacity: 1;
+}
+
+.packages-install-sheet__track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.packages-install-sheet__track--indet::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(47, 135, 226, 0.18) 45%,
+    rgba(47, 135, 226, 0.32) 50%,
+    rgba(47, 135, 226, 0.18) 55%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: packages-install-shimmer 1.35s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.packages-install-sheet__fill {
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(180deg, #8ec7ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  transition: transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+@keyframes packages-install-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.packages-install-sheet__console {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  min-height: 200px;
+  max-height: min(360px, 48vh);
+  overflow: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: linear-gradient(180deg, #fbfbfb 0%, #f3f3f3 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  color: #333;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.packages-install-sheet__console::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}

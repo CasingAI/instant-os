@@ -15,7 +15,7 @@ import { askTerminalAgent } from './terminal-agent.ts'
 import { runTerminalLiveDemo } from './terminal-demo.ts'
 import { TERMINAL_HELP_TEXT } from './terminal-help-text.ts'
 import { runTerminalLocalLs } from './terminal-local-ls.ts'
-import { runTerminalNpmOrNpx, cancelActivePackageTasks } from './terminal-npm.ts'
+import { runTerminalNpmOrNpx, cancelActivePackageTasks } from '../packages/package-cli-adapter.ts'
 import {
   runTerminalLocalPrivilegeCommand,
   runTerminalPrivilegeRequest,

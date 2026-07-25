@@ -798,6 +798,12 @@
   overflow: visible;
 }
 
+/* 任意 .settings 壳内的 --apps 列表都不限高（含钥匙串 / 包管理等复用方） */
+.settings .settings__list-body--apps {
+  max-height: none;
+  overflow: visible;
+}
+
 .settings__list-body--keys {
   max-height: 360px;
 }
@@ -2197,6 +2203,13 @@
 
   .settings__list-body {
     max-height: min(420px, 50vh);
+  }
+
+  /* 须跟在上方之后：否则宽窗会盖掉 --apps 的 max-height: none */
+  .settings__list-body--apps,
+  .settings .settings__list-body--apps {
+    max-height: none;
+    overflow: visible;
   }
 
   .settings__preview-frame {

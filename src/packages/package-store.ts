@@ -1,7 +1,8 @@
 import {
   filesCreateText,
-  filesLstat,
   filesList,
+  filesListSubtreeFiles,
+  filesLstat,
   filesMkdir,
   filesReadText,
   filesRemove,
@@ -106,6 +107,43 @@ export async function listStorePackageVersions(
     if (marker?.kind === 'file') versions.push(entry.name)
   }
   return versions
+}
+
+/** 将 store 目录名还原为 npm 包名（`@scope__pkg` → `@scope/pkg`） */
+export function decodeStoreSafeName(safeName: string): string {
+  if (safeName.startsWith('@')) {
+    const idx = safeName.indexOf('__')
+    if (idx > 0) {
+      return `${safeName.slice(0, idx)}/${safeName.slice(idx + 2)}`
+    }
+  }
+  return safeName
+}
+
+export type CachedStorePackage = {
+  name: string
+  versions: string[]
+}
+
+/** 列出全局 CAS store 中已完整缓存的全部包（按包名排序） */
+export async function listCachedStorePackages(
+  config: PackageServiceConfig,
+): Promise<CachedStorePackage[]> {
+  const root = `${config.storeRoot}/v1`
+  const st = await filesStat(root)
+  if (!st || st.kind !== 'folder') return []
+  const entries = await filesList(root)
+  const out: CachedStorePackage[] = []
+  for (const entry of entries) {
+    if (entry.kind !== 'folder') continue
+    const name = decodeStoreSafeName(entry.name)
+    const versions = await listStorePackageVersions(config, name)
+    if (versions.length === 0) continue
+    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    out.push({ name, versions })
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name, 'en'))
+  return out
 }
 
 export type ExtractTarballProgress = {
@@ -277,10 +315,19 @@ export async function readStorePackageJson(
 }
 
 export async function estimateStoreBytes(config: PackageServiceConfig): Promise<number> {
-  // 粗略：读 store 根若不存在则为 0；完整枚举留给管理 App
   const st = await filesStat(config.storeRoot)
   if (!st) return 0
-  return st.byteSize
+  try {
+    // 目录自身 byteSize 几乎总是 0；对 store 子树做一次文件枚举再求和
+    const files = await filesListSubtreeFiles(config.storeRoot)
+    let total = 0
+    for (const file of files) {
+      total += file.byteSize
+    }
+    return total
+  } catch {
+    return st.byteSize
+  }
 }
 
 export async function ensureStoreRoot(config: PackageServiceConfig): Promise<void> {
