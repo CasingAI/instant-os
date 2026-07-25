@@ -42,6 +42,8 @@ export type VscodePrefs = {
   aiModelKey: string | undefined
   /** 按模型键覆盖供应商级 thinking 等选项 */
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
+  /** Debug：在聊天气泡旁显示本轮注入的 <system-reminder> */
+  aiDebugSystemReminder: boolean
   /** AI 内联代码补全（幽灵文本）；默认关闭，需用户主动开启 */
   completionEnabled: boolean
   /** 补全专用模型；未设置时复用 aiModelKey / 文本首选 */
@@ -85,6 +87,7 @@ const DEFAULT_PREFS: VscodePrefs = {
   aiMode: 'ask',
   aiModelKey: undefined,
   aiModelOptions: {},
+  aiDebugSystemReminder: false,
   completionEnabled: false,
   completionModelKey: undefined,
   completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
@@ -184,6 +187,7 @@ export function loadVscodePrefs(): VscodePrefs {
           ? parsed.aiModelKey.trim()
           : undefined,
       aiModelOptions: normalizeAiModelOptions(parsed.aiModelOptions),
+      aiDebugSystemReminder: parsed.aiDebugSystemReminder === true,
       completionEnabled: parsed.completionEnabled === true,
       completionModelKey:
         typeof parsed.completionModelKey === 'string' && parsed.completionModelKey.trim()

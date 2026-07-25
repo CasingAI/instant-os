@@ -12,7 +12,10 @@ import type {
 } from './vscode-ai-run-command.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
-import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
+import type {
+  VscodeAgentTerminalSnapshot,
+  VscodeAiTerminalKind,
+} from './vscode-terminal-sessions.ts'
 import {
   isVscodeAiMode,
   VSCODE_AI_MODE_LABELS,
@@ -40,6 +43,7 @@ import {
   type VscodeAiPendingEdit,
   type VscodeAiReviewStatus,
 } from './vscode-ai-chat-storage.ts'
+import { buildVscodeAiModeReminder } from './vscode-ai-system-reminder.ts'
 import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import {
@@ -71,7 +75,7 @@ const SAMPLE_PROMPTS = [
   '在工作区里搜索某个符号',
 ] as const
 
-const VSCODE_AI_MODE_OPTIONS = (['ask', 'edit', 'agent'] as const).map((item) => ({
+const VSCODE_AI_MODE_OPTIONS = (['ask', 'plan', 'edit', 'agent'] as const).map((item) => ({
   id: item as string,
   label: VSCODE_AI_MODE_LABELS[item],
 }))
@@ -91,6 +95,8 @@ export type VscodeAiPanelProps = {
   onAiModelKeyChange: (key: string) => void
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
+  /** Debug：展示本轮注入的 system-reminder */
+  aiDebugSystemReminder?: boolean
   dark?: boolean
   workspaceFolder: string | undefined
   getContext: () => VscodeAiContextInput
@@ -105,9 +111,20 @@ export type VscodeAiPanelProps = {
     current: VscodeAiLastChangeSource | undefined
   }
   onChangesAvailable?: (available: boolean) => void
-  ensureAgentTerminal: (chatSessionId: string, chatTitle: string) => Promise<VscodeAgentTerminalEnsureResult>
-  getAgentTerminalHandle: (chatSessionId: string) => TerminalReplHandle | undefined
-  getAgentTerminalSnapshot: (chatSessionId: string) => VscodeAgentTerminalSnapshot
+  ensureAiTerminal: (
+    kind: VscodeAiTerminalKind,
+    chatSessionId: string,
+    chatTitle: string,
+  ) => Promise<VscodeAgentTerminalEnsureResult>
+  getAiTerminalHandle: (
+    kind: VscodeAiTerminalKind,
+    chatSessionId: string,
+  ) => TerminalReplHandle | undefined
+  getAiTerminalSnapshot: (
+    kind: VscodeAiTerminalKind,
+    chatSessionId: string,
+  ) => VscodeAgentTerminalSnapshot
+  openPlanFile: (path: string) => Promise<void>
   onApplyEdit: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectEdit: (editId: string) => void
 }
@@ -535,6 +552,7 @@ export function VscodeAiPanel({
   onAiModelKeyChange,
   aiModelOptions,
   onAiModelOptionsChange,
+  aiDebugSystemReminder = false,
   dark,
   workspaceFolder,
   getContext,
@@ -543,9 +561,10 @@ export function VscodeAiPanel({
   getNpmLastChangesSlot,
   getLastChangeSourceSlot,
   onChangesAvailable,
-  ensureAgentTerminal,
-  getAgentTerminalHandle,
-  getAgentTerminalSnapshot,
+  ensureAiTerminal,
+  getAiTerminalHandle,
+  getAiTerminalSnapshot,
+  openPlanFile,
   onApplyEdit,
   onRejectEdit,
 }: VscodeAiPanelProps) {
@@ -581,6 +600,7 @@ export function VscodeAiPanel({
   const messagesRef = useRef(messages)
   messagesRef.current = messages
   const turnChangeSessionsRef = useRef<TerminalChangeSet[]>([])
+  const lastSentModeRef = useRef<VscodeAiMode | undefined>(undefined)
   const busyRef = useRef(false)
   busyRef.current = busy
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
@@ -641,6 +661,7 @@ export function VscodeAiPanel({
     historyRef.current = []
     pendingEditsRef.current = []
     turnChangeSessionsRef.current = []
+    lastSentModeRef.current = undefined
     setEditingUserId(undefined)
     setEditingDraft('')
   }, [sessionId])
@@ -657,6 +678,9 @@ export function VscodeAiPanel({
     return firstUser?.slice(0, 40) || '对话'
   }, [messages])
 
+  const aiTerminalKind: VscodeAiTerminalKind | undefined =
+    mode === 'ask' ? 'ask' : mode === 'plan' ? 'plan' : mode === 'agent' ? 'agent' : undefined
+
   const runCommandHost = useMemo<VscodeAiRunCommandHost>(
     () => ({
       workspaceFolder,
@@ -664,16 +688,32 @@ export function VscodeAiPanel({
       lastChangeSource: getLastChangeSourceSlot(sessionId),
       turnChangeSessions: turnChangeSessionsRef,
       onChangesAvailable,
-      ensureAgentTerminal: () =>
-        ensureAgentTerminal(sessionIdRef.current, messagesRef.current.find((m) => m.role === 'user')?.content?.trim().slice(0, 40) || chatTitle),
-      getAgentTerminalHandle: () => getAgentTerminalHandle(sessionIdRef.current),
-      getAgentTerminalSnapshot: () => getAgentTerminalSnapshot(sessionIdRef.current),
+      ensureAgentTerminal: () => {
+        if (!aiTerminalKind) {
+          return Promise.reject(new Error('当前模式不支持终端'))
+        }
+        return ensureAiTerminal(
+          aiTerminalKind,
+          sessionIdRef.current,
+          messagesRef.current.find((m) => m.role === 'user')?.content?.trim().slice(0, 40) ||
+            chatTitle,
+        )
+      },
+      getAgentTerminalHandle: () =>
+        aiTerminalKind
+          ? getAiTerminalHandle(aiTerminalKind, sessionIdRef.current)
+          : undefined,
+      getAgentTerminalSnapshot: () =>
+        aiTerminalKind
+          ? getAiTerminalSnapshot(aiTerminalKind, sessionIdRef.current)
+          : { status: 'none' },
     }),
     [
+      aiTerminalKind,
       chatTitle,
-      ensureAgentTerminal,
-      getAgentTerminalHandle,
-      getAgentTerminalSnapshot,
+      ensureAiTerminal,
+      getAiTerminalHandle,
+      getAiTerminalSnapshot,
       getLastChangeSourceSlot,
       getNpmLastChangesSlot,
       onChangesAvailable,
@@ -710,11 +750,13 @@ export function VscodeAiPanel({
 
   const contextWithTerminal = useCallback((): VscodeAiContextInput => {
     const base = getContext()
+    if (!aiTerminalKind) return base
     return {
       ...base,
-      agentTerminal: getAgentTerminalSnapshot(sessionId),
+      aiTerminal: getAiTerminalSnapshot(aiTerminalKind, sessionId),
+      aiTerminalKind,
     }
-  }, [getAgentTerminalSnapshot, getContext, sessionId])
+  }, [aiTerminalKind, getAiTerminalSnapshot, getContext, sessionId])
 
   const toolsHost = useMemo<VscodeAiToolsHost>(
     () => ({
@@ -725,8 +767,9 @@ export function VscodeAiPanel({
         pendingEditsRef.current = [...pendingEditsRef.current, edit]
       },
       runCommandHost,
+      openPlanFile,
     }),
-    [contextWithTerminal, getOpenFilesForSearch, problems, runCommandHost],
+    [contextWithTerminal, getOpenFilesForSearch, openPlanFile, problems, runCommandHost],
   )
 
   useEffect(() => {
@@ -746,8 +789,10 @@ export function VscodeAiPanel({
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = undefined
-    getAgentTerminalHandle(sessionIdRef.current)?.abort()
-  }, [getAgentTerminalHandle])
+    if (aiTerminalKind) {
+      getAiTerminalHandle(aiTerminalKind, sessionIdRef.current)?.abort()
+    }
+  }, [aiTerminalKind, getAiTerminalHandle])
 
   const rebuildHistoryFromMessages = useCallback((source: readonly VscodeAiChatMessage[]) => {
     const next: OpenAI.Chat.ChatCompletionMessageParam[] = []
@@ -782,6 +827,7 @@ export function VscodeAiPanel({
           context: contextWithTerminal(),
           history,
           userMessage: draft,
+          previousMode: lastSentModeRef.current,
           model: resolvedModelId,
           providerEntryId: resolvedProviderEntryId,
           tokenizerFamily: resolvedTokenizerFamily,
@@ -844,6 +890,9 @@ export function VscodeAiPanel({
       if (!text || busy) return
 
       let withUser: VscodeAiChatMessage[]
+      const reminderText = buildVscodeAiModeReminder(mode, {
+        previousMode: lastSentModeRef.current,
+      })
       if (options?.replaceFromUserId) {
         const index = messages.findIndex((message) => message.id === options.replaceFromUserId)
         if (index < 0 || messages[index]?.role !== 'user') return
@@ -860,6 +909,7 @@ export function VscodeAiPanel({
           ...messages[index],
           content: text,
           createdAt: Date.now(),
+          systemReminder: reminderText,
         }
         withUser = [...messages.slice(0, index), editedUser]
         historyRef.current = rebuildHistoryFromMessages(messages.slice(0, index))
@@ -868,7 +918,9 @@ export function VscodeAiPanel({
         setEditingDraft('')
       } else {
         if (!textOverride) setDraft('')
-        const userMessage = createVscodeAiChatMessage('user', text)
+        const userMessage = createVscodeAiChatMessage('user', text, {
+          systemReminder: reminderText,
+        })
         withUser = [...messages, userMessage]
         onMessagesChange(withUser)
       }
@@ -890,6 +942,7 @@ export function VscodeAiPanel({
         const result = await askVscodeAiAgent({
           mode,
           userMessage: text,
+          previousMode: lastSentModeRef.current,
           context: contextWithTerminal(),
           toolsHost,
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
@@ -908,6 +961,7 @@ export function VscodeAiPanel({
             }
           },
         })
+        lastSentModeRef.current = mode
 
         if (controller.signal.aborted) {
           const snapshotTimeline = liveTimelineRef.current
@@ -1135,7 +1189,7 @@ export function VscodeAiPanel({
             </div>
             <h2 class="help-app__welcome-title">代码助手</h2>
             <p class="help-app__welcome-sub">
-              可阅读工作区、改文件或运行命令。切换 Ask / Edit / Agent 控制权限。
+              可阅读工作区、写计划、改文件或运行命令。切换 Ask / Plan / Edit / Agent 控制权限。
             </p>
             <div class="help-app__samples" aria-label="示例提问">
               {SAMPLE_PROMPTS.map((prompt) => (
@@ -1170,6 +1224,14 @@ export function VscodeAiPanel({
                 >
                   {message.investigation ? (
                     <InvestigationPanel investigation={message.investigation} />
+                  ) : undefined}
+                  {message.role === 'user' &&
+                  aiDebugSystemReminder &&
+                  message.systemReminder?.trim() ? (
+                    <details class="vscode-ai__system-reminder" open>
+                      <summary>System Reminder（debug）</summary>
+                      <pre class="vscode-ai__system-reminder-body">{message.systemReminder}</pre>
+                    </details>
                   ) : undefined}
                   {message.role === 'user' && editingUserId === message.id ? (
                     <div class="vscode-ai__user-edit">
@@ -1284,9 +1346,11 @@ export function VscodeAiPanel({
             placeholder={
               mode === 'ask'
                 ? '只读问答…'
-                : mode === 'edit'
-                  ? '描述要做的修改…'
-                  : '描述任务…'
+                : mode === 'plan'
+                  ? '调研并写计划…'
+                  : mode === 'edit'
+                    ? '描述要做的修改…'
+                    : '描述任务…'
             }
             value={draft}
             disabled={busy}

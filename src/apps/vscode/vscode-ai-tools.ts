@@ -1,8 +1,11 @@
 import { defineTool, type AgentTool } from '../../ai/agent-tool.ts'
 import {
+  filesCreateText,
   filesList,
+  filesMkdir,
   filesReadText,
   filesStat,
+  filesWriteText,
 } from '../files/files-api.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
@@ -35,6 +38,32 @@ function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+function slugifyPlanName(name: string): string {
+  const raw = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+  return raw || 'plan'
+}
+
+async function ensureParentDirs(absolutePath: string): Promise<void> {
+  const parts = absolutePath.split('/').filter(Boolean)
+  let current = ''
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    current += `/${parts[i]}`
+    const existing = await filesStat(current)
+    if (existing) {
+      if (existing.kind !== 'folder') {
+        throw new Error(`路径冲突：${current} 不是文件夹`)
+      }
+      continue
+    }
+    await filesMkdir(current)
+  }
+}
+
 function formatEntryLine(entry: {
   path: string
   name: string
@@ -64,6 +93,8 @@ export type VscodeAiToolsHost = {
   getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
   onProposeEdit: (edit: VscodeAiPendingEdit) => void
   runCommandHost: VscodeAiRunCommandHost
+  /** Plan 模式写完计划后打开文件 */
+  openPlanFile?: (path: string) => Promise<void>
 }
 
 export function createVscodeAiTools(
@@ -247,6 +278,85 @@ export function createVscodeAiTools(
     }),
   ]
 
+  const askRunTools: AgentTool[] =
+    mode === 'ask' || mode === 'plan'
+      ? [
+          defineTool({
+            name: 'run_in_terminal',
+            description:
+              '在本对话绑定的只读终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。文件系统为只读：用 fs 读文件、列目录、stat 等；写/删/建会失败（EACCES）。必须传 description（短句说明本步意图，供界面展示）。',
+            parameters: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['command', 'description'],
+              properties: {
+                command: { type: 'string' },
+                description: {
+                  type: 'string',
+                  description: '短句说明本步意图（约 40 字内，中文动宾），供界面展示，不参与执行',
+                },
+              },
+            },
+            execute: async (args) =>
+              runVscodeAiTerminalLine(host.runCommandHost, asString(args.command)),
+          }),
+        ]
+      : []
+
+  const planWriteTools: AgentTool[] =
+    mode === 'plan'
+      ? [
+          defineTool({
+            name: 'write_plan',
+            description:
+              '将完整计划 Markdown 写入工作区 .vscode/plans/ 并打开该文件。这是 Plan 模式唯一允许的写出口；不要用终端写文件。正文须含 # 标题、overview、实现要点、todos checklist；选定一种方案写死。',
+            parameters: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['name', 'markdown'],
+              properties: {
+                name: {
+                  type: 'string',
+                  description: '短名称（用于文件名 slug，英文或中文均可）',
+                },
+                markdown: {
+                  type: 'string',
+                  description: '完整 Markdown 计划正文',
+                },
+              },
+            },
+            execute: async (args) => {
+              const workspace = host.getContext().workspaceFolder?.trim()
+              if (!workspace) {
+                throw new Error('未打开工作区文件夹，无法写入计划。请先打开文件夹。')
+              }
+              const slug = slugifyPlanName(asString(args.name))
+              const shortId = Math.random().toString(36).slice(2, 8)
+              const plansRoot = `${workspace.replace(/\/+$/, '')}/.vscode/plans`
+              const path = `${plansRoot}/${slug}-${shortId}.md`
+              if (!path.startsWith(`${plansRoot}/`)) {
+                throw new Error('计划路径不合法')
+              }
+              const markdown = asString(args.markdown)
+              if (!markdown.trim()) {
+                throw new Error('计划内容为空')
+              }
+              await ensureParentDirs(path)
+              const existing = await filesStat(path)
+              if (existing) {
+                await filesWriteText(path, markdown)
+              } else {
+                await filesCreateText(path, markdown)
+              }
+              if (host.openPlanFile) {
+                await host.openPlanFile(path)
+              }
+              return `已写入计划并打开：${path}`
+            },
+          }),
+        ]
+      : []
+
   const editTools: AgentTool[] =
     mode === 'edit'
       ? [
@@ -392,7 +502,8 @@ export function createVscodeAiTools(
         ]
       : []
 
-  if (mode === 'ask') return readTools
+  if (mode === 'ask') return askRunTools
+  if (mode === 'plan') return [...askRunTools, ...planWriteTools]
   if (mode === 'edit') return [...readTools, ...editTools]
   return agentRunTools
 }
@@ -405,6 +516,7 @@ export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   grep_workspace: '搜索工作区',
   list_problems: '查看问题',
   propose_file_edit: '提交修改提案',
+  write_plan: '写入计划',
   run_in_terminal: '使用终端',
   npm_run: '运行 npm script',
   npx: '运行 npx',

@@ -18,6 +18,7 @@ import {
   type VscodeAiContextInput,
 } from './vscode-ai-context.ts'
 import { createVscodeAiTools, type VscodeAiToolsHost } from './vscode-ai-tools.ts'
+import { wrapVscodeAiUserMessageForMode } from './vscode-ai-system-reminder.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 
 export type VscodeAiContextUsageCategoryId =
@@ -188,6 +189,10 @@ export function measureVscodeAiContextUsage(options: {
   context: VscodeAiContextInput
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
   userMessage?: string
+  /** 与 askVscodeAiAgent 一致：计量时按同样规则 wrap */
+  previousMode?: VscodeAiMode
+  /** 若 userMessage 已是 wrap 后的内容，则不再二次 wrap */
+  userMessageAlreadyWrapped?: boolean
   model?: string
   providerEntryId?: string
   providerId?: AiProviderId
@@ -228,8 +233,11 @@ export function measureVscodeAiContextUsage(options: {
     buckets[category] += estimate(text, model, tokenizerFamily) + 4
   }
 
-  const userMessage = options.userMessage?.trim()
-  if (userMessage) {
+  const rawUser = options.userMessage?.trim()
+  if (rawUser) {
+    const userMessage = options.userMessageAlreadyWrapped
+      ? rawUser
+      : wrapVscodeAiUserMessageForMode(rawUser, options.mode, options.previousMode)
     buckets.conversation += estimate(userMessage, model, tokenizerFamily) + 4
   }
 

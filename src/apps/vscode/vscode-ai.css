@@ -828,3 +828,40 @@
 .vscode--chrome-dark .vscode-ai__context-usage--open .vscode-ai__context-usage-trigger {
   background: rgba(255, 255, 255, 0.06);
 }
+
+/* Debug：展示注入的 system-reminder */
+.vscode-ai__system-reminder {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px dashed rgba(127, 127, 140, 0.45);
+  background: rgba(127, 127, 140, 0.08);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--help-muted, #6b6b76);
+}
+
+.vscode-ai__system-reminder summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--help-fg, #222);
+}
+
+.vscode-ai__system-reminder-body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.vscode--chrome-dark .vscode-ai__system-reminder {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.vscode--chrome-dark .vscode-ai__system-reminder summary {
+  color: rgba(255, 255, 255, 0.88);
+}

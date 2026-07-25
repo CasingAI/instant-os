@@ -10,6 +10,7 @@ import { loadTerminalChangeSession } from '../../terminal/terminal-changeset-sto
 import type {
   VscodeAgentTerminalEnsureReason,
   VscodeAgentTerminalSnapshot,
+  VscodeAiTerminalKind,
 } from './vscode-terminal-sessions.ts'
 
 export type VscodeAgentTerminalEnsureResult = {
@@ -17,6 +18,7 @@ export type VscodeAgentTerminalEnsureResult = {
   sessionId: string
   created: boolean
   reason: VscodeAgentTerminalEnsureReason
+  kind?: VscodeAiTerminalKind
 }
 
 export type VscodeAiLastChangeSource = 'terminal' | 'npm'
@@ -77,13 +79,14 @@ function appendChangeSummary(base: string, changeSet: TerminalChangeSet | undefi
 
 function formatTerminalBanner(result: VscodeAgentTerminalEnsureResult): string {
   const cwd = result.handle.getCwd()
+  const label = result.kind === 'ask' ? 'Ask' : result.kind === 'plan' ? 'Plan' : 'Agent'
   if (result.reason === 'reused') {
     return `[terminal session=${result.sessionId} kind=reused] cwd=${cwd}`
   }
   if (result.reason === 'rebuilt') {
     return `[terminal session=${result.sessionId} kind=rebuilt] 上一会话已关闭，已新开；cwd 已重置为 ${cwd}`
   }
-  return `[terminal session=${result.sessionId} kind=new] 已新开 Agent 终端；cwd=${cwd}`
+  return `[terminal session=${result.sessionId} kind=new] 已新开 ${label} 终端；cwd=${cwd}`
 }
 
 function terminalHasChanges(host: VscodeAiRunCommandHost): boolean {

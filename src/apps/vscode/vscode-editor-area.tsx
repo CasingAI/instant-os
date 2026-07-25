@@ -38,7 +38,10 @@ import type {
   VscodeAgentTerminalEnsureResult,
   VscodeAiLastChangeSource,
 } from './vscode-ai-run-command.ts'
-import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
+import type {
+  VscodeAgentTerminalSnapshot,
+  VscodeAiTerminalKind,
+} from './vscode-terminal-sessions.ts'
 import { HistoryIcon, PlusIcon } from '../../icons/app-icons.tsx'
 
 type DropZone = VscodeSplitEdge
@@ -197,6 +200,7 @@ type VscodeEditorAreaProps = {
   onAiModelKeyChange?: (key: string) => void
   aiModelOptions?: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange?: (next: Record<string, VscodeAiModelOptionPrefs>) => void
+  aiDebugSystemReminder?: boolean
   aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
   getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
@@ -208,12 +212,20 @@ type VscodeEditorAreaProps = {
     current: VscodeAiLastChangeSource | undefined
   }
   onTerminalChangesAvailable?: (available: boolean) => void
-  ensureAgentTerminal?: (
+  ensureAiTerminal?: (
+    kind: VscodeAiTerminalKind,
     chatSessionId: string,
     chatTitle: string,
   ) => Promise<VscodeAgentTerminalEnsureResult>
-  getAgentTerminalHandle?: (chatSessionId: string) => TerminalReplHandle | undefined
-  getAgentTerminalSnapshot?: (chatSessionId: string) => VscodeAgentTerminalSnapshot
+  getAiTerminalHandle?: (
+    kind: VscodeAiTerminalKind,
+    chatSessionId: string,
+  ) => TerminalReplHandle | undefined
+  getAiTerminalSnapshot?: (
+    kind: VscodeAiTerminalKind,
+    chatSessionId: string,
+  ) => VscodeAgentTerminalSnapshot
+  openPlanFile?: (path: string) => Promise<void>
   pickAndOpenFolder?: () => Promise<boolean>
   pickAndOpen?: () => Promise<boolean>
   onCloseWelcome?: () => void
@@ -329,6 +341,7 @@ function VscodeEditorGroupView({
   onAiModelKeyChange,
   aiModelOptions,
   onAiModelOptionsChange,
+  aiDebugSystemReminder,
   aiDark,
   getAiContext,
   getOpenFilesForSearch,
@@ -336,9 +349,10 @@ function VscodeEditorGroupView({
   getNpmLastChangesSlot,
   getLastChangeSourceSlot,
   onTerminalChangesAvailable,
-  ensureAgentTerminal,
-  getAgentTerminalHandle,
-  getAgentTerminalSnapshot,
+  ensureAiTerminal,
+  getAiTerminalHandle,
+  getAiTerminalSnapshot,
+  openPlanFile,
   onApplyAiEdit,
   onRejectAiEdit,
   pickAndOpenFolder,
@@ -807,9 +821,10 @@ function VscodeEditorGroupView({
             activeItem?.kind === 'aiChat' ? activeItem.id : undefined
           if (
             !getAiContext ||
-            !ensureAgentTerminal ||
-            !getAgentTerminalHandle ||
-            !getAgentTerminalSnapshot ||
+            !ensureAiTerminal ||
+            !getAiTerminalHandle ||
+            !getAiTerminalSnapshot ||
+            !openPlanFile ||
             !aiMode ||
             !onAiModeChange
           ) {
@@ -821,9 +836,10 @@ function VscodeEditorGroupView({
           const resolvedAiMode = aiMode
           const resolvedOnAiModeChange = onAiModeChange
           const resolvedGetAiContext = getAiContext
-          const resolvedEnsureAgentTerminal = ensureAgentTerminal
-          const resolvedGetAgentTerminalHandle = getAgentTerminalHandle
-          const resolvedGetAgentTerminalSnapshot = getAgentTerminalSnapshot
+          const resolvedEnsureAiTerminal = ensureAiTerminal
+          const resolvedGetAiTerminalHandle = getAiTerminalHandle
+          const resolvedGetAiTerminalSnapshot = getAiTerminalSnapshot
+          const resolvedOpenPlanFile = openPlanFile
 
           return aiChatItems.map((item) => {
             const session = aiChatSessions?.get(item.sessionId)
@@ -852,6 +868,7 @@ function VscodeEditorGroupView({
                   onAiModelKeyChange={(key) => onAiModelKeyChange?.(key)}
                   aiModelOptions={aiModelOptions ?? {}}
                   onAiModelOptionsChange={(next) => onAiModelOptionsChange?.(next)}
+                  aiDebugSystemReminder={aiDebugSystemReminder}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}
                   getContext={resolvedGetAiContext}
@@ -864,9 +881,10 @@ function VscodeEditorGroupView({
                     getLastChangeSourceSlot ?? (() => ({ current: undefined }))
                   }
                   onChangesAvailable={onTerminalChangesAvailable}
-                  ensureAgentTerminal={resolvedEnsureAgentTerminal}
-                  getAgentTerminalHandle={resolvedGetAgentTerminalHandle}
-                  getAgentTerminalSnapshot={resolvedGetAgentTerminalSnapshot}
+                  ensureAiTerminal={resolvedEnsureAiTerminal}
+                  getAiTerminalHandle={resolvedGetAiTerminalHandle}
+                  getAiTerminalSnapshot={resolvedGetAiTerminalSnapshot}
+                  openPlanFile={resolvedOpenPlanFile}
                   onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
                   onRejectEdit={onRejectAiEdit ?? (() => undefined)}
                 />

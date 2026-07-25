@@ -39,9 +39,11 @@ import {
   type TerminalReplHandle,
 } from '../terminal/terminal-repl-panel.tsx'
 import {
-  createAgentTerminalSession,
+  createAiTerminalSession,
   createUserTerminalSession,
+  isVscodeAiTerminalKind,
   type VscodeAgentTerminalSnapshot,
+  type VscodeAiTerminalKind,
   type VscodeTerminalSession,
 } from './vscode-terminal-sessions.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -352,7 +354,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
     >(),
   )
-  const closedAgentChatIdsRef = useRef(new Set<string>())
+  const closedAiChatIdsRef = useRef<Record<VscodeAiTerminalKind, Set<string>>>({
+    ask: new Set(),
+    plan: new Set(),
+    agent: new Set(),
+  })
   const activeTerminalHandleRef = useRef<TerminalReplHandle | null>(null)
   const [canRevertTerminal, setCanRevertTerminal] = useState(false)
   const npmLastChangesByChatRef = useRef(new Map<string, TerminalChangeSet>())
@@ -497,8 +503,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const sessions = terminalSessionsRef.current
     const target = sessions.find((s) => s.id === sessionId)
     if (!target) return
-    if (target.kind === 'agent' && target.ownerChatId) {
-      closedAgentChatIdsRef.current.add(target.ownerChatId)
+    if (isVscodeAiTerminalKind(target.kind) && target.ownerChatId) {
+      closedAiChatIdsRef.current[target.kind].add(target.ownerChatId)
     }
     terminalHandlesRef.current.delete(sessionId)
     const waiter = handleWaitersRef.current.get(sessionId)
@@ -521,11 +527,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     refreshCanRevertTerminal()
   }, [refreshCanRevertTerminal, syncActiveTerminalHandle])
 
-  const ensureAgentTerminal = useCallback(
-    async (chatSessionId: string, chatTitle: string) => {
+  const ensureAiTerminal = useCallback(
+    async (kind: VscodeAiTerminalKind, chatSessionId: string, chatTitle: string) => {
       const sessions = terminalSessionsRef.current
       const existing = sessions.find(
-        (s) => s.kind === 'agent' && s.ownerChatId === chatSessionId,
+        (s) => s.kind === kind && s.ownerChatId === chatSessionId,
       )
       if (existing) {
         try {
@@ -535,17 +541,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             sessionId: existing.id,
             created: false,
             reason: 'reused' as const,
+            kind,
           }
         } catch {
           // handle 超时则下方重建
         }
       }
 
-      const reason = closedAgentChatIdsRef.current.has(chatSessionId) ? 'rebuilt' : 'new'
-      closedAgentChatIdsRef.current.delete(chatSessionId)
-      const session = createAgentTerminalSession(chatSessionId, chatTitle)
+      const closedSet = closedAiChatIdsRef.current[kind]
+      const reason = closedSet.has(chatSessionId) ? 'rebuilt' : 'new'
+      closedSet.delete(chatSessionId)
+      const session = createAiTerminalSession(kind, chatSessionId, chatTitle)
       setTerminalSessions((prev) => [
-        ...prev.filter((s) => !(s.kind === 'agent' && s.ownerChatId === chatSessionId)),
+        ...prev.filter((s) => !(s.kind === kind && s.ownerChatId === chatSessionId)),
         session,
       ])
       const handle = await waitForTerminalHandle(session.id)
@@ -554,23 +562,27 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         sessionId: session.id,
         created: true,
         reason: reason as 'new' | 'rebuilt',
+        kind,
       }
     },
     [waitForTerminalHandle],
   )
 
-  const getAgentTerminalHandle = useCallback((chatSessionId: string) => {
-    const session = terminalSessionsRef.current.find(
-      (s) => s.kind === 'agent' && s.ownerChatId === chatSessionId,
-    )
-    if (!session) return undefined
-    return terminalHandlesRef.current.get(session.id)
-  }, [])
-
-  const getAgentTerminalSnapshot = useCallback(
-    (chatSessionId: string): VscodeAgentTerminalSnapshot => {
+  const getAiTerminalHandle = useCallback(
+    (kind: VscodeAiTerminalKind, chatSessionId: string) => {
       const session = terminalSessionsRef.current.find(
-        (s) => s.kind === 'agent' && s.ownerChatId === chatSessionId,
+        (s) => s.kind === kind && s.ownerChatId === chatSessionId,
+      )
+      if (!session) return undefined
+      return terminalHandlesRef.current.get(session.id)
+    },
+    [],
+  )
+
+  const getAiTerminalSnapshot = useCallback(
+    (kind: VscodeAiTerminalKind, chatSessionId: string): VscodeAgentTerminalSnapshot => {
+      const session = terminalSessionsRef.current.find(
+        (s) => s.kind === kind && s.ownerChatId === chatSessionId,
       )
       if (session) {
         const handle = terminalHandlesRef.current.get(session.id)
@@ -585,7 +597,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           recovering: true,
         }
       }
-      if (closedAgentChatIdsRef.current.has(chatSessionId)) {
+      if (closedAiChatIdsRef.current[kind].has(chatSessionId)) {
         return { status: 'closed' }
       }
       return { status: 'none' }
@@ -610,10 +622,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           ensureAgentTerminal: async () => {
             throw new Error('unused')
           },
-          getAgentTerminalHandle: () => getAgentTerminalHandle(chatId),
-          getAgentTerminalSnapshot: () => getAgentTerminalSnapshot(chatId),
+          getAgentTerminalHandle: () => getAiTerminalHandle('agent', chatId),
+          getAgentTerminalSnapshot: () => getAiTerminalSnapshot('agent', chatId),
         })
-        feedbackHandle = getAgentTerminalHandle(chatId)
+        feedbackHandle = getAiTerminalHandle('agent', chatId)
       } else {
         const activeSession = terminalSessionsRef.current.find(
           (s) => s.id === activeTerminalSessionIdRef.current,
@@ -639,8 +651,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       refreshCanRevertTerminal()
     })()
   }, [
-    getAgentTerminalHandle,
-    getAgentTerminalSnapshot,
+    getAiTerminalHandle,
+    getAiTerminalSnapshot,
     getFocusedEditorItem,
     getLastChangeSourceSlot,
     getNpmLastChangesSlot,
@@ -668,7 +680,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           return (
             <div
               key={session.id}
-              class={`vscode__terminal-session-tab${active ? ' vscode__terminal-session-tab--active' : ''}${session.kind === 'agent' ? ' vscode__terminal-session-tab--agent' : ''}`}
+              class={`vscode__terminal-session-tab${active ? ' vscode__terminal-session-tab--active' : ''}${isVscodeAiTerminalKind(session.kind) ? ' vscode__terminal-session-tab--agent' : ''}`}
             >
               <button
                 type="button"
@@ -1034,7 +1046,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   useEffect(() => {
     if (!activeTab) return
     const session = terminalSessionsRef.current.find((s) => s.id === activeTerminalSessionId)
-    if (session?.kind === 'agent') return
+    if (session && isVscodeAiTerminalKind(session.kind)) return
     const dir = parentDirFromPath(activeTab.path)
     const terminal = activeTerminalHandleRef.current
     if (!terminal || terminal.getCwd() === dir) return
@@ -1045,7 +1057,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const folder = prefs.workspaceFolder
     if (!folder || activeTab) return
     const session = terminalSessionsRef.current.find((s) => s.id === activeTerminalSessionId)
-    if (session?.kind === 'agent') return
+    if (session && isVscodeAiTerminalKind(session.kind)) return
     const terminal = activeTerminalHandleRef.current
     if (!terminal || terminal.getCwd() === folder) return
     void terminal.chdir(folder).catch(() => undefined)
@@ -1516,7 +1528,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
       handleWaitersRef.current.clear()
       terminalHandlesRef.current.clear()
-      closedAgentChatIdsRef.current.clear()
+      closedAiChatIdsRef.current.ask.clear()
+      closedAiChatIdsRef.current.plan.clear()
+      closedAiChatIdsRef.current.agent.clear()
       npmLastChangesByChatRef.current.clear()
       lastChangeSourceByChatRef.current.clear()
       const fresh = createUserTerminalSession('controlled')
@@ -2391,6 +2405,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             label: `${menuCheckPrefix(prefs.terminalVisible && prefs.panelTab === 'logs')}日志`,
             onClick: () => toggleBottomPanelTab('logs'),
           },
+          {
+            type: 'action',
+            label: `${menuCheckPrefix(prefs.aiDebugSystemReminder)}显示 System Reminder`,
+            onClick: () =>
+              updatePrefs({ aiDebugSystemReminder: !prefs.aiDebugSystemReminder }),
+          },
           { type: 'separator' },
           {
             type: 'action',
@@ -2403,7 +2423,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           ...(['normal', 'readonly', 'controlled'] as const).map((mode) => ({
             type: 'action' as const,
             label: `${menuCheckPrefix(activeTerminalFsMode === mode)}终端${TERMINAL_FS_MODE_LABEL[mode]}模式`,
-            disabled: activeTerminalSession?.kind === 'agent',
+            disabled:
+              activeTerminalSession != null &&
+              isVscodeAiTerminalKind(activeTerminalSession.kind),
             onClick: () => {
               const activeId = activeTerminalSessionIdRef.current
               setTerminalSessions((prev) =>
@@ -2490,6 +2512,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     prefs.panelTab,
     prefs.sidebarVisible,
     prefs.terminalVisible,
+    prefs.aiDebugSystemReminder,
     prefs.workspaceFolder,
     refreshCanRevertTerminal,
     showBuiltinAbout,
@@ -2916,6 +2939,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onAiModelOptionsChange={(aiModelOptions) =>
                 updatePrefs({ aiModelOptions })
               }
+              aiDebugSystemReminder={prefs.aiDebugSystemReminder}
               aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}
               getOpenFilesForSearch={() => openSearchFiles}
@@ -2923,9 +2947,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               getNpmLastChangesSlot={getNpmLastChangesSlot}
               getLastChangeSourceSlot={getLastChangeSourceSlot}
               onTerminalChangesAvailable={handleTerminalChangesAvailable}
-              ensureAgentTerminal={ensureAgentTerminal}
-              getAgentTerminalHandle={getAgentTerminalHandle}
-              getAgentTerminalSnapshot={getAgentTerminalSnapshot}
+              ensureAiTerminal={ensureAiTerminal}
+              getAiTerminalHandle={getAiTerminalHandle}
+              getAiTerminalSnapshot={getAiTerminalSnapshot}
+              openPlanFile={async (path) => {
+                await openDocument(path)
+              }}
               onApplyAiEdit={applyVscodeAiEdit}
               onRejectAiEdit={() => undefined}
               pickAndOpenFolder={pickAndOpenFolder}

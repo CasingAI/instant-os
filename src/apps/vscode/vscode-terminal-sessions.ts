@@ -1,15 +1,24 @@
 import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 
-export type VscodeTerminalSessionKind = 'user' | 'agent'
+/** AI 对话绑定的终端：Ask/Plan=只读，Agent=受控可写 */
+export type VscodeAiTerminalKind = 'ask' | 'plan' | 'agent'
+
+export type VscodeTerminalSessionKind = 'user' | VscodeAiTerminalKind
 
 export type VscodeTerminalSession = {
   id: string
   title: string
   kind: VscodeTerminalSessionKind
-  /** agent 会话绑定的 AI chat sessionId */
+  /** ask/plan/agent 会话绑定的 AI chat sessionId */
   ownerChatId?: string
   fsMode: TerminalFsMode
+}
+
+export function isVscodeAiTerminalKind(
+  kind: VscodeTerminalSessionKind,
+): kind is VscodeAiTerminalKind {
+  return kind === 'ask' || kind === 'plan' || kind === 'agent'
 }
 
 export function createVscodeTerminalSessionId(): string {
@@ -28,18 +37,46 @@ export function createUserTerminalSession(
   }
 }
 
-export function createAgentTerminalSession(
+const AI_TERMINAL_LABEL: Record<VscodeAiTerminalKind, string> = {
+  ask: 'Ask',
+  plan: 'Plan',
+  agent: 'Agent',
+}
+
+export function createAiTerminalSession(
+  kind: VscodeAiTerminalKind,
   ownerChatId: string,
   chatTitle: string,
 ): VscodeTerminalSession {
   const short = chatTitle.trim() || '对话'
   return {
     id: createVscodeTerminalSessionId(),
-    title: `Agent · ${short.slice(0, 24)}`,
-    kind: 'agent',
+    title: `${AI_TERMINAL_LABEL[kind]} · ${short.slice(0, 24)}`,
+    kind,
     ownerChatId,
-    fsMode: 'controlled',
+    fsMode: kind === 'agent' ? 'controlled' : 'readonly',
   }
+}
+
+export function createAgentTerminalSession(
+  ownerChatId: string,
+  chatTitle: string,
+): VscodeTerminalSession {
+  return createAiTerminalSession('agent', ownerChatId, chatTitle)
+}
+
+export function createAskTerminalSession(
+  ownerChatId: string,
+  chatTitle: string,
+): VscodeTerminalSession {
+  return createAiTerminalSession('ask', ownerChatId, chatTitle)
+}
+
+export function createPlanTerminalSession(
+  ownerChatId: string,
+  chatTitle: string,
+): VscodeTerminalSession {
+  return createAiTerminalSession('plan', ownerChatId, chatTitle)
 }
 
 export type VscodeAgentTerminalEnsureReason = 'reused' | 'new' | 'rebuilt'

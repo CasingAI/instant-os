@@ -1,7 +1,11 @@
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import { buildInstantShellSystemPromptSection } from '../../terminal/instant-shell/instant-shell-prompt.ts'
 import type { VscodeTab } from './vscode-tabs.ts'
-import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
+import { VSCODE_AI_SYSTEM_REMINDER_PREAMBLE } from './vscode-ai-system-reminder.ts'
+import type {
+  VscodeAgentTerminalSnapshot,
+  VscodeAiTerminalKind,
+} from './vscode-terminal-sessions.ts'
 
 export type VscodeAiEditorSnapshot = {
   activePath: string | undefined
@@ -16,8 +20,10 @@ export type VscodeAiContextInput = {
   activeTabId: string | undefined
   editor: VscodeAiEditorSnapshot
   problems: readonly MonacoProblem[]
-  /** 本对话绑定的 Agent 终端状态（关闭后为 closed，尚未创建过为 none） */
-  agentTerminal?: VscodeAgentTerminalSnapshot
+  /** 本对话当前模式绑定的 AI 终端状态（关闭后为 closed，尚未创建过为 none） */
+  aiTerminal?: VscodeAgentTerminalSnapshot
+  /** 与 aiTerminal 配套，决定上下文文案用 Ask / Plan / Agent */
+  aiTerminalKind?: VscodeAiTerminalKind
 }
 
 function normalizeRoot(path: string | undefined): string | undefined {
@@ -77,6 +83,12 @@ export function isPathAllowedForWrite(path: string, input: VscodeAiContextInput)
   return false
 }
 
+function aiTerminalLabel(kind: VscodeAiTerminalKind | undefined): string {
+  if (kind === 'plan') return 'Plan'
+  if (kind === 'ask') return 'Ask'
+  return 'Agent'
+}
+
 export function buildVscodeAiContextSection(input: VscodeAiContextInput): string {
   const workspace = input.workspaceFolder ?? '（未打开工作区文件夹）'
   const activeTab = input.activeTabId
@@ -105,22 +117,23 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
     const warnings = input.problems.filter((p) => p.severity === 'warning').length
     lines.push(`Problems：${errors} 个错误，${warnings} 个警告（共 ${problemCount} 条）`)
   }
-  const agentTerm = input.agentTerminal
-  if (agentTerm) {
-    if (agentTerm.status === 'alive' && agentTerm.sessionId) {
-      if (agentTerm.recovering) {
+  const aiTerm = input.aiTerminal
+  if (aiTerm) {
+    const label = aiTerminalLabel(input.aiTerminalKind)
+    if (aiTerm.status === 'alive' && aiTerm.sessionId) {
+      if (aiTerm.recovering) {
         lines.push(
-          `Agent 终端：session=${agentTerm.sessionId} 会话存在，正在恢复；cwd=${agentTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+          `${label} 终端：session=${aiTerm.sessionId} 会话存在，正在恢复；cwd=${aiTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
         )
       } else {
         lines.push(
-          `Agent 终端：session=${agentTerm.sessionId} cwd=${agentTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+          `${label} 终端：session=${aiTerm.sessionId} cwd=${aiTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
         )
       }
-    } else if (agentTerm.status === 'closed') {
-      lines.push('Agent 终端：已关闭。下次 run_in_terminal 会自动新开（结果里 kind=rebuilt）')
+    } else if (aiTerm.status === 'closed') {
+      lines.push(`${label} 终端：已关闭。下次 run_in_terminal 会自动新开（结果里 kind=rebuilt）`)
     } else {
-      lines.push('Agent 终端：尚未创建。首次 run_in_terminal 会自动新开')
+      lines.push(`${label} 终端：尚未创建。首次 run_in_terminal 会自动新开`)
     }
   }
   return lines.join('\n')
@@ -129,24 +142,52 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
 export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').VscodeAiMode): string {
   const modeLine =
     mode === 'ask'
-      ? '当前模式：Ask（只读）。你只能使用读取类工具，不得修改文件或执行命令。'
-      : mode === 'edit'
-        ? '当前模式：Edit。你可以读取工作区，并通过 propose_file_edit 提交修改提案；用户确认后才会写入。不得执行终端/npm。'
-        : '当前模式：Agent。没有独立的读/写文件工具。读文件、列目录、改代码、删文件、改目录结构等一律通过受控终端（run_in_terminal / npm_run / npx）用 fs 等完成，自动执行无需用户确认。调用 run_in_terminal 时必须带简短 description，说明本步要做什么（供界面展示）。同对话复用同一终端会话；若结果标明 kind=rebuilt，说明上一会话已关闭，cwd 与内存状态已重置。多文件改动尽量合并进同一次 run_in_terminal 以便整轮回滚。需要撤销用 revert_terminal_changes。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
+      ? '当前模式：Ask（只读问答）。用只读终端调研并回答；细节约束见本轮 <system-reminder>。'
+      : mode === 'plan'
+        ? '当前模式：Plan（只读规划）。调研后用 write_plan 将计划写入工作区 .vscode/plans/；细节约束见本轮 <system-reminder>。'
+        : mode === 'edit'
+          ? '当前模式：Edit。读取工作区并通过 propose_file_edit 提交提案；细节约束见本轮 <system-reminder>。'
+          : '当前模式：Agent。读写与副作用走受控终端；细节约束见本轮 <system-reminder>。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
 
   const instantShellSection =
     mode === 'agent' ? `\n\n${buildInstantShellSystemPromptSection()}` : ''
+
+  const envLines =
+    mode === 'ask' || mode === 'plan'
+      ? [
+          '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）',
+          '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下写操作会被拒绝',
+          mode === 'plan'
+            ? '- Plan：run_in_terminal 只读调研；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
+            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），不要尝试写入',
+          '- /system 与 /models 等只读卷不可写入',
+          '- 回答用简洁中文 Markdown；引用路径时用反引号',
+          '- 不要编造未执行的工具结果',
+        ]
+      : mode === 'edit'
+        ? [
+            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）',
+            '- 没有真实 shell、管道或网络下载',
+            '- /system 与 /models 等只读卷不可写入',
+            '- 回答用简洁中文 Markdown；引用路径时用反引号',
+            '- 不要编造未执行的工具结果',
+          ]
+        : [
+            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）',
+            '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
+            '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）',
+            '- /system 与 /models 等只读卷不可写入',
+            '- 回答用简洁中文 Markdown；引用路径时用反引号',
+            '- 修改前先在终端里读确认现状',
+            '- 不要编造未执行的工具结果',
+          ]
 
   return `你是 Virtual Studio Code Desktop 内置的 AI 编程助手，帮助用户理解、修改 Instant OS 虚拟文件系统中的项目代码。
 
 ${modeLine}
 
 环境说明：
-- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）
-- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更
-- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）
-- /system 与 /models 等只读卷不可写入
-- 回答用简洁中文 Markdown；引用路径时用反引号
-- 修改前先在终端里读确认现状
-- 不要编造未执行的工具结果${instantShellSection}`
+${envLines.join('\n')}
+
+${VSCODE_AI_SYSTEM_REMINDER_PREAMBLE}${instantShellSection}`
 }

@@ -49,6 +49,8 @@ export type VscodeAiChatMessage = {
   reviewStatus?: VscodeAiReviewStatus
   incomplete?: boolean
   investigation?: VscodeAiInvestigation
+  /** 本轮发给模型的 system-reminder 正文（不含标签；debug 展示用） */
+  systemReminder?: string
 }
 
 export type VscodeAiChatSession = {
@@ -308,6 +310,9 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
               ? [...new Set(terminalChangeReview.files.map((file) => file.path))]
               : undefined),
           reviewStatus,
+          systemReminder: normalizeOptionalString(
+            (message as { systemReminder?: unknown }).systemReminder,
+          ),
         }
       }),
   )
@@ -469,6 +474,7 @@ export function createVscodeAiChatMessage(
     | 'reviewStatus'
     | 'incomplete'
     | 'investigation'
+    | 'systemReminder'
   >,
 ): VscodeAiChatMessage {
   return {
@@ -484,6 +490,7 @@ export function createVscodeAiChatMessage(
     reviewStatus: extras?.reviewStatus,
     incomplete: extras?.incomplete,
     investigation: extras?.investigation,
+    systemReminder: extras?.systemReminder,
   }
 }
 

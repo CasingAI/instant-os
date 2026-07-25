@@ -19,6 +19,7 @@ import {
   VSCODE_AI_TOOL_LABELS,
   type VscodeAiToolsHost,
 } from './vscode-ai-tools.ts'
+import { wrapVscodeAiUserMessageForMode } from './vscode-ai-system-reminder.ts'
 import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
@@ -279,6 +280,8 @@ export function buildVscodeAiInvestigationFromTimeline(
 export async function askVscodeAiAgent(options: {
   mode: VscodeAiMode
   userMessage: string
+  /** 上一轮发送时的模式；用于 system-reminder 切换提示 */
+  previousMode?: VscodeAiMode
   context: VscodeAiContextInput
   toolsHost: VscodeAiToolsHost
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
@@ -296,6 +299,11 @@ export async function askVscodeAiAgent(options: {
   })
 
   const system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${buildVscodeAiContextSection(options.context)}`
+  const wrappedUserMessage = wrapVscodeAiUserMessageForMode(
+    options.userMessage,
+    options.mode,
+    options.previousMode,
+  )
 
   const modelConfig: OpenAiConfig = openAiConfigForVscodeAiModelKey(options.modelKey)
   const client = createOpenAiClient(modelConfig, 'text')
@@ -308,12 +316,23 @@ export async function askVscodeAiAgent(options: {
     mode: options.mode,
     context: options.context,
     history: options.history,
-    userMessage: options.userMessage,
+    userMessage: wrappedUserMessage,
+    previousMode: options.previousMode,
+    userMessageAlreadyWrapped: true,
     model,
     providerEntryId: modelRef?.providerEntryId,
     tokenizerFamily,
     tools,
   })
+
+  const behaviorLabel =
+    options.mode === 'ask'
+      ? '问答'
+      : options.mode === 'plan'
+        ? '计划'
+        : options.mode === 'edit'
+          ? '编辑'
+          : '代理'
 
   const agent = createAgent({
     prompt: system,
@@ -326,8 +345,7 @@ export async function askVscodeAiAgent(options: {
       actor: 'vscode',
       behavior: options.mode,
       actorLabel: 'Virtual Studio Code',
-      behaviorLabel:
-        options.mode === 'ask' ? '问答' : options.mode === 'edit' ? '编辑' : '代理',
+      behaviorLabel,
     },
   })
 
@@ -449,7 +467,7 @@ export async function askVscodeAiAgent(options: {
   }
 
   const result = await agent.run({
-    input: options.userMessage,
+    input: wrappedUserMessage,
     messages: options.history,
     signal: options.signal,
     onToolCall,
