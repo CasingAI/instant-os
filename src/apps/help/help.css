@@ -301,7 +301,7 @@
 .help-app__live-timeline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   padding: 2px 0 0;
   min-width: 0;
   max-width: 100%;
@@ -328,8 +328,8 @@
   flex-direction: row;
   align-items: baseline;
   gap: 8px;
-  margin: 2px 0 0;
-  padding: 4px 0 2px;
+  margin: 0;
+  padding: 1px 0;
   min-width: 0;
   max-width: 100%;
 }
@@ -408,8 +408,8 @@
 }
 
 .help-app__reasoning-panel {
-  margin: 2px 0 0;
-  padding: 2px 0 4px;
+  margin: 0;
+  padding: 1px 0;
   min-width: 0;
 }
 
@@ -612,13 +612,13 @@
   padding-left: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .help-app__investigation-steps {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -638,6 +638,13 @@
   margin: 0;
   padding: 0;
   animation: none;
+}
+
+.help-app__live-timeline .help-app__activity-item,
+.help-app__live-timeline .help-app__reasoning-panel,
+.help-app__live-timeline .help-app__reasoning-status {
+  margin: 0;
+  padding: 0;
 }
 
 .help-app__activity-list {
