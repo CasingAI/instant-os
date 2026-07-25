@@ -88,25 +88,15 @@ export function buildProxiedUrl(targetUrl: string, baseOverride?: string): strin
   return `${base}${PROXY_SERVER_PATH_PREFIX}${absolute.href}`
 }
 
-async function measureDownloadBytes(response: Response): Promise<{
-  response: Response
-  downloadBytes: number
-}> {
+function estimateDownloadBytes(response: Response): number {
   const contentLength = response.headers.get('content-length')
-  if (contentLength) {
-    const parsed = Number(contentLength)
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return { response, downloadBytes: parsed }
-    }
+  if (!contentLength) {
+    // 无 Content-Length 时不要读 body：会耗尽流式响应（如 chat SSE），
+    // 且在整段生成完成前拖住 create()，「等待响应」期间 abort 也停不住。
+    return 0
   }
-
-  try {
-    const clone = response.clone()
-    const buffer = await clone.arrayBuffer()
-    return { response, downloadBytes: buffer.byteLength }
-  } catch {
-    return { response, downloadBytes: 0 }
-  }
+  const parsed = Number(contentLength)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
 }
 
 /**
@@ -142,8 +132,8 @@ export async function proxiedFetch(
   const proxyUrl = buildProxiedUrl(targetUrl)
 
   try {
-    const rawResponse = await fetch(proxyUrl, init)
-    const { response, downloadBytes } = await measureDownloadBytes(rawResponse)
+    const response = await fetch(proxyUrl, init)
+    const downloadBytes = estimateDownloadBytes(response)
     const endedAt = Date.now()
     recordProxyServerRequest({
       startedAt,

@@ -230,15 +230,18 @@ async function streamAssistantTurn(options: {
 }> {
   throwIfStreamAborted(options.signal)
 
-  const stream = await options.client.chat.completions.create({
-    model: options.model,
-    messages: options.messages,
-    tools: options.chatTools,
-    stream: true,
-    ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
-    ...buildThinkingRequestExtras(options.providerId, options.thinkingEnabled),
-    ...(options.signal ? { signal: options.signal } : {}),
-  })
+  const stream = await raceWithAbortSignal(
+    options.client.chat.completions.create({
+      model: options.model,
+      messages: options.messages,
+      tools: options.chatTools,
+      stream: true,
+      ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
+      ...buildThinkingRequestExtras(options.providerId, options.thinkingEnabled),
+      ...(options.signal ? { signal: options.signal } : {}),
+    }),
+    options.signal,
+  )
 
   let content = ''
   let reasoning = ''
