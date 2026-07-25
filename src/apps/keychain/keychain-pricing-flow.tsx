@@ -130,7 +130,10 @@ export function KeychainPricingFlow({
 }: KeychainPricingFlowProps) {
   const {
     page: screen,
+    stack,
     transition,
+    queuedTransition,
+    commitQueuedTransition,
     navigate,
     handleMotionEnd,
   } = useKeychainNavStack<FlowScreen>('list')
@@ -554,8 +557,11 @@ export function KeychainPricingFlow({
   return (
     <>
       <KeychainNavStack
+        stack={stack}
         page={screen}
         transition={transition}
+        queuedTransition={queuedTransition}
+        commitQueuedTransition={commitQueuedTransition}
         onMotionEnd={handleMotionEnd}
         renderPage={renderFlowPage}
       />

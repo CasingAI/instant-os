@@ -11,9 +11,16 @@
   overflow: hidden;
 }
 
-.keychain-stack > .settings {
+.keychain-stack > .settings,
+.keychain-stack__layer:not([hidden]) {
   flex: 1;
   min-height: 0;
+}
+
+/* 静止时也走 layer，保证 key 稳定；仅当前层可见 */
+.keychain-stack:not([class*='keychain-stack--']) .keychain-stack__layer:not([hidden]) {
+  position: absolute;
+  inset: 0;
 }
 
 /* 嵌套在 .settings 内的子栈（定价 / 词表等）填满父页 */
@@ -109,12 +116,43 @@
   z-index: 3;
 }
 
-.keychain-stack--push .settings__content,
-.keychain-stack--pop .settings__content {
+/*
+ * 钥匙串 Header 不用 drop shadow。
+ * 原因：交叉淡移时 opacity 作用在同一元素上，阴影必跟着闪；
+ * 转场时再挂/撕一层替代阴影，也会在开头结尾「蹦出来」。
+ * 分隔只靠 border-bottom；并关掉 settings-nav-elevate。
+ */
+.keychain-stack .settings:has(> .settings__nav) > .settings__nav {
+  box-shadow: none !important;
+}
+
+.keychain-stack:not([class*='keychain-stack--'])
+  .settings:has(> .settings__nav)
+  > .settings__nav {
+  animation: none !important;
+  animation-timeline: auto !important;
+}
+
+/*
+ * 必须压过 settings.css：
+ *   .settings:has(> .settings__nav) > .settings__content {
+ *     flex: none; overflow: visible; min-height: auto;
+ *   }
+ * 否则转场时正文不是滚动容器，scrollTop 写了也无效，看起来像跳顶。
+ */
+.keychain-stack--push
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__content,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__content {
   grid-row: 2;
   grid-column: 1;
   position: relative;
   z-index: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -150,7 +188,6 @@
 .keychain-stack--push .keychain-stack__layer--over .settings__content {
   animation: keychain-body-over-push 0.35s ease-in-out both;
   z-index: 2;
-  box-shadow: -3px 0 10px rgba(0, 0, 0, 0.28);
 }
 
 .keychain-stack--pop .keychain-stack__layer--under .settings__content {
@@ -161,7 +198,6 @@
 .keychain-stack--pop .keychain-stack__layer--over .settings__content {
   animation: keychain-body-over-pop 0.35s ease-in-out both;
   z-index: 2;
-  box-shadow: -3px 0 10px rgba(0, 0, 0, 0.28);
 }
 
 @keyframes keychain-nav-leave-push {

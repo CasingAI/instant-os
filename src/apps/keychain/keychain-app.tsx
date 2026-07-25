@@ -401,7 +401,10 @@ export function KeychainApp() {
 
   const {
     page: screen,
+    stack: navStack,
     transition: navTransition,
+    queuedTransition: navQueuedTransition,
+    commitQueuedTransition: commitNavQueuedTransition,
     navigate: navigateTo,
     handleMotionEnd: handleStackMotionEnd,
     setPage: setScreen,
@@ -1178,8 +1181,11 @@ export function KeychainApp() {
 
   return (
     <KeychainNavStack
+      stack={navStack}
       page={screen}
       transition={navTransition}
+      queuedTransition={navQueuedTransition}
+      commitQueuedTransition={commitNavQueuedTransition}
       onMotionEnd={handleStackMotionEnd}
       hostRef={providerSettingsHostRef}
       renderPage={renderScreen}
@@ -1588,7 +1594,10 @@ function AddModelView({
   const [modelIdDialogOpen, setModelIdDialogOpen] = useState(false)
   const {
     page: pickerPage,
+    stack: pickerStack,
     transition: pickerTransition,
+    queuedTransition: pickerQueuedTransition,
+    commitQueuedTransition: commitPickerQueuedTransition,
     navigate: navigatePicker,
     handleMotionEnd: handlePickerMotionEnd,
   } = useKeychainNavStack<'form' | AddModelPicker>('form')
@@ -1805,8 +1814,11 @@ function AddModelView({
 
   return (
     <KeychainNavStack
+      stack={pickerStack}
       page={pickerPage}
       transition={pickerTransition}
+      queuedTransition={pickerQueuedTransition}
+      commitQueuedTransition={commitPickerQueuedTransition}
       onMotionEnd={handlePickerMotionEnd}
       renderPage={renderPickerPage}
     />
@@ -1834,7 +1846,10 @@ function ModelSettingsView({
   const title = editingRow?.name ?? modelId
   const {
     page: pickerPage,
+    stack: pickerStack,
     transition: pickerTransition,
+    queuedTransition: pickerQueuedTransition,
+    commitQueuedTransition: commitPickerQueuedTransition,
     navigate: navigatePicker,
     handleMotionEnd: handlePickerMotionEnd,
   } = useKeychainNavStack<'form' | AddModelPicker>('form')
@@ -2092,8 +2107,11 @@ function ModelSettingsView({
 
   return (
     <KeychainNavStack
+      stack={pickerStack}
       page={pickerPage}
       transition={pickerTransition}
+      queuedTransition={pickerQueuedTransition}
+      commitQueuedTransition={commitPickerQueuedTransition}
       onMotionEnd={handlePickerMotionEnd}
       renderPage={renderPickerPage}
     />
