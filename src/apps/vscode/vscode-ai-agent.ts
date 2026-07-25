@@ -97,8 +97,12 @@ function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: 
   const label = VSCODE_AI_TOOL_LABELS[event.toolName] ?? event.toolName
   const args = event.arguments
   if (event.toolName === 'run_in_terminal') {
-    const command = typeof args.command === 'string' ? args.command.trim() : ''
-    return { label, detail: command ? command.slice(0, 48) : undefined }
+    const description =
+      typeof args.description === 'string' ? args.description.trim() : ''
+    return {
+      label,
+      detail: description || undefined,
+    }
   }
   if (event.toolName === 'npm_run') {
     const script = typeof args.script === 'string' ? args.script.trim() : ''

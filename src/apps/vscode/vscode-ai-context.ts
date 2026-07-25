@@ -131,7 +131,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
       ? '当前模式：Ask（只读）。你只能使用读取类工具，不得修改文件或执行命令。'
       : mode === 'edit'
         ? '当前模式：Edit。你可以读取工作区，并通过 propose_file_edit 提交修改提案；用户确认后才会写入。不得执行终端/npm。'
-        : '当前模式：Agent。没有独立的读/写文件工具。读文件、列目录、改代码、删文件、改目录结构等一律通过受控终端（run_in_terminal / npm_run / npx）用 fs 等完成，自动执行无需用户确认。同对话复用同一终端会话；若结果标明 kind=rebuilt，说明上一会话已关闭，cwd 与内存状态已重置。多文件改动尽量合并进同一次 run_in_terminal 以便整轮回滚。需要撤销用 revert_terminal_changes。'
+        : '当前模式：Agent。没有独立的读/写文件工具。读文件、列目录、改代码、删文件、改目录结构等一律通过受控终端（run_in_terminal / npm_run / npx）用 fs 等完成，自动执行无需用户确认。调用 run_in_terminal 时必须带简短 description，说明本步要做什么（供界面展示）。同对话复用同一终端会话；若结果标明 kind=rebuilt，说明上一会话已关闭，cwd 与内存状态已重置。多文件改动尽量合并进同一次 run_in_terminal 以便整轮回滚。需要撤销用 revert_terminal_changes。'
 
   return `你是 Virtual Studio Code Desktop 内置的 AI 编程助手，帮助用户理解、修改 Instant OS 虚拟文件系统中的项目代码。
 

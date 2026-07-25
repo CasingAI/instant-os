@@ -291,12 +291,18 @@ export function createVscodeAiTools(
           defineTool({
             name: 'run_in_terminal',
             description:
-              '在本对话绑定的受控终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。读/写/删/建文件都用 fs 等完成。多文件改动尽量合并进同一次执行以便整轮回滚。',
+              '在本对话绑定的受控终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。读/写/删/建文件都用 fs 等完成。多文件改动尽量合并进同一次执行以便整轮回滚。必须传 description（短句说明本步意图，供界面展示）。',
             parameters: {
               type: 'object',
               additionalProperties: false,
-              required: ['command'],
-              properties: { command: { type: 'string' } },
+              required: ['command', 'description'],
+              properties: {
+                command: { type: 'string' },
+                description: {
+                  type: 'string',
+                  description: '短句说明本步意图（约 40 字内，中文动宾），供界面展示，不参与执行',
+                },
+              },
             },
             execute: async (args) =>
               runVscodeAiTerminalLine(host.runCommandHost, asString(args.command)),
@@ -399,7 +405,7 @@ export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   grep_workspace: '搜索工作区',
   list_problems: '查看问题',
   propose_file_edit: '提交修改提案',
-  run_in_terminal: '运行 JavaScript',
+  run_in_terminal: '使用终端',
   npm_run: '运行 npm script',
   npx: '运行 npx',
   get_terminal_changes: '查看终端变更',

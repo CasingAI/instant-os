@@ -559,8 +559,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         ...prev.filter((s) => !(s.kind === 'agent' && s.ownerChatId === chatSessionId)),
         session,
       ])
-      setActiveTerminalSessionId(session.id)
-      setPrefs((current) => ({ ...current, terminalVisible: true, panelTab: 'terminal' }))
       const handle = await waitForTerminalHandle(session.id)
       return {
         handle,
