@@ -133,7 +133,7 @@ export function BackgroundRefreshSettingsView({
         <section class="settings__section">
           <h2 class="settings__section-title">背景刷新</h2>
           <p class="settings__section-subtitle">
-            类似 iOS 的「后台 App 刷新」：开启后系统按设定间隔定期更新下列远端数据。
+            开启后按设定间隔定期更新下列远端数据。
           </p>
 
           <div class="settings__list">

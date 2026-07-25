@@ -8,7 +8,7 @@ import { refreshModelPricing } from '../ai/fetch-model-pricing.ts'
 
 /**
  * 系统级背景刷新服务。
- * 类似 iOS「后台 App 刷新」：用户开启后按设定间隔定期执行已注册的刷新任务。
+ * 用户开启后按设定间隔定期执行已注册的刷新任务。
  *
  * 实现说明：
  * - 任务清单与到期算法集中在 background-refresh-settings-storage 的

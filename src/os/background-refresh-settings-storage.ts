@@ -1,7 +1,7 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 
 /**
- * 背景刷新：系统级「后台 App 刷新」机制。
+ * 背景刷新：系统级背景刷新机制。
  * 同一开关与刷新间隔驱动一组已注册的刷新任务；新增数据源只需在
  * BACKGROUND_REFRESH_TASKS 中登记一项（状态字段 / 执行函数 / 展示行），
  * 设置页与调度服务会自动纳入，无需改动。
