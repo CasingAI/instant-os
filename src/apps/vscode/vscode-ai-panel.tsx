@@ -44,12 +44,21 @@ import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts
 import {
   formatVscodeAiModelRefKey,
   labelForVscodeAiModel,
+  openAiConfigForVscodeAiModelKey,
   resolveVscodeAiModelRefKey,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
+import {
+  measureVscodeAiContextUsage,
+  prepareVscodeAiContextUsage,
+  type VscodeAiContextUsage,
+} from './vscode-ai-context-usage.ts'
+import { VscodeAiContextUsageView } from './vscode-ai-context-usage-view.tsx'
 import { osNowMs } from '../../os/os-clock.ts'
 import '../help/help.css'
 import './vscode-ai.css'
+
+const CONTEXT_USAGE_DEBOUNCE_MS = 280
 
 const VSCODE_AI_MODAL_THEME = '#2f87e2'
 
@@ -562,6 +571,7 @@ export function VscodeAiPanel({
   const [busy, setBusy] = useState(false)
   const [liveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
   const [liveAnswer, setLiveAnswer] = useState('')
+  const [contextUsage, setContextUsage] = useState<VscodeAiContextUsage | undefined>(undefined)
   const abortRef = useRef<AbortController | undefined>(undefined)
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -576,9 +586,16 @@ export function VscodeAiPanel({
   const messagesRef = useRef(messages)
   messagesRef.current = messages
   const turnChangeSessionsRef = useRef<TerminalChangeSet[]>([])
+  const busyRef = useRef(false)
+  busyRef.current = busy
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
+
+  const resolvedModelId = useMemo(
+    () => openAiConfigForVscodeAiModelKey(resolvedModelKey).defaultModel,
+    [resolvedModelKey],
+  )
 
   useLayoutEffect(() => {
     const el = composerInputRef.current
@@ -616,6 +633,7 @@ export function VscodeAiPanel({
     setBusy(false)
     setLiveTimeline([])
     setLiveAnswer('')
+    setContextUsage(undefined)
     // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
     historyRef.current = []
     pendingEditsRef.current = []
@@ -708,6 +726,10 @@ export function VscodeAiPanel({
     [contextWithTerminal, getOpenFilesForSearch, problems, runCommandHost],
   )
 
+  useEffect(() => {
+    void prepareVscodeAiContextUsage(resolvedModelId)
+  }, [resolvedModelId])
+
   const scrollToBottom = useCallback(() => {
     const node = scrollRef.current
     if (!node) return
@@ -737,6 +759,46 @@ export function VscodeAiPanel({
     }
     return next
   }, [])
+
+  useEffect(() => {
+    if (busy) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        await prepareVscodeAiContextUsage(resolvedModelId)
+        if (cancelled || busyRef.current) return
+        const history =
+          historyRef.current.length > 0
+            ? historyRef.current
+            : rebuildHistoryFromMessages(messages)
+        const usage = measureVscodeAiContextUsage({
+          mode,
+          context: contextWithTerminal(),
+          history,
+          userMessage: draft,
+          model: resolvedModelId,
+          toolsHost,
+        })
+        if (cancelled || busyRef.current) return
+        setContextUsage(usage)
+      })()
+    }, CONTEXT_USAGE_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    busy,
+    contextWithTerminal,
+    draft,
+    messages,
+    mode,
+    problems,
+    rebuildHistoryFromMessages,
+    resolvedModelId,
+    toolsHost,
+    workspaceFolder,
+  ])
 
   const collectSessionIdsAfter = useCallback(
     (source: readonly VscodeAiChatMessage[], fromIndex: number): string[] => {
@@ -831,6 +893,9 @@ export function VscodeAiPanel({
             setLiveTimeline(progress.timeline)
             setLiveAnswer(progress.answerText)
             pendingEditsRef.current = progress.pendingEdits
+            if (progress.contextUsage) {
+              setContextUsage(progress.contextUsage)
+            }
           },
         })
 
@@ -1284,28 +1349,31 @@ export function VscodeAiPanel({
                 )}
               </SettingsChoiceField>
             </label>
-            {busy ? (
-              <button
-                type="button"
-                class="help-app__stop"
-                aria-label="停止"
-                title="停止"
-                onClick={stop}
-              >
-                ■
-              </button>
-            ) : (
-              <button
-                type="button"
-                class="help-app__send"
-                aria-label="发送"
-                title="发送"
-                disabled={!draft.trim() || textModels.length === 0}
-                onClick={() => void send()}
-              >
-                ↑
-              </button>
-            )}
+            <div class="vscode-ai__composer-footer-trailing">
+              <VscodeAiContextUsageView usage={contextUsage} />
+              {busy ? (
+                <button
+                  type="button"
+                  class="help-app__stop"
+                  aria-label="停止"
+                  title="停止"
+                  onClick={stop}
+                >
+                  ■
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  class="help-app__send"
+                  aria-label="发送"
+                  title="发送"
+                  disabled={!draft.trim() || textModels.length === 0}
+                  onClick={() => void send()}
+                >
+                  ↑
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

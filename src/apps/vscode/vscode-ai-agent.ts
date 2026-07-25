@@ -5,6 +5,7 @@ import type {
   AgentTextDeltaEvent,
   AgentToolCallEvent,
   AgentToolResultEvent,
+  AgentUsageEvent,
 } from '../../ai/run-agent.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
@@ -22,6 +23,12 @@ import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
 import { openAiConfigForVscodeAiModelKey } from './vscode-ai-models.ts'
+import {
+  applyVscodeAiPromptTokenUpdate,
+  measureVscodeAiContextUsage,
+  prepareVscodeAiContextUsage,
+  type VscodeAiContextUsage,
+} from './vscode-ai-context-usage.ts'
 
 const VSCODE_AI_MAX_STEPS = 30
 const TOOL_RESULT_LINE_LIMIT = 120
@@ -85,6 +92,7 @@ export type VscodeAiAgentProgress = {
   reasoningText: string
   toolCallCount: number
   pendingEdits: VscodeAiPendingEdit[]
+  contextUsage?: VscodeAiContextUsage
 }
 
 export type VscodeAiAgentResult = {
@@ -287,6 +295,17 @@ export async function askVscodeAiAgent(options: {
 
   const modelConfig: OpenAiConfig = openAiConfigForVscodeAiModelKey(options.modelKey)
   const client = createOpenAiClient(modelConfig, 'text')
+  const model = modelConfig.defaultModel
+
+  await prepareVscodeAiContextUsage(model)
+  let contextUsage = measureVscodeAiContextUsage({
+    mode: options.mode,
+    context: options.context,
+    history: options.history,
+    userMessage: options.userMessage,
+    model,
+    tools,
+  })
 
   const agent = createAgent({
     prompt: system,
@@ -294,7 +313,7 @@ export async function askVscodeAiAgent(options: {
     maxSteps: VSCODE_AI_MAX_STEPS,
     config: modelConfig,
     client,
-    model: modelConfig.defaultModel,
+    model,
     usageContext: {
       actor: 'vscode',
       behavior: options.mode,
@@ -321,7 +340,23 @@ export async function askVscodeAiAgent(options: {
       reasoningText,
       toolCallCount,
       pendingEdits: [...pendingEdits],
+      contextUsage,
     })
+  }
+
+  emit()
+
+  let contextUsageCalibrated = false
+  const onUsage = (event: AgentUsageEvent) => {
+    if (event.promptTokens <= 0) return
+    const next = applyVscodeAiPromptTokenUpdate(
+      contextUsage,
+      event.promptTokens,
+      contextUsageCalibrated,
+    )
+    contextUsage = next.usage
+    contextUsageCalibrated = next.calibrated
+    emit()
   }
 
   const onToolCall = (event: AgentToolCallEvent) => {
@@ -413,6 +448,7 @@ export async function askVscodeAiAgent(options: {
     onToolResult,
     onTextDelta,
     onReasoningDelta,
+    onUsage,
   })
 
   timeline = markTimelineDone(timeline)

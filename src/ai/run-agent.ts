@@ -52,6 +52,14 @@ export type AgentReasoningDeltaEvent = {
   accumulated: string
 }
 
+/** 单轮 model 调用的 usage（非跨步累加；适合上下文占用展示） */
+export type AgentUsageEvent = {
+  step: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 export type RunAgentOptions = {
   prompt: string
   input?: string
@@ -68,6 +76,7 @@ export type RunAgentOptions = {
   onToolResult?: (event: AgentToolResultEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
+  onUsage?: (event: AgentUsageEvent) => void
 }
 
 export type RunAgentResult = {
@@ -330,7 +339,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         chatTools,
         providerId: config.providerId,
         thinkingEnabled: config.thinkingEnabled,
-        includeUsage: Boolean(options.usageContext),
+        includeUsage: Boolean(options.usageContext || options.onUsage),
         step,
         signal: options.signal,
         onTextDelta: options.onTextDelta,
@@ -343,6 +352,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         accumulatedPromptTokens += turn.usage.promptTokens
         accumulatedCompletionTokens += turn.usage.completionTokens
         accumulatedTotalTokens += turn.usage.totalTokens
+        options.onUsage?.({
+          step,
+          promptTokens: turn.usage.promptTokens,
+          completionTokens: turn.usage.completionTokens,
+          totalTokens: turn.usage.totalTokens,
+        })
       }
 
       const assistantMessage: OpenAI.Chat.ChatCompletionAssistantMessageParam = {

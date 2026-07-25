@@ -9,6 +9,7 @@ import {
   type AgentTextDeltaEvent,
   type AgentToolCallEvent,
   type AgentToolResultEvent,
+  type AgentUsageEvent,
   type RunAgentResult,
 } from './run-agent.ts'
 
@@ -26,6 +27,7 @@ export type AgentDefaults = {
   onToolResult?: (event: AgentToolResultEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
+  onUsage?: (event: AgentUsageEvent) => void
 }
 
 export type AgentCallOptions = {
@@ -42,6 +44,7 @@ export type AgentCallOptions = {
   onToolResult?: (event: AgentToolResultEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
+  onUsage?: (event: AgentUsageEvent) => void
 }
 
 export type AgentRunner = {
@@ -67,6 +70,7 @@ export function createAgent(defaults: AgentDefaults): AgentRunner {
       onToolResult: options.onToolResult ?? defaults.onToolResult,
       onTextDelta: options.onTextDelta ?? defaults.onTextDelta,
       onReasoningDelta: options.onReasoningDelta ?? defaults.onReasoningDelta,
+      onUsage: options.onUsage ?? defaults.onUsage,
     })
 
   const ask = (input: string, overrides?: Omit<AgentCallOptions, 'input'>) =>
