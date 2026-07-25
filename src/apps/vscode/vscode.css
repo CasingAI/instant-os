@@ -1061,8 +1061,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.vscode__setting input[type='number'],
-.vscode__setting-select {
+.vscode__setting input[type='number'] {
   padding: 7px 10px;
   border: 1px solid var(--vscode-border);
   border-radius: 5px;
@@ -1073,14 +1072,13 @@
   outline: none;
 }
 
-.vscode__setting input[type='number']:focus,
-.vscode__setting-select:focus {
+.vscode__setting input[type='number']:focus {
   border-color: var(--vscode-accent);
 }
 
-.vscode__setting-select {
-  width: 100%;
-  box-sizing: border-box;
+.vscode__setting .settings-choice-field__trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* AI 代码补全：光标处脉冲点 */
@@ -2703,7 +2701,6 @@
 
 .vscode--chrome-dark .vscode__search-input,
 .vscode--chrome-dark .vscode__setting input[type='number'],
-.vscode--chrome-dark .vscode__setting-select,
 .vscode--chrome-dark .vscode-quick-pick__input,
 .vscode--chrome-dark .vscode__quick-search-input,
 .vscode--chrome-dark .vscode__search-editor-context input {

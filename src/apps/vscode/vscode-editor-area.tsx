@@ -189,6 +189,7 @@ type VscodeEditorAreaProps = {
   onAiModeChange?: (mode: VscodeAiMode) => void
   aiModelKey?: string | undefined
   onAiModelKeyChange?: (key: string) => void
+  aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
   getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
   problems?: readonly MonacoProblem[]
@@ -306,6 +307,7 @@ function VscodeEditorGroupView({
   onAiModeChange,
   aiModelKey,
   onAiModelKeyChange,
+  aiDark,
   getAiContext,
   getOpenFilesForSearch,
   problems,
@@ -788,6 +790,7 @@ function VscodeEditorGroupView({
                   onModeChange={onAiModeChange}
                   aiModelKey={aiModelKey}
                   onAiModelKeyChange={(key) => onAiModelKeyChange?.(key)}
+                  dark={aiDark}
                   workspaceFolder={workspaceFolder}
                   getContext={getAiContext}
                   getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}

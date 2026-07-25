@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type OpenAI from 'openai'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpMarkdown } from '../help/help-markdown.tsx'
+import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { HelpIcon } from '../../icons/app-icons.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
@@ -49,6 +50,7 @@ export type VscodeAiPanelProps = {
   onModeChange: (mode: VscodeAiMode) => void
   aiModelKey: string | undefined
   onAiModelKeyChange: (key: string) => void
+  dark?: boolean
   workspaceFolder: string | undefined
   getContext: () => VscodeAiContextInput
   getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
@@ -165,6 +167,7 @@ export function VscodeAiPanel({
   onModeChange,
   aiModelKey,
   onAiModelKeyChange,
+  dark,
   workspaceFolder,
   getContext,
   getOpenFilesForSearch,
@@ -178,6 +181,17 @@ export function VscodeAiPanel({
   const resolvedModelKey = useMemo(
     () => resolveVscodeAiModelRefKey(aiModelKey),
     [aiModelKey, textModels],
+  )
+  const modelOptions = useMemo(
+    () =>
+      textModels.map((model) => ({
+        id: formatVscodeAiModelRefKey({
+          providerEntryId: model.providerEntryId,
+          modelId: model.modelId,
+        }),
+        label: labelForVscodeAiModel(model),
+      })),
+    [textModels],
   )
 
   useEffect(() => {
@@ -455,33 +469,22 @@ export function VscodeAiPanel({
                 ))}
               </select>
             </label>
-            <label class="vscode-ai__footer-field vscode-ai__footer-field--model">
-              <span class="vscode-ai__footer-label">模型</span>
-              <select
-                class="vscode-ai__footer-select"
-                value={resolvedModelKey ?? ''}
-                disabled={busy || textModels.length === 0}
-                onChange={(event) =>
-                  onAiModelKeyChange((event.target as HTMLSelectElement).value)
-                }
-              >
-                {textModels.length === 0 ? (
-                  <option value="">未配置文本模型</option>
-                ) : (
-                  textModels.map((model) => {
-                    const key = formatVscodeAiModelRefKey({
-                      providerEntryId: model.providerEntryId,
-                      modelId: model.modelId,
-                    })
-                    return (
-                      <option key={key} value={key}>
-                        {labelForVscodeAiModel(model)}
-                      </option>
-                    )
-                  })
-                )}
-              </select>
-            </label>
+            <SettingsChoiceField
+              label="模型"
+              value={resolvedModelKey ?? ''}
+              options={
+                modelOptions.length === 0
+                  ? [{ id: '', label: '未配置文本模型' }]
+                  : modelOptions
+              }
+              onChange={onAiModelKeyChange}
+              disabled={busy || textModels.length === 0}
+              wideLayout
+              presentation="form"
+              fieldClass="vscode-ai__footer-field vscode-ai__footer-field--model"
+              labelClass="vscode-ai__footer-label"
+              dark={dark}
+            />
             {busy ? (
               <button
                 type="button"

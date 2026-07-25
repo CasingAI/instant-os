@@ -253,7 +253,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const completionModelOptions = useMemo(
     () =>
       textModels.map((model) => ({
-        key: formatVscodeAiModelRefKey({
+        id: formatVscodeAiModelRefKey({
           providerEntryId: model.providerEntryId,
           modelId: model.modelId,
         }),
@@ -2365,35 +2365,31 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   />
                 </div>
                 {prefs.completionEnabled ? (
-                  <label class="vscode__setting">
-                    <span>补全模型</span>
-                    <select
-                      class="vscode__setting-select"
-                      value={
-                        prefs.completionModelKey ??
-                        prefs.aiModelKey ??
-                        completionModelOptions[0]?.key ??
-                        ''
-                      }
-                      disabled={completionModelOptions.length === 0}
-                      onChange={(event) => {
-                        const value = (event.target as HTMLSelectElement).value
-                        updatePrefs({
-                          completionModelKey: value.trim() ? value : undefined,
-                        })
-                      }}
-                    >
-                      {completionModelOptions.length === 0 ? (
-                        <option value="">未配置文本模型</option>
-                      ) : (
-                        completionModelOptions.map((option) => (
-                          <option key={option.key} value={option.key}>
-                            {option.label}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </label>
+                  <SettingsChoiceField
+                    label="补全模型"
+                    value={
+                      prefs.completionModelKey ??
+                      prefs.aiModelKey ??
+                      completionModelOptions[0]?.id ??
+                      ''
+                    }
+                    options={
+                      completionModelOptions.length === 0
+                        ? [{ id: '', label: '未配置文本模型' }]
+                        : completionModelOptions
+                    }
+                    onChange={(value) =>
+                      updatePrefs({
+                        completionModelKey: value.trim() ? value : undefined,
+                      })
+                    }
+                    disabled={completionModelOptions.length === 0}
+                    wideLayout
+                    presentation="form"
+                    fieldClass="vscode__setting"
+                    labelClass=""
+                    dark={isVscodeChromeDark(prefs.theme)}
+                  />
                 ) : undefined}
               </div>
             ) : undefined}
@@ -2478,6 +2474,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
               aiModelKey={prefs.aiModelKey}
               onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
+              aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}
               getOpenFilesForSearch={() => openSearchFiles}
               problems={problems}

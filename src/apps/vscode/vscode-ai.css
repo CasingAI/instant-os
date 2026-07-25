@@ -143,6 +143,23 @@
   cursor: default;
 }
 
+/* 系统下拉控件（SettingsChoiceField）在 footer 中的布局适配 */
+.vscode-ai__footer-field .settings-choice-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.vscode-ai__footer-field .settings-choice-field__trigger {
+  height: 30px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.vscode-ai__footer-field .settings-choice-field__trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .vscode-ai__composer-footer .help-app__send,
 .vscode-ai__composer-footer .help-app__stop {
   flex-shrink: 0;
