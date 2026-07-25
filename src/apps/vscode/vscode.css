@@ -28,6 +28,7 @@
   --vscode-shadow-in: inset 0 1px 3px rgba(0, 0, 0, 0.14);
   --vscode-plain-btn: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
   --vscode-plain-btn-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --vscode-plain-btn-hover: #f2f2f2;
   --vscode-blue-btn: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   --vscode-blue-btn-active: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
 
@@ -1278,7 +1279,7 @@
 
 .vscode__tab-action:hover:not(:disabled) {
   color: var(--vscode-ink);
-  background: #f2f2f2;
+  background: var(--vscode-plain-btn-hover);
 }
 
 .vscode__tab-action:active:not(:disabled) {
@@ -2748,6 +2749,7 @@
   --vscode-shadow-in: inset 0 1px 3px rgba(0, 0, 0, 0.45);
   --vscode-plain-btn: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
   --vscode-plain-btn-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
+  --vscode-plain-btn-hover: rgba(255, 255, 255, 0.1);
   --vscode-blue-btn: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   --vscode-blue-btn-active: linear-gradient(180deg, #1f6ec7 0%, #2f87e2 100%);
 }

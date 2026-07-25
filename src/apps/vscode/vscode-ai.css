@@ -519,6 +519,13 @@
   border: 1px solid var(--help-border);
 }
 
+/* 思考原文块：避免浅色半透明底 + muted 字看不清 */
+.vscode--chrome-dark .vscode-ai .help-app__reasoning-body {
+  background: rgba(0, 0, 0, 0.25);
+  border-color: var(--help-border);
+  color: var(--help-ink-muted);
+}
+
 /* Markdown 引用 */
 .vscode--chrome-dark .vscode-ai .help-app__markdown blockquote {
   background: rgba(255, 255, 255, 0.03);
