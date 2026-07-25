@@ -918,6 +918,15 @@ function VscodeEditorGroupView({
               >
                 打开文件
               </button>
+              {onNewAiChat ? (
+                <button
+                  type="button"
+                  class="vscode__welcome-btn vscode__welcome-btn--secondary"
+                  onClick={() => onNewAiChat()}
+                >
+                  打开 AI 对话
+                </button>
+              ) : undefined}
             </div>
           </div>
         ) : activeFileTab ? (

@@ -55,6 +55,8 @@
 
 .floating-overlay-root > * {
   pointer-events: auto;
+  /* 给 pe:auto 宿主一个明确 cursor，避免穿透时一直显示下层箭头 */
+  cursor: default;
 }
 
 .emoji-picker-panel {
