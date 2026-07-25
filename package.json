@@ -19,6 +19,7 @@
     "test:quickjs-cowsay": "node --experimental-strip-types src/quickjs/quickjs-cowsay.smoke-test.ts",
     "test:files-cow": "node --experimental-strip-types src/apps/files/files-storage-cow.test.ts",
     "test:terminal-controlled": "node --experimental-strip-types src/terminal/terminal-controlled.smoke-test.ts",
+    "test:terminal-program-eval": "node --experimental-strip-types src/apps/terminal/terminal-repl-program-eval.smoke-test.ts",
     "vendor:quickjs-guest": "node scripts/vendor-quickjs-guest-builtins.mjs"
   },
   "dependencies": {

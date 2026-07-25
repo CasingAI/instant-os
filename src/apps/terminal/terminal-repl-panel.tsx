@@ -12,6 +12,7 @@ import {
 import '../../terminal/terminal-panel.css'
 import './terminal-repl-shell.css'
 import { formatTerminalReplValue } from './terminal-repl-format.ts'
+import { wrapTerminalProgramEval } from './terminal-repl-program-eval.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
@@ -302,7 +303,8 @@ export function TerminalReplPanel({
 
       setBusy(true)
       try {
-        const result = await instance.eval(code)
+        const evalCode = source === 'program' ? wrapTerminalProgramEval(code) : code
+        const result = await instance.eval(evalCode)
         syncConsoleFromInstance(instance)
         setCwd(instance.getSnapshot().cwd)
 
