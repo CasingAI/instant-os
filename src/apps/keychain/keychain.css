@@ -191,6 +191,18 @@
   background: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
 }
 
+/* 转场时正文才是滚动容器，搜索条贴内容顶即可 */
+.keychain-stack--push
+  .keychain-stack__layer
+  .settings__content
+  > .settings__search-bar,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .settings__content
+  > .settings__search-bar {
+  top: 0;
+}
+
 .keychain-stack--push .keychain-stack__layer--under .settings__nav {
   animation: keychain-nav-leave-push 0.35s ease-in-out both !important;
   animation-timeline: auto !important;

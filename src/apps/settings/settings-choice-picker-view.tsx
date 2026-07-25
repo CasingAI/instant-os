@@ -69,9 +69,7 @@ export function SettingsChoicePickerView({
   return (
     <>
       <div
-        class={`settings__nav${searchable ? ' settings__nav--search' : ''}${
-          titleInNav ? ' settings__nav--titled' : ''
-        }`}
+        class={`settings__nav${titleInNav ? ' settings__nav--titled' : ''}`}
       >
         <div class="settings__nav-bar">
           <IosNavBackButton
@@ -86,28 +84,30 @@ export function SettingsChoicePickerView({
           )}
           <span class="settings__nav-trailing" aria-hidden="true" />
         </div>
-        {searchable && (
-          <div class="settings__search">
-            <span class="settings__search-icon" aria-hidden="true">
-              <SearchIcon />
-            </span>
-            <input
-              type="search"
-              class="settings__search-input"
-              value={query}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-              spellcheck={false}
-              enterkeyhint="search"
-              disabled={loading}
-              onInput={(event) =>
-                setQuery((event.currentTarget as HTMLInputElement).value)
-              }
-            />
-          </div>
-        )}
       </div>
       <div class="settings__content settings__content--compact">
+        {searchable && (
+          <div class="settings__search-bar">
+            <div class="settings__search">
+              <span class="settings__search-icon" aria-hidden="true">
+                <SearchIcon />
+              </span>
+              <input
+                type="search"
+                class="settings__search-input"
+                value={query}
+                placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
+                spellcheck={false}
+                enterkeyhint="search"
+                disabled={loading}
+                onInput={(event) =>
+                  setQuery((event.currentTarget as HTMLInputElement).value)
+                }
+              />
+            </div>
+          </div>
+        )}
         <section class="settings__section">
           {!titleInNav && <h2 class="settings__section-title">{title}</h2>}
           {showEmptyLoading ? (

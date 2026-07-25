@@ -72,7 +72,6 @@
 .settings:has(> .settings__nav) {
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 
 .settings:has(> .settings__nav) > .settings__nav {
@@ -97,6 +96,11 @@
 
 .settings:has(> .settings__nav) > .settings__content--compact {
   padding-top: 14px;
+}
+
+.settings:has(> .settings__nav)
+  > .settings__content:has(> .settings__search-bar) {
+  padding-top: 0;
 }
 
 .settings:has(> .settings__nav) .settings__list-body {
@@ -135,8 +139,7 @@
   padding: 6px 12px;
 }
 
-.settings__nav--titled,
-.settings__nav--search {
+.settings__nav--titled {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -206,6 +209,22 @@
   height: 1px;
   overflow: hidden;
   pointer-events: none;
+}
+
+/* 结构在 content；叠在 nav 自带分割线下方，再加一层底部分割线 */
+.settings__content > .settings__search-bar {
+  position: sticky;
+  top: 41px;
+  z-index: 2;
+  margin: 0 -18px 12px;
+  padding: 6px 12px;
+  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.settings__content:not(.settings__content--compact) > .settings__search-bar {
+  margin-left: -24px;
+  margin-right: -24px;
 }
 
 .settings__search {
