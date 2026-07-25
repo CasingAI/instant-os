@@ -545,7 +545,7 @@ function renderDragGhost(entry: DesktopEntry) {
 }
 
 export function Desktop() {
-  const { desktopRevealed, hideDesktopReveal } = useOs()
+  const { windows, activeWindowId, desktopRevealed, hideDesktopReveal } = useOs()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const {
@@ -840,6 +840,12 @@ export function Desktop() {
     [hideDesktopReveal],
   )
 
+  const hasFrontmostWindow = windows.some(
+    (window) => window.id === activeWindowId && !window.minimized,
+  )
+  const pageSwitchNavEnabled =
+    openFolderId === undefined && (desktopRevealed || !hasFrontmostWindow)
+
   const {
     currentPage,
     goToPage,
@@ -853,6 +859,8 @@ export function Desktop() {
     pagerSize.width,
     reorderSession === undefined,
     desktopRevealed ? onDesktopEmptyTap : undefined,
+    pageSwitchNavEnabled,
+    pagerRef,
   )
 
   const onReorderStart = useCallback(
