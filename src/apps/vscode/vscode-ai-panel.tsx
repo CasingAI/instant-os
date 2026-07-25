@@ -718,7 +718,8 @@ export function VscodeAiPanel({
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = undefined
-  }, [])
+    getAgentTerminalHandle(sessionIdRef.current)?.abort()
+  }, [getAgentTerminalHandle])
 
   const rebuildHistoryFromMessages = useCallback((source: readonly VscodeAiChatMessage[]) => {
     const next: OpenAI.Chat.ChatCompletionMessageParam[] = []
@@ -820,6 +821,7 @@ export function VscodeAiPanel({
           signal: controller.signal,
           modelKey: aiModelKey,
           onProgress: (progress) => {
+            if (controller.signal.aborted) return
             liveTimelineRef.current = progress.timeline
             liveAnswerRef.current = progress.answerText
             liveToolCallCountRef.current = progress.toolCallCount
@@ -829,32 +831,53 @@ export function VscodeAiPanel({
           },
         })
 
-        if (result.messages) {
-          historyRef.current = result.messages
-        }
-
-        const investigation =
-          result.investigation.timeline.length > 0
-            ? result.investigation
-            : liveTimelineRef.current.length > 0
-              ? buildVscodeAiInvestigationFromTimeline(liveTimelineRef.current, {
+        if (controller.signal.aborted) {
+          const snapshotTimeline = liveTimelineRef.current
+          const investigation =
+            snapshotTimeline.length > 0
+              ? buildVscodeAiInvestigationFromTimeline(snapshotTimeline, {
                   toolCallCount: liveToolCallCountRef.current,
                   startedAt: liveStartedAtRef.current,
                 })
               : undefined
+          const changeExtras = turnChangeExtras()
+          const assistantMessage = createVscodeAiChatMessage(
+            'assistant',
+            liveAnswerRef.current.trim() || '已停止生成',
+            {
+              investigation,
+              ...changeExtras,
+            },
+          )
+          onMessagesChange([...withUser, assistantMessage])
+        } else {
+          if (result.messages) {
+            historyRef.current = result.messages
+          }
 
-        const changeExtras = turnChangeExtras()
-        const assistantMessage = createVscodeAiChatMessage(
-          'assistant',
-          result.text || liveAnswerRef.current,
-          {
-            pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
-            incomplete: result.incomplete,
-            investigation,
-            ...changeExtras,
-          },
-        )
-        onMessagesChange([...withUser, assistantMessage])
+          const investigation =
+            result.investigation.timeline.length > 0
+              ? result.investigation
+              : liveTimelineRef.current.length > 0
+                ? buildVscodeAiInvestigationFromTimeline(liveTimelineRef.current, {
+                    toolCallCount: liveToolCallCountRef.current,
+                    startedAt: liveStartedAtRef.current,
+                  })
+                : undefined
+
+          const changeExtras = turnChangeExtras()
+          const assistantMessage = createVscodeAiChatMessage(
+            'assistant',
+            result.text || liveAnswerRef.current,
+            {
+              pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
+              incomplete: result.incomplete,
+              investigation,
+              ...changeExtras,
+            },
+          )
+          onMessagesChange([...withUser, assistantMessage])
+        }
       } catch (error) {
         const snapshotTimeline = liveTimelineRef.current
         const investigation =

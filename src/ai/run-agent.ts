@@ -16,6 +16,7 @@ import { getOpenAiClient } from './openai-client.ts'
 import {
   forEachStreamChunk,
   isStreamAbortError,
+  raceWithAbortSignal,
   throwIfStreamAborted,
 } from './stream-abort.ts'
 
@@ -447,20 +448,28 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
             tool_call_id: toolCall.id,
             content,
           })
+          throwIfStreamAborted(options.signal)
           emitToolResult(content)
           continue
         }
 
         try {
-          const result = await tool.execute(args)
+          const result = await raceWithAbortSignal(
+            Promise.resolve(tool.execute(args)),
+            options.signal,
+          )
           const content = serializeToolResult(result)
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
             content,
           })
+          throwIfStreamAborted(options.signal)
           emitToolResult(content)
         } catch (error) {
+          if (isStreamAbortError(error, options.signal)) {
+            throw error
+          }
           const content = serializeToolResult({
             error:
               error instanceof Error ? error.message : `工具执行失败: ${String(error)}`,
@@ -470,6 +479,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
             tool_call_id: toolCall.id,
             content,
           })
+          throwIfStreamAborted(options.signal)
           emitToolResult(content)
         }
       }
