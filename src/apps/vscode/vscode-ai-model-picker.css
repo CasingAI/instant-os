@@ -534,13 +534,22 @@
 }
 
 .vscode-ai-model-picker__edit-panel {
-  --picker-face-pad-x: 8px;
+  --picker-face-pad-x: 6px;
   --picker-face-pad-y: 8px;
   width: min(210px, calc(100vw - 16px));
 }
 
+/* chrome 已预留箭头位，编辑面板 face 不再叠一遍 arrow-size */
+.vscode-ai-model-picker__edit-panel.vscode-ai-model-picker__shell--arrow-left .vscode-ai-model-picker__face {
+  padding-left: var(--picker-face-pad-x);
+}
+
+.vscode-ai-model-picker__edit-panel.vscode-ai-model-picker__shell--arrow-right .vscode-ai-model-picker__face {
+  padding-right: var(--picker-face-pad-x);
+}
+
 .vscode-ai-model-picker__edit-section-label {
-  padding: 2px 6px 6px;
+  padding: 2px 0 6px;
   font-size: 11px;
   font-weight: 700;
   color: #6a5f54;
@@ -559,7 +568,7 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 34px;
-  padding: 4px 10px;
+  padding: 4px 6px;
   border: 1px solid #c4b5a0;
   border-radius: 7px;
   background: linear-gradient(180deg, #fffdf8 0%, #f3ebe0 100%);
