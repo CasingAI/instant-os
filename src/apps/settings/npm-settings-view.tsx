@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import {
   NPM_REGISTRY_PRESETS,
   applyNpmRegistrySettingsToPackageService,
@@ -16,6 +16,7 @@ import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
 import { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
+import { SettingsChoicePickerView } from './settings-choice-picker-view.tsx'
 
 type NpmSettingsViewProps = {
   onBack: () => void
@@ -30,6 +31,7 @@ const PRESET_OPTIONS = [
 ] as const
 
 export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
+  const hostRef = useRef<HTMLDivElement>(null)
   const [preset, setPreset] = useState<NpmRegistryPresetId>(
     () => loadNpmRegistrySettings().preset,
   )
@@ -42,21 +44,22 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
   const [activeRegistryUrl, setActiveRegistryUrl] = useState(
     () => getPackageServiceConfig().registryUrl,
   )
-  const [wideLayout, setWideLayout] = useState(
-    () =>
-      typeof window !== 'undefined' &&
-      window.matchMedia(`(min-width: ${SETTINGS_WIDE_LAYOUT_MIN_WIDTH}px)`).matches,
-  )
+  const [wideLayout, setWideLayout] = useState(true)
+  const [picker, setPicker] = useState<'registry' | undefined>(undefined)
   const [statusKind, setStatusKind] = useState<StatusKind>('idle')
   const [statusMessage, setStatusMessage] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    const mq = window.matchMedia(`(min-width: ${SETTINGS_WIDE_LAYOUT_MIN_WIDTH}px)`)
-    const sync = () => setWideLayout(mq.matches)
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    const sync = () => {
+      setWideLayout(host.clientWidth >= SETTINGS_WIDE_LAYOUT_MIN_WIDTH)
+    }
     sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
+    const observer = new ResizeObserver(sync)
+    observer.observe(host)
+    return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
@@ -160,8 +163,27 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
     setStatusMessage('已恢复官方 npm，并忽略 install 脚本')
   }
 
+  if (picker === 'registry') {
+    return (
+      <div class="settings" ref={hostRef} data-settings-subpage>
+        <SettingsChoicePickerView
+          title="NPM 源"
+          backLabel="NPM"
+          options={PRESET_OPTIONS}
+          value={preset}
+          onChange={(value) => {
+            setPreset(value as NpmRegistryPresetId)
+            setStatusMessage(undefined)
+            setPicker(undefined)
+          }}
+          onBack={() => setPicker(undefined)}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div class="settings">
+    <div class="settings" ref={hostRef}>
       <div class="settings__nav">
         <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
@@ -188,6 +210,7 @@ export function NpmSettingsView({ onBack }: NpmSettingsViewProps) {
                 setStatusMessage(undefined)
               }}
               wideLayout={wideLayout}
+              onNavigate={() => setPicker('registry')}
             />
             {preset === 'custom' && (
               <SettingsInlineInputRow
