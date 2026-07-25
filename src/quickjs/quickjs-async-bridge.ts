@@ -68,6 +68,15 @@ export type QuickJsAsyncBridge = {
     outcome: { ok: true; value?: QuickJSHandle } | { ok: false; error?: QuickJSHandle },
   ) => void
   createDeferredPromise: () => QuickJSDeferredPromise
+  /** 未走 settle 就丢弃 deferred（实例销毁等）；保持未结算计数一致。 */
+  abandonDeferred: (deferred: QuickJSDeferredPromise) => void
+  /**
+   * 是否仍有未完成的异步：定时器、微任务、nextTick、宿主任务、
+   * 未结算的 guest deferred、或 runtime pending jobs。
+   */
+  hasPendingAsyncWork: () => boolean
+  /** 当前挂起的 setTimeout/setInterval 数量。 */
+  getPendingTimerCount: () => number
 }
 
 function formatCallError(context: QuickJSContext, errorHandle: QuickJSHandle): string {
@@ -129,6 +138,28 @@ export function createQuickJsAsyncBridge(
   const hostTasks: Array<() => void> = []
   let drainingHostTasks = false
   let cleared = false
+  /** createDeferredPromise 尚未 settle/abandon 的数量（含 in-flight host 异步）。 */
+  let unsettledDeferredCount = 0
+
+  const releaseUnsettledDeferred = () => {
+    if (unsettledDeferredCount > 0) {
+      unsettledDeferredCount -= 1
+    }
+  }
+
+  const hasPendingAsyncWork = (): boolean => {
+    if (options.isDestroyed()) {
+      return false
+    }
+    return (
+      timers.size > 0 ||
+      microtasks.length > 0 ||
+      nextTicks.length > 0 ||
+      hostTasks.length > 0 ||
+      unsettledDeferredCount > 0 ||
+      runtime.hasPendingJob()
+    )
+  }
 
   const stopHostTimer = (entry: HostTimerEntry) => {
     if (entry.kind === 'timeout') {
@@ -515,13 +546,24 @@ export function createQuickJsAsyncBridge(
     }
   }
 
-  const createDeferredPromise = () => context.newPromise()
+  const createDeferredPromise = () => {
+    unsettledDeferredCount += 1
+    return context.newPromise()
+  }
+
+  const abandonDeferred = (deferred: QuickJSDeferredPromise) => {
+    releaseUnsettledDeferred()
+    if (deferred.alive) {
+      deferred.dispose()
+    }
+  }
 
   const settleGuestPromise = (
     deferred: QuickJSDeferredPromise,
     outcome: { ok: true; value?: QuickJSHandle } | { ok: false; error?: QuickJSHandle },
   ) => {
     if (options.isDestroyed() || !deferred.alive) {
+      releaseUnsettledDeferred()
       if (outcome.ok) {
         outcome.value?.dispose()
       } else {
@@ -532,6 +574,8 @@ export function createQuickJsAsyncBridge(
       }
       return
     }
+
+    releaseUnsettledDeferred()
 
     if (outcome.ok) {
       deferred.resolve(outcome.value)
@@ -580,5 +624,8 @@ export function createQuickJsAsyncBridge(
     clearAll,
     settleGuestPromise,
     createDeferredPromise,
+    abandonDeferred,
+    hasPendingAsyncWork,
+    getPendingTimerCount: () => timers.size,
   }
 }

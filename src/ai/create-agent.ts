@@ -8,6 +8,7 @@ import {
   type AgentStepEvent,
   type AgentTextDeltaEvent,
   type AgentToolCallEvent,
+  type AgentToolResultEvent,
   type RunAgentResult,
 } from './run-agent.ts'
 
@@ -22,6 +23,7 @@ export type AgentDefaults = {
   signal?: AbortSignal
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
+  onToolResult?: (event: AgentToolResultEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
 }
@@ -37,6 +39,7 @@ export type AgentCallOptions = {
   signal?: AbortSignal
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
+  onToolResult?: (event: AgentToolResultEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
 }
@@ -61,6 +64,7 @@ export function createAgent(defaults: AgentDefaults): AgentRunner {
       signal: options.signal ?? defaults.signal,
       onStep: options.onStep ?? defaults.onStep,
       onToolCall: options.onToolCall ?? defaults.onToolCall,
+      onToolResult: options.onToolResult ?? defaults.onToolResult,
       onTextDelta: options.onTextDelta ?? defaults.onTextDelta,
       onReasoningDelta: options.onReasoningDelta ?? defaults.onReasoningDelta,
     })

@@ -109,6 +109,12 @@ export type QuickJsEvalOptions = {
    * 未传时为 `{cwd}/[eval-{n}].js`，使相对 `import` 相对 cwd（类 Node eval）。
    */
   filename?: string
+  /**
+   * 为 true 时：在返回前等到挂起定时器 / 未结算 host Promise / 微任务排空
+   *（仍受 timeoutMs 约束；setInterval 可能拖到超时）。
+   * Agent / program 脚本默认开启；交互 REPL 默认关闭。
+   */
+  waitUntilIdle?: boolean
 }
 
 export type QuickJsEvalSuccess = {
@@ -157,8 +163,8 @@ export type QuickJsInstance = {
   /** 只读宿主配置（env / argv / 工作区 / 权限配额）；不含 UI 订阅噪音。 */
   getHostConfig: () => QuickJsHostConfig
   /**
-   * 往常驻实例塞一段代码并跑完当前同步切片（含微任务 / Promise jobs）。
-   * 不等待未到期的 setTimeout/setInterval；有挂起定时器时仍可再次 eval（仅 busy 时拒绝）。
+   * 往常驻实例塞一段代码并跑完。
+   * 若表达式结果为 Promise，会等到 settle；`waitUntilIdle` 时再等到定时器等异步排空。
    * 返回值中的 value 仅作 REPL 展示；exitCode 只反映 process.exit / exitCode。
    */
   eval: (code: string, options?: QuickJsEvalOptions) => Promise<QuickJsEvalResult>

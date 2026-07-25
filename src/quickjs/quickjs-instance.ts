@@ -198,6 +198,12 @@ function dumpEvalValue(context: QuickJSAsyncContext, handle: QuickJSHandle): unk
   }
 }
 
+function yieldToHostEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0)
+  })
+}
+
 function injectSerializableGlobals(
   context: QuickJSAsyncContext,
   globals: Record<string, unknown>,
@@ -492,6 +498,7 @@ export async function createQuickJsInstance(
   ): Promise<QuickJsEvalResult> => {
     assertAlive()
     const timeoutMs = evalOptions.timeoutMs ?? defaultTimeoutMs
+    const waitUntilIdle = evalOptions.waitUntilIdle === true
     if (!tryBeginSlice(timeoutMs)) {
       throw new Error(`QuickJS instance ${instanceId} is already evaluating`)
     }
@@ -503,6 +510,79 @@ export async function createQuickJsInstance(
     }
 
     let result: QuickJsEvalResult | undefined
+    let sliceOpen = true
+    const evalDeadlineMs = Date.now() + timeoutMs
+
+    const releaseSlice = () => {
+      if (!sliceOpen) return
+      sliceOpen = false
+      endSlice()
+    }
+
+    /** busy 切片内：排空微任务并等到 Promise settle（host deferred 靠 yield + drain）。 */
+    const awaitGuestPromiseValue = async (
+      valueHandle: QuickJSHandle,
+    ): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
+      asyncBridge.drainAfterSync()
+      let promiseState = context.getPromiseState(valueHandle)
+      if (promiseState.type === 'fulfilled' && promiseState.notAPromise) {
+        return { ok: true, value: dumpEvalValue(context, valueHandle) }
+      }
+
+      while (promiseState.type === 'pending') {
+        if (state.destroyed) {
+          return { ok: false, error: 'QuickJS instance destroyed during evaluation' }
+        }
+        if (abortRequested) {
+          return { ok: false, error: 'interrupted: aborted while waiting for Promise' }
+        }
+        if (Date.now() > evalDeadlineMs) {
+          return { ok: false, error: `timeout after ${timeoutMs}ms waiting for Promise` }
+        }
+        asyncBridge.drainAfterSync()
+        await yieldToHostEventLoop()
+        promiseState = context.getPromiseState(valueHandle)
+      }
+
+      if (promiseState.type === 'rejected') {
+        const error = formatQuickJsError(context, promiseState.error)
+        return {
+          ok: false,
+          error: abortRequested ? `interrupted: ${error}` : error,
+        }
+      }
+
+      // fulfilled
+      const resolvedHandle = promiseState.value
+      const notAPromise = promiseState.notAPromise === true
+      try {
+        return { ok: true, value: dumpEvalValue(context, resolvedHandle) }
+      } finally {
+        if (resolvedHandle.alive && resolvedHandle !== valueHandle && !notAPromise) {
+          resolvedHandle.dispose()
+        }
+      }
+    }
+
+    /** 释放 busy 后等到定时器 / deferred / jobs 排空（受 deadline 约束）。 */
+    const waitForIdle = async (): Promise<string | undefined> => {
+      while (asyncBridge.hasPendingAsyncWork()) {
+        if (state.destroyed) {
+          return 'QuickJS instance destroyed during evaluation'
+        }
+        if (abortRequested) {
+          return 'interrupted: aborted while waiting for async work'
+        }
+        if (Date.now() > evalDeadlineMs) {
+          const timers = asyncBridge.getPendingTimerCount()
+          return `timeout after ${timeoutMs}ms with pending async work (timers=${timers})`
+        }
+        asyncBridge.flushHostTasks()
+        asyncBridge.drainAfterSync()
+        await yieldToHostEventLoop()
+      }
+      return undefined
+    }
 
     try {
       evalSeq += 1
@@ -561,7 +641,6 @@ export async function createQuickJsInstance(
         }
       } else {
         try {
-          // 同步结束后排空微任务 / nextTick / Promise jobs；不等待未到期定时器
           asyncBridge.drainAfterSync()
           syncExitCodeFromGuest(context, processState)
           if (processState.exitRequested) {
@@ -580,19 +659,65 @@ export async function createQuickJsInstance(
               consoleLines: consoleSlice(),
             }
           } else {
-            appendSystemDebugLog({
-              layer: 'qjs',
-              op: 'eval-done',
-              detail: instanceId,
-              durationMs: Math.round(performance.now() - evalStartedAt),
-              force: true,
-            })
-            result = {
-              ok: true,
-              value: dumpEvalValue(context, evalResult.value),
-              exited: false,
-              exitCode: processState.exitCode,
-              consoleLines: consoleSlice(),
+            const settled = await awaitGuestPromiseValue(evalResult.value)
+            syncExitCodeFromGuest(context, processState)
+            if (processState.exitRequested) {
+              result = {
+                ok: true,
+                value: undefined,
+                exited: true,
+                exitCode: processState.exitCode,
+                consoleLines: consoleSlice(),
+              }
+            } else if (!settled.ok) {
+              result = {
+                ok: false,
+                error: settled.error,
+                exited: false,
+                exitCode: processState.exitCode,
+                consoleLines: consoleSlice(),
+              }
+            } else {
+              // 先释放 busy，定时器回调才能 tryBeginSlice
+              releaseSlice()
+              let idleError: string | undefined
+              if (waitUntilIdle && !state.destroyed && !abortRequested) {
+                idleError = await waitForIdle()
+              }
+              syncExitCodeFromGuest(context, processState)
+              if (processState.exitRequested) {
+                result = {
+                  ok: true,
+                  value: undefined,
+                  exited: true,
+                  exitCode: processState.exitCode,
+                  consoleLines: consoleSlice(),
+                }
+              } else if (idleError) {
+                // 已有 console/返回值时仍带回；超时记为失败以便 Agent 感知
+                result = {
+                  ok: false,
+                  error: idleError,
+                  exited: false,
+                  exitCode: processState.exitCode,
+                  consoleLines: consoleSlice(),
+                }
+              } else {
+                appendSystemDebugLog({
+                  layer: 'qjs',
+                  op: 'eval-done',
+                  detail: instanceId,
+                  durationMs: Math.round(performance.now() - evalStartedAt),
+                  force: true,
+                })
+                result = {
+                  ok: true,
+                  value: settled.value,
+                  exited: false,
+                  exitCode: processState.exitCode,
+                  consoleLines: consoleSlice(),
+                }
+              }
             }
           }
         } finally {
@@ -601,6 +726,7 @@ export async function createQuickJsInstance(
           }
         }
       }
+
     } catch (error) {
       if (state.destroyed) {
         result = {
@@ -615,11 +741,11 @@ export async function createQuickJsInstance(
       }
     } finally {
       activeEvalFilename = undefined
+      releaseSlice()
       const changes = await sealActiveJournal()
       if (result && changes) {
         result = { ...result, changes }
       }
-      endSlice()
       if (!state.destroyed) {
         asyncBridge.flushHostTasks()
       }

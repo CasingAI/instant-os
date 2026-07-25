@@ -25,6 +25,14 @@ export type AgentToolCallEvent = {
   arguments: Record<string, unknown>
 }
 
+export type AgentToolResultEvent = {
+  step: number
+  toolName: string
+  arguments: Record<string, unknown>
+  /** 与写入 messages 的 tool content 一致（已序列化） */
+  result: string
+}
+
 export type AgentStepEvent = {
   step: number
   kind: 'model' | 'tools'
@@ -56,6 +64,7 @@ export type RunAgentOptions = {
   signal?: AbortSignal
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
+  onToolResult?: (event: AgentToolResultEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
 }
@@ -412,40 +421,56 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           continue
         }
 
+        const toolName = toolCall.function.name
         options.onToolCall?.({
           step,
-          toolName: toolCall.function.name,
+          toolName,
           arguments: args,
         })
 
-        const tool = toolByName.get(toolCall.function.name)
+        const emitToolResult = (result: string) => {
+          options.onToolResult?.({
+            step,
+            toolName,
+            arguments: args,
+            result,
+          })
+        }
+
+        const tool = toolByName.get(toolName)
         if (!tool) {
+          const content = serializeToolResult({
+            error: `未注册的工具: ${toolName}。可用工具: ${availableToolNames.join(', ') || '（无）'}。请改用已注册的工具名重试。`,
+          })
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: serializeToolResult({
-              error: `未注册的工具: ${toolCall.function.name}。可用工具: ${availableToolNames.join(', ') || '（无）'}。请改用已注册的工具名重试。`,
-            }),
+            content,
           })
+          emitToolResult(content)
           continue
         }
 
         try {
           const result = await tool.execute(args)
+          const content = serializeToolResult(result)
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: serializeToolResult(result),
+            content,
           })
+          emitToolResult(content)
         } catch (error) {
+          const content = serializeToolResult({
+            error:
+              error instanceof Error ? error.message : `工具执行失败: ${String(error)}`,
+          })
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: serializeToolResult({
-              error:
-                error instanceof Error ? error.message : `工具执行失败: ${String(error)}`,
-            }),
+            content,
           })
+          emitToolResult(content)
         }
       }
     }

@@ -4,6 +4,7 @@ import type {
   AgentReasoningDeltaEvent,
   AgentTextDeltaEvent,
   AgentToolCallEvent,
+  AgentToolResultEvent,
 } from '../../ai/run-agent.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
@@ -23,6 +24,8 @@ import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
 import { openAiConfigForVscodeAiModelKey } from './vscode-ai-models.ts'
 
 const VSCODE_AI_MAX_STEPS = 30
+const TOOL_RESULT_LINE_LIMIT = 120
+const TOOL_RESULT_CHAR_LIMIT = 12_000
 
 export type VscodeAiActivity = {
   id: string
@@ -31,6 +34,8 @@ export type VscodeAiActivity = {
   detail?: string
   /** 展开后展示的正文（如实际执行的代码） */
   content?: string
+  /** 工具返回结果（如终端 stdout） */
+  result?: string
   done?: boolean
 }
 
@@ -41,6 +46,7 @@ export type VscodeAiTimelineItem =
       label: string
       detail?: string
       content?: string
+      result?: string
       done: boolean
     }
   | {
@@ -95,6 +101,18 @@ function formatArgsSuffix(args: unknown): string {
   const parts = args.filter((item): item is string => typeof item === 'string')
   if (parts.length === 0) return ''
   return ` ${parts.join(' ')}`
+}
+
+function truncateToolResultForDisplay(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return '（无输出）'
+  const lines = trimmed.split('\n')
+  const sliced =
+    lines.length > TOOL_RESULT_LINE_LIMIT
+      ? lines.slice(-TOOL_RESULT_LINE_LIMIT).join('\n')
+      : trimmed
+  if (sliced.length <= TOOL_RESULT_CHAR_LIMIT) return sliced
+  return `…（输出已截断）\n${sliced.slice(-TOOL_RESULT_CHAR_LIMIT)}`
 }
 
 function describeToolCall(event: AgentToolCallEvent): {
@@ -167,6 +185,7 @@ function activitiesFromTimeline(timeline: VscodeAiTimelineItem[]): VscodeAiActiv
       label: item.label,
       detail: item.detail,
       content: item.content,
+      result: item.result,
       done: item.done,
     }))
 }
@@ -292,6 +311,7 @@ export async function askVscodeAiAgent(options: {
   let answerText = ''
   let reasoningText = ''
   let reasoningItemId: string | undefined
+  let pendingActivityId: string | undefined
 
   const emit = () => {
     options.onProgress?.({
@@ -308,12 +328,13 @@ export async function askVscodeAiAgent(options: {
     toolCallCount += 1
     const desc = describeToolCall(event)
     const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}`
+    pendingActivityId = id
     activities.push({
       id,
       label: desc.label,
       detail: desc.detail,
       content: desc.content,
-      done: true,
+      done: false,
     })
     timeline = markTimelineDone(timeline)
     timeline.push({
@@ -322,7 +343,28 @@ export async function askVscodeAiAgent(options: {
       label: desc.label,
       detail: desc.detail,
       content: desc.content,
-      done: true,
+      done: false,
+    })
+    emit()
+  }
+
+  const onToolResult = (event: AgentToolResultEvent) => {
+    const id = pendingActivityId
+    pendingActivityId = undefined
+    if (!id) return
+    const resultText = truncateToolResultForDisplay(event.result)
+    const activityIndex = activities.findIndex((item) => item.id === id)
+    if (activityIndex >= 0) {
+      const current = activities[activityIndex]
+      activities[activityIndex] = {
+        ...current,
+        result: resultText,
+        done: true,
+      }
+    }
+    timeline = timeline.map((item) => {
+      if (item.kind !== 'activity' || item.id !== id) return item
+      return { ...item, result: resultText, done: true }
     })
     emit()
   }
@@ -368,6 +410,7 @@ export async function askVscodeAiAgent(options: {
     messages: options.history,
     signal: options.signal,
     onToolCall,
+    onToolResult,
     onTextDelta,
     onReasoningDelta,
   })

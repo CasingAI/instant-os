@@ -86,9 +86,7 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
         }
         const value = await work()
         if (isDestroyed()) {
-          if (deferred.alive) {
-            deferred.dispose()
-          }
+          asyncBridge.abandonDeferred(deferred)
           return
         }
         if (value === undefined) {
@@ -99,9 +97,7 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
         asyncBridge.settleGuestPromise(deferred, { ok: true, value: encoded })
       } catch (error) {
         if (isDestroyed()) {
-          if (deferred.alive) {
-            deferred.dispose()
-          }
+          asyncBridge.abandonDeferred(deferred)
           return
         }
         asyncBridge.settleGuestPromise(deferred, {

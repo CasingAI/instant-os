@@ -173,6 +173,8 @@ function ActivityStatus({
   const [expanded, setExpanded] = useState(false)
   const current = Boolean(live) && Boolean(isCurrent) && !activity.done
   const content = activity.content?.trim() ?? ''
+  const result = activity.result?.trim() ?? ''
+  const expandable = Boolean(content || result)
   const summary = (
     <>
       {activity.label}
@@ -190,7 +192,7 @@ function ActivityStatus({
     )
   }
 
-  if (!content) {
+  if (!expandable) {
     return (
       <div class="help-app__reasoning-status">
         <span class="help-app__reasoning-status-label">{summary}</span>
@@ -215,7 +217,17 @@ function ActivityStatus({
         <span class="help-app__reasoning-summary">{summary}</span>
       </button>
       {expanded ? (
-        <pre class="help-app__reasoning-body help-app__reasoning-body--code">{content}</pre>
+        <div class="help-app__reasoning-body help-app__reasoning-body--stack">
+          {content ? (
+            <pre class="help-app__reasoning-body help-app__reasoning-body--code">{content}</pre>
+          ) : undefined}
+          {result ? (
+            <>
+              <div class="help-app__reasoning-result-label">输出</div>
+              <pre class="help-app__reasoning-body help-app__reasoning-body--code">{result}</pre>
+            </>
+          ) : undefined}
+        </div>
       ) : undefined}
     </div>
   )
@@ -424,6 +436,7 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
                 label: item.label,
                 detail: item.detail,
                 content: item.content,
+                result: item.result,
                 done: item.done,
               }}
               live

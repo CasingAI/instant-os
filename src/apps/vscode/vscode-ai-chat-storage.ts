@@ -164,6 +164,10 @@ function normalizeTerminalChangeReview(raw: unknown): VscodeAiTerminalChangeRevi
   }
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
 function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const entry = raw as Partial<VscodeAiInvestigation>
@@ -171,33 +175,64 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
   if (typeof entry.toolCallCount !== 'number' || typeof entry.durationMs !== 'number') {
     return undefined
   }
-  const timeline = entry.timeline.filter(
-    (item): item is VscodeAiInvestigation['timeline'][number] => {
-      if (!item || typeof item !== 'object') return false
-      if (item.kind === 'activity') {
-        return typeof item.id === 'string' && typeof item.label === 'string'
+  const timeline = entry.timeline.flatMap((item): VscodeAiInvestigation['timeline'] => {
+    if (!item || typeof item !== 'object') return []
+    if (item.kind === 'activity') {
+      if (typeof item.id !== 'string' || typeof item.label !== 'string') return []
+      return [
+        {
+          kind: 'activity',
+          id: item.id,
+          label: item.label,
+          detail: normalizeOptionalString(item.detail),
+          content: normalizeOptionalString(item.content),
+          result: normalizeOptionalString(item.result),
+          done: item.done !== false,
+        },
+      ]
+    }
+    if (item.kind === 'reasoning') {
+      if (
+        typeof item.id !== 'string' ||
+        typeof item.content !== 'string' ||
+        typeof item.startedAt !== 'number'
+      ) {
+        return []
       }
-      if (item.kind === 'reasoning') {
-        return (
-          typeof item.id === 'string' &&
-          typeof item.content === 'string' &&
-          typeof item.startedAt === 'number'
-        )
-      }
-      return false
-    },
-  )
+      return [
+        {
+          kind: 'reasoning',
+          id: item.id,
+          content: item.content,
+          done: item.done !== false,
+          startedAt: item.startedAt,
+          durationMs:
+            typeof item.durationMs === 'number' && Number.isFinite(item.durationMs)
+              ? item.durationMs
+              : undefined,
+        },
+      ]
+    }
+    return []
+  })
   if (timeline.length === 0 && entry.activities.length === 0) {
     return undefined
   }
   return {
-    activities: entry.activities.filter(
-      (item): item is VscodeAiInvestigation['activities'][number] =>
-        !!item &&
-        typeof item === 'object' &&
-        typeof item.id === 'string' &&
-        typeof item.label === 'string',
-    ),
+    activities: entry.activities.flatMap((item): VscodeAiInvestigation['activities'] => {
+      if (!item || typeof item !== 'object') return []
+      if (typeof item.id !== 'string' || typeof item.label !== 'string') return []
+      return [
+        {
+          id: item.id,
+          label: item.label,
+          detail: normalizeOptionalString(item.detail),
+          content: normalizeOptionalString(item.content),
+          result: normalizeOptionalString(item.result),
+          done: item.done !== false,
+        },
+      ]
+    }),
     timeline,
     reasoningText:
       typeof entry.reasoningText === 'string' && entry.reasoningText.trim()

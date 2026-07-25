@@ -72,22 +72,28 @@ function consoleLevelClass(level: QuickJsConsoleLine['level']): string {
 }
 
 function formatEvalOutput(result: Awaited<ReturnType<QuickJsInstance['eval']>>): string {
-  const consoleText = result.consoleLines.map((line) => line.text).join('\n')
-  if (!result.ok) {
-    return [result.error, consoleText].filter(Boolean).join('\n')
-  }
+  const consoleText = result.consoleLines.map((line) => line.text).join('\n').trim()
   const parts: string[] = []
+
+  if (!result.ok) {
+    parts.push(`【error】\n${result.error}`)
+    if (consoleText) {
+      parts.push(`【console】\n${consoleText}`)
+    }
+    return parts.join('\n\n')
+  }
+
+  if (consoleText) {
+    parts.push(`【console】\n${consoleText}`)
+  }
   const formatted = formatTerminalReplValue(result.value)
   if (formatted !== 'undefined') {
-    parts.push(formatted)
-  }
-  if (consoleText) {
-    parts.push(consoleText)
+    parts.push(`【return】\n${formatted}`)
   }
   if (result.exitCode !== 0) {
-    parts.push(`exitCode=${result.exitCode}`)
+    parts.push(`【exit】\nexitCode=${result.exitCode}`)
   }
-  return parts.join('\n') || '（无输出）'
+  return parts.join('\n\n') || '（无输出）'
 }
 
 export function TerminalReplPanel({
@@ -118,6 +124,8 @@ export function TerminalReplPanel({
   const modal = useWindowModal()
 
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
+  /** 合并并发 createInstance（mount boot 与 Agent runCode/ensureInstance 竞态）。 */
+  const createInFlightRef = useRef<Promise<void> | undefined>(undefined)
   const mountedRef = useRef(true)
   const lineSeqRef = useRef(0)
   const windowsRef = useRef(windows)
@@ -253,78 +261,99 @@ export function TerminalReplPanel({
     [syncConsoleFromInstance],
   )
 
-  const createInstance = useCallback(async () => {
-    setBooting(true)
-    setBootError(undefined)
+  const createInstance = useCallback(async (options?: { force?: boolean }) => {
+    // handle 会在实例 boot 完成前就挂上；Agent 可能立刻 runCode → ensureInstance。
+    // 若不合并，第二次 create 的 bindInstance 会 destroy 掉正在 eval 的实例。
+    // force：reset / fsMode / process.exit 重建，等完当前 in-flight 后再开一轮。
+    if (createInFlightRef.current) {
+      await createInFlightRef.current
+      if (!options?.force) {
+        return
+      }
+    }
+
+    const run = (async () => {
+      setBooting(true)
+      setBootError(undefined)
+      try {
+        const root = workspaceRootRef.current
+        const instantShellHost = createTerminalInstantShellHost({
+          getWindows: () => windowsRef.current,
+          openApp: (appId, options) => {
+            openAppRef.current(appId, options)
+          },
+          openGeneratedApp: (appId, title) => {
+            openGeneratedAppRef.current(appId, title)
+          },
+          openExtApp: (appId, title) => {
+            openExtAppRef.current(appId, title)
+          },
+          getInstalledGeneratedApps: () => installedAppsRef.current,
+          getSessionExtApps: () => sessionExtAppsRef.current,
+          focusWindow: (windowId) => {
+            focusWindowRef.current(windowId)
+          },
+          closeWindow: (windowId) => {
+            closeWindowRef.current(windowId)
+          },
+          closeWindowsForApp: (appId) => {
+            closeWindowsForAppRef.current(appId)
+          },
+          minimizeWindow: (windowId) => {
+            minimizeWindowRef.current(windowId)
+          },
+          restoreWindow: (windowId) => {
+            restoreWindowRef.current(windowId)
+          },
+          toggleFullscreen: (windowId) => {
+            toggleFullscreenRef.current(windowId)
+          },
+          toggleMaximize: (windowId) => {
+            toggleMaximizeRef.current(windowId)
+          },
+          getCwd: () => instanceRef.current?.getSnapshot().cwd ?? workspaceRootRef.current,
+          isBusy: () => {
+            // 调用 instant.close 时当前 eval 必然 busy；用持续时间区分「空闲下的短命令」与「长任务中途关窗」。
+            if (!(instanceRef.current?.getSnapshot().busy ?? false)) {
+              return false
+            }
+            const since = busySinceRef.current
+            if (since === undefined) {
+              return false
+            }
+            return Date.now() - since >= 300
+          },
+          confirmClose: async (message) =>
+            modalRef.current.confirm({
+              title: '确认关闭',
+              message,
+              confirmLabel: '关闭',
+              cancelLabel: '取消',
+            }),
+        })
+        const instance = await createQuickJsInstance({
+          workspaceRoot: root,
+          cwd: root,
+          fsMode: fsModeRef.current,
+          instantShellHost,
+        })
+        bindInstance(instance)
+      } catch (error) {
+        if (!mountedRef.current) return
+        instanceRef.current = undefined
+        const message = error instanceof Error ? error.message : String(error)
+        setBootError(message)
+        setBooting(false)
+      }
+    })()
+
+    createInFlightRef.current = run
     try {
-      const root = workspaceRootRef.current
-      const instantShellHost = createTerminalInstantShellHost({
-        getWindows: () => windowsRef.current,
-        openApp: (appId, options) => {
-          openAppRef.current(appId, options)
-        },
-        openGeneratedApp: (appId, title) => {
-          openGeneratedAppRef.current(appId, title)
-        },
-        openExtApp: (appId, title) => {
-          openExtAppRef.current(appId, title)
-        },
-        getInstalledGeneratedApps: () => installedAppsRef.current,
-        getSessionExtApps: () => sessionExtAppsRef.current,
-        focusWindow: (windowId) => {
-          focusWindowRef.current(windowId)
-        },
-        closeWindow: (windowId) => {
-          closeWindowRef.current(windowId)
-        },
-        closeWindowsForApp: (appId) => {
-          closeWindowsForAppRef.current(appId)
-        },
-        minimizeWindow: (windowId) => {
-          minimizeWindowRef.current(windowId)
-        },
-        restoreWindow: (windowId) => {
-          restoreWindowRef.current(windowId)
-        },
-        toggleFullscreen: (windowId) => {
-          toggleFullscreenRef.current(windowId)
-        },
-        toggleMaximize: (windowId) => {
-          toggleMaximizeRef.current(windowId)
-        },
-        getCwd: () => instanceRef.current?.getSnapshot().cwd ?? workspaceRootRef.current,
-        isBusy: () => {
-          // 调用 instant.close 时当前 eval 必然 busy；用持续时间区分「空闲下的短命令」与「长任务中途关窗」。
-          if (!(instanceRef.current?.getSnapshot().busy ?? false)) {
-            return false
-          }
-          const since = busySinceRef.current
-          if (since === undefined) {
-            return false
-          }
-          return Date.now() - since >= 300
-        },
-        confirmClose: async (message) =>
-          modalRef.current.confirm({
-            title: '确认关闭',
-            message,
-            confirmLabel: '关闭',
-            cancelLabel: '取消',
-          }),
-      })
-      const instance = await createQuickJsInstance({
-        workspaceRoot: root,
-        cwd: root,
-        fsMode: fsModeRef.current,
-        instantShellHost,
-      })
-      bindInstance(instance)
-    } catch (error) {
-      if (!mountedRef.current) return
-      instanceRef.current = undefined
-      const message = error instanceof Error ? error.message : String(error)
-      setBootError(message)
-      setBooting(false)
+      await run
+    } finally {
+      if (createInFlightRef.current === run) {
+        createInFlightRef.current = undefined
+      }
     }
   }, [bindInstance])
 
@@ -349,7 +378,7 @@ export function TerminalReplPanel({
       return
     }
     onChangesAvailableRef.current?.(false)
-    void createInstance()
+    void createInstance({ force: true })
   }, [fsMode, createInstance])
 
   useEffect(() => {
@@ -381,11 +410,14 @@ export function TerminalReplPanel({
     unsubRef.current = undefined
     instanceRef.current?.destroy()
     instanceRef.current = undefined
-    await createInstance()
+    await createInstance({ force: true })
     focusInput()
   }, [appendLine, busy, createInstance, focusInput])
 
   const ensureInstance = useCallback(async (): Promise<QuickJsInstance | undefined> => {
+    if (createInFlightRef.current) {
+      await createInFlightRef.current
+    }
     let instance = instanceRef.current
     if (instance === undefined || instance.getSnapshot().destroyed) {
       await createInstance()
@@ -423,7 +455,9 @@ export function TerminalReplPanel({
       setBusy(true)
       try {
         const evalCode = source === 'program' ? wrapTerminalProgramEval(code) : code
-        const result = await instance.eval(evalCode)
+        const result = await instance.eval(evalCode, {
+          waitUntilIdle: source === 'program',
+        })
         syncConsoleFromInstance(instance)
         setCwd(instance.getSnapshot().cwd)
 
@@ -446,7 +480,7 @@ export function TerminalReplPanel({
               instance.destroy()
             }
             instanceRef.current = undefined
-            await createInstance()
+            await createInstance({ force: true })
             return `process.exit(${result.exitCode})`
           }
           const formatted = formatTerminalReplValue(result.value)

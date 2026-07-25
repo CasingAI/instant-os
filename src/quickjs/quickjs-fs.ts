@@ -373,7 +373,7 @@ export function injectFs(options: InjectFsOptions): {
         }
         const value = await work()
         if (ops.isDestroyed()) {
-          deferred.dispose()
+          asyncBridge.abandonDeferred(deferred)
           return
         }
         const encoded = encode(context, value)
@@ -383,9 +383,7 @@ export function injectFs(options: InjectFsOptions): {
         })
       } catch (error) {
         if (ops.isDestroyed()) {
-          if (deferred.alive) {
-            deferred.dispose()
-          }
+          asyncBridge.abandonDeferred(deferred)
           return
         }
         const errHandle = createGuestFsError(context, error)

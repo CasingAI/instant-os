@@ -53,12 +53,21 @@ function truncateOutput(text: string): string {
 }
 
 function formatQuickJsResult(result: QuickJsEvalResult): string {
-  const consoleText = result.consoleLines.map((line) => line.text).join('\n')
+  const consoleText = result.consoleLines.map((line) => line.text).join('\n').trim()
+  const parts: string[] = []
   if (!result.ok) {
-    return [result.error, consoleText].filter(Boolean).join('\n')
+    parts.push(`【error】\n${result.error}`)
+    if (consoleText) {
+      parts.push(`【console】\n${consoleText}`)
+    }
+    return parts.join('\n\n')
+  }
+  if (consoleText) {
+    parts.push(`【console】\n${consoleText}`)
   }
   const status = result.exitCode === 0 ? '退出码 0' : `退出码 ${result.exitCode}`
-  return [status, consoleText].filter(Boolean).join('\n')
+  parts.push(`【exit】\n${status}`)
+  return parts.join('\n\n')
 }
 
 function appendChangeSummary(base: string, changeSet: TerminalChangeSet | undefined): string {

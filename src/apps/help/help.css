@@ -471,6 +471,31 @@
   font-size: 11px;
 }
 
+.help-app__reasoning-body--stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 2px;
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+  border: none;
+  background: transparent;
+}
+
+.help-app__reasoning-body--stack > .help-app__reasoning-body {
+  margin: 0;
+}
+
+.help-app__reasoning-result-label {
+  margin: 2px 0 0;
+  color: var(--help-ink-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
 .help-app__continue-row {
   margin-top: 10px;
   display: flex;
