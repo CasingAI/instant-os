@@ -1,0 +1,664 @@
+/* VS Code 模型选择器 — 对齐 help-app / 系统菜单拟物风 */
+
+.vscode-ai-model-picker {
+  position: relative;
+}
+
+.vscode-ai-model-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.vscode-ai-model-picker__field-label {
+  font-size: 12px;
+  color: #6a5f54;
+}
+
+.vscode-ai-model-picker__trigger {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 26px 4px 10px;
+  border-radius: 7px;
+  border: 1px solid #c4b5a0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2a241f;
+  text-align: left;
+  cursor: pointer;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%236a5f54' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E")
+      no-repeat right 8px center / 10px 6px,
+    linear-gradient(180deg, #fffdf8 0%, #f7f1e6 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 1px 3px rgba(0, 0, 0, 0.14);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.vscode-ai-model-picker__trigger:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+.vscode-ai-model-picker__trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.vscode-ai-model-picker__trigger--open,
+.vscode-ai-model-picker__trigger:focus-visible {
+  outline: none;
+  border-color: #d4a017;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 1px 3px rgba(0, 0, 0, 0.14),
+    0 0 0 2px rgba(212, 160, 23, 0.28);
+}
+
+.vscode-ai-model-picker__trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode-ai-model-picker__trigger--dark {
+  border-color: rgba(0, 0, 0, 0.45);
+  color: #e8e8ea;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23b0b0b8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E")
+      no-repeat right 8px center / 10px 6px,
+    linear-gradient(180deg, #3a3a42 0%, #2c2c32 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.vscode-ai-model-picker__trigger--dark.vscode-ai-model-picker__trigger--open,
+.vscode-ai-model-picker__trigger--dark:focus-visible {
+  border-color: #4ea0ef;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    0 0 0 2px rgba(78, 160, 239, 0.28);
+}
+
+/* ── 主面板 / tip / 编辑面板共用浮层壳 ── */
+
+.vscode-ai-model-picker__panel,
+.vscode-ai-model-picker__tip,
+.vscode-ai-model-picker__edit-panel {
+  position: fixed;
+  overflow: visible;
+  border: 1px solid #a89880;
+  border-radius: 8px;
+  color: #2a241f;
+  background: linear-gradient(180deg, #fffdf8 0%, #f0e8da 55%, #e8dfd0 100%);
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* 指向锚点的小三角：::before 描边，::after 填充 */
+.vscode-ai-model-picker__shell--arrow-top::before,
+.vscode-ai-model-picker__shell--arrow-top::after,
+.vscode-ai-model-picker__shell--arrow-bottom::before,
+.vscode-ai-model-picker__shell--arrow-bottom::after,
+.vscode-ai-model-picker__shell--arrow-left::before,
+.vscode-ai-model-picker__shell--arrow-left::after,
+.vscode-ai-model-picker__shell--arrow-right::before,
+.vscode-ai-model-picker__shell--arrow-right::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.vscode-ai-model-picker__shell--arrow-bottom::before,
+.vscode-ai-model-picker__shell--arrow-bottom::after {
+  left: var(--picker-arrow-offset, 24px);
+  transform: translateX(-50%);
+}
+
+.vscode-ai-model-picker__shell--arrow-bottom::before {
+  bottom: -7px;
+  border-width: 7px 6px 0;
+  border-color: #a89880 transparent transparent;
+}
+
+.vscode-ai-model-picker__shell--arrow-bottom::after {
+  bottom: -5px;
+  border-width: 5px 4.5px 0;
+  border-color: #e8dfd0 transparent transparent;
+}
+
+.vscode-ai-model-picker__shell--arrow-top::before,
+.vscode-ai-model-picker__shell--arrow-top::after {
+  left: var(--picker-arrow-offset, 24px);
+  transform: translateX(-50%);
+}
+
+.vscode-ai-model-picker__shell--arrow-top::before {
+  top: -7px;
+  border-width: 0 6px 7px;
+  border-color: transparent transparent #a89880;
+}
+
+.vscode-ai-model-picker__shell--arrow-top::after {
+  top: -5px;
+  border-width: 0 4.5px 5px;
+  border-color: transparent transparent #fffdf8;
+}
+
+.vscode-ai-model-picker__shell--arrow-left::before,
+.vscode-ai-model-picker__shell--arrow-left::after {
+  top: var(--picker-arrow-offset, 24px);
+  transform: translateY(-50%);
+}
+
+.vscode-ai-model-picker__shell--arrow-left::before {
+  left: -7px;
+  border-width: 6px 7px 6px 0;
+  border-color: transparent #a89880 transparent transparent;
+}
+
+.vscode-ai-model-picker__shell--arrow-left::after {
+  left: -5px;
+  border-width: 4.5px 5px 4.5px 0;
+  border-color: transparent #f4ecde transparent transparent;
+}
+
+.vscode-ai-model-picker__shell--arrow-right::before,
+.vscode-ai-model-picker__shell--arrow-right::after {
+  top: var(--picker-arrow-offset, 24px);
+  transform: translateY(-50%);
+}
+
+.vscode-ai-model-picker__shell--arrow-right::before {
+  right: -7px;
+  border-width: 6px 0 6px 7px;
+  border-color: transparent transparent transparent #a89880;
+}
+
+.vscode-ai-model-picker__shell--arrow-right::after {
+  right: -5px;
+  border-width: 4.5px 0 4.5px 5px;
+  border-color: transparent transparent transparent #f4ecde;
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-bottom::before,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-bottom::before,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-bottom::before {
+  border-top-color: rgba(0, 0, 0, 0.55);
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-bottom::after,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-bottom::after,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-bottom::after {
+  border-top-color: #2a2a32;
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-top::before,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-top::before,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-top::before {
+  border-bottom-color: rgba(0, 0, 0, 0.55);
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-top::after,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-top::after,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-top::after {
+  border-bottom-color: #3f3f48;
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-left::before,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-left::before,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-left::before {
+  border-right-color: rgba(0, 0, 0, 0.55);
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-left::after,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-left::after,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-left::after {
+  border-right-color: #34343c;
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-right::before,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-right::before,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-right::before {
+  border-left-color: rgba(0, 0, 0, 0.55);
+}
+
+.vscode-ai-model-picker__panel--dark.vscode-ai-model-picker__shell--arrow-right::after,
+.vscode-ai-model-picker__tip--dark.vscode-ai-model-picker__shell--arrow-right::after,
+.vscode-ai-model-picker__edit-panel--dark.vscode-ai-model-picker__shell--arrow-right::after {
+  border-left-color: #34343c;
+}
+
+.vscode-ai-model-picker__panel--dark,
+.vscode-ai-model-picker__tip--dark,
+.vscode-ai-model-picker__edit-panel--dark {
+  border-color: rgba(0, 0, 0, 0.55);
+  color: #e8e8ea;
+  background: linear-gradient(180deg, #3f3f48 0%, #32323a 52%, #2a2a32 100%);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.vscode-ai-model-picker__panel {
+  z-index: 2300;
+  display: flex;
+  flex-direction: column;
+  width: min(280px, calc(100vw - 16px));
+  max-height: min(360px, calc(100vh - 24px));
+}
+
+.vscode-ai-model-picker__search-wrap {
+  flex-shrink: 0;
+  padding: 8px;
+  border-bottom: 1px solid #c4b5a0;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #f5efe4 0%, #e7dfd1 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__search-wrap {
+  border-bottom-color: rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #3a3a42 0%, #2e2e36 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.vscode-ai-model-picker__search {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid #b8a994;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: #2a241f;
+  background: linear-gradient(180deg, #fff 0%, #faf6ee 100%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__search {
+  border-color: rgba(0, 0, 0, 0.5);
+  color: #e8e8ea;
+  background: linear-gradient(180deg, #1e1e24 0%, #26262e 100%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.vscode-ai-model-picker__search:focus {
+  outline: none;
+  border-color: #d4a017;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.12),
+    0 0 0 2px rgba(212, 160, 23, 0.28);
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__search:focus {
+  border-color: #4ea0ef;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.45),
+    0 0 0 2px rgba(78, 160, 239, 0.28);
+}
+
+.vscode-ai-model-picker__search::placeholder {
+  color: #8a7d70;
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__search::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.vscode-ai-model-picker__list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.55) 0%, transparent 24px);
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__list {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 24px);
+}
+
+.vscode-ai-model-picker__empty {
+  padding: 18px 12px;
+  font-size: 12px;
+  color: #6a5f54;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__empty {
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: none;
+}
+
+.vscode-ai-model-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 3px 8px 3px 10px;
+  box-sizing: border-box;
+  font-size: 13px;
+  color: inherit;
+}
+
+.vscode-ai-model-picker__item-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+}
+
+/* 悬停：蓝色高光 */
+.vscode-ai-model-picker__item:hover,
+.vscode-ai-model-picker__item--hot {
+  color: #fff;
+  background: linear-gradient(180deg, #5aa8f0 0%, #2f87e2 48%, #1f6bb8 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.28) inset,
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.22);
+}
+
+.vscode-ai-model-picker__item:hover .vscode-ai-model-picker__item-secondary,
+.vscode-ai-model-picker__item--hot .vscode-ai-model-picker__item-secondary {
+  color: #fff;
+}
+
+/* 正在编辑：金色压态，与悬停蓝条区分 */
+.vscode-ai-model-picker__item--editing,
+.vscode-ai-model-picker__item--editing:hover {
+  color: #2a241f;
+  background: linear-gradient(180deg, #f3e2a8 0%, #e0c56a 48%, #c9a83a 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.45) inset,
+    inset 0 1px 3px rgba(0, 0, 0, 0.12);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.vscode-ai-model-picker__item--editing .vscode-ai-model-picker__item-secondary,
+.vscode-ai-model-picker__item--editing:hover .vscode-ai-model-picker__item-secondary {
+  color: #5a4a18;
+}
+
+.vscode-ai-model-picker__item-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vscode-ai-model-picker__item-primary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode-ai-model-picker__item-secondary {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #6a5f54;
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__item-secondary {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.vscode-ai-model-picker__item-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.vscode-ai-model-picker__edit {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #b8a994;
+  border-radius: 5px;
+  line-height: 0;
+  color: #2a241f;
+  cursor: pointer;
+  background: linear-gradient(180deg, #fffdf8 0%, #efe6d8 48%, #e4d9c8 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+.vscode-ai-model-picker__edit-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__edit {
+  border-color: rgba(0, 0, 0, 0.45);
+  color: #d0d0d8;
+  background: linear-gradient(180deg, #4a4a54 0%, #35353e 52%, #2c2c34 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.14) inset,
+    0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.vscode-ai-model-picker__item:hover .vscode-ai-model-picker__edit,
+.vscode-ai-model-picker__item--hot .vscode-ai-model-picker__edit,
+.vscode-ai-model-picker__item--editing .vscode-ai-model-picker__edit,
+.vscode-ai-model-picker__edit--open {
+  display: inline-flex;
+}
+
+.vscode-ai-model-picker__item:hover .vscode-ai-model-picker__edit,
+.vscode-ai-model-picker__item--hot .vscode-ai-model-picker__edit {
+  border-color: rgba(0, 0, 0, 0.28);
+  color: #1f6bb8;
+  background: linear-gradient(180deg, #f4f9ff 0%, #d7e8fa 48%, #bfd8f3 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+.vscode-ai-model-picker__edit:hover {
+  filter: brightness(1.04);
+}
+
+.vscode-ai-model-picker__edit:active {
+  filter: brightness(0.97);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.22) inset,
+    0 0 0 transparent;
+}
+
+.vscode-ai-model-picker__edit--open,
+.vscode-ai-model-picker__edit--open:hover,
+.vscode-ai-model-picker__item:hover .vscode-ai-model-picker__edit--open,
+.vscode-ai-model-picker__item--hot .vscode-ai-model-picker__edit--open,
+.vscode-ai-model-picker__item--editing .vscode-ai-model-picker__edit--open {
+  filter: none;
+  border-color: #9a7008;
+  color: #fff;
+  background: linear-gradient(180deg, #f0d45c 0%, #e0b014 48%, #c9920e 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+.vscode-ai-model-picker__check {
+  flex-shrink: 0;
+  width: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: #2f87e2;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__check {
+  color: #6db3ff;
+  text-shadow: none;
+}
+
+.vscode-ai-model-picker__item:hover .vscode-ai-model-picker__check,
+.vscode-ai-model-picker__item--hot .vscode-ai-model-picker__check {
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.22);
+}
+
+.vscode-ai-model-picker__item--editing .vscode-ai-model-picker__check {
+  color: #5a4a18;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.vscode-ai-model-picker__tip,
+.vscode-ai-model-picker__edit-panel {
+  z-index: 2301;
+}
+
+.vscode-ai-model-picker__tip {
+  width: min(240px, calc(100vw - 16px));
+  padding: 12px 14px;
+}
+
+.vscode-ai-model-picker__tip-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.vscode-ai-model-picker__tip--dark .vscode-ai-model-picker__tip-title {
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.vscode-ai-model-picker__tip-body {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6a5f54;
+}
+
+.vscode-ai-model-picker__tip--dark .vscode-ai-model-picker__tip-body {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.vscode-ai-model-picker__tip-meta {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(196, 181, 160, 0.65);
+  font-size: 11px;
+  font-weight: 600;
+  color: #8a7d70;
+}
+
+.vscode-ai-model-picker__tip--dark .vscode-ai-model-picker__tip-meta {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.vscode-ai-model-picker__edit-panel {
+  width: min(210px, calc(100vw - 16px));
+  padding: 8px;
+}
+
+.vscode-ai-model-picker__edit-section-label {
+  padding: 2px 6px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6a5f54;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.vscode-ai-model-picker__edit-panel--dark .vscode-ai-model-picker__edit-section-label {
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: none;
+}
+
+.vscode-ai-model-picker__edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid #c4b5a0;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fffdf8 0%, #f3ebe0 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.vscode-ai-model-picker__edit-row + .vscode-ai-model-picker__edit-row {
+  margin-top: 6px;
+}
+
+.vscode-ai-model-picker__edit-panel--dark .vscode-ai-model-picker__edit-row {
+  border-color: rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #3a3a42 0%, #2c2c32 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.vscode-ai-model-picker__edit-row-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vscode-ai-model-picker__edit-row .ios-switch {
+  transform: scale(0.86);
+  transform-origin: right center;
+}
+
+.vscode-ai-model-picker__edit-panel .vscode-ai-model-picker__empty {
+  margin-top: 2px;
+  border: 1px solid #c4b5a0;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fffdf8 0%, #f3ebe0 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+}
+
+.vscode-ai-model-picker__edit-panel--dark .vscode-ai-model-picker__empty {
+  border-color: rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #3a3a42 0%, #2c2c32 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}

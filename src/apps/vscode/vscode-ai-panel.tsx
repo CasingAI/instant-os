@@ -41,14 +41,14 @@ import {
   type VscodeAiReviewStatus,
 } from './vscode-ai-chat-storage.ts'
 import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
+import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import {
-  formatVscodeAiModelRefKey,
-  labelForVscodeAiModel,
   openAiConfigForVscodeAiModelKey,
   resolveVscodeAiModelRefKey,
   tokenizerFamilyForVscodeAiModelKey,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
+import type { VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
 import {
   measureVscodeAiContextUsage,
   prepareVscodeAiContextUsage,
@@ -88,6 +88,8 @@ export type VscodeAiPanelProps = {
   onModeChange: (mode: VscodeAiMode) => void
   aiModelKey: string | undefined
   onAiModelKeyChange: (key: string) => void
+  aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
+  onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
   dark?: boolean
   workspaceFolder: string | undefined
   getContext: () => VscodeAiContextInput
@@ -530,6 +532,8 @@ export function VscodeAiPanel({
   onModeChange,
   aiModelKey,
   onAiModelKeyChange,
+  aiModelOptions,
+  onAiModelOptionsChange,
   dark,
   workspaceFolder,
   getContext,
@@ -549,17 +553,6 @@ export function VscodeAiPanel({
   const resolvedModelKey = useMemo(
     () => resolveVscodeAiModelRefKey(aiModelKey),
     [aiModelKey, textModels],
-  )
-  const modelOptions = useMemo(
-    () =>
-      textModels.map((model) => ({
-        id: formatVscodeAiModelRefKey({
-          providerEntryId: model.providerEntryId,
-          modelId: model.modelId,
-        }),
-        label: labelForVscodeAiModel(model),
-      })),
-    [textModels],
   )
 
   useEffect(() => {
@@ -1330,18 +1323,16 @@ export function VscodeAiPanel({
             </label>
             <label class="vscode-ai__footer-field vscode-ai__footer-field--model">
               <span class="vscode-ai__footer-label">模型</span>
-              <SettingsChoiceField
+              <VscodeAiModelPicker
                 label="模型"
                 value={resolvedModelKey ?? ''}
-                options={
-                  modelOptions.length === 0
-                    ? [{ id: '', label: '未配置文本模型' }]
-                    : modelOptions
-                }
+                models={textModels}
                 onChange={onAiModelKeyChange}
+                aiModelOptions={aiModelOptions}
+                onAiModelOptionsChange={onAiModelOptionsChange}
                 disabled={busy || textModels.length === 0}
-                wideLayout
                 dark={dark}
+                ariaLabel="模型"
               >
                 {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
                   <button
@@ -1357,7 +1348,7 @@ export function VscodeAiPanel({
                     {displayValue}
                   </button>
                 )}
-              </SettingsChoiceField>
+              </VscodeAiModelPicker>
             </label>
             <div class="vscode-ai__composer-footer-trailing">
               <VscodeAiContextUsageView usage={contextUsage} />

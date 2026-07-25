@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preac
 import { MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { parseFilesAbsolutePath } from '../files/files-path.ts'
-import type { VscodePrefs } from './vscode-prefs.ts'
+import type { VscodeAiModelOptionPrefs, VscodePrefs } from './vscode-prefs.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import {
   type VscodeEditorDragPayload,
@@ -195,6 +195,8 @@ type VscodeEditorAreaProps = {
   onAiModeChange?: (mode: VscodeAiMode) => void
   aiModelKey?: string | undefined
   onAiModelKeyChange?: (key: string) => void
+  aiModelOptions?: Record<string, VscodeAiModelOptionPrefs>
+  onAiModelOptionsChange?: (next: Record<string, VscodeAiModelOptionPrefs>) => void
   aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
   getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
@@ -325,6 +327,8 @@ function VscodeEditorGroupView({
   onAiModeChange,
   aiModelKey,
   onAiModelKeyChange,
+  aiModelOptions,
+  onAiModelOptionsChange,
   aiDark,
   getAiContext,
   getOpenFilesForSearch,
@@ -846,6 +850,8 @@ function VscodeEditorGroupView({
                   onModeChange={resolvedOnAiModeChange}
                   aiModelKey={aiModelKey}
                   onAiModelKeyChange={(key) => onAiModelKeyChange?.(key)}
+                  aiModelOptions={aiModelOptions ?? {}}
+                  onAiModelOptionsChange={(next) => onAiModelOptionsChange?.(next)}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}
                   getContext={resolvedGetAiContext}

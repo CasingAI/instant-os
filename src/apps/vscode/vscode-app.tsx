@@ -133,9 +133,9 @@ import {
   type VscodeAiClosedChatSession,
   type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
+import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import {
-  formatVscodeAiModelRefKey,
-  labelForVscodeAiModel,
+  resolveVscodeAiModelRefKey,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
 import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
@@ -263,17 +263,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
   const textModels = useVscodeAiTextModels()
-  const completionModelOptions = useMemo(
-    () =>
-      textModels.map((model) => ({
-        id: formatVscodeAiModelRefKey({
-          providerEntryId: model.providerEntryId,
-          modelId: model.modelId,
-        }),
-        label: labelForVscodeAiModel(model),
-      })),
-    [textModels],
-  )
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [activityCaretTop, setActivityCaretTop] = useState(78)
   const [caretReady, setCaretReady] = useState(false)
@@ -930,7 +919,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }, [tabs, activeTabId, sessionReady])
 
   const updatePrefs = useCallback((patch: Partial<VscodePrefs>) => {
-    setPrefs((current) => ({ ...current, ...patch }))
+    setPrefs((current) => {
+      const next = { ...current, ...patch }
+      saveVscodePrefs(next)
+      return next
+    })
   }, [])
 
   const toggleBottomPanelTab = useCallback((tab: VscodePrefs['panelTab']) => {
@@ -2812,26 +2805,24 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                   />
                 </div>
                 {prefs.completionEnabled ? (
-                  <SettingsChoiceField
+                  <VscodeAiModelPicker
                     label="补全模型"
                     value={
-                      prefs.completionModelKey ??
-                      prefs.aiModelKey ??
-                      completionModelOptions[0]?.id ??
-                      ''
+                      resolveVscodeAiModelRefKey(
+                        prefs.completionModelKey ?? prefs.aiModelKey,
+                      ) ?? ''
                     }
-                    options={
-                      completionModelOptions.length === 0
-                        ? [{ id: '', label: '未配置文本模型' }]
-                        : completionModelOptions
-                    }
+                    models={textModels}
                     onChange={(value) =>
                       updatePrefs({
                         completionModelKey: value.trim() ? value : undefined,
                       })
                     }
-                    disabled={completionModelOptions.length === 0}
-                    wideLayout
+                    aiModelOptions={prefs.aiModelOptions}
+                    onAiModelOptionsChange={(aiModelOptions) =>
+                      updatePrefs({ aiModelOptions })
+                    }
+                    disabled={textModels.length === 0}
                     presentation="form"
                     fieldClass="vscode__setting"
                     labelClass=""
@@ -2921,6 +2912,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
               aiModelKey={prefs.aiModelKey}
               onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
+              aiModelOptions={prefs.aiModelOptions}
+              onAiModelOptionsChange={(aiModelOptions) =>
+                updatePrefs({ aiModelOptions })
+              }
               aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}
               getOpenFilesForSearch={() => openSearchFiles}

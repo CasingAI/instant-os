@@ -25,7 +25,7 @@ export type ThinkingRequestParam = {
   thinking: { type: 'enabled' | 'disabled' }
 }
 
-function supportsThinkingParam(providerId: AiProviderId | undefined): boolean {
+export function supportsThinkingParam(providerId: AiProviderId | undefined): boolean {
   return providerId === 'deepseek' || providerId === 'mimo' || providerId === 'mimo-token-plan'
 }
 

@@ -12,6 +12,7 @@ import {
   loadAccountSettings,
   openAiConfigForModelRef,
 } from '../../os/account-settings-storage.ts'
+import { loadVscodePrefs, type VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
 import { useEffect, useMemo, useState } from 'preact/hooks'
 
 export function formatVscodeAiModelRefKey(ref: PreferredModelRef): string {
@@ -73,21 +74,45 @@ export function resolveVscodeAiModelRefKey(storedKey: string | undefined): strin
   })
 }
 
+export function resolveVscodeAiThinkingEnabledForModelKey(
+  modelKey: string,
+  options?: Record<string, VscodeAiModelOptionPrefs>,
+): boolean {
+  const override =
+    options?.[modelKey]?.thinkingEnabled ??
+    loadVscodePrefs().aiModelOptions[modelKey]?.thinkingEnabled
+  if (typeof override === 'boolean') return override
+
+  const settings = loadAccountSettings()
+  const ref = parseVscodeAiModelRefKey(modelKey)
+  if (!settings || !ref) return false
+  const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
+  return entry?.thinkingEnabled ?? false
+}
+
 export function openAiConfigForVscodeAiModelKey(
   storedKey: string | undefined,
 ): OpenAiConfig {
   const key = resolveVscodeAiModelRefKey(storedKey)
   const settings = loadAccountSettings()
+  let config = mergeOpenAiConfig(undefined, 'text')
   if (settings && key) {
     const ref = parseVscodeAiModelRefKey(key)
     if (ref) {
       const partial = openAiConfigForModelRef(settings, ref, 'text')
       if (partial) {
-        return mergeOpenAiConfig(partial, 'text')
+        config = mergeOpenAiConfig(partial, 'text')
       }
     }
   }
-  return mergeOpenAiConfig(undefined, 'text')
+
+  if (key) {
+    const override = loadVscodePrefs().aiModelOptions[key]?.thinkingEnabled
+    if (typeof override === 'boolean') {
+      return { ...config, thinkingEnabled: override }
+    }
+  }
+  return config
 }
 
 /** 解析 VS Code 模型键对应的词表族（条目覆盖 > modelId 推断） */

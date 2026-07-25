@@ -19,6 +19,10 @@ export type VscodeSearchPrefs = {
   searchEditorContextLines: number
 }
 
+export type VscodeAiModelOptionPrefs = {
+  thinkingEnabled?: boolean
+}
+
 export type VscodePrefs = {
   theme: MonacoEditorTheme
   fontSize: number
@@ -36,6 +40,8 @@ export type VscodePrefs = {
   aiMode: VscodeAiMode
   /** providerEntryId:modelId；未设置时用钥匙串文本首选 */
   aiModelKey: string | undefined
+  /** 按模型键覆盖供应商级 thinking 等选项 */
+  aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   /** AI 内联代码补全（幽灵文本）；默认关闭，需用户主动开启 */
   completionEnabled: boolean
   /** 补全专用模型；未设置时复用 aiModelKey / 文本首选 */
@@ -78,9 +84,24 @@ const DEFAULT_PREFS: VscodePrefs = {
   search: { ...DEFAULT_SEARCH_PREFS },
   aiMode: 'ask',
   aiModelKey: undefined,
+  aiModelOptions: {},
   completionEnabled: false,
   completionModelKey: undefined,
   completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
+}
+
+function normalizeAiModelOptions(value: unknown): Record<string, VscodeAiModelOptionPrefs> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<string, VscodeAiModelOptionPrefs> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const trimmedKey = key.trim()
+    if (!trimmedKey || !entry || typeof entry !== 'object') continue
+    const raw = entry as { thinkingEnabled?: unknown }
+    if (typeof raw.thinkingEnabled === 'boolean') {
+      result[trimmedKey] = { thinkingEnabled: raw.thinkingEnabled }
+    }
+  }
+  return result
 }
 
 function normalizePanelTab(value: unknown): VscodePanelTab {
@@ -162,6 +183,7 @@ export function loadVscodePrefs(): VscodePrefs {
         typeof parsed.aiModelKey === 'string' && parsed.aiModelKey.trim()
           ? parsed.aiModelKey.trim()
           : undefined,
+      aiModelOptions: normalizeAiModelOptions(parsed.aiModelOptions),
       completionEnabled: parsed.completionEnabled === true,
       completionModelKey:
         typeof parsed.completionModelKey === 'string' && parsed.completionModelKey.trim()
