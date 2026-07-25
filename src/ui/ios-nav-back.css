@@ -26,6 +26,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  min-width: 0;
   max-width: 100%;
   height: var(--ios-nav-back-height);
   padding: var(--ios-nav-back-padding);
@@ -39,7 +40,8 @@
   text-shadow: var(--ios-nav-back-text-shadow);
   box-shadow: var(--ios-nav-back-shadow);
   white-space: nowrap;
-  flex-shrink: 0;
+  /* 允许在窄栏 / 带居中抬头的 nav 里收缩，label 才能 ellipsis */
+  flex-shrink: 1;
 }
 
 .ios-nav-back__icon {

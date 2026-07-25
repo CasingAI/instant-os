@@ -370,35 +370,39 @@ export function KeychainPricingFlow({
     if (target === 'manual') {
       return (
       <>
-        <div class="settings__nav keychain__nav">
-          <IosNavBackButton
-            label="自定义定价"
-            onClick={() => navigate('source', 'pop')}
-          />
-          <button
-            type="button"
-            class="settings__btn settings__btn--default"
-            disabled={!canSaveManual}
-            onClick={() => {
-              if (!canSaveManual) return
-              onChange({
-                ...clearPricingSelection(),
-                manualPricing: {
-                  inputPricePerMillion: manualInputNum,
-                  cachedInputPricePerMillion: manualCachedInputNum,
-                  outputPricePerMillion: manualOutputNum,
-                  currency: 'USD',
-                },
-              })
-              onClose()
-            }}
-          >
-            完成
-          </button>
+        <div class="settings__nav settings__nav--titled">
+          <div class="settings__nav-bar">
+            <IosNavBackButton
+              label="自定义定价"
+              onClick={() => navigate('source', 'pop')}
+            />
+            <h1 class="settings__nav-heading">手动定价</h1>
+            <div class="settings__nav-trailing">
+              <button
+                type="button"
+                class="settings__btn settings__btn--default"
+                disabled={!canSaveManual}
+                onClick={() => {
+                  if (!canSaveManual) return
+                  onChange({
+                    ...clearPricingSelection(),
+                    manualPricing: {
+                      inputPricePerMillion: manualInputNum,
+                      cachedInputPricePerMillion: manualCachedInputNum,
+                      outputPricePerMillion: manualOutputNum,
+                      currency: 'USD',
+                    },
+                  })
+                  onClose()
+                }}
+              >
+                完成
+              </button>
+            </div>
+          </div>
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
-            <h2 class="settings__section-title">手动定价</h2>
             <div class="settings__list">
               <SettingsInlineInputRow
                 label="输入"

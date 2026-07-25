@@ -105,12 +105,15 @@ export function KeychainContextWindowFlow({
 
   return (
     <>
-      <div class="settings__nav keychain__nav">
-        <IosNavBackButton label={backLabel} onClick={onClose} />
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <IosNavBackButton label={backLabel} onClick={onClose} />
+          <h1 class="settings__nav-heading">上下文</h1>
+          <span class="settings__nav-trailing" aria-hidden="true" />
+        </div>
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <h2 class="settings__section-title">上下文</h2>
           <div class="settings__list">
             <SettingsCheckRow
               label="自动"

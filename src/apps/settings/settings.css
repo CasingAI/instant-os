@@ -145,13 +145,15 @@
 
 .settings__nav-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* 中间列可收缩：长标题 ellipsis，不再用 auto 把两侧挤没 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
   align-items: center;
   min-height: 28px;
   gap: 8px;
 }
 
-.settings__nav-bar .ios-nav-back {
+.settings__nav-bar > .ios-nav-back,
+.settings__nav-bar > .settings__btn {
   justify-self: start;
   min-width: 0;
   max-width: 100%;
@@ -160,11 +162,14 @@
 
 .settings__nav-heading {
   margin: 0;
-  justify-self: center;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
   font-size: 15px;
   font-weight: 600;
   color: #222;
@@ -174,7 +179,8 @@
   z-index: 0;
 }
 
-.settings__nav-bar .ios-nav-back,
+.settings__nav-bar > .ios-nav-back,
+.settings__nav-bar > .settings__btn,
 .settings__nav-trailing {
   position: relative;
   z-index: 1;
@@ -187,8 +193,19 @@
 
 .settings__nav-trailing {
   justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* 空占位：与左侧对称，保证标题视觉居中 */
+.settings__nav-trailing[aria-hidden='true'] {
   width: 1px;
   height: 1px;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .settings__search {

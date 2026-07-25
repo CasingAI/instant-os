@@ -962,43 +962,51 @@ export function KeychainApp() {
 
       return (
         <>
-        <div class="settings__nav keychain__nav">
-          {showSave ? (
-            <button
-              type="button"
-              class="settings__btn settings__btn--plain"
-              onClick={handleProviderCancel}
-            >
-              取消
-            </button>
-          ) : (
-            <IosNavBackButton
-              label="AI 模型供应商"
-              onClick={handleProviderBack}
-            />
-          )}
-          {showSave ? (
-            <button
-              type="button"
-              class="settings__btn settings__btn--default"
-              disabled={!entryValid}
-              onClick={handleProviderSave}
-            >
-              保存
-            </button>
-          ) : showDelete ? (
-            <button
-              type="button"
-              class="settings__btn settings__btn--danger"
-              onClick={handleProviderDelete}
-            >
-              删除
-            </button>
-          ) : null}
+        <div class="settings__nav settings__nav--titled">
+          <div class="settings__nav-bar">
+            {showSave ? (
+              <button
+                type="button"
+                class="settings__btn settings__btn--plain"
+                onClick={handleProviderCancel}
+              >
+                取消
+              </button>
+            ) : (
+              <IosNavBackButton
+                label="AI 模型供应商"
+                onClick={handleProviderBack}
+              />
+            )}
+            <h1 class="settings__nav-heading">{settingsTitle}</h1>
+            {showSave ? (
+              <div class="settings__nav-trailing">
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--default"
+                  disabled={!entryValid}
+                  onClick={handleProviderSave}
+                >
+                  保存
+                </button>
+              </div>
+            ) : showDelete ? (
+              <div class="settings__nav-trailing">
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--danger"
+                  onClick={handleProviderDelete}
+                >
+                  删除
+                </button>
+              </div>
+            ) : (
+              <span class="settings__nav-trailing" aria-hidden="true" />
+            )}
+          </div>
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
-            <h2 class="settings__section-title">{settingsTitle}</h2>
             {editingEntry && (
               <ProviderSettingsForm
                 entry={editingEntry}
@@ -1078,18 +1086,21 @@ export function KeychainApp() {
     if (target === 'github') {
       return (
         <>
-        <div class="settings__nav">
-          <IosNavBackButton
-            label="钥匙串"
-            onClick={() => {
-              setGithubDialogOpen(false)
-              navigateTo('root', 'pop')
-            }}
-          />
+        <div class="settings__nav settings__nav--titled">
+          <div class="settings__nav-bar">
+            <IosNavBackButton
+              label="钥匙串"
+              onClick={() => {
+                setGithubDialogOpen(false)
+                navigateTo('root', 'pop')
+              }}
+            />
+            <h1 class="settings__nav-heading">GitHub</h1>
+            <span class="settings__nav-trailing" aria-hidden="true" />
+          </div>
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
-            <h2 class="settings__section-title">GitHub</h2>
             <div class="settings__list">
               <SettingsNavRow
                 label="Personal Access Token"
@@ -1121,39 +1132,46 @@ export function KeychainApp() {
     if (target === 'ai-providers') {
       return (
         <>
-        <div class="settings__nav keychain__nav">
-          {dirty ? (
-            <button
-              type="button"
-              class="settings__btn settings__btn--plain"
-              onClick={handleCancelChanges}
-            >
-              取消
-            </button>
-          ) : (
-            <IosNavBackButton label="钥匙串" onClick={() => navigateTo('root', 'pop')} />
-          )}
-          {dirty ? (
-            <button
-              type="button"
-              class="settings__btn settings__btn--default"
-              onClick={handleSave}
-            >
-              保存
-            </button>
-          ) : (
-            <button
-              type="button"
-              class="settings__btn settings__btn--plain"
-              onClick={handleAddProvider}
-            >
-              添加
-            </button>
-          )}
+        <div class="settings__nav settings__nav--titled">
+          <div class="settings__nav-bar">
+            {dirty ? (
+              <button
+                type="button"
+                class="settings__btn settings__btn--plain"
+                onClick={handleCancelChanges}
+              >
+                取消
+              </button>
+            ) : (
+              <IosNavBackButton
+                label="钥匙串"
+                onClick={() => navigateTo('root', 'pop')}
+              />
+            )}
+            <h1 class="settings__nav-heading">AI 模型供应商</h1>
+            <div class="settings__nav-trailing">
+              {dirty ? (
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--default"
+                  onClick={handleSave}
+                >
+                  保存
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  class="settings__btn settings__btn--plain"
+                  onClick={handleAddProvider}
+                >
+                  添加
+                </button>
+              )}
+            </div>
+          </div>
         </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
-            <h2 class="settings__section-title">AI 模型供应商</h2>
             {!hasAnyModel ? (
               <div class="settings__box settings__empty">
                 尚未添加供应商。点击右上角「添加」来配置 AI 模型。
@@ -1736,36 +1754,39 @@ function AddModelView({
     }
     return (
       <>
-      <div class="settings__nav keychain__nav">
-        <button
-          type="button"
-          class="settings__btn settings__btn--plain"
-          onClick={onCancel}
-        >
-          取消
-        </button>
-        <button
-          type="button"
-          class="settings__btn settings__btn--default"
-          disabled={!canSubmit}
-          onClick={() =>
-            onComplete({
-              modelId: trimmed,
-              supportsVision,
-              ...pricingSelection,
-              tokenizerFamily,
-              ...(contextWindowMode ? { contextWindowMode } : {}),
-              ...(contextWindow !== undefined ? { contextWindow } : {}),
-            })
-          }
-        >
-          下一步
-        </button>
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <button
+            type="button"
+            class="settings__btn settings__btn--plain"
+            onClick={onCancel}
+          >
+            取消
+          </button>
+          <h1 class="settings__nav-heading">{title}</h1>
+          <div class="settings__nav-trailing">
+            <button
+              type="button"
+              class="settings__btn settings__btn--default"
+              disabled={!canSubmit}
+              onClick={() =>
+                onComplete({
+                  modelId: trimmed,
+                  supportsVision,
+                  ...pricingSelection,
+                  tokenizerFamily,
+                  ...(contextWindowMode ? { contextWindowMode } : {}),
+                  ...(contextWindow !== undefined ? { contextWindow } : {}),
+                })
+              }
+            >
+              下一步
+            </button>
+          </div>
+        </div>
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <h2 class="settings__section-title">{title}</h2>
-
           <div class="keychain__form-stack">
             <div class="keychain__form-group">
               <div class="settings__list">
@@ -2096,22 +2117,27 @@ function ModelSettingsView({
     }
     return (
       <>
-      <div class="settings__nav keychain__nav">
-        <IosNavBackButton label={backLabel} onClick={onBack} />
-        {showRemove ? (
-          <button
-            type="button"
-            class="settings__btn settings__btn--danger"
-            onClick={handleRemove}
-          >
-            移除
-          </button>
-        ) : null}
+      <div class="settings__nav settings__nav--titled">
+        <div class="settings__nav-bar">
+          <IosNavBackButton label={backLabel} onClick={onBack} />
+          <h1 class="settings__nav-heading">{title}</h1>
+          {showRemove ? (
+            <div class="settings__nav-trailing">
+              <button
+                type="button"
+                class="settings__btn settings__btn--danger"
+                onClick={handleRemove}
+              >
+                移除
+              </button>
+            </div>
+          ) : (
+            <span class="settings__nav-trailing" aria-hidden="true" />
+          )}
+        </div>
       </div>
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
-          <h2 class="settings__section-title">{title}</h2>
-
           {editingRow ? (
             <div class="keychain__form-stack">
               <div class="keychain__form-group">
