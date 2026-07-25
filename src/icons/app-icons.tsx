@@ -1382,3 +1382,17 @@ export function VirtualJsIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function UiKitIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#5856d6" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 工具箱网格 */}
+        <rect x="16" y="18" width="13" height="13" rx="2" fill="rgba(255,255,255,0.9)" />
+        <rect x="35" y="18" width="13" height="13" rx="2" fill="rgba(255,255,255,0.9)" />
+        <rect x="16" y="33" width="13" height="13" rx="2" fill="rgba(255,255,255,0.9)" />
+        <rect x="35" y="33" width="13" height="13" rx="2" fill="rgba(255,255,255,0.75)" />
+      </svg>
+    </AppIconTile>
+  )
+}

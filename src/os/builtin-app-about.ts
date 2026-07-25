@@ -265,4 +265,11 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '当前为纯引擎演示，无 Node / VFS / npm。与「终端」职责不同——终端面向文件与特权操作，Virtual JS 面向可复用的 JS 执行环境。',
     ],
   },
+  'ui-kit': {
+    version: 'UI 组件库',
+    paragraphs: [
+      'UI 组件库展示系统内所有可复用的 UI 组件，包括表单控件、设置界面组件、导航交互组件和窗口系统组件。',
+      '每个组件提供实时可交互的 Demo、使用代码示例（可一键复制）和详细的 Props 说明，方便开发者了解和使用系统组件。',
+    ],
+  },
 }

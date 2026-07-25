@@ -31,12 +31,13 @@ import { FilesApp } from '../apps/files/files-app.tsx'
 import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
 import { PreviewApp } from '../apps/preview/preview-app.tsx'
 import { VscodeApp } from '../apps/vscode/vscode-app.tsx'
+import { UiKitApp } from '../apps/ui-kit/ui-kit-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -276,6 +277,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: true,
     desktop: true,
   }),
+  withAbout({
+    id: 'ui-kit',
+    name: 'UI 组件库',
+    icon: UiKitIcon,
+    dock: false,
+    desktop: true,
+  }),
 ]
 
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
@@ -312,6 +320,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   /** @deprecated 模拟终端已弃用，组件映射保留仅为过渡，后续移除 */
   'simulated-terminal': SimulatedTerminalApp,
   'virtual-js': VirtualJsApp,
+  'ui-kit': UiKitApp,
 }
 
 function PlaceholderApp(appId: BuiltinAppId, title: string): ComponentType {
