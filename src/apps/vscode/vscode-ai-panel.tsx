@@ -605,23 +605,28 @@ export function VscodeAiPanel({
 
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return
+    // 先中止旧轮次，让 in-flight catch 仍能读到 live*Ref 快照
+    abortRef.current?.abort()
+    abortRef.current = undefined
     sessionIdRef.current = sessionId
     setDraft('')
     setBusy(false)
     setLiveTimeline([])
     setLiveAnswer('')
-    liveTimelineRef.current = []
-    liveAnswerRef.current = ''
-    liveToolCallCountRef.current = 0
-    liveStartedAtRef.current = 0
-    abortRef.current?.abort()
-    abortRef.current = undefined
+    // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
     historyRef.current = []
     pendingEditsRef.current = []
     turnChangeSessionsRef.current = []
     setEditingUserId(undefined)
     setEditingDraft('')
   }, [sessionId])
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      abortRef.current = undefined
+    }
+  }, [])
 
   const chatTitle = useMemo(() => {
     const firstUser = messages.find((m) => m.role === 'user')?.content?.trim()

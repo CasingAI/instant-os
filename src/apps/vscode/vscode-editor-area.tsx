@@ -793,37 +793,62 @@ function VscodeEditorGroupView({
           />
         ) : undefined}
 
-        {activeItem?.kind === 'preview' ? (
-          <div class="vscode__preview-body">
-            <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
-          </div>
-        ) : activeItem?.kind === 'aiChat' ? (
-          (() => {
-            const session = aiChatSessions?.get(activeItem.sessionId)
-            if (
-              !session ||
-              !getAiContext ||
-              !ensureAgentTerminal ||
-              !getAgentTerminalHandle ||
-              !getAgentTerminalSnapshot ||
-              !aiMode ||
-              !onAiModeChange
-            ) {
+        {(() => {
+          // AI 对话 keep-alive：切到文件等其它 tab 时隐藏而不卸载，避免流式输出丢失
+          const aiChatItems = group.items.filter(
+            (item): item is Extract<VscodeGroupItem, { kind: 'aiChat' }> =>
+              item.kind === 'aiChat',
+          )
+          const activeAiItemId =
+            activeItem?.kind === 'aiChat' ? activeItem.id : undefined
+          if (
+            !getAiContext ||
+            !ensureAgentTerminal ||
+            !getAgentTerminalHandle ||
+            !getAgentTerminalSnapshot ||
+            !aiMode ||
+            !onAiModeChange
+          ) {
+            if (activeAiItemId) {
               return <div class="vscode__group-empty">对话已关闭</div>
             }
+            return undefined
+          }
+          const resolvedAiMode = aiMode
+          const resolvedOnAiModeChange = onAiModeChange
+          const resolvedGetAiContext = getAiContext
+          const resolvedEnsureAgentTerminal = ensureAgentTerminal
+          const resolvedGetAgentTerminalHandle = getAgentTerminalHandle
+          const resolvedGetAgentTerminalSnapshot = getAgentTerminalSnapshot
+
+          return aiChatItems.map((item) => {
+            const session = aiChatSessions?.get(item.sessionId)
+            const isActive = item.id === activeAiItemId
+            if (!session) {
+              if (!isActive) return undefined
+              return (
+                <div key={item.id} class="vscode__group-empty">
+                  对话已关闭
+                </div>
+              )
+            }
             return (
-              <div class="vscode__ai-chat-body">
+              <div
+                key={session.id}
+                class={`vscode__ai-chat-body${isActive ? '' : ' vscode__ai-chat-body--hidden'}`}
+                hidden={!isActive}
+              >
                 <VscodeAiPanel
                   sessionId={session.id}
                   messages={session.messages}
                   onMessagesChange={(next) => onAiChatMessagesChange?.(session.id, next)}
-                  mode={aiMode}
-                  onModeChange={onAiModeChange}
+                  mode={resolvedAiMode}
+                  onModeChange={resolvedOnAiModeChange}
                   aiModelKey={aiModelKey}
                   onAiModelKeyChange={(key) => onAiModelKeyChange?.(key)}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}
-                  getContext={getAiContext}
+                  getContext={resolvedGetAiContext}
                   getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}
                   problems={problems ?? []}
                   getNpmLastChangesSlot={
@@ -833,15 +858,21 @@ function VscodeEditorGroupView({
                     getLastChangeSourceSlot ?? (() => ({ current: undefined }))
                   }
                   onChangesAvailable={onTerminalChangesAvailable}
-                  ensureAgentTerminal={ensureAgentTerminal}
-                  getAgentTerminalHandle={getAgentTerminalHandle}
-                  getAgentTerminalSnapshot={getAgentTerminalSnapshot}
+                  ensureAgentTerminal={resolvedEnsureAgentTerminal}
+                  getAgentTerminalHandle={resolvedGetAgentTerminalHandle}
+                  getAgentTerminalSnapshot={resolvedGetAgentTerminalSnapshot}
                   onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
                   onRejectEdit={onRejectAiEdit ?? (() => undefined)}
                 />
               </div>
             )
-          })()
+          })
+        })()}
+
+        {activeItem?.kind === 'aiChat' ? undefined : activeItem?.kind === 'preview' ? (
+          <div class="vscode__preview-body">
+            <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
+          </div>
         ) : activeItem?.kind === 'searchEditor' ? (
           (() => {
             const session = searchEditorSessions?.get(activeItem.sessionId)

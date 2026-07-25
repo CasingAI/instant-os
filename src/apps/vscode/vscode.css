@@ -2589,6 +2589,10 @@
   background: var(--vscode-paper);
 }
 
+.vscode__ai-chat-body--hidden {
+  display: none;
+}
+
 .vscode__markdown-preview {
   box-sizing: border-box;
   padding: 24px 32px 48px;
