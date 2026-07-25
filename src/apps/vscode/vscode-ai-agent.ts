@@ -27,7 +27,10 @@ const VSCODE_AI_MAX_STEPS = 30
 export type VscodeAiActivity = {
   id: string
   label: string
+  /** 摘要行副文案（如终端 description） */
   detail?: string
+  /** 展开后展示的正文（如实际执行的代码） */
+  content?: string
   done?: boolean
 }
 
@@ -37,6 +40,7 @@ export type VscodeAiTimelineItem =
       id: string
       label: string
       detail?: string
+      content?: string
       done: boolean
     }
   | {
@@ -93,28 +97,34 @@ function formatArgsSuffix(args: unknown): string {
   return ` ${parts.join(' ')}`
 }
 
-function describeToolCall(event: AgentToolCallEvent): { label: string; detail?: string } {
+function describeToolCall(event: AgentToolCallEvent): {
+  label: string
+  detail?: string
+  content?: string
+} {
   const label = VSCODE_AI_TOOL_LABELS[event.toolName] ?? event.toolName
   const args = event.arguments
   if (event.toolName === 'run_in_terminal') {
     const description =
       typeof args.description === 'string' ? args.description.trim() : ''
+    const command = typeof args.command === 'string' ? args.command.trim() : ''
     return {
       label,
       detail: description || undefined,
+      content: command || undefined,
     }
   }
   if (event.toolName === 'npm_run') {
     const script = typeof args.script === 'string' ? args.script.trim() : ''
     if (!script) return { label }
-    const detail = `npm run ${script}${formatArgsSuffix(args.args)}`
-    return { label, detail: detail.slice(0, 48) }
+    const command = `npm run ${script}${formatArgsSuffix(args.args)}`
+    return { label, detail: script, content: command }
   }
   if (event.toolName === 'npx') {
     const pkg = typeof args.package === 'string' ? args.package.trim() : ''
     if (!pkg) return { label }
-    const detail = `npx ${pkg}${formatArgsSuffix(args.args)}`
-    return { label, detail: detail.slice(0, 48) }
+    const command = `npx ${pkg}${formatArgsSuffix(args.args)}`
+    return { label, detail: pkg, content: command }
   }
   const path =
     typeof args.path === 'string'
@@ -156,6 +166,7 @@ function activitiesFromTimeline(timeline: VscodeAiTimelineItem[]): VscodeAiActiv
       id: item.id,
       label: item.label,
       detail: item.detail,
+      content: item.content,
       done: item.done,
     }))
 }
@@ -297,13 +308,20 @@ export async function askVscodeAiAgent(options: {
     toolCallCount += 1
     const desc = describeToolCall(event)
     const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}`
-    activities.push({ id, label: desc.label, detail: desc.detail, done: true })
+    activities.push({
+      id,
+      label: desc.label,
+      detail: desc.detail,
+      content: desc.content,
+      done: true,
+    })
     timeline = markTimelineDone(timeline)
     timeline.push({
       kind: 'activity',
       id,
       label: desc.label,
       detail: desc.detail,
+      content: desc.content,
       done: true,
     })
     emit()

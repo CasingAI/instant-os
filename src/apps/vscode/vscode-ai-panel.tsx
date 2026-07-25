@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type OpenAI from 'openai'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpMarkdown } from '../help/help-markdown.tsx'
@@ -68,6 +68,7 @@ const VSCODE_AI_MODE_OPTIONS = (['ask', 'edit', 'agent'] as const).map((item) =>
 const INVESTIGATION_STEP_STAGGER_MS = 55
 const INVESTIGATION_STEP_ANIM_MS = 320
 const INVESTIGATION_COLLAPSE_MS = 280
+const COMPOSER_INPUT_MAX_LINES = 5
 
 export type VscodeAiPanelProps = {
   sessionId: string
@@ -140,7 +141,27 @@ function formatInvestigationSummary(investigation: VscodeAiInvestigation): strin
   return parts.join(' · ')
 }
 
-function ActivityRow({
+function WaitingDots() {
+  return (
+    <span class="help-app__waiting-dots" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+    </span>
+  )
+}
+
+function WaitingStatus({ label = '等待响应' }: { label?: string }) {
+  return (
+    <div class="help-app__reasoning-status help-app__reasoning-status--waiting" aria-live="polite">
+      <WaitingDots />
+      <span class="help-app__reasoning-status-label">{label}</span>
+      <WaitingDots />
+    </div>
+  )
+}
+
+function ActivityStatus({
   activity,
   live,
   isCurrent,
@@ -149,22 +170,54 @@ function ActivityRow({
   live?: boolean
   isCurrent?: boolean
 }) {
-  const done = Boolean(activity.done) || !live
+  const [expanded, setExpanded] = useState(false)
   const current = Boolean(live) && Boolean(isCurrent) && !activity.done
+  const content = activity.content?.trim() ?? ''
+  const summary = (
+    <>
+      {activity.label}
+      {activity.detail ? (
+        <span class="help-app__reasoning-summary-detail"> · {activity.detail}</span>
+      ) : undefined}
+    </>
+  )
+
+  if (current) {
+    return (
+      <div class="help-app__reasoning-status" aria-live="polite">
+        <span class="help-app__reasoning-status-label">{summary}</span>
+      </div>
+    )
+  }
+
+  if (!content) {
+    return (
+      <div class="help-app__reasoning-status">
+        <span class="help-app__reasoning-status-label">{summary}</span>
+      </div>
+    )
+  }
+
   return (
-    <li
-      class={`help-app__activity-item${done && !current ? ' help-app__activity-item--done' : ''}${current ? ' help-app__activity-item--current' : ''}`}
+    <div
+      class={`help-app__reasoning-panel${expanded ? ' help-app__reasoning-panel--expanded' : ''}`}
     >
-      <span class="help-app__activity-mark" aria-hidden="true">
-        {current ? '…' : done ? '✓' : '•'}
-      </span>
-      <span class="help-app__activity-body">
-        <span class="help-app__activity-label">{activity.label}</span>
-        {activity.detail ? (
-          <span class="help-app__activity-detail">{activity.detail}</span>
-        ) : undefined}
-      </span>
-    </li>
+      <button
+        type="button"
+        class="help-app__reasoning-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span
+          class={`help-app__investigation-chevron${expanded ? ' help-app__investigation-chevron--expanded' : ''}`}
+          aria-hidden="true"
+        />
+        <span class="help-app__reasoning-summary">{summary}</span>
+      </button>
+      {expanded ? (
+        <pre class="help-app__reasoning-body help-app__reasoning-body--code">{content}</pre>
+      ) : undefined}
+    </div>
   )
 }
 
@@ -181,11 +234,7 @@ function ReasoningStatus({
   const reasoningBody = text.trim()
 
   if (streaming) {
-    return (
-      <div class="help-app__reasoning-status help-app__reasoning-status--live" aria-live="polite">
-        <span class="help-app__reasoning-status-label">模型正在思考</span>
-      </div>
-    )
+    return <WaitingStatus />
   }
 
   if (durationMs === undefined) {
@@ -247,9 +296,7 @@ function InvestigationSteps({
             style={stepStyle}
           >
             {item.kind === 'activity' ? (
-              <ol class="help-app__activity-list help-app__activity-list--inline">
-                <ActivityRow activity={item} />
-              </ol>
+              <ActivityStatus activity={item} />
             ) : (
               <ReasoningStatus text={item.content} durationMs={item.durationMs} />
             )}
@@ -361,25 +408,27 @@ function InvestigationPanel({
 }
 
 function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
-  if (items.length === 0) return undefined
+  if (items.length === 0) {
+    return <ReasoningStatus text="" streaming />
+  }
   return (
     <div class="help-app__live-timeline">
       {items.map((item, index) => {
         const isLast = index === items.length - 1
         if (item.kind === 'activity') {
           return (
-            <ol key={item.id} class="help-app__activity-list help-app__activity-list--inline">
-              <ActivityRow
-                activity={{
-                  id: item.id,
-                  label: item.label,
-                  detail: item.detail,
-                  done: item.done,
-                }}
-                live
-                isCurrent={isLast && !item.done}
-              />
-            </ol>
+            <ActivityStatus
+              key={item.id}
+              activity={{
+                id: item.id,
+                label: item.label,
+                detail: item.detail,
+                content: item.content,
+                done: item.done,
+              }}
+              live
+              isCurrent={isLast && !item.done}
+            />
           )
         }
         if (item.kind === 'reasoning') {
@@ -393,8 +442,11 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
           )
         }
         return (
-          <div key={item.id} class="help-app__live-answer help-app__live-answer--streaming">
-            <HelpMarkdown text={item.content} streaming />
+          <div
+            key={item.id}
+            class={`help-app__live-answer${item.done ? '' : ' help-app__live-answer--streaming'}`}
+          >
+            <HelpMarkdown text={item.content} streaming={!item.done} />
           </div>
         )
       })}
@@ -497,6 +549,8 @@ export function VscodeAiPanel({
   const abortRef = useRef<AbortController | undefined>(undefined)
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const composerInputRef = useRef<HTMLTextAreaElement>(null)
+  const composerInputHeightRef = useRef<number | undefined>(undefined)
   const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
   const liveTimelineRef = useRef<VscodeAiTimelineItem[]>([])
   const liveAnswerRef = useRef('')
@@ -509,6 +563,32 @@ export function VscodeAiPanel({
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
+
+  useLayoutEffect(() => {
+    const el = composerInputRef.current
+    if (!el) return
+
+    const styles = getComputedStyle(el)
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 18
+    const paddingY =
+      (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0)
+    const minHeight = lineHeight + paddingY
+    const maxHeight = lineHeight * COMPOSER_INPUT_MAX_LINES + paddingY
+    const previousHeight = composerInputHeightRef.current ?? Math.max(el.offsetHeight, minHeight)
+
+    el.style.transition = 'none'
+    el.style.minHeight = '0'
+    el.style.height = '0px'
+    const contentHeight = el.scrollHeight
+    const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight)
+    el.style.minHeight = ''
+    el.style.height = `${previousHeight}px`
+    void el.offsetHeight
+    el.style.transition = ''
+    el.style.height = `${nextHeight}px`
+    el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden'
+    composerInputHeightRef.current = nextHeight
+  }, [draft])
 
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return
@@ -924,7 +1004,7 @@ export function VscodeAiPanel({
   )
 
   const showWelcome = messages.length === 0 && !busy
-  const showLive = busy && liveTimeline.length > 0
+  const showLive = busy
 
   return (
     <div class="help-app vscode-ai help-app--width-full">
@@ -1079,8 +1159,9 @@ export function VscodeAiPanel({
         ) : undefined}
         <div class="help-app__composer vscode-ai__composer">
           <textarea
+            ref={composerInputRef}
             class="help-app__input"
-            rows={2}
+            rows={1}
             placeholder={
               mode === 'ask'
                 ? '只读问答…'
