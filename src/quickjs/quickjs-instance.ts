@@ -7,6 +7,13 @@ import {
 import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
 import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
 import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
+import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
+import {
+  createTerminalFsJournal,
+  revertTerminalChangeSet,
+  type TerminalFsJournal,
+} from '../terminal/terminal-changeset-journal.ts'
+import type { TerminalFsMode } from '../terminal/terminal-fs-mode.ts'
 import { createQuickJsAsyncContext } from './quickjs-runtime.ts'
 import type {
   QuickJsConsoleLevel,
@@ -63,15 +70,26 @@ function resolveWorkspaceRoot(raw: string | undefined): string | undefined {
   }
 }
 
+function resolveFsMode(options: QuickJsInstanceOptions): TerminalFsMode {
+  if (options.fsMode !== undefined) {
+    return options.fsMode
+  }
+  if (options.readOnly === true) {
+    return 'readonly'
+  }
+  return 'normal'
+}
+
 function resolveHostPermissions(
   workspaceRoot: string | undefined,
   permissions: QuickJsInstanceOptions['permissions'],
-  readOnly: boolean,
+  fsMode: TerminalFsMode,
 ): QuickJsHostPermissions {
   const defaultRoots = workspaceRoot !== undefined ? [workspaceRoot] : []
+  const readOnly = fsMode === 'readonly'
   return {
     fsReadRoots: permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultRoots],
-    // readOnly 强制清空写根，忽略外部传入的 fsWriteRoots
+    // readonly 强制清空写根，忽略外部传入的 fsWriteRoots
     fsWriteRoots: readOnly
       ? []
       : permissions?.fsWriteRoots !== undefined
@@ -96,11 +114,12 @@ function resolveHostConfig(options: QuickJsInstanceOptions): QuickJsHostConfig {
   const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot)
   const env = options.env !== undefined ? { ...options.env } : getResolvedSystemEnv()
   const argv = options.argv !== undefined ? [...options.argv] : [...DEFAULT_ARGV]
+  const fsMode = resolveFsMode(options)
   return {
     workspaceRoot,
     env,
     argv,
-    permissions: resolveHostPermissions(workspaceRoot, options.permissions, options.readOnly === true),
+    permissions: resolveHostPermissions(workspaceRoot, options.permissions, fsMode),
     quotas: resolveHostQuotas(options),
   }
 }
@@ -236,6 +255,7 @@ type InstanceState = {
 export async function createQuickJsInstance(
   options: QuickJsInstanceOptions = {},
 ): Promise<QuickJsInstance> {
+  const fsMode = resolveFsMode(options)
   const hostConfig = freezeHostConfig(resolveHostConfig(options))
   const defaultTimeoutMs = hostConfig.quotas.timeoutMs
   instanceSeq += 1
@@ -245,6 +265,8 @@ export async function createQuickJsInstance(
   let abortRequested = false
   let evalSeq = 0
   let activeSliceTimeoutMs = defaultTimeoutMs
+  let activeJournal: TerminalFsJournal | undefined
+  let lastChanges: TerminalChangeSet | undefined
   const processState = createProcessState(
     hostConfig.workspaceRoot,
     hostConfig.env,
@@ -358,6 +380,7 @@ export async function createQuickJsInstance(
       permissions: hostConfig.permissions,
       maxFileBytes: hostConfig.quotas.maxFileBytes,
       isDestroyed: () => state.destroyed,
+      getJournal: () => activeJournal,
     },
     getEvalParentFilename: () => activeEvalFilename,
   })
@@ -437,6 +460,22 @@ export async function createQuickJsInstance(
     context.dispose()
   }
 
+  const sealActiveJournal = async (): Promise<TerminalChangeSet | undefined> => {
+    const journal = activeJournal
+    activeJournal = undefined
+    if (!journal) return undefined
+    try {
+      const changeSet = await journal.seal()
+      if (changeSet.changes.length === 0) return undefined
+      lastChanges = changeSet
+      return changeSet
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushConsole('warn', `changeset seal failed: ${message}`)
+      return undefined
+    }
+  }
+
   const evalCode = async (
     code: string,
     evalOptions: QuickJsEvalOptions = {},
@@ -449,6 +488,11 @@ export async function createQuickJsInstance(
 
     const consoleStartIndex = state.consoleLines.length
     const consoleSlice = () => state.consoleLines.slice(consoleStartIndex)
+    if (fsMode === 'controlled') {
+      activeJournal = createTerminalFsJournal()
+    }
+
+    let result: QuickJsEvalResult | undefined
 
     try {
       evalSeq += 1
@@ -470,16 +514,14 @@ export async function createQuickJsInstance(
       const evalResult = await context.evalCodeAsync(code, evalFilename)
 
       if (state.destroyed) {
-        return {
+        result = {
           ok: false,
           error: 'QuickJS instance destroyed during evaluation',
           exited: false,
           exitCode: processState.exitCode,
           consoleLines: consoleSlice(),
         }
-      }
-
-      if (evalResult.error) {
+      } else if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
         appendSystemDebugLog({
           layer: 'qjs',
@@ -490,81 +532,100 @@ export async function createQuickJsInstance(
         })
         if (processState.exitRequested) {
           syncExitCodeFromGuest(context, processState)
-          return {
+          result = {
             ok: true,
             value: undefined,
             exited: true,
             exitCode: processState.exitCode,
             consoleLines: consoleSlice(),
           }
-        }
-        syncExitCodeFromGuest(context, processState)
-        return {
-          ok: false,
-          error: abortRequested ? `interrupted: ${error}` : error,
-          exited: false,
-          exitCode: processState.exitCode,
-          consoleLines: consoleSlice(),
-        }
-      }
-
-      try {
-        // 同步结束后排空微任务 / nextTick / Promise jobs；不等待未到期定时器
-        asyncBridge.drainAfterSync()
-        syncExitCodeFromGuest(context, processState)
-        if (processState.exitRequested) {
-          appendSystemDebugLog({
-            layer: 'qjs',
-            op: 'eval-exit',
-            detail: instanceId,
-            durationMs: Math.round(performance.now() - evalStartedAt),
-            force: true,
-          })
-          return {
-            ok: true,
-            value: undefined,
-            exited: true,
+        } else {
+          syncExitCodeFromGuest(context, processState)
+          result = {
+            ok: false,
+            error: abortRequested ? `interrupted: ${error}` : error,
+            exited: false,
             exitCode: processState.exitCode,
             consoleLines: consoleSlice(),
           }
         }
-        appendSystemDebugLog({
-          layer: 'qjs',
-          op: 'eval-done',
-          detail: instanceId,
-          durationMs: Math.round(performance.now() - evalStartedAt),
-          force: true,
-        })
-        return {
-          ok: true,
-          value: dumpEvalValue(context, evalResult.value),
-          exited: false,
-          exitCode: processState.exitCode,
-          consoleLines: consoleSlice(),
-        }
-      } finally {
-        if (evalResult.value.alive) {
-          evalResult.value.dispose()
+      } else {
+        try {
+          // 同步结束后排空微任务 / nextTick / Promise jobs；不等待未到期定时器
+          asyncBridge.drainAfterSync()
+          syncExitCodeFromGuest(context, processState)
+          if (processState.exitRequested) {
+            appendSystemDebugLog({
+              layer: 'qjs',
+              op: 'eval-exit',
+              detail: instanceId,
+              durationMs: Math.round(performance.now() - evalStartedAt),
+              force: true,
+            })
+            result = {
+              ok: true,
+              value: undefined,
+              exited: true,
+              exitCode: processState.exitCode,
+              consoleLines: consoleSlice(),
+            }
+          } else {
+            appendSystemDebugLog({
+              layer: 'qjs',
+              op: 'eval-done',
+              detail: instanceId,
+              durationMs: Math.round(performance.now() - evalStartedAt),
+              force: true,
+            })
+            result = {
+              ok: true,
+              value: dumpEvalValue(context, evalResult.value),
+              exited: false,
+              exitCode: processState.exitCode,
+              consoleLines: consoleSlice(),
+            }
+          }
+        } finally {
+          if (evalResult.value.alive) {
+            evalResult.value.dispose()
+          }
         }
       }
     } catch (error) {
       if (state.destroyed) {
-        return {
+        result = {
           ok: false,
           error: 'QuickJS instance destroyed during evaluation',
           exited: false,
           exitCode: processState.exitCode,
           consoleLines: consoleSlice(),
         }
+      } else {
+        throw error
       }
-      throw error
     } finally {
       activeEvalFilename = undefined
+      const changes = await sealActiveJournal()
+      if (result && changes) {
+        result = { ...result, changes }
+      }
       endSlice()
       if (!state.destroyed) {
         asyncBridge.flushHostTasks()
       }
     }
+
+    return result!
+  }
+
+  const getLastChanges = (): TerminalChangeSet | undefined => lastChanges
+
+  const revertLastChanges = async (): Promise<void> => {
+    assertAlive()
+    const changeSet = lastChanges
+    if (!changeSet) return
+    await revertTerminalChangeSet(changeSet)
+    lastChanges = undefined
   }
 
   return {
@@ -572,6 +633,8 @@ export async function createQuickJsInstance(
     getSnapshot,
     getHostConfig,
     eval: evalCode,
+    getLastChanges,
+    revertLastChanges,
     abort,
     destroy,
     clearConsole,

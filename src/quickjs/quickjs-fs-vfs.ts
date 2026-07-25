@@ -25,6 +25,7 @@ import {
 } from './quickjs-fs-path.ts'
 import type { QuickJsHostPermissions } from './quickjs-instance-types.ts'
 import { beginFsHostTrace } from '../os/system-debug-log.ts'
+import type { TerminalFsJournal } from '../terminal/terminal-changeset-journal.ts'
 
 const REALPATH_MAX_SYMLINKS = 40
 
@@ -86,6 +87,8 @@ export type QuickJsFsHostOps = {
   permissions: QuickJsHostPermissions
   maxFileBytes: number
   isDestroyed: () => boolean
+  /** 受控模式 journal；普通/只读为 undefined */
+  getJournal?: () => TerminalFsJournal | undefined
 }
 
 function entryToStats(entry: FilesApiEntry): QuickJsFsStats {
@@ -126,6 +129,10 @@ function assertAlive(ops: QuickJsFsHostOps): void {
   if (ops.isDestroyed()) {
     throw new QuickJsFsError('EPERM', 'QuickJS instance destroyed during fs operation')
   }
+}
+
+function getJournal(ops: QuickJsFsHostOps): TerminalFsJournal | undefined {
+  return ops.getJournal?.()
 }
 
 async function resolvePath(
@@ -329,6 +336,9 @@ export async function fsHostWriteFile(
         })
       }
 
+      await getJournal(ops)?.noteWrite(absolute)
+      assertAlive(ops)
+
       if (typeof data === 'string') {
         if (existing === undefined) {
           await filesCreateText(absolute, data)
@@ -369,6 +379,9 @@ export async function fsHostAppendFile(
           syscall: 'open',
         })
       }
+
+      await getJournal(ops)?.noteWrite(absolute)
+      assertAlive(ops)
 
       let next: string | Uint8Array
       if (existing === undefined) {
@@ -436,6 +449,8 @@ export async function fsHostMkdir(
       }
 
       if (!recursive) {
+        await getJournal(ops)?.noteMkdir(absolute)
+        assertAlive(ops)
         await filesMkdir(absolute)
         assertAlive(ops)
         return absolute
@@ -449,6 +464,8 @@ export async function fsHostMkdir(
         const entry = await filesStat(current)
         assertAlive(ops)
         if (entry === undefined) {
+          await getJournal(ops)?.noteMkdir(current)
+          assertAlive(ops)
           await filesMkdir(current)
           assertAlive(ops)
           if (firstCreated === undefined) {
@@ -737,6 +754,9 @@ export async function fsHostRename(
         })
       }
 
+      await getJournal(ops)?.noteRename(oldPath, newPath)
+      assertAlive(ops)
+
       const oldDir = pathDirname(oldPath)
       const newDir = pathDirname(newPath)
       const newName = pathBasename(newPath)
@@ -777,6 +797,8 @@ export async function fsHostUnlink(ops: QuickJsFsHostOps, rawPath: unknown): Pro
           syscall: 'unlink',
         })
       }
+      await getJournal(ops)?.noteUnlink(absolute)
+      assertAlive(ops)
       await filesRemove(absolute)
       assertAlive(ops)
     } catch (error) {
@@ -819,6 +841,8 @@ export async function fsHostRm(
           })
         }
       }
+      await getJournal(ops)?.noteRmTree(absolute)
+      assertAlive(ops)
       await filesRemove(absolute)
       assertAlive(ops)
     } catch (error) {
@@ -855,6 +879,8 @@ export async function fsHostRmdir(ops: QuickJsFsHostOps, rawPath: unknown): Prom
           syscall: 'rmdir',
         })
       }
+      await getJournal(ops)?.noteRmTree(absolute)
+      assertAlive(ops)
       await filesRemove(absolute)
       assertAlive(ops)
     } catch (error) {

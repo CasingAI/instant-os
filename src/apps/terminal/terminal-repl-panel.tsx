@@ -12,6 +12,9 @@ import {
 import '../../terminal/terminal-panel.css'
 import './terminal-repl-shell.css'
 import { formatTerminalReplValue } from './terminal-repl-format.ts'
+import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
+import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
+import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
 
 export type TerminalReplRunSource = 'user' | 'program'
 
@@ -22,6 +25,9 @@ export type TerminalReplHandle = {
   clear: () => void
   abort: () => void
   focus: () => void
+  getLastChanges: () => TerminalChangeSet | undefined
+  /** @returns 是否成功撤销（有可撤销变更时为 true） */
+  revertLastChanges: () => Promise<boolean>
 }
 
 export type TerminalReplPanelProps = {
@@ -31,8 +37,15 @@ export type TerminalReplPanelProps = {
   handleRef?: Ref<TerminalReplHandle | null>
   welcomeLines?: readonly string[]
   ariaLabel?: string
-  /** 只读模式：禁止任何 VFS 写操作（创建实例时冻结，切换会重建实例）。 */
-  readOnly?: boolean
+  /**
+   * 文件系统工作模式（创建实例时冻结，切换会重建实例）。
+   * - normal：可写，不记账
+   * - readonly：禁止写
+   * - controlled：可写并记录 ChangeSet
+   */
+  fsMode?: TerminalFsMode
+  /** 受控模式下是否有可撤销的上一轮变更 */
+  onChangesAvailable?: (available: boolean) => void
 }
 
 type DisplayLine =
@@ -74,7 +87,8 @@ export function TerminalReplPanel({
   handleRef,
   welcomeLines,
   ariaLabel = '终端',
-  readOnly = false,
+  fsMode = 'normal',
+  onChangesAvailable,
 }: TerminalReplPanelProps) {
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   const mountedRef = useRef(true)
@@ -92,8 +106,10 @@ export function TerminalReplPanel({
   const justSubmittedRef = useRef(false)
   const workspaceRootRef = useRef(workspaceRoot)
   workspaceRootRef.current = workspaceRoot
-  const readOnlyRef = useRef(readOnly)
-  readOnlyRef.current = readOnly
+  const fsModeRef = useRef(fsMode)
+  fsModeRef.current = fsMode
+  const onChangesAvailableRef = useRef(onChangesAvailable)
+  onChangesAvailableRef.current = onChangesAvailable
 
   const [lines, setLines] = useState<DisplayLine[]>(() =>
     (welcomeLines ?? []).map((text, index) => ({
@@ -180,7 +196,7 @@ export function TerminalReplPanel({
       const instance = await createQuickJsInstance({
         workspaceRoot: root,
         cwd: root,
-        readOnly: readOnlyRef.current,
+        fsMode: fsModeRef.current,
       })
       bindInstance(instance)
     } catch (error) {
@@ -205,15 +221,16 @@ export function TerminalReplPanel({
     }
   }, [createInstance])
 
-  // readOnly 变化时重建实例（权限在创建时冻结，不可中途变更）
-  const firstReadOnlyRef = useRef(true)
+  // fsMode 变化时重建实例（权限在创建时冻结，不可中途变更）
+  const firstFsModeRef = useRef(true)
   useEffect(() => {
-    if (firstReadOnlyRef.current) {
-      firstReadOnlyRef.current = false
+    if (firstFsModeRef.current) {
+      firstFsModeRef.current = false
       return
     }
+    onChangesAvailableRef.current?.(false)
     void createInstance()
-  }, [readOnly, createInstance])
+  }, [fsMode, createInstance])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -290,6 +307,13 @@ export function TerminalReplPanel({
         setCwd(instance.getSnapshot().cwd)
 
         if (result.ok) {
+          if (result.changes && result.changes.changes.length > 0) {
+            appendLine({
+              kind: 'info',
+              text: formatTerminalChangeSummary(result.changes),
+            })
+            onChangesAvailableRef.current?.(true)
+          }
           if (result.exited) {
             appendLine({
               kind: 'info',
@@ -314,6 +338,13 @@ export function TerminalReplPanel({
           return formatEvalOutput(result)
         }
 
+        if (result.changes && result.changes.changes.length > 0) {
+          appendLine({
+            kind: 'info',
+            text: formatTerminalChangeSummary(result.changes),
+          })
+          onChangesAvailableRef.current?.(true)
+        }
         appendLine({ kind: 'error', text: result.error })
         return formatEvalOutput(result)
       } catch (error) {
@@ -354,6 +385,31 @@ export function TerminalReplPanel({
     focusInput()
   }, [focusInput])
 
+  const getLastChanges = useCallback((): TerminalChangeSet | undefined => {
+    return instanceRef.current?.getLastChanges()
+  }, [])
+
+  const revertLastChanges = useCallback(async (): Promise<boolean> => {
+    const instance = instanceRef.current
+    if (!instance || instance.getSnapshot().destroyed) {
+      return false
+    }
+    const before = instance.getLastChanges()
+    if (!before || before.changes.length === 0) {
+      return false
+    }
+    try {
+      await instance.revertLastChanges()
+      appendLine({ kind: 'info', text: '已撤销上一轮改动' })
+      onChangesAvailableRef.current?.(false)
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendLine({ kind: 'error', text: `撤销失败：${message}` })
+      return false
+    }
+  }, [appendLine])
+
   useEffect(() => {
     const handle: TerminalReplHandle = {
       runCode,
@@ -362,6 +418,8 @@ export function TerminalReplPanel({
       clear: clearScreen,
       abort: handleAbort,
       focus: focusInput,
+      getLastChanges,
+      revertLastChanges,
     }
 
     if (typeof handleRef === 'function') {
@@ -375,7 +433,17 @@ export function TerminalReplPanel({
       }
     }
     return undefined
-  }, [chdir, clearScreen, cwd, focusInput, handleAbort, handleRef, runCode])
+  }, [
+    chdir,
+    clearScreen,
+    cwd,
+    focusInput,
+    getLastChanges,
+    handleAbort,
+    handleRef,
+    revertLastChanges,
+    runCode,
+  ])
 
   const rememberCommand = useCallback((line: string) => {
     const trimmed = line.trim()
@@ -462,9 +530,13 @@ export function TerminalReplPanel({
           实例启动失败：{bootError}
         </div>
       ) : undefined}
-      {readOnly ? (
+      {fsMode === 'readonly' ? (
         <div class="terminal-repl-shell__banner terminal-repl-shell__banner--readonly">
           只读模式 · 写操作将被拒绝
+        </div>
+      ) : fsMode === 'controlled' ? (
+        <div class="terminal-repl-shell__banner terminal-repl-shell__banner--controlled">
+          受控模式 · 本轮改动将被记录
         </div>
       ) : undefined}
       <div

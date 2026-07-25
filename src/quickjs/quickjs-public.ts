@@ -18,6 +18,8 @@ export type {
   QuickJsInstanceOptions,
   QuickJsInstanceSnapshot,
 } from './quickjs-instance-types.ts'
+export type { TerminalChangeSet, TerminalChangeEntry, TerminalChangeKind } from '../terminal/terminal-changeset.ts'
+export type { TerminalFsMode } from '../terminal/terminal-fs-mode.ts'
 
 export { runQuickJsSandbox } from './quickjs-sandbox.ts'
 export type {

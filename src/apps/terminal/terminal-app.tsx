@@ -4,6 +4,10 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import {
+  TERMINAL_FS_MODE_LABEL,
+  type TerminalFsMode,
+} from '../../terminal/terminal-fs-mode.ts'
 import { TerminalReplPanel, type TerminalReplHandle } from './terminal-repl-panel.tsx'
 import './terminal-repl-shell.css'
 
@@ -20,7 +24,8 @@ export function TerminalApp() {
   const { showBuiltinAbout } = useAboutApp()
   const handleRef = useRef<TerminalReplHandle | null>(null)
   const busyRef = useRef(false)
-  const [readOnly, setReadOnly] = useState(false)
+  const [fsMode, setFsMode] = useState<TerminalFsMode>('normal')
+  const [canRevert, setCanRevert] = useState(false)
 
   const welcomeLines = useMemo(
     () => [
@@ -42,8 +47,18 @@ export function TerminalApp() {
     handleRef.current?.abort()
   }, [])
 
+  const handleRevert = useCallback(() => {
+    void (async () => {
+      const ok = await handleRef.current?.revertLastChanges()
+      if (ok) {
+        setCanRevert(false)
+      }
+    })()
+  }, [])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
+    const modeItems: TerminalFsMode[] = ['normal', 'readonly', 'controlled']
 
     return [
       {
@@ -85,21 +100,29 @@ export function TerminalApp() {
             disabled: !busyRef.current,
             onClick: handleAbort,
           },
-          { type: 'separator' },
           {
             type: 'action',
-            label: `${menuCheckPrefix(readOnly)}只读模式`,
-            onClick: () => setReadOnly((value) => !value),
+            label: '撤销上一轮改动',
+            disabled: !canRevert || fsMode !== 'controlled',
+            onClick: handleRevert,
           },
+          { type: 'separator' },
+          ...modeItems.map((mode) => ({
+            type: 'action' as const,
+            label: `${menuCheckPrefix(fsMode === mode)}${TERMINAL_FS_MODE_LABEL[mode]}模式`,
+            onClick: () => setFsMode(mode),
+          })),
         ],
       },
     ]
   }, [
+    canRevert,
     clearScreen,
     closeWindowsForApp,
+    fsMode,
     handleAbort,
+    handleRevert,
     minimizeWindow,
-    readOnly,
     resetInstance,
     showBuiltinAbout,
     windows,
@@ -113,7 +136,8 @@ export function TerminalApp() {
         workspaceRoot={WORKSPACE_ROOT}
         handleRef={handleRef}
         welcomeLines={welcomeLines}
-        readOnly={readOnly}
+        fsMode={fsMode}
+        onChangesAvailable={setCanRevert}
       />
     </div>
   )

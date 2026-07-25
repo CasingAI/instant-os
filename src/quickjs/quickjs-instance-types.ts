@@ -1,3 +1,6 @@
+import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
+import type { TerminalFsMode } from '../terminal/terminal-fs-mode.ts'
+
 /** QuickJS 实例控制台级别。 */
 export type QuickJsConsoleLevel = 'log' | 'info' | 'warn' | 'error'
 
@@ -61,12 +64,14 @@ export type QuickJsInstanceOptions = {
   /** 伪 process.argv；默认 `['instant-node']`。 */
   argv?: string[]
   /**
-   * 实例只读模式。为 `true` 时强制 `fsWriteRoots` 为空，任何 VFS 写操作（writeFile /
-   * mkdir / rm / rename 等）在进入 VFS 之前就被 `assertFsPermission` 拒绝，脚本侧收到
-   * `EACCES`。读取根不受影响。
-   *
-   * 权限在创建时冻结；切换需重建实例。
-   * 未来当 JS 可修改系统配置等通道时，此标志可统一关掉所有写入通道。
+   * 文件系统工作模式（创建时冻结；切换需重建实例）。
+   * - `normal`：可写，不记变更
+   * - `readonly`：强制 `fsWriteRoots` 为空，写操作 EACCES
+   * - `controlled`：可写，每轮 eval 记录 ChangeSet（before + 清单）
+   */
+  fsMode?: TerminalFsMode
+  /**
+   * @deprecated 使用 `fsMode: 'readonly'`。为 true 时等同只读。
    */
   readOnly?: boolean
   /**
@@ -108,6 +113,8 @@ export type QuickJsEvalSuccess = {
   /** 是否由 process.exit 结束本轮任务。 */
   exited: boolean
   consoleLines: QuickJsConsoleLine[]
+  /** 受控模式下本轮文件系统变更；无改动时为 undefined 或空 changes。 */
+  changes?: TerminalChangeSet
 }
 
 export type QuickJsEvalFailure = {
@@ -116,6 +123,7 @@ export type QuickJsEvalFailure = {
   exitCode: number
   exited: boolean
   consoleLines: QuickJsConsoleLine[]
+  changes?: TerminalChangeSet
 }
 
 export type QuickJsEvalResult = QuickJsEvalSuccess | QuickJsEvalFailure
@@ -148,6 +156,10 @@ export type QuickJsInstance = {
    * 返回值中的 value 仅作 REPL 展示；exitCode 只反映 process.exit / exitCode。
    */
   eval: (code: string, options?: QuickJsEvalOptions) => Promise<QuickJsEvalResult>
+  /** 最近一轮受控 eval 的 ChangeSet（若有）。 */
+  getLastChanges: () => TerminalChangeSet | undefined
+  /** 整轮回滚最近一轮受控变更；无则 no-op。 */
+  revertLastChanges: () => Promise<void>
   /**
    * 中断当前同步切片（若有），并取消全部挂起定时器 / 待办宿主任务。
    * 实例仍存活，可继续 eval。
