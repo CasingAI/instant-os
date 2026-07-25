@@ -24,6 +24,9 @@ type SettingsChoicePickerViewProps = {
   closeOnSelect?: boolean
   /** 隐藏内容区小标题，标题改放导航栏中央 */
   titleInNav?: boolean
+  /** 网络请求进行中：空列表显示转圈，有列表则盖遮罩 */
+  loading?: boolean
+  loadingLabel?: string
 }
 
 export function SettingsChoicePickerView({
@@ -38,6 +41,8 @@ export function SettingsChoicePickerView({
   searchPlaceholder = '搜索',
   closeOnSelect = true,
   titleInNav = false,
+  loading = false,
+  loadingLabel = '加载中…',
 }: SettingsChoicePickerViewProps) {
   const [query, setQuery] = useState('')
 
@@ -52,11 +57,14 @@ export function SettingsChoicePickerView({
   }, [options, query])
 
   const handleChange = (next: string) => {
+    if (loading) return
     onChange(next)
     if (closeOnSelect) {
       onBack()
     }
   }
+
+  const showEmptyLoading = loading && filteredOptions.length === 0
 
   return (
     <>
@@ -66,7 +74,11 @@ export function SettingsChoicePickerView({
         }`}
       >
         <div class="settings__nav-bar">
-          <IosNavBackButton label={backLabel} onClick={onBack} />
+          <IosNavBackButton
+            label={backLabel}
+            onClick={onBack}
+            disabled={loading}
+          />
           {titleInNav ? (
             <h1 class="settings__nav-heading">{title}</h1>
           ) : (
@@ -87,6 +99,7 @@ export function SettingsChoicePickerView({
               aria-label={searchPlaceholder}
               spellcheck={false}
               enterkeyhint="search"
+              disabled={loading}
               onInput={(event) =>
                 setQuery((event.currentTarget as HTMLInputElement).value)
               }
@@ -97,19 +110,41 @@ export function SettingsChoicePickerView({
       <div class="settings__content settings__content--compact">
         <section class="settings__section">
           {!titleInNav && <h2 class="settings__section-title">{title}</h2>}
-          {filteredOptions.length > 0 ? (
-            <SettingsChoiceOptionList
-              options={filteredOptions}
-              value={value}
-              onChange={handleChange}
-              ariaLabel={title}
-            />
+          {showEmptyLoading ? (
+            <div class="settings__box settings__loading" aria-live="polite">
+              <span class="settings__loading-spinner" aria-hidden="true" />
+              <span>{loadingLabel}</span>
+            </div>
+          ) : filteredOptions.length > 0 ? (
+            <div
+              class={
+                loading ? 'settings__choice-loading' : undefined
+              }
+            >
+              <SettingsChoiceOptionList
+                options={filteredOptions}
+                value={value}
+                onChange={handleChange}
+                ariaLabel={title}
+              />
+              {loading && (
+                <div
+                  class="settings__choice-loading-overlay"
+                  aria-live="polite"
+                >
+                  <span class="settings__loading-spinner" aria-hidden="true" />
+                  <span>{loadingLabel}</span>
+                </div>
+              )}
+            </div>
           ) : (
             <div class="settings__box settings__empty">
               {query.trim() ? '无匹配结果' : '暂无选项'}
             </div>
           )}
-          {footnote && <p class="settings__section-footnote">{footnote}</p>}
+          {footnote && !loading && (
+            <p class="settings__section-footnote">{footnote}</p>
+          )}
         </section>
       </div>
     </>

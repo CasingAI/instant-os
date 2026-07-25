@@ -143,13 +143,13 @@ export function KeychainPricingFlow({
   const [openRouterQuery, setOpenRouterQuery] = useState(modelId)
   const [searchHits, setSearchHits] = useState<OpenRouterModelSearchHit[]>([])
   const [searchError, setSearchError] = useState<string | undefined>()
-  const [searchBusy, setSearchBusy] = useState(false)
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<
     OpenRouterModelSearchHit | undefined
   >()
   const [endpointHits, setEndpointHits] = useState<OpenRouterEndpointHit[]>([])
   const [endpointError, setEndpointError] = useState<string | undefined>()
-  const [endpointBusy, setEndpointBusy] = useState(false)
+  const [providersLoading, setProvidersLoading] = useState(false)
+  const [bindingBusy, setBindingBusy] = useState(false)
   const [manualInput, setManualInput] = useState(
     selection.manualPricing?.inputPricePerMillion.toString() ?? '',
   )
@@ -214,26 +214,26 @@ export function KeychainPricingFlow({
 
   const runOpenRouterSearch = async (query: string) => {
     setOpenRouterQuery(query)
-    setSearchBusy(true)
     setSearchError(undefined)
-    navigate('openrouter-results', 'push')
+    setSearchHits([])
     try {
       const hits = await searchOpenRouterModels(query)
       setSearchHits(hits)
       if (hits.length === 0) {
         setSearchError('没有匹配的模型，请返回修改关键词')
       }
+      navigate('openrouter-results', 'push')
     } catch (error) {
       setSearchHits([])
       setSearchError(error instanceof Error ? error.message : '搜索失败')
-    } finally {
-      setSearchBusy(false)
+      navigate('openrouter-results', 'push')
     }
   }
 
   const openOpenRouterProviders = async (hit: OpenRouterModelSearchHit) => {
+    if (providersLoading || bindingBusy) return
     setSelectedOpenRouterModel(hit)
-    setEndpointBusy(true)
+    setProvidersLoading(true)
     setEndpointError(undefined)
     setEndpointHits([])
     navigate('openrouter-providers', 'push')
@@ -246,13 +246,13 @@ export function KeychainPricingFlow({
     } catch (error) {
       setEndpointError(error instanceof Error ? error.message : '获取 Provider 失败')
     } finally {
-      setEndpointBusy(false)
+      setProvidersLoading(false)
     }
   }
 
   const bindProvider = async (endpoint: OpenRouterEndpointHit) => {
-    if (!selectedOpenRouterModel) return
-    setEndpointBusy(true)
+    if (!selectedOpenRouterModel || bindingBusy || providersLoading) return
+    setBindingBusy(true)
     setEndpointError(undefined)
     try {
       await bindOpenRouterPricing({
@@ -272,7 +272,7 @@ export function KeychainPricingFlow({
     } catch (error) {
       setEndpointError(error instanceof Error ? error.message : '绑定失败')
     } finally {
-      setEndpointBusy(false)
+      setBindingBusy(false)
     }
   }
 
@@ -446,20 +446,16 @@ export function KeychainPricingFlow({
         titleInNav
         closeOnSelect={false}
         footnote={
-          searchBusy
-            ? '正在搜索…'
-            : searchError
-              ? searchError
-              : '选择一个模型以继续选择 Provider。结果不对可返回重新输入。'
+          searchError
+            ? searchError
+            : '选择一个模型以继续选择 Provider。结果不对可返回重新输入。'
         }
         onChange={(value) => {
+          if (providersLoading || bindingBusy) return
           const hit = searchHits.find((item) => item.id === value)
           if (hit) void openOpenRouterProviders(hit)
         }}
-        onBack={() => {
-          navigate('source', 'pop')
-          setOpenRouterQueryDialogOpen(true)
-        }}
+        onBack={() => navigate('source', 'pop')}
       />
     )
     }
@@ -475,6 +471,7 @@ export function KeychainPricingFlow({
         label: `${hit.providerName}${price === '—' ? '' : `（${price}）`}`,
       }
     })
+    const providersBusy = providersLoading || bindingBusy
       return (
       <SettingsChoicePickerView
         title="选择 Provider"
@@ -483,20 +480,26 @@ export function KeychainPricingFlow({
         value={selection.openRouterPricing?.providerTag ?? ''}
         titleInNav
         closeOnSelect={false}
+        loading={providersBusy}
+        loadingLabel={
+          bindingBusy ? '正在绑定定价…' : '正在加载 Provider…'
+        }
         footnote={
-          endpointBusy
-            ? '加载中…'
-            : endpointError
-              ? endpointError
-              : selectedOpenRouterModel
-                ? `模型 ${selectedOpenRouterModel.id}`
-                : undefined
+          endpointError
+            ? endpointError
+            : selectedOpenRouterModel
+              ? `模型 ${selectedOpenRouterModel.id}`
+              : undefined
         }
         onChange={(value) => {
+          if (providersBusy) return
           const hit = endpointHits.find((item) => item.providerTag === value)
           if (hit) void bindProvider(hit)
         }}
-        onBack={() => navigate('openrouter-results', 'pop')}
+        onBack={() => {
+          if (providersBusy) return
+          navigate('openrouter-results', 'pop')
+        }}
       />
     )
     }
@@ -577,9 +580,7 @@ export function KeychainPricingFlow({
         requireDirty={false}
         saveLabel="下一步"
         onClose={() => setOpenRouterQueryDialogOpen(false)}
-        onSave={(value) => {
-          void runOpenRouterSearch(value)
-        }}
+        onSave={runOpenRouterSearch}
       />
     </>
   )

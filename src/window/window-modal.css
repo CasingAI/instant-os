@@ -242,6 +242,10 @@
 }
 
 .window-modal__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 68px;
   padding: 5px 14px;
   border-radius: 6px;
@@ -256,6 +260,38 @@
     0 1px 0 rgba(255, 255, 255, 0.35);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
   cursor: pointer;
+}
+
+.window-modal__btn-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: window-modal-btn-spin 0.7s linear infinite;
+}
+
+.window-modal__btn--busy {
+  min-width: 68px;
+}
+
+.window-modal__btn--secondary .window-modal__btn-spinner,
+.window-modal__btn:not(.window-modal__btn--primary):not(.window-modal__btn--danger)
+  .window-modal__btn-spinner {
+  border-color: rgba(0, 0, 0, 0.12);
+  border-top-color: #555;
+}
+
+.window-modal__btn--primary:disabled .window-modal__btn-spinner {
+  border-color: rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+}
+
+@keyframes window-modal-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .window-modal__btn--secondary:active:not(:disabled) {

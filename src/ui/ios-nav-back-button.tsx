@@ -29,7 +29,7 @@ export function IosNavBackButton({
       <span class="ios-nav-back__icon" aria-hidden="true">
         <BackIcon size={iconSize} />
       </span>
-      {label}
+      <span class="ios-nav-back__label">{label}</span>
     </button>
   )
 }

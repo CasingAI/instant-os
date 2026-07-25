@@ -14,7 +14,7 @@ type KeychainTextFieldDialogProps = {
   requireDirty?: boolean
   saveLabel?: string
   onClose: () => void
-  onSave: (value: string) => void
+  onSave: (value: string) => void | Promise<void>
 }
 
 export function KeychainTextFieldDialog({
@@ -33,11 +33,13 @@ export function KeychainTextFieldDialog({
 }: KeychainTextFieldDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(value)
+  const [busy, setBusy] = useState(false)
   const inputId = `keychain-field-${title}`
 
   useEffect(() => {
     if (!open) return
     setDraft(value)
+    setBusy(false)
   }, [open, value])
 
   useEffect(() => {
@@ -49,32 +51,46 @@ export function KeychainTextFieldDialog({
   const trimmed = draft.trim()
   const dirty = draft !== value
   const canSave =
-    (allowEmpty || trimmed.length > 0) && (!requireDirty || dirty)
+    (allowEmpty || trimmed.length > 0) && (!requireDirty || dirty) && !busy
 
-  const handleSave = () => {
-    if (!canSave) return
-    onSave(type === 'password' ? draft : trimmed)
+  const handleClose = () => {
+    if (busy) return
     onClose()
+  }
+
+  const handleSave = async () => {
+    if (!canSave) return
+    setBusy(true)
+    try {
+      await onSave(type === 'password' ? draft : trimmed)
+      onClose()
+    } catch {
+      // 保留对话框，由调用方处理错误提示
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <WindowModal
       open={open}
       title={title}
-      onClose={onClose}
+      onClose={handleClose}
       actions={[
         {
           key: 'cancel',
           label: '取消',
           tone: 'secondary',
-          onClick: onClose,
+          disabled: busy,
+          onClick: handleClose,
         },
         {
           key: 'save',
           label: saveLabel,
           tone: 'primary',
           disabled: !canSave,
-          onClick: handleSave,
+          busy,
+          onClick: () => void handleSave(),
         },
       ]}
     >
@@ -89,10 +105,11 @@ export function KeychainTextFieldDialog({
           placeholder={placeholder}
           autoComplete="off"
           spellcheck={false}
+          disabled={busy}
           onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && canSave) {
-              handleSave()
+              void handleSave()
             }
           }}
         />

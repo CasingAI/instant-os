@@ -15,6 +15,8 @@ export type WindowModalAction = {
   label: string
   tone?: WindowModalActionTone
   disabled?: boolean
+  /** 在按钮文案前显示转圈（用于异步提交） */
+  busy?: boolean
   onClick: () => void | boolean | Promise<void | boolean>
 }
 
@@ -147,11 +149,19 @@ export function WindowModal({
               <button
                 key={action.key ?? action.label}
                 type="button"
-                class={`window-modal__btn window-modal__btn--${action.tone ?? 'secondary'}`}
+                class={`window-modal__btn window-modal__btn--${action.tone ?? 'secondary'}${
+                  action.busy ? ' window-modal__btn--busy' : ''
+                }`}
                 disabled={action.disabled || closing}
+                aria-busy={action.busy || undefined}
+                aria-label={action.busy ? action.label : undefined}
                 onClick={() => void action.onClick()}
               >
-                {action.label}
+                {action.busy ? (
+                  <span class="window-modal__btn-spinner" aria-hidden="true" />
+                ) : (
+                  action.label
+                )}
               </button>
             ))}
           </div>

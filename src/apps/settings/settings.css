@@ -153,6 +153,9 @@
 
 .settings__nav-bar .ios-nav-back {
   justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 1;
 }
 
 .settings__nav-heading {
@@ -166,6 +169,15 @@
   font-weight: 600;
   color: #222;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  /* 避免与两侧按钮抢层叠时文字叠在按钮上 */
+  position: relative;
+  z-index: 0;
+}
+
+.settings__nav-bar .ios-nav-back,
+.settings__nav-trailing {
+  position: relative;
+  z-index: 1;
 }
 
 .settings__nav-heading-spacer,
@@ -1245,6 +1257,55 @@
   font-size: 12px;
   color: #888;
   text-align: center;
+}
+
+.settings__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 140px;
+  padding: 24px 20px;
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+}
+
+.settings__loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(0, 122, 255, 0.18);
+  border-top-color: #007aff;
+  border-radius: 50%;
+  animation: settings-loading-spin 0.7s linear infinite;
+}
+
+.settings__choice-loading {
+  position: relative;
+}
+
+.settings__choice-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 5px;
+  background: rgba(245, 245, 245, 0.82);
+  backdrop-filter: blur(1.5px);
+  font-size: 12px;
+  color: #555;
+  text-align: center;
+}
+
+@keyframes settings-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Detail pane ── */

@@ -26,6 +26,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  max-width: 100%;
   height: var(--ios-nav-back-height);
   padding: var(--ios-nav-back-padding);
   border: var(--ios-nav-back-border);
@@ -47,6 +48,13 @@
   justify-content: center;
   flex-shrink: 0;
   overflow: visible;
+}
+
+.ios-nav-back__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ios-nav-back:hover {
