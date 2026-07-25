@@ -42,6 +42,11 @@ const SAMPLE_PROMPTS = [
   '在工作区里搜索某个符号',
 ] as const
 
+const VSCODE_AI_MODE_OPTIONS = (['ask', 'edit', 'agent'] as const).map((item) => ({
+  id: item as string,
+  label: VSCODE_AI_MODE_LABELS[item],
+}))
+
 export type VscodeAiPanelProps = {
   sessionId: string
   messages: VscodeAiChatMessage[]
@@ -452,39 +457,64 @@ export function VscodeAiPanel({
           <div class="vscode-ai__composer-footer">
             <label class="vscode-ai__footer-field vscode-ai__footer-field--mode">
               <span class="vscode-ai__footer-label">模式</span>
-              <select
-                class="vscode-ai__footer-select"
+              <SettingsChoiceField
+                label="AI 模式"
                 value={mode}
-                disabled={busy}
-                aria-label="AI 模式"
-                onChange={(event) => {
-                  const value = (event.target as HTMLSelectElement).value
+                options={VSCODE_AI_MODE_OPTIONS}
+                onChange={(value) => {
                   if (isVscodeAiMode(value)) onModeChange(value)
                 }}
+                disabled={busy}
+                wideLayout
+                dark={dark}
               >
-                {(['ask', 'edit', 'agent'] as const).map((item) => (
-                  <option key={item} value={item}>
-                    {VSCODE_AI_MODE_LABELS[item]}
-                  </option>
-                ))}
-              </select>
+                {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
+                  <button
+                    ref={triggerRef}
+                    type="button"
+                    class={`vscode-ai__footer-select vscode-ai__footer-select--trigger${open ? ' vscode-ai__footer-select--open' : ''}`}
+                    disabled={triggerDisabled}
+                    aria-haspopup="listbox"
+                    aria-expanded={open}
+                    aria-label="AI 模式"
+                    onClick={() => setOpen(!open)}
+                  >
+                    {displayValue}
+                  </button>
+                )}
+              </SettingsChoiceField>
             </label>
-            <SettingsChoiceField
-              label="模型"
-              value={resolvedModelKey ?? ''}
-              options={
-                modelOptions.length === 0
-                  ? [{ id: '', label: '未配置文本模型' }]
-                  : modelOptions
-              }
-              onChange={onAiModelKeyChange}
-              disabled={busy || textModels.length === 0}
-              wideLayout
-              presentation="form"
-              fieldClass="vscode-ai__footer-field vscode-ai__footer-field--model"
-              labelClass="vscode-ai__footer-label"
-              dark={dark}
-            />
+            <label class="vscode-ai__footer-field vscode-ai__footer-field--model">
+              <span class="vscode-ai__footer-label">模型</span>
+              <SettingsChoiceField
+                label="模型"
+                value={resolvedModelKey ?? ''}
+                options={
+                  modelOptions.length === 0
+                    ? [{ id: '', label: '未配置文本模型' }]
+                    : modelOptions
+                }
+                onChange={onAiModelKeyChange}
+                disabled={busy || textModels.length === 0}
+                wideLayout
+                dark={dark}
+              >
+                {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
+                  <button
+                    ref={triggerRef}
+                    type="button"
+                    class={`vscode-ai__footer-select vscode-ai__footer-select--trigger${open ? ' vscode-ai__footer-select--open' : ''}`}
+                    disabled={triggerDisabled}
+                    aria-haspopup="listbox"
+                    aria-expanded={open}
+                    aria-label="模型"
+                    onClick={() => setOpen(!open)}
+                  >
+                    {displayValue}
+                  </button>
+                )}
+              </SettingsChoiceField>
+            </label>
             {busy ? (
               <button
                 type="button"

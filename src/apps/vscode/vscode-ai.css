@@ -143,21 +143,22 @@
   cursor: default;
 }
 
-/* 系统下拉控件（SettingsChoiceField）在 footer 中的布局适配 */
-.vscode-ai__footer-field .settings-choice-field {
-  flex: 1;
-  min-width: 0;
+/* SettingsChoiceField 自定义 trigger：沿用原生 select 外观，补下拉箭头与文本截断 */
+.vscode-ai__footer-select--trigger {
+  padding-right: 22px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23666666' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E") no-repeat right 8px center / 10px 6px,
+    linear-gradient(180deg, #fffdf8 0%, var(--help-paper) 100%);
 }
 
-.vscode-ai__footer-field .settings-choice-field__trigger {
-  height: 30px;
-  font-size: 11px;
-  font-family: inherit;
-}
-
-.vscode-ai__footer-field .settings-choice-field__trigger:disabled {
-  opacity: 0.55;
-  cursor: default;
+.vscode-ai__footer-select--trigger.vscode-ai__footer-select--open,
+.vscode-ai__footer-select--trigger:focus-visible {
+  outline: none;
+  border-color: var(--help-accent);
 }
 
 .vscode-ai__composer-footer .help-app__send,
@@ -316,6 +317,14 @@
 .vscode--chrome-dark .vscode-ai .vscode-ai__footer-select {
   background: linear-gradient(180deg, #363640 0%, var(--help-paper) 100%);
   border: 1px solid var(--help-border);
+}
+
+/* 自定义 trigger：深色渐变 + 浅色箭头（深色覆写用 background 简写，会重置
+   repeat/position/size，这里同样用简写整体重声明） */
+.vscode--chrome-dark .vscode-ai .vscode-ai__footer-select--trigger {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23b0b0b8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E") no-repeat right 8px center / 10px 6px,
+    linear-gradient(180deg, #363640 0%, var(--help-paper) 100%);
 }
 
 /* 发送按钮 */
