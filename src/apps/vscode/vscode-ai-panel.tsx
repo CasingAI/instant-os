@@ -129,7 +129,10 @@ function formatThinkingDuration(durationMs: number): string {
 
 function formatInvestigationSummary(investigation: VscodeAiInvestigation): string {
   const parts = ['已完成调查']
-  if (investigation.reasoningDurationMs !== undefined) {
+  if (
+    investigation.reasoningDurationMs !== undefined &&
+    investigation.reasoningDurationMs >= 5000
+  ) {
     parts.push(formatThinkingDuration(investigation.reasoningDurationMs))
   }
   parts.push(
