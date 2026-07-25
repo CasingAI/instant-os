@@ -991,6 +991,13 @@ export function KeychainApp() {
 
     return (
       <div class="settings">
+        <div class="settings__nav settings__nav--titled">
+          <div class="settings__nav-bar">
+            <span class="settings__nav-heading-spacer" aria-hidden="true" />
+            <h1 class="settings__nav-heading">钥匙串</h1>
+            <span class="settings__nav-trailing" aria-hidden="true" />
+          </div>
+        </div>
         <div class="settings__content settings__content--compact">
           <section class="settings__section">
             <h2 class="settings__section-title">凭证</h2>
