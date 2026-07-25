@@ -14,6 +14,7 @@ import { diffRevisionSnapshot, fileIndexHasAnyRevisionId } from './github-revisi
 import {
   buildFileIndex,
   buildFileIndexFromRevisionSnapshot,
+  currentBranchSnapshot,
   currentFileIndex,
   currentHeadSha,
   hashBytes,
@@ -65,6 +66,8 @@ export async function detectGithubChanges(
   const fileIndex = currentFileIndex(meta)
   const provisional = diffRevisionSnapshot(fileIndex, snapshot, root)
   const changes: GithubChange[] = []
+  /** revision/元数据提示变更但内容 hash 与基线相同 → 对齐 fileIndex，避免幽灵变更 */
+  const healPaths = new Set<string>()
 
   for (const item of provisional) {
     if (!item.needsHashCheck) {
@@ -76,7 +79,7 @@ export async function detectGithubChanges(
       continue
     }
 
-    // 缺 revisionId：回退 size / hash
+    // revision 不等或缺 revisionId：回退 size / hash
     const previous = fileIndex[item.path]
     if (!previous) {
       changes.push({
@@ -102,7 +105,22 @@ export async function detectGithubChanges(
         kind: 'modified',
         absolutePath: item.absolutePath,
       })
+      continue
     }
+    if (item.contentRevisionId !== undefined) {
+      healPaths.add(item.path)
+    }
+  }
+
+  if (healPaths.size > 0) {
+    const reconciled = reconcileFileIndexRevisionIds(fileIndex, snapshot, healPaths)
+    const branch = currentBranchSnapshot(meta)
+    const next = withBranchSnapshot(meta, meta.currentBranch, {
+      ...branch,
+      fileIndex: reconciled,
+    })
+    next.updatedAt = osNowMs()
+    await saveGithubRepoMeta(next)
   }
 
   return changes

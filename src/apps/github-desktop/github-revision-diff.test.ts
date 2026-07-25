@@ -59,8 +59,9 @@ const root = '/dev/github/o/r'
       path: 'a.ts',
       kind: 'modified',
       absolutePath: '/dev/github/o/r/a.ts',
-      needsHashCheck: false,
+      needsHashCheck: true,
       byteSize: 10,
+      contentRevisionId: 'r2',
     },
   ])
 }
@@ -74,6 +75,7 @@ const root = '/dev/github/o/r'
   assert.equal(changes.length, 1)
   assert.equal(changes[0]!.needsHashCheck, true)
   assert.equal(changes[0]!.kind, 'modified')
+  assert.equal(changes[0]!.contentRevisionId, 'r1')
 }
 
 {
@@ -83,6 +85,7 @@ const root = '/dev/github/o/r'
     root,
   )
   assert.equal(changes[0]!.needsHashCheck, true)
+  assert.equal(changes[0]!.contentRevisionId, undefined)
 }
 
 {
@@ -94,6 +97,7 @@ const root = '/dev/github/o/r'
       absolutePath: '/dev/github/o/r/new.ts',
       needsHashCheck: false,
       byteSize: 20,
+      contentRevisionId: 'rn',
     },
   ])
 }

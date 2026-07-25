@@ -9,14 +9,17 @@ export type GithubRevisionChange = {
   path: string
   kind: GithubRevisionChangeKind
   absolutePath: string
-  /** true：需读 blob 算 hash 才能确认（缺 revisionId 时） */
+  /** true：需读 blob 算 hash 才能确认（缺 revisionId，或 revision 不等） */
   needsHashCheck: boolean
   byteSize?: number
+  /** 工作区当前 contentRevisionId；hash 确认无变更时用于对齐 fileIndex */
+  contentRevisionId?: string
 }
 
 /**
- * 纯元数据对比：revisionId 相同则未变更；双方都有且不等则 modified；
- * 任一方缺 revisionId 则标记 needsHashCheck（由调用方回退）。
+ * 纯元数据对比：revisionId 相同则未变更；双方都有且不等则可能 modified，
+ * 标记 needsHashCheck 由调用方用内容 hash 裁定（避免撤销回原文后的幽灵变更）；
+ * 任一方缺 revisionId 同样 needsHashCheck。
  */
 export function diffRevisionSnapshot(
   fileIndex: Record<string, GithubFileIndexEntry>,
@@ -36,6 +39,7 @@ export function diffRevisionSnapshot(
         absolutePath: entry.absolutePath,
         needsHashCheck: false,
         byteSize: entry.byteSize,
+        contentRevisionId: entry.contentRevisionId,
       })
       continue
     }
@@ -48,8 +52,9 @@ export function diffRevisionSnapshot(
         path: entry.path,
         kind: 'modified',
         absolutePath: entry.absolutePath,
-        needsHashCheck: false,
+        needsHashCheck: true,
         byteSize: entry.byteSize,
+        contentRevisionId: liveRev,
       })
       continue
     }
@@ -61,6 +66,7 @@ export function diffRevisionSnapshot(
       absolutePath: entry.absolutePath,
       needsHashCheck: true,
       byteSize: entry.byteSize,
+      contentRevisionId: liveRev,
     })
   }
 
