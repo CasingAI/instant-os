@@ -53,6 +53,7 @@ export const DEVICE_STORAGE_KEYS = {
   systemDebugLogSettings: 'instant-os-system-debug-log-settings',
   backgroundRefreshSettings: 'instant-os-background-refresh-settings',
   modelPricingCache: 'instant-os-model-pricing-cache',
+  openRouterPricingCache: 'instant-os-openrouter-pricing-cache',
 } as const
 
 /** Frimousse 表情选择器缓存的 localStorage 键前缀 */

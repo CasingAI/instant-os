@@ -4,6 +4,7 @@ import {
   pricingCacheKey,
   type ModelPricingEntry,
 } from './ai-model-pricing-cache.ts'
+import { getOpenRouterPricing } from './openrouter-pricing-cache.ts'
 
 /** 本地词表族（与 /assets/tokenizers 目录对应） */
 export const AI_TOKENIZER_FAMILIES = [
@@ -83,6 +84,21 @@ export type AiProviderPreset = {
 
 // --- V2 multi-provider types ---
 
+/** 手动填写的美元单价（每百万 token） */
+export type AiManualPricing = {
+  inputPricePerMillion: number
+  /** 缓存命中的输入单价 */
+  cachedInputPricePerMillion: number
+  outputPricePerMillion: number
+  currency: 'USD'
+}
+
+/** 绑定到 OpenRouter 某模型 + Provider 通道的定价 */
+export type AiOpenRouterPricingRef = {
+  modelId: string
+  providerTag: string
+}
+
 export type AiModelEntry = {
   modelId: string
   name: string
@@ -92,10 +108,14 @@ export type AiModelEntry = {
    */
   capabilities?: AiModelCapability[]
   /**
-   * 定价别名：使用哪个缓存键 `${providerId}:${modelId}` 的单价。
-   * 未设时按自身 provider + modelId 查询。
+   * 定价别名：使用哪个 PriceToken 缓存键 `${providerId}:${modelId}` 的单价。
+   * 与 manualPricing / openRouterPricing 互斥。
    */
   pricingModelKey?: string
+  /** 手动单价；与 pricingModelKey / openRouterPricing 互斥。 */
+  manualPricing?: AiManualPricing
+  /** OpenRouter 绑定；与 pricingModelKey / manualPricing 互斥。 */
+  openRouterPricing?: AiOpenRouterPricingRef
   /** 词表族覆盖；用于 VS Code 等本地 token 预估。未设时按 modelId 推断。 */
   tokenizerFamily?: AiTokenizerFamily
 }
@@ -292,15 +312,78 @@ export function resolvePricingByModelKey(
   return undefined
 }
 
-/** 自定义模型条目：优先定价别名，否则按自身 id 查 */
+/** 自定义模型条目：手动价 → OpenRouter 缓存 → PriceToken 别名 → 自身 id */
 export function resolveModelEntryPricing(
   providerId: AiProviderId,
-  entry: Pick<AiModelEntry, 'modelId' | 'pricingModelKey'>,
+  entry: Pick<
+    AiModelEntry,
+    'modelId' | 'pricingModelKey' | 'manualPricing' | 'openRouterPricing'
+  >,
 ): ModelPricingEntry | undefined {
+  if (entry.manualPricing) {
+    return {
+      inputPricePerMillion: entry.manualPricing.inputPricePerMillion,
+      outputPricePerMillion: entry.manualPricing.outputPricePerMillion,
+      currency: entry.manualPricing.currency,
+    }
+  }
+  if (entry.openRouterPricing) {
+    const cached = getOpenRouterPricing(
+      entry.openRouterPricing.modelId,
+      entry.openRouterPricing.providerTag,
+    )
+    if (cached) {
+      return {
+        inputPricePerMillion: cached.inputPricePerMillion,
+        outputPricePerMillion: cached.outputPricePerMillion,
+        currency: cached.currency,
+      }
+    }
+  }
   return (
     resolvePricingByModelKey(entry.pricingModelKey) ??
     resolveModelPricing(providerId, entry.modelId)
   )
+}
+
+export function parseStoredManualPricing(value: unknown): AiManualPricing | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const input = record.inputPricePerMillion
+  const output = record.outputPricePerMillion
+  if (
+    typeof input !== 'number' ||
+    !Number.isFinite(input) ||
+    input < 0 ||
+    typeof output !== 'number' ||
+    !Number.isFinite(output) ||
+    output < 0
+  ) {
+    return undefined
+  }
+  const cached = record.cachedInputPricePerMillion
+  const cachedInputPricePerMillion =
+    typeof cached === 'number' && Number.isFinite(cached) && cached >= 0
+      ? cached
+      : 0
+  return {
+    inputPricePerMillion: input,
+    cachedInputPricePerMillion,
+    outputPricePerMillion: output,
+    currency: 'USD',
+  }
+}
+
+export function parseStoredOpenRouterPricing(
+  value: unknown,
+): AiOpenRouterPricingRef | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : ''
+  const providerTag =
+    typeof record.providerTag === 'string' ? record.providerTag.trim() : ''
+  if (!modelId || !providerTag) return undefined
+  return { modelId, providerTag }
 }
 
 /**

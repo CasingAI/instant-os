@@ -6,7 +6,7 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
  * BACKGROUND_REFRESH_TASKS 中登记一项（状态字段 / 执行函数 / 展示行），
  * 设置页与调度服务会自动纳入，无需改动。
  */
-export type BackgroundRefreshTaskId = 'model-pricing'
+export type BackgroundRefreshTaskId = 'model-pricing' | 'openrouter-model-pricing'
 
 /** 单个任务最近一次刷新的状态（写入存储） */
 export type BackgroundRefreshTaskState = {
@@ -79,25 +79,32 @@ export function patchBackgroundRefreshTaskState(
   })
 }
 
+function msUntilTaskDue(taskId: BackgroundRefreshTaskId, now: number): number {
+  const settings = loadBackgroundRefreshSettings()
+  if (!settings.enabled) {
+    return Number.POSITIVE_INFINITY
+  }
+  const intervalMs = settings.intervalHours * 60 * 60 * 1000
+  const dueAt = loadTaskState(settings, taskId).lastSuccessAt + intervalMs
+  return Math.max(0, dueAt - now)
+}
+
 export const BACKGROUND_REFRESH_TASKS: readonly BackgroundRefreshTaskDef[] = [
   {
     id: 'model-pricing',
     label: '模型定价',
-    msUntilDue: (now) => {
-      const settings = loadBackgroundRefreshSettings()
-      if (!settings.enabled) {
-        return Number.POSITIVE_INFINITY
-      }
-      const intervalMs = settings.intervalHours * 60 * 60 * 1000
-      const dueAt = loadTaskState(settings, 'model-pricing').lastSuccessAt + intervalMs
-      return Math.max(0, dueAt - now)
-    },
+    msUntilDue: (now) => msUntilTaskDue('model-pricing', now),
+  },
+  {
+    id: 'openrouter-model-pricing',
+    label: 'OpenRouter 模型定价',
+    msUntilDue: (now) => msUntilTaskDue('openrouter-model-pricing', now),
   },
 ]
 
 const DEFAULT_SETTINGS = {
   version: 2,
-  enabled: false,
+  enabled: true,
   intervalHours: 24,
 } satisfies Partial<BackgroundRefreshSettings>
 
@@ -141,7 +148,10 @@ function normalizeBackgroundRefreshSettings(raw: unknown): BackgroundRefreshSett
   }
 
   const record = raw as Record<string, unknown>
-  settings.enabled = record.enabled === true
+  // 仅当存储里显式写了 enabled 时才覆盖默认开启
+  if ('enabled' in record) {
+    settings.enabled = record.enabled === true
+  }
   settings.intervalHours = normalizeIntervalHours(record.intervalHours)
   for (const task of BACKGROUND_REFRESH_TASKS) {
     settings[taskStateStorageKey(task.id)] = normalizeTaskState(

@@ -63,8 +63,8 @@
     0 1px 0 rgba(255, 255, 255, 0.35);
   --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.12);
   --ios-nav-back-radius: 4px;
-  --ios-nav-back-height: 26px;
-  --ios-nav-back-font-size: 12px;
+  --ios-nav-back-height: 28px;
+  --ios-nav-back-font-size: 13px;
 }
 
 /* ── In-content navigation (not a second title bar) ── */
@@ -81,7 +81,7 @@
   z-index: 3;
   flex-shrink: 0;
   margin: 0;
-  padding: 10px 18px 11px;
+  padding: 6px 12px;
   background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.14);
   box-shadow:
@@ -132,15 +132,15 @@
 
 .settings__nav {
   flex-shrink: 0;
-  padding: 12px 16px;
+  padding: 6px 12px;
 }
 
 .settings__nav--titled,
 .settings__nav--search {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px 11px;
+  gap: 6px;
+  padding: 6px 12px;
 }
 
 .settings__nav-bar {
@@ -1455,11 +1455,11 @@
 
 .settings__btn {
   min-width: 84px;
-  height: 26px;
+  height: 28px;
   padding: 0 14px;
   border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.28);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
   box-shadow:

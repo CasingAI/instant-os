@@ -10,6 +10,9 @@ type KeychainTextFieldDialogProps = {
   placeholder?: string
   message?: string
   allowEmpty?: boolean
+  /** 为 false 时允许在未修改预填值时提交（如「下一步」） */
+  requireDirty?: boolean
+  saveLabel?: string
   onClose: () => void
   onSave: (value: string) => void
 }
@@ -23,6 +26,8 @@ export function KeychainTextFieldDialog({
   placeholder,
   message,
   allowEmpty = true,
+  requireDirty = true,
+  saveLabel = '保存',
   onClose,
   onSave,
 }: KeychainTextFieldDialogProps) {
@@ -43,7 +48,8 @@ export function KeychainTextFieldDialog({
 
   const trimmed = draft.trim()
   const dirty = draft !== value
-  const canSave = dirty && (allowEmpty || trimmed.length > 0)
+  const canSave =
+    (allowEmpty || trimmed.length > 0) && (!requireDirty || dirty)
 
   const handleSave = () => {
     if (!canSave) return
@@ -65,7 +71,7 @@ export function KeychainTextFieldDialog({
         },
         {
           key: 'save',
-          label: '保存',
+          label: saveLabel,
           tone: 'primary',
           disabled: !canSave,
           onClick: handleSave,

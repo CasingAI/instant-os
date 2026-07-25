@@ -25,11 +25,6 @@ import {
   type AccountSettingsV2,
 } from '../../os/account-settings-storage.ts'
 import {
-  formatPricePerMillion,
-  subscribeModelPricingCache,
-} from '../../ai/ai-model-pricing-cache.ts'
-import { refreshModelPricing } from '../../ai/fetch-model-pricing.ts'
-import {
   AI_MODEL_CAPABILITIES,
   AI_MODEL_CAPABILITY_LABELS,
   AI_PROVIDER_PRESETS,
@@ -44,16 +39,16 @@ import {
   isCustomProvider,
   isProviderEntryValid,
   listEnabledModelsForCapability,
-  listPricingModelOptions,
   matchPricingModelKey,
   modelCapabilitiesEqual,
   normalizeCustomModelCapabilities,
   preferredByCapabilityEqual,
   reconcilePreferredByCapability,
   resolveModelCapabilities,
-  resolvePricingByModelKey,
+  type AiManualPricing,
   type AiModelCapability,
   type AiModelEntry,
+  type AiOpenRouterPricingRef,
   type AiProviderEntry,
   type AiProviderId,
   type AiTokenizerFamily,
@@ -61,6 +56,17 @@ import {
   type PreferredByCapability,
   type PreferredModelRef,
 } from '../../ai/ai-providers.ts'
+import {
+  formatKeychainPricingLabel,
+  KeychainPricingFlow,
+  type KeychainPricingSelection,
+} from './keychain-pricing-flow.tsx'
+import {
+  KeychainNavStack,
+  useKeychainNavStack,
+} from './keychain-nav-stack.tsx'
+import { subscribeOpenRouterPricingCache } from '../../ai/openrouter-pricing-cache.ts'
+import { subscribeModelPricingCache } from '../../ai/ai-model-pricing-cache.ts'
 import { resolveTokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
 import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
@@ -145,6 +151,16 @@ function providerEntryEqual(a: AiProviderEntry, b: AiProviderEntry): boolean {
         m.modelId === b.enabledModels[j].modelId &&
         m.name === b.enabledModels[j].name &&
         m.pricingModelKey === b.enabledModels[j].pricingModelKey &&
+        m.manualPricing?.inputPricePerMillion ===
+          b.enabledModels[j].manualPricing?.inputPricePerMillion &&
+        m.manualPricing?.cachedInputPricePerMillion ===
+          b.enabledModels[j].manualPricing?.cachedInputPricePerMillion &&
+        m.manualPricing?.outputPricePerMillion ===
+          b.enabledModels[j].manualPricing?.outputPricePerMillion &&
+        m.openRouterPricing?.modelId ===
+          b.enabledModels[j].openRouterPricing?.modelId &&
+        m.openRouterPricing?.providerTag ===
+          b.enabledModels[j].openRouterPricing?.providerTag &&
         m.tokenizerFamily === b.enabledModels[j].tokenizerFamily &&
         modelCapabilitiesEqual(
           m.capabilities,
@@ -383,7 +399,13 @@ export function KeychainApp() {
     },
   )
 
-  const [screen, setScreen] = useState<Screen>('root')
+  const {
+    page: screen,
+    transition: navTransition,
+    navigate: navigateTo,
+    handleMotionEnd: handleStackMotionEnd,
+    setPage: setScreen,
+  } = useKeychainNavStack<Screen>('root')
   const [githubDialogOpen, setGithubDialogOpen] = useState(false)
   const [githubConfigured, setGithubConfigured] = useState(() =>
     hasGithubCredentials(),
@@ -550,8 +572,8 @@ export function KeychainApp() {
     setIsAddingProvider(true)
     setEditingModelId(undefined)
     setFieldDialog(undefined)
-    setScreen('provider-settings')
-  }, [workingProviders.length])
+    navigateTo('provider-settings', 'push')
+  }, [workingProviders.length, navigateTo])
 
   const handleOpenProviderSettings = useCallback(
     (providerIndex: number) => {
@@ -563,9 +585,9 @@ export function KeychainApp() {
       setIsAddingProvider(false)
       setEditingModelId(undefined)
       setFieldDialog(undefined)
-      setScreen('provider-settings')
+      navigateTo('provider-settings', 'push')
     },
-    [workingProviders],
+    [workingProviders, navigateTo],
   )
 
   const handleSetPreferred = useCallback(
@@ -686,14 +708,14 @@ export function KeychainApp() {
     if (!editingEntry || !isProviderEntryValid(editingEntry)) return
     const nextProviders = mergeEditingEntryIntoProviders()
     persistProviders(nextProviders, preferredByCapability)
-    clearProviderEdit()
-    setScreen('ai-providers')
+    navigateTo('ai-providers', 'pop', clearProviderEdit)
   }, [
     editingEntry,
     mergeEditingEntryIntoProviders,
     preferredByCapability,
     persistProviders,
     clearProviderEdit,
+    navigateTo,
   ])
 
   const handleProviderCancel = useCallback(() => {
@@ -702,22 +724,21 @@ export function KeychainApp() {
         prev.filter((_, i) => i !== editingProviderIndex),
       )
     }
-    clearProviderEdit()
-    setScreen('ai-providers')
-  }, [isAddingProvider, editingProviderIndex, clearProviderEdit])
+    navigateTo('ai-providers', 'pop', clearProviderEdit)
+  }, [isAddingProvider, editingProviderIndex, clearProviderEdit, navigateTo])
 
   const handleProviderBack = useCallback(() => {
     if (providerFormDirty || isAddingProvider) {
       handleProviderCancel()
       return
     }
-    clearProviderEdit()
-    setScreen('ai-providers')
+    navigateTo('ai-providers', 'pop', clearProviderEdit)
   }, [
     providerFormDirty,
     isAddingProvider,
     handleProviderCancel,
     clearProviderEdit,
+    navigateTo,
   ])
 
   const handleProviderDelete = useCallback(async () => {
@@ -752,8 +773,7 @@ export function KeychainApp() {
       setPreferredByCapability({})
       setSavedSnapshot(undefined)
       refreshCapabilityOrders([], {})
-      clearProviderEdit()
-      setScreen('ai-providers')
+      navigateTo('ai-providers', 'pop', clearProviderEdit)
       return
     }
 
@@ -761,8 +781,7 @@ export function KeychainApp() {
     setWorkingProviders(synced.providers)
     setPreferredByCapability(synced.preferredByCapability)
     refreshCapabilityOrders(synced.providers, synced.preferredByCapability)
-    clearProviderEdit()
-    setScreen('ai-providers')
+    navigateTo('ai-providers', 'pop', clearProviderEdit)
   }, [
     editingProviderIndex,
     workingProviders,
@@ -771,31 +790,35 @@ export function KeychainApp() {
     syncPreferences,
     refreshCapabilityOrders,
     clearProviderEdit,
+    navigateTo,
   ])
 
   const handleOpenModelSettings = useCallback((modelId: string) => {
     setEditingModelId(modelId)
-    setScreen('model-settings')
-  }, [])
+    navigateTo('model-settings', 'push')
+  }, [navigateTo])
 
   const handleOpenAddModel = useCallback(() => {
-    setScreen('add-model')
-  }, [])
+    navigateTo('add-model', 'push')
+  }, [navigateTo])
 
   const handleModelSettingsBack = useCallback(() => {
-    setEditingModelId(undefined)
-    setScreen('provider-settings')
-  }, [])
+    navigateTo('provider-settings', 'pop', () => {
+      setEditingModelId(undefined)
+    })
+  }, [navigateTo])
 
   const handleAddModelCancel = useCallback(() => {
-    setScreen('provider-settings')
-  }, [])
+    navigateTo('provider-settings', 'pop')
+  }, [navigateTo])
 
   const handleAddModelComplete = useCallback(
     (result: {
       modelId: string
       supportsVision: boolean
       pricingModelKey?: string
+      manualPricing?: AiManualPricing
+      openRouterPricing?: AiOpenRouterPricingRef
       tokenizerFamily?: AiTokenizerFamily
     }) => {
       setEditingEntry((prev) => {
@@ -814,6 +837,10 @@ export function KeychainApp() {
               ...(result.pricingModelKey
                 ? { pricingModelKey: result.pricingModelKey }
                 : {}),
+              ...(result.manualPricing ? { manualPricing: result.manualPricing } : {}),
+              ...(result.openRouterPricing
+                ? { openRouterPricing: result.openRouterPricing }
+                : {}),
               ...(result.tokenizerFamily
                 ? { tokenizerFamily: result.tokenizerFamily }
                 : {}),
@@ -822,9 +849,9 @@ export function KeychainApp() {
           defaultModel: prev.defaultModel || result.modelId,
         }
       })
-      setScreen('provider-settings')
+      navigateTo('provider-settings', 'pop')
     },
-    [],
+    [navigateTo],
   )
 
   const handleOpenFieldDialog = useCallback((field: FieldEditTarget) => {
@@ -866,9 +893,10 @@ export function KeychainApp() {
     return () => observer.disconnect()
   }, [screen])
 
-  if (screen === 'add-model' && editingEntry) {
-    return (
-      <div class="settings" ref={providerSettingsHostRef}>
+  const renderScreen = (target: Screen) => {
+    if (target === 'add-model' && editingEntry) {
+      return (
+        <>
         <AddModelView
           providerId={editingEntry.providerId}
           existingModelIds={editingEntry.enabledModels.map((m) => m.modelId)}
@@ -876,14 +904,15 @@ export function KeychainApp() {
           onCancel={handleAddModelCancel}
           onComplete={handleAddModelComplete}
         />
-      </div>
-    )
-  }
+      
+        </>
+      )
+    }
 
-  if (screen === 'model-settings' && editingEntry && editingModelId) {
-    const providerTitle = getProviderDisplayName(editingEntry) || '供应商'
-    return (
-      <div class="settings" ref={providerSettingsHostRef}>
+    if (target === 'model-settings' && editingEntry && editingModelId) {
+      const providerTitle = getProviderDisplayName(editingEntry) || '供应商'
+      return (
+        <>
         <ModelSettingsView
           entry={editingEntry}
           modelId={editingModelId}
@@ -891,29 +920,30 @@ export function KeychainApp() {
           onBack={handleModelSettingsBack}
           onChange={setEditingEntry}
         />
-      </div>
-    )
-  }
+      
+        </>
+      )
+    }
 
-  if (screen === 'provider-settings') {
-    const settingsTitle =
-      getProviderDisplayName(
-        editingEntry ?? workingProviders[editingProviderIndex],
-      ) || '供应商'
-    const showSave = isAddingProvider || providerFormDirty
-    const showDelete = !isAddingProvider && !providerFormDirty
-    const fieldMeta = fieldDialog ? FIELD_EDIT_META[fieldDialog] : undefined
-    const fieldValue =
-      editingEntry && fieldDialog
-        ? fieldDialog === 'name'
-          ? (editingEntry.name ?? '')
-          : fieldDialog === 'baseURL'
-            ? (editingEntry.baseURL ?? '')
-            : editingEntry.apiKey
-        : ''
+    if (target === 'provider-settings') {
+      const settingsTitle =
+        getProviderDisplayName(
+          editingEntry ?? workingProviders[editingProviderIndex],
+        ) || '供应商'
+      const showSave = isAddingProvider || providerFormDirty
+      const showDelete = !isAddingProvider && !providerFormDirty
+      const fieldMeta = fieldDialog ? FIELD_EDIT_META[fieldDialog] : undefined
+      const fieldValue =
+        editingEntry && fieldDialog
+          ? fieldDialog === 'name'
+            ? (editingEntry.name ?? '')
+            : fieldDialog === 'baseURL'
+              ? (editingEntry.baseURL ?? '')
+              : editingEntry.apiKey
+          : ''
 
-    return (
-      <div class="settings" ref={providerSettingsHostRef}>
+      return (
+        <>
         <div class="settings__nav keychain__nav">
           {showSave ? (
             <button
@@ -978,19 +1008,20 @@ export function KeychainApp() {
             onSave={(value) => handleFieldDialogSave(fieldDialog, value)}
           />
         )}
-      </div>
-    )
-  }
+      
+        </>
+      )
+    }
 
-  if (screen === 'root') {
-    const providerCount = workingProviders.length
-    const aiStatus =
-      providerCount === 0
-        ? '未配置'
-        : `${providerCount} 个供应商`
+    if (target === 'root') {
+      const providerCount = workingProviders.length
+      const aiStatus =
+        providerCount === 0
+          ? '未配置'
+          : `${providerCount} 个供应商`
 
-    return (
-      <div class="settings">
+      return (
+        <>
         <div class="settings__nav settings__nav--titled">
           <div class="settings__nav-bar">
             <span class="settings__nav-heading-spacer" aria-hidden="true" />
@@ -1008,12 +1039,12 @@ export function KeychainApp() {
                 secretLength={
                   githubTokenLength > 0 ? githubTokenLength : undefined
                 }
-                onClick={() => setScreen('github')}
+                onClick={() => navigateTo('github', 'push')}
               />
               <SettingsNavRow
                 label="AI 模型供应商"
                 value={aiStatus}
-                onClick={() => setScreen('ai-providers')}
+                onClick={() => navigateTo('ai-providers', 'push')}
               />
             </div>
             <p class="settings__section-footnote">
@@ -1021,19 +1052,20 @@ export function KeychainApp() {
             </p>
           </section>
         </div>
-      </div>
-    )
-  }
+      
+        </>
+      )
+    }
 
-  if (screen === 'github') {
-    return (
-      <div class="settings">
+    if (target === 'github') {
+      return (
+        <>
         <div class="settings__nav">
           <IosNavBackButton
             label="钥匙串"
             onClick={() => {
               setGithubDialogOpen(false)
-              setScreen('root')
+              navigateTo('root', 'pop')
             }}
           />
         </div>
@@ -1063,13 +1095,14 @@ export function KeychainApp() {
           onClose={() => setGithubDialogOpen(false)}
           onChanged={refreshGithubStatus}
         />
-      </div>
-    )
-  }
+      
+        </>
+      )
+    }
 
-  if (screen === 'ai-providers') {
-    return (
-      <div class="settings">
+    if (target === 'ai-providers') {
+      return (
+        <>
         <div class="settings__nav keychain__nav">
           {dirty ? (
             <button
@@ -1080,7 +1113,7 @@ export function KeychainApp() {
               取消
             </button>
           ) : (
-            <IosNavBackButton label="钥匙串" onClick={() => setScreen('root')} />
+            <IosNavBackButton label="钥匙串" onClick={() => navigateTo('root', 'pop')} />
           )}
           {dirty ? (
             <button
@@ -1136,10 +1169,24 @@ export function KeychainApp() {
             )}
           </section>
         </div>
-      </div>
-    )
+      
+        </>
+      )
+    }
+    return null
   }
+
+  return (
+    <KeychainNavStack
+      page={screen}
+      transition={navTransition}
+      onMotionEnd={handleStackMotionEnd}
+      hostRef={providerSettingsHostRef}
+      renderPage={renderScreen}
+    />
+  )
 }
+
 
 function CapabilitySection({
   capability,
@@ -1503,7 +1550,6 @@ function ProviderSettingsForm({
   )
 }
 
-const PRICING_NONE_OPTION_ID = ''
 const TOKENIZER_NONE_OPTION_ID = ''
 
 type AddModelPicker = 'pricing' | 'tokenizer'
@@ -1523,50 +1569,35 @@ function AddModelView({
     modelId: string
     supportsVision: boolean
     pricingModelKey?: string
+    manualPricing?: AiManualPricing
+    openRouterPricing?: AiOpenRouterPricingRef
     tokenizerFamily?: AiTokenizerFamily
   }) => void
 }) {
   const [draftModelId, setDraftModelId] = useState('')
   const [supportsVision, setSupportsVision] = useState(false)
   const [detailsRevealed, setDetailsRevealed] = useState(false)
-  const [pricingModelKey, setPricingModelKey] = useState<string | undefined>()
+  const [pricingSelection, setPricingSelection] = useState<KeychainPricingSelection>(
+    {},
+  )
   const [tokenizerFamily, setTokenizerFamily] = useState<
     AiTokenizerFamily | undefined
   >()
   const [pricingTouched, setPricingTouched] = useState(false)
   const [tokenizerTouched, setTokenizerTouched] = useState(false)
   const [modelIdDialogOpen, setModelIdDialogOpen] = useState(false)
-  const [picker, setPicker] = useState<AddModelPicker | undefined>()
-  const [pricingRevision, setPricingRevision] = useState(0)
-
-  useEffect(
-    () => subscribeModelPricingCache(() => setPricingRevision((value) => value + 1)),
-    [],
-  )
-
-  useEffect(() => {
-    if (picker !== 'pricing') return
-    void refreshModelPricing()
-  }, [picker])
+  const {
+    page: pickerPage,
+    transition: pickerTransition,
+    navigate: navigatePicker,
+    handleMotionEnd: handlePickerMotionEnd,
+  } = useKeychainNavStack<'form' | AddModelPicker>('form')
 
   const trimmed = draftModelId.trim()
   const duplicate = trimmed.length > 0 && existingModelIds.includes(trimmed)
   const canSubmit = trimmed.length > 0 && !duplicate
   const capabilities = buildCustomModelCapabilities(supportsVision)
   const title = customProvider ? '添加模型' : '添加自定义模型'
-
-  const pricingOptions = useMemo(() => {
-    void pricingRevision
-    const items = listPricingModelOptions().map((option) => {
-      const pricing = resolvePricingByModelKey(option.key)
-      const price = formatPricePerMillion(pricing)
-      return {
-        id: option.key,
-        label: price === '—' ? option.label : `${option.label}（${price}）`,
-      }
-    })
-    return [{ id: PRICING_NONE_OPTION_ID, label: '未匹配' }, ...items]
-  }, [pricingRevision])
 
   const tokenizerOptions = useMemo(
     () => [
@@ -1579,9 +1610,7 @@ function AddModelView({
     [],
   )
 
-  const pricingLabel =
-    pricingOptions.find((option) => option.id === (pricingModelKey ?? ''))
-      ?.label ?? '未匹配'
+  const pricingLabel = formatKeychainPricingLabel(pricingSelection)
   const tokenizerLabel =
     tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
       ?.label ?? '未匹配'
@@ -1595,7 +1624,9 @@ function AddModelView({
 
     const matchedPricing = matchPricingModelKey(providerId, nextTrimmed)
     if (!pricingTouched) {
-      setPricingModelKey(matchedPricing)
+      setPricingSelection(
+        matchedPricing ? { pricingModelKey: matchedPricing } : {},
+      )
     }
 
     const matchedTokenizer = resolveTokenizerFamily(nextTrimmed)
@@ -1621,29 +1652,24 @@ function AddModelView({
     setSupportsVision(checked)
   }
 
-  if (picker === 'pricing') {
-    return (
-      <SettingsChoicePickerView
-        title="定价"
+  const renderPickerPage = (page: 'form' | AddModelPicker) => {
+    if (page === 'pricing') {
+      return (
+        <KeychainPricingFlow
         backLabel={title}
-        options={pricingOptions}
-        value={pricingModelKey ?? PRICING_NONE_OPTION_ID}
-        searchable
-        searchPlaceholder="搜索模型或供应商"
-        titleInNav
-        closeOnSelect={false}
-        onChange={(value) => {
+        modelId={trimmed}
+        selection={pricingSelection}
+        onChange={(next) => {
           setPricingTouched(true)
-          setPricingModelKey(value || undefined)
+          setPricingSelection(next)
         }}
-        onBack={() => setPicker(undefined)}
-      />
-    )
-  }
-
-  if (picker === 'tokenizer') {
-    return (
-      <SettingsChoicePickerView
+        onClose={() => navigatePicker('form', 'pop')}
+        />
+      )
+    }
+    if (page === 'tokenizer') {
+      return (
+        <SettingsChoicePickerView
         title="词表"
         backLabel={title}
         options={tokenizerOptions}
@@ -1658,13 +1684,12 @@ function AddModelView({
             value ? (value as AiTokenizerFamily) : undefined,
           )
         }}
-        onBack={() => setPicker(undefined)}
-      />
-    )
-  }
-
-  return (
-    <>
+        onBack={() => navigatePicker('form', 'pop')}
+        />
+      )
+    }
+    return (
+      <>
       <div class="settings__nav keychain__nav">
         <button
           type="button"
@@ -1681,7 +1706,7 @@ function AddModelView({
             onComplete({
               modelId: trimmed,
               supportsVision,
-              pricingModelKey,
+              ...pricingSelection,
               tokenizerFamily,
             })
           }
@@ -1744,12 +1769,12 @@ function AddModelView({
                     <SettingsNavRow
                       label="定价"
                       value={pricingLabel}
-                      onClick={() => setPicker('pricing')}
+                      onClick={() => navigatePicker('pricing', 'push')}
                     />
                     <SettingsNavRow
                       label="词表"
                       value={tokenizerLabel}
-                      onClick={() => setPicker('tokenizer')}
+                      onClick={() => navigatePicker('tokenizer', 'push')}
                     />
                   </div>
                   <p class="settings__section-footnote">
@@ -1774,9 +1799,20 @@ function AddModelView({
         onClose={() => setModelIdDialogOpen(false)}
         onSave={applyModelId}
       />
-    </>
+      </>
+    )
+  }
+
+  return (
+    <KeychainNavStack
+      page={pickerPage}
+      transition={pickerTransition}
+      onMotionEnd={handlePickerMotionEnd}
+      renderPage={renderPickerPage}
+    />
   )
 }
+
 
 function ModelSettingsView({
   entry,
@@ -1796,31 +1832,23 @@ function ModelSettingsView({
   const editingRow = rows.find((row) => row.modelId === modelId)
   const modelEntry = entry.enabledModels.find((m) => m.modelId === modelId)
   const title = editingRow?.name ?? modelId
-  const [picker, setPicker] = useState<AddModelPicker | undefined>()
+  const {
+    page: pickerPage,
+    transition: pickerTransition,
+    navigate: navigatePicker,
+    handleMotionEnd: handlePickerMotionEnd,
+  } = useKeychainNavStack<'form' | AddModelPicker>('form')
   const [pricingRevision, setPricingRevision] = useState(0)
 
-  useEffect(
-    () => subscribeModelPricingCache(() => setPricingRevision((value) => value + 1)),
-    [],
-  )
-
   useEffect(() => {
-    if (picker !== 'pricing') return
-    void refreshModelPricing()
-  }, [picker])
-
-  const pricingOptions = useMemo(() => {
-    void pricingRevision
-    const items = listPricingModelOptions().map((option) => {
-      const pricing = resolvePricingByModelKey(option.key)
-      const price = formatPricePerMillion(pricing)
-      return {
-        id: option.key,
-        label: price === '—' ? option.label : `${option.label}（${price}）`,
-      }
-    })
-    return [{ id: PRICING_NONE_OPTION_ID, label: '未匹配' }, ...items]
-  }, [pricingRevision])
+    const bump = () => setPricingRevision((value) => value + 1)
+    const unsubA = subscribeModelPricingCache(bump)
+    const unsubB = subscribeOpenRouterPricingCache(bump)
+    return () => {
+      unsubA()
+      unsubB()
+    }
+  }, [])
 
   const tokenizerOptions = useMemo(
     () => [
@@ -1834,9 +1862,28 @@ function ModelSettingsView({
   )
 
   const updateModelEntry = (patch: Partial<AiModelEntry>) => {
-    const next = entry.enabledModels.map((m) =>
-      m.modelId === modelId ? { ...m, ...patch } : m,
-    )
+    const next = entry.enabledModels.map((m) => {
+      if (m.modelId !== modelId) return m
+      const merged = { ...m, ...patch }
+      // 定价三选一：显式写入某一源时清掉另外两源
+      if ('manualPricing' in patch || 'openRouterPricing' in patch || 'pricingModelKey' in patch) {
+        if (patch.manualPricing) {
+          delete merged.pricingModelKey
+          delete merged.openRouterPricing
+        } else if (patch.openRouterPricing) {
+          delete merged.pricingModelKey
+          delete merged.manualPricing
+        } else if (patch.pricingModelKey) {
+          delete merged.manualPricing
+          delete merged.openRouterPricing
+        } else {
+          delete merged.pricingModelKey
+          delete merged.manualPricing
+          delete merged.openRouterPricing
+        }
+      }
+      return merged
+    })
     onChange({ ...entry, enabledModels: next })
   }
 
@@ -1879,11 +1926,14 @@ function ModelSettingsView({
     editingRow && !editingRow.isFromPreset,
   )
   const displayedCapabilities = editingRow?.capabilities ?? []
-  const pricingModelKey = modelEntry?.pricingModelKey
   const tokenizerFamily = modelEntry?.tokenizerFamily
-  const pricingLabel =
-    pricingOptions.find((option) => option.id === (pricingModelKey ?? ''))
-      ?.label ?? '未匹配'
+  const pricingSelection: KeychainPricingSelection = {
+    pricingModelKey: modelEntry?.pricingModelKey,
+    manualPricing: modelEntry?.manualPricing,
+    openRouterPricing: modelEntry?.openRouterPricing,
+  }
+  void pricingRevision
+  const pricingLabel = formatKeychainPricingLabel(pricingSelection)
   const tokenizerLabel =
     tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
       ?.label ?? '未匹配'
@@ -1897,30 +1947,27 @@ function ModelSettingsView({
     handleVisionChange(checked)
   }
 
-  if (picker === 'pricing') {
-    return (
-      <SettingsChoicePickerView
-        title="定价"
+  const renderPickerPage = (page: 'form' | AddModelPicker) => {
+    if (page === 'pricing') {
+      return (
+        <KeychainPricingFlow
         backLabel={title}
-        options={pricingOptions}
-        value={pricingModelKey ?? PRICING_NONE_OPTION_ID}
-        searchable
-        searchPlaceholder="搜索模型或供应商"
-        titleInNav
-        closeOnSelect={false}
-        onChange={(value) =>
+        modelId={modelId}
+        selection={pricingSelection}
+        onChange={(next) => {
           updateModelEntry({
-            pricingModelKey: value || undefined,
+            pricingModelKey: next.pricingModelKey,
+            manualPricing: next.manualPricing,
+            openRouterPricing: next.openRouterPricing,
           })
-        }
-        onBack={() => setPicker(undefined)}
-      />
-    )
-  }
-
-  if (picker === 'tokenizer') {
-    return (
-      <SettingsChoicePickerView
+        }}
+        onClose={() => navigatePicker('form', 'pop')}
+        />
+      )
+    }
+    if (page === 'tokenizer') {
+      return (
+        <SettingsChoicePickerView
         title="词表"
         backLabel={title}
         options={tokenizerOptions}
@@ -1936,13 +1983,12 @@ function ModelSettingsView({
               : undefined,
           })
         }
-        onBack={() => setPicker(undefined)}
-      />
-    )
-  }
-
-  return (
-    <>
+        onBack={() => navigatePicker('form', 'pop')}
+        />
+      )
+    }
+    return (
+      <>
       <div class="settings__nav keychain__nav">
         <IosNavBackButton label={backLabel} onClick={onBack} />
         {showRemove ? (
@@ -2021,12 +2067,12 @@ function ModelSettingsView({
                     <SettingsNavRow
                       label="定价"
                       value={pricingLabel}
-                      onClick={() => setPicker('pricing')}
+                      onClick={() => navigatePicker('pricing', 'push')}
                     />
                     <SettingsNavRow
                       label="词表"
                       value={tokenizerLabel}
-                      onClick={() => setPicker('tokenizer')}
+                      onClick={() => navigatePicker('tokenizer', 'push')}
                     />
                   </div>
                   <p class="settings__section-footnote">
@@ -2040,6 +2086,16 @@ function ModelSettingsView({
           )}
         </section>
       </div>
-    </>
+      </>
+    )
+  }
+
+  return (
+    <KeychainNavStack
+      page={pickerPage}
+      transition={pickerTransition}
+      onMotionEnd={handlePickerMotionEnd}
+      renderPage={renderPickerPage}
+    />
   )
 }

@@ -7,6 +7,8 @@ import {
   isProviderEntryValid,
   normalizeStoredModel,
   parseStoredModelCapabilities,
+  parseStoredManualPricing,
+  parseStoredOpenRouterPricing,
   parseStoredPricingModelKey,
   parseStoredTokenizerFamily,
   reconcilePreferredByCapability,
@@ -141,9 +143,16 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
             : modelId
         if (modelId) {
           const capabilities = parseStoredModelCapabilities(modelRecord.capabilities)
-          const pricingModelKey = parseStoredPricingModelKey(
-            modelRecord.pricingModelKey,
+          const openRouterPricing = parseStoredOpenRouterPricing(
+            modelRecord.openRouterPricing,
           )
+          const manualPricing = openRouterPricing
+            ? undefined
+            : parseStoredManualPricing(modelRecord.manualPricing)
+          const pricingModelKey =
+            openRouterPricing || manualPricing
+              ? undefined
+              : parseStoredPricingModelKey(modelRecord.pricingModelKey)
           const tokenizerFamily = parseStoredTokenizerFamily(
             modelRecord.tokenizerFamily,
           )
@@ -152,6 +161,8 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
             name,
             ...(capabilities ? { capabilities } : {}),
             ...(pricingModelKey ? { pricingModelKey } : {}),
+            ...(manualPricing ? { manualPricing } : {}),
+            ...(openRouterPricing ? { openRouterPricing } : {}),
             ...(tokenizerFamily ? { tokenizerFamily } : {}),
           })
         }

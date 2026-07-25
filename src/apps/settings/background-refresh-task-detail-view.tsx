@@ -7,14 +7,13 @@ import {
   type BackgroundRefreshTaskId,
   type BackgroundRefreshTaskState,
 } from '../../os/background-refresh-settings-storage.ts'
+import { runBackgroundRefreshTask } from '../../os/background-refresh-service.ts'
 import {
   loadModelPricingCache,
   subscribeModelPricingCache,
 } from '../../ai/ai-model-pricing-cache.ts'
-import {
-  DEFAULT_PRICING_API_URL,
-  refreshModelPricing,
-} from '../../ai/fetch-model-pricing.ts'
+import { DEFAULT_PRICING_API_URL } from '../../ai/fetch-model-pricing.ts'
+import { collectOpenRouterBindings } from '../../ai/fetch-openrouter-pricing.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 
 type BackgroundRefreshTaskDetailViewProps = {
@@ -37,8 +36,10 @@ function formatRefreshTimestamp(timestamp: number): string {
  */
 type TaskDetailConfig = {
   footnote: string
-  extraRows: (helpers: { cachedModelCount: number }) => { label: string; value: string }[]
-  runNow: () => Promise<{ ok: boolean; message: string }>
+  extraRows: (helpers: {
+    cachedModelCount: number
+    openRouterBindingCount: number
+  }) => { label: string; value: string }[]
 }
 
 const TASK_DETAIL_CONFIGS: Record<BackgroundRefreshTaskId, TaskDetailConfig> = {
@@ -47,7 +48,13 @@ const TASK_DETAIL_CONFIGS: Record<BackgroundRefreshTaskId, TaskDetailConfig> = {
     extraRows: ({ cachedModelCount }) => [
       { label: '已缓存定价', value: `${cachedModelCount} 个模型` },
     ],
-    runNow: refreshModelPricing,
+  },
+  'openrouter-model-pricing': {
+    footnote:
+      '仅刷新账户中已绑定的 OpenRouter 模型与 Provider；两次请求间隔 30 秒。无绑定则跳过网络请求。',
+    extraRows: ({ openRouterBindingCount }) => [
+      { label: '已绑定', value: `${openRouterBindingCount} 个` },
+    ],
   },
 }
 
@@ -63,6 +70,9 @@ export function BackgroundRefreshTaskDetailView({
   const [cachedModelCount, setCachedModelCount] = useState(
     () => Object.keys(loadModelPricingCache().prices).length,
   )
+  const [openRouterBindingCount, setOpenRouterBindingCount] = useState(
+    () => collectOpenRouterBindings().length,
+  )
   const [statusKind, setStatusKind] = useState<StatusKind>('idle')
   const [statusMessage, setStatusMessage] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -70,6 +80,7 @@ export function BackgroundRefreshTaskDetailView({
   useEffect(() => {
     const sync = () => {
       setTaskState(loadTaskState(loadBackgroundRefreshSettings(), taskId))
+      setOpenRouterBindingCount(collectOpenRouterBindings().length)
     }
     sync()
     return subscribeBackgroundRefreshSettings(sync)
@@ -90,9 +101,10 @@ export function BackgroundRefreshTaskDetailView({
     setStatusKind('refreshing')
     setStatusMessage(`正在刷新${task?.label ?? '数据'}…`)
     try {
-      const outcome = await config.runNow()
+      const outcome = await runBackgroundRefreshTask(taskId)
       setStatusKind(outcome.ok ? 'success' : 'error')
       setStatusMessage(outcome.message)
+      setOpenRouterBindingCount(collectOpenRouterBindings().length)
     } finally {
       setBusy(false)
     }
@@ -128,7 +140,7 @@ export function BackgroundRefreshTaskDetailView({
                 {taskState.lastResult === 'failure' && '（失败）'}
               </span>
             </div>
-            {config.extraRows({ cachedModelCount }).map((row) => (
+            {config.extraRows({ cachedModelCount, openRouterBindingCount }).map((row) => (
               <div class="settings__row settings__row--static" key={row.label}>
                 <span class="settings__row-name">{row.label}</span>
                 <span class="settings__row-size">{row.value}</span>

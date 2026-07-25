@@ -41,6 +41,15 @@ import { clearAppNotifications, dismissAppNotification } from './app-notificatio
 import { dismissProcessIsolationFallbackNotification } from './process-isolation-fallback-notification-store.ts'
 import { dismissStorageWarningNotification } from './storage-warning-notification-store.ts'
 import { dismissMountDisconnectedNotification } from './mount-disconnected-notification-store.ts'
+import {
+  OpenRouterPricingDetail,
+  OpenRouterPricingListItem,
+} from './openrouter-pricing-notification-center.tsx'
+import {
+  dismissOpenRouterPricingNotification,
+  OPENROUTER_PRICING_NOTIFICATION_SLUG,
+} from './openrouter-pricing-notification-store.ts'
+import { useOpenRouterPricingNotification } from './use-openrouter-pricing-notification.ts'
 import { NOTIFICATION_CENTER_SCREEN_FADE_MS } from './notification-center-store.ts'
 import { useGithubDesktopMissingEmailNotification } from '../apps/github-desktop/use-github-desktop-missing-email-notification.ts'
 import {
@@ -542,6 +551,7 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
   const storageWarning = useStorageWarningNotification()
   const mountDisconnected = useMountDisconnectedNotification()
   const githubDesktopMissingEmail = useGithubDesktopMissingEmailNotification()
+  const openRouterPricing = useOpenRouterPricingNotification()
   const { panelScreen, selectedSlug, openDetail, closeDetail } = useNotificationCenter()
   const { openApp } = useOs()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -570,7 +580,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     (processIsolationFallbackActive ? 1 : 0) +
     (storageWarning ? 1 : 0) +
     (mountDisconnected ? 1 : 0) +
-    (githubDesktopMissingEmail ? 1 : 0)
+    (githubDesktopMissingEmail ? 1 : 0) +
+    (openRouterPricing && openRouterPricing.phase !== 'running' ? 1 : 0)
 
   const clearDismissibleNotifications = () => {
     clearDismissibleInstallNotifications()
@@ -579,6 +590,9 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     dismissStorageWarningNotification()
     dismissMountDisconnectedNotification()
     dismissGithubDesktopMissingEmailNotification()
+    if (openRouterPricing && openRouterPricing.phase !== 'running') {
+      dismissOpenRouterPricingNotification()
+    }
   }
 
   const [armedClearId, setArmedClearId] = useState<string | undefined>(undefined)
@@ -638,6 +652,10 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
     activeDetailSlug === MOUNT_DISCONNECTED_SLUG ? mountDisconnected : undefined
   const selectedGithubDesktopMissingEmail =
     activeDetailSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail
+  const selectedOpenRouterPricing =
+    activeDetailSlug === OPENROUTER_PRICING_NOTIFICATION_SLUG
+      ? openRouterPricing
+      : undefined
 
   useEffect(() => {
     if (selectedSlug) {
@@ -699,7 +717,8 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
       selectedProcessIsolationFallback ||
       selectedStorageWarning !== undefined ||
       selectedMountDisconnected !== undefined ||
-      selectedGithubDesktopMissingEmail)
+      selectedGithubDesktopMissingEmail ||
+      selectedOpenRouterPricing !== undefined)
 
   const selectedHasNotification =
     selectedSlug !== undefined &&
@@ -710,7 +729,9 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
       (selectedSlug === PROCESS_ISOLATION_FALLBACK_SLUG && processIsolationFallbackActive) ||
       (selectedSlug === STORAGE_WARNING_SLUG && storageWarning !== undefined) ||
       (selectedSlug === MOUNT_DISCONNECTED_SLUG && mountDisconnected !== undefined) ||
-      (selectedSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail))
+      (selectedSlug === GITHUB_DESKTOP_MISSING_EMAIL_SLUG && githubDesktopMissingEmail) ||
+      (selectedSlug === OPENROUTER_PRICING_NOTIFICATION_SLUG &&
+        openRouterPricing !== undefined))
 
   useEffect(() => {
     if (!open) {
@@ -842,6 +863,12 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                 onDismiss={closeDetail}
                 onClose={onClose}
               />
+            ) : showDetail && selectedOpenRouterPricing ? (
+              <OpenRouterPricingDetail
+                notification={selectedOpenRouterPricing}
+                onBack={closeDetail}
+                onDismiss={closeDetail}
+              />
             ) : (
               <>
                 <DateTimeWidget onOpen={handleOpenCalendarApp} />
@@ -927,6 +954,25 @@ export function NotificationCenterPanel({ open, onClose }: NotificationCenterPan
                           setArmedClearId={setArmedClearId}
                         />
                       ))}
+                      {openRouterPricing ? (
+                        <div class="notification-center__item-wrap">
+                          <OpenRouterPricingListItem
+                            notification={openRouterPricing}
+                            onSelect={() =>
+                              openDetail(OPENROUTER_PRICING_NOTIFICATION_SLUG)
+                            }
+                          />
+                          {openRouterPricing.phase !== 'running' ? (
+                            <IosStyleClearButton
+                              clearId="openrouter-pricing"
+                              armedClearId={armedClearId}
+                              setArmedClearId={setArmedClearId}
+                              onConfirm={dismissOpenRouterPricingNotification}
+                              confirmLabel="清除"
+                            />
+                          ) : undefined}
+                        </div>
+                      ) : undefined}
                       {storageWarning ? (
                         <div class="notification-center__item-wrap">
                           <StorageWarningListItem

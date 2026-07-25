@@ -1,6 +1,264 @@
 /* 钥匙串 — 对齐系统设置的边距 / 尺寸 / 颜色 / 圆角 */
 
-.keychain__nav {
+/* ── iOS 6 式导航：Header 栏固定交叉淡移，正文整页叠推 ── */
+
+.keychain-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.keychain-stack > .settings {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 嵌套在 .settings 内的子栈（定价 / 词表等）填满父页 */
+.settings > .keychain-stack {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.settings:has(> .keychain-stack) {
+  overflow: hidden;
+}
+
+.keychain-stack__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  z-index: 0;
+}
+
+.keychain-stack__layer > .settings {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.keychain-stack__layer--over {
+  z-index: 1;
+}
+
+/*
+ * 转场时拆开 DOM 盒：两页的 nav 叠在同一 Header 栏，
+ * 两页的 content 叠在同一正文区（避免整层背景挡住 Header 交叉淡出）。
+ */
+.keychain-stack--push,
+.keychain-stack--pop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.keychain-stack--push .keychain-stack__layer,
+.keychain-stack--pop .keychain-stack__layer {
+  display: contents;
+  position: static;
+  inset: auto;
+}
+
+.keychain-stack--push .keychain-stack__layer > .settings,
+.keychain-stack--pop .keychain-stack__layer > .settings {
+  display: contents;
+  height: auto;
+}
+
+/* 父级转场时拆开嵌套的 idle 子栈，让 Header/正文仍参与交叉动画 */
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--']),
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--']) {
+  display: contents;
+}
+
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .settings,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .settings {
+  display: contents;
+  height: auto;
+}
+
+.keychain-stack--push .keychain-stack__layer--under .settings__nav,
+.keychain-stack--push .keychain-stack__layer--under .settings__content,
+.keychain-stack--pop .keychain-stack__layer--under .settings__nav,
+.keychain-stack--pop .keychain-stack__layer--under .settings__content,
+.keychain-stack--pop .keychain-stack__layer--over .settings__nav,
+.keychain-stack--pop .keychain-stack__layer--over .settings__content {
+  pointer-events: none;
+}
+
+.keychain-stack--push .settings__nav,
+.keychain-stack--pop .settings__nav {
+  grid-row: 1;
+  grid-column: 1;
+  position: relative;
+  z-index: 3;
+}
+
+.keychain-stack--push .settings__content,
+.keychain-stack--pop .settings__content {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* .settings 在 display:contents 下不再铺背景，改由正文承担 */
+  background: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+}
+
+.keychain-stack--push .keychain-stack__layer--under .settings__nav {
+  animation: keychain-nav-leave-push 0.35s ease-in-out both;
+  z-index: 3;
+}
+
+.keychain-stack--push .keychain-stack__layer--over .settings__nav {
+  animation: keychain-nav-enter-push 0.35s ease-in-out both;
+  z-index: 4;
+}
+
+.keychain-stack--pop .keychain-stack__layer--over .settings__nav {
+  animation: keychain-nav-leave-pop 0.35s ease-in-out both;
+  z-index: 4;
+}
+
+.keychain-stack--pop .keychain-stack__layer--under .settings__nav {
+  animation: keychain-nav-enter-pop 0.35s ease-in-out both;
+  z-index: 3;
+}
+
+.keychain-stack--push .keychain-stack__layer--under .settings__content {
+  animation: keychain-body-under-push 0.35s ease-in-out both;
+  z-index: 1;
+}
+
+.keychain-stack--push .keychain-stack__layer--over .settings__content {
+  animation: keychain-body-over-push 0.35s ease-in-out both;
+  z-index: 2;
+  box-shadow: -3px 0 10px rgba(0, 0, 0, 0.28);
+}
+
+.keychain-stack--pop .keychain-stack__layer--under .settings__content {
+  animation: keychain-body-under-pop 0.35s ease-in-out both;
+  z-index: 1;
+}
+
+.keychain-stack--pop .keychain-stack__layer--over .settings__content {
+  animation: keychain-body-over-pop 0.35s ease-in-out both;
+  z-index: 2;
+  box-shadow: -3px 0 10px rgba(0, 0, 0, 0.28);
+}
+
+@keyframes keychain-nav-leave-push {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-28%);
+  }
+}
+
+@keyframes keychain-nav-enter-push {
+  from {
+    opacity: 0;
+    transform: translateX(40%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-nav-leave-pop {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(40%);
+  }
+}
+
+@keyframes keychain-nav-enter-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-28%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-body-under-push {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-30%);
+  }
+}
+
+@keyframes keychain-body-over-push {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-body-under-pop {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes keychain-body-over-pop {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keychain-stack--push .keychain-stack__layer .settings__nav,
+  .keychain-stack--pop .keychain-stack__layer .settings__nav,
+  .keychain-stack--push .keychain-stack__layer .settings__content,
+  .keychain-stack--pop .keychain-stack__layer .settings__content {
+    animation: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}
+
+.keychain__nav,
+.settings__nav.keychain__nav,
+.settings[data-settings-subpage] > .settings__nav.keychain__nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
