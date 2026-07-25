@@ -7,6 +7,8 @@ export type OpenRouterPricingEntry = ModelPricingEntry & {
   providerTag: string
   modelName?: string
   providerName?: string
+  /** 该通道的上下文长度（token） */
+  contextLength?: number
 }
 
 export type OpenRouterPricingCache = {
@@ -58,6 +60,13 @@ function normalizeEntry(raw: unknown): OpenRouterPricingEntry | undefined {
     typeof record.providerName === 'string' && record.providerName.trim()
       ? record.providerName.trim()
       : undefined
+  const contextRaw = record.contextLength ?? record.contextWindow
+  const contextLength =
+    typeof contextRaw === 'number' &&
+    Number.isFinite(contextRaw) &&
+    Math.floor(contextRaw) >= 1
+      ? Math.floor(contextRaw)
+      : undefined
   return {
     modelId,
     providerTag,
@@ -66,6 +75,7 @@ function normalizeEntry(raw: unknown): OpenRouterPricingEntry | undefined {
     currency: 'USD',
     ...(modelName ? { modelName } : {}),
     ...(providerName ? { providerName } : {}),
+    ...(contextLength !== undefined ? { contextLength } : {}),
   }
 }
 

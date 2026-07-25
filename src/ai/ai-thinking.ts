@@ -25,8 +25,25 @@ export type ThinkingRequestParam = {
   thinking: { type: 'enabled' | 'disabled' }
 }
 
-export function supportsThinkingParam(providerId: AiProviderId | undefined): boolean {
-  return providerId === 'deepseek' || providerId === 'mimo' || providerId === 'mimo-token-plan'
+/** 小米语音识别 / 合成不支持 thinking 参数 */
+const THINKING_UNSUPPORTED_MODEL_IDS = new Set([
+  'mimo-v2.5-asr',
+  'mimo-v2.5-tts',
+])
+
+/**
+ * 是否支持深度思考请求参数。
+ * 默认支持（含用户自建与各内置文本模型）；仅排除小米 ASR/TTS。
+ */
+export function supportsThinkingParam(
+  _providerId?: AiProviderId,
+  modelId?: string,
+): boolean {
+  const id = modelId?.trim().toLowerCase()
+  if (id && THINKING_UNSUPPORTED_MODEL_IDS.has(id)) {
+    return false
+  }
+  return true
 }
 
 /** 微应用生成时 DeepSeek / MiMo 始终启用思维链，不受账户设置影响；UltraSpeed 尊重用户设置以保留极速优势。 */
@@ -44,12 +61,13 @@ export function resolveAppGenerationThinkingEnabled(
   return thinkingEnabled
 }
 
-/** DeepSeek / MiMo 要求 thinking 作为请求体顶层字段；Python SDK 的 extra_body 在 TS SDK 中无效。 */
+/** 兼容端与多数供应商使用 thinking 顶层字段；语音模型不传。 */
 export function buildThinkingRequestExtras(
   providerId: AiProviderId | undefined,
   thinkingEnabled: boolean,
+  modelId?: string,
 ): ThinkingRequestParam | Record<string, never> {
-  if (!supportsThinkingParam(providerId)) {
+  if (!supportsThinkingParam(providerId, modelId)) {
     return {}
   }
 
@@ -61,8 +79,9 @@ export function buildThinkingRequestExtras(
 /** 多轮工具调用时是否须在 assistant 消息上回传 reasoning_content */
 export function providerRequiresReasoningContentEcho(
   providerId: AiProviderId | undefined,
+  modelId?: string,
 ): boolean {
-  return supportsThinkingParam(providerId)
+  return supportsThinkingParam(providerId, modelId)
 }
 
 export function resolveAppGenerationPhase(

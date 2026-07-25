@@ -1,6 +1,12 @@
 import type OpenAI from 'openai'
 import { toChatCompletionTool, type AgentTool } from '../../ai/agent-tool.ts'
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW,
+  resolveModelEntryContextWindow,
+  type AiProviderId,
+} from '../../ai/ai-providers.ts'
 import type { TokenizerFamily } from '../../ai/model-tokenizer.ts'
+import { loadAccountSettings } from '../../os/account-settings-storage.ts'
 import {
   estimateTokensFromText,
   prepareTokenEstimation,
@@ -49,40 +55,39 @@ const CATEGORY_META: Record<
   reasoning: { label: '思维链', color: '#6cb6ff' },
 }
 
-/** 常见模型上下文窗口；未知模型回退 128K，仅用于占用百分比展示 */
-const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  'deepseek-v4-flash': 128_000,
-  'deepseek-v4-pro': 128_000,
-  'gpt-5.5': 256_000,
-  'gpt-5.4': 256_000,
-  'gpt-5.4-mini': 256_000,
-  'gpt-5.4-nano': 256_000,
-  'gpt-4.1': 1_047_576,
-  'gpt-4.1-mini': 1_047_576,
-  'gpt-4o': 128_000,
-  'gpt-4o-mini': 128_000,
-  'mimo-v2.5-pro': 256_000,
-  'mimo-v2.5-pro-ultraspeed': 256_000,
-  'mimo-v2-pro': 256_000,
-  'mimo-v2.5': 256_000,
-  'mimo-v2-flash': 128_000,
-  'mimo-v2-omni': 128_000,
-}
+/**
+ * 解析上下文窗口：优先账户里该模型条目的自动/手动配置，否则 128K。
+ */
+export function resolveModelContextWindow(
+  modelId: string | undefined,
+  options?: {
+    providerEntryId?: string
+    providerId?: AiProviderId
+  },
+): number {
+  const id = modelId?.trim()
+  if (!id) return DEFAULT_MODEL_CONTEXT_WINDOW
 
-const DEFAULT_CONTEXT_WINDOW = 128_000
+  const settings = loadAccountSettings()
+  if (settings) {
+    for (const provider of settings.providers) {
+      if (
+        options?.providerEntryId &&
+        provider.id !== options.providerEntryId
+      ) {
+        continue
+      }
+      if (options?.providerId && provider.providerId !== options.providerId) {
+        continue
+      }
+      const entry = provider.enabledModels.find((model) => model.modelId === id)
+      if (entry) {
+        return resolveModelEntryContextWindow(provider.providerId, entry)
+      }
+    }
+  }
 
-export function resolveModelContextWindow(modelId: string | undefined): number {
-  const id = modelId?.trim().toLowerCase()
-  if (!id) return DEFAULT_CONTEXT_WINDOW
-  const exact = MODEL_CONTEXT_WINDOWS[id]
-  if (exact) return exact
-  if (id.startsWith('deepseek')) return 128_000
-  if (id.startsWith('gpt-4.1')) return 1_047_576
-  if (id.startsWith('gpt-5')) return 256_000
-  if (id.startsWith('gpt-4o')) return 128_000
-  if (id.startsWith('mimo-v2.5') || id.startsWith('mimo-v2-5')) return 256_000
-  if (id.startsWith('mimo')) return 128_000
-  return DEFAULT_CONTEXT_WINDOW
+  return DEFAULT_MODEL_CONTEXT_WINDOW
 }
 
 function estimate(
@@ -184,6 +189,8 @@ export function measureVscodeAiContextUsage(options: {
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
   userMessage?: string
   model?: string
+  providerEntryId?: string
+  providerId?: AiProviderId
   tokenizerFamily?: TokenizerFamily
   /** 传入则跳过 createVscodeAiTools（避免无 host 时无法计量） */
   tools?: AgentTool[]
@@ -231,7 +238,10 @@ export function measureVscodeAiContextUsage(options: {
 
   return {
     totalTokens,
-    contextWindow: resolveModelContextWindow(model),
+    contextWindow: resolveModelContextWindow(model, {
+      providerEntryId: options.providerEntryId,
+      providerId: options.providerId,
+    }),
     estimated: resolveUsageEstimated(false, model, tokenizerFamily),
     breakdown,
   }

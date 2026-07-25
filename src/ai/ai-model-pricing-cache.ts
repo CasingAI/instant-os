@@ -5,6 +5,8 @@ export type ModelPricingEntry = {
   inputPricePerMillion: number
   outputPricePerMillion: number
   currency: 'USD' | 'CNY'
+  /** 上下文窗口（token）；远端未提供时缺省 */
+  contextWindow?: number
 }
 
 /**
@@ -50,10 +52,18 @@ function normalizePricingEntry(raw: unknown): ModelPricingEntry | undefined {
     return undefined
   }
   const currency = record.currency === 'CNY' ? 'CNY' : 'USD'
+  const contextRaw = record.contextWindow
+  const contextWindow =
+    typeof contextRaw === 'number' &&
+    Number.isFinite(contextRaw) &&
+    Math.floor(contextRaw) >= 1
+      ? Math.floor(contextRaw)
+      : undefined
   return {
     inputPricePerMillion: input,
     outputPricePerMillion: output,
     currency,
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
   }
 }
 

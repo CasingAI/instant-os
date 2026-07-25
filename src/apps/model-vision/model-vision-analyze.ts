@@ -246,7 +246,7 @@ export async function analyzeModelVision(
       model: config.defaultModel,
       messages,
       max_completion_tokens: 4096,
-      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
     })
 
     // 丢掉图引用（调用方还会再清 views）

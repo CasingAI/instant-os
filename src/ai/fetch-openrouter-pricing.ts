@@ -26,6 +26,7 @@ export type OpenRouterModelSearchHit = {
   name: string
   promptPerMillion: number
   completionPerMillion: number
+  contextLength?: number
 }
 
 export type OpenRouterEndpointHit = {
@@ -33,12 +34,20 @@ export type OpenRouterEndpointHit = {
   providerName: string
   promptPerMillion: number
   completionPerMillion: number
+  contextLength?: number
 }
 
 function perTokenToPerMillion(raw: unknown): number {
   const value = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : NaN
   if (!Number.isFinite(value) || value < 0) return 0
   return value * 1_000_000
+}
+
+function parseContextLength(raw: unknown): number | undefined {
+  const value = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : NaN
+  if (!Number.isFinite(value)) return undefined
+  const tokens = Math.floor(value)
+  return tokens >= 1 ? tokens : undefined
 }
 
 async function openRouterFetch(url: string): Promise<Response> {
@@ -110,11 +119,13 @@ export async function searchOpenRouterModels(
       record.pricing && typeof record.pricing === 'object'
         ? (record.pricing as Record<string, unknown>)
         : undefined
+    const contextLength = parseContextLength(record.context_length)
     hits.push({
       id,
       name,
       promptPerMillion: perTokenToPerMillion(pricing?.prompt),
       completionPerMillion: perTokenToPerMillion(pricing?.completion),
+      ...(contextLength !== undefined ? { contextLength } : {}),
     })
   }
   return hits
@@ -138,6 +149,7 @@ export async function fetchOpenRouterEndpoints(
       ? (json.data as Record<string, unknown>)
       : (json as Record<string, unknown>)
   const endpoints = Array.isArray(data.endpoints) ? data.endpoints : []
+  const modelContextLength = parseContextLength(data.context_length)
   const hits: OpenRouterEndpointHit[] = []
   for (const item of endpoints) {
     if (!item || typeof item !== 'object') continue
@@ -157,11 +169,14 @@ export async function fetchOpenRouterEndpoints(
       record.pricing && typeof record.pricing === 'object'
         ? (record.pricing as Record<string, unknown>)
         : undefined
+    const contextLength =
+      parseContextLength(record.context_length) ?? modelContextLength
     hits.push({
       providerTag,
       providerName,
       promptPerMillion: perTokenToPerMillion(pricing?.prompt),
       completionPerMillion: perTokenToPerMillion(pricing?.completion),
+      ...(contextLength !== undefined ? { contextLength } : {}),
     })
   }
   return hits
@@ -192,6 +207,9 @@ export async function bindOpenRouterPricing(params: {
     inputPricePerMillion: match.promptPerMillion,
     outputPricePerMillion: match.completionPerMillion,
     currency: 'USD',
+    ...(match.contextLength !== undefined
+      ? { contextLength: match.contextLength }
+      : {}),
   }
   if (!mergeOpenRouterPricingEntries([entry])) {
     throw new Error('写入 OpenRouter 定价缓存失败（存储空间可能已满）')

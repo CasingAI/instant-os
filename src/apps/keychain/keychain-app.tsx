@@ -45,6 +45,7 @@ import {
   preferredByCapabilityEqual,
   reconcilePreferredByCapability,
   resolveModelCapabilities,
+  type AiContextWindowMode,
   type AiManualPricing,
   type AiModelCapability,
   type AiModelEntry,
@@ -61,6 +62,10 @@ import {
   KeychainPricingFlow,
   type KeychainPricingSelection,
 } from './keychain-pricing-flow.tsx'
+import {
+  formatKeychainContextWindowLabel,
+  KeychainContextWindowFlow,
+} from './keychain-context-window-flow.tsx'
 import {
   KeychainNavStack,
   useKeychainNavStack,
@@ -162,6 +167,8 @@ function providerEntryEqual(a: AiProviderEntry, b: AiProviderEntry): boolean {
         m.openRouterPricing?.providerTag ===
           b.enabledModels[j].openRouterPricing?.providerTag &&
         m.tokenizerFamily === b.enabledModels[j].tokenizerFamily &&
+        m.contextWindowMode === b.enabledModels[j].contextWindowMode &&
+        m.contextWindow === b.enabledModels[j].contextWindow &&
         modelCapabilitiesEqual(
           m.capabilities,
           b.enabledModels[j].capabilities,
@@ -823,6 +830,8 @@ export function KeychainApp() {
       manualPricing?: AiManualPricing
       openRouterPricing?: AiOpenRouterPricingRef
       tokenizerFamily?: AiTokenizerFamily
+      contextWindowMode?: AiContextWindowMode
+      contextWindow?: number
     }) => {
       setEditingEntry((prev) => {
         if (!prev) return prev
@@ -846,6 +855,12 @@ export function KeychainApp() {
                 : {}),
               ...(result.tokenizerFamily
                 ? { tokenizerFamily: result.tokenizerFamily }
+                : {}),
+              ...(result.contextWindowMode
+                ? { contextWindowMode: result.contextWindowMode }
+                : {}),
+              ...(result.contextWindow !== undefined
+                ? { contextWindow: result.contextWindow }
                 : {}),
             },
           ],
@@ -1410,10 +1425,6 @@ function ProviderSettingsForm({
 }) {
   const isCustom = isCustomProvider(entry.providerId)
   const preset = findAiProviderPreset(entry.providerId)
-  const showThinking =
-    entry.providerId === 'deepseek' ||
-    entry.providerId === 'mimo' ||
-    entry.providerId === 'mimo-token-plan'
   const modelRows = listProviderModelRows(entry)
   const providerLabel = preset?.name ?? entry.providerId
   const nameValue = entry.name?.trim() || '可选'
@@ -1536,15 +1547,13 @@ function ProviderSettingsForm({
 
       <div class="keychain__form-group">
         <div class="settings__list">
-          {showThinking && (
-            <SettingsSwitchRow
-              label="思考模式"
-              checked={entry.thinkingEnabled}
-              onChange={(thinkingEnabled) =>
-                onChange({ ...entry, thinkingEnabled })
-              }
-            />
-          )}
+          <SettingsSwitchRow
+            label="思考模式"
+            checked={entry.thinkingEnabled}
+            onChange={(thinkingEnabled) =>
+              onChange({ ...entry, thinkingEnabled })
+            }
+          />
           <SettingsSwitchRow
             label="使用代理服务器访问"
             checked={entry.useProxy}
@@ -1558,7 +1567,7 @@ function ProviderSettingsForm({
 
 const TOKENIZER_NONE_OPTION_ID = ''
 
-type AddModelPicker = 'pricing' | 'tokenizer'
+type AddModelPicker = 'pricing' | 'tokenizer' | 'context'
 
 function AddModelView({
   providerId,
@@ -1578,6 +1587,8 @@ function AddModelView({
     manualPricing?: AiManualPricing
     openRouterPricing?: AiOpenRouterPricingRef
     tokenizerFamily?: AiTokenizerFamily
+    contextWindowMode?: AiContextWindowMode
+    contextWindow?: number
   }) => void
 }) {
   const [draftModelId, setDraftModelId] = useState('')
@@ -1589,6 +1600,10 @@ function AddModelView({
   const [tokenizerFamily, setTokenizerFamily] = useState<
     AiTokenizerFamily | undefined
   >()
+  const [contextWindowMode, setContextWindowMode] = useState<
+    AiContextWindowMode | undefined
+  >()
+  const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [pricingTouched, setPricingTouched] = useState(false)
   const [tokenizerTouched, setTokenizerTouched] = useState(false)
   const [modelIdDialogOpen, setModelIdDialogOpen] = useState(false)
@@ -1623,6 +1638,14 @@ function AddModelView({
   const tokenizerLabel =
     tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
       ?.label ?? '未匹配'
+  const contextEntry: AiModelEntry = {
+    modelId: trimmed || 'draft',
+    name: trimmed || 'draft',
+    ...pricingSelection,
+    contextWindowMode,
+    contextWindow,
+  }
+  const contextLabel = formatKeychainContextWindowLabel(providerId, contextEntry)
 
   const applyModelId = (next: string) => {
     setDraftModelId(next)
@@ -1697,6 +1720,20 @@ function AddModelView({
         />
       )
     }
+    if (page === 'context') {
+      return (
+        <KeychainContextWindowFlow
+          backLabel={title}
+          providerId={providerId}
+          modelEntry={contextEntry}
+          onChange={(next) => {
+            setContextWindowMode(next.contextWindowMode)
+            setContextWindow(next.contextWindow)
+          }}
+          onClose={() => navigatePicker('form', 'pop')}
+        />
+      )
+    }
     return (
       <>
       <div class="settings__nav keychain__nav">
@@ -1717,6 +1754,8 @@ function AddModelView({
               supportsVision,
               ...pricingSelection,
               tokenizerFamily,
+              ...(contextWindowMode ? { contextWindowMode } : {}),
+              ...(contextWindow !== undefined ? { contextWindow } : {}),
             })
           }
         >
@@ -1785,9 +1824,14 @@ function AddModelView({
                       value={tokenizerLabel}
                       onClick={() => navigatePicker('tokenizer', 'push')}
                     />
+                    <SettingsNavRow
+                      label="上下文"
+                      value={contextLabel}
+                      onClick={() => navigatePicker('context', 'push')}
+                    />
                   </div>
                   <p class="settings__section-footnote">
-                    定价用于事件日志估算成本；词表用于本地 token 预估。未自动匹配时可手动选择。
+                    定价用于事件日志估算成本；词表用于本地 token 预估；上下文用于占用展示。未自动匹配时可手动选择。
                   </p>
                 </div>
               </>
@@ -1877,8 +1921,7 @@ function ModelSettingsView({
   )
 
   const updateModelEntry = (patch: Partial<AiModelEntry>) => {
-    const next = entry.enabledModels.map((m) => {
-      if (m.modelId !== modelId) return m
+    const applyPatch = (m: AiModelEntry): AiModelEntry => {
       const merged = { ...m, ...patch }
       // 定价三选一：显式写入某一源时清掉另外两源
       if ('manualPricing' in patch || 'openRouterPricing' in patch || 'pricingModelKey' in patch) {
@@ -1897,8 +1940,32 @@ function ModelSettingsView({
           delete merged.openRouterPricing
         }
       }
+      if ('contextWindowMode' in patch || 'contextWindow' in patch) {
+        if (merged.contextWindowMode !== 'manual') {
+          delete merged.contextWindowMode
+          delete merged.contextWindow
+        } else if (merged.contextWindow === undefined) {
+          delete merged.contextWindow
+        }
+      }
       return merged
-    })
+    }
+
+    const index = entry.enabledModels.findIndex((m) => m.modelId === modelId)
+    if (index < 0) {
+      const name = editingRow?.name ?? modelId
+      const created = applyPatch({ modelId, name })
+      onChange({
+        ...entry,
+        enabledModels: [...entry.enabledModels, created],
+        defaultModel: entry.defaultModel || modelId,
+      })
+      return
+    }
+
+    const next = entry.enabledModels.map((m) =>
+      m.modelId === modelId ? applyPatch(m) : m,
+    )
     onChange({ ...entry, enabledModels: next })
   }
 
@@ -1952,6 +2019,15 @@ function ModelSettingsView({
   const tokenizerLabel =
     tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
       ?.label ?? '未匹配'
+  const contextModelEntry: AiModelEntry = modelEntry ?? {
+    modelId,
+    name: editingRow?.name ?? modelId,
+  }
+  const contextLabel = formatKeychainContextWindowLabel(
+    entry.providerId,
+    contextModelEntry,
+  )
+  const showSupplement = Boolean(capabilitiesEditable || editingRow)
 
   const handleCapabilityToggle = (
     capability: AiModelCapability,
@@ -1999,6 +2075,22 @@ function ModelSettingsView({
           })
         }
         onBack={() => navigatePicker('form', 'pop')}
+        />
+      )
+    }
+    if (page === 'context') {
+      return (
+        <KeychainContextWindowFlow
+          backLabel={title}
+          providerId={entry.providerId}
+          modelEntry={contextModelEntry}
+          onChange={(next) => {
+            updateModelEntry({
+              contextWindowMode: next.contextWindowMode,
+              contextWindow: next.contextWindow,
+            })
+          }}
+          onClose={() => navigatePicker('form', 'pop')}
         />
       )
     }
@@ -2075,23 +2167,34 @@ function ModelSettingsView({
                 )}
               </div>
 
-              {capabilitiesEditable && (
+              {showSupplement && (
                 <div class="keychain__form-group">
                   <h3 class="keychain__form-group-title">补充信息</h3>
                   <div class="settings__list">
+                    {capabilitiesEditable && (
+                      <>
+                        <SettingsNavRow
+                          label="定价"
+                          value={pricingLabel}
+                          onClick={() => navigatePicker('pricing', 'push')}
+                        />
+                        <SettingsNavRow
+                          label="词表"
+                          value={tokenizerLabel}
+                          onClick={() => navigatePicker('tokenizer', 'push')}
+                        />
+                      </>
+                    )}
                     <SettingsNavRow
-                      label="定价"
-                      value={pricingLabel}
-                      onClick={() => navigatePicker('pricing', 'push')}
-                    />
-                    <SettingsNavRow
-                      label="词表"
-                      value={tokenizerLabel}
-                      onClick={() => navigatePicker('tokenizer', 'push')}
+                      label="上下文"
+                      value={contextLabel}
+                      onClick={() => navigatePicker('context', 'push')}
                     />
                   </div>
                   <p class="settings__section-footnote">
-                    定价用于事件日志估算成本；词表用于本地 token 预估。
+                    {capabilitiesEditable
+                      ? '定价用于事件日志估算成本；词表用于本地 token 预估；上下文用于占用展示。'
+                      : '上下文用于占用展示。自动时优先使用已匹配定价模型的长度。'}
                   </p>
                 </div>
               )}

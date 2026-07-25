@@ -112,7 +112,7 @@ export async function generateGithubCommitMessage(params: {
     const response = await client.chat.completions.create({
       model: config.defaultModel,
       messages,
-      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
     })
 
     const text = response.choices[0]?.message?.content ?? ''

@@ -118,9 +118,6 @@ export function AiProviderForm({
     onChange({ ...entry, enabledModels: nextModels, defaultModel: nextDefaultModel })
   }
 
-  const showThinkingSwitch =
-    entry.providerId === 'deepseek' || entry.providerId === 'mimo' || entry.providerId === 'mimo-token-plan'
-
   const renderModelSection = () => {
     const rows: Array<{
       modelId: string
@@ -334,13 +331,11 @@ export function AiProviderForm({
         </div>
       )}
 
-      {showThinkingSwitch && (
-        <SettingsSwitchRow
-          label="思考模式"
-          checked={entry.thinkingEnabled}
-          onChange={(thinkingEnabled) => onChange({ ...entry, thinkingEnabled })}
-        />
-      )}
+      <SettingsSwitchRow
+        label="思考模式"
+        checked={entry.thinkingEnabled}
+        onChange={(thinkingEnabled) => onChange({ ...entry, thinkingEnabled })}
+      />
 
       <SettingsSwitchRow
         label="使用代理服务器访问"

@@ -44,6 +44,7 @@ import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import {
   openAiConfigForVscodeAiModelKey,
+  parseVscodeAiModelRefKey,
   resolveVscodeAiModelRefKey,
   tokenizerFamilyForVscodeAiModelKey,
   useVscodeAiTextModels,
@@ -590,6 +591,10 @@ export function VscodeAiPanel({
     () => openAiConfigForVscodeAiModelKey(resolvedModelKey).defaultModel,
     [resolvedModelKey],
   )
+  const resolvedProviderEntryId = useMemo(
+    () => parseVscodeAiModelRefKey(resolvedModelKey)?.providerEntryId,
+    [resolvedModelKey],
+  )
   const resolvedTokenizerFamily = useMemo(
     () => tokenizerFamilyForVscodeAiModelKey(resolvedModelKey),
     [resolvedModelKey],
@@ -778,6 +783,7 @@ export function VscodeAiPanel({
           history,
           userMessage: draft,
           model: resolvedModelId,
+          providerEntryId: resolvedProviderEntryId,
           tokenizerFamily: resolvedTokenizerFamily,
           toolsHost,
         })
@@ -798,6 +804,7 @@ export function VscodeAiPanel({
     problems,
     rebuildHistoryFromMessages,
     resolvedModelId,
+    resolvedProviderEntryId,
     resolvedTokenizerFamily,
     toolsHost,
     workspaceFolder,

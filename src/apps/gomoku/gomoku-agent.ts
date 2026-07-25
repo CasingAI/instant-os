@@ -291,7 +291,7 @@ async function requestRemoteAiMove(
       messages,
       tools: [GOMOKU_PLACE_STONE_TOOL],
       tool_choice: 'auto',
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
     })
 
     recordOpenAiCompletionUsage(response, usageContext, {
@@ -388,7 +388,7 @@ export async function probeGomokuAiServiceReachable(): Promise<boolean> {
         { role: 'system', content: '只回复 OK。' },
         { role: 'user', content: 'ping' },
       ],
-      ...buildThinkingRequestExtras(config.providerId, false),
+      ...buildThinkingRequestExtras(config.providerId, false, config.defaultModel),
     })
     return true
   } catch {

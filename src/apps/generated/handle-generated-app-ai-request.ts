@@ -260,7 +260,7 @@ export async function handleGeneratedAppAiRequest(
     max_tokens: body.max_tokens,
     top_p: body.top_p,
     response_format: body.response_format,
-    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
   }
 
   try {

@@ -323,7 +323,7 @@ export async function generateIcodeHtmlEditsStreaming(
         { role: 'system', content: systemPrompt },
         ...apiMessages,
       ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
       ...(options.signal ? { signal: options.signal } : {}),
     }),
     options.signal,

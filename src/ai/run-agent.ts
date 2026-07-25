@@ -246,7 +246,11 @@ async function streamAssistantTurn(options: {
       tools: options.chatTools,
       stream: true,
       ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
-      ...buildThinkingRequestExtras(options.providerId, options.thinkingEnabled),
+      ...buildThinkingRequestExtras(
+        options.providerId,
+        options.thinkingEnabled,
+        options.model,
+      ),
       ...(options.signal ? { signal: options.signal } : {}),
     }),
     options.signal,
@@ -378,7 +382,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           : {}),
       }
       // DeepSeek / MiMo 思维链：多轮工具调用须回传 reasoning_content（可为空串）
-      if (providerRequiresReasoningContentEcho(config.providerId)) {
+      if (providerRequiresReasoningContentEcho(config.providerId, model)) {
         ;(assistantMessage as OpenAI.Chat.ChatCompletionAssistantMessageParam & {
           reasoning_content?: string
         }).reasoning_content = turn.reasoning || ''

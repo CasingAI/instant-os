@@ -54,10 +54,17 @@ export function mapSdkPricingToTable(
     const rawModelId = model.modelId?.trim()
     if (!rawProvider || !rawModelId) continue
 
+    const contextWindow =
+      typeof model.contextWindow === 'number' &&
+      Number.isFinite(model.contextWindow) &&
+      Math.floor(model.contextWindow) >= 1
+        ? Math.floor(model.contextWindow)
+        : undefined
     const entry: ModelPricingEntry = {
       inputPricePerMillion: model.inputPerMTok,
       outputPricePerMillion: model.outputPerMTok,
       currency: 'USD',
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
     }
 
     const knownProvider = normalizeSdkProvider(rawProvider)

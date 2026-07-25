@@ -99,6 +99,12 @@ export type AiOpenRouterPricingRef = {
   providerTag: string
 }
 
+/** 上下文窗口配置模式；缺省视为 auto */
+export type AiContextWindowMode = 'auto' | 'manual'
+
+/** 未匹配定价源、或匹配源无上下文时的自动回落 */
+export const DEFAULT_MODEL_CONTEXT_WINDOW = 128_000
+
 export type AiModelEntry = {
   modelId: string
   name: string
@@ -118,6 +124,10 @@ export type AiModelEntry = {
   openRouterPricing?: AiOpenRouterPricingRef
   /** 词表族覆盖；用于 VS Code 等本地 token 预估。未设时按 modelId 推断。 */
   tokenizerFamily?: AiTokenizerFamily
+  /** 上下文窗口模式；缺省 auto */
+  contextWindowMode?: AiContextWindowMode
+  /** 手动上下文窗口（token）；仅 manual 时有意义 */
+  contextWindow?: number
 }
 
 export type AiProviderEntry = {
@@ -498,6 +508,64 @@ export function parseStoredPricingModelKey(value: unknown): string | undefined {
   const trimmed = value.trim()
   if (!trimmed || trimmed.indexOf(':') <= 0) return undefined
   return trimmed
+}
+
+export function parseStoredContextWindowMode(
+  value: unknown,
+): AiContextWindowMode | undefined {
+  return value === 'auto' || value === 'manual' ? value : undefined
+}
+
+export function parseStoredContextWindow(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const tokens = Math.floor(value)
+  if (tokens < 1) return undefined
+  return tokens
+}
+
+function positiveContextWindow(value: number | null | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const tokens = Math.floor(value)
+  return tokens >= 1 ? tokens : undefined
+}
+
+/**
+ * 解析模型上下文窗口：手动值 → OpenRouter/PriceToken 匹配源 → 默认 128K。
+ */
+export function resolveModelEntryContextWindow(
+  _providerId: AiProviderId,
+  entry: Pick<
+    AiModelEntry,
+    | 'modelId'
+    | 'pricingModelKey'
+    | 'manualPricing'
+    | 'openRouterPricing'
+    | 'contextWindowMode'
+    | 'contextWindow'
+  >,
+): number {
+  const mode = entry.contextWindowMode === 'manual' ? 'manual' : 'auto'
+  if (mode === 'manual') {
+    const manual = positiveContextWindow(entry.contextWindow)
+    if (manual !== undefined) return manual
+  }
+
+  if (entry.openRouterPricing) {
+    const cached = getOpenRouterPricing(
+      entry.openRouterPricing.modelId,
+      entry.openRouterPricing.providerTag,
+    )
+    const fromOpenRouter = positiveContextWindow(cached?.contextLength)
+    if (fromOpenRouter !== undefined) return fromOpenRouter
+  }
+
+  if (entry.pricingModelKey) {
+    const fromKey = resolvePricingByModelKey(entry.pricingModelKey)
+    const fromPriceToken = positiveContextWindow(fromKey?.contextWindow)
+    if (fromPriceToken !== undefined) return fromPriceToken
+  }
+
+  return DEFAULT_MODEL_CONTEXT_WINDOW
 }
 
 export function isKnownModel(providerId: AiProviderId, modelId: string): boolean {

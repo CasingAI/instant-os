@@ -11,6 +11,8 @@ import {
   parseStoredOpenRouterPricing,
   parseStoredPricingModelKey,
   parseStoredTokenizerFamily,
+  parseStoredContextWindowMode,
+  parseStoredContextWindow,
   reconcilePreferredByCapability,
   applyTextPreferredToProviders,
   modelHasCapability,
@@ -156,6 +158,10 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
           const tokenizerFamily = parseStoredTokenizerFamily(
             modelRecord.tokenizerFamily,
           )
+          const contextWindowMode = parseStoredContextWindowMode(
+            modelRecord.contextWindowMode,
+          )
+          const contextWindow = parseStoredContextWindow(modelRecord.contextWindow)
           enabledModels.push({
             modelId,
             name,
@@ -164,6 +170,8 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
             ...(manualPricing ? { manualPricing } : {}),
             ...(openRouterPricing ? { openRouterPricing } : {}),
             ...(tokenizerFamily ? { tokenizerFamily } : {}),
+            ...(contextWindowMode ? { contextWindowMode } : {}),
+            ...(contextWindow !== undefined ? { contextWindow } : {}),
           })
         }
       }

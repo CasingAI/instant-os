@@ -48,8 +48,13 @@ export function describeVscodeAiModel(model: FlatEnabledModel): string {
   return `${providerName} 文本模型。`
 }
 
-export function formatVscodeAiModelContextLabel(modelId: string): string {
-  const window = resolveModelContextWindow(modelId)
+export function formatVscodeAiModelContextLabel(
+  model: Pick<FlatEnabledModel, 'modelId' | 'providerEntryId' | 'providerId'>,
+): string {
+  const window = resolveModelContextWindow(model.modelId, {
+    providerEntryId: model.providerEntryId,
+    providerId: model.providerId,
+  })
   return `${formatCompactTokenCount(window)} 上下文窗口`
 }
 
@@ -106,7 +111,7 @@ export function displayPartsForVscodeAiModel(
   const bits: string[] = []
 
   if (
-    supportsThinkingParam(model.providerId) &&
+    supportsThinkingParam(model.providerId, model.modelId) &&
     resolveVscodeAiThinkingEnabledForModelKey(modelKey, options)
   ) {
     bits.push('深度思考')

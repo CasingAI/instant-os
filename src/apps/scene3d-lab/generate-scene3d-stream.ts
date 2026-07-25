@@ -206,7 +206,7 @@ export async function generateScene3dHtmlStreaming(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
     ],
-    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+    ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
   })
 
   emit(true)

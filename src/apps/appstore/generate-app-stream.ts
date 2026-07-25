@@ -204,7 +204,7 @@ export async function generateAppHtmlStreaming(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
       ...(options.signal ? { signal: options.signal } : {}),
     }),
     options.signal,

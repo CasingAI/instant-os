@@ -693,7 +693,7 @@ export function VscodeAiModelPicker({
                 {describeVscodeAiModel(hoveredModel)}
               </p>
               <p class="vscode-ai-model-picker__tip-meta">
-                {formatVscodeAiModelContextLabel(hoveredModel.modelId)}
+                {formatVscodeAiModelContextLabel(hoveredModel)}
               </p>
             </PickerBubbleShell>
           ) : undefined}
@@ -706,7 +706,7 @@ export function VscodeAiModelPicker({
               position={editPosition}
               onMouseEnter={() => setHoveredKey(editKey)}
             >
-              {supportsThinkingParam(editModel.providerId) ? (
+              {supportsThinkingParam(editModel.providerId, editModel.modelId) ? (
                 <>
                   <div class="vscode-ai-model-picker__edit-section-label">选项</div>
                   <div class="vscode-ai-model-picker__edit-row">
@@ -728,7 +728,7 @@ export function VscodeAiModelPicker({
                 const fastOn = editKey === pair.fastKey
                 return (
                   <>
-                    {!supportsThinkingParam(editModel.providerId) ? (
+                    {!supportsThinkingParam(editModel.providerId, editModel.modelId) ? (
                       <div class="vscode-ai-model-picker__edit-section-label">选项</div>
                     ) : undefined}
                     <div class="vscode-ai-model-picker__edit-row">
@@ -747,7 +747,7 @@ export function VscodeAiModelPicker({
                   </>
                 )
               })()}
-              {!supportsThinkingParam(editModel.providerId) &&
+              {!supportsThinkingParam(editModel.providerId, editModel.modelId) &&
               !resolveVscodeAiFastPair(editModel, models) ? (
                 <div class="vscode-ai-model-picker__empty">无可调选项</div>
               ) : undefined}

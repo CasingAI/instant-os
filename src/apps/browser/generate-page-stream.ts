@@ -443,7 +443,7 @@ export async function generatePageHtmlStreaming(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled),
+      ...buildThinkingRequestExtras(config.providerId, config.thinkingEnabled, config.defaultModel),
     })
 
     for await (const chunk of stream) {
