@@ -7,6 +7,7 @@ import {
   type AgentReasoningDeltaEvent,
   type AgentStepEvent,
   type AgentTextDeltaEvent,
+  type AgentToolCallDeltaEvent,
   type AgentToolCallEvent,
   type AgentToolResultEvent,
   type AgentUsageEvent,
@@ -25,6 +26,7 @@ export type AgentDefaults = {
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
   onToolResult?: (event: AgentToolResultEvent) => void
+  onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
   onUsage?: (event: AgentUsageEvent) => void
@@ -42,6 +44,7 @@ export type AgentCallOptions = {
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
   onToolResult?: (event: AgentToolResultEvent) => void
+  onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
   onUsage?: (event: AgentUsageEvent) => void
@@ -68,6 +71,7 @@ export function createAgent(defaults: AgentDefaults): AgentRunner {
       onStep: options.onStep ?? defaults.onStep,
       onToolCall: options.onToolCall ?? defaults.onToolCall,
       onToolResult: options.onToolResult ?? defaults.onToolResult,
+      onToolCallDelta: options.onToolCallDelta ?? defaults.onToolCallDelta,
       onTextDelta: options.onTextDelta ?? defaults.onTextDelta,
       onReasoningDelta: options.onReasoningDelta ?? defaults.onReasoningDelta,
       onUsage: options.onUsage ?? defaults.onUsage,

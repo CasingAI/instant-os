@@ -3,6 +3,7 @@ import { createAgent } from '../../ai/create-agent.ts'
 import type {
   AgentReasoningDeltaEvent,
   AgentTextDeltaEvent,
+  AgentToolCallDeltaEvent,
   AgentToolCallEvent,
   AgentToolResultEvent,
   AgentUsageEvent,
@@ -34,10 +35,17 @@ import {
   prepareVscodeAiContextUsage,
   type VscodeAiContextUsage,
 } from './vscode-ai-context-usage.ts'
+import {
+  extractPartialJsonStringField,
+  isVscodeAiWriteTool,
+  writeToolPreviewField,
+  writeToolTitleField,
+} from './vscode-ai-streaming-json.ts'
 
 const VSCODE_AI_MAX_STEPS = 30
 const TOOL_RESULT_LINE_LIMIT = 120
 const TOOL_RESULT_CHAR_LIMIT = 12_000
+const WRITE_PREVIEW_STORE_LIMIT = 8_000
 
 export type VscodeAiActivity = {
   id: string
@@ -49,6 +57,21 @@ export type VscodeAiActivity = {
   /** 工具返回结果（如终端 stdout） */
   result?: string
   done?: boolean
+}
+
+export type VscodeAiWritePhase = 'streaming' | 'writing' | 'done'
+
+export type VscodeAiWriteItem = {
+  kind: 'write'
+  id: string
+  toolName: string
+  /** 显示名：计划名或文件路径 */
+  title: string
+  /** 流式/最终正文预览 */
+  preview: string
+  phase: VscodeAiWritePhase
+  done: boolean
+  result?: string
 }
 
 export type VscodeAiTimelineItem =
@@ -75,10 +98,12 @@ export type VscodeAiTimelineItem =
       content: string
       done: boolean
     }
+  | VscodeAiWriteItem
 
 export type VscodeAiInvestigationStep =
   | Extract<VscodeAiTimelineItem, { kind: 'activity' }>
   | Extract<VscodeAiTimelineItem, { kind: 'reasoning' }>
+  | Extract<VscodeAiTimelineItem, { kind: 'write' }>
 
 export type VscodeAiInvestigation = {
   activities: VscodeAiActivity[]
@@ -183,6 +208,14 @@ function markTimelineDone(timeline: VscodeAiTimelineItem[]): VscodeAiTimelineIte
         durationMs: Math.max(0, now - item.startedAt),
       }
     }
+    if (item.kind === 'write') {
+      return {
+        ...item,
+        done: true,
+        phase: 'done',
+        preview: truncateWritePreview(item.preview),
+      }
+    }
     return { ...item, done: true }
   })
 }
@@ -232,6 +265,67 @@ function totalReasoningDurationMs(timeline: VscodeAiTimelineItem[]): number | un
   return hasReasoning ? total : undefined
 }
 
+function truncateWritePreview(text: string): string {
+  if (text.length <= WRITE_PREVIEW_STORE_LIMIT) return text
+  return `${text.slice(0, WRITE_PREVIEW_STORE_LIMIT)}\n…（预览已截断）`
+}
+
+function writeCardTitle(
+  toolName: string,
+  phase: VscodeAiWritePhase,
+): string {
+  if (toolName === 'write_plan') {
+    if (phase === 'streaming') return '正在生成计划'
+    if (phase === 'writing') return '正在写入计划'
+    return '已写入计划'
+  }
+  if (toolName === 'propose_file_edit') {
+    if (phase === 'streaming') return '正在生成文件'
+    if (phase === 'writing') return '正在提交修改'
+    return '已提交修改提案'
+  }
+  const label = VSCODE_AI_TOOL_LABELS[toolName] ?? toolName
+  if (phase === 'done') return label
+  return `正在${label}`
+}
+
+export function formatVscodeAiWriteCardHeading(
+  toolName: string,
+  phase: VscodeAiWritePhase,
+): string {
+  return writeCardTitle(toolName, phase)
+}
+
+function parseWriteToolArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): { title: string; preview: string } {
+  const titleKey = writeToolTitleField(toolName)
+  const previewKey = writeToolPreviewField(toolName)
+  const titleRaw =
+    titleKey && typeof args[titleKey] === 'string' ? (args[titleKey] as string).trim() : ''
+  const previewRaw =
+    previewKey && typeof args[previewKey] === 'string' ? (args[previewKey] as string) : ''
+  return {
+    title: titleRaw || (toolName === 'write_plan' ? '未命名计划' : '未命名文件'),
+    preview: previewRaw,
+  }
+}
+
+function parseWriteToolArgsRaw(
+  toolName: string,
+  argumentsRaw: string,
+): { title: string; preview: string } {
+  const titleKey = writeToolTitleField(toolName)
+  const previewKey = writeToolPreviewField(toolName)
+  const title =
+    (titleKey ? extractPartialJsonStringField(argumentsRaw, titleKey)?.trim() : undefined) ||
+    (toolName === 'write_plan' ? '计划' : '文件')
+  const preview =
+    (previewKey ? extractPartialJsonStringField(argumentsRaw, previewKey) : undefined) ?? ''
+  return { title, preview }
+}
+
 function investigationStepsFromTimeline(
   timeline: VscodeAiTimelineItem[],
 ): VscodeAiInvestigationStep[] {
@@ -239,7 +333,7 @@ function investigationStepsFromTimeline(
   return timeline
     .filter(
       (item): item is VscodeAiInvestigationStep =>
-        item.kind === 'activity' || item.kind === 'reasoning',
+        item.kind === 'activity' || item.kind === 'reasoning' || item.kind === 'write',
     )
     .map((item) => {
       if (item.kind === 'reasoning') {
@@ -247,6 +341,14 @@ function investigationStepsFromTimeline(
           ...item,
           done: true,
           durationMs: item.durationMs ?? Math.max(0, now - item.startedAt),
+        }
+      }
+      if (item.kind === 'write') {
+        return {
+          ...item,
+          done: true,
+          phase: 'done',
+          preview: truncateWritePreview(item.preview),
         }
       }
       return { ...item, done: true }
@@ -357,6 +459,9 @@ export async function askVscodeAiAgent(options: {
   let reasoningText = ''
   let reasoningItemId: string | undefined
   let pendingActivityId: string | undefined
+  let pendingWriteId: string | undefined
+  /** step → index → write timeline id（流式阶段） */
+  const writeIdsByStepIndex = new Map<string, string>()
 
   const emit = () => {
     options.onProgress?.({
@@ -385,8 +490,93 @@ export async function askVscodeAiAgent(options: {
     emit()
   }
 
+  const onToolCallDelta = (event: AgentToolCallDeltaEvent) => {
+    if (!isVscodeAiWriteTool(event.toolName)) return
+    const key = `${event.step}:${event.index}`
+    let id = writeIdsByStepIndex.get(key)
+    const parsed = parseWriteToolArgsRaw(event.toolName, event.argumentsRaw)
+    if (!id) {
+      id = `vscode-ai-write-${osNowMs()}-${event.step}-${event.index}`
+      writeIdsByStepIndex.set(key, id)
+      timeline = markTimelineDone(timeline)
+      timeline.push({
+        kind: 'write',
+        id,
+        toolName: event.toolName,
+        title: parsed.title,
+        preview: parsed.preview,
+        phase: 'streaming',
+        done: false,
+      })
+      emit()
+      return
+    }
+    timeline = timeline.map((item) => {
+      if (item.kind !== 'write' || item.id !== id || item.done) return item
+      return {
+        ...item,
+        toolName: event.toolName || item.toolName,
+        title: parsed.title || item.title,
+        preview: parsed.preview,
+        phase: 'streaming',
+      }
+    })
+    emit()
+  }
+
   const onToolCall = (event: AgentToolCallEvent) => {
     toolCallCount += 1
+    if (isVscodeAiWriteTool(event.toolName)) {
+      const parsed = parseWriteToolArgs(event.toolName, event.arguments)
+      const key =
+        event.index !== undefined ? `${event.step}:${event.index}` : undefined
+      const existingId = key ? writeIdsByStepIndex.get(key) : undefined
+      const existing = existingId
+        ? timeline.find(
+            (item): item is VscodeAiWriteItem =>
+              item.kind === 'write' && item.id === existingId,
+          )
+        : [...timeline]
+            .reverse()
+            .find(
+              (item): item is VscodeAiWriteItem =>
+                item.kind === 'write' &&
+                !item.done &&
+                item.toolName === event.toolName &&
+                item.phase === 'streaming',
+            )
+      if (existing) {
+        pendingWriteId = existing.id
+        timeline = timeline.map((item) => {
+          if (item.kind !== 'write' || item.id !== existing.id) return item
+          return {
+            ...item,
+            title: parsed.title,
+            preview: parsed.preview,
+            phase: 'writing',
+            done: false,
+          }
+        })
+        emit()
+        return
+      }
+      const id = `vscode-ai-write-${osNowMs()}-${toolCallCount}`
+      pendingWriteId = id
+      if (key) writeIdsByStepIndex.set(key, id)
+      timeline = markTimelineDone(timeline)
+      timeline.push({
+        kind: 'write',
+        id,
+        toolName: event.toolName,
+        title: parsed.title,
+        preview: parsed.preview,
+        phase: 'writing',
+        done: false,
+      })
+      emit()
+      return
+    }
+
     const desc = describeToolCall(event)
     const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}`
     pendingActivityId = id
@@ -410,10 +600,36 @@ export async function askVscodeAiAgent(options: {
   }
 
   const onToolResult = (event: AgentToolResultEvent) => {
+    const resultText = truncateToolResultForDisplay(event.result)
+    if (pendingWriteId) {
+      const id = pendingWriteId
+      pendingWriteId = undefined
+      let titleFromResult: string | undefined
+      if (event.toolName === 'write_plan') {
+        const match = /已写入计划并打开：(.+)$/.exec(event.result.trim())
+        if (match?.[1]) titleFromResult = match[1].trim()
+      } else if (event.toolName === 'propose_file_edit') {
+        const match = /已提交修改提案：(.+?)（/.exec(event.result.trim())
+        if (match?.[1]) titleFromResult = match[1].trim()
+      }
+      timeline = timeline.map((item) => {
+        if (item.kind !== 'write' || item.id !== id) return item
+        return {
+          ...item,
+          title: titleFromResult || item.title,
+          preview: truncateWritePreview(item.preview),
+          phase: 'done',
+          done: true,
+          result: resultText,
+        }
+      })
+      emit()
+      return
+    }
+
     const id = pendingActivityId
     pendingActivityId = undefined
     if (!id) return
-    const resultText = truncateToolResultForDisplay(event.result)
     const activityIndex = activities.findIndex((item) => item.id === id)
     if (activityIndex >= 0) {
       const current = activities[activityIndex]
@@ -472,6 +688,7 @@ export async function askVscodeAiAgent(options: {
     signal: options.signal,
     onToolCall,
     onToolResult,
+    onToolCallDelta,
     onTextDelta,
     onReasoningDelta,
     onUsage,

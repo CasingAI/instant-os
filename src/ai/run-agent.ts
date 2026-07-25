@@ -22,6 +22,8 @@ import {
 
 export type AgentToolCallEvent = {
   step: number
+  /** 本轮 tool_calls 下标（与流式 delta 对齐） */
+  index?: number
   toolName: string
   arguments: Record<string, unknown>
 }
@@ -52,6 +54,17 @@ export type AgentReasoningDeltaEvent = {
   accumulated: string
 }
 
+/** 工具调用参数流式增量（arguments 尚未 parse 完成） */
+export type AgentToolCallDeltaEvent = {
+  step: number
+  /** 本轮 stream 内 tool_calls 下标 */
+  index: number
+  id: string
+  toolName: string
+  /** 累计的 function.arguments 原始 JSON 字符串 */
+  argumentsRaw: string
+}
+
 /** 单轮 model 调用的 usage（非跨步累加；适合上下文占用展示） */
 export type AgentUsageEvent = {
   step: number
@@ -74,6 +87,7 @@ export type RunAgentOptions = {
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
   onToolResult?: (event: AgentToolResultEvent) => void
+  onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
   onUsage?: (event: AgentUsageEvent) => void
@@ -138,13 +152,15 @@ function serializeToolResult(result: unknown): string {
 function applyToolCallDelta(
   toolCalls: Map<number, AccumulatedToolCall>,
   deltas: OpenAI.Chat.ChatCompletionChunk.Choice.Delta.ToolCall[] | undefined,
-): void {
+): number[] {
   if (!deltas?.length) {
-    return
+    return []
   }
 
+  const touched = new Set<number>()
   for (const delta of deltas) {
     const index = delta.index
+    touched.add(index)
     const existing = toolCalls.get(index)
     if (!existing) {
       toolCalls.set(index, {
@@ -168,6 +184,7 @@ function applyToolCallDelta(
       existing.function.arguments += delta.function.arguments
     }
   }
+  return [...touched]
 }
 
 function lastAssistantText(
@@ -231,6 +248,7 @@ async function streamAssistantTurn(options: {
   signal?: AbortSignal
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
+  onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
 }): Promise<{
   content: string
   reasoning: string
@@ -274,7 +292,20 @@ async function streamAssistantTurn(options: {
         return
       }
 
-      applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
+      const touchedIndexes = applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
+      if (options.onToolCallDelta && touchedIndexes.length > 0) {
+        for (const index of touchedIndexes) {
+          const toolCall = toolCallMap.get(index)
+          if (!toolCall) continue
+          options.onToolCallDelta({
+            step: options.step,
+            index,
+            id: toolCall.id,
+            toolName: toolCall.function.name,
+            argumentsRaw: toolCall.function.arguments,
+          })
+        }
+      }
 
       const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
         choice.delta,
@@ -348,6 +379,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         signal: options.signal,
         onTextDelta: options.onTextDelta,
         onReasoningDelta: options.onReasoningDelta,
+        onToolCallDelta: options.onToolCallDelta,
       })
 
       throwIfStreamAborted(options.signal)
@@ -427,7 +459,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
       const availableToolNames = [...toolByName.keys()]
 
-      for (const toolCall of turn.toolCalls) {
+      for (const [toolIndex, toolCall] of turn.toolCalls.entries()) {
         throwIfStreamAborted(options.signal)
 
         let args: Record<string, unknown> = {}
@@ -447,6 +479,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         const toolName = toolCall.function.name
         options.onToolCall?.({
           step,
+          index: toolIndex,
           toolName,
           arguments: args,
         })

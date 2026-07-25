@@ -50,6 +50,77 @@
   border-top: 1px solid rgba(196, 181, 160, 0.45);
 }
 
+.vscode-ai__write-card {
+  margin: 6px 0;
+  border: 1px solid rgba(196, 181, 160, 0.5);
+  border-radius: 6px;
+  background: rgba(250, 248, 245, 0.9);
+  overflow: hidden;
+}
+
+.vscode-ai__write-card--live {
+  border-color: rgba(180, 140, 60, 0.55);
+  box-shadow: 0 0 0 1px rgba(180, 140, 60, 0.12);
+}
+
+.vscode-ai__write-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vscode-ai__write-card-toggle:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.vscode-ai__write-card-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vscode-ai__write-card-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--help-ink);
+}
+
+.vscode-ai__write-card-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--help-ink-muted);
+}
+
+.vscode-ai__write-card-preview {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 0 10px 10px;
+  border-top: 1px solid rgba(196, 181, 160, 0.35);
+  background: #f7f4ef;
+  color: var(--help-ink);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .vscode-ai__edit-card-title {
   font-size: 11px;
   font-weight: 700;
@@ -675,6 +746,26 @@
 .vscode--chrome-dark .vscode-ai .help-app__live-answer,
 .vscode--chrome-dark .vscode-ai__edit-card {
   border-top-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--help-border);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card--live {
+  border-color: rgba(206, 145, 50, 0.55);
+  box-shadow: 0 0 0 1px rgba(206, 145, 50, 0.12);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vscode--chrome-dark .vscode-ai__write-card-preview {
+  background: rgba(0, 0, 0, 0.25);
+  border-top-color: var(--help-border);
+  color: #d4d4d4;
 }
 
 .vscode--chrome-dark .vscode-ai__change-review-file:hover,

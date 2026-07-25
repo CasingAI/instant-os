@@ -25,10 +25,12 @@ import type { VscodeAiContextInput } from './vscode-ai-context.ts'
 import {
   askVscodeAiAgent,
   buildVscodeAiInvestigationFromTimeline,
+  formatVscodeAiWriteCardHeading,
   type VscodeAiActivity,
   type VscodeAiInvestigation,
   type VscodeAiInvestigationStep,
   type VscodeAiTimelineItem,
+  type VscodeAiWriteItem,
 } from './vscode-ai-agent.ts'
 import type { VscodeAiToolsHost } from './vscode-ai-tools.ts'
 import {
@@ -194,6 +196,62 @@ function WaitingStatus({ label = '等待响应' }: { label?: string }) {
   )
 }
 
+function WriteFileCard({
+  item,
+  live,
+}: {
+  item: VscodeAiWriteItem
+  live?: boolean
+}) {
+  const [expanded, setExpanded] = useState(!item.done)
+  const previewRef = useRef<HTMLPreElement>(null)
+  const streaming = Boolean(live) && !item.done
+  const preview = item.preview.trim()
+  const heading = formatVscodeAiWriteCardHeading(item.toolName, item.phase)
+
+  useLayoutEffect(() => {
+    if (!streaming || !expanded) return
+    const el = previewRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [streaming, expanded, item.preview])
+
+  useEffect(() => {
+    if (item.done) setExpanded(false)
+  }, [item.done])
+
+  return (
+    <div
+      class={`vscode-ai__write-card${streaming ? ' vscode-ai__write-card--live' : ''}${item.done ? ' vscode-ai__write-card--done' : ''}`}
+      aria-live={streaming ? 'polite' : undefined}
+    >
+      <button
+        type="button"
+        class="vscode-ai__write-card-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span
+          class={`help-app__investigation-chevron${expanded ? ' help-app__investigation-chevron--expanded' : ''}`}
+          aria-hidden="true"
+        />
+        <span class="vscode-ai__write-card-heading">
+          {streaming ? <WaitingDots /> : undefined}
+          <span class="vscode-ai__write-card-title">{heading}</span>
+          {item.title ? (
+            <span class="vscode-ai__write-card-path"> · {item.title}</span>
+          ) : undefined}
+        </span>
+      </button>
+      {expanded ? (
+        <pre ref={previewRef} class="vscode-ai__write-card-preview">
+          {preview || (streaming ? '…' : '（无预览）')}
+        </pre>
+      ) : undefined}
+    </div>
+  )
+}
+
 function ActivityStatus({
   activity,
   live,
@@ -342,6 +400,8 @@ function InvestigationSteps({
           >
             {item.kind === 'activity' ? (
               <ActivityStatus activity={item} />
+            ) : item.kind === 'write' ? (
+              <WriteFileCard item={item} />
             ) : (
               <ReasoningStatus text={item.content} durationMs={item.durationMs} />
             )}
@@ -476,6 +536,9 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
               isCurrent={isLast && !item.done}
             />
           )
+        }
+        if (item.kind === 'write') {
+          return <WriteFileCard key={item.id} item={item} live />
         }
         if (item.kind === 'reasoning') {
           return (

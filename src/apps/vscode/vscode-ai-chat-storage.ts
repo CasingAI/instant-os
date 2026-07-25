@@ -215,6 +215,32 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
         },
       ]
     }
+    if (item.kind === 'write') {
+      if (
+        typeof item.id !== 'string' ||
+        typeof item.toolName !== 'string' ||
+        typeof item.title !== 'string' ||
+        typeof item.preview !== 'string'
+      ) {
+        return []
+      }
+      const phase =
+        item.phase === 'streaming' || item.phase === 'writing' || item.phase === 'done'
+          ? item.phase
+          : 'done'
+      return [
+        {
+          kind: 'write',
+          id: item.id,
+          toolName: item.toolName,
+          title: item.title,
+          preview: item.preview,
+          phase: item.done === false ? phase : 'done',
+          done: item.done !== false,
+          result: normalizeOptionalString(item.result),
+        },
+      ]
+    }
     return []
   })
   if (timeline.length === 0 && entry.activities.length === 0) {
