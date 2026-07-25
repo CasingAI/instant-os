@@ -110,6 +110,11 @@ runtime use (no Hugging Face network fetch at runtime):
   Copyright (c) 2023 DeepSeek
   License: MIT License
 
+- deepseek-ai/DeepSeek-V3
+  https://huggingface.co/deepseek-ai/DeepSeek-V3
+  Copyright (c) 2023 DeepSeek
+  License: MIT License (as declared on the model card)
+
 - XiaomiMiMo/MiMo-V2-Flash
   https://huggingface.co/XiaomiMiMo/MiMo-V2-Flash
   License: MIT License (as declared on the model card)
@@ -117,6 +122,34 @@ runtime use (no Hugging Face network fetch at runtime):
 - XiaomiMiMo/MiMo-V2.5
   https://huggingface.co/XiaomiMiMo/MiMo-V2.5
   License: MIT License (as declared on the model card)
+
+- moonshotai/Kimi-K2-Instruct (tokenizer.json at commit ad1f5f7)
+  https://huggingface.co/moonshotai/Kimi-K2-Instruct
+  License: as declared on the model card
+
+- zai-org/GLM-5.2
+  https://huggingface.co/zai-org/GLM-5.2
+  License: MIT License (as declared on the model card)
+
+- zai-org/GLM-4.7
+  https://huggingface.co/zai-org/GLM-4.7
+  License: MIT License (as declared on the model card)
+
+- Qwen/Qwen3-8B
+  https://huggingface.co/Qwen/Qwen3-8B
+  License: Apache License 2.0 (as declared on the model card)
+
+- Qwen/Qwen2.5-7B-Instruct
+  https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
+  License: Apache License 2.0 (as declared on the model card)
+
+- MiniMaxAI/MiniMax-M2.5
+  https://huggingface.co/MiniMaxAI/MiniMax-M2.5
+  License: as declared on the model card
+
+- MiniMaxAI/MiniMax-M3
+  https://huggingface.co/MiniMaxAI/MiniMax-M3
+  License: as declared on the model card
 
 MIT License text (applies to each of the above tokenizer assets under the
 respective copyright holders):

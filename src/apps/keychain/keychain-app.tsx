@@ -1585,6 +1585,23 @@ function ProviderSettingsForm({
 
 const TOKENIZER_NONE_OPTION_ID = ''
 
+/** 词表「自动」选项文案：能按 modelId 推断时附带当前识别族 */
+function formatKeychainTokenizerAutoLabel(modelId: string | undefined): string {
+  const resolved = resolveTokenizerFamily(modelId)
+  if (!resolved) return '自动'
+  return `自动（${AI_TOKENIZER_FAMILY_LABELS[resolved]}）`
+}
+
+function formatKeychainTokenizerLabel(
+  modelId: string | undefined,
+  tokenizerFamily: AiTokenizerFamily | undefined,
+): string {
+  if (!tokenizerFamily) {
+    return formatKeychainTokenizerAutoLabel(modelId)
+  }
+  return AI_TOKENIZER_FAMILY_LABELS[tokenizerFamily]
+}
+
 type AddModelPicker = 'pricing' | 'tokenizer' | 'context'
 
 function AddModelView({
@@ -1643,19 +1660,20 @@ function AddModelView({
 
   const tokenizerOptions = useMemo(
     () => [
-      { id: TOKENIZER_NONE_OPTION_ID, label: '未匹配' },
+      {
+        id: TOKENIZER_NONE_OPTION_ID,
+        label: formatKeychainTokenizerAutoLabel(trimmed),
+      },
       ...AI_TOKENIZER_FAMILIES.map((family) => ({
         id: family,
         label: AI_TOKENIZER_FAMILY_LABELS[family],
       })),
     ],
-    [],
+    [trimmed],
   )
 
   const pricingLabel = formatKeychainPricingLabel(pricingSelection)
-  const tokenizerLabel =
-    tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
-      ?.label ?? '未匹配'
+  const tokenizerLabel = formatKeychainTokenizerLabel(trimmed, tokenizerFamily)
   const contextEntry: AiModelEntry = {
     modelId: trimmed || 'draft',
     name: trimmed || 'draft',
@@ -1679,9 +1697,9 @@ function AddModelView({
       )
     }
 
-    const matchedTokenizer = resolveTokenizerFamily(nextTrimmed)
+    // 默认保持「自动」：不写入 tokenizerFamily，运行时按 modelId 推断
     if (!tokenizerTouched) {
-      setTokenizerFamily(matchedTokenizer)
+      setTokenizerFamily(undefined)
     }
 
     const matchedPreset =
@@ -1932,13 +1950,16 @@ function ModelSettingsView({
 
   const tokenizerOptions = useMemo(
     () => [
-      { id: TOKENIZER_NONE_OPTION_ID, label: '未匹配' },
+      {
+        id: TOKENIZER_NONE_OPTION_ID,
+        label: formatKeychainTokenizerAutoLabel(modelId),
+      },
       ...AI_TOKENIZER_FAMILIES.map((family) => ({
         id: family,
         label: AI_TOKENIZER_FAMILY_LABELS[family],
       })),
     ],
-    [],
+    [modelId],
   )
 
   const updateModelEntry = (patch: Partial<AiModelEntry>) => {
@@ -2037,9 +2058,7 @@ function ModelSettingsView({
   }
   void pricingRevision
   const pricingLabel = formatKeychainPricingLabel(pricingSelection)
-  const tokenizerLabel =
-    tokenizerOptions.find((option) => option.id === (tokenizerFamily ?? ''))
-      ?.label ?? '未匹配'
+  const tokenizerLabel = formatKeychainTokenizerLabel(modelId, tokenizerFamily)
   const contextModelEntry: AiModelEntry = modelEntry ?? {
     modelId,
     name: editingRow?.name ?? modelId,

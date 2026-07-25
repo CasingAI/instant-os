@@ -9,17 +9,33 @@ import { getOpenRouterPricing } from './openrouter-pricing-cache.ts'
 /** 本地词表族（与 /assets/tokenizers 目录对应） */
 export const AI_TOKENIZER_FAMILIES = [
   'deepseek-v4',
+  'deepseek-v3',
   'mimo',
   'mimo-v2-flash',
   'mimo-v2.5',
+  'kimi',
+  'glm-5',
+  'glm-4',
+  'qwen3',
+  'qwen2.5',
+  'minimax-m2',
+  'minimax-m3',
 ] as const
 export type AiTokenizerFamily = (typeof AI_TOKENIZER_FAMILIES)[number]
 
 export const AI_TOKENIZER_FAMILY_LABELS: Record<AiTokenizerFamily, string> = {
   'deepseek-v4': 'DeepSeek V4',
+  'deepseek-v3': 'DeepSeek V3 / R1',
   mimo: 'MiMo（通用）',
   'mimo-v2-flash': 'MiMo V2 Flash',
   'mimo-v2.5': 'MiMo V2.5',
+  kimi: 'Kimi / Moonshot',
+  'glm-5': 'GLM 5.x（含 5.2）',
+  'glm-4': 'GLM 4.x',
+  qwen3: 'Qwen3 / 3.5 / 3.6 / 3.7',
+  'qwen2.5': 'Qwen2.5',
+  'minimax-m2': 'MiniMax M2 系列',
+  'minimax-m3': 'MiniMax M3',
 }
 
 export function isAiTokenizerFamily(value: string): value is AiTokenizerFamily {
