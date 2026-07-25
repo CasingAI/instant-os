@@ -31,6 +31,7 @@ export function TerminalApp() {
     () => [
       '终端 · InstantREPL',
       `工作区 ${WORKSPACE_ROOT} · 回车执行 · ⌘K 清屏 · .reset 重建实例`,
+      'instant.openApp / openPath / openUrl / listApps / listWindows / focus / close / …',
     ],
     [],
   )

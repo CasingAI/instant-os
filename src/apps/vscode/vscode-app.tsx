@@ -659,7 +659,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   ])
 
   const terminalWorkspaceRoot = prefs.workspaceFolder?.trim() || '/user'
-  const terminalReplWelcome = useMemo(() => ['终端 · InstantREPL'], [])
+  const terminalReplWelcome = useMemo(
+    () => [
+      '终端 · InstantREPL',
+      'instant.openApp / openPath / openUrl / listApps / listWindows / focus / close / …',
+    ],
+    [],
+  )
   const terminalColors = useMemo(
     () => terminalColorsForTheme(prefs.theme),
     [prefs.theme],

@@ -1,5 +1,6 @@
 import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../terminal/terminal-fs-mode.ts'
+import type { InstantShellHost } from '../terminal/instant-shell/instant-shell-types.ts'
 
 /** QuickJS 实例控制台级别。 */
 export type QuickJsConsoleLevel = 'log' | 'info' | 'warn' | 'error'
@@ -93,6 +94,11 @@ export type QuickJsInstanceOptions = {
   maxFileBytes?: number
   /** 注入到隔离上下文 globalThis 的可序列化全局变量（仅创建时一次）。 */
   globals?: Record<string, unknown>
+  /**
+   * 终端专用 `globalThis.instant` 壳层宿主绑定。
+   * 未传则不注入（sandbox / Virtual JS 等默认无此能力）。
+   */
+  instantShellHost?: InstantShellHost
 }
 
 export type QuickJsEvalOptions = {

@@ -7,6 +7,11 @@ export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'texted
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
   documentId?: string
+  /**
+   * 浏览器待导航 URL（http/https）。
+   * 与 documentId 互斥；仅 `browser` 等支持 URL 打开的应用消费。
+   */
+  url?: string
   /** 打开/聚焦终端时注入的待确认特权操作。
    * @deprecated 此字段仅服务于已弃用的模拟终端（simulated-terminal）。
    * 模拟终端移除后此字段应一并移除或迁移到真终端的特权路径。 */
@@ -59,6 +64,8 @@ export type WindowState = {
   title: string
   /** 文档类应用当前 / 待打开的全局绝对路径（如 `/user/笔记.txt`） */
   documentId?: string
+  /** 浏览器等应用的待导航 / 当前 URL（与 documentId 互斥） */
+  url?: string
   /** 文档有未保存更改时，标题栏右侧显示「已编辑」 */
   documentEdited?: boolean
   /** 文档只读时，标题前显示淡色「只读 - 」前缀 */

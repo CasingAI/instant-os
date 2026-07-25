@@ -217,6 +217,7 @@ export function BrowserApp() {
     windows,
     focusWindow,
     setAppWindowDocumentId,
+    setAppWindowUrl,
   } = useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
   const { showBuiltinAbout } = useAboutApp()
@@ -226,6 +227,7 @@ export function BrowserApp() {
   const browserWindowId = browserWindow?.id
   const browserFullscreen = Boolean(browserWindow?.fullscreen)
   const pendingDocumentId = appWindow?.documentId
+  const pendingUrl = appWindow?.url
   const apiReady = useOpenAiReady()
   const [tabs, setTabs] = useState<SafariTab[]>(() => [createSafariTab()])
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '')
@@ -257,6 +259,8 @@ export function BrowserApp() {
   const pageHtmlByTabRef = useRef<Record<string, string>>({})
   const lastPageNavByTabRef = useRef<Record<string, { url: string; at: number }>>({})
   const lastOpenedDocumentIdRef = useRef<string | undefined>(undefined)
+  const lastOpenedUrlRef = useRef<string | undefined>(undefined)
+  const openingUrlRef = useRef<string | undefined>(undefined)
   const openingDocumentIdRef = useRef<string | undefined>(undefined)
   const safariRootRef = useRef<HTMLDivElement>(null)
   const { hostRef: narrowLayoutHostRef, narrowLayout } = useAppNarrowLayout()
@@ -1027,6 +1031,24 @@ export function BrowserApp() {
     }
     void openLocalDocument(pendingDocumentId)
   }, [openLocalDocument, pendingDocumentId])
+
+  useEffect(() => {
+    if (!pendingUrl) {
+      return
+    }
+    if (lastOpenedUrlRef.current === pendingUrl) {
+      return
+    }
+    if (openingUrlRef.current === pendingUrl) {
+      return
+    }
+    openingUrlRef.current = pendingUrl
+    lastOpenedUrlRef.current = pendingUrl
+    lastOpenedDocumentIdRef.current = undefined
+    navigateActive(pendingUrl)
+    setAppWindowUrl('browser', pendingUrl)
+    openingUrlRef.current = undefined
+  }, [navigateActive, pendingUrl, setAppWindowUrl])
 
   const addressSuggestions = useMemo(() => {
     if (!addressFocused || !inputUrl.trim()) {

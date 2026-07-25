@@ -63,6 +63,7 @@ type OsContextValue = {
   restoreWindow: (windowId: string) => void
   setAppWindowTitle: (appId: AppId, title: string) => void
   setAppWindowDocumentId: (appId: AppId, documentId: string | undefined) => void
+  setAppWindowUrl: (appId: AppId, url: string | undefined) => void
   setAppWindowDocumentEdited: (appId: AppId, edited: boolean) => void
   setWindowTitle: (windowId: string, title: string) => void
   setWindowDocumentId: (windowId: string, documentId: string | undefined) => void
@@ -175,7 +176,11 @@ function pickTopVisibleWindowId(
 function createWindow(
   appId: AppId,
   titleOverride?: string,
-  options?: { enterAnimation?: WindowState['enterAnimation']; documentId?: string },
+  options?: {
+    enterAnimation?: WindowState['enterAnimation']
+    documentId?: string
+    url?: string
+  },
 ): WindowState {
   windowCounter += 1
   const nextZ = bumpZIndex()
@@ -209,6 +214,7 @@ function createWindow(
       appId,
       title: defaults.title,
       documentId: options?.documentId,
+      url: options?.url,
       minimized: false,
       maximized: false,
       fullscreen: false,
@@ -225,6 +231,7 @@ function createWindow(
       appId,
       title: defaults.title,
       documentId: options?.documentId,
+      url: options?.url,
       minimized: false,
       maximized: true,
       fullscreen: false,
@@ -242,6 +249,7 @@ function createWindow(
     appId,
     title: defaults.title,
     documentId: options?.documentId,
+    url: options?.url,
     minimized: false,
     maximized: false,
     fullscreen: false,
@@ -330,7 +338,21 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
     let resolvedActiveId: string | undefined
     const documentId = options?.documentId
+    const url = options?.url
+    if (documentId !== undefined && url !== undefined) {
+      throw new Error('documentId 与 url 不能同时指定')
+    }
     const multiWindow = isMultiWindowApp(appId)
+
+    const applyOpenPayload = <T extends WindowState>(window: T): T => {
+      if (documentId !== undefined) {
+        return { ...window, documentId, url: undefined }
+      }
+      if (url !== undefined) {
+        return { ...window, url, documentId: undefined }
+      }
+      return window
+    }
 
     setWindows((current) => {
       const live = current.filter((window) => !window.closing)
@@ -352,6 +374,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         const nextWindow = createWindow(appId, undefined, {
           enterAnimation: isWindowlessApp(appId) ? undefined : 'scale-in',
           documentId,
+          url,
         })
         resolvedActiveId = nextWindow.id
         return [...current, nextWindow]
@@ -364,13 +387,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
         return current.map((window) =>
           window.id === existing.id
-            ? {
+            ? applyOpenPayload({
                 ...window,
                 zIndex: nextZ,
                 minimized: false,
                 title: resolvedTitle,
-                ...(documentId !== undefined ? { documentId } : {}),
-              }
+              })
             : window,
         )
       }
@@ -382,13 +404,12 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
         return current.map((window) =>
           window.id === minimized.id
-            ? {
+            ? applyOpenPayload({
                 ...window,
                 zIndex: nextZ,
                 minimized: false,
                 title: resolvedTitle,
-                ...(documentId !== undefined ? { documentId } : {}),
-              }
+              })
             : window,
         )
       }
@@ -396,6 +417,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       const nextWindow = createWindow(appId, undefined, {
         enterAnimation: 'scale-in',
         documentId,
+        url,
       })
       resolvedActiveId = nextWindow.id
       return [...current, nextWindow]
@@ -410,7 +432,25 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     setWindows((current) =>
       current.map((window) =>
         window.appId === appId && !window.closing
-          ? { ...window, documentId }
+          ? {
+              ...window,
+              documentId,
+              ...(documentId !== undefined ? { url: undefined } : {}),
+            }
+          : window,
+      ),
+    )
+  }, [])
+
+  const setAppWindowUrl = useCallback((appId: AppId, url: string | undefined) => {
+    setWindows((current) =>
+      current.map((window) =>
+        window.appId === appId && !window.closing
+          ? {
+              ...window,
+              url,
+              ...(url !== undefined ? { documentId: undefined } : {}),
+            }
           : window,
       ),
     )
@@ -1109,6 +1149,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       restoreWindow,
       setAppWindowTitle,
       setAppWindowDocumentId,
+      setAppWindowUrl,
       setAppWindowDocumentEdited,
       setWindowTitle,
       setWindowDocumentId,
@@ -1117,7 +1158,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
       revealWindowlessPanel,
       closeProcessIsolatedApps,
     }),
-    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
+    [windows, activeWindowId, desktopRevealed, desktopRevealRestoring, toggleDesktopReveal, hideDesktopReveal, openApp, openGeneratedApp, openExtApp, closeWindow, closeWindowsForApp, finalizeWindowClose, registerAppCloseGuard, bypassAppCloseGuard, registerWindowCloseGuard, bypassWindowCloseGuard, cancelPendingAppQuit, focusWindow, moveWindow, resizeWindow, releaseAnchoredWindow, applyWindowSnap, toggleFullscreen, toggleMaximize, minimizeWindow, restoreWindow, setAppWindowTitle, setAppWindowDocumentId, setAppWindowUrl, setAppWindowDocumentEdited, setWindowTitle, setWindowDocumentId, setWindowDocumentEdited, setWindowDocumentReadOnly, revealWindowlessPanel, closeProcessIsolatedApps],
   )
 
   useEffect(() => registerOsOpenApp(openApp), [openApp])

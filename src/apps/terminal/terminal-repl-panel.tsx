@@ -5,10 +5,14 @@ import {
   type QuickJsConsoleLine,
   type QuickJsInstance,
 } from '../../quickjs/quickjs-public.ts'
+import { useDevExtApps } from '../../os/dev-ext-apps-context.tsx'
+import { useGeneratedApps } from '../../os/generated-apps-context.tsx'
+import { useOs } from '../../os/os-context.tsx'
 import {
   terminalColorsToStyle,
   type TerminalColors,
 } from '../../terminal/terminal-colors.ts'
+import { createTerminalInstantShellHost } from '../../terminal/instant-shell/create-terminal-instant-shell-host.ts'
 import '../../terminal/terminal-panel.css'
 import './terminal-repl-shell.css'
 import { formatTerminalReplValue } from './terminal-repl-format.ts'
@@ -16,6 +20,7 @@ import { wrapTerminalProgramEval } from './terminal-repl-program-eval.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
+import { useWindowModal } from '../../window/window-modal-context.tsx'
 
 export type TerminalReplRunSource = 'user' | 'program'
 
@@ -95,9 +100,56 @@ export function TerminalReplPanel({
   fsMode = 'normal',
   onChangesAvailable,
 }: TerminalReplPanelProps) {
+  const {
+    windows,
+    openApp,
+    openGeneratedApp,
+    openExtApp,
+    focusWindow,
+    closeWindow,
+    closeWindowsForApp,
+    minimizeWindow,
+    restoreWindow,
+    toggleFullscreen,
+    toggleMaximize,
+  } = useOs()
+  const { installedApps } = useGeneratedApps()
+  const { sessionExtApps } = useDevExtApps()
+  const modal = useWindowModal()
+
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   const mountedRef = useRef(true)
   const lineSeqRef = useRef(0)
+  const windowsRef = useRef(windows)
+  windowsRef.current = windows
+  const installedAppsRef = useRef(installedApps)
+  installedAppsRef.current = installedApps
+  const sessionExtAppsRef = useRef(sessionExtApps)
+  sessionExtAppsRef.current = sessionExtApps
+  const openAppRef = useRef(openApp)
+  openAppRef.current = openApp
+  const openGeneratedAppRef = useRef(openGeneratedApp)
+  openGeneratedAppRef.current = openGeneratedApp
+  const openExtAppRef = useRef(openExtApp)
+  openExtAppRef.current = openExtApp
+  const focusWindowRef = useRef(focusWindow)
+  focusWindowRef.current = focusWindow
+  const closeWindowRef = useRef(closeWindow)
+  closeWindowRef.current = closeWindow
+  const closeWindowsForAppRef = useRef(closeWindowsForApp)
+  closeWindowsForAppRef.current = closeWindowsForApp
+  const minimizeWindowRef = useRef(minimizeWindow)
+  minimizeWindowRef.current = minimizeWindow
+  const restoreWindowRef = useRef(restoreWindow)
+  restoreWindowRef.current = restoreWindow
+  const toggleFullscreenRef = useRef(toggleFullscreen)
+  toggleFullscreenRef.current = toggleFullscreen
+  const toggleMaximizeRef = useRef(toggleMaximize)
+  toggleMaximizeRef.current = toggleMaximize
+  const modalRef = useRef(modal)
+  modalRef.current = modal
+  /** 当前 busy 切片开始时间；用于关窗确认（短交互命令不弹，长任务中途 close 才确认）。 */
+  const busySinceRef = useRef<number | undefined>(undefined)
   const seenConsoleIdsRef = useRef(new Set<string>())
   const unsubRef = useRef<(() => void) | undefined>(undefined)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -179,6 +231,13 @@ export function TerminalReplPanel({
         }
         syncConsoleFromInstance(instance)
         const snap = instance.getSnapshot()
+        if (snap.busy) {
+          if (busySinceRef.current === undefined) {
+            busySinceRef.current = Date.now()
+          }
+        } else {
+          busySinceRef.current = undefined
+        }
         setCwd(snap.cwd)
         setBusy(snap.busy)
         if (snap.destroyed) {
@@ -189,6 +248,7 @@ export function TerminalReplPanel({
       setBootError(undefined)
       setBooting(false)
       setBusy(false)
+      busySinceRef.current = undefined
     },
     [syncConsoleFromInstance],
   )
@@ -198,10 +258,65 @@ export function TerminalReplPanel({
     setBootError(undefined)
     try {
       const root = workspaceRootRef.current
+      const instantShellHost = createTerminalInstantShellHost({
+        getWindows: () => windowsRef.current,
+        openApp: (appId, options) => {
+          openAppRef.current(appId, options)
+        },
+        openGeneratedApp: (appId, title) => {
+          openGeneratedAppRef.current(appId, title)
+        },
+        openExtApp: (appId, title) => {
+          openExtAppRef.current(appId, title)
+        },
+        getInstalledGeneratedApps: () => installedAppsRef.current,
+        getSessionExtApps: () => sessionExtAppsRef.current,
+        focusWindow: (windowId) => {
+          focusWindowRef.current(windowId)
+        },
+        closeWindow: (windowId) => {
+          closeWindowRef.current(windowId)
+        },
+        closeWindowsForApp: (appId) => {
+          closeWindowsForAppRef.current(appId)
+        },
+        minimizeWindow: (windowId) => {
+          minimizeWindowRef.current(windowId)
+        },
+        restoreWindow: (windowId) => {
+          restoreWindowRef.current(windowId)
+        },
+        toggleFullscreen: (windowId) => {
+          toggleFullscreenRef.current(windowId)
+        },
+        toggleMaximize: (windowId) => {
+          toggleMaximizeRef.current(windowId)
+        },
+        getCwd: () => instanceRef.current?.getSnapshot().cwd ?? workspaceRootRef.current,
+        isBusy: () => {
+          // 调用 instant.close 时当前 eval 必然 busy；用持续时间区分「空闲下的短命令」与「长任务中途关窗」。
+          if (!(instanceRef.current?.getSnapshot().busy ?? false)) {
+            return false
+          }
+          const since = busySinceRef.current
+          if (since === undefined) {
+            return false
+          }
+          return Date.now() - since >= 300
+        },
+        confirmClose: async (message) =>
+          modalRef.current.confirm({
+            title: '确认关闭',
+            message,
+            confirmLabel: '关闭',
+            cancelLabel: '取消',
+          }),
+      })
       const instance = await createQuickJsInstance({
         workspaceRoot: root,
         cwd: root,
         fsMode: fsModeRef.current,
+        instantShellHost,
       })
       bindInstance(instance)
     } catch (error) {

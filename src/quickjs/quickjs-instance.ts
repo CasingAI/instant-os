@@ -28,6 +28,7 @@ import type {
   QuickJsInstanceOptions,
   QuickJsInstanceSnapshot,
 } from './quickjs-instance-types.ts'
+import { injectInstantShell } from '../terminal/instant-shell/inject-instant-shell.ts'
 import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { resolveEvalModuleFilename } from './quickjs-module-loader.ts'
 import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
@@ -386,6 +387,15 @@ export async function createQuickJsInstance(
   })
 
   asyncBridge.injectGlobals()
+
+  if (options.instantShellHost !== undefined) {
+    injectInstantShell({
+      context,
+      asyncBridge,
+      host: options.instantShellHost,
+      isDestroyed: () => state.destroyed,
+    })
+  }
 
   if (options.globals !== undefined) {
     injectSerializableGlobals(context, options.globals)

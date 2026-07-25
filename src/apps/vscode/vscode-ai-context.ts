@@ -1,4 +1,5 @@
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
+import { buildInstantShellSystemPromptSection } from '../../terminal/instant-shell/instant-shell-prompt.ts'
 import type { VscodeTab } from './vscode-tabs.ts'
 import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 
@@ -131,7 +132,10 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
       ? '当前模式：Ask（只读）。你只能使用读取类工具，不得修改文件或执行命令。'
       : mode === 'edit'
         ? '当前模式：Edit。你可以读取工作区，并通过 propose_file_edit 提交修改提案；用户确认后才会写入。不得执行终端/npm。'
-        : '当前模式：Agent。没有独立的读/写文件工具。读文件、列目录、改代码、删文件、改目录结构等一律通过受控终端（run_in_terminal / npm_run / npx）用 fs 等完成，自动执行无需用户确认。调用 run_in_terminal 时必须带简短 description，说明本步要做什么（供界面展示）。同对话复用同一终端会话；若结果标明 kind=rebuilt，说明上一会话已关闭，cwd 与内存状态已重置。多文件改动尽量合并进同一次 run_in_terminal 以便整轮回滚。需要撤销用 revert_terminal_changes。'
+        : '当前模式：Agent。没有独立的读/写文件工具。读文件、列目录、改代码、删文件、改目录结构等一律通过受控终端（run_in_terminal / npm_run / npx）用 fs 等完成，自动执行无需用户确认。调用 run_in_terminal 时必须带简短 description，说明本步要做什么（供界面展示）。同对话复用同一终端会话；若结果标明 kind=rebuilt，说明上一会话已关闭，cwd 与内存状态已重置。多文件改动尽量合并进同一次 run_in_terminal 以便整轮回滚。需要撤销用 revert_terminal_changes。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
+
+  const instantShellSection =
+    mode === 'agent' ? `\n\n${buildInstantShellSystemPromptSection()}` : ''
 
   return `你是 Virtual Studio Code Desktop 内置的 AI 编程助手，帮助用户理解、修改 Instant OS 虚拟文件系统中的项目代码。
 
@@ -144,5 +148,5 @@ ${modeLine}
 - /system 与 /models 等只读卷不可写入
 - 回答用简洁中文 Markdown；引用路径时用反引号
 - 修改前先在终端里读确认现状
-- 不要编造未执行的工具结果`
+- 不要编造未执行的工具结果${instantShellSection}`
 }
