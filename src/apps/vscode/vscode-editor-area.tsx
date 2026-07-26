@@ -189,11 +189,13 @@ type VscodeEditorAreaProps = {
   onSearchEditorOpenHit?: (hit: VscodeWorkspaceSearchHit) => void
   onSearchEditorContextLinesChange?: (sessionId: string, lines: number) => void
   aiChatSessions?: ReadonlyMap<string, VscodeAiChatSession>
+  aiChatBusySessionIds?: ReadonlySet<string>
   closedAiChats?: readonly VscodeAiClosedChatSession[]
   onNewAiChat?: () => void
   onRestoreAiChat?: (sessionId: string) => void
   onCloseAiChat?: (itemId: string) => void
   onAiChatMessagesChange?: (sessionId: string, messages: VscodeAiChatMessage[]) => void
+  onAiChatBusyChange?: (sessionId: string, busy: boolean) => void
   onAiChatLastSentTerminalChange?: (
     sessionId: string,
     lastSentTerminal: VscodeAiChatSession['lastSentTerminal'],
@@ -334,11 +336,13 @@ function VscodeEditorGroupView({
   onSearchEditorOpenHit,
   onSearchEditorContextLinesChange,
   aiChatSessions,
+  aiChatBusySessionIds,
   closedAiChats,
   onNewAiChat,
   onRestoreAiChat,
   onCloseAiChat,
   onAiChatMessagesChange,
+  onAiChatBusyChange,
   onAiChatLastSentTerminalChange,
   aiMode,
   onAiModeChange,
@@ -392,6 +396,8 @@ function VscodeEditorGroupView({
     })),
   )
 
+  // 仅在标签结构变化时同步 displayTabs。
+  // 不要依赖 aiChatSessions：流式输出会频繁更新 session，重建列表会干扰点击切换。
   useLayoutEffect(() => {
     const reducedMotion = prefersReducedMotion()
     setDisplayTabs((prev) => {
@@ -422,7 +428,8 @@ function VscodeEditorGroupView({
       const result: DisplayTab[] = group.items.map((item) => ({
         item,
         exiting: false,
-        snapshot: visualsRef.current.get(item.id) ?? computeTabSnapshot(item, tabs, aiChatSessions),
+        snapshot:
+          visualsRef.current.get(item.id) ?? computeTabSnapshot(item, tabs, aiChatSessions),
       }))
 
       for (const entry of exitingEntries) {
@@ -433,7 +440,7 @@ function VscodeEditorGroupView({
 
       return result
     })
-  }, [aiChatSessions, group.items, layout, tabs])
+  }, [group.items, layout, tabs])
 
   const clearPeek = useCallback(() => {
     peekPointerIdRef.current = undefined
@@ -706,7 +713,15 @@ function VscodeEditorGroupView({
               item={entry.item}
               groupId={group.id}
               active={!entry.exiting && entry.item.id === activeItem?.id}
-              snapshot={entry.snapshot}
+              snapshot={
+                entry.exiting
+                  ? entry.snapshot
+                  : (visualsRef.current.get(entry.item.id) ?? entry.snapshot)
+              }
+              loading={
+                entry.item.kind === 'aiChat' &&
+                aiChatBusySessionIds?.has(entry.item.sessionId) === true
+              }
               disabled={loading || dialogBlocked || entry.exiting}
               enter={!entry.exiting && !initialItemIdsRef.current!.has(entry.item.id)}
               exiting={entry.exiting}
@@ -896,6 +911,7 @@ function VscodeEditorGroupView({
                   openPlanFile={resolvedOpenPlanFile}
                   onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
                   onRejectEdit={onRejectAiEdit ?? (() => undefined)}
+                  onBusyChange={(busy) => onAiChatBusyChange?.(session.id, busy)}
                 />
               </div>
             )
@@ -1044,6 +1060,7 @@ type TabChipProps = {
   groupId: string
   active: boolean
   snapshot: TabVisualSnapshot
+  loading?: boolean
   disabled: boolean
   enter?: boolean
   exiting?: boolean
@@ -1063,6 +1080,7 @@ function EditorTabChip({
   groupId,
   active,
   snapshot,
+  loading = false,
   disabled,
   enter = false,
   exiting = false,
@@ -1183,9 +1201,17 @@ function EditorTabChip({
           ×
         </button>
       ) : undefined}
-      <button type="button" class="vscode__tab-main" title={pathTitle} onClick={onActivate}>
+      <button
+        type="button"
+        class={`vscode__tab-main${loading ? ' vscode__tab-main--loading' : ''}`}
+        title={pathTitle}
+        onClick={onActivate}
+      >
         {dirty ? <span class="vscode__tab-dot" aria-hidden="true" /> : undefined}
         <span class="vscode__tab-title">{title}</span>
+        {loading ? (
+          <span class="vscode__tab-spinner" aria-label="正在运行" title="Agent 正在运行" />
+        ) : undefined}
       </button>
     </div>
   )

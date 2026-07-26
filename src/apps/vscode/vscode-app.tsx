@@ -286,6 +286,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [aiChatSessions, setAiChatSessions] = useState<Map<string, VscodeAiChatSession>>(
     () => new Map(),
   )
+  const [aiChatBusySessionIds, setAiChatBusySessionIds] = useState<Set<string>>(() => new Set())
   const [closedAiChats, setClosedAiChats] = useState<VscodeAiClosedChatSession[]>(() => {
     const store = loadVscodeAiChatStore(loadVscodePrefs().workspaceFolder)
     let closed = [...store.closedSessions]
@@ -783,6 +784,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     focusedGroup?.items.find((item) => item.id === focusedGroup.activeItemId) ??
     focusedGroup?.items[0]
 
+  // AI / 搜索编辑器 / 欢迎页没有对应文件标签。绝不能回退到 tabs[0]，
+  // 否则会把 window.documentId 写成第一个文件，pending-document effect 再把焦点抢回去。
   const activeTab = (() => {
     if (focusedItem?.kind === 'file') {
       return tabs.find((tab) => tab.id === focusedItem.tabId)
@@ -790,7 +793,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (focusedItem?.kind === 'preview') {
       return tabs.find((tab) => tab.path === focusedItem.sourcePath)
     }
-    return tabs[0]
+    return undefined
   })()
 
   const activeTabId = activeTab?.id
@@ -1817,6 +1820,17 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     },
     [prefs.workspaceFolder],
   )
+
+  const setAiChatSessionBusy = useCallback((sessionId: string, busy: boolean) => {
+    setAiChatBusySessionIds((prev) => {
+      const has = prev.has(sessionId)
+      if (busy === has) return prev
+      const next = new Set(prev)
+      if (busy) next.add(sessionId)
+      else next.delete(sessionId)
+      return next
+    })
+  }, [])
 
   const openNewAiChat = useCallback(() => {
     const session = buildVscodeAiChatSession()
@@ -2978,11 +2992,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 void refreshSearchEditorContext(sessionId, lines)
               }
               aiChatSessions={aiChatSessions}
+              aiChatBusySessionIds={aiChatBusySessionIds}
               closedAiChats={closedAiChats}
               onNewAiChat={openNewAiChat}
               onRestoreAiChat={restoreClosedAiChat}
               onCloseAiChat={closeAiChatItem}
               onAiChatMessagesChange={updateAiChatMessages}
+              onAiChatBusyChange={setAiChatSessionBusy}
               onAiChatLastSentTerminalChange={updateAiChatLastSentTerminal}
               aiMode={prefs.aiMode}
               onAiModeChange={(aiMode) => updatePrefs({ aiMode })}

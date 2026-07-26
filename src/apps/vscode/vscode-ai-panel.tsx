@@ -136,6 +136,8 @@ export type VscodeAiPanelProps = {
   openPlanFile: (path: string) => Promise<void>
   onApplyEdit: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectEdit: (editId: string) => void
+  /** 本轮 Agent/Ask/Plan 是否在运行，供编辑器 Tab 显示加载指示 */
+  onBusyChange?: (busy: boolean) => void
 }
 
 function formatError(err: unknown): string {
@@ -668,6 +670,7 @@ export function VscodeAiPanel({
   openPlanFile,
   onApplyEdit,
   onRejectEdit,
+  onBusyChange,
 }: VscodeAiPanelProps) {
   const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
@@ -707,6 +710,16 @@ export function VscodeAiPanel({
   lastSentTerminalRef.current = lastSentTerminal
   const busyRef = useRef(false)
   busyRef.current = busy
+  const onBusyChangeRef = useRef(onBusyChange)
+  onBusyChangeRef.current = onBusyChange
+
+  useEffect(() => {
+    onBusyChangeRef.current?.(busy)
+  }, [busy])
+
+  useEffect(() => {
+    return () => onBusyChangeRef.current?.(false)
+  }, [])
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
