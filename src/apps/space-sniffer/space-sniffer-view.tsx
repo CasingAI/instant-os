@@ -13,6 +13,9 @@ import {
   type ScanProgress,
 } from './space-sniffer-types.ts'
 
+/** 扫描中 treemap 布局刷新间隔，避免色块不停跳动 */
+const LAYOUT_UPDATE_MS = 450
+
 type SpaceSnifferViewProps = {
   rootPath: string
   onNewScan: () => void
@@ -24,6 +27,8 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
   const { showIconContextMenu } = useIconContextMenu()
 
   const [progress, setProgress] = useState<ScanProgress | undefined>(undefined)
+  /** 供 treemap 使用的扫描树，扫描中降频更新 */
+  const [layoutRoot, setLayoutRoot] = useState<ScanNode | undefined>(undefined)
   const [scanning, setScanning] = useState(false)
   const [detailLevel, setDetailLevel] = useState(DEFAULT_DETAIL_LEVEL)
   const [selectedPath, setSelectedPath] = useState<string | undefined>(undefined)
@@ -33,6 +38,7 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
 
   const abortRef = useRef<AbortController | undefined>(undefined)
   const scanGenerationRef = useRef(0)
+  const layoutUpdateAtRef = useRef(0)
 
   const stopScan = useCallback(() => {
     abortRef.current?.abort()
@@ -49,6 +55,8 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
 
     setScanning(true)
     setProgress(undefined)
+    setLayoutRoot(undefined)
+    layoutUpdateAtRef.current = 0
     setSelectedPath(undefined)
     setViewPath(rootPath)
     setHistory([rootPath])
@@ -60,6 +68,11 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
         onProgress: (next) => {
           if (scanGenerationRef.current !== generation) return
           setProgress(next)
+          const now = performance.now()
+          if (next.done || now - layoutUpdateAtRef.current >= LAYOUT_UPDATE_MS) {
+            layoutUpdateAtRef.current = now
+            setLayoutRoot(next.root)
+          }
         },
       })
     } finally {
@@ -78,11 +91,12 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
   }, [startScan])
 
   const scanRoot = progress?.root
+  const treemapScanRoot = layoutRoot ?? scanRoot
 
   const viewRoot = useMemo(() => {
-    if (!scanRoot) return undefined
-    return findNodeByPath(scanRoot, viewPath) ?? scanRoot
-  }, [scanRoot, viewPath])
+    if (!treemapScanRoot) return undefined
+    return findNodeByPath(treemapScanRoot, viewPath) ?? treemapScanRoot
+  }, [treemapScanRoot, viewPath])
 
   const historyRef = useRef({ entries: [rootPath], index: 0 })
   historyRef.current = { entries: history, index: historyIndex }
@@ -181,13 +195,13 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
         return
       }
 
-      if (event.key === 'Backspace' && !event.shiftKey) {
+      if ((event.metaKey || event.ctrlKey) && event.key === '[') {
         event.preventDefault()
         goBack()
         return
       }
 
-      if (event.key === 'Backspace' && event.shiftKey) {
+      if ((event.metaKey || event.ctrlKey) && event.key === ']') {
         event.preventDefault()
         goForward()
         return
@@ -239,12 +253,12 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
         </div>
         <span class="space-sniffer__toolbar-sep" aria-hidden="true" />
         <div class="space-sniffer__toolbar-group">
-          <IosButton size="compact" title="后退" disabled={historyIndex <= 0} onClick={goBack}>
+          <IosButton size="compact" title="后退 (⌘[)" disabled={historyIndex <= 0} onClick={goBack}>
             后退
           </IosButton>
           <IosButton
             size="compact"
-            title="前进"
+            title="前进 (⌘])"
             disabled={historyIndex >= history.length - 1}
             onClick={goForward}
           >
@@ -311,7 +325,6 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
           {viewRoot ? (
             <SpaceSnifferTreemap
               root={viewRoot}
-              scanRootBytes={scanRoot?.byteSize ?? viewRoot.byteSize}
               detailLevel={detailLevel}
               selectedPath={selectedPath}
               onSelect={(node) => setSelectedPath(node.path)}

@@ -155,6 +155,16 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
       return
     }
 
+    const duplicate = tabsRef.current.find(
+      (tab) => !tab.draft && tab.rootPath === normalized,
+    )
+    if (duplicate) {
+      setActiveTabId(duplicate.id)
+      activeTabIdRef.current = duplicate.id
+      setShowStart(false)
+      return
+    }
+
     const tab: SpaceSnifferTab = { id: nextTabId(), rootPath: normalized }
     setTabs((current) => {
       const next = [...current, tab]
@@ -167,7 +177,10 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
   }, [])
 
   useEffect(() => {
-    if (!pendingDocumentId) return
+    if (!pendingDocumentId) {
+      consumedPendingRef.current = undefined
+      return
+    }
     if (consumedPendingRef.current === pendingDocumentId) return
 
     const existing = tabsRef.current.find(
@@ -278,7 +291,8 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
     [tabs],
   )
 
-  const readyTabs = useMemo(() => tabs.filter((tab) => !tab.draft && tab.rootPath), [tabs])
+  const activeReadyTab =
+    activeTab && !activeTab.draft && activeTab.rootPath ? activeTab : undefined
 
   const definition = getAppDefinition(APP_ID)
   const canRepath = Boolean(activeTab && !activeTab.draft && !showStart)
@@ -381,21 +395,16 @@ export function SpaceSnifferApp({ windowId }: SpaceSnifferAppProps) {
         />
       ) : undefined}
 
-      {readyTabs.length > 0 ? (
-        <div class="space-sniffer__tab-panes" hidden={showStart}>
-          {readyTabs.map((tab) => (
-            <div
-              key={`${tab.id}:${tab.rootPath}`}
-              class={`space-sniffer__tab-pane${tab.id === activeTab?.id ? ' space-sniffer__tab-pane--active' : ''}`}
-              hidden={tab.id !== activeTab?.id}
-            >
-              <SpaceSnifferView
-                rootPath={tab.rootPath}
-                onNewScan={requestNewScan}
-                onRequestClose={() => closeTab(tab.id)}
-              />
-            </div>
-          ))}
+      {activeReadyTab && !showStart ? (
+        <div class="space-sniffer__tab-panes">
+          <div class="space-sniffer__tab-pane space-sniffer__tab-pane--active">
+            <SpaceSnifferView
+              key={`${activeReadyTab.id}:${activeReadyTab.rootPath}`}
+              rootPath={activeReadyTab.rootPath}
+              onNewScan={requestNewScan}
+              onRequestClose={() => closeTab(activeReadyTab.id)}
+            />
+          </div>
         </div>
       ) : undefined}
 

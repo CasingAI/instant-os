@@ -1,4 +1,6 @@
 .space-sniffer {
+  --doc-tab-content-bg: #fff;
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -17,6 +19,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: #fff;
 }
 
 .space-sniffer__tab-pane {
@@ -45,6 +48,11 @@
   justify-content: center;
   padding: 24px;
   background: linear-gradient(180deg, #ececec 0%, #d0d0d0 100%);
+}
+
+/* 已有标签时，选路径页与激活标签同色底 */
+.space-sniffer:has(.space-sniffer__doc-tabs) .space-sniffer__start {
+  background: #fff;
 }
 
 .space-sniffer__start-card {
@@ -182,6 +190,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  background: #fff;
 }
 
 .space-sniffer__toolbar {
@@ -190,9 +199,8 @@
   align-items: center;
   gap: 6px;
   padding: 7px 10px;
-  border-bottom: 1px solid #a8a8a8;
-  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid #c8c8c8;
+  background: #fff;
 }
 
 .space-sniffer__toolbar-group {
@@ -214,11 +222,10 @@
   align-items: center;
   gap: 8px;
   padding: 5px 12px;
-  border-bottom: 1px solid #a8a8a8;
-  background: linear-gradient(180deg, #f3f3f3 0%, #e6e6e6 100%);
+  border-bottom: 1px solid #c8c8c8;
+  background: #fff;
   font-size: 11px;
   min-width: 0;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .space-sniffer__pathbar-label {
@@ -241,6 +248,7 @@
   display: flex;
   gap: 0;
   padding: 8px;
+  background: #fff;
 }
 
 .space-sniffer__share {
@@ -428,7 +436,13 @@
   color: #fff;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
   pointer-events: none;
-  transform: translate(0, 0);
+}
+
+/* 首帧测量尺寸，不参与布局 */
+.space-sniffer__tooltip--measure {
+  visibility: hidden;
+  left: 0;
+  top: 0;
 }
 
 .space-sniffer__tooltip-kind {
@@ -493,12 +507,10 @@
   justify-content: space-between;
   gap: 12px;
   padding: 5px 12px;
-  border-top: 1px solid #a8a8a8;
-  background: linear-gradient(180deg, #f8f8f8 0%, #ececec 100%);
+  border-top: 1px solid #c8c8c8;
+  background: #fff;
   font-size: 11px;
   color: #333;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .space-sniffer__status-main,

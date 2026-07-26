@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import type { ScanNode } from './space-sniffer-types.ts'
@@ -10,6 +10,68 @@ const FOLDER_HEADER_PX = 18
 const PADDING_INNER_PX = 2
 const PADDING_OUTER_PX = 3
 const ROOT_SHELL_Z = 12
+const TOOLTIP_PAD = 8
+const TOOLTIP_OFFSET_X = 12
+const TOOLTIP_OFFSET_Y = 14
+
+type HoverTipState = {
+  name: string
+  size: string
+  kind: string
+  cursorX: number
+  cursorY: number
+}
+
+/** 将 tooltip 限制在容器内，空间不足时翻转到光标另一侧 */
+function placeTooltip(
+  cursorX: number,
+  cursorY: number,
+  tipWidth: number,
+  tipHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+): { x: number; y: number } | undefined {
+  if (
+    tipWidth <= 0 ||
+    tipHeight <= 0 ||
+    tipWidth > containerWidth - TOOLTIP_PAD * 2 ||
+    tipHeight > containerHeight - TOOLTIP_PAD * 2
+  ) {
+    return undefined
+  }
+
+  let x = cursorX + TOOLTIP_OFFSET_X
+  let y = cursorY + TOOLTIP_OFFSET_Y
+
+  if (x + tipWidth > containerWidth - TOOLTIP_PAD) {
+    x = cursorX - tipWidth - TOOLTIP_OFFSET_X
+  }
+  if (y + tipHeight > containerHeight - TOOLTIP_PAD) {
+    y = cursorY - tipHeight - TOOLTIP_OFFSET_Y
+  }
+
+  x = Math.max(TOOLTIP_PAD, Math.min(x, containerWidth - tipWidth - TOOLTIP_PAD))
+  y = Math.max(TOOLTIP_PAD, Math.min(y, containerHeight - tipHeight - TOOLTIP_PAD))
+
+  return { x, y }
+}
+
+function hoverTipFromEvent(
+  event: MouseEvent,
+  container: HTMLElement,
+  tile: { node: ScanNode },
+  kindLabel: string,
+  sizeText: string,
+): HoverTipState {
+  const bounds = container.getBoundingClientRect()
+  return {
+    name: tile.node.name,
+    size: sizeText,
+    kind: kindLabel,
+    cursorX: event.clientX - bounds.left,
+    cursorY: event.clientY - bounds.top,
+  }
+}
 
 function isUnderPath(path: string, parentPath: string): boolean {
   return path === parentPath || path.startsWith(`${parentPath}/`)
@@ -131,6 +193,8 @@ type DrillFrame = {
   childSlots: PinnedTile[]
   /** 进入后全屏钉住布局 */
   folderPinned: PinnedLayout
+  /** 进入前父级已展开的文件夹路径 */
+  expandedPaths: string[]
 }
 
 function colorForNode(node: ScanNode): string {
@@ -370,7 +434,6 @@ function mapRectIntoTarget(rect: TileRect, bounds: TileRect, target: TileRect): 
 
 type SpaceSnifferTreemapProps = {
   root: ScanNode
-  scanRootBytes: number
   detailLevel: number
   selectedPath: string | undefined
   onSelect: (node: ScanNode) => void
@@ -393,9 +456,11 @@ export function SpaceSnifferTreemap({
   const [pinned, setPinned] = useState<PinnedLayout | undefined>(undefined)
   /** 后退动画时父级底图（不含正在缩小的子块） */
   const [zoomBackdrop, setZoomBackdrop] = useState<PinnedTile[] | undefined>(undefined)
-  const [hoverTip, setHoverTip] = useState<
-    { name: string; size: string; kind: string; x: number; y: number } | undefined
-  >(undefined)
+  const [hoverTip, setHoverTip] = useState<HoverTipState | undefined>(undefined)
+  const [tooltipFrame, setTooltipFrame] = useState<{ x: number; y: number } | undefined>(
+    undefined,
+  )
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const enterFolderRef = useRef<ScanNode | undefined>(undefined)
   const enterRectRef = useRef<TileRect | undefined>(undefined)
   const lastExpandRef = useRef<{ path: string; at: number } | undefined>(undefined)
@@ -412,6 +477,33 @@ export function SpaceSnifferTreemap({
   layoutSizeRef.current = layoutSize
   const onActivateRef = useRef(onActivate)
   onActivateRef.current = onActivate
+  const prevDetailLevelRef = useRef(detailLevel)
+
+  useEffect(() => {
+    if (prevDetailLevelRef.current === detailLevel) return
+    prevDetailLevelRef.current = detailLevel
+    setPinned(undefined)
+    drillStackRef.current = []
+    drillDepthRef.current = 0
+  }, [detailLevel])
+
+  useLayoutEffect(() => {
+    if (!hoverTip || !containerRef.current || !tooltipRef.current) {
+      setTooltipFrame(undefined)
+      return
+    }
+    const container = containerRef.current
+    const tip = tooltipRef.current
+    const frame = placeTooltip(
+      hoverTip.cursorX,
+      hoverTip.cursorY,
+      tip.offsetWidth,
+      tip.offsetHeight,
+      container.clientWidth,
+      container.clientHeight,
+    )
+    setTooltipFrame(frame)
+  }, [hoverTip])
 
   const playZoomTransition = (
     zoomTiles: ZoomTile[],
@@ -422,6 +514,7 @@ export function SpaceSnifferTreemap({
     setPinned(undefined)
     setZoomBackdrop(backdrop)
     setHoverTip(undefined)
+    setTooltipFrame(undefined)
     setZoom({ tiles: zoomTiles, shells: zoomShells, active: false, hideUnderPath })
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -525,6 +618,7 @@ export function SpaceSnifferTreemap({
         setZoom(undefined)
         setZoomBackdrop(undefined)
         setPinned(leaveFrame.parentSettled)
+        setExpandedPaths(new Set(leaveFrame.expandedPaths))
         pendingLeaveRef.current = false
         zoomTimerRef.current = undefined
       }, ZOOM_MS)
@@ -787,6 +881,7 @@ export function SpaceSnifferTreemap({
       parentSettled,
       childSlots,
       folderPinned,
+      expandedPaths: [...expandedPaths],
     })
     drillDepthRef.current = drillStackRef.current.length
 
@@ -824,18 +919,28 @@ export function SpaceSnifferTreemap({
       height: tile.height,
     }
 
-    if (pinned?.rootPath === root.path) {
-      setPinned(undefined)
-      drillStackRef.current = []
-      drillDepthRef.current = 0
-    }
-
     const hasVisibleChildren = (tile.node.children ?? []).some((child) => child.byteSize > 0)
     if (!hasVisibleChildren) return
 
     lastExpandRef.current = { path: tile.node.path, at: now }
+
+    if (expandedPaths.has(tile.node.path)) {
+      setExpandedPaths((current) => {
+        const next = new Set(current)
+        next.delete(tile.node.path)
+        return next
+      })
+      if (pinned?.rootPath === root.path) {
+        setPinned(undefined)
+      }
+      return
+    }
+
+    if (pinned?.rootPath === root.path) {
+      setPinned(undefined)
+    }
+
     setExpandedPaths((current) => {
-      if (current.has(tile.node.path)) return current
       const next = new Set(current)
       next.add(tile.node.path)
       return next
@@ -989,47 +1094,38 @@ export function SpaceSnifferTreemap({
               if (busy) return
               const container = containerRef.current
               if (!container) return
-              const bounds = container.getBoundingClientRect()
-              setHoverTip({
-                name: tile.node.name,
-                size: sizeText,
-                kind: kindLabel,
-                x: event.clientX - bounds.left + 12,
-                y: event.clientY - bounds.top + 14,
-              })
+              setTooltipFrame(undefined)
+              setHoverTip(hoverTipFromEvent(event, container, tile, kindLabel, sizeText))
             }}
             onMouseMove={(event) => {
               if (busy) return
               const container = containerRef.current
               if (!container) return
-              const bounds = container.getBoundingClientRect()
-              setHoverTip((current) =>
-                current
-                  ? {
-                      ...current,
-                      x: event.clientX - bounds.left + 12,
-                      y: event.clientY - bounds.top + 14,
-                    }
-                  : {
-                      name: tile.node.name,
-                      size: sizeText,
-                      kind: kindLabel,
-                      x: event.clientX - bounds.left + 12,
-                      y: event.clientY - bounds.top + 14,
-                    },
-              )
+              setTooltipFrame(undefined)
+              setHoverTip(hoverTipFromEvent(event, container, tile, kindLabel, sizeText))
             }}
             onMouseLeave={() => {
               setHoverTip(undefined)
+              setTooltipFrame(undefined)
             }}
             onClick={(event) => {
               event.stopPropagation()
               setHoverTip(undefined)
+              setTooltipFrame(undefined)
               handleSingleClick(tile)
             }}
             onDblClick={(event) => {
               event.stopPropagation()
               if (busy) return
+              if (tile.node.kind === 'folder') {
+                beginZoomInto(tile.node, {
+                  x: tile.x,
+                  y: tile.y,
+                  width: tile.width,
+                  height: tile.height,
+                })
+                return
+              }
               const folder = enterFolderRef.current
               const from = enterRectRef.current
               if (folder?.kind === 'folder' && from) {
@@ -1041,6 +1137,7 @@ export function SpaceSnifferTreemap({
               event.stopPropagation()
               if (busy) return
               setHoverTip(undefined)
+              setTooltipFrame(undefined)
               onSelect(tile.node)
               onContextMenu(event, tile.node)
             }}
@@ -1059,11 +1156,22 @@ export function SpaceSnifferTreemap({
 
       {rootShell ? renderShell(rootShell, true) : undefined}
 
-      {hoverTip && !busy ? (
+      {hoverTip && tooltipFrame && !busy ? (
         <div
+          ref={tooltipRef}
           class="space-sniffer__tooltip"
-          style={{ left: `${hoverTip.x}px`, top: `${hoverTip.y}px` }}
+          style={{ left: `${tooltipFrame.x}px`, top: `${tooltipFrame.y}px` }}
           role="tooltip"
+        >
+          <span class="space-sniffer__tooltip-kind">{hoverTip.kind}</span>
+          <span class="space-sniffer__tooltip-name">{hoverTip.name}</span>
+          <span class="space-sniffer__tooltip-size">{hoverTip.size}</span>
+        </div>
+      ) : hoverTip && !busy ? (
+        <div
+          ref={tooltipRef}
+          class="space-sniffer__tooltip space-sniffer__tooltip--measure"
+          aria-hidden="true"
         >
           <span class="space-sniffer__tooltip-kind">{hoverTip.kind}</span>
           <span class="space-sniffer__tooltip-name">{hoverTip.name}</span>
