@@ -10,24 +10,19 @@ import {
 } from '../apps/files/files-path.ts'
 import {
   cloneFileNodeWithSharedBlob,
-  collectSubtreeIds,
   createFileWithBytes,
-  createFolderNode,
-  deleteSubtree,
   estimateNodeMetaBytes,
   newFilesNodeId,
   readBlobBytes,
-  updateNodeAttributes,
   writeBlobBytes,
 } from '../apps/files/files-storage.ts'
 import type { FilesLocationId, FilesNode, FilesNodeAttributes } from '../apps/files/files-types.ts'
 import {
-  FILES_VFS_CHANGED_EVENT,
-  invalidateFilesVfsPathCaches,
-  resolveFilesAbsolutePath,
-  resolveNodeByAbsolutePath,
-} from '../apps/files/files-vfs.ts'
-import { notifyFilesWatch } from '../apps/files/files-watch.ts'
+  deleteDevSystemSubtree,
+  emitSystemVfsChange,
+  ensureDevSystemFolder,
+} from '../apps/files/files-system-vfs.ts'
+import { resolveNodeByAbsolutePath } from '../apps/files/files-vfs.ts'
 import { filesReadBlob } from '../apps/files/files-api.ts'
 import type { TerminalChangeSet } from './terminal-changeset.ts'
 
@@ -42,66 +37,10 @@ function isIndexedDbLocation(locationId: FilesLocationId): boolean {
   return locationId === 'local' || locationId === 'dev'
 }
 
-function attributesMatch(a: FilesNodeAttributes, b: FilesNodeAttributes): boolean {
-  return a.readable === b.readable && a.writable === b.writable
-}
-
-async function ensureSystemFolder(
-  absolutePath: string,
-  attributes: FilesNodeAttributes = SYSTEM_ATTRIBUTES,
-): Promise<FilesNode> {
-  const parsed = parseFilesAbsolutePath(absolutePath)
-  if (!parsed || parsed.locationId !== 'dev') {
-    throw new Error(`无效的系统路径：${absolutePath}`)
-  }
-  if (parsed.segments.length === 0) {
-    throw new Error(`不能 ensure 卷根：${absolutePath}`)
-  }
-
-  const existing = await resolveNodeByAbsolutePath(absolutePath)
-  if (existing) {
-    if (existing.kind !== 'folder') {
-      throw new Error(`路径冲突：${absolutePath} 不是文件夹`)
-    }
-    if (!attributesMatch(existing.attributes, attributes)) {
-      return updateNodeAttributes(existing.id, attributes)
-    }
-    return existing
-  }
-
-  const parentSegments = parsed.segments.slice(0, -1)
-  const name = parsed.segments[parsed.segments.length - 1]
-  if (!name) throw new Error(`无效的系统路径：${absolutePath}`)
-
-  let parentId: string | undefined
-  if (parentSegments.length > 0) {
-    const parentPath = joinFilesAbsolutePath(DEV_FILES_ROOT, ...parentSegments)
-    const parent = await ensureSystemFolder(parentPath, SYSTEM_ATTRIBUTES)
-    parentId = parent.id
-  }
-
-  const now = osNowMs()
-  const node: FilesNode = {
-    id: newFilesNodeId(),
-    locationId: 'dev',
-    parentId,
-    name,
-    kind: 'folder',
-    mimeType: undefined,
-    byteSize: 0,
-    createdAt: now,
-    updatedAt: now,
-    attributes,
-  }
-  await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node) })
-  invalidateFilesVfsPathCaches()
-  return node
-}
-
 export async function ensureTerminalChangesetRoots(): Promise<void> {
-  await ensureSystemFolder(TERMINAL_DEV_ROOT)
-  await ensureSystemFolder(TERMINAL_OBJECTS_ROOT)
-  await ensureSystemFolder(TERMINAL_SESSIONS_ROOT)
+  await ensureDevSystemFolder(TERMINAL_DEV_ROOT)
+  await ensureDevSystemFolder(TERMINAL_OBJECTS_ROOT)
+  await ensureDevSystemFolder(TERMINAL_SESSIONS_ROOT)
 }
 
 function newBeforeBlobId(): string {
@@ -111,19 +50,12 @@ function newBeforeBlobId(): string {
 async function objectPathForId(blobId: string): Promise<string> {
   await ensureTerminalChangesetRoots()
   const shardPath = joinFilesAbsolutePath(TERMINAL_OBJECTS_ROOT, blobId.slice(0, 2))
-  await ensureSystemFolder(shardPath)
+  await ensureDevSystemFolder(shardPath)
   return joinFilesAbsolutePath(shardPath, blobId)
 }
 
 async function deleteNodeSubtree(node: FilesNode): Promise<void> {
-  const path = await resolveFilesAbsolutePath(node)
-  const subtree = await collectSubtreeIds(node.id)
-  await deleteSubtree(subtree)
-  invalidateFilesVfsPathCaches()
-  notifyFilesWatch({ kind: 'deleted', path })
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
-  }
+  await deleteDevSystemSubtree(node)
 }
 
 /**
@@ -146,7 +78,7 @@ export async function putBeforeBlobFromPath(
   const name = parsed.segments[parsed.segments.length - 1]
   if (!name) throw new Error(`无效的对象路径：${path}`)
   const parentPath = joinFilesAbsolutePath(DEV_FILES_ROOT, ...parentSegments)
-  const parent = await ensureSystemFolder(parentPath)
+  const parent = await ensureDevSystemFolder(parentPath)
 
   const now = osNowMs()
   const destNode: FilesNode = {
@@ -168,7 +100,7 @@ export async function putBeforeBlobFromPath(
       node: destNode,
       metaBytes: estimateNodeMetaBytes(destNode),
     })
-    invalidateFilesVfsPathCaches()
+    emitSystemVfsChange(path, 'created')
     return { blobId, byteSize: source.byteSize }
   }
 
@@ -180,7 +112,7 @@ export async function putBeforeBlobFromPath(
     bytes,
     metaBytes: estimateNodeMetaBytes(destNode),
   })
-  invalidateFilesVfsPathCaches()
+  emitSystemVfsChange(path, 'created')
   return { blobId, byteSize: bytes.byteLength }
 }
 
@@ -216,7 +148,7 @@ export async function saveTerminalChangeSession(changeSet: TerminalChangeSet): P
       previousByteSize: existing.byteSize,
       nameMetaDelta: 0,
     })
-    invalidateFilesVfsPathCaches()
+    emitSystemVfsChange(path, 'modified')
     return
   }
 
@@ -224,7 +156,7 @@ export async function saveTerminalChangeSession(changeSet: TerminalChangeSet): P
   if (!parsed) throw new Error(`无效的 session 路径：${path}`)
   const name = parsed.segments[parsed.segments.length - 1]
   if (!name) throw new Error(`无效的 session 路径：${path}`)
-  const parent = await ensureSystemFolder(TERMINAL_SESSIONS_ROOT)
+  const parent = await ensureDevSystemFolder(TERMINAL_SESSIONS_ROOT)
   const now = osNowMs()
   const node: FilesNode = {
     id: newFilesNodeId(),
@@ -243,7 +175,7 @@ export async function saveTerminalChangeSession(changeSet: TerminalChangeSet): P
     bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
     metaBytes: estimateNodeMetaBytes(node),
   })
-  invalidateFilesVfsPathCaches()
+  emitSystemVfsChange(path, 'created')
 }
 
 export async function loadTerminalChangeSession(

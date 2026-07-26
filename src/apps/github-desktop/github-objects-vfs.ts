@@ -3,25 +3,25 @@
  * 走 files-storage（系统 / root 层），不检查节点 writable。
  */
 import { osNowMs } from '../../os/os-clock.ts'
-import { filesLocationPathRoot, joinFilesAbsolutePath, parseFilesAbsolutePath } from '../files/files-path.ts'
 import {
-  collectSubtreeIds,
+  filesLocationPathRoot,
+  joinFilesAbsolutePath,
+  parseFilesAbsolutePath,
+} from '../files/files-path.ts'
+import {
   createFileWithBytes,
-  createFolderNode,
-  deleteSubtree,
   estimateNodeMetaBytes,
   newFilesNodeId,
   readBlobBytes,
-  updateNodeAttributes,
   writeBlobBytes,
 } from '../files/files-storage.ts'
 import type { FilesNode, FilesNodeAttributes } from '../files/files-types.ts'
 import {
-  FILES_VFS_CHANGED_EVENT,
-  resolveFilesAbsolutePath,
-  resolveNodeByAbsolutePath,
-} from '../files/files-vfs.ts'
-import { notifyFilesWatch } from '../files/files-watch.ts'
+  deleteDevSystemSubtree,
+  emitSystemVfsChange,
+  ensureDevSystemFolder,
+} from '../files/files-system-vfs.ts'
+import { resolveNodeByAbsolutePath } from '../files/files-vfs.ts'
 import {
   GITHUB_OBJECTS_ROOT,
   githubRepoRootPath,
@@ -32,93 +32,32 @@ const DEV_FILES_ROOT = filesLocationPathRoot('dev')
 const SYSTEM_ATTRIBUTES: FilesNodeAttributes = { readable: true, writable: false }
 const WORKSPACE_ATTRIBUTES: FilesNodeAttributes = { readable: true, writable: true }
 
-function attributesMatch(a: FilesNodeAttributes, b: FilesNodeAttributes): boolean {
-  return a.readable === b.readable && a.writable === b.writable
-}
-
-async function ensureSystemFolder(
-  absolutePath: string,
-  attributes: FilesNodeAttributes = SYSTEM_ATTRIBUTES,
-): Promise<FilesNode> {
-  const parsed = parseFilesAbsolutePath(absolutePath)
-  if (!parsed || parsed.locationId !== 'dev') {
-    throw new Error(`无效的系统路径：${absolutePath}`)
-  }
-  if (parsed.segments.length === 0) {
-    throw new Error(`不能 ensure 卷根：${absolutePath}`)
-  }
-
-  const existing = await resolveNodeByAbsolutePath(absolutePath)
-  if (existing) {
-    if (existing.kind !== 'folder') {
-      throw new Error(`路径冲突：${absolutePath} 不是文件夹`)
-    }
-    if (!attributesMatch(existing.attributes, attributes)) {
-      return updateNodeAttributes(existing.id, attributes)
-    }
-    return existing
-  }
-
-  const parentSegments = parsed.segments.slice(0, -1)
-  const name = parsed.segments[parsed.segments.length - 1]
-  if (!name) throw new Error(`无效的系统路径：${absolutePath}`)
-
-  let parentId: string | undefined
-  if (parentSegments.length > 0) {
-    const parentPath = joinFilesAbsolutePath(DEV_FILES_ROOT, ...parentSegments)
-    const parent = await ensureSystemFolder(parentPath, SYSTEM_ATTRIBUTES)
-    parentId = parent.id
-  }
-
-  const now = osNowMs()
-  const node: FilesNode = {
-    id: newFilesNodeId(),
-    locationId: 'dev',
-    parentId,
-    name,
-    kind: 'folder',
-    mimeType: undefined,
-    byteSize: 0,
-    createdAt: now,
-    updatedAt: now,
-    attributes,
-  }
-  await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node) })
-  return node
-}
-
 export async function ensureGithubObjectsRoot(): Promise<void> {
-  await ensureSystemFolder(githubUserRootPath())
-  await ensureSystemFolder(GITHUB_OBJECTS_ROOT)
+  await ensureDevSystemFolder(githubUserRootPath())
+  await ensureDevSystemFolder(GITHUB_OBJECTS_ROOT)
 }
 
 export async function ensureGithubUserRootFolder(): Promise<void> {
-  await ensureSystemFolder(githubUserRootPath())
+  await ensureDevSystemFolder(githubUserRootPath())
 }
 
 export async function ensureGithubRepoRootFolder(owner: string, repo: string): Promise<string> {
   await ensureGithubUserRootFolder()
-  await ensureSystemFolder(joinFilesAbsolutePath(githubUserRootPath(), owner))
+  await ensureDevSystemFolder(joinFilesAbsolutePath(githubUserRootPath(), owner))
   const repoPath = githubRepoRootPath(owner, repo)
-  await ensureSystemFolder(repoPath, WORKSPACE_ATTRIBUTES)
+  await ensureDevSystemFolder(repoPath, WORKSPACE_ATTRIBUTES)
   return repoPath
 }
 
 /** 系统层删除节点子树（绕过 writable），并通知文件监视 */
 export async function deleteGithubNodeSubtree(node: FilesNode): Promise<void> {
-  const path = await resolveFilesAbsolutePath(node)
-  const subtree = await collectSubtreeIds(node.id)
-  await deleteSubtree(subtree)
-  notifyFilesWatch({ kind: 'deleted', path })
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
-  }
+  await deleteDevSystemSubtree(node)
 }
 
 async function objectPathForHash(hash: string): Promise<string> {
   await ensureGithubObjectsRoot()
   const shardPath = joinFilesAbsolutePath(GITHUB_OBJECTS_ROOT, hash.slice(0, 2))
-  await ensureSystemFolder(shardPath)
+  await ensureDevSystemFolder(shardPath)
   return joinFilesAbsolutePath(shardPath, hash)
 }
 
@@ -143,6 +82,7 @@ export async function writeGithubObjectBlob(
       previousByteSize: existing.byteSize,
       nameMetaDelta: 0,
     })
+    emitSystemVfsChange(path, 'modified')
     return
   }
 
@@ -152,7 +92,7 @@ export async function writeGithubObjectBlob(
   const name = parsed.segments[parsed.segments.length - 1]
   if (!name) throw new Error(`无效的对象路径：${path}`)
   const parentPath = joinFilesAbsolutePath(DEV_FILES_ROOT, ...parentSegments)
-  const parent = await ensureSystemFolder(parentPath)
+  const parent = await ensureDevSystemFolder(parentPath)
 
   const now = osNowMs()
   const node: FilesNode = {
@@ -172,6 +112,7 @@ export async function writeGithubObjectBlob(
     bytes,
     metaBytes: estimateNodeMetaBytes(node),
   })
+  emitSystemVfsChange(path, 'created')
 }
 
 export async function readGithubObjectBytes(hash: string): Promise<Uint8Array | undefined> {
