@@ -287,6 +287,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     () => new Map(),
   )
   const [aiChatBusySessionIds, setAiChatBusySessionIds] = useState<Set<string>>(() => new Set())
+  const [inlinePreviewTabIds, setInlinePreviewTabIds] = useState<Set<string>>(() => new Set())
   const [closedAiChats, setClosedAiChats] = useState<VscodeAiClosedChatSession[]>(() => {
     const store = loadVscodeAiChatStore(loadVscodePrefs().workspaceFolder)
     let closed = [...store.closedSessions]
@@ -1724,6 +1725,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (sessionReadyRef.current && !skipSessionPersistRef.current) {
       saveVscodeSession(buildVscodeSessionFromTabs(nextTabs, nextActiveId))
     }
+    setInlinePreviewTabIds((prev) => {
+      if (!prev.has(tabId)) return prev
+      const next = new Set(prev)
+      next.delete(tabId)
+      return next
+    })
     if (removed) {
       window.setTimeout(() => {
         const stillOpen = tabsRef.current.some((tab) => tab.path === removed.path)
@@ -1732,6 +1739,17 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         }
       }, 0)
     }
+  }, [])
+
+  const toggleInlinePreview = useCallback((tabId: string, open: boolean) => {
+    setInlinePreviewTabIds((prev) => {
+      const has = prev.has(tabId)
+      if (open === has) return prev
+      const next = new Set(prev)
+      if (open) next.add(tabId)
+      else next.delete(tabId)
+      return next
+    })
   }, [])
 
   const confirmBinaryPrompt = useCallback((tabId: string) => {
@@ -2976,6 +2994,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 )
               }
               onOpenMarkdownPreview={openMarkdownPreviewBeside}
+              inlinePreviewTabIds={inlinePreviewTabIds}
+              onToggleInlinePreview={toggleInlinePreview}
               onTabTextChange={updateTabText}
               onCursorChange={applyCursor}
               onSelectionChange={applySelection}

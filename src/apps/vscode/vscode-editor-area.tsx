@@ -16,7 +16,7 @@ import {
   getGroupActiveItem,
   setActiveEditorDrag,
 } from './vscode-editor-layout.ts'
-import { isVscodeTabDirty, type VscodeTab } from './vscode-tabs.ts'
+import { isPreviewableTab, isVscodeTabDirty, type VscodeTab } from './vscode-tabs.ts'
 import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
 import { VscodeSearchEditor } from './vscode-search-editor.tsx'
 import type { VscodeSearchEditorSession } from './vscode-search-editor-session.ts'
@@ -177,6 +177,8 @@ type VscodeEditorAreaProps = {
   onMoveItemToGroup: (itemId: string, targetGroupId: string, targetIndex?: number) => void
   onSplitItemToEdge: (itemId: string, targetGroupId: string, edge: VscodeSplitEdge) => void
   onOpenMarkdownPreview: (groupId: string) => void
+  inlinePreviewTabIds?: ReadonlySet<string>
+  onToggleInlinePreview?: (tabId: string, open: boolean) => void
   onTabTextChange: (tabId: string, text: string) => void
   onCursorChange: (line: number, column: number) => void
   onSelectionChange?: (selectionText: string | undefined) => void
@@ -325,6 +327,8 @@ function VscodeEditorGroupView({
   onMoveItemToGroup,
   onSplitItemToEdge,
   onOpenMarkdownPreview,
+  inlinePreviewTabIds,
+  onToggleInlinePreview,
   onTabTextChange,
   onCursorChange,
   onSelectionChange,
@@ -476,7 +480,9 @@ function VscodeEditorGroupView({
       ? tabs.find((tab) => tab.path === activeItem.sourcePath)
       : undefined
 
-  const showPreviewAction = activeFileTab?.language === 'markdown'
+  const showPreviewAction = activeFileTab ? isPreviewableTab(activeFileTab) : false
+  const inlinePreviewOpen =
+    activeFileTab !== undefined && inlinePreviewTabIds?.has(activeFileTab.id) === true
   const expandedTabId = tabsCrowded ? peekTabId ?? hoverTabId ?? activeItem?.id : undefined
 
   const openTabContextMenu = useCallback(
@@ -758,7 +764,7 @@ function VscodeEditorGroupView({
             />
           ))}
         </div>
-        {showPreviewAction || onNewAiChat ? (
+            {showPreviewAction || onNewAiChat ? (
           <div class="vscode__tab-actions">
             {onNewAiChat ? (
               <button
@@ -801,18 +807,21 @@ function VscodeEditorGroupView({
                 <HistoryIcon />
               </button>
             ) : undefined}
-            {showPreviewAction ? (
+            <div
+              class={`vscode__tab-action-slot${showPreviewAction ? ' vscode__tab-action-slot--open' : ''}`}
+              aria-hidden={showPreviewAction ? undefined : true}
+            >
               <button
                 type="button"
                 class="vscode__tab-action"
                 title="在侧边打开预览"
                 aria-label="在侧边打开预览"
-                disabled={loading || dialogBlocked}
+                disabled={loading || dialogBlocked || !showPreviewAction}
                 onClick={() => onOpenMarkdownPreview(group.id)}
               >
                 <EyeIcon />
               </button>
-            ) : undefined}
+            </div>
           </div>
         ) : undefined}
       </div>
@@ -1020,31 +1029,61 @@ function VscodeEditorGroupView({
                 此文件已从磁盘删除，保存将重新创建。
               </div>
             ) : undefined}
-            <MonacoEditor
-              className="vscode__monaco"
-              value={activeFileTab.text}
-              onChange={(text) => onTabTextChange(activeFileTab.id, text)}
-              language={activeFileTab.language}
-              modelPath={activeFileTab.path}
-              theme={prefs.theme}
-              readOnly={!activeFileTab.writable}
-              fontSize={prefs.fontSize}
-              minimap={prefs.minimap}
-              wordWrap={prefs.wordWrap ? 'on' : 'off'}
-              active={isActiveWindow && focused}
-              onCursorChange={onCursorChange}
-              onSelectionChange={onSelectionChange}
-              onOpenPath={onOpenPath}
-              revealPosition={
-                revealPosition && revealPosition.path === activeFileTab.path
-                  ? { line: revealPosition.line, column: revealPosition.column }
-                  : undefined
-              }
-              onRevealPositionApplied={onRevealPositionApplied}
-              completionEnabled={prefs.completionEnabled === true}
-              completionDebounceMs={prefs.completionDebounceMs}
-              completionModelKey={prefs.completionModelKey}
-            />
+            <div
+              class={`vscode__monaco-wrap${inlinePreviewOpen ? ' vscode__monaco-wrap--hidden' : ''}`}
+              hidden={inlinePreviewOpen}
+            >
+              <MonacoEditor
+                className="vscode__monaco"
+                value={activeFileTab.text}
+                onChange={(text) => onTabTextChange(activeFileTab.id, text)}
+                language={activeFileTab.language}
+                modelPath={activeFileTab.path}
+                theme={prefs.theme}
+                readOnly={!activeFileTab.writable}
+                fontSize={prefs.fontSize}
+                minimap={prefs.minimap}
+                wordWrap={prefs.wordWrap ? 'on' : 'off'}
+                active={isActiveWindow && focused && !inlinePreviewOpen}
+                onCursorChange={onCursorChange}
+                onSelectionChange={onSelectionChange}
+                onOpenPath={onOpenPath}
+                revealPosition={
+                  revealPosition && revealPosition.path === activeFileTab.path
+                    ? { line: revealPosition.line, column: revealPosition.column }
+                    : undefined
+                }
+                onRevealPositionApplied={onRevealPositionApplied}
+                completionEnabled={prefs.completionEnabled === true}
+                completionDebounceMs={prefs.completionDebounceMs}
+                completionModelKey={prefs.completionModelKey}
+              />
+            </div>
+            {inlinePreviewOpen ? (
+              <div class="vscode__preview-body">
+                <VscodeMarkdownPreview text={activeFileTab.text} />
+              </div>
+            ) : undefined}
+            {isPreviewableTab(activeFileTab) ? (
+              <div class="vscode__preview-footer" role="toolbar" aria-label="Markdown 预览">
+                <button
+                  type="button"
+                  class={`vscode__preview-footer-seg${!inlinePreviewOpen ? ' vscode__preview-footer-seg--active' : ''}`}
+                  aria-pressed={!inlinePreviewOpen}
+                  onClick={() => onToggleInlinePreview?.(activeFileTab.id, false)}
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  class={`vscode__preview-footer-seg${inlinePreviewOpen ? ' vscode__preview-footer-seg--active' : ''}`}
+                  aria-pressed={inlinePreviewOpen}
+                  onClick={() => onToggleInlinePreview?.(activeFileTab.id, true)}
+                >
+                  预览
+                </button>
+              </div>
+            ) : undefined}
           </>
           )
         ) : (

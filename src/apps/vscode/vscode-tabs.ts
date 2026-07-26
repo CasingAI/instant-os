@@ -40,6 +40,10 @@ export function isVscodeTabDirty(tab: VscodeTab): boolean {
   return tab.deleted || tab.conflict !== undefined || tab.text !== tab.savedText
 }
 
+export function isPreviewableTab(tab: VscodeTab): boolean {
+  return tab.language === 'markdown'
+}
+
 function stubNodeForDeletedPath(path: string): FilesNode {
   const name = fileNameFromPath(path)
   const parsed = parseFilesAbsolutePath(path)
