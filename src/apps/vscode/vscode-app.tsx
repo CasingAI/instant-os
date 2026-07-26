@@ -70,6 +70,7 @@ import {
   createEditorLayoutWithTabs,
   createEmptyEditorLayout,
   findAiChatItem,
+  findGroupIdForItem,
   focusEditorGroup,
   focusEditorItem,
   focusEditorTab,
@@ -132,6 +133,7 @@ import {
   titleFromVscodeAiMessages,
   vscodeAiChatWorkspaceKey,
   type VscodeAiChatSession,
+  type VscodeAiChatStore,
   type VscodeAiClosedChatSession,
   type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
@@ -144,6 +146,65 @@ import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
 import './vscode.css'
 
 const SESSION_PERSIST_DEBOUNCE_MS = 400
+
+type VscodeRestoredEditorFocus = {
+  lastFocusedEditor?: 'file' | 'aiChat'
+  preferredFileTabId?: string
+  preferredAiSessionId?: string
+}
+
+function getEditorFocusFromLayout(
+  layout: VscodeEditorLayoutState,
+): Pick<VscodeAiChatStore, 'lastFocusedEditor' | 'activeSessionId'> {
+  const focusedGroup = layout.groups[layout.focusedGroupId]
+  const focusedItem =
+    focusedGroup?.items.find((item) => item.id === focusedGroup.activeItemId) ??
+    focusedGroup?.items[0]
+  if (focusedItem?.kind === 'aiChat') {
+    return { lastFocusedEditor: 'aiChat', activeSessionId: focusedItem.sessionId }
+  }
+  return { lastFocusedEditor: 'file' }
+}
+
+function restoreOpenAiChatTabsInLayout(
+  layout: VscodeEditorLayoutState,
+  openSessions: readonly VscodeAiChatSession[],
+  focus?: VscodeRestoredEditorFocus,
+): VscodeEditorLayoutState {
+  const sorted = [...openSessions].sort((a, b) => a.updatedAt - b.updatedAt)
+  let next = layout
+  for (const session of sorted) {
+    next = openAiChatInFocusedGroup(next, session.id)
+  }
+
+  const lastFocused = focus?.lastFocusedEditor ?? 'file'
+  if (
+    lastFocused === 'aiChat' &&
+    focus?.preferredAiSessionId &&
+    openSessions.some((session) => session.id === focus.preferredAiSessionId)
+  ) {
+    const found = findAiChatItem(next, focus.preferredAiSessionId)
+    if (found) {
+      return focusEditorItem(next, found.groupId, found.item.id)
+    }
+  }
+
+  if (focus?.preferredFileTabId) {
+    const groupId = findGroupIdForItem(next, focus.preferredFileTabId)
+    if (groupId) {
+      return focusEditorItem(next, groupId, focus.preferredFileTabId)
+    }
+  }
+
+  if (sorted.length > 0) {
+    const latest = sorted[sorted.length - 1]!
+    const found = findAiChatItem(next, latest.id)
+    if (found) {
+      next = focusEditorItem(next, found.groupId, found.item.id)
+    }
+  }
+  return next
+}
 
 const APP_ID = 'vscode' as const
 const THEME = '#2f87e2'
@@ -290,18 +351,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const [inlinePreviewTabIds, setInlinePreviewTabIds] = useState<Set<string>>(() => new Set())
   const [closedAiChats, setClosedAiChats] = useState<VscodeAiClosedChatSession[]>(() => {
     const store = loadVscodeAiChatStore(loadVscodePrefs().workspaceFolder)
-    let closed = [...store.closedSessions]
-    for (const session of store.openSessions) {
-      closed = pushClosedVscodeAiChatSession(closed, session)
-    }
-    if (store.openSessions.length > 0) {
-      saveVscodeAiChatStore({
-        workspaceKey: store.workspaceKey,
-        openSessions: [],
-        closedSessions: closed,
-      })
-    }
-    return closed
+    return [...store.closedSessions]
   })
   const aiChatSessionsRef = useRef(aiChatSessions)
   const closedAiChatsRef = useRef(closedAiChats)
@@ -824,6 +874,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         saveVscodeSession(
           buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current),
         )
+        saveVscodeAiChatStore({
+          workspaceKey: vscodeAiChatWorkspaceKey(aiWorkspaceFolderRef.current),
+          openSessions: [...aiChatSessionsRef.current.values()].sort(
+            (a, b) => b.updatedAt - a.updatedAt,
+          ),
+          closedSessions: [...closedAiChatsRef.current],
+          ...getEditorFocusFromLayout(editorLayoutRef.current),
+        })
       }
       mountedRef.current = false
     }
@@ -905,10 +963,25 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       tabsRef.current = restored
       activeTabIdRef.current = nextActiveId
       setTabs(restored)
-      setEditorLayout(createEditorLayoutWithTabs(
+
+      const workspaceFolder = loadVscodePrefs().workspaceFolder
+      const aiStore = loadVscodeAiChatStore(workspaceFolder)
+      const aiChatMap = new Map(aiStore.openSessions.map((session) => [session.id, session]))
+      setAiChatSessions(aiChatMap)
+      setClosedAiChats([...aiStore.closedSessions])
+
+      const fileLayout = createEditorLayoutWithTabs(
         restored.map((tab) => tab.id),
         nextActiveId,
-      ))
+      )
+      const nextLayout = restoreOpenAiChatTabsInLayout(fileLayout, aiStore.openSessions, {
+        lastFocusedEditor: aiStore.lastFocusedEditor,
+        preferredFileTabId: nextActiveId,
+        preferredAiSessionId: aiStore.activeSessionId,
+      })
+      editorLayoutRef.current = nextLayout
+      setEditorLayout(nextLayout)
+
       saveVscodeSession({
         openPaths: keptPaths,
         activePath: restored.find((tab) => tab.id === nextActiveId)?.path ?? keptPaths[0],
@@ -1487,33 +1560,21 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const previousFolder = aiWorkspaceFolderRef.current
     aiWorkspaceFolderRef.current = prefs.workspaceFolder
 
-    if (previousFolder !== prefs.workspaceFolder && aiChatSessionsRef.current.size > 0) {
-      const previousStore = loadVscodeAiChatStore(previousFolder)
-      let previousClosed = [...previousStore.closedSessions]
-      for (const session of aiChatSessionsRef.current.values()) {
-        previousClosed = pushClosedVscodeAiChatSession(previousClosed, session)
-      }
-      saveVscodeAiChatStore({
-        workspaceKey: vscodeAiChatWorkspaceKey(previousFolder),
-        openSessions: [],
-        closedSessions: previousClosed,
-      })
-    }
+    if (previousFolder === prefs.workspaceFolder) return
+
+    saveVscodeAiChatStore({
+      workspaceKey: vscodeAiChatWorkspaceKey(previousFolder),
+      openSessions: [...aiChatSessionsRef.current.values()].sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      ),
+      closedSessions: [...closedAiChatsRef.current],
+      ...getEditorFocusFromLayout(editorLayoutRef.current),
+    })
 
     const store = loadVscodeAiChatStore(prefs.workspaceFolder)
-    let closed = [...store.closedSessions]
-    for (const session of store.openSessions) {
-      closed = pushClosedVscodeAiChatSession(closed, session)
-    }
-    if (store.openSessions.length > 0) {
-      saveVscodeAiChatStore({
-        workspaceKey: store.workspaceKey,
-        openSessions: [],
-        closedSessions: closed,
-      })
-    }
-    setAiChatSessions(new Map())
-    setClosedAiChats(closed)
+    const openSessions = store.openSessions
+    setAiChatSessions(new Map(openSessions.map((session) => [session.id, session])))
+    setClosedAiChats([...store.closedSessions])
     setEditorLayout((layout) => {
       let next = layout
       for (const group of Object.values(layout.groups)) {
@@ -1522,27 +1583,30 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           next = removeEditorItem(next, item.id)
         }
       }
+      next = restoreOpenAiChatTabsInLayout(next, openSessions, {
+        lastFocusedEditor: store.lastFocusedEditor,
+        preferredFileTabId: activeTabIdRef.current,
+        preferredAiSessionId: store.activeSessionId,
+      })
       editorLayoutRef.current = next
       return next
     })
 
-    if (previousFolder !== prefs.workspaceFolder) {
-      for (const waiter of handleWaitersRef.current.values()) {
-        waiter.reject(new Error('工作区已切换'))
-      }
-      handleWaitersRef.current.clear()
-      terminalHandlesRef.current.clear()
-      closedAiChatIdsRef.current.ask.clear()
-      closedAiChatIdsRef.current.plan.clear()
-      closedAiChatIdsRef.current.agent.clear()
-      npmLastChangesByChatRef.current.clear()
-      lastChangeSourceByChatRef.current.clear()
-      const fresh = createUserTerminalSession('controlled')
-      setTerminalSessions([fresh])
-      setActiveTerminalSessionId(fresh.id)
-      activeTerminalHandleRef.current = null
-      setCanRevertTerminal(false)
+    for (const waiter of handleWaitersRef.current.values()) {
+      waiter.reject(new Error('工作区已切换'))
     }
+    handleWaitersRef.current.clear()
+    terminalHandlesRef.current.clear()
+    closedAiChatIdsRef.current.ask.clear()
+    closedAiChatIdsRef.current.plan.clear()
+    closedAiChatIdsRef.current.agent.clear()
+    npmLastChangesByChatRef.current.clear()
+    lastChangeSourceByChatRef.current.clear()
+    const fresh = createUserTerminalSession('controlled')
+    setTerminalSessions([fresh])
+    setActiveTerminalSessionId(fresh.id)
+    activeTerminalHandleRef.current = null
+    setCanRevertTerminal(false)
   }, [prefs.workspaceFolder])
 
   // 只关心「打开了哪些文件标签」，忽略焦点切换，避免无谓触发 TS sync
@@ -1829,15 +1893,31 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     (
       openMap: ReadonlyMap<string, VscodeAiChatSession>,
       closed: readonly VscodeAiClosedChatSession[],
+      focusOverride?: Pick<VscodeAiChatStore, 'lastFocusedEditor' | 'activeSessionId'>,
     ) => {
+      const focus = focusOverride ?? getEditorFocusFromLayout(editorLayoutRef.current)
       saveVscodeAiChatStore({
         workspaceKey: vscodeAiChatWorkspaceKey(prefs.workspaceFolder),
         openSessions: [...openMap.values()].sort((a, b) => b.updatedAt - a.updatedAt),
         closedSessions: [...closed],
+        lastFocusedEditor: focus.lastFocusedEditor,
+        activeSessionId:
+          focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
       })
     },
     [prefs.workspaceFolder],
   )
+
+  useEffect(() => {
+    if (!sessionReady || skipSessionPersistRef.current) return
+    const timer = window.setTimeout(() => {
+      if (skipSessionPersistRef.current || !mountedRef.current) return
+      persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current)
+    }, SESSION_PERSIST_DEBOUNCE_MS)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [editorLayout, sessionReady, persistAiChatStore])
 
   const setAiChatSessionBusy = useCallback((sessionId: string, busy: boolean) => {
     setAiChatBusySessionIds((prev) => {
@@ -1855,7 +1935,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setAiChatSessions((prev) => {
       const next = new Map(prev)
       next.set(session.id, session)
-      persistAiChatStore(next, closedAiChatsRef.current)
+      persistAiChatStore(next, closedAiChatsRef.current, {
+        lastFocusedEditor: 'aiChat',
+        activeSessionId: session.id,
+      })
       return next
     })
     setEditorLayout((layout) => {
@@ -2101,9 +2184,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (!windowId) return true
     skipSessionPersistRef.current = true
     saveVscodeSession(buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current))
+    persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current)
     setWindowDocumentEdited(windowId, false)
     return true
-  }, [setWindowDocumentEdited, windowId])
+  }, [persistAiChatStore, setWindowDocumentEdited, windowId])
 
   useWindowCloseGuard(windowId, requestClose)
 

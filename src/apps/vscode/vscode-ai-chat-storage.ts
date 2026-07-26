@@ -72,6 +72,10 @@ export type VscodeAiChatStore = {
   workspaceKey: string
   openSessions: VscodeAiChatSession[]
   closedSessions: VscodeAiClosedChatSession[]
+  /** 上次保存时聚焦的编辑器类型（与 activeSessionId 配合恢复 AI 标签焦点） */
+  lastFocusedEditor?: 'file' | 'aiChat'
+  /** lastFocusedEditor === 'aiChat' 时对应的 sessionId */
+  activeSessionId?: string
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodeAiChat
@@ -397,6 +401,17 @@ function normalizeClosedSession(raw: unknown): VscodeAiClosedChatSession | undef
   return { ...session, closedAt }
 }
 
+function normalizeLastFocusedEditor(raw: unknown): 'file' | 'aiChat' | undefined {
+  if (raw === 'file' || raw === 'aiChat') return raw
+  return undefined
+}
+
+function normalizeActiveSessionId(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const trimmed = raw.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
 function emptyStore(key: string): VscodeAiChatStore {
   return { workspaceKey: key, openSessions: [], closedSessions: [] }
 }
@@ -458,7 +473,25 @@ export function loadVscodeAiChatStore(workspaceFolder: string | undefined): Vsco
       .sort((a, b) => b.closedAt - a.closedAt)
       .slice(0, MAX_CLOSED_SESSIONS)
 
-    return { workspaceKey: key, openSessions, closedSessions }
+    const lastFocusedEditor = normalizeLastFocusedEditor(
+      (parsed as { lastFocusedEditor?: unknown }).lastFocusedEditor,
+    )
+    const activeSessionId = normalizeActiveSessionId(
+      (parsed as { activeSessionId?: unknown }).activeSessionId,
+    )
+
+    return {
+      workspaceKey: key,
+      openSessions,
+      closedSessions,
+      lastFocusedEditor,
+      activeSessionId:
+        lastFocusedEditor === 'aiChat' &&
+        activeSessionId &&
+        openSessions.some((session) => session.id === activeSessionId)
+          ? activeSessionId
+          : undefined,
+    }
   } catch {
     return emptyStore(key)
   }
@@ -481,6 +514,8 @@ export function saveVscodeAiChatStore(store: VscodeAiChatStore): void {
           messages: clampMessages(session.messages),
           title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
         })),
+      ...(store.lastFocusedEditor ? { lastFocusedEditor: store.lastFocusedEditor } : {}),
+      ...(store.activeSessionId ? { activeSessionId: store.activeSessionId } : {}),
     }),
   )
 }
