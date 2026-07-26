@@ -10,7 +10,9 @@
 }
 
 .vscode-ai__chat {
-  padding: 12px 10px 8px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 10px calc(var(--vscode-ai-composer-inset, 96px) + 8px);
 }
 
 .vscode-ai__welcome {
@@ -301,6 +303,11 @@
 }
 
 .vscode-ai__composer-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
   width: 100%;
   max-width: 900px;
   margin: 0 auto;
@@ -310,6 +317,16 @@
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
+  pointer-events: none;
+  background: none;
+}
+
+.vscode-ai .help-app__composer-wrap {
+  background: none;
+}
+
+.vscode-ai__composer-wrap > * {
+  pointer-events: auto;
 }
 
 .vscode-ai__review-bar {
@@ -867,9 +884,10 @@
   color: #5a8a60;
 }
 
-/* 输入框区域：与背景融合 */
+/* 浮层 wrap 保持透明，仅输入框卡片自身有背景 */
+.vscode--chrome-dark .vscode-ai .vscode-ai__composer-wrap,
 .vscode--chrome-dark .vscode-ai .help-app__composer-wrap {
-  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.08) 100%);
+  background: none;
 }
 
 .vscode--chrome-dark .vscode-ai__review-bar {

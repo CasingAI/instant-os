@@ -690,6 +690,7 @@ export function VscodeAiPanel({
   const abortRef = useRef<AbortController | undefined>(undefined)
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const composerWrapRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const composerInputHeightRef = useRef<number | undefined>(undefined)
   const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
@@ -709,6 +710,7 @@ export function VscodeAiPanel({
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
+  const [composerInset, setComposerInset] = useState(96)
 
   const resolvedModelId = useMemo(
     () => openAiConfigForVscodeAiModelKey(resolvedModelKey).defaultModel,
@@ -748,6 +750,16 @@ export function VscodeAiPanel({
     el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden'
     composerInputHeightRef.current = nextHeight
   }, [draft])
+
+  useLayoutEffect(() => {
+    const el = composerWrapRef.current
+    if (!el) return
+    const updateInset = () => setComposerInset(el.offsetHeight)
+    updateInset()
+    const observer = new ResizeObserver(updateInset)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return
@@ -1320,7 +1332,10 @@ export function VscodeAiPanel({
   const showLive = busy
 
   return (
-    <div class="help-app vscode-ai help-app--width-full">
+    <div
+      class="help-app vscode-ai help-app--width-full"
+      style={{ '--vscode-ai-composer-inset': `${composerInset}px` }}
+    >
       <div class="help-app__chat vscode-ai__chat" ref={scrollRef}>
         {showWelcome ? (
           <div class="help-app__welcome vscode-ai__welcome">
@@ -1457,7 +1472,7 @@ export function VscodeAiPanel({
         )}
       </div>
 
-      <div class="help-app__composer-wrap vscode-ai__composer-wrap">
+      <div class="help-app__composer-wrap vscode-ai__composer-wrap" ref={composerWrapRef}>
         {pendingReview.fileCount > 0 ? (
           <div class="vscode-ai__review-bar" role="status">
             <span class="vscode-ai__review-bar-label">
