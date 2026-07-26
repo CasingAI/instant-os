@@ -56,7 +56,7 @@ import { loadNewsTokenUsage } from '../news/news-token-usage.ts'
 import { SettingsDisclosureIcon } from './settings-disclosure-icon.tsx'
 import { SettingsKeepLayer } from './settings-keep-layer.tsx'
 import {
-  getVisibleSettingsPanes,
+  getVisibleSettingsPaneGroups,
   isNestedSettingsRoute,
   isSettingsRouteVisible,
   paneIdForRoute,
@@ -100,8 +100,8 @@ export function SettingsApp() {
     () => loadExperimentalSettings(),
     [experimentalSettingsVersion],
   )
-  const visiblePanes = useMemo(
-    () => getVisibleSettingsPanes(experimentalSettings),
+  const visibleGroups = useMemo(
+    () => getVisibleSettingsPaneGroups(experimentalSettings),
     [experimentalSettings],
   )
   const summary = useMemo(
@@ -284,54 +284,71 @@ export function SettingsApp() {
     >
       <div class="settings__shell">
         <nav class="settings__sidebar" aria-label="设置分类">
-          <ul class="settings__sidebar-list">
-            {visiblePanes.map((pane) => {
-              const Icon = pane.Icon
-              const selected = activePaneId === pane.id
-              return (
-                <li key={pane.id}>
-                  <button
-                    type="button"
-                    class={`settings__sidebar-item${selected ? ' settings__sidebar-item--active' : ''}`}
-                    aria-current={selected ? 'page' : undefined}
-                    onClick={() => navigatePane(pane.route)}
-                  >
-                    <span class="settings__sidebar-icon" aria-hidden="true">
-                      <Icon />
-                    </span>
-                    <span class="settings__sidebar-label">{pane.label}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+          {visibleGroups.map(({ group, panes }) => (
+            <section class="settings__sidebar-group" key={group.id} aria-label={group.label}>
+              <h3 class="settings__sidebar-group-title">{group.label}</h3>
+              <ul class="settings__sidebar-list">
+                {panes.map((pane) => {
+                  const Icon = pane.Icon
+                  const selected = activePaneId === pane.id
+                  return (
+                    <li key={pane.id}>
+                      <button
+                        type="button"
+                        class={`settings__sidebar-item${selected ? ' settings__sidebar-item--active' : ''}`}
+                        aria-current={selected ? 'page' : undefined}
+                        onClick={() => navigatePane(pane.route)}
+                      >
+                        <span class="settings__sidebar-icon" aria-hidden="true">
+                          <span class="settings__sidebar-icon-scale">
+                            <Icon />
+                          </span>
+                        </span>
+                        <span class="settings__sidebar-label">{pane.label}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))}
         </nav>
 
         <div class="settings__main">
           <SettingsKeepLayer show={showRoot} keep={showRoot}>
             <div class="settings">
-              <div class="settings__content">
+              <div class="settings__content settings__content--compact">
                 <div class="settings__welcome" aria-hidden={!showRoot}>
                   <h2 class="settings__welcome-title">系统设置</h2>
                   <p class="settings__welcome-text">从左侧列表中选择要更改的设置。</p>
                 </div>
-                <div class="settings__panes" aria-label="设置分类">
-                  {visiblePanes.map((pane) => {
-                    const Icon = pane.Icon
-                    return (
-                      <button
-                        key={pane.id}
-                        type="button"
-                        class="settings__pane"
-                        onClick={() => navigatePane(pane.route)}
-                      >
-                        <span class="settings__pane-icon" aria-hidden="true">
-                          <Icon />
-                        </span>
-                        <span class="settings__pane-label">{pane.label}</span>
-                      </button>
-                    )
-                  })}
+                <div class="settings__root-menu" aria-label="设置分类">
+                  {visibleGroups.map(({ group, panes }) => (
+                    <section class="settings__section" key={group.id}>
+                      <h2 class="settings__section-title">{group.label}</h2>
+                      <div class="settings__list">
+                        {panes.map((pane) => {
+                          const Icon = pane.Icon
+                          return (
+                            <button
+                              key={pane.id}
+                              type="button"
+                              class="settings__row settings__row--button settings__row--nav settings__row--pane"
+                              onClick={() => navigatePane(pane.route)}
+                            >
+                              <span class="settings__row-pane-icon" aria-hidden="true">
+                                <span class="settings__row-pane-icon-scale">
+                                  <Icon />
+                                </span>
+                              </span>
+                              <span class="settings__row-name">{pane.label}</span>
+                              <SettingsDisclosureIcon />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  ))}
                 </div>
               </div>
             </div>
