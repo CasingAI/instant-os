@@ -18,6 +18,7 @@ export function useDockViewportFit(): void {
   const { sessionExtApps } = useDevExtApps()
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
+  const windowLayoutKey = windows.map((window) => `${window.id}:${window.closing ? 1 : 0}`).join('|')
   const installedGeneratedAppIds = new Set(
     installedApps.map((app) => app.id).filter((appId) => isGeneratedAppId(appId)),
   )
@@ -33,11 +34,24 @@ export function useDockViewportFit(): void {
 
   useLayoutEffect(() => {
     setDockLayoutSnapshot(
-      buildDockLayoutSnapshot({ pinnedDockItemIds, runningAppIds, installedGeneratedAppIds, sessionExtAppIds }),
+      buildDockLayoutSnapshot({
+        pinnedDockItemIds,
+        runningAppIds,
+        installedGeneratedAppIds,
+        sessionExtAppIds,
+        windows,
+      }),
     )
     applyDockSettingsVariables()
     window.dispatchEvent(new CustomEvent(DOCK_VIEWPORT_FIT_CHANGED_EVENT))
-  }, [pinnedDockItemIds, runningAppIds.join('|'), installedApps.map((app) => app.id).join('|'), sessionExtApps.map((app) => app.id).join('|'), experimentalVersion])
+  }, [
+    pinnedDockItemIds,
+    runningAppIds.join('|'),
+    windowLayoutKey,
+    installedApps.map((app) => app.id).join('|'),
+    sessionExtApps.map((app) => app.id).join('|'),
+    experimentalVersion,
+  ])
 
   useEffect(() => {
     const sync = () => {

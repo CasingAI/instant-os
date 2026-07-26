@@ -27,12 +27,15 @@ export function resolveDockDropTarget(clientX: number, clientY: number): DockDro
   const pinnedZone = plate.querySelector('.dock__pinned-zone')
   const pinnedItems = (
     pinnedZone
-      ? [...pinnedZone.querySelectorAll('.dock__item')]
-      : [...plate.querySelectorAll('.dock__item--pinned')]
-  ).filter(
-    (item): item is HTMLElement =>
-      item instanceof HTMLElement && !item.classList.contains('dock__item--dragging'),
-  )
+      ? [...pinnedZone.querySelectorAll('.dock__pin-slot')]
+      : [...plate.querySelectorAll('.dock__pin-slot')]
+  ).filter((item): item is HTMLElement => {
+    if (!(item instanceof HTMLElement)) {
+      return false
+    }
+    // 拖拽中整槽已从 DOM 移除；若仍残留则忽略含 dragging 图标的槽
+    return !item.querySelector('.dock__item--dragging')
+  })
 
   if (pinnedItems.length === 0) {
     return { overDock: true, insertIndex: 0 }

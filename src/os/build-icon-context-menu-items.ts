@@ -31,16 +31,10 @@ function resolvePrimaryAppWindow(windows: WindowState[], appId: AppId): WindowSt
     .sort((left, right) => right.zIndex - left.zIndex)[0]
 }
 
-export function buildDockWindowSubmenuOptions(
-  windows: WindowState[],
-  appId: AppId,
+function buildWindowSubmenuOptionsForTarget(
+  target: WindowState,
   actions: WindowSubmenuActions,
-): WindowSubmenuOptions | undefined {
-  const target = resolvePrimaryAppWindow(windows, appId)
-  if (!target) {
-    return undefined
-  }
-
+): WindowSubmenuOptions {
   const runAfterRestoreIfMinimized = (action: (windowId: string) => void) => {
     if (target.minimized) {
       actions.restoreWindow(target.id)
@@ -58,6 +52,22 @@ export function buildDockWindowSubmenuOptions(
     hideDisabled: target.minimized,
     maximizeDisabled: target.fullscreen,
   }
+}
+
+export function buildDockWindowSubmenuOptions(
+  windows: WindowState[],
+  appId: AppId,
+  actions: WindowSubmenuActions,
+  windowId?: string,
+): WindowSubmenuOptions | undefined {
+  const target = windowId
+    ? windows.find((entry) => entry.id === windowId && entry.appId === appId && !entry.closing)
+    : resolvePrimaryAppWindow(windows, appId)
+  if (!target) {
+    return undefined
+  }
+
+  return buildWindowSubmenuOptionsForTarget(target, actions)
 }
 
 function appendWindowSubmenuItems(
@@ -127,6 +137,7 @@ function appendDockContextMenuItems(
 function appendForceQuitItem(
   items: IconContextMenuItem[],
   onForceQuit: (() => void) | undefined,
+  label = '退出',
 ): IconContextMenuItem[] {
   if (!onForceQuit) {
     return items
@@ -135,19 +146,23 @@ function appendForceQuitItem(
   return [
     ...items,
     { type: 'separator' },
-    { type: 'action', label: '退出', destructive: true, onClick: onForceQuit },
+    { type: 'action', label, destructive: true, onClick: onForceQuit },
   ]
 }
 
 export function buildBuiltinIconContextMenuItems(
   onOpen: () => void,
   dockOptions?: DockContextMenuOptions,
-  options?: { onForceQuit?: () => void; windowSubmenu?: WindowSubmenuOptions },
+  options?: {
+    onForceQuit?: () => void
+    forceQuitLabel?: string
+    windowSubmenu?: WindowSubmenuOptions
+  },
 ): IconContextMenuItem[] {
   const items = appendWindowSubmenuItems([{ type: 'action', label: '打开', onClick: onOpen }], options?.windowSubmenu)
 
   return appendDockContextMenuItems(
-    appendForceQuitItem(items, options?.onForceQuit),
+    appendForceQuitItem(items, options?.onForceQuit, options?.forceQuitLabel),
     dockOptions,
   )
 }
@@ -160,6 +175,7 @@ export function buildGeneratedIconContextMenuItems(options: {
   onViewInIcode: (projectId: string) => void
   onUninstall?: () => void
   onForceQuit?: () => void
+  forceQuitLabel?: string
   openDisabled?: boolean
   isPinnedToDock?: boolean
   onPinToDock?: () => void
@@ -185,7 +201,7 @@ export function buildGeneratedIconContextMenuItems(options: {
   ]
 
   const withWindowSubmenu = appendWindowSubmenuItems(items, options.windowSubmenu)
-  const withForceQuit = appendForceQuitItem(withWindowSubmenu, options.onForceQuit)
+  const withForceQuit = appendForceQuitItem(withWindowSubmenu, options.onForceQuit, options.forceQuitLabel)
 
   const withDock = appendDockContextMenuItems(withForceQuit, {
     isPinnedToDock: options.isPinnedToDock ?? false,

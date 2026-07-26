@@ -11,7 +11,6 @@ import { getAppDefinition } from '../os/app-registry.tsx'
 import { findFolderById } from '../os/desktop-folder-operations.ts'
 import { isDesktopFolderId, type DesktopFolderId, type DesktopItemId } from '../os/desktop-folder-types.ts'
 import {
-  isBuiltinAppVisibleOnDock,
   isBuiltinAppVisibleOnDockWhenRunning,
 } from '../os/launcher-app-visibility.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT, loadExperimentalSettings } from '../os/experimental-settings-storage.ts'
@@ -26,7 +25,15 @@ import { useIconContextMenu } from '../os/icon-context-menu-context.tsx'
 import { useLauncherLayout } from '../os/launcher-layout-context.tsx'
 import { isPermanentlyPinnedToDock } from '../os/launcher-layout-storage.ts'
 import { useOs } from '../os/os-context.tsx'
-import { isExtAppId, isGeneratedAppId, type AppId, type BuiltinAppId, type ExtAppId, type GeneratedAppId } from '../os/types.ts'
+import {
+  isExtAppId,
+  isGeneratedAppId,
+  type AppId,
+  type BuiltinAppId,
+  type ExtAppId,
+  type GeneratedAppId,
+  type WindowState,
+} from '../os/types.ts'
 import {
   clearDockDropSession,
   getDockDropSession,
@@ -51,6 +58,14 @@ type DockReorderSession = {
 
 function DockTooltip({ name }: { name: string }) {
   return <span class="dock__tooltip">{name}</span>
+}
+
+function DockPinSlot({ itemId, children }: { itemId: DesktopItemId; children: ComponentChildren }) {
+  return (
+    <div class="dock__pin-slot" data-dock-item-id={itemId}>
+      {children}
+    </div>
+  )
 }
 
 function useDockIconSize(): number {
@@ -176,6 +191,7 @@ export function Dock() {
   const [reorderSession, setReorderSession] = useState<DockReorderSession | undefined>(undefined)
   const lastPointerRef = useRef({ x: 0, y: 0 })
   const reorderSessionRef = useRef<DockReorderSession | undefined>(undefined)
+  const reordering = reorderSession !== undefined
 
   const runningAppIds = [...new Set(windows.map((window) => window.appId))]
   const runningUnpinnedAppIds = runningAppIds.filter((appId) => !isPinnedToDock(appId))
@@ -228,9 +244,14 @@ export function Dock() {
     return windows.some((window) => window.appId === appId && !window.closing)
   }
 
+  /** 保持 windows 数组顺序，避免聚焦时图标位置跳动 */
+  function listAppWindows(appId: AppId) {
+    return windows.filter((window) => window.appId === appId && !window.closing)
+  }
+
   function resolvePrimaryAppWindow(appId: AppId) {
-    return windows
-      .filter((window) => window.appId === appId && !window.closing)
+    return listAppWindows(appId)
+      .slice()
       .sort((left, right) => right.zIndex - left.zIndex)[0]
   }
 
@@ -241,17 +262,24 @@ export function Dock() {
       launch()
       return
     }
-    if (primary.minimized) {
-      restoreWindow(primary.id)
+    handleDockWindowClick(primary.id)
+  }
+
+  function handleDockWindowClick(windowId: string) {
+    closeOpenDesktopFolder()
+    const target = windows.find((window) => window.id === windowId && !window.closing)
+    if (!target) {
       return
     }
-    const activeWindow = windows.find((window) => window.id === activeWindowId)
-    const isAppFrontmost = activeWindow?.appId === appId && !activeWindow.minimized
-    if (isAppFrontmost) {
-      minimizeWindow(primary.id)
+    if (target.minimized) {
+      restoreWindow(target.id)
       return
     }
-    focusWindow(primary.id)
+    if (target.id === activeWindowId) {
+      minimizeWindow(target.id)
+      return
+    }
+    focusWindow(target.id)
   }
 
   function handleDesktopRevealZonePointerDown(event: Event) {
@@ -260,14 +288,19 @@ export function Dock() {
     toggleDesktopReveal()
   }
 
-  function buildWindowSubmenu(appId: AppId) {
-    return buildDockWindowSubmenuOptions(windows, appId, {
-      closeWindow,
-      minimizeWindow,
-      toggleMaximize,
-      toggleFullscreen,
-      restoreWindow,
-    })
+  function buildWindowSubmenu(appId: AppId, windowId?: string) {
+    return buildDockWindowSubmenuOptions(
+      windows,
+      appId,
+      {
+        closeWindow,
+        minimizeWindow,
+        toggleMaximize,
+        toggleFullscreen,
+        restoreWindow,
+      },
+      windowId,
+    )
   }
 
   const onReorderStart = useCallback(
@@ -332,7 +365,7 @@ export function Dock() {
     setReorderSession(undefined)
   }, [pinToDockAtIndex, unpinItemFromDock])
 
-  const reorderingEnabled = reorderSession !== undefined
+  const reorderingEnabled = reordering
 
   function renderDockItemIcon(itemId: DesktopItemId) {
     if (isDesktopFolderId(itemId)) {
@@ -379,57 +412,83 @@ export function Dock() {
     )
   }
 
+  function dockLabelForWindow(appName: string, appWindow?: WindowState) {
+    if (!appWindow) {
+      return appName
+    }
+    return appWindow.title || appName
+  }
+
   function renderPinnedBuiltinDockItem(appId: BuiltinAppId, index: number) {
     const app = getAppDefinition(appId)
-    if (!app || !isBuiltinAppVisibleOnDock(app, loadExperimentalSettings())) {
+    // dockWhenRunning 应用也可被用户固定；固定后需在固定区渲染，否则会从运行区消失且固定区不显示
+    if (!app || !isBuiltinAppVisibleOnDockWhenRunning(app, loadExperimentalSettings())) {
       return undefined
     }
 
     const isRunning = isAppRunning(app.id)
     const pinned = isPinnedToDock(app.id)
+    const appWindows = listAppWindows(app.id)
 
-    const handleOpen = () => {
-      handleDockAppClick(app.id, () => openApp(app.id))
+    const renderButton = (appWindow: WindowState | undefined, showBadge: boolean) => {
+      const label = dockLabelForWindow(app.name, appWindow)
+      const isActive = Boolean(appWindow && appWindow.id === activeWindowId && !appWindow.minimized)
+      const handleOpen = () => {
+        if (appWindow) {
+          handleDockWindowClick(appWindow.id)
+          return
+        }
+        handleDockAppClick(app.id, () => openApp(app.id))
+      }
+
+      return (
+        <DockPinnedItemButton
+          key={appWindow?.id ?? app.id}
+          itemId={app.id}
+          index={index}
+          className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}${isActive ? ' dock__item--active' : ''}`}
+          ariaLabel={label}
+          reorderingEnabled={reorderingEnabled}
+          onOpen={handleOpen}
+          onReorderStart={onReorderStart}
+          onReorderMove={onReorderMove}
+          onReorderEnd={onReorderEnd}
+          onContextMenu={(event) => {
+            showIconContextMenu(
+              event,
+              buildBuiltinIconContextMenuItems(
+                handleOpen,
+                {
+                  isPinnedToDock: pinned,
+                  onPinToDock: () => pinToDock(app.id),
+                  onUnpinFromDock:
+                    pinned && !isPermanentlyPinnedToDock(app.id) ? () => unpinFromDock(app.id) : undefined,
+                },
+                {
+                  onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+                  forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
+                  windowSubmenu: appWindow ? buildWindowSubmenu(app.id, appWindow.id) : undefined,
+                },
+              ),
+            )
+          }}
+        >
+          <DockTooltip name={label} />
+          <span class="dock__icon">
+            <app.icon size={iconSize} />
+            {showBadge && app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
+          </span>
+          {isRunning && <span class="dock__indicator" />}
+        </DockPinnedItemButton>
+      )
     }
 
     return (
-      <DockPinnedItemButton
-        key={app.id}
-        itemId={app.id}
-        index={index}
-        className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
-        ariaLabel={app.name}
-        reorderingEnabled={reorderingEnabled}
-        onOpen={handleOpen}
-        onReorderStart={onReorderStart}
-        onReorderMove={onReorderMove}
-        onReorderEnd={onReorderEnd}
-        onContextMenu={(event) => {
-          showIconContextMenu(
-            event,
-            buildBuiltinIconContextMenuItems(
-              handleOpen,
-              {
-                isPinnedToDock: pinned,
-                onPinToDock: () => pinToDock(app.id),
-                onUnpinFromDock:
-                  pinned && !isPermanentlyPinnedToDock(app.id) ? () => unpinFromDock(app.id) : undefined,
-              },
-              {
-                onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
-                windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
-              },
-            ),
-          )
-        }}
-      >
-        <DockTooltip name={app.name} />
-        <span class="dock__icon">
-          <app.icon size={iconSize} />
-          {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
-        </span>
-        {isRunning && <span class="dock__indicator" />}
-      </DockPinnedItemButton>
+      <DockPinSlot key={app.id} itemId={app.id}>
+        {appWindows.length === 0
+          ? renderButton(undefined, true)
+          : appWindows.map((appWindow, windowIndex) => renderButton(appWindow, windowIndex === 0))}
+      </DockPinSlot>
     )
   }
 
@@ -443,47 +502,63 @@ export function Dock() {
     const slug = generatedAppIdToSlug(app.id)
     const icodeProjectId = resolveIcodeProjectId(app)
     const pinned = isPinnedToDock(app.id)
+    const appWindows = listAppWindows(app.id)
 
-    const handleOpen = () => {
-      handleDockAppClick(app.id, () => openInstalledApp(app.id))
+    const renderButton = (appWindow: WindowState | undefined) => {
+      const label = dockLabelForWindow(app.name, appWindow)
+      const isActive = Boolean(appWindow && appWindow.id === activeWindowId && !appWindow.minimized)
+      const handleOpen = () => {
+        if (appWindow) {
+          handleDockWindowClick(appWindow.id)
+          return
+        }
+        handleDockAppClick(app.id, () => openInstalledApp(app.id))
+      }
+
+      return (
+        <DockPinnedItemButton
+          key={appWindow?.id ?? app.id}
+          itemId={app.id}
+          index={index}
+          className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}${isActive ? ' dock__item--active' : ''}`}
+          ariaLabel={label}
+          reorderingEnabled={reorderingEnabled}
+          onOpen={handleOpen}
+          onReorderStart={onReorderStart}
+          onReorderMove={onReorderMove}
+          onReorderEnd={onReorderEnd}
+          onContextMenu={(event) => {
+            showIconContextMenu(
+              event,
+              buildGeneratedIconContextMenuItems({
+                onOpen: handleOpen,
+                appSlug: slug,
+                icodeProjectId,
+                onViewInMarketplace: openMarketplaceDetail,
+                onViewInIcode: openIcodeProject,
+                isPinnedToDock: pinned,
+                onPinToDock: () => pinToDock(app.id),
+                onUnpinFromDock: () => unpinFromDock(app.id),
+                onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
+                forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
+                windowSubmenu: appWindow ? buildWindowSubmenu(app.id, appWindow.id) : undefined,
+              }),
+            )
+          }}
+        >
+          <DockTooltip name={label} />
+          <span class="dock__icon">
+            <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
+          </span>
+          {isRunning && <span class="dock__indicator" />}
+        </DockPinnedItemButton>
+      )
     }
 
     return (
-      <DockPinnedItemButton
-        key={app.id}
-        itemId={app.id}
-        index={index}
-        className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
-        ariaLabel={app.name}
-        reorderingEnabled={reorderingEnabled}
-        onOpen={handleOpen}
-        onReorderStart={onReorderStart}
-        onReorderMove={onReorderMove}
-        onReorderEnd={onReorderEnd}
-        onContextMenu={(event) => {
-          showIconContextMenu(
-            event,
-            buildGeneratedIconContextMenuItems({
-              onOpen: handleOpen,
-              appSlug: slug,
-              icodeProjectId,
-              onViewInMarketplace: openMarketplaceDetail,
-              onViewInIcode: openIcodeProject,
-              isPinnedToDock: pinned,
-              onPinToDock: () => pinToDock(app.id),
-              onUnpinFromDock: () => unpinFromDock(app.id),
-              onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
-              windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
-            }),
-          )
-        }}
-      >
-        <DockTooltip name={app.name} />
-        <span class="dock__icon">
-          <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
-        </span>
-        {isRunning && <span class="dock__indicator" />}
-      </DockPinnedItemButton>
+      <DockPinSlot key={app.id} itemId={app.id}>
+        {appWindows.length === 0 ? renderButton(undefined) : appWindows.map((appWindow) => renderButton(appWindow))}
+      </DockPinSlot>
     )
   }
 
@@ -502,36 +577,37 @@ export function Dock() {
     }
 
     return (
-      <DockPinnedItemButton
-        key={folderId}
-        itemId={folderId}
-        index={index}
-        className="dock__item dock__item--pinned dock__item--folder"
-        ariaLabel={folder.name}
-        reorderingEnabled={reorderingEnabled}
-        onOpen={handleClick}
-        onReorderStart={onReorderStart}
-        onReorderMove={onReorderMove}
-        onReorderEnd={onReorderEnd}
-        onContextMenu={(event) => {
-          showIconContextMenu(event, [
-            { type: 'action', label: '打开', onClick: handleOpen },
-            { type: 'separator' },
-            { type: 'action', label: '从程序坞移除', onClick: () => unpinItemFromDock(folderId) },
-            { type: 'separator' },
-            {
-              type: 'action',
-              label: '解散文件夹',
-              onClick: () => dissolveDesktopFolder(folderId),
-            },
-          ])
-        }}
-      >
-        <DockTooltip name={folder.name} />
-        <span class="dock__icon">
-          <DesktopFolderIcon apps={previewApps} size={iconSize} />
-        </span>
-      </DockPinnedItemButton>
+      <DockPinSlot key={folderId} itemId={folderId}>
+        <DockPinnedItemButton
+          itemId={folderId}
+          index={index}
+          className="dock__item dock__item--pinned dock__item--folder"
+          ariaLabel={folder.name}
+          reorderingEnabled={reorderingEnabled}
+          onOpen={handleClick}
+          onReorderStart={onReorderStart}
+          onReorderMove={onReorderMove}
+          onReorderEnd={onReorderEnd}
+          onContextMenu={(event) => {
+            showIconContextMenu(event, [
+              { type: 'action', label: '打开', onClick: handleOpen },
+              { type: 'separator' },
+              { type: 'action', label: '从程序坞移除', onClick: () => unpinItemFromDock(folderId) },
+              { type: 'separator' },
+              {
+                type: 'action',
+                label: '解散文件夹',
+                onClick: () => dissolveDesktopFolder(folderId),
+              },
+            ])
+          }}
+        >
+          <DockTooltip name={folder.name} />
+          <span class="dock__icon">
+            <DesktopFolderIcon apps={previewApps} size={iconSize} />
+          </span>
+        </DockPinnedItemButton>
+      </DockPinSlot>
     )
   }
 
@@ -543,63 +619,79 @@ export function Dock() {
 
     const isRunning = isAppRunning(app.id)
     const pinned = isPinnedToDock(app.id)
+    const appName = app.manifest.name
+    const appWindows = listAppWindows(app.id)
 
-    const handleOpen = () => {
-      handleDockAppClick(app.id, () => openSessionExtApp(app.id))
+    const renderButton = (appWindow: WindowState | undefined) => {
+      const label = dockLabelForWindow(appName, appWindow)
+      const isActive = Boolean(appWindow && appWindow.id === activeWindowId && !appWindow.minimized)
+      const handleOpen = () => {
+        if (appWindow) {
+          handleDockWindowClick(appWindow.id)
+          return
+        }
+        handleDockAppClick(app.id, () => openSessionExtApp(app.id))
+      }
+
+      return (
+        <DockPinnedItemButton
+          key={appWindow?.id ?? app.id}
+          itemId={app.id}
+          index={index}
+          className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}${isActive ? ' dock__item--active' : ''}`}
+          ariaLabel={label}
+          reorderingEnabled={reorderingEnabled}
+          onOpen={handleOpen}
+          onReorderStart={onReorderStart}
+          onReorderMove={onReorderMove}
+          onReorderEnd={onReorderEnd}
+          onContextMenu={(event) => {
+            showIconContextMenu(event, [
+              { type: 'action', label: '打开', onClick: handleOpen },
+              { type: 'separator' },
+              {
+                type: 'action',
+                label: pinned ? '从程序坞移除' : '添加到程序坞',
+                onClick: pinned ? () => unpinFromDock(app.id) : () => pinToDock(app.id),
+              },
+              { type: 'separator' },
+              {
+                type: 'action',
+                label: '从桌面移除',
+                onClick: () => removeSessionExtApp(app.id),
+              },
+              ...(isRunning
+                ? [
+                    { type: 'separator' as const },
+                    {
+                      type: 'action' as const,
+                      label: appWindows.length > 1 ? '退出全部' : '强制退出',
+                      onClick: () => closeWindowsForApp(app.id),
+                    },
+                  ]
+                : []),
+            ])
+          }}
+        >
+          <DockTooltip name={label} />
+          <span class="dock__icon">
+            <ExtAppIcon
+              name={appName}
+              themeColor={app.manifest.themeColor}
+              iconUrl={app.iconUrl}
+              size={iconSize}
+              devBadge
+            />
+          </span>
+          {isRunning && <span class="dock__indicator" />}
+        </DockPinnedItemButton>
+      )
     }
 
     return (
-      <DockPinnedItemButton
-        key={app.id}
-        itemId={app.id}
-        index={index}
-        className={`dock__item dock__item--pinned${isRunning ? ' dock__item--running' : ''}`}
-        ariaLabel={app.manifest.name}
-        reorderingEnabled={reorderingEnabled}
-        onOpen={handleOpen}
-        onReorderStart={onReorderStart}
-        onReorderMove={onReorderMove}
-        onReorderEnd={onReorderEnd}
-        onContextMenu={(event) => {
-          showIconContextMenu(event, [
-            { type: 'action', label: '打开', onClick: handleOpen },
-            { type: 'separator' },
-            {
-              type: 'action',
-              label: pinned ? '从程序坞移除' : '添加到程序坞',
-              onClick: pinned ? () => unpinFromDock(app.id) : () => pinToDock(app.id),
-            },
-            { type: 'separator' },
-            {
-              type: 'action',
-              label: '从桌面移除',
-              onClick: () => removeSessionExtApp(app.id),
-            },
-            ...(isRunning
-              ? [
-                  { type: 'separator' as const },
-                  {
-                    type: 'action' as const,
-                    label: '强制退出',
-                    onClick: () => closeWindowsForApp(app.id),
-                  },
-                ]
-              : []),
-          ])
-        }}
-      >
-        <DockTooltip name={app.manifest.name} />
-        <span class="dock__icon">
-          <ExtAppIcon
-            name={app.manifest.name}
-            themeColor={app.manifest.themeColor}
-            iconUrl={app.iconUrl}
-            size={iconSize}
-            devBadge
-          />
-        </span>
-        {isRunning && <span class="dock__indicator" />}
-      </DockPinnedItemButton>
+      <DockPinSlot key={app.id} itemId={app.id}>
+        {appWindows.length === 0 ? renderButton(undefined) : appWindows.map((appWindow) => renderButton(appWindow))}
+      </DockPinSlot>
     )
   }
 
@@ -619,148 +711,179 @@ export function Dock() {
     return renderPinnedBuiltinDockItem(itemId, index)
   }
 
-  function renderRunningBuiltinDockItem(appId: BuiltinAppId) {
+  function renderRunningBuiltinDockItems(appId: BuiltinAppId) {
     const app = getAppDefinition(appId)
     if (!app || !isBuiltinAppVisibleOnDockWhenRunning(app, loadExperimentalSettings())) {
-      return undefined
+      return []
     }
 
-    const isRunning = isAppRunning(app.id)
-
-    const handleOpen = () => {
-      handleDockAppClick(app.id, () => openApp(app.id))
+    const appWindows = listAppWindows(app.id)
+    if (appWindows.length === 0) {
+      return []
     }
 
-    return (
-      <button
-        key={app.id}
-        type="button"
-        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
-        data-dock-app-id={app.id}
-        aria-label={app.name}
-        onClick={handleOpen}
-        onContextMenu={(event) => {
-          showIconContextMenu(
-            event,
-            buildBuiltinIconContextMenuItems(
-              handleOpen,
-              {
-                isPinnedToDock: false,
-                onPinToDock: () => pinToDock(app.id),
-              },
-              {
-                onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
-                windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
-              },
-            ),
-          )
-        }}
-      >
-        <DockTooltip name={app.name} />
-        <span class="dock__icon">
-          <app.icon size={iconSize} />
-          {app.id === 'appstore' && <AppIconNotificationBadge count={pendingUpdateCount} />}
-        </span>
-        {isRunning && <span class="dock__indicator" />}
-      </button>
-    )
+    return appWindows.map((appWindow, windowIndex) => {
+      const label = dockLabelForWindow(app.name, appWindow)
+      const isActive = appWindow.id === activeWindowId && !appWindow.minimized
+      const handleOpen = () => {
+        handleDockWindowClick(appWindow.id)
+      }
+
+      return (
+        <button
+          key={appWindow.id}
+          type="button"
+          class={`dock__item dock__item--running${isActive ? ' dock__item--active' : ''}`}
+          data-dock-app-id={app.id}
+          data-dock-window-id={appWindow.id}
+          aria-label={label}
+          onClick={handleOpen}
+          onContextMenu={(event) => {
+            showIconContextMenu(
+              event,
+              buildBuiltinIconContextMenuItems(
+                handleOpen,
+                {
+                  isPinnedToDock: false,
+                  onPinToDock: () => pinToDock(app.id),
+                },
+                {
+                  onForceQuit: () => closeWindowsForApp(app.id),
+                  forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
+                  windowSubmenu: buildWindowSubmenu(app.id, appWindow.id),
+                },
+              ),
+            )
+          }}
+        >
+          <DockTooltip name={label} />
+          <span class="dock__icon">
+            <app.icon size={iconSize} />
+            {windowIndex === 0 && app.id === 'appstore' && (
+              <AppIconNotificationBadge count={pendingUpdateCount} />
+            )}
+          </span>
+          <span class="dock__indicator" />
+        </button>
+      )
+    })
   }
 
-  function renderRunningGeneratedDockItem(appId: GeneratedAppId) {
+  function renderRunningGeneratedDockItems(appId: GeneratedAppId) {
     const app = installedApps.find((entry) => entry.id === appId)
     if (!app) {
-      return undefined
+      return []
     }
 
-    const isRunning = isAppRunning(app.id)
+    const appWindows = listAppWindows(app.id)
+    if (appWindows.length === 0) {
+      return []
+    }
+
     const slug = generatedAppIdToSlug(app.id)
     const icodeProjectId = resolveIcodeProjectId(app)
 
-    const handleOpen = () => {
-      handleDockAppClick(app.id, () => openInstalledApp(app.id))
-    }
+    return appWindows.map((appWindow) => {
+      const label = dockLabelForWindow(app.name, appWindow)
+      const isActive = appWindow.id === activeWindowId && !appWindow.minimized
+      const handleOpen = () => {
+        handleDockWindowClick(appWindow.id)
+      }
 
-    return (
-      <button
-        key={app.id}
-        type="button"
-        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
-        data-dock-app-id={app.id}
-        aria-label={app.name}
-        onClick={handleOpen}
-        onContextMenu={(event) => {
-          showIconContextMenu(
-            event,
-            buildGeneratedIconContextMenuItems({
-              onOpen: handleOpen,
-              appSlug: slug,
-              icodeProjectId,
-              onViewInMarketplace: openMarketplaceDetail,
-              onViewInIcode: openIcodeProject,
-              isPinnedToDock: false,
-              onPinToDock: () => pinToDock(app.id),
-              onForceQuit: isRunning ? () => closeWindowsForApp(app.id) : undefined,
-              windowSubmenu: isRunning ? buildWindowSubmenu(app.id) : undefined,
-            }),
-          )
-        }}
-      >
-        <DockTooltip name={app.name} />
-        <span class="dock__icon">
-          <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
-        </span>
-        {isRunning && <span class="dock__indicator" />}
-      </button>
-    )
+      return (
+        <button
+          key={appWindow.id}
+          type="button"
+          class={`dock__item dock__item--running${isActive ? ' dock__item--active' : ''}`}
+          data-dock-app-id={app.id}
+          data-dock-window-id={appWindow.id}
+          aria-label={label}
+          onClick={handleOpen}
+          onContextMenu={(event) => {
+            showIconContextMenu(
+              event,
+              buildGeneratedIconContextMenuItems({
+                onOpen: handleOpen,
+                appSlug: slug,
+                icodeProjectId,
+                onViewInMarketplace: openMarketplaceDetail,
+                onViewInIcode: openIcodeProject,
+                isPinnedToDock: false,
+                onPinToDock: () => pinToDock(app.id),
+                onForceQuit: () => closeWindowsForApp(app.id),
+                forceQuitLabel: appWindows.length > 1 ? '退出全部' : undefined,
+                windowSubmenu: buildWindowSubmenu(app.id, appWindow.id),
+              }),
+            )
+          }}
+        >
+          <DockTooltip name={label} />
+          <span class="dock__icon">
+            <GeneratedAppIcon emoji={app.iconEmoji} themeColor={app.themeColor} size={iconSize} />
+          </span>
+          <span class="dock__indicator" />
+        </button>
+      )
+    })
   }
 
-  function renderRunningExtDockItem(appId: ExtAppId) {
+  function renderRunningExtDockItems(appId: ExtAppId) {
     const app = getSessionExtApp(appId)
     if (!app) {
-      return undefined
+      return []
     }
 
-    const isRunning = isAppRunning(app.id)
-
-    const handleOpen = () => {
-      handleDockAppClick(app.id, () => openSessionExtApp(app.id))
+    const appWindows = listAppWindows(app.id)
+    if (appWindows.length === 0) {
+      return []
     }
 
-    return (
-      <button
-        key={app.id}
-        type="button"
-        class={`dock__item${isRunning ? ' dock__item--running' : ''}`}
-        data-dock-app-id={app.id}
-        aria-label={app.manifest.name}
-        onClick={handleOpen}
-        onContextMenu={(event) => {
-          showIconContextMenu(event, [
-            { type: 'action', label: '打开', onClick: handleOpen },
-            { type: 'separator' },
-            { type: 'action', label: '添加到程序坞', onClick: () => pinToDock(app.id) },
-            { type: 'separator' },
-            {
-              type: 'action',
-              label: '强制退出',
-              onClick: () => closeWindowsForApp(app.id),
-            },
-          ])
-        }}
-      >
-        <DockTooltip name={app.manifest.name} />
-        <span class="dock__icon">
-          <ExtAppIcon
-            name={app.manifest.name}
-            themeColor={app.manifest.themeColor}
-            iconUrl={app.iconUrl}
-            size={iconSize}
-            devBadge
-          />
-        </span>
-        {isRunning && <span class="dock__indicator" />}
-      </button>
-    )
+    const appName = app.manifest.name
+
+    return appWindows.map((appWindow) => {
+      const label = dockLabelForWindow(appName, appWindow)
+      const isActive = appWindow.id === activeWindowId && !appWindow.minimized
+      const handleOpen = () => {
+        handleDockWindowClick(appWindow.id)
+      }
+
+      return (
+        <button
+          key={appWindow.id}
+          type="button"
+          class={`dock__item dock__item--running${isActive ? ' dock__item--active' : ''}`}
+          data-dock-app-id={app.id}
+          data-dock-window-id={appWindow.id}
+          aria-label={label}
+          onClick={handleOpen}
+          onContextMenu={(event) => {
+            showIconContextMenu(event, [
+              { type: 'action', label: '打开', onClick: handleOpen },
+              { type: 'separator' },
+              { type: 'action', label: '添加到程序坞', onClick: () => pinToDock(app.id) },
+              { type: 'separator' },
+              {
+                type: 'action',
+                label: appWindows.length > 1 ? '退出全部' : '强制退出',
+                onClick: () => closeWindowsForApp(app.id),
+              },
+            ])
+          }}
+        >
+          <DockTooltip name={label} />
+          <span class="dock__icon">
+            <ExtAppIcon
+              name={appName}
+              themeColor={app.manifest.themeColor}
+              iconUrl={app.iconUrl}
+              size={iconSize}
+              devBadge
+            />
+          </span>
+          <span class="dock__indicator" />
+        </button>
+      )
+    })
   }
 
   const draggingItemId = reorderSession?.itemId
@@ -775,17 +898,15 @@ export function Dock() {
     })
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
 
-  const runningDockItems = runningUnpinnedAppIds
-    .map((appId) => {
-      if (isGeneratedAppId(appId)) {
-        return renderRunningGeneratedDockItem(appId)
-      }
-      if (isExtAppId(appId)) {
-        return renderRunningExtDockItem(appId)
-      }
-      return renderRunningBuiltinDockItem(appId)
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== undefined)
+  const runningDockItems = runningUnpinnedAppIds.flatMap((appId) => {
+    if (isGeneratedAppId(appId)) {
+      return renderRunningGeneratedDockItems(appId)
+    }
+    if (isExtAppId(appId)) {
+      return renderRunningExtDockItems(appId)
+    }
+    return renderRunningBuiltinDockItems(appId)
+  })
 
   const showDivider = pinnedDockItems.length > 0 && runningDockItems.length > 0
   const dropInsertIndex = dropSession.active ? dropSession.insertIndex : undefined

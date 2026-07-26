@@ -103,6 +103,12 @@
   background: rgba(255, 255, 255, 0.28);
 }
 
+.dock__pin-slot {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(10px * var(--dock-scale, 1));
+}
+
 .dock__item {
   position: relative;
   display: flex;
