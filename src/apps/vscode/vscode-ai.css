@@ -44,6 +44,18 @@
   font-size: 12px;
 }
 
+.vscode-ai .help-app__message--assistant .help-app__bubble--live {
+  flex: 0 1 auto;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: min(720px, 100%);
+}
+
+.vscode-ai .help-app__bubble--live .help-app__reasoning-toggle,
+.vscode-ai .help-app__bubble--live .vscode-ai__write-card-toggle {
+  width: auto;
+}
+
 .vscode-ai__edit-card {
   margin-top: 10px;
   padding-top: 10px;
