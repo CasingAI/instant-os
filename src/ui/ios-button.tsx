@@ -14,10 +14,11 @@ export type IosButtonProps = {
   disabled?: boolean
   title?: string
   class?: string
+  'aria-label'?: string
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>
 }
 
-/** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红 */
+/** iOS 6 拟物按钮：灰底 / 蓝主按钮 / 危险红；可通过 --ios-button-* CSS 变量换皮 */
 export function IosButton({
   children,
   tone = 'secondary',
@@ -27,6 +28,7 @@ export function IosButton({
   disabled = false,
   title,
   class: className,
+  'aria-label': ariaLabel,
   onClick,
 }: IosButtonProps) {
   const classes = [
@@ -45,6 +47,7 @@ export function IosButton({
       class={classes}
       disabled={disabled}
       title={title}
+      aria-label={ariaLabel}
       onClick={onClick}
     >
       {children}

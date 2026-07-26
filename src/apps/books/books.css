@@ -28,6 +28,31 @@
   --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.14);
   --ios-nav-back-radius: 6px;
 
+  --ios-button-color: var(--books-accent-dark);
+  --ios-button-color-active: #9a5c00;
+  --ios-button-bg: linear-gradient(180deg, #fff 0%, #e9dfd0 100%);
+  --ios-button-bg-active: linear-gradient(180deg, #e9dfd0 0%, #ddd2c0 100%);
+  --ios-button-border: 1px solid #b8a88e;
+  --ios-button-radius: 6px;
+  --ios-button-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  --ios-button-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.14);
+  --ios-button-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  --ios-button-min-width: 64px;
+  --ios-button-compact-min-width: 64px;
+  --ios-button-compact-height: 28px;
+  --ios-button-compact-padding: 0 10px;
+  --ios-button-compact-font-size: 12px;
+  --ios-button-disabled-color: var(--books-accent-dark);
+  --ios-button-disabled-bg: linear-gradient(180deg, #fff 0%, #e9dfd0 100%);
+  --ios-button-disabled-border: 1px solid #b8a88e;
+  --ios-button-disabled-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  --ios-button-disabled-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  --ios-button-disabled-opacity: 0.5;
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -92,32 +117,6 @@
 .books__toolbar-spacer {
   width: 64px;
   flex-shrink: 0;
-}
-
-.books__toolbar-btn--action {
-  min-width: 64px;
-}
-
-.books__toolbar-btn {
-  appearance: none;
-  border: 1px solid #b8a88e;
-  border-radius: 6px;
-  padding: 4px 10px;
-  background: linear-gradient(180deg, #fff 0%, #e9dfd0 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 1px 2px rgba(0, 0, 0, 0.12);
-  color: var(--books-accent-dark);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.books__toolbar-btn:active {
-  background: linear-gradient(180deg, #e9dfd0 0%, #ddd2c0 100%);
-}
-
-.books__toolbar-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .books__toolbar-actions {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { IosButton } from '../../ui/ios-button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
@@ -299,22 +300,16 @@ export function BooksApp() {
           <IosNavBackButton iconSize={14} label="书架" onClick={() => setScreen('shelf')} />
           <span class="books__toolbar-title books__toolbar-title--center">书城</span>
           <div class="books__toolbar-actions">
-            <button
-              type="button"
-              class="books__toolbar-btn"
-              onClick={openSearch}
-              aria-label="搜索"
-            >
+            <IosButton size="compact" onClick={openSearch} aria-label="搜索">
               搜索
-            </button>
-            <button
-              type="button"
-              class="books__toolbar-btn"
+            </IosButton>
+            <IosButton
+              size="compact"
               disabled={catalogLoading}
               onClick={() => void refreshCatalog(true)}
             >
               {catalogLoading ? '刷新中…' : '刷新'}
-            </button>
+            </IosButton>
           </div>
         </header>
         <div class="books__main">
@@ -353,25 +348,16 @@ export function BooksApp() {
     <div class="books">
       <header class="books__toolbar">
         {store.library.length > 0 ? (
-          <button
-            type="button"
-            class="books__toolbar-btn books__toolbar-btn--action"
-            onClick={() => setShelfEditing((editing) => !editing)}
-          >
+          <IosButton size="compact" onClick={() => setShelfEditing((editing) => !editing)}>
             {shelfEditing ? '完成' : '编辑'}
-          </button>
+          </IosButton>
         ) : (
           <span class="books__toolbar-spacer" />
         )}
         <span class="books__toolbar-title books__toolbar-title--center">书架</span>
-        <button
-          type="button"
-          class="books__toolbar-btn books__toolbar-btn--action"
-          disabled={shelfEditing}
-          onClick={openStore}
-        >
+        <IosButton size="compact" disabled={shelfEditing} onClick={openStore}>
           书城
-        </button>
+        </IosButton>
       </header>
 
       <div class="books__main">

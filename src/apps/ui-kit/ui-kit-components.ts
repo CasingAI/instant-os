@@ -55,7 +55,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'ios-button',
     name: 'IosButton',
-    description: 'iOS 6 拟物按钮；secondary / primary / danger，支持 compact 与 icon 方形',
+    description:
+      'iOS 6 拟物按钮；secondary / primary / danger，支持 compact 与 icon 方形。可在父级覆盖 --ios-button-* CSS 变量换皮（与 IosNavBackButton 相同）',
     category: 'form',
     importPath: "import { IosButton } from '../../ui/ios-button.tsx'",
     props: [
@@ -64,11 +65,15 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'icon', type: 'boolean?', description: '方形图标按钮' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
+      { name: 'aria-label', type: 'string?', description: '无障碍标签' },
       { name: 'onClick', type: '() => void', description: '点击回调' },
     ],
     codeExample: `<IosButton tone="primary" onClick={handleSave}>保存</IosButton>
 <IosButton size="compact">取消</IosButton>
-<IosButton icon size="compact" title="后退">←</IosButton>`,
+{/* 父级设置 --ios-button-color / --ios-button-bg 等即可换皮 */}
+<div style={{ '--ios-button-color': '#c77400' }}>
+  <IosButton size="compact">书城</IosButton>
+</div>`,
   },
   {
     id: 'ios-text-field',
