@@ -43,6 +43,18 @@ export function isFilesNamespaceRoot(path: string): boolean {
   return trimmed === '/'
 }
 
+/** 作为 QuickJS `fsReadRoots` 时允许读取各卷内任意路径 */
+export const FILES_VFS_READ_ROOT = '/' as const
+
+/** 是否为 Instant OS 虚拟文件系统中可读取的绝对路径 */
+export function isReadableVfsAbsolutePath(path: string): boolean {
+  const normalized = path.trim().replace(/\/+$/, '') || '/'
+  if (isFilesNamespaceRoot(normalized)) {
+    return true
+  }
+  return parseFilesAbsolutePath(normalized) !== undefined
+}
+
 export function isFilesAbsolutePath(ref: string): boolean {
   return ref.startsWith('/')
 }

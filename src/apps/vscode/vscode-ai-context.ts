@@ -1,3 +1,4 @@
+import { isReadableVfsAbsolutePath } from '../files/files-path.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import { buildInstantShellSystemPromptSection } from '../../terminal/instant-shell/instant-shell-prompt.ts'
 import type { VscodeTab } from './vscode-tabs.ts'
@@ -32,33 +33,9 @@ function normalizeRoot(path: string | undefined): string | undefined {
   return trimmed
 }
 
-export function collectAllowedReadRoots(input: VscodeAiContextInput): string[] {
-  const roots = new Set<string>()
-  const workspace = normalizeRoot(input.workspaceFolder)
-  if (workspace) {
-    roots.add(workspace)
-  }
-  for (const tab of input.tabs) {
-    if (tab.binaryPrompt) continue
-    const path = tab.path.replace(/\/+$/, '') || '/'
-    roots.add(path)
-    const slash = path.lastIndexOf('/')
-    if (slash > 0) {
-      roots.add(path.slice(0, slash))
-    }
-  }
-  return [...roots]
-}
-
-export function isPathAllowedForRead(path: string, allowedRoots: readonly string[]): boolean {
-  const normalized = path.replace(/\/+$/, '') || '/'
-  for (const root of allowedRoots) {
-    const r = root.replace(/\/+$/, '') || '/'
-    if (normalized === r || normalized.startsWith(`${r}/`)) {
-      return true
-    }
-  }
-  return false
+/** AI 读取工具：允许访问虚拟文件系统内任意卷，写入仍限工作区 */
+export function isPathAllowedForAiRead(path: string): boolean {
+  return isReadableVfsAbsolutePath(path)
 }
 
 export function isPathAllowedForWrite(path: string, input: VscodeAiContextInput): boolean {
@@ -155,7 +132,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
   const envLines =
     mode === 'ask' || mode === 'plan'
       ? [
-          '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）',
+          '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
           '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下写操作会被拒绝',
           mode === 'plan'
             ? '- Plan：run_in_terminal 只读调研；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
@@ -166,16 +143,16 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
         ]
       : mode === 'edit'
         ? [
-            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）',
+            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
             '- 没有真实 shell、管道或网络下载',
             '- /system 与 /models 等只读卷不可写入',
             '- 回答用简洁中文 Markdown；引用路径时用反引号',
             '- 不要编造未执行的工具结果',
           ]
         : [
-            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）',
+            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
             '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
-            '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）',
+            '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
             '- /system 与 /models 等只读卷不可写入',
             '- 回答用简洁中文 Markdown；引用路径时用反引号',
             '- 修改前先在终端里读确认现状',

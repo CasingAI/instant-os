@@ -67,9 +67,15 @@ async function testInstance() {
   }
   if (
     rooted.permissions.fsReadRoots.length !== 1 ||
-    rooted.permissions.fsReadRoots[0] !== '/user/project'
+    rooted.permissions.fsReadRoots[0] !== '/'
   ) {
-    throw new Error(`unexpected fs roots: ${JSON.stringify(rooted.permissions)}`)
+    throw new Error(`unexpected fs read roots: ${JSON.stringify(rooted.permissions)}`)
+  }
+  if (
+    rooted.permissions.fsWriteRoots.length !== 1 ||
+    rooted.permissions.fsWriteRoots[0] !== '/user/project'
+  ) {
+    throw new Error(`unexpected fs write roots: ${JSON.stringify(rooted.permissions)}`)
   }
   withRoot.destroy()
 

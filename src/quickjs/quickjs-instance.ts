@@ -6,6 +6,7 @@ import {
 } from 'quickjs-emscripten'
 import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
 import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
+import { FILES_VFS_READ_ROOT } from '../apps/files/files-path.ts'
 import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
 import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
 import {
@@ -86,16 +87,18 @@ function resolveHostPermissions(
   permissions: QuickJsInstanceOptions['permissions'],
   fsMode: TerminalFsMode,
 ): QuickJsHostPermissions {
-  const defaultRoots = workspaceRoot !== undefined ? [workspaceRoot] : []
+  const defaultWriteRoots = workspaceRoot !== undefined ? [workspaceRoot] : []
+  const defaultReadRoots = workspaceRoot !== undefined ? [FILES_VFS_READ_ROOT] : []
   const readOnly = fsMode === 'readonly'
   return {
-    fsReadRoots: permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultRoots],
+    fsReadRoots:
+      permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultReadRoots],
     // readonly 强制清空写根，忽略外部传入的 fsWriteRoots
     fsWriteRoots: readOnly
       ? []
       : permissions?.fsWriteRoots !== undefined
         ? [...permissions.fsWriteRoots]
-        : [...defaultRoots],
+        : [...defaultWriteRoots],
     fsWriteDenyRoots:
       permissions?.fsWriteDenyRoots !== undefined ? [...permissions.fsWriteDenyRoots] : [],
     network: false,

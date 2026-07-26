@@ -10,8 +10,7 @@ import {
 import { osNowMs } from '../../os/os-clock.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import {
-  collectAllowedReadRoots,
-  isPathAllowedForRead,
+  isPathAllowedForAiRead,
   isPathAllowedForWrite,
   type VscodeAiContextInput,
 } from './vscode-ai-context.ts'
@@ -103,9 +102,8 @@ export function createVscodeAiTools(
 ): AgentTool[] {
   const resolveReadPath = (raw: string) => {
     const path = raw.trim()
-    const allowed = collectAllowedReadRoots(host.getContext())
-    if (!isPathAllowedForRead(path, allowed)) {
-      throw new Error(`路径不在允许读取范围内: ${path}`)
+    if (!isPathAllowedForAiRead(path)) {
+      throw new Error(`路径不在虚拟文件系统可读范围内: ${path}`)
     }
     return path
   }

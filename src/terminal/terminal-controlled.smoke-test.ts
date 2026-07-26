@@ -105,10 +105,46 @@ async function testControlledTracksAndReverts(): Promise<void> {
   console.log('ok: controlled tracks and reverts')
 }
 
+async function testReadOutsideWorkspaceWriteDenied(): Promise<void> {
+  const PROJECT = `${ROOT}/project`
+  const OTHER = `${ROOT}/other`
+  await resetRoot()
+  await filesMkdir(PROJECT)
+  await filesMkdir(OTHER)
+  await filesCreateText(`${OTHER}/ref.txt`, 'outside')
+
+  const instance = await createQuickJsInstance({
+    workspaceRoot: PROJECT,
+    fsMode: 'controlled',
+    timeoutMs: 10_000,
+  })
+
+  const readResult = await instance.eval(`
+    require('fs').readFileSync('${OTHER}/ref.txt', 'utf8')
+  `)
+  assert.equal(readResult.ok, true)
+  assert.equal(readResult.value, 'outside')
+
+  const writeResult = await instance.eval(`
+    try {
+      require('fs').writeFileSync('${OTHER}/bad.txt', 'nope')
+      'wrote'
+    } catch (e) {
+      String(e && e.code ? e.code : e)
+    }
+  `)
+  instance.destroy()
+  assert.equal(writeResult.ok, true)
+  assert.equal(writeResult.value, 'EACCES')
+  assert.equal(await filesStat(`${OTHER}/bad.txt`), undefined)
+  console.log('ok: read outside workspace, write denied outside')
+}
+
 async function main(): Promise<void> {
   await testReadonlyRejectsWrite()
   await testNormalDoesNotTrack()
   await testControlledTracksAndReverts()
+  await testReadOutsideWorkspaceWriteDenied()
   console.log('terminal-controlled: all passed')
 }
 
