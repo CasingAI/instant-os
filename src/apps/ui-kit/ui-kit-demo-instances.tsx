@@ -1,6 +1,8 @@
 import { useState } from 'preact/hooks'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
+import { IosButton } from '../../ui/ios-button.tsx'
+import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -99,6 +101,53 @@ export function IosCheckToggleDemo() {
           <IosCheckToggle checked={true} label="禁用选中" disabled />
           <IosCheckToggle checked={false} label="禁用未选" disabled />
         </div>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function IosButtonDemo() {
+  return (
+    <DemoVariants>
+      <DemoVariant label="色调" wide>
+        <div class="ui-kit-demo__row">
+          <IosButton>次要</IosButton>
+          <IosButton tone="primary">主要</IosButton>
+          <IosButton tone="danger">危险</IosButton>
+        </div>
+      </DemoVariant>
+      <DemoVariant label="compact / icon">
+        <div class="ui-kit-demo__row">
+          <IosButton size="compact">紧凑</IosButton>
+          <IosButton icon size="compact" title="后退">
+            ←
+          </IosButton>
+          <IosButton icon size="compact" title="前进">
+            →
+          </IosButton>
+          <IosButton size="compact" disabled>
+            禁用
+          </IosButton>
+        </div>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function IosTextFieldDemo() {
+  const [value, setValue] = useState('示例文本')
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="基础" wide>
+        <IosTextField
+          value={value}
+          placeholder="请输入…"
+          onInput={(event) => setValue((event.target as HTMLInputElement).value)}
+        />
+      </DemoVariant>
+      <DemoVariant label="禁用" wide>
+        <IosTextField value="不可编辑" disabled />
       </DemoVariant>
     </DemoVariants>
   )

@@ -369,6 +369,7 @@ export function SettingsApp() {
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
           onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
           onOpenEventLogStorage={() => setRoute({ view: 'event-log-storage' })}
+          onOpenFilesStorage={() => openApp('space-sniffer', { documentId: '/user' })}
         />
       </SettingsKeepLayer>
 
@@ -561,6 +562,7 @@ type UsageViewProps = {
   onOpenAppsStorage: () => void
   onOpenOtherStorage: () => void
   onOpenEventLogStorage: () => void
+  onOpenFilesStorage: () => void
 }
 
 type StorageMeterSegment = {
@@ -632,6 +634,7 @@ function UsageView({
   onOpenAppsStorage,
   onOpenOtherStorage,
   onOpenEventLogStorage,
+  onOpenFilesStorage,
 }: UsageViewProps) {
   const newsCommentStats = useMemo(() => getNewsCommentStats(readNewsStore()), [])
   const newsTokenUsage = useMemo(() => loadNewsTokenUsage(), [])
@@ -771,6 +774,7 @@ function UsageView({
                     label="文件"
                     bytes={summary.filesBytes}
                     hint="「文件」应用中的用户文件"
+                    onClick={onOpenFilesStorage}
                   />
                   <StorageCategoryRow label="AI 用量明细" bytes={summary.aiUsageBytes} />
                   <StorageCategoryRow

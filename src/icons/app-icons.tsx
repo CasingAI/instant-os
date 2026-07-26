@@ -1244,6 +1244,29 @@ export function ArchiveUtilityIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function SpaceSnifferIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#0e7490" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="10" y="12" width="28" height="24" rx="3" fill="#67e8f9" opacity="0.95" />
+        <rect x="40" y="12" width="14" height="14" rx="2" fill="#22d3ee" opacity="0.9" />
+        <rect x="40" y="28" width="14" height="8" rx="2" fill="#a5f3fc" opacity="0.85" />
+        <rect x="10" y="38" width="18" height="14" rx="2" fill="#06b6d4" opacity="0.95" />
+        <rect x="30" y="38" width="24" height="14" rx="2" fill="#0891b2" opacity="0.9" />
+        <rect
+          x="12"
+          y="14"
+          width="10"
+          height="8"
+          rx="1.5"
+          fill="#fff"
+          opacity="0.35"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function HelpIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#e8b014" size={size}>

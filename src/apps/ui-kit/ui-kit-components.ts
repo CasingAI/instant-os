@@ -53,6 +53,42 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'ios-button',
+    name: 'IosButton',
+    description: 'iOS 6 拟物按钮；secondary / primary / danger，支持 compact 与 icon 方形',
+    category: 'form',
+    importPath: "import { IosButton } from '../../ui/ios-button.tsx'",
+    props: [
+      { name: 'tone', type: "'secondary' | 'primary' | 'danger'", description: '按钮色调，默认 secondary' },
+      { name: 'size', type: "'default' | 'compact'", description: '尺寸' },
+      { name: 'icon', type: 'boolean?', description: '方形图标按钮' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'type', type: "'button' | 'submit' | 'reset'", description: '原生 button type' },
+      { name: 'onClick', type: '() => void', description: '点击回调' },
+    ],
+    codeExample: `<IosButton tone="primary" onClick={handleSave}>保存</IosButton>
+<IosButton size="compact">取消</IosButton>
+<IosButton icon size="compact" title="后退">←</IosButton>`,
+  },
+  {
+    id: 'ios-text-field',
+    name: 'IosTextField',
+    description: 'iOS 6 内凹文本输入框；属性与原生 input 一致',
+    category: 'form',
+    importPath: "import { IosTextField } from '../../ui/ios-text-field.tsx'",
+    props: [
+      { name: 'value', type: 'string', description: '输入值' },
+      { name: 'placeholder', type: 'string?', description: '占位文案' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+      { name: 'onInput', type: '(event) => void', description: '输入回调' },
+    ],
+    codeExample: `<IosTextField
+  value={query}
+  placeholder="搜索…"
+  onInput={(event) => setQuery(event.currentTarget.value)}
+/>`,
+  },
+  {
     id: 'segmented-control',
     name: 'SegmentedControl',
     description: '分段选择器；支持徽章数量与脏状态小橙点',

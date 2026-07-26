@@ -388,6 +388,11 @@ export function MenuBar() {
         },
         {
           type: 'action',
+          label: '空间嗅探',
+          onClick: () => openApp('space-sniffer'),
+        },
+        {
+          type: 'action',
           label: '事件日志',
           onClick: () => openApp('event-log'),
         },

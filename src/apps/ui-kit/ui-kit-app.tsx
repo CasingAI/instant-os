@@ -10,6 +10,8 @@ import type { ComponentDemo } from './ui-kit-components.ts'
 import {
   IosSwitchDemo,
   IosCheckToggleDemo,
+  IosButtonDemo,
+  IosTextFieldDemo,
   SegmentedControlDemo,
   SettingsChoiceFieldDemo,
   SettingsNavRowDemo,
@@ -36,6 +38,8 @@ type CategorySection = {
 const DEMO_COMPONENTS: Record<string, () => preact.JSX.Element> = {
   'ios-switch': IosSwitchDemo,
   'ios-check-toggle': IosCheckToggleDemo,
+  'ios-button': IosButtonDemo,
+  'ios-text-field': IosTextFieldDemo,
   'segmented-control': SegmentedControlDemo,
   'settings-choice-field': SettingsChoiceFieldDemo,
   'settings-nav-row': SettingsNavRowDemo,

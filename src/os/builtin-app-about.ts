@@ -222,6 +222,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '无窗口应用：不提供预览或编辑。解压较快时不显示界面；耗时较长时展开为可拖动的系统进度窗口（统一标题栏），显示进度与时间信息。可在「文件」中设为默认打开程序。',
     ],
   },
+  'space-sniffer': {
+    version: '文件占用可视化',
+    paragraphs: [
+      '空间嗅探用矩形树图展示卷或文件夹的磁盘占用：面积越大，占用越多。可在扫描过程中下钻与导航。',
+      '启动时选择要扫描的卷或文件夹。单击文件夹可在原框内细分；双击可放大进入。右键可在「文件」中显示对应位置。',
+    ],
+  },
   keychain: {
     version: '凭证与 API Key',
     paragraphs: [

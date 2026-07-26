@@ -90,7 +90,7 @@ type OsContextValue = {
 
 const OsContext = createContext<OsContextValue | undefined>(undefined)
 
-const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'height'>> = {
+const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' | 'height'>> = {
   browser: { title: '网络浏览器', width: 880, height: 720 },
   settings: { title: '系统设置', width: 780, height: 540 },
   photos: { title: '照片', width: 720, height: 620 },
@@ -122,6 +122,7 @@ const DEFAULT_WINDOWS: Record<string, Pick<WindowState, 'title' | 'width' | 'hei
   /** @deprecated 模拟终端已弃用，窗口尺寸保留仅为过渡，后续移除 */
   'simulated-terminal': { title: '模拟终端', width: 760, height: 520 },
   'archive-utility': { title: '压缩包实用工具', width: 420, height: 120 },
+  'space-sniffer': { title: '空间嗅探', width: 1020, height: 720 },
   packages: { title: '包管理', width: 720, height: 520 },
   'virtual-js': { title: 'Virtual JS', width: 860, height: 640 },
   'ui-kit': { title: 'UI 组件库', width: 980, height: 700 },
