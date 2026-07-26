@@ -186,6 +186,17 @@ function WaitingDots() {
   )
 }
 
+function latestReasoningSnippet(text: string, maxLen = 56): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  if (!cleaned) {
+    return ''
+  }
+  if (cleaned.length <= maxLen) {
+    return cleaned
+  }
+  return `…${cleaned.slice(-maxLen)}`
+}
+
 function WaitingStatus({ label = '等待响应' }: { label?: string }) {
   return (
     <div class="help-app__reasoning-status help-app__reasoning-status--waiting" aria-live="polite">
@@ -277,7 +288,11 @@ function ActivityStatus({
 
   if (current) {
     return (
-      <div class="help-app__reasoning-status" aria-live="polite">
+      <div
+        class="help-app__reasoning-status help-app__reasoning-status--waiting"
+        aria-live="polite"
+      >
+        <WaitingDots />
         <span class="help-app__reasoning-status-label">{summary}</span>
       </div>
     )
@@ -337,7 +352,19 @@ function ReasoningStatus({
   const reasoningBody = text.trim()
 
   if (streaming) {
-    return <WaitingStatus />
+    if (!reasoningBody) {
+      return <WaitingStatus />
+    }
+    const snippet = latestReasoningSnippet(text)
+    return (
+      <div class="help-app__reasoning-status help-app__reasoning-status--live" aria-live="polite">
+        <WaitingDots />
+        <span class="help-app__reasoning-status-label">模型正在思考</span>
+        {snippet ? (
+          <span class="help-app__reasoning-status-snippet">{snippet}</span>
+        ) : undefined}
+      </div>
+    )
   }
 
   if (durationMs === undefined) {
@@ -516,6 +543,7 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
   if (items.length === 0) {
     return <ReasoningStatus text="" streaming />
   }
+  const waitingForNext = items.every((item) => item.done)
   return (
     <div class="help-app__live-timeline">
       {items.map((item, index) => {
@@ -559,6 +587,7 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
           </div>
         )
       })}
+      {waitingForNext ? <WaitingStatus /> : undefined}
     </div>
   )
 }
