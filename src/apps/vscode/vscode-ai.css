@@ -718,7 +718,7 @@
     0 2px 6px rgba(0, 0, 0, 0.4),
     0 1px 0 rgba(255, 255, 255, 0.03) inset;
 
-  background: linear-gradient(180deg, #2a2a32 0%, var(--help-bg) 100%);
+  background: linear-gradient(180deg, #1e1e1e 0%, var(--help-bg) 100%);
 }
 
 /* 欢迎页标题文字阴影 */
