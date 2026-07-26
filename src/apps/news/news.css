@@ -988,7 +988,7 @@
   opacity: 0.45;
   cursor: default;
 }
-/* 窄屏：列表/阅读器堆叠切换（与 useAppNarrowLayout 640px 对齐） */
+/* 窄屏：列表/阅读器堆叠切换（与 useAppNarrowLayout 520px 对齐） */
 .news--narrow .news__list {
   width: auto;
   flex: 1;

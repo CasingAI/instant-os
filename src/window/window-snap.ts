@@ -2,7 +2,7 @@ import { getMaximizedBounds, STATUS_BAR_HEIGHT, type WindowBounds } from './wind
 import { clampFloatingSize } from './window-resize.ts'
 
 export const SNAP_THRESHOLD = 16
-export const NARROW_WORK_AREA_WIDTH = 640
+export const NARROW_WORK_AREA_WIDTH = 520
 
 export type SnapTarget = 'left' | 'right' | 'top'
 
