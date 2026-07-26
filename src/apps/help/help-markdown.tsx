@@ -1,36 +1,5 @@
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
 import { useMemo } from 'preact/hooks'
-
-const ALLOWED_TAGS = [
-  'p',
-  'br',
-  'strong',
-  'em',
-  'del',
-  'code',
-  'pre',
-  'ul',
-  'ol',
-  'li',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'blockquote',
-  'hr',
-  'a',
-  'table',
-  'thead',
-  'tbody',
-  'tr',
-  'th',
-  'td',
-] as const
-
-const ALLOWED_ATTR = ['href', 'title', 'align'] as const
+import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
 
 /** 把模型常写出的「假换行」收成真正换行，并给挤成一团的中文步骤补断行 */
 function normalizeHelpMarkdownSource(text: string): string {
@@ -53,28 +22,11 @@ function normalizeHelpMarkdownSource(text: string): string {
   return next
 }
 
-function wrapMarkdownTables(html: string): string {
-  return html.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
-    return `<div class="help-app__markdown-table-wrap">${tableHtml}</div>`
-  })
-}
-
 function renderHelpMarkdown(text: string): string {
-  if (!text.trim()) {
-    return ''
-  }
-
-  const source = normalizeHelpMarkdownSource(text)
-  const raw = marked.parse(source, {
-    async: false,
-    gfm: true,
-    breaks: true,
+  return renderMarkdownHtml(text, {
+    normalize: normalizeHelpMarkdownSource,
+    tableWrapClass: 'help-app__markdown-table-wrap',
   })
-  const sanitized = DOMPurify.sanitize(raw, {
-    ALLOWED_TAGS: [...ALLOWED_TAGS],
-    ALLOWED_ATTR: [...ALLOWED_ATTR],
-  })
-  return wrapMarkdownTables(sanitized)
 }
 
 const STREAM_CARET =
