@@ -333,6 +333,41 @@ export async function getFilesTotalBytes(): Promise<number> {
   return meta?.totalBytes ?? 0
 }
 
+/** 计入数据空间配额的文件卷（IndexedDB 本地卷） */
+export const DATA_SPACE_FILE_LOCATIONS: readonly FilesLocationId[] = ['local', 'dev']
+
+export type FilesLocationBytes = {
+  locationId: FilesLocationId
+  bytes: number
+}
+
+/**
+ * 按卷汇总文件节点 byteSize（仅 local / dev）。
+ * 用于设置「文件」次级页展示；总占用仍以 getFilesTotalBytes() 为准。
+ */
+export async function getFilesBytesByLocation(): Promise<FilesLocationBytes[]> {
+  const db = await openFilesDb()
+  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const index = tx.objectStore(FILES_NODES_STORE).index('by-location')
+
+  const results: FilesLocationBytes[] = []
+  for (const locationId of DATA_SPACE_FILE_LOCATIONS) {
+    const records = await requestToPromise(
+      index.getAll(locationId) as IDBRequest<FilesNodeRecord[]>,
+    )
+    let bytes = 0
+    for (const record of records ?? []) {
+      if (record.kind === 'file') {
+        bytes += record.byteSize
+      }
+    }
+    results.push({ locationId, bytes })
+  }
+
+  await waitForTransaction(tx)
+  return results
+}
+
 function emitFilesDataStorageChanged(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(DATA_STORAGE_CHANGED_EVENT))

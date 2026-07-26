@@ -26,6 +26,7 @@ import { SafariUsageView } from './safari-usage-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
 import { EventLogStorageView } from './event-log-storage-view.tsx'
+import { FilesStorageView } from './files-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { DateTimeSettingsView } from './date-time-settings-view.tsx'
 import { NotificationCenterSettingsView } from './notification-center-settings-view.tsx'
@@ -229,10 +230,12 @@ export function SettingsApp() {
     view === 'app-detail' ||
     view === 'apps-storage' ||
     view === 'other-storage' ||
-    view === 'event-log-storage'
+    view === 'event-log-storage' ||
+    view === 'files-storage'
   const showAppsStorage = view === 'apps-storage'
   const showOtherStorage = view === 'other-storage'
   const showEventLogStorage = view === 'event-log-storage'
+  const showFilesStorage = view === 'files-storage'
   const showAppDetail = view === 'app-detail' && selectedApp
   const showDisplay = view === 'display'
   const showDateTime = view === 'date-time'
@@ -369,7 +372,7 @@ export function SettingsApp() {
           onOpenAppsStorage={() => setRoute({ view: 'apps-storage' })}
           onOpenOtherStorage={() => setRoute({ view: 'other-storage' })}
           onOpenEventLogStorage={() => setRoute({ view: 'event-log-storage' })}
-          onOpenFilesStorage={() => openApp('space-sniffer', { documentId: '/user' })}
+          onOpenFilesStorage={() => setRoute({ view: 'files-storage' })}
         />
       </SettingsKeepLayer>
 
@@ -393,6 +396,13 @@ export function SettingsApp() {
 
       <SettingsKeepLayer show={showEventLogStorage} keep={showEventLogStorage}>
         <EventLogStorageView onBack={() => setRoute({ view: 'usage' })} />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showFilesStorage} keep={showFilesStorage}>
+        <FilesStorageView
+          onBack={() => setRoute({ view: 'usage' })}
+          onOpenSpaceSniffer={() => openApp('space-sniffer')}
+        />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={Boolean(showAppDetail)} keep={Boolean(showAppDetail)}>

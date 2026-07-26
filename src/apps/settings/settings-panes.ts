@@ -72,6 +72,7 @@ export type SettingsRoute =
   | { view: 'apps-storage' }
   | { view: 'other-storage' }
   | { view: 'event-log-storage' }
+  | { view: 'files-storage' }
   | { view: 'safari-usage' }
   | { view: 'news' }
   | { view: 'experimental' }
@@ -222,6 +223,7 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
     case 'apps-storage':
     case 'other-storage':
     case 'event-log-storage':
+    case 'files-storage':
       return 'usage'
     case 'ai-usage':
       return 'ai-usage'
