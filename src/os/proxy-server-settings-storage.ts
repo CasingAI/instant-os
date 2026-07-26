@@ -117,6 +117,17 @@ export function subscribeProxyServerSettings(listener: () => void): () => void {
 
 export const OPEN_SETTINGS_PROXY_SERVER_EVENT = 'instant-os:open-settings-proxy-server'
 
+let pendingOpenProxyServerView = false
+
 export function openSettingsProxyServerView() {
+  pendingOpenProxyServerView = true
   window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_PROXY_SERVER_EVENT))
+}
+
+export function consumePendingOpenProxyServerView(): boolean {
+  if (!pendingOpenProxyServerView) {
+    return false
+  }
+  pendingOpenProxyServerView = false
+  return true
 }
