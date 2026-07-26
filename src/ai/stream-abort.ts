@@ -1,5 +1,16 @@
+import type OpenAI from 'openai'
+
 function createAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
+}
+
+/** OpenAI SDK 的 signal 须在 create 第二参数，不能放进 body */
+export function createChatCompletionStream(
+  client: OpenAI,
+  body: OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+  signal?: AbortSignal,
+) {
+  return client.chat.completions.create(body, signal ? { signal } : undefined)
 }
 
 export function throwIfStreamAborted(signal: AbortSignal | undefined): void {
@@ -52,13 +63,30 @@ export function raceWithAbortSignal<T>(
   })
 }
 
+type AbortableStream<T> = AsyncIterable<T> & {
+  controller?: AbortController
+}
+
 export async function forEachStreamChunk<T>(
-  stream: AsyncIterable<T>,
+  stream: AbortableStream<T>,
   onChunk: (chunk: T) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   throwIfStreamAborted(signal)
   const iterator = stream[Symbol.asyncIterator]()
+
+  const abortStreamController = () => {
+    if (!stream.controller || stream.controller.signal.aborted) return
+    stream.controller.abort()
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      abortStreamController()
+      throw createAbortError()
+    }
+    signal.addEventListener('abort', abortStreamController, { once: true })
+  }
 
   try {
     while (true) {
@@ -69,7 +97,16 @@ export async function forEachStreamChunk<T>(
       }
       onChunk(next.value)
     }
+    throwIfStreamAborted(signal)
+  } catch (error) {
+    abortStreamController()
+    throw error
   } finally {
-    await iterator.return?.()
+    signal?.removeEventListener('abort', abortStreamController)
+    try {
+      await iterator.return?.()
+    } catch {
+      // 流已因 abort 关闭时忽略 return 错误
+    }
   }
 }

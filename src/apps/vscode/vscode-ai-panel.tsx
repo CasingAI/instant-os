@@ -39,7 +39,10 @@ import {
   revertVscodeAiChangeSessions,
   type VscodeAiRunCommandHost,
 } from './vscode-ai-run-command.ts'
-import { VscodeAiUnifiedDiffView } from './vscode-ai-change-review.tsx'
+import {
+  VscodeAiPendingChangesPanel,
+  VscodeAiUnifiedDiffView,
+} from './vscode-ai-change-review.tsx'
 import {
   createVscodeAiChatMessage,
   type VscodeAiChatMessage,
@@ -126,6 +129,15 @@ type UserBubbleMorphFrom = {
   messageId: string
   width: number
   height: number
+}
+
+type QueuedSend = {
+  id: string
+  text: string
+}
+
+function createQueuedSendId(): string {
+  return `vscode-ai-q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function prefersReducedMotion(): boolean {
@@ -248,7 +260,6 @@ function VscodeAiComposerBlock({
             onChange={(next) => {
               if (isVscodeAiMode(next)) onModeChange(next)
             }}
-            disabled={busy}
             wideLayout
             dark={dark}
           >
@@ -277,7 +288,7 @@ function VscodeAiComposerBlock({
             onChange={onAiModelKeyChange}
             aiModelOptions={aiModelOptions}
             onAiModelOptionsChange={onAiModelOptionsChange}
-            disabled={busy || textModels.length === 0}
+            disabled={textModels.length === 0}
             dark={dark}
             ariaLabel="模型"
           >
@@ -309,18 +320,17 @@ function VscodeAiComposerBlock({
             >
               ■
             </button>
-          ) : (
-            <button
-              type="button"
-              class={`help-app__send${surface === 'bubble' ? ' vscode-ai__bubble-edit-send' : ''}`}
-              aria-label="发送"
-              title="发送"
-              disabled={sendDisabled}
-              onClick={onSend}
-            >
-              ↑
-            </button>
-          )}
+          ) : undefined}
+          <button
+            type="button"
+            class={`help-app__send${surface === 'bubble' ? ' vscode-ai__bubble-edit-send' : ''}`}
+            aria-label={busy ? '排队发送' : '发送'}
+            title={busy ? '当前任务进行中，发送后将排队' : '发送'}
+            disabled={sendDisabled}
+            onClick={onSend}
+          >
+            ↑
+          </button>
         </div>
       </div>
     </div>
@@ -374,6 +384,8 @@ export type VscodeAiPanelProps = {
   onRejectEdit: (editId: string) => void
   /** 本轮 Agent/Ask/Plan 是否在运行，供编辑器 Tab 显示加载指示 */
   onBusyChange?: (busy: boolean) => void
+  /** 查看更改时打开文件 */
+  onOpenPath?: (path: string) => void
 }
 
 function formatError(err: unknown): string {
@@ -907,6 +919,7 @@ export function VscodeAiPanel({
   onApplyEdit,
   onRejectEdit,
   onBusyChange,
+  onOpenPath,
 }: VscodeAiPanelProps) {
   const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
@@ -923,6 +936,8 @@ export function VscodeAiPanel({
 
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sendQueue, setSendQueue] = useState<QueuedSend[]>([])
+  const [sendQueueExpanded, setSendQueueExpanded] = useState(false)
   const [liveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
   const [liveAnswer, setLiveAnswer] = useState('')
   const [contextUsage, setContextUsage] = useState<VscodeAiContextUsage | undefined>(undefined)
@@ -943,15 +958,29 @@ export function VscodeAiPanel({
   const liveStartedAtRef = useRef(0)
   const sessionIdRef = useRef(sessionId)
   const messagesRef = useRef(messages)
-  messagesRef.current = messages
+  const sendQueueRef = useRef<QueuedSend[]>([])
+  sendQueueRef.current = sendQueue
   const turnChangeSessionsRef = useRef<TerminalChangeSet[]>([])
   const lastSentModeRef = useRef<VscodeAiMode | undefined>(undefined)
   const lastSentTerminalRef = useRef<VscodeAiLastSentTerminal | undefined>(lastSentTerminal)
   lastSentTerminalRef.current = lastSentTerminal
   const busyRef = useRef(false)
   busyRef.current = busy
+  const reviewBusyRef = useRef(false)
   const onBusyChangeRef = useRef(onBusyChange)
   onBusyChangeRef.current = onBusyChange
+  /** 编辑重发打断当前 turn：跳过「已停止」落盘，并保持 busy 无缝接到下一轮 */
+  const replaceHandoffRef = useRef<
+    { resolve: (orphanedSessionIds: string[]) => void } | undefined
+  >(undefined)
+  const sendRef = useRef<(textOverride?: string, options?: { replaceFromUserId?: string }) => Promise<void>>(
+    async () => {},
+  )
+
+  // 空闲时跟随 props；busy 期间只信 applyMessages，避免父级滞后 props 冲掉本地历史
+  useEffect(() => {
+    if (!busy) messagesRef.current = messages
+  }, [busy, messages])
 
   useEffect(() => {
     return () => onBusyChangeRef.current?.(false)
@@ -959,6 +988,8 @@ export function VscodeAiPanel({
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
+  reviewBusyRef.current = reviewBusy
+  const [reviewChangesOpen, setReviewChangesOpen] = useState(false)
   const [composerInset, setComposerInset] = useState(96)
 
   useEffect(() => {
@@ -1036,6 +1067,9 @@ export function VscodeAiPanel({
     lastSentModeRef.current = undefined
     setEditingUserId(undefined)
     setEditingDraft('')
+    sendQueueRef.current = []
+    setSendQueue([])
+    setSendQueueExpanded(false)
   }, [sessionId])
 
   useEffect(() => {
@@ -1117,8 +1151,12 @@ export function VscodeAiPanel({
         []
       for (const path of messagePaths) paths.add(path)
     }
-    return { fileCount: paths.size, sessionIds }
+    return { fileCount: paths.size, sessionIds, paths: [...paths] }
   }, [messages])
+
+  useEffect(() => {
+    if (pendingReview.fileCount === 0) setReviewChangesOpen(false)
+  }, [pendingReview.fileCount])
 
   const contextWithTerminal = useCallback((): VscodeAiContextInput => {
     const base = getContext()
@@ -1282,12 +1320,100 @@ export function VscodeAiPanel({
     }
   }, [])
 
+  const applyMessages = useCallback(
+    (next: VscodeAiChatMessage[]) => {
+      messagesRef.current = next
+      onMessagesChange(next)
+    },
+    [onMessagesChange],
+  )
+
+  const enqueueSend = useCallback((text: string) => {
+    const item: QueuedSend = { id: createQueuedSendId(), text }
+    const next = [...sendQueueRef.current, item]
+    sendQueueRef.current = next
+    setSendQueue(next)
+  }, [])
+
+  const removeQueuedSend = useCallback((id: string) => {
+    const next = sendQueueRef.current.filter((item) => item.id !== id)
+    sendQueueRef.current = next
+    setSendQueue(next)
+  }, [])
+
+  const clearSendQueue = useCallback(() => {
+    sendQueueRef.current = []
+    setSendQueue([])
+    setSendQueueExpanded(false)
+  }, [])
+
+  const waitUntilSendIdle = useCallback(async () => {
+    if (!busyRef.current && !reviewBusyRef.current) return
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        if (!busyRef.current && !reviewBusyRef.current) {
+          resolve()
+          return
+        }
+        window.setTimeout(tick, 16)
+      }
+      tick()
+    })
+  }, [])
+
+  const clearLiveTurnState = useCallback(() => {
+    setLiveTimeline([])
+    setLiveAnswer('')
+    liveTimelineRef.current = []
+    liveAnswerRef.current = ''
+    liveToolCallCountRef.current = 0
+  }, [])
+
+  const releaseBusyTurn = useCallback(() => {
+    setBusy(false)
+    busyRef.current = false
+    clearLiveTurnState()
+    abortRef.current = undefined
+  }, [clearLiveTurnState])
+
   const send = useCallback(
     async (textOverride?: string, options?: { replaceFromUserId?: string }) => {
       const text = (textOverride ?? draft).trim()
-      if (!text || busy) return
+      if (!text) return
+
+      let handoffOrphanedSessionIds: string[] = []
+      let keptBusyFromHandoff = false
+
+      // 编辑重发且当前正在生成：无缝打断（不落「已停止」、不熄灭 live）
+      if (options?.replaceFromUserId && busyRef.current) {
+        clearSendQueue()
+        if (abortRef.current) {
+          handoffOrphanedSessionIds = await new Promise<string[]>((resolve) => {
+            replaceHandoffRef.current = { resolve }
+            stop()
+          })
+          keptBusyFromHandoff = true
+        } else {
+          await waitUntilSendIdle()
+        }
+      } else if (options?.replaceFromUserId && reviewBusyRef.current) {
+        clearSendQueue()
+        await waitUntilSendIdle()
+      }
+
+      // 普通发送在 busy / 回滚中入队；编辑重发在 handoff 后继续（busy 仍为 true）
+      if (!options?.replaceFromUserId && (busyRef.current || reviewBusyRef.current)) {
+        enqueueSend(text)
+        if (!textOverride) setDraft('')
+        return
+      }
+
+      if (options?.replaceFromUserId && reviewBusyRef.current) {
+        await waitUntilSendIdle()
+      }
 
       let withUser: VscodeAiChatMessage[]
+      const currentMessages = messagesRef.current
       const currentTerminal = aiTerminalKind
         ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
         : undefined
@@ -1302,9 +1428,19 @@ export function VscodeAiPanel({
       )
       const reminderForStorage = reminderText.trim() || undefined
       if (options?.replaceFromUserId) {
-        const index = messages.findIndex((message) => message.id === options.replaceFromUserId)
-        if (index < 0 || messages[index]?.role !== 'user') return
-        const sessionIds = collectSessionIdsAfter(messages, index + 1)
+        const index = currentMessages.findIndex(
+          (message) => message.id === options.replaceFromUserId,
+        )
+        if (index < 0 || currentMessages[index]?.role !== 'user') {
+          if (keptBusyFromHandoff) releaseBusyTurn()
+          return
+        }
+        const sessionIds = collectSessionIdsAfter(currentMessages, index + 1)
+        for (const sessionIdToRevert of handoffOrphanedSessionIds) {
+          if (!sessionIds.includes(sessionIdToRevert)) {
+            sessionIds.push(sessionIdToRevert)
+          }
+        }
         if (sessionIds.length > 0) {
           setReviewBusy(true)
           try {
@@ -1314,14 +1450,14 @@ export function VscodeAiPanel({
           }
         }
         const editedUser: VscodeAiChatMessage = {
-          ...messages[index],
+          ...currentMessages[index],
           content: text,
           createdAt: Date.now(),
           systemReminder: reminderForStorage,
         }
-        withUser = [...messages.slice(0, index), editedUser]
-        historyRef.current = rebuildHistoryFromMessages(messages.slice(0, index))
-        onMessagesChange(withUser)
+        withUser = [...currentMessages.slice(0, index), editedUser]
+        historyRef.current = rebuildHistoryFromMessages(currentMessages.slice(0, index))
+        applyMessages(withUser)
         setEditingUserId(undefined)
         setEditingDraft('')
       } else {
@@ -1329,16 +1465,13 @@ export function VscodeAiPanel({
         const userMessage = createVscodeAiChatMessage('user', text, {
           systemReminder: reminderForStorage,
         })
-        withUser = [...messages, userMessage]
-        onMessagesChange(withUser)
+        withUser = [...currentMessages, userMessage]
+        applyMessages(withUser)
       }
 
       setBusy(true)
-      setLiveTimeline([])
-      setLiveAnswer('')
-      liveTimelineRef.current = []
-      liveAnswerRef.current = ''
-      liveToolCallCountRef.current = 0
+      busyRef.current = true
+      clearLiveTurnState()
       liveStartedAtRef.current = osNowMs()
       pendingEditsRef.current = []
       turnChangeSessionsRef.current = []
@@ -1369,6 +1502,12 @@ export function VscodeAiPanel({
             }
           },
         })
+
+        // 已被编辑重发接管：丢弃本轮结果，由 finally 做 handoff
+        if (replaceHandoffRef.current) {
+          return
+        }
+
         lastSentModeRef.current = mode
         if (aiTerminalKind) {
           const nextLastSent: VscodeAiLastSentTerminal = {
@@ -1397,7 +1536,7 @@ export function VscodeAiPanel({
               ...changeExtras,
             },
           )
-          onMessagesChange([...withUser, assistantMessage])
+          applyMessages([...withUser, assistantMessage])
         } else {
           if (result.messages) {
             historyRef.current = result.messages
@@ -1424,9 +1563,12 @@ export function VscodeAiPanel({
               ...changeExtras,
             },
           )
-          onMessagesChange([...withUser, assistantMessage])
+          applyMessages([...withUser, assistantMessage])
         }
       } catch (error) {
+        if (replaceHandoffRef.current) {
+          return
+        }
         const snapshotTimeline = liveTimelineRef.current
         const investigation =
           snapshotTimeline.length > 0
@@ -1445,36 +1587,63 @@ export function VscodeAiPanel({
           investigation,
           ...changeExtras,
         })
-        onMessagesChange([...withUser, assistantMessage])
+        applyMessages([...withUser, assistantMessage])
       } finally {
+        const handoff = replaceHandoffRef.current
+        if (handoff) {
+          replaceHandoffRef.current = undefined
+          const orphanedSessionIds = turnChangeSessionsRef.current.map(
+            (session) => session.sessionId,
+          )
+          // 保持 busy，只清 live，避免「等待响应」中间熄灭一帧
+          clearLiveTurnState()
+          abortRef.current = undefined
+          turnChangeSessionsRef.current = []
+          pendingEditsRef.current = []
+          handoff.resolve(orphanedSessionIds)
+          return
+        }
+
         setBusy(false)
-        setLiveTimeline([])
-        setLiveAnswer('')
-        liveTimelineRef.current = []
-        liveAnswerRef.current = ''
-        liveToolCallCountRef.current = 0
+        busyRef.current = false
+        clearLiveTurnState()
         abortRef.current = undefined
+
+        const queued = sendQueueRef.current
+        if (queued.length > 0) {
+          const [next, ...rest] = queued
+          sendQueueRef.current = rest
+          setSendQueue(rest)
+          queueMicrotask(() => {
+            void sendRef.current(next.text)
+          })
+        }
       }
     },
     [
       aiModelKey,
       aiTerminalKind,
-      busy,
+      applyMessages,
+      clearLiveTurnState,
+      clearSendQueue,
       collectSessionIdsAfter,
       contextWithTerminal,
       draft,
+      enqueueSend,
       getAiTerminalSnapshot,
-      messages,
       mode,
       onLastSentTerminalChange,
-      onMessagesChange,
       rebuildHistoryFromMessages,
+      releaseBusyTurn,
       runCommandHost,
       sessionId,
+      stop,
       toolsHost,
       turnChangeExtras,
+      waitUntilSendIdle,
     ],
   )
+  sendRef.current = send
 
   const keepAllPendingChanges = useCallback(() => {
     onMessagesChange(
@@ -1586,22 +1755,25 @@ export function VscodeAiPanel({
   const resubmitEditedUserMessage = useCallback(
     async (messageId: string) => {
       const text = editingDraft.trim()
-      if (!text || busy || reviewBusy) return
+      if (!text) return
       const index = messages.findIndex((message) => message.id === messageId)
       if (index < 0) return
       const hasLater = index < messages.length - 1
       const hasLaterChanges = collectSessionIdsAfter(messages, index + 1).length > 0
-      if (hasLater || hasLaterChanges) {
+      const interrupting = busy || reviewBusy
+      if (hasLater || hasLaterChanges || interrupting) {
         const ok = await modal.confirm({
           title: '从此消息重新发送？',
-          message:
-            '将丢弃此消息之后的对话，并回滚之后 Agent 产生的文件改动，然后按新文案重新发送。',
+          message: interrupting
+            ? '将停止当前生成、丢弃此消息之后的对话，并回滚之后 Agent 产生的文件改动，然后按新文案重新发送。'
+            : '将丢弃此消息之后的对话，并回滚之后 Agent 产生的文件改动，然后按新文案重新发送。',
           confirmLabel: '重新发送',
           cancelLabel: '取消',
           themeColor: VSCODE_AI_MODAL_THEME,
         })
         if (!ok) return
       }
+      // 确认后再打断并重发；取消时绝不动当前生成
       await send(text, { replaceFromUserId: messageId })
     },
     [busy, collectSessionIdsAfter, editingDraft, messages, modal, reviewBusy, send],
@@ -1645,14 +1817,13 @@ export function VscodeAiPanel({
 
   const showWelcome = messages.length === 0 && !busy
   const showLive = busy
-  const canEditUserMessage = !busy && !reviewBusy
 
   const handleUserBubbleActivate = useCallback(
     (message: VscodeAiChatMessage, bubbleEl?: HTMLElement | null) => {
-      if (!canEditUserMessage || message.role !== 'user') return
+      if (message.role !== 'user') return
       beginEditUserMessage(message, bubbleEl)
     },
-    [beginEditUserMessage, canEditUserMessage],
+    [beginEditUserMessage],
   )
 
   return (
@@ -1677,7 +1848,6 @@ export function VscodeAiPanel({
                   type="button"
                   class="help-app__sample"
                   onClick={() => void send(prompt)}
-                  disabled={busy}
                 >
                   {prompt}
                 </button>
@@ -1688,8 +1858,7 @@ export function VscodeAiPanel({
           <div class="help-app__messages">
             {messages.map((message) => {
               const isEditingUser = message.role === 'user' && editingUserId === message.id
-              const isEditableUser =
-                message.role === 'user' && !editingUserId && canEditUserMessage
+              const isEditableUser = message.role === 'user' && !editingUserId
 
               if (message.role === 'user') {
                 return (
@@ -1748,14 +1917,8 @@ export function VscodeAiPanel({
                           onSend={() => void resubmitEditedUserMessage(message.id)}
                           inputRef={userEditInputRef}
                           placeholder="编辑消息…"
-                          inputDisabled={busy || reviewBusy}
-                          sendDisabled={
-                            !editingDraft.trim() ||
-                            busy ||
-                            reviewBusy ||
-                            textModels.length === 0
-                          }
-                          busy={busy}
+                          sendDisabled={!editingDraft.trim() || textModels.length === 0}
+                          busy={false}
                           onStop={stop}
                           mode={mode}
                           onModeChange={onModeChange}
@@ -1849,28 +2012,94 @@ export function VscodeAiPanel({
 
       <div class="help-app__composer-wrap vscode-ai__composer-wrap" ref={composerWrapRef}>
         {pendingReview.fileCount > 0 ? (
-          <div class="vscode-ai__review-bar" role="status">
-            <span class="vscode-ai__review-bar-label">
-              已修改 {pendingReview.fileCount} 个文件
-            </span>
-            <div class="vscode-ai__review-bar-actions">
+          <div class="vscode-ai__review-dock">
+            {reviewChangesOpen ? (
+              <VscodeAiPendingChangesPanel
+                sessionIds={pendingReview.sessionIds}
+                onOpenPath={onOpenPath}
+              />
+            ) : undefined}
+            <div class="vscode-ai__review-bar" role="status">
+              <span class="vscode-ai__review-bar-label">
+                已修改 {pendingReview.fileCount} 个文件
+              </span>
+              <div class="vscode-ai__review-bar-actions">
+                <button
+                  type="button"
+                  class="help-app__sample"
+                  disabled={busy || reviewBusy}
+                  aria-expanded={reviewChangesOpen}
+                  onClick={() => setReviewChangesOpen((value) => !value)}
+                >
+                  {reviewChangesOpen ? '收起更改' : '查看更改'}
+                </button>
+                <button
+                  type="button"
+                  class="help-app__sample"
+                  disabled={busy || reviewBusy}
+                  onClick={keepAllPendingChanges}
+                >
+                  全部保留
+                </button>
+                <button
+                  type="button"
+                  class="help-app__sample"
+                  disabled={busy || reviewBusy}
+                  onClick={() => void undoAllPendingChanges()}
+                >
+                  全部撤销
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : undefined}
+        {sendQueue.length > 0 ? (
+          <div class="vscode-ai__send-queue" aria-label="待发送队列">
+            <div class="vscode-ai__send-queue-summary">
+              <span class="vscode-ai__send-queue-badge">下一个</span>
+              <span class="vscode-ai__send-queue-text">{sendQueue[0]?.text}</span>
+              {sendQueue.length > 1 ? (
+                <button
+                  type="button"
+                  class="vscode-ai__send-queue-toggle"
+                  aria-expanded={sendQueueExpanded}
+                  aria-label={`${sendQueueExpanded ? '收起' : '展开'}排队，共 ${sendQueue.length} 条`}
+                  onClick={() => setSendQueueExpanded((value) => !value)}
+                >
+                  {sendQueueExpanded ? '收起' : '展开'} ({sendQueue.length})
+                </button>
+              ) : undefined}
               <button
                 type="button"
-                class="help-app__sample"
-                disabled={busy || reviewBusy}
-                onClick={keepAllPendingChanges}
+                class="vscode-ai__send-queue-remove"
+                aria-label="清空排队"
+                title="清空排队"
+                onClick={clearSendQueue}
               >
-                Keep All
-              </button>
-              <button
-                type="button"
-                class="help-app__sample"
-                disabled={busy || reviewBusy}
-                onClick={() => void undoAllPendingChanges()}
-              >
-                Undo All
+                ×
               </button>
             </div>
+            {sendQueueExpanded && sendQueue.length > 1 ? (
+              <div class="vscode-ai__send-queue-list">
+                {sendQueue.map((item, index) => (
+                  <div key={item.id} class="vscode-ai__send-queue-item">
+                    <span class="vscode-ai__send-queue-badge">
+                      {index === 0 ? '下一个' : index + 1}
+                    </span>
+                    <span class="vscode-ai__send-queue-text">{item.text}</span>
+                    <button
+                      type="button"
+                      class="vscode-ai__send-queue-remove"
+                      aria-label="移除排队消息"
+                      title="移除"
+                      onClick={() => removeQueuedSend(item.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : undefined}
           </div>
         ) : undefined}
         <VscodeAiComposerBlock
@@ -1879,15 +2108,16 @@ export function VscodeAiPanel({
           onSend={() => void send()}
           inputRef={composerInputRef}
           placeholder={
-            mode === 'ask'
-              ? '只读问答…'
-              : mode === 'plan'
-                ? '调研并写计划…'
-                : mode === 'edit'
-                  ? '描述要做的修改…'
-                  : '描述任务…'
+            busy
+              ? '继续输入，发送后将排队…'
+              : mode === 'ask'
+                ? '只读问答…'
+                : mode === 'plan'
+                  ? '调研并写计划…'
+                  : mode === 'edit'
+                    ? '描述要做的修改…'
+                    : '描述任务…'
           }
-          inputDisabled={busy}
           sendDisabled={!draft.trim() || textModels.length === 0}
           busy={busy}
           onStop={stop}

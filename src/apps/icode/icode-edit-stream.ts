@@ -12,7 +12,12 @@ import { snapshotFromOpenAiUsage } from '../../ai/openai-usage.ts'
 import { resolveUsageEstimated } from '../browser/estimate-token-usage.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import { getOpenAiClient } from '../../ai/openai-client.ts'
-import { forEachStreamChunk, isStreamAbortError, raceWithAbortSignal } from '../../ai/stream-abort.ts'
+import {
+  createChatCompletionStream,
+  forEachStreamChunk,
+  isStreamAbortError,
+  raceWithAbortSignal,
+} from '../../ai/stream-abort.ts'
 import {
   buildApp3dSystemPromptExtension,
   resolveApp3dGenerationOptions,
@@ -315,17 +320,20 @@ export async function generateIcodeHtmlEditsStreaming(
   )
 
   const stream = await raceWithAbortSignal(
-    client.chat.completions.create({
-      model,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...apiMessages,
-      ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
-      ...(options.signal ? { signal: options.signal } : {}),
-    }),
+    createChatCompletionStream(
+      client,
+      {
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...apiMessages,
+        ],
+        ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, config.defaultModel),
+      },
+      options.signal,
+    ),
     options.signal,
   )
 

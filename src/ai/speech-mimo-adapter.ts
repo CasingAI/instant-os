@@ -15,6 +15,7 @@ import { getOpenAiClient } from './openai-client.ts'
 import type { OpenAiConfig } from './openai-config.ts'
 import { recordOpenAiCompletionUsage, snapshotFromOpenAiUsage } from './openai-usage.ts'
 import {
+  createChatCompletionStream,
   forEachStreamChunk,
   isStreamAbortError,
   throwIfStreamAborted,
@@ -144,14 +145,17 @@ export async function mimoRecognizeSpeechStream(options: {
   let usage: ReturnType<typeof snapshotFromOpenAiUsage>
 
   try {
-    const stream = await client.chat.completions.create({
-      model: config.defaultModel,
-      messages,
-      stream: true,
-      ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
-      ...(options.signal ? { signal: options.signal } : {}),
-      asr_options: { language },
-    } as OpenAI.Chat.ChatCompletionCreateParamsStreaming)
+    const stream = await createChatCompletionStream(
+      client,
+      {
+        model: config.defaultModel,
+        messages,
+        stream: true,
+        ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
+        asr_options: { language },
+      } as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+      options.signal,
+    )
 
     await forEachStreamChunk(
       stream,
@@ -343,17 +347,20 @@ export async function mimoSynthesizeSpeechStream(options: {
   let usage: ReturnType<typeof snapshotFromOpenAiUsage>
 
   try {
-    const stream = await client.chat.completions.create({
-      model: config.defaultModel,
-      messages,
-      stream: true,
-      ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
-      ...(options.signal ? { signal: options.signal } : {}),
-      audio: {
-        format: 'pcm16',
-        voice,
-      },
-    } as OpenAI.Chat.ChatCompletionCreateParamsStreaming)
+    const stream = await createChatCompletionStream(
+      client,
+      {
+        model: config.defaultModel,
+        messages,
+        stream: true,
+        ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
+        audio: {
+          format: 'pcm16',
+          voice,
+        },
+      } as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+      options.signal,
+    )
 
     await forEachStreamChunk(
       stream,

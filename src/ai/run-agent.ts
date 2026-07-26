@@ -14,6 +14,7 @@ import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 import {
+  createChatCompletionStream,
   forEachStreamChunk,
   isStreamAbortError,
   raceWithAbortSignal,
@@ -258,79 +259,99 @@ async function streamAssistantTurn(options: {
   throwIfStreamAborted(options.signal)
 
   const stream = await raceWithAbortSignal(
-    options.client.chat.completions.create({
-      model: options.model,
-      messages: options.messages,
-      tools: options.chatTools,
-      stream: true,
-      ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
-      ...buildThinkingRequestExtras(
-        options.providerId,
-        options.thinkingEnabled,
-        options.model,
-      ),
-      ...(options.signal ? { signal: options.signal } : {}),
-    }),
+    createChatCompletionStream(
+      options.client,
+      {
+        model: options.model,
+        messages: options.messages,
+        tools: options.chatTools,
+        stream: true,
+        ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
+        ...buildThinkingRequestExtras(
+          options.providerId,
+          options.thinkingEnabled,
+          options.model,
+        ),
+      },
+      options.signal,
+    ),
     options.signal,
   )
+
+  // create() 已返回后仍须把外部 abort 打到 SDK 内部 controller，才能取消 body
+  const abortStreamController = () => {
+    if (!stream.controller || stream.controller.signal.aborted) return
+    stream.controller.abort()
+  }
+  if (options.signal) {
+    if (options.signal.aborted) {
+      abortStreamController()
+      throwIfStreamAborted(options.signal)
+    }
+    options.signal.addEventListener('abort', abortStreamController, { once: true })
+  }
 
   let content = ''
   let reasoning = ''
   let usage: ReturnType<typeof snapshotFromOpenAiUsage>
   const toolCallMap = new Map<number, AccumulatedToolCall>()
 
-  await forEachStreamChunk(
-    stream,
-    (chunk) => {
-      const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
-      if (chunkUsage) {
-        usage = chunkUsage
-      }
+  try {
+    await forEachStreamChunk(
+      stream,
+      (chunk) => {
+        const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+        if (chunkUsage) {
+          usage = chunkUsage
+        }
 
-      const choice = chunk.choices[0]
-      if (!choice) {
-        return
-      }
+        const choice = chunk.choices[0]
+        if (!choice) {
+          return
+        }
 
-      const touchedIndexes = applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
-      if (options.onToolCallDelta && touchedIndexes.length > 0) {
-        for (const index of touchedIndexes) {
-          const toolCall = toolCallMap.get(index)
-          if (!toolCall) continue
-          options.onToolCallDelta({
+        const touchedIndexes = applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
+        if (options.onToolCallDelta && touchedIndexes.length > 0) {
+          for (const index of touchedIndexes) {
+            const toolCall = toolCallMap.get(index)
+            if (!toolCall) continue
+            options.onToolCallDelta({
+              step: options.step,
+              index,
+              id: toolCall.id,
+              toolName: toolCall.function.name,
+              argumentsRaw: toolCall.function.arguments,
+            })
+          }
+        }
+
+        const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
+          choice.delta,
+        )
+
+        if (reasoningDelta) {
+          reasoning += reasoningDelta
+          options.onReasoningDelta?.({
             step: options.step,
-            index,
-            id: toolCall.id,
-            toolName: toolCall.function.name,
-            argumentsRaw: toolCall.function.arguments,
+            delta: reasoningDelta,
+            accumulated: reasoning,
           })
         }
-      }
 
-      const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
-        choice.delta,
-      )
-
-      if (reasoningDelta) {
-        reasoning += reasoningDelta
-        options.onReasoningDelta?.({
-          step: options.step,
-          delta: reasoningDelta,
-          accumulated: reasoning,
-        })
-      }
-
-      if (contentDelta) {
-        content += contentDelta
-        options.onTextDelta?.({
-          step: options.step,
-          delta: contentDelta,
-          accumulated: content,
-        })
-      }
-    },
-    options.signal,
-  )
+        if (contentDelta) {
+          content += contentDelta
+          options.onTextDelta?.({
+            step: options.step,
+            delta: contentDelta,
+            accumulated: content,
+          })
+        }
+      },
+      options.signal,
+    )
+  } finally {
+    options.signal?.removeEventListener('abort', abortStreamController)
+  }
 
   const toolCalls = [...toolCallMap.entries()]
     .sort(([left], [right]) => left - right)

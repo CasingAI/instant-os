@@ -8,7 +8,7 @@ import { recordAiTokenUsage } from './ai-token-usage.ts'
 import { resolveUsageEstimated } from '../apps/browser/estimate-token-usage.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
-import { isStreamAbortError } from './stream-abort.ts'
+import { createChatCompletionStream, isStreamAbortError } from './stream-abort.ts'
 
 export type StreamChatActivity = 'reasoning' | 'content'
 
@@ -120,21 +120,24 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
   }
 
   try {
-    const stream = await client.chat.completions.create({
-      model,
-      stream: true,
-      ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
-      ...(options.maxCompletionTokens !== undefined
-        ? { max_tokens: options.maxCompletionTokens }
-        : {}),
-      messages: [
-        { role: 'system', content: options.system },
-        { role: 'user', content: options.user },
-        ...(options.followUp ?? []),
-      ],
-      ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, model),
-      ...(abortController ? { signal: abortController.signal } : {}),
-    })
+    const stream = await createChatCompletionStream(
+      client,
+      {
+        model,
+        stream: true,
+        ...(options.usageContext ? { stream_options: { include_usage: true } } : {}),
+        ...(options.maxCompletionTokens !== undefined
+          ? { max_tokens: options.maxCompletionTokens }
+          : {}),
+        messages: [
+          { role: 'system', content: options.system },
+          { role: 'user', content: options.user },
+          ...(options.followUp ?? []),
+        ],
+        ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, model),
+      },
+      abortController?.signal,
+    )
 
     resetIdleTimer()
 
