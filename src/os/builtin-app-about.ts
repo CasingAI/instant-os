@@ -83,7 +83,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   preview: {
     version: '文档、图片与 3D 预览',
     paragraphs: [
-      '预览用于以只读方式查看本机文档、图片与三维模型。支持 Markdown（.md / .markdown / .mdx）的拟物纸面渲染，常见图片（.png / .jpg / .gif / .webp / .ico），以及 glTF / GLB 模型（含「文件」中的内置 3D 模型卷）。',
+      '预览用于以只读方式查看本机文档、图片与三维模型。支持 Markdown（.md / .markdown / .mdx）的拟物纸面渲染，Word 文档（.docx），常见图片（.png / .jpg / .gif / .webp / .ico），以及 glTF / GLB 模型（含「文件」中的内置 3D 模型卷）。',
       '默认作为上述格式的打开程序；可在同一窗口用多标签页同时打开多个文件。编辑请使用 Virtual Studio Code Desktop 或文本编辑。',
     ],
   },

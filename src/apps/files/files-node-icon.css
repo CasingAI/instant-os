@@ -1,4 +1,4 @@
-/* 文件节点图标：文件夹 / 未知文件 / 结构预览（TXT·HTML·SVG） / 图片 / Code 卡片后缀 */
+/* 文件节点图标：文件夹 / 未知文件 / 结构预览（TXT·HTML·SVG） / 图片 / Word / Code 卡片后缀 */
 
 /* 画布统一为正方形；字形在内按自身比例居中撑满 */
 .files-node-icon {
@@ -63,6 +63,7 @@
 .files-node-icon--preview .files-node-icon__glyph--file,
 .files-node-icon--image .files-node-icon__glyph--file,
 .files-node-icon--model3d .files-node-icon__glyph--file,
+.files-node-icon--docx .files-node-icon__glyph--file,
 .files-node-icon--code .files-node-icon__glyph--file {
   position: absolute;
   top: 50%;

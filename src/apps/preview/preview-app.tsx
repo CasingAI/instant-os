@@ -6,9 +6,13 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import {
+  DOCX_ZOOM_MAX,
+  DOCX_ZOOM_MIN,
+  DOCX_ZOOM_STEP,
   FilePreview,
   loadPreviewDocument,
   PREVIEW_OPEN_EXTENSIONS,
+  type DocxZoomMode,
   type PreviewKind,
 } from '../../preview/file-preview-public.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -36,6 +40,7 @@ type PreviewTab = {
   text?: string
   imageSrc?: string
   modelUrl?: string
+  docxBlob?: Blob
 }
 
 type PreviewAppProps = {
@@ -91,6 +96,9 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
   const [activeTabId, setActiveTabId] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
+  const [docxZoomMode, setDocxZoomMode] = useState<DocxZoomMode>('fit-width')
+  const [docxManualScale, setDocxManualScale] = useState(1)
+  const [docxEffectiveScale, setDocxEffectiveScale] = useState(1)
   const bootstrappedRef = useRef(false)
   const loadingPathRef = useRef<string | undefined>(undefined)
   const tabsRef = useRef(tabs)
@@ -101,6 +109,13 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
   activeTabIdRef.current = activeTabId
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  const isDocxTab = activeTab?.kind === 'docx'
+
+  useEffect(() => {
+    setDocxZoomMode('fit-width')
+    setDocxManualScale(1)
+    setDocxEffectiveScale(1)
+  }, [activeTab?.id])
 
   useEffect(() => {
     mountedRef.current = true
@@ -199,6 +214,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           text: loaded.text,
           imageSrc,
           modelUrl,
+          docxBlob: loaded.kind === 'docx' ? loaded.blob : undefined,
         }
         setTabs((prev) => [...prev, tab])
         setActiveTabId(tab.id)
@@ -295,6 +311,31 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
     [removeTab],
   )
 
+  const handleDocxZoomOut = useCallback(() => {
+    setDocxZoomMode('manual')
+    setDocxManualScale((scale) => {
+      const base = docxZoomMode === 'fit-width' ? docxEffectiveScale : scale
+      return Math.max(DOCX_ZOOM_MIN, Math.round((base - DOCX_ZOOM_STEP) * 100) / 100)
+    })
+  }, [docxEffectiveScale, docxZoomMode])
+
+  const handleDocxZoomIn = useCallback(() => {
+    setDocxZoomMode('manual')
+    setDocxManualScale((scale) => {
+      const base = docxZoomMode === 'fit-width' ? docxEffectiveScale : scale
+      return Math.min(DOCX_ZOOM_MAX, Math.round((base + DOCX_ZOOM_STEP) * 100) / 100)
+    })
+  }, [docxEffectiveScale, docxZoomMode])
+
+  const handleDocxFitWidth = useCallback(() => {
+    setDocxZoomMode('fit-width')
+  }, [])
+
+  const handleDocxActualSize = useCallback(() => {
+    setDocxZoomMode('manual')
+    setDocxManualScale(1)
+  }, [])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
@@ -361,6 +402,51 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
         >
           打开…
         </button>
+        {isDocxTab ? (
+          <div class="preview-app__toolbar-tools" role="toolbar" aria-label="Word 文档缩放">
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${docxZoomMode === 'fit-width' ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="适合宽度"
+              onClick={handleDocxFitWidth}
+            >
+              适合宽度
+            </button>
+            <button
+              type="button"
+              class="preview-app__toolbar-btn preview-app__toolbar-btn--compact"
+              disabled={loading || docxManualScale <= DOCX_ZOOM_MIN}
+              title="缩小"
+              aria-label="缩小"
+              onClick={handleDocxZoomOut}
+            >
+              −
+            </button>
+            <span class="preview-app__toolbar-scale" aria-live="polite">
+              {Math.round(docxEffectiveScale * 100)}%
+            </span>
+            <button
+              type="button"
+              class="preview-app__toolbar-btn preview-app__toolbar-btn--compact"
+              disabled={loading || docxManualScale >= DOCX_ZOOM_MAX}
+              title="放大"
+              aria-label="放大"
+              onClick={handleDocxZoomIn}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${docxZoomMode === 'manual' && docxManualScale === 1 ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="实际大小"
+              onClick={handleDocxActualSize}
+            >
+              100%
+            </button>
+          </div>
+        ) : undefined}
         <div class="preview-app__toolbar-title">
           {activeTab ? activeTab.name : '未打开文档'}
         </div>
@@ -384,7 +470,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           <div class="preview-app__empty">
             <p class="preview-app__empty-title">预览</p>
             <p class="preview-app__empty-hint">
-              打开 Markdown、图片或 3D 模型（glTF / GLB），以只读方式查看内容。
+              打开 Markdown、Word 文档（.docx）、图片或 3D 模型（glTF / GLB），以只读方式查看内容。
             </p>
             <button
               type="button"
@@ -402,6 +488,10 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
             imageSrc={activeTab.imageSrc}
             imageAlt={activeTab.name}
             modelUrl={activeTab.modelUrl}
+            docxBlob={activeTab.docxBlob}
+            docxZoomMode={docxZoomMode}
+            docxManualScale={docxManualScale}
+            onDocxEffectiveScaleChange={setDocxEffectiveScale}
           />
         )}
       </div>

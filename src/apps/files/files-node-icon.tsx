@@ -46,6 +46,7 @@ export function isTxtFilesNode(node: Pick<FilesNode, 'kind' | 'name'>): boolean 
 const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
 const MODEL3D_EXTENSIONS = new Set(['gltf', 'glb'])
+const DOCX_EXTENSIONS = new Set(['docx'])
 const VSCODE_OPEN_EXTENSION_SET = new Set<string>(VSCODE_OPEN_EXTENSIONS)
 
 /** 无常规后缀、但应显示 Code 卡片的特殊文件名 → 卡片标签与色调键 */
@@ -70,6 +71,10 @@ export function isImageFileExtension(extension: string | undefined): boolean {
 
 export function isModel3dFileExtension(extension: string | undefined): boolean {
   return extension !== undefined && MODEL3D_EXTENSIONS.has(extension)
+}
+
+export function isDocxFileExtension(extension: string | undefined): boolean {
+  return extension !== undefined && DOCX_EXTENSIONS.has(extension)
 }
 
 export function browserFileBadgeLabel(extension: string): string {
@@ -896,6 +901,166 @@ function Model3dFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/** Word 文档：折角纸页 + 釉面 W 徽章 + 右侧正文条（参考微软识别性，拟物加厚） */
+function DocxFileGlyph({ className }: { className: string }) {
+  const rawId = useId()
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '')
+  const paperGrad = `docx-paper-${uid}`
+  const foldGrad = `docx-fold-${uid}`
+  const badgeGrad = `docx-badge-${uid}`
+  const badgeGloss = `docx-badge-gloss-${uid}`
+  const lineGrad = `docx-line-${uid}`
+
+  return (
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={paperGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffffff" />
+          <stop offset="55%" stop-color="#faf7f2" />
+          <stop offset="100%" stop-color="#ebe4d8" />
+        </linearGradient>
+        <linearGradient id={foldGrad} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#f5efe6" />
+          <stop offset="100%" stop-color="#cfc4b0" />
+        </linearGradient>
+        <linearGradient id={badgeGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#4d8fd4" />
+          <stop offset="45%" stop-color="#2b579a" />
+          <stop offset="100%" stop-color="#1a3d72" />
+        </linearGradient>
+        <linearGradient id={badgeGloss} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.65)" />
+          <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+        </linearGradient>
+        <linearGradient id={lineGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#c8c0b4" />
+          <stop offset="100%" stop-color="#a89a88" />
+        </linearGradient>
+      </defs>
+
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.2)" />
+
+      {/* 纸页主体 */}
+      <path
+        fill={`url(#${paperGrad})`}
+        stroke="#a89880"
+        stroke-width="1.1"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      {/* 右下侧沿：轻微厚度，不做整页叠底 */}
+      <path
+        fill="#d8d0c4"
+        d="M38.8 49.2c-1.3 1.3-3.1 2.1-5.1 2.1H9c-2.2 0-4-1.8-4-4v1.2c0 2.2 1.8 4 4 4h24.7c2.2 0 4-1.8 4-4v-3.1H38.8z"
+        opacity="0.55"
+      />
+      <path
+        fill="#fff"
+        opacity="0.55"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+
+      {/* 正文条（右侧，浮雕感） */}
+      <rect x="22.5" y="22" width="12.5" height="1.5" rx="0.75" fill={`url(#${lineGrad})`} />
+      <rect x="22.5" y="26.2" width="12.5" height="1.5" rx="0.75" fill={`url(#${lineGrad})`} />
+      <rect x="22.5" y="30.4" width="12.5" height="1.5" rx="0.75" fill={`url(#${lineGrad})`} />
+      <rect x="22.5" y="34.6" width="10.5" height="1.5" rx="0.75" fill={`url(#${lineGrad})`} opacity="0.9" />
+      <rect x="22.5" y="38.8" width="11.5" height="1.5" rx="0.75" fill={`url(#${lineGrad})`} opacity="0.85" />
+
+      {/* W 徽章（以中心 17.8, 33.8 放大 2 倍，略向左） */}
+      <g transform="translate(-7.5 0) translate(17.8 33.8) scale(2) translate(-17.8 -33.8)">
+        {/* W 徽章厚度 */}
+        <rect
+          x="11.8"
+          y="27.8"
+          width="13.6"
+          height="13.6"
+          rx="2.4"
+          fill="#143258"
+          transform="translate(0.9 0.9)"
+          opacity="0.75"
+        />
+
+        {/* W 徽章正面 */}
+        <rect x="11" y="27" width="13.6" height="13.6" rx="2.4" fill={`url(#${badgeGrad})`} />
+        <rect x="11" y="27" width="13.6" height="6.2" rx="2.4" fill={`url(#${badgeGloss})`} />
+        <path
+          fill="none"
+          stroke="rgba(255,255,255,0.55)"
+          stroke-width="0.9"
+          stroke-linecap="round"
+          d="M12.2 28.3h11.2"
+        />
+        <path fill="rgba(0,0,0,0.18)" d="M11 39.2h13.6v1.4H11z" />
+
+        {/* W 字：阴影 → 高光 → 本体 */}
+        <text
+          x="17.8"
+          y="34.2"
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="11.5"
+          font-weight="700"
+          fill="#0f2848"
+          opacity="0.45"
+        >
+          W
+        </text>
+        <text
+          x="17.45"
+          y="33.75"
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="11.5"
+          font-weight="700"
+          fill="rgba(255,255,255,0.55)"
+        >
+          W
+        </text>
+        <text
+          x="17.8"
+          y="33.95"
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="11.5"
+          font-weight="700"
+          fill="#ffffff"
+        >
+          W
+        </text>
+      </g>
+
+      {/* 折角（盖住右上，带下沿阴影） */}
+      <path
+        fill={`url(#${foldGrad})`}
+        stroke="#a89880"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+      <path fill="rgba(255,255,255,0.35)" d="M27.4 4.6 L38.2 15.2 L27.4 15.2 Z" />
+      <path fill="rgba(60,45,25,0.12)" d="M27 15.2h13v0.8H27z" />
+    </svg>
+  )
+}
+
+function DocxFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--docx`}
+      aria-hidden="true"
+    >
+      <DocxFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** 「新建文件夹」等无节点场景的静态文件夹图标 */
 export function FilesFolderTemplateIcon({ size = 'grid' }: { size?: FilesNodeIconSize }) {
   return (
@@ -973,6 +1138,10 @@ export function FilesNodeIcon({
 
   if (isModel3dFileExtension(extension)) {
     return <Model3dFileIcon size={size} />
+  }
+
+  if (isDocxFileExtension(extension)) {
+    return <DocxFileIcon size={size} />
   }
 
   return <BlankFileMarkIcon size={size} mark="?" />

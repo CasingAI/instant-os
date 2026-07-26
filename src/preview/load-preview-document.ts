@@ -10,6 +10,7 @@ import {
   resolveFilesAbsolutePath,
 } from '../apps/files/files-vfs.ts'
 import {
+  guessDocxMime,
   guessImageMime,
   guessModel3dMime,
   resolvePreviewKind,
@@ -76,6 +77,20 @@ export async function loadPreviewDocument(documentRef: string): Promise<LoadedPr
   if (kind === 'image') {
     const result = await readFileBlob(node.id)
     const mime = result.blob.type || guessImageMime(result.node.name)
+    const blob =
+      result.blob.type === mime ? result.blob : new Blob([result.blob], { type: mime })
+    return {
+      path,
+      name: result.node.name,
+      kind,
+      node: result.node,
+      blob,
+    }
+  }
+
+  if (kind === 'docx') {
+    const result = await readFileBlob(node.id)
+    const mime = result.blob.type || guessDocxMime()
     const blob =
       result.blob.type === mime ? result.blob : new Blob([result.blob], { type: mime })
     return {

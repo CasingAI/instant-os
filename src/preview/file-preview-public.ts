@@ -1,6 +1,14 @@
 export { FilePreview } from './file-preview.tsx'
 export type { FilePreviewProps } from './file-preview.tsx'
 
+export { DocxDocumentPreview } from './docx-document-preview.tsx'
+export type { DocxDocumentPreviewProps, DocxZoomMode } from './docx-document-preview.tsx'
+export {
+  DOCX_ZOOM_MAX,
+  DOCX_ZOOM_MIN,
+  DOCX_ZOOM_STEP,
+} from './docx-document-preview.tsx'
+
 export { ImageDocumentPreview } from './image-document-preview.tsx'
 export type { ImageDocumentPreviewProps } from './image-document-preview.tsx'
 
@@ -18,6 +26,7 @@ export {
   PREVIEW_MARKDOWN_EXTENSIONS,
   PREVIEW_IMAGE_EXTENSIONS,
   PREVIEW_MODEL3D_EXTENSIONS,
+  PREVIEW_DOCX_EXTENSIONS,
   PREVIEW_OPEN_EXTENSIONS,
 } from './preview-kind.ts'
 export type { PreviewKind } from './preview-kind.ts'
