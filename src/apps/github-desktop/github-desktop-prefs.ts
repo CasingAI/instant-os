@@ -12,7 +12,12 @@ export type GithubDesktopPrefs = {
   gitUserEmail: string
   /** 提交时是否附加 Instant Agent 的 Co-authored-by trailer */
   includeCasingAiCoAuthor: boolean
+  /** 仓库视图左侧边栏宽度（px） */
+  sidebarWidth: number
 }
+
+export const GITHUB_DESKTOP_SIDEBAR_WIDTH_MIN = 180
+export const GITHUB_DESKTOP_SIDEBAR_WIDTH_MAX = 480
 
 export type GithubCommitIdentityDefaults = {
   gitUserName: string
@@ -41,6 +46,17 @@ const DEFAULT_PREFS: GithubDesktopPrefs = {
   gitUserName: '',
   gitUserEmail: '',
   includeCasingAiCoAuthor: true,
+  sidebarWidth: 250,
+}
+
+function normalizeSidebarWidth(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_PREFS.sidebarWidth
+  }
+  return Math.min(
+    GITHUB_DESKTOP_SIDEBAR_WIDTH_MAX,
+    Math.max(GITHUB_DESKTOP_SIDEBAR_WIDTH_MIN, Math.round(value)),
+  )
 }
 
 function normalizePrefs(raw: unknown): GithubDesktopPrefs {
@@ -56,6 +72,7 @@ function normalizePrefs(raw: unknown): GithubDesktopPrefs {
       typeof record.includeCasingAiCoAuthor === 'boolean'
         ? record.includeCasingAiCoAuthor
         : DEFAULT_PREFS.includeCasingAiCoAuthor,
+    sidebarWidth: normalizeSidebarWidth(record.sidebarWidth),
   }
 }
 

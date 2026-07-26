@@ -66,6 +66,8 @@ import {
   buildGithubCommitMessage,
   defaultGithubCommitIdentity,
   externalEditorLabel,
+  GITHUB_DESKTOP_SIDEBAR_WIDTH_MAX,
+  GITHUB_DESKTOP_SIDEBAR_WIDTH_MIN,
   loadGithubDesktopPrefs,
   resolveCommitCoAuthors,
   updateGithubDesktopPrefs,
@@ -460,8 +462,9 @@ export function GithubDesktopApp() {
   const [unpushedCommitCount, setUnpushedCommitCount] = useState(0)
 
   const busy = busyKind !== undefined
-  const showToolbar =
-    view.kind === 'repo' || view.kind === 'cloning' || view.kind === 'missing'
+  const showNonRepoToolbar = view.kind === 'cloning' || view.kind === 'missing'
+  const showRepoWorkspace = view.kind === 'repo'
+  const showToolbar = showNonRepoToolbar || showRepoWorkspace
   const branchRemoteSha =
     view.kind === 'repo' ? currentBranchRemoteSha(view.meta) : undefined
   const branchPushedSha =
@@ -678,6 +681,51 @@ export function GithubDesktopApp() {
   const patchDesktopPrefs = useCallback((patch: Partial<Omit<GithubDesktopPrefs, 'version'>>) => {
     setDesktopPrefs(updateGithubDesktopPrefs(patch))
   }, [])
+
+  const repoWorkspaceRef = useRef<HTMLDivElement>(null)
+  const sidebarWidthRef = useRef(desktopPrefs.sidebarWidth)
+  sidebarWidthRef.current = desktopPrefs.sidebarWidth
+
+  const clampSidebarWidth = useCallback((value: number) => {
+    return Math.min(
+      GITHUB_DESKTOP_SIDEBAR_WIDTH_MAX,
+      Math.max(GITHUB_DESKTOP_SIDEBAR_WIDTH_MIN, Math.round(value)),
+    )
+  }, [])
+
+  const applySidebarWidthVar = useCallback((width: number) => {
+    repoWorkspaceRef.current?.style.setProperty('--gd-sidebar-width', `${width}px`)
+  }, [])
+
+  useEffect(() => {
+    if (!showRepoWorkspace) return
+    applySidebarWidthVar(desktopPrefs.sidebarWidth)
+  }, [showRepoWorkspace, desktopPrefs.sidebarWidth, applySidebarWidthVar])
+
+  const onSidebarSashPointerDown = useCallback(
+    (event: PointerEvent) => {
+      const sash = event.currentTarget as HTMLElement
+      event.preventDefault()
+      sash.setPointerCapture(event.pointerId)
+      const startX = event.clientX
+      const startWidth = sidebarWidthRef.current
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const next = clampSidebarWidth(startWidth + (moveEvent.clientX - startX))
+        sidebarWidthRef.current = next
+        applySidebarWidthVar(next)
+      }
+      const onUp = (upEvent: PointerEvent) => {
+        sash.releasePointerCapture(upEvent.pointerId)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        patchDesktopPrefs({ sidebarWidth: sidebarWidthRef.current })
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [applySidebarWidthVar, clampSidebarWidth, patchDesktopPrefs],
+  )
 
   const openInExternalEditor = useCallback(
     (owner: string, repo: string) => {
@@ -2007,7 +2055,7 @@ export function GithubDesktopApp() {
 
   return (
     <div class="github-desktop">
-      {showToolbar ? (
+      {showNonRepoToolbar ? (
         <div class="github-desktop__toolbar-wrap">
           <div class="github-desktop__toolbar">
             <button
@@ -2032,104 +2080,6 @@ export function GithubDesktopApp() {
               </span>
             </button>
 
-            {view.kind === 'repo' ? (
-              <button
-                type="button"
-                class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--branch${
-                  branchFoldoutOpen ? ' is-open' : ''
-                }`}
-                disabled={busy}
-                onClick={toggleBranchFoldout}
-              >
-                <span class="github-desktop__toolbar-icon">
-                  <BranchIcon />
-                </span>
-                <span class="github-desktop__toolbar-btn-text">
-                  <span class="github-desktop__toolbar-btn-description">当前分支</span>
-                  <span class="github-desktop__toolbar-btn-title">{view.meta.currentBranch}</span>
-                </span>
-                <span class="github-desktop__toolbar-caret">
-                  <CaretIcon />
-                </span>
-              </button>
-            ) : undefined}
-
-            {view.kind === 'repo' ? (
-            <div
-              class={`github-desktop__toolbar-sync${(canPull || canPush) && !syncNetworkBusy ? ' has-menu' : ''}`}
-            >
-              <button
-                type="button"
-                class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync${
-                  syncNetworkBusy ? ' has-progress' : ''
-                }${syncMenuOpen ? ' is-open' : ''}`}
-                disabled={busy}
-                onClick={handleSyncPrimary}
-                aria-busy={syncNetworkBusy ? 'true' : undefined}
-                title={
-                  syncNetworkBusy
-                    ? syncButtonSubtitle
-                    : canPush
-                      ? '将本地 commit 推送到 origin'
-                      : canPull
-                        ? '将远端变更合入本地工作区（需无未 commit 改动）'
-                        : '从 GitHub 获取远端信息，不改动工作区'
-                }
-              >
-                {syncNetworkBusy && progressValue !== undefined ? (
-                  <span
-                    class="github-desktop__toolbar-progress"
-                    style={{ transform: `scaleX(${progressValue})` }}
-                    aria-hidden="true"
-                  />
-                ) : undefined}
-                <span
-                  class={`github-desktop__toolbar-icon${syncNetworkBusy ? ' is-spinning' : ''}`}
-                >
-                  {syncIconKind === 'push' ? (
-                    <PushIcon />
-                  ) : syncIconKind === 'pull' ? (
-                    <PullIcon />
-                  ) : (
-                    <SyncIcon />
-                  )}
-                </span>
-                <span class="github-desktop__toolbar-btn-text">
-                  <span class="github-desktop__toolbar-btn-title">{syncButtonTitle}</span>
-                  <span class="github-desktop__toolbar-btn-description">{syncButtonSubtitle}</span>
-                </span>
-                {canPush && !syncNetworkBusy ? (
-                  <span
-                    class="github-desktop__toolbar-ahead-behind"
-                    title={`${unpushedCommitCount} 个 commit 待推送`}
-                    aria-label={`${unpushedCommitCount} 个 commit 待推送`}
-                  >
-                    <PushIcon size={10} />
-                    <span class="github-desktop__toolbar-ahead-behind-count">
-                      {Math.max(unpushedCommitCount, 1)}
-                    </span>
-                  </span>
-                ) : canPull && !syncNetworkBusy ? (
-                  <span class="github-desktop__toolbar-ahead-behind" aria-hidden="true">
-                    <PullIcon size={12} />
-                  </span>
-                ) : undefined}
-              </button>
-              {(canPull || canPush) && !syncNetworkBusy ? (
-                <button
-                  type="button"
-                  class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync-menu${
-                    syncMenuOpen ? ' is-open' : ''
-                  }`}
-                  disabled={busy}
-                  aria-label="获取与拉取选项"
-                  onClick={toggleSyncMenu}
-                >
-                  <CaretIcon />
-                </button>
-              ) : undefined}
-            </div>
-            ) : undefined}
           </div>
 
           {repoFoldoutOpen ? (
@@ -2227,69 +2177,6 @@ export function GithubDesktopApp() {
             </div>
           ) : undefined}
 
-          {branchFoldoutOpen && view.kind === 'repo' ? (
-            <div class="github-desktop__toolbar-foldout github-desktop__toolbar-foldout--branch">
-              <div class="github-desktop__foldout-filter-wrap">
-                <input
-                  class="settings__input github-desktop__foldout-filter"
-                  value={branchFoldoutFilter}
-                  placeholder="过滤分支…"
-                  aria-label="过滤分支"
-                  autoFocus
-                  onInput={(event) =>
-                    setBranchFoldoutFilter((event.target as HTMLInputElement).value)
-                  }
-                />
-              </div>
-              {filteredBranchCount === 0 ? (
-                <div class="github-desktop__foldout-empty">
-                  {branchFoldoutFilter.trim() ? '没有匹配的分支' : '没有分支'}
-                </div>
-              ) : (
-                <>
-                  {filteredBranchSections.defaultBranch ? (
-                    <div class="github-desktop__foldout-section">
-                      <div class="github-desktop__foldout-section-title">主分支</div>
-                      {renderBranchFoldoutItem(filteredBranchSections.defaultBranch)}
-                    </div>
-                  ) : undefined}
-                  {filteredBranchSections.recent.length > 0 ? (
-                    <div class="github-desktop__foldout-section">
-                      <div class="github-desktop__foldout-section-title">最近分支</div>
-                      {filteredBranchSections.recent.map((branch) =>
-                        renderBranchFoldoutItem(branch),
-                      )}
-                    </div>
-                  ) : undefined}
-                  {filteredBranchSections.other.length > 0 ? (
-                    <div class="github-desktop__foldout-section">
-                      <div class="github-desktop__foldout-section-title">其余分支</div>
-                      {filteredBranchSections.other.map((branch) =>
-                        renderBranchFoldoutItem(branch),
-                      )}
-                    </div>
-                  ) : undefined}
-                </>
-              )}
-            </div>
-          ) : undefined}
-
-          {syncMenuOpen && view.kind === 'repo' ? (
-            <div class="github-desktop__toolbar-foldout github-desktop__toolbar-foldout--sync">
-              <button
-                type="button"
-                class="github-desktop__foldout-item github-desktop__foldout-item--action"
-                disabled={busy}
-                onClick={() => {
-                  closeToolbarMenus()
-                  handleFetch()
-                }}
-              >
-                <strong>获取 origin</strong>
-                <span>从 origin 获取最新变更（不改动工作区）</span>
-              </button>
-            </div>
-          ) : undefined}
         </div>
       ) : undefined}
 
@@ -2311,6 +2198,7 @@ export function GithubDesktopApp() {
         </div>
       ) : undefined}
 
+      {!showRepoWorkspace ? (
       <div class="github-desktop__body">
         {view.kind === 'home' ? (
           <div class="github-desktop__blank">
@@ -2473,9 +2361,135 @@ export function GithubDesktopApp() {
             </div>
           </div>
         ) : undefined}
+      </div>
+      ) : undefined}
 
-        {view.kind === 'repo' ? (
-          <div class="github-desktop__repo">
+      {showRepoWorkspace ? (
+        <div
+          class="github-desktop__repo-workspace"
+          ref={repoWorkspaceRef}
+          style={{ '--gd-sidebar-width': `${desktopPrefs.sidebarWidth}px` }}
+        >
+          <div class="github-desktop__repo-col-left">
+            <div class="github-desktop__toolbar-segment github-desktop__toolbar-segment--left">
+              <button
+                type="button"
+                class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--repo${
+                  repoFoldoutOpen ? ' is-open' : ''
+                }`}
+                onClick={toggleRepoFoldout}
+                title={toolbarRepoFullName}
+              >
+                <span class="github-desktop__toolbar-icon">
+                  <ToolbarRepoIcon kind={toolbarRepoIconKind} />
+                </span>
+                <span class="github-desktop__toolbar-btn-text">
+                  <span class="github-desktop__toolbar-btn-description">{toolbarRepoDescription}</span>
+                  <span class="github-desktop__toolbar-btn-title">
+                    {toolbarRepoTitle ?? '选择仓库'}
+                  </span>
+                </span>
+                <span class="github-desktop__toolbar-caret">
+                  <CaretIcon />
+                </span>
+              </button>
+
+              {repoFoldoutOpen ? (
+                <div class="github-desktop__toolbar-foldout">
+                  <div class="github-desktop__foldout-filter-wrap">
+                    <input
+                      class="settings__input github-desktop__foldout-filter"
+                      value={repoFoldoutFilter}
+                      placeholder="过滤仓库…"
+                      aria-label="过滤仓库"
+                      autoFocus
+                      onInput={(event) =>
+                        setRepoFoldoutFilter((event.target as HTMLInputElement).value)
+                      }
+                    />
+                  </div>
+                  {filteredCloningRepos.length === 0 &&
+                  filteredListedLocalRepos.length === 0 ? (
+                    <div class="github-desktop__foldout-empty">
+                      {repoFoldoutFilter.trim() ? '没有匹配的仓库' : '没有本地仓库'}
+                    </div>
+                  ) : (
+                    <>
+                      {filteredCloningRepos.map((entry) => {
+                        const active = view.kind === 'cloning' && view.id === entry.id
+                        return (
+                          <button
+                            key={`cloning-${entry.id}`}
+                            type="button"
+                            class={`github-desktop__foldout-item github-desktop__foldout-item--with-icon github-desktop__foldout-item--cloning${active ? ' is-active' : ''}`}
+                            onClick={() => {
+                              closeToolbarMenus()
+                              handleSelectCloning(entry)
+                            }}
+                          >
+                            <span class="github-desktop__foldout-item-icon">
+                              <ToolbarRepoIcon kind="cloning" />
+                            </span>
+                            <span class="github-desktop__foldout-item-body">
+                              <strong>{entry.repo}</strong>
+                              <span>
+                                {entry.owner}/{entry.repo} · 正在克隆…
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                      {filteredListedLocalRepos.map((repo) => {
+                        const active =
+                          (view.kind === 'repo' || view.kind === 'missing') &&
+                          view.meta.owner === repo.owner &&
+                          view.meta.repo === repo.repo
+                        return (
+                          <button
+                            key={`${repo.owner}/${repo.repo}`}
+                            type="button"
+                            class={`github-desktop__foldout-item github-desktop__foldout-item--with-icon${repo.missing ? ' github-desktop__foldout-item--missing' : ''}${active ? ' is-active' : ''}`}
+                            onClick={() => {
+                              closeToolbarMenus()
+                              handleOpenLocal(repo)
+                            }}
+                          >
+                            <span class="github-desktop__foldout-item-icon">
+                              <ToolbarRepoIcon kind={resolveLocalRepoIconKind(repo)} />
+                            </span>
+                            <span class="github-desktop__foldout-item-body">
+                              <strong>{repo.repo}</strong>
+                              <span>
+                                {repo.missing
+                                  ? `${repo.owner}/${repo.repo} · 找不到本地文件`
+                                  : `${repo.owner}/${repo.repo} · ${repo.currentBranch}${
+                                      repo.remote
+                                        ? ` · ${formatGithubRepoVisibilityLabel(repo.remote)}`
+                                        : ''
+                                    }`}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </>
+                  )}
+                  <div class="github-desktop__foldout-footer">
+                    <button
+                      type="button"
+                      class="github-desktop__btn github-desktop__foldout-footer-btn"
+                      onClick={() => {
+                        closeToolbarMenus()
+                        goHome()
+                      }}
+                    >
+                      返回仓库列表
+                    </button>
+                  </div>
+                </div>
+              ) : undefined}
+            </div>
+
             <div class="github-desktop__sidebar">
               <div class="github-desktop__tabs">
                 <button
@@ -2720,6 +2734,181 @@ export function GithubDesktopApp() {
                 </>
               )}
             </div>
+          </div>
+
+          <div
+            class="github-desktop__sidebar-sash"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整侧栏宽度"
+            onPointerDown={onSidebarSashPointerDown}
+          />
+
+          <div class="github-desktop__repo-col-right">
+            <div class="github-desktop__toolbar-segment github-desktop__toolbar-segment--right">
+              <div class="github-desktop__toolbar-branch-wrap">
+                <button
+                  type="button"
+                  class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--branch${
+                    branchFoldoutOpen ? ' is-open' : ''
+                  }`}
+                  disabled={busy}
+                  onClick={toggleBranchFoldout}
+                >
+                  <span class="github-desktop__toolbar-icon">
+                    <BranchIcon />
+                  </span>
+                  <span class="github-desktop__toolbar-btn-text">
+                    <span class="github-desktop__toolbar-btn-description">当前分支</span>
+                    <span class="github-desktop__toolbar-btn-title">{view.meta.currentBranch}</span>
+                  </span>
+                  <span class="github-desktop__toolbar-caret">
+                    <CaretIcon />
+                  </span>
+                </button>
+
+                {branchFoldoutOpen ? (
+                  <div class="github-desktop__toolbar-foldout github-desktop__toolbar-foldout--branch">
+                    <div class="github-desktop__foldout-filter-wrap">
+                      <input
+                        class="settings__input github-desktop__foldout-filter"
+                        value={branchFoldoutFilter}
+                        placeholder="过滤分支…"
+                        aria-label="过滤分支"
+                        autoFocus
+                        onInput={(event) =>
+                          setBranchFoldoutFilter((event.target as HTMLInputElement).value)
+                        }
+                      />
+                    </div>
+                    {filteredBranchCount === 0 ? (
+                      <div class="github-desktop__foldout-empty">
+                        {branchFoldoutFilter.trim() ? '没有匹配的分支' : '没有分支'}
+                      </div>
+                    ) : (
+                      <>
+                        {filteredBranchSections.defaultBranch ? (
+                          <div class="github-desktop__foldout-section">
+                            <div class="github-desktop__foldout-section-title">主分支</div>
+                            {renderBranchFoldoutItem(filteredBranchSections.defaultBranch)}
+                          </div>
+                        ) : undefined}
+                        {filteredBranchSections.recent.length > 0 ? (
+                          <div class="github-desktop__foldout-section">
+                            <div class="github-desktop__foldout-section-title">最近分支</div>
+                            {filteredBranchSections.recent.map((branch) =>
+                              renderBranchFoldoutItem(branch),
+                            )}
+                          </div>
+                        ) : undefined}
+                        {filteredBranchSections.other.length > 0 ? (
+                          <div class="github-desktop__foldout-section">
+                            <div class="github-desktop__foldout-section-title">其余分支</div>
+                            {filteredBranchSections.other.map((branch) =>
+                              renderBranchFoldoutItem(branch),
+                            )}
+                          </div>
+                        ) : undefined}
+                      </>
+                    )}
+                  </div>
+                ) : undefined}
+              </div>
+
+              <div class="github-desktop__toolbar-sync-wrap">
+                <div
+                  class={`github-desktop__toolbar-sync${(canPull || canPush) && !syncNetworkBusy ? ' has-menu' : ''}`}
+                >
+                  <button
+                    type="button"
+                    class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync${
+                      syncNetworkBusy ? ' has-progress' : ''
+                    }${syncMenuOpen ? ' is-open' : ''}`}
+                    disabled={busy}
+                    onClick={handleSyncPrimary}
+                    aria-busy={syncNetworkBusy ? 'true' : undefined}
+                    title={
+                      syncNetworkBusy
+                        ? syncButtonSubtitle
+                        : canPush
+                          ? '将本地 commit 推送到 origin'
+                          : canPull
+                            ? '将远端变更合入本地工作区（需无未 commit 改动）'
+                            : '从 GitHub 获取远端信息，不改动工作区'
+                    }
+                  >
+                    {syncNetworkBusy && progressValue !== undefined ? (
+                      <span
+                        class="github-desktop__toolbar-progress"
+                        style={{ transform: `scaleX(${progressValue})` }}
+                        aria-hidden="true"
+                      />
+                    ) : undefined}
+                    <span
+                      class={`github-desktop__toolbar-icon${syncNetworkBusy ? ' is-spinning' : ''}`}
+                    >
+                      {syncIconKind === 'push' ? (
+                        <PushIcon />
+                      ) : syncIconKind === 'pull' ? (
+                        <PullIcon />
+                      ) : (
+                        <SyncIcon />
+                      )}
+                    </span>
+                    <span class="github-desktop__toolbar-btn-text">
+                      <span class="github-desktop__toolbar-btn-title">{syncButtonTitle}</span>
+                      <span class="github-desktop__toolbar-btn-description">{syncButtonSubtitle}</span>
+                    </span>
+                    {canPush && !syncNetworkBusy ? (
+                      <span
+                        class="github-desktop__toolbar-ahead-behind"
+                        title={`${unpushedCommitCount} 个 commit 待推送`}
+                        aria-label={`${unpushedCommitCount} 个 commit 待推送`}
+                      >
+                        <PushIcon size={10} />
+                        <span class="github-desktop__toolbar-ahead-behind-count">
+                          {Math.max(unpushedCommitCount, 1)}
+                        </span>
+                      </span>
+                    ) : canPull && !syncNetworkBusy ? (
+                      <span class="github-desktop__toolbar-ahead-behind" aria-hidden="true">
+                        <PullIcon size={12} />
+                      </span>
+                    ) : undefined}
+                  </button>
+                  {(canPull || canPush) && !syncNetworkBusy ? (
+                    <button
+                      type="button"
+                      class={`github-desktop__toolbar-btn github-desktop__toolbar-btn--sync-menu${
+                        syncMenuOpen ? ' is-open' : ''
+                      }`}
+                      disabled={busy}
+                      aria-label="获取与拉取选项"
+                      onClick={toggleSyncMenu}
+                    >
+                      <CaretIcon />
+                    </button>
+                  ) : undefined}
+                </div>
+
+                {syncMenuOpen ? (
+                  <div class="github-desktop__toolbar-foldout github-desktop__toolbar-foldout--sync">
+                    <button
+                      type="button"
+                      class="github-desktop__foldout-item github-desktop__foldout-item--action"
+                      disabled={busy}
+                      onClick={() => {
+                        closeToolbarMenus()
+                        handleFetch()
+                      }}
+                    >
+                      <strong>获取 origin</strong>
+                      <span>从 origin 获取最新变更（不改动工作区）</span>
+                    </button>
+                  </div>
+                ) : undefined}
+              </div>
+            </div>
 
             <div class="github-desktop__diff">
               {sidebarTab === 'history' ? (
@@ -2882,8 +3071,8 @@ export function GithubDesktopApp() {
               )}
             </div>
           </div>
-        ) : undefined}
-      </div>
+        </div>
+      ) : undefined}
 
       <WindowModal
         open={cloneDialogOpen}
