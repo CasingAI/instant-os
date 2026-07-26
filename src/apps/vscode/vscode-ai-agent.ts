@@ -43,8 +43,6 @@ import {
 } from './vscode-ai-streaming-json.ts'
 
 const VSCODE_AI_MAX_STEPS = 30
-const TOOL_RESULT_LINE_LIMIT = 120
-const TOOL_RESULT_CHAR_LIMIT = 12_000
 const WRITE_PREVIEW_STORE_LIMIT = 8_000
 
 export type VscodeAiActivity = {
@@ -141,16 +139,9 @@ function formatArgsSuffix(args: unknown): string {
   return ` ${parts.join(' ')}`
 }
 
-function truncateToolResultForDisplay(text: string): string {
+function formatToolResultForDisplay(text: string): string {
   const trimmed = text.trim()
-  if (!trimmed) return '（无输出）'
-  const lines = trimmed.split('\n')
-  const sliced =
-    lines.length > TOOL_RESULT_LINE_LIMIT
-      ? lines.slice(-TOOL_RESULT_LINE_LIMIT).join('\n')
-      : trimmed
-  if (sliced.length <= TOOL_RESULT_CHAR_LIMIT) return sliced
-  return `…（输出已截断）\n${sliced.slice(-TOOL_RESULT_CHAR_LIMIT)}`
+  return trimmed || '（无输出）'
 }
 
 function describeToolCall(event: AgentToolCallEvent): {
@@ -599,7 +590,7 @@ export async function askVscodeAiAgent(options: {
   }
 
   const onToolResult = (event: AgentToolResultEvent) => {
-    const resultText = truncateToolResultForDisplay(event.result)
+    const resultText = formatToolResultForDisplay(event.result)
     if (pendingWriteId) {
       const id = pendingWriteId
       pendingWriteId = undefined

@@ -43,17 +43,6 @@ function pushTurnChangeSession(host: VscodeAiRunCommandHost, changeSet: Terminal
   list.push(changeSet)
 }
 
-const OUTPUT_LINE_LIMIT = 120
-const OUTPUT_CHAR_LIMIT = 12_000
-
-function truncateOutput(text: string): string {
-  const lines = text.split('\n')
-  const sliced =
-    lines.length > OUTPUT_LINE_LIMIT ? lines.slice(-OUTPUT_LINE_LIMIT).join('\n') : text
-  if (sliced.length <= OUTPUT_CHAR_LIMIT) return sliced
-  return `…（输出已截断）\n${sliced.slice(-OUTPUT_CHAR_LIMIT)}`
-}
-
 function formatQuickJsResult(result: QuickJsEvalResult): string {
   const consoleText = result.consoleLines.map((line) => line.text).join('\n').trim()
   const parts: string[] = []
@@ -282,9 +271,7 @@ export async function runVscodeAiTerminalLine(
   const output = await ensured.handle.runCode(trimmed, { source: 'program' })
   const changes = ensured.handle.getLastChanges()
   rememberTerminalFsChanges(host, beforeChanges, changes)
-  return truncateOutput(
-    `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`,
-  )
+  return `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`
 }
 
 export async function runVscodeAiNpmScript(
@@ -304,9 +291,7 @@ export async function runVscodeAiNpmScript(
       onConsole: () => undefined,
     })
     rememberNpmChanges(host, result.changes)
-    return truncateOutput(
-      appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes),
-    )
+    return appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes)
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
@@ -329,9 +314,7 @@ export async function runVscodeAiNpx(
       onConsole: () => undefined,
     })
     rememberNpmChanges(host, result.changes)
-    return truncateOutput(
-      appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes),
-    )
+    return appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes)
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
