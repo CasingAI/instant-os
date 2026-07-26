@@ -20,7 +20,7 @@ import {
   VSCODE_AI_TOOL_LABELS,
   type VscodeAiToolsHost,
 } from './vscode-ai-tools.ts'
-import { wrapVscodeAiUserMessageForMode } from './vscode-ai-system-reminder.ts'
+import { wrapVscodeAiUserMessage } from './vscode-ai-system-reminder.ts'
 import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
@@ -382,8 +382,8 @@ export function buildVscodeAiInvestigationFromTimeline(
 export async function askVscodeAiAgent(options: {
   mode: VscodeAiMode
   userMessage: string
-  /** 上一轮发送时的模式；用于 system-reminder 切换提示 */
-  previousMode?: VscodeAiMode
+  /** 本轮已算好的 system-reminder 正文（可为空）；由 panel 按事件收集 */
+  reminderText?: string
   context: VscodeAiContextInput
   toolsHost: VscodeAiToolsHost
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
@@ -401,10 +401,9 @@ export async function askVscodeAiAgent(options: {
   })
 
   const system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${buildVscodeAiContextSection(options.context)}`
-  const wrappedUserMessage = wrapVscodeAiUserMessageForMode(
+  const wrappedUserMessage = wrapVscodeAiUserMessage(
     options.userMessage,
-    options.mode,
-    options.previousMode,
+    options.reminderText ?? '',
   )
 
   const modelConfig: OpenAiConfig = openAiConfigForVscodeAiModelKey(options.modelKey)
@@ -419,7 +418,7 @@ export async function askVscodeAiAgent(options: {
     context: options.context,
     history: options.history,
     userMessage: wrappedUserMessage,
-    previousMode: options.previousMode,
+    reminderText: options.reminderText,
     userMessageAlreadyWrapped: true,
     model,
     providerEntryId: modelRef?.providerEntryId,

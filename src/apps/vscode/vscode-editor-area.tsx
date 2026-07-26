@@ -194,6 +194,10 @@ type VscodeEditorAreaProps = {
   onRestoreAiChat?: (sessionId: string) => void
   onCloseAiChat?: (itemId: string) => void
   onAiChatMessagesChange?: (sessionId: string, messages: VscodeAiChatMessage[]) => void
+  onAiChatLastSentTerminalChange?: (
+    sessionId: string,
+    lastSentTerminal: VscodeAiChatSession['lastSentTerminal'],
+  ) => void
   aiMode?: VscodeAiMode
   onAiModeChange?: (mode: VscodeAiMode) => void
   aiModelKey?: string | undefined
@@ -335,6 +339,7 @@ function VscodeEditorGroupView({
   onRestoreAiChat,
   onCloseAiChat,
   onAiChatMessagesChange,
+  onAiChatLastSentTerminalChange,
   aiMode,
   onAiModeChange,
   aiModelKey,
@@ -871,6 +876,10 @@ function VscodeEditorGroupView({
                   aiDebugSystemReminder={aiDebugSystemReminder}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}
+                  lastSentTerminal={session.lastSentTerminal}
+                  onLastSentTerminalChange={(value) =>
+                    onAiChatLastSentTerminalChange?.(session.id, value)
+                  }
                   getContext={resolvedGetAiContext}
                   getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}
                   problems={problems ?? []}

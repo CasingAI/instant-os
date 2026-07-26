@@ -119,12 +119,19 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
 export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').VscodeAiMode): string {
   const modeLine =
     mode === 'ask'
-      ? '当前模式：Ask（只读问答）。用只读终端调研并回答；细节约束见本轮 <system-reminder>。'
+      ? '当前模式：Ask（只读）。只能用 run_in_terminal 在只读终端中读取；写/删/建文件与 npm/npx 均不可用。回答用简洁中文。'
       : mode === 'plan'
-        ? '当前模式：Plan（只读规划）。调研后用 write_plan 将计划写入工作区 .vscode/plans/；细节约束见本轮 <system-reminder>。'
+        ? [
+            '当前模式：Plan（只读协作规划）。不得修改业务代码或运行 npm/npx。',
+            '用 run_in_terminal（只读）调研；唯一写出口是 write_plan（写入工作区 .vscode/plans/*.md 并打开）。',
+            '需求不清时先问 1–2 个关键问题，再写计划。信息足够后必须调用 write_plan 落盘，不要只用聊天长文替代。',
+            '计划须具体可执行：选定一种方案写死，禁止 Option A/B、TBD、「视情况」。',
+            '落盘 Markdown 建议含：# 标题、overview、实现要点（关键路径）、todos checklist；复杂时可用 mermaid。',
+            '写完计划即可结束本轮，不要开始改业务代码。',
+          ].join(' ')
         : mode === 'edit'
-          ? '当前模式：Edit。读取工作区并通过 propose_file_edit 提交提案；细节约束见本轮 <system-reminder>。'
-          : '当前模式：Agent。读写与副作用走受控终端；细节约束见本轮 <system-reminder>。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
+          ? '当前模式：Edit。可用读取类工具了解工作区，通过 propose_file_edit 提交修改提案（用户确认后才写入）。不得执行终端/npm。'
+          : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
 
   const instantShellSection =
     mode === 'agent' ? `\n\n${buildInstantShellSystemPromptSection()}` : ''

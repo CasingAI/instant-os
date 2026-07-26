@@ -1,6 +1,8 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
 import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
+import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
+import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
 
@@ -58,6 +60,8 @@ export type VscodeAiChatSession = {
   title: string
   messages: VscodeAiChatMessage[]
   updatedAt: number
+  /** 上一轮发送时本模式绑定的 AI 终端快照（供 system-reminder 事件对比） */
+  lastSentTerminal?: VscodeAiLastSentTerminal
 }
 
 export type VscodeAiClosedChatSession = VscodeAiChatSession & {
@@ -168,6 +172,33 @@ function normalizeTerminalChangeReview(raw: unknown): VscodeAiTerminalChangeRevi
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function normalizeLastSentTerminal(raw: unknown): VscodeAiLastSentTerminal | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entry = raw as {
+    kind?: unknown
+    snapshot?: Partial<VscodeAgentTerminalSnapshot>
+  }
+  if (entry.kind !== 'ask' && entry.kind !== 'plan' && entry.kind !== 'agent') return undefined
+  const snapshot = entry.snapshot
+  if (!snapshot || typeof snapshot !== 'object') return undefined
+  if (
+    snapshot.status !== 'none' &&
+    snapshot.status !== 'alive' &&
+    snapshot.status !== 'closed'
+  ) {
+    return undefined
+  }
+  return {
+    kind: entry.kind,
+    snapshot: {
+      status: snapshot.status,
+      sessionId: normalizeOptionalString(snapshot.sessionId),
+      cwd: normalizeOptionalString(snapshot.cwd),
+      recovering: snapshot.recovering === true ? true : undefined,
+    },
+  }
 }
 
 function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined {
@@ -350,7 +381,10 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
     typeof entry.title === 'string' && entry.title.trim()
       ? entry.title.trim()
       : titleFromVscodeAiMessages(messages)
-  return { id: entry.id, title, messages, updatedAt }
+  const lastSentTerminal = normalizeLastSentTerminal(
+    (entry as { lastSentTerminal?: unknown }).lastSentTerminal,
+  )
+  return { id: entry.id, title, messages, updatedAt, lastSentTerminal }
 }
 
 function normalizeClosedSession(raw: unknown): VscodeAiClosedChatSession | undefined {
@@ -368,7 +402,9 @@ function emptyStore(key: string): VscodeAiChatStore {
 }
 
 export function buildVscodeAiChatSession(
-  partial?: Partial<Pick<VscodeAiChatSession, 'id' | 'title' | 'messages' | 'updatedAt'>>,
+  partial?: Partial<
+    Pick<VscodeAiChatSession, 'id' | 'title' | 'messages' | 'updatedAt' | 'lastSentTerminal'>
+  >,
 ): VscodeAiChatSession {
   const messages = clampMessages(partial?.messages ?? [])
   return {
@@ -379,6 +415,7 @@ export function buildVscodeAiChatSession(
       DEFAULT_TITLE,
     messages,
     updatedAt: partial?.updatedAt ?? Date.now(),
+    lastSentTerminal: partial?.lastSentTerminal,
   }
 }
 

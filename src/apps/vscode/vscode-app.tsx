@@ -1875,6 +1875,39 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         return next
       })
       if (!sessionId) return
+      // 终端随对话走：关闭对话时批量销毁绑定的 AI 终端。
+      // 不写入 closedAiChatIdsRef，使重开后快照为 none（session_reset），而非 user_closed。
+      const sessions = terminalSessionsRef.current
+      const ownedIds = new Set(
+        sessions
+          .filter((s) => isVscodeAiTerminalKind(s.kind) && s.ownerChatId === sessionId)
+          .map((s) => s.id),
+      )
+      if (ownedIds.size > 0) {
+        for (const terminalId of ownedIds) {
+          terminalHandlesRef.current.delete(terminalId)
+          const waiter = handleWaitersRef.current.get(terminalId)
+          if (waiter) {
+            waiter.reject(new Error('终端会话已关闭'))
+            handleWaitersRef.current.delete(terminalId)
+          }
+        }
+        let nextTerminals = sessions.filter((s) => !ownedIds.has(s.id))
+        if (nextTerminals.length === 0) {
+          const fresh = createUserTerminalSession('controlled')
+          nextTerminals = [fresh]
+          setActiveTerminalSessionId(fresh.id)
+        } else if (ownedIds.has(activeTerminalSessionIdRef.current)) {
+          setActiveTerminalSessionId(nextTerminals[nextTerminals.length - 1]!.id)
+        }
+        terminalSessionsRef.current = nextTerminals
+        setTerminalSessions(nextTerminals)
+        syncActiveTerminalHandle()
+        refreshCanRevertTerminal()
+      }
+      closedAiChatIdsRef.current.ask.delete(sessionId)
+      closedAiChatIdsRef.current.plan.delete(sessionId)
+      closedAiChatIdsRef.current.agent.delete(sessionId)
       const session = aiChatSessionsRef.current.get(sessionId)
       const nextOpen = new Map(aiChatSessionsRef.current)
       nextOpen.delete(sessionId)
@@ -1885,7 +1918,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       setClosedAiChats(nextClosed)
       persistAiChatStore(nextOpen, nextClosed)
     },
-    [persistAiChatStore],
+    [persistAiChatStore, refreshCanRevertTerminal, syncActiveTerminalHandle],
   )
 
   const restoreClosedAiChat = useCallback(
@@ -1905,6 +1938,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         id: closed.id,
         title: closed.title,
         messages: closed.messages,
+        lastSentTerminal: closed.lastSentTerminal,
         updatedAt: Date.now(),
       })
       const nextClosed = closedAiChatsRef.current.filter((entry) => entry.id !== sessionId)
@@ -1934,6 +1968,24 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           ...current,
           messages,
           title: titleFromVscodeAiMessages(messages),
+          updatedAt: Date.now(),
+        })
+        persistAiChatStore(next, closedAiChatsRef.current)
+        return next
+      })
+    },
+    [persistAiChatStore],
+  )
+
+  const updateAiChatLastSentTerminal = useCallback(
+    (sessionId: string, lastSentTerminal: VscodeAiChatSession['lastSentTerminal']) => {
+      setAiChatSessions((prev) => {
+        const current = prev.get(sessionId)
+        if (!current) return prev
+        const next = new Map(prev)
+        next.set(sessionId, {
+          ...current,
+          lastSentTerminal,
           updatedAt: Date.now(),
         })
         persistAiChatStore(next, closedAiChatsRef.current)
@@ -2931,6 +2983,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onRestoreAiChat={restoreClosedAiChat}
               onCloseAiChat={closeAiChatItem}
               onAiChatMessagesChange={updateAiChatMessages}
+              onAiChatLastSentTerminalChange={updateAiChatLastSentTerminal}
               aiMode={prefs.aiMode}
               onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
               aiModelKey={prefs.aiModelKey}

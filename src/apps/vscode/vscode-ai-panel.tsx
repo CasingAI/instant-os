@@ -45,7 +45,11 @@ import {
   type VscodeAiPendingEdit,
   type VscodeAiReviewStatus,
 } from './vscode-ai-chat-storage.ts'
-import { buildVscodeAiModeReminder } from './vscode-ai-system-reminder.ts'
+import {
+  buildVscodeAiSystemReminder,
+  collectVscodeAiReminderEvents,
+  type VscodeAiLastSentTerminal,
+} from './vscode-ai-system-reminder.ts'
 import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import {
@@ -101,6 +105,9 @@ export type VscodeAiPanelProps = {
   aiDebugSystemReminder?: boolean
   dark?: boolean
   workspaceFolder: string | undefined
+  /** 上一轮发送时的终端快照（持久化在 chat session） */
+  lastSentTerminal?: VscodeAiLastSentTerminal
+  onLastSentTerminalChange?: (value: VscodeAiLastSentTerminal | undefined) => void
   getContext: () => VscodeAiContextInput
   getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
   problems: readonly MonacoProblem[]
@@ -647,6 +654,8 @@ export function VscodeAiPanel({
   aiDebugSystemReminder = false,
   dark,
   workspaceFolder,
+  lastSentTerminal,
+  onLastSentTerminalChange,
   getContext,
   getOpenFilesForSearch,
   problems,
@@ -693,6 +702,8 @@ export function VscodeAiPanel({
   messagesRef.current = messages
   const turnChangeSessionsRef = useRef<TerminalChangeSet[]>([])
   const lastSentModeRef = useRef<VscodeAiMode | undefined>(undefined)
+  const lastSentTerminalRef = useRef<VscodeAiLastSentTerminal | undefined>(lastSentTerminal)
+  lastSentTerminalRef.current = lastSentTerminal
   const busyRef = useRef(false)
   busyRef.current = busy
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
@@ -914,12 +925,24 @@ export function VscodeAiPanel({
           historyRef.current.length > 0
             ? historyRef.current
             : rebuildHistoryFromMessages(messages)
+        const currentTerminal = aiTerminalKind
+          ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
+          : undefined
+        const reminderText = buildVscodeAiSystemReminder(
+          collectVscodeAiReminderEvents({
+            mode,
+            previousMode: lastSentModeRef.current,
+            aiTerminalKind,
+            currentTerminal,
+            lastSentTerminal: lastSentTerminalRef.current,
+          }),
+        )
         const usage = measureVscodeAiContextUsage({
           mode,
           context: contextWithTerminal(),
           history,
           userMessage: draft,
-          previousMode: lastSentModeRef.current,
+          reminderText,
           model: resolvedModelId,
           providerEntryId: resolvedProviderEntryId,
           tokenizerFamily: resolvedTokenizerFamily,
@@ -934,9 +957,11 @@ export function VscodeAiPanel({
       window.clearTimeout(timer)
     }
   }, [
+    aiTerminalKind,
     busy,
     contextWithTerminal,
     draft,
+    getAiTerminalSnapshot,
     messages,
     mode,
     problems,
@@ -944,6 +969,7 @@ export function VscodeAiPanel({
     resolvedModelId,
     resolvedProviderEntryId,
     resolvedTokenizerFamily,
+    sessionId,
     toolsHost,
     workspaceFolder,
   ])
@@ -982,9 +1008,19 @@ export function VscodeAiPanel({
       if (!text || busy) return
 
       let withUser: VscodeAiChatMessage[]
-      const reminderText = buildVscodeAiModeReminder(mode, {
-        previousMode: lastSentModeRef.current,
-      })
+      const currentTerminal = aiTerminalKind
+        ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
+        : undefined
+      const reminderText = buildVscodeAiSystemReminder(
+        collectVscodeAiReminderEvents({
+          mode,
+          previousMode: lastSentModeRef.current,
+          aiTerminalKind,
+          currentTerminal,
+          lastSentTerminal: lastSentTerminalRef.current,
+        }),
+      )
+      const reminderForStorage = reminderText.trim() || undefined
       if (options?.replaceFromUserId) {
         const index = messages.findIndex((message) => message.id === options.replaceFromUserId)
         if (index < 0 || messages[index]?.role !== 'user') return
@@ -1001,7 +1037,7 @@ export function VscodeAiPanel({
           ...messages[index],
           content: text,
           createdAt: Date.now(),
-          systemReminder: reminderText,
+          systemReminder: reminderForStorage,
         }
         withUser = [...messages.slice(0, index), editedUser]
         historyRef.current = rebuildHistoryFromMessages(messages.slice(0, index))
@@ -1011,7 +1047,7 @@ export function VscodeAiPanel({
       } else {
         if (!textOverride) setDraft('')
         const userMessage = createVscodeAiChatMessage('user', text, {
-          systemReminder: reminderText,
+          systemReminder: reminderForStorage,
         })
         withUser = [...messages, userMessage]
         onMessagesChange(withUser)
@@ -1034,7 +1070,7 @@ export function VscodeAiPanel({
         const result = await askVscodeAiAgent({
           mode,
           userMessage: text,
-          previousMode: lastSentModeRef.current,
+          reminderText,
           context: contextWithTerminal(),
           toolsHost,
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
@@ -1054,6 +1090,14 @@ export function VscodeAiPanel({
           },
         })
         lastSentModeRef.current = mode
+        if (aiTerminalKind) {
+          const nextLastSent: VscodeAiLastSentTerminal = {
+            kind: aiTerminalKind,
+            snapshot: getAiTerminalSnapshot(aiTerminalKind, sessionId),
+          }
+          lastSentTerminalRef.current = nextLastSent
+          onLastSentTerminalChange?.(nextLastSent)
+        }
 
         if (controller.signal.aborted) {
           const snapshotTimeline = liveTimelineRef.current
@@ -1134,15 +1178,19 @@ export function VscodeAiPanel({
     },
     [
       aiModelKey,
+      aiTerminalKind,
       busy,
       collectSessionIdsAfter,
       contextWithTerminal,
       draft,
+      getAiTerminalSnapshot,
       messages,
       mode,
+      onLastSentTerminalChange,
       onMessagesChange,
       rebuildHistoryFromMessages,
       runCommandHost,
+      sessionId,
       toolsHost,
       turnChangeExtras,
     ],
