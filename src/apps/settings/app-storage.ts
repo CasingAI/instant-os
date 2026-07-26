@@ -28,6 +28,7 @@ import {
 import { getFilesTotalBytes } from '../files/files-storage.ts'
 import { getAiTokenUsageBytes } from '../../ai/ai-token-usage-storage.ts'
 import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
+import { getVscodeAiChatBytes } from '../vscode/vscode-ai-chat-storage.ts'
 import { getNewsStorageBytes } from '../news/news-storage.ts'
 import { getCatGptStorageBytes } from '../catgpt/catgpt-storage.ts'
 import { getBooksStorageBytes } from '../books/books-storage.ts'
@@ -203,6 +204,7 @@ export function getStorageSummary(
     booksDataBytes: number
     aiUsageBytes: number
     aiEventLogBytes: number
+    vscodeAiChatBytes: number
     folderIconSnapshotsBytes: number
     modelVisionBytes: number
     filesBytes: number
@@ -221,6 +223,7 @@ export function getStorageSummary(
     booksDataBytes,
     aiUsageBytes,
     aiEventLogBytes,
+    vscodeAiChatBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
     filesBytes,
@@ -262,6 +265,7 @@ export function getStorageSummary(
     dataAvailableBytes,
     aiUsageBytes,
     aiEventLogBytes,
+    vscodeAiChatBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
     filesBytes,
@@ -275,6 +279,7 @@ export async function loadDataStorageBreakdown(): Promise<{
   booksDataBytes: number
   aiUsageBytes: number
   aiEventLogBytes: number
+  vscodeAiChatBytes: number
   folderIconSnapshotsBytes: number
   modelVisionBytes: number
   filesBytes: number
@@ -285,6 +290,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     booksDataBytes,
     aiUsageBytes,
     aiEventLogBytes,
+    vscodeAiChatBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
     devFillBytes,
@@ -295,6 +301,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     getBooksContentBytes(),
     getAiTokenUsageBytes(),
     getAiEventLogBytes(),
+    getVscodeAiChatBytes(),
     getFolderIconSnapshotsBytes(),
     getModelVisionResultsBytes(),
     getDevDataStorageFillBytes(),
@@ -307,6 +314,7 @@ export async function loadDataStorageBreakdown(): Promise<{
     booksDataBytes,
     aiUsageBytes,
     aiEventLogBytes,
+    vscodeAiChatBytes,
     folderIconSnapshotsBytes,
     modelVisionBytes,
     filesBytes,

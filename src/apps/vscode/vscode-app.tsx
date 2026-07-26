@@ -15,6 +15,7 @@ import {
   summarizeMonacoProblems,
   type MonacoProblem,
 } from '../../monaco/monaco-markers.ts'
+import { DeviceDataStorageFullError } from '../../os/device-data-storage.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
@@ -349,14 +350,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   )
   const [aiChatBusySessionIds, setAiChatBusySessionIds] = useState<Set<string>>(() => new Set())
   const [inlinePreviewTabIds, setInlinePreviewTabIds] = useState<Set<string>>(() => new Set())
-  const [closedAiChats, setClosedAiChats] = useState<VscodeAiClosedChatSession[]>(() => {
-    const store = loadVscodeAiChatStore(loadVscodePrefs().workspaceFolder)
-    return [...store.closedSessions]
-  })
+  const [closedAiChats, setClosedAiChats] = useState<VscodeAiClosedChatSession[]>(() => [])
   const aiChatSessionsRef = useRef(aiChatSessions)
   const closedAiChatsRef = useRef(closedAiChats)
   const aiChatBusySessionIdsRef = useRef(aiChatBusySessionIds)
   const aiWorkspaceFolderRef = useRef(prefs.workspaceFolder)
+  const aiChatPersistChainRef = useRef(Promise.resolve())
+  const aiChatPersistAlertOpenRef = useRef(false)
   aiChatSessionsRef.current = aiChatSessions
   closedAiChatsRef.current = closedAiChats
   aiChatBusySessionIdsRef.current = aiChatBusySessionIds
@@ -876,14 +876,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         saveVscodeSession(
           buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current),
         )
-        saveVscodeAiChatStore({
-          workspaceKey: vscodeAiChatWorkspaceKey(aiWorkspaceFolderRef.current),
-          openSessions: [...aiChatSessionsRef.current.values()].sort(
-            (a, b) => b.updatedAt - a.updatedAt,
-          ),
-          closedSessions: [...closedAiChatsRef.current],
-          ...getEditorFocusFromLayout(editorLayoutRef.current),
-        })
+        const focus = getEditorFocusFromLayout(editorLayoutRef.current)
+        void aiChatPersistChainRef.current.then(() =>
+          saveVscodeAiChatStore({
+            workspaceKey: vscodeAiChatWorkspaceKey(aiWorkspaceFolderRef.current),
+            openSessions: [...aiChatSessionsRef.current.values()].sort(
+              (a, b) => b.updatedAt - a.updatedAt,
+            ),
+            closedSessions: [...closedAiChatsRef.current],
+            lastFocusedEditor: focus.lastFocusedEditor,
+            activeSessionId:
+              focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
+          }),
+        )
       }
       mountedRef.current = false
     }
@@ -967,7 +972,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       setTabs(restored)
 
       const workspaceFolder = loadVscodePrefs().workspaceFolder
-      const aiStore = loadVscodeAiChatStore(workspaceFolder)
+      const aiStore = await loadVscodeAiChatStore(workspaceFolder)
       const aiChatMap = new Map(aiStore.openSessions.map((session) => [session.id, session]))
       setAiChatSessions(aiChatMap)
       setClosedAiChats([...aiStore.closedSessions])
@@ -1564,52 +1569,87 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
     if (previousFolder === prefs.workspaceFolder) return
 
-    saveVscodeAiChatStore({
-      workspaceKey: vscodeAiChatWorkspaceKey(previousFolder),
-      openSessions: [...aiChatSessionsRef.current.values()].sort(
-        (a, b) => b.updatedAt - a.updatedAt,
-      ),
-      closedSessions: [...closedAiChatsRef.current],
-      ...getEditorFocusFromLayout(editorLayoutRef.current),
-    })
+    let cancelled = false
 
-    const store = loadVscodeAiChatStore(prefs.workspaceFolder)
-    const openSessions = store.openSessions
-    setAiChatSessions(new Map(openSessions.map((session) => [session.id, session])))
-    setClosedAiChats([...store.closedSessions])
-    setEditorLayout((layout) => {
-      let next = layout
-      for (const group of Object.values(layout.groups)) {
-        for (const item of [...group.items]) {
-          if (item.kind !== 'aiChat') continue
-          next = removeEditorItem(next, item.id)
+    void (async () => {
+      const focus = getEditorFocusFromLayout(editorLayoutRef.current)
+      await aiChatPersistChainRef.current
+      if (cancelled) return
+      try {
+        await saveVscodeAiChatStore({
+          workspaceKey: vscodeAiChatWorkspaceKey(previousFolder),
+          openSessions: [...aiChatSessionsRef.current.values()].sort(
+            (a, b) => b.updatedAt - a.updatedAt,
+          ),
+          closedSessions: [...closedAiChatsRef.current],
+          lastFocusedEditor: focus.lastFocusedEditor,
+          activeSessionId:
+            focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
+        })
+      } catch (error) {
+        if (!aiChatPersistAlertOpenRef.current) {
+          aiChatPersistAlertOpenRef.current = true
+          const message =
+            error instanceof DeviceDataStorageFullError
+              ? '切换工作区前未能保存当前 AI 对话（数据空间已满）。'
+              : '切换工作区前未能保存当前 AI 对话。'
+          void modal
+            .alert({
+              title: '对话未能保存',
+              message,
+            })
+            .finally(() => {
+              aiChatPersistAlertOpenRef.current = false
+            })
         }
       }
-      next = restoreOpenAiChatTabsInLayout(next, openSessions, {
-        lastFocusedEditor: store.lastFocusedEditor,
-        preferredFileTabId: activeTabIdRef.current,
-        preferredAiSessionId: store.activeSessionId,
-      })
-      editorLayoutRef.current = next
-      return next
-    })
 
-    for (const waiter of handleWaitersRef.current.values()) {
-      waiter.reject(new Error('工作区已切换'))
+      if (cancelled) return
+
+      const store = await loadVscodeAiChatStore(prefs.workspaceFolder)
+      if (cancelled) return
+
+      const openSessions = store.openSessions
+      setAiChatSessions(new Map(openSessions.map((session) => [session.id, session])))
+      setClosedAiChats([...store.closedSessions])
+      setEditorLayout((layout) => {
+        let next = layout
+        for (const group of Object.values(layout.groups)) {
+          for (const item of [...group.items]) {
+            if (item.kind !== 'aiChat') continue
+            next = removeEditorItem(next, item.id)
+          }
+        }
+        next = restoreOpenAiChatTabsInLayout(next, openSessions, {
+          lastFocusedEditor: store.lastFocusedEditor,
+          preferredFileTabId: activeTabIdRef.current,
+          preferredAiSessionId: store.activeSessionId,
+        })
+        editorLayoutRef.current = next
+        return next
+      })
+
+      for (const waiter of handleWaitersRef.current.values()) {
+        waiter.reject(new Error('工作区已切换'))
+      }
+      handleWaitersRef.current.clear()
+      terminalHandlesRef.current.clear()
+      closedAiChatIdsRef.current.ask.clear()
+      closedAiChatIdsRef.current.plan.clear()
+      closedAiChatIdsRef.current.agent.clear()
+      npmLastChangesByChatRef.current.clear()
+      lastChangeSourceByChatRef.current.clear()
+      const fresh = createUserTerminalSession('controlled')
+      setTerminalSessions([fresh])
+      setActiveTerminalSessionId(fresh.id)
+      activeTerminalHandleRef.current = null
+      setCanRevertTerminal(false)
+    })()
+
+    return () => {
+      cancelled = true
     }
-    handleWaitersRef.current.clear()
-    terminalHandlesRef.current.clear()
-    closedAiChatIdsRef.current.ask.clear()
-    closedAiChatIdsRef.current.plan.clear()
-    closedAiChatIdsRef.current.agent.clear()
-    npmLastChangesByChatRef.current.clear()
-    lastChangeSourceByChatRef.current.clear()
-    const fresh = createUserTerminalSession('controlled')
-    setTerminalSessions([fresh])
-    setActiveTerminalSessionId(fresh.id)
-    activeTerminalHandleRef.current = null
-    setCanRevertTerminal(false)
-  }, [prefs.workspaceFolder])
+  }, [modal, prefs.workspaceFolder])
 
   // 只关心「打开了哪些文件标签」，忽略焦点切换，避免无谓触发 TS sync
   const openFileTabIdKey = useMemo(() => {
@@ -1898,17 +1938,40 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       focusOverride?: Pick<VscodeAiChatStore, 'lastFocusedEditor' | 'activeSessionId'>,
     ) => {
       const focus = focusOverride ?? getEditorFocusFromLayout(editorLayoutRef.current)
-      saveVscodeAiChatStore({
+      const store: VscodeAiChatStore = {
         workspaceKey: vscodeAiChatWorkspaceKey(prefs.workspaceFolder),
         openSessions: [...openMap.values()].sort((a, b) => b.updatedAt - a.updatedAt),
         closedSessions: [...closed],
         lastFocusedEditor: focus.lastFocusedEditor,
         activeSessionId:
           focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
-      })
+      }
+      aiChatPersistChainRef.current = aiChatPersistChainRef.current
+        .then(async () => {
+          await saveVscodeAiChatStore(store)
+        })
+        .catch((error) => {
+          if (aiChatPersistAlertOpenRef.current) return
+          aiChatPersistAlertOpenRef.current = true
+          const message =
+            error instanceof DeviceDataStorageFullError
+              ? '数据空间已满，当前对话未能写入磁盘。请清理空间后重试；界面上的内容仍保留在内存中。'
+              : '对话未能保存到磁盘。请稍后重试；界面上的内容仍保留在内存中。'
+          void modal
+            .alert({
+              title: '对话未能保存',
+              message,
+            })
+            .finally(() => {
+              aiChatPersistAlertOpenRef.current = false
+            })
+        })
+      return aiChatPersistChainRef.current
     },
-    [prefs.workspaceFolder],
+    [modal, prefs.workspaceFolder],
   )
+
+  const flushAiChatPersist = useCallback(() => aiChatPersistChainRef.current, [])
 
   useEffect(() => {
     if (!sessionReady || skipSessionPersistRef.current) return
@@ -2212,10 +2275,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (!windowId) return true
     skipSessionPersistRef.current = true
     saveVscodeSession(buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current))
-    persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current)
+    void flushAiChatPersist().then(() =>
+      persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current),
+    )
     setWindowDocumentEdited(windowId, false)
     return true
-  }, [persistAiChatStore, setWindowDocumentEdited, windowId])
+  }, [flushAiChatPersist, persistAiChatStore, setWindowDocumentEdited, windowId])
 
   useWindowCloseGuard(windowId, requestClose)
 

@@ -126,6 +126,27 @@ export function collectPathsFromChangeSets(changeSets: readonly TerminalChangeSe
   return [...paths]
 }
 
+/** 本轮 ChangeSet：优先 turnChangeSessions，否则回退 terminal/npm last changes */
+export function collectTurnChangeSessionsFromHost(
+  host: VscodeAiRunCommandHost,
+): TerminalChangeSet[] {
+  const fromTurn = host.turnChangeSessions.current
+  if (fromTurn.length > 0) return [...fromTurn]
+
+  const collected: TerminalChangeSet[] = []
+  const terminal = host.getAgentTerminalHandle()?.getLastChanges()
+  if (terminal && terminal.changes.length > 0) {
+    collected.push(terminal)
+  }
+  const npm = host.npmLastChanges.current
+  if (npm && npm.changes.length > 0) {
+    if (!collected.some((item) => item.sessionId === npm.sessionId)) {
+      collected.push(npm)
+    }
+  }
+  return collected
+}
+
 /** 倒序回滚多个 ChangeSet session（后发生的先撤） */
 export async function revertVscodeAiChangeSessions(
   host: VscodeAiRunCommandHost,
@@ -268,9 +289,14 @@ export async function runVscodeAiTerminalLine(
   const ensured = await host.ensureAgentTerminal()
   const banner = formatTerminalBanner(ensured)
   const beforeChanges = ensured.handle.getLastChanges()
-  const output = await ensured.handle.runCode(trimmed, { source: 'program' })
+  let output = ''
+  try {
+    output = await ensured.handle.runCode(trimmed, { source: 'program' })
+  } finally {
+    const changes = ensured.handle.getLastChanges()
+    rememberTerminalFsChanges(host, beforeChanges, changes)
+  }
   const changes = ensured.handle.getLastChanges()
-  rememberTerminalFsChanges(host, beforeChanges, changes)
   return `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`
 }
 

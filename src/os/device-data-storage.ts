@@ -6,12 +6,13 @@ export const DATA_CAPACITY_BYTES = 1024 * 1024 * 1024
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 8
+export const DATA_DB_VERSION = 9
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
 export const AI_TOKEN_USAGE_STORE = 'ai-token-usage'
 export const AI_EVENT_LOG_STORE = 'ai-event-log'
+export const VSCODE_AI_CHAT_STORE = 'vscode-ai-chat'
 export const FOLDER_ICON_SNAPSHOTS_STORE = 'folder-icon-snapshots'
 export const MODEL_VISION_RESULTS_STORE = 'model-vision-results'
 export const MODEL_VISION_MEDIA_STORE = 'model-vision-media'
@@ -145,6 +146,9 @@ function openDataDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(MODEL_VISION_MEDIA_STORE)) {
         db.createObjectStore(MODEL_VISION_MEDIA_STORE, { keyPath: 'modelId' })
+      }
+      if (!db.objectStoreNames.contains(VSCODE_AI_CHAT_STORE)) {
+        db.createObjectStore(VSCODE_AI_CHAT_STORE, { keyPath: 'workspaceKey' })
       }
     }
 
@@ -617,6 +621,7 @@ export async function rebuildDataByteTotal(): Promise<number> {
       cacheBytes,
       aiUsageBytes,
       aiEventLogBytes,
+      vscodeAiChatBytes,
       folderIconSnapshotBytes,
       modelVisionBytes,
     ] = await Promise.all([
@@ -625,6 +630,7 @@ export async function rebuildDataByteTotal(): Promise<number> {
       sumStoreBytes(SAFARI_PAGE_CACHE_STORE),
       sumStoreBytes(AI_TOKEN_USAGE_STORE),
       sumStoreBytes(AI_EVENT_LOG_STORE),
+      sumStoreBytes(VSCODE_AI_CHAT_STORE),
       sumStoreBytes(FOLDER_ICON_SNAPSHOTS_STORE),
       sumStoreBytes(MODEL_VISION_RESULTS_STORE).then(async (resultsBytes) => {
         const mediaBytes = await sumStoreBytes(MODEL_VISION_MEDIA_STORE)
@@ -637,6 +643,7 @@ export async function rebuildDataByteTotal(): Promise<number> {
       cacheBytes +
       aiUsageBytes +
       aiEventLogBytes +
+      vscodeAiChatBytes +
       folderIconSnapshotBytes +
       modelVisionBytes
     await writeByteTotal(total)

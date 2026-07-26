@@ -314,6 +314,8 @@ export async function getStorageUsageSnapshot(): Promise<{
       aiUsageLabel: string
       aiEventLogBytes: number
       aiEventLogLabel: string
+      vscodeAiChatBytes: number
+      vscodeAiChatLabel: string
       folderIconSnapshotsBytes: number
       folderIconSnapshotsLabel: string
       modelVisionBytes: number
@@ -409,6 +411,8 @@ export async function getStorageUsageSnapshot(): Promise<{
         aiUsageLabel: formatStorageSize(summary.aiUsageBytes),
         aiEventLogBytes: summary.aiEventLogBytes,
         aiEventLogLabel: formatStorageSize(summary.aiEventLogBytes),
+        vscodeAiChatBytes: summary.vscodeAiChatBytes,
+        vscodeAiChatLabel: formatStorageSize(summary.vscodeAiChatBytes),
         folderIconSnapshotsBytes: summary.folderIconSnapshotsBytes,
         folderIconSnapshotsLabel: formatStorageSize(summary.folderIconSnapshotsBytes),
         modelVisionBytes: summary.modelVisionBytes,
@@ -425,7 +429,7 @@ export async function getStorageUsageSnapshot(): Promise<{
     },
     topApps,
     note:
-      `系统空间=localStorage（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=IndexedDB（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}，含网页缓存、图书正文、文件应用用户文件、AI 用量与事件日志等）。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
+      `系统空间=localStorage（约 ${formatStorageSize(DEVICE_CAPACITY_BYTES)}）；数据空间=IndexedDB（约 ${formatStorageSize(DATA_CAPACITY_BYTES)}，含网页缓存、图书正文、文件应用用户文件、AI 用量与事件日志、VS Code AI 对话等）。本工具只读，不能清理或卸载。账户/API Key 内容不可读。`,
   }
 }
 

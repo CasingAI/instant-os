@@ -1,4 +1,11 @@
-import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import {
+  DATA_META_STORE,
+  DATA_STORAGE_CHANGED_EVENT,
+  DeviceDataStorageFullError,
+  runDataStoreTransaction,
+  VSCODE_AI_CHAT_STORE,
+  wouldExceedDataCapacity,
+} from '../../os/device-data-storage.ts'
 import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
 import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
@@ -78,11 +85,12 @@ export type VscodeAiChatStore = {
   activeSessionId?: string
 }
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodeAiChat
-const MAX_MESSAGES = 80
-const MAX_CONTENT_CHARS = 48_000
-const MAX_CLOSED_SESSIONS = 10
-const MAX_OPEN_SESSIONS = 20
+type VscodeAiChatDbRecord = VscodeAiChatStore & {
+  byteSize: number
+}
+
+/** 关闭历史软上限：仅 LRU 丢弃最旧 closed，不裁剪 open 会话正文 */
+const MAX_CLOSED_SESSIONS = 30
 const DEFAULT_TITLE = '新对话'
 
 function workspaceKey(folder: string | undefined): string {
@@ -107,31 +115,6 @@ export function titleFromVscodeAiMessages(messages: readonly VscodeAiChatMessage
   const compact = firstUser.content.trim().replace(/\s+/g, ' ')
   if (compact.length <= 28) return compact
   return `${compact.slice(0, 28)}…`
-}
-
-function messageStoredLength(message: VscodeAiChatMessage): number {
-  let len = message.content.length
-  if (message.investigation) {
-    try {
-      len += JSON.stringify(message.investigation).length
-    } catch {
-      // ignore
-    }
-  }
-  if (message.terminalChangeReview) {
-    try {
-      len += JSON.stringify(message.terminalChangeReview).length
-    } catch {
-      // ignore
-    }
-  }
-  if (message.changeSessionIds?.length) {
-    len += message.changeSessionIds.join(',').length
-  }
-  if (message.changePaths?.length) {
-    len += message.changePaths.join(',').length
-  }
-  return len
 }
 
 function normalizeStringList(raw: unknown): string[] | undefined {
@@ -310,18 +293,52 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
   }
 }
 
-function clampMessages(messages: readonly VscodeAiChatMessage[]): VscodeAiChatMessage[] {
-  let total = 0
-  const next: VscodeAiChatMessage[] = []
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (!message) continue
-    const len = messageStoredLength(message)
-    if (total + len > MAX_CONTENT_CHARS) break
-    total += len
-    next.unshift(message)
-  }
-  return next.slice(-MAX_MESSAGES)
+function normalizeMessages(raw: unknown): VscodeAiChatMessage[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter(
+      (message): message is VscodeAiChatMessage =>
+        !!message &&
+        typeof message === 'object' &&
+        typeof message.id === 'string' &&
+        (message.role === 'user' || message.role === 'assistant') &&
+        typeof message.content === 'string' &&
+        typeof message.createdAt === 'number',
+    )
+    .map((message) => {
+      const investigation = normalizeInvestigation(
+        (message as { investigation?: unknown }).investigation,
+      )
+      const terminalChangeReview = normalizeTerminalChangeReview(
+        (message as { terminalChangeReview?: unknown }).terminalChangeReview,
+      )
+      const changeSessionIds = normalizeStringList(
+        (message as { changeSessionIds?: unknown }).changeSessionIds,
+      )
+      const changePaths = normalizeStringList((message as { changePaths?: unknown }).changePaths)
+      let reviewStatus = normalizeReviewStatus((message as { reviewStatus?: unknown }).reviewStatus)
+      if (!reviewStatus && terminalChangeReview) {
+        reviewStatus = terminalChangeReview.status
+      }
+      if (!reviewStatus && changeSessionIds?.length) {
+        reviewStatus = 'pending'
+      }
+      return {
+        ...message,
+        investigation,
+        terminalChangeReview,
+        changeSessionIds,
+        changePaths:
+          changePaths ??
+          (terminalChangeReview
+            ? [...new Set(terminalChangeReview.files.map((file) => file.path))]
+            : undefined),
+        reviewStatus,
+        systemReminder: normalizeOptionalString(
+          (message as { systemReminder?: unknown }).systemReminder,
+        ),
+      }
+    })
 }
 
 function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
@@ -329,54 +346,7 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
   const entry = raw as Partial<VscodeAiChatSession>
   if (typeof entry.id !== 'string' || !entry.id.trim()) return undefined
   if (!Array.isArray(entry.messages)) return undefined
-  const messages = clampMessages(
-    entry.messages
-      .filter(
-        (message): message is VscodeAiChatMessage =>
-          !!message &&
-          typeof message === 'object' &&
-          typeof message.id === 'string' &&
-          (message.role === 'user' || message.role === 'assistant') &&
-          typeof message.content === 'string' &&
-          typeof message.createdAt === 'number',
-      )
-      .map((message) => {
-        const investigation = normalizeInvestigation(
-          (message as { investigation?: unknown }).investigation,
-        )
-        const terminalChangeReview = normalizeTerminalChangeReview(
-          (message as { terminalChangeReview?: unknown }).terminalChangeReview,
-        )
-        const changeSessionIds = normalizeStringList(
-          (message as { changeSessionIds?: unknown }).changeSessionIds,
-        )
-        const changePaths = normalizeStringList((message as { changePaths?: unknown }).changePaths)
-        let reviewStatus = normalizeReviewStatus(
-          (message as { reviewStatus?: unknown }).reviewStatus,
-        )
-        if (!reviewStatus && terminalChangeReview) {
-          reviewStatus = terminalChangeReview.status
-        }
-        if (!reviewStatus && changeSessionIds?.length) {
-          reviewStatus = 'pending'
-        }
-        return {
-          ...message,
-          investigation,
-          terminalChangeReview,
-          changeSessionIds,
-          changePaths:
-            changePaths ??
-            (terminalChangeReview
-              ? [...new Set(terminalChangeReview.files.map((file) => file.path))]
-              : undefined),
-          reviewStatus,
-          systemReminder: normalizeOptionalString(
-            (message as { systemReminder?: unknown }).systemReminder,
-          ),
-        }
-      }),
-  )
+  const messages = normalizeMessages(entry.messages)
   const updatedAt =
     typeof entry.updatedAt === 'number' && Number.isFinite(entry.updatedAt)
       ? entry.updatedAt
@@ -416,12 +386,121 @@ function emptyStore(key: string): VscodeAiChatStore {
   return { workspaceKey: key, openSessions: [], closedSessions: [] }
 }
 
+function trimClosedSessions(
+  closed: readonly VscodeAiClosedChatSession[],
+): VscodeAiClosedChatSession[] {
+  return [...closed]
+    .sort((a, b) => b.closedAt - a.closedAt)
+    .slice(0, MAX_CLOSED_SESSIONS)
+    .map((session) => ({
+      ...session,
+      title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
+    }))
+}
+
+function prepareStoreForSave(store: VscodeAiChatStore): VscodeAiChatStore {
+  const openSessions = store.openSessions.map((session) => ({
+    ...session,
+    title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
+  }))
+  const closedSessions = trimClosedSessions(store.closedSessions)
+  const lastFocusedEditor = store.lastFocusedEditor
+  const activeSessionId = store.activeSessionId
+  return {
+    workspaceKey: store.workspaceKey,
+    openSessions,
+    closedSessions,
+    lastFocusedEditor,
+    activeSessionId:
+      lastFocusedEditor === 'aiChat' &&
+      activeSessionId &&
+      openSessions.some((session) => session.id === activeSessionId)
+        ? activeSessionId
+        : undefined,
+  }
+}
+
+function normalizeStore(raw: unknown, key: string): VscodeAiChatStore {
+  if (!raw || typeof raw !== 'object') return emptyStore(key)
+  const parsed = raw as {
+    workspaceKey?: string
+    messages?: unknown
+    openSessions?: unknown[]
+    closedSessions?: unknown[]
+    lastFocusedEditor?: unknown
+    activeSessionId?: unknown
+  }
+  if (parsed.workspaceKey && parsed.workspaceKey !== key) return emptyStore(key)
+
+  if (!Array.isArray(parsed.openSessions) && Array.isArray(parsed.messages)) {
+    const messages = normalizeMessages(parsed.messages)
+    if (messages.length === 0) return emptyStore(key)
+    return {
+      workspaceKey: key,
+      openSessions: [
+        buildVscodeAiChatSession({
+          messages,
+          updatedAt: messages[messages.length - 1]?.createdAt ?? Date.now(),
+        }),
+      ],
+      closedSessions: [],
+    }
+  }
+
+  const openSessions = (parsed.openSessions ?? [])
+    .map(normalizeSession)
+    .filter((session): session is VscodeAiChatSession => session !== undefined)
+  const closedSessions = (parsed.closedSessions ?? [])
+    .map(normalizeClosedSession)
+    .filter((session): session is VscodeAiClosedChatSession => session !== undefined)
+
+  const lastFocusedEditor = normalizeLastFocusedEditor(parsed.lastFocusedEditor)
+  const activeSessionId = normalizeActiveSessionId(parsed.activeSessionId)
+
+  return prepareStoreForSave({
+    workspaceKey: key,
+    openSessions,
+    closedSessions,
+    lastFocusedEditor,
+    activeSessionId,
+  })
+}
+
+function estimateStoreBytes(store: VscodeAiChatStore): number {
+  return new TextEncoder().encode(JSON.stringify(store)).length
+}
+
+async function readByteTotal(): Promise<number> {
+  try {
+    const meta = await runDataStoreTransaction<{ totalBytes?: number } | undefined>(
+      DATA_META_STORE,
+      'readonly',
+      (store) => store.get('byte-total'),
+    )
+    return meta?.totalBytes ?? 0
+  } catch {
+    return 0
+  }
+}
+
+async function writeByteTotal(totalBytes: number): Promise<void> {
+  await runDataStoreTransaction(DATA_META_STORE, 'readwrite', (store) =>
+    store.put({ key: 'byte-total', totalBytes }),
+  )
+}
+
+function emitDataStorageChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DATA_STORAGE_CHANGED_EVENT))
+  }
+}
+
 export function buildVscodeAiChatSession(
   partial?: Partial<
     Pick<VscodeAiChatSession, 'id' | 'title' | 'messages' | 'updatedAt' | 'lastSentTerminal'>
   >,
 ): VscodeAiChatSession {
-  const messages = clampMessages(partial?.messages ?? [])
+  const messages = normalizeMessages(partial?.messages ?? [])
   return {
     id: partial?.id ?? createVscodeAiChatSessionId(),
     title:
@@ -434,90 +513,66 @@ export function buildVscodeAiChatSession(
   }
 }
 
-export function loadVscodeAiChatStore(workspaceFolder: string | undefined): VscodeAiChatStore {
+export async function loadVscodeAiChatStore(
+  workspaceFolder: string | undefined,
+): Promise<VscodeAiChatStore> {
   const key = workspaceKey(workspaceFolder)
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return emptyStore(key)
-    const parsed = JSON.parse(raw) as {
-      workspaceKey?: string
-      messages?: VscodeAiChatMessage[]
-      openSessions?: unknown[]
-      closedSessions?: unknown[]
-    }
-    if (parsed.workspaceKey !== key) return emptyStore(key)
-
-    // 旧版：单线程 messages
-    if (!Array.isArray(parsed.openSessions) && Array.isArray(parsed.messages)) {
-      const messages = clampMessages(parsed.messages)
-      if (messages.length === 0) return emptyStore(key)
-      return {
-        workspaceKey: key,
-        openSessions: [
-          buildVscodeAiChatSession({
-            messages,
-            updatedAt: messages[messages.length - 1]?.createdAt ?? Date.now(),
-          }),
-        ],
-        closedSessions: [],
-      }
-    }
-
-    const openSessions = (parsed.openSessions ?? [])
-      .map(normalizeSession)
-      .filter((session): session is VscodeAiChatSession => session !== undefined)
-      .slice(0, MAX_OPEN_SESSIONS)
-    const closedSessions = (parsed.closedSessions ?? [])
-      .map(normalizeClosedSession)
-      .filter((session): session is VscodeAiClosedChatSession => session !== undefined)
-      .sort((a, b) => b.closedAt - a.closedAt)
-      .slice(0, MAX_CLOSED_SESSIONS)
-
-    const lastFocusedEditor = normalizeLastFocusedEditor(
-      (parsed as { lastFocusedEditor?: unknown }).lastFocusedEditor,
+    const record = await runDataStoreTransaction<VscodeAiChatDbRecord | undefined>(
+      VSCODE_AI_CHAT_STORE,
+      'readonly',
+      (store) => store.get(key),
     )
-    const activeSessionId = normalizeActiveSessionId(
-      (parsed as { activeSessionId?: unknown }).activeSessionId,
-    )
-
-    return {
-      workspaceKey: key,
-      openSessions,
-      closedSessions,
-      lastFocusedEditor,
-      activeSessionId:
-        lastFocusedEditor === 'aiChat' &&
-        activeSessionId &&
-        openSessions.some((session) => session.id === activeSessionId)
-          ? activeSessionId
-          : undefined,
-    }
+    if (!record) return emptyStore(key)
+    return normalizeStore(record, key)
   } catch {
     return emptyStore(key)
   }
 }
 
-export function saveVscodeAiChatStore(store: VscodeAiChatStore): void {
-  writeLocalStorageItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      workspaceKey: store.workspaceKey,
-      openSessions: store.openSessions.slice(0, MAX_OPEN_SESSIONS).map((session) => ({
-        ...session,
-        messages: clampMessages(session.messages),
-        title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
-      })),
-      closedSessions: store.closedSessions
-        .slice(0, MAX_CLOSED_SESSIONS)
-        .map((session) => ({
-          ...session,
-          messages: clampMessages(session.messages),
-          title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
-        })),
-      ...(store.lastFocusedEditor ? { lastFocusedEditor: store.lastFocusedEditor } : {}),
-      ...(store.activeSessionId ? { activeSessionId: store.activeSessionId } : {}),
-    }),
-  )
+export async function saveVscodeAiChatStore(store: VscodeAiChatStore): Promise<void> {
+  const prepared = prepareStoreForSave(store)
+  const byteSize = estimateStoreBytes(prepared)
+
+  let previousByteSize = 0
+  try {
+    const existing = await runDataStoreTransaction<VscodeAiChatDbRecord | undefined>(
+      VSCODE_AI_CHAT_STORE,
+      'readonly',
+      (store) => store.get(prepared.workspaceKey),
+    )
+    previousByteSize = existing?.byteSize ?? 0
+  } catch {
+    previousByteSize = 0
+  }
+
+  const currentTotal = await readByteTotal()
+  const projectedTotal = currentTotal - previousByteSize + byteSize
+  if (await wouldExceedDataCapacity(projectedTotal)) {
+    throw new DeviceDataStorageFullError()
+  }
+
+  const dbRecord: VscodeAiChatDbRecord = {
+    ...prepared,
+    byteSize,
+  }
+
+  await runDataStoreTransaction(VSCODE_AI_CHAT_STORE, 'readwrite', (store) => store.put(dbRecord))
+  await writeByteTotal(Math.max(0, projectedTotal))
+  emitDataStorageChanged()
+}
+
+export async function getVscodeAiChatBytes(): Promise<number> {
+  try {
+    const records = await runDataStoreTransaction<Array<{ byteSize?: number }>>(
+      VSCODE_AI_CHAT_STORE,
+      'readonly',
+      (store) => store.getAll(),
+    )
+    return records.reduce((total, record) => total + (record.byteSize ?? 0), 0)
+  } catch {
+    return 0
+  }
 }
 
 /** @deprecated 兼容旧单线程 API；新代码请用 loadVscodeAiChatStore */
@@ -527,8 +582,10 @@ export type VscodeAiChatThread = {
 }
 
 /** @deprecated */
-export function loadVscodeAiChatThread(workspaceFolder: string | undefined): VscodeAiChatThread {
-  const store = loadVscodeAiChatStore(workspaceFolder)
+export async function loadVscodeAiChatThread(
+  workspaceFolder: string | undefined,
+): Promise<VscodeAiChatThread> {
+  const store = await loadVscodeAiChatStore(workspaceFolder)
   return {
     workspaceKey: store.workspaceKey,
     messages: store.openSessions[0]?.messages ?? [],
@@ -536,8 +593,8 @@ export function loadVscodeAiChatThread(workspaceFolder: string | undefined): Vsc
 }
 
 /** @deprecated */
-export function saveVscodeAiChatThread(thread: VscodeAiChatThread): void {
-  const existing = loadVscodeAiChatStore(
+export async function saveVscodeAiChatThread(thread: VscodeAiChatThread): Promise<void> {
+  const existing = await loadVscodeAiChatStore(
     thread.workspaceKey === '__no_workspace__' ? undefined : thread.workspaceKey,
   )
   const first = existing.openSessions[0]
@@ -552,7 +609,7 @@ export function saveVscodeAiChatThread(thread: VscodeAiChatThread): void {
           }),
           ...existing.openSessions.slice(1),
         ]
-  saveVscodeAiChatStore({
+  await saveVscodeAiChatStore({
     workspaceKey: thread.workspaceKey,
     openSessions,
     closedSessions: existing.closedSessions,
@@ -600,8 +657,7 @@ export function pushClosedVscodeAiChatSession(
   const entry: VscodeAiClosedChatSession = {
     ...session,
     title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
-    messages: clampMessages(session.messages),
     closedAt: Date.now(),
   }
-  return [entry, ...closed.filter((item) => item.id !== entry.id)].slice(0, MAX_CLOSED_SESSIONS)
+  return trimClosedSessions([entry, ...closed.filter((item) => item.id !== entry.id)])
 }

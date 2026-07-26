@@ -36,6 +36,7 @@ import {
 import type { VscodeAiToolsHost } from './vscode-ai-tools.ts'
 import {
   collectPathsFromChangeSets,
+  collectTurnChangeSessionsFromHost,
   revertVscodeAiChangeSessions,
   type VscodeAiRunCommandHost,
 } from './vscode-ai-run-command.ts'
@@ -1050,29 +1051,6 @@ export function VscodeAiPanel({
   }, [])
 
   useEffect(() => {
-    if (sessionIdRef.current === sessionId) return
-    // 先中止旧轮次，让 in-flight catch 仍能读到 live*Ref 快照
-    abortRef.current?.abort()
-    abortRef.current = undefined
-    sessionIdRef.current = sessionId
-    setDraft('')
-    setBusy(false)
-    setLiveTimeline([])
-    setLiveAnswer('')
-    setContextUsage(undefined)
-    // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
-    historyRef.current = []
-    pendingEditsRef.current = []
-    turnChangeSessionsRef.current = []
-    lastSentModeRef.current = undefined
-    setEditingUserId(undefined)
-    setEditingDraft('')
-    sendQueueRef.current = []
-    setSendQueue([])
-    setSendQueueExpanded(false)
-  }, [sessionId])
-
-  useEffect(() => {
     return () => {
       abortRef.current?.abort()
       abortRef.current = undefined
@@ -1219,6 +1197,29 @@ export function VscodeAiPanel({
   }, [])
 
   useEffect(() => {
+    if (sessionIdRef.current === sessionId) return
+    // 先中止旧轮次，让 in-flight catch 仍能读到 live*Ref 快照
+    abortRef.current?.abort()
+    abortRef.current = undefined
+    sessionIdRef.current = sessionId
+    setDraft('')
+    setBusy(false)
+    setLiveTimeline([])
+    setLiveAnswer('')
+    setContextUsage(undefined)
+    // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
+    historyRef.current = rebuildHistoryFromMessages(messages)
+    pendingEditsRef.current = []
+    turnChangeSessionsRef.current = []
+    lastSentModeRef.current = undefined
+    setEditingUserId(undefined)
+    setEditingDraft('')
+    sendQueueRef.current = []
+    setSendQueue([])
+    setSendQueueExpanded(false)
+  }, [messages, rebuildHistoryFromMessages, sessionId])
+
+  useEffect(() => {
     if (busy) return
     let cancelled = false
     const timer = window.setTimeout(() => {
@@ -1311,14 +1312,14 @@ export function VscodeAiPanel({
   )
 
   const turnChangeExtras = useCallback(() => {
-    const sessions = turnChangeSessionsRef.current
+    const sessions = collectTurnChangeSessionsFromHost(runCommandHost)
     if (sessions.length === 0) return undefined
     return {
       changeSessionIds: sessions.map((session) => session.sessionId),
       changePaths: collectPathsFromChangeSets(sessions),
       reviewStatus: 'pending' as const,
     }
-  }, [])
+  }, [runCommandHost])
 
   const applyMessages = useCallback(
     (next: VscodeAiChatMessage[]) => {
@@ -1474,6 +1475,9 @@ export function VscodeAiPanel({
       clearLiveTurnState()
       liveStartedAtRef.current = osNowMs()
       pendingEditsRef.current = []
+      if (historyRef.current.length === 0 && currentMessages.length > 0) {
+        historyRef.current = rebuildHistoryFromMessages(currentMessages)
+      }
       turnChangeSessionsRef.current = []
 
       const controller = new AbortController()
@@ -1536,7 +1540,9 @@ export function VscodeAiPanel({
               ...changeExtras,
             },
           )
-          applyMessages([...withUser, assistantMessage])
+          const nextMessages = [...withUser, assistantMessage]
+          applyMessages(nextMessages)
+          historyRef.current = rebuildHistoryFromMessages(nextMessages)
         } else {
           if (result.messages) {
             historyRef.current = result.messages
@@ -1587,7 +1593,9 @@ export function VscodeAiPanel({
           investigation,
           ...changeExtras,
         })
-        applyMessages([...withUser, assistantMessage])
+        const nextMessages = [...withUser, assistantMessage]
+        applyMessages(nextMessages)
+        historyRef.current = rebuildHistoryFromMessages(nextMessages)
       } finally {
         const handoff = replaceHandoffRef.current
         if (handoff) {
