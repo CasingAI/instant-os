@@ -15,7 +15,8 @@ const COMPLETION_SYSTEM_PROMPT = `你是代码补全引擎（fill-in-the-middle�
 - 例如光标前是 "const startTime"，应输出 " = Date.now()"，而不是 "const startTime = Date.now()"
 - 不输出解释、注释说明、markdown 代码块或其它包裹
 - 根据光标前后代码推断意图，保持缩进与语言语法一致
-- 最多 ${MAX_COMPLETION_LINES} 行；优先补全当前行，再补紧接逻辑块
+- 若逻辑上应换行（如 Markdown 标题/段落结束、语句块结束），后缀以 \\n 开头；否则优先补全当前行
+- 最多 ${MAX_COMPLETION_LINES} 行
 - 如果不确定或不需要补全，返回空`
 
 export type VscodeCompletionRequest = {
@@ -43,14 +44,42 @@ function sliceHead(text: string, maxChars: number): string {
 }
 
 function stripCodeFences(text: string): string {
-  // 保留行首缩进；仅去掉首尾空行与 markdown 围栏
-  let next = text.replace(/^\n+/, '').replace(/\s+$/, '')
+  // 保留行首换行与缩进；仅去掉尾部空白与 markdown 围栏
+  let next = text.replace(/\s+$/, '')
   if (next.startsWith('```')) {
     next = next.replace(/^```[^\n]*\n?/, '')
     next = next.replace(/\n?```\s*$/, '')
-    next = next.replace(/^\n+/, '').replace(/\s+$/, '')
+    next = next.replace(/\s+$/, '')
   }
   return next
+}
+
+/** 保留「下一行继续」所需的 leading \\n；去掉模型多余空行或光标已在行首时的冗余换行 */
+export function normalizeCompletionLeadingNewline(
+  beforeCursor: string,
+  completion: string,
+): string {
+  if (!completion) return completion
+
+  let text = completion.replace(/^\n{2,}/, '\n')
+  if (beforeCursor.endsWith('\n') && text.startsWith('\n')) {
+    text = text.slice(1)
+  }
+  return text
+}
+
+/** 模型未输出换行但后缀明显是新块（如 Markdown 列表）时，补一个 leading \\n */
+export function ensureBlockStartsOnNewLine(
+  beforeCursor: string,
+  completion: string,
+): string {
+  if (!completion || completion.startsWith('\n') || beforeCursor.endsWith('\n')) {
+    return completion
+  }
+  if (/^(\s*[-*+] |\s*\d+\. |\s*> )/.test(completion)) {
+    return `\n${completion}`
+  }
+  return completion
 }
 
 /**
@@ -91,6 +120,8 @@ function sanitizeCompletionText(
   let text = stripCodeFences(raw)
   text = stripCompletionPrefixOverlap(beforeCursor, text)
   text = stripCompletionAfterEcho(afterCursor, text)
+  text = normalizeCompletionLeadingNewline(beforeCursor, text)
+  text = ensureBlockStartsOnNewLine(beforeCursor, text)
   const lines = text.split('\n')
   if (lines.length > MAX_COMPLETION_LINES) {
     text = lines.slice(0, MAX_COMPLETION_LINES).join('\n')
