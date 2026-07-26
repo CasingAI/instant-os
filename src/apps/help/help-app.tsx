@@ -20,7 +20,7 @@ import {
   type HelpTimelineItem,
 } from './help-agent.ts'
 import { createHelpActivityRevealController } from './help-activity-reveal.ts'
-import { HelpMarkdown } from './help-markdown.tsx'
+import { buildLiveAnswerClassName, HelpMarkdown } from './help-markdown.tsx'
 import './help.css'
 
 const APP_ID = 'help' as const
@@ -447,10 +447,12 @@ function HelpLiveTimeline({
           )
         }
 
+        const separated = timeline.slice(0, index).some((entry) => entry.kind !== 'text')
+
         return (
           <div
             key={item.id}
-            class={`help-app__live-answer${item.done ? '' : ' help-app__live-answer--streaming'}`}
+            class={buildLiveAnswerClassName({ streaming: !item.done, separated })}
           >
             <HelpMarkdown text={item.content} streaming={!item.done} />
           </div>

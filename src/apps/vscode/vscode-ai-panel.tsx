@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type OpenAI from 'openai'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
-import { HelpMarkdown } from '../help/help-markdown.tsx'
+import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { HelpIcon } from '../../icons/app-icons.tsx'
@@ -200,9 +200,7 @@ function latestReasoningSnippet(text: string, maxLen = 56): string {
 function WaitingStatus({ label = '等待响应' }: { label?: string }) {
   return (
     <div class="help-app__reasoning-status help-app__reasoning-status--waiting" aria-live="polite">
-      <WaitingDots />
       <span class="help-app__reasoning-status-label">{label}</span>
-      <WaitingDots />
     </div>
   )
 }
@@ -578,10 +576,12 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
             />
           )
         }
+        const separated = items.slice(0, index).some((entry) => entry.kind !== 'text')
+
         return (
           <div
             key={item.id}
-            class={`help-app__live-answer${item.done ? '' : ' help-app__live-answer--streaming'}`}
+            class={buildLiveAnswerClassName({ streaming: !item.done, separated })}
           >
             <HelpMarkdown text={item.content} streaming={!item.done} />
           </div>
@@ -1393,7 +1393,12 @@ export function VscodeAiPanel({
                 <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
                   <LiveTimeline items={liveTimeline} />
                   {liveAnswer && !liveTimeline.some((item) => item.kind === 'text') ? (
-                    <div class="help-app__live-answer help-app__live-answer--streaming">
+                    <div
+                      class={buildLiveAnswerClassName({
+                        streaming: true,
+                        separated: liveTimeline.length > 0,
+                      })}
+                    >
                       <HelpMarkdown text={liveAnswer} streaming />
                     </div>
                   ) : undefined}

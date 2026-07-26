@@ -743,7 +743,7 @@
 
 /* 分隔线 */
 .vscode--chrome-dark .vscode-ai .help-app__investigation,
-.vscode--chrome-dark .vscode-ai .help-app__live-answer,
+.vscode--chrome-dark .vscode-ai .help-app__live-answer--separated,
 .vscode--chrome-dark .vscode-ai__edit-card {
   border-top-color: var(--help-border);
 }
@@ -797,7 +797,7 @@
   background: rgba(187, 128, 9, 0.15);
 }
 
-.vscode--chrome-dark .vscode-ai .help-app__live-answer--streaming {
+.vscode--chrome-dark .vscode-ai .help-app__live-answer--separated.help-app__live-answer--streaming {
   border-top-color: rgba(108, 179, 255, 0.25);
 }
 

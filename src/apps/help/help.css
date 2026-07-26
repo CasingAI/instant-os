@@ -313,13 +313,16 @@
 
 .help-app__live-answer {
   position: relative;
-  margin: 2px 0 0;
-  padding: 8px 0 0;
-  border-top: 1px solid rgba(196, 181, 160, 0.45);
   color: var(--help-ink);
 }
 
-.help-app__live-answer--streaming {
+.help-app__live-answer--separated {
+  margin: 2px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(196, 181, 160, 0.45);
+}
+
+.help-app__live-answer--separated.help-app__live-answer--streaming {
   border-top-color: rgba(180, 140, 40, 0.35);
 }
 

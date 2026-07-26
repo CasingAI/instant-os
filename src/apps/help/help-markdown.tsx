@@ -102,6 +102,20 @@ type HelpMarkdownProps = {
   streaming?: boolean
 }
 
+export function buildLiveAnswerClassName(options: {
+  streaming?: boolean
+  separated?: boolean
+}): string {
+  const parts = ['help-app__live-answer']
+  if (options.separated) {
+    parts.push('help-app__live-answer--separated')
+  }
+  if (options.streaming) {
+    parts.push('help-app__live-answer--streaming')
+  }
+  return parts.join(' ')
+}
+
 export function HelpMarkdown({ text, class: className, streaming }: HelpMarkdownProps) {
   const html = useMemo(() => {
     const rendered = renderHelpMarkdown(text)
