@@ -921,6 +921,7 @@ function VscodeEditorGroupView({
                   onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
                   onRejectEdit={onRejectAiEdit ?? (() => undefined)}
                   onBusyChange={(busy) => onAiChatBusyChange?.(session.id, busy)}
+                  onOpenPath={(path) => void onOpenPath(path)}
                 />
               </div>
             )

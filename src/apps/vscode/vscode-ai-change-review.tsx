@@ -7,9 +7,14 @@ import {
 } from '../github-desktop/github-diff.ts'
 import { isProbablyTextBytes } from '../github-desktop/github-working-tree.ts'
 import type { TerminalChangeKind, TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
-import { readBeforeBlobBytes } from '../../terminal/terminal-changeset-store.ts'
+import {
+  loadTerminalChangeSession,
+  readBeforeBlobBytes,
+} from '../../terminal/terminal-changeset-store.ts'
 import type { VscodeAiLastChangeSource } from './vscode-ai-run-command.ts'
 import type { VscodeAiTerminalChangeReview } from './vscode-ai-chat-storage.ts'
+
+type ReviewFile = VscodeAiTerminalChangeReview['files'][number]
 
 const KIND_LABEL: Record<TerminalChangeKind, string> = {
   added: '新增',
@@ -163,10 +168,31 @@ export function VscodeAiUnifiedDiffView({
   )
 }
 
+async function loadReviewFilesFromSessions(
+  sessionIds: readonly string[],
+): Promise<ReviewFile[]> {
+  const byPath = new Map<string, ReviewFile>()
+  for (const sessionId of sessionIds) {
+    const changeSet = await loadTerminalChangeSession(sessionId)
+    if (!changeSet) continue
+    for (const entry of changeSet.changes) {
+      byPath.set(entry.path, {
+        path: entry.path,
+        kind: entry.kind,
+        fromPath: entry.fromPath,
+        beforeBlobId: entry.beforeBlobId,
+        isDirectory: entry.meta?.isDirectory === true,
+        byteSize: entry.meta?.byteSize,
+      })
+    }
+  }
+  return [...byPath.values()]
+}
+
 function ReviewFileDiff({
   file,
 }: {
-  file: VscodeAiTerminalChangeReview['files'][number]
+  file: ReviewFile
 }) {
   const [sides, setSides] = useState<VscodeAiFileDiffSides | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -199,6 +225,90 @@ function ReviewFileDiff({
     return <div class="vscode-ai__diff-notice">{sides.notice}</div>
   }
   return <VscodeAiUnifiedDiffView original={sides.original} modified={sides.modified} />
+}
+
+/** 底部审查条「查看更改」：按 session 汇总待审文件并展示 diff */
+export function VscodeAiPendingChangesPanel({
+  sessionIds,
+  onOpenPath,
+}: {
+  sessionIds: readonly string[]
+  onOpenPath?: (path: string) => void
+}) {
+  const [files, setFiles] = useState<ReviewFile[]>([])
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [loading, setLoading] = useState(true)
+  const [activePath, setActivePath] = useState<string | undefined>(undefined)
+
+  const sessionKey = sessionIds.join('\0')
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(undefined)
+    const ids = sessionKey ? sessionKey.split('\0') : []
+    void loadReviewFilesFromSessions(ids)
+      .then((next) => {
+        if (cancelled) return
+        setFiles(next)
+        setActivePath((current) =>
+          current && next.some((file) => file.path === current)
+            ? current
+            : next[0]?.path,
+        )
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : String(err))
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionKey])
+
+  const activeFile = files.find((file) => file.path === activePath) ?? files[0]
+
+  if (loading) {
+    return <div class="vscode-ai__review-changes vscode-ai__diff-empty">加载改动…</div>
+  }
+  if (error) {
+    return <div class="vscode-ai__review-changes vscode-ai__diff-notice">{error}</div>
+  }
+  if (files.length === 0) {
+    return <div class="vscode-ai__review-changes vscode-ai__diff-empty">没有可显示的改动</div>
+  }
+
+  return (
+    <div class="vscode-ai__review-changes">
+      <div class="vscode-ai__change-review-files" role="tablist" aria-label="变更文件">
+        {files.map((file) => {
+          const active = file.path === activeFile?.path
+          return (
+            <button
+              key={file.path}
+              type="button"
+              role="tab"
+              class={`vscode-ai__change-review-file${active ? ' vscode-ai__change-review-file--active' : ''}`}
+              aria-selected={active}
+              onClick={() => setActivePath(file.path)}
+              onDblClick={() => onOpenPath?.(file.path)}
+              title={onOpenPath ? '双击在编辑器中打开' : undefined}
+            >
+              <span class="vscode-ai__change-review-kind">{KIND_LABEL[file.kind]}</span>
+              <span class="vscode-ai__change-review-path">
+                {file.kind === 'renamed' && file.fromPath
+                  ? `${file.fromPath} → ${file.path}`
+                  : file.path}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      {activeFile ? <ReviewFileDiff file={activeFile} /> : undefined}
+    </div>
+  )
 }
 
 export function TerminalChangeReviewCard({
