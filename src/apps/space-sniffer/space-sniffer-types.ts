@@ -23,8 +23,6 @@ export type ScanOptions = {
   onProgress?: (progress: ScanProgress) => void
 }
 
-export type ColorMode = 'flat' | 'file-class'
-
 export const DEFAULT_DETAIL_LEVEL = 2
 export const MIN_DETAIL_LEVEL = 1
 export const MAX_DETAIL_LEVEL = 5

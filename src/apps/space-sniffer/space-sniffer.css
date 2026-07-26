@@ -8,6 +8,33 @@
   font-family: var(--app-text-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
 }
 
+.space-sniffer__doc-tabs {
+  flex-shrink: 0;
+}
+
+.space-sniffer__tab-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.space-sniffer__tab-pane {
+  flex: 1;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+}
+
+.space-sniffer__tab-pane--active {
+  display: flex;
+}
+
+.space-sniffer__tab-pane[hidden],
+.space-sniffer__tab-panes[hidden] {
+  display: none !important;
+}
+
 /* ── Start dialog ── */
 
 .space-sniffer__start {
@@ -258,9 +285,19 @@
   min-height: 200px;
   overflow: hidden;
   background: #1c1c1e;
+  isolation: isolate;
 }
 
 .space-sniffer__treemap--busy {
+  pointer-events: none;
+}
+
+/* 放大/缩小时铺满不透明底，挡住挖空与缝隙透底 */
+.space-sniffer__zoom-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #1c1c1e;
   pointer-events: none;
 }
 
@@ -274,6 +311,7 @@
 
 .space-sniffer__tile {
   position: absolute;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -301,16 +339,61 @@
   box-shadow:
     inset 0 0 0 2px #fff,
     0 4px 14px rgba(0, 0, 0, 0.35);
-  z-index: 1;
+  z-index: 2;
 }
 
-/* 仅包住「正在显示子内容」的文件夹区域 */
-.space-sniffer__folder-frame {
+/* 已展开文件夹：外框 + 顶栏名字（主体点击穿透；标题条可双击进入） */
+.space-sniffer__folder-shell {
   position: absolute;
-  z-index: 2;
+  z-index: 0;
   box-sizing: border-box;
   border: 2px solid rgba(0, 0, 0, 0.72);
+  background: #1c1c1e;
   pointer-events: none;
+  overflow: hidden;
+}
+
+.space-sniffer__folder-shell--root {
+  /* 画在色块之上，只描边 + 顶栏，底板必须透明否则会盖住整棵树 */
+  border: 2px solid rgba(0, 0, 0, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  background: transparent;
+}
+
+.space-sniffer__folder-shell-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  height: 18px;
+  padding: 1px 6px 0;
+  min-width: 0;
+  color: #fff;
+  background: rgba(20, 20, 22, 0.92);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.space-sniffer__folder-shell-label--enter {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.space-sniffer__folder-shell-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.space-sniffer__folder-shell-size {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 16px;
+  opacity: 0.88;
 }
 
 .space-sniffer__tooltip {
@@ -442,9 +525,4 @@
   100% {
     transform: translateX(280%);
   }
-}
-
-.space-sniffer__color-control {
-  flex-shrink: 0;
-  min-width: 120px;
 }

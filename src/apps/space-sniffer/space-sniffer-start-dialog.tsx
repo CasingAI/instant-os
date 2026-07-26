@@ -3,7 +3,18 @@ import { IosButton } from '../../ui/ios-button.tsx'
 import { IosTextField } from '../../ui/ios-text-field.tsx'
 import { filesListVolumes, type FilesApiVolume } from '../files/files-api.ts'
 import { FILES_MOUNTS_CHANGED_EVENT } from '../files/files-mount-store.ts'
+import { parseFilesAbsolutePath } from '../files/files-path.ts'
+import { DATA_SPACE_FILE_LOCATIONS } from '../files/files-storage.ts'
+import { isMountLocationId } from '../files/files-types.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+
+/** 仅展示可做占用分析的卷：用户/开发者数据 + 本机挂载；排除 /system、/models 等投影卷 */
+function isAnalyzableVolume(volume: FilesApiVolume): boolean {
+  const parsed = parseFilesAbsolutePath(volume.path)
+  if (!parsed) return false
+  if (isMountLocationId(parsed.locationId)) return true
+  return (DATA_SPACE_FILE_LOCATIONS as readonly string[]).includes(parsed.locationId)
+}
 
 type SpaceSnifferStartDialogProps = {
   initialPath?: string
@@ -27,7 +38,7 @@ export function SpaceSnifferStartDialog({
     setLoading(true)
     try {
       const next = await filesListVolumes()
-      setVolumes(next)
+      setVolumes(next.filter(isAnalyzableVolume))
     } catch (err) {
       setError(err instanceof Error ? err.message : '无法列出卷')
     } finally {
@@ -81,7 +92,7 @@ export function SpaceSnifferStartDialog({
       <div class="space-sniffer__start-card">
         <h1 class="space-sniffer__start-title">选择要扫描的空间</h1>
         <p class="space-sniffer__start-subtitle">
-          选择一个卷，或指定文件夹路径。扫描过程中即可浏览与下钻。
+          选择可分析占用的卷，或指定文件夹路径。扫描过程中即可浏览与下钻。
         </p>
 
         <div class="space-sniffer__start-section">

@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy'
 import { formatStorageSize } from '../../os/format-storage-size.ts'
-import type { ColorMode, ScanNode } from './space-sniffer-types.ts'
+import type { ScanNode } from './space-sniffer-types.ts'
 
-const FLAT_FOLDER = '#4a90e2'
-const FLAT_FILE = '#7aa7e0'
+const FOLDER_COLOR = '#4a90e2'
 const DOUBLE_CLICK_MS = 400
 const ZOOM_MS = 280
+const FOLDER_HEADER_PX = 18
+const PADDING_INNER_PX = 2
+const PADDING_OUTER_PX = 3
+const ROOT_SHELL_Z = 12
 
 function isUnderPath(path: string, parentPath: string): boolean {
   return path === parentPath || path.startsWith(`${parentPath}/`)
@@ -38,6 +41,24 @@ export type TreemapTile = {
   depth: number
 }
 
+/** 已展开文件夹的外框 + 顶栏（含当前视图根） */
+type FolderShell = {
+  node: ScanNode
+  path: string
+  name: string
+  byteSize: number
+  x: number
+  y: number
+  width: number
+  height: number
+  depth: number
+}
+
+type LayoutResult = {
+  tiles: TreemapTile[]
+  shells: FolderShell[]
+}
+
 type TileRect = {
   x: number
   y: number
@@ -53,6 +74,18 @@ type PinnedTile = {
   y: number
   width: number
   height: number
+}
+
+type PinnedShell = {
+  node: ScanNode
+  path: string
+  name: string
+  byteSize: number
+  x: number
+  y: number
+  width: number
+  height: number
+  depth: number
 }
 
 type ZoomTile = {
@@ -72,6 +105,7 @@ type ZoomState = {
 type PinnedLayout = {
   rootPath: string
   tiles: PinnedTile[]
+  shells: PinnedShell[]
 }
 
 /** 一次进入文件夹的记录，供后退原路缩小 */
@@ -86,12 +120,9 @@ type DrillFrame = {
   folderPinned: PinnedLayout
 }
 
-function colorForNode(node: ScanNode, mode: ColorMode): string {
-  if (mode === 'flat') {
-    return node.kind === 'folder' ? FLAT_FOLDER : FLAT_FILE
-  }
+function colorForNode(node: ScanNode): string {
   if (node.kind === 'folder') {
-    return FLAT_FOLDER
+    return FOLDER_COLOR
   }
   for (const entry of FILE_CLASS_COLORS) {
     if (entry.test.test(node.name)) {
@@ -105,12 +136,18 @@ function toHierarchy(
   node: ScanNode,
   remainingDepth: number,
   expandedPaths: ReadonlySet<string>,
+  isViewRoot = false,
 ): TreemapHierarchyDatum {
   const visibleChildren = (node.children ?? []).filter((child) => child.byteSize > 0)
   const forceExpand =
     node.kind === 'folder' && expandedPaths.has(node.path) && visibleChildren.length > 0
 
-  if (node.kind === 'file' || (!forceExpand && remainingDepth <= 1) || visibleChildren.length === 0) {
+  // 视图根有子项时至少摊开一层，才能保留外框/顶栏
+  if (
+    node.kind === 'file' ||
+    visibleChildren.length === 0 ||
+    (!isViewRoot && !forceExpand && remainingDepth <= 1)
+  ) {
     return {
       name: node.name,
       value: Math.max(node.byteSize, 1),
@@ -119,28 +156,33 @@ function toHierarchy(
   }
 
   // 单击展开时至少再露出一层，子文件夹里能看到内容，才分得清文件夹/文件
-  const childDepth = forceExpand ? Math.max(2, remainingDepth) : remainingDepth - 1
+  const childDepth = forceExpand
+    ? Math.max(2, remainingDepth)
+    : isViewRoot
+      ? Math.max(1, remainingDepth - 1)
+      : remainingDepth - 1
 
   return {
     name: node.name,
     node,
-    children: visibleChildren.map((child) => toHierarchy(child, childDepth, expandedPaths)),
+    children: visibleChildren.map((child) =>
+      toHierarchy(child, childDepth, expandedPaths, false),
+    ),
   }
 }
 
-function computeTiles(
+function computeLayout(
   root: ScanNode,
   width: number,
   height: number,
   detailLevel: number,
-  colorMode: ColorMode,
   expandedPaths: ReadonlySet<string>,
-): TreemapTile[] {
+): LayoutResult {
   if (width <= 0 || height <= 0 || root.byteSize <= 0) {
-    return []
+    return { tiles: [], shells: [] }
   }
 
-  const data = toHierarchy(root, detailLevel, expandedPaths)
+  const data = toHierarchy(root, detailLevel, expandedPaths, true)
   const hierarchyRoot = hierarchy<TreemapHierarchyDatum>(data)
     .sum((datum) => datum.value ?? 0)
     .sort((left, right) => (right.value ?? 0) - (left.value ?? 0))
@@ -148,11 +190,12 @@ function computeTiles(
   const layoutRoot = treemap<TreemapHierarchyDatum>()
     .tile(treemapSquarify)
     .size([width, height])
-    .paddingInner(0)
-    .paddingOuter(0)
+    .paddingInner(PADDING_INNER_PX)
+    .paddingOuter(PADDING_OUTER_PX)
+    .paddingTop(FOLDER_HEADER_PX)
     .round(true)(hierarchyRoot)
 
-  return layoutRoot.leaves().flatMap((leaf) => {
+  const tiles: TreemapTile[] = layoutRoot.leaves().flatMap((leaf) => {
     const node = leaf.data.node
     if (!node) return []
     const tileWidth = leaf.x1 - leaf.x0
@@ -165,29 +208,34 @@ function computeTiles(
         y: leaf.y0,
         width: tileWidth,
         height: tileHeight,
-        color: colorForNode(node, colorMode),
+        color: colorForNode(node),
         depth: leaf.depth,
       },
     ]
   })
-}
 
-function boundsOfTiles(tiles: TreemapTile[]): TileRect | undefined {
-  if (tiles.length === 0) return undefined
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  for (const tile of tiles) {
-    minX = Math.min(minX, tile.x)
-    minY = Math.min(minY, tile.y)
-    maxX = Math.max(maxX, tile.x + tile.width)
-    maxY = Math.max(maxY, tile.y + tile.height)
-  }
-  const width = maxX - minX
-  const height = maxY - minY
-  if (width <= 0 || height <= 0) return undefined
-  return { x: minX, y: minY, width, height }
+  const shells: FolderShell[] = []
+  layoutRoot.each((node) => {
+    if (!node.children || node.children.length === 0) return
+    const scanNode = node.data.node
+    if (!scanNode || scanNode.kind !== 'folder') return
+    const shellWidth = node.x1 - node.x0
+    const shellHeight = node.y1 - node.y0
+    if (shellWidth <= 0 || shellHeight <= 0) return
+    shells.push({
+      node: scanNode,
+      path: scanNode.path,
+      name: scanNode.name,
+      byteSize: scanNode.byteSize,
+      x: node.x0,
+      y: node.y0,
+      width: shellWidth,
+      height: shellHeight,
+      depth: node.depth,
+    })
+  })
+
+  return { tiles, shells }
 }
 
 function tileToPinned(tile: TreemapTile, width: number, height: number): PinnedTile {
@@ -198,6 +246,20 @@ function tileToPinned(tile: TreemapTile, width: number, height: number): PinnedT
     y: tile.y / height,
     width: tile.width / width,
     height: tile.height / height,
+  }
+}
+
+function shellToPinned(shell: FolderShell, width: number, height: number): PinnedShell {
+  return {
+    node: shell.node,
+    path: shell.path,
+    name: shell.name,
+    byteSize: shell.byteSize,
+    x: shell.x / width,
+    y: shell.y / height,
+    width: shell.width / width,
+    height: shell.height / height,
+    depth: shell.depth,
   }
 }
 
@@ -219,36 +281,61 @@ function pinnedToTiles(pinned: PinnedTile[], width: number, height: number): Tre
   }))
 }
 
-/** 正在展示子内容的文件夹区域（单击展开的 + 细节层级里已摊开的） */
-function openFolderFrames(
-  tiles: TreemapTile[],
-  rootPath: string,
-  expandedPaths: ReadonlySet<string>,
-): Array<{ path: string; rect: TileRect }> {
-  const paths = new Set<string>(expandedPaths)
-  for (const tile of tiles) {
-    const parent = tile.node.path.replace(/\/[^/]+$/, '')
-    if (parent && parent !== rootPath && isUnderPath(parent, rootPath)) {
-      paths.add(parent)
-    }
-  }
+function pinnedToShells(pinned: PinnedShell[], width: number, height: number): FolderShell[] {
+  return pinned.map((shell) => ({
+    node: shell.node,
+    path: shell.path,
+    name: shell.name,
+    byteSize: shell.byteSize,
+    x: shell.x * width,
+    y: shell.y * height,
+    width: Math.max(1, shell.width * width),
+    height: Math.max(1, shell.height * height),
+    depth: shell.depth,
+  }))
+}
 
-  const frames: Array<{ path: string; rect: TileRect }> = []
-  for (const path of paths) {
-    const childTiles = tiles.filter(
-      (tile) => isUnderPath(tile.node.path, path) && tile.node.path !== path,
-    )
-    const rect = boundsOfTiles(childTiles)
-    if (rect) frames.push({ path, rect })
+/** 视图根外框内侧的内容区（顶栏 + 外边距之后） */
+function viewContentRect(width: number, height: number): TileRect {
+  return {
+    x: PADDING_OUTER_PX,
+    y: FOLDER_HEADER_PX,
+    width: Math.max(1, width - PADDING_OUTER_PX * 2),
+    height: Math.max(1, height - FOLDER_HEADER_PX - PADDING_OUTER_PX),
   }
-  return frames
+}
+
+function boundsOfTiles(tiles: Array<TileRect>): TileRect | undefined {
+  if (tiles.length === 0) return undefined
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const tile of tiles) {
+    minX = Math.min(minX, tile.x)
+    minY = Math.min(minY, tile.y)
+    maxX = Math.max(maxX, tile.x + tile.width)
+    maxY = Math.max(maxY, tile.y + tile.height)
+  }
+  const nextWidth = maxX - minX
+  const nextHeight = maxY - minY
+  if (nextWidth <= 0 || nextHeight <= 0) return undefined
+  return { x: minX, y: minY, width: nextWidth, height: nextHeight }
+}
+
+function mapRectIntoTarget(rect: TileRect, bounds: TileRect, target: TileRect): TileRect {
+  return {
+    x: target.x + ((rect.x - bounds.x) / bounds.width) * target.width,
+    y: target.y + ((rect.y - bounds.y) / bounds.height) * target.height,
+    width: (rect.width / bounds.width) * target.width,
+    height: (rect.height / bounds.height) * target.height,
+  }
 }
 
 type SpaceSnifferTreemapProps = {
   root: ScanNode
   scanRootBytes: number
   detailLevel: number
-  colorMode: ColorMode
   selectedPath: string | undefined
   onSelect: (node: ScanNode) => void
   onActivate: (node: ScanNode) => void
@@ -258,7 +345,6 @@ type SpaceSnifferTreemapProps = {
 export function SpaceSnifferTreemap({
   root,
   detailLevel,
-  colorMode,
   selectedPath,
   onSelect,
   onActivate,
@@ -278,11 +364,12 @@ export function SpaceSnifferTreemap({
   const enterRectRef = useRef<TileRect | undefined>(undefined)
   const lastExpandRef = useRef<{ path: string; at: number } | undefined>(undefined)
   const tilesRef = useRef<TreemapTile[]>([])
+  const shellsRef = useRef<FolderShell[]>([])
   const zoomTimerRef = useRef<number | undefined>(undefined)
   const pendingEnterRef = useRef(false)
   const pendingLeaveRef = useRef(false)
   const prevRootPathRef = useRef(root.path)
-  /** 钻取记录；depth 为当前生效层数，后退只减 depth，前进可再放大 */
+  /** 钻取栈；depth 为当前生效层数，后退只减 depth，前进可再放大 */
   const drillStackRef = useRef<DrillFrame[]>([])
   const drillDepthRef = useRef(0)
   const layoutSizeRef = useRef(layoutSize)
@@ -437,27 +524,34 @@ export function SpaceSnifferTreemap({
     setPinned((current) => (current?.rootPath === root.path ? current : undefined))
   }, [root.path])
 
-  const computedTiles = useMemo(
+  const computedLayout = useMemo(
     () =>
-      computeTiles(
+      computeLayout(
         root,
         layoutSize.width,
         layoutSize.height,
         detailLevel,
-        colorMode,
         expandedPaths,
       ),
-    [colorMode, detailLevel, expandedPaths, layoutSize.height, layoutSize.width, root],
+    [detailLevel, expandedPaths, layoutSize.height, layoutSize.width, root],
   )
 
   const tiles = zoomBackdrop
     ? pinnedToTiles(zoomBackdrop, layoutSize.width, layoutSize.height)
     : pinned?.rootPath === root.path && pinned.tiles.length > 0
       ? pinnedToTiles(pinned.tiles, layoutSize.width, layoutSize.height)
-      : computedTiles
+      : computedLayout.tiles
+
+  const shells =
+    zoom || zoomBackdrop
+      ? []
+      : pinned?.rootPath === root.path && pinned.tiles.length > 0
+        ? pinnedToShells(pinned.shells, layoutSize.width, layoutSize.height)
+        : computedLayout.shells
 
   if (!zoomBackdrop) {
     tilesRef.current = tiles
+    shellsRef.current = shells
   }
 
   const beginZoomInto = (folder: ScanNode, _from: TileRect) => {
@@ -470,11 +564,14 @@ export function SpaceSnifferTreemap({
       pinned?.rootPath === root.path && pinned.tiles.length > 0
         ? pinnedToTiles(pinned.tiles, layoutSize.width, layoutSize.height)
         : tilesRef.current
+    const currentShells =
+      pinned?.rootPath === root.path && pinned.tiles.length > 0
+        ? pinnedToShells(pinned.shells, layoutSize.width, layoutSize.height)
+        : shellsRef.current
 
     const childTiles = currentTiles.filter(
       (tile) => isUnderPath(tile.node.path, folder.path) && tile.node.path !== folder.path,
     )
-
     const bounds = boundsOfTiles(childTiles)
     if (!bounds || childTiles.length === 0) {
       setPinned(undefined)
@@ -482,6 +579,9 @@ export function SpaceSnifferTreemap({
       return
     }
 
+    const nestedShells = currentShells.filter(
+      (shell) => shell.path !== folder.path && isUnderPath(shell.path, folder.path),
+    )
     const otherTiles = currentTiles.filter((tile) => !isUnderPath(tile.node.path, folder.path))
     const childSlots = childTiles.map((tile) =>
       tileToPinned(tile, layoutSize.width, layoutSize.height),
@@ -492,8 +592,10 @@ export function SpaceSnifferTreemap({
         ...otherTiles.map((tile) => tileToPinned(tile, layoutSize.width, layoutSize.height)),
         ...childSlots,
       ],
+      shells: currentShells.map((shell) => shellToPinned(shell, layoutSize.width, layoutSize.height)),
     }
 
+    const content = viewContentRect(layoutSize.width, layoutSize.height)
     const zoomTiles: ZoomTile[] = childTiles.map((tile) => ({
       node: tile.node,
       color: tile.color,
@@ -503,13 +605,20 @@ export function SpaceSnifferTreemap({
         width: tile.width,
         height: tile.height,
       },
-      to: {
-        x: ((tile.x - bounds.x) / bounds.width) * layoutSize.width,
-        y: ((tile.y - bounds.y) / bounds.height) * layoutSize.height,
-        width: (tile.width / bounds.width) * layoutSize.width,
-        height: (tile.height / bounds.height) * layoutSize.height,
-      },
+      to: mapRectIntoTarget(tile, bounds, content),
     }))
+
+    const rootShellPinned: PinnedShell = {
+      node: folder,
+      path: folder.path,
+      name: folder.name,
+      byteSize: folder.byteSize,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      depth: 0,
+    }
 
     const folderPinned: PinnedLayout = {
       rootPath: folder.path,
@@ -521,6 +630,23 @@ export function SpaceSnifferTreemap({
         width: tile.to.width / layoutSize.width,
         height: tile.to.height / layoutSize.height,
       })),
+      shells: [
+        rootShellPinned,
+        ...nestedShells.map((shell) => {
+          const mapped = mapRectIntoTarget(shell, bounds, content)
+          return {
+            node: shell.node,
+            path: shell.path,
+            name: shell.name,
+            byteSize: shell.byteSize,
+            x: mapped.x / layoutSize.width,
+            y: mapped.y / layoutSize.height,
+            width: mapped.width / layoutSize.width,
+            height: mapped.height / layoutSize.height,
+            depth: shell.depth,
+          }
+        }),
+      ],
     }
 
     // 从当前深度截断再压入，丢掉旧的「前进」分支
@@ -598,10 +724,66 @@ export function SpaceSnifferTreemap({
   const displayTiles = zoom?.hideUnderPath
     ? tiles.filter((tile) => !isUnderPath(tile.node.path, zoom.hideUnderPath!))
     : tiles
-  const folderFrames =
-    zoom || zoomBackdrop
-      ? []
-      : openFolderFrames(displayTiles, root.path, expandedPaths)
+
+  const nestedShells = shells.filter((shell) => shell.path !== root.path)
+  // 当前视图根外框始终铺满画布，画在色块之上，避免被盖住或从 pin 里丢
+  const rootShell =
+    !busy && !zoomBackdrop && layoutSize.width > 0 && layoutSize.height > 0
+      ? {
+          node: root,
+          path: root.path,
+          name: root.name,
+          byteSize: root.byteSize,
+          x: 0,
+          y: 0,
+          width: layoutSize.width,
+          height: layoutSize.height,
+          depth: 0,
+        }
+      : undefined
+
+  const renderShell = (shell: FolderShell, isRoot: boolean) => {
+    const showLabel = shell.width >= 40 && shell.height >= FOLDER_HEADER_PX
+    const showSize = shell.width >= 96
+    const sizeText = formatStorageSize(shell.byteSize)
+    const canEnter = !isRoot
+    return (
+      <div
+        key={`shell:${shell.path}`}
+        class={`space-sniffer__folder-shell${isRoot ? ' space-sniffer__folder-shell--root' : ''}`}
+        style={{
+          left: shell.x,
+          top: shell.y,
+          width: shell.width,
+          height: shell.height,
+          // 嵌套壳必须低于色块，否则不透明底会盖住子内容；根框透明描边可压在最上面
+          zIndex: isRoot ? ROOT_SHELL_Z : 0,
+        }}
+      >
+        {showLabel ? (
+          <div
+            class={`space-sniffer__folder-shell-label${canEnter ? ' space-sniffer__folder-shell-label--enter' : ''}`}
+            title={canEnter ? `双击进入 ${shell.name}` : undefined}
+            onDblClick={(event) => {
+              event.stopPropagation()
+              if (busy || !canEnter) return
+              beginZoomInto(shell.node, {
+                x: shell.x,
+                y: shell.y,
+                width: shell.width,
+                height: shell.height,
+              })
+            }}
+          >
+            <span class="space-sniffer__folder-shell-name">{shell.name}</span>
+            {showSize ? (
+              <span class="space-sniffer__folder-shell-size">{sizeText}</span>
+            ) : undefined}
+          </div>
+        ) : undefined}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -610,6 +792,10 @@ export function SpaceSnifferTreemap({
       aria-label="文件占用矩形树图"
       role="group"
     >
+      {busy ? <div class="space-sniffer__zoom-veil" aria-hidden="true" /> : undefined}
+
+      {nestedShells.map((shell) => renderShell(shell, false))}
+
       {displayTiles.map((tile) => {
         const selected = tile.node.path === selectedPath
         const showLabel = tile.width >= 36 && tile.height >= 22
@@ -705,6 +891,8 @@ export function SpaceSnifferTreemap({
         )
       })}
 
+      {rootShell ? renderShell(rootShell, true) : undefined}
+
       {hoverTip && !busy ? (
         <div
           class="space-sniffer__tooltip"
@@ -716,20 +904,6 @@ export function SpaceSnifferTreemap({
           <span class="space-sniffer__tooltip-size">{hoverTip.size}</span>
         </div>
       ) : undefined}
-
-      {folderFrames.map((frame) => (
-        <div
-          key={`frame:${frame.path}`}
-          class="space-sniffer__folder-frame"
-          style={{
-            left: frame.rect.x,
-            top: frame.rect.y,
-            width: frame.rect.width,
-            height: frame.rect.height,
-          }}
-          aria-hidden="true"
-        />
-      ))}
 
       {zoom
         ? zoom.tiles.map((tile) => {

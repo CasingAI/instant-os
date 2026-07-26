@@ -3,14 +3,12 @@ import { formatStorageSize } from '../../os/format-storage-size.ts'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { useOs } from '../../os/os-context.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
-import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { findNodeByPath, scanPath } from './space-sniffer-scan.ts'
 import { SpaceSnifferTreemap } from './space-sniffer-treemap.tsx'
 import {
   DEFAULT_DETAIL_LEVEL,
   MAX_DETAIL_LEVEL,
   MIN_DETAIL_LEVEL,
-  type ColorMode,
   type ScanNode,
   type ScanProgress,
 } from './space-sniffer-types.ts'
@@ -21,14 +19,13 @@ type SpaceSnifferViewProps = {
   onRequestClose?: () => void
 }
 
-export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps) {
+export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceSnifferViewProps) {
   const { openApp } = useOs()
   const { showIconContextMenu } = useIconContextMenu()
 
   const [progress, setProgress] = useState<ScanProgress | undefined>(undefined)
   const [scanning, setScanning] = useState(false)
   const [detailLevel, setDetailLevel] = useState(DEFAULT_DETAIL_LEVEL)
-  const [colorMode, setColorMode] = useState<ColorMode>('file-class')
   const [selectedPath, setSelectedPath] = useState<string | undefined>(undefined)
   const [viewPath, setViewPath] = useState(rootPath)
   const [history, setHistory] = useState<string[]>([rootPath])
@@ -178,6 +175,12 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
         return
       }
 
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'w') {
+        event.preventDefault()
+        onRequestClose?.()
+        return
+      }
+
       if (event.key === 'Backspace' && !event.shiftKey) {
         event.preventDefault()
         goBack()
@@ -211,18 +214,12 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
       if ((event.metaKey || event.ctrlKey) && event.key === '-') {
         event.preventDefault()
         setDetailLevel((value) => Math.max(MIN_DETAIL_LEVEL, value - 1))
-        return
-      }
-
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') {
-        event.preventDefault()
-        setColorMode((mode) => (mode === 'flat' ? 'file-class' : 'flat'))
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [goBack, goForward, goHome, goUp, onNewScan])
+  }, [goBack, goForward, goHome, goUp, onNewScan, onRequestClose])
 
   const viewShare =
     scanRoot && viewRoot && scanRoot.byteSize > 0
@@ -236,7 +233,7 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
     <div class="space-sniffer__view">
       <div class="space-sniffer__toolbar" role="toolbar" aria-label="空间嗅探工具栏">
         <div class="space-sniffer__toolbar-group">
-          <IosButton size="compact" title="新建扫描 (⌘N)" onClick={onNewScan}>
+          <IosButton size="compact" title="新建扫描标签 (⌘N)" onClick={onNewScan}>
             新建
           </IosButton>
         </div>
@@ -298,17 +295,6 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
             增加细节
           </IosButton>
         </div>
-        <span class="space-sniffer__toolbar-sep" aria-hidden="true" />
-        <SegmentedControl
-          className="space-sniffer__color-control"
-          value={colorMode}
-          ariaLabel="着色模式"
-          items={[
-            { id: 'file-class', label: '类型' },
-            { id: 'flat', label: '扁平' },
-          ]}
-          onChange={setColorMode}
-        />
       </div>
 
       <div class="space-sniffer__pathbar" title={viewPath}>
@@ -327,7 +313,6 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
               root={viewRoot}
               scanRootBytes={scanRoot?.byteSize ?? viewRoot.byteSize}
               detailLevel={detailLevel}
-              colorMode={colorMode}
               selectedPath={selectedPath}
               onSelect={(node) => setSelectedPath(node.path)}
               onActivate={handleActivate}
@@ -342,6 +327,15 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
       </div>
 
       <div class="space-sniffer__statusbar">
+        <div class="space-sniffer__status-side">
+          {selectedNode ? (
+            <span>
+              已选：{selectedNode.name} · {formatStorageSize(selectedNode.byteSize)}
+            </span>
+          ) : (
+            <span>细节 {detailLevel}</span>
+          )}
+        </div>
         <div class="space-sniffer__status-main">
           {scanning ? (
             <span>扫描中… {progress ? `${progress.fileCount} 个文件` : ''}</span>
@@ -354,15 +348,6 @@ export function SpaceSnifferView({ rootPath, onNewScan }: SpaceSnifferViewProps)
             </span>
           ) : (
             <span>准备就绪</span>
-          )}
-        </div>
-        <div class="space-sniffer__status-side">
-          {selectedNode ? (
-            <span>
-              已选：{selectedNode.name} · {formatStorageSize(selectedNode.byteSize)}
-            </span>
-          ) : (
-            <span>细节 {detailLevel}</span>
           )}
           {scanning ? (
             <span class="space-sniffer__progress" aria-label="扫描进行中">
