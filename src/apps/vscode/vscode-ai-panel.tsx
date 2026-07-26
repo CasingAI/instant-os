@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { RefObject } from 'preact'
 import type OpenAI from 'openai'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
@@ -52,6 +53,7 @@ import {
 } from './vscode-ai-system-reminder.ts'
 import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
+import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import {
   openAiConfigForVscodeAiModelKey,
   parseVscodeAiModelRefKey,
@@ -90,6 +92,240 @@ const INVESTIGATION_STEP_STAGGER_MS = 55
 const INVESTIGATION_STEP_ANIM_MS = 320
 const INVESTIGATION_COLLAPSE_MS = 280
 const COMPOSER_INPUT_MAX_LINES = 5
+
+function syncComposerTextareaHeight(
+  el: HTMLTextAreaElement,
+  maxLines: number,
+  previousHeightRef?: { current: number | undefined },
+): void {
+  const styles = getComputedStyle(el)
+  const lineHeight = Number.parseFloat(styles.lineHeight) || 18
+  const paddingY =
+    (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0)
+  const minHeight = lineHeight + paddingY
+  const maxHeight = lineHeight * maxLines + paddingY
+  const previousHeight = previousHeightRef?.current ?? Math.max(el.offsetHeight, minHeight)
+
+  el.style.transition = 'none'
+  el.style.minHeight = '0'
+  el.style.height = '0px'
+  const contentHeight = el.scrollHeight
+  const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight)
+  el.style.minHeight = ''
+  el.style.height = `${previousHeight}px`
+  void el.offsetHeight
+  el.style.transition = ''
+  el.style.height = `${nextHeight}px`
+  el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden'
+  if (previousHeightRef) {
+    previousHeightRef.current = nextHeight
+  }
+}
+
+type UserBubbleMorphFrom = {
+  messageId: string
+  width: number
+  height: number
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
+/** 气泡 ↔ 编辑框：按测量尺寸做宽高过渡（useLayoutEffect 内调用，避免首帧闪一下） */
+function morphUserBubbleSize(el: HTMLElement, from: UserBubbleMorphFrom): void {
+  if (prefersReducedMotion()) return
+  const to = el.getBoundingClientRect()
+  if (Math.abs(to.width - from.width) < 2 && Math.abs(to.height - from.height) < 2) return
+  el.animate(
+    [
+      {
+        width: `${from.width}px`,
+        height: `${from.height}px`,
+        overflow: 'hidden',
+      },
+      {
+        width: `${to.width}px`,
+        height: `${to.height}px`,
+        overflow: 'hidden',
+      },
+    ],
+    {
+      duration: 280,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    },
+  )
+}
+
+type VscodeAiComposerBlockProps = {
+  value: string
+  onChange: (value: string) => void
+  onSend: () => void
+  inputRef?: RefObject<HTMLTextAreaElement>
+  placeholder: string
+  inputDisabled?: boolean
+  sendDisabled?: boolean
+  busy: boolean
+  onStop: () => void
+  mode: VscodeAiMode
+  onModeChange: (mode: VscodeAiMode) => void
+  resolvedModelKey: string | undefined
+  onAiModelKeyChange: (key: string) => void
+  textModels: FlatEnabledModel[]
+  aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
+  onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
+  contextUsage: VscodeAiContextUsage | undefined
+  dark?: boolean
+  /** composer=底部输入卡；bubble=用户气泡内编辑（无独立卡片外观） */
+  surface?: 'composer' | 'bubble'
+}
+
+function VscodeAiComposerBlock({
+  value,
+  onChange,
+  onSend,
+  inputRef,
+  placeholder,
+  inputDisabled,
+  sendDisabled,
+  busy,
+  onStop,
+  mode,
+  onModeChange,
+  resolvedModelKey,
+  onAiModelKeyChange,
+  textModels,
+  aiModelOptions,
+  onAiModelOptionsChange,
+  contextUsage,
+  dark,
+  surface = 'composer',
+}: VscodeAiComposerBlockProps) {
+  const rootClass =
+    surface === 'bubble'
+      ? 'vscode-ai__bubble-edit'
+      : 'help-app__composer vscode-ai__composer'
+  const inputClass =
+    surface === 'bubble' ? 'vscode-ai__bubble-edit-input' : 'help-app__input'
+  const selectClass =
+    surface === 'bubble'
+      ? 'vscode-ai__bubble-edit-select'
+      : 'vscode-ai__footer-select vscode-ai__footer-select--trigger'
+
+  return (
+    <div class={rootClass}>
+      <textarea
+        ref={inputRef}
+        class={inputClass}
+        rows={1}
+        placeholder={placeholder}
+        value={value}
+        disabled={inputDisabled}
+        onInput={(event) => onChange((event.target as HTMLTextAreaElement).value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            onSend()
+          }
+        }}
+      />
+      <div
+        class={
+          surface === 'bubble'
+            ? 'vscode-ai__bubble-edit-footer'
+            : 'vscode-ai__composer-footer'
+        }
+      >
+        <label class="vscode-ai__footer-field vscode-ai__footer-field--mode">
+          <span class="vscode-ai__footer-label">模式</span>
+          <SettingsChoiceField
+            label="AI 模式"
+            value={mode}
+            options={VSCODE_AI_MODE_OPTIONS}
+            onChange={(next) => {
+              if (isVscodeAiMode(next)) onModeChange(next)
+            }}
+            disabled={busy}
+            wideLayout
+            dark={dark}
+          >
+            {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
+              <button
+                ref={triggerRef}
+                type="button"
+                class={`${selectClass}${open ? ' vscode-ai__footer-select--open' : ''}`}
+                disabled={triggerDisabled}
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                aria-label="AI 模式"
+                onClick={() => setOpen(!open)}
+              >
+                {displayValue}
+              </button>
+            )}
+          </SettingsChoiceField>
+        </label>
+        <label class="vscode-ai__footer-field vscode-ai__footer-field--model">
+          <span class="vscode-ai__footer-label">模型</span>
+          <VscodeAiModelPicker
+            label="模型"
+            value={resolvedModelKey ?? ''}
+            models={textModels}
+            onChange={onAiModelKeyChange}
+            aiModelOptions={aiModelOptions}
+            onAiModelOptionsChange={onAiModelOptionsChange}
+            disabled={busy || textModels.length === 0}
+            dark={dark}
+            ariaLabel="模型"
+          >
+            {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
+              <button
+                ref={triggerRef}
+                type="button"
+                class={`${selectClass}${open ? ' vscode-ai__footer-select--open' : ''}`}
+                disabled={triggerDisabled}
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                aria-label="模型"
+                onClick={() => setOpen(!open)}
+              >
+                {displayValue}
+              </button>
+            )}
+          </VscodeAiModelPicker>
+        </label>
+        <div class="vscode-ai__composer-footer-trailing">
+          <VscodeAiContextUsageView usage={contextUsage} dark={dark} />
+          {busy ? (
+            <button
+              type="button"
+              class="help-app__stop"
+              aria-label="停止"
+              title="停止"
+              onClick={onStop}
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              type="button"
+              class={`help-app__send${surface === 'bubble' ? ' vscode-ai__bubble-edit-send' : ''}`}
+              aria-label="发送"
+              title="发送"
+              disabled={sendDisabled}
+              onClick={onSend}
+            >
+              ↑
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export type VscodeAiPanelProps = {
   sessionId: string
@@ -696,6 +932,10 @@ export function VscodeAiPanel({
   const composerWrapRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const composerInputHeightRef = useRef<number | undefined>(undefined)
+  const userEditInputRef = useRef<HTMLTextAreaElement>(null)
+  const userEditComposerRef = useRef<HTMLDivElement>(null)
+  const userBubbleMorphFromRef = useRef<UserBubbleMorphFrom | undefined>(undefined)
+  const userEditInputHeightRef = useRef<number | undefined>(undefined)
   const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
   const liveTimelineRef = useRef<VscodeAiTimelineItem[]>([])
   const liveAnswerRef = useRef('')
@@ -714,16 +954,16 @@ export function VscodeAiPanel({
   onBusyChangeRef.current = onBusyChange
 
   useEffect(() => {
-    onBusyChangeRef.current?.(busy || reviewBusy)
-  }, [busy, reviewBusy])
-
-  useEffect(() => {
     return () => onBusyChangeRef.current?.(false)
   }, [])
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
   const [composerInset, setComposerInset] = useState(96)
+
+  useEffect(() => {
+    onBusyChangeRef.current?.(busy || reviewBusy)
+  }, [busy, reviewBusy])
 
   const resolvedModelId = useMemo(
     () => openAiConfigForVscodeAiModelKey(resolvedModelKey).defaultModel,
@@ -741,28 +981,32 @@ export function VscodeAiPanel({
   useLayoutEffect(() => {
     const el = composerInputRef.current
     if (!el) return
-
-    const styles = getComputedStyle(el)
-    const lineHeight = Number.parseFloat(styles.lineHeight) || 18
-    const paddingY =
-      (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0)
-    const minHeight = lineHeight + paddingY
-    const maxHeight = lineHeight * COMPOSER_INPUT_MAX_LINES + paddingY
-    const previousHeight = composerInputHeightRef.current ?? Math.max(el.offsetHeight, minHeight)
-
-    el.style.transition = 'none'
-    el.style.minHeight = '0'
-    el.style.height = '0px'
-    const contentHeight = el.scrollHeight
-    const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight)
-    el.style.minHeight = ''
-    el.style.height = `${previousHeight}px`
-    void el.offsetHeight
-    el.style.transition = ''
-    el.style.height = `${nextHeight}px`
-    el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden'
-    composerInputHeightRef.current = nextHeight
+    syncComposerTextareaHeight(el, COMPOSER_INPUT_MAX_LINES, composerInputHeightRef)
   }, [draft])
+
+  useLayoutEffect(() => {
+    if (!editingUserId) return
+    const el = userEditInputRef.current
+    if (!el) return
+    syncComposerTextareaHeight(el, COMPOSER_INPUT_MAX_LINES, userEditInputHeightRef)
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [editingDraft, editingUserId])
+
+  useLayoutEffect(() => {
+    const from = userBubbleMorphFromRef.current
+    if (!from) return
+    userBubbleMorphFromRef.current = undefined
+    const el =
+      (editingUserId
+        ? userEditComposerRef.current
+        : null) ??
+      (scrollRef.current?.querySelector(
+        `[data-vscode-ai-user-bubble="${from.messageId}"]`,
+      ) as HTMLElement | null)
+    if (!el) return
+    morphUserBubbleSize(el, from)
+  }, [editingUserId])
 
   useLayoutEffect(() => {
     const el = composerWrapRef.current
@@ -946,10 +1190,19 @@ export function VscodeAiPanel({
           resolvedTokenizerFamily,
         )
         if (cancelled || busyRef.current) return
-        const history =
-          historyRef.current.length > 0
+
+        // 编辑气泡重发：按「该条之前的历史 + 当前编辑文案」预估发送后占用
+        const editingIndex = editingUserId
+          ? messages.findIndex((message) => message.id === editingUserId)
+          : -1
+        const isResubmitPreview = editingIndex >= 0
+        const history = isResubmitPreview
+          ? rebuildHistoryFromMessages(messages.slice(0, editingIndex))
+          : historyRef.current.length > 0
             ? historyRef.current
             : rebuildHistoryFromMessages(messages)
+        const userMessage = isResubmitPreview ? editingDraft : draft
+
         const currentTerminal = aiTerminalKind
           ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
           : undefined
@@ -966,7 +1219,7 @@ export function VscodeAiPanel({
           mode,
           context: contextWithTerminal(),
           history,
-          userMessage: draft,
+          userMessage,
           reminderText,
           model: resolvedModelId,
           providerEntryId: resolvedProviderEntryId,
@@ -986,6 +1239,8 @@ export function VscodeAiPanel({
     busy,
     contextWithTerminal,
     draft,
+    editingDraft,
+    editingUserId,
     getAiTerminalSnapshot,
     messages,
     mode,
@@ -1270,16 +1525,63 @@ export function VscodeAiPanel({
     }
   }, [messages, onMessagesChange, pendingReview.sessionIds, reviewBusy, runCommandHost])
 
-  const beginEditUserMessage = useCallback((message: VscodeAiChatMessage) => {
-    if (message.role !== 'user') return
-    setEditingUserId(message.id)
-    setEditingDraft(message.content)
-  }, [])
+  const beginEditUserMessage = useCallback(
+    (message: VscodeAiChatMessage, bubbleEl?: HTMLElement | null) => {
+      if (message.role !== 'user') return
+      if (bubbleEl) {
+        const rect = bubbleEl.getBoundingClientRect()
+        userBubbleMorphFromRef.current = {
+          messageId: message.id,
+          width: rect.width,
+          height: rect.height,
+        }
+      } else {
+        userBubbleMorphFromRef.current = undefined
+      }
+      userEditInputHeightRef.current = undefined
+      setEditingUserId(message.id)
+      setEditingDraft(message.content)
+    },
+    [],
+  )
 
   const cancelEditUserMessage = useCallback(() => {
+    const bubbleEl = userEditComposerRef.current
+    const messageId = bubbleEl?.getAttribute('data-vscode-ai-user-bubble')
+    if (bubbleEl && messageId) {
+      const rect = bubbleEl.getBoundingClientRect()
+      userBubbleMorphFromRef.current = {
+        messageId,
+        width: rect.width,
+        height: rect.height,
+      }
+    } else {
+      userBubbleMorphFromRef.current = undefined
+    }
     setEditingUserId(undefined)
     setEditingDraft('')
+    userEditInputHeightRef.current = undefined
   }, [])
+
+  useEffect(() => {
+    if (!editingUserId) return
+    const onPointerDown = (event: PointerEvent) => {
+      const root = userEditComposerRef.current
+      if (!root) return
+      const target = event.target
+      if (target instanceof Node && root.contains(target)) return
+      // 上下文占用弹层 portal 到 body，点击时不应取消编辑
+      if (
+        target instanceof Element &&
+        target.closest('.vscode-ai__context-usage-popover')
+      ) {
+        return
+      }
+      cancelEditUserMessage()
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [cancelEditUserMessage, editingUserId])
 
   const resubmitEditedUserMessage = useCallback(
     async (messageId: string) => {
@@ -1343,6 +1645,15 @@ export function VscodeAiPanel({
 
   const showWelcome = messages.length === 0 && !busy
   const showLive = busy
+  const canEditUserMessage = !busy && !reviewBusy
+
+  const handleUserBubbleActivate = useCallback(
+    (message: VscodeAiChatMessage, bubbleEl?: HTMLElement | null) => {
+      if (!canEditUserMessage || message.role !== 'user') return
+      beginEditUserMessage(message, bubbleEl)
+    },
+    [beginEditUserMessage, canEditUserMessage],
+  )
 
   return (
     <div
@@ -1375,91 +1686,142 @@ export function VscodeAiPanel({
           </div>
         ) : (
           <div class="help-app__messages">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                class={`help-app__message help-app__message--${message.role}${message.isError ? ' help-app__message--error' : ''}`}
-              >
-                <span class="help-app__avatar" aria-hidden="true">
-                  {message.isError ? '!' : message.role === 'assistant' ? (
-                    <VscodeIcon size={30} />
-                  ) : (
-                    '🙂'
-                  )}
-                </span>
-                <div
-                  class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}${message.role === 'user' ? ' vscode-ai__bubble--user' : ''}`}
-                >
-                  {message.investigation ? (
-                    <InvestigationPanel investigation={message.investigation} />
-                  ) : undefined}
-                  {message.role === 'user' &&
-                  aiDebugSystemReminder &&
-                  message.systemReminder?.trim() ? (
-                    <details class="vscode-ai__system-reminder" open>
-                      <summary>System Reminder（debug）</summary>
-                      <pre class="vscode-ai__system-reminder-body">{message.systemReminder}</pre>
-                    </details>
-                  ) : undefined}
-                  {message.role === 'user' && editingUserId === message.id ? (
-                    <div class="vscode-ai__user-edit">
-                      <textarea
-                        class="help-app__input vscode-ai__user-edit-input"
-                        rows={3}
-                        value={editingDraft}
-                        disabled={busy || reviewBusy}
-                        onInput={(event) =>
-                          setEditingDraft((event.target as HTMLTextAreaElement).value)
-                        }
-                      />
-                      <div class="vscode-ai__user-edit-actions">
-                        <button
-                          type="button"
-                          class="help-app__sample"
-                          disabled={busy || reviewBusy || !editingDraft.trim()}
-                          onClick={() => void resubmitEditedUserMessage(message.id)}
-                        >
-                          发送
-                        </button>
-                        <button
-                          type="button"
-                          class="help-app__sample"
-                          disabled={busy || reviewBusy}
-                          onClick={cancelEditUserMessage}
-                        >
-                          取消
-                        </button>
-                      </div>
-                    </div>
-                  ) : message.role === 'assistant' && !message.isError ? (
-                    <div class="help-app__answer">
-                      <HelpMarkdown text={message.content} />
-                    </div>
-                  ) : (
-                    <div class="help-app__answer help-app__answer--plain">{message.content}</div>
-                  )}
-                  {message.role === 'user' && editingUserId !== message.id ? (
-                    <button
-                      type="button"
-                      class="vscode-ai__edit-msg"
-                      disabled={busy || reviewBusy}
-                      title="编辑并从此处分叉重发"
-                      onClick={() => beginEditUserMessage(message)}
+            {messages.map((message) => {
+              const isEditingUser = message.role === 'user' && editingUserId === message.id
+              const isEditableUser =
+                message.role === 'user' && !editingUserId && canEditUserMessage
+
+              if (message.role === 'user') {
+                return (
+                  <div
+                    key={message.id}
+                    class={`help-app__message help-app__message--user${
+                      isEditingUser ? ' help-app__message--user-editing' : ''
+                    }`}
+                  >
+                    <span class="help-app__avatar" aria-hidden="true">
+                      🙂
+                    </span>
+                    <div
+                      data-vscode-ai-user-bubble={message.id}
+                      class={`help-app__bubble vscode-ai__bubble--user${
+                        isEditingUser ? ' vscode-ai__bubble--user-editing' : ''
+                      }${isEditableUser ? ' vscode-ai__bubble--user-editable' : ''}`}
+                      ref={isEditingUser ? userEditComposerRef : undefined}
+                      role={isEditableUser ? 'button' : undefined}
+                      tabIndex={isEditableUser ? 0 : undefined}
+                      aria-label={isEditableUser ? '编辑消息' : undefined}
+                      onClick={
+                        isEditableUser
+                          ? (event) => {
+                              const target = event.target as HTMLElement
+                              if (
+                                target.closest('details, summary, button, a, textarea, input')
+                              ) {
+                                return
+                              }
+                              handleUserBubbleActivate(
+                                message,
+                                event.currentTarget as HTMLElement,
+                              )
+                            }
+                          : undefined
+                      }
+                      onKeyDown={
+                        isEditableUser
+                          ? (event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return
+                              event.preventDefault()
+                              handleUserBubbleActivate(
+                                message,
+                                event.currentTarget as HTMLElement,
+                              )
+                            }
+                          : undefined
+                      }
                     >
-                      编辑
-                    </button>
-                  ) : undefined}
-                  {message.pendingEdits?.map((edit) => (
-                    <PendingEditCard
-                      key={edit.id}
-                      edit={edit}
-                      onApply={() => void applyEdit(edit)}
-                      onReject={() => rejectEdit(edit.id)}
-                    />
-                  ))}
+                      {isEditingUser ? (
+                        <VscodeAiComposerBlock
+                          surface="bubble"
+                          value={editingDraft}
+                          onChange={setEditingDraft}
+                          onSend={() => void resubmitEditedUserMessage(message.id)}
+                          inputRef={userEditInputRef}
+                          placeholder="编辑消息…"
+                          inputDisabled={busy || reviewBusy}
+                          sendDisabled={
+                            !editingDraft.trim() ||
+                            busy ||
+                            reviewBusy ||
+                            textModels.length === 0
+                          }
+                          busy={busy}
+                          onStop={stop}
+                          mode={mode}
+                          onModeChange={onModeChange}
+                          resolvedModelKey={resolvedModelKey}
+                          onAiModelKeyChange={onAiModelKeyChange}
+                          textModels={textModels}
+                          aiModelOptions={aiModelOptions}
+                          onAiModelOptionsChange={onAiModelOptionsChange}
+                          contextUsage={contextUsage}
+                          dark={dark}
+                        />
+                      ) : (
+                        <>
+                          {aiDebugSystemReminder && message.systemReminder?.trim() ? (
+                            <details class="vscode-ai__system-reminder" open>
+                              <summary>System Reminder（debug）</summary>
+                              <pre class="vscode-ai__system-reminder-body">
+                                {message.systemReminder}
+                              </pre>
+                            </details>
+                          ) : undefined}
+                          <div class="help-app__answer help-app__answer--plain">
+                            {message.content}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+
+              return (
+                <div
+                  key={message.id}
+                  class={`help-app__message help-app__message--${message.role}${message.isError ? ' help-app__message--error' : ''}`}
+                >
+                  <span class="help-app__avatar" aria-hidden="true">
+                    {message.isError ? '!' : <VscodeIcon size={30} />}
+                  </span>
+                  <div
+                    class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
+                  >
+                    {message.investigation ? (
+                      <InvestigationPanel investigation={message.investigation} />
+                    ) : undefined}
+                    {message.role === 'assistant' && !message.isError ? (
+                      <div class="help-app__answer">
+                        <HelpMarkdown text={message.content} />
+                      </div>
+                    ) : (
+                      <div class="help-app__answer help-app__answer--plain">
+                        {message.content}
+                      </div>
+                    )}
+                    {message.pendingEdits?.map((edit) => (
+                      <PendingEditCard
+                        key={edit.id}
+                        edit={edit}
+                        onApply={() => void applyEdit(edit)}
+                        onReject={() => rejectEdit(edit.id)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {showLive ? (
               <div class="help-app__message help-app__message--assistant">
@@ -1511,116 +1873,34 @@ export function VscodeAiPanel({
             </div>
           </div>
         ) : undefined}
-        <div class="help-app__composer vscode-ai__composer">
-          <textarea
-            ref={composerInputRef}
-            class="help-app__input"
-            rows={1}
-            placeholder={
-              mode === 'ask'
-                ? '只读问答…'
-                : mode === 'plan'
-                  ? '调研并写计划…'
-                  : mode === 'edit'
-                    ? '描述要做的修改…'
-                    : '描述任务…'
-            }
-            value={draft}
-            disabled={busy}
-            onInput={(event) => setDraft((event.target as HTMLTextAreaElement).value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                void send()
-              }
-            }}
-          />
-          <div class="vscode-ai__composer-footer">
-            <label class="vscode-ai__footer-field vscode-ai__footer-field--mode">
-              <span class="vscode-ai__footer-label">模式</span>
-              <SettingsChoiceField
-                label="AI 模式"
-                value={mode}
-                options={VSCODE_AI_MODE_OPTIONS}
-                onChange={(value) => {
-                  if (isVscodeAiMode(value)) onModeChange(value)
-                }}
-                disabled={busy}
-                wideLayout
-                dark={dark}
-              >
-                {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
-                  <button
-                    ref={triggerRef}
-                    type="button"
-                    class={`vscode-ai__footer-select vscode-ai__footer-select--trigger${open ? ' vscode-ai__footer-select--open' : ''}`}
-                    disabled={triggerDisabled}
-                    aria-haspopup="listbox"
-                    aria-expanded={open}
-                    aria-label="AI 模式"
-                    onClick={() => setOpen(!open)}
-                  >
-                    {displayValue}
-                  </button>
-                )}
-              </SettingsChoiceField>
-            </label>
-            <label class="vscode-ai__footer-field vscode-ai__footer-field--model">
-              <span class="vscode-ai__footer-label">模型</span>
-              <VscodeAiModelPicker
-                label="模型"
-                value={resolvedModelKey ?? ''}
-                models={textModels}
-                onChange={onAiModelKeyChange}
-                aiModelOptions={aiModelOptions}
-                onAiModelOptionsChange={onAiModelOptionsChange}
-                disabled={busy || textModels.length === 0}
-                dark={dark}
-                ariaLabel="模型"
-              >
-                {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
-                  <button
-                    ref={triggerRef}
-                    type="button"
-                    class={`vscode-ai__footer-select vscode-ai__footer-select--trigger${open ? ' vscode-ai__footer-select--open' : ''}`}
-                    disabled={triggerDisabled}
-                    aria-haspopup="listbox"
-                    aria-expanded={open}
-                    aria-label="模型"
-                    onClick={() => setOpen(!open)}
-                  >
-                    {displayValue}
-                  </button>
-                )}
-              </VscodeAiModelPicker>
-            </label>
-            <div class="vscode-ai__composer-footer-trailing">
-              <VscodeAiContextUsageView usage={contextUsage} />
-              {busy ? (
-                <button
-                  type="button"
-                  class="help-app__stop"
-                  aria-label="停止"
-                  title="停止"
-                  onClick={stop}
-                >
-                  ■
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  class="help-app__send"
-                  aria-label="发送"
-                  title="发送"
-                  disabled={!draft.trim() || textModels.length === 0}
-                  onClick={() => void send()}
-                >
-                  ↑
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <VscodeAiComposerBlock
+          value={draft}
+          onChange={setDraft}
+          onSend={() => void send()}
+          inputRef={composerInputRef}
+          placeholder={
+            mode === 'ask'
+              ? '只读问答…'
+              : mode === 'plan'
+                ? '调研并写计划…'
+                : mode === 'edit'
+                  ? '描述要做的修改…'
+                  : '描述任务…'
+          }
+          inputDisabled={busy}
+          sendDisabled={!draft.trim() || textModels.length === 0}
+          busy={busy}
+          onStop={stop}
+          mode={mode}
+          onModeChange={onModeChange}
+          resolvedModelKey={resolvedModelKey}
+          onAiModelKeyChange={onAiModelKeyChange}
+          textModels={textModels}
+          aiModelOptions={aiModelOptions}
+          onAiModelOptionsChange={onAiModelOptionsChange}
+          contextUsage={contextUsage}
+          dark={dark}
+        />
       </div>
     </div>
   )

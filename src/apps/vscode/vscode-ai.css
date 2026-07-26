@@ -356,52 +356,159 @@
   gap: 6px;
 }
 
+.vscode-ai .help-app__message--user .help-app__bubble {
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: min(100%, var(--help-bubble-max));
+}
+
 .vscode-ai__bubble--user {
   position: relative;
 }
 
-.vscode-ai__edit-msg {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  border: none;
-  border-radius: 4px;
-  padding: 2px 6px;
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--help-ink-muted);
-  font: inherit;
-  font-size: 11px;
+.vscode-ai__bubble--user-editable {
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
-.vscode-ai__bubble--user:hover .vscode-ai__edit-msg,
-.vscode-ai__edit-msg:focus-visible {
-  opacity: 1;
+.vscode-ai__bubble--user-editable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--help-accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
-.vscode-ai__edit-msg:disabled {
+/* 编辑态：用户气泡本身就是输入区（无嵌套灰色 composer 卡片） */
+.vscode-ai .help-app__message--user.help-app__message--user-editing {
+  width: 100%;
+}
+
+.vscode-ai .help-app__message--user-editing .help-app__avatar {
+  flex-shrink: 0;
+}
+
+.vscode-ai .help-app__message--user .help-app__bubble.vscode-ai__bubble--user-editing {
+  flex: 1 1 0;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  align-self: stretch;
   cursor: default;
-  opacity: 0.4;
+  outline: none;
+  white-space: normal;
 }
 
-.vscode-ai__user-edit {
+.vscode-ai__bubble-edit {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.vscode-ai__user-edit-input {
+  gap: 8px;
   width: 100%;
-  min-height: 64px;
-  resize: vertical;
+  min-width: 0;
+  color: inherit;
 }
 
-.vscode-ai__user-edit-actions {
+.vscode-ai__bubble-edit-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  resize: none;
+  outline: none;
+  overflow-y: hidden;
+  box-sizing: content-box;
+}
+
+.vscode-ai__bubble-edit-input::placeholder {
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.vscode-ai__bubble-edit-footer {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .vscode-ai__bubble-edit-footer {
+    animation: vscode-ai-bubble-edit-footer-in 200ms ease 40ms both;
+  }
+}
+
+@keyframes vscode-ai-bubble-edit-footer-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.vscode-ai__bubble-edit-select {
+  flex: none;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 22px 0 6px;
+  border-radius: var(--help-radius);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%231a334d' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E")
+      no-repeat right 8px center / 10px 6px,
+    color-mix(in srgb, #fff 42%, transparent);
+  color: inherit;
+  font-size: 11px;
+  font-family: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.vscode-ai__bubble-edit-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.vscode-ai__bubble-edit-select.vscode-ai__footer-select--open,
+.vscode-ai__bubble-edit-select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.vscode-ai__bubble-edit-send {
+  width: 28px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.vscode-ai .vscode-ai__bubble--user-editing .vscode-ai__context-usage-ring-hole {
+  background: #d0e3f7;
+}
+
+.vscode--chrome-dark .vscode-ai .vscode-ai__bubble--user-editing .vscode-ai__context-usage-ring-hole {
+  background: #142e4a;
+}
+
+.vscode--chrome-dark .vscode-ai__bubble-edit-select {
+  border-color: color-mix(in srgb, #fff 22%, transparent);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23c8dcf0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1.5 1.5 5 4.5 8.5 1.5'/%3E%3C/svg%3E")
+      no-repeat right 8px center / 10px 6px,
+    color-mix(in srgb, #fff 10%, transparent);
+  color: inherit;
 }
 
 .vscode-ai__composer {
@@ -571,17 +678,16 @@
 }
 
 .vscode-ai__context-usage-popover {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 40;
-  width: min(280px, calc(100vw - 32px));
+  position: fixed;
+  z-index: 1200;
+  width: min(280px, calc(100vw - 16px));
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--help-border);
   background: linear-gradient(180deg, #fffdf8 0%, var(--help-paper, #fffaf0) 100%);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
   color: var(--help-ink);
+  box-sizing: border-box;
 }
 
 .vscode-ai__context-usage-popover-head {
@@ -894,10 +1000,6 @@
   border-color: var(--help-border);
 }
 
-.vscode--chrome-dark .vscode-ai__edit-msg {
-  background: rgba(255, 255, 255, 0.06);
-}
-
 /* 输入框容器 */
 .vscode--chrome-dark .vscode-ai .help-app__composer {
   background: linear-gradient(180deg, #2a2a32 0%, var(--help-surface) 100%);
@@ -939,9 +1041,16 @@
   background: var(--help-surface, #2a2a32);
 }
 
+.vscode-ai__context-usage-popover--dark,
 .vscode--chrome-dark .vscode-ai__context-usage-popover {
-  background: linear-gradient(180deg, #32323a 0%, var(--help-surface, #2a2a32) 100%);
+  --help-ink: #d4d4d8;
+  --help-muted: #888890;
+  --help-surface: #2a2a32;
+  --help-border: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, #32323a 0%, #2a2a32 100%);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: var(--help-ink);
+  border-color: var(--help-border);
 }
 
 .vscode--chrome-dark .vscode-ai__context-usage-trigger:hover,
