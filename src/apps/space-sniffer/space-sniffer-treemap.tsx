@@ -95,8 +95,21 @@ type ZoomTile = {
   to: TileRect
 }
 
+type ZoomShell = {
+  node: ScanNode
+  path: string
+  name: string
+  byteSize: number
+  from: TileRect
+  to: TileRect
+  depth: number
+  /** 正在进入/离开的那一层：实底，避免挖空透底 */
+  primary: boolean
+}
+
 type ZoomState = {
   tiles: ZoomTile[]
+  shells: ZoomShell[]
   active: boolean
   /** 放大时藏起该文件夹子树；缩小时用背景层 */
   hideUnderPath?: string
@@ -295,13 +308,36 @@ function pinnedToShells(pinned: PinnedShell[], width: number, height: number): F
   }))
 }
 
-/** 视图根外框内侧的内容区（顶栏 + 外边距之后） */
+/** 视图根外框内侧的内容区（与 d3 paddingTop + paddingOuter 对齐） */
 function viewContentRect(width: number, height: number): TileRect {
   return {
     x: PADDING_OUTER_PX,
-    y: FOLDER_HEADER_PX,
+    y: FOLDER_HEADER_PX + PADDING_OUTER_PX,
     width: Math.max(1, width - PADDING_OUTER_PX * 2),
-    height: Math.max(1, height - FOLDER_HEADER_PX - PADDING_OUTER_PX),
+    height: Math.max(1, height - FOLDER_HEADER_PX - PADDING_OUTER_PX * 2),
+  }
+}
+
+/** 文件夹壳内侧内容区（顶栏下方） */
+function shellContentRect(shell: TileRect): TileRect {
+  return {
+    x: shell.x + PADDING_OUTER_PX,
+    y: shell.y + FOLDER_HEADER_PX,
+    width: Math.max(1, shell.width - PADDING_OUTER_PX * 2),
+    height: Math.max(1, shell.height - FOLDER_HEADER_PX - PADDING_OUTER_PX),
+  }
+}
+
+function shellFromChildren(bounds: TileRect, canvas: TileRect): TileRect {
+  const x = Math.max(canvas.x, bounds.x - PADDING_OUTER_PX)
+  const y = Math.max(canvas.y, bounds.y - FOLDER_HEADER_PX)
+  const right = Math.min(canvas.x + canvas.width, bounds.x + bounds.width + PADDING_OUTER_PX)
+  const bottom = Math.min(canvas.y + canvas.height, bounds.y + bounds.height + PADDING_OUTER_PX)
+  return {
+    x,
+    y,
+    width: Math.max(1, right - x),
+    height: Math.max(1, bottom - y),
   }
 }
 
@@ -379,13 +415,14 @@ export function SpaceSnifferTreemap({
 
   const playZoomTransition = (
     zoomTiles: ZoomTile[],
+    zoomShells: ZoomShell[],
     backdrop: PinnedTile[] | undefined,
     hideUnderPath?: string,
   ) => {
     setPinned(undefined)
     setZoomBackdrop(backdrop)
     setHoverTip(undefined)
-    setZoom({ tiles: zoomTiles, active: false, hideUnderPath })
+    setZoom({ tiles: zoomTiles, shells: zoomShells, active: false, hideUnderPath })
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setZoom((current) => (current ? { ...current, active: true } : current))
@@ -464,10 +501,24 @@ export function SpaceSnifferTreemap({
           to: pinnedToRect(slot, size.width, size.height),
         }
       })
+      const zoomShells: ZoomShell[] = leaveFrame.folderPinned.shells.map((shell) => {
+        const slot =
+          leaveFrame.parentSettled.shells.find((entry) => entry.path === shell.path) ?? shell
+        return {
+          node: shell.node,
+          path: shell.path,
+          name: shell.name,
+          byteSize: shell.byteSize,
+          from: pinnedToRect(shell, size.width, size.height),
+          to: pinnedToRect(slot, size.width, size.height),
+          depth: shell.depth,
+          primary: shell.path === leaveFrame.folderPath,
+        }
+      })
       const others = leaveFrame.parentSettled.tiles.filter(
         (tile) => !leaveFrame.childSlots.some((child) => child.node.path === tile.node.path),
       )
-      playZoomTransition(zoomTiles, others)
+      playZoomTransition(zoomTiles, zoomShells, others)
 
       if (zoomTimerRef.current !== undefined) window.clearTimeout(zoomTimerRef.current)
       zoomTimerRef.current = window.setTimeout(() => {
@@ -501,10 +552,24 @@ export function SpaceSnifferTreemap({
           to: pinnedToRect(tile, size.width, size.height),
         }
       })
+      const zoomShells: ZoomShell[] = enterFrame.folderPinned.shells.map((shell) => {
+        const slot =
+          enterFrame.parentSettled.shells.find((entry) => entry.path === shell.path) ?? shell
+        return {
+          node: shell.node,
+          path: shell.path,
+          name: shell.name,
+          byteSize: shell.byteSize,
+          from: pinnedToRect(slot, size.width, size.height),
+          to: pinnedToRect(shell, size.width, size.height),
+          depth: shell.depth,
+          primary: shell.path === enterFrame.folderPath,
+        }
+      })
       const others = enterFrame.parentSettled.tiles.filter(
         (tile) => !enterFrame.childSlots.some((child) => child.node.path === tile.node.path),
       )
-      playZoomTransition(zoomTiles, others)
+      playZoomTransition(zoomTiles, zoomShells, others)
 
       if (zoomTimerRef.current !== undefined) window.clearTimeout(zoomTimerRef.current)
       zoomTimerRef.current = window.setTimeout(() => {
@@ -572,12 +637,32 @@ export function SpaceSnifferTreemap({
     const childTiles = currentTiles.filter(
       (tile) => isUnderPath(tile.node.path, folder.path) && tile.node.path !== folder.path,
     )
-    const bounds = boundsOfTiles(childTiles)
-    if (!bounds || childTiles.length === 0) {
+    const childBounds = boundsOfTiles(childTiles)
+    if (!childBounds || childTiles.length === 0) {
       setPinned(undefined)
       onActivateRef.current(folder)
       return
     }
+
+    const canvas: TileRect = {
+      x: 0,
+      y: 0,
+      width: layoutSize.width,
+      height: layoutSize.height,
+    }
+    const folderShell = currentShells.find((shell) => shell.path === folder.path)
+    const shellFrom: TileRect = folderShell
+      ? {
+          x: folderShell.x,
+          y: folderShell.y,
+          width: folderShell.width,
+          height: folderShell.height,
+        }
+      : shellFromChildren(childBounds, canvas)
+    const shellTo = canvas
+    // 用壳内侧内容区做映射，避免子块包围盒被拉满后顶栏对不齐
+    const bounds = shellContentRect(shellFrom)
+    const content = viewContentRect(layoutSize.width, layoutSize.height)
 
     const nestedShells = currentShells.filter(
       (shell) => shell.path !== folder.path && isUnderPath(shell.path, folder.path),
@@ -586,16 +671,34 @@ export function SpaceSnifferTreemap({
     const childSlots = childTiles.map((tile) =>
       tileToPinned(tile, layoutSize.width, layoutSize.height),
     )
+    // 后退时要能缩回原壳位；若当前没画出该壳，用推算出的 shellFrom 补上
+    const shellsForParent: FolderShell[] = folderShell
+      ? currentShells
+      : [
+          ...currentShells,
+          {
+            node: folder,
+            path: folder.path,
+            name: folder.name,
+            byteSize: folder.byteSize,
+            x: shellFrom.x,
+            y: shellFrom.y,
+            width: shellFrom.width,
+            height: shellFrom.height,
+            depth: 1,
+          },
+        ]
     const parentSettled: PinnedLayout = {
       rootPath: root.path,
       tiles: [
         ...otherTiles.map((tile) => tileToPinned(tile, layoutSize.width, layoutSize.height)),
         ...childSlots,
       ],
-      shells: currentShells.map((shell) => shellToPinned(shell, layoutSize.width, layoutSize.height)),
+      shells: shellsForParent.map((shell) =>
+        shellToPinned(shell, layoutSize.width, layoutSize.height),
+      ),
     }
 
-    const content = viewContentRect(layoutSize.width, layoutSize.height)
     const zoomTiles: ZoomTile[] = childTiles.map((tile) => ({
       node: tile.node,
       color: tile.color,
@@ -607,6 +710,34 @@ export function SpaceSnifferTreemap({
       },
       to: mapRectIntoTarget(tile, bounds, content),
     }))
+
+    const zoomShells: ZoomShell[] = [
+      {
+        node: folder,
+        path: folder.path,
+        name: folder.name,
+        byteSize: folder.byteSize,
+        from: shellFrom,
+        to: shellTo,
+        depth: 0,
+        primary: true,
+      },
+      ...nestedShells.map((shell) => ({
+        node: shell.node,
+        path: shell.path,
+        name: shell.name,
+        byteSize: shell.byteSize,
+        from: {
+          x: shell.x,
+          y: shell.y,
+          width: shell.width,
+          height: shell.height,
+        },
+        to: mapRectIntoTarget(shell, bounds, content),
+        depth: shell.depth,
+        primary: false,
+      })),
+    ]
 
     const rootShellPinned: PinnedShell = {
       node: folder,
@@ -632,20 +763,19 @@ export function SpaceSnifferTreemap({
       })),
       shells: [
         rootShellPinned,
-        ...nestedShells.map((shell) => {
-          const mapped = mapRectIntoTarget(shell, bounds, content)
-          return {
+        ...zoomShells
+          .filter((shell) => !shell.primary)
+          .map((shell) => ({
             node: shell.node,
             path: shell.path,
             name: shell.name,
             byteSize: shell.byteSize,
-            x: mapped.x / layoutSize.width,
-            y: mapped.y / layoutSize.height,
-            width: mapped.width / layoutSize.width,
-            height: mapped.height / layoutSize.height,
+            x: shell.to.x / layoutSize.width,
+            y: shell.to.y / layoutSize.height,
+            width: shell.to.width / layoutSize.width,
+            height: shell.to.height / layoutSize.height,
             depth: shell.depth,
-          }
-        }),
+          })),
       ],
     }
 
@@ -660,7 +790,7 @@ export function SpaceSnifferTreemap({
     })
     drillDepthRef.current = drillStackRef.current.length
 
-    playZoomTransition(zoomTiles, undefined, folder.path)
+    playZoomTransition(zoomTiles, zoomShells, undefined, folder.path)
 
     if (zoomTimerRef.current !== undefined) window.clearTimeout(zoomTimerRef.current)
     zoomTimerRef.current = window.setTimeout(() => {
@@ -795,6 +925,42 @@ export function SpaceSnifferTreemap({
       {busy ? <div class="space-sniffer__zoom-veil" aria-hidden="true" /> : undefined}
 
       {nestedShells.map((shell) => renderShell(shell, false))}
+
+      {/* 缩放中：标题壳跟色块一起过渡，实底盖住挖空，避免 tab 消失/透底 */}
+      {zoom
+        ? zoom.shells.map((shell) => {
+            const rect = zoom.active ? shell.to : shell.from
+            const showLabel = rect.width >= 40 && rect.height >= FOLDER_HEADER_PX
+            const showSize = rect.width >= 96
+            return (
+              <div
+                key={`zoom-shell:${shell.path}`}
+                class={`space-sniffer__folder-shell space-sniffer__folder-shell--zoom${
+                  shell.primary ? ' space-sniffer__folder-shell--zoom-primary' : ''
+                }`}
+                style={{
+                  left: rect.x,
+                  top: rect.y,
+                  width: rect.width,
+                  height: rect.height,
+                  // 主壳实底在下盖挖空；嵌套壳标题在其上；色块最高
+                  zIndex: shell.primary ? 2 : 3,
+                }}
+              >
+                {showLabel ? (
+                  <div class="space-sniffer__folder-shell-label">
+                    <span class="space-sniffer__folder-shell-name">{shell.name}</span>
+                    {showSize ? (
+                      <span class="space-sniffer__folder-shell-size">
+                        {formatStorageSize(shell.byteSize)}
+                      </span>
+                    ) : undefined}
+                  </div>
+                ) : undefined}
+              </div>
+            )
+          })
+        : undefined}
 
       {displayTiles.map((tile) => {
         const selected = tile.node.path === selectedPath

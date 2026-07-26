@@ -292,7 +292,7 @@
   pointer-events: none;
 }
 
-/* 放大/缩小时铺满不透明底，挡住挖空与缝隙透底 */
+/* 放大/缩小时底层实底；上层还有跟动的实底壳盖住挖空 */
 .space-sniffer__zoom-veil {
   position: absolute;
   inset: 0;
@@ -358,6 +358,24 @@
   border: 2px solid rgba(0, 0, 0, 0.88);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   background: transparent;
+}
+
+/* 缩放过渡中的壳：跟色块同步过渡，始终不透明 */
+.space-sniffer__folder-shell--zoom {
+  z-index: 3;
+  background: #1c1c1e;
+  transition:
+    left 0.28s ease,
+    top 0.28s ease,
+    width 0.28s ease,
+    height 0.28s ease;
+}
+
+.space-sniffer__folder-shell--zoom-primary {
+  z-index: 2;
+  border: 2px solid rgba(0, 0, 0, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  background: #1c1c1e;
 }
 
 .space-sniffer__folder-shell-label {
