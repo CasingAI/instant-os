@@ -14,9 +14,9 @@ import {
   isPathAllowedForWrite,
   type VscodeAiContextInput,
 } from './vscode-ai-context.ts'
+import { searchVfsText } from '../files/vfs-text-search.ts'
 import {
   matchVscodeOpenFiles,
-  searchVscodeWorkspaceFilesDetailed,
   type VscodeWorkspaceSearchOpenFile,
 } from './vscode-workspace-search.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
@@ -223,6 +223,7 @@ export function createVscodeAiTools(
         const query = asString(args.query).trim()
         if (!query) return 'query 为空'
         const ctx = host.getContext()
+        if (!ctx.workspaceFolder) return '无匹配'
         const openFiles = host.getOpenFilesForSearch()
         const openHits = matchVscodeOpenFiles(query, openFiles, {
           isCaseSensitive: false,
@@ -231,17 +232,31 @@ export function createVscodeAiTools(
           workspaceFolder: ctx.workspaceFolder,
         }).hits
         const skipPaths = new Set(openFiles.map((file) => file.path))
-        const workspaceResult = await searchVscodeWorkspaceFilesDetailed({
+        const workspaceResult = await searchVfsText({
           query,
-          workspaceFolder: ctx.workspaceFolder,
+          rootPath: ctx.workspaceFolder,
           skipPaths,
           isCaseSensitive: false,
           isRegex: false,
           matchWholeWord: false,
           useExcludeSettingsAndIgnoreFiles: true,
           filesToInclude: asString(args.files_to_include) || undefined,
+          maxMatches: 80,
         })
-        const hits = [...openHits, ...workspaceResult.hits].slice(0, 80)
+        const hits = [
+          ...openHits.map((hit) => ({
+            path: hit.path,
+            line: hit.line,
+            column: hit.column,
+            preview: hit.preview,
+          })),
+          ...workspaceResult.matches.map((match) => ({
+            path: match.path,
+            line: match.line,
+            column: match.column,
+            preview: match.preview,
+          })),
+        ].slice(0, 80)
         if (hits.length === 0) return '无匹配'
         return hits
           .map((hit) => `${hit.path}:${hit.line}:${hit.column}\t${hit.preview}`)
@@ -282,7 +297,7 @@ export function createVscodeAiTools(
           defineTool({
             name: 'run_in_terminal',
             description:
-              '在本对话绑定的只读终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。文件系统为只读：用 fs 读文件、列目录、stat 等；写/删/建会失败（EACCES）。必须传 description（短句说明本步意图，供界面展示）。',
+              '在本对话绑定的只读终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。文件系统为只读：用 fs 读文件、列目录、stat 等；写/删/建会失败（EACCES）。搜索文本用 globalThis.instant.grep(...)。必须传 description（短句说明本步意图，供界面展示）。',
             parameters: {
               type: 'object',
               additionalProperties: false,
@@ -399,7 +414,7 @@ export function createVscodeAiTools(
           defineTool({
             name: 'run_in_terminal',
             description:
-              '在本对话绑定的受控终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。读/写/删/建文件用 fs；打开应用/路径/URL 或操纵窗口用 globalThis.instant（openApp / openPath / openUrl / listApps / focus / close 等）。多文件改动尽量合并进同一次执行以便整轮回滚。必须传 description（短句说明本步意图，供界面展示）。',
+              '在本对话绑定的受控终端执行一段 JavaScript（自动执行，无需确认）。同对话复用同一终端；若用户已关闭该终端会自动新开并在结果中标明 rebuilt。读/写/删/建文件用 fs；搜索文本用 globalThis.instant.grep(...)；打开应用/路径/URL 或操纵窗口用 globalThis.instant（openApp / openPath / openUrl / listApps / focus / close 等）。多文件改动尽量合并进同一次执行以便整轮回滚。必须传 description（短句说明本步意图，供界面展示）。',
             parameters: {
               type: 'object',
               additionalProperties: false,

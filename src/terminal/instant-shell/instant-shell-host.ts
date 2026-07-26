@@ -1,9 +1,12 @@
 import { filesStat } from '../../apps/files/files-api.ts'
+import { searchVfsText } from '../../apps/files/vfs-text-search.ts'
 import { getDefaultFileOpenApp } from '../../os/file-open-registry.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import { basenameInstantShellPath, resolveInstantShellPath } from './instant-shell-path.ts'
 import type {
   InstantShellApi,
+  InstantShellGrepOptions,
+  InstantShellGrepResult,
   InstantShellHost,
   InstantShellOpenAppOptions,
 } from './instant-shell-types.ts'
@@ -144,6 +147,37 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     host.toggleMaximize(windowId)
   }
 
+  const grep = async (
+    query: string,
+    options?: InstantShellGrepOptions,
+  ): Promise<InstantShellGrepResult> => {
+    const q = typeof query === 'string' ? query : ''
+    if (!q.trim()) {
+      throw new Error('query 不能为空')
+    }
+    const rootPath = resolveInstantShellPath(host.getCwd(), options?.path ?? '.')
+    const result = await searchVfsText({
+      query: q,
+      rootPath,
+      filesToInclude: options?.filesToInclude,
+      isCaseSensitive: options?.caseSensitive === true,
+      isRegex: options?.regex === true,
+      maxMatches: options?.maxMatches,
+    })
+    return {
+      matches: result.matches.map((match) => ({
+        path: match.path,
+        line: match.line,
+        column: match.column,
+        preview: match.preview,
+        matchedText: match.matchedText,
+      })),
+      truncated: result.truncated,
+      scannedFiles: result.scannedFiles,
+      patternError: result.patternError,
+    }
+  }
+
   return {
     openApp,
     openPath,
@@ -156,5 +190,6 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     restore,
     toggleFullscreen,
     toggleMaximize,
+    grep,
   }
 }

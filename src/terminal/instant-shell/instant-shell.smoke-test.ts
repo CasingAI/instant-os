@@ -215,12 +215,104 @@ async function testInjectAbsentByDefault(): Promise<void> {
   console.log('ok: instant absent without host')
 }
 
+async function testApiGrep(): Promise<void> {
+  await resetRoot()
+  await filesMkdir(`${ROOT}/src`)
+  await filesCreateText(
+    `${ROOT}/src/needle.ts`,
+    'const alpha = 1\nexport const findMeNeedleHere = true\nconst beta = 2\n',
+  )
+  await filesCreateText(`${ROOT}/src/other.ts`, 'export const unrelated = 0\n')
+
+  const host = createMockHost()
+  const api = createInstantShellApi(host)
+  const hit = await api.grep('findMeNeedleHere')
+  assert.equal(hit.matches.length, 1)
+  assert.equal(hit.matches[0]?.path, `${ROOT}/src/needle.ts`)
+  assert.equal(hit.matches[0]?.line, 2)
+  assert.ok(hit.matches[0]?.preview.includes('findMeNeedleHere'))
+  assert.equal(hit.truncated, false)
+  assert.ok(hit.scannedFiles >= 1)
+
+  const miss = await api.grep('definitelyNotPresentXYZ')
+  assert.equal(miss.matches.length, 0)
+
+  const scoped = await api.grep('findMeNeedleHere', { path: 'src/needle.ts' })
+  assert.equal(scoped.matches.length, 1)
+  assert.equal(scoped.matches[0]?.path, `${ROOT}/src/needle.ts`)
+
+  console.log('ok: createInstantShellApi grep')
+}
+
+async function testInjectGrep(): Promise<void> {
+  await resetRoot()
+  await filesCreateText(`${ROOT}/hit.js`, 'line1\nconst GREP_SMOKE_TOKEN = 42\nline3\n')
+
+  const host = createMockHost()
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    cwd: ROOT,
+    fsMode: 'normal',
+    timeoutMs: 10_000,
+    instantShellHost: host,
+  })
+  try {
+    const started = await instance.eval(`
+      var __grepDone = false
+      var __grepResult = null
+      var __grepError = null
+      ;(async function () {
+        try {
+          var r = await instant.grep('GREP_SMOKE_TOKEN')
+          var empty = await instant.grep('NO_SUCH_TOKEN_ZZZ')
+          __grepResult = {
+            path: r.matches[0] && r.matches[0].path,
+            line: r.matches[0] && r.matches[0].line,
+            preview: r.matches[0] && r.matches[0].preview,
+            emptyCount: empty.matches.length,
+            truncated: r.truncated,
+          }
+        } catch (e) {
+          __grepError = String(e && e.message ? e.message : e)
+        } finally {
+          __grepDone = true
+        }
+      })()
+      'started'
+    `)
+    assert.equal(started.ok, true)
+    for (let i = 0; i < 50; i += 1) {
+      await sleep(20)
+      const done = await instance.eval('__grepDone')
+      if (done.ok && done.value === true) {
+        break
+      }
+    }
+    const result = await instance.eval('__grepError ? { error: __grepError } : __grepResult')
+    assert.equal(result.ok, true)
+    if (result.ok) {
+      assert.deepEqual(result.value, {
+        path: `${ROOT}/hit.js`,
+        line: 2,
+        preview: 'const GREP_SMOKE_TOKEN = 42',
+        emptyCount: 0,
+        truncated: false,
+      })
+    }
+  } finally {
+    instance.destroy()
+  }
+  console.log('ok: inject instant.grep')
+}
+
 async function main(): Promise<void> {
   await testApiOpenAppAndUrl()
   await testApiOpenPathFileAndFolder()
   await testCloseConfirmWhenBusy()
   await testInjectInstantGlobal()
   await testInjectAbsentByDefault()
+  await testApiGrep()
+  await testInjectGrep()
 }
 
 main().catch((error) => {

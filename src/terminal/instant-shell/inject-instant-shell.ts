@@ -1,7 +1,11 @@
 import type { QuickJSAsyncContext, QuickJSHandle } from 'quickjs-emscripten'
 import type { QuickJsAsyncBridge } from '../../quickjs/quickjs-async-bridge.ts'
 import { createInstantShellApi } from './instant-shell-host.ts'
-import type { InstantShellHost, InstantShellOpenAppOptions } from './instant-shell-types.ts'
+import type {
+  InstantShellGrepOptions,
+  InstantShellHost,
+  InstantShellOpenAppOptions,
+} from './instant-shell-types.ts'
 
 export type InjectInstantShellOptions = {
   context: QuickJSAsyncContext
@@ -63,6 +67,52 @@ function readOpenAppOptions(
       throw new Error('url 必须是字符串')
     }
     options.url = record.url
+  }
+  return options
+}
+
+function readGrepOptions(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): InstantShellGrepOptions | undefined {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    return undefined
+  }
+  const dumped = context.dump(handle)
+  if (dumped === null || typeof dumped !== 'object' || Array.isArray(dumped)) {
+    throw new Error('grep 选项必须是对象')
+  }
+  const record = dumped as Record<string, unknown>
+  const options: InstantShellGrepOptions = {}
+  if (record.path !== undefined) {
+    if (typeof record.path !== 'string') {
+      throw new Error('path 必须是字符串')
+    }
+    options.path = record.path
+  }
+  if (record.filesToInclude !== undefined) {
+    if (typeof record.filesToInclude !== 'string') {
+      throw new Error('filesToInclude 必须是字符串')
+    }
+    options.filesToInclude = record.filesToInclude
+  }
+  if (record.caseSensitive !== undefined) {
+    if (typeof record.caseSensitive !== 'boolean') {
+      throw new Error('caseSensitive 必须是布尔值')
+    }
+    options.caseSensitive = record.caseSensitive
+  }
+  if (record.regex !== undefined) {
+    if (typeof record.regex !== 'boolean') {
+      throw new Error('regex 必须是布尔值')
+    }
+    options.regex = record.regex
+  }
+  if (record.maxMatches !== undefined) {
+    if (typeof record.maxMatches !== 'number' || !Number.isFinite(record.maxMatches)) {
+      throw new Error('maxMatches 必须是数字')
+    }
+    options.maxMatches = Math.floor(record.maxMatches)
   }
   return options
 }
@@ -174,6 +224,14 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
   bind('toggleMaximize', (targetHandle) =>
     runAsync(async () => {
       await api.toggleMaximize(readStringArg(context, targetHandle, 'target'))
+    }),
+  )
+
+  bind('grep', (queryHandle, optionsHandle) =>
+    runAsync(async () => {
+      const query = readStringArg(context, queryHandle, 'query')
+      const grepOptions = readGrepOptions(context, optionsHandle)
+      return await api.grep(query, grepOptions)
     }),
   )
 

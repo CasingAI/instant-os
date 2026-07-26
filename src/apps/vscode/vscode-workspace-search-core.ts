@@ -1,33 +1,22 @@
-import { filesList, filesReadText } from '../files/files-api.ts'
-import { isBinaryContent } from '../files/is-binary-file.ts'
+import {
+  searchVfsText,
+  type VfsTextSearchMatch,
+} from '../files/vfs-text-search.ts'
 import {
   compileSearchGlobs,
   DEFAULT_SEARCH_EXCLUDE_GLOBS,
   parseSearchGlobList,
   pathPassesIncludeExclude,
 } from './vscode-workspace-search-glob.ts'
-import {
-  isIgnoredBySets,
-  relativeToWorkspace,
-  tryLoadGitIgnoreSet,
-  type GitIgnoreSet,
-} from './vscode-workspace-search-ignore.ts'
+import { relativeToWorkspace } from './vscode-workspace-search-ignore.ts'
 import {
   buildSearchRegExp,
   findMatchesInLine,
   type VscodeSearchMatchOptions,
 } from './vscode-workspace-search-match.ts'
 
-const MAX_WALK_DEPTH = 8
-const MAX_FILES = 400
-const MAX_FILE_BYTES = 512 * 1024
 const MAX_HITS = 500
 const PREVIEW_MAX = 120
-/** 每处理这么多文件就向调用方推一次结果，并让出事件循环 */
-const REPORT_EVERY_FILES = 8
-
-/** 始终跳过：版本库元数据（通常不写进 .gitignore） */
-const ALWAYS_SKIP_DIR_NAMES = new Set(['.git'])
 
 export type VscodeWorkspaceSearchOpenFile = {
   tabId: string
@@ -78,18 +67,6 @@ export type VscodeWorkspaceSearchParams = VscodeSearchMatchOptions & {
   onlyPaths?: ReadonlySet<string> | string[]
   /** 命中上下文字行数（前后各 N 行） */
   contextLines?: number
-}
-
-function fileNameFromPath(path: string): string {
-  const trimmed = path.replace(/\/+$/, '')
-  const slash = trimmed.lastIndexOf('/')
-  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed
-}
-
-function yieldEventLoop(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0)
-  })
 }
 
 function toPathSet(paths: ReadonlySet<string> | string[] | undefined): ReadonlySet<string> | undefined {
@@ -145,6 +122,21 @@ function matchLinesInText(
         context: buildContext(lines, index, contextLines),
       })
     }
+  }
+}
+
+function vfsMatchToWorkspaceHit(match: VfsTextSearchMatch): VscodeWorkspaceSearchHit {
+  return {
+    tabId: undefined,
+    path: match.path,
+    name: match.name,
+    line: match.line,
+    column: match.column,
+    matchLength: match.matchLength,
+    preview: match.preview,
+    matchedText: match.matchedText,
+    fromOpenTab: false,
+    context: match.context,
   }
 }
 
@@ -211,72 +203,6 @@ export function matchVscodeOpenFiles(
   return { hits, patternError: undefined }
 }
 
-async function collectWorkspaceFiles(
-  workspaceFolder: string,
-  skipPaths: ReadonlySet<string>,
-  signal: AbortSignal | undefined,
-  options: {
-    useIgnore: boolean
-    includeGlobs: readonly RegExp[]
-    excludeGlobs: readonly RegExp[]
-    onlyPaths: ReadonlySet<string> | undefined
-  },
-): Promise<Array<{ path: string; name: string }>> {
-  const root = workspaceFolder.replace(/\/+$/, '') || '/'
-  const files: Array<{ path: string; name: string }> = []
-
-  async function walk(
-    dirPath: string,
-    depth: number,
-    ignoreStack: GitIgnoreSet[],
-  ): Promise<void> {
-    if (signal?.aborted) return
-    if (depth > MAX_WALK_DEPTH || files.length >= MAX_FILES) return
-
-    const dirRel = relativeToWorkspace(root, dirPath)
-    let nextStack = ignoreStack
-    if (options.useIgnore) {
-      const localIgnore = await tryLoadGitIgnoreSet(dirPath, dirRel, filesReadText)
-      nextStack = localIgnore ? [...ignoreStack, localIgnore] : ignoreStack
-    }
-
-    let entries
-    try {
-      entries = await filesList(dirPath)
-    } catch {
-      return
-    }
-
-    for (const entry of entries) {
-      if (signal?.aborted || files.length >= MAX_FILES) return
-
-      const entryRel = relativeToWorkspace(root, entry.path)
-
-      if (entry.kind === 'folder') {
-        if (ALWAYS_SKIP_DIR_NAMES.has(entry.name)) continue
-        if (options.useIgnore && isIgnoredBySets(nextStack, entryRel, true)) continue
-        if (!pathPassesIncludeExclude(entryRel, options.includeGlobs, options.excludeGlobs)) {
-          // 目录可能仍含子路径匹配 include；仅在有 include 且目录本身明显不匹配前缀时跳过较难，
-          // 保守：仍走进目录，由文件级过滤。
-        }
-        await walk(entry.path, depth + 1, nextStack)
-        continue
-      }
-
-      if (skipPaths.has(entry.path)) continue
-      if (options.onlyPaths && !options.onlyPaths.has(entry.path)) continue
-      if (options.useIgnore && isIgnoredBySets(nextStack, entryRel, false)) continue
-      if (!pathPassesIncludeExclude(entryRel, options.includeGlobs, options.excludeGlobs)) continue
-      if (entry.byteSize > MAX_FILE_BYTES) continue
-
-      files.push({ path: entry.path, name: entry.name })
-    }
-  }
-
-  await walk(root, 0, [])
-  return files
-}
-
 export type VscodeWorkspaceSearchCoreResult = {
   hits: VscodeWorkspaceSearchHit[]
   patternError: string | undefined
@@ -302,78 +228,29 @@ export async function searchVscodeWorkspaceFilesCoreDetailed(
     return { hits: [], patternError: undefined }
   }
 
-  const pattern = buildSearchRegExp(params.query, params)
-  if (!pattern) {
-    return { hits: [], patternError: '无效的正则表达式' }
+  const result = await searchVfsText({
+    query: params.query,
+    rootPath: params.workspaceFolder,
+    skipPaths: params.skipPaths,
+    signal: params.signal,
+    filesToInclude: params.filesToInclude,
+    filesToExclude: params.filesToExclude,
+    useExcludeSettingsAndIgnoreFiles: params.useExcludeSettingsAndIgnoreFiles,
+    onlyPaths: params.onlyPaths,
+    isCaseSensitive: params.isCaseSensitive,
+    isRegex: params.isRegex,
+    matchWholeWord: params.matchWholeWord,
+    maxMatches: MAX_HITS,
+    contextLines: params.contextLines,
+    onProgress: params.onProgress
+      ? (matches) => {
+          params.onProgress?.(matches.map(vfsMatchToWorkspaceHit))
+        }
+      : undefined,
+  })
+
+  return {
+    hits: result.matches.map(vfsMatchToWorkspaceHit),
+    patternError: result.patternError,
   }
-
-  const skipPaths = toPathSet(params.skipPaths) ?? new Set<string>()
-  const onlyPaths = toPathSet(params.onlyPaths)
-  if (onlyPaths && onlyPaths.size === 0) {
-    return { hits: [], patternError: undefined }
-  }
-
-  const useExclude = params.useExcludeSettingsAndIgnoreFiles !== false
-  const includeGlobs = compileSearchGlobs(parseSearchGlobList(params.filesToInclude))
-  const excludeUser = parseSearchGlobList(params.filesToExclude)
-  const excludeGlobs = compileSearchGlobs([
-    ...excludeUser,
-    ...(useExclude ? DEFAULT_SEARCH_EXCLUDE_GLOBS : []),
-  ])
-  const contextLines = params.contextLines ?? 0
-
-  const hits: VscodeWorkspaceSearchHit[] = []
-  const workspaceFiles = await collectWorkspaceFiles(
-    params.workspaceFolder,
-    skipPaths,
-    params.signal,
-    {
-      useIgnore: useExclude,
-      includeGlobs,
-      excludeGlobs,
-      onlyPaths,
-    },
-  )
-
-  let processed = 0
-  for (const file of workspaceFiles) {
-    if (params.signal?.aborted || hits.length >= MAX_HITS) break
-
-    let text: string
-    try {
-      text = await filesReadText(file.path)
-    } catch {
-      processed += 1
-      continue
-    }
-
-    if (text.length > MAX_FILE_BYTES || isBinaryContent(text)) {
-      processed += 1
-      continue
-    }
-
-    const before = hits.length
-    matchLinesInText(
-      text,
-      pattern,
-      {
-        tabId: undefined,
-        path: file.path,
-        name: file.name || fileNameFromPath(file.path),
-        fromOpenTab: false,
-      },
-      hits,
-      MAX_HITS,
-      contextLines,
-    )
-    processed += 1
-
-    if (hits.length > before || processed % REPORT_EVERY_FILES === 0) {
-      params.onProgress?.(hits.slice())
-      await yieldEventLoop()
-      if (params.signal?.aborted) break
-    }
-  }
-
-  return { hits, patternError: undefined }
 }

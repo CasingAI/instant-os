@@ -134,7 +134,9 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
           : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
 
   const instantShellSection =
-    mode === 'agent' ? `\n\n${buildInstantShellSystemPromptSection()}` : ''
+    mode === 'ask' || mode === 'plan' || mode === 'agent'
+      ? `\n\n${buildInstantShellSystemPromptSection()}`
+      : ''
 
   const envLines =
     mode === 'ask' || mode === 'plan'
@@ -142,8 +144,8 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
           '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
           '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下写操作会被拒绝',
           mode === 'plan'
-            ? '- Plan：run_in_terminal 只读调研；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
-            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），不要尝试写入',
+            ? '- Plan：run_in_terminal 只读调研（搜索用 instant.grep）；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
+            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），搜索用 instant.grep；不要尝试写入',
           '- /system 与 /models 等只读卷不可写入',
           '- 回答用简洁中文 Markdown；引用路径时用反引号',
           '- 不要编造未执行的工具结果',
@@ -160,6 +162,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
             '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
             '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
+            '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
             '- /system 与 /models 等只读卷不可写入',
             '- 回答用简洁中文 Markdown；引用路径时用反引号',
             '- 修改前先在终端里读确认现状',

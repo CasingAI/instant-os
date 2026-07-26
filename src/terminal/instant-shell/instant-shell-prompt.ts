@@ -24,17 +24,28 @@ export const INSTANT_SHELL_RUNTIME_SECTION = `【Instant 壳层 API · globalThi
   - target 为 appId 或 windowId；按 appId 时作用该应用最前/最近窗口
   - close：若终端已长时间执行中可能弹出确认；用户取消则抛「用户取消」
 
+搜索：
+- instant.grep(query, opts?) → { matches: [{ path, line, column, preview, matchedText }], truncated, scannedFiles, patternError? }
+  - opts.path?：相对 cwd 或绝对 VFS 路径，默认 cwd；可为目录或单文件
+  - opts.filesToInclude?：glob（逗号分隔）
+  - opts.caseSensitive?：默认 false
+  - opts.regex?：将 query 当作正则，默认 false
+  - opts.maxMatches?：默认 40
+  - 尊重 gitignore 与默认排除（如 node_modules）；不要手写 fs 递归搜索
+
 示例（经 run_in_terminal 下发）：
 await instant.openApp('settings')
 await instant.openPath('/user/readme.txt')
 await instant.openUrl('example.com')
 const apps = await instant.listApps()
 await instant.focus('files')
+const r = await instant.grep('foo', { path: 'src' })
+console.log(r.matches)
 
 注意：
 - 无 instant 时（未注入宿主）为 undefined；不要假设沙箱/非终端环境有此全局
-- 不要用它改账户、API Key 或系统设置存储；壳层只覆盖打开应用/路径/URL 与窗口操作
-- 与 fs / path 等 Node 兼容 API 正交：改文件仍用 fs，打开编辑器用 instant.openPath / openApp`
+- 不要用它改账户、API Key 或系统设置存储；壳层覆盖打开应用/路径/URL、窗口操作与文本搜索
+- 与 fs / path 等 Node 兼容 API 正交：搜索用 instant.grep，读整文件 / 改文件仍用 fs，打开编辑器用 instant.openPath / openApp`
 
 /** 拼进任意 Agent system prompt 的标准入口。 */
 export function buildInstantShellSystemPromptSection(): string {
@@ -43,5 +54,5 @@ export function buildInstantShellSystemPromptSection(): string {
 
 /** 更短的提示行（欢迎语 / 工具描述旁注）。 */
 export function buildInstantShellPromptHint(): string {
-  return '终端可用 globalThis.instant（openApp / openPath / openUrl / listApps / listWindows / focus / close / …），详见壳层 API 说明。'
+  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / listApps / listWindows / focus / close / …），详见壳层 API 说明。'
 }

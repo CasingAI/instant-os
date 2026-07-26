@@ -24,6 +24,34 @@ export type InstantShellWindowInfo = {
   zIndex: number
 }
 
+/** 客侧 `instant.grep` 选项。 */
+export type InstantShellGrepOptions = {
+  /** 相对 cwd 或绝对 VFS 路径；默认 cwd */
+  path?: string
+  /** glob 过滤（`,` 分隔） */
+  filesToInclude?: string
+  caseSensitive?: boolean
+  /** 将 query 当作正则 */
+  regex?: boolean
+  /** 最多返回命中数，默认 40 */
+  maxMatches?: number
+}
+
+export type InstantShellGrepMatch = {
+  path: string
+  line: number
+  column: number
+  preview: string
+  matchedText: string
+}
+
+export type InstantShellGrepResult = {
+  matches: InstantShellGrepMatch[]
+  truncated: boolean
+  scannedFiles: number
+  patternError?: string
+}
+
 /** 客侧 `globalThis.instant` 表面（均为 Promise，便于 async 宿主桥）。 */
 export type InstantShellApi = {
   openApp: (appId: string, options?: InstantShellOpenAppOptions) => Promise<void>
@@ -37,6 +65,8 @@ export type InstantShellApi = {
   restore: (target: string) => Promise<void>
   toggleFullscreen: (target: string) => Promise<void>
   toggleMaximize: (target: string) => Promise<void>
+  /** 在 VFS 中搜索文本（grep 等价） */
+  grep: (query: string, options?: InstantShellGrepOptions) => Promise<InstantShellGrepResult>
 }
 
 /**
