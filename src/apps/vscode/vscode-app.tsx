@@ -355,9 +355,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   })
   const aiChatSessionsRef = useRef(aiChatSessions)
   const closedAiChatsRef = useRef(closedAiChats)
+  const aiChatBusySessionIdsRef = useRef(aiChatBusySessionIds)
   const aiWorkspaceFolderRef = useRef(prefs.workspaceFolder)
   aiChatSessionsRef.current = aiChatSessions
   closedAiChatsRef.current = closedAiChats
+  aiChatBusySessionIdsRef.current = aiChatBusySessionIds
   const [quickSearchOpen, setQuickSearchOpen] = useState(false)
   const cursorRef = useRef<VscodeCursorPos>({ line: 1, column: 1 })
   const selectionTextRef = useRef<string | undefined>(undefined)
@@ -1974,7 +1976,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     openNewAiChat()
   }, [openNewAiChat])
 
-  const closeAiChatItem = useCallback(
+  const closeAiChatItemNow = useCallback(
     (itemId: string) => {
       let sessionId: string | undefined
       for (const group of Object.values(editorLayoutRef.current.groups)) {
@@ -2034,6 +2036,32 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       persistAiChatStore(nextOpen, nextClosed)
     },
     [persistAiChatStore, refreshCanRevertTerminal, syncActiveTerminalHandle],
+  )
+
+  const closeAiChatItem = useCallback(
+    async (itemId: string) => {
+      let sessionId: string | undefined
+      for (const group of Object.values(editorLayoutRef.current.groups)) {
+        const item = group.items.find((entry) => entry.id === itemId)
+        if (item?.kind === 'aiChat') {
+          sessionId = item.sessionId
+          break
+        }
+      }
+      if (sessionId && aiChatBusySessionIdsRef.current.has(sessionId)) {
+        const ok = await modal.confirm({
+          title: 'Agent 仍在运行',
+          message: '关闭将中断当前的生成或命令执行，确定要关闭此对话吗？',
+          confirmLabel: '关闭',
+          cancelLabel: '取消',
+          confirmTone: 'danger',
+          themeColor: THEME,
+        })
+        if (!ok) return
+      }
+      closeAiChatItemNow(itemId)
+    },
+    [closeAiChatItemNow, modal],
   )
 
   const restoreClosedAiChat = useCallback(
@@ -2122,7 +2150,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       return
     }
     if (target.kind === 'aiChat') {
-      closeAiChatItem(target.itemId)
+      void closeAiChatItem(target.itemId)
       return
     }
     if (target.kind === 'welcome') {
@@ -2159,7 +2187,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           continue
         }
         if (item.kind === 'aiChat') {
-          closeAiChatItem(item.id)
+          await closeAiChatItem(item.id)
           continue
         }
         if (item.kind === 'welcome') {
@@ -3100,7 +3128,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               closedAiChats={closedAiChats}
               onNewAiChat={openNewAiChat}
               onRestoreAiChat={restoreClosedAiChat}
-              onCloseAiChat={closeAiChatItem}
+              onCloseAiChat={(itemId) => void closeAiChatItem(itemId)}
               onAiChatMessagesChange={updateAiChatMessages}
               onAiChatBusyChange={setAiChatSessionBusy}
               onAiChatLastSentTerminalChange={updateAiChatLastSentTerminal}

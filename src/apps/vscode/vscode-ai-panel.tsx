@@ -714,8 +714,8 @@ export function VscodeAiPanel({
   onBusyChangeRef.current = onBusyChange
 
   useEffect(() => {
-    onBusyChangeRef.current?.(busy)
-  }, [busy])
+    onBusyChangeRef.current?.(busy || reviewBusy)
+  }, [busy, reviewBusy])
 
   useEffect(() => {
     return () => onBusyChangeRef.current?.(false)
