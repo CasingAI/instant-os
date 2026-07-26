@@ -85,10 +85,10 @@ export type SettingsPaneGroupDef = {
 
 /** 一级菜单的分组顺序与标题。 */
 export const SETTINGS_PANE_GROUPS: SettingsPaneGroupDef[] = [
-  { id: 'account', label: '账户' },
   { id: 'storage', label: '存储' },
   { id: 'appearance', label: '外观' },
   { id: 'system', label: '系统' },
+  { id: 'account', label: '账户' },
   { id: 'network', label: '网络与内容' },
   { id: 'developer', label: '开发者' },
 ]
@@ -107,8 +107,6 @@ export const SETTINGS_DEFAULT_ROUTE: SettingsRoute = { view: 'root' }
 export { SETTINGS_WIDE_LAYOUT_MIN_WIDTH } from './settings-layout-breakpoints.ts'
 
 export const SETTINGS_PANES: SettingsPaneDef[] = [
-  // 账户
-  { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' }, group: 'account' },
   // 存储
   { id: 'usage', label: '存储空间', Icon: StoragePaneIcon, route: { view: 'usage' }, group: 'storage' },
   { id: 'ai-usage', label: 'AI 用量', Icon: AiUsagePaneIcon, route: { view: 'ai-usage' }, group: 'storage' },
@@ -133,6 +131,8 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     group: 'system',
   },
   { id: 'resources', label: '资源', Icon: ResourcesPaneIcon, route: { view: 'resources' }, group: 'system' },
+  // 账户
+  { id: 'account', label: '账户', Icon: AccountPaneIcon, route: { view: 'account' }, group: 'account' },
   // 网络与内容
   {
     id: 'safari',
