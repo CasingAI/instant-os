@@ -4,7 +4,7 @@ import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { HelpIcon } from '../../icons/app-icons.tsx'
+import { VscodeIcon } from '../../icons/app-icons.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type {
   VscodeAgentTerminalEnsureResult,
@@ -1353,7 +1353,7 @@ export function VscodeAiPanel({
         {showWelcome ? (
           <div class="help-app__welcome vscode-ai__welcome">
             <div class="help-app__welcome-icon" aria-hidden="true">
-              <HelpIcon size={56} />
+              <VscodeIcon size={56} />
             </div>
             <h2 class="help-app__welcome-title">代码助手</h2>
             <p class="help-app__welcome-sub">
@@ -1382,7 +1382,7 @@ export function VscodeAiPanel({
               >
                 <span class="help-app__avatar" aria-hidden="true">
                   {message.isError ? '!' : message.role === 'assistant' ? (
-                    <HelpIcon size={30} />
+                    <VscodeIcon size={30} />
                   ) : (
                     '🙂'
                   )}
@@ -1464,7 +1464,7 @@ export function VscodeAiPanel({
             {showLive ? (
               <div class="help-app__message help-app__message--assistant">
                 <span class="help-app__avatar" aria-hidden="true">
-                  <HelpIcon size={30} />
+                  <VscodeIcon size={30} />
                 </span>
                 <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
                   <LiveTimeline items={liveTimeline} />

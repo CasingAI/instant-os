@@ -7,6 +7,7 @@
   height: 100%;
   min-height: 0;
   border-radius: 0;
+  background: linear-gradient(180deg, #fff 0%, var(--help-bg) 100%);
 }
 
 .vscode-ai__chat {
@@ -717,9 +718,7 @@
     0 2px 6px rgba(0, 0, 0, 0.4),
     0 1px 0 rgba(255, 255, 255, 0.03) inset;
 
-  background:
-    radial-gradient(ellipse 120% 80% at 50% -30%, #26262e 0%, transparent 55%),
-    linear-gradient(180deg, #222228 0%, var(--help-bg) 100%);
+  background: linear-gradient(180deg, #2a2a32 0%, var(--help-bg) 100%);
 }
 
 /* 欢迎页标题文字阴影 */
