@@ -8,6 +8,7 @@ import {
 /** 内置卷在全局路径中的根前缀 */
 export const FILES_PATH_ROOT = {
   local: '/user',
+  applications: '/Applications',
   dev: '/dev',
   models3d: '/models',
   source: '/system',
@@ -22,6 +23,7 @@ export type ParsedFilesAbsolutePath = {
 /**
  * 位置 → 全局路径根。
  * - 用户文件 `/user`
+ * - 应用程序 `/Applications`
  * - 开发者数据 `/dev`
  * - 3D 模型 `/models`
  * - 系统文件 `/system`
@@ -144,6 +146,7 @@ export function filesLocationDisplayName(locationId: FilesLocationId): string {
     return getCachedMount(locationId)?.label ?? locationId
   }
   if (locationId === 'local') return '用户文件'
+  if (locationId === 'applications') return '应用程序'
   if (locationId === 'dev') return '开发者数据'
   if (locationId === 'models3d') return '3D 模型'
   return '系统'

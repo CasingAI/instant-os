@@ -11,7 +11,7 @@ import {
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
-import type { BuiltinAppId } from '../../os/types.ts'
+import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import {
   AdaptiveActionMenu,
   type AdaptiveActionMenuItem,
@@ -51,6 +51,19 @@ import {
   runFilesOpWithProgress,
   type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
+import { preloadAppBundleIcons } from './files-app-bundle-icon.tsx'
+import {
+  FILES_NAME_DISPLAY_OPTIONS,
+  formatFilesDisplayName,
+  readFilesNameDisplayMode,
+  writeFilesNameDisplayMode,
+  type FilesNameDisplayMode,
+} from './files-name-display.ts'
+import {
+  isApplicationsBundleRootNode,
+  parseApplicationsDirPath,
+} from './files-location-applications.ts'
+import { resolveAppCatalogEntryByBundlePath } from '../../os/app-catalog.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
@@ -99,6 +112,10 @@ const LOADING_MIN_VISIBLE_MS = 300
 
 type FilesViewMode = 'grid' | 'list'
 
+function menuCheckPrefix(active: boolean): string {
+  return active ? '✓ ' : ''
+}
+
 function readFilesViewMode(): FilesViewMode {
   try {
     const raw = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
@@ -118,7 +135,9 @@ function writeFilesViewMode(mode: FilesViewMode): void {
 }
 
 function formatListByteSize(node: FilesNode, metaResolved: ReadonlySet<string>): string {
-  if (node.kind === 'folder' || node.locationId === 'models3d') return '—'
+  if (node.kind === 'folder' || node.locationId === 'models3d' || node.locationId === 'applications') {
+    return '—'
+  }
   if (filesNodeNeedsViewportMeta(node) && !metaResolved.has(node.id)) return '…'
   return formatFilesByteSize(node.byteSize)
 }
@@ -226,6 +245,17 @@ function DeviceGlyph() {
   )
 }
 
+function ApplicationsGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="4" width="7" height="7" rx="1.6" fill="#c9a66a" stroke="#8a6a38" stroke-width="1" />
+      <rect x="13" y="4" width="7" height="7" rx="1.6" fill="#f0d9a8" stroke="#8a6a38" stroke-width="1" />
+      <rect x="4" y="13" width="7" height="7" rx="1.6" fill="#f0d9a8" stroke="#8a6a38" stroke-width="1" />
+      <rect x="13" y="13" width="7" height="7" rx="1.6" fill="#c9a66a" stroke="#8a6a38" stroke-width="1" />
+    </svg>
+  )
+}
+
 function ModelsGlyph() {
   return (
     <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
@@ -271,6 +301,7 @@ function MountGlyph() {
 
 function LocationGlyph({ id }: { id: FilesLocationId }) {
   if (isMountLocationId(id)) return <MountGlyph />
+  if (id === 'applications') return <ApplicationsGlyph />
   if (id === 'models3d') return <ModelsGlyph />
   if (id === 'source') return <SourceGlyph />
   return <DeviceGlyph />
@@ -281,7 +312,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 export function FilesApp({ windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, minimizeWindow, windows, openApp } = useOs()
+  const { closeWindowsForApp, minimizeWindow, windows, openApp, openGeneratedApp } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
@@ -316,6 +347,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [infoNode, setInfoNode] = useState<FilesNode | undefined>(undefined)
   const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
   const [viewMode, setViewMode] = useState<FilesViewMode>(() => readFilesViewMode())
+  const [nameDisplayMode, setNameDisplayMode] = useState<FilesNameDisplayMode>(() =>
+    readFilesNameDisplayMode(),
+  )
   const [metaResolvedIds, setMetaResolvedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [selectNonce, setSelectNonce] = useState(0)
@@ -554,6 +588,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     try {
       if (locationId === 'dev') {
         await reconcileGithubRepoAttributes().catch(() => undefined)
+      }
+      if (locationId === 'applications') {
+        await preloadAppBundleIcons()
       }
       const [listed, path] = await Promise.all([
         listDirectory(locationId, folderId),
@@ -1033,6 +1070,36 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [clearSelection, closeTransientMenus],
   )
 
+  const openAppBundle = useCallback(
+    (node: FilesNode) => {
+      if (!isApplicationsBundleRootNode(node)) return
+      closeTransientMenus()
+      const bundlePath = parseApplicationsDirPath(node.id)
+      void (async () => {
+        try {
+          const entry = bundlePath ? await resolveAppCatalogEntryByBundlePath(bundlePath) : undefined
+          if (!entry) return
+          if (entry.kind === 'generated') {
+            openGeneratedApp(entry.id as GeneratedAppId, entry.name)
+            return
+          }
+          openApp(entry.id)
+        } catch (err) {
+          await modal.alert({ title: '无法打开', message: formatError(err), themeColor: THEME })
+        }
+      })()
+    },
+    [closeTransientMenus, modal, openApp, openGeneratedApp],
+  )
+
+  const showAppBundleContents = useCallback(
+    (node: FilesNode) => {
+      if (!isApplicationsBundleRootNode(node)) return
+      enterFolder(node)
+    },
+    [enterFolder],
+  )
+
   const goBackInPath = useCallback(() => {
     if (pathNodes.length === 0) return
     setNewFileMenu(undefined)
@@ -1163,6 +1230,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       closeTransientMenus()
       if (node.kind === 'folder') {
+        if (isApplicationsBundleRootNode(node)) {
+          openAppBundle(node)
+          return
+        }
         enterFolder(node)
         return
       }
@@ -1207,6 +1278,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       enterFolder,
       locationId,
       modal,
+      openAppBundle,
       openFile,
     ],
   )
@@ -1492,7 +1564,19 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const buildItemMenuActions = useCallback(
     (node: FilesNode): AdaptiveActionMenuItem[] => {
       const items: AdaptiveActionMenuItem[] = []
-      if (node.kind === 'file') {
+      if (isApplicationsBundleRootNode(node)) {
+        items.push({
+          type: 'action',
+          label: '打开',
+          onClick: () => openAppBundle(node),
+        })
+        items.push({
+          type: 'action',
+          label: '显示包内容',
+          onClick: () => showAppBundleContents(node),
+        })
+        items.push({ type: 'separator' })
+      } else if (node.kind === 'file') {
         items.push({
           type: 'action',
           label: '打开方式…',
@@ -1532,7 +1616,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       })
       return items
     },
-    [canPasteHere, handleCopy, handleDelete, handlePaste, handleRename, handleShowInfo, showOpenWithChooser],
+    [canPasteHere, handleCopy, handleDelete, handlePaste, handleRename, handleShowInfo, openAppBundle, showAppBundleContents, showOpenWithChooser],
   )
 
   const backgroundMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
@@ -1625,6 +1709,17 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         ],
       },
       {
+        label: '显示',
+        items: FILES_NAME_DISPLAY_OPTIONS.map((option) => ({
+          type: 'action' as const,
+          label: `${menuCheckPrefix(nameDisplayMode === option.id)}${option.label}`,
+          onClick: () => {
+            setNameDisplayMode(option.id)
+            writeFilesNameDisplayMode(option.id)
+          },
+        })),
+      },
+      {
         label: '前往',
         items: [
           {
@@ -1658,6 +1753,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     handlePaste,
     locations,
     minimizeWindow,
+    nameDisplayMode,
     navigatePathBar,
     openNewFileMenu,
     pathNodes.length,
@@ -1935,7 +2031,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                             <FilesNodeIcon node={node} size="list" />
                           </span>
                           <span class="files__list-main">
-                            <span class="files__list-name">{node.name}</span>
+                            <span class="files__list-name">
+                              {formatFilesDisplayName(node.name, nameDisplayMode)}
+                            </span>
                             <span class="files__list-date files__list-date--inline">
                               {formatListTimestamp(node, metaResolvedIds)}
                             </span>
@@ -1952,7 +2050,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                           <span class="files__item-icon">
                             <FilesNodeIcon node={node} size="grid" />
                           </span>
-                          <span class="files__item-name">{node.name}</span>
+                          <span class="files__item-name">
+                            {formatFilesDisplayName(node.name, nameDisplayMode)}
+                          </span>
                         </>
                       )}
                     </button>
@@ -1976,7 +2076,24 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
           onClick={(event) => event.stopPropagation()}
         >
-          {contextMenu.node.kind === 'file' ? (
+          {isApplicationsBundleRootNode(contextMenu.node) ? (
+            <>
+              <button
+                type="button"
+                class="files__context-item"
+                onClick={() => openAppBundle(contextMenu.node)}
+              >
+                打开
+              </button>
+              <button
+                type="button"
+                class="files__context-item"
+                onClick={() => showAppBundleContents(contextMenu.node)}
+              >
+                显示包内容
+              </button>
+            </>
+          ) : contextMenu.node.kind === 'file' ? (
             <button
               type="button"
               class="files__context-item"

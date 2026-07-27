@@ -58,6 +58,24 @@
   filter: drop-shadow(0 0.5px 0.3px rgba(18, 28, 42, 0.12));
 }
 
+.files-node-icon--app-bundle .generated-app-icon,
+.files-node-icon--app-bundle .app-icon-tile {
+  display: block;
+}
+
+.files-node-icon--app-bundle-loading .files-node-icon__app-bundle-placeholder {
+  display: block;
+  width: 42%;
+  height: 42%;
+  border-radius: 22%;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.files-node-icon--list.files-node-icon--app-bundle-loading .files-node-icon__app-bundle-placeholder {
+  width: 38%;
+  height: 38%;
+}
+
 /* 叠层：纸页在正方形画布内居中，高度撑满 */
 .files-node-icon--blank-mark .files-node-icon__glyph--file,
 .files-node-icon--preview .files-node-icon__glyph--file,

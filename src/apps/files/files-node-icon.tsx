@@ -4,6 +4,8 @@ import {
   fileNameExtension,
   getDefaultFileOpenApp,
 } from '../../os/file-open-registry.ts'
+import { isApplicationsBundleRootNode } from './files-location-applications.ts'
+import { FilesAppBundleIcon } from './files-app-bundle-icon.tsx'
 import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import type { FilesNode } from './files-types.ts'
 import { FILES_VFS_CHANGED_EVENT, readTextFile } from './files-vfs.ts'
@@ -1091,6 +1093,9 @@ export function FilesNodeIcon({
   }, [])
 
   if (node.kind === 'folder') {
+    if (isApplicationsBundleRootNode(node)) {
+      return <FilesAppBundleIcon node={node} size={size} />
+    }
     return (
       <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
         <FolderGlyph className="files-node-icon__glyph files-node-icon__glyph--folder" />

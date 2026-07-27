@@ -56,6 +56,13 @@ import {
   readSourceText,
   resolveSourcePath,
 } from './files-location-source.ts'
+import {
+  getApplicationsNode,
+  listApplicationsDirectory,
+  readApplicationsBlob,
+  readApplicationsText,
+  resolveApplicationsPath,
+} from './files-location-applications.ts'
 import { getCachedMount, listMounts } from './files-mount-store.ts'
 import {
   filesLocationPathRoot,
@@ -331,6 +338,9 @@ export async function listDirectory(
     listed = await listModels3dDirectory(folderId)
   } else if (locationId === 'source') {
     listed = await listSourceDirectory(folderId)
+  } else if (locationId === 'applications') {
+    listed = await listApplicationsDirectory(folderId)
+    return listed
   } else {
     listed = await listChildNodes(locationId, folderId)
   }
@@ -350,6 +360,9 @@ export async function resolvePathNodes(
   }
   if (locationId === 'source') {
     return resolveSourcePath(folderId)
+  }
+  if (locationId === 'applications') {
+    return resolveApplicationsPath(folderId)
   }
   if (folderId === undefined) return []
 
@@ -740,7 +753,7 @@ export async function listSubtreeFiles(
   if (isMountLocationId(parsed.locationId)) {
     throw new Error('挂载卷不支持子树枚举')
   }
-  if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+  if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
     throw new Error('该卷不支持子树枚举')
   }
 
@@ -797,7 +810,7 @@ export async function backfillSubtreeContentRevisionIds(
   if (isMountLocationId(parsed.locationId)) {
     throw new Error('挂载卷不支持 revision 补齐')
   }
-  if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+  if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
     throw new Error('该卷不支持 revision 补齐')
   }
 
@@ -856,6 +869,9 @@ async function readTextFileByNodeIdUnmetered(
   if (id.startsWith('source:')) {
     return readSourceText(id)
   }
+  if (id.startsWith('applications:')) {
+    return readApplicationsText(id)
+  }
   const node = await getNode(id)
   if (!node || node.kind !== 'file') {
     throw new Error('文件不存在')
@@ -891,6 +907,9 @@ async function readFileBlobByNodeIdUnmetered(
   }
   if (id.startsWith('source:')) {
     return readSourceBlob(id)
+  }
+  if (id.startsWith('applications:')) {
+    return readApplicationsBlob(id)
   }
   const node = await getNode(id)
   if (!node || node.kind !== 'file') {
@@ -1172,7 +1191,7 @@ export async function removeNodesByPathsBatch(
       deletedPaths.push(absolutePath)
       continue
     }
-    if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+    if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
       throw new Error('此位置不支持批量删除')
     }
 
@@ -1213,6 +1232,11 @@ export async function getNodeOrThrow(id: string): Promise<FilesNode> {
   }
   if (id.startsWith('source:')) {
     const node = await getSourceNode(id)
+    if (!node) throw new Error('项目不存在')
+    return node
+  }
+  if (id.startsWith('applications:')) {
+    const node = await getApplicationsNode(id)
     if (!node) throw new Error('项目不存在')
     return node
   }
@@ -1336,7 +1360,9 @@ export async function copyNodeTo(params: {
 function canShareBlobOnCopy(source: FilesNode, destLocationId: FilesLocationId): boolean {
   if (isMountLocationId(destLocationId)) return false
   if (isMountNodeId(source.id)) return false
-  if (source.id.startsWith('models3d:') || source.id.startsWith('source:')) return false
+  if (source.id.startsWith('models3d:') || source.id.startsWith('source:') || source.id.startsWith('applications:')) {
+    return false
+  }
   return (
     (source.locationId === 'local' || source.locationId === 'dev') &&
     (destLocationId === 'local' || destLocationId === 'dev')
@@ -1489,7 +1515,7 @@ export async function upsertFilesBatch(
     if (isMountLocationId(parsed.locationId)) {
       throw new Error('挂载卷暂不支持批量写入')
     }
-    if (parsed.locationId === 'models3d' || parsed.locationId === 'source') {
+    if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
       throw new Error('此位置不支持批量写入')
     }
 

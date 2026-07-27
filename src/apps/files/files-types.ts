@@ -1,4 +1,4 @@
-export type BuiltinFilesLocationId = 'local' | 'models3d' | 'source' | 'dev'
+export type BuiltinFilesLocationId = 'local' | 'applications' | 'models3d' | 'source' | 'dev'
 
 /** 动态挂载卷：`mount:{文件夹名键}`，键由本机文件夹名派生，便于稳定路径 */
 export type MountFilesLocationId = `mount:${string}`
@@ -62,6 +62,7 @@ export type FilesLocation = {
 
 export const FILES_LOCATIONS: readonly FilesLocation[] = [
   { id: 'local', label: '用户文件', writable: true },
+  { id: 'applications', label: '应用程序', writable: false },
   { id: 'dev', label: '开发者数据', writable: true },
   { id: 'models3d', label: '3D 模型', writable: false },
   { id: 'source', label: '系统', writable: false },
