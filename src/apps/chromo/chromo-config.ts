@@ -12,3 +12,6 @@ export const CHROMO_OMNIBOX_PLACEHOLDER = '输入网址后按 Enter'
 
 /** virtual-chromo RPC 默认超时（见 docs/protocol.md） */
 export const CHROMO_DEFAULT_RPC_TIMEOUT = 30_000
+
+/** VC_SCREENSHOT 默认超时（DOM rasterize 较慢） */
+export const CHROMO_DEFAULT_SCREENSHOT_TIMEOUT = 60_000

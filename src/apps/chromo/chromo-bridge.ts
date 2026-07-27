@@ -1,4 +1,7 @@
-import { CHROMO_DEFAULT_RPC_TIMEOUT } from './chromo-config.ts'
+import {
+  CHROMO_DEFAULT_RPC_TIMEOUT,
+  CHROMO_DEFAULT_SCREENSHOT_TIMEOUT,
+} from './chromo-config.ts'
 
 export type ChromoReadyPayload = {
   version?: string
@@ -64,6 +67,23 @@ export type ChromoConsoleReadResult = {
   latestId?: string
 }
 
+export type ChromoScreenshotOptions = {
+  format?: 'jpeg' | 'png'
+  quality?: number
+  fullPage?: boolean
+  scale?: number
+  timeout?: number
+}
+
+export type ChromoScreenshotResult = {
+  mime: string
+  encoding: 'base64'
+  data: string
+  dataUrl: string
+  width: number
+  height: number
+}
+
 export type ChromoRpcOptions = {
   timeout?: number
 }
@@ -94,6 +114,9 @@ export type ChromoBridge = {
   readConsole: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoConsoleReadResult>
+  screenshot: (
+    options?: ChromoScreenshotOptions,
+  ) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
   isReady: () => boolean
   destroy: () => void
@@ -254,6 +277,9 @@ export function createChromoBridge(
       case 'VC_CONSOLE_READ_RESULT':
         settleRpc('VC_CONSOLE_READ_RESULT', payload as RpcResultPayload)
         break
+      case 'VC_SCREENSHOT_RESULT':
+        settleRpc('VC_SCREENSHOT_RESULT', payload as RpcResultPayload)
+        break
       case 'VC_CLICK':
         handlers.onClick?.(payload as ChromoClickPayload)
         break
@@ -314,6 +340,25 @@ export function createChromoBridge(
       return rpc('VC_CONSOLE_READ_RESULT', 'VC_CONSOLE_READ', payload, { timeout }).then(
         (value) => (value ?? { entries: [] }) as ChromoConsoleReadResult,
       )
+    },
+    screenshot(options) {
+      const { format, quality, fullPage, scale, timeout } = options ?? {}
+      const payload: Record<string, unknown> = {}
+      if (format !== undefined) {
+        payload.format = format
+      }
+      if (quality !== undefined) {
+        payload.quality = quality
+      }
+      if (fullPage !== undefined) {
+        payload.fullPage = fullPage
+      }
+      if (scale !== undefined) {
+        payload.scale = scale
+      }
+      return rpc('VC_SCREENSHOT_RESULT', 'VC_SCREENSHOT', payload, {
+        timeout: timeout ?? CHROMO_DEFAULT_SCREENSHOT_TIMEOUT,
+      }).then((value) => value as ChromoScreenshotResult)
     },
     destroySession(sessionId) {
       postCommand(

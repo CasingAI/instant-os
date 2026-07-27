@@ -13,6 +13,8 @@ import {
   type ChromoNavigatedPayload,
   type ChromoReadyPayload,
   type ChromoRpcOptions,
+  type ChromoScreenshotOptions,
+  type ChromoScreenshotResult,
 } from './chromo-bridge.ts'
 
 export type ChromoViewerHandle = {
@@ -25,6 +27,7 @@ export type ChromoViewerHandle = {
   readConsole: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoConsoleReadResult>
+  screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
   isReady: () => boolean
 }
@@ -150,6 +153,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         readConsole(options) {
           return (
             bridgeRef.current?.readConsole(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        screenshot(options?: ChromoScreenshotOptions) {
+          return (
+            bridgeRef.current?.screenshot(options) ??
             Promise.reject(new Error('viewer not ready'))
           )
         },
