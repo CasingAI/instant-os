@@ -574,9 +574,8 @@ export function KeychainApp() {
 
   const handleAddProvider = useCallback(() => {
     const entry = defaultProviderEntry()
-    const newIndex = workingProviders.length
-    setWorkingProviders((prev) => [...prev, entry])
-    setEditingProviderIndex(newIndex)
+    // 仅写入 editing 状态，保存后再并入 workingProviders，避免转场动画期间列表闪现新模型
+    setEditingProviderIndex(workingProviders.length)
     setEditingEntry(cloneEntry(entry))
     setEditingBaseline(cloneEntry(entry))
     setIsAddingProvider(true)
@@ -729,13 +728,8 @@ export function KeychainApp() {
   ])
 
   const handleProviderCancel = useCallback(() => {
-    if (isAddingProvider && editingProviderIndex >= 0) {
-      setWorkingProviders((prev) =>
-        prev.filter((_, i) => i !== editingProviderIndex),
-      )
-    }
     navigateTo('ai-providers', 'pop', clearProviderEdit)
-  }, [isAddingProvider, editingProviderIndex, clearProviderEdit, navigateTo])
+  }, [clearProviderEdit, navigateTo])
 
   const handleProviderBack = useCallback(() => {
     if (providerFormDirty || isAddingProvider) {
