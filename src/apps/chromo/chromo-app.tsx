@@ -21,15 +21,17 @@ import {
   isStartPageUrl,
   pageTitleFromUrl,
 } from '../browser/normalize-browser-url.ts'
-import type { ChromoConsoleEntry, ChromoScreenshotOptions } from './chromo-bridge.ts'
+import type { ChromoConsoleEntry, ChromoNetworkEntry, ChromoScreenshotOptions } from './chromo-bridge.ts'
 import { CHROMO_DEFAULT_NEW_TAB_URL } from './chromo-config.ts'
 import { ChromoAgentSidebar } from './chromo-agent-sidebar.tsx'
-import { ChromoConsolePanel } from './chromo-console-panel.tsx'
+import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
+import { mergeConsoleDisplayEntries } from './chromo-console-types.ts'
+import { ChromoDevToolsPanel } from './chromo-devtools-panel.tsx'
 import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
 import './chromo.css'
 
-type ChromoSidebarTab = 'agent' | 'console'
+type ChromoDevToolsTab = 'console' | 'elements' | 'network'
 
 type ChromoTab = {
   id: string
@@ -44,7 +46,13 @@ type ChromoTab = {
   bootstrapped: boolean
   error?: string
   consoleEntries: ChromoConsoleEntry[]
+  replEntries: ChromoConsoleDisplayEntry[]
+  replHistory: string[]
+  preserveConsole: boolean
   lastConsoleId: string
+  networkEntries: ChromoNetworkEntry[]
+  lastNetworkId: string
+  selectedNetworkId: string
 }
 
 let nextTabId = 1
@@ -66,7 +74,13 @@ function createChromoTab(initialUrl = ''): ChromoTab {
     ready: false,
     bootstrapped: false,
     consoleEntries: [],
+    replEntries: [],
+    replHistory: [],
+    preserveConsole: false,
     lastConsoleId: '',
+    networkEntries: [],
+    lastNetworkId: '',
+    selectedNetworkId: '',
   }
 }
 
@@ -143,7 +157,8 @@ export function ChromoApp() {
   const [hiddenTabIds, setHiddenTabIds] = useState<string[]>([])
   const [fullscreenToolbarRevealed, setFullscreenToolbarRevealed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sidebarTab, setSidebarTab] = useState<ChromoSidebarTab>('agent')
+  const [devtoolsOpen, setDevtoolsOpen] = useState(false)
+  const [devtoolsTab, setDevtoolsTab] = useState<ChromoDevToolsTab>('console')
 
   const viewerRefs = useRef<Record<string, RefObject<ChromoViewerHandle>>>({})
   const tabsRef = useRef(tabs)
@@ -156,6 +171,7 @@ export function ChromoApp() {
   const requestedUrlByTabRef = useRef<Record<string, string>>({})
   /** VC_CLICK 后延迟整页导航；若随后收到 VC_HISTORY（SPA）则取消 */
   const clickNavigateTimersRef = useRef<Record<string, number>>({})
+  const networkPullTimersRef = useRef<Record<string, number>>({})
   const chromoRootRef = useRef<HTMLDivElement>(null)
   const { hostRef: narrowLayoutHostRef, narrowLayout } = useAppNarrowLayout()
 
@@ -315,8 +331,9 @@ export function ChromoApp() {
     if (!activeTab) {
       return
     }
+    getViewerRef(activeTab.id).current?.stop()
     updateTab(activeTab.id, (tab) => ({ ...tab, loading: false }))
-  }, [activeTab, updateTab])
+  }, [activeTab, getViewerRef, updateTab])
 
   const evalInActivePage = useCallback(
     (code: string) => {
@@ -379,21 +396,147 @@ export function ChromoApp() {
     [getViewerRef, updateTab],
   )
 
+  const pullNetworkDelta = useCallback(
+    async (tabId: string) => {
+      const viewer = getViewerRef(tabId).current
+      if (!viewer?.isReady()) {
+        return
+      }
+
+      const tab = tabsRef.current.find((entry) => entry.id === tabId)
+      if (!tab) {
+        return
+      }
+
+      try {
+        const result = await viewer.readNetwork({ after: tab.lastNetworkId || undefined })
+        if (!result.entries.length) {
+          if (result.latestId) {
+            updateTab(tabId, (entry) => ({ ...entry, lastNetworkId: result.latestId! }))
+          }
+          return
+        }
+
+        updateTab(tabId, (entry) => {
+          const byId = new Map(entry.networkEntries.map((item) => [item.id, item]))
+          for (const item of result.entries) {
+            byId.set(item.id, item)
+          }
+          return {
+            ...entry,
+            networkEntries: Array.from(byId.values()),
+            lastNetworkId: result.latestId ?? entry.lastNetworkId,
+          }
+        })
+      } catch (err) {
+        console.error('[chromo network read]', err)
+      }
+    },
+    [getViewerRef, updateTab],
+  )
+
+  const ingestNetworkEntry = useCallback(
+    (tabId: string, entry: ChromoNetworkEntry, latestId?: string) => {
+      updateTab(tabId, (current) => {
+        const idx = current.networkEntries.findIndex((item) => item.id === entry.id)
+        const networkEntries =
+          idx >= 0
+            ? current.networkEntries.map((item, i) => (i === idx ? entry : item))
+            : [...current.networkEntries, entry]
+        return {
+          ...current,
+          networkEntries,
+          lastNetworkId: latestId || entry.id || current.lastNetworkId,
+        }
+      })
+    },
+    [updateTab],
+  )
+
+  const scheduleNetworkPull = useCallback(
+    (tabId: string) => {
+      const existing = networkPullTimersRef.current[tabId]
+      if (existing) {
+        window.clearTimeout(existing)
+      }
+      networkPullTimersRef.current[tabId] = window.setTimeout(() => {
+        delete networkPullTimersRef.current[tabId]
+        void pullNetworkDelta(tabId)
+      }, 50)
+    },
+    [pullNetworkDelta],
+  )
+
   const clearTabConsole = useCallback(
     (tabId: string) => {
       updateTab(tabId, (entry) => ({
         ...entry,
         consoleEntries: [],
+        replEntries: [],
         lastConsoleId: '',
       }))
     },
     [updateTab],
   )
 
-  const openSidebar = useCallback((tab: ChromoSidebarTab) => {
-    setSidebarTab(tab)
-    setSidebarOpen(true)
-  }, [])
+  const clearTabNetwork = useCallback(
+    (tabId: string) => {
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        networkEntries: [],
+        lastNetworkId: '',
+        selectedNetworkId: '',
+      }))
+    },
+    [updateTab],
+  )
+
+  const selectTabNetwork = useCallback(
+    (tabId: string, entry: ChromoNetworkEntry) => {
+      updateTab(tabId, (current) => ({
+        ...current,
+        selectedNetworkId: entry.id,
+      }))
+    },
+    [updateTab],
+  )
+
+  useEffect(() => {
+    if (!devtoolsOpen || devtoolsTab !== 'network' || !activeTabId) {
+      return
+    }
+    void pullNetworkDelta(activeTabId)
+  }, [devtoolsOpen, devtoolsTab, activeTabId, pullNetworkDelta])
+
+  const appendTabConsoleEntries = useCallback(
+    (tabId: string, entries: ChromoConsoleDisplayEntry[]) => {
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        replEntries: [...entry.replEntries, ...entries],
+      }))
+    },
+    [updateTab],
+  )
+
+  const updateTabReplHistory = useCallback(
+    (tabId: string, history: string[]) => {
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        replHistory: history,
+      }))
+    },
+    [updateTab],
+  )
+
+  const updateTabPreserveConsole = useCallback(
+    (tabId: string, preserveConsole: boolean) => {
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        preserveConsole,
+      }))
+    },
+    [updateTab],
+  )
 
   const submitUrl = useCallback(
     (event: Event) => {
@@ -443,7 +586,8 @@ export function ChromoApp() {
 
   const toolbarAutoHide = chromoFullscreen
   const toolbarVisible = !toolbarAutoHide || fullscreenToolbarRevealed
-  const toolbarInteractionPinned = addressFocused || tabsOverflowOpen || sidebarOpen
+  const toolbarInteractionPinned =
+    addressFocused || tabsOverflowOpen || sidebarOpen || devtoolsOpen
 
   const tabSummaries = useMemo((): ChromoTabSummary[] => {
     return tabs.map((tab) => ({
@@ -643,19 +787,13 @@ export function ChromoApp() {
               class={[
                 'chromo__btn',
                 'chromo__btn--sidebar',
-                sidebarOpen && sidebarTab === 'agent' ? 'chromo__btn--active' : '',
+                sidebarOpen ? 'chromo__btn--active' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => {
-                if (sidebarOpen && sidebarTab === 'agent') {
-                  setSidebarOpen(false)
-                  return
-                }
-                openSidebar('agent')
-              }}
+              onClick={() => setSidebarOpen((open) => !open)}
               aria-label="AI 助手"
-              aria-pressed={sidebarOpen && sidebarTab === 'agent'}
+              aria-pressed={sidebarOpen}
               title="AI 助手"
             >
               AI
@@ -665,22 +803,16 @@ export function ChromoApp() {
               class={[
                 'chromo__btn',
                 'chromo__btn--sidebar',
-                sidebarOpen && sidebarTab === 'console' ? 'chromo__btn--active' : '',
+                devtoolsOpen ? 'chromo__btn--active' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => {
-                if (sidebarOpen && sidebarTab === 'console') {
-                  setSidebarOpen(false)
-                  return
-                }
-                openSidebar('console')
-              }}
-              aria-label="Console"
-              aria-pressed={sidebarOpen && sidebarTab === 'console'}
-              title="Console"
+              onClick={() => setDevtoolsOpen((open) => !open)}
+              aria-label="DevTools"
+              aria-pressed={devtoolsOpen}
+              title="DevTools"
             >
-              ⌘
+              DevTools
             </button>
             {showProgress ? (
               <button type="button" class="chromo__btn" onClick={stopLoading} aria-label="停止">
@@ -696,10 +828,11 @@ export function ChromoApp() {
       </header>
 
       <div class="chromo__body">
-        <main class="chromo__viewport">
-          {activeTab?.error && <div class="chromo__error-banner">{activeTab.error}</div>}
-          {tabs.map((tab) => (
-            <ChromoViewerFrame
+        <div class="chromo__main-column">
+          <main class="chromo__viewport">
+            {activeTab?.error && <div class="chromo__error-banner">{activeTab.error}</div>}
+            {tabs.map((tab) => (
+              <ChromoViewerFrame
               key={tab.id}
               sessionId={tab.sessionId}
               initialUrl={tab.url || undefined}
@@ -722,8 +855,16 @@ export function ChromoApp() {
                   ...entry,
                   loading: true,
                   error: undefined,
-                  consoleEntries: [],
-                  lastConsoleId: '',
+                  ...(entry.preserveConsole
+                    ? {}
+                    : {
+                        consoleEntries: [],
+                        replEntries: [],
+                        lastConsoleId: '',
+                        networkEntries: [],
+                        lastNetworkId: '',
+                        selectedNetworkId: '',
+                      }),
                 }))
               }}
               onLoading={({ loading }) => {
@@ -757,6 +898,7 @@ export function ChromoApp() {
                 // inject.js 在 load 后可能仍在异步执行，延迟拉取 console
                 window.setTimeout(() => {
                   void pullConsoleDelta(tab.id)
+                  void pullNetworkDelta(tab.id)
                 }, 300)
               }}
               onLoadFailed={({ url, message, code }) => {
@@ -770,6 +912,13 @@ export function ChromoApp() {
               }}
               onConsoleUpdated={() => {
                 void pullConsoleDelta(tab.id)
+              }}
+              onNetworkUpdated={(payload) => {
+                if (payload.entry) {
+                  ingestNetworkEntry(tab.id, payload.entry, payload.latestId)
+                  return
+                }
+                scheduleNetworkPull(tab.id)
               }}
               onError={({ message, code }) => {
                 updateTab(tab.id, (entry) => ({
@@ -816,24 +965,47 @@ export function ChromoApp() {
                   navigateTab(tab.id, href)
                 }, 150)
               }}
-            />
-          ))}
-        </main>
+              />
+            ))}
+          </main>
 
-        {sidebarOpen && sidebarTab === 'agent' && (
+          {devtoolsOpen && activeTab && (
+            <ChromoDevToolsPanel
+              activeTab={devtoolsTab}
+              onTabChange={setDevtoolsTab}
+              onClose={() => setDevtoolsOpen(false)}
+              preserveLog={activeTab.preserveConsole}
+              onPreserveLogChange={(preserve) => updateTabPreserveConsole(activeTab.id, preserve)}
+              onClear={() => {
+                if (devtoolsTab === 'network') {
+                  clearTabNetwork(activeTab.id)
+                  return
+                }
+                clearTabConsole(activeTab.id)
+              }}
+              entries={mergeConsoleDisplayEntries(
+                activeTab.consoleEntries,
+                activeTab.replEntries,
+              )}
+              pageReady={Boolean(activeTab.ready && activeTab.url && !activeTab.loading)}
+              evalInPage={evalInActivePage}
+              replHistory={activeTab.replHistory}
+              onReplHistoryChange={(history) => updateTabReplHistory(activeTab.id, history)}
+              onAppendEntries={(entries) => appendTabConsoleEntries(activeTab.id, entries)}
+              networkEntries={activeTab.networkEntries}
+              selectedNetworkId={activeTab.selectedNetworkId || undefined}
+              onSelectNetwork={(entry) => selectTabNetwork(activeTab.id, entry)}
+            />
+          )}
+        </div>
+
+        {sidebarOpen && (
           <ChromoAgentSidebar
             pageUrl={activeTab?.url ?? ''}
             pageTitle={activeTab?.title ?? ''}
             pageReady={Boolean(activeTab?.ready && activeTab.url && !activeTab.loading)}
             evalInPage={evalInActivePage}
             screenshotInPage={screenshotInActivePage}
-          />
-        )}
-
-        {sidebarOpen && sidebarTab === 'console' && activeTab && (
-          <ChromoConsolePanel
-            entries={activeTab.consoleEntries}
-            onClear={() => clearTabConsole(activeTab.id)}
           />
         )}
       </div>

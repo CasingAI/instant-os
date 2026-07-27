@@ -273,6 +273,14 @@
   min-width: 0;
 }
 
+.chromo__main-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
 .chromo__viewport {
   position: relative;
   flex: 1 1 auto;
@@ -611,8 +619,7 @@
   cursor: default;
 }
 
-.chromo--narrow .chromo-agent,
-.chromo--narrow .chromo-console {
+.chromo--narrow .chromo-agent {
   position: absolute;
   top: 0;
   right: 0;
@@ -625,30 +632,177 @@
   position: relative;
 }
 
-.chromo-console {
-  flex: 0 0 320px;
-  width: 320px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid #dadce0;
-  background: #0d1117;
-  color: #e6edf3;
+.chromo--narrow .chromo-devtools {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  max-height: 55%;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.24);
 }
 
-.chromo-console__header {
+.chromo-devtools {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  border-top: 1px solid #30363d;
+  background: #202124;
+  color: #e8eaed;
+}
+
+.chromo-devtools__resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+
+.chromo-devtools__resize-handle:hover {
+  background: rgba(138, 180, 248, 0.35);
+}
+
+.chromo-devtools__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px;
+  min-height: 28px;
+  padding: 0 8px;
   border-bottom: 1px solid #30363d;
-  background: #161b22;
+  background: #292a2d;
 }
 
-.chromo-console__title {
-  font-size: 13px;
-  font-weight: 600;
+.chromo-devtools__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  overflow: auto;
+}
+
+.chromo-devtools__tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 6px 10px;
+  background: transparent;
+  color: #9aa0a6;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chromo-devtools__tab:hover:not(:disabled) {
+  color: #e8eaed;
+}
+
+.chromo-devtools__tab--active {
+  color: #8ab4f8;
+  border-bottom-color: #8ab4f8;
+}
+
+.chromo-devtools__tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chromo-devtools__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.chromo-devtools__preserve {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #9aa0a6;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chromo-devtools__action {
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  color: #9aa0a6;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chromo-devtools__action:hover {
+  background: rgba(232, 234, 237, 0.08);
+  color: #e8eaed;
+}
+
+.chromo-devtools__action--close {
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+
+.chromo-devtools__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chromo-devtools__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  padding: 16px;
+  color: #9aa0a6;
+  font-size: 12px;
+  text-align: center;
+}
+
+.chromo-console {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #202124;
+  color: #e8eaed;
+}
+
+.chromo-console__filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border-bottom: 1px solid #30363d;
+  overflow-x: auto;
+}
+
+.chromo-console__filter {
+  border: 0;
+  border-radius: 10px;
+  padding: 2px 8px;
+  background: transparent;
+  color: #9aa0a6;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chromo-console__filter:hover {
+  background: rgba(232, 234, 237, 0.08);
+}
+
+.chromo-console__filter--active {
+  background: rgba(138, 180, 248, 0.16);
+  color: #8ab4f8;
 }
 
 .chromo-console__clear {
@@ -675,7 +829,7 @@
 
 .chromo-console__empty {
   padding: 8px;
-  color: #8b949e;
+  color: #9aa0a6;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 12px;
 }
@@ -684,31 +838,213 @@
   margin-bottom: 6px;
   padding: 6px 8px;
   border-radius: 4px;
-  background: #161b22;
+  background: #292a2d;
   word-break: break-word;
 }
 
 .chromo-console__entry--warn {
-  border-left: 3px solid #d29922;
+  border-left: 3px solid #f9ab00;
 }
 
 .chromo-console__entry--error {
-  border-left: 3px solid #f85149;
+  border-left: 3px solid #f28b82;
 }
 
 .chromo-console__entry--info {
-  border-left: 3px solid #58a6ff;
+  border-left: 3px solid #8ab4f8;
 }
 
-.chromo-console__entry--debug {
-  border-left: 3px solid #8b949e;
+.chromo-console__entry--debug,
+.chromo-console__entry--log {
+  border-left: 3px solid #9aa0a6;
+}
+
+.chromo-console__entry--repl-input {
+  background: transparent;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.chromo-console__entry--repl-result {
+  background: transparent;
+  padding-top: 0;
 }
 
 .chromo-console__meta {
   margin-bottom: 2px;
-  color: #8b949e;
+  color: #9aa0a6;
 }
 
 .chromo-console__body {
-  color: #e6edf3;
+  color: #e8eaed;
+}
+
+.chromo-console__body--input,
+.chromo-console__body--result {
+  color: #e8eaed;
+}
+
+.chromo-console__body--error {
+  color: #f28b82;
+}
+
+.chromo-console__prompt {
+  color: #8ab4f8;
+}
+
+.chromo-console__value {
+  white-space: pre-wrap;
+}
+
+.chromo-console__value--object {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.chromo-console__expand {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #9aa0a6;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.chromo-console__object,
+.chromo-console__object-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chromo-console__repl {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px;
+  border-top: 1px solid #30363d;
+  background: #292a2d;
+}
+
+.chromo-console__repl-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 20px;
+  max-height: 120px;
+  resize: vertical;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #e8eaed;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  outline: none;
+}
+
+.chromo-console__repl-input::placeholder {
+  color: #9aa0a6;
+}
+
+.chromo-console__repl-input:disabled {
+  opacity: 0.6;
+}
+
+.chromo-network {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: #fff;
+}
+
+.chromo-network__list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.chromo-network__empty {
+  padding: 16px;
+  text-align: center;
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.chromo-network__entry {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid #f1f3f4;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.chromo-network__entry:hover {
+  background: #f8f9fa;
+}
+
+.chromo-network__entry--failed {
+  border-left: 3px solid #d93025;
+}
+
+.chromo-network__entry--pending {
+  opacity: 0.72;
+}
+
+.chromo-network__entry--bypass {
+  border-left: 3px solid #f9ab00;
+}
+
+.chromo-network__entry--selected {
+  background: #e8f0fe;
+}
+
+.chromo-network__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #5f6368;
+}
+
+.chromo-network__method {
+  color: #1a73e8;
+  font-weight: 600;
+}
+
+.chromo-network__status {
+  color: #137333;
+}
+
+.chromo-network__entry--failed .chromo-network__status {
+  color: #d93025;
+}
+
+.chromo-network__badge {
+  color: #e37400;
+}
+
+.chromo-network__name {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #202124;
+  word-break: break-all;
+}
+
+.chromo-network__detail {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-top: 1px solid #dadce0;
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #5f6368;
+  word-break: break-all;
+  max-height: 72px;
+  overflow: auto;
 }

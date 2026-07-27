@@ -11,6 +11,7 @@ import {
   type ChromoLoadFailedPayload,
   type ChromoLocationPayload,
   type ChromoNavigatedPayload,
+  type ChromoNetworkReadResult,
   type ChromoReadyPayload,
   type ChromoRpcOptions,
   type ChromoScreenshotOptions,
@@ -22,11 +23,15 @@ export type ChromoViewerHandle = {
   back: () => void
   forward: () => void
   reload: () => void
+  stop: () => void
   ping: () => void
   evalInPage: (code: string, options?: ChromoRpcOptions) => Promise<unknown>
   readConsole: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoConsoleReadResult>
+  readNetwork: (
+    options?: { after?: string; limit?: number } & ChromoRpcOptions,
+  ) => Promise<ChromoNetworkReadResult>
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
   isReady: () => boolean
@@ -43,6 +48,7 @@ type ChromoViewerFrameProps = {
   onLoading?: ChromoBridgeHandlers['onLoading']
   onLoadFailed?: (payload: ChromoLoadFailedPayload) => void
   onConsoleUpdated?: ChromoBridgeHandlers['onConsoleUpdated']
+  onNetworkUpdated?: ChromoBridgeHandlers['onNetworkUpdated']
   onError?: (payload: ChromoErrorPayload) => void
   onClick?: (payload: ChromoClickPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
@@ -61,6 +67,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       onLoading,
       onLoadFailed,
       onConsoleUpdated,
+      onNetworkUpdated,
       onError,
       onClick,
       onLocation,
@@ -78,6 +85,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const onLoadingRef = useRef(onLoading)
     const onLoadFailedRef = useRef(onLoadFailed)
     const onConsoleUpdatedRef = useRef(onConsoleUpdated)
+    const onNetworkUpdatedRef = useRef(onNetworkUpdated)
     const onErrorRef = useRef(onError)
     const onClickRef = useRef(onClick)
     const onLocationRef = useRef(onLocation)
@@ -89,6 +97,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     onLoadingRef.current = onLoading
     onLoadFailedRef.current = onLoadFailed
     onConsoleUpdatedRef.current = onConsoleUpdated
+    onNetworkUpdatedRef.current = onNetworkUpdated
     onErrorRef.current = onError
     onClickRef.current = onClick
     onLocationRef.current = onLocation
@@ -107,6 +116,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         onLoading: (payload) => onLoadingRef.current?.(payload),
         onLoadFailed: (payload) => onLoadFailedRef.current?.(payload),
         onConsoleUpdated: (payload) => onConsoleUpdatedRef.current?.(payload),
+        onNetworkUpdated: (payload) => onNetworkUpdatedRef.current?.(payload),
         onError: (payload) => onErrorRef.current?.(payload),
         onClick: (payload) => onClickRef.current?.(payload),
         onLocation: (payload) => onLocationRef.current?.(payload),
@@ -141,6 +151,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         reload() {
           bridgeRef.current?.reload()
         },
+        stop() {
+          bridgeRef.current?.stop()
+        },
         ping() {
           bridgeRef.current?.ping()
         },
@@ -153,6 +166,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         readConsole(options) {
           return (
             bridgeRef.current?.readConsole(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        readNetwork(options) {
+          return (
+            bridgeRef.current?.readNetwork(options) ??
             Promise.reject(new Error('viewer not ready'))
           )
         },

@@ -1,4 +1,5 @@
-export const CHROMO_WORKER_ORIGIN = 'https://virtual-chromo.r6sg.workers.dev'
+export const CHROMO_WORKER_ORIGIN =
+  import.meta.env.DEV ? 'http://localhost:8787' : 'https://virtual-chromo.r6sg.workers.dev'
 
 /** 每个 BrowserContext（标签页）独立 session，cookie / storage 按 session 隔离。 */
 export function chromoViewerUrl(sessionId: string): string {

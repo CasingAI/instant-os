@@ -67,6 +67,25 @@ export type ChromoConsoleReadResult = {
   latestId?: string
 }
 
+export type ChromoNetworkEntry = {
+  id: string
+  ts: number
+  method: string
+  url: string
+  status: number
+  type: string
+  size: number
+  duration: number
+  failed: boolean
+  bypass: boolean
+  pending?: boolean
+}
+
+export type ChromoNetworkReadResult = {
+  entries: ChromoNetworkEntry[]
+  latestId?: string
+}
+
 export type ChromoScreenshotOptions = {
   format?: 'jpeg' | 'png'
   quality?: number
@@ -95,6 +114,11 @@ export type ChromoBridgeHandlers = {
   onLoading?: (payload: { loading: boolean; url?: string }) => void
   onLoadFailed?: (payload: ChromoLoadFailedPayload) => void
   onConsoleUpdated?: (payload: { latestId?: string; count?: number }) => void
+  onNetworkUpdated?: (payload: {
+    latestId?: string
+    count?: number
+    entry?: ChromoNetworkEntry
+  }) => void
   onError?: (payload: ChromoErrorPayload) => void
   onClick?: (payload: ChromoClickPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
@@ -109,11 +133,15 @@ export type ChromoBridge = {
   back: () => void
   forward: () => void
   reload: () => void
+  stop: () => void
   ping: () => void
   evalInPage: (code: string, options?: ChromoRpcOptions) => Promise<unknown>
   readConsole: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoConsoleReadResult>
+  readNetwork: (
+    options?: { after?: string; limit?: number } & ChromoRpcOptions,
+  ) => Promise<ChromoNetworkReadResult>
   screenshot: (
     options?: ChromoScreenshotOptions,
   ) => Promise<ChromoScreenshotResult>
@@ -266,6 +294,13 @@ export function createChromoBridge(
           (payload as { latestId?: string; count?: number } | undefined) ?? {},
         )
         break
+      case 'VC_NETWORK_UPDATED':
+        handlers.onNetworkUpdated?.(
+          (payload as
+            | { latestId?: string; count?: number; entry?: ChromoNetworkEntry }
+            | undefined) ?? {},
+        )
+        break
       case 'VC_ERROR':
         handlers.onError?.(payload as ChromoErrorPayload)
         break
@@ -276,6 +311,9 @@ export function createChromoBridge(
         break
       case 'VC_CONSOLE_READ_RESULT':
         settleRpc('VC_CONSOLE_READ_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_NETWORK_READ_RESULT':
+        settleRpc('VC_NETWORK_READ_RESULT', payload as RpcResultPayload)
         break
       case 'VC_SCREENSHOT_RESULT':
         settleRpc('VC_SCREENSHOT_RESULT', payload as RpcResultPayload)
@@ -322,6 +360,9 @@ export function createChromoBridge(
     reload() {
       postCommand(iframe, 'VC_RELOAD', undefined, targetOrigin)
     },
+    stop() {
+      postCommand(iframe, 'VC_STOP', undefined, targetOrigin)
+    },
     ping() {
       postCommand(iframe, 'VC_PING', undefined, targetOrigin)
     },
@@ -339,6 +380,19 @@ export function createChromoBridge(
       }
       return rpc('VC_CONSOLE_READ_RESULT', 'VC_CONSOLE_READ', payload, { timeout }).then(
         (value) => (value ?? { entries: [] }) as ChromoConsoleReadResult,
+      )
+    },
+    readNetwork(options) {
+      const { after, limit, timeout } = options ?? {}
+      const payload: Record<string, unknown> = {}
+      if (after) {
+        payload.after = after
+      }
+      if (limit !== undefined) {
+        payload.limit = limit
+      }
+      return rpc('VC_NETWORK_READ_RESULT', 'VC_NETWORK_READ', payload, { timeout }).then(
+        (value) => (value ?? { entries: [] }) as ChromoNetworkReadResult,
       )
     },
     screenshot(options) {
