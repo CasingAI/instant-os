@@ -31,6 +31,35 @@ export function BrowserIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function ChromoIcon({ size = 64 }: IconProps) {
+  const ring = Math.round(size * 0.56)
+  return (
+    <AppIconTile color="#ffffff" size={size}>
+      <svg width={ring} height={ring} viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="24" cy="24" r="22" fill="#ffffff" stroke="#dadce0" strokeWidth="1" />
+        <path
+          d="M24 8 A16 16 0 0 1 38.6 20 L24 24 Z"
+          fill="#EA4335"
+        />
+        <path
+          d="M38.6 20 A16 16 0 0 1 32.5 38.6 L24 24 Z"
+          fill="#FBBC04"
+        />
+        <path
+          d="M32.5 38.6 A16 16 0 0 1 9.4 28 L24 24 Z"
+          fill="#34A853"
+        />
+        <path
+          d="M9.4 28 A16 16 0 0 1 24 8 L24 24 Z"
+          fill="#4285F4"
+        />
+        <circle cx="24" cy="24" r="9" fill="#ffffff" />
+        <circle cx="24" cy="24" r="7" fill="#4285F4" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function MailIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#2b8fd9" size={size}>

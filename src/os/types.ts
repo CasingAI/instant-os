@@ -2,14 +2,14 @@ import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about.ts'
 import type { TerminalPrivilegeRequest } from '../terminal/terminal-privilege-types.ts'
 
-export type BuiltinAppId = 'browser' | 'settings' | 'photos' | 'files' | 'textedit' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'packages' | 'archive-utility' | 'space-sniffer' | 'ui-kit'
+export type BuiltinAppId = 'browser' | 'chromo' | 'settings' | 'photos' | 'files' | 'textedit' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'gomoku' | 'books' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'packages' | 'archive-utility' | 'space-sniffer' | 'ui-kit'
 
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
   documentId?: string
   /**
    * 浏览器待导航 URL（http/https）。
-   * 与 documentId 互斥；仅 `browser` 等支持 URL 打开的应用消费。
+   * 与 documentId 互斥；`browser`、`chromo` 等支持 URL 打开的应用消费。
    */
   url?: string
   /** 打开/聚焦终端时注入的待确认特权操作。

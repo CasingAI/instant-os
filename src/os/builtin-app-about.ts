@@ -55,6 +55,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '支持多标签、历史记录、前进后退与重新加载；也可作为 .html / .htm / .xhtml / .svg 等本机文件的打开程序，直接预览文件内容（不经 AI 生成）。已生成的网页缓存保存在数据空间（IndexedDB），可在系统设置中管理。',
     ],
   },
+  chromo: {
+    version: 'WebView 浏览器',
+    paragraphs: [
+      'Chromo 是基于 virtual-chromo 的真网页浏览器，通过 Cloudflare Worker 与 Service Worker 代理加载外部网站。',
+      '与 AI 网络浏览器不同，Chromo 渲染真实网页内容，支持页内链接跳转、前进后退与刷新。网页渲染由 virtual-chromo 组件负责，Instant OS 提供 Chrome 风格外壳与多标签管理。',
+    ],
+  },
   mail: {
     version: '智能邮件客户端',
     paragraphs: [

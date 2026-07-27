@@ -4,6 +4,7 @@ import { Scene3dLabApp } from '../apps/scene3d-lab/scene3d-lab-app.tsx'
 import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
 import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
 import { BrowserApp } from '../apps/browser/browser-app.tsx'
+import { ChromoApp } from '../apps/chromo/chromo-app.tsx'
 import { MailApp } from '../apps/mail/mail-app.tsx'
 import { SettingsApp } from '../apps/settings/settings-app.tsx'
 import { NewsApp } from '../apps/news/news-app.tsx'
@@ -38,7 +39,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -58,6 +59,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'browser',
     name: '网络浏览器',
     icon: BrowserIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'chromo',
+    name: 'Chromo',
+    icon: ChromoIcon,
     dock: true,
     desktop: true,
   }),
@@ -298,6 +306,7 @@ export const APP_REGISTRY: AppDefinition[] = [
 export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: string }>> = {
   appstore: MarketplaceApp,
   browser: BrowserApp,
+  chromo: ChromoApp,
   mail: MailApp,
   news: NewsApp,
   books: BooksApp,
