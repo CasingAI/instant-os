@@ -19,7 +19,6 @@ import {
   displayUrl,
   hostnameFromUrl,
   isStartPageUrl,
-  normalizeBrowserUrl,
   pageTitleFromUrl,
 } from '../browser/normalize-browser-url.ts'
 import type { ChromoConsoleEntry } from './chromo-bridge.ts'
@@ -34,6 +33,7 @@ type ChromoSidebarTab = 'agent' | 'console'
 
 type ChromoTab = {
   id: string
+  sessionId: string
   url: string
   title: string
   inputUrl: string
@@ -51,14 +51,16 @@ let nextTabId = 1
 
 function createChromoTab(initialUrl = ''): ChromoTab {
   const id = `chromo-tab-${nextTabId++}`
+  const sessionId = crypto.randomUUID()
   const url = initialUrl ? normalizeChromoUrl(initialUrl) : ''
   const title = url ? pageTitleFromUrl(url) : '新标签页'
   return {
     id,
+    sessionId,
     url,
     title,
     inputUrl: url ? displayUrl(url) : '',
-    loading: false,
+    loading: Boolean(url),
     canGoBack: false,
     canGoForward: false,
     ready: false,
@@ -69,11 +71,40 @@ function createChromoTab(initialUrl = ''): ChromoTab {
 }
 
 function normalizeChromoUrl(input: string): string {
-  const normalized = normalizeBrowserUrl(input)
-  if (isStartPageUrl(normalized) || normalized.startsWith('view-source:')) {
+  const trimmed = input.trim()
+  if (!trimmed) {
     return CHROMO_DEFAULT_NEW_TAB_URL
   }
-  return normalized
+
+  // Chromo 导航保留 www（normalizeBrowserUrl 会剥掉，导致 ithome 等站失败/误报）
+  let candidate = trimmed
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(candidate)) {
+    const looksLikeDomain =
+      candidate.includes('.') ||
+      candidate.startsWith('localhost') ||
+      /^\d{1,3}(\.\d{1,3}){3}(:\d+)?/.test(candidate)
+    candidate = looksLikeDomain
+      ? `https://${candidate}`
+      : `https://www.google.com/search?q=${encodeURIComponent(candidate)}`
+  }
+
+  try {
+    const parsed = new URL(candidate)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return CHROMO_DEFAULT_NEW_TAB_URL
+    }
+    // ithome 裸域名会 302 到 www；代理场景下易逃出/误报，统一补 www
+    if (parsed.hostname === 'ithome.com') {
+      parsed.hostname = 'www.ithome.com'
+    }
+    const href = parsed.href
+    if (isStartPageUrl(href) || href.startsWith('view-source:')) {
+      return CHROMO_DEFAULT_NEW_TAB_URL
+    }
+    return href
+  } catch {
+    return CHROMO_DEFAULT_NEW_TAB_URL
+  }
 }
 
 function chromoUrlsMatch(expected: string, actual: string): boolean {
@@ -123,6 +154,8 @@ export function ChromoApp() {
   const prevPendingUrlRef = useRef<string | undefined>(undefined)
   /** 每个标签页最近一次主动请求的 URL，用于忽略过期的 VC_NAVIGATED */
   const requestedUrlByTabRef = useRef<Record<string, string>>({})
+  /** VC_CLICK 后延迟整页导航；若随后收到 VC_HISTORY（SPA）则取消 */
+  const clickNavigateTimersRef = useRef<Record<string, number>>({})
   const chromoRootRef = useRef<HTMLDivElement>(null)
   const { hostRef: narrowLayoutHostRef, narrowLayout } = useAppNarrowLayout()
 
@@ -145,6 +178,14 @@ export function ChromoApp() {
 
   const updateTab = useCallback((tabId: string, updater: (tab: ChromoTab) => ChromoTab) => {
     setTabs((current) => current.map((tab) => (tab.id === tabId ? updater(tab) : tab)))
+  }, [])
+
+  const cancelClickNavigate = useCallback((tabId: string) => {
+    const timer = clickNavigateTimersRef.current[tabId]
+    if (timer) {
+      window.clearTimeout(timer)
+      delete clickNavigateTimersRef.current[tabId]
+    }
   }, [])
 
   const navigateTab = useCallback(
@@ -172,9 +213,13 @@ export function ChromoApp() {
       if (!tab || tab.bootstrapped) {
         return
       }
+      if (tab.url) {
+        navigateTab(tabId, tab.url)
+        return
+      }
       updateTab(tabId, (entry) => ({ ...entry, bootstrapped: true, loading: false }))
     },
-    [updateTab],
+    [navigateTab, updateTab],
   )
 
   const navigateActive = useCallback(
@@ -190,6 +235,9 @@ export function ChromoApp() {
   const addTab = useCallback(
     (url = '', options?: { activate?: boolean }) => {
       const tab = createChromoTab(url)
+      if (tab.url) {
+        requestedUrlByTabRef.current[tab.id] = tab.url
+      }
       setTabs((current) => [...current, tab])
       if (options?.activate !== false) {
         setActiveTabId(tab.id)
@@ -201,6 +249,12 @@ export function ChromoApp() {
 
   const closeTab = useCallback(
     (tabId: string) => {
+      cancelClickNavigate(tabId)
+      const closing = tabsRef.current.find((tab) => tab.id === tabId)
+      if (closing) {
+        getViewerRef(tabId).current?.destroySession(closing.sessionId)
+      }
+
       setTabs((current) => {
         if (current.length <= 1) {
           const replacement = createChromoTab()
@@ -227,7 +281,7 @@ export function ChromoApp() {
         return next
       })
     },
-    [activeTabId],
+    [activeTabId, cancelClickNavigate, getViewerRef],
   )
 
   const selectTab = useCallback((tabId: string) => {
@@ -633,11 +687,21 @@ export function ChromoApp() {
           {tabs.map((tab) => (
             <ChromoViewerFrame
               key={tab.id}
+              sessionId={tab.sessionId}
+              initialUrl={tab.url || undefined}
               ref={getViewerRef(tab.id)}
               active={tab.id === activeTabId}
               onReady={() => {
-                updateTab(tab.id, (entry) => ({ ...entry, ready: true }))
-                ensureInitialTabLoad(tab.id)
+                updateTab(tab.id, (entry) => ({
+                  ...entry,
+                  ready: true,
+                  bootstrapped: entry.url ? true : entry.bootstrapped,
+                }))
+                // 有 initialUrl 时 viewer 已入队导航；空 tab 才走 ensure
+                const current = tabsRef.current.find((entry) => entry.id === tab.id)
+                if (!current?.url) {
+                  ensureInitialTabLoad(tab.id)
+                }
               }}
               onNavigating={() => {
                 updateTab(tab.id, (entry) => ({
@@ -699,6 +763,44 @@ export function ChromoApp() {
                   loading: false,
                   error: code ? `${code}: ${message}` : message,
                 }))
+              }}
+              onLocation={({ url, method }) => {
+                // window.open → 新标签；location.assign/replace 等 → 当前标签
+                if (method === 'open' && url) {
+                  addTab(url)
+                  return
+                }
+                navigateTab(tab.id, url)
+              }}
+              onHistory={({ url, title }) => {
+                cancelClickNavigate(tab.id)
+                requestedUrlByTabRef.current[tab.id] = url
+                updateTab(tab.id, (entry) => ({
+                  ...entry,
+                  url,
+                  title: title || pageTitleFromUrl(url),
+                  inputUrl: displayUrl(url),
+                  loading: false,
+                  error: undefined,
+                }))
+                if (tab.id === activeTabIdRef.current) {
+                  lastOpenedUrlRef.current = url
+                  setAppWindowUrl('chromo', url)
+                }
+              }}
+              onClick={({ href, target }) => {
+                if ((target === '_blank' || target === '_new') && href) {
+                  addTab(href)
+                  return
+                }
+                if (!href || href === '#' || href.startsWith('javascript:')) {
+                  return
+                }
+                cancelClickNavigate(tab.id)
+                clickNavigateTimersRef.current[tab.id] = window.setTimeout(() => {
+                  delete clickNavigateTimersRef.current[tab.id]
+                  navigateTab(tab.id, href)
+                }, 150)
               }}
             />
           ))}

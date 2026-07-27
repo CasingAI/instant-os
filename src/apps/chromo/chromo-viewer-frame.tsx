@@ -1,13 +1,17 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'preact/compat'
-import { CHROMO_VIEWER_URL } from './chromo-config.ts'
+import { chromoViewerUrl } from './chromo-config.ts'
 import {
   createChromoBridge,
   type ChromoBridge,
   type ChromoBridgeHandlers,
+  type ChromoClickPayload,
   type ChromoConsoleReadResult,
   type ChromoErrorPayload,
+  type ChromoHistoryPayload,
   type ChromoLoadFailedPayload,
+  type ChromoLocationPayload,
   type ChromoNavigatedPayload,
+  type ChromoReadyPayload,
   type ChromoRpcOptions,
 } from './chromo-bridge.ts'
 
@@ -21,23 +25,32 @@ export type ChromoViewerHandle = {
   readConsole: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoConsoleReadResult>
+  destroySession: (sessionId?: string) => void
   isReady: () => boolean
 }
 
 type ChromoViewerFrameProps = {
+  sessionId: string
+  /** 建 tab 时若已有目标 URL，在 bridge 创建时入队，等 VC_READY 自动导航 */
+  initialUrl?: string
   active: boolean
-  onReady?: ChromoBridgeHandlers['onReady']
+  onReady?: (payload: ChromoReadyPayload) => void
   onNavigated?: (payload: ChromoNavigatedPayload) => void
   onNavigating?: ChromoBridgeHandlers['onNavigating']
   onLoading?: ChromoBridgeHandlers['onLoading']
   onLoadFailed?: (payload: ChromoLoadFailedPayload) => void
   onConsoleUpdated?: ChromoBridgeHandlers['onConsoleUpdated']
   onError?: (payload: ChromoErrorPayload) => void
+  onClick?: (payload: ChromoClickPayload) => void
+  onLocation?: (payload: ChromoLocationPayload) => void
+  onHistory?: (payload: ChromoHistoryPayload) => void
 }
 
 export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFrameProps>(
   function ChromoViewerFrame(
     {
+      sessionId,
+      initialUrl,
       active,
       onReady,
       onNavigated,
@@ -46,11 +59,15 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       onLoadFailed,
       onConsoleUpdated,
       onError,
+      onClick,
+      onLocation,
+      onHistory,
     },
     ref,
   ) {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const bridgeRef = useRef<ChromoBridge | null>(null)
+    const initialUrlRef = useRef(initialUrl)
 
     const onReadyRef = useRef(onReady)
     const onNavigatedRef = useRef(onNavigated)
@@ -59,6 +76,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const onLoadFailedRef = useRef(onLoadFailed)
     const onConsoleUpdatedRef = useRef(onConsoleUpdated)
     const onErrorRef = useRef(onError)
+    const onClickRef = useRef(onClick)
+    const onLocationRef = useRef(onLocation)
+    const onHistoryRef = useRef(onHistory)
 
     onReadyRef.current = onReady
     onNavigatedRef.current = onNavigated
@@ -67,6 +87,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     onLoadFailedRef.current = onLoadFailed
     onConsoleUpdatedRef.current = onConsoleUpdated
     onErrorRef.current = onError
+    onClickRef.current = onClick
+    onLocationRef.current = onLocation
+    onHistoryRef.current = onHistory
 
     useEffect(() => {
       const iframe = iframeRef.current
@@ -82,8 +105,17 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         onLoadFailed: (payload) => onLoadFailedRef.current?.(payload),
         onConsoleUpdated: (payload) => onConsoleUpdatedRef.current?.(payload),
         onError: (payload) => onErrorRef.current?.(payload),
+        onClick: (payload) => onClickRef.current?.(payload),
+        onLocation: (payload) => onLocationRef.current?.(payload),
+        onHistory: (payload) => onHistoryRef.current?.(payload),
       })
       bridgeRef.current = bridge
+
+      const url = initialUrlRef.current?.trim()
+      if (url) {
+        // 在 VC_READY 前入队；ready 后 flush，不依赖父级 ref / onReady 时序
+        bridge.navigate(url)
+      }
 
       return () => {
         bridge.destroy()
@@ -121,6 +153,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             Promise.reject(new Error('viewer not ready'))
           )
         },
+        destroySession(id) {
+          bridgeRef.current?.destroySession(id)
+        },
         isReady() {
           return bridgeRef.current?.isReady() ?? false
         },
@@ -132,9 +167,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       <iframe
         ref={iframeRef}
         class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden'].filter(Boolean).join(' ')}
-        src={CHROMO_VIEWER_URL}
+        src={chromoViewerUrl(sessionId)}
         title="Chromo WebView"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
       />
     )
   },

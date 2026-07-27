@@ -1,7 +1,9 @@
 export const CHROMO_WORKER_ORIGIN = 'https://virtual-chromo.r6sg.workers.dev'
 
-/** iframe 入口用 Worker 根路径 `/`，不要用 `/viewer.html`。 */
-export const CHROMO_VIEWER_URL = `${CHROMO_WORKER_ORIGIN}/`
+/** 每个 BrowserContext（标签页）独立 session，cookie / storage 按 session 隔离。 */
+export function chromoViewerUrl(sessionId: string): string {
+  return `${CHROMO_WORKER_ORIGIN}/s/${encodeURIComponent(sessionId)}/`
+}
 
 export const CHROMO_DEFAULT_NEW_TAB_URL = 'https://example.com'
 

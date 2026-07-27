@@ -1,5 +1,38 @@
 import { CHROMO_DEFAULT_RPC_TIMEOUT } from './chromo-config.ts'
 
+export type ChromoReadyPayload = {
+  version?: string
+  build?: string
+  sessionId?: string
+}
+
+export type ChromoClickPayload = {
+  ts: number
+  tagName?: string
+  href?: string
+  target?: string
+  text?: string
+}
+
+export type ChromoLocationPayload = {
+  ts: number
+  method: string
+  url: string
+  target?: string
+}
+
+export type ChromoHistoryPayload = {
+  ts: number
+  method: 'pushState' | 'replaceState' | 'popstate'
+  url: string
+  title?: string
+  state?: unknown
+}
+
+export type ChromoSessionPayload = {
+  sessionId: string
+}
+
 export type ChromoNavigatedPayload = {
   url: string
   title: string
@@ -36,13 +69,19 @@ export type ChromoRpcOptions = {
 }
 
 export type ChromoBridgeHandlers = {
-  onReady?: (payload: { version?: string }) => void
+  onReady?: (payload: ChromoReadyPayload) => void
   onNavigated?: (payload: ChromoNavigatedPayload) => void
   onNavigating?: (payload: { url: string }) => void
   onLoading?: (payload: { loading: boolean; url?: string }) => void
   onLoadFailed?: (payload: ChromoLoadFailedPayload) => void
   onConsoleUpdated?: (payload: { latestId?: string; count?: number }) => void
   onError?: (payload: ChromoErrorPayload) => void
+  onClick?: (payload: ChromoClickPayload) => void
+  onLocation?: (payload: ChromoLocationPayload) => void
+  onHistory?: (payload: ChromoHistoryPayload) => void
+  onSessionCreated?: (payload: ChromoSessionPayload) => void
+  onSessionDestroyed?: (payload: ChromoSessionPayload) => void
+  onSessionGone?: (payload: ChromoSessionPayload) => void
 }
 
 export type ChromoBridge = {
@@ -55,6 +94,7 @@ export type ChromoBridge = {
   readConsole: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoConsoleReadResult>
+  destroySession: (sessionId?: string) => void
   isReady: () => boolean
   destroy: () => void
 }
@@ -184,7 +224,7 @@ export function createChromoBridge(
       case 'VC_READY':
         ready = true
         flushPending()
-        handlers.onReady?.((payload as { version?: string } | undefined) ?? {})
+        handlers.onReady?.((payload as ChromoReadyPayload | undefined) ?? {})
         break
       case 'VC_NAVIGATED':
         handlers.onNavigated?.(payload as ChromoNavigatedPayload)
@@ -213,6 +253,24 @@ export function createChromoBridge(
         break
       case 'VC_CONSOLE_READ_RESULT':
         settleRpc('VC_CONSOLE_READ_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_CLICK':
+        handlers.onClick?.(payload as ChromoClickPayload)
+        break
+      case 'VC_LOCATION':
+        handlers.onLocation?.(payload as ChromoLocationPayload)
+        break
+      case 'VC_HISTORY':
+        handlers.onHistory?.(payload as ChromoHistoryPayload)
+        break
+      case 'VC_SESSION_CREATED':
+        handlers.onSessionCreated?.(payload as ChromoSessionPayload)
+        break
+      case 'VC_SESSION_DESTROYED':
+        handlers.onSessionDestroyed?.(payload as ChromoSessionPayload)
+        break
+      case 'VC_SESSION_GONE':
+        handlers.onSessionGone?.(payload as ChromoSessionPayload)
         break
       default:
         break
@@ -255,6 +313,14 @@ export function createChromoBridge(
       }
       return rpc('VC_CONSOLE_READ_RESULT', 'VC_CONSOLE_READ', payload, { timeout }).then(
         (value) => (value ?? { entries: [] }) as ChromoConsoleReadResult,
+      )
+    },
+    destroySession(sessionId) {
+      postCommand(
+        iframe,
+        'VC_SESSION_DESTROY',
+        sessionId ? { sessionId } : undefined,
+        targetOrigin,
       )
     },
     isReady: () => ready,
