@@ -164,7 +164,7 @@ export function ChromoAgentSidebar({
                 ...prev,
                 createMessage(
                   'assistant',
-                  '截图内容为空（页面图片可能未通过代理加载）。请刷新 virtual-chromo 到最新版本后重试。',
+                  '截图几乎全白（常见于 DuckDuckGo 搜索结果/验证码页：页面样式与截图引擎不兼容）。可尝试换用 example.com 等页面，或让助手用 run_javascript 读取文字内容。',
                   { isError: true },
                 ),
               ])
