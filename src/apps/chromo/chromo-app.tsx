@@ -21,7 +21,7 @@ import {
   isStartPageUrl,
   pageTitleFromUrl,
 } from '../browser/normalize-browser-url.ts'
-import type { ChromoConsoleEntry } from './chromo-bridge.ts'
+import type { ChromoConsoleEntry, ChromoScreenshotOptions } from './chromo-bridge.ts'
 import { CHROMO_DEFAULT_NEW_TAB_URL } from './chromo-config.ts'
 import { ChromoAgentSidebar } from './chromo-agent-sidebar.tsx'
 import { ChromoConsolePanel } from './chromo-console-panel.tsx'
@@ -328,6 +328,20 @@ export function ChromoApp() {
         return Promise.reject(new Error('网页尚未就绪'))
       }
       return viewer.evalInPage(code)
+    },
+    [activeTab, getViewerRef],
+  )
+
+  const screenshotInActivePage = useCallback(
+    (options?: ChromoScreenshotOptions) => {
+      if (!activeTab) {
+        return Promise.reject(new Error('没有活动标签页'))
+      }
+      const viewer = getViewerRef(activeTab.id).current
+      if (!viewer?.isReady()) {
+        return Promise.reject(new Error('网页尚未就绪'))
+      }
+      return viewer.screenshot(options)
     },
     [activeTab, getViewerRef],
   )
@@ -812,6 +826,7 @@ export function ChromoApp() {
             pageTitle={activeTab?.title ?? ''}
             pageReady={Boolean(activeTab?.ready && activeTab.url && !activeTab.loading)}
             evalInPage={evalInActivePage}
+            screenshotInPage={screenshotInActivePage}
           />
         )}
 

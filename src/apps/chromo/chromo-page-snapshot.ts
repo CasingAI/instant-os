@@ -86,6 +86,8 @@ export function buildSnapshotContext(
     lines.push('正文摘录：空')
   }
 
-  lines.push('不要声称「页面尚未加载」——上述信息来自当前标签页。如需更多细节，请调用 run_javascript。')
+  lines.push(
+    '不要声称「页面尚未加载」——上述信息来自当前标签页。如需更多细节，请调用 run_javascript；需要看图（验证码、布局、图片）请调用 take_screenshot。',
+  )
   return lines.join('\n')
 }

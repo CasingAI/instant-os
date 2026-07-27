@@ -2,6 +2,26 @@ import type OpenAI from 'openai'
 
 export type JsonSchema = Record<string, unknown>
 
+/** 工具可返回纯数据（序列化为 JSON 字符串），或带追加对话消息的结构（如截图 vision）。 */
+export type AgentToolStructuredResult = {
+  content: string
+  appendMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
+}
+
+export type AgentToolExecuteResult = unknown | AgentToolStructuredResult
+
+export function isAgentToolStructuredResult(
+  value: unknown,
+): value is AgentToolStructuredResult {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    'content' in value &&
+    typeof (value as AgentToolStructuredResult).content === 'string'
+  )
+}
+
 export type AgentTool<TArgs extends Record<string, unknown> = Record<string, unknown>> = {
   name: string
   description: string

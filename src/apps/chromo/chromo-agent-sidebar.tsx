@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
-import { askChromoAgent } from './chromo-agent.ts'
+import {
+  askChromoAgent,
+  chromoAgentSupportsVision,
+  formatChromoModelNoVisionMessage,
+} from './chromo-agent.ts'
+import type { ChromoScreenshotOptions, ChromoScreenshotResult } from './chromo-bridge.ts'
 import { fetchChromoPageSnapshot } from './chromo-page-snapshot.ts'
+import {
+  formatChromoAgentError,
+  isScreenshotMostlyBlank,
+} from './chromo-screenshot-util.ts'
 
-const QUICK_PROMPTS = ['总结网页内容', '这个页面是做什么的？', '页面标题是什么？'] as const
+const QUICK_PROMPTS = ['总结网页内容', '这个页面是做什么的？', '截图试试'] as const
+
+function userWantsScreenshot(text: string): boolean {
+  return /截图|截屏|screenshot|screen\s*shot/i.test(text)
+}
 
 type ChromoAgentMessage = {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'screenshot'
   content: string
+  screenshot?: Pick<ChromoScreenshotResult, 'dataUrl' | 'width' | 'height' | 'mime'>
   isError?: boolean
   toolHint?: string
 }
@@ -18,6 +32,7 @@ type ChromoAgentSidebarProps = {
   pageTitle: string
   pageReady: boolean
   evalInPage: (code: string) => Promise<unknown>
+  screenshotInPage: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
 }
 
 let nextMessageId = 1
@@ -25,7 +40,7 @@ let nextMessageId = 1
 function createMessage(
   role: ChromoAgentMessage['role'],
   content: string,
-  extras?: Pick<ChromoAgentMessage, 'isError' | 'toolHint'>,
+  extras?: Pick<ChromoAgentMessage, 'isError' | 'toolHint' | 'screenshot'>,
 ): ChromoAgentMessage {
   return {
     id: `chromo-agent-${nextMessageId++}`,
@@ -33,6 +48,18 @@ function createMessage(
     content,
     ...extras,
   }
+}
+
+function createScreenshotMessage(shot: ChromoScreenshotResult): ChromoAgentMessage {
+  return createMessage('screenshot', '', {
+    toolHint: '页面截图',
+    screenshot: {
+      dataUrl: shot.dataUrl,
+      width: shot.width,
+      height: shot.height,
+      mime: shot.mime,
+    },
+  })
 }
 
 function formatError(err: unknown): string {
@@ -44,6 +71,7 @@ export function ChromoAgentSidebar({
   pageTitle,
   pageReady,
   evalInPage,
+  screenshotInPage,
 }: ChromoAgentSidebarProps) {
   const aiReady = useOpenAiReady()
   const [messages, setMessages] = useState<ChromoAgentMessage[]>([])
@@ -124,11 +152,51 @@ export function ChromoAgentSidebar({
           return
         }
 
+        let preScreenshot: ChromoScreenshotResult | undefined
+        if (userWantsScreenshot(text)) {
+          setLiveToolHint('截取页面截图…')
+          try {
+            preScreenshot = await screenshotInPage({ format: 'jpeg', quality: 0.65, scale: 0.85 })
+            setMessages((prev) => [...prev, createScreenshotMessage(preScreenshot!)])
+            scrollToBottom()
+            if (await isScreenshotMostlyBlank(preScreenshot.dataUrl)) {
+              setMessages((prev) => [
+                ...prev,
+                createMessage(
+                  'assistant',
+                  '截图内容为空（页面图片可能未通过代理加载）。请刷新 virtual-chromo 到最新版本后重试。',
+                  { isError: true },
+                ),
+              ])
+              return
+            }
+            if (!chromoAgentSupportsVision()) {
+              setMessages((prev) => [
+                ...prev,
+                createMessage('assistant', formatChromoModelNoVisionMessage(), { isError: true }),
+              ])
+              return
+            }
+          } catch (err) {
+            setMessages((prev) => [
+              ...prev,
+              createMessage('assistant', `截图失败：${formatError(err)}`, { isError: true }),
+            ])
+            return
+          }
+        }
+
         const reply = await askChromoAgent(text, {
           page: { url: pageUrl, title: pageTitle },
           pageSnapshot: snapshot,
           evalInPage,
+          screenshotInPage,
+          initialScreenshot: preScreenshot,
           signal: abortController.signal,
+          onScreenshot: (shot) => {
+            setMessages((prev) => [...prev, createScreenshotMessage(shot)])
+            scrollToBottom()
+          },
           onProgress: (progress) => {
             liveTextRef.current = progress.answerText
             setLiveText(progress.answerText)
@@ -147,7 +215,7 @@ export function ChromoAgentSidebar({
         } else {
           setMessages((prev) => [
             ...prev,
-            createMessage('assistant', formatError(err), { isError: true }),
+            createMessage('assistant', formatChromoAgentError(err), { isError: true }),
           ])
         }
       } finally {
@@ -159,7 +227,7 @@ export function ChromoAgentSidebar({
         setLiveToolHint(undefined)
       }
     },
-    [aiReady, busy, evalInPage, pageReady, pageTitle, pageUrl, scrollToBottom],
+    [aiReady, busy, evalInPage, pageReady, pageTitle, pageUrl, screenshotInPage, scrollToBottom],
   )
 
   const handleSubmit = useCallback(
@@ -213,7 +281,7 @@ export function ChromoAgentSidebar({
 
         {messages.length === 0 && !busy && (
           <div class="chromo-agent__empty">
-            问我关于当前网页的问题，我会先读取页面正文再回答。
+            问我关于当前网页的问题。我会读取正文；需要看图（验证码、布局等）时会自动截图分析。
           </div>
         )}
 
@@ -231,7 +299,21 @@ export function ChromoAgentSidebar({
             {message.toolHint && (
               <div class="chromo-agent__tool-hint">{message.toolHint}</div>
             )}
-            <div class="chromo-agent__bubble">{message.content}</div>
+            {message.role === 'screenshot' && message.screenshot ? (
+              <figure class="chromo-agent__screenshot">
+                <img
+                  class="chromo-agent__screenshot-img"
+                  src={message.screenshot.dataUrl}
+                  alt={`页面截图 ${message.screenshot.width}×${message.screenshot.height}`}
+                />
+                <figcaption class="chromo-agent__screenshot-meta">
+                  {message.screenshot.mime || 'image/jpeg'} · {message.screenshot.width}×
+                  {message.screenshot.height}
+                </figcaption>
+              </figure>
+            ) : (
+              <div class="chromo-agent__bubble">{message.content}</div>
+            )}
           </div>
         ))}
 

@@ -485,8 +485,32 @@
 }
 
 .chromo-agent__message--assistant,
-.chromo-agent__message--live {
+.chromo-agent__message--live,
+.chromo-agent__message--screenshot {
   align-items: flex-start;
+}
+
+.chromo-agent__screenshot {
+  margin: 0;
+  max-width: 100%;
+}
+
+.chromo-agent__screenshot-img {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  width: auto;
+  height: auto;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.chromo-agent__screenshot-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #80868b;
 }
 
 .chromo-agent__tool-hint {

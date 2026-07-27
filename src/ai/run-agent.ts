@@ -1,6 +1,6 @@
 import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
-import { toChatCompletionTool } from './agent-tool.ts'
+import { isAgentToolStructuredResult, toChatCompletionTool } from './agent-tool.ts'
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
 import { buildThinkingRequestExtras, providerRequiresReasoningContentEcho, readStreamDelta } from './ai-thinking.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
@@ -143,11 +143,24 @@ function parseToolArguments(raw: string): Record<string, unknown> {
 }
 
 function serializeToolResult(result: unknown): string {
+  if (isAgentToolStructuredResult(result)) {
+    return result.content
+  }
   if (typeof result === 'string') {
     return result
   }
 
   return JSON.stringify(result)
+}
+
+function appendMessagesAfterToolResult(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  result: unknown,
+): void {
+  if (!isAgentToolStructuredResult(result) || !result.appendMessages?.length) {
+    return
+  }
+  messages.push(...result.appendMessages)
 }
 
 function applyToolCallDelta(
@@ -540,6 +553,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
             tool_call_id: toolCall.id,
             content,
           })
+          appendMessagesAfterToolResult(messages, result)
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
         } catch (error) {
