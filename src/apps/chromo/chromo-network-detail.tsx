@@ -5,7 +5,7 @@ import type {
   ChromoNetworkEntry,
   ChromoNetworkTiming,
 } from './chromo-bridge.ts'
-import { explainHotCacheStatus } from './chromo-network-cache-help.ts'
+import { diagnoseHotCache } from './chromo-network-cache-help.ts'
 
 export type NetworkDetailTab = 'headers' | 'preview' | 'response' | 'initiator' | 'timing'
 
@@ -20,15 +20,6 @@ function formatNetworkBytes(size: number): string {
     return `${(size / 1024).toFixed(1)} KB`
   }
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function networkEntryName(url: string): string {
-  try {
-    const parsed = new URL(url)
-    return parsed.pathname === '/' ? parsed.host : parsed.pathname
-  } catch {
-    return url
-  }
 }
 
 const DETAIL_TABS: { id: NetworkDetailTab; label: string }[] = [
@@ -73,6 +64,9 @@ function statusClass(status: number, failed: boolean, pending?: boolean): string
 function formatStatusLabel(entry: ChromoNetworkEntry): string {
   if (entry.pending) {
     return 'pending'
+  }
+  if (entry.failed && !entry.status) {
+    return entry.errorCode ? `(failed) ${entry.errorCode}` : '(failed)'
   }
   const code = entry.status || 0
   const text = STATUS_TEXT[code]
@@ -278,9 +272,22 @@ function ServedFromCell({
 }) {
   const [open, setOpen] = useState(false)
   const help = useMemo(
-    () => explainHotCacheStatus(entry, { disableNetworkCache, entries }),
+    () => diagnoseHotCache(entry, { disableNetworkCache, entries }),
     [entry, disableNetworkCache, entries],
   )
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case 'pass':
+        return '✓'
+      case 'fail':
+        return '✗'
+      case 'pending':
+        return '…'
+      default:
+        return '—'
+    }
+  }
 
   return (
     <div class="chromo-network__served-from">
@@ -290,21 +297,45 @@ function ServedFromCell({
           <button
             type="button"
             class="chromo-network__help-btn"
-            aria-label="为何未命中热缓存"
+            aria-label="热缓存条件"
             aria-expanded={open}
-            title="为何未命中热缓存"
+            title="热缓存条件"
             onClick={() => setOpen((v) => !v)}
           >
             ?
           </button>
           {open ? (
-            <div class="chromo-network__help-popover" role="dialog" aria-label="热缓存说明">
-              <div class="chromo-network__help-popover-title">为何不是 DevTools memory cache？</div>
-              <ul class="chromo-network__help-list">
-                {help.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
+            <div class="chromo-network__help-popover" role="dialog" aria-label="热缓存条件">
+              <div class="chromo-network__help-popover-title">热缓存条件</div>
+              <div class="chromo-network__help-table" role="table">
+                {help.conditions.map((cond) => (
+                  <div
+                    key={cond.id}
+                    class={[
+                      'chromo-network__help-row',
+                      help.blockingIds.includes(cond.id) ? 'chromo-network__help-row--fail' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    role="row"
+                  >
+                    <span
+                      class={[
+                        'chromo-network__help-status',
+                        `chromo-network__help-status--${cond.status}`,
+                      ].join(' ')}
+                      aria-label={cond.status}
+                    >
+                      {statusIcon(cond.status)}
+                    </span>
+                    <span class="chromo-network__help-label">{cond.label}</span>
+                    <span class="chromo-network__help-value">{cond.value ?? ''}</span>
+                  </div>
                 ))}
-              </ul>
+              </div>
+              <p class="chromo-network__help-footnote">
+                Cache-Control 不影响此项（仅 DevTools 热缓存）
+              </p>
               <button
                 type="button"
                 class="chromo-network__help-close"
@@ -372,6 +403,9 @@ function HeadersTab({
               {formatStatusLabel(entry)}
             </span>
           </DetailRow>
+          {entry.failed && entry.errorText ? (
+            <DetailRow label="Failure reason" value={entry.errorText} />
+          ) : null}
           <DetailRow label="Served from">
             <ServedFromCell
               entry={entry}
@@ -837,7 +871,7 @@ export function NetworkDetailDrawer({
 
       <div class="chromo-network__drawer-subtitle" title={entry.url}>
         <span class="chromo-network__drawer-method">{entry.method || 'GET'}</span>
-        <span class="chromo-network__drawer-url">{networkEntryName(entry.url)}</span>
+        <span class="chromo-network__drawer-url">{entry.url}</span>
       </div>
 
       <div class="chromo-network__drawer-body" role="tabpanel">

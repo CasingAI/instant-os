@@ -46,6 +46,8 @@ export type ChromoNavigatedPayload = {
 export type ChromoErrorPayload = {
   message: string
   code?: string
+  bridgeBuild?: string
+  swBuild?: string
 }
 
 export type ChromoLoadFailedPayload = {
@@ -110,6 +112,10 @@ export type ChromoNetworkEntry = {
   source?: ChromoNetworkSource
   /** Proxy gateway hostname when source === 'proxy'. */
   sourceHost?: string
+  /** Machine-readable failure code (e.g. ERR_PROXY_FETCH_FAILED, HTTP_404). */
+  errorCode?: string
+  /** Human-readable failure reason. */
+  errorText?: string
 }
 
 export type ChromoNetworkReadResult = {

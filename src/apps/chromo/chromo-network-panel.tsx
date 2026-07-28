@@ -490,7 +490,11 @@ export function ChromoNetworkPanel({
                   </td>
                   <td class="chromo-network__cell chromo-network__cell--status">
                     <span class={['chromo-network__status', entry.failed ? 'chromo-network__status--failed' : ''].filter(Boolean).join(' ')}>
-                      {entry.pending ? '…' : entry.status || '-'}
+                      {entry.pending
+                        ? '…'
+                        : entry.failed && !entry.status
+                          ? '(failed)'
+                          : entry.status || '-'}
                     </span>
                   </td>
                   <td class="chromo-network__cell chromo-network__cell--waterfall">
