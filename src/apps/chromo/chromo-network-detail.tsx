@@ -12,10 +12,8 @@ export type NetworkDetailTab = 'headers' | 'preview' | 'initiator' | 'timing'
 const DRAWER_WIDTH_KEY = 'chromo-network-drawer-width'
 const DEFAULT_DRAWER_WIDTH = 420
 const MIN_DRAWER_WIDTH = 280
-/** 相对网络面板主体的最大占比 */
-const MAX_DRAWER_RATIO = 0.72
-/** 为请求列表保留的最小宽度 */
-const MIN_TABLE_WIDTH = 200
+/** 悬浮抽屉左侧至少露出的列表像素 */
+const DRAWER_LEFT_GUTTER = 32
 
 function readStoredDrawerWidth(): number {
   try {
@@ -34,13 +32,7 @@ function clampDrawerWidth(value: number, containerWidth: number): number {
   if (containerWidth <= 0) {
     return Math.max(MIN_DRAWER_WIDTH, value)
   }
-  const maxWidth = Math.max(
-    MIN_DRAWER_WIDTH,
-    Math.min(
-      Math.floor(containerWidth * MAX_DRAWER_RATIO),
-      Math.max(0, containerWidth - MIN_TABLE_WIDTH),
-    ),
-  )
+  const maxWidth = Math.max(MIN_DRAWER_WIDTH, containerWidth - DRAWER_LEFT_GUTTER)
   return Math.min(maxWidth, Math.max(MIN_DRAWER_WIDTH, value))
 }
 
@@ -670,6 +662,47 @@ function PreviewTab({
   )
 }
 
+function renderInitiatorChain(urls: string[], currentUrl: string): ComponentChildren {
+  if (!urls.length) {
+    return (
+      <li class="chromo-network__initiator-node chromo-network__initiator-node--current">
+        <span class="chromo-network__initiator-url" title={currentUrl}>
+          {currentUrl || '（未知）'}
+        </span>
+      </li>
+    )
+  }
+
+  function nest(index: number): ComponentChildren {
+    const url = urls[index]
+    const isLast = index === urls.length - 1
+    const isCurrent = isLast || url === currentUrl
+    return (
+      <li
+        class={
+          isCurrent
+            ? 'chromo-network__initiator-node chromo-network__initiator-node--current'
+            : 'chromo-network__initiator-node'
+        }
+      >
+        {!isLast ? (
+          <span class="chromo-network__initiator-arrow" aria-hidden="true">
+            ▼
+          </span>
+        ) : null}
+        <span class="chromo-network__initiator-url" title={url}>
+          {url}
+        </span>
+        {!isLast ? (
+          <ul class="chromo-network__initiator-tree">{nest(index + 1)}</ul>
+        ) : null}
+      </li>
+    )
+  }
+
+  return nest(0)
+}
+
 function InitiatorTab({
   entry,
   pageUrl,
@@ -677,15 +710,45 @@ function InitiatorTab({
   entry: ChromoNetworkEntry
   pageUrl?: string
 }) {
-  const rootUrl =
-    pageUrl ||
-    (entry.referrer && entry.referrer !== 'about:client' ? entry.referrer : '') ||
-    ''
+  const kind = entry.initiatorKind || ''
+  const kindLabel =
+    kind === 'fetch'
+      ? 'fetch'
+      : kind === 'xhr'
+        ? 'XMLHttpRequest'
+        : kind === 'import'
+          ? 'dynamic import()'
+          : kind === 'parser'
+            ? 'Parser'
+            : kind || '（未知）'
+
+  const chain =
+    entry.initiatorChain && entry.initiatorChain.length
+      ? entry.initiatorChain
+      : (() => {
+          const root =
+            pageUrl ||
+            (entry.referrer && entry.referrer !== 'about:client' ? entry.referrer : '') ||
+            ''
+          if (root && root !== entry.url) {
+            return [root, entry.url]
+          }
+          return entry.url ? [entry.url] : []
+        })()
+
+  const stack = entry.initiatorStack || []
+  const hasStack = stack.length > 0
 
   return (
     <div class="chromo-network__initiator">
       <div class="chromo-network__detail-grid">
         <DetailRow label="资源类型" value={entry.type || 'other'} />
+        <DetailRow label="发起方式" value={kindLabel} muted={!kind} />
+        <DetailRow
+          label="调用脚本"
+          value={entry.initiatorScriptUrl || '（无）'}
+          muted={!entry.initiatorScriptUrl}
+        />
         <DetailRow
           label="Referrer"
           value={entry.referrer || '（空）'}
@@ -695,32 +758,28 @@ function InitiatorTab({
 
       <h3 class="chromo-network__initiator-heading">请求发起链</h3>
       <ul class="chromo-network__initiator-tree">
-        {rootUrl && rootUrl !== entry.url ? (
-          <li class="chromo-network__initiator-node">
-            <span class="chromo-network__initiator-arrow" aria-hidden="true">
-              ▼
-            </span>
-            <span class="chromo-network__initiator-url" title={rootUrl}>
-              {rootUrl}
-            </span>
-            <ul class="chromo-network__initiator-tree">
-              <li class="chromo-network__initiator-node chromo-network__initiator-node--current">
-                <span class="chromo-network__initiator-url" title={entry.url}>
-                  {entry.url}
-                </span>
-              </li>
-            </ul>
-          </li>
-        ) : (
-          <li class="chromo-network__initiator-node chromo-network__initiator-node--current">
-            <span class="chromo-network__initiator-url" title={entry.url}>
-              {entry.url}
-            </span>
-          </li>
-        )}
+        {renderInitiatorChain(chain, entry.url)}
       </ul>
+
+      <h3 class="chromo-network__initiator-heading">调用栈</h3>
+      {hasStack ? (
+        <details class="chromo-network__initiator-stack" open>
+          <summary>{stack.length} 帧</summary>
+          <pre class="chromo-network__drawer-pre chromo-network__initiator-stack-pre">
+            {stack.join('\n')}
+          </pre>
+        </details>
+      ) : (
+        <p class="chromo-network__drawer-note">
+          {kind === 'parser' || !kind
+            ? '无 JS 调用栈（Parser / 静态资源触发）'
+            : '无可用调用栈'}
+        </p>
+      )}
+
       <p class="chromo-network__drawer-note">
-        完整 script import 调用链需要页面侧埋点（v2），当前仅展示 referrer / 页面 URL → 资源。
+        fetch / XHR / dynamic import() 可采集调用栈；Parser 类资源与静态 import、passthrough
+        厂商脚本仍仅有 referrer 链。
       </p>
     </div>
   )
@@ -884,6 +943,7 @@ export function NetworkDetailDrawer({
   const [tab, setTab] = useState<NetworkDetailTab>('headers')
   const drawerRef = useRef<HTMLElement>(null)
   const [preferredWidth, setPreferredWidth] = useState(readStoredDrawerWidth)
+  const [containerWidth, setContainerWidth] = useState(0)
   const [dragWidth, setDragWidth] = useState<number | null>(null)
   const resizingRef = useRef(false)
   const pointerIdRef = useRef<number | null>(null)
@@ -891,11 +951,11 @@ export function NetworkDetailDrawer({
   const startWidthRef = useRef(0)
   const liveWidthRef = useRef<number | null>(null)
   const dragRafRef = useRef(0)
-  const maxWidthRef = useRef(DEFAULT_DRAWER_WIDTH)
+  const containerWidthRef = useRef(0)
   const captureTargetRef = useRef<HTMLElement | null>(null)
   const endDragListenersRef = useRef<(() => void) | null>(null)
 
-  const displayWidth = dragWidth ?? preferredWidth
+  const displayWidth = clampDrawerWidth(dragWidth ?? preferredWidth, containerWidth)
 
   useEffect(() => {
     setTab('headers')
@@ -912,9 +972,10 @@ export function NetworkDetailDrawer({
   }, [onClose])
 
   const commitWidth = useCallback((width: number) => {
-    setPreferredWidth(width)
+    const next = clampDrawerWidth(width, containerWidthRef.current)
+    setPreferredWidth(next)
     try {
-      localStorage.setItem(DRAWER_WIDTH_KEY, String(width))
+      localStorage.setItem(DRAWER_WIDTH_KEY, String(next))
     } catch {
       // ignore
     }
@@ -965,25 +1026,17 @@ export function NetworkDetailDrawer({
       return
     }
 
-    const syncClamp = () => {
-      const next = clampDrawerWidth(preferredWidth, container.clientWidth)
-      maxWidthRef.current = Math.max(
-        MIN_DRAWER_WIDTH,
-        Math.min(
-          Math.floor(container.clientWidth * MAX_DRAWER_RATIO),
-          Math.max(0, container.clientWidth - MIN_TABLE_WIDTH),
-        ),
-      )
-      if (next !== preferredWidth && !resizingRef.current) {
-        setPreferredWidth(next)
-      }
+    const sync = () => {
+      const width = container.clientWidth
+      containerWidthRef.current = width
+      setContainerWidth(width)
     }
 
-    syncClamp()
-    const observer = new ResizeObserver(syncClamp)
+    sync()
+    const observer = new ResizeObserver(sync)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [preferredWidth])
+  }, [])
 
   const onResizePointerDown = useCallback(
     (event: PointerEvent) => {
@@ -992,15 +1045,7 @@ export function NetworkDetailDrawer({
 
       const handle = event.currentTarget as HTMLDivElement
       const pointerId = event.pointerId
-      const container = drawerRef.current?.parentElement
-      const containerWidth = container?.clientWidth ?? 0
-      maxWidthRef.current = Math.max(
-        MIN_DRAWER_WIDTH,
-        Math.min(
-          Math.floor(containerWidth * MAX_DRAWER_RATIO),
-          Math.max(0, containerWidth - MIN_TABLE_WIDTH),
-        ),
-      )
+      const currentWidth = clampDrawerWidth(preferredWidth, containerWidthRef.current)
 
       try {
         handle.setPointerCapture(pointerId)
@@ -1011,7 +1056,7 @@ export function NetworkDetailDrawer({
       pointerIdRef.current = pointerId
       resizingRef.current = true
       startPointerXRef.current = event.clientX
-      startWidthRef.current = preferredWidth
+      startWidthRef.current = currentWidth
       document.body.style.cursor = 'ew-resize'
       document.body.style.userSelect = 'none'
 
@@ -1034,9 +1079,9 @@ export function NetworkDetailDrawer({
         }
         moveEvent.preventDefault()
         const delta = startPointerXRef.current - moveEvent.clientX
-        const next = Math.min(
-          maxWidthRef.current,
-          Math.max(MIN_DRAWER_WIDTH, startWidthRef.current + delta),
+        const next = clampDrawerWidth(
+          startWidthRef.current + delta,
+          containerWidthRef.current,
         )
         scheduleWidth(next)
       }
@@ -1073,7 +1118,7 @@ export function NetworkDetailDrawer({
       ref={drawerRef}
       class="chromo-network__drawer"
       aria-label="请求详情"
-      style={{ width: `${displayWidth}px`, flexBasis: `${displayWidth}px` }}
+      style={{ width: `${displayWidth}px` }}
     >
       <div
         class="chromo-network__drawer-resize"
