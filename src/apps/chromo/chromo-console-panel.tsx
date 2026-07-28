@@ -40,13 +40,29 @@ function isExpandableValue(value: unknown): boolean {
 
 function ConsoleArgValue({ value }: { value: unknown }) {
   const [expanded, setExpanded] = useState(false)
+  const formatted = formatChromoEvalValue(value)
+  const isUndefined =
+    value === undefined ||
+    (value !== null &&
+      typeof value === 'object' &&
+      (value as { __vc?: string }).__vc === 'undefined')
 
   if (!isExpandableValue(value)) {
-    return <span class="chromo-console__value">{formatChromoEvalValue(value)}</span>
+    return (
+      <span
+        class={[
+          'chromo-console__value',
+          isUndefined ? 'chromo-console__value--undefined' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {formatted}
+      </span>
+    )
   }
 
-  const preview = formatChromoEvalValue(value)
-  const isMultiline = preview.includes('\n')
+  const isMultiline = formatted.includes('\n')
 
   return (
     <span class="chromo-console__value chromo-console__value--object">
@@ -59,10 +75,10 @@ function ConsoleArgValue({ value }: { value: unknown }) {
         {expanded ? '▼' : '▶'}
       </button>
       {expanded ? (
-        <pre class="chromo-console__object">{preview}</pre>
+        <pre class="chromo-console__object">{formatted}</pre>
       ) : (
         <span class="chromo-console__object-preview">
-          {isMultiline ? `${preview.split('\n')[0]}…` : preview}
+          {isMultiline ? `${formatted.split('\n')[0]}…` : formatted}
         </span>
       )}
     </span>
@@ -82,9 +98,10 @@ function ConsoleEntryBody({ entry }: { entry: ChromoConsoleDisplayEntry }) {
     if (entry.error) {
       return <div class="chromo-console__body chromo-console__body--error">{entry.error}</div>
     }
+    const value = entry.value === undefined ? { __vc: 'undefined' } : entry.value
     return (
       <div class="chromo-console__body chromo-console__body--result">
-        <ConsoleArgValue value={entry.value} />
+        <ConsoleArgValue value={value} />
       </div>
     )
   }
@@ -150,23 +167,13 @@ export function ChromoConsolePanel({
   const [inputValue, setInputValue] = useState('')
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [running, setRunning] = useState(false)
+  const restoreFocusAfterRunRef = useRef(false)
 
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
-      if (entry.kind === 'input') {
-        return levelFilter === 'all'
-      }
-      if (entry.kind === 'result') {
-        if (levelFilter === 'all') {
-          return true
-        }
-        if (levelFilter === 'error') {
-          return Boolean(entry.error)
-        }
-        if (levelFilter === 'verbose') {
-          return !entry.error
-        }
-        return false
+      // REPL 输入/结果始终可见（对齐 Chrome：级别过滤器只作用于页面 console.*）
+      if (entry.kind === 'input' || entry.kind === 'result') {
+        return true
       }
       return matchesConsoleLevelFilter(entry.entry.level, levelFilter)
     })
@@ -202,7 +209,12 @@ export function ChromoConsolePanel({
     onReplHistoryChange(nextHistory)
     setHistoryIndex(-1)
     setInputValue('')
+    restoreFocusAfterRunRef.current = true
     setRunning(true)
+    // 清空后立刻保持焦点（不要在执行期间 disabled，否则浏览器会抢走焦点）
+    queueMicrotask(() => {
+      inputRef.current?.focus()
+    })
 
     try {
       const value = await evalInPage(code)
@@ -228,7 +240,6 @@ export function ChromoConsolePanel({
       ])
     } finally {
       setRunning(false)
-      inputRef.current?.focus()
     }
   }, [
     evalInPage,
@@ -238,6 +249,18 @@ export function ChromoConsolePanel({
     replHistory,
     running,
   ])
+
+  useEffect(() => {
+    if (running || !restoreFocusAfterRunRef.current) {
+      return
+    }
+    restoreFocusAfterRunRef.current = false
+    const input = inputRef.current
+    if (!input || input.disabled) {
+      return
+    }
+    input.focus()
+  }, [running, filteredEntries.length])
 
   const handleInputKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -277,8 +300,31 @@ export function ChromoConsolePanel({
     [historyIndex, replHistory, runRepl],
   )
 
+  const focusReplOnBlankClick = useCallback(
+    (event: MouseEvent) => {
+      if (!pageReady) {
+        return
+      }
+      const target = event.target
+      if (!(target instanceof Element)) {
+        return
+      }
+      // 过滤器 / 展开按钮等交互控件不抢焦点
+      if (target.closest('button, a, input, textarea, select, [contenteditable="true"]')) {
+        return
+      }
+      // 拖选文本时保持选择，不聚焦输入框
+      const selection = window.getSelection()
+      if (selection && !selection.isCollapsed && selection.toString().length > 0) {
+        return
+      }
+      inputRef.current?.focus()
+    },
+    [pageReady],
+  )
+
   return (
-    <div class="chromo-console" aria-label="控制台">
+    <div class="chromo-console" aria-label="控制台" onClick={focusReplOnBlankClick}>
       <div class="chromo-console__filters" role="toolbar" aria-label="控制台过滤">
         {LEVEL_FILTERS.map((filter) => (
           <button
@@ -317,7 +363,8 @@ export function ChromoConsolePanel({
           value={inputValue}
           rows={1}
           placeholder={pageReady ? '在此输入 JavaScript…' : '网页尚未就绪'}
-          disabled={!pageReady || running}
+          disabled={!pageReady}
+          aria-busy={running}
           onInput={(event) => {
             setInputValue((event.currentTarget as HTMLTextAreaElement).value)
             if (historyIndex >= 0) {

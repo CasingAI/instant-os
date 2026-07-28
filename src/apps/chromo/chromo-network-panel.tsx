@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
-import { isBinaryNetworkBody, NetworkDetailDrawer } from './chromo-network-detail.tsx'
+import { NetworkDetailDrawer } from './chromo-network-detail.tsx'
+import {
+  isNonPreviewableBinaryBody,
+  isPreviewableImageBody,
+  networkEntryName,
+} from './chromo-network-preview.ts'
+
+export { networkEntryName }
 
 type ChromoNetworkPanelProps = {
   entries: ChromoNetworkEntry[]
@@ -107,32 +114,6 @@ function computeNetworkSummary(
     pageStatus,
     loadDurationMs,
     hasPending,
-  }
-}
-
-export function networkEntryName(url: string): string {
-  try {
-    const parsed = new URL(url)
-    if (!parsed.pathname || parsed.pathname === '/') {
-      return parsed.host
-    }
-    const segments = parsed.pathname.split('/').filter(Boolean)
-    if (segments.length === 0) {
-      return parsed.host
-    }
-    try {
-      return decodeURIComponent(segments[segments.length - 1])
-    } catch {
-      return segments[segments.length - 1]
-    }
-  } catch {
-    const stripped = url.split('?')[0]?.split('#')[0] ?? url
-    const slash = stripped.lastIndexOf('/')
-    if (slash < 0) {
-      return url
-    }
-    const tail = stripped.slice(slash + 1)
-    return tail || stripped
   }
 }
 
@@ -392,7 +373,7 @@ export function ChromoNetworkPanel({
       setBodyLoading(false)
       return
     }
-    if (selectedEntry && isBinaryNetworkBody(selectedEntry)) {
+    if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry)) {
       setBodyPreview('')
       setBodyResult(null)
       setBodyError('')
@@ -416,7 +397,12 @@ export function ChromoNetworkPanel({
           }
           setBodyResult(result)
           const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
-          if (selectedEntry && isBinaryNetworkBody(selectedEntry, contentType)) {
+          if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry, contentType)) {
+            setBodyPreview('')
+            return
+          }
+          // Images: keep bodyResult for blob preview; skip text decode
+          if (selectedEntry && isPreviewableImageBody(selectedEntry, contentType)) {
             setBodyPreview('')
             return
           }

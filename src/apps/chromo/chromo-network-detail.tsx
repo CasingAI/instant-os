@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
+import { ImageDocumentPreview } from '../../preview/image-document-preview.tsx'
 import type {
   ChromoNetworkBodyReadResult,
   ChromoNetworkEntry,
   ChromoNetworkTiming,
 } from './chromo-bridge.ts'
 import { diagnoseHotCache } from './chromo-network-cache-help.ts'
+import {
+  classifyNetworkPreviewKind,
+  isNonPreviewableBinaryBody,
+  networkBodyToImageBlob,
+  networkEntryName,
+  previewFileNameFromEntry,
+} from './chromo-network-preview.ts'
+import { ChromoNetworkTextPreview } from './chromo-network-text-preview.tsx'
 
 export type NetworkDetailTab = 'headers' | 'preview' | 'initiator' | 'timing'
+
+export { isBinaryNetworkBody, isNonPreviewableBinaryBody } from './chromo-network-preview.ts'
 
 const DRAWER_WIDTH_KEY = 'chromo-network-drawer-width'
 const DEFAULT_DRAWER_WIDTH = 420
@@ -47,36 +58,6 @@ function formatNetworkBytes(size: number): string {
     return `${(size / 1024).toFixed(1)} KB`
   }
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-const BINARY_DESTINATIONS = new Set(['image', 'video', 'audio', 'font'])
-
-/**
- * Treat as binary for DevTools Preview — never render media, skip body RPC when possible.
- */
-export function isBinaryNetworkBody(
-  entry: ChromoNetworkEntry,
-  contentType?: string,
-): boolean {
-  const type = (entry.type || '').toLowerCase()
-  if (BINARY_DESTINATIONS.has(type)) {
-    return true
-  }
-  const mime = (contentType || '').split(';')[0].trim().toLowerCase()
-  if (!mime) {
-    return false
-  }
-  return (
-    mime.startsWith('image/') ||
-    mime.startsWith('video/') ||
-    mime.startsWith('audio/') ||
-    mime.startsWith('font/') ||
-    mime === 'application/octet-stream' ||
-    mime === 'application/wasm' ||
-    mime === 'application/pdf' ||
-    mime === 'application/zip' ||
-    mime === 'application/gzip'
-  )
 }
 
 function binaryBodyPlaceholder(entry: ChromoNetworkEntry, mime?: string): string {
@@ -589,17 +570,42 @@ function PreviewTab({
   bodyText,
   bodyLoading,
   bodyError,
+  active,
 }: {
   entry: ChromoNetworkEntry
   bodyResult: ChromoNetworkBodyReadResult | null
   bodyText: string
   bodyLoading: boolean
   bodyError: string
+  active: boolean
 }) {
   const headerMime = bodyResult
     ? headerValue(bodyResult.headers, 'content-type').split(';')[0].trim().toLowerCase()
     : ''
-  if (isBinaryNetworkBody(entry, headerMime)) {
+  const kind = classifyNetworkPreviewKind(entry, headerMime || undefined)
+  const [imageSrc, setImageSrc] = useState('')
+
+  useEffect(() => {
+    if (kind !== 'image' || !bodyResult) {
+      setImageSrc('')
+      return
+    }
+    let objectUrl = ''
+    try {
+      const blob = networkBodyToImageBlob(bodyResult, headerMime || undefined)
+      objectUrl = URL.createObjectURL(blob)
+      setImageSrc(objectUrl)
+    } catch {
+      setImageSrc('')
+    }
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }, [kind, bodyResult, headerMime])
+
+  if (kind === 'binary' || isNonPreviewableBinaryBody(entry, headerMime)) {
     return (
       <div class="chromo-network__drawer-empty">
         {binaryBodyPlaceholder(entry, headerMime || undefined)}
@@ -633,7 +639,19 @@ function PreviewTab({
   const contentType = headerValue(bodyResult.headers, 'content-type')
   const mime = contentType.split(';')[0].trim().toLowerCase() || 'application/octet-stream'
 
-  if (mime.includes('json') || mime === 'application/ld+json') {
+  if (kind === 'image') {
+    if (!imageSrc) {
+      return <div class="chromo-network__drawer-empty">无法解码图片预览</div>
+    }
+    return (
+      <div class="chromo-network__preview-pane chromo-network__preview-pane--image">
+        {truncatedNote}
+        <ImageDocumentPreview src={imageSrc} alt={networkEntryName(entry.url)} />
+      </div>
+    )
+  }
+
+  if (kind === 'json') {
     try {
       const parsed = JSON.parse(bodyText)
       return (
@@ -654,10 +672,15 @@ function PreviewTab({
     }
   }
 
+  // text (incl. HTML as source)
   return (
-    <div>
+    <div class="chromo-network__preview-pane chromo-network__preview-pane--text">
       {truncatedNote}
-      <pre class="chromo-network__drawer-pre">{bodyText || '（空）'}</pre>
+      <ChromoNetworkTextPreview
+        text={bodyText}
+        fileName={previewFileNameFromEntry(entry.url, mime)}
+        active={active}
+      />
     </div>
   )
 }
@@ -1174,6 +1197,7 @@ export function NetworkDetailDrawer({
             bodyText={bodyText}
             bodyLoading={bodyLoading}
             bodyError={bodyError}
+            active={tab === 'preview'}
           />
         ) : null}
         {tab === 'initiator' ? <InitiatorTab entry={entry} pageUrl={pageUrl} /> : null}
