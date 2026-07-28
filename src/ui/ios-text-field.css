@@ -1,3 +1,9 @@
+.ios-text-field-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
 .ios-text-field {
   box-sizing: border-box;
   width: 100%;
@@ -32,11 +38,141 @@
   cursor: default;
 }
 
-/* 长按空格语音听写中 */
+/* 听写中：右侧留空给声波条 */
+.ios-text-field.ios-text-field--dictating {
+  padding-right: 28px;
+}
+
 .ios-text-field.ios-text-field--dictating,
 .ios-text-field.ios-text-field--dictating:focus {
   border-color: #e07a3a;
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.08),
     0 0 0 2px rgba(224, 122, 58, 0.32);
+}
+
+.ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating,
+.ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating:focus {
+  animation: ios-dictation-glow 1s ease-in-out infinite;
+}
+
+.ios-text-field-wrap--recognizing .ios-text-field.ios-text-field--dictating,
+.ios-text-field-wrap--recognizing .ios-text-field.ios-text-field--dictating:focus {
+  border-color: #e07a3a;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 2px rgba(224, 122, 58, 0.22);
+}
+
+/* 声波条：默认隐藏，听写态显示 */
+.ios-text-field__wave {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 18px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.ios-text-field-wrap--recording .ios-text-field__wave,
+.ios-text-field-wrap--recognizing .ios-text-field__wave {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ios-text-field__wave i {
+  display: block;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: #e07a3a;
+  transform-origin: center center;
+  transform: scaleY(0.35);
+}
+
+.ios-text-field-wrap--recording .ios-text-field__wave i {
+  animation: ios-dictation-bar 0.45s ease-in-out infinite;
+}
+
+.ios-text-field-wrap--recognizing .ios-text-field__wave i {
+  animation: ios-dictation-bar-soft 0.9s ease-in-out infinite;
+}
+
+.ios-text-field__wave i:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.ios-text-field__wave i:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.ios-text-field__wave i:nth-child(3) {
+  animation-delay: 0.16s;
+}
+
+.ios-text-field__wave i:nth-child(4) {
+  animation-delay: 0.24s;
+}
+
+.ios-text-field__wave i:nth-child(5) {
+  animation-delay: 0.1s;
+}
+
+@keyframes ios-dictation-bar {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes ios-dictation-bar-soft {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(0.65);
+  }
+}
+
+@keyframes ios-dictation-glow {
+  0%,
+  100% {
+    border-color: #e07a3a;
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.08),
+      0 0 0 2px rgba(224, 122, 58, 0.28);
+  }
+  50% {
+    border-color: #f08a4a;
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.08),
+      0 0 0 5px rgba(224, 122, 58, 0.38);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating,
+  .ios-text-field-wrap--recording .ios-text-field.ios-text-field--dictating:focus {
+    animation: none;
+  }
+
+  .ios-text-field-wrap--recording .ios-text-field__wave i,
+  .ios-text-field-wrap--recognizing .ios-text-field__wave i {
+    animation: none;
+    transform: scaleY(0.45);
+  }
 }

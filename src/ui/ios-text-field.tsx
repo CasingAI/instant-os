@@ -22,6 +22,16 @@ function chainHandler<E>(
   }
 }
 
+function wrapPhaseClass(phase: string): string {
+  if (phase === 'arming' || phase === 'recording') {
+    return 'ios-text-field-wrap--recording'
+  }
+  if (phase === 'recognizing') {
+    return 'ios-text-field-wrap--recognizing'
+  }
+  return ''
+}
+
 /** iOS 6 内凹文本输入框 */
 export function IosTextField({
   class: className,
@@ -43,7 +53,11 @@ export function IosTextField({
     readOnly,
   })
 
-  const classNames = [
+  const wrapClass = ['ios-text-field-wrap', wrapPhaseClass(dictation.phase)]
+    .filter(Boolean)
+    .join(' ')
+
+  const inputClass = [
     'ios-text-field',
     dictation.isDictating ? 'ios-text-field--dictating' : '',
     className,
@@ -52,17 +66,26 @@ export function IosTextField({
     .join(' ')
 
   return (
-    <input
-      type={type}
-      class={classNames}
-      disabled={disabled}
-      readOnly={readOnly}
-      {...rest}
-      onKeyDown={chainHandler(dictation.onKeyDown, onKeyDown)}
-      onKeyUp={chainHandler(dictation.onKeyUp, onKeyUp)}
-      onBlur={chainHandler(dictation.onBlur, onBlur)}
-      onCompositionStart={chainHandler(dictation.onCompositionStart, onCompositionStart)}
-      onCompositionEnd={chainHandler(dictation.onCompositionEnd, onCompositionEnd)}
-    />
+    <span class={wrapClass}>
+      <input
+        type={type}
+        class={inputClass}
+        disabled={disabled}
+        readOnly={readOnly}
+        {...rest}
+        onKeyDown={chainHandler(dictation.onKeyDown, onKeyDown)}
+        onKeyUp={chainHandler(dictation.onKeyUp, onKeyUp)}
+        onBlur={chainHandler(dictation.onBlur, onBlur)}
+        onCompositionStart={chainHandler(dictation.onCompositionStart, onCompositionStart)}
+        onCompositionEnd={chainHandler(dictation.onCompositionEnd, onCompositionEnd)}
+      />
+      <span class="ios-text-field__wave" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+    </span>
   )
 }
