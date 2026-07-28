@@ -113,9 +113,26 @@ function computeNetworkSummary(
 export function networkEntryName(url: string): string {
   try {
     const parsed = new URL(url)
-    return parsed.pathname === '/' ? parsed.host : parsed.pathname
+    if (!parsed.pathname || parsed.pathname === '/') {
+      return parsed.host
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean)
+    if (segments.length === 0) {
+      return parsed.host
+    }
+    try {
+      return decodeURIComponent(segments[segments.length - 1])
+    } catch {
+      return segments[segments.length - 1]
+    }
   } catch {
-    return url
+    const stripped = url.split('?')[0]?.split('#')[0] ?? url
+    const slash = stripped.lastIndexOf('/')
+    if (slash < 0) {
+      return url
+    }
+    const tail = stripped.slice(slash + 1)
+    return tail || stripped
   }
 }
 
@@ -501,11 +518,15 @@ export function ChromoNetworkPanel({
                   onClick={() => onSelect(entry)}
                 >
                   <td class="chromo-network__cell chromo-network__cell--name">
-                    <span class="chromo-network__method">{entry.method || 'GET'}</span>
-                    <span class="chromo-network__name" title={entry.url}>{networkEntryName(entry.url)}</span>
-                    {entry.bypass ? <span class="chromo-network__badge">直连</span> : null}
-                    {entry.fromCache ? <span class="chromo-network__badge">缓存</span> : null}
-                    {entry.pending ? <span class="chromo-network__badge">进行中</span> : null}
+                    <div class="chromo-network__name-row">
+                      <span class="chromo-network__method">{entry.method || 'GET'}</span>
+                      <span class="chromo-network__name" title={entry.url}>
+                        {networkEntryName(entry.url)}
+                      </span>
+                      {entry.bypass ? <span class="chromo-network__badge">直连</span> : null}
+                      {entry.fromCache ? <span class="chromo-network__badge">缓存</span> : null}
+                      {entry.pending ? <span class="chromo-network__badge">进行中</span> : null}
+                    </div>
                   </td>
                   <td class="chromo-network__cell chromo-network__cell--status">
                     <span class={['chromo-network__status', entry.failed ? 'chromo-network__status--failed' : ''].filter(Boolean).join(' ')}>

@@ -1390,7 +1390,15 @@
 
 .chromo-network__cell--name {
   width: 34%;
-  display: table-cell;
+  max-width: 0;
+  overflow: hidden;
+}
+
+.chromo-network__name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .chromo-network__cell--status {
@@ -1412,18 +1420,21 @@
 }
 
 .chromo-network__method {
+  flex-shrink: 0;
   display: inline-block;
-  margin-right: 6px;
   color: #1a73e8;
   font-weight: 600;
   font-size: 10px;
 }
 
 .chromo-network__name {
-  display: inline;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: #202124;
-  word-break: break-all;
 }
 
 .chromo-network__status {
@@ -1435,8 +1446,8 @@
 }
 
 .chromo-network__badge {
+  flex-shrink: 0;
   display: inline-block;
-  margin-left: 6px;
   color: #e37400;
   font-size: 10px;
 }
