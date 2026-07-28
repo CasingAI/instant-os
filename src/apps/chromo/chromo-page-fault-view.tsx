@@ -3,7 +3,7 @@ import type { ChromoPageFault } from './chromo-page-fault.ts'
 type ChromoPageFaultViewProps = {
   fault: ChromoPageFault
   variant?: 'viewport' | 'panel'
-  /** load: retry navigation; fatal: typically reload the whole app */
+  /** load: retry navigation; fatal: reload current Chromo tab (viewer + SW update) */
   onRetry?: () => void
 }
 
@@ -34,14 +34,6 @@ export function ChromoPageFaultView({
   const primaryLabel = isFatal ? '重新加载' : '重试'
   const metaLines = buildMetaLines(fault)
 
-  const handlePrimary = () => {
-    if (isFatal) {
-      window.location.reload()
-      return
-    }
-    onRetry?.()
-  }
-
   return (
     <div
       class={[
@@ -70,11 +62,14 @@ export function ChromoPageFaultView({
         {metaLines.length > 0 ? (
           <pre class="chromo__page-fault-meta">{metaLines.join('\n')}</pre>
         ) : null}
-        {(isFatal || onRetry) && (
-          <button type="button" class="chromo__page-fault-action" onClick={handlePrimary}>
+        {onRetry ? (
+          <button type="button" class="chromo__page-fault-action" onClick={onRetry}>
             {primaryLabel}
           </button>
-        )}
+        ) : null}
+        {isFatal && onRetry ? (
+          <p class="chromo__page-fault-hint">将刷新当前标签页（含代理 Service Worker 更新），不会重启整个系统。</p>
+        ) : null}
         {!isFatal ? (
           <p class="chromo__page-fault-hint">也可在地址栏输入新地址后回车继续浏览。</p>
         ) : null}

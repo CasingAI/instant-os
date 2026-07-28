@@ -29,6 +29,8 @@ export type ChromoViewerHandle = {
   back: () => void
   forward: () => void
   reload: () => void
+  /** Fatal recover: SW update + viewer reload, or remount iframe if bridge gone. */
+  recoverFromFatal: () => void
   stop: () => void
   ping: () => void
   evalInPage: (code: string, options?: ChromoRpcOptions) => Promise<unknown>
@@ -206,6 +208,19 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         },
         reload() {
           bridgeRef.current?.reload()
+        },
+        recoverFromFatal() {
+          if (bridgeRef.current) {
+            // Fatal VC_RELOAD: SW update + viewer location.reload()
+            bridgeRef.current.reload()
+            return
+          }
+          const iframe = iframeRef.current
+          if (!iframe) {
+            return
+          }
+          const sep = CHROMO_VIEWER_URL.includes('?') ? '&' : '?'
+          iframe.src = `${CHROMO_VIEWER_URL}${sep}_r=${Date.now()}`
         },
         stop() {
           bridgeRef.current?.stop()

@@ -271,6 +271,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const prevPendingUrlRef = useRef<string | undefined>(undefined)
   /** 每个标签页最近一次主动请求的 URL，用于忽略过期的 VC_NAVIGATED */
   const requestedUrlByTabRef = useRef<Record<string, string>>({})
+  /** After fatal viewer remount/reload, re-navigate to this URL on next VC_READY. */
+  const pendingRecoverNavigateRef = useRef<Record<string, string>>({})
   /** VC_CLICK 后延迟整页导航；若随后收到 VC_HISTORY（SPA）则取消 */
   const clickNavigateTimersRef = useRef<Record<string, number>>({})
   const networkPullTimersRef = useRef<Record<string, number>>({})
@@ -389,6 +391,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           const replacement = createChromoTab()
           setActiveTabId(replacement.id)
           delete viewerRefs.current[tabId]
+          delete pendingRecoverNavigateRef.current[tabId]
           return [replacement]
         }
 
@@ -399,6 +402,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
 
         const next = current.filter((tab) => tab.id !== tabId)
         delete viewerRefs.current[tabId]
+        delete pendingRecoverNavigateRef.current[tabId]
 
         if (activeTabId === tabId) {
           const fallback = next[Math.max(0, index - 1)] ?? next[0]
@@ -436,6 +440,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     if (!activeTab) {
       return
     }
+    const wasFatal = activeTab.pageFault?.severity === 'fatal'
+    const recoverUrl = activeTab.url
     updateTab(activeTab.id, (tab) => ({
       ...tab,
       loading: true,
@@ -451,7 +457,15 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             selectedNetworkId: '',
           }),
     }))
-    getViewerRef(activeTab.id).current?.reload()
+    const viewer = getViewerRef(activeTab.id).current
+    if (wasFatal) {
+      if (recoverUrl) {
+        pendingRecoverNavigateRef.current[activeTab.id] = recoverUrl
+      }
+      viewer?.recoverFromFatal()
+      return
+    }
+    viewer?.reload()
   }, [activeTab, getViewerRef, updateTab])
 
   const stopLoading = useCallback(() => {
@@ -1528,6 +1542,12 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   ready: true,
                   bootstrapped: entry.url ? true : entry.bootstrapped,
                 }))
+                const recoverUrl = pendingRecoverNavigateRef.current[tab.id]
+                if (recoverUrl) {
+                  delete pendingRecoverNavigateRef.current[tab.id]
+                  getViewerRef(tab.id).current?.navigate(recoverUrl)
+                  return
+                }
                 // 有 initialUrl 时 viewer 已入队导航；空 tab 才走 ensure
                 const current = tabsRef.current.find((entry) => entry.id === tab.id)
                 if (!current?.url) {
