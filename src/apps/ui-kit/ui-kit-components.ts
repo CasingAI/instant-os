@@ -78,7 +78,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'ios-text-field',
     name: 'IosTextField',
-    description: 'iOS 6 内凹文本输入框；属性与原生 input 一致',
+    description:
+      'iOS 6 内凹文本输入框；属性与原生 input 一致。开启「语音实验室」后可长按空格语音听写',
     category: 'form',
     importPath: "import { IosTextField } from '../../ui/ios-text-field.tsx'",
     props: [
@@ -86,10 +87,21 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'placeholder', type: 'string?', description: '占位文案' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
       { name: 'onInput', type: '(event) => void', description: '输入回调' },
+      {
+        name: 'voiceDictation',
+        type: 'boolean?',
+        description:
+          '长按空格语音听写；undefined 跟随开发者选项「语音实验室」，false 强制关闭',
+      },
     ],
     codeExample: `<IosTextField
   value={query}
   placeholder="搜索…"
+  onInput={(event) => setQuery(event.currentTarget.value)}
+/>
+{/* 长按空格说话，松手插入（需开启语音实验室） */}
+<IosTextField
+  value={query}
   onInput={(event) => setQuery(event.currentTarget.value)}
 />`,
   },

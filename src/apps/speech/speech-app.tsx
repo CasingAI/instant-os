@@ -24,7 +24,7 @@ import { SpeechChatPanel } from './speech-chat-panel.tsx'
 import {
   startMicWavRecorder,
   type MicWavRecorder,
-} from './speech-record-wav.ts'
+} from '../../ai/speech-mic-recorder.ts'
 import { SpeechStyleLabPanel } from './speech-style-lab-panel.tsx'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import './speech.css'
