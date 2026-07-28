@@ -76,7 +76,7 @@ function makeChromoApplicationApi(
     getSwInfo: () => requireViewer().getSwInfo(),
     getNetworkCacheStats: () => requireViewer().getNetworkCacheStats(),
     listNetworkCache: (layer) => requireViewer().listNetworkCache(layer),
-    clearNetworkCache: (layer) => requireViewer().clearNetworkCache(layer),
+    clearNetworkCache: (layer, options) => requireViewer().clearNetworkCache(layer, options),
     listIdb: () => requireViewer().listIdb(),
     deleteIdb: (name) => requireViewer().deleteIdb(name),
     listIdbStores: (name) => requireViewer().listIdbStores(name),
@@ -606,24 +606,36 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
 
   const clearTabConsole = useCallback(
     (tabId: string) => {
-      updateTab(tabId, (entry) => ({
-        ...entry,
-        consoleEntries: [],
-        replEntries: [],
-        lastConsoleId: '',
-      }))
+      updateTab(tabId, (entry) => {
+        const lastFromList =
+          entry.consoleEntries.length > 0
+            ? entry.consoleEntries[entry.consoleEntries.length - 1]?.id
+            : ''
+        return {
+          ...entry,
+          consoleEntries: [],
+          replEntries: [],
+          lastConsoleId: lastFromList || entry.lastConsoleId,
+        }
+      })
     },
     [updateTab],
   )
 
   const clearTabNetwork = useCallback(
     (tabId: string) => {
-      updateTab(tabId, (entry) => ({
-        ...entry,
-        networkEntries: [],
-        lastNetworkId: '',
-        selectedNetworkId: '',
-      }))
+      updateTab(tabId, (entry) => {
+        const lastFromList =
+          entry.networkEntries.length > 0
+            ? entry.networkEntries[entry.networkEntries.length - 1]?.id
+            : ''
+        return {
+          ...entry,
+          networkEntries: [],
+          lastNetworkId: lastFromList || entry.lastNetworkId,
+          selectedNetworkId: '',
+        }
+      })
     },
     [updateTab],
   )

@@ -9,6 +9,7 @@ import type {
   ChromoSwInfo,
 } from './chromo-bridge.ts'
 import { CHROMO_WORKER_ORIGIN } from './chromo-config.ts'
+import { filterFirstPartyCookies, hostnameFromPageUrl } from './chromo-cookie-scope.ts'
 
 export type ChromoApplicationApi = {
   listCookies: () => Promise<{ cookies: ChromoCookie[] }>
@@ -27,7 +28,10 @@ export type ChromoApplicationApi = {
   listNetworkCache: (
     layer: 'hot' | 'archive',
   ) => Promise<{ layer: string; entries: unknown[] }>
-  clearNetworkCache: (layer: 'hot' | 'archive' | 'all') => Promise<{ layer: string }>
+  clearNetworkCache: (
+    layer: 'hot' | 'archive' | 'all',
+    options?: { origin?: string },
+  ) => Promise<{ layer: string }>
   listIdb: () => Promise<{ databases: ChromoIdbDatabase[] }>
   deleteIdb: (name: string) => Promise<unknown>
   listIdbStores: (
@@ -175,6 +179,70 @@ function navNeedsOriginMatch(nav: NavId): boolean {
   )
 }
 
+/** Toolbar 后缀贴 pageUrl 的分区（绑当前页 / 当前站）。 */
+function navShowsPageUrl(nav: NavId): boolean {
+  return (
+    nav === 'local-storage' ||
+    nav === 'session-storage' ||
+    nav === 'cookies' ||
+    nav === 'indexeddb' ||
+    nav === 'site-cache'
+  )
+}
+
+function toolbarTitleSuffix(nav: NavId, pageUrl: string | undefined): string {
+  if (navShowsPageUrl(nav) && pageUrl) {
+    return pageUrl
+  }
+  if (nav === 'network-cache') {
+    return '全局 · Hot 可按当前站过滤'
+  }
+  if (nav === 'clear-storage') {
+    return '全局'
+  }
+  if (nav === 'service-workers') {
+    return 'Viewer 代理'
+  }
+  return ''
+}
+
+type HotCacheListEntry = {
+  key?: string
+  method?: string
+  url?: string
+  size?: number
+  fresh?: boolean
+  entryId?: string
+  storedAt?: number
+  expiresAt?: number
+}
+
+function originFromHotEntryUrl(url: string | undefined): string {
+  if (!url) {
+    return ''
+  }
+  try {
+    return new URL(url).origin
+  } catch {
+    return ''
+  }
+}
+
+function filterHotCacheEntriesForPage(
+  entries: unknown[],
+  pageUrl: string | undefined,
+): unknown[] {
+  const pageOrigin = originFromUrl(pageUrl)
+  if (!pageOrigin) {
+    return []
+  }
+  return entries.filter((row) => {
+    const item = row as HotCacheListEntry
+    const entryOrigin = originFromHotEntryUrl(item.url)
+    return Boolean(entryOrigin && entryOrigin === pageOrigin)
+  })
+}
+
 const ORIGIN_SYNC_MAX_MS = 8_000
 const ORIGIN_SYNC_RETRY_MS = 350
 
@@ -252,7 +320,7 @@ export function ChromoApplicationPanel({
         if (seq !== refreshSeqRef.current) {
           return { matchedOrigin: true }
         }
-        setCookies(result.cookies ?? [])
+        setCookies(filterFirstPartyCookies(result.cookies ?? [], pageUrl))
         return { matchedOrigin: true }
       }
       if (nav === 'local-storage' || nav === 'session-storage') {
@@ -303,7 +371,10 @@ export function ChromoApplicationPanel({
         if (seq !== refreshSeqRef.current) {
           return { matchedOrigin: true }
         }
-        setCacheEntries(listed.entries ?? [])
+        const raw = listed.entries ?? []
+        setCacheEntries(
+          cacheLayer === 'hot' ? filterHotCacheEntriesForPage(raw, pageUrl) : raw,
+        )
         return { matchedOrigin: true }
       }
       if (nav === 'indexeddb') {
@@ -371,10 +442,12 @@ export function ChromoApplicationPanel({
         setBusy(false)
       }
     }
-  }, [cacheLayer, expectedOrigin, idbName, idbStore, nav, pageReady, siteCacheName])
+  }, [cacheLayer, expectedOrigin, idbName, idbStore, nav, pageReady, pageUrl, siteCacheName])
 
   // 地址栏目标变更时先清掉旧域数据，避免短暂显示上一站内容
   useEffect(() => {
+    setCookies([])
+    setCacheEntries([])
     setStorageEntries([])
     setStorageOrigin('')
     setIdbList([])
@@ -475,7 +548,12 @@ export function ChromoApplicationPanel({
         <header class="chromo-application__toolbar">
           <div class="chromo-application__toolbar-title">
             {NAV.find((item) => item.id === nav)?.label}
-            {pageUrl ? <span class="chromo-application__muted"> · {pageUrl}</span> : null}
+            {(() => {
+              const suffix = toolbarTitleSuffix(nav, pageUrl)
+              return suffix ? (
+                <span class="chromo-application__muted"> · {suffix}</span>
+              ) : null
+            })()}
           </div>
           <div class="chromo-application__toolbar-actions">
             {pageLoading ? <span class="chromo-application__muted">页面仍在加载中</span> : null}
@@ -501,14 +579,19 @@ export function ChromoApplicationPanel({
               <button
                 type="button"
                 class="chromo-application__btn"
+                disabled={!hostnameFromPageUrl(pageUrl)}
                 onClick={() =>
                   void run(async () => {
-                    await api.clearCookies()
+                    const host = hostnameFromPageUrl(pageUrl)
+                    if (!host) {
+                      return
+                    }
+                    await api.clearCookies(host)
                     await refresh()
                   })
                 }
               >
-                清空全部 Cookie
+                清空当前站 Cookie
               </button>
             </div>
             <table class="chromo-application__table">
@@ -578,7 +661,7 @@ export function ChromoApplicationPanel({
                   })
                 }
               >
-                清空
+                清空当前源
               </button>
             </div>
             <table class="chromo-application__table">
@@ -682,52 +765,82 @@ export function ChromoApplicationPanel({
                   setCacheLayer((event.currentTarget as HTMLSelectElement).value as 'hot' | 'archive')
                 }
               >
-                <option value="hot">Hot</option>
-                <option value="archive">Archive</option>
+                <option value="hot">Hot（当前站）</option>
+                <option value="archive">Archive（全局）</option>
               </select>
               <button
                 type="button"
                 class="chromo-application__btn"
+                disabled={cacheLayer === 'hot' && !expectedOrigin}
                 onClick={() =>
                   void run(async () => {
-                    await api.clearNetworkCache(cacheLayer)
+                    if (cacheLayer === 'hot') {
+                      if (!expectedOrigin) {
+                        return
+                      }
+                      await api.clearNetworkCache('hot', { origin: expectedOrigin })
+                    } else if (
+                      !globalThis.confirm(
+                        '将清空全局 Archive 层（所有站点的响应归档）。确定继续？',
+                      )
+                    ) {
+                      return
+                    } else {
+                      await api.clearNetworkCache('archive')
+                    }
                     await refresh()
                   })
                 }
               >
-                清空本层
+                {cacheLayer === 'hot' ? '清空当前站 Hot' : '清空全局 Archive'}
               </button>
               <button
                 type="button"
                 class="chromo-application__btn"
                 onClick={() =>
                   void run(async () => {
+                    if (
+                      !globalThis.confirm(
+                        '将清空全局 Hot 与 Archive（所有站点）。确定继续？',
+                      )
+                    ) {
+                      return
+                    }
                     await api.clearNetworkCache('all')
                     await refresh()
                   })
                 }
               >
-                清空全部
+                清空全局全部
               </button>
             </div>
             <table class="chromo-application__table">
               <thead>
                 <tr>
-                  <th>Key</th>
+                  <th>{cacheLayer === 'hot' ? 'URL' : 'Key'}</th>
                   <th>Size</th>
                   <th>Meta</th>
                 </tr>
               </thead>
               <tbody>
                 {cacheEntries.map((row, index) => {
-                  const item = row as Record<string, unknown>
+                  const item = row as HotCacheListEntry & Record<string, unknown>
+                  const primary =
+                    cacheLayer === 'hot'
+                      ? String(item.url || item.key || '')
+                      : String(item.key ?? item.entryId ?? '')
                   return (
-                    <tr key={String(item.key ?? index)}>
-                      <td class="chromo-application__mono">{String(item.key ?? item.entryId ?? '')}</td>
+                    <tr key={String(item.key ?? item.url ?? index)}>
+                      <td class="chromo-application__mono">{primary}</td>
                       <td>{formatBytes(Number(item.size) || 0)}</td>
                       <td class="chromo-application__mono">
-                        {item.fresh !== undefined
-                          ? `fresh=${String(item.fresh)}`
+                        {cacheLayer === 'hot'
+                          ? [
+                              item.method ? String(item.method) : '',
+                              item.fresh !== undefined ? `fresh=${String(item.fresh)}` : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')
                           : item.entryId
                             ? `entryId=${String(item.entryId)}`
                             : ''}
@@ -738,7 +851,13 @@ export function ChromoApplicationPanel({
               </tbody>
             </table>
             {cacheEntries.length === 0 ? (
-              <div class="chromo-application__empty">无缓存条目</div>
+              <div class="chromo-application__empty">
+                {cacheLayer === 'hot'
+                  ? expectedOrigin
+                    ? `当前站无 Hot 条目（无 method/url 元数据的旧条目不会显示）`
+                    : '无缓存条目'
+                  : '无缓存条目'}
+              </div>
             ) : null}
           </div>
         ) : null}

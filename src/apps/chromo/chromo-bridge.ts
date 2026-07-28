@@ -329,7 +329,7 @@ export type ChromoBridge = {
   ) => Promise<{ layer: string; entries: unknown[] }>
   clearNetworkCache: (
     layer: 'hot' | 'archive' | 'all',
-    options?: ChromoRpcOptions,
+    options?: { origin?: string } & ChromoRpcOptions,
   ) => Promise<{ layer: string }>
   listIdb: (options?: ChromoRpcOptions) => Promise<{ databases: ChromoIdbDatabase[] }>
   deleteIdb: (name: string, options?: ChromoRpcOptions) => Promise<unknown>
@@ -841,9 +841,14 @@ export function createChromoBridge(
       }).then((value) => (value ?? { layer, entries: [] }) as { layer: string; entries: unknown[] })
     },
     clearNetworkCache(layer, options) {
-      return rpc('VC_NETWORK_CACHE_CLEAR_RESULT', 'VC_NETWORK_CACHE_CLEAR', { layer }, options).then(
-        (value) => (value ?? { layer }) as { layer: string },
-      )
+      const { origin, timeout } = options ?? {}
+      const payload: Record<string, unknown> = { layer }
+      if (origin) {
+        payload.origin = origin
+      }
+      return rpc('VC_NETWORK_CACHE_CLEAR_RESULT', 'VC_NETWORK_CACHE_CLEAR', payload, {
+        timeout,
+      }).then((value) => (value ?? { layer }) as { layer: string })
     },
     listIdb(options) {
       return rpc('VC_IDB_LIST_RESULT', 'VC_IDB_LIST', {}, options).then(
