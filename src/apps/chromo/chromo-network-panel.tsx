@@ -25,6 +25,10 @@ type ChromoNetworkPanelProps = {
   pageError?: string
   pageUrl?: string
   disableNetworkCache?: boolean
+  onDisableNetworkCacheChange?: (disable: boolean) => void
+  preserveLog?: boolean
+  onPreserveLogChange?: (preserve: boolean) => void
+  onClear?: () => void
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
   readNetworkBodyLines?: (
     entryId: string,
@@ -50,6 +54,12 @@ type NetworkSummary = {
 type NetworkSortColumn = 'name' | 'status' | 'waterfall' | 'duration' | 'size'
 type NetworkSortDirection = 'asc' | 'desc'
 type NetworkTypeFilter = 'all' | 'document' | 'script' | 'stylesheet' | 'xhr' | 'image' | 'font' | 'media' | 'websocket' | 'wasm' | 'other'
+type NetworkTypeCategory = Exclude<NetworkTypeFilter, 'all'>
+type NetworkCategorySelection =
+  | { mode: 'all' }
+  | { mode: 'types'; types: Set<NetworkTypeCategory> }
+
+const NETWORK_FILTERS_EXPANDED_KEY = 'chromo.network.filtersExpanded'
 
 const TYPE_FILTERS: { id: NetworkTypeFilter; label: string }[] = [
   { id: 'all', label: '全部' },
@@ -64,6 +74,47 @@ const TYPE_FILTERS: { id: NetworkTypeFilter; label: string }[] = [
   { id: 'wasm', label: 'Wasm' },
   { id: 'other', label: '其他' },
 ]
+
+function readFiltersExpandedPref(): boolean {
+  try {
+    return localStorage.getItem(NETWORK_FILTERS_EXPANDED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeFiltersExpandedPref(expanded: boolean): void {
+  try {
+    localStorage.setItem(NETWORK_FILTERS_EXPANDED_KEY, expanded ? '1' : '0')
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function ClearNetworkIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.75" />
+      <path
+        d="M6.2 6.2l11.6 11.6"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+    </svg>
+  )
+}
+
+function FilterFunnelIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M3 4h18l-7 8.5V19l-4 2v-8.5L3 4z"
+      />
+    </svg>
+  )
+}
 
 const SORT_COLUMNS: { id: NetworkSortColumn; label: string }[] = [
   { id: 'name', label: '名称' },
@@ -176,18 +227,78 @@ function rpcErrorCode(err: unknown): string | undefined {
   return undefined
 }
 
-function matchesNetworkTypeFilter(entry: ChromoNetworkEntry, filter: NetworkTypeFilter): boolean {
-  if (filter === 'all') {
-    return true
-  }
+function entryMatchesTypeCategory(entry: ChromoNetworkEntry, filter: NetworkTypeCategory): boolean {
   const type = normalizeNetworkType(entry.type)
   if (filter === 'xhr') {
     return type === 'xhr' || type === 'fetch'
   }
   if (filter === 'other') {
-    return !TYPE_FILTERS.some((item) => item.id !== 'all' && item.id !== 'other' && matchesNetworkTypeFilter(entry, item.id))
+    return !TYPE_FILTERS.some(
+      (item) =>
+        item.id !== 'all' &&
+        item.id !== 'other' &&
+        entryMatchesTypeCategory(entry, item.id as NetworkTypeCategory),
+    )
   }
   return type === filter
+}
+
+function matchesNetworkTypeSelection(
+  entry: ChromoNetworkEntry,
+  selection: NetworkCategorySelection,
+): boolean {
+  if (selection.mode === 'all') {
+    return true
+  }
+  for (const filter of selection.types) {
+    if (entryMatchesTypeCategory(entry, filter)) {
+      return true
+    }
+  }
+  return false
+}
+
+function isCategoryActive(
+  selection: NetworkCategorySelection,
+  id: NetworkTypeFilter,
+): boolean {
+  if (id === 'all') {
+    return selection.mode === 'all'
+  }
+  return selection.mode === 'types' && selection.types.has(id)
+}
+
+function toggleCategorySelection(
+  current: NetworkCategorySelection,
+  id: NetworkTypeFilter,
+  multi: boolean,
+): NetworkCategorySelection {
+  if (id === 'all') {
+    return { mode: 'all' }
+  }
+
+  if (current.mode === 'all') {
+    return { mode: 'types', types: new Set([id]) }
+  }
+
+  if (multi) {
+    const next = new Set(current.types)
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+    if (next.size === 0) {
+      return { mode: 'all' }
+    }
+    return { mode: 'types', types: next }
+  }
+
+  // Plain click: radio-like — select only this type, or deselect back to all
+  if (current.types.size === 1 && current.types.has(id)) {
+    return { mode: 'all' }
+  }
+  return { mode: 'types', types: new Set([id]) }
 }
 
 function matchesNameFilter(entry: ChromoNetworkEntry, query: string): boolean {
@@ -306,6 +417,10 @@ export function ChromoNetworkPanel({
   pageError,
   pageUrl,
   disableNetworkCache,
+  onDisableNetworkCacheChange,
+  preserveLog = false,
+  onPreserveLogChange,
+  onClear,
   readNetworkBody,
   readNetworkBodyLines,
   probeNetworkHot,
@@ -314,7 +429,10 @@ export function ChromoNetworkPanel({
 }: ChromoNetworkPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const [nameFilter, setNameFilter] = useState('')
-  const [typeFilter, setTypeFilter] = useState<NetworkTypeFilter>('all')
+  const [categorySelection, setCategorySelection] = useState<NetworkCategorySelection>({
+    mode: 'all',
+  })
+  const [filtersExpanded, setFiltersExpanded] = useState(readFiltersExpandedPref)
   const [sortColumn, setSortColumn] = useState<NetworkSortColumn>('waterfall')
   const [sortDirection, setSortDirection] = useState<NetworkSortDirection>('asc')
   const [bodyPreview, setBodyPreview] = useState('')
@@ -332,8 +450,12 @@ export function ChromoNetworkPanel({
   )
 
   const filteredEntries = useMemo(() => {
-    return entries.filter((entry) => matchesNameFilter(entry, nameFilter) && matchesNetworkTypeFilter(entry, typeFilter))
-  }, [entries, nameFilter, typeFilter])
+    return entries.filter(
+      (entry) =>
+        matchesNameFilter(entry, nameFilter) &&
+        matchesNetworkTypeSelection(entry, categorySelection),
+    )
+  }, [entries, nameFilter, categorySelection])
 
   const sortedEntries = useMemo(() => {
     const next = [...filteredEntries]
@@ -372,9 +494,25 @@ export function ChromoNetworkPanel({
     [sortColumn],
   )
 
+  const handleToggleFilters = useCallback(() => {
+    setFiltersExpanded((current) => {
+      const next = !current
+      writeFiltersExpandedPref(next)
+      return next
+    })
+  }, [])
+
+  const handleCategoryClick = useCallback(
+    (id: NetworkTypeFilter, event: { metaKey: boolean; ctrlKey: boolean }) => {
+      const multi = event.metaKey || event.ctrlKey
+      setCategorySelection((current) => toggleCategorySelection(current, id, multi))
+    },
+    [],
+  )
+
   const shouldAutoScroll =
     !nameFilter.trim() &&
-    typeFilter === 'all' &&
+    categorySelection.mode === 'all' &&
     sortColumn === 'waterfall' &&
     sortDirection === 'asc'
 
@@ -586,28 +724,98 @@ export function ChromoNetworkPanel({
         .join(' ')}
       aria-label="网络"
     >
-      <div class="chromo-network__toolbar" role="toolbar" aria-label="网络过滤">
-        <input
-          type="search"
-          class="chromo-network__filter-name"
-          value={nameFilter}
-          placeholder="过滤名称或 URL"
-          onInput={(event) => setNameFilter((event.currentTarget as HTMLInputElement).value)}
-          aria-label="名称过滤"
-        />
-        <select
-          class="chromo-network__filter-type"
-          value={typeFilter}
-          onChange={(event) => setTypeFilter((event.currentTarget as HTMLSelectElement).value as NetworkTypeFilter)}
-          aria-label="类型过滤"
-        >
-          {TYPE_FILTERS.map((filter) => (
-            <option key={filter.id} value={filter.id}>{filter.label}</option>
-          ))}
-        </select>
-        <span class="chromo-network__count" aria-live="polite">
-          {sortedEntries.length}/{entries.length}
-        </span>
+      <div class="chromo-network__toolbar">
+        <div class="chromo-network__toolbar-main" role="toolbar" aria-label="网络工具栏">
+          <div class="chromo-network__toolbar-left">
+            {onClear ? (
+              <button
+                type="button"
+                class="chromo-network__icon-btn"
+                onClick={onClear}
+                title="清空网络记录"
+                aria-label="清空网络记录"
+              >
+                <ClearNetworkIcon />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              class={[
+                'chromo-network__icon-btn',
+                filtersExpanded ? 'chromo-network__icon-btn--active' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={handleToggleFilters}
+              title="过滤器"
+              aria-label="过滤器"
+              aria-pressed={filtersExpanded}
+            >
+              <FilterFunnelIcon />
+            </button>
+          </div>
+          <div class="chromo-network__toolbar-right">
+            <label class="chromo-network__option">
+              <input
+                type="checkbox"
+                checked={preserveLog}
+                onChange={(event) =>
+                  onPreserveLogChange?.((event.currentTarget as HTMLInputElement).checked)
+                }
+              />
+              保留日志
+            </label>
+            <label class="chromo-network__option">
+              <input
+                type="checkbox"
+                checked={Boolean(disableNetworkCache)}
+                onChange={(event) =>
+                  onDisableNetworkCacheChange?.(
+                    (event.currentTarget as HTMLInputElement).checked,
+                  )
+                }
+              />
+              禁用缓存
+            </label>
+            <span class="chromo-network__count" aria-live="polite">
+              {sortedEntries.length}/{entries.length}
+            </span>
+          </div>
+        </div>
+        {filtersExpanded ? (
+          <div class="chromo-network__toolbar-filters" aria-label="网络过滤">
+            <input
+              type="search"
+              class="chromo-network__filter-name"
+              value={nameFilter}
+              placeholder="过滤名称或 URL"
+              onInput={(event) =>
+                setNameFilter((event.currentTarget as HTMLInputElement).value)
+              }
+              aria-label="名称过滤"
+            />
+            <div class="chromo-network__type-filters" role="group" aria-label="类型过滤">
+              {TYPE_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  class={[
+                    'chromo-network__type-btn',
+                    isCategoryActive(categorySelection, filter.id)
+                      ? 'chromo-network__type-btn--active'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-pressed={isCategoryActive(categorySelection, filter.id)}
+                  onClick={(event) => handleCategoryClick(filter.id, event)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div class="chromo-network__body">

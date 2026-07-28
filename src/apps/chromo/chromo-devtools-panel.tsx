@@ -301,6 +301,9 @@ type ChromoDevToolsPanelBodyProps = {
   networkEntries: ChromoNetworkEntry[]
   selectedNetworkId?: string
   disableNetworkCache?: boolean
+  onDisableNetworkCacheChange?: (disable: boolean) => void
+  preserveLog?: boolean
+  onPreserveLogChange?: (preserve: boolean) => void
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
   readNetworkBodyLines?: (
     entryId: string,
@@ -335,6 +338,9 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   networkEntries,
   selectedNetworkId,
   disableNetworkCache,
+  onDisableNetworkCacheChange,
+  preserveLog = false,
+  onPreserveLogChange,
   readNetworkBody,
   readNetworkBodyLines,
   probeNetworkHot,
@@ -373,6 +379,10 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
         pageError={pageError}
         pageUrl={pageUrl}
         disableNetworkCache={disableNetworkCache}
+        onDisableNetworkCacheChange={onDisableNetworkCacheChange}
+        preserveLog={preserveLog}
+        onPreserveLogChange={onPreserveLogChange}
+        onClear={onClearConsole}
         readNetworkBody={readNetworkBody}
         readNetworkBodyLines={readNetworkBodyLines}
         probeNetworkHot={probeNetworkHot}
@@ -831,33 +841,11 @@ export function ChromoDevToolsPanel({
         </div>
 
         <div class="chromo-devtools__actions">
-          {activeTab === 'network' ? (
-            <label class="chromo-devtools__preserve">
-              <input
-                type="checkbox"
-                checked={Boolean(disableNetworkCache)}
-                onChange={(event) =>
-                  onDisableNetworkCacheChange?.(
-                    (event.currentTarget as HTMLInputElement).checked,
-                  )
-                }
-              />
-              禁用缓存
-            </label>
+          {activeTab === 'console' ? (
+            <button type="button" class="chromo-devtools__action" onClick={onClear}>
+              清空
+            </button>
           ) : null}
-          <label class="chromo-devtools__preserve">
-            <input
-              type="checkbox"
-              checked={preserveLog}
-              onChange={(event) =>
-                onPreserveLogChange((event.currentTarget as HTMLInputElement).checked)
-              }
-            />
-            保留日志
-          </label>
-          <button type="button" class="chromo-devtools__action" onClick={onClear}>
-            清空
-          </button>
           <div class="chromo-devtools__settings" ref={settingsRef}>
             <button
               type="button"
@@ -975,6 +963,9 @@ export function ChromoDevToolsPanel({
             networkEntries={networkEntries}
             selectedNetworkId={selectedNetworkId}
             disableNetworkCache={disableNetworkCache}
+            onDisableNetworkCacheChange={onDisableNetworkCacheChange}
+            preserveLog={preserveLog}
+            onPreserveLogChange={onPreserveLogChange}
             readNetworkBody={readNetworkBody}
             readNetworkBodyLines={readNetworkBodyLines}
             probeNetworkHot={probeNetworkHot}
