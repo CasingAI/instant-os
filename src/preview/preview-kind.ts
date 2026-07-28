@@ -1,6 +1,6 @@
 import { fileNameExtension } from '../os/file-open-registry.ts'
 
-export type PreviewKind = 'markdown' | 'image' | 'model3d' | 'docx' | 'unsupported'
+export type PreviewKind = 'markdown' | 'text' | 'image' | 'model3d' | 'docx' | 'unsupported'
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx'])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
@@ -12,8 +12,75 @@ export const PREVIEW_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'i
 export const PREVIEW_MODEL3D_EXTENSIONS = ['gltf', 'glb'] as const
 export const PREVIEW_DOCX_EXTENSIONS = ['docx'] as const
 
+/**
+ * 可预览的纯文本 / 源码后缀（Monaco 只读）。
+ * 与 VSCODE_OPEN_EXTENSIONS（去掉 md/markdown/mdx）及 VSCODE_OPTIONAL_OPEN_EXTENSIONS 保持同步。
+ */
+export const PREVIEW_TEXT_EXTENSIONS = [
+  'js',
+  'mjs',
+  'cjs',
+  'jsx',
+  'ts',
+  'mts',
+  'cts',
+  'tsx',
+  'json',
+  'jsonc',
+  'css',
+  'scss',
+  'less',
+  'py',
+  'pyw',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'h',
+  'cpp',
+  'cc',
+  'cxx',
+  'hpp',
+  'hh',
+  'cs',
+  'php',
+  'rb',
+  'swift',
+  'kt',
+  'kts',
+  'dart',
+  'lua',
+  'r',
+  'sql',
+  'sh',
+  'bash',
+  'zsh',
+  'ps1',
+  'xml',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'conf',
+  'cfg',
+  'env',
+  'properties',
+  'vue',
+  'svelte',
+  'graphql',
+  'gql',
+  'proto',
+  'txt',
+  'html',
+  'htm',
+  'xhtml',
+] as const
+
+const TEXT_EXTENSIONS = new Set<string>(PREVIEW_TEXT_EXTENSIONS)
+
 export const PREVIEW_OPEN_EXTENSIONS = [
   ...PREVIEW_MARKDOWN_EXTENSIONS,
+  ...PREVIEW_TEXT_EXTENSIONS,
   ...PREVIEW_IMAGE_EXTENSIONS,
   ...PREVIEW_MODEL3D_EXTENSIONS,
   ...PREVIEW_DOCX_EXTENSIONS,
@@ -33,6 +100,9 @@ export function resolvePreviewKind(pathOrName: string): PreviewKind {
   }
   if (extension && DOCX_EXTENSIONS.has(extension)) {
     return 'docx'
+  }
+  if (extension && TEXT_EXTENSIONS.has(extension)) {
+    return 'text'
   }
   return 'unsupported'
 }

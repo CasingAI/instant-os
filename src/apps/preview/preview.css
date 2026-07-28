@@ -112,6 +112,17 @@
   background: var(--preview-paper);
 }
 
+.preview-app__body--text {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-app__body--text > .file-preview {
+  flex: 1;
+  min-height: 0;
+}
+
 .preview-app__empty,
 .preview-app__loading,
 .preview-app__unsupported {

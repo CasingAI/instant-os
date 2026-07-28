@@ -22,7 +22,7 @@ export type LoadedPreviewDocument = {
   name: string
   kind: PreviewKind
   node: FilesNode
-  /** Markdown 正文；非 markdown 时为 undefined */
+  /** Markdown / 纯文本正文；非文本类时为 undefined */
   text?: string
   /** 图片 / 非 catalog 模型二进制；调用方负责 revoke object URL */
   blob?: Blob
@@ -102,7 +102,7 @@ export async function loadPreviewDocument(documentRef: string): Promise<LoadedPr
     }
   }
 
-  if (kind === 'markdown') {
+  if (kind === 'markdown' || kind === 'text') {
     const result = await readTextFile(node.id)
     return {
       path,

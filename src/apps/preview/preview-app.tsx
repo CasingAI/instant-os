@@ -13,6 +13,7 @@ import {
   loadPreviewDocument,
   PREVIEW_OPEN_EXTENSIONS,
   type DocxZoomMode,
+  type MarkdownViewMode,
   type PreviewKind,
 } from '../../preview/file-preview-public.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
@@ -41,6 +42,8 @@ type PreviewTab = {
   imageSrc?: string
   modelUrl?: string
   docxBlob?: Blob
+  /** Markdown 标签页：渲染 / 源码；per-tab 保留 */
+  markdownViewMode?: MarkdownViewMode
 }
 
 type PreviewAppProps = {
@@ -110,6 +113,10 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
   const isDocxTab = activeTab?.kind === 'docx'
+  const isMarkdownTab = activeTab?.kind === 'markdown'
+  const markdownViewMode = activeTab?.markdownViewMode ?? 'render'
+  const isTextPreviewBody =
+    activeTab?.kind === 'text' || (isMarkdownTab && markdownViewMode === 'source')
 
   useEffect(() => {
     setDocxZoomMode('fit-width')
@@ -215,6 +222,7 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
           imageSrc,
           modelUrl,
           docxBlob: loaded.kind === 'docx' ? loaded.blob : undefined,
+          markdownViewMode: loaded.kind === 'markdown' ? 'render' : undefined,
         }
         setTabs((prev) => [...prev, tab])
         setActiveTabId(tab.id)
@@ -336,6 +344,16 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
     setDocxManualScale(1)
   }, [])
 
+  const setMarkdownViewMode = useCallback((mode: MarkdownViewMode) => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === tabId && tab.kind === 'markdown' ? { ...tab, markdownViewMode: mode } : tab,
+      ),
+    )
+  }, [])
+
   const menuBar = useMemo((): MenuDefinition[] => {
     return [
       {
@@ -447,6 +465,28 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
             </button>
           </div>
         ) : undefined}
+        {isMarkdownTab ? (
+          <div class="preview-app__toolbar-tools" role="toolbar" aria-label="Markdown 预览模式">
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${markdownViewMode === 'render' ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="渲染预览"
+              onClick={() => setMarkdownViewMode('render')}
+            >
+              渲染
+            </button>
+            <button
+              type="button"
+              class={`preview-app__toolbar-btn preview-app__toolbar-btn--compact${markdownViewMode === 'source' ? ' preview-app__toolbar-btn--active' : ''}`}
+              disabled={loading}
+              title="源码预览"
+              onClick={() => setMarkdownViewMode('source')}
+            >
+              源码
+            </button>
+          </div>
+        ) : undefined}
         <div class="preview-app__toolbar-title">
           {activeTab ? activeTab.name : '未打开文档'}
         </div>
@@ -463,14 +503,17 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
         />
       ) : undefined}
 
-      <div class="preview-app__body">
+      <div
+        class={`preview-app__body${isTextPreviewBody ? ' preview-app__body--text' : ''}`}
+      >
         {loading && !activeTab ? (
           <div class="preview-app__loading">正在打开…</div>
         ) : !activeTab ? (
           <div class="preview-app__empty">
             <p class="preview-app__empty-title">预览</p>
             <p class="preview-app__empty-hint">
-              打开 Markdown、Word 文档（.docx）、图片或 3D 模型（glTF / GLB），以只读方式查看内容。
+              打开 Markdown、JSON / HTML / 源码等文本、Word 文档（.docx）、图片或 3D 模型（glTF /
+              GLB），以只读方式查看内容。
             </p>
             <button
               type="button"
@@ -492,6 +535,10 @@ export function PreviewApp({ windowId }: PreviewAppProps) {
             docxZoomMode={docxZoomMode}
             docxManualScale={docxManualScale}
             onDocxEffectiveScaleChange={setDocxEffectiveScale}
+            fileName={activeTab.name}
+            filePath={activeTab.path}
+            active={isActiveWindow}
+            markdownViewMode={markdownViewMode}
           />
         )}
       </div>
