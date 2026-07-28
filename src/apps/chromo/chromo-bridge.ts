@@ -101,6 +101,8 @@ export type ChromoNetworkEntry = {
   bypass: boolean
   pending?: boolean
   hasBody?: boolean
+  /** Whether this response was written into session hot cache. */
+  hotStored?: boolean
   fromCache?: boolean
   devtoolsId?: string
   requestHeaders?: Record<string, string>
@@ -196,6 +198,11 @@ export type ChromoBridge = {
     entryId: string,
     options?: ChromoRpcOptions,
   ) => Promise<ChromoNetworkBodyReadResult>
+  probeNetworkHot: (
+    method: string,
+    url: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   devtoolsId: string
   screenshot: (
@@ -474,6 +481,11 @@ export function createChromoBridge(
       return rpc('VC_NETWORK_BODY_READ_RESULT', 'VC_NETWORK_BODY_READ', { entryId }, options).then(
         (value) => value as ChromoNetworkBodyReadResult,
       )
+    },
+    probeNetworkHot(method, url, options) {
+      return rpc('VC_NETWORK_HOT_PROBE_RESULT', 'VC_NETWORK_HOT_PROBE', { method, url }, {
+        timeout: options?.timeout ?? 10_000,
+      }).then((value) => (value ?? { exists: false }) as { exists: boolean })
     },
     setNetworkOptions(opts) {
       if (opts.disableCache !== undefined) {

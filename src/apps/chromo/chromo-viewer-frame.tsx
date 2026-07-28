@@ -38,6 +38,11 @@ export type ChromoViewerHandle = {
     entryId: string,
     options?: ChromoRpcOptions,
   ) => Promise<ChromoNetworkBodyReadResult>
+  probeNetworkHot: (
+    method: string,
+    url: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
@@ -202,6 +207,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         readNetworkBody(entryId, options) {
           return (
             bridgeRef.current?.readNetworkBody(entryId, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        probeNetworkHot(method, url, options) {
+          return (
+            bridgeRef.current?.probeNetworkHot(method, url, options) ??
             Promise.reject(new Error('viewer not ready'))
           )
         },

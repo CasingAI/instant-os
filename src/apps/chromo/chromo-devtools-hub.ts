@@ -33,6 +33,7 @@ export type ChromoDevToolsSnapshot = {
 export type ChromoDevToolsHandlers = {
   evalInPage: (code: string) => Promise<unknown>
   readNetworkBody: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  probeNetworkHot: (method: string, url: string) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   onPanelTabChange: (tab: ChromoDevToolsPanelTab) => void
   onPreserveLogChange: (preserve: boolean) => void

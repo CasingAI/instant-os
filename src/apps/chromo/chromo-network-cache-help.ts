@@ -1,11 +1,11 @@
 import type { ChromoNetworkEntry } from './chromo-bridge.ts'
 
-const HOT_CACHE_MAX_BYTES = 1024 * 1024
-
 export type HotCacheHelpContext = {
   disableNetworkCache?: boolean
   /** All network entries in the current tab (panel history only; not SW cache state). */
   entries?: ChromoNetworkEntry[]
+  /** Result of VC_NETWORK_HOT_PROBE (undefined = not probed yet). */
+  swHasEntry?: boolean | null
 }
 
 export type HotCacheConditionStatus = 'pass' | 'fail' | 'pending' | 'skip'
@@ -43,19 +43,6 @@ function sameUrlCompletedBefore(
       (other.method || 'GET').toUpperCase() === (entry.method || 'GET').toUpperCase() &&
       !other.pending,
   )
-}
-
-function formatBytes(size: number): string {
-  if (!size) {
-    return '0 B'
-  }
-  if (size < 1024) {
-    return `${size} B`
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 /**
@@ -117,12 +104,6 @@ export function diagnoseHotCache(
 
   if (bypass) {
     conditions.push({
-      id: 'body_size_ok',
-      label: '响应 ≤ 1MB',
-      status: 'skip',
-      value: '—',
-    })
-    conditions.push({
       id: 'body_stored',
       label: '响应正文已写入（hasBody）',
       status: 'skip',
@@ -130,25 +111,12 @@ export function diagnoseHotCache(
     })
   } else if (pending) {
     conditions.push({
-      id: 'body_size_ok',
-      label: '响应 ≤ 1MB',
-      status: 'pending',
-      value: 'pending',
-    })
-    conditions.push({
       id: 'body_stored',
       label: '响应正文已写入（hasBody）',
       status: 'pending',
       value: 'pending',
     })
   } else {
-    const sizeOk = entry.size <= HOT_CACHE_MAX_BYTES
-    conditions.push({
-      id: 'body_size_ok',
-      label: '响应 ≤ 1MB',
-      status: sizeOk ? 'pass' : 'fail',
-      value: formatBytes(entry.size),
-    })
     conditions.push({
       id: 'body_stored',
       label: '响应正文已写入（hasBody）',
@@ -162,7 +130,6 @@ export function diagnoseHotCache(
     'method_get',
     'not_bypass',
     'proxy_path',
-    'body_size_ok',
     'body_stored',
   ]
   const writeFailed = writePrereqIds.some((id) => {
@@ -190,6 +157,35 @@ export function diagnoseHotCache(
     value: pending ? 'pending' : hadPrior ? '是' : '否（列表首次）',
   })
 
+  if ('swHasEntry' in context) {
+    if (context.swHasEntry === undefined) {
+      conditions.push({
+        id: 'sw_has_entry',
+        label: 'SW 中已有该 URL 条目',
+        status: 'pending',
+        value: '探测中…',
+      })
+    } else if (context.swHasEntry === null) {
+      conditions.push({
+        id: 'sw_has_entry',
+        label: 'SW 中已有该 URL 条目',
+        status: 'skip',
+        value: '探测失败',
+      })
+    } else {
+      conditions.push({
+        id: 'sw_has_entry',
+        label: 'SW 中已有该 URL 条目',
+        status: context.swHasEntry ? 'pass' : 'skip',
+        value: context.swHasEntry ? '是' : '否',
+      })
+    }
+  }
+
+  const wroteHot = entry.hotStored === true
+  const writeReportedFail =
+    writeEligible && !hit && entry.hotStored === false && !pending
+
   if (pending) {
     conditions.push({
       id: 'hot_hit',
@@ -204,7 +200,20 @@ export function diagnoseHotCache(
       status: 'pass',
       value: '是',
     })
-  } else if (writeEligible) {
+  } else if (writeReportedFail) {
+    conditions.push({
+      id: 'hot_hit',
+      label: '热缓存命中（本次）',
+      status: 'fail',
+      value: '否',
+    })
+    conditions.push({
+      id: 'hot_store_fail',
+      label: '热缓存写入',
+      status: 'fail',
+      value: '失败（满足条件但未写入）',
+    })
+  } else if (writeEligible || wroteHot) {
     // First GET that wrote hot cache: miss is expected, not a blocker.
     conditions.push({
       id: 'hot_hit',
@@ -227,7 +236,7 @@ export function diagnoseHotCache(
     })
   }
 
-  const nonBlocking = new Set(['panel_repeat', 'first_write_note'])
+  const nonBlocking = new Set(['panel_repeat', 'first_write_note', 'sw_has_entry'])
   const blockingIds = conditions
     .filter((c) => c.status === 'fail' && !nonBlocking.has(c.id))
     .map((c) => c.id)

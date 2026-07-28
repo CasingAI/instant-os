@@ -22,6 +22,41 @@ function formatNetworkBytes(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+const BINARY_DESTINATIONS = new Set(['image', 'video', 'audio', 'font'])
+
+/**
+ * Treat as binary for DevTools Preview/Response — never render media, skip body RPC when possible.
+ */
+export function isBinaryNetworkBody(
+  entry: ChromoNetworkEntry,
+  contentType?: string,
+): boolean {
+  const type = (entry.type || '').toLowerCase()
+  if (BINARY_DESTINATIONS.has(type)) {
+    return true
+  }
+  const mime = (contentType || '').split(';')[0].trim().toLowerCase()
+  if (!mime) {
+    return false
+  }
+  return (
+    mime.startsWith('image/') ||
+    mime.startsWith('video/') ||
+    mime.startsWith('audio/') ||
+    mime.startsWith('font/') ||
+    mime === 'application/octet-stream' ||
+    mime === 'application/wasm' ||
+    mime === 'application/pdf' ||
+    mime === 'application/zip' ||
+    mime === 'application/gzip'
+  )
+}
+
+function binaryBodyPlaceholder(entry: ChromoNetworkEntry, mime?: string): string {
+  const label = mime || entry.type || 'binary'
+  return `二进制内容（${label}，${formatNetworkBytes(entry.size)}）— 不渲染预览，完整内容保留在 Cache`
+}
+
 const DETAIL_TABS: { id: NetworkDetailTab; label: string }[] = [
   { id: 'headers', label: 'Headers' },
   { id: 'preview', label: 'Preview' },
@@ -265,15 +300,46 @@ function ServedFromCell({
   entry,
   disableNetworkCache,
   entries,
+  probeNetworkHot,
 }: {
   entry: ChromoNetworkEntry
   disableNetworkCache?: boolean
   entries?: ChromoNetworkEntry[]
+  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
 }) {
   const [open, setOpen] = useState(false)
+  const [swHasEntry, setSwHasEntry] = useState<boolean | null | undefined>(undefined)
+
+  useEffect(() => {
+    if (!open || !probeNetworkHot || !entry.url) {
+      return
+    }
+    let cancelled = false
+    setSwHasEntry(undefined)
+    probeNetworkHot(entry.method || 'GET', entry.url)
+      .then((result) => {
+        if (!cancelled) {
+          setSwHasEntry(Boolean(result?.exists))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSwHasEntry(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, probeNetworkHot, entry.method, entry.url])
+
   const help = useMemo(
-    () => diagnoseHotCache(entry, { disableNetworkCache, entries }),
-    [entry, disableNetworkCache, entries],
+    () =>
+      diagnoseHotCache(entry, {
+        disableNetworkCache,
+        entries,
+        ...(probeNetworkHot ? { swHasEntry } : {}),
+      }),
+    [entry, disableNetworkCache, entries, probeNetworkHot, swHasEntry],
   )
 
   const statusIcon = (status: string) => {
@@ -371,6 +437,7 @@ function HeadersTab({
   bodyError,
   disableNetworkCache,
   entries,
+  probeNetworkHot,
 }: {
   entry: ChromoNetworkEntry
   bodyResult: ChromoNetworkBodyReadResult | null
@@ -378,6 +445,7 @@ function HeadersTab({
   bodyError: string
   disableNetworkCache?: boolean
   entries?: ChromoNetworkEntry[]
+  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
 }) {
   const [responseRaw, setResponseRaw] = useState(false)
   const [requestRaw, setRequestRaw] = useState(false)
@@ -411,6 +479,7 @@ function HeadersTab({
               entry={entry}
               disableNetworkCache={disableNetworkCache}
               entries={entries}
+              probeNetworkHot={probeNetworkHot}
             />
           </DetailRow>
           <DetailRow
@@ -488,17 +557,6 @@ function HeadersTab({
   )
 }
 
-function bodyToDataUrl(result: ChromoNetworkBodyReadResult, mime: string): string {
-  if (result.encoding === 'base64') {
-    return `data:${mime};base64,${result.body}`
-  }
-  try {
-    return `data:${mime};base64,${btoa(result.body)}`
-  } catch {
-    return ''
-  }
-}
-
 function PreviewTab({
   entry,
   bodyResult,
@@ -512,6 +570,17 @@ function PreviewTab({
   bodyLoading: boolean
   bodyError: string
 }) {
+  const headerMime = bodyResult
+    ? headerValue(bodyResult.headers, 'content-type').split(';')[0].trim().toLowerCase()
+    : ''
+  if (isBinaryNetworkBody(entry, headerMime)) {
+    return (
+      <div class="chromo-network__drawer-empty">
+        {binaryBodyPlaceholder(entry, headerMime || undefined)}
+      </div>
+    )
+  }
+
   if (bodyLoading) {
     return <div class="chromo-network__drawer-empty">加载响应中…</div>
   }
@@ -531,17 +600,6 @@ function PreviewTab({
 
   const contentType = headerValue(bodyResult.headers, 'content-type')
   const mime = contentType.split(';')[0].trim().toLowerCase() || 'application/octet-stream'
-
-  if (mime.startsWith('image/')) {
-    const dataUrl = bodyToDataUrl(bodyResult, mime)
-    return dataUrl ? (
-      <div class="chromo-network__preview-image-wrap">
-        <img class="chromo-network__preview-image" src={dataUrl} alt="Response preview" />
-      </div>
-    ) : (
-      <div class="chromo-network__drawer-empty">无法预览图片</div>
-    )
-  }
 
   if (mime.includes('json') || mime === 'application/ld+json') {
     try {
@@ -565,14 +623,6 @@ function PreviewTab({
     return <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
   }
 
-  if (mime.startsWith('video/') || mime.startsWith('audio/') || mime === 'application/octet-stream') {
-    return (
-      <div class="chromo-network__drawer-empty">
-        二进制内容（{mime}，{formatNetworkBytes(entry.size)}）— 请查看 Response 原始数据
-      </div>
-    )
-  }
-
   return <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
 }
 
@@ -582,13 +632,26 @@ function ResponseTab({
   bodyLoading,
   bodyError,
   truncated,
+  bodyResult,
 }: {
   entry: ChromoNetworkEntry
   bodyText: string
   bodyLoading: boolean
   bodyError: string
   truncated?: boolean
+  bodyResult?: ChromoNetworkBodyReadResult | null
 }) {
+  const headerMime = bodyResult
+    ? headerValue(bodyResult.headers, 'content-type').split(';')[0].trim().toLowerCase()
+    : ''
+  if (isBinaryNetworkBody(entry, headerMime)) {
+    return (
+      <div class="chromo-network__drawer-empty">
+        {binaryBodyPlaceholder(entry, headerMime || undefined)}
+      </div>
+    )
+  }
+
   if (bodyLoading) {
     return <div class="chromo-network__drawer-empty">加载响应中…</div>
   }
@@ -605,7 +668,9 @@ function ResponseTab({
   return (
     <div>
       {truncated ? (
-        <div class="chromo-network__drawer-note">响应正文在存储时被截断（上限 1MB）</div>
+        <div class="chromo-network__drawer-note">
+          仅显示 Cache 中的正文前缀（预览上限约 64KB），完整内容仍保留在 Cache
+        </div>
       ) : null}
       <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
     </div>
@@ -808,6 +873,7 @@ export function NetworkDetailDrawer({
   pageUrl,
   disableNetworkCache,
   entries,
+  probeNetworkHot,
   onClose,
 }: {
   entry: ChromoNetworkEntry
@@ -819,6 +885,7 @@ export function NetworkDetailDrawer({
   pageUrl?: string
   disableNetworkCache?: boolean
   entries?: ChromoNetworkEntry[]
+  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   onClose: () => void
 }) {
   const [tab, setTab] = useState<NetworkDetailTab>('headers')
@@ -883,6 +950,7 @@ export function NetworkDetailDrawer({
             bodyError={bodyError}
             disableNetworkCache={disableNetworkCache}
             entries={entries}
+            probeNetworkHot={probeNetworkHot}
           />
         ) : null}
         {tab === 'preview' ? (
@@ -901,6 +969,7 @@ export function NetworkDetailDrawer({
             bodyLoading={bodyLoading}
             bodyError={bodyError}
             truncated={bodyResult?.truncated}
+            bodyResult={bodyResult}
           />
         ) : null}
         {tab === 'initiator' ? <InitiatorTab entry={entry} pageUrl={pageUrl} /> : null}

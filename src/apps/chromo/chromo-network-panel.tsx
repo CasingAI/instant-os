@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
-import { NetworkDetailDrawer } from './chromo-network-detail.tsx'
+import { isBinaryNetworkBody, NetworkDetailDrawer } from './chromo-network-detail.tsx'
 
 type ChromoNetworkPanelProps = {
   entries: ChromoNetworkEntry[]
@@ -10,6 +10,7 @@ type ChromoNetworkPanelProps = {
   pageUrl?: string
   disableNetworkCache?: boolean
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   onSelect: (entry: ChromoNetworkEntry) => void
   onCloseDetail?: () => void
 }
@@ -276,6 +277,7 @@ export function ChromoNetworkPanel({
   pageUrl,
   disableNetworkCache,
   readNetworkBody,
+  probeNetworkHot,
   onSelect,
   onCloseDetail,
 }: ChromoNetworkPanelProps) {
@@ -352,63 +354,80 @@ export function ChromoNetworkPanel({
     list.scrollTop = list.scrollHeight
   }, [entries.length, shouldAutoScroll])
 
+  const selectedHasBody = Boolean(selectedEntry?.hasBody)
+  const selectedPending = Boolean(selectedEntry?.pending)
+  const readNetworkBodyRef = useRef(readNetworkBody)
+  readNetworkBodyRef.current = readNetworkBody
+
   useEffect(() => {
-    if (!selectedEntry || !readNetworkBody) {
+    const readBody = readNetworkBodyRef.current
+    if (!selectedId || !readBody) {
       setBodyPreview('')
       setBodyResult(null)
       setBodyError('')
       setBodyLoading(false)
       return
     }
-    if (!selectedEntry.hasBody) {
+    if (!selectedHasBody) {
       setBodyPreview('')
       setBodyResult(null)
-      setBodyError(selectedEntry.pending ? '请求进行中…' : '未缓存响应正文')
+      setBodyError(selectedPending ? '请求进行中…' : '未缓存响应正文')
+      setBodyLoading(false)
+      return
+    }
+    if (selectedEntry && isBinaryNetworkBody(selectedEntry)) {
+      setBodyPreview('')
+      setBodyResult(null)
+      setBodyError('')
       setBodyLoading(false)
       return
     }
 
     let cancelled = false
-    setBodyLoading(true)
-    setBodyError('')
-    setBodyPreview('')
-    setBodyResult(null)
+    let requestId = 0
+    const fetchBody = () => {
+      const currentRequest = ++requestId
+      setBodyLoading(true)
+      setBodyError('')
+      setBodyPreview('')
+      setBodyResult(null)
 
-    readNetworkBody(selectedEntry.id)
-      .then((result) => {
-        if (cancelled) {
-          return
-        }
-        setBodyResult(result)
-        const text = decodeNetworkBody(result)
-        const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
-        const body = formatResponsePreview(text)
-        setBodyPreview(
-          contentType.startsWith('image/') || contentType.startsWith('video/')
-            ? `(binary: ${contentType}, ${formatNetworkBytes(body.length)} — preview skipped)`
-            : body,
-        )
-        if (result.truncated) {
-          setBodyError('响应正文在存储时被截断')
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) {
-          return
-        }
-        const message = err instanceof Error ? err.message : String(err)
-        setBodyError(message)
-      })
-      .finally(() => {
-        if (!cancelled) {
+      readBody(selectedId)
+        .then((result) => {
+          if (cancelled || currentRequest !== requestId) {
+            return
+          }
+          setBodyResult(result)
+          const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
+          if (selectedEntry && isBinaryNetworkBody(selectedEntry, contentType)) {
+            setBodyPreview('')
+            return
+          }
+          const text = decodeNetworkBody(result)
+          setBodyPreview(formatResponsePreview(text))
+        })
+        .catch((err: unknown) => {
+          if (cancelled || currentRequest !== requestId) {
+            return
+          }
+          const message = err instanceof Error ? err.message : String(err)
+          setBodyError(message)
+        })
+        .finally(() => {
+          if (cancelled || currentRequest !== requestId) {
+            return
+          }
           setBodyLoading(false)
-        }
-      })
+        })
+    }
+
+    fetchBody()
 
     return () => {
       cancelled = true
+      setBodyLoading(false)
     }
-  }, [readNetworkBody, selectedEntry])
+  }, [selectedId, selectedHasBody, selectedPending, selectedEntry])
 
   return (
     <div
@@ -524,6 +543,7 @@ export function ChromoNetworkPanel({
             pageUrl={pageUrl}
             disableNetworkCache={disableNetworkCache}
             entries={entries}
+            probeNetworkHot={probeNetworkHot}
             onClose={() => onCloseDetail?.()}
           />
         ) : null}

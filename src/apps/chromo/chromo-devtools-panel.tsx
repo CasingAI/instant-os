@@ -52,6 +52,7 @@ type ChromoDevToolsPanelProps = {
   disableNetworkCache?: boolean
   onDisableNetworkCacheChange?: (disable: boolean) => void
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   pageLoading?: boolean
   pageError?: string
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
@@ -268,6 +269,7 @@ type ChromoDevToolsPanelBodyProps = {
   selectedNetworkId?: string
   disableNetworkCache?: boolean
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   pageLoading?: boolean
   pageError?: string
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
@@ -287,6 +289,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   selectedNetworkId,
   disableNetworkCache,
   readNetworkBody,
+  probeNetworkHot,
   pageLoading,
   pageError,
   onSelectNetwork,
@@ -316,6 +319,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
         pageUrl={pageUrl}
         disableNetworkCache={disableNetworkCache}
         readNetworkBody={readNetworkBody}
+        probeNetworkHot={probeNetworkHot}
         onSelect={onSelectNetwork}
         onCloseDetail={onCloseNetworkDetail}
       />
@@ -433,6 +437,7 @@ export function ChromoDevToolsPanel({
   disableNetworkCache,
   onDisableNetworkCacheChange,
   readNetworkBody,
+  probeNetworkHot,
   pageLoading,
   pageError,
   onSelectNetwork,
@@ -783,6 +788,7 @@ export function ChromoDevToolsPanel({
           selectedNetworkId={selectedNetworkId}
           disableNetworkCache={disableNetworkCache}
           readNetworkBody={readNetworkBody}
+          probeNetworkHot={probeNetworkHot}
           pageLoading={pageLoading}
           pageError={pageError}
           onSelectNetwork={onSelectNetwork}
