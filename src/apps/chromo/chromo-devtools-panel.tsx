@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { ChromoConsolePanel } from './chromo-console-panel.tsx'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
-import type { ChromoNetworkEntry } from './chromo-bridge.ts'
+import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
+import type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab } from './chromo-devtools-hub.ts'
 import { ChromoNetworkPanel } from './chromo-network-panel.tsx'
 
+const DEVTOOLS_DOCK_SIDE_KEY = 'chromo-devtools-dock-side'
 const DEVTOOLS_HEIGHT_KEY = 'chromo-devtools-height'
-const DEFAULT_DEVTOOLS_HEIGHT = 240
-const MIN_DEVTOOLS_HEIGHT = 120
+const DEVTOOLS_WIDTH_KEY = 'chromo-devtools-width'
 
-type ChromoDevToolsTab = 'console' | 'elements' | 'network'
+const DEFAULT_DEVTOOLS_HEIGHT = 240
+const DEFAULT_DEVTOOLS_WIDTH = 420
+const MIN_DEVTOOLS_HEIGHT = 120
+const MIN_DEVTOOLS_WIDTH = 280
 
 type ChromoDevToolsPanelProps = {
-  activeTab: ChromoDevToolsTab
-  onTabChange: (tab: ChromoDevToolsTab) => void
+  mode?: 'embedded' | 'window'
+  activeTab: ChromoDevToolsPanelTab
+  onTabChange: (tab: ChromoDevToolsPanelTab) => void
   onClose: () => void
+  dockSide: ChromoDevToolsDockSide
+  onDockSideChange: (side: ChromoDevToolsDockSide) => void
+  onUndock?: () => void
   preserveLog: boolean
   onPreserveLogChange: (preserve: boolean) => void
   onClear: () => void
@@ -25,11 +33,18 @@ type ChromoDevToolsPanelProps = {
   onAppendEntries: (entries: ChromoConsoleDisplayEntry[]) => void
   networkEntries: ChromoNetworkEntry[]
   selectedNetworkId?: string
+  disableNetworkCache?: boolean
+  onDisableNetworkCacheChange?: (disable: boolean) => void
+  readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  pageLoading?: boolean
+  pageError?: string
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
+  onCloseNetworkDetail?: () => void
+  pageUrl?: string
 }
 
 const TABS: {
-  id: ChromoDevToolsTab
+  id: ChromoDevToolsPanelTab
   label: string
   disabled?: boolean
   title?: string
@@ -47,6 +62,32 @@ const TABS: {
   },
 ]
 
+const DOCK_ACTIONS: {
+  id: ChromoDevToolsDockSide | 'undocked'
+  label: string
+}[] = [
+  { id: 'undocked', label: 'Undock into separate window' },
+  { id: 'left', label: 'Dock to left' },
+  { id: 'bottom', label: 'Dock to bottom' },
+  { id: 'right', label: 'Dock to right' },
+]
+
+function readStoredDockSide(): ChromoDevToolsDockSide {
+  try {
+    const raw = localStorage.getItem(DEVTOOLS_DOCK_SIDE_KEY)
+    if (raw === 'bottom' || raw === 'left' || raw === 'right') {
+      return raw
+    }
+  } catch {
+    // ignore
+  }
+  return 'bottom'
+}
+
+export function readChromoDevToolsDockSide(): ChromoDevToolsDockSide {
+  return readStoredDockSide()
+}
+
 function readStoredHeight(): number {
   try {
     const raw = localStorage.getItem(DEVTOOLS_HEIGHT_KEY)
@@ -60,14 +101,75 @@ function readStoredHeight(): number {
   return DEFAULT_DEVTOOLS_HEIGHT
 }
 
+function readStoredWidth(): number {
+  try {
+    const raw = localStorage.getItem(DEVTOOLS_WIDTH_KEY)
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN
+    if (Number.isFinite(parsed) && parsed >= MIN_DEVTOOLS_WIDTH) {
+      return parsed
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_DEVTOOLS_WIDTH
+}
+
 function maxDevtoolsHeight(): number {
-  return Math.max(MIN_DEVTOOLS_HEIGHT, Math.floor(window.innerHeight * 0.6))
+  return Math.max(MIN_DEVTOOLS_HEIGHT, Math.floor(window.innerHeight * 0.75))
+}
+
+function maxDevtoolsWidth(): number {
+  return Math.max(MIN_DEVTOOLS_WIDTH, Math.floor(window.innerWidth * 0.75))
+}
+
+function DockSideIcon({ side }: { side: ChromoDevToolsDockSide | 'undocked' }) {
+  const stroke = 'currentColor'
+  const fill = 'none'
+  const strokeWidth = 1.2
+
+  if (side === 'undocked') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="3.5" width="9" height="9" rx="1" fill={fill} stroke={stroke} stroke-width={strokeWidth} />
+        <rect x="5.5" y="1.5" width="9" height="9" rx="1" fill={fill} stroke={stroke} stroke-width={strokeWidth} />
+      </svg>
+    )
+  }
+
+  if (side === 'left') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="2.5" width="12" height="11" rx="1" fill={fill} stroke={stroke} stroke-width={strokeWidth} />
+        <rect x="2" y="2.5" width="4" height="11" rx="1" fill={stroke} stroke="none" />
+      </svg>
+    )
+  }
+
+  if (side === 'bottom') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="2.5" width="12" height="11" rx="1" fill={fill} stroke={stroke} stroke-width={strokeWidth} />
+        <rect x="2" y="8.5" width="12" height="5" rx="1" fill={stroke} stroke="none" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2" y="2.5" width="12" height="11" rx="1" fill={fill} stroke={stroke} stroke-width={strokeWidth} />
+      <rect x="10" y="2.5" width="4" height="11" rx="1" fill={stroke} stroke="none" />
+    </svg>
+  )
 }
 
 export function ChromoDevToolsPanel({
+  mode = 'embedded',
   activeTab,
   onTabChange,
   onClose,
+  dockSide,
+  onDockSideChange,
+  onUndock,
   preserveLog,
   onPreserveLogChange,
   onClear,
@@ -79,12 +181,41 @@ export function ChromoDevToolsPanel({
   onAppendEntries,
   networkEntries,
   selectedNetworkId,
+  disableNetworkCache,
+  onDisableNetworkCacheChange,
+  readNetworkBody,
+  pageLoading,
+  pageError,
   onSelectNetwork,
+  onCloseNetworkDetail,
+  pageUrl,
 }: ChromoDevToolsPanelProps) {
   const [height, setHeight] = useState(readStoredHeight)
+  const [width, setWidth] = useState(readStoredWidth)
+
   const resizingRef = useRef(false)
-  const startYRef = useRef(0)
-  const startHeightRef = useRef(height)
+  const pointerIdRef = useRef<number | null>(null)
+  const startPointerRef = useRef({ x: 0, y: 0 })
+  const startSizeRef = useRef(0)
+  const resizeHandleRef = useRef<HTMLDivElement>(null)
+  const captureTargetRef = useRef<HTMLElement | null>(null)
+
+  const isWindowMode = mode === 'window'
+  const selectedDockAction: ChromoDevToolsDockSide | 'undocked' = isWindowMode
+    ? 'undocked'
+    : dockSide
+
+  const persistDockSide = useCallback(
+    (nextSide: ChromoDevToolsDockSide) => {
+      onDockSideChange(nextSide)
+      try {
+        localStorage.setItem(DEVTOOLS_DOCK_SIDE_KEY, nextSide)
+      } catch {
+        // ignore
+      }
+    },
+    [onDockSideChange],
+  )
 
   const persistHeight = useCallback((nextHeight: number) => {
     const clamped = Math.min(maxDevtoolsHeight(), Math.max(MIN_DEVTOOLS_HEIGHT, nextHeight))
@@ -96,48 +227,168 @@ export function ChromoDevToolsPanel({
     }
   }, [])
 
-  useEffect(() => {
-    const onPointerMove = (event: PointerEvent) => {
+  const persistWidth = useCallback((nextWidth: number) => {
+    const clamped = Math.min(maxDevtoolsWidth(), Math.max(MIN_DEVTOOLS_WIDTH, nextWidth))
+    setWidth(clamped)
+    try {
+      localStorage.setItem(DEVTOOLS_WIDTH_KEY, String(clamped))
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const stopResize = useCallback(() => {
+    if (!resizingRef.current) {
+      return
+    }
+    if (captureTargetRef.current && pointerIdRef.current !== null) {
+      try {
+        captureTargetRef.current.releasePointerCapture(pointerIdRef.current)
+      } catch {
+        // ignore
+      }
+    }
+    resizingRef.current = false
+    captureTargetRef.current = null
+    pointerIdRef.current = null
+    document.body.style.removeProperty('user-select')
+    document.body.style.removeProperty('cursor')
+  }, [])
+
+  const onResizePointerMove = useCallback(
+    (event: PointerEvent) => {
       if (!resizingRef.current) {
         return
       }
-      const delta = startYRef.current - event.clientY
-      persistHeight(startHeightRef.current + delta)
+      event.preventDefault()
+
+      if (dockSide === 'bottom') {
+        const delta = startPointerRef.current.y - event.clientY
+        persistHeight(startSizeRef.current + delta)
+        return
+      }
+
+      if (dockSide === 'left') {
+        const delta = event.clientX - startPointerRef.current.x
+        persistWidth(startSizeRef.current + delta)
+        return
+      }
+
+      const delta = startPointerRef.current.x - event.clientX
+      persistWidth(startSizeRef.current + delta)
+    },
+    [dockSide, persistHeight, persistWidth],
+  )
+
+  const onPointerUp = useCallback(
+    (event: PointerEvent) => {
+      if (pointerIdRef.current !== event.pointerId) {
+        return
+      }
+      stopResize()
+    },
+    [stopResize],
+  )
+
+  const onPointerCancel = useCallback(
+    (event: PointerEvent) => {
+      if (pointerIdRef.current !== event.pointerId) {
+        return
+      }
+      stopResize()
+    },
+    [stopResize],
+  )
+
+  useEffect(() => {
+    if (isWindowMode) {
+      return
+    }
+    const handle = resizeHandleRef.current
+    if (!handle) {
+      return
     }
 
-    const onPointerUp = () => {
-      resizingRef.current = false
-    }
-
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
+    handle.addEventListener('pointermove', onResizePointerMove)
+    handle.addEventListener('pointerup', onPointerUp)
+    handle.addEventListener('pointercancel', onPointerCancel)
     return () => {
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
+      handle.removeEventListener('pointermove', onResizePointerMove)
+      handle.removeEventListener('pointerup', onPointerUp)
+      handle.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [persistHeight])
+  }, [isWindowMode, onPointerCancel, onPointerUp, onResizePointerMove])
 
   const onResizePointerDown = useCallback(
     (event: PointerEvent) => {
       event.preventDefault()
+      event.stopPropagation()
+
+      const handle = event.currentTarget as HTMLDivElement
+      handle.setPointerCapture(event.pointerId)
+      captureTargetRef.current = handle
+      pointerIdRef.current = event.pointerId
       resizingRef.current = true
-      startYRef.current = event.clientY
-      startHeightRef.current = height
+      startPointerRef.current = { x: event.clientX, y: event.clientY }
+
+      if (dockSide === 'bottom') {
+        startSizeRef.current = height
+        document.body.style.cursor = 'ns-resize'
+      } else {
+        startSizeRef.current = width
+        document.body.style.cursor = 'ew-resize'
+      }
+
+      document.body.style.userSelect = 'none'
     },
-    [height],
+    [dockSide, height, width],
   )
+
+  const onDockActionClick = useCallback(
+    (action: ChromoDevToolsDockSide | 'undocked') => {
+      if (action === 'undocked') {
+        if (!isWindowMode) {
+          onUndock?.()
+        }
+        return
+      }
+      persistDockSide(action)
+    },
+    [isWindowMode, onUndock, persistDockSide],
+  )
+
+  const panelStyle = isWindowMode
+    ? { height: '100%', width: '100%' }
+    : dockSide === 'bottom'
+      ? { height: `${height}px` }
+      : { width: `${width}px` }
+
+  const resizeHandleClass = [
+    'chromo-devtools__resize-handle',
+    dockSide === 'left'
+      ? 'chromo-devtools__resize-handle--left'
+      : dockSide === 'right'
+        ? 'chromo-devtools__resize-handle--right'
+        : 'chromo-devtools__resize-handle--bottom',
+  ].join(' ')
 
   return (
     <section
-      class="chromo-devtools"
+      class={[
+        'chromo-devtools',
+        isWindowMode ? 'chromo-devtools--window' : `chromo-devtools--dock-${dockSide}`,
+      ].join(' ')}
       aria-label="DevTools"
-      style={{ height: `${height}px` }}
+      style={panelStyle}
     >
-      <div
-        class="chromo-devtools__resize-handle"
-        onPointerDown={onResizePointerDown}
-        aria-hidden="true"
-      />
+      {!isWindowMode ? (
+        <div
+          ref={resizeHandleRef}
+          class={resizeHandleClass}
+          onPointerDown={onResizePointerDown}
+          aria-hidden="true"
+        />
+      ) : null}
 
       <header class="chromo-devtools__header">
         <div class="chromo-devtools__tabs" role="tablist" aria-label="DevTools 标签">
@@ -167,6 +418,42 @@ export function ChromoDevToolsPanel({
         </div>
 
         <div class="chromo-devtools__actions">
+          <div class="chromo-devtools__dock-side" role="group" aria-label="Dock side">
+            <span class="chromo-devtools__dock-side-label">Dock side</span>
+            {DOCK_ACTIONS.map((side) => (
+              <button
+                key={side.id}
+                type="button"
+                class={[
+                  'chromo-devtools__dock-side-btn',
+                  selectedDockAction === side.id ? 'chromo-devtools__dock-side-btn--active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label={side.label}
+                title={side.label}
+                aria-pressed={selectedDockAction === side.id}
+                onClick={() => onDockActionClick(side.id)}
+              >
+                <DockSideIcon side={side.id} />
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'network' ? (
+            <label class="chromo-devtools__preserve">
+              <input
+                type="checkbox"
+                checked={Boolean(disableNetworkCache)}
+                onChange={(event) =>
+                  onDisableNetworkCacheChange?.(
+                    (event.currentTarget as HTMLInputElement).checked,
+                  )
+                }
+              />
+              Disable cache
+            </label>
+          ) : null}
           <label class="chromo-devtools__preserve">
             <input
               type="checkbox"
@@ -205,7 +492,13 @@ export function ChromoDevToolsPanel({
           <ChromoNetworkPanel
             entries={networkEntries}
             selectedId={selectedNetworkId}
+            pageLoading={pageLoading}
+            pageError={pageError}
+            pageUrl={pageUrl}
+            disableNetworkCache={disableNetworkCache}
+            readNetworkBody={readNetworkBody}
             onSelect={onSelectNetwork}
+            onCloseDetail={onCloseNetworkDetail}
           />
         ) : (
           <div class="chromo-devtools__placeholder">
@@ -216,3 +509,5 @@ export function ChromoDevToolsPanel({
     </section>
   )
 }
+
+export type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab }

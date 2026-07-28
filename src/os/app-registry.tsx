@@ -5,6 +5,7 @@ import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
 import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
 import { BrowserApp } from '../apps/browser/browser-app.tsx'
 import { ChromoApp } from '../apps/chromo/chromo-app.tsx'
+import { ChromoDevToolsApp } from '../apps/chromo/chromo-devtools-app.tsx'
 import { MailApp } from '../apps/mail/mail-app.tsx'
 import { SettingsApp } from '../apps/settings/settings-app.tsx'
 import { NewsApp } from '../apps/news/news-app.tsx'
@@ -68,6 +69,15 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: ChromoIcon,
     dock: true,
     desktop: true,
+  }),
+  withAbout({
+    id: 'chromo-devtools',
+    name: 'DevTools',
+    icon: ChromoIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+    multiWindow: true,
   }),
   withAbout({
     id: 'mail',
@@ -307,6 +317,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   appstore: MarketplaceApp,
   browser: BrowserApp,
   chromo: ChromoApp,
+  'chromo-devtools': ChromoDevToolsApp,
   mail: MailApp,
   news: NewsApp,
   books: BooksApp,

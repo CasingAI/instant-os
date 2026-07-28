@@ -12,6 +12,8 @@ import {
   type ChromoLocationPayload,
   type ChromoNavigatedPayload,
   type ChromoNetworkReadResult,
+  type ChromoNetworkBodyReadResult,
+  type ChromoNetworkOptions,
   type ChromoReadyPayload,
   type ChromoRpcOptions,
   type ChromoScreenshotOptions,
@@ -32,6 +34,11 @@ export type ChromoViewerHandle = {
   readNetwork: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoNetworkReadResult>
+  readNetworkBody: (
+    entryId: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<ChromoNetworkBodyReadResult>
+  setNetworkOptions: (options: ChromoNetworkOptions) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
   isReady: () => boolean
@@ -42,6 +49,7 @@ type ChromoViewerFrameProps = {
   /** 建 tab 时若已有目标 URL，在 bridge 创建时入队，等 VC_READY 自动导航 */
   initialUrl?: string
   active: boolean
+  disableNetworkCache?: boolean
   onReady?: (payload: ChromoReadyPayload) => void
   onNavigated?: (payload: ChromoNavigatedPayload) => void
   onNavigating?: ChromoBridgeHandlers['onNavigating']
@@ -61,6 +69,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       sessionId,
       initialUrl,
       active,
+      disableNetworkCache = false,
       onReady,
       onNavigated,
       onNavigating,
@@ -78,6 +87,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const bridgeRef = useRef<ChromoBridge | null>(null)
     const initialUrlRef = useRef(initialUrl)
+    const disableNetworkCacheRef = useRef(disableNetworkCache)
+
+    disableNetworkCacheRef.current = disableNetworkCache
 
     const onReadyRef = useRef(onReady)
     const onNavigatedRef = useRef(onNavigated)
@@ -109,19 +121,27 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         return
       }
 
-      const bridge = createChromoBridge(iframe, {
-        onReady: (payload) => onReadyRef.current?.(payload),
-        onNavigated: (payload) => onNavigatedRef.current?.(payload),
-        onNavigating: (payload) => onNavigatingRef.current?.(payload),
-        onLoading: (payload) => onLoadingRef.current?.(payload),
-        onLoadFailed: (payload) => onLoadFailedRef.current?.(payload),
-        onConsoleUpdated: (payload) => onConsoleUpdatedRef.current?.(payload),
-        onNetworkUpdated: (payload) => onNetworkUpdatedRef.current?.(payload),
-        onError: (payload) => onErrorRef.current?.(payload),
-        onClick: (payload) => onClickRef.current?.(payload),
-        onLocation: (payload) => onLocationRef.current?.(payload),
-        onHistory: (payload) => onHistoryRef.current?.(payload),
-      })
+      const bridge = createChromoBridge(
+        iframe,
+        {
+          onReady: (payload) => onReadyRef.current?.(payload),
+          onNavigated: (payload) => onNavigatedRef.current?.(payload),
+          onNavigating: (payload) => onNavigatingRef.current?.(payload),
+          onLoading: (payload) => onLoadingRef.current?.(payload),
+          onLoadFailed: (payload) => onLoadFailedRef.current?.(payload),
+          onConsoleUpdated: (payload) => onConsoleUpdatedRef.current?.(payload),
+          onNetworkUpdated: (payload) => onNetworkUpdatedRef.current?.(payload),
+          onError: (payload) => onErrorRef.current?.(payload),
+          onClick: (payload) => onClickRef.current?.(payload),
+          onLocation: (payload) => onLocationRef.current?.(payload),
+          onHistory: (payload) => onHistoryRef.current?.(payload),
+        },
+        '*',
+        {
+          devtoolsId: sessionId,
+          disableCache: disableNetworkCacheRef.current,
+        },
+      )
       bridgeRef.current = bridge
 
       const url = initialUrlRef.current?.trim()
@@ -134,7 +154,11 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         bridge.destroy()
         bridgeRef.current = null
       }
-    }, [])
+    }, [sessionId])
+
+    useEffect(() => {
+      bridgeRef.current?.setNetworkOptions({ disableCache: disableNetworkCache })
+    }, [disableNetworkCache])
 
     useImperativeHandle(
       ref,
@@ -174,6 +198,15 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             bridgeRef.current?.readNetwork(options) ??
             Promise.reject(new Error('viewer not ready'))
           )
+        },
+        readNetworkBody(entryId, options) {
+          return (
+            bridgeRef.current?.readNetworkBody(entryId, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        setNetworkOptions(options) {
+          bridgeRef.current?.setNetworkOptions(options)
         },
         screenshot(options?: ChromoScreenshotOptions) {
           return (

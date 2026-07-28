@@ -62,6 +62,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '与 AI 网络浏览器不同，Chromo 渲染真实网页内容，支持页内链接跳转、前进后退与刷新。网页渲染由 virtual-chromo 组件负责，Instant OS 提供 Chrome 风格外壳与多标签管理。',
     ],
   },
+  'chromo-devtools': {
+    version: 'Chromo DevTools',
+    paragraphs: [
+      'Chromo DevTools 是 Chromo 浏览器的独立调试窗口，支持 Console 与 Network 面板。',
+      '可从 Chromo 内嵌 DevTools 的 Dock side 菜单 Undock 打开；每个标签页对应一扇独立窗口，行为对齐 Chrome DevTools。',
+    ],
+  },
   mail: {
     version: '智能邮件客户端',
     paragraphs: [

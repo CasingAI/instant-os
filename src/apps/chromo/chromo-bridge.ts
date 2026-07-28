@@ -67,6 +67,25 @@ export type ChromoConsoleReadResult = {
   latestId?: string
 }
 
+export type ChromoNetworkTiming = {
+  queuedAt?: number
+  startedAt?: number
+  responseAt?: number
+  finishedAt?: number
+  queueing?: number
+  waiting?: number
+  download?: number
+}
+
+export type ChromoNetworkSource =
+  | 'cache'
+  | 'bypass'
+  | 'direct'
+  | 'cdn'
+  | 'proxy'
+  | 'native'
+  | string
+
 export type ChromoNetworkEntry = {
   id: string
   ts: number
@@ -79,11 +98,36 @@ export type ChromoNetworkEntry = {
   failed: boolean
   bypass: boolean
   pending?: boolean
+  hasBody?: boolean
+  fromCache?: boolean
+  devtoolsId?: string
+  requestHeaders?: Record<string, string>
+  requestHeadersTruncated?: boolean
+  referrer?: string
+  referrerPolicy?: string
+  timing?: ChromoNetworkTiming
+  /** Where the response was served from (cache / bypass / direct / cdn / proxy / native). */
+  source?: ChromoNetworkSource
+  /** Proxy gateway hostname when source === 'proxy'. */
+  sourceHost?: string
 }
 
 export type ChromoNetworkReadResult = {
   entries: ChromoNetworkEntry[]
   latestId?: string
+}
+
+export type ChromoNetworkBodyReadResult = {
+  headers: Record<string, string>
+  body: string
+  encoding: 'base64' | 'text'
+  status: number
+  truncated?: boolean
+}
+
+export type ChromoNetworkOptions = {
+  devtoolsId?: string
+  disableCache?: boolean
 }
 
 export type ChromoScreenshotOptions = {
@@ -142,6 +186,12 @@ export type ChromoBridge = {
   readNetwork: (
     options?: { after?: string; limit?: number } & ChromoRpcOptions,
   ) => Promise<ChromoNetworkReadResult>
+  readNetworkBody: (
+    entryId: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<ChromoNetworkBodyReadResult>
+  setNetworkOptions: (options: ChromoNetworkOptions) => void
+  devtoolsId: string
   screenshot: (
     options?: ChromoScreenshotOptions,
   ) => Promise<ChromoScreenshotResult>
@@ -187,12 +237,28 @@ export function createChromoBridge(
   iframe: HTMLIFrameElement,
   handlers: ChromoBridgeHandlers,
   targetOrigin = '*',
+  options: ChromoNetworkOptions = {},
 ): ChromoBridge {
   let ready = false
+  const devtoolsId = options.devtoolsId ?? crypto.randomUUID()
+  let disableCache = Boolean(options.disableCache)
   const pendingNavigations: string[] = []
   const pendingRpcs = new Map<string, PendingRpc>()
 
+  const applyNetworkOptions = () => {
+    postCommand(
+      iframe,
+      'VC_NETWORK_OPTIONS',
+      {
+        devtoolsId,
+        disableCache,
+      },
+      targetOrigin,
+    )
+  }
+
   const flushPending = () => {
+    applyNetworkOptions()
     while (pendingNavigations.length > 0) {
       const url = pendingNavigations.shift()
       if (url) {
@@ -315,6 +381,9 @@ export function createChromoBridge(
       case 'VC_NETWORK_READ_RESULT':
         settleRpc('VC_NETWORK_READ_RESULT', payload as RpcResultPayload)
         break
+      case 'VC_NETWORK_BODY_READ_RESULT':
+        settleRpc('VC_NETWORK_BODY_READ_RESULT', payload as RpcResultPayload)
+        break
       case 'VC_SCREENSHOT_RESULT':
         settleRpc('VC_SCREENSHOT_RESULT', payload as RpcResultPayload)
         break
@@ -395,6 +464,18 @@ export function createChromoBridge(
         (value) => (value ?? { entries: [] }) as ChromoNetworkReadResult,
       )
     },
+    readNetworkBody(entryId, options) {
+      return rpc('VC_NETWORK_BODY_READ_RESULT', 'VC_NETWORK_BODY_READ', { entryId }, options).then(
+        (value) => value as ChromoNetworkBodyReadResult,
+      )
+    },
+    setNetworkOptions(opts) {
+      if (opts.disableCache !== undefined) {
+        disableCache = opts.disableCache
+      }
+      applyNetworkOptions()
+    },
+    devtoolsId,
     screenshot(options) {
       const { format, quality, fullPage, scale, timeout } = options ?? {}
       const payload: Record<string, unknown> = {}
