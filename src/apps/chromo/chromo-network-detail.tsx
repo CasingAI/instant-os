@@ -7,7 +7,7 @@ import type {
 } from './chromo-bridge.ts'
 import { diagnoseHotCache } from './chromo-network-cache-help.ts'
 
-export type NetworkDetailTab = 'headers' | 'preview' | 'response' | 'initiator' | 'timing'
+export type NetworkDetailTab = 'headers' | 'preview' | 'initiator' | 'timing'
 
 function formatNetworkBytes(size: number): string {
   if (!size) {
@@ -25,7 +25,7 @@ function formatNetworkBytes(size: number): string {
 const BINARY_DESTINATIONS = new Set(['image', 'video', 'audio', 'font'])
 
 /**
- * Treat as binary for DevTools Preview/Response — never render media, skip body RPC when possible.
+ * Treat as binary for DevTools Preview — never render media, skip body RPC when possible.
  */
 export function isBinaryNetworkBody(
   entry: ChromoNetworkEntry,
@@ -60,7 +60,6 @@ function binaryBodyPlaceholder(entry: ChromoNetworkEntry, mime?: string): string
 const DETAIL_TABS: { id: NetworkDetailTab; label: string }[] = [
   { id: 'headers', label: 'Headers' },
   { id: 'preview', label: 'Preview' },
-  { id: 'response', label: 'Response' },
   { id: 'initiator', label: 'Initiator' },
   { id: 'timing', label: 'Timing' },
 ]
@@ -598,6 +597,12 @@ function PreviewTab({
     return <div class="chromo-network__drawer-empty">无响应数据</div>
   }
 
+  const truncatedNote = bodyResult.truncated ? (
+    <div class="chromo-network__drawer-note">
+      仅显示 Cache 中的正文前缀（预览上限约 64KB），完整内容仍保留在 Cache
+    </div>
+  ) : null
+
   const contentType = headerValue(bodyResult.headers, 'content-type')
   const mime = contentType.split(';')[0].trim().toLowerCase() || 'application/octet-stream'
 
@@ -605,73 +610,26 @@ function PreviewTab({
     try {
       const parsed = JSON.parse(bodyText)
       return (
-        <pre class="chromo-network__drawer-pre chromo-network__drawer-pre--json">
-          {JSON.stringify(parsed, null, 2)}
-        </pre>
+        <div>
+          {truncatedNote}
+          <pre class="chromo-network__drawer-pre chromo-network__drawer-pre--json">
+            {JSON.stringify(parsed, null, 2)}
+          </pre>
+        </div>
       )
     } catch {
-      return <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
+      return (
+        <div>
+          {truncatedNote}
+          <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
+        </div>
+      )
     }
   }
 
-  if (
-    mime.startsWith('text/') ||
-    mime === 'application/javascript' ||
-    mime === 'application/xml' ||
-    mime === 'application/xhtml+xml'
-  ) {
-    return <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
-  }
-
-  return <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
-}
-
-function ResponseTab({
-  entry,
-  bodyText,
-  bodyLoading,
-  bodyError,
-  truncated,
-  bodyResult,
-}: {
-  entry: ChromoNetworkEntry
-  bodyText: string
-  bodyLoading: boolean
-  bodyError: string
-  truncated?: boolean
-  bodyResult?: ChromoNetworkBodyReadResult | null
-}) {
-  const headerMime = bodyResult
-    ? headerValue(bodyResult.headers, 'content-type').split(';')[0].trim().toLowerCase()
-    : ''
-  if (isBinaryNetworkBody(entry, headerMime)) {
-    return (
-      <div class="chromo-network__drawer-empty">
-        {binaryBodyPlaceholder(entry, headerMime || undefined)}
-      </div>
-    )
-  }
-
-  if (bodyLoading) {
-    return <div class="chromo-network__drawer-empty">加载响应中…</div>
-  }
-  if (bodyError && !bodyText) {
-    return <div class="chromo-network__drawer-empty">{bodyError}</div>
-  }
-  if (!entry.hasBody && !bodyText) {
-    return (
-      <div class="chromo-network__drawer-empty">
-        {entry.pending ? '请求进行中…' : '未缓存响应正文'}
-      </div>
-    )
-  }
   return (
     <div>
-      {truncated ? (
-        <div class="chromo-network__drawer-note">
-          仅显示 Cache 中的正文前缀（预览上限约 64KB），完整内容仍保留在 Cache
-        </div>
-      ) : null}
+      {truncatedNote}
       <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
     </div>
   )
@@ -960,16 +918,6 @@ export function NetworkDetailDrawer({
             bodyText={bodyText}
             bodyLoading={bodyLoading}
             bodyError={bodyError}
-          />
-        ) : null}
-        {tab === 'response' ? (
-          <ResponseTab
-            entry={entry}
-            bodyText={bodyText}
-            bodyLoading={bodyLoading}
-            bodyError={bodyError}
-            truncated={bodyResult?.truncated}
-            bodyResult={bodyResult}
           />
         ) : null}
         {tab === 'initiator' ? <InitiatorTab entry={entry} pageUrl={pageUrl} /> : null}
