@@ -1,14 +1,16 @@
 type ChromoExtensionsPanelProps = {
   /** Viewer ready (for page-side tools like vConsole). */
   pageReady: boolean
+  /** Page navigation still in progress (non-blocking hint). */
+  pageLoading?: boolean
   /** Viewer iframe exists (DebugPanel lives in viewer, not the page). */
   viewerReady?: boolean
   vConsoleEnabled: boolean
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange: (enabled: boolean) => void
-  debugPanelEnabled: boolean
-  onDebugPanelEnabledChange: (enabled: boolean) => void
+  debugPanelEnabled?: boolean
+  onDebugPanelEnabledChange?: (enabled: boolean) => void
 }
 
 function ExtensionToggle(props: {
@@ -35,21 +37,24 @@ function ExtensionToggle(props: {
 
 export function ChromoExtensionsPanel({
   pageReady,
+  pageLoading = false,
   viewerReady = true,
   vConsoleEnabled,
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
-  debugPanelEnabled,
+  debugPanelEnabled = false,
   onDebugPanelEnabledChange,
 }: ChromoExtensionsPanelProps) {
   const vConsoleStatus = !pageReady
     ? '页面未就绪'
     : vConsoleBusy
       ? '加载中…'
-      : vConsoleEnabled
-        ? '已启用'
-        : '未启用'
+      : pageLoading
+        ? '页面仍在加载'
+        : vConsoleEnabled
+          ? '已启用'
+          : '未启用'
 
   const debugStatus = !viewerReady
     ? 'Viewer 未就绪'
@@ -64,24 +69,26 @@ export function ChromoExtensionsPanel({
       </p>
 
       <ul class="chromo-extensions__list" role="list">
-        <li class="chromo-extensions__item">
-          <div class="chromo-extensions__item-main">
-            <div class="chromo-extensions__item-title">Chromo 调试面板</div>
-            <div class="chromo-extensions__item-desc">
-              Viewer 左下角绿色「调」圆钮：查看 bridge 日志、通讯、网络与状态。与页内
-              vConsole 独立；导航后仍保留。
+        {onDebugPanelEnabledChange ? (
+          <li class="chromo-extensions__item">
+            <div class="chromo-extensions__item-main">
+              <div class="chromo-extensions__item-title">Chromo 调试面板</div>
+              <div class="chromo-extensions__item-desc">
+                Viewer 左下角绿色「调」圆钮：查看 bridge 日志、通讯、网络与状态。与页内
+                vConsole 独立；导航后仍保留。
+              </div>
             </div>
-          </div>
-          <div class="chromo-extensions__item-side">
-            <span class="chromo-extensions__status">{debugStatus}</span>
-            <ExtensionToggle
-              checked={debugPanelEnabled}
-              disabled={!viewerReady}
-              ariaLabel="在 Viewer 中启用 Chromo 调试面板"
-              onChange={onDebugPanelEnabledChange}
-            />
-          </div>
-        </li>
+            <div class="chromo-extensions__item-side">
+              <span class="chromo-extensions__status">{debugStatus}</span>
+              <ExtensionToggle
+                checked={debugPanelEnabled}
+                disabled={!viewerReady}
+                ariaLabel="在 Viewer 中启用 Chromo 调试面板"
+                onChange={onDebugPanelEnabledChange}
+              />
+            </div>
+          </li>
+        ) : null}
 
         <li class="chromo-extensions__item">
           <div class="chromo-extensions__item-main">

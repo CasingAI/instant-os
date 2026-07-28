@@ -361,6 +361,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
       <ChromoConsolePanel
         entries={entries}
         pageReady={pageReady}
+        pageLoading={pageLoading}
         evalInPage={evalInPage}
         replHistory={replHistory}
         onReplHistoryChange={onReplHistoryChange}
@@ -399,6 +400,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
     return (
       <ChromoApplicationPanel
         pageReady={pageReady}
+        pageLoading={pageLoading}
         pageUrl={pageUrl}
         api={applicationApi}
         onClearBrowsingData={onClearBrowsingData}
@@ -410,6 +412,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
     return (
       <ChromoExtensionsPanel
         pageReady={pageReady}
+        pageLoading={pageLoading}
         vConsoleEnabled={vConsoleEnabled}
         vConsoleBusy={vConsoleBusy}
         vConsoleError={vConsoleError}

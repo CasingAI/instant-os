@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type {
   ChromoCookie,
   ChromoIdbDatabase,
@@ -72,6 +72,7 @@ const NAV: { id: NavId; label: string; group: string }[] = [
 
 type ChromoApplicationPanelProps = {
   pageReady: boolean
+  pageLoading?: boolean
   pageUrl?: string
   api: ChromoApplicationApi
   onClearBrowsingData?: () => Promise<void>
@@ -90,8 +91,31 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function originFromUrl(url?: string): string {
+  if (!url) {
+    return ''
+  }
+  try {
+    return new URL(url).origin
+  } catch {
+    return ''
+  }
+}
+
+/** Storage / IDB / SW / Cache API 都绑当前文档 origin，需与地址栏目标 origin 对齐后再信结果。 */
+function navNeedsOriginMatch(nav: NavId): boolean {
+  return (
+    nav === 'local-storage' ||
+    nav === 'session-storage' ||
+    nav === 'indexeddb' ||
+    nav === 'site-cache' ||
+    nav === 'service-workers'
+  )
+}
+
 export function ChromoApplicationPanel({
   pageReady,
+  pageLoading = false,
   pageUrl,
   api,
   onClearBrowsingData,
@@ -116,6 +140,13 @@ export function ChromoApplicationPanel({
   const [siteCacheName, setSiteCacheName] = useState('')
   const [siteCacheUrls, setSiteCacheUrls] = useState<string[]>([])
   const [clearBusy, setClearBusy] = useState(false)
+  /** origin 作用域数据是否已与地址栏目标对齐（未对齐时不展示中间态脏数据） */
+  const [originScopedReady, setOriginScopedReady] = useState(false)
+  const refreshSeqRef = useRef(0)
+  const apiRef = useRef(api)
+  apiRef.current = api
+
+  const expectedOrigin = originFromUrl(pageUrl)
 
   const run = useCallback(
     async (fn: () => Promise<void>) => {
@@ -136,44 +167,87 @@ export function ChromoApplicationPanel({
     [pageReady],
   )
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<{ matchedOrigin: boolean }> => {
     if (!pageReady) {
       setError('页面未就绪')
-      return
+      return { matchedOrigin: false }
     }
+    const currentApi = apiRef.current
+    const seq = ++refreshSeqRef.current
     setBusy(true)
     setError('')
     try {
       if (nav === 'cookies') {
-        const result = await api.listCookies()
+        const result = await currentApi.listCookies()
+        if (seq !== refreshSeqRef.current) {
+          return { matchedOrigin: true }
+        }
         setCookies(result.cookies ?? [])
-        return
+        return { matchedOrigin: true }
       }
       if (nav === 'local-storage' || nav === 'session-storage') {
         const type = nav === 'session-storage' ? 'session' : 'local'
-        const result = await api.listStorage(type)
+        const result = await currentApi.listStorage(type)
+        if (seq !== refreshSeqRef.current) {
+          return { matchedOrigin: false }
+        }
+        const origin = result.origin ?? ''
+        const matched = !expectedOrigin || origin === expectedOrigin
+        if (!matched) {
+          // 仍停在 blank / 旧文档：丢弃结果，避免闪出中间态脏数据
+          setStorageEntries([])
+          setStorageOrigin('')
+          setOriginScopedReady(false)
+          return { matchedOrigin: false }
+        }
         setStorageEntries(result.entries ?? [])
-        setStorageOrigin(result.origin ?? '')
-        return
+        setStorageOrigin(origin)
+        setOriginScopedReady(true)
+        return { matchedOrigin: true }
       }
       if (nav === 'service-workers') {
-        setSwInfo(await api.getSwInfo())
-        return
+        if (pageLoading && expectedOrigin) {
+          setOriginScopedReady(false)
+          return { matchedOrigin: false }
+        }
+        const info = await currentApi.getSwInfo()
+        if (seq !== refreshSeqRef.current) {
+          return { matchedOrigin: false }
+        }
+        setSwInfo(info)
+        setOriginScopedReady(true)
+        return { matchedOrigin: true }
       }
       if (nav === 'network-cache') {
-        setCacheStats(await api.getNetworkCacheStats())
-        const listed = await api.listNetworkCache(cacheLayer)
+        setCacheStats(await currentApi.getNetworkCacheStats())
+        const listed = await currentApi.listNetworkCache(cacheLayer)
+        if (seq !== refreshSeqRef.current) {
+          return { matchedOrigin: true }
+        }
         setCacheEntries(listed.entries ?? [])
-        return
+        return { matchedOrigin: true }
       }
       if (nav === 'indexeddb') {
-        const listed = await api.listIdb()
+        if (pageLoading && expectedOrigin) {
+          setOriginScopedReady(false)
+          return { matchedOrigin: false }
+        }
+        const listed = await currentApi.listIdb()
+        if (seq !== refreshSeqRef.current) {
+          return { matchedOrigin: false }
+        }
         setIdbList(listed.databases ?? [])
         if (idbName) {
-          const stores = await api.listIdbStores(idbName)
+          const stores = await currentApi.listIdbStores(idbName)
+          if (seq !== refreshSeqRef.current) {
+            return { matchedOrigin: false }
+          }
           setIdbStores(stores.stores ?? [])
           if (idbStore) {
-            const rows = await api.getIdbAll(idbName, idbStore)
+            const rows = await currentApi.getIdbAll(idbName, idbStore)
+            if (seq !== refreshSeqRef.current) {
+              return { matchedOrigin: false }
+            }
             setIdbEntries(rows.entries ?? [])
           } else {
             setIdbEntries([])
@@ -182,28 +256,92 @@ export function ChromoApplicationPanel({
           setIdbStores([])
           setIdbEntries([])
         }
-        return
+        setOriginScopedReady(true)
+        return { matchedOrigin: true }
       }
       if (nav === 'site-cache') {
-        const listed = await api.listSiteCaches()
+        if (pageLoading && expectedOrigin) {
+          setOriginScopedReady(false)
+          return { matchedOrigin: false }
+        }
+        const listed = await currentApi.listSiteCaches()
+        if (seq !== refreshSeqRef.current) {
+          return { matchedOrigin: false }
+        }
         setSiteCaches(listed.caches ?? [])
         if (siteCacheName) {
-          const keys = await api.listSiteCacheKeys(siteCacheName)
+          const keys = await currentApi.listSiteCacheKeys(siteCacheName)
+          if (seq !== refreshSeqRef.current) {
+            return { matchedOrigin: false }
+          }
           setSiteCacheUrls(keys.urls ?? [])
         } else {
           setSiteCacheUrls([])
         }
+        setOriginScopedReady(true)
+        return { matchedOrigin: true }
       }
+      return { matchedOrigin: true }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (seq === refreshSeqRef.current) {
+        setError(err instanceof Error ? err.message : String(err))
+      }
+      return { matchedOrigin: false }
     } finally {
-      setBusy(false)
+      if (seq === refreshSeqRef.current) {
+        setBusy(false)
+      }
     }
-  }, [api, cacheLayer, idbName, idbStore, nav, pageReady, siteCacheName])
+  }, [cacheLayer, expectedOrigin, idbName, idbStore, nav, pageLoading, pageReady, siteCacheName])
+
+  // 地址栏目标变更时先清掉旧域数据，避免短暂显示上一站内容
+  useEffect(() => {
+    setStorageEntries([])
+    setStorageOrigin('')
+    setIdbList([])
+    setIdbName('')
+    setIdbStores([])
+    setIdbStore('')
+    setIdbEntries([])
+    setSiteCaches([])
+    setSiteCacheName('')
+    setSiteCacheUrls([])
+    setSwInfo(null)
+    setOriginScopedReady(false)
+  }, [pageUrl])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh, pageUrl])
+    if (!pageReady) {
+      return
+    }
+
+    let cancelled = false
+    let timer = 0
+
+    const tick = async () => {
+      const result = await refresh()
+      if (cancelled) {
+        return
+      }
+      // Cookie / 网络缓存不绑文档 origin；本地存储等需等返回 origin 对齐地址栏
+      const needsRetry = navNeedsOriginMatch(nav) && !result.matchedOrigin
+      if (needsRetry) {
+        timer = window.setTimeout(() => {
+          void tick()
+        }, 400)
+      }
+    }
+
+    void tick()
+
+    return () => {
+      cancelled = true
+      if (timer) {
+        window.clearTimeout(timer)
+      }
+      refreshSeqRef.current += 1
+    }
+  }, [refresh, pageUrl, pageLoading, pageReady, nav])
 
   const groups = [...new Set(NAV.map((item) => item.group))]
 
@@ -239,6 +377,7 @@ export function ChromoApplicationPanel({
             {pageUrl ? <span class="chromo-application__muted"> · {pageUrl}</span> : null}
           </div>
           <div class="chromo-application__toolbar-actions">
+            {pageLoading ? <span class="chromo-application__muted">页面仍在加载中</span> : null}
             {busy ? <span class="chromo-application__muted">加载中…</span> : null}
             <button type="button" class="chromo-application__btn" onClick={refresh} disabled={!pageReady}>
               刷新
@@ -247,8 +386,12 @@ export function ChromoApplicationPanel({
         </header>
         {error ? <div class="chromo-application__error">{error}</div> : null}
 
-        {!pageReady ? (
+        {!pageUrl ? (
           <div class="chromo-application__empty">打开网页后可查看与管理存储。</div>
+        ) : null}
+
+        {!pageReady && pageUrl ? (
+          <div class="chromo-application__empty">Viewer 未就绪，稍候即可查看存储。</div>
         ) : null}
 
         {pageReady && nav === 'cookies' ? (
@@ -314,6 +457,14 @@ export function ChromoApplicationPanel({
 
         {pageReady && (nav === 'local-storage' || nav === 'session-storage') ? (
           <div class="chromo-application__table-wrap">
+            {!originScopedReady ? (
+              <div class="chromo-application__empty">
+                {expectedOrigin
+                  ? `正在切换到 ${expectedOrigin}…`
+                  : '正在获取存储…'}
+              </div>
+            ) : (
+              <>
             <div class="chromo-application__row-actions">
               <span class="chromo-application__muted">origin: {storageOrigin || '—'}</span>
               <button
@@ -366,10 +517,17 @@ export function ChromoApplicationPanel({
             {storageEntries.length === 0 ? (
               <div class="chromo-application__empty">无条目</div>
             ) : null}
+              </>
+            )}
           </div>
         ) : null}
 
         {pageReady && nav === 'service-workers' ? (
+          !originScopedReady ? (
+            <div class="chromo-application__empty">
+              {expectedOrigin ? `正在切换到 ${expectedOrigin}…` : '正在获取…'}
+            </div>
+          ) : (
           <div class="chromo-application__card">
             <h3 class="chromo-application__card-title">Viewer 代理 Service Worker</h3>
             <p class="chromo-application__hint">
@@ -405,6 +563,7 @@ export function ChromoApplicationPanel({
               <div class="chromo-application__empty">暂无信息</div>
             )}
           </div>
+          )
         ) : null}
 
         {pageReady && nav === 'network-cache' ? (
@@ -484,6 +643,11 @@ export function ChromoApplicationPanel({
         ) : null}
 
         {pageReady && nav === 'indexeddb' ? (
+          !originScopedReady ? (
+            <div class="chromo-application__empty">
+              {expectedOrigin ? `正在切换到 ${expectedOrigin}…` : '正在获取…'}
+            </div>
+          ) : (
           <div class="chromo-application__split">
             <div class="chromo-application__list">
               <div class="chromo-application__list-title">Databases</div>
@@ -574,9 +738,15 @@ export function ChromoApplicationPanel({
               ) : null}
             </div>
           </div>
+          )
         ) : null}
 
         {pageReady && nav === 'site-cache' ? (
+          !originScopedReady ? (
+            <div class="chromo-application__empty">
+              {expectedOrigin ? `正在切换到 ${expectedOrigin}…` : '正在获取…'}
+            </div>
+          ) : (
           <div class="chromo-application__split">
             <div class="chromo-application__list">
               <div class="chromo-application__list-title">Caches</div>
@@ -647,6 +817,7 @@ export function ChromoApplicationPanel({
               </table>
             </div>
           </div>
+          )
         ) : null}
 
         {pageReady && nav === 'clear-storage' ? (

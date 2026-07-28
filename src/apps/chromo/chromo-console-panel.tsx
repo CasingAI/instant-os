@@ -12,6 +12,7 @@ import {
 type ChromoConsolePanelProps = {
   entries: ChromoConsoleDisplayEntry[]
   pageReady: boolean
+  pageLoading?: boolean
   evalInPage: (code: string) => Promise<unknown>
   replHistory: string[]
   onReplHistoryChange: (history: string[]) => void
@@ -157,6 +158,7 @@ function ConsoleEntryRow({ entry }: { entry: ChromoConsoleDisplayEntry }) {
 export function ChromoConsolePanel({
   entries,
   pageReady,
+  pageLoading = false,
   evalInPage,
   replHistory,
   onReplHistoryChange,
@@ -379,7 +381,13 @@ export function ChromoConsolePanel({
           class="chromo-console__repl-input"
           value={inputValue}
           rows={1}
-          placeholder={pageReady ? '在此输入 JavaScript…' : '网页尚未就绪'}
+          placeholder={
+            !pageReady
+              ? '网页尚未就绪'
+              : pageLoading
+                ? '页面仍在加载，部分脚本可能尚未执行'
+                : '在此输入 JavaScript…'
+          }
           disabled={!pageReady}
           aria-busy={running}
           onInput={(event) => {

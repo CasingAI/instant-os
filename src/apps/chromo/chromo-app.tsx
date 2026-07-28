@@ -123,6 +123,11 @@ type ChromoTab = {
   vConsoleError?: string
 }
 
+/** DevTools 可用：viewer 已启动且目标 URL 已知（不等整页 load 完成）。 */
+function computeChromoPageReady(tab: Pick<ChromoTab, 'ready' | 'url'> | null | undefined): boolean {
+  return Boolean(tab?.ready && tab.url)
+}
+
 let nextTabId = 1
 
 function createChromoTab(initialUrl = ''): ChromoTab {
@@ -858,7 +863,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         tabId: tab.id,
         pageTitle: tab.title,
         pageUrl: tab.url,
-        pageReady: Boolean(tab.ready && tab.url && !tab.loading),
+        pageReady: computeChromoPageReady(tab),
         pageLoading: tab.loading,
         pageError: formatPageFault(tab.pageFault),
         pageFault: tab.pageFault,
@@ -1033,7 +1038,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         tabId: tab.id,
         pageTitle: tab.title,
         pageUrl: tab.url,
-        pageReady: Boolean(tab.ready && tab.url && !tab.loading),
+        pageReady: computeChromoPageReady(tab),
         pageLoading: tab.loading,
         pageError: formatPageFault(tab.pageFault),
         pageFault: tab.pageFault,
@@ -1705,7 +1710,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   activeTab.consoleEntries,
                   activeTab.replEntries,
                 )}
-                pageReady={Boolean(activeTab.ready && activeTab.url && !activeTab.loading)}
+                pageReady={computeChromoPageReady(activeTab)}
                 evalInPage={evalInActivePage}
                 replHistory={activeTab.replHistory}
                 onReplHistoryChange={(history) => updateTabReplHistory(activeTab.id, history)}
@@ -1744,7 +1749,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           <ChromoAgentSidebar
             pageUrl={activeTab?.url ?? ''}
             pageTitle={activeTab?.title ?? ''}
-            pageReady={Boolean(activeTab?.ready && activeTab.url && !activeTab.loading)}
+            pageReady={computeChromoPageReady(activeTab)}
             evalInPage={evalInActivePage}
             screenshotInPage={screenshotInActivePage}
           />
