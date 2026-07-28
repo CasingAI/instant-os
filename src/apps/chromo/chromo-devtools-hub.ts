@@ -7,7 +7,7 @@ import type {
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
 import type { ChromoPageFault } from './chromo-page-fault.ts'
 
-export type ChromoDevToolsPanelTab = 'console' | 'elements' | 'network'
+export type ChromoDevToolsPanelTab = 'console' | 'network' | 'extensions'
 export type ChromoDevToolsDockSide = 'bottom' | 'left' | 'right'
 
 export type ChromoDevToolsSessionKey = string
@@ -30,6 +30,10 @@ export type ChromoDevToolsSnapshot = {
   networkEntries: ChromoNetworkEntry[]
   selectedNetworkId: string
   disableNetworkCache: boolean
+  vConsoleEnabled: boolean
+  vConsoleBusy: boolean
+  vConsoleError?: string
+  debugPanelEnabled: boolean
 }
 
 export type ChromoDevToolsHandlers = {
@@ -45,6 +49,8 @@ export type ChromoDevToolsHandlers = {
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
   onCloseNetworkDetail: () => void
   onDisableNetworkCacheChange: (disable: boolean) => void
+  onVConsoleEnabledChange: (enabled: boolean) => void
+  onDebugPanelEnabledChange: (enabled: boolean) => void
   onRedock: (side: ChromoDevToolsDockSide) => void
   onDetachedClosed: () => void
 }

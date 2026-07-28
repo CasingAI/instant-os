@@ -40,6 +40,10 @@ import {
   readChromoDevToolsDockSide,
 } from './chromo-devtools-panel.tsx'
 import {
+  destroyVConsole,
+  injectVConsole,
+} from './chromo-vconsole.ts'
+import {
   formatPageFault,
   pageFaultFromError,
   pageFaultFromLoadFailed,
@@ -79,6 +83,12 @@ type ChromoTab = {
   devtoolsDockSide: ChromoDevToolsDockSide
   /** 该 tab 是否已在独立 OS 窗中打开 DevTools */
   devtoolsUndocked: boolean
+  /** Extensions：页内 vConsole 开关（导航后自动重注入） */
+  vConsoleEnabled: boolean
+  vConsoleBusy: boolean
+  vConsoleError?: string
+  /** Viewer 左下角「调」DebugPanel */
+  debugPanelEnabled: boolean
 }
 
 let nextTabId = 1
@@ -112,6 +122,9 @@ function createChromoTab(initialUrl = ''): ChromoTab {
     devtoolsTab: 'console',
     devtoolsDockSide: readChromoDevToolsDockSide(),
     devtoolsUndocked: false,
+    vConsoleEnabled: false,
+    vConsoleBusy: false,
+    debugPanelEnabled: false,
   }
 }
 
@@ -592,6 +605,94 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     [getViewerRef, updateTab],
   )
 
+  const reinjectVConsoleIfEnabled = useCallback(
+    (tabId: string) => {
+      const tab = tabsRef.current.find((entry) => entry.id === tabId)
+      if (!tab?.vConsoleEnabled) {
+        return
+      }
+      const viewer = getViewerRef(tabId).current
+      if (!viewer?.isReady()) {
+        return
+      }
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        vConsoleBusy: true,
+        vConsoleError: undefined,
+      }))
+      void injectVConsole((code) => viewer.evalInPage(code)).then((result) => {
+        updateTab(tabId, (entry) => {
+          if (!entry.vConsoleEnabled) {
+            return { ...entry, vConsoleBusy: false }
+          }
+          return {
+            ...entry,
+            vConsoleBusy: false,
+            vConsoleError: result.ok ? undefined : result.error,
+          }
+        })
+      })
+    },
+    [getViewerRef, updateTab],
+  )
+
+  const setTabVConsoleEnabled = useCallback(
+    (tabId: string, enabled: boolean) => {
+      const viewer = getViewerRef(tabId).current
+      if (!viewer?.isReady()) {
+        updateTab(tabId, (entry) => ({
+          ...entry,
+          vConsoleEnabled: enabled,
+          vConsoleBusy: false,
+          vConsoleError: enabled ? '网页尚未就绪' : undefined,
+        }))
+        return
+      }
+
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        vConsoleEnabled: enabled,
+        vConsoleBusy: true,
+        vConsoleError: undefined,
+      }))
+
+      const run = enabled
+        ? injectVConsole((code) => viewer.evalInPage(code))
+        : destroyVConsole((code) => viewer.evalInPage(code))
+
+      void run.then((result) => {
+        updateTab(tabId, (entry) => {
+          // Ignore stale results if the user toggled again.
+          if (entry.vConsoleEnabled !== enabled) {
+            return entry
+          }
+          if (!result.ok) {
+            return {
+              ...entry,
+              vConsoleEnabled: enabled ? false : entry.vConsoleEnabled,
+              vConsoleBusy: false,
+              vConsoleError: result.error,
+            }
+          }
+          return {
+            ...entry,
+            vConsoleBusy: false,
+            vConsoleError: undefined,
+          }
+        })
+      })
+    },
+    [getViewerRef, updateTab],
+  )
+
+  const setTabDebugPanelEnabled = useCallback(
+    (tabId: string, enabled: boolean) => {
+      updateTab(tabId, (entry) => ({ ...entry, debugPanelEnabled: enabled }))
+      getViewerRef(tabId).current?.setDebugPanelEnabled(enabled)
+    },
+    [getViewerRef, updateTab],
+  )
+
   const readActiveNetworkBody = useCallback(
     (entryId: string) => {
       const tabId = activeTabIdRef.current
@@ -700,6 +801,10 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         networkEntries: tab.networkEntries,
         selectedNetworkId: tab.selectedNetworkId,
         disableNetworkCache: tab.disableNetworkCache,
+        vConsoleEnabled: tab.vConsoleEnabled,
+        vConsoleBusy: tab.vConsoleBusy,
+        vConsoleError: tab.vConsoleError,
+        debugPanelEnabled: tab.debugPanelEnabled,
       }
 
       const handlers: ChromoDevToolsHandlers = {
@@ -747,6 +852,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onCloseNetworkDetail: () => clearTabNetworkSelection(tab.id),
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tab.id, disable),
+        onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tab.id, enabled),
+        onDebugPanelEnabledChange: (enabled) => setTabDebugPanelEnabled(tab.id, enabled),
         onRedock: (side) => {
           updateTab(tab.id, (entry) => ({
             ...entry,
@@ -784,6 +891,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     getViewerRef,
     parentWindowId,
     selectTabNetwork,
+    setTabDebugPanelEnabled,
+    setTabVConsoleEnabled,
     tabs,
     updateTab,
     updateTabDisableNetworkCache,
@@ -860,6 +969,10 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         networkEntries: tab.networkEntries,
         selectedNetworkId: tab.selectedNetworkId,
         disableNetworkCache: tab.disableNetworkCache,
+        vConsoleEnabled: tab.vConsoleEnabled,
+        vConsoleBusy: tab.vConsoleBusy,
+        vConsoleError: tab.vConsoleError,
+        debugPanelEnabled: tab.debugPanelEnabled,
       }
       // Handlers will be replaced by the sync effect; provide a stub so the window can mount.
       registerChromoDevToolsSession(key, snapshot, {
@@ -907,6 +1020,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onCloseNetworkDetail: () => clearTabNetworkSelection(tabId),
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tabId, disable),
+        onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tabId, enabled),
+        onDebugPanelEnabledChange: (enabled) => setTabDebugPanelEnabled(tabId, enabled),
         onRedock: (side) => {
           updateTab(tabId, (entry) => ({
             ...entry,
@@ -941,6 +1056,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       openApp,
       parentWindowId,
       selectTabNetwork,
+      setTabDebugPanelEnabled,
+      setTabVConsoleEnabled,
       updateTab,
       updateTabDisableNetworkCache,
       updateTabReplHistory,
@@ -1315,6 +1432,10 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 if (!current?.url) {
                   ensureInitialTabLoad(tab.id)
                 }
+                // Viewer 重建后 DebugPanel 默认隐藏，按 tab 开关恢复
+                if (current?.debugPanelEnabled) {
+                  getViewerRef(tab.id).current?.setDebugPanelEnabled(true)
+                }
               }}
               onNavigating={() => {
                 updateTab(tab.id, (entry) => ({
@@ -1365,6 +1486,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 window.setTimeout(() => {
                   void pullConsoleDelta(tab.id)
                   void pullNetworkDelta(tab.id)
+                  reinjectVConsoleIfEnabled(tab.id)
                 }, 300)
               }}
               onLoadFailed={({ url, message, code }) => {
@@ -1500,6 +1622,17 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 onSelectNetwork={(entry) => selectTabNetwork(activeTab.id, entry)}
                 onCloseNetworkDetail={() => clearTabNetworkSelection(activeTab.id)}
                 pageUrl={activeTab.url}
+                vConsoleEnabled={activeTab.vConsoleEnabled}
+                vConsoleBusy={activeTab.vConsoleBusy}
+                vConsoleError={activeTab.vConsoleError}
+                onVConsoleEnabledChange={(enabled) =>
+                  setTabVConsoleEnabled(activeTab.id, enabled)
+                }
+                debugPanelEnabled={activeTab.debugPanelEnabled}
+                onDebugPanelEnabledChange={(enabled) =>
+                  setTabDebugPanelEnabled(activeTab.id, enabled)
+                }
+                viewerReady={Boolean(activeTab.ready)}
               />
             )}
           </div>

@@ -5,6 +5,7 @@ import { ChromoConsolePanel } from './chromo-console-panel.tsx'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
 import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
 import type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab } from './chromo-devtools-hub.ts'
+import { ChromoExtensionsPanel } from './chromo-extensions-panel.tsx'
 import { ChromoNetworkPanel } from './chromo-network-panel.tsx'
 import type { ChromoPageFault } from './chromo-page-fault.ts'
 import { ChromoPageFaultView } from './chromo-page-fault-view.tsx'
@@ -61,6 +62,13 @@ type ChromoDevToolsPanelProps = {
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
   onCloseNetworkDetail?: () => void
   pageUrl?: string
+  vConsoleEnabled?: boolean
+  vConsoleBusy?: boolean
+  vConsoleError?: string
+  onVConsoleEnabledChange?: (enabled: boolean) => void
+  debugPanelEnabled?: boolean
+  onDebugPanelEnabledChange?: (enabled: boolean) => void
+  viewerReady?: boolean
 }
 
 const TABS: {
@@ -70,16 +78,8 @@ const TABS: {
   title?: string
 }[] = [
   { id: 'console', label: '控制台' },
-  {
-    id: 'elements',
-    label: '元素',
-    disabled: true,
-    title: '需 virtual-chromo 协议扩展后可用',
-  },
-  {
-    id: 'network',
-    label: '网络',
-  },
+  { id: 'network', label: '网络' },
+  { id: 'extensions', label: '扩展' },
 ]
 
 const DOCK_ACTIONS: {
@@ -290,6 +290,13 @@ type ChromoDevToolsPanelBodyProps = {
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
   onCloseNetworkDetail?: () => void
   pageUrl?: string
+  vConsoleEnabled?: boolean
+  vConsoleBusy?: boolean
+  vConsoleError?: string
+  onVConsoleEnabledChange?: (enabled: boolean) => void
+  debugPanelEnabled?: boolean
+  onDebugPanelEnabledChange?: (enabled: boolean) => void
+  viewerReady?: boolean
 }
 
 const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
@@ -311,6 +318,13 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   onSelectNetwork,
   onCloseNetworkDetail,
   pageUrl,
+  vConsoleEnabled = false,
+  vConsoleBusy = false,
+  vConsoleError,
+  onVConsoleEnabledChange,
+  debugPanelEnabled = false,
+  onDebugPanelEnabledChange,
+  viewerReady = true,
 }: ChromoDevToolsPanelBodyProps) {
   if (activeTab === 'console') {
     return (
@@ -343,11 +357,22 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
     )
   }
 
-  return (
-    <div class="chromo-devtools__placeholder">
-      此面板需要 virtual-chromo 协议扩展，当前版本不可用。
-    </div>
-  )
+  if (activeTab === 'extensions') {
+    return (
+      <ChromoExtensionsPanel
+        pageReady={pageReady}
+        viewerReady={viewerReady}
+        vConsoleEnabled={vConsoleEnabled}
+        vConsoleBusy={vConsoleBusy}
+        vConsoleError={vConsoleError}
+        onVConsoleEnabledChange={onVConsoleEnabledChange ?? (() => undefined)}
+        debugPanelEnabled={debugPanelEnabled}
+        onDebugPanelEnabledChange={onDebugPanelEnabledChange ?? (() => undefined)}
+      />
+    )
+  }
+
+  return <div class="chromo-devtools__placeholder">未知面板</div>
 })
 
 /** 内嵌模式：观测 chromo__devtools-area，仅在 clamp 结果变化时 setState */
@@ -461,6 +486,13 @@ export function ChromoDevToolsPanel({
   onSelectNetwork,
   onCloseNetworkDetail,
   pageUrl,
+  vConsoleEnabled = false,
+  vConsoleBusy = false,
+  vConsoleError,
+  onVConsoleEnabledChange,
+  debugPanelEnabled = false,
+  onDebugPanelEnabledChange,
+  viewerReady = true,
 }: ChromoDevToolsPanelProps) {
   const isWindowMode = mode === 'window'
   const panelRef = useRef<HTMLElement>(null)
@@ -874,6 +906,13 @@ export function ChromoDevToolsPanel({
             onSelectNetwork={onSelectNetwork}
             onCloseNetworkDetail={onCloseNetworkDetail}
             pageUrl={pageUrl}
+            vConsoleEnabled={vConsoleEnabled}
+            vConsoleBusy={vConsoleBusy}
+            vConsoleError={vConsoleError}
+            onVConsoleEnabledChange={onVConsoleEnabledChange}
+            debugPanelEnabled={debugPanelEnabled}
+            onDebugPanelEnabledChange={onDebugPanelEnabledChange}
+            viewerReady={viewerReady}
           />
         )}
       </div>

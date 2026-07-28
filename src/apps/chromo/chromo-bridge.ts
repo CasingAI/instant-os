@@ -214,6 +214,8 @@ export type ChromoBridge = {
     options?: ChromoRpcOptions,
   ) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
+  /** Show/hide viewer DebugPanel (green「调」button). Default off. */
+  setDebugPanelEnabled: (enabled: boolean) => void
   devtoolsId: string
   screenshot: (
     options?: ChromoScreenshotOptions,
@@ -502,6 +504,9 @@ export function createChromoBridge(
         disableCache = opts.disableCache
       }
       applyNetworkOptions()
+    },
+    setDebugPanelEnabled(enabled) {
+      postCommand(iframe, 'VC_DEBUG_PANEL', { enabled: Boolean(enabled) }, targetOrigin)
     },
     devtoolsId,
     screenshot(options) {

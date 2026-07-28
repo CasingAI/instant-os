@@ -44,6 +44,7 @@ export type ChromoViewerHandle = {
     options?: ChromoRpcOptions,
   ) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
+  setDebugPanelEnabled: (enabled: boolean) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
   isReady: () => boolean
@@ -218,6 +219,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         },
         setNetworkOptions(options) {
           bridgeRef.current?.setNetworkOptions(options)
+        },
+        setDebugPanelEnabled(enabled) {
+          bridgeRef.current?.setDebugPanelEnabled(enabled)
         },
         screenshot(options?: ChromoScreenshotOptions) {
           return (
