@@ -54,6 +54,7 @@
 
 .ios-nav-back__label {
   min-width: 0;
+  line-height: 1.5em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

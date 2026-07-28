@@ -217,25 +217,24 @@
 }
 
 /* 结构在 content；叠在 nav 自带分割线下方，再加一层底部分割线 */
+/* 负边距用 --settings-content-pad-x，与内容区水平 padding 同步，背景条撑满左右 */
 .settings__content > .settings__search-bar {
   position: sticky;
   top: 41px;
   z-index: 2;
-  margin: 0 -18px 12px;
-  padding: 6px 12px;
+  margin: 0 calc(-1 * var(--settings-content-pad-x, 18px)) 12px;
+  padding: 6px var(--settings-content-pad-x, 18px);
   background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.14);
-}
-
-.settings__content:not(.settings__content--compact) > .settings__search-bar {
-  margin-left: -24px;
-  margin-right: -24px;
 }
 
 .settings__search {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  max-width: 860px;
+  margin-inline: auto;
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid #a8a8a8;
@@ -275,6 +274,7 @@
 /* ── Main preference panes grid ── */
 
 .settings__content {
+  --settings-content-pad-x: 24px;
   flex: 1;
   min-height: 0;
   padding: 20px 24px 24px;
@@ -285,6 +285,7 @@
 }
 
 .settings__content--compact {
+  --settings-content-pad-x: 18px;
   padding: 8px 18px 18px;
 }
 
@@ -2461,10 +2462,12 @@
   }
 
   .settings__content {
+    --settings-content-pad-x: 28px;
     padding: 22px 28px 28px;
   }
 
   .settings__content--compact {
+    --settings-content-pad-x: max(28px, calc((100% - 860px) / 2));
     padding: 18px max(28px, calc((100% - 860px) / 2)) 28px;
   }
 
@@ -2511,10 +2514,12 @@
 
 @container app-window (max-width: 699px) {
   .settings__content {
+    --settings-content-pad-x: 18px;
     padding: 16px 18px 20px;
   }
 
   .settings__content--compact {
+    --settings-content-pad-x: 16px;
     padding: 10px 16px 18px;
   }
 }
@@ -2522,6 +2527,7 @@
 @container app-window (max-width: 540px) {
   .settings__content,
   .settings__content--compact {
+    --settings-content-pad-x: 14px;
     padding: 10px 14px 16px;
   }
 
