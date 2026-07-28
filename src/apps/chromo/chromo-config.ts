@@ -1,10 +1,8 @@
 export const CHROMO_WORKER_ORIGIN =
   import.meta.env.DEV ? 'http://localhost:8787' : 'https://virtual-chromo.r6sg.workers.dev'
 
-/** 每个 BrowserContext（标签页）独立 session，cookie / storage 按 session 隔离。 */
-export function chromoViewerUrl(sessionId: string): string {
-  return `${CHROMO_WORKER_ORIGIN}/s/${encodeURIComponent(sessionId)}/`
-}
+/** 单用户全局 viewer 入口；cookie / storage / hot cache 全局共享。 */
+export const CHROMO_VIEWER_URL = `${CHROMO_WORKER_ORIGIN}/viewer`
 
 export const CHROMO_DEFAULT_NEW_TAB_URL = 'https://example.com'
 

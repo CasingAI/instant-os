@@ -950,6 +950,33 @@
   letter-spacing: 0.02em;
 }
 
+.chromo-devtools__settings-hint {
+  margin: 0;
+  color: #9aa0a6;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.chromo-devtools__settings-danger {
+  align-self: stretch;
+  border: 1px solid #5c2b29;
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: #3c1f1e;
+  color: #f28b82;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chromo-devtools__settings-danger:hover:not(:disabled) {
+  background: #4a2523;
+}
+
+.chromo-devtools__settings-danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .chromo-devtools__header {
   display: flex;
   align-items: center;
@@ -1391,6 +1418,23 @@
   background: #e8f0fe;
 }
 
+/* 窄列固定像素，名称列吃剩余；瀑布图给一小段百分比以便随面板变宽 */
+.chromo-network__col--status {
+  width: 56px;
+}
+
+.chromo-network__col--waterfall {
+  width: 22%;
+}
+
+.chromo-network__col--duration {
+  width: 72px;
+}
+
+.chromo-network__col--size {
+  width: 64px;
+}
+
 .chromo-network__cell {
   padding: 5px 8px;
   vertical-align: middle;
@@ -1398,7 +1442,6 @@
 }
 
 .chromo-network__cell--name {
-  width: 34%;
   max-width: 0;
   overflow: hidden;
 }
@@ -1410,22 +1453,51 @@
   min-width: 0;
 }
 
+.chromo-network__th--status .chromo-network__th-btn {
+  justify-content: center;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
 .chromo-network__cell--status {
-  width: 10%;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
 }
 
-.chromo-network__cell--waterfall {
-  width: 26%;
+.chromo-network__th--duration .chromo-network__th-btn,
+.chromo-network__th--size .chromo-network__th-btn {
+  justify-content: flex-end;
+  text-align: right;
 }
 
-.chromo-network__cell--duration {
-  width: 14%;
-  white-space: nowrap;
-}
-
+.chromo-network__cell--duration,
 .chromo-network__cell--size {
-  width: 14%;
   white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 详情抽屉打开时列表很窄：收起瀑布图，把空间留给名称 */
+.chromo-network--drawer-open .chromo-network__col--waterfall {
+  width: 0;
+}
+
+.chromo-network--drawer-open .chromo-network__th--waterfall,
+.chromo-network--drawer-open .chromo-network__cell--waterfall {
+  display: none;
+}
+
+.chromo-network--drawer-open .chromo-network__col--status {
+  width: 44px;
+}
+
+.chromo-network--drawer-open .chromo-network__col--duration {
+  width: 64px;
+}
+
+.chromo-network--drawer-open .chromo-network__col--size {
+  width: 56px;
 }
 
 .chromo-network__method {
@@ -1464,7 +1536,7 @@
 .chromo-network__waterfall {
   position: relative;
   height: 14px;
-  min-width: 72px;
+  min-width: 40px;
   border-radius: 2px;
   background: #f1f3f4;
 }
@@ -2179,6 +2251,27 @@
 
 .chromo--narrow .chromo-network__drawer-resize {
   display: none;
+}
+
+.chromo--narrow .chromo-network__col--waterfall {
+  width: 0;
+}
+
+.chromo--narrow .chromo-network__th--waterfall,
+.chromo--narrow .chromo-network__cell--waterfall {
+  display: none;
+}
+
+.chromo--narrow .chromo-network__col--status {
+  width: 44px;
+}
+
+.chromo--narrow .chromo-network__col--duration {
+  width: 64px;
+}
+
+.chromo--narrow .chromo-network__col--size {
+  width: 56px;
 }
 
 .chromo--narrow .chromo-network__timing-row {

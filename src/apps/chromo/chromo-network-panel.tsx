@@ -4,6 +4,7 @@ import type {
   ChromoNetworkBodyReadResult,
   ChromoNetworkBodyReadLinesOptions,
   ChromoNetworkBodyReadLinesResult,
+  ChromoNetworkHotProbeResult,
 } from './chromo-bridge.ts'
 import { NetworkDetailDrawer } from './chromo-network-detail.tsx'
 import {
@@ -29,7 +30,10 @@ type ChromoNetworkPanelProps = {
     entryId: string,
     options?: ChromoNetworkBodyReadLinesOptions,
   ) => Promise<ChromoNetworkBodyReadLinesResult>
-  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
   onSelect: (entry: ChromoNetworkEntry) => void
   onCloseDetail?: () => void
 }
@@ -282,7 +286,7 @@ function SortHeader({
 }) {
   const active = activeColumn === column
   return (
-    <th class="chromo-network__th">
+    <th class={`chromo-network__th chromo-network__th--${column}`}>
       <button
         type="button"
         class={['chromo-network__th-btn', active ? 'chromo-network__th-btn--active' : ''].filter(Boolean).join(' ')}
@@ -614,6 +618,13 @@ export function ChromoNetworkPanel({
           </div>
         ) : (
           <table class="chromo-network__table">
+            <colgroup>
+              <col class="chromo-network__col chromo-network__col--name" />
+              <col class="chromo-network__col chromo-network__col--status" />
+              <col class="chromo-network__col chromo-network__col--waterfall" />
+              <col class="chromo-network__col chromo-network__col--duration" />
+              <col class="chromo-network__col chromo-network__col--size" />
+            </colgroup>
             <thead class="chromo-network__thead">
               <tr>
                 {SORT_COLUMNS.map((column) => (

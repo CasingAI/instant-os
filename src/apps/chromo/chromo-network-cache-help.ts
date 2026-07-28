@@ -1,11 +1,14 @@
-import type { ChromoNetworkEntry } from './chromo-bridge.ts'
+import type { ChromoNetworkEntry, ChromoNetworkHotProbeResult } from './chromo-bridge.ts'
 
 export type HotCacheHelpContext = {
   disableNetworkCache?: boolean
   /** All network entries in the current tab (panel history only; not SW cache state). */
   entries?: ChromoNetworkEntry[]
-  /** Result of VC_NETWORK_HOT_PROBE (undefined = not probed yet). */
-  swHasEntry?: boolean | null
+  /**
+   * Result of VC_NETWORK_HOT_PROBE (undefined = not probed yet; null = probe failed).
+   * Hot cache is global method+URL+TTL — not session-scoped.
+   */
+  swProbe?: ChromoNetworkHotProbeResult | null
 }
 
 export type HotCacheConditionStatus = 'pass' | 'fail' | 'pending' | 'skip'
@@ -45,9 +48,20 @@ function sameUrlCompletedBefore(
   )
 }
 
+function formatExpiresAt(expiresAt: number | undefined): string {
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) {
+    return ''
+  }
+  try {
+    return new Date(expiresAt).toLocaleString()
+  } catch {
+    return String(expiresAt)
+  }
+}
+
 /**
  * Diagnose why a Network entry did or did not hit DevTools hot cache.
- * Hot cache is session-scoped (SW Cache Storage); panel URL history is informational only.
+ * Hot cache is global (SW Cache Storage, method+URL+TTL); panel URL history is informational only.
  * Served from only reflects hot cache / proxy path — not browser HTTP Cache-Control.
  */
 export function diagnoseHotCache(
@@ -157,15 +171,15 @@ export function diagnoseHotCache(
     value: pending ? '进行中' : hadPrior ? '是' : '否（列表首次）',
   })
 
-  if ('swHasEntry' in context) {
-    if (context.swHasEntry === undefined) {
+  if ('swProbe' in context) {
+    if (context.swProbe === undefined) {
       conditions.push({
         id: 'sw_has_entry',
         label: 'SW 中已有该 URL 条目',
         status: 'pending',
         value: '探测中…',
       })
-    } else if (context.swHasEntry === null) {
+    } else if (context.swProbe === null) {
       conditions.push({
         id: 'sw_has_entry',
         label: 'SW 中已有该 URL 条目',
@@ -173,18 +187,37 @@ export function diagnoseHotCache(
         value: '探测失败',
       })
     } else {
+      const { exists, fresh, expiresAt } = context.swProbe
       conditions.push({
         id: 'sw_has_entry',
         label: 'SW 中已有该 URL 条目',
-        status: context.swHasEntry ? 'pass' : 'skip',
-        value: context.swHasEntry ? '是' : '否',
+        status: exists ? 'pass' : 'skip',
+        value: exists ? '是' : '否',
       })
+      if (exists) {
+        const expiresLabel = formatExpiresAt(expiresAt)
+        conditions.push({
+          id: 'sw_entry_fresh',
+          label: '条目未过期（fresh）',
+          status: fresh ? 'pass' : 'skip',
+          value: fresh
+            ? expiresLabel
+              ? `是（至 ${expiresLabel}）`
+              : '是'
+            : expiresLabel
+              ? `否（已过期于 ${expiresLabel}）`
+              : '否',
+        })
+      }
     }
   }
 
   const wroteHot = entry.hotStored === true
   const writeReportedFail =
     writeEligible && !hit && entry.hotStored === false && !pending
+  const probeFresh = context.swProbe && typeof context.swProbe === 'object'
+    ? context.swProbe.fresh
+    : undefined
 
   if (pending) {
     conditions.push({
@@ -214,19 +247,34 @@ export function diagnoseHotCache(
       value: '失败（满足条件但未写入）',
     })
   } else if (writeEligible || wroteHot) {
-    // First GET that wrote hot cache: miss is expected, not a blocker.
     conditions.push({
       id: 'hot_hit',
       label: '热缓存命中（本次）',
       status: 'skip',
-      value: '否（本次写入，后续可命中）',
+      value: '否',
     })
-    conditions.push({
-      id: 'first_write_note',
-      label: '说明',
-      status: 'skip',
-      value: '首次 GET 只写入热缓存，不命中；同 session 再次请求才会命中',
-    })
+    if (wroteHot && probeFresh === false) {
+      conditions.push({
+        id: 'miss_note',
+        label: '说明',
+        status: 'skip',
+        value: '已写入但条目已过期，或本次未命中',
+      })
+    } else if (wroteHot && probeFresh === true) {
+      conditions.push({
+        id: 'miss_note',
+        label: '说明',
+        status: 'skip',
+        value: '条目仍 fresh，本次未走 cache（可能随机 URL / 条件变化）',
+      })
+    } else if (wroteHot) {
+      conditions.push({
+        id: 'miss_note',
+        label: '说明',
+        status: 'skip',
+        value: '本次已写入全局热缓存；有未过期条目时再次请求可命中',
+      })
+    }
   } else {
     conditions.push({
       id: 'hot_hit',
@@ -236,7 +284,12 @@ export function diagnoseHotCache(
     })
   }
 
-  const nonBlocking = new Set(['panel_repeat', 'first_write_note', 'sw_has_entry'])
+  const nonBlocking = new Set([
+    'panel_repeat',
+    'miss_note',
+    'sw_has_entry',
+    'sw_entry_fresh',
+  ])
   const blockingIds = conditions
     .filter((c) => c.status === 'fail' && !nonBlocking.has(c.id))
     .map((c) => c.id)
@@ -256,7 +309,7 @@ export function explainHotCacheStatus(
     .map((c) => `${c.label}: ${c.value ?? c.status}`)
   if (reasons.length === 0 && !diagnosis.hit) {
     if (diagnosis.writeEligible) {
-      reasons.push('首次 GET：已写入热缓存，下次同 URL 可命中')
+      reasons.push('已写入全局热缓存；有未过期条目时再次请求可命中')
     } else {
       reasons.push('未命中开发者工具热缓存')
     }

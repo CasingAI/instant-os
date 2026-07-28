@@ -4,6 +4,7 @@ import { ImageDocumentPreview } from '../../preview/image-document-preview.tsx'
 import type {
   ChromoNetworkBodyReadResult,
   ChromoNetworkEntry,
+  ChromoNetworkHotProbeResult,
   ChromoNetworkTiming,
 } from './chromo-bridge.ts'
 import { diagnoseHotCache } from './chromo-network-cache-help.ts'
@@ -312,26 +313,31 @@ function ServedFromCell({
   entry: ChromoNetworkEntry
   disableNetworkCache?: boolean
   entries?: ChromoNetworkEntry[]
-  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
 }) {
   const [open, setOpen] = useState(false)
-  const [swHasEntry, setSwHasEntry] = useState<boolean | null | undefined>(undefined)
+  const [swProbe, setSwProbe] = useState<
+    ChromoNetworkHotProbeResult | null | undefined
+  >(undefined)
 
   useEffect(() => {
     if (!open || !probeNetworkHot || !entry.url) {
       return
     }
     let cancelled = false
-    setSwHasEntry(undefined)
+    setSwProbe(undefined)
     probeNetworkHot(entry.method || 'GET', entry.url)
       .then((result) => {
         if (!cancelled) {
-          setSwHasEntry(Boolean(result?.exists))
+          setSwProbe(result ?? { exists: false })
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setSwHasEntry(null)
+          setSwProbe(null)
         }
       })
     return () => {
@@ -344,9 +350,9 @@ function ServedFromCell({
       diagnoseHotCache(entry, {
         disableNetworkCache,
         entries,
-        ...(probeNetworkHot ? { swHasEntry } : {}),
+        ...(probeNetworkHot ? { swProbe } : {}),
       }),
-    [entry, disableNetworkCache, entries, probeNetworkHot, swHasEntry],
+    [entry, disableNetworkCache, entries, probeNetworkHot, swProbe],
   )
 
   const statusIcon = (status: string) => {
@@ -452,7 +458,10 @@ function HeadersTab({
   bodyError: string
   disableNetworkCache?: boolean
   entries?: ChromoNetworkEntry[]
-  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
 }) {
   const [responseRaw, setResponseRaw] = useState(false)
   const [requestRaw, setRequestRaw] = useState(false)
@@ -992,7 +1001,10 @@ export function NetworkDetailDrawer({
   pageUrl?: string
   disableNetworkCache?: boolean
   entries?: ChromoNetworkEntry[]
-  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
   onClose: () => void
 }) {
   const [tab, setTab] = useState<NetworkDetailTab>('headers')

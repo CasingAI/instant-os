@@ -8,6 +8,7 @@ import type {
   ChromoNetworkBodyReadResult,
   ChromoNetworkBodyReadLinesOptions,
   ChromoNetworkBodyReadLinesResult,
+  ChromoNetworkHotProbeResult,
 } from './chromo-bridge.ts'
 import type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab } from './chromo-devtools-hub.ts'
 import { ChromoExtensionsPanel } from './chromo-extensions-panel.tsx'
@@ -64,7 +65,10 @@ type ChromoDevToolsPanelProps = {
     entryId: string,
     options?: ChromoNetworkBodyReadLinesOptions,
   ) => Promise<ChromoNetworkBodyReadLinesResult>
-  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
   pageLoading?: boolean
   pageError?: string
   pageFault?: ChromoPageFault
@@ -75,6 +79,8 @@ type ChromoDevToolsPanelProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange?: (enabled: boolean) => void
+  /** Clear global cookie / storage / hot cache (affects all Chromo tabs). */
+  onClearBrowsingData?: () => Promise<void>
 }
 
 const TABS: {
@@ -294,7 +300,10 @@ type ChromoDevToolsPanelBodyProps = {
     entryId: string,
     options?: ChromoNetworkBodyReadLinesOptions,
   ) => Promise<ChromoNetworkBodyReadLinesResult>
-  probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot?: (
+    method: string,
+    url: string,
+  ) => Promise<ChromoNetworkHotProbeResult>
   pageLoading?: boolean
   pageError?: string
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
@@ -494,11 +503,13 @@ export function ChromoDevToolsPanel({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
+  onClearBrowsingData,
 }: ChromoDevToolsPanelProps) {
   const isWindowMode = mode === 'window'
   const panelRef = useRef<HTMLElement>(null)
   const settingsRef = useRef<HTMLDivElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [clearBrowsingBusy, setClearBrowsingBusy] = useState(false)
 
   /** 用户偏好尺寸（localStorage）；容器缩小时不改写 */
   const [preferredHeight, setPreferredHeight] = useState(readStoredHeight)
@@ -870,6 +881,45 @@ export function ChromoDevToolsPanel({
                     ))}
                   </div>
                 </div>
+                {onClearBrowsingData ? (
+                  <div class="chromo-devtools__settings-section">
+                    <div class="chromo-devtools__settings-section-label">浏览数据</div>
+                    <p class="chromo-devtools__settings-hint">
+                      清空全局 Cookie、Storage 与热缓存，影响所有 Chromo 标签页。
+                    </p>
+                    <button
+                      type="button"
+                      class="chromo-devtools__settings-danger"
+                      disabled={clearBrowsingBusy || !pageReady}
+                      onClick={() => {
+                        if (clearBrowsingBusy || !onClearBrowsingData) {
+                          return
+                        }
+                        const ok = window.confirm(
+                          '将清空所有 Chromo 标签页的 Cookie、网页 Storage 与热缓存。确定继续？',
+                        )
+                        if (!ok) {
+                          return
+                        }
+                        setClearBrowsingBusy(true)
+                        void onClearBrowsingData()
+                          .catch((error) => {
+                            const message =
+                              error instanceof Error ? error.message : String(error)
+                            window.alert(`清空浏览数据失败：${message}`)
+                          })
+                          .finally(() => {
+                            setClearBrowsingBusy(false)
+                            setSettingsOpen(false)
+                          })
+                      }}
+                    >
+                      {clearBrowsingBusy
+                        ? '清空中…'
+                        : '清空 Cookie / Storage / 缓存'}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

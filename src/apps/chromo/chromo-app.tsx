@@ -56,7 +56,8 @@ import './chromo.css'
 
 type ChromoTab = {
   id: string
-  sessionId: string
+  /** Parent-tab id for Disable cache isolation only (not a Worker session). */
+  devtoolsId: string
   url: string
   title: string
   inputUrl: string
@@ -93,12 +94,12 @@ let nextTabId = 1
 
 function createChromoTab(initialUrl = ''): ChromoTab {
   const id = `chromo-tab-${nextTabId++}`
-  const sessionId = crypto.randomUUID()
+  const devtoolsId = crypto.randomUUID()
   const url = initialUrl ? normalizeChromoUrl(initialUrl) : ''
   const title = url ? pageTitleFromUrl(url) : '新标签页'
   return {
     id,
-    sessionId,
+    devtoolsId,
     url,
     title,
     inputUrl: url ? displayUrl(url) : '',
@@ -329,10 +330,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const closeTab = useCallback(
     (tabId: string) => {
       cancelClickNavigate(tabId)
-      const closing = tabsRef.current.find((tab) => tab.id === tabId)
-      if (closing) {
-        getViewerRef(tabId).current?.destroySession(closing.sessionId)
-      }
+      // Do not VC_CLEAR_STATE on tab close — cookie/storage/hot are global.
 
       if (parentWindowId) {
         const sessionKey = makeChromoDevToolsSessionKey(parentWindowId, tabId)
@@ -620,6 +618,19 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     [getViewerRef, updateTab],
   )
 
+  const clearTabBrowsingData = useCallback(
+    async (tabId: string) => {
+      const viewer = getViewerRef(tabId).current
+      if (!viewer?.isReady()) {
+        throw new Error('网页尚未就绪')
+      }
+      await viewer.clearState()
+      clearTabNetwork(tabId)
+      viewer.reload()
+    },
+    [clearTabNetwork, getViewerRef],
+  )
+
   const reinjectVConsoleIfEnabled = useCallback(
     (tabId: string) => {
       const tab = tabsRef.current.find((entry) => entry.id === tabId)
@@ -885,6 +896,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tab.id, disable),
         onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tab.id, enabled),
+        onClearBrowsingData: () => clearTabBrowsingData(tab.id),
         onRedock: (side) => {
           updateTab(tab.id, (entry) => ({
             ...entry,
@@ -916,6 +928,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     }
   }, [
     appendTabConsoleEntries,
+    clearTabBrowsingData,
     clearTabConsole,
     clearTabNetwork,
     clearTabNetworkSelection,
@@ -1057,6 +1070,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tabId, disable),
         onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tabId, enabled),
+        onClearBrowsingData: () => clearTabBrowsingData(tabId),
         onRedock: (side) => {
           updateTab(tabId, (entry) => ({
             ...entry,
@@ -1084,6 +1098,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     },
     [
       appendTabConsoleEntries,
+      clearTabBrowsingData,
       clearTabConsole,
       clearTabNetwork,
       clearTabNetworkSelection,
@@ -1450,7 +1465,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
               {tabs.map((tab) => (
                 <ChromoViewerFrame
               key={tab.id}
-              sessionId={tab.sessionId}
+              devtoolsId={tab.devtoolsId}
               initialUrl={tab.url || undefined}
               disableNetworkCache={tab.disableNetworkCache}
               ref={getViewerRef(tab.id)}
@@ -1681,6 +1696,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 onVConsoleEnabledChange={(enabled) =>
                   setTabVConsoleEnabled(activeTab.id, enabled)
                 }
+                onClearBrowsingData={() => clearTabBrowsingData(activeTab.id)}
               />
             )}
           </div>

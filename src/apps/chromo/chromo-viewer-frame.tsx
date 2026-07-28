@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'preact/compat'
-import { chromoViewerUrl } from './chromo-config.ts'
+import { CHROMO_VIEWER_URL } from './chromo-config.ts'
 import {
   createChromoBridge,
   type ChromoBridge,
@@ -11,6 +11,7 @@ import {
   type ChromoLoadFailedPayload,
   type ChromoLocationPayload,
   type ChromoNavigatedPayload,
+  type ChromoNetworkHotProbeResult,
   type ChromoNetworkReadResult,
   type ChromoNetworkBodyReadResult,
   type ChromoNetworkBodyReadLinesOptions,
@@ -49,15 +50,16 @@ export type ChromoViewerHandle = {
     method: string,
     url: string,
     options?: ChromoRpcOptions,
-  ) => Promise<{ exists: boolean }>
+  ) => Promise<ChromoNetworkHotProbeResult>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
-  destroySession: (sessionId?: string) => void
+  clearState: (options?: ChromoRpcOptions) => Promise<void>
   isReady: () => boolean
 }
 
 type ChromoViewerFrameProps = {
-  sessionId: string
+  /** Parent-tab id for Disable cache isolation only (not a Worker session). */
+  devtoolsId: string
   /** 建 tab 时若已有目标 URL，在 bridge 创建时入队，等 VC_READY 自动导航 */
   initialUrl?: string
   active: boolean
@@ -78,7 +80,7 @@ type ChromoViewerFrameProps = {
 export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFrameProps>(
   function ChromoViewerFrame(
     {
-      sessionId,
+      devtoolsId,
       initialUrl,
       active,
       disableNetworkCache = false,
@@ -150,7 +152,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         },
         '*',
         {
-          devtoolsId: sessionId,
+          devtoolsId,
           disableCache: disableNetworkCacheRef.current,
         },
       )
@@ -166,7 +168,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         bridge.destroy()
         bridgeRef.current = null
       }
-    }, [sessionId])
+    }, [devtoolsId])
 
     useEffect(() => {
       bridgeRef.current?.setNetworkOptions({ disableCache: disableNetworkCache })
@@ -238,8 +240,11 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             Promise.reject(new Error('viewer not ready'))
           )
         },
-        destroySession(id) {
-          bridgeRef.current?.destroySession(id)
+        clearState(options) {
+          return (
+            bridgeRef.current?.clearState(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
         },
         isReady() {
           return bridgeRef.current?.isReady() ?? false
@@ -252,7 +257,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       <iframe
         ref={iframeRef}
         class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden'].filter(Boolean).join(' ')}
-        src={chromoViewerUrl(sessionId)}
+        src={CHROMO_VIEWER_URL}
         title="Chromo WebView"
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
       />

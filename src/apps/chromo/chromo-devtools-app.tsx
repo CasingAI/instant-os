@@ -126,6 +126,7 @@ export function ChromoDevToolsApp({ windowId }: ChromoDevToolsAppProps) {
         vConsoleBusy={snapshot.vConsoleBusy}
         vConsoleError={snapshot.vConsoleError}
         onVConsoleEnabledChange={handlers.onVConsoleEnabledChange}
+        onClearBrowsingData={handlers.onClearBrowsingData}
       />
     )
   }, [handlers, missing, onClose, onDockSideChange, snapshot])

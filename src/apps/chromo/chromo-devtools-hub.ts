@@ -4,6 +4,7 @@ import type {
   ChromoNetworkBodyReadLinesOptions,
   ChromoNetworkBodyReadLinesResult,
   ChromoNetworkEntry,
+  ChromoNetworkHotProbeResult,
   ChromoNetworkOptions,
 } from './chromo-bridge.ts'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
@@ -44,7 +45,7 @@ export type ChromoDevToolsHandlers = {
     entryId: string,
     options?: ChromoNetworkBodyReadLinesOptions,
   ) => Promise<ChromoNetworkBodyReadLinesResult>
-  probeNetworkHot: (method: string, url: string) => Promise<{ exists: boolean }>
+  probeNetworkHot: (method: string, url: string) => Promise<ChromoNetworkHotProbeResult>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   onPanelTabChange: (tab: ChromoDevToolsPanelTab) => void
   onPreserveLogChange: (preserve: boolean) => void
@@ -55,6 +56,7 @@ export type ChromoDevToolsHandlers = {
   onCloseNetworkDetail: () => void
   onDisableNetworkCacheChange: (disable: boolean) => void
   onVConsoleEnabledChange: (enabled: boolean) => void
+  onClearBrowsingData: () => Promise<void>
   onRedock: (side: ChromoDevToolsDockSide) => void
   onDetachedClosed: () => void
 }

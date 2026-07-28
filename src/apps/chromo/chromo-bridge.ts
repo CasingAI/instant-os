@@ -6,7 +6,6 @@ import {
 export type ChromoReadyPayload = {
   version?: string
   build?: string
-  sessionId?: string
 }
 
 export type ChromoClickPayload = {
@@ -42,10 +41,6 @@ export type ChromoHistoryPayload = {
 export type ChromoNavigateOptions = {
   method?: 'POST'
   body?: string
-}
-
-export type ChromoSessionPayload = {
-  sessionId: string
 }
 
 export type ChromoNavigatedPayload = {
@@ -113,7 +108,7 @@ export type ChromoNetworkEntry = {
   bypass: boolean
   pending?: boolean
   hasBody?: boolean
-  /** Whether this response was written into session hot cache. */
+  /** Whether this response was written into the global hot cache. */
   hotStored?: boolean
   fromCache?: boolean
   devtoolsId?: string
@@ -178,6 +173,13 @@ export type ChromoNetworkOptions = {
   disableCache?: boolean
 }
 
+/** VC_NETWORK_HOT_PROBE result — global method+URL+TTL hot cache. */
+export type ChromoNetworkHotProbeResult = {
+  exists: boolean
+  fresh?: boolean
+  expiresAt?: number
+}
+
 export type ChromoScreenshotOptions = {
   format?: 'jpeg' | 'png'
   quality?: number
@@ -215,9 +217,6 @@ export type ChromoBridgeHandlers = {
   onClick?: (payload: ChromoClickPayload) => void
   onLocation?: (payload: ChromoLocationPayload) => void
   onHistory?: (payload: ChromoHistoryPayload) => void
-  onSessionCreated?: (payload: ChromoSessionPayload) => void
-  onSessionDestroyed?: (payload: ChromoSessionPayload) => void
-  onSessionGone?: (payload: ChromoSessionPayload) => void
 }
 
 export type ChromoBridge = {
@@ -246,13 +245,13 @@ export type ChromoBridge = {
     method: string,
     url: string,
     options?: ChromoRpcOptions,
-  ) => Promise<{ exists: boolean }>
+  ) => Promise<ChromoNetworkHotProbeResult>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   devtoolsId: string
   screenshot: (
     options?: ChromoScreenshotOptions,
   ) => Promise<ChromoScreenshotResult>
-  destroySession: (sessionId?: string) => void
+  clearState: (options?: ChromoRpcOptions) => Promise<void>
   isReady: () => boolean
   destroy: () => void
 }
@@ -301,6 +300,11 @@ export function createChromoBridge(
   let disableCache = Boolean(options.disableCache)
   const pendingNavigations: Array<{ url: string; method?: 'POST'; body?: string }> = []
   const pendingRpcs = new Map<string, PendingRpc>()
+  let pendingClearState: {
+    resolve: () => void
+    reject: (error: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  } | null = null
 
   const applyNetworkOptions = () => {
     postCommand(
@@ -461,14 +465,12 @@ export function createChromoBridge(
       case 'VC_HISTORY':
         handlers.onHistory?.(payload as ChromoHistoryPayload)
         break
-      case 'VC_SESSION_CREATED':
-        handlers.onSessionCreated?.(payload as ChromoSessionPayload)
-        break
-      case 'VC_SESSION_DESTROYED':
-        handlers.onSessionDestroyed?.(payload as ChromoSessionPayload)
-        break
-      case 'VC_SESSION_GONE':
-        handlers.onSessionGone?.(payload as ChromoSessionPayload)
+      case 'VC_CLEAR_STATE_DONE':
+        if (pendingClearState) {
+          clearTimeout(pendingClearState.timer)
+          pendingClearState.resolve()
+          pendingClearState = null
+        }
         break
       default:
         break
@@ -562,7 +564,9 @@ export function createChromoBridge(
     probeNetworkHot(method, url, options) {
       return rpc('VC_NETWORK_HOT_PROBE_RESULT', 'VC_NETWORK_HOT_PROBE', { method, url }, {
         timeout: options?.timeout ?? 10_000,
-      }).then((value) => (value ?? { exists: false }) as { exists: boolean })
+      }).then(
+        (value) => (value ?? { exists: false }) as ChromoNetworkHotProbeResult,
+      )
     },
     setNetworkOptions(opts) {
       if (opts.disableCache !== undefined) {
@@ -590,19 +594,40 @@ export function createChromoBridge(
         timeout: timeout ?? CHROMO_DEFAULT_SCREENSHOT_TIMEOUT,
       }).then((value) => value as ChromoScreenshotResult)
     },
-    destroySession(sessionId) {
-      postCommand(
-        iframe,
-        'VC_SESSION_DESTROY',
-        sessionId ? { sessionId } : undefined,
-        targetOrigin,
-      )
+    clearState(options) {
+      const timeout = options?.timeout ?? 10_000
+      return new Promise<void>((resolve, reject) => {
+        if (pendingClearState) {
+          clearTimeout(pendingClearState.timer)
+          pendingClearState.reject(new Error('VC_CLEAR_STATE superseded'))
+          pendingClearState = null
+        }
+        const timer = setTimeout(() => {
+          if (!pendingClearState) {
+            return
+          }
+          pendingClearState = null
+          reject(
+            Object.assign(new Error('VC_CLEAR_STATE timed out'), {
+              code: 'RPC_TIMEOUT',
+              timeout,
+            }),
+          )
+        }, timeout)
+        pendingClearState = { resolve, reject, timer }
+        postCommand(iframe, 'VC_CLEAR_STATE', {}, targetOrigin)
+      })
     },
     isReady: () => ready,
     destroy() {
       window.removeEventListener('message', onMessage)
       ready = false
       pendingNavigations.length = 0
+      if (pendingClearState) {
+        clearTimeout(pendingClearState.timer)
+        pendingClearState.reject(new Error('Chromo bridge destroyed'))
+        pendingClearState = null
+      }
       for (const waiter of pendingRpcs.values()) {
         rejectRpc(waiter, new Error('Chromo bridge destroyed'))
       }
