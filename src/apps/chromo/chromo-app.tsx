@@ -52,7 +52,40 @@ import {
 import { ChromoPageFaultView } from './chromo-page-fault-view.tsx'
 import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
+import type { ChromoApplicationApi } from './chromo-application-panel.tsx'
 import './chromo.css'
+
+function makeChromoApplicationApi(
+  getViewer: () => ChromoViewerHandle | null | undefined,
+): ChromoApplicationApi {
+  const requireViewer = () => {
+    const viewer = getViewer()
+    if (!viewer?.isReady()) {
+      throw new Error('网页尚未就绪')
+    }
+    return viewer
+  }
+  return {
+    listCookies: () => requireViewer().listCookies(),
+    deleteCookie: (cookieId) => requireViewer().deleteCookie(cookieId),
+    clearCookies: (domain) => requireViewer().clearCookies(domain),
+    listStorage: (type) => requireViewer().listStorage(type),
+    setStorageItem: (type, key, value) => requireViewer().setStorageItem(type, key, value),
+    removeStorageItem: (type, key) => requireViewer().removeStorageItem(type, key),
+    clearStorage: (type) => requireViewer().clearStorage(type),
+    getSwInfo: () => requireViewer().getSwInfo(),
+    getNetworkCacheStats: () => requireViewer().getNetworkCacheStats(),
+    listNetworkCache: (layer) => requireViewer().listNetworkCache(layer),
+    clearNetworkCache: (layer) => requireViewer().clearNetworkCache(layer),
+    listIdb: () => requireViewer().listIdb(),
+    deleteIdb: (name) => requireViewer().deleteIdb(name),
+    listIdbStores: (name) => requireViewer().listIdbStores(name),
+    getIdbAll: (name, store) => requireViewer().getIdbAll(name, store),
+    listSiteCaches: () => requireViewer().listSiteCaches(),
+    listSiteCacheKeys: (cache) => requireViewer().listSiteCacheKeys(cache),
+    deleteSiteCache: (cache, url) => requireViewer().deleteSiteCache(cache, url),
+  }
+}
 
 type ChromoTab = {
   id: string
@@ -875,6 +908,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         setNetworkOptions: (options) => {
           getViewerRef(tab.id).current?.setNetworkOptions(options)
         },
+        application: makeChromoApplicationApi(() => getViewerRef(tab.id).current),
         onPanelTabChange: (panelTab) => {
           updateTab(tab.id, (entry) => ({ ...entry, devtoolsTab: panelTab }))
         },
@@ -1049,6 +1083,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         setNetworkOptions: (options) => {
           getViewerRef(tabId).current?.setNetworkOptions(options)
         },
+        application: makeChromoApplicationApi(() => getViewerRef(tabId).current),
         onPanelTabChange: (panelTab) => {
           updateTab(tabId, (entry) => ({ ...entry, devtoolsTab: panelTab }))
         },
@@ -1697,6 +1732,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   setTabVConsoleEnabled(activeTab.id, enabled)
                 }
                 onClearBrowsingData={() => clearTabBrowsingData(activeTab.id)}
+                applicationApi={makeChromoApplicationApi(
+                  () => getViewerRef(activeTab.id).current,
+                )}
               />
             )}
           </div>

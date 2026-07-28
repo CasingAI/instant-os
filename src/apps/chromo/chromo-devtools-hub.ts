@@ -7,10 +7,11 @@ import type {
   ChromoNetworkHotProbeResult,
   ChromoNetworkOptions,
 } from './chromo-bridge.ts'
+import type { ChromoApplicationApi } from './chromo-application-panel.tsx'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
 import type { ChromoPageFault } from './chromo-page-fault.ts'
 
-export type ChromoDevToolsPanelTab = 'console' | 'network' | 'extensions'
+export type ChromoDevToolsPanelTab = 'console' | 'network' | 'extensions' | 'application'
 export type ChromoDevToolsDockSide = 'bottom' | 'left' | 'right'
 
 export type ChromoDevToolsSessionKey = string
@@ -47,6 +48,7 @@ export type ChromoDevToolsHandlers = {
   ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot: (method: string, url: string) => Promise<ChromoNetworkHotProbeResult>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
+  application: ChromoApplicationApi
   onPanelTabChange: (tab: ChromoDevToolsPanelTab) => void
   onPreserveLogChange: (preserve: boolean) => void
   onClear: () => void

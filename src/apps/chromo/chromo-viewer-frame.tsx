@@ -54,6 +54,24 @@ export type ChromoViewerHandle = {
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   clearState: (options?: ChromoRpcOptions) => Promise<void>
+  listCookies: ChromoBridge['listCookies']
+  deleteCookie: ChromoBridge['deleteCookie']
+  clearCookies: ChromoBridge['clearCookies']
+  listStorage: ChromoBridge['listStorage']
+  setStorageItem: ChromoBridge['setStorageItem']
+  removeStorageItem: ChromoBridge['removeStorageItem']
+  clearStorage: ChromoBridge['clearStorage']
+  getSwInfo: ChromoBridge['getSwInfo']
+  getNetworkCacheStats: ChromoBridge['getNetworkCacheStats']
+  listNetworkCache: ChromoBridge['listNetworkCache']
+  clearNetworkCache: ChromoBridge['clearNetworkCache']
+  listIdb: ChromoBridge['listIdb']
+  deleteIdb: ChromoBridge['deleteIdb']
+  listIdbStores: ChromoBridge['listIdbStores']
+  getIdbAll: ChromoBridge['getIdbAll']
+  listSiteCaches: ChromoBridge['listSiteCaches']
+  listSiteCacheKeys: ChromoBridge['listSiteCacheKeys']
+  deleteSiteCache: ChromoBridge['deleteSiteCache']
   isReady: () => boolean
 }
 
@@ -243,6 +261,114 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         clearState(options) {
           return (
             bridgeRef.current?.clearState(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listCookies(options) {
+          return (
+            bridgeRef.current?.listCookies(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        deleteCookie(cookieId, options) {
+          return (
+            bridgeRef.current?.deleteCookie(cookieId, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        clearCookies(domain, options) {
+          return (
+            bridgeRef.current?.clearCookies(domain, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listStorage(type, options) {
+          return (
+            bridgeRef.current?.listStorage(type, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        setStorageItem(type, key, value, options) {
+          return (
+            bridgeRef.current?.setStorageItem(type, key, value, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        removeStorageItem(type, key, options) {
+          return (
+            bridgeRef.current?.removeStorageItem(type, key, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        clearStorage(type, options) {
+          return (
+            bridgeRef.current?.clearStorage(type, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        getSwInfo(options) {
+          return (
+            bridgeRef.current?.getSwInfo(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        getNetworkCacheStats(options) {
+          return (
+            bridgeRef.current?.getNetworkCacheStats(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listNetworkCache(layer, options) {
+          return (
+            bridgeRef.current?.listNetworkCache(layer, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        clearNetworkCache(layer, options) {
+          return (
+            bridgeRef.current?.clearNetworkCache(layer, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listIdb(options) {
+          return (
+            bridgeRef.current?.listIdb(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        deleteIdb(name, options) {
+          return (
+            bridgeRef.current?.deleteIdb(name, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listIdbStores(name, options) {
+          return (
+            bridgeRef.current?.listIdbStores(name, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        getIdbAll(name, store, options) {
+          return (
+            bridgeRef.current?.getIdbAll(name, store, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listSiteCaches(options) {
+          return (
+            bridgeRef.current?.listSiteCaches(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        listSiteCacheKeys(cache, options) {
+          return (
+            bridgeRef.current?.listSiteCacheKeys(cache, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        deleteSiteCache(cache, url, options) {
+          return (
+            bridgeRef.current?.deleteSiteCache(cache, url, options) ??
             Promise.reject(new Error('viewer not ready'))
           )
         },

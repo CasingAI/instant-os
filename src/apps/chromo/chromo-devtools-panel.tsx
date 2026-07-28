@@ -13,6 +13,10 @@ import type {
 import type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab } from './chromo-devtools-hub.ts'
 import { ChromoExtensionsPanel } from './chromo-extensions-panel.tsx'
 import { ChromoNetworkPanel } from './chromo-network-panel.tsx'
+import {
+  ChromoApplicationPanel,
+  type ChromoApplicationApi,
+} from './chromo-application-panel.tsx'
 import type { ChromoPageFault } from './chromo-page-fault.ts'
 import { ChromoPageFaultView } from './chromo-page-fault-view.tsx'
 
@@ -81,6 +85,7 @@ type ChromoDevToolsPanelProps = {
   onVConsoleEnabledChange?: (enabled: boolean) => void
   /** Clear global cookie / storage / hot cache (affects all Chromo tabs). */
   onClearBrowsingData?: () => Promise<void>
+  applicationApi?: ChromoApplicationApi
 }
 
 const TABS: {
@@ -91,6 +96,7 @@ const TABS: {
 }[] = [
   { id: 'console', label: '控制台' },
   { id: 'network', label: '网络' },
+  { id: 'application', label: '应用程序' },
   { id: 'extensions', label: '扩展' },
 ]
 
@@ -313,6 +319,8 @@ type ChromoDevToolsPanelBodyProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange?: (enabled: boolean) => void
+  applicationApi?: ChromoApplicationApi
+  onClearBrowsingData?: () => Promise<void>
 }
 
 const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
@@ -339,6 +347,8 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
+  applicationApi,
+  onClearBrowsingData,
 }: ChromoDevToolsPanelBodyProps) {
   if (activeTab === 'console') {
     return (
@@ -368,6 +378,20 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
         probeNetworkHot={probeNetworkHot}
         onSelect={onSelectNetwork}
         onCloseDetail={onCloseNetworkDetail}
+      />
+    )
+  }
+
+  if (activeTab === 'application') {
+    if (!applicationApi) {
+      return <div class="chromo-devtools__placeholder">应用程序 API 未就绪</div>
+    }
+    return (
+      <ChromoApplicationPanel
+        pageReady={pageReady}
+        pageUrl={pageUrl}
+        api={applicationApi}
+        onClearBrowsingData={onClearBrowsingData}
       />
     )
   }
@@ -504,6 +528,7 @@ export function ChromoDevToolsPanel({
   vConsoleError,
   onVConsoleEnabledChange,
   onClearBrowsingData,
+  applicationApi,
 }: ChromoDevToolsPanelProps) {
   const isWindowMode = mode === 'window'
   const panelRef = useRef<HTMLElement>(null)
@@ -962,6 +987,8 @@ export function ChromoDevToolsPanel({
             vConsoleBusy={vConsoleBusy}
             vConsoleError={vConsoleError}
             onVConsoleEnabledChange={onVConsoleEnabledChange}
+            applicationApi={applicationApi}
+            onClearBrowsingData={onClearBrowsingData}
           />
         )}
       </div>

@@ -180,6 +180,50 @@ export type ChromoNetworkHotProbeResult = {
   expiresAt?: number
 }
 
+export type ChromoCookie = {
+  id: string
+  name: string
+  value: string
+  domain: string
+  path: string
+  expires: number | null
+  secure: boolean
+  httpOnly: boolean
+  sameSite: string
+  hostOnly?: boolean
+}
+
+export type ChromoStorageEntry = { key: string; value: string }
+
+export type ChromoStorageListResult = {
+  type: 'local' | 'session'
+  origin: string
+  entries: ChromoStorageEntry[]
+}
+
+export type ChromoSwInfo = {
+  scriptURL: string
+  state: string
+  build: string
+  version: string
+  controlled: boolean
+  siteServiceWorkerBlocked: boolean
+}
+
+export type ChromoNetworkCacheStats = {
+  hot: { entries: number; bytes: number }
+  archive: { entries: number; bytes: number }
+}
+
+export type ChromoIdbDatabase = { name: string; version: number }
+export type ChromoIdbStore = { name: string; count: number }
+export type ChromoIdbValuePreview = {
+  type: string
+  preview: string
+  truncated?: boolean
+}
+export type ChromoIdbEntry = { key: unknown; value: ChromoIdbValuePreview }
+
 export type ChromoScreenshotOptions = {
   format?: 'jpeg' | 'png'
   quality?: number
@@ -252,6 +296,68 @@ export type ChromoBridge = {
     options?: ChromoScreenshotOptions,
   ) => Promise<ChromoScreenshotResult>
   clearState: (options?: ChromoRpcOptions) => Promise<void>
+  listCookies: (options?: ChromoRpcOptions) => Promise<{ cookies: ChromoCookie[] }>
+  deleteCookie: (cookieId: string, options?: ChromoRpcOptions) => Promise<{ deleted: boolean }>
+  clearCookies: (
+    domain?: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<{ cleared: number }>
+  listStorage: (
+    type: 'local' | 'session',
+    options?: ChromoRpcOptions,
+  ) => Promise<ChromoStorageListResult>
+  setStorageItem: (
+    type: 'local' | 'session',
+    key: string,
+    value: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<unknown>
+  removeStorageItem: (
+    type: 'local' | 'session',
+    key: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<unknown>
+  clearStorage: (
+    type: 'local' | 'session',
+    options?: ChromoRpcOptions,
+  ) => Promise<unknown>
+  getSwInfo: (options?: ChromoRpcOptions) => Promise<ChromoSwInfo>
+  getNetworkCacheStats: (options?: ChromoRpcOptions) => Promise<ChromoNetworkCacheStats>
+  listNetworkCache: (
+    layer: 'hot' | 'archive',
+    options?: { limit?: number } & ChromoRpcOptions,
+  ) => Promise<{ layer: string; entries: unknown[] }>
+  clearNetworkCache: (
+    layer: 'hot' | 'archive' | 'all',
+    options?: ChromoRpcOptions,
+  ) => Promise<{ layer: string }>
+  listIdb: (options?: ChromoRpcOptions) => Promise<{ databases: ChromoIdbDatabase[] }>
+  deleteIdb: (name: string, options?: ChromoRpcOptions) => Promise<unknown>
+  listIdbStores: (
+    name: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<{ name: string; version: number; stores: ChromoIdbStore[] }>
+  getIdbAll: (
+    name: string,
+    store: string,
+    options?: { limit?: number } & ChromoRpcOptions,
+  ) => Promise<{
+    name: string
+    store: string
+    keyPath: unknown
+    entries: ChromoIdbEntry[]
+    truncated?: boolean
+  }>
+  listSiteCaches: (options?: ChromoRpcOptions) => Promise<{ caches: string[] }>
+  listSiteCacheKeys: (
+    cache: string,
+    options?: { limit?: number } & ChromoRpcOptions,
+  ) => Promise<{ cache: string; urls: string[]; truncated?: boolean }>
+  deleteSiteCache: (
+    cache: string,
+    url?: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<unknown>
   isReady: () => boolean
   destroy: () => void
 }
@@ -456,6 +562,60 @@ export function createChromoBridge(
       case 'VC_SCREENSHOT_RESULT':
         settleRpc('VC_SCREENSHOT_RESULT', payload as RpcResultPayload)
         break
+      case 'VC_COOKIE_LIST_RESULT':
+        settleRpc('VC_COOKIE_LIST_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_COOKIE_DELETE_RESULT':
+        settleRpc('VC_COOKIE_DELETE_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_COOKIE_CLEAR_RESULT':
+        settleRpc('VC_COOKIE_CLEAR_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_STORAGE_LIST_RESULT':
+        settleRpc('VC_STORAGE_LIST_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_STORAGE_SET_RESULT':
+        settleRpc('VC_STORAGE_SET_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_STORAGE_REMOVE_RESULT':
+        settleRpc('VC_STORAGE_REMOVE_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_STORAGE_CLEAR_RESULT':
+        settleRpc('VC_STORAGE_CLEAR_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_SW_INFO_RESULT':
+        settleRpc('VC_SW_INFO_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_NETWORK_CACHE_STATS_RESULT':
+        settleRpc('VC_NETWORK_CACHE_STATS_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_NETWORK_CACHE_LIST_RESULT':
+        settleRpc('VC_NETWORK_CACHE_LIST_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_NETWORK_CACHE_CLEAR_RESULT':
+        settleRpc('VC_NETWORK_CACHE_CLEAR_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_IDB_LIST_RESULT':
+        settleRpc('VC_IDB_LIST_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_IDB_DELETE_RESULT':
+        settleRpc('VC_IDB_DELETE_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_IDB_STORES_RESULT':
+        settleRpc('VC_IDB_STORES_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_IDB_GET_ALL_RESULT':
+        settleRpc('VC_IDB_GET_ALL_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_SITE_CACHE_LIST_RESULT':
+        settleRpc('VC_SITE_CACHE_LIST_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_SITE_CACHE_KEYS_RESULT':
+        settleRpc('VC_SITE_CACHE_KEYS_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_SITE_CACHE_DELETE_RESULT':
+        settleRpc('VC_SITE_CACHE_DELETE_RESULT', payload as RpcResultPayload)
+        break
       case 'VC_CLICK':
         handlers.onClick?.(payload as ChromoClickPayload)
         break
@@ -465,13 +625,21 @@ export function createChromoBridge(
       case 'VC_HISTORY':
         handlers.onHistory?.(payload as ChromoHistoryPayload)
         break
-      case 'VC_CLEAR_STATE_DONE':
+      case 'VC_CLEAR_STATE_DONE': {
         if (pendingClearState) {
           clearTimeout(pendingClearState.timer)
-          pendingClearState.resolve()
+          const done = payload as { ok?: boolean; error?: { message?: string } } | undefined
+          if (done && done.ok === false) {
+            pendingClearState.reject(
+              Object.assign(new Error(done.error?.message ?? 'VC_CLEAR_STATE failed'), done.error ?? {}),
+            )
+          } else {
+            pendingClearState.resolve()
+          }
           pendingClearState = null
         }
         break
+      }
       default:
         break
     }
@@ -595,7 +763,7 @@ export function createChromoBridge(
       }).then((value) => value as ChromoScreenshotResult)
     },
     clearState(options) {
-      const timeout = options?.timeout ?? 10_000
+      const timeout = options?.timeout ?? 15_000
       return new Promise<void>((resolve, reject) => {
         if (pendingClearState) {
           clearTimeout(pendingClearState.timer)
@@ -615,8 +783,129 @@ export function createChromoBridge(
           )
         }, timeout)
         pendingClearState = { resolve, reject, timer }
-        postCommand(iframe, 'VC_CLEAR_STATE', {}, targetOrigin)
+        postCommand(iframe, 'VC_CLEAR_STATE', { id: crypto.randomUUID() }, targetOrigin)
       })
+    },
+    listCookies(options) {
+      return rpc('VC_COOKIE_LIST_RESULT', 'VC_COOKIE_LIST', {}, options).then(
+        (value) => (value ?? { cookies: [] }) as { cookies: ChromoCookie[] },
+      )
+    },
+    deleteCookie(cookieId, options) {
+      return rpc('VC_COOKIE_DELETE_RESULT', 'VC_COOKIE_DELETE', { cookieId }, options).then(
+        (value) => (value ?? { deleted: false }) as { deleted: boolean },
+      )
+    },
+    clearCookies(domain, options) {
+      const payload: Record<string, unknown> = {}
+      if (domain) {
+        payload.domain = domain
+      }
+      return rpc('VC_COOKIE_CLEAR_RESULT', 'VC_COOKIE_CLEAR', payload, options).then(
+        (value) => (value ?? { cleared: 0 }) as { cleared: number },
+      )
+    },
+    listStorage(type, options) {
+      return rpc('VC_STORAGE_LIST_RESULT', 'VC_STORAGE_LIST', { type }, options).then(
+        (value) =>
+          (value ?? { type, origin: '', entries: [] }) as ChromoStorageListResult,
+      )
+    },
+    setStorageItem(type, key, value, options) {
+      return rpc('VC_STORAGE_SET_RESULT', 'VC_STORAGE_SET', { type, key, value }, options)
+    },
+    removeStorageItem(type, key, options) {
+      return rpc('VC_STORAGE_REMOVE_RESULT', 'VC_STORAGE_REMOVE', { type, key }, options)
+    },
+    clearStorage(type, options) {
+      return rpc('VC_STORAGE_CLEAR_RESULT', 'VC_STORAGE_CLEAR', { type }, options)
+    },
+    getSwInfo(options) {
+      return rpc('VC_SW_INFO_RESULT', 'VC_SW_INFO', {}, options).then(
+        (value) => value as ChromoSwInfo,
+      )
+    },
+    getNetworkCacheStats(options) {
+      return rpc('VC_NETWORK_CACHE_STATS_RESULT', 'VC_NETWORK_CACHE_STATS', {}, options).then(
+        (value) => value as ChromoNetworkCacheStats,
+      )
+    },
+    listNetworkCache(layer, options) {
+      const { limit, timeout } = options ?? {}
+      const payload: Record<string, unknown> = { layer }
+      if (limit !== undefined) {
+        payload.limit = limit
+      }
+      return rpc('VC_NETWORK_CACHE_LIST_RESULT', 'VC_NETWORK_CACHE_LIST', payload, {
+        timeout,
+      }).then((value) => (value ?? { layer, entries: [] }) as { layer: string; entries: unknown[] })
+    },
+    clearNetworkCache(layer, options) {
+      return rpc('VC_NETWORK_CACHE_CLEAR_RESULT', 'VC_NETWORK_CACHE_CLEAR', { layer }, options).then(
+        (value) => (value ?? { layer }) as { layer: string },
+      )
+    },
+    listIdb(options) {
+      return rpc('VC_IDB_LIST_RESULT', 'VC_IDB_LIST', {}, options).then(
+        (value) => (value ?? { databases: [] }) as { databases: ChromoIdbDatabase[] },
+      )
+    },
+    deleteIdb(name, options) {
+      return rpc('VC_IDB_DELETE_RESULT', 'VC_IDB_DELETE', { name }, options)
+    },
+    listIdbStores(name, options) {
+      return rpc('VC_IDB_STORES_RESULT', 'VC_IDB_STORES', { name }, options).then(
+        (value) =>
+          (value ?? { name, version: 0, stores: [] }) as {
+            name: string
+            version: number
+            stores: ChromoIdbStore[]
+          },
+      )
+    },
+    getIdbAll(name, store, options) {
+      const { limit, timeout } = options ?? {}
+      const payload: Record<string, unknown> = { name, store }
+      if (limit !== undefined) {
+        payload.limit = limit
+      }
+      return rpc('VC_IDB_GET_ALL_RESULT', 'VC_IDB_GET_ALL', payload, { timeout }).then(
+        (value) =>
+          (value ?? { name, store, keyPath: null, entries: [] }) as {
+            name: string
+            store: string
+            keyPath: unknown
+            entries: ChromoIdbEntry[]
+            truncated?: boolean
+          },
+      )
+    },
+    listSiteCaches(options) {
+      return rpc('VC_SITE_CACHE_LIST_RESULT', 'VC_SITE_CACHE_LIST', {}, options).then(
+        (value) => (value ?? { caches: [] }) as { caches: string[] },
+      )
+    },
+    listSiteCacheKeys(cache, options) {
+      const { limit, timeout } = options ?? {}
+      const payload: Record<string, unknown> = { cache }
+      if (limit !== undefined) {
+        payload.limit = limit
+      }
+      return rpc('VC_SITE_CACHE_KEYS_RESULT', 'VC_SITE_CACHE_KEYS', payload, { timeout }).then(
+        (value) =>
+          (value ?? { cache, urls: [] }) as {
+            cache: string
+            urls: string[]
+            truncated?: boolean
+          },
+      )
+    },
+    deleteSiteCache(cache, url, options) {
+      const payload: Record<string, unknown> = { cache }
+      if (url) {
+        payload.url = url
+      }
+      return rpc('VC_SITE_CACHE_DELETE_RESULT', 'VC_SITE_CACHE_DELETE', payload, options)
     },
     isReady: () => ready,
     destroy() {

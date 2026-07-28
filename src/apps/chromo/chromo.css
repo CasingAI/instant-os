@@ -2277,3 +2277,251 @@
 .chromo--narrow .chromo-network__timing-row {
   grid-template-columns: 96px 1fr 56px;
 }
+
+/* Application panel */
+.chromo-application {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  background: #202124;
+  color: #e8eaed;
+  font-size: 12px;
+}
+
+.chromo-application__nav {
+  width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid #30363d;
+  overflow: auto;
+  padding: 8px 0;
+}
+
+.chromo-application__nav-group {
+  margin-bottom: 10px;
+}
+
+.chromo-application__nav-group-label {
+  padding: 4px 12px;
+  color: #9aa0a6;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chromo-application__nav-item {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #e8eaed;
+  text-align: left;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.chromo-application__nav-item:hover {
+  background: #2a2d31;
+}
+
+.chromo-application__nav-item--active {
+  background: #3c4043;
+}
+
+.chromo-application__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chromo-application__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #30363d;
+}
+
+.chromo-application__toolbar-title {
+  font-weight: 600;
+}
+
+.chromo-application__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chromo-application__muted {
+  color: #9aa0a6;
+  font-weight: 400;
+}
+
+.chromo-application__error {
+  margin: 8px 10px 0;
+  padding: 6px 8px;
+  border: 1px solid #5c2b29;
+  background: #3c1f1e;
+  color: #f28b82;
+}
+
+.chromo-application__empty {
+  padding: 16px 12px;
+  color: #9aa0a6;
+}
+
+.chromo-application__btn {
+  border: 1px solid #5f6368;
+  border-radius: 4px;
+  background: #292a2d;
+  color: #e8eaed;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.chromo-application__btn:hover:not(:disabled) {
+  background: #3c4043;
+}
+
+.chromo-application__btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chromo-application__btn--small {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.chromo-application__btn--danger {
+  border-color: #5c2b29;
+  background: #3c1f1e;
+  color: #f28b82;
+}
+
+.chromo-application__table-wrap {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  padding: 8px 10px;
+}
+
+.chromo-application__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.chromo-application__table th,
+.chromo-application__table td {
+  border-bottom: 1px solid #30363d;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.chromo-application__table th {
+  color: #9aa0a6;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: #202124;
+}
+
+.chromo-application__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
+}
+
+.chromo-application__row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.chromo-application__card {
+  padding: 12px;
+}
+
+.chromo-application__card-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.chromo-application__hint {
+  margin: 0 0 12px;
+  color: #9aa0a6;
+  line-height: 1.45;
+}
+
+.chromo-application__dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.chromo-application__dl > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+}
+
+.chromo-application__dl dt {
+  color: #9aa0a6;
+}
+
+.chromo-application__dl dd {
+  margin: 0;
+}
+
+.chromo-application__split {
+  display: grid;
+  grid-template-columns: 180px 180px 1fr;
+  min-height: 0;
+  flex: 1;
+}
+
+.chromo-application__list {
+  border-right: 1px solid #30363d;
+  overflow: auto;
+  padding: 8px;
+}
+
+.chromo-application__list-title {
+  color: #9aa0a6;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.chromo-application__list-item {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #e8eaed;
+  text-align: left;
+  padding: 5px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+
+.chromo-application__list-item:hover {
+  background: #2a2d31;
+}
+
+.chromo-application__list-item--active {
+  background: #3c4043;
+}
+
+.chromo-application select {
+  background: #292a2d;
+  color: #e8eaed;
+  border: 1px solid #5f6368;
+  border-radius: 4px;
+  padding: 3px 6px;
+}
