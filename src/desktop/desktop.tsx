@@ -42,7 +42,12 @@ import {
 } from './desktop-grid-layout.ts'
 import { DesktopFolderIcon, type FolderPreviewApp } from './desktop-folder-icon.tsx'
 import { warmFolderMiniIconSnapshotCache } from './desktop-folder-mini-icon-service.tsx'
-import { registerCloseOpenDesktopFolder, registerOpenDesktopFolder, setOpenDesktopFolderId } from './desktop-open-folder-session.ts'
+import {
+  closeOpenDesktopFolder,
+  registerCloseOpenDesktopFolder,
+  registerOpenDesktopFolder,
+  setOpenDesktopFolderId,
+} from './desktop-open-folder-session.ts'
 import {
   DesktopFolderOverlay,
   resolveFolderAppEntry,
@@ -545,7 +550,7 @@ function renderDragGhost(entry: DesktopEntry) {
 }
 
 export function Desktop() {
-  const { windows, activeWindowId, desktopRevealed, hideDesktopReveal } = useOs()
+  const { windows, activeWindowId, desktopRevealed, toggleDesktopReveal } = useOs()
   const { installedApps, pendingInstalls, pendingUpdateCount } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const {
@@ -835,9 +840,10 @@ export function Desktop() {
       if (target.closest('.desktop-icon') || target.closest('.desktop__page-dot')) {
         return
       }
-      hideDesktopReveal()
+      closeOpenDesktopFolder()
+      toggleDesktopReveal()
     },
-    [hideDesktopReveal],
+    [toggleDesktopReveal],
   )
 
   const hasFrontmostWindow = windows.some(
@@ -858,7 +864,7 @@ export function Desktop() {
     pageCount,
     pagerSize.width,
     reorderSession === undefined,
-    desktopRevealed ? onDesktopEmptyTap : undefined,
+    onDesktopEmptyTap,
     pageSwitchNavEnabled,
     pagerRef,
   )
