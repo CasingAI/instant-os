@@ -39,17 +39,14 @@ export function getSnapBounds(target: SnapTarget): WindowBounds {
 }
 
 export function reanchorSnappedWindow(window: WindowBounds & { snap?: 'left' | 'right' }): WindowBounds {
+  if (window.snap === 'left' || window.snap === 'right') {
+    return getSnapBounds(window.snap)
+  }
+
   const work = getMaximizedBounds()
   const width = Math.min(window.width, work.width)
   const height = Math.min(window.height, work.height)
   const y = Math.max(work.y, Math.min(window.y, work.y + work.height - height))
-
-  if (window.snap === 'left') {
-    return { x: work.x, y, width, height }
-  }
-  if (window.snap === 'right') {
-    return { x: work.x + work.width - width, y, width, height }
-  }
 
   return { x: window.x, y, width, height }
 }
