@@ -16,6 +16,7 @@ type ChromoConsolePanelProps = {
   replHistory: string[]
   onReplHistoryChange: (history: string[]) => void
   onAppendEntries: (entries: ChromoConsoleDisplayEntry[]) => void
+  onClear?: () => void
 }
 
 const LEVEL_FILTERS: { id: ChromoConsoleLevelFilter; label: string }[] = [
@@ -160,6 +161,7 @@ export function ChromoConsolePanel({
   replHistory,
   onReplHistoryChange,
   onAppendEntries,
+  onClear,
 }: ChromoConsolePanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -341,15 +343,30 @@ export function ChromoConsolePanel({
             {filter.label}
           </button>
         ))}
+        {onClear ? (
+          <button
+            type="button"
+            class="chromo-console__clear"
+            onClick={onClear}
+            title="清空控制台"
+            aria-label="清空控制台"
+          >
+            清空
+          </button>
+        ) : null}
       </div>
 
       <div class="chromo-console__list" ref={listRef}>
         {filteredEntries.length === 0 ? (
           <div class="chromo-console__empty">子页面 console 输出会显示在这里</div>
         ) : (
-          filteredEntries.map((entry) => <ConsoleEntryRow key={
-            entry.kind === 'page' ? entry.entry.id : entry.id
-          } entry={entry} />)
+          filteredEntries.map((entry) => {
+            const key =
+              entry.kind === 'page'
+                ? `page:${entry.entry.id}`
+                : `${entry.kind}:${entry.id}`
+            return <ConsoleEntryRow key={key} entry={entry} />
+          })
         )}
       </div>
 

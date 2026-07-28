@@ -279,6 +279,7 @@ type ChromoDevToolsPanelBodyProps = {
   replHistory: string[]
   onReplHistoryChange: (history: string[]) => void
   onAppendEntries: (entries: ChromoConsoleDisplayEntry[]) => void
+  onClear?: () => void
   networkEntries: ChromoNetworkEntry[]
   selectedNetworkId?: string
   disableNetworkCache?: boolean
@@ -299,6 +300,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   replHistory,
   onReplHistoryChange,
   onAppendEntries,
+  onClear: onClearConsole,
   networkEntries,
   selectedNetworkId,
   disableNetworkCache,
@@ -319,6 +321,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
         replHistory={replHistory}
         onReplHistoryChange={onReplHistoryChange}
         onAppendEntries={onAppendEntries}
+        onClear={onClearConsole}
       />
     )
   }
@@ -860,6 +863,7 @@ export function ChromoDevToolsPanel({
             replHistory={replHistory}
             onReplHistoryChange={onReplHistoryChange}
             onAppendEntries={onAppendEntries}
+            onClear={onClear}
             networkEntries={networkEntries}
             selectedNetworkId={selectedNetworkId}
             disableNetworkCache={disableNetworkCache}

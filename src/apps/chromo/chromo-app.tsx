@@ -372,7 +372,21 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     if (!activeTab) {
       return
     }
-    updateTab(activeTab.id, (tab) => ({ ...tab, loading: true, pageFault: undefined }))
+    updateTab(activeTab.id, (tab) => ({
+      ...tab,
+      loading: true,
+      pageFault: undefined,
+      ...(tab.preserveConsole
+        ? {}
+        : {
+            consoleEntries: [],
+            replEntries: [],
+            lastConsoleId: '',
+            networkEntries: [],
+            lastNetworkId: '',
+            selectedNetworkId: '',
+          }),
+    }))
     getViewerRef(activeTab.id).current?.reload()
   }, [activeTab, getViewerRef, updateTab])
 
@@ -433,11 +447,21 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
           return
         }
 
-        updateTab(tabId, (entry) => ({
-          ...entry,
-          consoleEntries: [...entry.consoleEntries, ...result.entries],
-          lastConsoleId: result.latestId ?? entry.lastConsoleId,
-        }))
+        updateTab(tabId, (entry) => {
+          const seen = new Set(entry.consoleEntries.map((item) => item.id))
+          const fresh = result.entries.filter((item) => item.id && !seen.has(item.id))
+          if (!fresh.length) {
+            return {
+              ...entry,
+              lastConsoleId: result.latestId ?? entry.lastConsoleId,
+            }
+          }
+          return {
+            ...entry,
+            consoleEntries: [...entry.consoleEntries, ...fresh],
+            lastConsoleId: result.latestId ?? entry.lastConsoleId,
+          }
+        })
       } catch (err) {
         console.error('[chromo console read]', err)
       }
@@ -1371,10 +1395,25 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   pageFault: fault,
                 }))
               }}
-              onLocation={({ url, method }) => {
+              onLocation={({ url, method, httpMethod }) => {
                 // window.open → 新标签；location.assign/replace 等 → 当前标签
                 if (method === 'open' && url) {
                   addTab(url)
+                  return
+                }
+                // POST 表单：被动导航只能发 GET，会打挂仅接受 POST 的页（如 dnsleaktest results）并触发恢复死循环
+                if (method === 'submit' && httpMethod === 'post') {
+                  updateTab(tab.id, (entry) => ({
+                    ...entry,
+                    loading: false,
+                    pageFault: {
+                      severity: 'load',
+                      code: 'POST_FORM_UNSUPPORTED',
+                      message:
+                        '当前不支持 POST 表单提交（被动导航只能以 GET 打开目标页）。请改用 GET 表单，或在站点允许时换入口。',
+                      url,
+                    },
+                  }))
                   return
                 }
                 navigateTab(tab.id, url)

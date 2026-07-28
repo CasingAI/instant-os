@@ -20,6 +20,8 @@ export type ChromoClickPayload = {
 export type ChromoLocationPayload = {
   ts: number
   method: string
+  /** Form HTTP method when method === 'submit' */
+  httpMethod?: 'get' | 'post'
   url: string
   target?: string
 }
