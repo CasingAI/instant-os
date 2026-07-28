@@ -155,7 +155,12 @@
   gap: 8px;
 }
 
-.settings__nav-bar > .ios-nav-back,
+.settings__nav-bar > .ios-nav-back {
+  justify-self: start;
+  flex-shrink: 0;
+  max-width: min(200px, 100%);
+}
+
 .settings__nav-bar > .settings__btn {
   justify-self: start;
   min-width: 0;

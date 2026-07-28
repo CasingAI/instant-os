@@ -19,15 +19,15 @@
   --ios-nav-back-height: 28px;
   --ios-nav-back-font-size: 13px;
   --ios-nav-back-font-weight: 600;
-  --ios-nav-back-padding: 0 12px 0 9px;
+  --ios-nav-back-padding: 0 8px 0 2px;
 }
 
 .ios-nav-back {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  min-width: 0;
-  max-width: 100%;
+  gap: 2px;
+  width: fit-content;
+  max-width: min(200px, 100%);
   height: var(--ios-nav-back-height);
   padding: var(--ios-nav-back-padding);
   border: var(--ios-nav-back-border);
@@ -40,8 +40,8 @@
   text-shadow: var(--ios-nav-back-text-shadow);
   box-shadow: var(--ios-nav-back-shadow);
   white-space: nowrap;
-  /* 允许在窄栏 / 带居中抬头的 nav 里收缩，label 才能 ellipsis */
-  flex-shrink: 1;
+  /* 按内容定宽，短 label 不被挤没；长 label 靠 max-width + label ellipsis */
+  flex-shrink: 0;
 }
 
 .ios-nav-back__icon {

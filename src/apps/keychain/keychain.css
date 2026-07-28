@@ -352,13 +352,6 @@
   gap: 10px;
 }
 
-.keychain__nav .ios-nav-back {
-  flex-shrink: 1;
-  min-width: 0;
-  /* 无居中抬头时仍限制返回钮宽度，长供应商名走省略号 */
-  max-width: min(100%, 200px);
-}
-
 .keychain__nav .settings__btn {
   flex-shrink: 0;
   min-width: 64px;
