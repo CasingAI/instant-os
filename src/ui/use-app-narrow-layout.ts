@@ -36,7 +36,7 @@ export function useAppNarrowLayout(): {
         }
         return width <= APP_NARROW_LAYOUT_MAX_WIDTH
       })
-      setLayoutReady(true)
+      setLayoutReady((ready) => ready || true)
     }
 
     sync()

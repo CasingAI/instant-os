@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import type { RefObject } from 'preact'
+import { memo } from 'preact/compat'
 import { ChromoConsolePanel } from './chromo-console-panel.tsx'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
 import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
@@ -13,9 +15,23 @@ const DEFAULT_DEVTOOLS_HEIGHT = 240
 const DEFAULT_DEVTOOLS_WIDTH = 420
 const MIN_DEVTOOLS_HEIGHT = 120
 const MIN_DEVTOOLS_WIDTH = 280
+/** 相对容器的最大占比 */
+const MAX_SIZE_RATIO = 0.75
+/** 左/右 dock 时为网页保留的最小宽度 */
+const MIN_VIEWPORT_WIDTH = 200
+/** bottom dock 时为网页保留的最小高度 */
+const MIN_VIEWPORT_HEIGHT = 200
+/** 窄屏侧栏 overlay 宽度比 */
+const NARROW_SIDE_RATIO = 0.85
+/** 窄屏侧栏宽度上限 */
+const NARROW_SIDE_CAP = 420
+/** 窄屏 bottom overlay 高度比 */
+const NARROW_BOTTOM_RATIO = 0.55
 
 type ChromoDevToolsPanelProps = {
   mode?: 'embedded' | 'window'
+  /** 与 Chromo 窄屏布局同步，用于侧栏/底部 overlay 上限 */
+  narrowLayout?: boolean
   activeTab: ChromoDevToolsPanelTab
   onTabChange: (tab: ChromoDevToolsPanelTab) => void
   onClose: () => void
@@ -114,12 +130,90 @@ function readStoredWidth(): number {
   return DEFAULT_DEVTOOLS_WIDTH
 }
 
-function maxDevtoolsHeight(): number {
-  return Math.max(MIN_DEVTOOLS_HEIGHT, Math.floor(window.innerHeight * 0.75))
+function clampSize(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 
-function maxDevtoolsWidth(): number {
-  return Math.max(MIN_DEVTOOLS_WIDTH, Math.floor(window.innerWidth * 0.75))
+/** 左/右 dock 最大宽度：宽屏按 75% 且为网页留 200px；窄屏 overlay 按 85%/420 */
+function maxDevtoolsWidthForContainer(containerWidth: number, narrowLayout: boolean): number {
+  if (containerWidth <= 0) {
+    return MIN_DEVTOOLS_WIDTH
+  }
+  if (narrowLayout) {
+    return Math.max(0, Math.min(Math.floor(containerWidth * NARROW_SIDE_RATIO), NARROW_SIDE_CAP))
+  }
+  return Math.max(
+    0,
+    Math.min(
+      Math.floor(containerWidth * MAX_SIZE_RATIO),
+      Math.max(0, containerWidth - MIN_VIEWPORT_WIDTH),
+    ),
+  )
+}
+
+/** bottom dock 最大高度；窄屏 overlay 按 55% */
+function maxDevtoolsHeightForContainer(containerHeight: number, narrowLayout: boolean): number {
+  if (containerHeight <= 0) {
+    return MIN_DEVTOOLS_HEIGHT
+  }
+  if (narrowLayout) {
+    return Math.max(0, Math.floor(containerHeight * NARROW_BOTTOM_RATIO))
+  }
+  return Math.max(
+    0,
+    Math.min(
+      Math.floor(containerHeight * MAX_SIZE_RATIO),
+      Math.max(0, containerHeight - MIN_VIEWPORT_HEIGHT),
+    ),
+  )
+}
+
+function minDevtoolsWidthForContainer(containerWidth: number, maxWidth: number): number {
+  if (containerWidth <= 0) {
+    return MIN_DEVTOOLS_WIDTH
+  }
+  return Math.min(MIN_DEVTOOLS_WIDTH, maxWidth)
+}
+
+function minDevtoolsHeightForContainer(containerHeight: number, maxHeight: number): number {
+  if (containerHeight <= 0) {
+    return MIN_DEVTOOLS_HEIGHT
+  }
+  return Math.min(MIN_DEVTOOLS_HEIGHT, maxHeight)
+}
+
+type EffectiveSizes = { width: number; height: number }
+
+function computeEffectiveSizes(
+  containerWidth: number,
+  containerHeight: number,
+  narrowLayout: boolean,
+  preferredWidth: number,
+  preferredHeight: number,
+): EffectiveSizes {
+  const maxWidth = maxDevtoolsWidthForContainer(containerWidth, narrowLayout)
+  const maxHeight = maxDevtoolsHeightForContainer(containerHeight, narrowLayout)
+  const minWidth = minDevtoolsWidthForContainer(containerWidth, maxWidth)
+  const minHeight = minDevtoolsHeightForContainer(containerHeight, maxHeight)
+  return {
+    width: clampSize(preferredWidth, minWidth, Math.max(minWidth, maxWidth)),
+    height: clampSize(preferredHeight, minHeight, Math.max(minHeight, maxHeight)),
+  }
+}
+
+function computeDragBounds(
+  containerWidth: number,
+  containerHeight: number,
+  narrowLayout: boolean,
+): { minWidth: number; maxWidth: number; minHeight: number; maxHeight: number } {
+  const maxWidth = maxDevtoolsWidthForContainer(containerWidth, narrowLayout)
+  const maxHeight = maxDevtoolsHeightForContainer(containerHeight, narrowLayout)
+  return {
+    minWidth: minDevtoolsWidthForContainer(containerWidth, maxWidth),
+    maxWidth,
+    minHeight: minDevtoolsHeightForContainer(containerHeight, maxHeight),
+    maxHeight,
+  }
 }
 
 function DockSideIcon({ side }: { side: ChromoDevToolsDockSide | 'undocked' }) {
@@ -162,8 +256,163 @@ function DockSideIcon({ side }: { side: ChromoDevToolsDockSide | 'undocked' }) {
   )
 }
 
+type ChromoDevToolsPanelBodyProps = {
+  activeTab: ChromoDevToolsPanelTab
+  entries: ChromoConsoleDisplayEntry[]
+  pageReady: boolean
+  evalInPage: (code: string) => Promise<unknown>
+  replHistory: string[]
+  onReplHistoryChange: (history: string[]) => void
+  onAppendEntries: (entries: ChromoConsoleDisplayEntry[]) => void
+  networkEntries: ChromoNetworkEntry[]
+  selectedNetworkId?: string
+  disableNetworkCache?: boolean
+  readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  pageLoading?: boolean
+  pageError?: string
+  onSelectNetwork: (entry: ChromoNetworkEntry) => void
+  onCloseNetworkDetail?: () => void
+  pageUrl?: string
+}
+
+const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
+  activeTab,
+  entries,
+  pageReady,
+  evalInPage,
+  replHistory,
+  onReplHistoryChange,
+  onAppendEntries,
+  networkEntries,
+  selectedNetworkId,
+  disableNetworkCache,
+  readNetworkBody,
+  pageLoading,
+  pageError,
+  onSelectNetwork,
+  onCloseNetworkDetail,
+  pageUrl,
+}: ChromoDevToolsPanelBodyProps) {
+  if (activeTab === 'console') {
+    return (
+      <ChromoConsolePanel
+        entries={entries}
+        pageReady={pageReady}
+        evalInPage={evalInPage}
+        replHistory={replHistory}
+        onReplHistoryChange={onReplHistoryChange}
+        onAppendEntries={onAppendEntries}
+      />
+    )
+  }
+
+  if (activeTab === 'network') {
+    return (
+      <ChromoNetworkPanel
+        entries={networkEntries}
+        selectedId={selectedNetworkId}
+        pageLoading={pageLoading}
+        pageError={pageError}
+        pageUrl={pageUrl}
+        disableNetworkCache={disableNetworkCache}
+        readNetworkBody={readNetworkBody}
+        onSelect={onSelectNetwork}
+        onCloseDetail={onCloseNetworkDetail}
+      />
+    )
+  }
+
+  return (
+    <div class="chromo-devtools__placeholder">
+      此面板需要 virtual-chromo 协议扩展，当前版本不可用。
+    </div>
+  )
+})
+
+/** 内嵌模式：观测 chromo__devtools-area，仅在 clamp 结果变化时 setState */
+function useEmbeddedEffectiveLayout(
+  enabled: boolean,
+  panelRef: RefObject<HTMLElement>,
+  narrowLayout: boolean,
+  preferredWidth: number,
+  preferredHeight: number,
+): {
+  effectiveWidth: number
+  effectiveHeight: number
+  getDragBounds: () => { minWidth: number; maxWidth: number; minHeight: number; maxHeight: number }
+} {
+  const containerRef = useRef({ width: 0, height: 0 })
+  const layoutInputRef = useRef({ narrowLayout, preferredWidth, preferredHeight })
+  layoutInputRef.current = { narrowLayout, preferredWidth, preferredHeight }
+
+  const [effective, setEffective] = useState<EffectiveSizes>(() =>
+    computeEffectiveSizes(0, 0, narrowLayout, preferredWidth, preferredHeight),
+  )
+  const observerRafRef = useRef(0)
+
+  const syncEffective = useCallback((force = false) => {
+    const { width, height } = containerRef.current
+    const { narrowLayout: narrow, preferredWidth: pw, preferredHeight: ph } = layoutInputRef.current
+    const next = computeEffectiveSizes(width, height, narrow, pw, ph)
+    setEffective((prev) =>
+      force || prev.width !== next.width || prev.height !== next.height ? next : prev,
+    )
+  }, [])
+
+  useLayoutEffect(() => {
+    syncEffective(true)
+  }, [preferredWidth, preferredHeight, narrowLayout, syncEffective])
+
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+
+    const container = panelRef.current?.parentElement
+    if (!container) {
+      return
+    }
+
+    const scheduleSync = () => {
+      containerRef.current = {
+        width: container.clientWidth,
+        height: container.clientHeight,
+      }
+      if (observerRafRef.current) {
+        return
+      }
+      observerRafRef.current = requestAnimationFrame(() => {
+        observerRafRef.current = 0
+        syncEffective(false)
+      })
+    }
+
+    scheduleSync()
+    const observer = new ResizeObserver(scheduleSync)
+    observer.observe(container)
+    return () => {
+      observer.disconnect()
+      if (observerRafRef.current) {
+        cancelAnimationFrame(observerRafRef.current)
+      }
+    }
+  }, [enabled, panelRef, syncEffective])
+
+  const getDragBounds = useCallback(() => {
+    const { width, height } = containerRef.current
+    return computeDragBounds(width, height, layoutInputRef.current.narrowLayout)
+  }, [])
+
+  return {
+    effectiveWidth: effective.width,
+    effectiveHeight: effective.height,
+    getDragBounds,
+  }
+}
+
 export function ChromoDevToolsPanel({
   mode = 'embedded',
+  narrowLayout = false,
   activeTab,
   onTabChange,
   onClose,
@@ -190,20 +439,73 @@ export function ChromoDevToolsPanel({
   onCloseNetworkDetail,
   pageUrl,
 }: ChromoDevToolsPanelProps) {
-  const [height, setHeight] = useState(readStoredHeight)
-  const [width, setWidth] = useState(readStoredWidth)
+  const isWindowMode = mode === 'window'
+  const panelRef = useRef<HTMLElement>(null)
+
+  /** 用户偏好尺寸（localStorage）；容器缩小时不改写 */
+  const [preferredHeight, setPreferredHeight] = useState(readStoredHeight)
+  const [preferredWidth, setPreferredWidth] = useState(readStoredWidth)
+
+  const { effectiveWidth, effectiveHeight, getDragBounds } = useEmbeddedEffectiveLayout(
+    !isWindowMode,
+    panelRef,
+    narrowLayout,
+    preferredWidth,
+    preferredHeight,
+  )
 
   const resizingRef = useRef(false)
   const pointerIdRef = useRef<number | null>(null)
   const startPointerRef = useRef({ x: 0, y: 0 })
   const startSizeRef = useRef(0)
-  const resizeHandleRef = useRef<HTMLDivElement>(null)
+  const liveSizeRef = useRef<number | null>(null)
+  const dragRafRef = useRef(0)
+  const boundsRef = useRef({ minWidth: 0, maxWidth: 0, minHeight: 0, maxHeight: 0 })
   const captureTargetRef = useRef<HTMLElement | null>(null)
+  const endDragListenersRef = useRef<(() => void) | null>(null)
+  /** 拖拽中的实时尺寸；rAF 节流，避免每像素触发整树重渲染 + localStorage */
+  const [dragSize, setDragSize] = useState<number | null>(null)
 
-  const isWindowMode = mode === 'window'
   const selectedDockAction: ChromoDevToolsDockSide | 'undocked' = isWindowMode
     ? 'undocked'
     : dockSide
+
+  const displayWidth = dragSize ?? effectiveWidth
+  const displayHeight = dragSize ?? effectiveHeight
+
+  const scheduleDragSize = useCallback((size: number) => {
+    liveSizeRef.current = size
+    if (dragRafRef.current) {
+      return
+    }
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = 0
+      if (liveSizeRef.current !== null) {
+        setDragSize(liveSizeRef.current)
+      }
+    })
+  }, [])
+
+  const commitPreferredSize = useCallback(
+    (size: number) => {
+      if (dockSide === 'bottom') {
+        setPreferredHeight(size)
+        try {
+          localStorage.setItem(DEVTOOLS_HEIGHT_KEY, String(size))
+        } catch {
+          // ignore
+        }
+        return
+      }
+      setPreferredWidth(size)
+      try {
+        localStorage.setItem(DEVTOOLS_WIDTH_KEY, String(size))
+      } catch {
+        // ignore
+      }
+    },
+    [dockSide],
+  )
 
   const persistDockSide = useCallback(
     (nextSide: ChromoDevToolsDockSide) => {
@@ -217,107 +519,43 @@ export function ChromoDevToolsPanel({
     [onDockSideChange],
   )
 
-  const persistHeight = useCallback((nextHeight: number) => {
-    const clamped = Math.min(maxDevtoolsHeight(), Math.max(MIN_DEVTOOLS_HEIGHT, nextHeight))
-    setHeight(clamped)
-    try {
-      localStorage.setItem(DEVTOOLS_HEIGHT_KEY, String(clamped))
-    } catch {
-      // ignore
-    }
-  }, [])
-
-  const persistWidth = useCallback((nextWidth: number) => {
-    const clamped = Math.min(maxDevtoolsWidth(), Math.max(MIN_DEVTOOLS_WIDTH, nextWidth))
-    setWidth(clamped)
-    try {
-      localStorage.setItem(DEVTOOLS_WIDTH_KEY, String(clamped))
-    } catch {
-      // ignore
-    }
-  }, [])
-
-  const stopResize = useCallback(() => {
-    if (!resizingRef.current) {
-      return
-    }
-    if (captureTargetRef.current && pointerIdRef.current !== null) {
-      try {
-        captureTargetRef.current.releasePointerCapture(pointerIdRef.current)
-      } catch {
-        // ignore
-      }
-    }
-    resizingRef.current = false
-    captureTargetRef.current = null
-    pointerIdRef.current = null
-    document.body.style.removeProperty('user-select')
-    document.body.style.removeProperty('cursor')
-  }, [])
-
-  const onResizePointerMove = useCallback(
-    (event: PointerEvent) => {
+  const stopResize = useCallback(
+    (commit = true) => {
       if (!resizingRef.current) {
         return
       }
-      event.preventDefault()
-
-      if (dockSide === 'bottom') {
-        const delta = startPointerRef.current.y - event.clientY
-        persistHeight(startSizeRef.current + delta)
-        return
+      endDragListenersRef.current?.()
+      endDragListenersRef.current = null
+      if (dragRafRef.current) {
+        cancelAnimationFrame(dragRafRef.current)
+        dragRafRef.current = 0
       }
-
-      if (dockSide === 'left') {
-        const delta = event.clientX - startPointerRef.current.x
-        persistWidth(startSizeRef.current + delta)
-        return
+      if (captureTargetRef.current && pointerIdRef.current !== null) {
+        try {
+          captureTargetRef.current.releasePointerCapture(pointerIdRef.current)
+        } catch {
+          // ignore
+        }
       }
-
-      const delta = startPointerRef.current.x - event.clientX
-      persistWidth(startSizeRef.current + delta)
+      if (commit && liveSizeRef.current !== null) {
+        commitPreferredSize(liveSizeRef.current)
+      }
+      resizingRef.current = false
+      liveSizeRef.current = null
+      setDragSize(null)
+      captureTargetRef.current = null
+      pointerIdRef.current = null
+      document.body.style.removeProperty('user-select')
+      document.body.style.removeProperty('cursor')
     },
-    [dockSide, persistHeight, persistWidth],
-  )
-
-  const onPointerUp = useCallback(
-    (event: PointerEvent) => {
-      if (pointerIdRef.current !== event.pointerId) {
-        return
-      }
-      stopResize()
-    },
-    [stopResize],
-  )
-
-  const onPointerCancel = useCallback(
-    (event: PointerEvent) => {
-      if (pointerIdRef.current !== event.pointerId) {
-        return
-      }
-      stopResize()
-    },
-    [stopResize],
+    [commitPreferredSize],
   )
 
   useEffect(() => {
-    if (isWindowMode) {
-      return
-    }
-    const handle = resizeHandleRef.current
-    if (!handle) {
-      return
-    }
-
-    handle.addEventListener('pointermove', onResizePointerMove)
-    handle.addEventListener('pointerup', onPointerUp)
-    handle.addEventListener('pointercancel', onPointerCancel)
     return () => {
-      handle.removeEventListener('pointermove', onResizePointerMove)
-      handle.removeEventListener('pointerup', onPointerUp)
-      handle.removeEventListener('pointercancel', onPointerCancel)
+      stopResize(false)
     }
-  }, [isWindowMode, onPointerCancel, onPointerUp, onResizePointerMove])
+  }, [stopResize])
 
   const onResizePointerDown = useCallback(
     (event: PointerEvent) => {
@@ -325,23 +563,77 @@ export function ChromoDevToolsPanel({
       event.stopPropagation()
 
       const handle = event.currentTarget as HTMLDivElement
-      handle.setPointerCapture(event.pointerId)
+      const pointerId = event.pointerId
+      try {
+        handle.setPointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
       captureTargetRef.current = handle
-      pointerIdRef.current = event.pointerId
+      pointerIdRef.current = pointerId
       resizingRef.current = true
       startPointerRef.current = { x: event.clientX, y: event.clientY }
+      boundsRef.current = getDragBounds()
 
       if (dockSide === 'bottom') {
-        startSizeRef.current = height
+        startSizeRef.current = effectiveHeight
         document.body.style.cursor = 'ns-resize'
       } else {
-        startSizeRef.current = width
+        startSizeRef.current = effectiveWidth
         document.body.style.cursor = 'ew-resize'
       }
 
       document.body.style.userSelect = 'none'
+
+      const onMove = (moveEvent: PointerEvent) => {
+        if (!resizingRef.current || moveEvent.pointerId !== pointerId) {
+          return
+        }
+        moveEvent.preventDefault()
+
+        const { minWidth: minW, maxWidth: maxW, minHeight: minH, maxHeight: maxH } =
+          boundsRef.current
+
+        if (dockSide === 'bottom') {
+          const delta = startPointerRef.current.y - moveEvent.clientY
+          const next = clampSize(startSizeRef.current + delta, minH, Math.max(minH, maxH))
+          scheduleDragSize(next)
+          return
+        }
+
+        const delta =
+          dockSide === 'left'
+            ? moveEvent.clientX - startPointerRef.current.x
+            : startPointerRef.current.x - moveEvent.clientX
+        const next = clampSize(startSizeRef.current + delta, minW, Math.max(minW, maxW))
+        scheduleDragSize(next)
+      }
+
+      const onUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) {
+          return
+        }
+        stopResize(true)
+      }
+
+      const onCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointerId) {
+          return
+        }
+        stopResize(false)
+      }
+
+      endDragListenersRef.current = () => {
+        document.removeEventListener('pointermove', onMove)
+        document.removeEventListener('pointerup', onUp)
+        document.removeEventListener('pointercancel', onCancel)
+      }
+
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+      document.addEventListener('pointercancel', onCancel)
     },
-    [dockSide, height, width],
+    [dockSide, effectiveHeight, effectiveWidth, getDragBounds, scheduleDragSize, stopResize],
   )
 
   const onDockActionClick = useCallback(
@@ -360,8 +652,8 @@ export function ChromoDevToolsPanel({
   const panelStyle = isWindowMode
     ? { height: '100%', width: '100%' }
     : dockSide === 'bottom'
-      ? { height: `${height}px` }
-      : { width: `${width}px` }
+      ? { height: `${displayHeight}px` }
+      : { width: `${displayWidth}px` }
 
   const resizeHandleClass = [
     'chromo-devtools__resize-handle',
@@ -374,6 +666,7 @@ export function ChromoDevToolsPanel({
 
   return (
     <section
+      ref={panelRef}
       class={[
         'chromo-devtools',
         isWindowMode ? 'chromo-devtools--window' : `chromo-devtools--dock-${dockSide}`,
@@ -383,7 +676,6 @@ export function ChromoDevToolsPanel({
     >
       {!isWindowMode ? (
         <div
-          ref={resizeHandleRef}
           class={resizeHandleClass}
           onPointerDown={onResizePointerDown}
           aria-hidden="true"
@@ -479,32 +771,24 @@ export function ChromoDevToolsPanel({
       </header>
 
       <div class="chromo-devtools__content" role="tabpanel">
-        {activeTab === 'console' ? (
-          <ChromoConsolePanel
-            entries={entries}
-            pageReady={pageReady}
-            evalInPage={evalInPage}
-            replHistory={replHistory}
-            onReplHistoryChange={onReplHistoryChange}
-            onAppendEntries={onAppendEntries}
-          />
-        ) : activeTab === 'network' ? (
-          <ChromoNetworkPanel
-            entries={networkEntries}
-            selectedId={selectedNetworkId}
-            pageLoading={pageLoading}
-            pageError={pageError}
-            pageUrl={pageUrl}
-            disableNetworkCache={disableNetworkCache}
-            readNetworkBody={readNetworkBody}
-            onSelect={onSelectNetwork}
-            onCloseDetail={onCloseNetworkDetail}
-          />
-        ) : (
-          <div class="chromo-devtools__placeholder">
-            此面板需要 virtual-chromo 协议扩展，当前版本不可用。
-          </div>
-        )}
+        <ChromoDevToolsPanelBody
+          activeTab={activeTab}
+          entries={entries}
+          pageReady={pageReady}
+          evalInPage={evalInPage}
+          replHistory={replHistory}
+          onReplHistoryChange={onReplHistoryChange}
+          onAppendEntries={onAppendEntries}
+          networkEntries={networkEntries}
+          selectedNetworkId={selectedNetworkId}
+          disableNetworkCache={disableNetworkCache}
+          readNetworkBody={readNetworkBody}
+          pageLoading={pageLoading}
+          pageError={pageError}
+          onSelectNetwork={onSelectNetwork}
+          onCloseNetworkDetail={onCloseNetworkDetail}
+          pageUrl={pageUrl}
+        />
       </div>
     </section>
   )

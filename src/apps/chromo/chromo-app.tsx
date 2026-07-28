@@ -1362,6 +1362,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             {activeDevtoolsOpen && activeTab && (
               <ChromoDevToolsPanel
                 mode="embedded"
+                narrowLayout={narrowLayout}
                 activeTab={activeTab.devtoolsTab}
                 onTabChange={(panelTab) =>
                   updateTab(activeTab.id, (entry) => ({ ...entry, devtoolsTab: panelTab }))

@@ -69,6 +69,14 @@ export function useWindowDrag(
         return
       }
 
+      const titlebar = event.currentTarget as HTMLElement
+      const pointerId = event.pointerId
+      try {
+        titlebar.setPointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
+
       onFocus(windowId)
 
       if (isAnchored) {
@@ -130,35 +138,17 @@ export function useWindowDrag(
         return nextSession
       }
 
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const session = beginDragging(moveEvent) ?? dragStateRef.current
-        if (!session || session.phase !== 'dragging') return
-
-        if (!session.moved) {
-          const deltaX = moveEvent.clientX - session.startX
-          const deltaY = moveEvent.clientY - session.startY
-          if (Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
-            session.moved = true
-          }
+      const endDrag = (upEvent: PointerEvent) => {
+        const session = dragStateRef.current
+        if (!session) {
+          return
         }
 
-        const nextX = moveEvent.clientX - session.offsetX
-        const nextY = moveEvent.clientY - session.offsetY
-        const clamped = clampFloatingPosition(
-          nextX,
-          nextY,
-          session.dragBounds.width,
-          session.dragBounds.height,
-        )
-        session.lastX = clamped.x
-        session.lastY = clamped.y
-        applyPositionToFrame(session.frameEl, clamped.x, clamped.y)
-        setSnapPreview(detectSnapTarget(moveEvent.clientX, moveEvent.clientY))
-      }
+        document.removeEventListener('pointermove', onPointerMove)
+        document.removeEventListener('pointerup', onPointerUp)
+        document.removeEventListener('pointercancel', onPointerCancel)
 
-      const onPointerUp = (upEvent: PointerEvent) => {
-        const session = dragStateRef.current
-        if (session?.phase === 'dragging' && session.moved) {
+        if (session.phase === 'dragging' && session.moved) {
           const snapTarget = detectSnapTarget(upEvent.clientX, upEvent.clientY)
           if (snapTarget) {
             // Drag writes left/top directly on the frame. If the snap target
@@ -195,12 +185,59 @@ export function useWindowDrag(
         dragStateRef.current = undefined
         setDragging(false)
         setSnapPreview(undefined)
-        document.removeEventListener('pointermove', onPointerMove)
-        document.removeEventListener('pointerup', onPointerUp)
+        try {
+          titlebar.releasePointerCapture(pointerId)
+        } catch {
+          // ignore
+        }
+      }
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) {
+          return
+        }
+        const session = beginDragging(moveEvent) ?? dragStateRef.current
+        if (!session || session.phase !== 'dragging') return
+
+        if (!session.moved) {
+          const deltaX = moveEvent.clientX - session.startX
+          const deltaY = moveEvent.clientY - session.startY
+          if (Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
+            session.moved = true
+          }
+        }
+
+        const nextX = moveEvent.clientX - session.offsetX
+        const nextY = moveEvent.clientY - session.offsetY
+        const clamped = clampFloatingPosition(
+          nextX,
+          nextY,
+          session.dragBounds.width,
+          session.dragBounds.height,
+        )
+        session.lastX = clamped.x
+        session.lastY = clamped.y
+        applyPositionToFrame(session.frameEl, clamped.x, clamped.y)
+        setSnapPreview(detectSnapTarget(moveEvent.clientX, moveEvent.clientY))
+      }
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) {
+          return
+        }
+        endDrag(upEvent)
+      }
+
+      const onPointerCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointerId) {
+          return
+        }
+        endDrag(cancelEvent)
       }
 
       document.addEventListener('pointermove', onPointerMove)
       document.addEventListener('pointerup', onPointerUp)
+      document.addEventListener('pointercancel', onPointerCancel)
       event.preventDefault()
     },
     [windowId, isAnchored, getDragBounds, onMove, onFocus, onReleaseAnchored, onSnap, onDoubleActivate, enabled],
