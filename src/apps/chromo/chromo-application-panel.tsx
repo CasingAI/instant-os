@@ -8,6 +8,7 @@ import type {
   ChromoStorageEntry,
   ChromoSwInfo,
 } from './chromo-bridge.ts'
+import { CHROMO_WORKER_ORIGIN } from './chromo-config.ts'
 
 export type ChromoApplicationApi = {
   listCookies: () => Promise<{ cookies: ChromoCookie[] }>
@@ -102,7 +103,68 @@ function originFromUrl(url?: string): string {
   }
 }
 
-/** Storage / IDB / SW / Cache API 都绑当前文档 origin，需与地址栏目标 origin 对齐后再信结果。 */
+function normalizeOrigin(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+  try {
+    return new URL(trimmed).origin
+  } catch {
+    try {
+      return new URL(`https://${trimmed}`).origin
+    } catch {
+      return trimmed.replace(/\/$/, '')
+    }
+  }
+}
+
+/** 虚拟空白页文档 origin（导航中间态）。 */
+function isTransientStorageOrigin(origin: string): boolean {
+  const normalized = normalizeOrigin(origin).toLowerCase()
+  if (!normalized || normalized === 'null' || normalized === 'undefined') {
+    return true
+  }
+  try {
+    const parsed = new URL(normalized)
+    const host = parsed.hostname.toLowerCase()
+    return (
+      host === 'blank' ||
+      parsed.protocol === 'about:' ||
+      parsed.protocol === 'chrome:' ||
+      parsed.protocol === 'chrome-error:'
+    )
+  } catch {
+    return (
+      normalized === 'about:blank' ||
+      normalized === 'https://blank' ||
+      normalized === 'http://blank'
+    )
+  }
+}
+
+/**
+ * listStorage 在真实站点上常返回 viewer 壳 origin（如 localhost:8787），
+ * 不是地址栏页面 origin；不能拿它去和 pageUrl 做相等判断。
+ */
+function isViewerShellOrigin(origin: string): boolean {
+  const actual = normalizeOrigin(origin)
+  const worker = normalizeOrigin(CHROMO_WORKER_ORIGIN)
+  return Boolean(actual && worker && actual === worker)
+}
+
+/** UI 展示用：优先地址栏目标 origin，避免露出 viewer 壳地址。 */
+function displayStorageOrigin(apiOrigin: string, pageOrigin: string): string {
+  if (pageOrigin) {
+    return pageOrigin
+  }
+  if (apiOrigin && !isViewerShellOrigin(apiOrigin) && !isTransientStorageOrigin(apiOrigin)) {
+    return apiOrigin
+  }
+  return apiOrigin || '—'
+}
+
+/** 这些面板在导航切换期间需要等离开 blank 再展示。 */
 function navNeedsOriginMatch(nav: NavId): boolean {
   return (
     nav === 'local-storage' ||
@@ -112,6 +174,9 @@ function navNeedsOriginMatch(nav: NavId): boolean {
     nav === 'service-workers'
   )
 }
+
+const ORIGIN_SYNC_MAX_MS = 8_000
+const ORIGIN_SYNC_RETRY_MS = 350
 
 export function ChromoApplicationPanel({
   pageReady,
@@ -145,6 +210,8 @@ export function ChromoApplicationPanel({
   const refreshSeqRef = useRef(0)
   const apiRef = useRef(api)
   apiRef.current = api
+  const pageLoadingRef = useRef(pageLoading)
+  pageLoadingRef.current = pageLoading
 
   const expectedOrigin = originFromUrl(pageUrl)
 
@@ -167,12 +234,15 @@ export function ChromoApplicationPanel({
     [pageReady],
   )
 
-  const refresh = useCallback(async (): Promise<{ matchedOrigin: boolean }> => {
+  const refresh = useCallback(async (options?: {
+    force?: boolean
+  }): Promise<{ matchedOrigin: boolean }> => {
     if (!pageReady) {
       setError('页面未就绪')
       return { matchedOrigin: false }
     }
     const currentApi = apiRef.current
+    const loading = options?.force ? false : pageLoadingRef.current
     const seq = ++refreshSeqRef.current
     setBusy(true)
     setError('')
@@ -192,21 +262,30 @@ export function ChromoApplicationPanel({
           return { matchedOrigin: false }
         }
         const origin = result.origin ?? ''
-        const matched = !expectedOrigin || origin === expectedOrigin
-        if (!matched) {
-          // 仍停在 blank / 旧文档：丢弃结果，避免闪出中间态脏数据
+        const stillOnBlank = isTransientStorageOrigin(origin)
+
+        // 仅丢弃虚拟空白页中间态；viewer 壳 origin（localhost:8787）是正常结果
+        if (stillOnBlank) {
+          if (loading) {
+            setStorageEntries([])
+            setStorageOrigin('')
+            setOriginScopedReady(false)
+            return { matchedOrigin: false }
+          }
+          // 导航结束仍停在 blank：空表 + 地址栏 origin 文案
           setStorageEntries([])
-          setStorageOrigin('')
-          setOriginScopedReady(false)
-          return { matchedOrigin: false }
+          setStorageOrigin(displayStorageOrigin(origin, expectedOrigin))
+          setOriginScopedReady(true)
+          return { matchedOrigin: true }
         }
+
         setStorageEntries(result.entries ?? [])
-        setStorageOrigin(origin)
+        setStorageOrigin(displayStorageOrigin(origin, expectedOrigin))
         setOriginScopedReady(true)
         return { matchedOrigin: true }
       }
       if (nav === 'service-workers') {
-        if (pageLoading && expectedOrigin) {
+        if (loading && expectedOrigin) {
           setOriginScopedReady(false)
           return { matchedOrigin: false }
         }
@@ -228,7 +307,7 @@ export function ChromoApplicationPanel({
         return { matchedOrigin: true }
       }
       if (nav === 'indexeddb') {
-        if (pageLoading && expectedOrigin) {
+        if (loading && expectedOrigin) {
           setOriginScopedReady(false)
           return { matchedOrigin: false }
         }
@@ -260,7 +339,7 @@ export function ChromoApplicationPanel({
         return { matchedOrigin: true }
       }
       if (nav === 'site-cache') {
-        if (pageLoading && expectedOrigin) {
+        if (loading && expectedOrigin) {
           setOriginScopedReady(false)
           return { matchedOrigin: false }
         }
@@ -292,7 +371,7 @@ export function ChromoApplicationPanel({
         setBusy(false)
       }
     }
-  }, [cacheLayer, expectedOrigin, idbName, idbStore, nav, pageLoading, pageReady, siteCacheName])
+  }, [cacheLayer, expectedOrigin, idbName, idbStore, nav, pageReady, siteCacheName])
 
   // 地址栏目标变更时先清掉旧域数据，避免短暂显示上一站内容
   useEffect(() => {
@@ -317,18 +396,29 @@ export function ChromoApplicationPanel({
 
     let cancelled = false
     let timer = 0
+    const startedAt = Date.now()
 
     const tick = async () => {
       const result = await refresh()
       if (cancelled) {
         return
       }
-      // Cookie / 网络缓存不绑文档 origin；本地存储等需等返回 origin 对齐地址栏
-      const needsRetry = navNeedsOriginMatch(nav) && !result.matchedOrigin
+      const elapsed = Date.now() - startedAt
+      const loading = pageLoadingRef.current
+      // 仅在仍加载且未对齐时继续轮询；loading 结束或超时则停，避免永久「正在切换」
+      const needsRetry =
+        navNeedsOriginMatch(nav) &&
+        !result.matchedOrigin &&
+        loading &&
+        elapsed < ORIGIN_SYNC_MAX_MS
       if (needsRetry) {
         timer = window.setTimeout(() => {
           void tick()
-        }, 400)
+        }, ORIGIN_SYNC_RETRY_MS)
+        return
+      }
+      if (navNeedsOriginMatch(nav) && !result.matchedOrigin && !cancelled) {
+        void refresh({ force: true })
       }
     }
 
@@ -341,7 +431,18 @@ export function ChromoApplicationPanel({
       }
       refreshSeqRef.current += 1
     }
-  }, [refresh, pageUrl, pageLoading, pageReady, nav])
+  }, [refresh, pageUrl, pageReady, nav])
+
+  // loading 结束后补一次（不因 VC_LOADING 抖动重置轮询计时）
+  useEffect(() => {
+    if (!pageReady || pageLoading || !navNeedsOriginMatch(nav)) {
+      return
+    }
+    if (originScopedReady) {
+      return
+    }
+    void refresh({ force: true })
+  }, [pageLoading, pageReady, nav, originScopedReady, refresh])
 
   const groups = [...new Set(NAV.map((item) => item.group))]
 
