@@ -4,6 +4,9 @@ export const CHROMO_WORKER_ORIGIN =
 /** 单用户全局 viewer 入口；cookie / storage / hot cache 全局共享。 */
 export const CHROMO_VIEWER_URL = `${CHROMO_WORKER_ORIGIN}/viewer`
 
+/** Worker 上的新标签空白页（viewer 自动加载；地址栏保持空）。 */
+export const CHROMO_BLANK_PATH = '/blank.html'
+
 export const CHROMO_DEFAULT_NEW_TAB_URL = 'https://example.com'
 
 /** 地址栏占位 / 新标签默认显示；不会自动导航，需用户按 Enter */

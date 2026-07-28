@@ -1577,6 +1577,21 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 updateTab(tab.id, (entry) => ({ ...entry, loading }))
               }}
               onNavigated={({ url, title, canGoBack, canGoForward }) => {
+                // Worker /blank.html start page: keep new-tab chrome (empty omnibox).
+                if (!url) {
+                  updateTab(tab.id, (entry) => ({
+                    ...entry,
+                    url: '',
+                    title: title || '新标签页',
+                    inputUrl: '',
+                    loading: false,
+                    canGoBack: false,
+                    canGoForward: false,
+                    pageFault: undefined,
+                    bootstrapped: true,
+                  }))
+                  return
+                }
                 const requested = requestedUrlByTabRef.current[tab.id]
                 if (
                   requested &&
@@ -1629,6 +1644,14 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 const fault = pageFaultFromError(payload)
                 if (!fault) {
                   return
+                }
+                // Blank / new tab: viewer silently recovers VERSION_MISMATCH; ignore stray
+                // reports while the tab still has no real page URL.
+                if (fault.code === 'VERSION_MISMATCH') {
+                  const entry = tabsRef.current.find((item) => item.id === tab.id)
+                  if (!entry?.url) {
+                    return
+                  }
                 }
                 updateTab(tab.id, (entry) => ({
                   ...entry,

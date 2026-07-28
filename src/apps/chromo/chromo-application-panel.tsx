@@ -122,7 +122,7 @@ function normalizeOrigin(value: string): string {
   }
 }
 
-/** 虚拟空白页文档 origin（导航中间态）。 */
+/** 虚拟空白页文档 origin（导航中间态 / Worker 新标签页）。 */
 function isTransientStorageOrigin(origin: string): boolean {
   const normalized = normalizeOrigin(origin).toLowerCase()
   if (!normalized || normalized === 'null' || normalized === 'undefined') {
@@ -131,8 +131,11 @@ function isTransientStorageOrigin(origin: string): boolean {
   try {
     const parsed = new URL(normalized)
     const host = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
     return (
       host === 'blank' ||
+      path === '/blank' ||
+      path === '/blank.html' ||
       parsed.protocol === 'about:' ||
       parsed.protocol === 'chrome:' ||
       parsed.protocol === 'chrome-error:'
