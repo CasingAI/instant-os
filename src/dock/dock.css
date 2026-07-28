@@ -40,7 +40,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: calc(14px * var(--dock-scale, 1));
+  padding-bottom: calc(6px * var(--dock-scale, 1));
   pointer-events: none;
 }
 
@@ -50,7 +50,7 @@
   gap: calc(10px * var(--dock-scale, 1));
   padding:
     calc(8px * var(--dock-scale, 1))
-    calc(16px * var(--dock-scale, 1))
+    calc(8px * var(--dock-scale, 1))
     calc(10px * var(--dock-scale, 1));
   border-radius: calc(18px * var(--dock-scale, 1));
   background: rgba(20, 20, 20, 0.42);

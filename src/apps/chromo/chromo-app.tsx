@@ -1219,11 +1219,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 .filter(Boolean)
                 .join(' ')}
               onClick={toggleDevTools}
-              aria-label="DevTools"
+              aria-label="开发者工具"
               aria-pressed={activeDevtoolsActive}
-              title="DevTools"
+              title="开发者工具"
             >
-              DevTools
+              开发者工具
             </button>
             {showProgress ? (
               <button type="button" class="chromo__btn" onClick={stopLoading} aria-label="停止">

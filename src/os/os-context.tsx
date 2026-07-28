@@ -93,7 +93,7 @@ const OsContext = createContext<OsContextValue | undefined>(undefined)
 const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' | 'height'>> = {
   browser: { title: '网络浏览器', width: 880, height: 720 },
   chromo: { title: 'Chromo', width: 960, height: 720 },
-  'chromo-devtools': { title: 'DevTools', width: 720, height: 480 },
+  'chromo-devtools': { title: '开发者工具', width: 720, height: 480 },
   settings: { title: '系统设置', width: 780, height: 540 },
   photos: { title: '照片', width: 720, height: 620 },
   files: { title: '文件', width: 900, height: 620 },

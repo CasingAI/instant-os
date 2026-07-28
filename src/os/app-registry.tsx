@@ -72,7 +72,7 @@ export const APP_REGISTRY: AppDefinition[] = [
   }),
   withAbout({
     id: 'chromo-devtools',
-    name: 'DevTools',
+    name: '开发者工具',
     icon: ChromoIcon,
     dock: false,
     dockWhenRunning: true,

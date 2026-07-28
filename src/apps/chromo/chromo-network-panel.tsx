@@ -30,22 +30,22 @@ type NetworkTypeFilter = 'all' | 'document' | 'script' | 'stylesheet' | 'xhr' | 
 
 const TYPE_FILTERS: { id: NetworkTypeFilter; label: string }[] = [
   { id: 'all', label: '全部' },
-  { id: 'document', label: 'Doc' },
-  { id: 'script', label: 'JS' },
-  { id: 'stylesheet', label: 'CSS' },
+  { id: 'document', label: '文档' },
+  { id: 'script', label: '脚本' },
+  { id: 'stylesheet', label: '样式表' },
   { id: 'xhr', label: 'Fetch/XHR' },
-  { id: 'image', label: 'Img' },
-  { id: 'font', label: 'Font' },
-  { id: 'media', label: 'Media' },
-  { id: 'websocket', label: 'WS' },
+  { id: 'image', label: '图片' },
+  { id: 'font', label: '字体' },
+  { id: 'media', label: '媒体' },
+  { id: 'websocket', label: 'WebSocket' },
   { id: 'wasm', label: 'Wasm' },
-  { id: 'other', label: 'Other' },
+  { id: 'other', label: '其他' },
 ]
 
 const SORT_COLUMNS: { id: NetworkSortColumn; label: string }[] = [
   { id: 'name', label: '名称' },
   { id: 'status', label: '状态' },
-  { id: 'waterfall', label: 'Waterfall' },
+  { id: 'waterfall', label: '瀑布图' },
   { id: 'duration', label: '耗时' },
   { id: 'size', label: '大小' },
 ]
@@ -437,9 +437,9 @@ export function ChromoNetworkPanel({
       ]
         .filter(Boolean)
         .join(' ')}
-      aria-label="Network"
+      aria-label="网络"
     >
-      <div class="chromo-network__toolbar" role="toolbar" aria-label="Network 过滤">
+      <div class="chromo-network__toolbar" role="toolbar" aria-label="网络过滤">
         <input
           type="search"
           class="chromo-network__filter-name"
@@ -503,16 +503,16 @@ export function ChromoNetworkPanel({
                   <td class="chromo-network__cell chromo-network__cell--name">
                     <span class="chromo-network__method">{entry.method || 'GET'}</span>
                     <span class="chromo-network__name" title={entry.url}>{networkEntryName(entry.url)}</span>
-                    {entry.bypass ? <span class="chromo-network__badge">bypass</span> : null}
-                    {entry.fromCache ? <span class="chromo-network__badge">cache</span> : null}
-                    {entry.pending ? <span class="chromo-network__badge">pending</span> : null}
+                    {entry.bypass ? <span class="chromo-network__badge">直连</span> : null}
+                    {entry.fromCache ? <span class="chromo-network__badge">缓存</span> : null}
+                    {entry.pending ? <span class="chromo-network__badge">进行中</span> : null}
                   </td>
                   <td class="chromo-network__cell chromo-network__cell--status">
                     <span class={['chromo-network__status', entry.failed ? 'chromo-network__status--failed' : ''].filter(Boolean).join(' ')}>
                       {entry.pending
                         ? '…'
                         : entry.failed && !entry.status
-                          ? '(failed)'
+                          ? '（失败）'
                           : entry.status || '-'}
                     </span>
                   </td>
@@ -520,7 +520,7 @@ export function ChromoNetworkPanel({
                     <NetworkWaterfallBar entry={entry} minTs={timelineBounds.minTs} span={timelineBounds.span} />
                   </td>
                   <td class="chromo-network__cell chromo-network__cell--duration">
-                    {entry.pending ? 'pending' : `${entry.duration} ms`}
+                    {entry.pending ? '进行中' : `${entry.duration} ms`}
                   </td>
                   <td class="chromo-network__cell chromo-network__cell--size">
                     {entry.pending ? '-' : formatNetworkBytes(entry.size)}

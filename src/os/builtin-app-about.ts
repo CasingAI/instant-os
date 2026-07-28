@@ -63,10 +63,10 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     ],
   },
   'chromo-devtools': {
-    version: 'Chromo DevTools',
+    version: 'Chromo 开发者工具',
     paragraphs: [
-      'Chromo DevTools 是 Chromo 浏览器的独立调试窗口，支持 Console 与 Network 面板。',
-      '可从 Chromo 内嵌 DevTools 的 Dock side 菜单 Undock 打开；每个标签页对应一扇独立窗口，行为对齐 Chrome DevTools。',
+      'Chromo 开发者工具是 Chromo 浏览器的独立调试窗口，支持控制台与网络面板。',
+      '可从 Chromo 内嵌开发者工具的设置菜单中「在独立窗口中打开」；每个标签页对应一扇独立窗口，行为对齐 Chrome 开发者工具。',
     ],
   },
   mail: {

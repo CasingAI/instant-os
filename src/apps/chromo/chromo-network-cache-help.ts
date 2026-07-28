@@ -65,7 +65,7 @@ export function diagnoseHotCache(
 
   conditions.push({
     id: 'disable_cache_off',
-    label: 'Disable cache 关闭',
+    label: '禁用缓存已关闭',
     status: context.disableNetworkCache ? 'fail' : 'pass',
     value: context.disableNetworkCache ? '已开启' : '否',
   })
@@ -114,7 +114,7 @@ export function diagnoseHotCache(
       id: 'body_stored',
       label: '响应正文已写入（hasBody）',
       status: 'pending',
-      value: 'pending',
+      value: '进行中',
     })
   } else {
     conditions.push({
@@ -146,7 +146,7 @@ export function diagnoseHotCache(
     id: 'write_eligible',
     label: '满足写入条件',
     status: writePending ? 'pending' : writeEligible ? 'pass' : 'fail',
-    value: writePending ? 'pending' : writeEligible ? '是' : '否',
+    value: writePending ? '进行中' : writeEligible ? '是' : '否',
   })
 
   // Panel list history only — not SW Cache Storage state; never blocks.
@@ -154,7 +154,7 @@ export function diagnoseHotCache(
     id: 'panel_repeat',
     label: '列表内重复 URL（仅供参考）',
     status: pending ? 'pending' : hadPrior ? 'pass' : 'skip',
-    value: pending ? 'pending' : hadPrior ? '是' : '否（列表首次）',
+    value: pending ? '进行中' : hadPrior ? '是' : '否（列表首次）',
   })
 
   if ('swHasEntry' in context) {
@@ -191,7 +191,7 @@ export function diagnoseHotCache(
       id: 'hot_hit',
       label: '热缓存命中（本次）',
       status: 'pending',
-      value: 'pending',
+      value: '进行中',
     })
   } else if (hit) {
     conditions.push({
@@ -258,7 +258,7 @@ export function explainHotCacheStatus(
     if (diagnosis.writeEligible) {
       reasons.push('首次 GET：已写入热缓存，下次同 URL 可命中')
     } else {
-      reasons.push('未命中 DevTools 热缓存')
+      reasons.push('未命中开发者工具热缓存')
     }
   }
   return { ...diagnosis, reasons }

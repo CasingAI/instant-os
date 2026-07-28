@@ -19,11 +19,11 @@ type ChromoConsolePanelProps = {
 }
 
 const LEVEL_FILTERS: { id: ChromoConsoleLevelFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'error', label: 'Errors' },
-  { id: 'warn', label: 'Warnings' },
-  { id: 'info', label: 'Info' },
-  { id: 'verbose', label: 'Verbose' },
+  { id: 'all', label: '全部' },
+  { id: 'error', label: '错误' },
+  { id: 'warn', label: '警告' },
+  { id: 'info', label: '信息' },
+  { id: 'verbose', label: '详细' },
 ]
 
 function formatConsoleTime(ts: number): string {
@@ -278,8 +278,8 @@ export function ChromoConsolePanel({
   )
 
   return (
-    <div class="chromo-console" aria-label="Console">
-      <div class="chromo-console__filters" role="toolbar" aria-label="Console 过滤">
+    <div class="chromo-console" aria-label="控制台">
+      <div class="chromo-console__filters" role="toolbar" aria-label="控制台过滤">
         {LEVEL_FILTERS.map((filter) => (
           <button
             key={filter.id}
@@ -326,7 +326,7 @@ export function ChromoConsolePanel({
           }}
           onKeyDown={handleInputKeyDown}
           spellcheck={false}
-          aria-label="Console 输入"
+          aria-label="控制台输入"
         />
       </div>
     </div>

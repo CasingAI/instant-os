@@ -44,10 +44,10 @@ export function ChromoDevToolsApp({ windowId }: ChromoDevToolsAppProps) {
       return
     }
     const title = snapshot.pageTitle
-      ? `DevTools — ${snapshot.pageTitle}`
+      ? `开发者工具 — ${snapshot.pageTitle}`
       : snapshot.pageUrl
-        ? `DevTools — ${snapshot.pageUrl}`
-        : 'DevTools'
+        ? `开发者工具 — ${snapshot.pageUrl}`
+        : '开发者工具'
     setWindowTitle(windowId, title)
   }, [snapshot, setWindowTitle, windowId])
 
@@ -87,7 +87,7 @@ export function ChromoDevToolsApp({ windowId }: ChromoDevToolsAppProps) {
     if (missing || !snapshot || !handlers) {
       return (
         <div class="chromo-devtools chromo-devtools--window">
-          <div class="chromo-devtools__placeholder">DevTools 会话已断开</div>
+          <div class="chromo-devtools__placeholder">开发者工具会话已断开</div>
         </div>
       )
     }

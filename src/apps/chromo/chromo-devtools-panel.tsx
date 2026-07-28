@@ -66,16 +66,16 @@ const TABS: {
   disabled?: boolean
   title?: string
 }[] = [
-  { id: 'console', label: 'Console' },
+  { id: 'console', label: '控制台' },
   {
     id: 'elements',
-    label: 'Elements',
+    label: '元素',
     disabled: true,
     title: '需 virtual-chromo 协议扩展后可用',
   },
   {
     id: 'network',
-    label: 'Network',
+    label: '网络',
   },
 ]
 
@@ -83,11 +83,22 @@ const DOCK_ACTIONS: {
   id: ChromoDevToolsDockSide | 'undocked'
   label: string
 }[] = [
-  { id: 'undocked', label: 'Undock into separate window' },
-  { id: 'left', label: 'Dock to left' },
-  { id: 'bottom', label: 'Dock to bottom' },
-  { id: 'right', label: 'Dock to right' },
+  { id: 'undocked', label: '在独立窗口中打开' },
+  { id: 'left', label: '停靠到左侧' },
+  { id: 'bottom', label: '停靠到底部' },
+  { id: 'right', label: '停靠到右侧' },
 ]
+
+function SettingsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"
+      />
+    </svg>
+  )
+}
 
 function readStoredDockSide(): ChromoDevToolsDockSide {
   try {
@@ -446,6 +457,8 @@ export function ChromoDevToolsPanel({
 }: ChromoDevToolsPanelProps) {
   const isWindowMode = mode === 'window'
   const panelRef = useRef<HTMLElement>(null)
+  const settingsRef = useRef<HTMLDivElement>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   /** 用户偏好尺寸（localStorage）；容器缩小时不改写 */
   const [preferredHeight, setPreferredHeight] = useState(readStoredHeight)
@@ -643,6 +656,7 @@ export function ChromoDevToolsPanel({
 
   const onDockActionClick = useCallback(
     (action: ChromoDevToolsDockSide | 'undocked') => {
+      setSettingsOpen(false)
       if (action === 'undocked') {
         if (!isWindowMode) {
           onUndock?.()
@@ -653,6 +667,32 @@ export function ChromoDevToolsPanel({
     },
     [isWindowMode, onUndock, persistDockSide],
   )
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      const root = settingsRef.current
+      if (!root) {
+        return
+      }
+      if (event.target instanceof Node && !root.contains(event.target)) {
+        setSettingsOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSettingsOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [settingsOpen])
 
   const panelStyle = isWindowMode
     ? { height: '100%', width: '100%' }
@@ -676,7 +716,7 @@ export function ChromoDevToolsPanel({
         'chromo-devtools',
         isWindowMode ? 'chromo-devtools--window' : `chromo-devtools--dock-${dockSide}`,
       ].join(' ')}
-      aria-label="DevTools"
+      aria-label="开发者工具"
       style={panelStyle}
     >
       {!isWindowMode ? (
@@ -688,7 +728,7 @@ export function ChromoDevToolsPanel({
       ) : null}
 
       <header class="chromo-devtools__header">
-        <div class="chromo-devtools__tabs" role="tablist" aria-label="DevTools 标签">
+        <div class="chromo-devtools__tabs" role="tablist" aria-label="开发者工具标签">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -715,28 +755,6 @@ export function ChromoDevToolsPanel({
         </div>
 
         <div class="chromo-devtools__actions">
-          <div class="chromo-devtools__dock-side" role="group" aria-label="Dock side">
-            <span class="chromo-devtools__dock-side-label">Dock side</span>
-            {DOCK_ACTIONS.map((side) => (
-              <button
-                key={side.id}
-                type="button"
-                class={[
-                  'chromo-devtools__dock-side-btn',
-                  selectedDockAction === side.id ? 'chromo-devtools__dock-side-btn--active' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                aria-label={side.label}
-                title={side.label}
-                aria-pressed={selectedDockAction === side.id}
-                onClick={() => onDockActionClick(side.id)}
-              >
-                <DockSideIcon side={side.id} />
-              </button>
-            ))}
-          </div>
-
           {activeTab === 'network' ? (
             <label class="chromo-devtools__preserve">
               <input
@@ -748,7 +766,7 @@ export function ChromoDevToolsPanel({
                   )
                 }
               />
-              Disable cache
+              禁用缓存
             </label>
           ) : null}
           <label class="chromo-devtools__preserve">
@@ -759,16 +777,67 @@ export function ChromoDevToolsPanel({
                 onPreserveLogChange((event.currentTarget as HTMLInputElement).checked)
               }
             />
-            Preserve log
+            保留日志
           </label>
           <button type="button" class="chromo-devtools__action" onClick={onClear}>
             清空
           </button>
+          <div class="chromo-devtools__settings" ref={settingsRef}>
+            <button
+              type="button"
+              class={[
+                'chromo-devtools__settings-btn',
+                settingsOpen ? 'chromo-devtools__settings-btn--active' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              aria-label="设置"
+              title="设置"
+              aria-expanded={settingsOpen}
+              aria-haspopup="dialog"
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              <SettingsIcon />
+            </button>
+            {settingsOpen ? (
+              <div
+                class="chromo-devtools__settings-popover"
+                role="dialog"
+                aria-label="开发者工具设置"
+              >
+                <div class="chromo-devtools__settings-section">
+                  <div class="chromo-devtools__settings-section-label">停靠位置</div>
+                  <div class="chromo-devtools__dock-side" role="group" aria-label="停靠位置">
+                    {DOCK_ACTIONS.map((side) => (
+                      <button
+                        key={side.id}
+                        type="button"
+                        class={[
+                          'chromo-devtools__dock-side-btn',
+                          selectedDockAction === side.id
+                            ? 'chromo-devtools__dock-side-btn--active'
+                            : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-label={side.label}
+                        title={side.label}
+                        aria-pressed={selectedDockAction === side.id}
+                        onClick={() => onDockActionClick(side.id)}
+                      >
+                        <DockSideIcon side={side.id} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             class="chromo-devtools__action chromo-devtools__action--close"
             onClick={onClose}
-            aria-label="关闭 DevTools"
+            aria-label="关闭开发者工具"
           >
             ×
           </button>

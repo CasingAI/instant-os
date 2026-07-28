@@ -768,24 +768,14 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(232, 234, 237, 0.06);
-}
-
-.chromo-devtools__dock-side-label {
-  margin-right: 4px;
-  color: #9aa0a6;
-  font-size: 11px;
-  white-space: nowrap;
 }
 
 .chromo-devtools__dock-side-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 22px;
+  width: 28px;
+  height: 26px;
   border: 0;
   border-radius: 3px;
   padding: 0;
@@ -802,6 +792,57 @@
 .chromo-devtools__dock-side-btn--active {
   background: rgba(138, 180, 248, 0.22);
   color: #8ab4f8;
+}
+
+.chromo-devtools__settings {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.chromo-devtools__settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: #9aa0a6;
+  cursor: pointer;
+}
+
+.chromo-devtools__settings-btn:hover,
+.chromo-devtools__settings-btn--active {
+  background: rgba(232, 234, 237, 0.08);
+  color: #e8eaed;
+}
+
+.chromo-devtools__settings-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 176px;
+  padding: 10px;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: #292a2d;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.chromo-devtools__settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chromo-devtools__settings-section-label {
+  color: #9aa0a6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .chromo-devtools__header {
@@ -1365,16 +1406,35 @@
 }
 
 .chromo-network__drawer {
-  flex: 0 0 min(42%, 420px);
+  position: relative;
+  flex: 0 0 auto;
+  width: 420px;
   min-width: 280px;
-  max-width: 480px;
+  max-width: 72%;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid #dadce0;
   background: #fff;
   box-shadow: -4px 0 16px rgba(60, 64, 67, 0.08);
+  container-type: inline-size;
   animation: chromo-network-drawer-in 160ms ease-out;
+}
+
+.chromo-network__drawer-resize {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: -4px;
+  bottom: 0;
+  width: 12px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.chromo-network__drawer-resize:hover,
+.chromo-network__drawer-resize:active {
+  background: rgba(26, 115, 232, 0.18);
 }
 
 @keyframes chromo-network-drawer-in {
@@ -1647,7 +1707,8 @@
   right: 0;
   top: calc(100% + 6px);
   z-index: 20;
-  width: min(320px, 75vw);
+  width: min(320px, 100cqw - 16px);
+  max-width: min(320px, 100cqw - 16px);
   padding: 10px;
   border: 1px solid #dadce0;
   border-radius: 6px;
@@ -1917,12 +1978,17 @@
 }
 
 .chromo--narrow .chromo-network__drawer {
-  flex-basis: 100%;
+  width: 100% !important;
+  flex-basis: 100% !important;
   max-width: none;
   min-width: 0;
   border-left: 0;
   border-top: 1px solid #dadce0;
   box-shadow: none;
+}
+
+.chromo--narrow .chromo-network__drawer-resize {
+  display: none;
 }
 
 .chromo--narrow .chromo-network--drawer-open .chromo-network__body {

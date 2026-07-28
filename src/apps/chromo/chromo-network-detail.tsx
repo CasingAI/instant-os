@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import type {
   ChromoNetworkBodyReadResult,
@@ -8,6 +8,41 @@ import type {
 import { diagnoseHotCache } from './chromo-network-cache-help.ts'
 
 export type NetworkDetailTab = 'headers' | 'preview' | 'initiator' | 'timing'
+
+const DRAWER_WIDTH_KEY = 'chromo-network-drawer-width'
+const DEFAULT_DRAWER_WIDTH = 420
+const MIN_DRAWER_WIDTH = 280
+/** 相对网络面板主体的最大占比 */
+const MAX_DRAWER_RATIO = 0.72
+/** 为请求列表保留的最小宽度 */
+const MIN_TABLE_WIDTH = 200
+
+function readStoredDrawerWidth(): number {
+  try {
+    const raw = localStorage.getItem(DRAWER_WIDTH_KEY)
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN
+    if (Number.isFinite(parsed) && parsed >= MIN_DRAWER_WIDTH) {
+      return parsed
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_DRAWER_WIDTH
+}
+
+function clampDrawerWidth(value: number, containerWidth: number): number {
+  if (containerWidth <= 0) {
+    return Math.max(MIN_DRAWER_WIDTH, value)
+  }
+  const maxWidth = Math.max(
+    MIN_DRAWER_WIDTH,
+    Math.min(
+      Math.floor(containerWidth * MAX_DRAWER_RATIO),
+      Math.max(0, containerWidth - MIN_TABLE_WIDTH),
+    ),
+  )
+  return Math.min(maxWidth, Math.max(MIN_DRAWER_WIDTH, value))
+}
 
 function formatNetworkBytes(size: number): string {
   if (!size) {
@@ -58,28 +93,28 @@ function binaryBodyPlaceholder(entry: ChromoNetworkEntry, mime?: string): string
 }
 
 const DETAIL_TABS: { id: NetworkDetailTab; label: string }[] = [
-  { id: 'headers', label: 'Headers' },
-  { id: 'preview', label: 'Preview' },
-  { id: 'initiator', label: 'Initiator' },
-  { id: 'timing', label: 'Timing' },
+  { id: 'headers', label: '标头' },
+  { id: 'preview', label: '预览' },
+  { id: 'initiator', label: '发起者' },
+  { id: 'timing', label: '时序' },
 ]
 
 const STATUS_TEXT: Record<number, string> = {
-  200: 'OK',
-  201: 'Created',
-  204: 'No Content',
-  301: 'Moved Permanently',
-  302: 'Found',
-  304: 'Not Modified',
-  307: 'Temporary Redirect',
-  308: 'Permanent Redirect',
-  400: 'Bad Request',
-  401: 'Unauthorized',
-  403: 'Forbidden',
-  404: 'Not Found',
-  500: 'Internal Server Error',
-  502: 'Bad Gateway',
-  503: 'Service Unavailable',
+  200: '成功',
+  201: '已创建',
+  204: '无内容',
+  301: '永久重定向',
+  302: '临时重定向',
+  304: '未修改',
+  307: '临时重定向',
+  308: '永久重定向',
+  400: '错误请求',
+  401: '未授权',
+  403: '禁止访问',
+  404: '未找到',
+  500: '服务器内部错误',
+  502: '错误网关',
+  503: '服务不可用',
 }
 
 function statusClass(status: number, failed: boolean, pending?: boolean): string {
@@ -97,10 +132,10 @@ function statusClass(status: number, failed: boolean, pending?: boolean): string
 
 function formatStatusLabel(entry: ChromoNetworkEntry): string {
   if (entry.pending) {
-    return 'pending'
+    return '进行中'
   }
   if (entry.failed && !entry.status) {
-    return entry.errorCode ? `(failed) ${entry.errorCode}` : '(failed)'
+    return entry.errorCode ? `（失败） ${entry.errorCode}` : '（失败）'
   }
   const code = entry.status || 0
   const text = STATUS_TEXT[code]
@@ -109,32 +144,32 @@ function formatStatusLabel(entry: ChromoNetworkEntry): string {
 
 function formatServedFrom(entry: ChromoNetworkEntry): string {
   if (entry.pending) {
-    return 'Pending…'
+    return '进行中…'
   }
   const source = entry.source || (entry.fromCache ? 'cache' : entry.bypass ? 'bypass' : '')
   switch (source) {
     case 'cache':
-      return 'DevTools memory cache'
+      return '开发者工具内存缓存'
     case 'bypass':
-      return 'Passthrough (vendor direct)'
+      return '直通（厂商直连）'
     case 'direct':
-      return 'Direct fetch (CORS host)'
+      return '直接请求（CORS 主机）'
     case 'cdn':
-      return 'Static CDN (jsDelivr)'
+      return '静态 CDN（jsDelivr）'
     case 'native':
-      return 'Native / non-HTTP'
+      return '原生 / 非 HTTP'
     case 'proxy':
       return entry.sourceHost
-        ? `Proxy gateway (${entry.sourceHost})`
-        : 'Proxy gateway'
+        ? `代理网关（${entry.sourceHost}）`
+        : '代理网关'
     default:
       if (entry.fromCache) {
-        return 'DevTools memory cache'
+        return '开发者工具内存缓存'
       }
       if (entry.bypass) {
-        return 'Passthrough (vendor direct)'
+        return '直通（厂商直连）'
       }
-      return entry.source || 'Proxy gateway'
+      return entry.source || '代理网关'
   }
 }
 
@@ -156,7 +191,7 @@ function headerValue(
 
 function formatHeadersRaw(headers: Record<string, string> | undefined): string {
   if (!headers || Object.keys(headers).length === 0) {
-    return '(empty)'
+    return '（空）'
   }
   return Object.entries(headers)
     .map(([key, value]) => `${key}: ${value}`)
@@ -399,7 +434,7 @@ function ServedFromCell({
                 ))}
               </div>
               <p class="chromo-network__help-footnote">
-                Cache-Control 不影响此项（仅 DevTools 热缓存）
+                Cache-Control 不影响此项（仅开发者工具热缓存）
               </p>
               <button
                 type="button"
@@ -452,11 +487,11 @@ function HeadersTab({
 
   return (
     <div class="chromo-network__headers">
-      <CollapsibleSection title="General">
+      <CollapsibleSection title="常规">
         <div class="chromo-network__detail-grid">
-          <DetailRow label="Request URL" value={entry.url} />
-          <DetailRow label="Request Method" value={entry.method || 'GET'} />
-          <DetailRow label="Status Code">
+          <DetailRow label="请求 URL" value={entry.url} />
+          <DetailRow label="请求方法" value={entry.method || 'GET'} />
+          <DetailRow label="状态码">
             <span class="chromo-network__status-line">
               <span
                 class={[
@@ -471,9 +506,9 @@ function HeadersTab({
             </span>
           </DetailRow>
           {entry.failed && entry.errorText ? (
-            <DetailRow label="Failure reason" value={entry.errorText} />
+            <DetailRow label="失败原因" value={entry.errorText} />
           ) : null}
-          <DetailRow label="Served from">
+          <DetailRow label="来源">
             <ServedFromCell
               entry={entry}
               disableNetworkCache={disableNetworkCache}
@@ -483,23 +518,23 @@ function HeadersTab({
           </DetailRow>
           <DetailRow
             label="Referrer Policy"
-            value={entry.referrerPolicy || '(empty)'}
+            value={entry.referrerPolicy || '（空）'}
             muted={!entry.referrerPolicy}
           />
           <DetailRow
             label="Referrer"
-            value={entry.referrer || '(empty)'}
+            value={entry.referrer || '（空）'}
             muted={!entry.referrer}
           />
-          <DetailRow label="Type" value={entry.type || 'other'} />
-          <DetailRow label="Size" value={entry.pending ? '-' : formatNetworkBytes(entry.size)} />
-          <DetailRow label="Time" value={entry.pending ? 'pending' : `${entry.duration} ms`} />
-          <DetailRow label="Entry ID" value={entry.id} />
+          <DetailRow label="类型" value={entry.type || 'other'} />
+          <DetailRow label="大小" value={entry.pending ? '-' : formatNetworkBytes(entry.size)} />
+          <DetailRow label="耗时" value={entry.pending ? '进行中' : `${entry.duration} ms`} />
+          <DetailRow label="条目 ID" value={entry.id} />
         </div>
       </CollapsibleSection>
 
       <CollapsibleSection
-        title="Response Headers"
+        title="响应标头"
         actions={
           <label class="chromo-network__raw-toggle">
             <input
@@ -509,7 +544,7 @@ function HeadersTab({
                 setResponseRaw((event.currentTarget as HTMLInputElement).checked)
               }
             />
-            Raw
+            原始
           </label>
         }
       >
@@ -529,7 +564,7 @@ function HeadersTab({
       </CollapsibleSection>
 
       <CollapsibleSection
-        title="Request Headers"
+        title="请求标头"
         actions={
           <label class="chromo-network__raw-toggle">
             <input
@@ -539,7 +574,7 @@ function HeadersTab({
                 setRequestRaw((event.currentTarget as HTMLInputElement).checked)
               }
             />
-            Raw
+            原始
           </label>
         }
       >
@@ -621,7 +656,7 @@ function PreviewTab({
       return (
         <div>
           {truncatedNote}
-          <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
+          <pre class="chromo-network__drawer-pre">{bodyText || '（空）'}</pre>
         </div>
       )
     }
@@ -630,7 +665,7 @@ function PreviewTab({
   return (
     <div>
       {truncatedNote}
-      <pre class="chromo-network__drawer-pre">{bodyText || '(empty)'}</pre>
+      <pre class="chromo-network__drawer-pre">{bodyText || '（空）'}</pre>
     </div>
   )
 }
@@ -650,15 +685,15 @@ function InitiatorTab({
   return (
     <div class="chromo-network__initiator">
       <div class="chromo-network__detail-grid">
-        <DetailRow label="Resource type" value={entry.type || 'other'} />
+        <DetailRow label="资源类型" value={entry.type || 'other'} />
         <DetailRow
           label="Referrer"
-          value={entry.referrer || '(empty)'}
+          value={entry.referrer || '（空）'}
           muted={!entry.referrer}
         />
       </div>
 
-      <h3 class="chromo-network__initiator-heading">Request initiator chain</h3>
+      <h3 class="chromo-network__initiator-heading">请求发起链</h3>
       <ul class="chromo-network__initiator-tree">
         {rootUrl && rootUrl !== entry.url ? (
           <li class="chromo-network__initiator-node">
@@ -741,7 +776,7 @@ function TimingTab({
   if (!timing || typeof timing.queuedAt !== 'number') {
     return (
       <div class="chromo-network__drawer-empty">
-        Timing 数据不可用（请求进行中或旧版本 bridge）
+        时序数据不可用（请求进行中或旧版本 bridge）
       </div>
     )
   }
@@ -758,34 +793,34 @@ function TimingTab({
     <div class="chromo-network__timing">
       <div class="chromo-network__timing-meta">
         <div>
-          Queued at{' '}
+          排队于{' '}
           <strong>{relativeFromOrigin(timing.queuedAt, originTs)}</strong>
         </div>
         <div>
-          Started at{' '}
+          开始于{' '}
           <strong>{relativeFromOrigin(timing.startedAt, originTs)}</strong>
         </div>
       </div>
 
-      <div class="chromo-network__timing-group-label">Resource Scheduling</div>
+      <div class="chromo-network__timing-group-label">资源调度</div>
       <TimingBarRow
-        label="Queueing"
+        label="排队"
         offsetPct={0}
         widthPct={qPct}
         color="queue"
         valueMs={timing.queueing}
       />
 
-      <div class="chromo-network__timing-group-label">Request/Response</div>
+      <div class="chromo-network__timing-group-label">请求/响应</div>
       <TimingBarRow
-        label="Waiting (TTFB)"
+        label="等待（TTFB）"
         offsetPct={qPct}
         widthPct={wPct}
         color="waiting"
         valueMs={timing.waiting}
       />
       <TimingBarRow
-        label="Content Download"
+        label="内容下载"
         offsetPct={qPct + wPct}
         widthPct={dPct}
         color="download"
@@ -793,11 +828,11 @@ function TimingTab({
       />
 
       <div class="chromo-network__timing-total">
-        <span>Total</span>
+        <span>总计</span>
         <strong>{formatTimingMs(entry.duration)}</strong>
       </div>
 
-      <div class="chromo-network__timing-group-label">Server Timing</div>
+      <div class="chromo-network__timing-group-label">服务器时序</div>
       {serverTiming.length === 0 ? (
         <p class="chromo-network__drawer-note">
           开发时可使用 Server-Timing 响应头提供服务端耗时洞察。
@@ -847,6 +882,20 @@ export function NetworkDetailDrawer({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<NetworkDetailTab>('headers')
+  const drawerRef = useRef<HTMLElement>(null)
+  const [preferredWidth, setPreferredWidth] = useState(readStoredDrawerWidth)
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  const resizingRef = useRef(false)
+  const pointerIdRef = useRef<number | null>(null)
+  const startPointerXRef = useRef(0)
+  const startWidthRef = useRef(0)
+  const liveWidthRef = useRef<number | null>(null)
+  const dragRafRef = useRef(0)
+  const maxWidthRef = useRef(DEFAULT_DRAWER_WIDTH)
+  const captureTargetRef = useRef<HTMLElement | null>(null)
+  const endDragListenersRef = useRef<(() => void) | null>(null)
+
+  const displayWidth = dragWidth ?? preferredWidth
 
   useEffect(() => {
     setTab('headers')
@@ -862,8 +911,178 @@ export function NetworkDetailDrawer({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const commitWidth = useCallback((width: number) => {
+    setPreferredWidth(width)
+    try {
+      localStorage.setItem(DRAWER_WIDTH_KEY, String(width))
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const stopResize = useCallback(
+    (commit = true) => {
+      if (!resizingRef.current) {
+        return
+      }
+      endDragListenersRef.current?.()
+      endDragListenersRef.current = null
+      if (dragRafRef.current) {
+        cancelAnimationFrame(dragRafRef.current)
+        dragRafRef.current = 0
+      }
+      if (captureTargetRef.current && pointerIdRef.current !== null) {
+        try {
+          captureTargetRef.current.releasePointerCapture(pointerIdRef.current)
+        } catch {
+          // ignore
+        }
+      }
+      if (commit && liveWidthRef.current !== null) {
+        commitWidth(liveWidthRef.current)
+      }
+      resizingRef.current = false
+      liveWidthRef.current = null
+      setDragWidth(null)
+      captureTargetRef.current = null
+      pointerIdRef.current = null
+      document.body.style.removeProperty('user-select')
+      document.body.style.removeProperty('cursor')
+    },
+    [commitWidth],
+  )
+
+  useEffect(() => {
+    return () => {
+      stopResize(false)
+    }
+  }, [stopResize])
+
+  useEffect(() => {
+    const drawer = drawerRef.current
+    const container = drawer?.parentElement
+    if (!container) {
+      return
+    }
+
+    const syncClamp = () => {
+      const next = clampDrawerWidth(preferredWidth, container.clientWidth)
+      maxWidthRef.current = Math.max(
+        MIN_DRAWER_WIDTH,
+        Math.min(
+          Math.floor(container.clientWidth * MAX_DRAWER_RATIO),
+          Math.max(0, container.clientWidth - MIN_TABLE_WIDTH),
+        ),
+      )
+      if (next !== preferredWidth && !resizingRef.current) {
+        setPreferredWidth(next)
+      }
+    }
+
+    syncClamp()
+    const observer = new ResizeObserver(syncClamp)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [preferredWidth])
+
+  const onResizePointerDown = useCallback(
+    (event: PointerEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      const handle = event.currentTarget as HTMLDivElement
+      const pointerId = event.pointerId
+      const container = drawerRef.current?.parentElement
+      const containerWidth = container?.clientWidth ?? 0
+      maxWidthRef.current = Math.max(
+        MIN_DRAWER_WIDTH,
+        Math.min(
+          Math.floor(containerWidth * MAX_DRAWER_RATIO),
+          Math.max(0, containerWidth - MIN_TABLE_WIDTH),
+        ),
+      )
+
+      try {
+        handle.setPointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
+      captureTargetRef.current = handle
+      pointerIdRef.current = pointerId
+      resizingRef.current = true
+      startPointerXRef.current = event.clientX
+      startWidthRef.current = preferredWidth
+      document.body.style.cursor = 'ew-resize'
+      document.body.style.userSelect = 'none'
+
+      const scheduleWidth = (width: number) => {
+        liveWidthRef.current = width
+        if (dragRafRef.current) {
+          return
+        }
+        dragRafRef.current = requestAnimationFrame(() => {
+          dragRafRef.current = 0
+          if (liveWidthRef.current !== null) {
+            setDragWidth(liveWidthRef.current)
+          }
+        })
+      }
+
+      const onMove = (moveEvent: PointerEvent) => {
+        if (!resizingRef.current || moveEvent.pointerId !== pointerId) {
+          return
+        }
+        moveEvent.preventDefault()
+        const delta = startPointerXRef.current - moveEvent.clientX
+        const next = Math.min(
+          maxWidthRef.current,
+          Math.max(MIN_DRAWER_WIDTH, startWidthRef.current + delta),
+        )
+        scheduleWidth(next)
+      }
+
+      const onUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) {
+          return
+        }
+        stopResize(true)
+      }
+
+      const onCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointerId) {
+          return
+        }
+        stopResize(false)
+      }
+
+      endDragListenersRef.current = () => {
+        document.removeEventListener('pointermove', onMove)
+        document.removeEventListener('pointerup', onUp)
+        document.removeEventListener('pointercancel', onCancel)
+      }
+
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+      document.addEventListener('pointercancel', onCancel)
+    },
+    [preferredWidth, stopResize],
+  )
+
   return (
-    <aside class="chromo-network__drawer" aria-label="请求详情">
+    <aside
+      ref={drawerRef}
+      class="chromo-network__drawer"
+      aria-label="请求详情"
+      style={{ width: `${displayWidth}px`, flexBasis: `${displayWidth}px` }}
+    >
+      <div
+        class="chromo-network__drawer-resize"
+        onPointerDown={onResizePointerDown}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整详情面板宽度"
+        title="拖动调整宽度"
+      />
       <header class="chromo-network__drawer-head chromo-network__drawer-head--tabs">
         <button
           type="button"
