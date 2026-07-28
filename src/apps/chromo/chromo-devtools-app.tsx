@@ -114,6 +114,7 @@ export function ChromoDevToolsApp({ windowId }: ChromoDevToolsAppProps) {
         disableNetworkCache={snapshot.disableNetworkCache}
         onDisableNetworkCacheChange={handlers.onDisableNetworkCacheChange}
         readNetworkBody={handlers.readNetworkBody}
+        readNetworkBodyLines={handlers.readNetworkBodyLines}
         probeNetworkHot={handlers.probeNetworkHot}
         pageLoading={snapshot.pageLoading}
         pageError={snapshot.pageError}

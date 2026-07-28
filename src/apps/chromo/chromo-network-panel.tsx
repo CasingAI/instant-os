@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
+import type {
+  ChromoNetworkEntry,
+  ChromoNetworkBodyReadResult,
+  ChromoNetworkBodyReadLinesOptions,
+  ChromoNetworkBodyReadLinesResult,
+} from './chromo-bridge.ts'
 import { NetworkDetailDrawer } from './chromo-network-detail.tsx'
 import {
   isNonPreviewableBinaryBody,
@@ -9,6 +14,9 @@ import {
 
 export { networkEntryName }
 
+/** Matches virtual-chromo MAX_LINES_PER_REQUEST */
+const NETWORK_BODY_LINES_PAGE = 500
+
 type ChromoNetworkPanelProps = {
   entries: ChromoNetworkEntry[]
   selectedId?: string
@@ -17,6 +25,10 @@ type ChromoNetworkPanelProps = {
   pageUrl?: string
   disableNetworkCache?: boolean
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines?: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   onSelect: (entry: ChromoNetworkEntry) => void
   onCloseDetail?: () => void
@@ -137,11 +149,27 @@ function decodeNetworkBody(result: ChromoNetworkBodyReadResult): string {
   }
 }
 
-function formatResponsePreview(text: string, maxLen = 12000): string {
-  if (text.length <= maxLen) {
-    return text
+function joinNetworkBodyLines(lines: string[]): string {
+  return lines.join('\n')
+}
+
+function bodyResultFromLines(
+  result: ChromoNetworkBodyReadLinesResult,
+): ChromoNetworkBodyReadResult {
+  return {
+    headers: result.headers,
+    body: '',
+    encoding: 'text',
+    status: result.status,
   }
-  return `${text.slice(0, maxLen)}\n\n… (truncated)`
+}
+
+function rpcErrorCode(err: unknown): string | undefined {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code?: unknown }).code
+    return typeof code === 'string' ? code : undefined
+  }
+  return undefined
 }
 
 function matchesNetworkTypeFilter(entry: ChromoNetworkEntry, filter: NetworkTypeFilter): boolean {
@@ -275,6 +303,7 @@ export function ChromoNetworkPanel({
   pageUrl,
   disableNetworkCache,
   readNetworkBody,
+  readNetworkBodyLines,
   probeNetworkHot,
   onSelect,
   onCloseDetail,
@@ -288,6 +317,10 @@ export function ChromoNetworkPanel({
   const [bodyResult, setBodyResult] = useState<ChromoNetworkBodyReadResult | null>(null)
   const [bodyError, setBodyError] = useState('')
   const [bodyLoading, setBodyLoading] = useState(false)
+  const [linesTotal, setLinesTotal] = useState(0)
+  const [linesLoadedTo, setLinesLoadedTo] = useState(0)
+  const [linesMode, setLinesMode] = useState(false)
+  const [linesLoadingMore, setLinesLoadingMore] = useState(false)
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedId) ?? null,
@@ -356,14 +389,21 @@ export function ChromoNetworkPanel({
   const selectedPending = Boolean(selectedEntry?.pending)
   const readNetworkBodyRef = useRef(readNetworkBody)
   readNetworkBodyRef.current = readNetworkBody
+  const readNetworkBodyLinesRef = useRef(readNetworkBodyLines)
+  readNetworkBodyLinesRef.current = readNetworkBodyLines
 
   useEffect(() => {
     const readBody = readNetworkBodyRef.current
-    if (!selectedId || !readBody) {
+    const readLines = readNetworkBodyLinesRef.current
+    if (!selectedId || (!readBody && !readLines)) {
       setBodyPreview('')
       setBodyResult(null)
       setBodyError('')
       setBodyLoading(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      setLinesMode(false)
+      setLinesLoadingMore(false)
       return
     }
     if (!selectedHasBody) {
@@ -371,6 +411,10 @@ export function ChromoNetworkPanel({
       setBodyResult(null)
       setBodyError(selectedPending ? '请求进行中…' : '未缓存响应正文')
       setBodyLoading(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      setLinesMode(false)
+      setLinesLoadingMore(false)
       return
     }
     if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry)) {
@@ -378,59 +422,155 @@ export function ChromoNetworkPanel({
       setBodyResult(null)
       setBodyError('')
       setBodyLoading(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      setLinesMode(false)
+      setLinesLoadingMore(false)
       return
     }
 
     let cancelled = false
     let requestId = 0
-    const fetchBody = () => {
+
+    const applyBinaryBody = (result: ChromoNetworkBodyReadResult) => {
+      setBodyResult(result)
+      setLinesMode(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+      const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
+      if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry, contentType)) {
+        setBodyPreview('')
+        return
+      }
+      if (selectedEntry && isPreviewableImageBody(selectedEntry, contentType)) {
+        setBodyPreview('')
+        return
+      }
+      setBodyPreview(decodeNetworkBody(result))
+    }
+
+    const applyLinesPage = (result: ChromoNetworkBodyReadLinesResult, append: boolean) => {
+      setBodyResult(bodyResultFromLines(result))
+      setLinesMode(true)
+      setLinesTotal(result.totalLines)
+      setLinesLoadedTo(result.toLine)
+      const chunk = joinNetworkBodyLines(result.lines)
+      if (append) {
+        setBodyPreview((prev) => {
+          if (!prev) return chunk
+          if (!chunk) return prev
+          return `${prev}\n${chunk}`
+        })
+      } else {
+        setBodyPreview(chunk)
+      }
+    }
+
+    const fetchBinary = () => {
+      if (!readBody) {
+        setBodyError('无法读取响应正文')
+        setBodyLoading(false)
+        return
+      }
       const currentRequest = ++requestId
       setBodyLoading(true)
       setBodyError('')
       setBodyPreview('')
       setBodyResult(null)
+      setLinesMode(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
 
       readBody(selectedId)
         .then((result) => {
-          if (cancelled || currentRequest !== requestId) {
-            return
-          }
-          setBodyResult(result)
-          const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
-          if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry, contentType)) {
-            setBodyPreview('')
-            return
-          }
-          // Images: keep bodyResult for blob preview; skip text decode
-          if (selectedEntry && isPreviewableImageBody(selectedEntry, contentType)) {
-            setBodyPreview('')
-            return
-          }
-          const text = decodeNetworkBody(result)
-          setBodyPreview(formatResponsePreview(text))
+          if (cancelled || currentRequest !== requestId) return
+          applyBinaryBody(result)
         })
         .catch((err: unknown) => {
-          if (cancelled || currentRequest !== requestId) {
-            return
-          }
-          const message = err instanceof Error ? err.message : String(err)
-          setBodyError(message)
+          if (cancelled || currentRequest !== requestId) return
+          setBodyError(err instanceof Error ? err.message : String(err))
         })
         .finally(() => {
-          if (cancelled || currentRequest !== requestId) {
-            return
-          }
+          if (cancelled || currentRequest !== requestId) return
           setBodyLoading(false)
         })
     }
 
-    fetchBody()
+    const fetchLinesFirstPage = () => {
+      if (!readLines) {
+        fetchBinary()
+        return
+      }
+      const currentRequest = ++requestId
+      setBodyLoading(true)
+      setBodyError('')
+      setBodyPreview('')
+      setBodyResult(null)
+      setLinesMode(false)
+      setLinesTotal(0)
+      setLinesLoadedTo(0)
+
+      readLines(selectedId, { fromLine: 0, toLine: NETWORK_BODY_LINES_PAGE })
+        .then((result) => {
+          if (cancelled || currentRequest !== requestId) return
+          applyLinesPage(result, false)
+          setBodyLoading(false)
+        })
+        .catch((err: unknown) => {
+          if (cancelled || currentRequest !== requestId) return
+          if (rpcErrorCode(err) === 'NETWORK_BODY_NOT_TEXT' && readBody) {
+            fetchBinary()
+            return
+          }
+          setBodyError(err instanceof Error ? err.message : String(err))
+          setBodyLoading(false)
+        })
+    }
+
+    if (selectedEntry && isPreviewableImageBody(selectedEntry)) {
+      fetchBinary()
+    } else {
+      fetchLinesFirstPage()
+    }
 
     return () => {
       cancelled = true
       setBodyLoading(false)
+      setLinesLoadingMore(false)
     }
   }, [selectedId, selectedHasBody, selectedPending, selectedEntry])
+
+  const handleLoadMoreLines = useCallback(() => {
+    const readLines = readNetworkBodyLinesRef.current
+    if (!selectedId || !readLines || !linesMode || linesLoadingMore || bodyLoading) {
+      return
+    }
+    if (linesLoadedTo >= linesTotal) {
+      return
+    }
+    setLinesLoadingMore(true)
+    setBodyError('')
+    const fromLine = linesLoadedTo
+    const toLine = Math.min(fromLine + NETWORK_BODY_LINES_PAGE, linesTotal)
+    readLines(selectedId, { fromLine, toLine })
+      .then((result) => {
+        setBodyResult(bodyResultFromLines(result))
+        setLinesTotal(result.totalLines)
+        setLinesLoadedTo(result.toLine)
+        const chunk = joinNetworkBodyLines(result.lines)
+        setBodyPreview((prev) => {
+          if (!prev) return chunk
+          if (!chunk) return prev
+          return `${prev}\n${chunk}`
+        })
+      })
+      .catch((err: unknown) => {
+        setBodyError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        setLinesLoadingMore(false)
+      })
+  }, [selectedId, linesMode, linesLoadingMore, bodyLoading, linesLoadedTo, linesTotal])
 
   return (
     <div
@@ -546,6 +686,11 @@ export function ChromoNetworkPanel({
             bodyText={bodyPreview}
             bodyLoading={bodyLoading}
             bodyError={bodyError}
+            linesMode={linesMode}
+            linesTotal={linesTotal}
+            linesLoadedTo={linesLoadedTo}
+            linesLoadingMore={linesLoadingMore}
+            onLoadMoreLines={handleLoadMoreLines}
             originTs={originTs}
             pageUrl={pageUrl}
             disableNetworkCache={disableNetworkCache}

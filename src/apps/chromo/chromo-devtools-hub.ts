@@ -1,6 +1,8 @@
 import type {
   ChromoConsoleEntry,
   ChromoNetworkBodyReadResult,
+  ChromoNetworkBodyReadLinesOptions,
+  ChromoNetworkBodyReadLinesResult,
   ChromoNetworkEntry,
   ChromoNetworkOptions,
 } from './chromo-bridge.ts'
@@ -38,6 +40,10 @@ export type ChromoDevToolsSnapshot = {
 export type ChromoDevToolsHandlers = {
   evalInPage: (code: string) => Promise<unknown>
   readNetworkBody: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot: (method: string, url: string) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
   onPanelTabChange: (tab: ChromoDevToolsPanelTab) => void

@@ -3,7 +3,12 @@ import type { RefObject } from 'preact'
 import { memo } from 'preact/compat'
 import { ChromoConsolePanel } from './chromo-console-panel.tsx'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
-import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
+import type {
+  ChromoNetworkEntry,
+  ChromoNetworkBodyReadResult,
+  ChromoNetworkBodyReadLinesOptions,
+  ChromoNetworkBodyReadLinesResult,
+} from './chromo-bridge.ts'
 import type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab } from './chromo-devtools-hub.ts'
 import { ChromoExtensionsPanel } from './chromo-extensions-panel.tsx'
 import { ChromoNetworkPanel } from './chromo-network-panel.tsx'
@@ -55,6 +60,10 @@ type ChromoDevToolsPanelProps = {
   disableNetworkCache?: boolean
   onDisableNetworkCacheChange?: (disable: boolean) => void
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines?: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   pageLoading?: boolean
   pageError?: string
@@ -281,6 +290,10 @@ type ChromoDevToolsPanelBodyProps = {
   selectedNetworkId?: string
   disableNetworkCache?: boolean
   readNetworkBody?: (entryId: string) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines?: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   pageLoading?: boolean
   pageError?: string
@@ -306,6 +319,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   selectedNetworkId,
   disableNetworkCache,
   readNetworkBody,
+  readNetworkBodyLines,
   probeNetworkHot,
   pageLoading,
   pageError,
@@ -341,6 +355,7 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
         pageUrl={pageUrl}
         disableNetworkCache={disableNetworkCache}
         readNetworkBody={readNetworkBody}
+        readNetworkBodyLines={readNetworkBodyLines}
         probeNetworkHot={probeNetworkHot}
         onSelect={onSelectNetwork}
         onCloseDetail={onCloseNetworkDetail}
@@ -467,6 +482,7 @@ export function ChromoDevToolsPanel({
   disableNetworkCache,
   onDisableNetworkCacheChange,
   readNetworkBody,
+  readNetworkBodyLines,
   probeNetworkHot,
   pageLoading,
   pageError,
@@ -885,6 +901,7 @@ export function ChromoDevToolsPanel({
             selectedNetworkId={selectedNetworkId}
             disableNetworkCache={disableNetworkCache}
             readNetworkBody={readNetworkBody}
+            readNetworkBodyLines={readNetworkBodyLines}
             probeNetworkHot={probeNetworkHot}
             pageLoading={pageLoading}
             pageError={pageError}

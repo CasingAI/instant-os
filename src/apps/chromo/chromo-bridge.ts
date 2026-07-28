@@ -153,6 +153,26 @@ export type ChromoNetworkBodyReadResult = {
   truncated?: boolean
 }
 
+/** VC_NETWORK_BODY_READ_LINES — 文本按行按需读取（0-based，toLine exclusive） */
+export type ChromoNetworkBodyReadLinesOptions = {
+  fromLine?: number
+  toLine?: number
+  /** true 时只返回元信息，lines 为 [] */
+  metaOnly?: boolean
+} & ChromoRpcOptions
+
+export type ChromoNetworkBodyReadLinesResult = {
+  headers: Record<string, string>
+  status: number
+  totalLines: number
+  fromLine: number
+  toLine: number
+  lines: string[]
+  contentType?: string
+  charset?: string
+  rangeClamped?: boolean
+}
+
 export type ChromoNetworkOptions = {
   devtoolsId?: string
   disableCache?: boolean
@@ -218,6 +238,10 @@ export type ChromoBridge = {
     entryId: string,
     options?: ChromoRpcOptions,
   ) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot: (
     method: string,
     url: string,
@@ -422,6 +446,9 @@ export function createChromoBridge(
       case 'VC_NETWORK_BODY_READ_RESULT':
         settleRpc('VC_NETWORK_BODY_READ_RESULT', payload as RpcResultPayload)
         break
+      case 'VC_NETWORK_BODY_READ_LINES_RESULT':
+        settleRpc('VC_NETWORK_BODY_READ_LINES_RESULT', payload as RpcResultPayload)
+        break
       case 'VC_SCREENSHOT_RESULT':
         settleRpc('VC_SCREENSHOT_RESULT', payload as RpcResultPayload)
         break
@@ -515,6 +542,22 @@ export function createChromoBridge(
       return rpc('VC_NETWORK_BODY_READ_RESULT', 'VC_NETWORK_BODY_READ', { entryId }, options).then(
         (value) => value as ChromoNetworkBodyReadResult,
       )
+    },
+    readNetworkBodyLines(entryId, options) {
+      const { fromLine, toLine, metaOnly, timeout } = options ?? {}
+      const payload: Record<string, unknown> = { entryId }
+      if (fromLine !== undefined) {
+        payload.fromLine = fromLine
+      }
+      if (toLine !== undefined) {
+        payload.toLine = toLine
+      }
+      if (metaOnly !== undefined) {
+        payload.metaOnly = metaOnly
+      }
+      return rpc('VC_NETWORK_BODY_READ_LINES_RESULT', 'VC_NETWORK_BODY_READ_LINES', payload, {
+        timeout,
+      }).then((value) => value as ChromoNetworkBodyReadLinesResult)
     },
     probeNetworkHot(method, url, options) {
       return rpc('VC_NETWORK_HOT_PROBE_RESULT', 'VC_NETWORK_HOT_PROBE', { method, url }, {

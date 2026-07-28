@@ -1713,6 +1713,20 @@
   background: #d2e3fc;
 }
 
+.chromo-network__preview-more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid #e8eaed;
+  flex-shrink: 0;
+}
+
+.chromo-network__preview-more-error {
+  font: 11px/1.35 system-ui, sans-serif;
+  color: #c5221f;
+}
+
 .chromo-network__section {
   border-bottom: 1px solid #eceff1;
 }
@@ -1873,22 +1887,17 @@
 
 .chromo-network__help-popover {
   position: absolute;
-  /* Span label+value columns; avoid being squeezed to the value cell. */
-  left: -120px;
+  left: 0;
   right: 0;
   top: calc(100% + 6px);
   z-index: 20;
   width: auto;
-  min-width: 320px;
-  max-width: min(420px, calc(100vw - 48px));
+  max-width: none;
   padding: 10px;
   border: 1px solid #dadce0;
   border-radius: 6px;
   background: #fff;
   box-shadow: 0 4px 16px rgba(60, 64, 67, 0.18);
-  /* detail-value uses break-all; reset so labels stay readable */
-  word-break: normal;
-  overflow-wrap: break-word;
 }
 
 .chromo-network__help-popover-title {
@@ -1906,8 +1915,8 @@
 
 .chromo-network__help-row {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) max-content;
-  gap: 8px;
+  grid-template-columns: 16px 1fr auto;
+  gap: 6px;
   align-items: start;
   padding: 3px 4px;
   border-radius: 4px;
@@ -1942,15 +1951,13 @@
 
 .chromo-network__help-label {
   min-width: 0;
-  word-break: normal;
-  overflow-wrap: break-word;
 }
 
 .chromo-network__help-value {
   color: #5f6368;
   font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: nowrap;
-  max-width: 160px;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: right;

@@ -716,6 +716,25 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     [getViewerRef],
   )
 
+  const readActiveNetworkBodyLines = useCallback(
+    (
+      entryId: string,
+      options?: { fromLine?: number; toLine?: number; metaOnly?: boolean },
+    ) => {
+      const tabId = activeTabIdRef.current
+      const tab = tabsRef.current.find((entry) => entry.id === tabId)
+      if (!tab) {
+        return Promise.reject(new Error('没有活动标签页'))
+      }
+      const viewer = getViewerRef(tabId).current
+      if (!viewer?.isReady()) {
+        return Promise.reject(new Error('网页尚未就绪'))
+      }
+      return viewer.readNetworkBodyLines(entryId, options)
+    },
+    [getViewerRef],
+  )
+
   const probeActiveNetworkHot = useCallback(
     (method: string, url: string) => {
       const tabId = activeTabIdRef.current
@@ -827,6 +846,13 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             return Promise.reject(new Error('网页尚未就绪'))
           }
           return viewer.readNetworkBody(entryId)
+        },
+        readNetworkBodyLines: (entryId, options) => {
+          const viewer = getViewerRef(tab.id).current
+          if (!viewer?.isReady()) {
+            return Promise.reject(new Error('网页尚未就绪'))
+          }
+          return viewer.readNetworkBodyLines(entryId, options)
         },
         probeNetworkHot: (method, url) => {
           const viewer = getViewerRef(tab.id).current
@@ -992,6 +1018,13 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
             return Promise.reject(new Error('网页尚未就绪'))
           }
           return viewer.readNetworkBody(entryId)
+        },
+        readNetworkBodyLines: (entryId, options) => {
+          const viewer = getViewerRef(tabId).current
+          if (!viewer?.isReady()) {
+            return Promise.reject(new Error('网页尚未就绪'))
+          }
+          return viewer.readNetworkBodyLines(entryId, options)
         },
         probeNetworkHot: (method, url) => {
           const viewer = getViewerRef(tabId).current
@@ -1634,6 +1667,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   updateTabDisableNetworkCache(activeTab.id, disable)
                 }
                 readNetworkBody={readActiveNetworkBody}
+                readNetworkBodyLines={readActiveNetworkBodyLines}
                 probeNetworkHot={probeActiveNetworkHot}
                 pageLoading={activeTab.loading}
                 pageError={formatPageFault(activeTab.pageFault)}

@@ -571,6 +571,11 @@ function PreviewTab({
   bodyLoading,
   bodyError,
   active,
+  linesMode,
+  linesTotal,
+  linesLoadedTo,
+  linesLoadingMore,
+  onLoadMoreLines,
 }: {
   entry: ChromoNetworkEntry
   bodyResult: ChromoNetworkBodyReadResult | null
@@ -578,6 +583,11 @@ function PreviewTab({
   bodyLoading: boolean
   bodyError: string
   active: boolean
+  linesMode: boolean
+  linesTotal: number
+  linesLoadedTo: number
+  linesLoadingMore: boolean
+  onLoadMoreLines?: () => void
 }) {
   const headerMime = bodyResult
     ? headerValue(bodyResult.headers, 'content-type').split(';')[0].trim().toLowerCase()
@@ -630,14 +640,33 @@ function PreviewTab({
     return <div class="chromo-network__drawer-empty">无响应数据</div>
   }
 
-  const truncatedNote = bodyResult.truncated ? (
+  const contentType = headerValue(bodyResult.headers, 'content-type')
+  const mime = contentType.split(';')[0].trim().toLowerCase() || 'application/octet-stream'
+  const linesComplete = !linesMode || linesLoadedTo >= linesTotal
+  const linesNote = linesMode && linesTotal > 0 ? (
+    <div class="chromo-network__drawer-note">
+      已加载 {Math.min(linesLoadedTo, linesTotal)} / {linesTotal} 行
+    </div>
+  ) : bodyResult.truncated ? (
     <div class="chromo-network__drawer-note">
       仅显示 Cache 中的正文前缀（预览上限约 64KB），完整内容仍保留在 Cache
     </div>
   ) : null
 
-  const contentType = headerValue(bodyResult.headers, 'content-type')
-  const mime = contentType.split(';')[0].trim().toLowerCase() || 'application/octet-stream'
+  const loadMoreControl =
+    linesMode && !linesComplete ? (
+      <div class="chromo-network__preview-more">
+        <button
+          type="button"
+          class="chromo-network__preview-retry"
+          disabled={linesLoadingMore}
+          onClick={() => onLoadMoreLines?.()}
+        >
+          {linesLoadingMore ? '加载中…' : '加载更多行'}
+        </button>
+        {bodyError ? <span class="chromo-network__preview-more-error">{bodyError}</span> : null}
+      </div>
+    ) : null
 
   if (kind === 'image') {
     if (!imageSrc) {
@@ -645,42 +674,39 @@ function PreviewTab({
     }
     return (
       <div class="chromo-network__preview-pane chromo-network__preview-pane--image">
-        {truncatedNote}
+        {linesNote}
         <ImageDocumentPreview src={imageSrc} alt={networkEntryName(entry.url)} />
       </div>
     )
   }
 
-  if (kind === 'json') {
+  if (kind === 'json' && linesComplete) {
     try {
       const parsed = JSON.parse(bodyText)
       return (
         <div>
-          {truncatedNote}
+          {linesNote}
           <pre class="chromo-network__drawer-pre chromo-network__drawer-pre--json">
             {JSON.stringify(parsed, null, 2)}
           </pre>
+          {loadMoreControl}
         </div>
       )
     } catch {
-      return (
-        <div>
-          {truncatedNote}
-          <pre class="chromo-network__drawer-pre">{bodyText || '（空）'}</pre>
-        </div>
-      )
+      // fall through to text preview
     }
   }
 
-  // text (incl. HTML as source)
+  // text (incl. HTML / partial JSON) as source
   return (
     <div class="chromo-network__preview-pane chromo-network__preview-pane--text">
-      {truncatedNote}
+      {linesNote}
       <ChromoNetworkTextPreview
         text={bodyText}
         fileName={previewFileNameFromEntry(entry.url, mime)}
         active={active}
       />
+      {loadMoreControl}
     </div>
   )
 }
@@ -940,6 +966,11 @@ export function NetworkDetailDrawer({
   bodyText,
   bodyLoading,
   bodyError,
+  linesMode = false,
+  linesTotal = 0,
+  linesLoadedTo = 0,
+  linesLoadingMore = false,
+  onLoadMoreLines,
   originTs,
   pageUrl,
   disableNetworkCache,
@@ -952,6 +983,11 @@ export function NetworkDetailDrawer({
   bodyText: string
   bodyLoading: boolean
   bodyError: string
+  linesMode?: boolean
+  linesTotal?: number
+  linesLoadedTo?: number
+  linesLoadingMore?: boolean
+  onLoadMoreLines?: () => void
   originTs: number
   pageUrl?: string
   disableNetworkCache?: boolean
@@ -1198,6 +1234,11 @@ export function NetworkDetailDrawer({
             bodyLoading={bodyLoading}
             bodyError={bodyError}
             active={tab === 'preview'}
+            linesMode={linesMode}
+            linesTotal={linesTotal}
+            linesLoadedTo={linesLoadedTo}
+            linesLoadingMore={linesLoadingMore}
+            onLoadMoreLines={onLoadMoreLines}
           />
         ) : null}
         {tab === 'initiator' ? <InitiatorTab entry={entry} pageUrl={pageUrl} /> : null}

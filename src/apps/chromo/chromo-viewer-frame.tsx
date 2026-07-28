@@ -13,6 +13,8 @@ import {
   type ChromoNavigatedPayload,
   type ChromoNetworkReadResult,
   type ChromoNetworkBodyReadResult,
+  type ChromoNetworkBodyReadLinesOptions,
+  type ChromoNetworkBodyReadLinesResult,
   type ChromoNetworkOptions,
   type ChromoNavigateOptions,
   type ChromoReadyPayload,
@@ -39,6 +41,10 @@ export type ChromoViewerHandle = {
     entryId: string,
     options?: ChromoRpcOptions,
   ) => Promise<ChromoNetworkBodyReadResult>
+  readNetworkBodyLines: (
+    entryId: string,
+    options?: ChromoNetworkBodyReadLinesOptions,
+  ) => Promise<ChromoNetworkBodyReadLinesResult>
   probeNetworkHot: (
     method: string,
     url: string,
@@ -208,6 +214,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         readNetworkBody(entryId, options) {
           return (
             bridgeRef.current?.readNetworkBody(entryId, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        readNetworkBodyLines(entryId, options) {
+          return (
+            bridgeRef.current?.readNetworkBodyLines(entryId, options) ??
             Promise.reject(new Error('viewer not ready'))
           )
         },
