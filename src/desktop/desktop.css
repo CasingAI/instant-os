@@ -1,6 +1,6 @@
 .desktop {
   position: absolute;
-  inset: 22px 0 var(--dock-reserve, 96px);
+  inset: 22px 0 var(--dock-reserve, 80px);
   padding: 16px 0 0;
   overflow: hidden;
   display: flex;

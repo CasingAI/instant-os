@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px calc(24px + var(--dock-reserve, 96px));
+  padding: 24px 16px calc(24px + var(--dock-reserve, 80px));
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.42);
 }
@@ -33,7 +33,7 @@
   display: flex;
   flex-direction: column;
   width: min(400px, 100%);
-  max-height: min(640px, calc(100vh - 48px - var(--dock-reserve, 96px)));
+  max-height: min(640px, calc(100vh - 48px - var(--dock-reserve, 80px)));
   padding: 10px 10px 9px;
   border-radius: 18px;
   overflow: hidden;

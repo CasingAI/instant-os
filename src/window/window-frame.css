@@ -165,6 +165,7 @@
 
 .window-frame--anchored {
   border-radius: 0;
+  box-shadow: none;
 }
 
 .window-frame--fullscreen {
@@ -209,6 +210,10 @@
   box-shadow:
     0 22px 48px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.window-frame--anchored.window-frame--active {
+  box-shadow: none;
 }
 
 .window-frame__chrome {

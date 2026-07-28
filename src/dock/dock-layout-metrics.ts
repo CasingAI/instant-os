@@ -10,6 +10,8 @@ import { isExtAppId, isGeneratedAppId, type AppId, type ExtAppId, type Generated
 import {
   DOCK_BASE_ICON_PX,
   DOCK_BASE_RESERVE_PX,
+  DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE,
+  DOCK_PLATE_PADDING_BOTTOM_BASE,
   DOCK_SIZE_TIER_SCALES,
   resolveDockSizeScale,
   type DockSettings,
@@ -209,8 +211,8 @@ export function resolveEffectiveDockIconSizePx(settings?: DockSettings): number 
 
 export function resolveEffectiveDockIconCenterYOffsetFromBottom(settings?: DockSettings): number {
   const scale = resolveEffectiveDockScale(settings)
-  const bottomPad = Math.round(14 * scale)
-  const platePadBottom = Math.round(10 * scale)
+  const bottomPad = Math.round(DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE * scale)
+  const platePadBottom = Math.round(DOCK_PLATE_PADDING_BOTTOM_BASE * scale)
   const iconHalf = resolveEffectiveDockIconSizePx(settings) / 2
   return bottomPad + platePadBottom + iconHalf
 }

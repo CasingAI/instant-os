@@ -4,7 +4,7 @@
   right: 0;
   bottom: 0;
   z-index: 900;
-  height: var(--dock-reserve, 96px);
+  height: var(--dock-reserve, 80px);
   padding: 0;
   transition:
     opacity 0.28s ease,

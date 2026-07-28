@@ -2,8 +2,19 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../os/device-storage
 
 export const DOCK_SETTINGS_CHANGED_EVENT = 'instant-os:dock-settings-changed'
 
-export const DOCK_BASE_RESERVE_PX = 96
 export const DOCK_BASE_ICON_PX = 56
+
+/** 与 dock.css 中 plate-anchor / plate 内边距一致。 */
+export const DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE = 6
+export const DOCK_PLATE_PADDING_TOP_BASE = 8
+export const DOCK_PLATE_PADDING_BOTTOM_BASE = 10
+
+/** 程序坞实际占用高度（图标 + 内边距），用于工作区与最大化窗口计算。 */
+export const DOCK_BASE_RESERVE_PX =
+  DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE +
+  DOCK_PLATE_PADDING_TOP_BASE +
+  DOCK_BASE_ICON_PX +
+  DOCK_PLATE_PADDING_BOTTOM_BASE
 
 export type DockSizeTier = 'mini' | 'small' | 'medium' | 'large' | 'extraLarge'
 
@@ -167,8 +178,8 @@ export function resolveDockIconSizePx(scale = resolveDockSizeScale()): number {
 }
 
 export function resolveDockIconCenterYOffsetFromBottom(scale = resolveDockSizeScale()): number {
-  const bottomPad = Math.round(14 * scale)
-  const platePadBottom = Math.round(10 * scale)
+  const bottomPad = Math.round(DOCK_PLATE_ANCHOR_BOTTOM_PAD_BASE * scale)
+  const platePadBottom = Math.round(DOCK_PLATE_PADDING_BOTTOM_BASE * scale)
   const iconHalf = resolveDockIconSizePx(scale) / 2
   return bottomPad + platePadBottom + iconHalf
 }
