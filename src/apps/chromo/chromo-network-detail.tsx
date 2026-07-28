@@ -954,10 +954,6 @@ export function NetworkDetailDrawer({
   const displayWidth = clampDrawerWidth(dragWidth ?? preferredWidth, containerWidth)
 
   useEffect(() => {
-    setTab('headers')
-  }, [entry.id])
-
-  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose()
