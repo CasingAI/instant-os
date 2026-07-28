@@ -14,7 +14,8 @@ import { filterFirstPartyCookies, hostnameFromPageUrl } from './chromo-cookie-sc
 export type ChromoApplicationApi = {
   listCookies: () => Promise<{ cookies: ChromoCookie[] }>
   deleteCookie: (cookieId: string) => Promise<{ deleted: boolean }>
-  clearCookies: (domain?: string) => Promise<{ cleared: number }>
+  clearCookies: (domain: string) => Promise<{ cleared: number }>
+  clearAllCookies: () => Promise<{ cleared: number }>
   listStorage: (type: 'local' | 'session') => Promise<{
     type: 'local' | 'session'
     origin: string
@@ -28,10 +29,8 @@ export type ChromoApplicationApi = {
   listNetworkCache: (
     layer: 'hot' | 'archive',
   ) => Promise<{ layer: string; entries: unknown[] }>
-  clearNetworkCache: (
-    layer: 'hot' | 'archive' | 'all',
-    options?: { origin?: string },
-  ) => Promise<{ layer: string }>
+  clearNetworkCache: (origin: string) => Promise<{ layer: string; origin: string }>
+  clearAllNetworkCache: (layer: 'hot' | 'archive' | 'all') => Promise<{ layer: string }>
   listIdb: () => Promise<{ databases: ChromoIdbDatabase[] }>
   deleteIdb: (name: string) => Promise<unknown>
   listIdbStores: (
@@ -778,7 +777,7 @@ export function ChromoApplicationPanel({
                       if (!expectedOrigin) {
                         return
                       }
-                      await api.clearNetworkCache('hot', { origin: expectedOrigin })
+                      await api.clearNetworkCache(expectedOrigin)
                     } else if (
                       !globalThis.confirm(
                         '将清空全局 Archive 层（所有站点的响应归档）。确定继续？',
@@ -786,7 +785,7 @@ export function ChromoApplicationPanel({
                     ) {
                       return
                     } else {
-                      await api.clearNetworkCache('archive')
+                      await api.clearAllNetworkCache('archive')
                     }
                     await refresh()
                   })
@@ -806,7 +805,7 @@ export function ChromoApplicationPanel({
                     ) {
                       return
                     }
-                    await api.clearNetworkCache('all')
+                    await api.clearAllNetworkCache('all')
                     await refresh()
                   })
                 }

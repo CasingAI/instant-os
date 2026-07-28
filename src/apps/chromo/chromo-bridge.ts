@@ -299,9 +299,10 @@ export type ChromoBridge = {
   listCookies: (options?: ChromoRpcOptions) => Promise<{ cookies: ChromoCookie[] }>
   deleteCookie: (cookieId: string, options?: ChromoRpcOptions) => Promise<{ deleted: boolean }>
   clearCookies: (
-    domain?: string,
+    domain: string,
     options?: ChromoRpcOptions,
   ) => Promise<{ cleared: number }>
+  clearAllCookies: (options?: ChromoRpcOptions) => Promise<{ cleared: number }>
   listStorage: (
     type: 'local' | 'session',
     options?: ChromoRpcOptions,
@@ -327,9 +328,15 @@ export type ChromoBridge = {
     layer: 'hot' | 'archive',
     options?: { limit?: number } & ChromoRpcOptions,
   ) => Promise<{ layer: string; entries: unknown[] }>
+  /** Clear hot cache for one origin. Origin is required. */
   clearNetworkCache: (
+    origin: string,
+    options?: ChromoRpcOptions,
+  ) => Promise<{ layer: string; origin: string }>
+  /** Clear entire hot/archive layer or both. */
+  clearAllNetworkCache: (
     layer: 'hot' | 'archive' | 'all',
-    options?: { origin?: string } & ChromoRpcOptions,
+    options?: ChromoRpcOptions,
   ) => Promise<{ layer: string }>
   listIdb: (options?: ChromoRpcOptions) => Promise<{ databases: ChromoIdbDatabase[] }>
   deleteIdb: (name: string, options?: ChromoRpcOptions) => Promise<unknown>
@@ -571,6 +578,9 @@ export function createChromoBridge(
       case 'VC_COOKIE_CLEAR_RESULT':
         settleRpc('VC_COOKIE_CLEAR_RESULT', payload as RpcResultPayload)
         break
+      case 'VC_COOKIE_CLEAR_ALL_RESULT':
+        settleRpc('VC_COOKIE_CLEAR_ALL_RESULT', payload as RpcResultPayload)
+        break
       case 'VC_STORAGE_LIST_RESULT':
         settleRpc('VC_STORAGE_LIST_RESULT', payload as RpcResultPayload)
         break
@@ -594,6 +604,9 @@ export function createChromoBridge(
         break
       case 'VC_NETWORK_CACHE_CLEAR_RESULT':
         settleRpc('VC_NETWORK_CACHE_CLEAR_RESULT', payload as RpcResultPayload)
+        break
+      case 'VC_NETWORK_CACHE_CLEAR_ALL_RESULT':
+        settleRpc('VC_NETWORK_CACHE_CLEAR_ALL_RESULT', payload as RpcResultPayload)
         break
       case 'VC_IDB_LIST_RESULT':
         settleRpc('VC_IDB_LIST_RESULT', payload as RpcResultPayload)
@@ -797,12 +810,19 @@ export function createChromoBridge(
       )
     },
     clearCookies(domain, options) {
-      const payload: Record<string, unknown> = {}
-      if (domain) {
-        payload.domain = domain
+      const trimmed = typeof domain === 'string' ? domain.trim() : ''
+      if (!trimmed) {
+        return Promise.reject(
+          Object.assign(new Error('domain required'), { code: 'DOMAIN_REQUIRED' }),
+        )
       }
-      return rpc('VC_COOKIE_CLEAR_RESULT', 'VC_COOKIE_CLEAR', payload, options).then(
+      return rpc('VC_COOKIE_CLEAR_RESULT', 'VC_COOKIE_CLEAR', { domain: trimmed }, options).then(
         (value) => (value ?? { cleared: 0 }) as { cleared: number },
+      )
+    },
+    clearAllCookies(options) {
+      return rpc('VC_COOKIE_CLEAR_ALL_RESULT', 'VC_COOKIE_CLEAR_ALL', {}, options).then(
+        (value) => (value ?? { cleared: -1 }) as { cleared: number },
       )
     },
     listStorage(type, options) {
@@ -840,15 +860,30 @@ export function createChromoBridge(
         timeout,
       }).then((value) => (value ?? { layer, entries: [] }) as { layer: string; entries: unknown[] })
     },
-    clearNetworkCache(layer, options) {
-      const { origin, timeout } = options ?? {}
-      const payload: Record<string, unknown> = { layer }
-      if (origin) {
-        payload.origin = origin
+    clearNetworkCache(origin, options) {
+      const trimmed = typeof origin === 'string' ? origin.trim() : ''
+      if (!trimmed) {
+        return Promise.reject(
+          Object.assign(new Error('origin required'), { code: 'ORIGIN_REQUIRED' }),
+        )
       }
-      return rpc('VC_NETWORK_CACHE_CLEAR_RESULT', 'VC_NETWORK_CACHE_CLEAR', payload, {
-        timeout,
-      }).then((value) => (value ?? { layer }) as { layer: string })
+      return rpc(
+        'VC_NETWORK_CACHE_CLEAR_RESULT',
+        'VC_NETWORK_CACHE_CLEAR',
+        { origin: trimmed },
+        options,
+      ).then(
+        (value) =>
+          (value ?? { layer: 'hot', origin: trimmed }) as { layer: string; origin: string },
+      )
+    },
+    clearAllNetworkCache(layer, options) {
+      return rpc(
+        'VC_NETWORK_CACHE_CLEAR_ALL_RESULT',
+        'VC_NETWORK_CACHE_CLEAR_ALL',
+        { layer },
+        options,
+      ).then((value) => (value ?? { layer }) as { layer: string })
     },
     listIdb(options) {
       return rpc('VC_IDB_LIST_RESULT', 'VC_IDB_LIST', {}, options).then(

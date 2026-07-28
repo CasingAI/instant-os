@@ -59,6 +59,7 @@ export type ChromoViewerHandle = {
   listCookies: ChromoBridge['listCookies']
   deleteCookie: ChromoBridge['deleteCookie']
   clearCookies: ChromoBridge['clearCookies']
+  clearAllCookies: ChromoBridge['clearAllCookies']
   listStorage: ChromoBridge['listStorage']
   setStorageItem: ChromoBridge['setStorageItem']
   removeStorageItem: ChromoBridge['removeStorageItem']
@@ -67,6 +68,7 @@ export type ChromoViewerHandle = {
   getNetworkCacheStats: ChromoBridge['getNetworkCacheStats']
   listNetworkCache: ChromoBridge['listNetworkCache']
   clearNetworkCache: ChromoBridge['clearNetworkCache']
+  clearAllNetworkCache: ChromoBridge['clearAllNetworkCache']
   listIdb: ChromoBridge['listIdb']
   deleteIdb: ChromoBridge['deleteIdb']
   listIdbStores: ChromoBridge['listIdbStores']
@@ -297,6 +299,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             Promise.reject(new Error('viewer not ready'))
           )
         },
+        clearAllCookies(options) {
+          return (
+            bridgeRef.current?.clearAllCookies(options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
         listStorage(type, options) {
           return (
             bridgeRef.current?.listStorage(type, options) ??
@@ -339,9 +347,15 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             Promise.reject(new Error('viewer not ready'))
           )
         },
-        clearNetworkCache(layer, options) {
+        clearNetworkCache(origin, options) {
           return (
-            bridgeRef.current?.clearNetworkCache(layer, options) ??
+            bridgeRef.current?.clearNetworkCache(origin, options) ??
+            Promise.reject(new Error('viewer not ready'))
+          )
+        },
+        clearAllNetworkCache(layer, options) {
+          return (
+            bridgeRef.current?.clearAllNetworkCache(layer, options) ??
             Promise.reject(new Error('viewer not ready'))
           )
         },
