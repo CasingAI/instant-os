@@ -125,9 +125,6 @@ export function ChromoDevToolsApp({ windowId }: ChromoDevToolsAppProps) {
         vConsoleBusy={snapshot.vConsoleBusy}
         vConsoleError={snapshot.vConsoleError}
         onVConsoleEnabledChange={handlers.onVConsoleEnabledChange}
-        debugPanelEnabled={snapshot.debugPanelEnabled}
-        onDebugPanelEnabledChange={handlers.onDebugPanelEnabledChange}
-        viewerReady={snapshot.pageReady}
       />
     )
   }, [handlers, missing, onClose, onDockSideChange, snapshot])

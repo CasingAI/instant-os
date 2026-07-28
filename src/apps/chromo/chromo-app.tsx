@@ -87,8 +87,6 @@ type ChromoTab = {
   vConsoleEnabled: boolean
   vConsoleBusy: boolean
   vConsoleError?: string
-  /** Viewer 左下角「调」DebugPanel */
-  debugPanelEnabled: boolean
 }
 
 let nextTabId = 1
@@ -124,7 +122,6 @@ function createChromoTab(initialUrl = ''): ChromoTab {
     devtoolsUndocked: false,
     vConsoleEnabled: false,
     vConsoleBusy: false,
-    debugPanelEnabled: false,
   }
 }
 
@@ -177,6 +174,24 @@ function chromoUrlsMatch(expected: string, actual: string): boolean {
     )
   } catch {
     return expected === actual
+  }
+}
+
+function isSameDocumentHashLink(href: string, currentUrl: string): boolean {
+  if (!href || !currentUrl) {
+    return false
+  }
+  try {
+    const target = new URL(href)
+    const current = new URL(currentUrl)
+    return (
+      target.origin === current.origin &&
+      target.pathname === current.pathname &&
+      target.search === current.search &&
+      Boolean(target.hash)
+    )
+  } catch {
+    return false
   }
 }
 
@@ -253,7 +268,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   }, [])
 
   const navigateTab = useCallback(
-    (tabId: string, url: string) => {
+    (tabId: string, url: string, options?: { method?: 'POST'; body?: string }) => {
       const normalized = normalizeChromoUrl(url)
       requestedUrlByTabRef.current[tabId] = normalized
       lastOpenedUrlRef.current = normalized
@@ -266,7 +281,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         pageFault: undefined,
         bootstrapped: true,
       }))
-      getViewerRef(tabId).current?.navigate(normalized)
+      getViewerRef(tabId).current?.navigate(normalized, options)
     },
     [getViewerRef, updateTab],
   )
@@ -685,14 +700,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     [getViewerRef, updateTab],
   )
 
-  const setTabDebugPanelEnabled = useCallback(
-    (tabId: string, enabled: boolean) => {
-      updateTab(tabId, (entry) => ({ ...entry, debugPanelEnabled: enabled }))
-      getViewerRef(tabId).current?.setDebugPanelEnabled(enabled)
-    },
-    [getViewerRef, updateTab],
-  )
-
   const readActiveNetworkBody = useCallback(
     (entryId: string) => {
       const tabId = activeTabIdRef.current
@@ -804,7 +811,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         vConsoleEnabled: tab.vConsoleEnabled,
         vConsoleBusy: tab.vConsoleBusy,
         vConsoleError: tab.vConsoleError,
-        debugPanelEnabled: tab.debugPanelEnabled,
       }
 
       const handlers: ChromoDevToolsHandlers = {
@@ -853,7 +859,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tab.id, disable),
         onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tab.id, enabled),
-        onDebugPanelEnabledChange: (enabled) => setTabDebugPanelEnabled(tab.id, enabled),
         onRedock: (side) => {
           updateTab(tab.id, (entry) => ({
             ...entry,
@@ -891,7 +896,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     getViewerRef,
     parentWindowId,
     selectTabNetwork,
-    setTabDebugPanelEnabled,
     setTabVConsoleEnabled,
     tabs,
     updateTab,
@@ -972,7 +976,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         vConsoleEnabled: tab.vConsoleEnabled,
         vConsoleBusy: tab.vConsoleBusy,
         vConsoleError: tab.vConsoleError,
-        debugPanelEnabled: tab.debugPanelEnabled,
       }
       // Handlers will be replaced by the sync effect; provide a stub so the window can mount.
       registerChromoDevToolsSession(key, snapshot, {
@@ -1021,7 +1024,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tabId, disable),
         onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tabId, enabled),
-        onDebugPanelEnabledChange: (enabled) => setTabDebugPanelEnabled(tabId, enabled),
         onRedock: (side) => {
           updateTab(tabId, (entry) => ({
             ...entry,
@@ -1056,7 +1058,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       openApp,
       parentWindowId,
       selectTabNetwork,
-      setTabDebugPanelEnabled,
       setTabVConsoleEnabled,
       updateTab,
       updateTabDisableNetworkCache,
@@ -1432,10 +1433,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 if (!current?.url) {
                   ensureInitialTabLoad(tab.id)
                 }
-                // Viewer 重建后 DebugPanel 默认隐藏，按 tab 开关恢复
-                if (current?.debugPanelEnabled) {
-                  getViewerRef(tab.id).current?.setDebugPanelEnabled(true)
-                }
               }}
               onNavigating={() => {
                 updateTab(tab.id, (entry) => ({
@@ -1517,25 +1514,44 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   pageFault: fault,
                 }))
               }}
-              onLocation={({ url, method, httpMethod }) => {
+              onLocation={({ url, method, httpMethod, formBody, formFiles, formEnctype }) => {
                 // window.open → 新标签；location.assign/replace 等 → 当前标签
                 if (method === 'open' && url) {
                   addTab(url)
                   return
                 }
-                // POST 表单：被动导航只能发 GET，会打挂仅接受 POST 的页（如 dnsleaktest results）并触发恢复死循环
                 if (method === 'submit' && httpMethod === 'post') {
-                  updateTab(tab.id, (entry) => ({
-                    ...entry,
-                    loading: false,
-                    pageFault: {
-                      severity: 'load',
-                      code: 'POST_FORM_UNSUPPORTED',
-                      message:
-                        '当前不支持 POST 表单提交（被动导航只能以 GET 打开目标页）。请改用 GET 表单，或在站点允许时换入口。',
-                      url,
-                    },
-                  }))
+                  if (
+                    formFiles ||
+                    (formEnctype && formEnctype !== 'application/x-www-form-urlencoded')
+                  ) {
+                    updateTab(tab.id, (entry) => ({
+                      ...entry,
+                      loading: false,
+                      pageFault: {
+                        severity: 'load',
+                        code: 'POST_FORM_UNSUPPORTED',
+                        message:
+                          '当前不支持带文件上传或非 urlencoded 的 POST 表单。请改用 GET 表单或 fetch API。',
+                        url,
+                      },
+                    }))
+                    return
+                  }
+                  if (!formBody) {
+                    updateTab(tab.id, (entry) => ({
+                      ...entry,
+                      loading: false,
+                      pageFault: {
+                        severity: 'load',
+                        code: 'POST_FORM_UNSUPPORTED',
+                        message: 'POST 表单缺少可提交的字段数据。',
+                        url,
+                      },
+                    }))
+                    return
+                  }
+                  navigateTab(tab.id, url, { method: 'POST', body: formBody })
                   return
                 }
                 navigateTab(tab.id, url)
@@ -1562,6 +1578,9 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   return
                 }
                 if (!href || href === '#' || href.startsWith('javascript:')) {
+                  return
+                }
+                if (isSameDocumentHashLink(href, tab.url)) {
                   return
                 }
                 cancelClickNavigate(tab.id)
@@ -1628,11 +1647,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 onVConsoleEnabledChange={(enabled) =>
                   setTabVConsoleEnabled(activeTab.id, enabled)
                 }
-                debugPanelEnabled={activeTab.debugPanelEnabled}
-                onDebugPanelEnabledChange={(enabled) =>
-                  setTabDebugPanelEnabled(activeTab.id, enabled)
-                }
-                viewerReady={Boolean(activeTab.ready)}
               />
             )}
           </div>

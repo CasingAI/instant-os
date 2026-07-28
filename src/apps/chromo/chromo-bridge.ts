@@ -24,14 +24,24 @@ export type ChromoLocationPayload = {
   httpMethod?: 'get' | 'post'
   url: string
   target?: string
+  /** urlencoded POST body when method === 'submit' && httpMethod === 'post' */
+  formBody?: string
+  formEnctype?: string
+  /** true when the form includes file inputs with selected files */
+  formFiles?: boolean
 }
 
 export type ChromoHistoryPayload = {
   ts: number
-  method: 'pushState' | 'replaceState' | 'popstate'
+  method: 'pushState' | 'replaceState' | 'popstate' | 'hash' | 'href' | 'assign' | 'replace'
   url: string
   title?: string
   state?: unknown
+}
+
+export type ChromoNavigateOptions = {
+  method?: 'POST'
+  body?: string
 }
 
 export type ChromoSessionPayload = {
@@ -191,7 +201,7 @@ export type ChromoBridgeHandlers = {
 }
 
 export type ChromoBridge = {
-  navigate: (url: string) => void
+  navigate: (url: string, options?: ChromoNavigateOptions) => void
   back: () => void
   forward: () => void
   reload: () => void
@@ -214,8 +224,6 @@ export type ChromoBridge = {
     options?: ChromoRpcOptions,
   ) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
-  /** Show/hide viewer DebugPanel (green「调」button). Default off. */
-  setDebugPanelEnabled: (enabled: boolean) => void
   devtoolsId: string
   screenshot: (
     options?: ChromoScreenshotOptions,
@@ -267,7 +275,7 @@ export function createChromoBridge(
   let ready = false
   const devtoolsId = options.devtoolsId ?? crypto.randomUUID()
   let disableCache = Boolean(options.disableCache)
-  const pendingNavigations: string[] = []
+  const pendingNavigations: Array<{ url: string; method?: 'POST'; body?: string }> = []
   const pendingRpcs = new Map<string, PendingRpc>()
 
   const applyNetworkOptions = () => {
@@ -285,9 +293,14 @@ export function createChromoBridge(
   const flushPending = () => {
     applyNetworkOptions()
     while (pendingNavigations.length > 0) {
-      const url = pendingNavigations.shift()
-      if (url) {
-        postCommand(iframe, 'VC_NAVIGATE', { url }, targetOrigin)
+      const req = pendingNavigations.shift()
+      if (req) {
+        const payload: Record<string, unknown> = { url: req.url }
+        if (req.method === 'POST' && req.body !== undefined) {
+          payload.method = 'POST'
+          payload.body = req.body
+        }
+        postCommand(iframe, 'VC_NAVIGATE', payload, targetOrigin)
       }
     }
   }
@@ -438,12 +451,21 @@ export function createChromoBridge(
   window.addEventListener('message', onMessage)
 
   return {
-    navigate(url) {
+    navigate(url, options) {
+      const payload: Record<string, unknown> = { url }
+      if (options?.method === 'POST' && options.body !== undefined) {
+        payload.method = 'POST'
+        payload.body = options.body
+      }
       if (ready) {
-        postCommand(iframe, 'VC_NAVIGATE', { url }, targetOrigin)
+        postCommand(iframe, 'VC_NAVIGATE', payload, targetOrigin)
         return
       }
-      pendingNavigations.push(url)
+      pendingNavigations.push({
+        url,
+        method: options?.method,
+        body: options?.body,
+      })
     },
     back() {
       postCommand(iframe, 'VC_BACK', undefined, targetOrigin)
@@ -504,9 +526,6 @@ export function createChromoBridge(
         disableCache = opts.disableCache
       }
       applyNetworkOptions()
-    },
-    setDebugPanelEnabled(enabled) {
-      postCommand(iframe, 'VC_DEBUG_PANEL', { enabled: Boolean(enabled) }, targetOrigin)
     },
     devtoolsId,
     screenshot(options) {

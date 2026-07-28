@@ -66,9 +66,6 @@ type ChromoDevToolsPanelProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange?: (enabled: boolean) => void
-  debugPanelEnabled?: boolean
-  onDebugPanelEnabledChange?: (enabled: boolean) => void
-  viewerReady?: boolean
 }
 
 const TABS: {
@@ -294,9 +291,6 @@ type ChromoDevToolsPanelBodyProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange?: (enabled: boolean) => void
-  debugPanelEnabled?: boolean
-  onDebugPanelEnabledChange?: (enabled: boolean) => void
-  viewerReady?: boolean
 }
 
 const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
@@ -322,9 +316,6 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
-  debugPanelEnabled = false,
-  onDebugPanelEnabledChange,
-  viewerReady = true,
 }: ChromoDevToolsPanelBodyProps) {
   if (activeTab === 'console') {
     return (
@@ -361,13 +352,10 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
     return (
       <ChromoExtensionsPanel
         pageReady={pageReady}
-        viewerReady={viewerReady}
         vConsoleEnabled={vConsoleEnabled}
         vConsoleBusy={vConsoleBusy}
         vConsoleError={vConsoleError}
         onVConsoleEnabledChange={onVConsoleEnabledChange ?? (() => undefined)}
-        debugPanelEnabled={debugPanelEnabled}
-        onDebugPanelEnabledChange={onDebugPanelEnabledChange ?? (() => undefined)}
       />
     )
   }
@@ -490,9 +478,6 @@ export function ChromoDevToolsPanel({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
-  debugPanelEnabled = false,
-  onDebugPanelEnabledChange,
-  viewerReady = true,
 }: ChromoDevToolsPanelProps) {
   const isWindowMode = mode === 'window'
   const panelRef = useRef<HTMLElement>(null)
@@ -910,9 +895,6 @@ export function ChromoDevToolsPanel({
             vConsoleBusy={vConsoleBusy}
             vConsoleError={vConsoleError}
             onVConsoleEnabledChange={onVConsoleEnabledChange}
-            debugPanelEnabled={debugPanelEnabled}
-            onDebugPanelEnabledChange={onDebugPanelEnabledChange}
-            viewerReady={viewerReady}
           />
         )}
       </div>

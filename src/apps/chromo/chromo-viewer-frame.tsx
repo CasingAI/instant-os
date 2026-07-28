@@ -14,6 +14,7 @@ import {
   type ChromoNetworkReadResult,
   type ChromoNetworkBodyReadResult,
   type ChromoNetworkOptions,
+  type ChromoNavigateOptions,
   type ChromoReadyPayload,
   type ChromoRpcOptions,
   type ChromoScreenshotOptions,
@@ -21,7 +22,7 @@ import {
 } from './chromo-bridge.ts'
 
 export type ChromoViewerHandle = {
-  navigate: (url: string) => void
+  navigate: (url: string, options?: ChromoNavigateOptions) => void
   back: () => void
   forward: () => void
   reload: () => void
@@ -44,7 +45,6 @@ export type ChromoViewerHandle = {
     options?: ChromoRpcOptions,
   ) => Promise<{ exists: boolean }>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
-  setDebugPanelEnabled: (enabled: boolean) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   destroySession: (sessionId?: string) => void
   isReady: () => boolean
@@ -169,8 +169,8 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     useImperativeHandle(
       ref,
       () => ({
-        navigate(url: string) {
-          bridgeRef.current?.navigate(url)
+        navigate(url: string, options?: ChromoNavigateOptions) {
+          bridgeRef.current?.navigate(url, options)
         },
         back() {
           bridgeRef.current?.back()
@@ -219,9 +219,6 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         },
         setNetworkOptions(options) {
           bridgeRef.current?.setNetworkOptions(options)
-        },
-        setDebugPanelEnabled(enabled) {
-          bridgeRef.current?.setDebugPanelEnabled(enabled)
         },
         screenshot(options?: ChromoScreenshotOptions) {
           return (
