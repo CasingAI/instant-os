@@ -117,6 +117,7 @@ export function ChromoDevToolsApp({ windowId }: ChromoDevToolsAppProps) {
         probeNetworkHot={handlers.probeNetworkHot}
         pageLoading={snapshot.pageLoading}
         pageError={snapshot.pageError}
+        pageFault={snapshot.pageFault}
         onSelectNetwork={handlers.onSelectNetwork}
         onCloseNetworkDetail={handlers.onCloseNetworkDetail}
         pageUrl={snapshot.pageUrl}

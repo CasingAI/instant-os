@@ -6,6 +6,8 @@ import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
 import type { ChromoNetworkEntry, ChromoNetworkBodyReadResult } from './chromo-bridge.ts'
 import type { ChromoDevToolsDockSide, ChromoDevToolsPanelTab } from './chromo-devtools-hub.ts'
 import { ChromoNetworkPanel } from './chromo-network-panel.tsx'
+import type { ChromoPageFault } from './chromo-page-fault.ts'
+import { ChromoPageFaultView } from './chromo-page-fault-view.tsx'
 
 const DEVTOOLS_DOCK_SIDE_KEY = 'chromo-devtools-dock-side'
 const DEVTOOLS_HEIGHT_KEY = 'chromo-devtools-height'
@@ -55,6 +57,7 @@ type ChromoDevToolsPanelProps = {
   probeNetworkHot?: (method: string, url: string) => Promise<{ exists: boolean }>
   pageLoading?: boolean
   pageError?: string
+  pageFault?: ChromoPageFault
   onSelectNetwork: (entry: ChromoNetworkEntry) => void
   onCloseNetworkDetail?: () => void
   pageUrl?: string
@@ -451,6 +454,7 @@ export function ChromoDevToolsPanel({
   probeNetworkHot,
   pageLoading,
   pageError,
+  pageFault,
   onSelectNetwork,
   onCloseNetworkDetail,
   pageUrl,
@@ -845,25 +849,29 @@ export function ChromoDevToolsPanel({
       </header>
 
       <div class="chromo-devtools__content" role="tabpanel">
-        <ChromoDevToolsPanelBody
-          activeTab={activeTab}
-          entries={entries}
-          pageReady={pageReady}
-          evalInPage={evalInPage}
-          replHistory={replHistory}
-          onReplHistoryChange={onReplHistoryChange}
-          onAppendEntries={onAppendEntries}
-          networkEntries={networkEntries}
-          selectedNetworkId={selectedNetworkId}
-          disableNetworkCache={disableNetworkCache}
-          readNetworkBody={readNetworkBody}
-          probeNetworkHot={probeNetworkHot}
-          pageLoading={pageLoading}
-          pageError={pageError}
-          onSelectNetwork={onSelectNetwork}
-          onCloseNetworkDetail={onCloseNetworkDetail}
-          pageUrl={pageUrl}
-        />
+        {pageFault?.severity === 'fatal' ? (
+          <ChromoPageFaultView fault={pageFault} variant="panel" />
+        ) : (
+          <ChromoDevToolsPanelBody
+            activeTab={activeTab}
+            entries={entries}
+            pageReady={pageReady}
+            evalInPage={evalInPage}
+            replHistory={replHistory}
+            onReplHistoryChange={onReplHistoryChange}
+            onAppendEntries={onAppendEntries}
+            networkEntries={networkEntries}
+            selectedNetworkId={selectedNetworkId}
+            disableNetworkCache={disableNetworkCache}
+            readNetworkBody={readNetworkBody}
+            probeNetworkHot={probeNetworkHot}
+            pageLoading={pageLoading}
+            pageError={pageError}
+            onSelectNetwork={onSelectNetwork}
+            onCloseNetworkDetail={onCloseNetworkDetail}
+            pageUrl={pageUrl}
+          />
+        )}
       </div>
     </section>
   )

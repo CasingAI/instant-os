@@ -39,6 +39,13 @@ import {
   ChromoDevToolsPanel,
   readChromoDevToolsDockSide,
 } from './chromo-devtools-panel.tsx'
+import {
+  formatPageFault,
+  pageFaultFromError,
+  pageFaultFromLoadFailed,
+  type ChromoPageFault,
+} from './chromo-page-fault.ts'
+import { ChromoPageFaultView } from './chromo-page-fault-view.tsx'
 import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
 import './chromo.css'
@@ -54,7 +61,7 @@ type ChromoTab = {
   canGoForward: boolean
   ready: boolean
   bootstrapped: boolean
-  error?: string
+  pageFault?: ChromoPageFault
   consoleEntries: ChromoConsoleEntry[]
   replEntries: ChromoConsoleDisplayEntry[]
   replHistory: string[]
@@ -243,7 +250,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         title: pageTitleFromUrl(normalized),
         inputUrl: displayUrl(normalized),
         loading: true,
-        error: undefined,
+        pageFault: undefined,
         bootstrapped: true,
       }))
       getViewerRef(tabId).current?.navigate(normalized)
@@ -365,7 +372,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     if (!activeTab) {
       return
     }
-    updateTab(activeTab.id, (tab) => ({ ...tab, loading: true, error: undefined }))
+    updateTab(activeTab.id, (tab) => ({ ...tab, loading: true, pageFault: undefined }))
     getViewerRef(activeTab.id).current?.reload()
   }, [activeTab, getViewerRef, updateTab])
 
@@ -658,7 +665,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         pageUrl: tab.url,
         pageReady: Boolean(tab.ready && tab.url && !tab.loading),
         pageLoading: tab.loading,
-        pageError: tab.error,
+        pageError: formatPageFault(tab.pageFault),
+        pageFault: tab.pageFault,
         panelTab: tab.devtoolsTab,
         dockSide: tab.devtoolsDockSide,
         preserveLog: tab.preserveConsole,
@@ -817,7 +825,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         pageUrl: tab.url,
         pageReady: Boolean(tab.ready && tab.url && !tab.loading),
         pageLoading: tab.loading,
-        pageError: tab.error,
+        pageError: formatPageFault(tab.pageFault),
+        pageFault: tab.pageFault,
         panelTab: tab.devtoolsTab,
         dockSide: tab.devtoolsDockSide,
         preserveLog: tab.preserveConsole,
@@ -1256,7 +1265,13 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
               .join(' ')}
           >
             <main class="chromo__viewport">
-              {activeTab?.error && <div class="chromo__error-banner">{activeTab.error}</div>}
+              {activeTab?.pageFault && (
+                <ChromoPageFaultView
+                  fault={activeTab.pageFault}
+                  variant="viewport"
+                  onRetry={reload}
+                />
+              )}
               {tabs.map((tab) => (
                 <ChromoViewerFrame
               key={tab.id}
@@ -1281,7 +1296,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   loading: true,
-                  error: undefined,
+                  pageFault: undefined,
                   ...(entry.preserveConsole
                     ? {}
                     : {
@@ -1315,7 +1330,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   loading: false,
                   canGoBack,
                   canGoForward,
-                  error: undefined,
+                  pageFault: undefined,
                 }))
                 if (tab.id === activeTabId) {
                   // 同步 OS 窗口 URL，同时标记已处理，避免 pendingUrl effect 二次导航
@@ -1332,9 +1347,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   loading: false,
-                  error: code
-                    ? `${code}: ${message ?? '页面加载失败'} (${url})`
-                    : `${message ?? '页面加载失败'} (${url})`,
+                  pageFault: pageFaultFromLoadFailed({ url, message, code }),
                 }))
               }}
               onConsoleUpdated={() => {
@@ -1347,11 +1360,15 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }
                 scheduleNetworkPull(tab.id)
               }}
-              onError={({ message, code }) => {
+              onError={(payload) => {
+                const fault = pageFaultFromError(payload)
+                if (!fault) {
+                  return
+                }
                 updateTab(tab.id, (entry) => ({
                   ...entry,
                   loading: false,
-                  error: code ? `${code}: ${message}` : message,
+                  pageFault: fault,
                 }))
               }}
               onLocation={({ url, method }) => {
@@ -1371,7 +1388,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   title: title || pageTitleFromUrl(url),
                   inputUrl: displayUrl(url),
                   loading: false,
-                  error: undefined,
+                  pageFault: undefined,
                 }))
                 if (tab.id === activeTabIdRef.current) {
                   lastOpenedUrlRef.current = url
@@ -1439,7 +1456,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 readNetworkBody={readActiveNetworkBody}
                 probeNetworkHot={probeActiveNetworkHot}
                 pageLoading={activeTab.loading}
-                pageError={activeTab.error}
+                pageError={formatPageFault(activeTab.pageFault)}
+                pageFault={activeTab.pageFault}
                 onSelectNetwork={(entry) => selectTabNetwork(activeTab.id, entry)}
                 onCloseNetworkDetail={() => clearTabNetworkSelection(activeTab.id)}
                 pageUrl={activeTab.url}

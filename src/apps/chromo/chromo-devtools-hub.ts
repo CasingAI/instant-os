@@ -5,6 +5,7 @@ import type {
   ChromoNetworkOptions,
 } from './chromo-bridge.ts'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
+import type { ChromoPageFault } from './chromo-page-fault.ts'
 
 export type ChromoDevToolsPanelTab = 'console' | 'elements' | 'network'
 export type ChromoDevToolsDockSide = 'bottom' | 'left' | 'right'
@@ -19,6 +20,7 @@ export type ChromoDevToolsSnapshot = {
   pageReady: boolean
   pageLoading: boolean
   pageError?: string
+  pageFault?: ChromoPageFault
   panelTab: ChromoDevToolsPanelTab
   dockSide: ChromoDevToolsDockSide
   preserveLog: boolean

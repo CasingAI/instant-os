@@ -118,6 +118,14 @@ export type ChromoNetworkEntry = {
   errorCode?: string
   /** Human-readable failure reason. */
   errorText?: string
+  /** How the request was initiated (fetch / xhr / import / parser / other). */
+  initiatorKind?: string
+  /** URL chain from document root to this resource. */
+  initiatorChain?: string[]
+  /** Sanitized JS call stack frames (empty for parser). */
+  initiatorStack?: string[]
+  /** Calling script URL when known. */
+  initiatorScriptUrl?: string
 }
 
 export type ChromoNetworkReadResult = {
