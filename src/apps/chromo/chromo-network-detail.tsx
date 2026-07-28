@@ -777,10 +777,6 @@ function InitiatorTab({
         </p>
       )}
 
-      <p class="chromo-network__drawer-note">
-        fetch / XHR / dynamic import() 可采集调用栈；Parser 类资源与静态 import、passthrough
-        厂商脚本仍仅有 referrer 链。
-      </p>
     </div>
   )
 }
