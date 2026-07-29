@@ -12,6 +12,7 @@ import {
   resolveDefaultSpeechVoice,
 } from '../../ai/speech-api.ts'
 import { createStreamingPcmPlayer } from '../../ai/speech-pcm-player.ts'
+import { formatThinkingDurationMs } from '../../ai/format-human-duration.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
@@ -113,13 +114,6 @@ ${speechVoicePromptList()}
 - 正常回复不要包含 ${SPEECH_IGNORE_TAG}`
 }
 
-function formatThinkingDuration(durationMs: number): string {
-  const seconds = durationMs / 1000
-  if (seconds < 1) return '思考了不到 1 秒'
-  if (seconds < 10) return `思考了 ${seconds.toFixed(1)} 秒`
-  return `思考了 ${Math.round(seconds)} 秒`
-}
-
 function latestReasoningSnippet(text: string, maxLen = 72): string {
   const trimmed = text.trim()
   if (!trimmed) return ''
@@ -165,7 +159,7 @@ function SpeechReasoningBlock({
         onClick={() => setExpanded((value) => !value)}
       >
         {durationMs !== undefined
-          ? formatThinkingDuration(durationMs)
+          ? formatThinkingDurationMs(durationMs)
           : '查看思考'}
       </button>
       {expanded ? (

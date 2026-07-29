@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import {
+  formatHumanDurationMs,
+  formatThinkingDurationMs,
+} from '../../ai/format-human-duration.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { HelpIcon } from '../../icons/app-icons.tsx'
 import { osNowMs } from '../../os/os-clock.ts'
@@ -111,42 +115,20 @@ function formatHelpError(err: unknown): string {
   return String(err)
 }
 
-function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) {
-    return '不到 1 秒'
-  }
-  const seconds = durationMs / 1000
-  if (seconds < 10) {
-    return `${seconds.toFixed(1)} 秒`
-  }
-  return `${Math.round(seconds)} 秒`
-}
-
-function formatThinkingDuration(durationMs: number): string {
-  if (durationMs < 1000) {
-    return '思考了不到 1 秒'
-  }
-  const seconds = durationMs / 1000
-  if (seconds < 10) {
-    return `思考了 ${seconds.toFixed(1)} 秒`
-  }
-  return `思考了 ${Math.round(seconds)} 秒`
-}
-
 function formatInvestigationSummary(investigation: HelpInvestigation): string {
   const parts = ['已完成调查']
   if (
     investigation.reasoningDurationMs !== undefined &&
     investigation.reasoningDurationMs >= 5000
   ) {
-    parts.push(formatThinkingDuration(investigation.reasoningDurationMs))
+    parts.push(formatThinkingDurationMs(investigation.reasoningDurationMs))
   }
   parts.push(
     investigation.toolCallCount > 0
       ? `调用 ${investigation.toolCallCount} 个工具`
       : '未调用工具',
   )
-  parts.push(`用时 ${formatDuration(investigation.durationMs)}`)
+  parts.push(`用时 ${formatHumanDurationMs(investigation.durationMs)}`)
   return parts.join(' · ')
 }
 
@@ -232,7 +214,7 @@ function HelpReasoningStatus({
           aria-hidden="true"
         />
         <span class="help-app__reasoning-summary">
-          {formatThinkingDuration(durationMs)}
+          {formatThinkingDurationMs(durationMs)}
         </span>
       </button>
       {expanded ? (
