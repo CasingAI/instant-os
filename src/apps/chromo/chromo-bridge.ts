@@ -61,6 +61,10 @@ export type ChromoLoadFailedPayload = {
   url: string
   message?: string
   code?: string
+  /** Bridge networkBuffer size at failure time (diagnostic). */
+  networkCount?: number
+  /** Newest network entry id in bridge buffer, if any. */
+  latestNetworkId?: string | null
 }
 
 export type ChromoConsoleEntry = {

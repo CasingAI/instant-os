@@ -553,7 +553,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   )
 
   const pullNetworkDelta = useCallback(
-    async (tabId: string) => {
+    async (tabId: string, options?: { full?: boolean }) => {
       const viewer = getViewerRef(tabId).current
       if (!viewer?.isReady()) {
         return
@@ -564,8 +564,25 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         return
       }
 
+      const full = !!options?.full
+
       try {
-        const result = await viewer.readNetwork({ after: tab.lastNetworkId || undefined })
+        let result = await viewer.readNetwork(
+          full ? { limit: 100 } : { after: tab.lastNetworkId || undefined },
+        )
+
+        // Cursor may have jumped past local state while UI list is empty —
+        // resync once without `after` so LOAD_TIMEOUT / rotated buffer recover.
+        if (
+          !full &&
+          !result.entries.length &&
+          tab.networkEntries.length === 0 &&
+          result.latestId &&
+          result.latestId !== tab.lastNetworkId
+        ) {
+          result = await viewer.readNetwork({ limit: 100 })
+        }
+
         if (!result.entries.length) {
           if (result.latestId && result.latestId !== tab.lastNetworkId) {
             updateTab(tabId, (entry) => ({ ...entry, lastNetworkId: result.latestId! }))
@@ -643,18 +660,13 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
 
   const clearTabNetwork = useCallback(
     (tabId: string) => {
-      updateTab(tabId, (entry) => {
-        const lastFromList =
-          entry.networkEntries.length > 0
-            ? entry.networkEntries[entry.networkEntries.length - 1]?.id
-            : ''
-        return {
-          ...entry,
-          networkEntries: [],
-          lastNetworkId: lastFromList || entry.lastNetworkId,
-          selectedNetworkId: '',
-        }
-      })
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        networkEntries: [],
+        // Reset cursor so the next pull can resync from bridge buffer (same as onNavigating).
+        lastNetworkId: '',
+        selectedNetworkId: '',
+      }))
     },
     [updateTab],
   )
@@ -1649,12 +1661,28 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   reinjectVConsoleIfEnabled(tab.id)
                 }, 300)
               }}
-              onLoadFailed={({ url, message, code }) => {
-                updateTab(tab.id, (entry) => ({
-                  ...entry,
-                  loading: false,
-                  pageFault: pageFaultFromLoadFailed({ url, message, code }),
-                }))
+              onLoadFailed={(payload) => {
+                const { url, message, code, networkCount, latestNetworkId } = payload
+                updateTab(tab.id, (entry) => {
+                  if (
+                    typeof networkCount === 'number' &&
+                    networkCount > 0 &&
+                    entry.networkEntries.length === 0
+                  ) {
+                    console.warn(
+                      '[chromo network] load failed with bridge networkCount=%s latestId=%s but UI list empty; pulling full',
+                      networkCount,
+                      latestNetworkId ?? '',
+                    )
+                  }
+                  return {
+                    ...entry,
+                    loading: false,
+                    pageFault: pageFaultFromLoadFailed({ url, message, code }),
+                  }
+                })
+                // Success path pulls after onNavigated; failure must resync explicitly.
+                void pullNetworkDelta(tab.id, { full: true })
               }}
               onConsoleUpdated={() => {
                 void pullConsoleDelta(tab.id)
