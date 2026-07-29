@@ -8,7 +8,7 @@ import {
   resolveTokenizerFamily,
   resolveTokenizerFamilyCandidates,
   type TokenizerFamily,
-} from './model-tokenizer.ts'
+} from './model-tokenizer-resolve.ts'
 
 type Case = { modelId: string; family: TokenizerFamily | undefined }
 

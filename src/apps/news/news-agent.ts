@@ -11,8 +11,8 @@ import { createNdjsonLineFeed, parseNdjsonLine } from '../../ai/parse-streaming-
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import {
-  estimatePromptTokens,
-  buildLiveTokenUsage,
+  estimatePromptTokensAsync,
+  buildLiveTokenUsageAsync,
   prepareTokenEstimation,
 } from '../browser/estimate-token-usage.ts'
 import { recordNewsTokenUsage } from './news-token-usage.ts'
@@ -391,8 +391,8 @@ export async function generateArticlesForDateStreaming(
       throw new Error('AI 未生成任何新闻')
     }
 
-    const promptTokens = estimatePromptTokens(systemPrompt, userMessage, model)
-    const usage = buildLiveTokenUsage(promptTokens, text, true, model)
+    const promptTokens = await estimatePromptTokensAsync(systemPrompt, userMessage, model)
+    const usage = await buildLiveTokenUsageAsync(promptTokens, text, true, model)
     recordNewsTokenUsage('article', {
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,
@@ -404,8 +404,8 @@ export async function generateArticlesForDateStreaming(
     if (articles.length > 0) {
       const fallbackModel = mergeOpenAiConfig().defaultModel
       await prepareTokenEstimation(fallbackModel)
-      const promptTokens = estimatePromptTokens(systemPrompt, userMessage, fallbackModel)
-      const usage = buildLiveTokenUsage(promptTokens, '', true, fallbackModel)
+      const promptTokens = await estimatePromptTokensAsync(systemPrompt, userMessage, fallbackModel)
+      const usage = await buildLiveTokenUsageAsync(promptTokens, '', true, fallbackModel)
       recordNewsTokenUsage('article', {
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,

@@ -16,7 +16,7 @@ import { buildScene3dBuilderPrompt } from '../../assets/3d/scene3d-prompt-sectio
 import type { TokenUsageSnapshot } from '../browser/browser-token-usage.ts'
 import {
   buildLiveTokenUsage,
-  estimatePromptTokens,
+  estimatePromptTokensAsync,
   finalizeTokenUsage,
   prepareTokenEstimation,
   resolveUsageEstimated,
@@ -153,7 +153,7 @@ export async function generateScene3dHtmlStreaming(
   const systemPrompt = buildScene3dBuilderPrompt(physicsEnabled)
   const userMessage = buildScene3dUserMessage(userPrompt, physicsEnabled)
   await prepareTokenEstimation(model)
-  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userMessage, model)
+  const promptTokenEstimate = await estimatePromptTokensAsync(systemPrompt, userMessage, model)
 
   let reasoningText = ''
   let contentText = ''

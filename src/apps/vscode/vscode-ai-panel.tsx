@@ -1242,7 +1242,7 @@ export function VscodeAiPanel({
             lastSentTerminal: lastSentTerminalRef.current,
           }),
         )
-        const usage = measureVscodeAiContextUsage({
+        const usage = await measureVscodeAiContextUsage({
           mode,
           context: contextWithTerminal(),
           history,

@@ -1,4 +1,5 @@
 import {
+  countTokensBatchWithModelTokenizer,
   countTokensWithModelTokenizer,
   isModelTokenizerReady,
   prepareTokenEstimation,
@@ -27,7 +28,10 @@ function estimateTokensFromChars(
   return Math.max(1, Math.ceil(text.length / charsPerToken))
 }
 
-/** 有本地词表且已 hydrate 时精确计数；否则用字符粗估（可带 minCharsPerToken） */
+/**
+ * 同步字符粗估（流式热路径用）。
+ * 精确分词请用 estimateTokensFromTextAsync（走 Worker）。
+ */
 export function estimateTokensFromText(
   text: string,
   model?: string,
@@ -36,7 +40,19 @@ export function estimateTokensFromText(
   if (!text) {
     return 0
   }
-  const precise = countTokensWithModelTokenizer(
+  return estimateTokensFromChars(text, model, options)
+}
+
+/** Worker 已就绪则精确计数，否则字符粗估 */
+export async function estimateTokensFromTextAsync(
+  text: string,
+  model?: string,
+  options?: EstimateTokenOptions,
+): Promise<number> {
+  if (!text) {
+    return 0
+  }
+  const precise = await countTokensWithModelTokenizer(
     text,
     model,
     options?.tokenizerFamily,
@@ -45,6 +61,33 @@ export function estimateTokensFromText(
     return Math.max(1, precise)
   }
   return estimateTokensFromChars(text, model, options)
+}
+
+/** 批量异步估算（一次 Worker round-trip） */
+export async function estimateTokensFromTextsAsync(
+  texts: string[],
+  model?: string,
+  options?: EstimateTokenOptions,
+): Promise<number[]> {
+  if (texts.length === 0) {
+    return []
+  }
+
+  const precise = await countTokensBatchWithModelTokenizer(
+    texts,
+    model,
+    options?.tokenizerFamily,
+  )
+  if (precise) {
+    return precise.map((count, index) => {
+      if (!texts[index]) return 0
+      return Math.max(1, count)
+    })
+  }
+
+  return texts.map((text) =>
+    text ? estimateTokensFromChars(text, model, options) : 0,
+  )
 }
 
 export function estimatePromptTokens(
@@ -57,6 +100,20 @@ export function estimatePromptTokens(
     estimateTokensFromText(systemPrompt, model, options) +
     estimateTokensFromText(userPrompt, model, options)
   return content + 8
+}
+
+export async function estimatePromptTokensAsync(
+  systemPrompt: string,
+  userPrompt: string,
+  model?: string,
+  options?: EstimateTokenOptions,
+): Promise<number> {
+  const [systemTokens, userTokens] = await estimateTokensFromTextsAsync(
+    [systemPrompt, userPrompt],
+    model,
+    options,
+  )
+  return systemTokens + userTokens + 8
 }
 
 /**
@@ -87,6 +144,7 @@ export type LiveTokenUsage = {
 /** 网页 completion 多为 HTML，字符/token 通常高于中文对话默认；仅作无真实 usage 时的粗估下限 */
 export const HTML_COMPLETION_MIN_CHARS_PER_TOKEN = 5.5
 
+/** 同步粗估 completion（流式 chunk 热路径；始终为字符粗估） */
 export function buildLiveTokenUsage(
   promptTokens: number,
   completionText: string,
@@ -99,7 +157,29 @@ export function buildLiveTokenUsage(
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
-    estimated: estimated && resolveUsageEstimated(false, model),
+    // 同步路径不再走 Worker，有 API usage 前一律视为粗估
+    estimated,
+  }
+}
+
+/** prompt + completion 均走 Worker 精确计数（若已就绪） */
+export async function buildLiveTokenUsageAsync(
+  promptTokens: number,
+  completionText: string,
+  estimated = true,
+  model?: string,
+  options?: EstimateTokenOptions,
+): Promise<LiveTokenUsage> {
+  const completionTokens = await estimateTokensFromTextAsync(
+    completionText,
+    model,
+    options,
+  )
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    estimated: estimated && resolveUsageEstimated(false, model, options?.tokenizerFamily),
   }
 }
 

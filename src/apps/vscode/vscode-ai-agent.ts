@@ -404,7 +404,7 @@ export async function askVscodeAiAgent(options: {
 
   await prepareVscodeAiContextUsage(model, tokenizerFamily)
   const modelRef = parseVscodeAiModelRefKey(options.modelKey)
-  let contextUsage = measureVscodeAiContextUsage({
+  let contextUsage = await measureVscodeAiContextUsage({
     mode: options.mode,
     context: options.context,
     history: options.history,

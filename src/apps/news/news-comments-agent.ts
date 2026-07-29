@@ -4,8 +4,8 @@ import { createNdjsonLineFeed, parseNdjsonLine } from '../../ai/parse-streaming-
 import { streamChatCompletion } from '../../ai/stream-chat.ts'
 import { mergeOpenAiConfig } from '../../ai/openai-config.ts'
 import {
-  buildLiveTokenUsage,
-  estimatePromptTokens,
+  buildLiveTokenUsageAsync,
+  estimatePromptTokensAsync,
   prepareTokenEstimation,
   type LiveTokenUsage,
 } from '../browser/estimate-token-usage.ts'
@@ -332,8 +332,8 @@ async function recordEstimatedUsage(
 ): Promise<void> {
   const model = mergeOpenAiConfig().defaultModel
   await prepareTokenEstimation(model)
-  const promptTokens = estimatePromptTokens(system, user, model)
-  const live = buildLiveTokenUsage(promptTokens, output, true, model)
+  const promptTokens = await estimatePromptTokensAsync(system, user, model)
+  const live = await buildLiveTokenUsageAsync(promptTokens, output, true, model)
   recordNewsTokenUsage(kind, {
     promptTokens: live.promptTokens,
     completionTokens: live.completionTokens,
@@ -658,6 +658,6 @@ export async function buildLiveCommentTokenUsage(
 ): Promise<LiveTokenUsage> {
   const model = mergeOpenAiConfig().defaultModel
   await prepareTokenEstimation(model)
-  const promptTokens = estimatePromptTokens(system, user, model)
-  return buildLiveTokenUsage(promptTokens, output, true, model)
+  const promptTokens = await estimatePromptTokensAsync(system, user, model)
+  return buildLiveTokenUsageAsync(promptTokens, output, true, model)
 }

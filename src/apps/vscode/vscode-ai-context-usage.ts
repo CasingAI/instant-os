@@ -8,7 +8,7 @@ import {
 import type { TokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { loadAccountSettings } from '../../os/account-settings-storage.ts'
 import {
-  estimateTokensFromText,
+  estimateTokensFromTextsAsync,
   prepareTokenEstimation,
   resolveUsageEstimated,
 } from '../browser/estimate-token-usage.ts'
@@ -89,15 +89,6 @@ export function resolveModelContextWindow(
   }
 
   return DEFAULT_MODEL_CONTEXT_WINDOW
-}
-
-function estimate(
-  text: string,
-  model: string | undefined,
-  tokenizerFamily?: TokenizerFamily,
-): number {
-  if (!text) return 0
-  return estimateTokensFromText(text, model, { tokenizerFamily })
 }
 
 function contentToText(content: unknown): string {
@@ -184,7 +175,13 @@ function toBreakdown(
     }))
 }
 
-export function measureVscodeAiContextUsage(options: {
+type MeasureJob = {
+  category: VscodeAiContextUsageCategoryId
+  text: string
+  overhead: number
+}
+
+export async function measureVscodeAiContextUsage(options: {
   mode: VscodeAiMode
   context: VscodeAiContextInput
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
@@ -200,15 +197,16 @@ export function measureVscodeAiContextUsage(options: {
   /** 传入则跳过 createVscodeAiTools（避免无 host 时无法计量） */
   tools?: AgentTool[]
   toolsHost?: VscodeAiToolsHost
-}): VscodeAiContextUsage {
+}): Promise<VscodeAiContextUsage> {
   const model = options.model
   const tokenizerFamily = options.tokenizerFamily
   const buckets = emptyBuckets()
+  const jobs: MeasureJob[] = []
 
   const systemPrompt = buildVscodeAiSystemPrompt(options.mode)
   const workspaceSection = buildVscodeAiContextSection(options.context)
-  buckets.system = estimate(systemPrompt, model, tokenizerFamily) + 4
-  buckets.workspace = estimate(workspaceSection, model, tokenizerFamily) + 8
+  jobs.push({ category: 'system', text: systemPrompt, overhead: 4 })
+  jobs.push({ category: 'workspace', text: workspaceSection, overhead: 8 })
 
   const tools =
     options.tools ??
@@ -217,20 +215,24 @@ export function measureVscodeAiContextUsage(options: {
       : undefined)
   if (tools && tools.length > 0) {
     const toolsJson = JSON.stringify(tools.map(toChatCompletionTool))
-    buckets.tools = estimate(toolsJson, model, tokenizerFamily) + tools.length * 4
+    jobs.push({
+      category: 'tools',
+      text: toolsJson,
+      overhead: tools.length * 4,
+    })
   }
 
   for (const message of options.history ?? []) {
     const reasoning = assistantReasoningText(message)
     if (reasoning) {
-      buckets.reasoning += estimate(reasoning, model, tokenizerFamily)
+      jobs.push({ category: 'reasoning', text: reasoning, overhead: 0 })
     }
     const text = messagePlainText(message)
     if (!text) continue
     // 历史里可能夹带旧 system；归入 conversation，避免与本次 system 重复归类
     const category =
       message.role === 'system' ? 'conversation' : categorizeHistoryMessage(message)
-    buckets[category] += estimate(text, model, tokenizerFamily) + 4
+    jobs.push({ category, text, overhead: 4 })
   }
 
   const rawUser = options.userMessage?.trim()
@@ -238,7 +240,18 @@ export function measureVscodeAiContextUsage(options: {
     const userMessage = options.userMessageAlreadyWrapped
       ? rawUser
       : wrapVscodeAiUserMessage(rawUser, options.reminderText ?? '')
-    buckets.conversation += estimate(userMessage, model, tokenizerFamily) + 4
+    jobs.push({ category: 'conversation', text: userMessage, overhead: 4 })
+  }
+
+  const counts = await estimateTokensFromTextsAsync(
+    jobs.map((job) => job.text),
+    model,
+    { tokenizerFamily },
+  )
+  for (let index = 0; index < jobs.length; index += 1) {
+    const job = jobs[index]!
+    const tokens = job.text ? counts[index]! : 0
+    buckets[job.category] += tokens + job.overhead
   }
 
   const breakdown = toBreakdown(buckets)

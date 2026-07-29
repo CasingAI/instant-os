@@ -1,5 +1,4 @@
 import { estimateTokensFromText } from '../apps/browser/estimate-token-usage.ts'
-import { isModelTokenizerReady } from './model-tokenizer.ts'
 import type { TokenUsageSnapshot } from '../apps/browser/browser-token-usage.ts'
 import { osDayKey, osNowMs } from '../os/os-clock.ts'
 import { resolveEventLogPerformance } from './ai-event-log-timing.ts'
@@ -233,7 +232,7 @@ export function startAiEventLogSession(
           if (current.record.promptTokens === undefined) {
             current.record.promptTokens = estimated.promptTokens
           }
-          current.record.usageEstimated = !isModelTokenizerReady(current.record.model)
+          current.record.usageEstimated = true
         }
       }
 

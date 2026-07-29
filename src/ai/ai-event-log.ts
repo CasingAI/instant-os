@@ -20,6 +20,11 @@ import {
   observeTokenCharsRatioFromEventLog,
   resetTokenCharsRatios,
 } from './token-chars-ratio.ts'
+import {
+  buildLiveTokenUsageAsync,
+  estimatePromptTokensAsync,
+} from '../apps/browser/estimate-token-usage.ts'
+import { prepareTokenEstimation } from './model-tokenizer.ts'
 
 export type {
   AiEventLogInput,
@@ -74,6 +79,37 @@ export function finishAiEventLogSession(
   if (!finishInput) {
     return
   }
+
+  // 无 API usage 时，用 Worker 精确分词再落盘（失败则沿用 finish 时的粗估值）
+  if (!input.usage && finishInput.response !== undefined) {
+    const model = finishInput.model
+    const response = finishInput.response
+    const system = finishInput.messages.find((message) => message.role === 'system')?.content ?? ''
+    const userParts = finishInput.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .join('\n')
+    void (async () => {
+      try {
+        await prepareTokenEstimation(model)
+        const promptTokens = await estimatePromptTokensAsync(system, userParts, model)
+        const live = await buildLiveTokenUsageAsync(promptTokens, response, true, model)
+        recordAiEventLog(context, {
+          ...finishInput,
+          usage: {
+            promptTokens: live.promptTokens,
+            completionTokens: live.completionTokens,
+            totalTokens: live.totalTokens,
+          },
+          usageEstimated: live.estimated,
+        })
+      } catch {
+        recordAiEventLog(context, finishInput)
+      }
+    })()
+    return
+  }
+
   recordAiEventLog(context, finishInput)
 }
 

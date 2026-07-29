@@ -7,7 +7,7 @@ import { getOpenAiClient } from '../../ai/openai-client.ts'
 import type { TokenUsageSnapshot } from './browser-token-usage.ts'
 import {
   buildLiveTokenUsage,
-  estimatePromptTokens,
+  estimatePromptTokensAsync,
   finalizeTokenUsage,
   HTML_COMPLETION_MIN_CHARS_PER_TOKEN,
   prepareTokenEstimation,
@@ -345,7 +345,7 @@ export async function generatePageHtmlStreaming(
   const userPrompt = buildPageUserPrompt(context, allowAiRefuseSite)
   const log = createSafariAiLogger(context.url)
   await prepareTokenEstimation(model)
-  const promptTokenEstimate = estimatePromptTokens(systemPrompt, userPrompt, model)
+  const promptTokenEstimate = await estimatePromptTokensAsync(systemPrompt, userPrompt, model)
   const usageContext = {
     actor: 'browser' as const,
     behavior: 'generate-page' as const,
