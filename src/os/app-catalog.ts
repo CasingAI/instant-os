@@ -1,5 +1,5 @@
 import { sanitizeFilesPathSegment } from '../apps/files/files-path.ts'
-import { BUILTIN_APP_ABOUT } from './builtin-app-about.ts'
+import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { loadInstalledApps } from './generated-apps-storage.ts'
 import type { AppId, GeneratedAppId } from './types.ts'
 
