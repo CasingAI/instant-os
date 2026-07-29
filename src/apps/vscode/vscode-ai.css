@@ -1266,3 +1266,15 @@
 .vscode--chrome-dark .vscode-ai__system-reminder summary {
   color: rgba(255, 255, 255, 0.88);
 }
+
+.vscode-ai__incomplete-note {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.vscode--chrome-dark .vscode-ai__incomplete-note {
+  color: rgba(255, 255, 255, 0.5);
+}

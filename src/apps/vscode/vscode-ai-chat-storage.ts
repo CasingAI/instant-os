@@ -621,6 +621,8 @@ export function createVscodeAiChatMessage(
   content: string,
   extras?: Pick<
     VscodeAiChatMessage,
+    | 'id'
+    | 'createdAt'
     | 'isError'
     | 'pendingEdits'
     | 'terminalChangeReview'
@@ -633,10 +635,10 @@ export function createVscodeAiChatMessage(
   >,
 ): VscodeAiChatMessage {
   return {
-    id: `vscode-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: extras?.id ?? `vscode-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role,
     content,
-    createdAt: Date.now(),
+    createdAt: extras?.createdAt ?? Date.now(),
     isError: extras?.isError,
     pendingEdits: extras?.pendingEdits,
     terminalChangeReview: extras?.terminalChangeReview,

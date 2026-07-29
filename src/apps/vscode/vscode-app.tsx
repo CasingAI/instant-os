@@ -1984,6 +1984,23 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     }
   }, [editorLayout, sessionReady, persistAiChatStore])
 
+  useEffect(() => {
+    if (!sessionReady) return
+    const flush = () => {
+      if (skipSessionPersistRef.current || !mountedRef.current) return
+      void persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [persistAiChatStore, sessionReady])
+
   const setAiChatSessionBusy = useCallback((sessionId: string, busy: boolean) => {
     setAiChatBusySessionIds((prev) => {
       const has = prev.has(sessionId)

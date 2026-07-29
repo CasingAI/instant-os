@@ -44,6 +44,10 @@ import {
 
 const VSCODE_AI_MAX_STEPS = 30
 const WRITE_PREVIEW_STORE_LIMIT = 8_000
+/** 工具结果 / 命令输出落盘与内存上限，降低长 Agent 回合 OOM 风险 */
+const TOOL_RESULT_STORE_LIMIT = 4_000
+const ACTIVITY_CONTENT_STORE_LIMIT = 4_000
+const REASONING_STORE_LIMIT = 12_000
 
 export type VscodeAiActivity = {
   id: string
@@ -228,14 +232,16 @@ function activitiesFromTimeline(timeline: VscodeAiTimelineItem[]): VscodeAiActiv
 }
 
 function combinedReasoningText(timeline: VscodeAiTimelineItem[]): string {
-  return timeline
-    .filter(
-      (item): item is Extract<VscodeAiTimelineItem, { kind: 'reasoning' }> =>
-        item.kind === 'reasoning',
-    )
-    .map((item) => item.content)
-    .join('\n\n')
-    .trim()
+  return truncateReasoningText(
+    timeline
+      .filter(
+        (item): item is Extract<VscodeAiTimelineItem, { kind: 'reasoning' }> =>
+          item.kind === 'reasoning',
+      )
+      .map((item) => item.content)
+      .join('\n\n')
+      .trim(),
+  )
 }
 
 function totalReasoningDurationMs(timeline: VscodeAiTimelineItem[]): number | undefined {
@@ -256,9 +262,26 @@ function totalReasoningDurationMs(timeline: VscodeAiTimelineItem[]): number | un
   return hasReasoning ? total : undefined
 }
 
+function truncateStoredText(text: string, limit: number, suffix = '\n…（已截断）'): string {
+  if (text.length <= limit) return text
+  return `${text.slice(0, limit)}${suffix}`
+}
+
 function truncateWritePreview(text: string): string {
-  if (text.length <= WRITE_PREVIEW_STORE_LIMIT) return text
-  return `${text.slice(0, WRITE_PREVIEW_STORE_LIMIT)}\n…（预览已截断）`
+  return truncateStoredText(text, WRITE_PREVIEW_STORE_LIMIT, '\n…（预览已截断）')
+}
+
+function truncateToolResult(text: string): string {
+  return truncateStoredText(text, TOOL_RESULT_STORE_LIMIT)
+}
+
+function truncateActivityContent(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined
+  return truncateStoredText(text, ACTIVITY_CONTENT_STORE_LIMIT)
+}
+
+function truncateReasoningText(text: string): string {
+  return truncateStoredText(text, REASONING_STORE_LIMIT)
 }
 
 function writeCardTitle(
@@ -330,6 +353,7 @@ function investigationStepsFromTimeline(
       if (item.kind === 'reasoning') {
         return {
           ...item,
+          content: truncateReasoningText(item.content),
           done: true,
           durationMs: item.durationMs ?? Math.max(0, now - item.startedAt),
         }
@@ -340,9 +364,15 @@ function investigationStepsFromTimeline(
           done: true,
           phase: 'done',
           preview: truncateWritePreview(item.preview),
+          result: item.result ? truncateToolResult(item.result) : item.result,
         }
       }
-      return { ...item, done: true }
+      return {
+        ...item,
+        content: truncateActivityContent(item.content),
+        result: item.result ? truncateToolResult(item.result) : item.result,
+        done: true,
+      }
     })
 }
 
@@ -353,6 +383,8 @@ export function buildVscodeAiInvestigationFromTimeline(
   const finalizedTimeline = markTimelineDone(timeline)
   const activities = activitiesFromTimeline(finalizedTimeline).map((item) => ({
     ...item,
+    content: truncateActivityContent(item.content),
+    result: item.result ? truncateToolResult(item.result) : item.result,
     done: true,
   }))
   const reasoningText = combinedReasoningText(finalizedTimeline)
@@ -494,7 +526,7 @@ export async function askVscodeAiAgent(options: {
         id,
         toolName: event.toolName,
         title: parsed.title,
-        preview: parsed.preview,
+        preview: truncateWritePreview(parsed.preview),
         phase: 'streaming',
         done: false,
       })
@@ -507,7 +539,7 @@ export async function askVscodeAiAgent(options: {
         ...item,
         toolName: event.toolName || item.toolName,
         title: parsed.title || item.title,
-        preview: parsed.preview,
+        preview: truncateWritePreview(parsed.preview),
         phase: 'streaming',
       }
     })
@@ -542,7 +574,7 @@ export async function askVscodeAiAgent(options: {
           return {
             ...item,
             title: parsed.title,
-            preview: parsed.preview,
+            preview: truncateWritePreview(parsed.preview),
             phase: 'writing',
             done: false,
           }
@@ -559,7 +591,7 @@ export async function askVscodeAiAgent(options: {
         id,
         toolName: event.toolName,
         title: parsed.title,
-        preview: parsed.preview,
+        preview: truncateWritePreview(parsed.preview),
         phase: 'writing',
         done: false,
       })
@@ -570,11 +602,12 @@ export async function askVscodeAiAgent(options: {
     const desc = describeToolCall(event)
     const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}`
     pendingActivityId = id
+    const content = truncateActivityContent(desc.content)
     activities.push({
       id,
       label: desc.label,
       detail: desc.detail,
-      content: desc.content,
+      content,
       done: false,
     })
     timeline = markTimelineDone(timeline)
@@ -583,14 +616,14 @@ export async function askVscodeAiAgent(options: {
       id,
       label: desc.label,
       detail: desc.detail,
-      content: desc.content,
+      content,
       done: false,
     })
     emit()
   }
 
   const onToolResult = (event: AgentToolResultEvent) => {
-    const resultText = formatToolResultForDisplay(event.result)
+    const resultText = truncateToolResult(formatToolResultForDisplay(event.result))
     if (pendingWriteId) {
       const id = pendingWriteId
       pendingWriteId = undefined
@@ -654,7 +687,7 @@ export async function askVscodeAiAgent(options: {
   }
 
   const onReasoningDelta = (event: AgentReasoningDeltaEvent) => {
-    reasoningText = event.accumulated
+    reasoningText = truncateReasoningText(event.accumulated)
     const last = timeline[timeline.length - 1]
     if (last?.kind === 'reasoning' && last.id === reasoningItemId) {
       timeline = [...timeline.slice(0, -1), { ...last, content: reasoningText }]

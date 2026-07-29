@@ -81,6 +81,8 @@ import '../help/help.css'
 import './vscode-ai.css'
 
 const CONTEXT_USAGE_DEBOUNCE_MS = 280
+/** Agent 进行中把 incomplete 助手消息节流写入 IndexedDB，崩溃刷新后可恢复工具轨迹 */
+const TURN_CHECKPOINT_INTERVAL_MS = 2_000
 
 const VSCODE_AI_MODAL_THEME = '#2f87e2'
 
@@ -956,6 +958,8 @@ export function VscodeAiPanel({
   const replaceHandoffRef = useRef<
     { resolve: (orphanedSessionIds: string[]) => void } | undefined
   >(undefined)
+  /** 页面隐藏/卸载时强制把 live 进度 checkpoint 到消息存储 */
+  const forceTurnCheckpointRef = useRef<(() => void) | undefined>(undefined)
   const sendRef = useRef<(textOverride?: string, options?: { replaceFromUserId?: string }) => Promise<void>>(
     async () => {},
   )
@@ -968,6 +972,20 @@ export function VscodeAiPanel({
   useEffect(() => {
     return () => onBusyChangeRef.current?.(false)
   }, [])
+
+  useEffect(() => {
+    const flush = () => forceTurnCheckpointRef.current?.()
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
@@ -1471,6 +1489,67 @@ export function VscodeAiPanel({
       const controller = new AbortController()
       abortRef.current = controller
 
+      const draftAssistantId = `vscode-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const draftCreatedAt = Date.now()
+      let lastCheckpointToolCount = -1
+      let lastCheckpointAt = 0
+      let checkpointTimer: number | undefined
+
+      const clearCheckpointTimer = () => {
+        if (checkpointTimer === undefined) return
+        window.clearTimeout(checkpointTimer)
+        checkpointTimer = undefined
+      }
+
+      const checkpointTurn = (force = false) => {
+        if (controller.signal.aborted && !force) return
+        if (replaceHandoffRef.current) return
+        const toolCount = liveToolCallCountRef.current
+        const timeline = liveTimelineRef.current
+        const answer = liveAnswerRef.current
+        const now = Date.now()
+        const toolAdvanced = toolCount > lastCheckpointToolCount
+        const intervalElapsed = now - lastCheckpointAt >= TURN_CHECKPOINT_INTERVAL_MS
+        if (!force && !toolAdvanced && !intervalElapsed) return
+        if (timeline.length === 0 && !answer.trim() && toolCount === 0) return
+
+        lastCheckpointToolCount = toolCount
+        lastCheckpointAt = now
+        const investigation =
+          timeline.length > 0
+            ? buildVscodeAiInvestigationFromTimeline(timeline, {
+                toolCallCount: toolCount,
+                startedAt: liveStartedAtRef.current,
+              })
+            : undefined
+        const changeExtras = turnChangeExtras()
+        applyMessages([
+          ...withUser,
+          createVscodeAiChatMessage('assistant', answer, {
+            id: draftAssistantId,
+            createdAt: draftCreatedAt,
+            incomplete: true,
+            pendingEdits:
+              pendingEditsRef.current.length > 0 ? [...pendingEditsRef.current] : undefined,
+            investigation,
+            ...changeExtras,
+          }),
+        ])
+      }
+
+      const scheduleCheckpoint = () => {
+        if (checkpointTimer !== undefined) return
+        checkpointTimer = window.setTimeout(() => {
+          checkpointTimer = undefined
+          checkpointTurn()
+        }, TURN_CHECKPOINT_INTERVAL_MS)
+      }
+
+      forceTurnCheckpointRef.current = () => {
+        clearCheckpointTimer()
+        checkpointTurn(true)
+      }
+
       try {
         const result = await askVscodeAiAgent({
           mode,
@@ -1483,6 +1562,7 @@ export function VscodeAiPanel({
           modelKey: aiModelKey,
           onProgress: (progress) => {
             if (controller.signal.aborted) return
+            const previousToolCount = liveToolCallCountRef.current
             liveTimelineRef.current = progress.timeline
             liveAnswerRef.current = progress.answerText
             liveToolCallCountRef.current = progress.toolCallCount
@@ -1491,6 +1571,12 @@ export function VscodeAiPanel({
             pendingEditsRef.current = progress.pendingEdits
             if (progress.contextUsage) {
               setContextUsage(progress.contextUsage)
+            }
+            if (progress.toolCallCount > previousToolCount) {
+              clearCheckpointTimer()
+              checkpointTurn()
+            } else {
+              scheduleCheckpoint()
             }
           },
         })
@@ -1524,6 +1610,8 @@ export function VscodeAiPanel({
             'assistant',
             liveAnswerRef.current.trim() || '已停止生成',
             {
+              id: draftAssistantId,
+              createdAt: draftCreatedAt,
               investigation,
               ...changeExtras,
             },
@@ -1551,6 +1639,8 @@ export function VscodeAiPanel({
             'assistant',
             result.text || liveAnswerRef.current,
             {
+              id: draftAssistantId,
+              createdAt: draftCreatedAt,
               pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
               incomplete: result.incomplete,
               investigation,
@@ -1577,6 +1667,8 @@ export function VscodeAiPanel({
           : formatError(error)
         const changeExtras = turnChangeExtras()
         const assistantMessage = createVscodeAiChatMessage('assistant', content, {
+          id: draftAssistantId,
+          createdAt: draftCreatedAt,
           isError: !aborted,
           investigation,
           ...changeExtras,
@@ -1585,6 +1677,8 @@ export function VscodeAiPanel({
         applyMessages(nextMessages)
         historyRef.current = rebuildHistoryFromMessages(nextMessages)
       } finally {
+        clearCheckpointTimer()
+        forceTurnCheckpointRef.current = undefined
         const handoff = replaceHandoffRef.current
         if (handoff) {
           replaceHandoffRef.current = undefined
@@ -1813,6 +1907,15 @@ export function VscodeAiPanel({
 
   const showWelcome = messages.length === 0 && !busy
   const showLive = busy
+  /** busy 时末尾 incomplete 草稿由 live 气泡展示，避免与落盘 checkpoint 双份渲染 */
+  const displayMessages = useMemo(() => {
+    if (!busy || messages.length === 0) return messages
+    const last = messages[messages.length - 1]
+    if (last?.role === 'assistant' && last.incomplete) {
+      return messages.slice(0, -1)
+    }
+    return messages
+  }, [busy, messages])
 
   const handleUserBubbleActivate = useCallback(
     (message: VscodeAiChatMessage, bubbleEl?: HTMLElement | null) => {
@@ -1852,7 +1955,7 @@ export function VscodeAiPanel({
           </div>
         ) : (
           <div class="help-app__messages">
-            {messages.map((message) => {
+            {displayMessages.map((message) => {
               const isEditingUser = message.role === 'user' && editingUserId === message.id
               const isEditableUser = message.role === 'user' && !editingUserId
 
@@ -1969,6 +2072,11 @@ export function VscodeAiPanel({
                         {message.content}
                       </div>
                     )}
+                    {message.incomplete ? (
+                      <p class="vscode-ai__incomplete-note" role="status">
+                        本轮未完整结束，已保存的进度如下。可继续提问。
+                      </p>
+                    ) : undefined}
                     {message.pendingEdits?.map((edit) => (
                       <PendingEditCard
                         key={edit.id}
