@@ -546,6 +546,21 @@ export function createQuickJsAsyncBridge(
     }
   }
 
+  /**
+   * 实例销毁 / context.dispose 之后，deferred.alive 仍可能为 true，但内部
+   * resolve/reject 句柄已死；再 dispose 会触发 QuickJSUseAfterFree。
+   */
+  const safeDisposeDeferred = (deferred: QuickJSDeferredPromise) => {
+    if (options.isDestroyed() || !deferred.alive) {
+      return
+    }
+    try {
+      deferred.dispose()
+    } catch {
+      // Lifetime already freed with the context
+    }
+  }
+
   const createDeferredPromise = () => {
     unsettledDeferredCount += 1
     return context.newPromise()
@@ -553,9 +568,7 @@ export function createQuickJsAsyncBridge(
 
   const abandonDeferred = (deferred: QuickJSDeferredPromise) => {
     releaseUnsettledDeferred()
-    if (deferred.alive) {
-      deferred.dispose()
-    }
+    safeDisposeDeferred(deferred)
   }
 
   const settleGuestPromise = (
@@ -564,14 +577,15 @@ export function createQuickJsAsyncBridge(
   ) => {
     if (options.isDestroyed() || !deferred.alive) {
       releaseUnsettledDeferred()
-      if (outcome.ok) {
-        outcome.value?.dispose()
-      } else {
-        outcome.error?.dispose()
+      const leftover = outcome.ok ? outcome.value : outcome.error
+      if (leftover?.alive) {
+        try {
+          leftover.dispose()
+        } catch {
+          // ignore
+        }
       }
-      if (deferred.alive) {
-        deferred.dispose()
-      }
+      safeDisposeDeferred(deferred)
       return
     }
 

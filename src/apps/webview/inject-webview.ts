@@ -377,12 +377,36 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     for (const unsub of eventUnsubs) {
       unsub()
     }
+    // destroy() 在 context.dispose 之前调用本清理；此时句柄仍可安全释放
     for (const set of guestListeners.values()) {
-      for (const fn of set) {
-        fn.dispose()
+      for (const fn of [...set]) {
+        set.delete(fn)
+        if (fn.alive) {
+          try {
+            fn.dispose()
+          } catch {
+            // ignore
+          }
+        }
       }
     }
     guestListeners.clear()
+    // windowId 可能尚未写入 registry（create 后立即 destroy），按 documentId 补关窗
+    const ownedIds = new Set(
+      listWebViewUnits()
+        .filter((unit) => unit.ownerTerminalSessionId === host.terminalSessionId)
+        .map((unit) => unit.unitId),
+    )
+    for (const window of host.getWindows()) {
+      if (
+        window.appId === 'webview' &&
+        !window.closing &&
+        window.documentId &&
+        ownedIds.has(window.documentId)
+      ) {
+        host.closeWindow(window.id)
+      }
+    }
     destroyWebViewUnitsForOwner(host.terminalSessionId, host.closeWindow)
   }
 }

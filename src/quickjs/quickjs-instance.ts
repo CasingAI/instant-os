@@ -481,12 +481,13 @@ export async function createQuickJsInstance(
       force: true,
     })
     abortRequested = true
+    // 先标记销毁，让 in-flight async 走 abandon 路径且不再碰 guest handle
+    state.destroyed = true
+    state.busy = false
     asyncBridge.clearAll()
     disposeWebView?.()
     disposeWebView = undefined
     nodeBuiltins.dispose?.()
-    state.destroyed = true
-    state.busy = false
     listeners.clear()
     // Asyncify：只 dispose context（runtime 随 context 释放；再 dispose runtime 会踩 HostRef）
     context.dispose()

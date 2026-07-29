@@ -55,10 +55,19 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
   const unit = unitId ? getWebViewUnit(unitId) : undefined
   const visible = Boolean(appWindow && (!appWindow.windowless || appWindow.windowlessPanel))
 
+  // 同步可见性；勿依赖 tick——setVisible 若 notify 会再 bump tick，形成死循环
   useEffect(() => {
     if (!unitId || !windowId) return
+    if (!getWebViewUnit(unitId)) return
     setWebViewUnitVisible(unitId, visible, windowId)
-  }, [unitId, windowId, visible, tick])
+  }, [unitId, windowId, visible])
+
+  // 单元已被销毁时收掉孤儿窗（destroy 会 bump tick）
+  useEffect(() => {
+    if (!unitId || !windowId) return
+    if (getWebViewUnit(unitId)) return
+    closeWindow(windowId)
+  }, [unitId, windowId, tick, closeWindow])
 
   useWindowCloseGuard(windowId, () => {
     if (unitId) {
@@ -395,6 +404,7 @@ export function showWebViewWindow(
     options.openApp(APP_ID, { documentId: unitId })
     // reveal after open — poll briefly via microtask; caller may also call again
     queueMicrotask(() => {
+      if (!getWebViewUnit(unitId)) return
       const created = options.windows.find(
         (window) =>
           window.appId === APP_ID && !window.closing && window.documentId === unitId,

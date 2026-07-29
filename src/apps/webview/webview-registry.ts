@@ -167,17 +167,22 @@ export function setWebViewUnitVisible(
   windowId?: string,
 ): void {
   const unit = units.get(unitId)
+  // 单元已被终端/任务管理器销毁时，窗可能仍短暂挂着——静默忽略
   if (!unit) {
-    throw new Error(`浏览单元不存在: ${unitId}`)
+    return
   }
+  const prevVisible = unit.visible
+  const prevWindowId = unit.windowId
   unit.visible = visible
-  if (windowId !== undefined) {
-    unit.windowId = windowId
-  }
   if (!visible) {
     unit.windowId = undefined
+  } else if (windowId !== undefined) {
+    unit.windowId = windowId
   }
-  if (visible) {
+  if (prevVisible === unit.visible && prevWindowId === unit.windowId) {
+    return
+  }
+  if (visible && !prevVisible) {
     emit({ type: 'unitShown', unitId })
   }
   notifyChanged()
