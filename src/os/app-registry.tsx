@@ -85,6 +85,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     name: 'WebView',
     icon: ChromoIcon,
     dock: false,
+    dockWhenRunning: true,
     desktop: false,
     windowless: true,
     multiWindow: true,

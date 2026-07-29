@@ -343,7 +343,7 @@ export function TerminalReplPanel({
           webviewHost: {
             terminalSessionId: terminalSessionIdRef.current,
             openApp: (appId, options) => {
-              openAppRef.current(appId, options)
+              return openAppRef.current(appId, options)
             },
             getWindows: () => windowsRef.current,
             revealWindowlessPanel: (windowId, opts) => {

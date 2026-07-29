@@ -244,9 +244,14 @@ export function Dock() {
     return windows.some((window) => window.appId === appId && !window.closing)
   }
 
-  /** 保持 windows 数组顺序，避免聚焦时图标位置跳动 */
+  /** 保持 windows 数组顺序，避免聚焦时图标位置跳动；离屏 windowless 不进 Dock */
   function listAppWindows(appId: AppId) {
-    return windows.filter((window) => window.appId === appId && !window.closing)
+    return windows.filter(
+      (window) =>
+        window.appId === appId &&
+        !window.closing &&
+        (!window.windowless || !!window.windowlessPanel),
+    )
   }
 
   function resolvePrimaryAppWindow(appId: AppId) {

@@ -163,7 +163,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
             '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
             '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
-            '- 需要抓取或操作真实网页时，在 run_in_terminal 里用 await webview.create / eval / show（默认离屏；用完可 destroy）；不要臆造网页内容',
+            '- 需要抓取或操作真实网页时，在 run_in_terminal 里用 await webview.create → wait → eval（默认离屏；用完可 destroy）；不要臆造网页内容',
             '- /system 与 /models 等只读卷不可写入',
             '- 回答用简洁中文 Markdown；引用路径时用反引号',
             '- 修改前先在终端里读确认现状',

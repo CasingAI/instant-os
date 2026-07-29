@@ -41,7 +41,7 @@ type OsContextValue = {
   desktopRevealRestoring: boolean
   toggleDesktopReveal: () => void
   hideDesktopReveal: () => void
-  openApp: (appId: AppId, options?: OpenAppOptions) => void
+  openApp: (appId: AppId, options?: OpenAppOptions) => string | undefined
   openGeneratedApp: (appId: GeneratedAppId, title: string) => void
   openExtApp: (appId: ExtAppId, title: string) => void
   closeWindow: (windowId: string) => void
@@ -324,7 +324,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
   const windowsRef = useRef(windows)
   windowsRef.current = windows
 
-  const openApp = useCallback((appId: AppId, options?: OpenAppOptions) => {
+  const openApp = useCallback((appId: AppId, options?: OpenAppOptions): string | undefined => {
     if (isGeneratedAppId(appId)) {
       throw new Error('请使用 openGeneratedApp 打开 AI 生成的应用')
     }
@@ -367,11 +367,13 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           if (sameDocument) {
             resolvedActiveId = sameDocument.id
             const nextZ = bumpZIndex()
-            return current.map((window) =>
+            const next = current.map((window) =>
               window.id === sameDocument.id
                 ? { ...window, zIndex: nextZ, minimized: false }
                 : window,
             )
+            windowsRef.current = next
+            return next
           }
         }
 
@@ -381,7 +383,9 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           url,
         })
         resolvedActiveId = nextWindow.id
-        return [...current, nextWindow]
+        const next = [...current, nextWindow]
+        windowsRef.current = next
+        return next
       }
 
       const existing = live.find((window) => window.appId === appId && !window.minimized)
@@ -389,7 +393,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         resolvedActiveId = existing.id
         const nextZ = bumpZIndex()
         const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, existing.title)
-        return current.map((window) =>
+        const next = current.map((window) =>
           window.id === existing.id
             ? applyOpenPayload({
                 ...window,
@@ -399,6 +403,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
               })
             : window,
         )
+        windowsRef.current = next
+        return next
       }
 
       const minimized = live.find((window) => window.appId === appId && window.minimized)
@@ -406,7 +412,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         resolvedActiveId = minimized.id
         const nextZ = bumpZIndex()
         const resolvedTitle = resolveBuiltinWindowTitle(appId as BuiltinAppId, minimized.title)
-        return current.map((window) =>
+        const next = current.map((window) =>
           window.id === minimized.id
             ? applyOpenPayload({
                 ...window,
@@ -416,6 +422,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
               })
             : window,
         )
+        windowsRef.current = next
+        return next
       }
 
       const nextWindow = createWindow(appId, undefined, {
@@ -424,12 +432,15 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         url,
       })
       resolvedActiveId = nextWindow.id
-      return [...current, nextWindow]
+      const next = [...current, nextWindow]
+      windowsRef.current = next
+      return next
     })
 
     if (resolvedActiveId !== undefined) {
       setActiveWindowId(resolvedActiveId)
     }
+    return resolvedActiveId
   }, [startDesktopRestore])
 
   const setAppWindowDocumentId = useCallback((appId: AppId, documentId: string | undefined) => {

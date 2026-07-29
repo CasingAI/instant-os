@@ -5,6 +5,8 @@ import { openDevTools } from '../../page-host/open-devtools.ts'
 import { displayPageUrl, normalizePageUrl, pageTitleFromUrl } from '../../page-host/page-url.ts'
 import type { PageViewerHandle } from '../../page-host/page-viewer-frame.tsx'
 import {
+  assertWebViewUnitOwner,
+  closeWebViewUnitWindows,
   createWebViewUnit,
   destroyWebViewUnit,
   destroyWebViewUnitsForOwner,
@@ -12,16 +14,19 @@ import {
   getWebViewUnit,
   listWebViewTabs,
   listWebViewUnits,
+  requireLiveWebViewTab,
+  resolveWebViewTabId,
   screenshotWebViewTab,
   subscribeWebViewRegistry,
   updateWebViewTab,
+  waitWebViewTab,
   type WebViewUnitEvent,
 } from './webview-registry.ts'
 import { ensureWebViewWindow, showWebViewWindow } from './webview-app.tsx'
 
 export type WebViewHostBindings = {
   terminalSessionId: string
-  openApp: (appId: 'webview', options?: { documentId?: string }) => void
+  openApp: (appId: 'webview', options?: { documentId?: string }) => string | undefined
   getWindows: () => {
     id: string
     appId: string
@@ -101,6 +106,15 @@ function getViewer(
   return getWebViewUnit(unitId)?.viewerRefs[tabId]?.current
 }
 
+function resolveOwnedTab(
+  host: WebViewHostBindings,
+  unitId: string,
+  tabId: string,
+): { unitId: string; tabId: string } {
+  assertWebViewUnitOwner(unitId, host.terminalSessionId)
+  return { unitId, tabId: resolveWebViewTabId(unitId, tabId) }
+}
+
 /**
  * Inject `globalThis.webview` into a QuickJS instance for the owning terminal session.
  */
@@ -165,10 +179,8 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
       if (!unitId) throw new Error('unitId 不能为空')
-      const unit = getWebViewUnit(unitId)
-      if (unit?.windowId) {
-        host.closeWindow(unit.windowId)
-      }
+      assertWebViewUnitOwner(unitId, host.terminalSessionId)
+      closeWebViewUnitWindows(unitId, host.getWindows(), host.closeWindow)
       destroyWebViewUnit(unitId)
     }),
   )
@@ -178,22 +190,16 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
       if (!unitId) throw new Error('unitId 不能为空')
-      if (!getWebViewUnit(unitId)) {
-        throw new Error(`浏览单元不存在: ${unitId}`)
-      }
-      const show = () =>
-        showWebViewWindow(
-          {
-            windows: host.getWindows(),
-            openApp: host.openApp,
-            revealWindowlessPanel: host.revealWindowlessPanel,
-            focusWindow: host.focusWindow,
-          },
-          unitId,
-        )
-      show()
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      show()
+      assertWebViewUnitOwner(unitId, host.terminalSessionId)
+      showWebViewWindow(
+        {
+          windows: host.getWindows(),
+          openApp: host.openApp,
+          revealWindowlessPanel: host.revealWindowlessPanel,
+          focusWindow: host.focusWindow,
+        },
+        unitId,
+      )
     }),
   )
 
@@ -215,6 +221,7 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
       if (!unitId) throw new Error('unitId 不能为空')
+      assertWebViewUnitOwner(unitId, host.terminalSessionId)
       return listWebViewTabs(unitId).map((tab) => ({
         tabId: tab.id,
         url: tab.url,
@@ -228,21 +235,38 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     }),
   )
 
+  bind('wait', (optsHandle) =>
+    runAsync(async () => {
+      const opts = readObjectArg(context, optsHandle, 'options')
+      const unitId = String(opts.unitId ?? '')
+      const tabId = String(opts.tabId ?? 'default')
+      if (!unitId) throw new Error('unitId 不能为空')
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      const timeoutMs =
+        typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs)
+          ? opts.timeoutMs
+          : undefined
+      await waitWebViewTab(resolved.unitId, resolved.tabId, timeoutMs)
+    }),
+  )
+
   bind('navigate', (optsHandle) =>
     runAsync(async () => {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
-      const tabId = String(opts.tabId ?? '')
+      const tabId = String(opts.tabId ?? 'default')
       const url = String(opts.url ?? '')
-      if (!unitId || !tabId || !url) {
-        throw new Error('unitId、tabId、url 均不能为空')
+      if (!unitId || !url) {
+        throw new Error('unitId、url 均不能为空')
       }
-      const viewer = getViewer(unitId, tabId)
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      requireLiveWebViewTab(resolved.unitId, resolved.tabId)
+      const viewer = getViewer(resolved.unitId, resolved.tabId)
       if (!viewer) {
         throw new Error('网页尚未就绪')
       }
       const normalized = normalizePageUrl(url)
-      updateWebViewTab(unitId, tabId, (tab) => ({
+      updateWebViewTab(resolved.unitId, resolved.tabId, (tab) => ({
         ...tab,
         url: normalized,
         pendingUrl: normalized,
@@ -259,12 +283,13 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     runAsync(async () => {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
-      const tabId = String(opts.tabId ?? '')
+      const tabId = String(opts.tabId ?? 'default')
       const code = String(opts.code ?? '')
-      if (!unitId || !tabId) {
-        throw new Error('unitId、tabId 不能为空')
+      if (!unitId) {
+        throw new Error('unitId 不能为空')
       }
-      return evalWebViewTab(unitId, tabId, code, getViewer)
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      return evalWebViewTab(resolved.unitId, resolved.tabId, code, getViewer)
     }),
   )
 
@@ -272,13 +297,14 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     runAsync(async () => {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
-      const tabId = String(opts.tabId ?? '')
-      if (!unitId || !tabId) {
-        throw new Error('unitId、tabId 不能为空')
+      const tabId = String(opts.tabId ?? 'default')
+      if (!unitId) {
+        throw new Error('unitId 不能为空')
       }
+      const resolved = resolveOwnedTab(host, unitId, tabId)
       return screenshotWebViewTab(
-        unitId,
-        tabId,
+        resolved.unitId,
+        resolved.tabId,
         opts.options as ChromoScreenshotOptions | undefined,
         getViewer,
       )
@@ -289,13 +315,25 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     runAsync(async () => {
       const opts = readObjectArg(context, optsHandle, 'options')
       const unitId = String(opts.unitId ?? '')
-      const tabId = String(opts.tabId ?? '')
-      if (!unitId || !tabId) {
-        throw new Error('unitId、tabId 不能为空')
+      const tabId = String(opts.tabId ?? 'default')
+      if (!unitId) {
+        throw new Error('unitId 不能为空')
       }
-      if (!getWebViewUnit(unitId)?.tabs.some((tab) => tab.id === tabId)) {
-        throw new Error(`标签页不存在: ${tabId}`)
-      }
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      const mode = opts.mode === 'embedded' ? 'embedded' : 'undocked'
+      updateWebViewTab(resolved.unitId, resolved.tabId, (tab) =>
+        mode === 'embedded'
+          ? {
+              ...tab,
+              devtoolsOpen: true,
+              devtoolsUndocked: false,
+            }
+          : {
+              ...tab,
+              devtoolsUndocked: true,
+              devtoolsOpen: false,
+            },
+      )
       openDevTools(
         {
           openApp: (_appId, openOptions) => {
@@ -305,9 +343,9 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
           },
         },
         {
-          hostId: unitId,
-          tabId,
-          mode: opts.mode === 'embedded' ? 'embedded' : 'undocked',
+          hostId: resolved.unitId,
+          tabId: resolved.tabId,
+          mode,
         },
       )
     }),
@@ -325,7 +363,21 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       guestListeners.set(eventName, set)
     }
     set.add(dup)
-    return context.undefined
+
+    const unsubscribe = context.newFunction('unsubscribe', () => {
+      const current = guestListeners.get(eventName)
+      if (current?.has(dup)) {
+        current.delete(dup)
+        if (dup.alive) {
+          dup.dispose()
+        }
+        if (current.size === 0) {
+          guestListeners.delete(eventName)
+        }
+      }
+      return context.undefined
+    })
+    return unsubscribe
   })
   context.setProp(webviewHandle, 'on', onHandle)
   onHandle.dispose()
@@ -338,8 +390,11 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     }
     for (const fn of [...set]) {
       set.delete(fn)
-      fn.dispose()
+      if (fn.alive) {
+        fn.dispose()
+      }
     }
+    guestListeners.delete(eventName)
     return context.undefined
   })
   context.setProp(webviewHandle, 'off', offHandle)
@@ -347,9 +402,19 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
 
   const unsubRegistry = subscribeWebViewRegistry((event: WebViewUnitEvent) => {
     if (isDestroyed()) return
-    const unit = 'unitId' in event ? getWebViewUnit(event.unitId) : undefined
-    if (unit && unit.ownerTerminalSessionId !== host.terminalSessionId) {
-      return
+    if (event.type === 'unitDestroyed') {
+      if (event.ownerTerminalSessionId !== host.terminalSessionId) {
+        return
+      }
+    } else {
+      const unit = getWebViewUnit(event.unitId)
+      if (unit && unit.ownerTerminalSessionId !== host.terminalSessionId) {
+        return
+      }
+      // unit 已删的非 unitDestroyed 事件忽略
+      if (!unit && event.type !== 'unitDestroyed') {
+        return
+      }
     }
     const set = guestListeners.get(event.type)
     if (!set || set.size === 0) return
@@ -377,7 +442,6 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     for (const unsub of eventUnsubs) {
       unsub()
     }
-    // destroy() 在 context.dispose 之前调用本清理；此时句柄仍可安全释放
     for (const set of guestListeners.values()) {
       for (const fn of [...set]) {
         set.delete(fn)
@@ -391,21 +455,13 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       }
     }
     guestListeners.clear()
-    // windowId 可能尚未写入 registry（create 后立即 destroy），按 documentId 补关窗
     const ownedIds = new Set(
       listWebViewUnits()
         .filter((unit) => unit.ownerTerminalSessionId === host.terminalSessionId)
         .map((unit) => unit.unitId),
     )
-    for (const window of host.getWindows()) {
-      if (
-        window.appId === 'webview' &&
-        !window.closing &&
-        window.documentId &&
-        ownedIds.has(window.documentId)
-      ) {
-        host.closeWindow(window.id)
-      }
+    for (const unitId of ownedIds) {
+      closeWebViewUnitWindows(unitId, host.getWindows(), host.closeWindow)
     }
     destroyWebViewUnitsForOwner(host.terminalSessionId, host.closeWindow)
   }

@@ -52,39 +52,40 @@ console.log(r.matches)
 每个 create 创建一个浏览单元（可含多标签），默认离屏；依附当前终端会话。.reset / 关闭终端会立刻销毁该会话下全部单元。与 Chromo 共用同一套 virtual-chromo 代理与站点数据（cookie 等互通）。
 
 何时用：
-- 需要抓取/操作真实网页内容 → webview.create + eval
+- 需要抓取/操作真实网页内容 → webview.create + wait + eval
 - 用户要看见页面 → show；默认不要 show（离屏即可）
 - 调试页面 → openDevTools（默认独立窗口）
 - 仅「打开网址给人看」且不需读 DOM → 优先 instant.openUrl / openApp('chromo')，不必强开 WebView
 
-API（均返回 Promise，须 await；操作页必须显式传 tabId，无隐式 active tab）：
+API（均返回 Promise，须 await）：
 - webview.create({ url }) → { unitId, tabId }（url 必填）
+- webview.wait({ unitId, tabId?, timeoutMs? }) — 等到 ready 且非 loading；fault/超时 reject。tabId 可省略或传 'default'（当前 UI 展示 tab）
 - webview.show({ unitId }) / destroy({ unitId })
 - webview.listUnits() → 本会话单元摘要；listTabs({ unitId }) → 各 tab 的 url/title/loading/fault
-- webview.navigate({ unitId, tabId, url })
-- webview.eval({ unitId, tabId, code }) — 在页内执行 JS，返回可序列化结果；页 fault 时会抛错
-- webview.screenshot({ unitId, tabId })
-- webview.openDevTools({ unitId, tabId, mode? }) — mode 默认 undocked；可传 'embedded'
-- webview.on(event, fn) / off(event) — 事件：unitCreated / unitDestroyed / unitShown / tabOpened / tabClosed / tabFault / navigated
+- webview.navigate({ unitId, tabId?, url }) / eval({ unitId, tabId?, code }) / screenshot({ unitId, tabId? })
+  - tabId 可传 'default'；操作类 API 均支持
+  - eval：fault 后可读错误页 DOM；navigate/screenshot/wait 对 fault tab 会 reject
+- webview.openDevTools({ unitId, tabId?, mode? }) — mode 默认 undocked；可传 'embedded'
+- const stop = webview.on(event, fn) — 返回取消函数；webview.off(event) 清空该事件全部监听
+  - 事件：unitCreated / unitDestroyed / unitShown / tabOpened / tabClosed / tabFault / navigated
 
 典型用法：
 const { unitId, tabId } = await webview.create({ url: 'https://example.com' })
-// 等加载：可轮询 listTabs，或监听 navigated / 短暂 sleep 后再 eval
+await webview.wait({ unitId, tabId })
 const title = await webview.eval({ unitId, tabId, code: 'document.title' })
 const html = await webview.eval({
   unitId,
-  tabId,
+  tabId: 'default',
   code: 'document.documentElement.outerHTML.slice(0, 8000)',
 })
 console.log(title, html)
-// 需要给用户看时：
 await webview.show({ unitId })
 await webview.openDevTools({ unitId, tabId })
 await webview.destroy({ unitId }) // 用完销毁；终端结束也会级联销毁
 
 注意：
-- create 后 iframe 需短暂就绪；eval 报「网页尚未就绪」时稍等再试或 listTabs 看 loading
-- fault 的 tab 已死，不可恢复；需新 tab/新单元
+- 务必 await webview.wait 后再 eval；不要盲 sleep
+- fault 的 tab 已死（不可再 navigate）；eval 可读错误提示页；需新 tab/新单元继续浏览
 - 不要用 webview 代替 fs 读写本地文件；本地路径用 fs / instant.openPath`
 
 /** 拼进任意 Agent system prompt 的标准入口。 */
@@ -94,5 +95,5 @@ export function buildInstantShellSystemPromptSection(): string {
 
 /** 更短的提示行（欢迎语 / 工具描述旁注）。 */
 export function buildInstantShellPromptHint(): string {
-  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / …）与 globalThis.webview（create / eval / show / …），详见壳层 API 说明。'
+  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / …）与 globalThis.webview（create / wait / eval / show / …），详见壳层 API 说明。'
 }

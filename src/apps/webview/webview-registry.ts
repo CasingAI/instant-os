@@ -9,7 +9,7 @@ import type { RefObject } from 'preact'
 
 export type WebViewUnitEvent =
   | { type: 'unitCreated'; unitId: string; tabId: string; url: string }
-  | { type: 'unitDestroyed'; unitId: string }
+  | { type: 'unitDestroyed'; unitId: string; ownerTerminalSessionId: string }
   | { type: 'unitShown'; unitId: string }
   | { type: 'tabOpened'; unitId: string; tabId: string; url: string }
   | { type: 'tabClosed'; unitId: string; tabId: string }
@@ -133,8 +133,9 @@ export function destroyWebViewUnit(unitId: string): void {
   if (!unit) {
     return
   }
+  const ownerTerminalSessionId = unit.ownerTerminalSessionId
   units.delete(unitId)
-  emit({ type: 'unitDestroyed', unitId })
+  emit({ type: 'unitDestroyed', unitId, ownerTerminalSessionId })
   notifyChanged()
 }
 
@@ -259,12 +260,177 @@ export function getWebViewTab(unitId: string, tabId: string): PageTab {
   return tab
 }
 
-export function requireLiveWebViewTab(unitId: string, tabId: string): PageTab {
-  const tab = getWebViewTab(unitId, tabId)
-  if (tab.pageFault) {
-    throw new Error(formatPageFault(tab.pageFault) || tab.pageFault.message)
+export function resolveWebViewTabId(unitId: string, tabId: string): string {
+  const unit = units.get(unitId)
+  if (!unit) {
+    throw new Error(`浏览单元不存在: ${unitId}`)
   }
-  return tab
+  const raw = tabId.trim()
+  if (raw === '' || raw === 'default') {
+    return unit.uiDisplayedTabId
+  }
+  if (!unit.tabs.some((tab) => tab.id === raw)) {
+    throw new Error(`标签页不存在: ${raw}`)
+  }
+  return raw
+}
+
+export function assertWebViewUnitOwner(unitId: string, ownerTerminalSessionId: string): void {
+  const unit = units.get(unitId)
+  if (!unit) {
+    throw new Error(`浏览单元不存在: ${unitId}`)
+  }
+  if (unit.ownerTerminalSessionId !== ownerTerminalSessionId) {
+    throw new Error(`无权操作浏览单元: ${unitId}`)
+  }
+}
+
+export function emitWebViewNavigated(
+  unitId: string,
+  tabId: string,
+  url: string,
+  title: string,
+): void {
+  emit({ type: 'navigated', unitId, tabId, url, title })
+}
+
+export function emitWebViewTabFault(unitId: string, tabId: string, message: string): void {
+  emit({ type: 'tabFault', unitId, tabId, message })
+}
+
+export function findWebViewWindowId(
+  unitId: string,
+  windows: { id: string; appId: string; documentId?: string; closing?: boolean }[],
+): string | undefined {
+  const unit = units.get(unitId)
+  if (unit?.windowId) {
+    const stillOpen = windows.find((window) => window.id === unit.windowId && !window.closing)
+    if (stillOpen) return unit.windowId
+  }
+  return windows.find(
+    (window) => window.appId === 'webview' && !window.closing && window.documentId === unitId,
+  )?.id
+}
+
+export function closeWebViewUnitWindows(
+  unitId: string,
+  windows: { id: string; appId: string; documentId?: string; closing?: boolean }[],
+  closeWindow: (windowId: string) => void,
+): void {
+  const windowId = findWebViewWindowId(unitId, windows)
+  if (windowId) {
+    closeWindow(windowId)
+  }
+}
+
+const DEFAULT_WAIT_TIMEOUT_MS = 30_000
+
+function isTabReady(tab: PageTab): boolean {
+  return Boolean(tab.ready && !tab.loading && !tab.pageFault)
+}
+
+export function waitWebViewTab(
+  unitId: string,
+  tabId: string,
+  timeoutMs: number = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const resolvedTabId = resolveWebViewTabId(unitId, tabId)
+  const immediate = getWebViewTab(unitId, resolvedTabId)
+  if (immediate.pageFault) {
+    return Promise.reject(
+      new Error(formatPageFault(immediate.pageFault) || immediate.pageFault.message),
+    )
+  }
+  if (isTabReady(immediate)) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      unsub()
+      fn()
+    }
+
+    const check = () => {
+      const unit = units.get(unitId)
+      if (!unit) {
+        finish(() => reject(new Error(`浏览单元不存在: ${unitId}`)))
+        return
+      }
+      const tab = unit.tabs.find((entry) => entry.id === resolvedTabId)
+      if (!tab) {
+        finish(() => reject(new Error(`标签页不存在: ${resolvedTabId}`)))
+        return
+      }
+      if (tab.pageFault) {
+        finish(() =>
+          reject(new Error(formatPageFault(tab.pageFault) || tab.pageFault.message)),
+        )
+        return
+      }
+      if (isTabReady(tab)) {
+        finish(() => resolve())
+      }
+    }
+
+    // updateWebViewTab 只走 notifyChanged（CustomEvent），不走 typed listeners
+    const unsub = onWebViewRegistryChanged(() => {
+      check()
+    })
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`等待网页就绪超时（${timeoutMs}ms）`)))
+    }, Math.max(1, timeoutMs))
+    check()
+  })
+}
+
+export function buildWebViewFaultDocumentHtml(fault: {
+  message: string
+  code?: string
+  url?: string
+}): string {
+  const title = '此页面已停止运行'
+  const lines = [
+    `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>`,
+    '<style>body{font-family:system-ui,sans-serif;padding:24px;color:#111;background:#fafafa}h1{font-size:20px}pre{white-space:pre-wrap;color:#444}</style>',
+    `</head><body><h1>${escapeHtml(title)}</h1>`,
+    `<p>${escapeHtml(fault.message)}</p>`,
+  ]
+  if (fault.code) {
+    lines.push(`<pre>code: ${escapeHtml(fault.code)}</pre>`)
+  }
+  if (fault.url) {
+    lines.push(`<pre>url: ${escapeHtml(fault.url)}</pre>`)
+  }
+  lines.push('</body></html>')
+  return lines.join('')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+export function injectWebViewFaultDocument(
+  viewer: PageViewerHandle | null | undefined,
+  fault: { message: string; code?: string; url?: string },
+): void {
+  if (!viewer?.isReady()) return
+  const html = buildWebViewFaultDocumentHtml(fault)
+  void viewer
+    .evalInPage(
+      `(function(){document.open();document.write(${JSON.stringify(html)});document.close();return true})()`,
+    )
+    .catch(() => {
+      // bridge 可能已死；忽略
+    })
 }
 
 export function listWebViewTabs(unitId: string): PageTab[] {
@@ -322,15 +488,27 @@ export function summarizeWebViewUnit(unit: WebViewUnitRecord): WebViewUnitSummar
   }
 }
 
+export function requireLiveWebViewTab(unitId: string, tabId: string): PageTab {
+  const tab = getWebViewTab(unitId, tabId)
+  if (tab.pageFault) {
+    throw new Error(formatPageFault(tab.pageFault) || tab.pageFault.message)
+  }
+  return tab
+}
+
 export async function evalWebViewTab(
   unitId: string,
   tabId: string,
   code: string,
   getViewer: (unitId: string, tabId: string) => PageViewerHandle | null | undefined,
 ): Promise<unknown> {
-  requireLiveWebViewTab(unitId, tabId)
+  // fault 后允许读错误页 DOM；viewer 未就绪时再抛 fault / 尚未就绪
+  const tab = getWebViewTab(unitId, tabId)
   const viewer = getViewer(unitId, tabId)
   if (!viewer?.isReady()) {
+    if (tab.pageFault) {
+      throw new Error(formatPageFault(tab.pageFault) || tab.pageFault.message)
+    }
     throw new Error('网页尚未就绪')
   }
   return viewer.evalInPage(code)

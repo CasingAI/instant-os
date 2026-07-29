@@ -30,6 +30,7 @@ import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-serve
 import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import {
+  closeWebViewUnitWindows,
   destroyWebViewUnit,
   listWebViewUnits,
   onWebViewRegistryChanged,
@@ -433,9 +434,7 @@ export function TaskManagerApp() {
                           type="button"
                           class="task-manager__end-button"
                           onClick={() => {
-                            if (unit.windowId) {
-                              closeWindow(unit.windowId)
-                            }
+                            closeWebViewUnitWindows(unit.unitId, windows, closeWindow)
                             destroyWebViewUnit(unit.unitId)
                           }}
                         >
