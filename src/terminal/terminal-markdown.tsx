@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks'
+import { MarkdownHtmlView } from '../markdown/markdown-html-view.tsx'
 import { renderMarkdownHtml } from '../markdown/render-markdown-html.ts'
 
 function normalizeTerminalMarkdownSource(text: string): string {
@@ -24,9 +25,9 @@ export function TerminalMarkdown({ text, class: className }: TerminalMarkdownPro
   }
 
   return (
-    <div
+    <MarkdownHtmlView
       class={`terminal-panel__markdown${className ? ` ${className}` : ''}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      html={html}
     />
   )
 }

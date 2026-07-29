@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks'
+import { MarkdownHtmlView } from '../../markdown/markdown-html-view.tsx'
 import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
 
 /** 把模型常写出的「假换行」收成真正换行，并给挤成一团的中文步骤补断行 */
@@ -78,9 +79,9 @@ export function HelpMarkdown({ text, class: className, streaming }: HelpMarkdown
   }
 
   return (
-    <div
+    <MarkdownHtmlView
       class={`help-app__markdown${className ? ` ${className}` : ''}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      html={html}
     />
   )
 }

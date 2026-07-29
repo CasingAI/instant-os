@@ -101,7 +101,7 @@ async function testApiOpenAppAndUrl(): Promise<void> {
   assert.equal(host.calls[0], 'openApp:settings:{}')
   assert.equal(
     host.calls[1],
-    `openApp:browser:${JSON.stringify({ url: normalizeInstantShellUrl('example.com/path') })}`,
+    `openApp:chromo:${JSON.stringify({ url: normalizeInstantShellUrl('example.com/path') })}`,
   )
   console.log('ok: createInstantShellApi openApp / openUrl')
 }

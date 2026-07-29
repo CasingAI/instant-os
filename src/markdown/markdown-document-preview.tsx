@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks'
+import { MarkdownHtmlView } from './markdown-html-view.tsx'
 import { renderMarkdownHtml } from './render-markdown-html.ts'
 import './markdown-document-preview.css'
 
@@ -28,5 +29,5 @@ export function MarkdownDocumentPreview({ text, class: className }: MarkdownDocu
     return <div class={rootClass} />
   }
 
-  return <div class={rootClass} dangerouslySetInnerHTML={{ __html: html }} />
+  return <MarkdownHtmlView class={rootClass} html={html} />
 }

@@ -13,6 +13,7 @@ import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
+import { registerUrlOpenHandler } from '../../os/url-open-registry.ts'
 import { useFullscreenChromeReveal } from '../../os/fullscreen-chrome-reveal-context.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import {
@@ -59,6 +60,8 @@ import { ChromoTabBar, type ChromoTabSummary } from './chromo-tab-bar.tsx'
 import { ChromoViewerFrame, type ChromoViewerHandle } from './chromo-viewer-frame.tsx'
 import type { ChromoApplicationApi } from './chromo-application-panel.tsx'
 import './chromo.css'
+
+registerUrlOpenHandler({ appId: 'chromo', rank: 10 })
 
 function makeChromoApplicationApi(
   getViewer: () => ChromoViewerHandle | null | undefined,
@@ -264,7 +267,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   const pendingUrl = appWindow?.url
   const parentWindowId = appWindow?.id ?? windowId ?? ''
 
-  const [tabs, setTabs] = useState<ChromoTab[]>(() => [createChromoTab()])
+  const [tabs, setTabs] = useState<ChromoTab[]>(() => [createChromoTab(pendingUrl ?? '')])
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '')
   const [addressFocused, setAddressFocused] = useState(false)
   const [tabsOverflowOpen, setTabsOverflowOpen] = useState(false)
@@ -1596,10 +1599,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   getViewerRef(tab.id).current?.navigate(recoverUrl)
                   return
                 }
-                // 有 initialUrl 时 viewer 已入队导航；空 tab 才走 ensure
-                if (!current?.url) {
-                  ensureInitialTabLoad(tab.id)
+                if (current?.url) {
+                  getViewerRef(tab.id).current?.navigate(current.url)
+                  return
                 }
+                ensureInitialTabLoad(tab.id)
               }}
               onNavigating={() => {
                 updateTab(tab.id, (entry) => ({

@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks'
+import { MarkdownHtmlView } from '../../markdown/markdown-html-view.tsx'
 import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
 
 function renderVscodeMarkdown(text: string): string {
@@ -19,9 +20,6 @@ export function VscodeMarkdownPreview({ text }: VscodeMarkdownPreviewProps) {
   }
 
   return (
-    <div
-      class="vscode__markdown-preview"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <MarkdownHtmlView class="vscode__markdown-preview" html={html} />
   )
 }

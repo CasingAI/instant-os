@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks'
+import { MarkdownHtmlView } from '../../markdown/markdown-html-view.tsx'
 import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
 
 function renderIcodeChatMarkdown(text: string): string {
@@ -17,9 +18,9 @@ export function IcodeChatMarkdown({ text, class: className }: IcodeChatMarkdownP
   }
 
   return (
-    <div
+    <MarkdownHtmlView
       class={`icode__chat-markdown${className ? ` ${className}` : ''}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      html={html}
     />
   )
 }

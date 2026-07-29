@@ -1,6 +1,7 @@
 import { filesStat } from '../../apps/files/files-api.ts'
 import { searchVfsText } from '../../apps/files/vfs-text-search.ts'
 import { getDefaultFileOpenApp } from '../../os/file-open-registry.ts'
+import { getDefaultUrlOpenApp } from '../../os/url-open-registry.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import { basenameInstantShellPath, resolveInstantShellPath } from './instant-shell-path.ts'
 import type {
@@ -93,7 +94,7 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
 
   const openUrl = async (url: string): Promise<void> => {
     const normalized = normalizeInstantShellUrl(url)
-    host.openApp('browser', { url: normalized })
+    host.openApp(getDefaultUrlOpenApp(), { url: normalized })
   }
 
   const focus = async (target: string): Promise<void> => {

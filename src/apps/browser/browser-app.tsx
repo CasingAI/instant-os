@@ -3,6 +3,7 @@ import { useOpenAiReady } from '../../ai/use-openai-ready.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
+import { registerUrlOpenHandler } from '../../os/url-open-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
@@ -110,6 +111,8 @@ registerFileOpenHandler({
   extensions: ['html', 'htm', 'xhtml', 'svg'],
   rank: 10,
 })
+
+registerUrlOpenHandler({ appId: 'browser', rank: 20 })
 
 type HistoryEntry = {
   url: string
