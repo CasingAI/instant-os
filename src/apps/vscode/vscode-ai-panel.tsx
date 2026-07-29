@@ -1003,9 +1003,15 @@ export function VscodeAiPanel({
     const el = userEditInputRef.current
     if (!el) return
     syncComposerTextareaHeight(el, COMPOSER_INPUT_MAX_LINES, userEditInputHeightRef)
+  }, [editingDraft, editingUserId])
+
+  useLayoutEffect(() => {
+    if (!editingUserId) return
+    const el = userEditInputRef.current
+    if (!el) return
     el.focus()
     el.setSelectionRange(el.value.length, el.value.length)
-  }, [editingDraft, editingUserId])
+  }, [editingUserId])
 
   useLayoutEffect(() => {
     const from = userBubbleMorphFromRef.current
