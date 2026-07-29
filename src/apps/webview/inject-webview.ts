@@ -7,6 +7,8 @@ import type { PageViewerHandle } from '../../page-host/page-viewer-frame.tsx'
 import {
   assertWebViewUnitOwner,
   closeWebViewUnitWindows,
+  addWebViewTab,
+  closeWebViewTab,
   createWebViewUnit,
   destroyWebViewUnit,
   destroyWebViewUnitsForOwner,
@@ -250,6 +252,33 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
     }),
   )
 
+  bind('openTab', (optsHandle) =>
+    runAsync(async () => {
+      const opts = readObjectArg(context, optsHandle, 'options')
+      const unitId = String(opts.unitId ?? '')
+      const url = String(opts.url ?? '').trim()
+      if (!unitId || !url) {
+        throw new Error('unitId、url 均不能为空')
+      }
+      assertWebViewUnitOwner(unitId, host.terminalSessionId)
+      const tabId = addWebViewTab(unitId, url)
+      return { unitId, tabId }
+    }),
+  )
+
+  bind('closeTab', (optsHandle) =>
+    runAsync(async () => {
+      const opts = readObjectArg(context, optsHandle, 'options')
+      const unitId = String(opts.unitId ?? '')
+      const tabId = String(opts.tabId ?? 'default')
+      if (!unitId) {
+        throw new Error('unitId 不能为空')
+      }
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      closeWebViewTab(resolved.unitId, resolved.tabId)
+    }),
+  )
+
   bind('navigate', (optsHandle) =>
     runAsync(async () => {
       const opts = readObjectArg(context, optsHandle, 'options')
@@ -302,10 +331,34 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
         throw new Error('unitId 不能为空')
       }
       const resolved = resolveOwnedTab(host, unitId, tabId)
+      const nested =
+        opts.options && typeof opts.options === 'object' && !Array.isArray(opts.options)
+          ? (opts.options as ChromoScreenshotOptions)
+          : undefined
+      const flat: ChromoScreenshotOptions = {
+        format:
+          opts.format === 'jpeg' || opts.format === 'png'
+            ? opts.format
+            : undefined,
+        quality: typeof opts.quality === 'number' ? opts.quality : undefined,
+        fullPage: typeof opts.fullPage === 'boolean' ? opts.fullPage : undefined,
+        scale: typeof opts.scale === 'number' ? opts.scale : undefined,
+        timeout: typeof opts.timeout === 'number' ? opts.timeout : undefined,
+      }
+      const screenshotOptions: ChromoScreenshotOptions = {
+        ...flat,
+        ...nested,
+      }
+      const hasOptions =
+        screenshotOptions.format !== undefined ||
+        screenshotOptions.quality !== undefined ||
+        screenshotOptions.fullPage !== undefined ||
+        screenshotOptions.scale !== undefined ||
+        screenshotOptions.timeout !== undefined
       return screenshotWebViewTab(
         resolved.unitId,
         resolved.tabId,
-        opts.options as ChromoScreenshotOptions | undefined,
+        hasOptions ? screenshotOptions : undefined,
         getViewer,
       )
     }),

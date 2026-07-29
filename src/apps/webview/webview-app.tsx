@@ -2,6 +2,8 @@ import { createRef } from 'preact'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { RefObject } from 'preact'
 import type { ChromoApplicationApi } from '../chromo/chromo-application-panel.tsx'
+import { mergeConsoleDisplayEntries } from '../chromo/chromo-console-types.ts'
+import { ChromoDevToolsPanel } from '../chromo/chromo-devtools-panel.tsx'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -15,14 +17,23 @@ import {
   type ChromoDevToolsHandlers,
   type PageDevToolsSnapshot,
 } from '../../page-host/page-devtools-hub.ts'
-import { formatPageFault } from '../../page-host/page-fault.ts'
+import {
+  formatPageFault,
+  pageFaultFromError,
+  pageFaultFromLoadFailed,
+} from '../../page-host/page-fault.ts'
 import { PageFaultView } from '../../page-host/page-fault-view.tsx'
 import {
   resolveNavIntent,
   shouldCreateTab,
   shouldNavigateSameTab,
 } from '../../page-host/page-nav.ts'
-import { displayPageUrl, normalizePageUrl, pageTitleFromUrl } from '../../page-host/page-url.ts'
+import {
+  displayPageUrl,
+  isSameDocumentHashLink,
+  normalizePageUrl,
+  pageTitleFromUrl,
+} from '../../page-host/page-url.ts'
 import { PageViewerFrame, type PageViewerHandle } from '../../page-host/page-viewer-frame.tsx'
 import type { ChromoNetworkEntry } from '../../page-host/page-bridge.ts'
 import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
@@ -85,6 +96,7 @@ type WebViewAppProps = {
 export function WebViewApp({ windowId }: WebViewAppProps) {
   const {
     windows,
+    activeWindowId,
     closeWindow,
     openApp,
     setWindowTitle,
@@ -96,6 +108,7 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
     : undefined
   const unitId = appWindow?.documentId ?? ''
   const [tick, setTick] = useState(0)
+  const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
   useEffect(() => onWebViewRegistryChanged(() => setTick((n) => n + 1)), [])
 
@@ -147,6 +160,15 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
 
   const unitIdForPull = unit?.unitId
   const networkPullTimersRef = useRef<Record<string, number>>({})
+  const clickNavigateTimersRef = useRef<Record<string, number>>({})
+
+  const cancelClickNavigate = useCallback((tabId: string) => {
+    const timer = clickNavigateTimersRef.current[tabId]
+    if (timer) {
+      window.clearTimeout(timer)
+      delete clickNavigateTimersRef.current[tabId]
+    }
+  }, [])
 
   const pullConsoleDelta = useCallback(
     async (tabId: string) => {
@@ -275,6 +297,10 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
         window.clearTimeout(timer)
       }
       networkPullTimersRef.current = {}
+      for (const timer of Object.values(clickNavigateTimersRef.current)) {
+        window.clearTimeout(timer)
+      }
+      clickNavigateTimersRef.current = {}
     }
   }, [])
 
@@ -287,12 +313,13 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
   useEffect(() => {
     if (!unit) return
     const hostId = unit.unitId
+    const parentWindowId = windowId || hostId
     const undocked = unit.tabs.filter((tab) => tab.devtoolsUndocked)
     for (const tab of undocked) {
       const key = makePageDevToolsSessionKey(hostId, tab.id)
       const snapshot: PageDevToolsSnapshot = {
         hostId,
-        parentWindowId: hostId,
+        parentWindowId,
         tabId: tab.id,
         pageTitle: tab.title,
         pageUrl: tab.url,
@@ -426,7 +453,7 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
       if (tab.devtoolsUndocked) continue
       unregisterChromoDevToolsSession(makePageDevToolsSessionKey(hostId, tab.id))
     }
-  }, [getViewerRef, unit, tick])
+  }, [getViewerRef, unit, tick, windowId])
 
   useEffect(() => {
     const capturedHostId = unitId
@@ -446,6 +473,28 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
       }
     }
   }, [closeWindow, unitId])
+
+  // 菜单与终端 openDevTools 共用：打开时预拉 console/network
+  const pulledDevToolsKeysRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (!unit) return
+    const openTabs = unit.tabs.filter(
+      (tab) => tab.devtoolsUndocked || (tab.devtoolsOpen && !tab.devtoolsUndocked),
+    )
+    const openKeys = new Set(openTabs.map((tab) => `${unit.unitId}:${tab.id}`))
+    for (const key of [...pulledDevToolsKeysRef.current]) {
+      if (!openKeys.has(key)) {
+        pulledDevToolsKeysRef.current.delete(key)
+      }
+    }
+    for (const tab of openTabs) {
+      const key = `${unit.unitId}:${tab.id}`
+      if (pulledDevToolsKeysRef.current.has(key)) continue
+      pulledDevToolsKeysRef.current.add(key)
+      void pullNetworkDelta(tab.id, { full: true })
+      void pullConsoleDelta(tab.id)
+    }
+  }, [pullConsoleDelta, pullNetworkDelta, unit, tick])
 
   const displayedTab =
     unit?.tabs.find((tab) => tab.id === unit.uiDisplayedTabId) ?? unit?.tabs[0]
@@ -475,8 +524,6 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
       devtoolsUndocked: true,
       devtoolsOpen: false,
     }))
-    void pullNetworkDelta(displayedTab.id, { full: true })
-    void pullConsoleDelta(displayedTab.id)
     openDevTools(
       {
         openApp: (appId, options) => openApp(appId as never, options),
@@ -491,7 +538,22 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
       },
       { hostId: unit.unitId, tabId: displayedTab.id, mode: 'undocked' },
     )
-  }, [displayedTab, openApp, pullConsoleDelta, pullNetworkDelta, unit])
+  }, [displayedTab, openApp, unit])
+
+  const undockDisplayedDevTools = useCallback(() => {
+    if (!unit || !displayedTab) return
+    updateWebViewTab(unit.unitId, displayedTab.id, (tab) => ({
+      ...tab,
+      devtoolsUndocked: true,
+      devtoolsOpen: false,
+    }))
+    openDevTools(
+      {
+        openApp: (appId, options) => openApp(appId as never, options),
+      },
+      { hostId: unit.unitId, tabId: displayedTab.id, mode: 'undocked' },
+    )
+  }, [displayedTab, openApp, unit])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     if (!visible) {
@@ -525,10 +587,10 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
     ]
   }, [closeWindow, displayedTab, openCurrentDevTools, showBuiltinAbout, visible, windowId])
 
-  useAppMenuBar(APP_ID, menuBar)
+  useAppMenuBar(APP_ID, menuBar, isActiveWindow && visible)
 
   const navigateTab = useCallback(
-    (tabId: string, url: string) => {
+    (tabId: string, url: string, options?: { method?: 'POST'; body?: string }) => {
       if (!unit) return
       const normalized = normalizePageUrl(url)
       updateWebViewTab(unit.unitId, tabId, (tab) => ({
@@ -541,7 +603,7 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
         pageFault: undefined,
         bootstrapped: true,
       }))
-      getViewerRef(tabId).current?.navigate(normalized)
+      getViewerRef(tabId).current?.navigate(normalized, options)
     },
     [getViewerRef, unit],
   )
@@ -552,7 +614,8 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
 
   const showChrome = visible
   const embeddedDevtools =
-    displayedTab?.devtoolsOpen && !displayedTab.devtoolsUndocked
+    Boolean(displayedTab?.devtoolsOpen && !displayedTab.devtoolsUndocked)
+  const embeddedDockSide = displayedTab?.devtoolsDockSide ?? 'bottom'
 
   return (
     <div
@@ -587,175 +650,397 @@ export function WebViewApp({ windowId }: WebViewAppProps) {
         </>
       ) : null}
 
-      <main class="webview__viewport">
-        {displayedTab?.pageFault && showChrome ? (
-          <PageFaultView
-            fault={displayedTab.pageFault}
-            variant="viewport"
-            onRetry={() => {
-              if (!displayedTab) return
-              updateWebViewTab(unit.unitId, displayedTab.id, (tab) => ({
-                ...tab,
-                pageFault: undefined,
-                loading: true,
-              }))
-              if (displayedTab.pageFault?.severity === 'fatal') {
-                getViewerRef(displayedTab.id).current?.recoverFromFatal()
-              } else {
-                getViewerRef(displayedTab.id).current?.reload()
-              }
-            }}
-          />
-        ) : null}
-        {unit.tabs.map((tab) => (
-          <PageViewerFrame
-            key={tab.id}
-            ref={getViewerRef(tab.id)}
-            devtoolsId={tab.devtoolsId}
-            initialUrl={tab.url || undefined}
-            active={tab.id === unit.uiDisplayedTabId}
-            disableNetworkCache={tab.disableNetworkCache}
-            onReady={() => {
-              updateWebViewTab(unit.unitId, tab.id, (entry) => ({
-                ...entry,
-                ready: true,
-              }))
-              if (tab.url && !tab.bootstrapped) {
-                navigateTab(tab.id, tab.url)
-              }
-            }}
-            onNavigated={(payload) => {
-              const title = payload.title || pageTitleFromUrl(payload.url)
-              updateWebViewTab(unit.unitId, tab.id, (entry) => ({
-                ...entry,
-                url: payload.url,
-                pendingUrl: undefined,
-                title,
-                inputUrl: displayPageUrl(payload.url),
-                loading: false,
-                canGoBack: payload.canGoBack,
-                canGoForward: payload.canGoForward,
-                pageFault: undefined,
-              }))
-              emitWebViewNavigated(unit.unitId, tab.id, payload.url, title)
-              void pullNetworkDelta(tab.id)
-              void pullConsoleDelta(tab.id)
-            }}
-            onLoading={(payload) => {
-              updateWebViewTab(unit.unitId, tab.id, (entry) => ({
-                ...entry,
-                loading: payload.loading,
-                pendingUrl: payload.loading
-                  ? payload.url || entry.pendingUrl || entry.url
-                  : undefined,
-              }))
-            }}
-            onConsoleUpdated={() => {
-              void pullConsoleDelta(tab.id)
-            }}
-            onNetworkUpdated={(payload) => {
-              if (payload.entry) {
-                ingestNetworkEntry(tab.id, payload.entry, payload.latestId)
-                return
-              }
-              scheduleNetworkPull(tab.id)
-            }}
-            onLoadFailed={(payload) => {
-              const fault = {
-                severity: 'load' as const,
-                code: payload.code,
-                message: payload.message || '页面加载失败',
-                url: payload.url,
-              }
-              updateWebViewTab(unit.unitId, tab.id, (entry) => ({
-                ...entry,
-                loading: false,
-                pendingUrl: undefined,
-                pageFault: fault,
-              }))
-              emitWebViewTabFault(
-                unit.unitId,
-                tab.id,
-                formatPageFault(fault) || fault.message,
-              )
-              injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
-              void pullNetworkDelta(tab.id, { full: true })
-            }}
-            onError={(payload) => {
-              const fault = {
-                severity: 'fatal' as const,
-                code: payload.code,
-                message: payload.message,
-                bridgeBuild: payload.bridgeBuild,
-                swBuild: payload.swBuild,
-              }
-              updateWebViewTab(unit.unitId, tab.id, (entry) => ({
-                ...entry,
-                loading: false,
-                pageFault: fault,
-              }))
-              emitWebViewTabFault(
-                unit.unitId,
-                tab.id,
-                formatPageFault(fault) || fault.message,
-              )
-              injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
-            }}
-            onLocation={(payload) => {
-              const intent = resolveNavIntent(
-                {
-                  kind: 'LOCATION',
-                  method: payload.method,
-                  url: payload.url,
-                  target: payload.target,
-                  httpMethod: payload.httpMethod,
-                },
-                { currentUrl: tab.url },
-              )
-              if (shouldCreateTab(intent) && intent.action === 'newTab') {
-                addWebViewTab(unit.unitId, intent.url)
-                return
-              }
-              if (shouldNavigateSameTab(intent) && intent.action === 'sameTab') {
-                navigateTab(tab.id, intent.url)
-              }
-            }}
-            onHistory={(payload) => {
-              const title = payload.title || pageTitleFromUrl(payload.url)
-              updateWebViewTab(unit.unitId, tab.id, (entry) => ({
-                ...entry,
-                url: payload.url,
-                pendingUrl: undefined,
-                title,
-                inputUrl: displayPageUrl(payload.url),
-                loading: false,
-                pageFault: undefined,
-              }))
-              emitWebViewNavigated(unit.unitId, tab.id, payload.url, title)
-              void pullNetworkDelta(tab.id)
-              void pullConsoleDelta(tab.id)
-            }}
-            onClick={(payload) => {
-              const intent = resolveNavIntent(
-                {
-                  kind: 'CLICK',
-                  href: payload.href,
-                  target: payload.target,
-                  url: payload.href,
-                },
-                { currentUrl: tab.url },
-              )
-              if (shouldCreateTab(intent) && intent.action === 'newTab') {
-                addWebViewTab(unit.unitId, intent.url)
-                return
-              }
-              if (payload.href && !payload.href.startsWith('javascript:')) {
-                navigateTab(tab.id, payload.href)
-              }
-            }}
-          />
-        ))}
-      </main>
+      <div class="webview__body chromo__body">
+        <div
+          class={[
+            'chromo__main-column',
+            embeddedDevtools ? `chromo__main-column--devtools-${embeddedDockSide}` : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <div
+            class={[
+              'chromo__devtools-area',
+              embeddedDevtools ? `chromo__devtools-area--${embeddedDockSide}` : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            <main class="webview__viewport chromo__viewport">
+              {displayedTab?.pageFault && showChrome ? (
+                <PageFaultView
+                  fault={displayedTab.pageFault}
+                  variant="viewport"
+                  showOmniboxHint={false}
+                />
+              ) : null}
+              {unit.tabs.map((tab) => (
+                <PageViewerFrame
+                  key={tab.id}
+                  ref={getViewerRef(tab.id)}
+                  devtoolsId={tab.devtoolsId}
+                  initialUrl={tab.url || undefined}
+                  active={tab.id === unit.uiDisplayedTabId}
+                  disableNetworkCache={tab.disableNetworkCache}
+                  onReady={() => {
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      ready: true,
+                    }))
+                    if (tab.url && !tab.bootstrapped) {
+                      navigateTab(tab.id, tab.url)
+                    }
+                  }}
+                  onNavigating={() => {
+                    cancelClickNavigate(tab.id)
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      loading: true,
+                      pageFault: undefined,
+                      ...(entry.preserveConsole
+                        ? {}
+                        : {
+                            consoleEntries: [],
+                            lastConsoleId: '',
+                            networkEntries: [],
+                            lastNetworkId: '',
+                            selectedNetworkId: '',
+                          }),
+                    }))
+                  }}
+                  onNavigated={(payload) => {
+                    cancelClickNavigate(tab.id)
+                    const title = payload.title || pageTitleFromUrl(payload.url)
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      url: payload.url,
+                      pendingUrl: undefined,
+                      title,
+                      inputUrl: displayPageUrl(payload.url),
+                      loading: false,
+                      canGoBack: payload.canGoBack,
+                      canGoForward: payload.canGoForward,
+                      pageFault: undefined,
+                    }))
+                    emitWebViewNavigated(unit.unitId, tab.id, payload.url, title)
+                    void pullNetworkDelta(tab.id)
+                    void pullConsoleDelta(tab.id)
+                  }}
+                  onLoading={(payload) => {
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      loading: payload.loading,
+                      pendingUrl: payload.loading
+                        ? payload.url || entry.pendingUrl || entry.url
+                        : undefined,
+                    }))
+                  }}
+                  onConsoleUpdated={() => {
+                    void pullConsoleDelta(tab.id)
+                  }}
+                  onNetworkUpdated={(payload) => {
+                    if (payload.entry) {
+                      ingestNetworkEntry(tab.id, payload.entry, payload.latestId)
+                      return
+                    }
+                    scheduleNetworkPull(tab.id)
+                  }}
+                  onLoadFailed={(payload) => {
+                    const fault = pageFaultFromLoadFailed({
+                      url: payload.url,
+                      message: payload.message,
+                      code: payload.code,
+                    })
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      loading: false,
+                      pendingUrl: undefined,
+                      pageFault: fault,
+                    }))
+                    emitWebViewTabFault(
+                      unit.unitId,
+                      tab.id,
+                      formatPageFault(fault) || fault.message,
+                    )
+                    injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
+                    void pullNetworkDelta(tab.id, { full: true })
+                  }}
+                  onError={(payload) => {
+                    const fault = pageFaultFromError(payload)
+                    if (!fault) {
+                      return
+                    }
+                    if (fault.code === 'VERSION_MISMATCH') {
+                      const entry = getWebViewUnit(unit.unitId)?.tabs.find(
+                        (item) => item.id === tab.id,
+                      )
+                      if (!entry?.url) {
+                        return
+                      }
+                    }
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      loading: false,
+                      pageFault: fault,
+                    }))
+                    emitWebViewTabFault(
+                      unit.unitId,
+                      tab.id,
+                      formatPageFault(fault) || fault.message,
+                    )
+                    injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
+                  }}
+                  onLocation={(payload) => {
+                    const intent = resolveNavIntent(
+                      {
+                        kind: 'LOCATION',
+                        method: payload.method,
+                        url: payload.url,
+                        target: payload.target,
+                        httpMethod: payload.httpMethod,
+                      },
+                      { currentUrl: tab.url },
+                    )
+                    if (shouldCreateTab(intent) && intent.action === 'newTab') {
+                      addWebViewTab(unit.unitId, intent.url)
+                      return
+                    }
+                    if (payload.method === 'submit' && payload.httpMethod === 'post') {
+                      if (
+                        payload.formFiles ||
+                        (payload.formEnctype &&
+                          payload.formEnctype !== 'application/x-www-form-urlencoded')
+                      ) {
+                        const fault = {
+                          severity: 'load' as const,
+                          code: 'POST_FORM_UNSUPPORTED',
+                          message:
+                            '当前不支持带文件上传或非 urlencoded 的 POST 表单。请改用 GET 表单或 fetch API。',
+                          url: payload.url,
+                        }
+                        updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                          ...entry,
+                          loading: false,
+                          pageFault: fault,
+                        }))
+                        emitWebViewTabFault(
+                          unit.unitId,
+                          tab.id,
+                          formatPageFault(fault) || fault.message,
+                        )
+                        injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
+                        return
+                      }
+                      if (!payload.formBody) {
+                        const fault = {
+                          severity: 'load' as const,
+                          code: 'POST_FORM_UNSUPPORTED',
+                          message: 'POST 表单缺少可提交的字段数据。',
+                          url: payload.url,
+                        }
+                        updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                          ...entry,
+                          loading: false,
+                          pageFault: fault,
+                        }))
+                        emitWebViewTabFault(
+                          unit.unitId,
+                          tab.id,
+                          formatPageFault(fault) || fault.message,
+                        )
+                        injectWebViewFaultDocument(getViewerRef(tab.id).current, fault)
+                        return
+                      }
+                      navigateTab(tab.id, payload.url, {
+                        method: 'POST',
+                        body: payload.formBody,
+                      })
+                      return
+                    }
+                    if (shouldNavigateSameTab(intent) && intent.action === 'sameTab') {
+                      navigateTab(tab.id, intent.url)
+                      return
+                    }
+                    if (intent.action === 'ignore') {
+                      return
+                    }
+                    navigateTab(tab.id, payload.url)
+                  }}
+                  onHistory={(payload) => {
+                    cancelClickNavigate(tab.id)
+                    const title = payload.title || pageTitleFromUrl(payload.url)
+                    updateWebViewTab(unit.unitId, tab.id, (entry) => ({
+                      ...entry,
+                      url: payload.url,
+                      pendingUrl: undefined,
+                      title,
+                      inputUrl: displayPageUrl(payload.url),
+                      loading: false,
+                      pageFault: undefined,
+                    }))
+                    emitWebViewNavigated(unit.unitId, tab.id, payload.url, title)
+                    void pullNetworkDelta(tab.id)
+                    void pullConsoleDelta(tab.id)
+                  }}
+                  onClick={(payload) => {
+                    const intent = resolveNavIntent(
+                      {
+                        kind: 'CLICK',
+                        href: payload.href,
+                        target: payload.target,
+                        url: payload.href,
+                      },
+                      { currentUrl: tab.url },
+                    )
+                    if (shouldCreateTab(intent) && intent.action === 'newTab') {
+                      addWebViewTab(unit.unitId, intent.url)
+                      return
+                    }
+                    if (
+                      !payload.href ||
+                      payload.href === '#' ||
+                      payload.href.startsWith('javascript:')
+                    ) {
+                      return
+                    }
+                    if (isSameDocumentHashLink(payload.href, tab.url)) {
+                      return
+                    }
+                    cancelClickNavigate(tab.id)
+                    clickNavigateTimersRef.current[tab.id] = window.setTimeout(() => {
+                      delete clickNavigateTimersRef.current[tab.id]
+                      navigateTab(tab.id, payload.href)
+                    }, 150)
+                  }}
+                />
+              ))}
+            </main>
+
+            {embeddedDevtools && displayedTab ? (
+              <ChromoDevToolsPanel
+                mode="embedded"
+                activeTab={displayedTab.devtoolsTab}
+                onTabChange={(panelTab) =>
+                  updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                    ...entry,
+                    devtoolsTab: panelTab,
+                  }))
+                }
+                onClose={() =>
+                  updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                    ...entry,
+                    devtoolsOpen: false,
+                  }))
+                }
+                dockSide={displayedTab.devtoolsDockSide}
+                onDockSideChange={(side) =>
+                  updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                    ...entry,
+                    devtoolsDockSide: side,
+                  }))
+                }
+                onUndock={undockDisplayedDevTools}
+                preserveLog={displayedTab.preserveConsole}
+                onPreserveLogChange={(preserve) =>
+                  updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                    ...entry,
+                    preserveConsole: preserve,
+                  }))
+                }
+                onClear={() => {
+                  if (displayedTab.devtoolsTab === 'network') {
+                    updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                      ...entry,
+                      networkEntries: [],
+                      lastNetworkId: '',
+                      selectedNetworkId: '',
+                    }))
+                    return
+                  }
+                  updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                    ...entry,
+                    consoleEntries: [],
+                    lastConsoleId: '',
+                  }))
+                }}
+                entries={mergeConsoleDisplayEntries(displayedTab.consoleEntries, [])}
+                pageReady={Boolean(
+                  displayedTab.ready && displayedTab.url && !displayedTab.pageFault,
+                )}
+                evalInPage={(code) => {
+                  const viewer = getViewerRef(displayedTab.id).current
+                  if (!viewer?.isReady()) {
+                    return Promise.reject(new Error('网页尚未就绪'))
+                  }
+                  return viewer.evalInPage(code)
+                }}
+                replHistory={[]}
+                onReplHistoryChange={() => {}}
+                onAppendEntries={() => {}}
+                networkEntries={displayedTab.networkEntries}
+                selectedNetworkId={displayedTab.selectedNetworkId || undefined}
+                disableNetworkCache={displayedTab.disableNetworkCache}
+                onDisableNetworkCacheChange={(disable) => {
+                  updateWebViewTab(unit.unitId, displayedTab.id, (entry) => ({
+                    ...entry,
+                    disableNetworkCache: disable,
+                  }))
+                  getViewerRef(displayedTab.id).current?.setNetworkOptions({
+                    disableCache: disable,
+                  })
+                }}
+                readNetworkBody={(entryId) => {
+                  const viewer = getViewerRef(displayedTab.id).current
+                  if (!viewer?.isReady()) {
+                    return Promise.reject(new Error('网页尚未就绪'))
+                  }
+                  return viewer.readNetworkBody(entryId)
+                }}
+                readNetworkBodyLines={(entryId, options) => {
+                  const viewer = getViewerRef(displayedTab.id).current
+                  if (!viewer?.isReady()) {
+                    return Promise.reject(new Error('网页尚未就绪'))
+                  }
+                  return viewer.readNetworkBodyLines(entryId, options)
+                }}
+                probeNetworkHot={(method, url) => {
+                  const viewer = getViewerRef(displayedTab.id).current
+                  if (!viewer?.isReady()) {
+                    return Promise.reject(new Error('网页尚未就绪'))
+                  }
+                  return viewer.probeNetworkHot(method, url)
+                }}
+                pageLoading={displayedTab.loading}
+                pageError={formatPageFault(displayedTab.pageFault)}
+                pageFault={displayedTab.pageFault}
+                onSelectNetwork={(entry) =>
+                  updateWebViewTab(unit.unitId, displayedTab.id, (t) => ({
+                    ...t,
+                    selectedNetworkId: entry.id,
+                  }))
+                }
+                onCloseNetworkDetail={() =>
+                  updateWebViewTab(unit.unitId, displayedTab.id, (t) => ({
+                    ...t,
+                    selectedNetworkId: '',
+                  }))
+                }
+                pageUrl={displayedTab.url}
+                viewerReady={displayedTab.ready}
+                onClearBrowsingData={async () => {
+                  const viewer = getViewerRef(displayedTab.id).current
+                  if (!viewer?.isReady()) return
+                  await viewer.clearState({})
+                }}
+                applicationApi={makeWebViewApplicationApi(
+                  () => getViewerRef(displayedTab.id).current,
+                )}
+              />
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

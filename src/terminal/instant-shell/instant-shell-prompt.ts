@@ -62,10 +62,12 @@ API（均返回 Promise，须 await）：
 - webview.wait({ unitId, tabId?, timeoutMs? }) — 等到 ready 且非 loading；fault/超时 reject。tabId 可省略或传 'default'（当前 UI 展示 tab）
 - webview.show({ unitId }) / destroy({ unitId })
 - webview.listUnits() → 本会话单元摘要；listTabs({ unitId }) → 各 tab 的 url/title/loading/fault
-- webview.navigate({ unitId, tabId?, url }) / eval({ unitId, tabId?, code }) / screenshot({ unitId, tabId? })
+- webview.openTab({ unitId, url }) → { unitId, tabId }；closeTab({ unitId, tabId? }) — 关最后一 tab 会销毁整个单元（先 tabClosed 再 unitDestroyed）
+- webview.navigate({ unitId, tabId?, url }) / eval({ unitId, tabId?, code }) / screenshot({ unitId, tabId?, format?, quality?, fullPage?, scale?, timeout?, options? })
   - tabId 可传 'default'；操作类 API 均支持
+  - screenshot 选项可写在顶层，或放在 options 对象里（后者优先）
   - eval：fault 后可读错误页 DOM；navigate/screenshot/wait 对 fault tab 会 reject
-- webview.openDevTools({ unitId, tabId?, mode? }) — mode 默认 undocked；可传 'embedded'
+- webview.openDevTools({ unitId, tabId?, mode? }) — mode 默认 undocked；可传 'embedded'（内嵌到 WebView 窗口）
 - const stop = webview.on(event, fn) — 返回取消函数；webview.off(event) 清空该事件全部监听
   - 事件：unitCreated / unitDestroyed / unitShown / tabOpened / tabClosed / tabFault / navigated
 
@@ -85,7 +87,7 @@ await webview.destroy({ unitId }) // 用完销毁；终端结束也会级联销�
 
 注意：
 - 务必 await webview.wait 后再 eval；不要盲 sleep
-- fault 的 tab 已死（不可再 navigate）；eval 可读错误提示页；需新 tab/新单元继续浏览
+- fault 的 tab 已死（不可再 navigate，UI 也无重试）；eval 可读错误提示页；用 openTab 或再 create 继续浏览
 - 不要用 webview 代替 fs 读写本地文件；本地路径用 fs / instant.openPath`
 
 /** 拼进任意 Agent system prompt 的标准入口。 */

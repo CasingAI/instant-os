@@ -5,6 +5,8 @@ type ChromoPageFaultViewProps = {
   variant?: 'viewport' | 'panel'
   /** load: retry navigation; fatal: reload current Chromo tab (viewer + SW update) */
   onRetry?: () => void
+  /** When false, hide the “type a new URL in the omnibox” hint (e.g. read-only WebView). Default true. */
+  showOmniboxHint?: boolean
 }
 
 function buildMetaLines(fault: ChromoPageFault): string[] {
@@ -28,8 +30,9 @@ export function ChromoPageFaultView({
   fault,
   variant = 'viewport',
   onRetry,
+  showOmniboxHint,
 }: ChromoPageFaultViewProps) {
-  return PageFaultView({ fault, variant, onRetry })
+  return PageFaultView({ fault, variant, onRetry, showOmniboxHint })
 }
 
 /** Alias for ChromoPageFaultView — preferred name in page-host consumers. */
@@ -37,6 +40,7 @@ export function PageFaultView({
   fault,
   variant = 'viewport',
   onRetry,
+  showOmniboxHint = true,
 }: ChromoPageFaultViewProps) {
   const isFatal = fault.severity === 'fatal'
   const title = isFatal ? '此页面已停止运行' : '无法加载此页'
@@ -79,7 +83,7 @@ export function PageFaultView({
         {isFatal && onRetry ? (
           <p class="chromo__page-fault-hint">将刷新当前标签页（含代理 Service Worker 更新），不会重启整个系统。</p>
         ) : null}
-        {!isFatal ? (
+        {!isFatal && showOmniboxHint ? (
           <p class="chromo__page-fault-hint">也可在地址栏输入新地址后回车继续浏览。</p>
         ) : null}
       </div>

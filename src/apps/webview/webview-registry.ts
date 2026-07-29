@@ -232,6 +232,7 @@ export function closeWebViewTab(unitId: string, tabId: string): void {
     throw new Error(`浏览单元不存在: ${unitId}`)
   }
   if (unit.tabs.length <= 1) {
+    emit({ type: 'tabClosed', unitId, tabId })
     destroyWebViewUnit(unitId)
     return
   }
