@@ -1,6 +1,6 @@
 import {
-  AI_MODEL_CAPABILITIES,
   AI_MODEL_CAPABILITY_LABELS,
+  AI_MODEL_OWNED_CAPABILITIES,
   type AiModelCapability,
 } from '../ai/ai-providers.ts'
 import './ai-model-capability-tags.css'
@@ -19,7 +19,7 @@ export function AiModelCapabilityTags({
 }: AiModelCapabilityTagsProps) {
   return (
     <div class="ai-model-cap-tags" role="list">
-      {AI_MODEL_CAPABILITIES.map((cap) => {
+      {AI_MODEL_OWNED_CAPABILITIES.map((cap) => {
         const active = capabilities.includes(cap)
         const label = AI_MODEL_CAPABILITY_LABELS[cap]
         const className = `ai-model-cap-tag${active ? ' ai-model-cap-tag--on' : ''}`

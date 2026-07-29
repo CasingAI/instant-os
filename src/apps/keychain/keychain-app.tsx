@@ -27,6 +27,7 @@ import {
 import {
   AI_MODEL_CAPABILITIES,
   AI_MODEL_CAPABILITY_LABELS,
+  AI_MODEL_OWNED_CAPABILITIES,
   AI_PROVIDER_PRESETS,
   AI_TOKENIZER_FAMILIES,
   AI_TOKENIZER_FAMILY_LABELS,
@@ -1820,7 +1821,7 @@ function AddModelView({
                 <div class="keychain__form-group">
                   <h3 class="keychain__form-group-title">能力</h3>
                   <div class="settings__list">
-                    {AI_MODEL_CAPABILITIES.map((capability) => {
+                    {AI_MODEL_OWNED_CAPABILITIES.map((capability) => {
                       const active = capabilities.includes(capability)
                       const label = AI_MODEL_CAPABILITY_LABELS[capability]
                       const canToggle = capability === 'vision'
@@ -1840,7 +1841,7 @@ function AddModelView({
                     })}
                   </div>
                   <p class="settings__section-footnote">
-                    自定义模型始终支持文本；可开启图像识别。语音识别与合成暂不支持手动标注。
+                    自定义模型始终支持基座；可开启图像识别。语音识别与合成暂不支持手动标注。
                   </p>
                 </div>
 
@@ -2176,7 +2177,7 @@ function ModelSettingsView({
               <div class="keychain__form-group">
                 <h3 class="keychain__form-group-title">能力</h3>
                 <div class="settings__list">
-                  {AI_MODEL_CAPABILITIES.map((capability) => {
+                  {AI_MODEL_OWNED_CAPABILITIES.map((capability) => {
                     const active = displayedCapabilities.includes(capability)
                     const label = AI_MODEL_CAPABILITY_LABELS[capability]
                     const canToggle =
@@ -2201,7 +2202,7 @@ function ModelSettingsView({
                 </div>
                 {capabilitiesEditable && (
                   <p class="settings__section-footnote">
-                    自定义模型始终支持文本；可开启图像识别。语音识别与合成暂不支持手动标注。
+                    自定义模型始终支持基座；可开启图像识别。语音识别与合成暂不支持手动标注。
                   </p>
                 )}
               </div>

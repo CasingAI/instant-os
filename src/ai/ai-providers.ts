@@ -44,9 +44,13 @@ export function isAiTokenizerFamily(value: string): value is AiTokenizerFamily {
 
 export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'mimo-token-plan' | 'custom'
 
-/** 内置模型能力：文本 / 视觉 / 语音识别 / 语音合成 */
+/**
+ * 模型供应商页的分类（按序展示为页签）：基座 / 副基座 / 图像识别 / 语音识别 / 语音合成。
+ * 「副基座」是基座的副本分类：复用基座模型清单，首选与排序独立记录。
+ */
 export const AI_MODEL_CAPABILITIES = [
   'text',
+  'text-secondary',
   'vision',
   'speech-recognition',
   'speech-synthesis',
@@ -54,11 +58,23 @@ export const AI_MODEL_CAPABILITIES = [
 export type AiModelCapability = (typeof AI_MODEL_CAPABILITIES)[number]
 
 export const AI_MODEL_CAPABILITY_LABELS: Record<AiModelCapability, string> = {
-  text: '文本',
+  text: '基座',
+  'text-secondary': '副基座',
   vision: '图像识别',
   'speech-recognition': '语音识别',
   'speech-synthesis': '语音合成',
 }
+
+/**
+ * 模型自身可标注的能力（能力标签、编辑表单使用）。
+ * 「副基座」只是列表分类，不会作为模型的能力标注出现。
+ */
+export const AI_MODEL_OWNED_CAPABILITIES = [
+  'text',
+  'vision',
+  'speech-recognition',
+  'speech-synthesis',
+] as const
 
 const CAP_TEXT = ['text'] as const satisfies readonly AiModelCapability[]
 const CAP_TEXT_VISION = ['text', 'vision'] as const satisfies readonly AiModelCapability[]
@@ -165,7 +181,7 @@ export type PreferredModelRef = {
   modelId: string
 }
 
-/** 按能力分别记录首选模型；缺省项表示该能力暂无可用首选 */
+/** 按分类分别记录首选模型；缺省项表示该分类暂无可用首选 */
 export type PreferredByCapability = {
   [K in AiModelCapability]?: PreferredModelRef
 }
@@ -178,7 +194,7 @@ export type AccountSettingsV2 = {
    * 与 preferredByCapability.text 保持同步。
    */
   preferredIndex: number
-  /** 文本 / 图像识别 / 语音识别 / 语音合成各自的首选模型 */
+  /** 基座 / 副基座 / 图像识别 / 语音识别 / 语音合成各自的首选模型 */
   preferredByCapability: PreferredByCapability
   /**
    * 预设模型清单同步版本。低于 CURRENT 时，加载会把缺失的内置模型一次性补进 enabledModels。
@@ -660,6 +676,14 @@ export function modelCapabilitiesEqual(
   return left.every((cap, index) => cap === right[index])
 }
 
+/**
+ * 查询分类时归一到模型能力：「副基座」分类复用基座（text）模型清单。
+ * 模型自身的能力标注不受影响（见 AI_MODEL_OWNED_CAPABILITIES）。
+ */
+function normalizeQueryCapability(capability: AiModelCapability): AiModelCapability {
+  return capability === 'text-secondary' ? 'text' : capability
+}
+
 export function modelHasCapability(
   providerId: AiProviderId,
   modelId: string,
@@ -667,7 +691,7 @@ export function modelHasCapability(
   storedCapabilities?: readonly AiModelCapability[],
 ): boolean {
   return resolveModelCapabilities(providerId, modelId, storedCapabilities).includes(
-    capability,
+    normalizeQueryCapability(capability),
   )
 }
 
@@ -731,8 +755,9 @@ export function listEnabledModelsForCapability(
   providers: readonly AiProviderEntry[],
   capability: AiModelCapability,
 ): FlatEnabledModel[] {
+  const required = normalizeQueryCapability(capability)
   return listEnabledModels(providers).filter((item) =>
-    item.capabilities.includes(capability),
+    item.capabilities.includes(required),
   )
 }
 

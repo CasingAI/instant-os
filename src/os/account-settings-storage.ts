@@ -1,6 +1,7 @@
 import {
   DEFAULT_AI_PROVIDER_ID,
   CURRENT_PRESET_SYNC_REVISION,
+  AI_MODEL_CAPABILITIES,
   appendMissingPresetModels,
   defaultProviderEntry,
   isCustomProvider,
@@ -208,14 +209,12 @@ function normalizePreferredByCapability(raw: unknown): PreferredByCapability {
   if (!raw || typeof raw !== 'object') return {}
   const record = raw as Record<string, unknown>
   const result: PreferredByCapability = {}
-  const text = normalizePreferredModelRef(record.text)
-  const vision = normalizePreferredModelRef(record.vision)
-  const speechRecognition = normalizePreferredModelRef(record['speech-recognition'])
-  const speechSynthesis = normalizePreferredModelRef(record['speech-synthesis'])
-  if (text) result.text = text
-  if (vision) result.vision = vision
-  if (speechRecognition) result['speech-recognition'] = speechRecognition
-  if (speechSynthesis) result['speech-synthesis'] = speechSynthesis
+  for (const capability of AI_MODEL_CAPABILITIES) {
+    const ref = normalizePreferredModelRef(record[capability])
+    if (ref) {
+      result[capability] = ref
+    }
+  }
   return result
 }
 
