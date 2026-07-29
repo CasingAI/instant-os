@@ -1858,7 +1858,14 @@
 }
 
 .chromo-network__preview-pane--image {
+  min-height: 240px;
+  height: 100%;
   overflow: auto;
+}
+
+.chromo-network__preview-pane--image .image-document-preview {
+  flex: 1;
+  min-height: 0;
 }
 
 .chromo-network__preview-retry {

@@ -534,9 +534,15 @@ export function ChromoNetworkPanel({
   const readNetworkBodyLinesRef = useRef(readNetworkBodyLines)
   readNetworkBodyLinesRef.current = readNetworkBodyLines
 
+  const selectedEntryType = selectedEntry?.type || ''
+  const selectedEntryUrl = selectedEntry?.url || ''
+  const selectedEntryRef = useRef(selectedEntry)
+  selectedEntryRef.current = selectedEntry
+
   useEffect(() => {
     const readBody = readNetworkBodyRef.current
     const readLines = readNetworkBodyLinesRef.current
+    const entryForGate = selectedEntryRef.current
     if (!selectedId || (!readBody && !readLines)) {
       setBodyPreview('')
       setBodyResult(null)
@@ -559,7 +565,7 @@ export function ChromoNetworkPanel({
       setLinesLoadingMore(false)
       return
     }
-    if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry)) {
+    if (entryForGate && isNonPreviewableBinaryBody(entryForGate)) {
       setBodyPreview('')
       setBodyResult(null)
       setBodyError('')
@@ -580,11 +586,13 @@ export function ChromoNetworkPanel({
       setLinesTotal(0)
       setLinesLoadedTo(0)
       const contentType = result.headers['content-type'] || result.headers['Content-Type'] || ''
-      if (selectedEntry && isNonPreviewableBinaryBody(selectedEntry, contentType)) {
+      const entry = selectedEntryRef.current
+      // Image first — octet-stream + type=image must not fall through as binary placeholder.
+      if (entry && isPreviewableImageBody(entry, contentType)) {
         setBodyPreview('')
         return
       }
-      if (selectedEntry && isPreviewableImageBody(selectedEntry, contentType)) {
+      if (entry && isNonPreviewableBinaryBody(entry, contentType)) {
         setBodyPreview('')
         return
       }
@@ -669,7 +677,7 @@ export function ChromoNetworkPanel({
         })
     }
 
-    if (selectedEntry && isPreviewableImageBody(selectedEntry)) {
+    if (entryForGate && isPreviewableImageBody(entryForGate)) {
       fetchBinary()
     } else {
       fetchLinesFirstPage()
@@ -680,7 +688,7 @@ export function ChromoNetworkPanel({
       setBodyLoading(false)
       setLinesLoadingMore(false)
     }
-  }, [selectedId, selectedHasBody, selectedPending, selectedEntry])
+  }, [selectedId, selectedHasBody, selectedPending, selectedEntryType, selectedEntryUrl])
 
   const handleLoadMoreLines = useCallback(() => {
     const readLines = readNetworkBodyLinesRef.current

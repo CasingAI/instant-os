@@ -10,7 +10,8 @@ import type {
 import { diagnoseHotCache } from './chromo-network-cache-help.ts'
 import {
   classifyNetworkPreviewKind,
-  isNonPreviewableBinaryBody,
+  isLikelyValidImageBytes,
+  networkBodyToBytes,
   networkBodyToImageBlob,
   networkEntryName,
   previewFileNameFromEntry,
@@ -603,19 +604,39 @@ function PreviewTab({
     : ''
   const kind = classifyNetworkPreviewKind(entry, headerMime || undefined)
   const [imageSrc, setImageSrc] = useState('')
+  const [imageError, setImageError] = useState('')
 
   useEffect(() => {
     if (kind !== 'image' || !bodyResult) {
       setImageSrc('')
+      setImageError('')
+      return
+    }
+    if (bodyResult.truncated) {
+      setImageSrc('')
+      setImageError('图片超过预览大小限制（约 64KB），无法完整显示')
       return
     }
     let objectUrl = ''
     try {
+      const bytes = networkBodyToBytes(bodyResult, headerMime || undefined)
+      if (!isLikelyValidImageBytes(bytes)) {
+        const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b
+        setImageSrc('')
+        setImageError(
+          isGzip
+            ? '响应正文仍为压缩格式（gzip），无法预览图片'
+            : '响应正文不是有效图片数据',
+        )
+        return
+      }
       const blob = networkBodyToImageBlob(bodyResult, headerMime || undefined)
       objectUrl = URL.createObjectURL(blob)
       setImageSrc(objectUrl)
+      setImageError('')
     } catch {
       setImageSrc('')
+      setImageError('无法解码图片预览')
     }
     return () => {
       if (objectUrl) {
@@ -624,7 +645,7 @@ function PreviewTab({
     }
   }, [kind, bodyResult, headerMime])
 
-  if (kind === 'binary' || isNonPreviewableBinaryBody(entry, headerMime)) {
+  if (kind === 'binary') {
     return (
       <div class="chromo-network__drawer-empty">
         {binaryBodyPlaceholder(entry, headerMime || undefined)}
@@ -678,8 +699,8 @@ function PreviewTab({
     ) : null
 
   if (kind === 'image') {
-    if (!imageSrc) {
-      return <div class="chromo-network__drawer-empty">无法解码图片预览</div>
+    if (imageError || !imageSrc) {
+      return <div class="chromo-network__drawer-empty">{imageError || '无法解码图片预览'}</div>
     }
     return (
       <div class="chromo-network__preview-pane chromo-network__preview-pane--image">
