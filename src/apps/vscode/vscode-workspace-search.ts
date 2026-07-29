@@ -28,6 +28,7 @@ type SearchResponse = Exclude<VscodeWorkspaceSearchWorkerResponse, { type: 'heap
 
 const service = defineService<VscodeWorkspaceSearchWorkerRequest, SearchResponse>({
   id: 'vscode-workspace-search',
+  description: '工作区全文搜索：在独立 Worker 中扫描未打开文件，避免阻塞编辑器主线程。',
   createWorker: () => new VscodeWorkspaceSearchWorker(),
 })
 

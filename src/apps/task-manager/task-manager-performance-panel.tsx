@@ -153,8 +153,9 @@ export function TaskManagerPerformancePanel({
   const latestHeap = memory.display
   const hostHeap = memory.host
   const appsHeap = memory.apps
-  const workerReports = memory.workerReports
+  const workerReports = memory.workerReports.filter((r) => r.status !== 'stopped')
   const isolationActive = memory.isolationActive
+  const runningWorkerCount = workerReports.filter((r) => r.status === 'running').length
   const abnormalWorkerCount = workerReports.filter((r) => r.status !== 'running').length
 
   const selectedDiskContainer = useMemo((): FilesIoContainerMetrics | undefined => {
@@ -705,12 +706,12 @@ export function TaskManagerPerformancePanel({
                   />
                   <StatCard
                     label="系统服务"
-                    value={workerReports.length > 0 ? `${workerReports.length}` : '—'}
+                    value={runningWorkerCount > 0 ? `${runningWorkerCount}` : '—'}
                     hint={
                       workerReports.length > 0
                         ? abnormalWorkerCount > 0
-                          ? `${workerReports.length} 个 Worker · ${abnormalWorkerCount} 个异常`
-                          : `${workerReports.length} 个 Worker 运行中`
+                          ? `${runningWorkerCount} 个运行中 · ${abnormalWorkerCount} 个异常`
+                          : `${runningWorkerCount} 个 Worker 运行中`
                         : '暂无已启动 Worker'
                     }
                   />

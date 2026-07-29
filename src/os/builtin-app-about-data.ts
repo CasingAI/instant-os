@@ -187,6 +187,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '「性能」页打开监视器后即按采样间隔写入输出速度点（默认每秒，不依赖是否停留在性能页），填满窗口后丢掉最旧点；可在菜单栏「视图」中切换 1 / 3 / 5 秒间隔。内存合计含宿主、去重后的微应用堆与系统服务 Worker。',
     ],
   },
+  services: {
+    version: '系统服务管理',
+    paragraphs: [
+      '「服务」列出系统后台 Web Worker（如 Tokenizer、工作区搜索、TypeScript 解析），可开始、停止、重启，并设置启动类型：自动、自动（延迟）、手动、禁用。',
+      '默认全部为手动（按需拉起）。手动停止后新请求仍会透明拉起；禁用后功能不可用，直到改回其它启动类型。',
+    ],
+  },
   'event-log': {
     version: 'AI 调用日志',
     paragraphs: [

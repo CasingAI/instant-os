@@ -14,6 +14,7 @@ const loadInflight = new Map<TokenizerFamily, Promise<boolean>>()
 
 const service = defineService<ModelTokenizerWorkerRequest, TokenizerResponse>({
   id: 'tokenizer',
+  description: '本地模型分词器：在独立 Worker 中加载词表并精确统计 token 数，避免主线程 OOM。',
   createWorker: () => new ModelTokenizerWorker(),
   onRestarted: () => {
     // 新 Worker 词表缓存为空，清除 ready 标记以便下次请求重新加载

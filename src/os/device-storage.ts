@@ -52,6 +52,7 @@ export const DEVICE_STORAGE_KEYS = {
   terminalCommandHistory: 'instant-os-terminal-command-history',
   systemDebugLogSettings: 'instant-os-system-debug-log-settings',
   backgroundRefreshSettings: 'instant-os-background-refresh-settings',
+  serviceStartupSettings: 'instant-os-service-startup-settings',
   modelPricingCache: 'instant-os-model-pricing-cache',
   openRouterPricingCache: 'instant-os-openrouter-pricing-cache',
 } as const

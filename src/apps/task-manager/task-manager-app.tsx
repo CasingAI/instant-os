@@ -147,7 +147,7 @@ export function TaskManagerApp() {
   const [sampleIntervalSec, setSampleIntervalSec] = useState<SpeedSampleIntervalSec>(1)
   const [liveByActor, setLiveByActor] = useState<Map<string, LiveAppActivity>>(() => new Map())
   const [workerServices, setWorkerServices] = useState<WorkerHeapReport[]>(() =>
-    listWorkerHeapReports(),
+    listWorkerHeapReports().filter((service) => service.status !== 'stopped'),
   )
   const speedSeries = useTaskManagerSpeedSeries(sampleIntervalSec)
   const systemMetrics = useTaskManagerSystemMetrics(sampleIntervalSec)
@@ -159,7 +159,7 @@ export function TaskManagerApp() {
   }, [])
 
   const refreshWorkerServices = useCallback(() => {
-    setWorkerServices(listWorkerHeapReports())
+    setWorkerServices(listWorkerHeapReports().filter((service) => service.status !== 'stopped'))
   }, [])
 
   useEffect(() => {

@@ -20,6 +20,7 @@ import {
 import { DESKTOP_REVEAL_RESTORE_MS } from '../window/desktop-reveal-timing.ts'
 import { closeOpenDesktopFolder } from '../desktop/desktop-open-folder-session.ts'
 import { startBackgroundRefreshService } from './background-refresh-service.ts'
+import { startSystemServices } from './system-services.ts'
 import { isMultiWindowApp } from './app-multi-window.ts'
 import { isWindowlessApp } from './app-windowless.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
@@ -117,6 +118,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   speech: { title: '语音实验室', width: 720, height: 640 },
   'system-info': { title: '系统信息', width: 680, height: 480 },
   'task-manager': { title: '性能监视器', width: 760, height: 560 },
+  services: { title: '服务', width: 820, height: 560 },
   'event-log': { title: '事件日志', width: 900, height: 620 },
   keychain: { title: '钥匙串', width: 680, height: 560 },
   'github-desktop': { title: 'GitHub Desktop', width: 980, height: 680 },
@@ -315,6 +317,8 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
 
   // 系统级背景刷新：随 OS 挂载启动，按用户设置的间隔定期更新模型定价等远端数据
   useEffect(() => startBackgroundRefreshService(), [])
+  // 系统服务：按启动类型（自动/延迟/手动/禁用）开机拉起
+  useEffect(() => startSystemServices(), [])
 
   const closeGuardsRef = useRef(new Map<AppId, AppCloseGuard>())
   const bypassCloseGuardRef = useRef(new Set<AppId>())

@@ -64,6 +64,7 @@ const MODULE_LABELS: Record<string, string> = {
   files: '文件',
   'system-info': '系统信息',
   'task-manager': '性能监视器',
+  services: '服务',
   'event-log': '事件日志',
   keychain: '钥匙串',
   'scene3d-lab': '3D 实验室',

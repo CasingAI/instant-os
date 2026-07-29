@@ -12,6 +12,7 @@ type ResolveResponse = Exclude<VscodeTypescriptResolveWorkerResponse, { type: 'h
 
 const service = defineService<VscodeTypescriptResolveWorkerRequest, ResolveResponse>({
   id: 'vscode-typescript-resolve',
+  description: 'TypeScript 裸包解析：在独立 Worker 中解析 import 路径与包文件，避免阻塞编辑器。',
   createWorker: () => new VscodeTypescriptResolveWorker(),
   onRestarted: () => {
     appendVscodeInternalLog('ts-resolve-worker', '服务 Worker 已启动', 'info')

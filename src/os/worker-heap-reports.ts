@@ -14,22 +14,42 @@ export const WORKER_HEAP_SERVICE_LABELS: Record<WorkerHeapServiceId, string> = {
   'vscode-typescript-resolve': 'TypeScript Resolve',
 }
 
+/** 服务启动类型（Windows 服务语义） */
+export type ServiceStartupType = 'auto' | 'auto-delayed' | 'manual' | 'disabled'
+
+export const SERVICE_STARTUP_TYPES = [
+  'auto',
+  'auto-delayed',
+  'manual',
+  'disabled',
+] as const satisfies readonly ServiceStartupType[]
+
+export const SERVICE_STARTUP_TYPE_LABELS: Record<ServiceStartupType, string> = {
+  auto: '自动',
+  'auto-delayed': '自动（延迟启动）',
+  manual: '手动',
+  disabled: '禁用',
+}
+
 /** 服务运行状态（由 service-supervisor 维护） */
-export type WorkerServiceStatus = 'running' | 'restarting' | 'failed'
+export type WorkerServiceStatus = 'running' | 'restarting' | 'failed' | 'stopped'
 
 export const WORKER_SERVICE_STATUS_LABELS: Record<WorkerServiceStatus, string> = {
   running: '运行中',
   restarting: '重启中',
   failed: '已失败',
+  stopped: '已停止',
 }
 
 export type WorkerHeapReport = {
   id: WorkerHeapServiceId
   label: string
+  description: string
   at: number
   status: WorkerServiceStatus
   /** 页面加载以来累计重启次数（含手动重启） */
   restartCount: number
+  defaultStartupType: ServiceStartupType
 }
 
 const reports = new Map<WorkerHeapServiceId, WorkerHeapReport>()
@@ -46,9 +66,11 @@ export function upsertWorkerHeapReport(
   reports.set(report.id, {
     id: report.id,
     label: report.label ?? existing?.label ?? WORKER_HEAP_SERVICE_LABELS[report.id],
+    description: report.description ?? existing?.description ?? '',
     at: report.at ?? Date.now(),
-    status: report.status ?? existing?.status ?? 'running',
+    status: report.status ?? existing?.status ?? 'stopped',
     restartCount: report.restartCount ?? existing?.restartCount ?? 0,
+    defaultStartupType: report.defaultStartupType ?? existing?.defaultStartupType ?? 'manual',
   })
   dispatchChanged()
 }

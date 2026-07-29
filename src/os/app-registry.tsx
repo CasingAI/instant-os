@@ -25,6 +25,7 @@ import { SpeechApp } from '../apps/speech/speech-app.tsx'
 import { ICodeApp } from '../apps/icode/icode-app.tsx'
 import { SystemInfoApp } from '../apps/system-info/system-info-app.tsx'
 import { TaskManagerApp } from '../apps/task-manager/task-manager-app.tsx'
+import { ServicesApp } from '../apps/services/services-app.tsx'
 import { EventLogApp } from '../apps/event-log/event-log-app.tsx'
 import { PackagesApp } from '../apps/packages/packages-app.tsx'
 import { ArchiveUtilityApp } from '../apps/archive-utility/archive-utility-app.tsx'
@@ -41,7 +42,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
 
@@ -240,6 +241,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: false,
   }),
   withAbout({
+    id: 'services',
+    name: '服务',
+    icon: ServicesIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
+  }),
+  withAbout({
     id: 'event-log',
     name: '事件日志',
     icon: EventLogIcon,
@@ -351,6 +360,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   settings: SettingsApp,
   'system-info': SystemInfoApp,
   'task-manager': TaskManagerApp,
+  services: ServicesApp,
   'event-log': EventLogApp,
   packages: PackagesApp,
   'archive-utility': ArchiveUtilityApp,

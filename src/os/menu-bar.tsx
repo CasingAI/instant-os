@@ -388,6 +388,11 @@ export function MenuBar() {
         },
         {
           type: 'action',
+          label: '服务',
+          onClick: () => openApp('services'),
+        },
+        {
+          type: 'action',
           label: '空间嗅探',
           onClick: () => openApp('space-sniffer'),
         },

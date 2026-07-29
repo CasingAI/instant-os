@@ -1207,6 +1207,28 @@ export function TaskManagerIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function ServicesIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#5a6a7a" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="12" y="14" width="40" height="36" rx="5" fill="#2f3a45" />
+        <rect x="18" y="22" width="20" height="3" rx="1.5" fill="#c5d0da" />
+        <rect x="18" y="30" width="16" height="3" rx="1.5" fill="#9aabba" />
+        <rect x="18" y="38" width="18" height="3" rx="1.5" fill="#9aabba" />
+        <circle cx="44" cy="40" r="9" fill="#34c759" />
+        <path
+          d="M40.5 40 L43 42.5 L47.5 37"
+          fill="none"
+          stroke="#fff"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function EventLogIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#4a5568" size={size}>
