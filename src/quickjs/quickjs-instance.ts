@@ -30,6 +30,7 @@ import type {
   QuickJsInstanceSnapshot,
 } from './quickjs-instance-types.ts'
 import { injectInstantShell } from '../terminal/instant-shell/inject-instant-shell.ts'
+import { injectWebView } from '../apps/webview/inject-webview.ts'
 import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { resolveEvalModuleFilename } from './quickjs-module-loader.ts'
 import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
@@ -406,6 +407,16 @@ export async function createQuickJsInstance(
     })
   }
 
+  let disposeWebView: (() => void) | undefined
+  if (options.webviewHost !== undefined) {
+    disposeWebView = injectWebView({
+      context,
+      asyncBridge,
+      host: options.webviewHost,
+      isDestroyed: () => state.destroyed,
+    })
+  }
+
   if (options.globals !== undefined) {
     injectSerializableGlobals(context, options.globals)
   }
@@ -471,6 +482,8 @@ export async function createQuickJsInstance(
     })
     abortRequested = true
     asyncBridge.clearAll()
+    disposeWebView?.()
+    disposeWebView = undefined
     nodeBuiltins.dispose?.()
     state.destroyed = true
     state.busy = false

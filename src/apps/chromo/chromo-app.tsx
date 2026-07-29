@@ -23,6 +23,11 @@ import {
 } from '../browser/normalize-browser-url.ts'
 import type { ChromoConsoleEntry, ChromoNetworkEntry, ChromoScreenshotOptions } from './chromo-bridge.ts'
 import { CHROMO_DEFAULT_NEW_TAB_URL } from './chromo-config.ts'
+import {
+  resolveNavIntent,
+  shouldCreateTab,
+  shouldNavigateSameTab,
+} from '../../page-host/page-nav.ts'
 import { ChromoAgentSidebar } from './chromo-agent-sidebar.tsx'
 import type { ChromoConsoleDisplayEntry } from './chromo-console-types.ts'
 import { mergeConsoleDisplayEntries } from './chromo-console-types.ts'
@@ -245,7 +250,7 @@ function siteInitialFromUrl(url: string): string | undefined {
 }
 
 export function ChromoApp({ windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, closeWindow, minimizeWindow, windows, setAppWindowUrl, openApp, focusWindow, restoreWindow } =
+  const { closeWindowsForApp, closeWindow, minimizeWindow, windows, setAppWindowUrl, openApp } =
     useOs()
   const { setChromePinSource } = useFullscreenChromeReveal()
   const { showBuiltinAbout } = useAboutApp()
@@ -382,7 +387,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         unregisterChromoDevToolsSession(sessionKey)
         const linked = windows.filter(
           (window) =>
-            window.appId === 'chromo-devtools' &&
+            window.appId === 'page-devtools' &&
             !window.closing &&
             window.documentId === sessionKey,
         )
@@ -913,6 +918,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     for (const tab of undockedTabs) {
       const key = makeChromoDevToolsSessionKey(parentWindowId, tab.id)
       const snapshot: ChromoDevToolsSnapshot = {
+        hostId: parentWindowId,
         parentWindowId,
         tabId: tab.id,
         pageTitle: tab.title,
@@ -1055,7 +1061,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       }
       for (const window of windowsRef.current) {
         if (
-          window.appId === 'chromo-devtools' &&
+          window.appId === 'page-devtools' &&
           !window.closing &&
           window.documentId?.startsWith(`${capturedParentId}:`)
         ) {
@@ -1073,7 +1079,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       const key = makeChromoDevToolsSessionKey(parentWindowId, tabId)
       return windows.find(
         (window) =>
-          window.appId === 'chromo-devtools' &&
+          window.appId === 'page-devtools' &&
           !window.closing &&
           window.documentId === key,
       )
@@ -1092,6 +1098,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       }
       const key = makeChromoDevToolsSessionKey(parentWindowId, tabId)
       const snapshot: ChromoDevToolsSnapshot = {
+        hostId: parentWindowId,
         parentWindowId,
         tabId: tab.id,
         pageTitle: tab.title,
@@ -1195,7 +1202,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         devtoolsUndocked: true,
         devtoolsOpen: false,
       }))
-      openApp('chromo-devtools', { documentId: key })
+      openApp('page-devtools', { documentId: key })
     },
     [
       appendTabConsoleEntries,
@@ -1285,8 +1292,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
   }, [pendingUrl, navigateTab])
 
   useEffect(() => {
-    setChromePinSource(chromoFullscreen ? chromoRootRef.current : null)
-    return () => setChromePinSource(null)
+    setChromePinSource('chromo', chromoFullscreen)
+    return () => setChromePinSource('chromo', false)
   }, [chromoFullscreen, setChromePinSource])
 
   const toolbarAutoHide = chromoFullscreen
@@ -1713,10 +1720,13 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   pageFault: fault,
                 }))
               }}
-              onLocation={({ url, method, httpMethod, formBody, formFiles, formEnctype }) => {
-                // window.open → 新标签；location.assign/replace 等 → 当前标签
-                if (method === 'open' && url) {
-                  addTab(url)
+              onLocation={({ url, method, httpMethod, formBody, formFiles, formEnctype, target }) => {
+                const intent = resolveNavIntent(
+                  { kind: 'LOCATION', method, url, target, httpMethod },
+                  { currentUrl: tab.url },
+                )
+                if (shouldCreateTab(intent) && intent.action === 'newTab') {
+                  addTab(intent.url)
                   return
                 }
                 if (method === 'submit' && httpMethod === 'post') {
@@ -1753,6 +1763,13 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   navigateTab(tab.id, url, { method: 'POST', body: formBody })
                   return
                 }
+                if (shouldNavigateSameTab(intent) && intent.action === 'sameTab') {
+                  navigateTab(tab.id, intent.url)
+                  return
+                }
+                if (intent.action === 'ignore') {
+                  return
+                }
                 navigateTab(tab.id, url)
               }}
               onHistory={({ url, title }) => {
@@ -1772,8 +1789,12 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 }
               }}
               onClick={({ href, target }) => {
-                if ((target === '_blank' || target === '_new') && href) {
-                  addTab(href)
+                const intent = resolveNavIntent(
+                  { kind: 'CLICK', href, target, url: href },
+                  { currentUrl: tab.url },
+                )
+                if (shouldCreateTab(intent) && intent.action === 'newTab') {
+                  addTab(intent.url)
                   return
                 }
                 if (!href || href === '#' || href.startsWith('javascript:')) {

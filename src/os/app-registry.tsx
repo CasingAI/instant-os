@@ -5,7 +5,8 @@ import { ModelVisionApp } from '../apps/model-vision/model-vision-app.tsx'
 import { MarketplaceApp } from '../apps/appstore/appstore-app.tsx'
 import { BrowserApp } from '../apps/browser/browser-app.tsx'
 import { ChromoApp } from '../apps/chromo/chromo-app.tsx'
-import { ChromoDevToolsApp } from '../apps/chromo/chromo-devtools-app.tsx'
+import { PageDevToolsApp } from '../apps/page-devtools/page-devtools-app.tsx'
+import { WebViewApp } from '../apps/webview/webview-app.tsx'
 import { MailApp } from '../apps/mail/mail-app.tsx'
 import { SettingsApp } from '../apps/settings/settings-app.tsx'
 import { NewsApp } from '../apps/news/news-app.tsx'
@@ -71,12 +72,21 @@ export const APP_REGISTRY: AppDefinition[] = [
     desktop: true,
   }),
   withAbout({
-    id: 'chromo-devtools',
+    id: 'page-devtools',
     name: '开发者工具',
     icon: ChromoIcon,
     dock: false,
     dockWhenRunning: true,
     desktop: false,
+    multiWindow: true,
+  }),
+  withAbout({
+    id: 'webview',
+    name: 'WebView',
+    icon: ChromoIcon,
+    dock: false,
+    desktop: false,
+    windowless: true,
     multiWindow: true,
   }),
   withAbout({
@@ -317,7 +327,8 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   appstore: MarketplaceApp,
   browser: BrowserApp,
   chromo: ChromoApp,
-  'chromo-devtools': ChromoDevToolsApp,
+  'page-devtools': PageDevToolsApp,
+  webview: WebViewApp,
   mail: MailApp,
   news: NewsApp,
   books: BooksApp,

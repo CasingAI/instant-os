@@ -118,11 +118,13 @@ export function TerminalReplPanel({
     restoreWindow,
     toggleFullscreen,
     toggleMaximize,
+    revealWindowlessPanel,
   } = useOs()
   const { installedApps } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
   const modal = useWindowModal()
 
+  const terminalSessionIdRef = useRef(crypto.randomUUID())
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   /** 合并并发 createInstance（mount boot 与 Agent runCode/ensureInstance 竞态）。 */
   const createInFlightRef = useRef<Promise<void> | undefined>(undefined)
@@ -154,6 +156,8 @@ export function TerminalReplPanel({
   toggleFullscreenRef.current = toggleFullscreen
   const toggleMaximizeRef = useRef(toggleMaximize)
   toggleMaximizeRef.current = toggleMaximize
+  const revealWindowlessPanelRef = useRef(revealWindowlessPanel)
+  revealWindowlessPanelRef.current = revealWindowlessPanel
   const modalRef = useRef(modal)
   modalRef.current = modal
   /** 当前 busy 切片开始时间；用于关窗确认（短交互命令不弹，长任务中途 close 才确认）。 */
@@ -336,6 +340,25 @@ export function TerminalReplPanel({
           cwd: root,
           fsMode: fsModeRef.current,
           instantShellHost,
+          webviewHost: {
+            terminalSessionId: terminalSessionIdRef.current,
+            openApp: (appId, options) => {
+              openAppRef.current(appId, options)
+            },
+            getWindows: () => windowsRef.current,
+            revealWindowlessPanel: (windowId, opts) => {
+              revealWindowlessPanelRef.current(windowId, opts)
+            },
+            focusWindow: (windowId) => {
+              focusWindowRef.current(windowId)
+            },
+            closeWindow: (windowId) => {
+              closeWindowRef.current(windowId)
+            },
+            openDevToolsApp: (documentId) => {
+              openAppRef.current('page-devtools', { documentId })
+            },
+          },
         })
         bindInstance(instance)
       } catch (error) {

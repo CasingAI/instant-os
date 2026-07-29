@@ -1,6 +1,7 @@
 import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../terminal/terminal-fs-mode.ts'
 import type { InstantShellHost } from '../terminal/instant-shell/instant-shell-types.ts'
+import type { WebViewHostBindings } from '../apps/webview/inject-webview.ts'
 
 /** QuickJS 实例控制台级别。 */
 export type QuickJsConsoleLevel = 'log' | 'info' | 'warn' | 'error'
@@ -99,6 +100,11 @@ export type QuickJsInstanceOptions = {
    * 未传则不注入（sandbox / Virtual JS 等默认无此能力）。
    */
   instantShellHost?: InstantShellHost
+  /**
+   * 终端专用 `globalThis.webview` 宿主绑定。
+   * 未传则不注入；销毁 / `.reset` 时应由注入侧级联销毁所属浏览单元。
+   */
+  webviewHost?: WebViewHostBindings
 }
 
 export type QuickJsEvalOptions = {

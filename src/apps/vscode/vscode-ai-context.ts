@@ -131,7 +131,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
           ].join(' ')
         : mode === 'edit'
           ? '当前模式：Edit。可用读取类工具了解工作区，通过 propose_file_edit 提交修改提案（用户确认后才写入）。不得执行终端/npm。'
-          : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时，在终端脚本里使用 globalThis.instant（见下方壳层 API）。'
+          : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时用 globalThis.instant；需要打开/读取/操作真实网页时用 globalThis.webview（见下方壳层 API）。'
 
   const instantShellSection =
     mode === 'ask' || mode === 'plan' || mode === 'agent'
@@ -163,6 +163,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
             '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
             '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
+            '- 需要抓取或操作真实网页时，在 run_in_terminal 里用 await webview.create / eval / show（默认离屏；用完可 destroy）；不要臆造网页内容',
             '- /system 与 /models 等只读卷不可写入',
             '- 回答用简洁中文 Markdown；引用路径时用反引号',
             '- 修改前先在终端里读确认现状',

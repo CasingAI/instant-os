@@ -29,6 +29,14 @@ import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.t
 import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
 import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
+import {
+  destroyWebViewUnit,
+  listWebViewUnits,
+  onWebViewRegistryChanged,
+  summarizeWebViewUnit,
+  type WebViewUnitSummary,
+} from '../webview/webview-registry.ts'
+import { ChromoIcon } from '../../icons/app-icons.tsx'
 import './task-manager.css'
 
 const APP_ID = 'task-manager' as const
@@ -118,6 +126,7 @@ export function TaskManagerApp() {
     windows,
     activeWindowId,
     closeWindowsForApp,
+    closeWindow,
     minimizeWindow,
   } = useOs()
   const { showBuiltinAbout } = useAboutApp()
@@ -220,11 +229,25 @@ export function TaskManagerApp() {
 
   useAppMenuBar(APP_ID, menuBar)
 
+  const [webviewUnits, setWebviewUnits] = useState<WebViewUnitSummary[]>(() =>
+    listWebViewUnits().map(summarizeWebViewUnit),
+  )
+
+  useEffect(() => {
+    return onWebViewRegistryChanged(() => {
+      setWebviewUnits(listWebViewUnits().map(summarizeWebViewUnit))
+    })
+  }, [])
+
   const runningApps = useMemo((): RunningAppEntry[] => {
     const groups = new Map<AppId, WindowState[]>()
 
     for (const window of windows) {
       if (window.closing) {
+        continue
+      }
+      // WebView units are listed per-unit below; skip aggregated webview app row.
+      if (window.appId === 'webview') {
         continue
       }
       const list = groups.get(window.appId) ?? []
@@ -272,6 +295,8 @@ export function TaskManagerApp() {
 
   const endableApps = runningApps.filter((entry) => entry.canEnd)
   const openWindowCount = windows.filter((window) => !window.closing).length
+  const programCount = runningApps.length + webviewUnits.length
+  const emptyPrograms = programCount === 0
 
   return (
     <div class="task-manager">
@@ -294,12 +319,12 @@ export function TaskManagerApp() {
         >
           <h2 class="task-manager__section-title">正在运行的应用</h2>
           <p class="task-manager__section-subtitle">
-            {runningApps.length === 0
+            {emptyPrograms
               ? '当前没有打开的应用'
-              : `共 ${runningApps.length} 个应用、${openWindowCount} 个窗口`}
+              : `共 ${programCount} 个应用、${openWindowCount} 个窗口`}
           </p>
 
-          {runningApps.length === 0 ? (
+          {emptyPrograms ? (
             <p class="task-manager__empty">打开任意应用后，会显示在这里。</p>
           ) : (
             <div class="task-manager__table-wrap">
@@ -388,14 +413,46 @@ export function TaskManagerApp() {
                       </tr>
                     )
                   })}
+                  {webviewUnits.map((unit) => (
+                    <tr key={unit.unitId} class="task-manager__tr">
+                      <td class="task-manager__td task-manager__td--name">
+                        <span class="task-manager__name-cell">
+                          <span class="task-manager__app-icon">
+                            <ChromoIcon size={28} />
+                          </span>
+                          <span class="task-manager__name-text">{unit.title}</span>
+                        </span>
+                      </td>
+                      <td class="task-manager__td task-manager__td--status">{unit.status}</td>
+                      <td class="task-manager__td task-manager__td--ai">—</td>
+                      <td class="task-manager__td task-manager__td--windows">
+                        {unit.visible ? 1 : 0}
+                      </td>
+                      <td class="task-manager__td task-manager__td--action">
+                        <button
+                          type="button"
+                          class="task-manager__end-button"
+                          onClick={() => {
+                            if (unit.windowId) {
+                              closeWindow(unit.windowId)
+                            }
+                            destroyWebViewUnit(unit.unitId)
+                          }}
+                        >
+                          结束
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
 
-          {endableApps.length > 0 && (
+          {(endableApps.length > 0 || webviewUnits.length > 0) && (
             <p class="task-manager__footnote">
-              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。
+              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。WebView
+              按浏览单元单独列出。
             </p>
           )}
         </section>

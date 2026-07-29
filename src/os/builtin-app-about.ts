@@ -62,11 +62,18 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '与 AI 网络浏览器不同，Chromo 渲染真实网页内容，支持页内链接跳转、前进后退与刷新。网页渲染由 virtual-chromo 组件负责，Instant OS 提供 Chrome 风格外壳与多标签管理。',
     ],
   },
-  'chromo-devtools': {
-    version: 'Chromo 开发者工具',
+  'page-devtools': {
+    version: '页面开发者工具',
     paragraphs: [
-      'Chromo 开发者工具是 Chromo 浏览器的独立调试窗口，支持控制台与网络面板。',
-      '可从 Chromo 内嵌开发者工具的设置菜单中「在独立窗口中打开」；每个标签页对应一扇独立窗口，行为对齐 Chrome 开发者工具。',
+      '开发者工具是 Page Host 的独立调试窗口，支持控制台、网络与应用程序面板。',
+      '可由 Chromo / WebView 内嵌开发者工具「在独立窗口中打开」，或由终端 webview.openDevTools 打开；每个标签页对应一扇独立窗口。',
+    ],
+  },
+  webview: {
+    version: '终端驱动的离屏网页',
+    paragraphs: [
+      'WebView 是基于 Page Host 的浏览单元，默认离屏运行，供终端脚本通过 globalThis.webview 操作与读取网页。',
+      '可按需显示只读地址栏窗口；页内新开窗口会出现标签栏。与 Chromo 共用同一套 virtual-chromo 代理与站点数据。',
     ],
   },
   mail: {
@@ -268,7 +275,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: '系统原生终端',
     paragraphs: [
       '终端是系统的原生 JavaScript 运行环境：基于 QuickJS + Node 兼容层（process、fs、require 等），可在终端式 REPL 中直接执行 JS 代码操作整个虚拟系统。',
-      '工作区默认为 /user，同一窗口内多次回车共享一个全局环境；清屏仅清空输出，.reset 或菜单「重建实例」可重置运行时。',
+      '工作区默认为 /user，同一窗口内多次回车共享一个全局环境；清屏仅清空输出，.reset 或菜单「重建实例」可重置运行时（并销毁该终端创建的全部 WebView 浏览单元）。',
+      '可用 globalThis.instant 打开应用与管理窗口，以及 globalThis.webview 创建离屏/可显示的网页浏览单元。',
     ],
   },
   /** @deprecated 模拟终端已弃用，此 about 条目保留仅为过渡，后续移除 */
