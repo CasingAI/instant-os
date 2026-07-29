@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { GeneratedAppIcon } from '../generated/generated-app-icon.tsx'
 import { ExtAppIcon } from '../ext/ext-app-icon.tsx'
+import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import {
   AI_EVENT_LOG_CHANGED_EVENT,
   formatTokensPerSecond,
@@ -21,8 +22,10 @@ import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
 import {
   listWorkerHeapReports,
   WORKER_HEAP_REPORTS_CHANGED_EVENT,
+  WORKER_SERVICE_STATUS_LABELS,
   type WorkerHeapReport,
 } from '../../os/worker-heap-reports.ts'
+import { restartWorkerService } from '../../os/service-supervisor.ts'
 import { TaskManagerPerformancePanel } from './task-manager-performance-panel.tsx'
 import {
   formatSampleIntervalLabel,
@@ -33,7 +36,6 @@ import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
 import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
 import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
 import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
-import { formatMemoryBytes } from './task-manager-system-metrics.ts'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import {
   closeWebViewUnitWindows,
@@ -326,7 +328,7 @@ export function TaskManagerApp() {
 
   const endableApps = runningApps.filter((entry) => entry.canEnd)
   const openWindowCount = windows.filter((window) => !window.closing).length
-  const programCount = runningApps.length + webviewUnits.length
+  const programCount = runningApps.length + webviewUnits.length + workerServices.length
   const emptyPrograms = programCount === 0
 
   return (
@@ -348,11 +350,11 @@ export function TaskManagerApp() {
           hidden={tab !== 'programs'}
           aria-hidden={tab !== 'programs'}
         >
-          <h2 class="task-manager__section-title">正在运行的应用</h2>
+          <h2 class="task-manager__section-title">正在运行的程序</h2>
           <p class="task-manager__section-subtitle">
             {emptyPrograms
-              ? '当前没有打开的应用'
-              : `共 ${programCount} 个应用、${openWindowCount} 个窗口`}
+              ? '当前没有打开的应用或系统服务'
+              : `共 ${programCount} 个进程、${openWindowCount} 个窗口`}
           </p>
 
           {emptyPrograms ? (
@@ -473,62 +475,50 @@ export function TaskManagerApp() {
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {(endableApps.length > 0 || webviewUnits.length > 0) && (
-            <p class="task-manager__footnote">
-              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。WebView
-              按浏览单元单独列出。
-            </p>
-          )}
-
-          <h2 class="task-manager__section-title task-manager__section-title--spaced">
-            系统服务
-          </h2>
-          <p class="task-manager__section-subtitle">
-            {workerServices.length === 0
-              ? '暂无已启动的系统服务'
-              : `共 ${workerServices.length} 个后台 Worker（独立 JS 堆）`}
-          </p>
-
-          {workerServices.length === 0 ? (
-            <p class="task-manager__empty">
-              Tokenizer、工作区搜索、TypeScript 解析等后台任务启动后会显示在这里。
-            </p>
-          ) : (
-            <div class="task-manager__table-wrap">
-              <table class="task-manager__table">
-                <thead>
-                  <tr>
-                    <th class="task-manager__th task-manager__th--name">名称</th>
-                    <th class="task-manager__th task-manager__th--status">状态</th>
-                    <th class="task-manager__th task-manager__th--memory">内存</th>
-                    <th class="task-manager__th task-manager__th--action">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
                   {workerServices.map((service) => (
                     <tr key={service.id} class="task-manager__tr">
                       <td class="task-manager__td task-manager__td--name">
-                        <span class="task-manager__name-text">{service.label}</span>
+                        <span class="task-manager__name-cell">
+                          <span class="task-manager__app-icon">
+                            <AppIconTile color="#8e8e93" size={28}>
+                              <span style={{ fontSize: '19px' }}>⚙️</span>
+                            </AppIconTile>
+                          </span>
+                          <span class="task-manager__name-text">
+                            {service.label}
+                            <span class="task-manager__name-tag">[系统]</span>
+                          </span>
+                        </span>
                       </td>
-                      <td class="task-manager__td task-manager__td--status">运行中</td>
-                      <td class="task-manager__td task-manager__td--memory">
-                        {service.memorySupported
-                          ? formatMemoryBytes(service.usedBytes)
-                          : '—'}
+                      <td class="task-manager__td task-manager__td--status">
+                        {WORKER_SERVICE_STATUS_LABELS[service.status]}
+                        {service.restartCount > 0 ? ` ·重启${service.restartCount}次` : ''}
                       </td>
+                      <td class="task-manager__td task-manager__td--ai">—</td>
+                      <td class="task-manager__td task-manager__td--windows">—</td>
                       <td class="task-manager__td task-manager__td--action">
-                        <span class="task-manager__system-badge">系统服务</span>
+                        <button
+                          type="button"
+                          class="task-manager__end-button"
+                          onClick={() => {
+                            restartWorkerService(service.id)
+                          }}
+                        >
+                          重启
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+
+          {(endableApps.length > 0 || webviewUnits.length > 0 || workerServices.length > 0) && (
+            <p class="task-manager__footnote">
+              「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。WebView
+              按浏览单元单独列出。系统服务异常时会自动重启（最多 3 次），也可点「重启」手动恢复。
+            </p>
           )}
         </section>
 

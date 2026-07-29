@@ -14,14 +14,22 @@ export const WORKER_HEAP_SERVICE_LABELS: Record<WorkerHeapServiceId, string> = {
   'vscode-typescript-resolve': 'TypeScript Resolve',
 }
 
+/** 服务运行状态（由 service-supervisor 维护） */
+export type WorkerServiceStatus = 'running' | 'restarting' | 'failed'
+
+export const WORKER_SERVICE_STATUS_LABELS: Record<WorkerServiceStatus, string> = {
+  running: '运行中',
+  restarting: '重启中',
+  failed: '已失败',
+}
+
 export type WorkerHeapReport = {
   id: WorkerHeapServiceId
   label: string
-  usedBytes: number | undefined
-  totalBytes: number | undefined
-  limitBytes: number | undefined
-  memorySupported: boolean
   at: number
+  status: WorkerServiceStatus
+  /** 页面加载以来累计重启次数（含手动重启） */
+  restartCount: number
 }
 
 const reports = new Map<WorkerHeapServiceId, WorkerHeapReport>()
@@ -32,45 +40,21 @@ function dispatchChanged(): void {
 }
 
 export function upsertWorkerHeapReport(
-  report: Omit<WorkerHeapReport, 'at' | 'label'> & {
-    label?: string
-    at?: number
-  },
+  report: Pick<WorkerHeapReport, 'id'> & Partial<Omit<WorkerHeapReport, 'id'>>,
 ): void {
+  const existing = reports.get(report.id)
   reports.set(report.id, {
     id: report.id,
-    label: report.label ?? WORKER_HEAP_SERVICE_LABELS[report.id],
-    usedBytes: report.usedBytes,
-    totalBytes: report.totalBytes,
-    limitBytes: report.limitBytes,
-    memorySupported: report.memorySupported,
+    label: report.label ?? existing?.label ?? WORKER_HEAP_SERVICE_LABELS[report.id],
     at: report.at ?? Date.now(),
+    status: report.status ?? existing?.status ?? 'running',
+    restartCount: report.restartCount ?? existing?.restartCount ?? 0,
   })
-  dispatchChanged()
-}
-
-export function removeWorkerHeapReport(id: WorkerHeapServiceId): void {
-  if (!reports.delete(id)) return
   dispatchChanged()
 }
 
 export function listWorkerHeapReports(): WorkerHeapReport[] {
-  return [...reports.values()].sort((left, right) => {
-    const leftUsed = left.usedBytes ?? -1
-    const rightUsed = right.usedBytes ?? -1
-    if (rightUsed !== leftUsed) return rightUsed - leftUsed
-    return left.label.localeCompare(right.label, 'zh-CN')
-  })
-}
-
-export function sumWorkerHeapUsedBytes(reportsList = listWorkerHeapReports()): number {
-  return reportsList.reduce((sum, report) => sum + (report.usedBytes ?? 0), 0)
-}
-
-export function sumWorkerHeapTotalBytes(reportsList = listWorkerHeapReports()): number {
-  return reportsList.reduce((sum, report) => sum + (report.totalBytes ?? 0), 0)
-}
-
-export function sumWorkerHeapLimitBytes(reportsList = listWorkerHeapReports()): number {
-  return reportsList.reduce((sum, report) => sum + (report.limitBytes ?? 0), 0)
+  return [...reports.values()].sort((left, right) =>
+    left.label.localeCompare(right.label, 'zh-CN'),
+  )
 }

@@ -1,107 +1,25 @@
 import type { AiTokenizerFamily } from './ai-providers.ts'
 import ModelTokenizerWorker from './model-tokenizer.worker.ts?worker'
-import {
-  isWorkerHeapSampleMessage,
-} from '../os/worker-heap-sampler.ts'
-import {
-  removeWorkerHeapReport,
-  upsertWorkerHeapReport,
-} from '../os/worker-heap-reports.ts'
+import { defineService } from '../os/service-supervisor.ts'
 import type {
   ModelTokenizerWorkerRequest,
   ModelTokenizerWorkerResponse,
 } from './model-tokenizer-protocol.ts'
 
 type TokenizerFamily = AiTokenizerFamily
+type TokenizerResponse = Exclude<ModelTokenizerWorkerResponse, { type: 'heap' }>
 
-type PendingJob = {
-  resolve: (value: Exclude<ModelTokenizerWorkerResponse, { type: 'heap' }>) => void
-  reject: (error: Error) => void
-}
-
-const SERVICE_ID = 'tokenizer' as const
-
-let worker: Worker | undefined
-let workerFailed = false
-let nextRequestId = 1
-const pending = new Map<number, PendingJob>()
 const readyFamilies = new Set<TokenizerFamily>()
 const loadInflight = new Map<TokenizerFamily, Promise<boolean>>()
 
-function clearWorkerHeap(): void {
-  removeWorkerHeapReport(SERVICE_ID)
-}
-
-function registerWorkerAlive(): void {
-  upsertWorkerHeapReport({
-    id: SERVICE_ID,
-    usedBytes: undefined,
-    totalBytes: undefined,
-    limitBytes: undefined,
-    memorySupported: false,
-  })
-}
-
-function getWorker(): Worker | undefined {
-  if (workerFailed) return undefined
-  if (worker) return worker
-
-  try {
-    const instance = new ModelTokenizerWorker()
-    instance.onmessage = (event: MessageEvent<ModelTokenizerWorkerResponse>) => {
-      const message = event.data
-      if (isWorkerHeapSampleMessage(message)) {
-        upsertWorkerHeapReport({
-          id: SERVICE_ID,
-          usedBytes: message.usedBytes,
-          totalBytes: message.totalBytes,
-          limitBytes: message.limitBytes,
-          memorySupported: message.memorySupported,
-        })
-        return
-      }
-      const job = pending.get(message.requestId)
-      if (!job) return
-      pending.delete(message.requestId)
-      job.resolve(message)
-    }
-    instance.onerror = () => {
-      workerFailed = true
-      for (const [id, job] of pending) {
-        pending.delete(id)
-        job.reject(new Error('Tokenizer Worker 失败'))
-      }
-      worker?.terminate()
-      worker = undefined
-      readyFamilies.clear()
-      clearWorkerHeap()
-    }
-    worker = instance
-    registerWorkerAlive()
-    return worker
-  } catch {
-    workerFailed = true
-    clearWorkerHeap()
-    return undefined
-  }
-}
-
-function request(
-  instance: Worker,
-  payload: Omit<ModelTokenizerWorkerRequest, 'requestId'> & { type: 'load' | 'count' },
-): Promise<Exclude<ModelTokenizerWorkerResponse, { type: 'heap' }>> {
-  const requestId = nextRequestId
-  nextRequestId += 1
-
-  return new Promise((resolve, reject) => {
-    pending.set(requestId, { resolve, reject })
-    instance.postMessage({ ...payload, requestId } satisfies ModelTokenizerWorkerRequest)
-  })
-}
-
-export function isTokenizerWorkerFailed(): boolean {
-  return workerFailed
-}
+const service = defineService<ModelTokenizerWorkerRequest, TokenizerResponse>({
+  id: 'tokenizer',
+  createWorker: () => new ModelTokenizerWorker(),
+  onRestarted: () => {
+    // 新 Worker 词表缓存为空，清除 ready 标记以便下次请求重新加载
+    readyFamilies.clear()
+  },
+})
 
 export function getReadyTokenizerFamilies(): TokenizerFamily[] {
   return [...readyFamilies]
@@ -111,7 +29,7 @@ export function isTokenizerFamilyReady(family: TokenizerFamily): boolean {
   return readyFamilies.has(family)
 }
 
-/** 在 Worker 中加载词表；失败返回 false（不回退主线程 encode） */
+/** 在服务 Worker 中加载词表；失败返回 false（主线程永不 encode） */
 export async function loadTokenizerFamilyInWorker(
   family: TokenizerFamily,
 ): Promise<boolean> {
@@ -121,11 +39,8 @@ export async function loadTokenizerFamilyInWorker(
   if (inflight) return inflight
 
   const promise = (async () => {
-    const instance = getWorker()
-    if (!instance) return false
-
     try {
-      const response = await request(instance, { type: 'load', family })
+      const response = await service.request<TokenizerResponse>({ type: 'load', family })
       if (response.type === 'ready' && response.ok) {
         // Worker LRU 容量为 1：新 family 成功后淘汰其它 ready 标记
         readyFamilies.clear()
@@ -137,7 +52,7 @@ export async function loadTokenizerFamilyInWorker(
       }
       return false
     } catch (error) {
-      console.warn('[model-tokenizer] Worker load failed', error)
+      console.warn('[model-tokenizer] 服务不可用', error)
       return false
     }
   })().finally(() => {
@@ -149,8 +64,8 @@ export async function loadTokenizerFamilyInWorker(
 }
 
 /**
- * 在 Worker 中批量分词。family 未 ready 时会先尝试 load。
- * Worker 不可用或失败时返回 undefined。
+ * 在服务 Worker 中批量分词。family 未 ready 时会先尝试 load。
+ * 服务不可用时返回 undefined（交给字符粗估）。
  */
 export async function countTokensInWorker(
   family: TokenizerFamily,
@@ -158,16 +73,17 @@ export async function countTokensInWorker(
 ): Promise<number[] | undefined> {
   if (texts.length === 0) return []
 
-  const instance = getWorker()
-  if (!instance) return undefined
-
   if (!readyFamilies.has(family)) {
     const ok = await loadTokenizerFamilyInWorker(family)
     if (!ok) return undefined
   }
 
   try {
-    const response = await request(instance, { type: 'count', family, texts })
+    const response = await service.request<TokenizerResponse>({
+      type: 'count',
+      family,
+      texts,
+    })
     if (response.type === 'counts') {
       // count 可能隐式 load；与 load 路径一致维护 ready 集合
       if (!readyFamilies.has(family)) {
@@ -181,7 +97,7 @@ export async function countTokensInWorker(
     }
     return undefined
   } catch (error) {
-    console.warn('[model-tokenizer] Worker count failed', error)
+    console.warn('[model-tokenizer] 服务不可用', error)
     return undefined
   }
 }

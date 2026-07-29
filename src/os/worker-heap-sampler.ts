@@ -1,36 +1,18 @@
-/** Worker 侧堆采样消息（各 worker protocol 的 heap 变体形状保持一致） */
+/**
+ * Worker 侧心跳消息。
+ *
+ * performance.memory 是 Chromium 专有 API，IDL 只暴露在 window 上，
+ * Dedicated Worker 内始终为 undefined。因此 Worker 堆大小无法读取。
+ * 保留此消息是为了让主线程感知 Worker 存活状态（"系统服务"列表）。
+ */
 export type WorkerHeapSampleMessage = {
   type: 'heap'
-  memorySupported: boolean
-  usedBytes?: number
-  totalBytes?: number
-  limitBytes?: number
-}
-
-type PerformanceMemory = {
-  usedJSHeapSize: number
-  totalJSHeapSize: number
-  jsHeapSizeLimit: number
 }
 
 const DEFAULT_INTERVAL_MS = 1000
 
-function readWorkerHeap(): WorkerHeapSampleMessage {
-  const mem = (performance as Performance & { memory?: PerformanceMemory }).memory
-  if (!mem || typeof mem.usedJSHeapSize !== 'number') {
-    return { type: 'heap', memorySupported: false }
-  }
-  return {
-    type: 'heap',
-    memorySupported: true,
-    usedBytes: mem.usedJSHeapSize,
-    totalBytes: mem.totalJSHeapSize,
-    limitBytes: mem.jsHeapSizeLimit,
-  }
-}
-
 /**
- * 在 Dedicated Worker 内定期上报 JS 堆。
+ * 在 Dedicated Worker 内定期发送心跳，让主线程知道该 Worker 存活。
  * 返回 stop 函数（一般不必调用；Worker terminate 即停）。
  */
 export function startWorkerHeapSampler(
@@ -38,7 +20,7 @@ export function startWorkerHeapSampler(
   intervalMs = DEFAULT_INTERVAL_MS,
 ): () => void {
   const tick = () => {
-    post(readWorkerHeap())
+    post({ type: 'heap' })
   }
   tick()
   const timer = setInterval(tick, intervalMs)

@@ -218,6 +218,13 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
+.task-manager__name-tag {
+  margin-left: 4px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--tm-text-secondary);
+}
+
 .task-manager__app-icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -636,6 +643,13 @@
   color: var(--tm-text-secondary);
   background: linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
   border-bottom: 1px solid var(--tm-border-row);
+}
+
+.task-manager__list-header--sub {
+  position: static;
+  font-weight: 500;
+  background: var(--tm-bg-row-alt, #fafafa);
+  border-top: 1px solid var(--tm-border-row);
 }
 
 .task-manager__list-empty {

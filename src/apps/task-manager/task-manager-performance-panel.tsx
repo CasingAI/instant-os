@@ -51,6 +51,7 @@ import {
   type FilesIoOperationRecord,
 } from '../../os/files-io-metrics.ts'
 import type { FilesIoContainerId, FilesIoContainerMetrics } from './task-manager-use-files-io-metrics.ts'
+import { WORKER_SERVICE_STATUS_LABELS } from '../../os/worker-heap-reports.ts'
 
 const LOG_LIMIT = 200
 const CHART_VIEW_WIDTH = 960
@@ -152,9 +153,9 @@ export function TaskManagerPerformancePanel({
   const latestHeap = memory.display
   const hostHeap = memory.host
   const appsHeap = memory.apps
-  const workersHeap = memory.workers
   const workerReports = memory.workerReports
   const isolationActive = memory.isolationActive
+  const abnormalWorkerCount = workerReports.filter((r) => r.status !== 'running').length
 
   const selectedDiskContainer = useMemo((): FilesIoContainerMetrics | undefined => {
     if (!isDiskCategory(category)) return undefined
@@ -670,11 +671,7 @@ export function TaskManagerPerformancePanel({
               <div class="task-manager__perf-side-col">
                 <div class="task-manager__stats">
                   <StatCard
-                    label={
-                      isolationActive || workerReports.length > 0
-                        ? '合计已用'
-                        : '宿主已用'
-                    }
+                    label={isolationActive ? '合计已用' : '宿主已用'}
                     value={formatMemoryBytes(latestHeap?.usedBytes)}
                     hint={
                       heapPercent !== undefined
@@ -708,12 +705,12 @@ export function TaskManagerPerformancePanel({
                   />
                   <StatCard
                     label="系统服务"
-                    value={formatMemoryBytes(workersHeap?.usedBytes)}
+                    value={workerReports.length > 0 ? `${workerReports.length}` : '—'}
                     hint={
                       workerReports.length > 0
-                        ? workersHeap
-                          ? `${workerReports.length} 个 Worker`
-                          : `${workerReports.length} 个 · 内存不可用`
+                        ? abnormalWorkerCount > 0
+                          ? `${workerReports.length} 个 Worker · ${abnormalWorkerCount} 个异常`
+                          : `${workerReports.length} 个 Worker 运行中`
                         : '暂无已启动 Worker'
                     }
                   />
@@ -733,27 +730,22 @@ export function TaskManagerPerformancePanel({
                       {formatMemoryBytes(hostHeap?.usedBytes)}
                     </span>
                   </div>
-                  {workerReports.length === 0 ? (
-                    <p class="task-manager__list-empty">
-                      暂无已启动的系统服务 Worker。Tokenizer / 搜索 / TypeScript
-                      解析等后台任务启动后会单独列出（独立 JS 堆，与宿主相加）。
-                    </p>
-                  ) : (
-                    workerReports.map((report) => (
-                      <div key={report.id} class="task-manager__perf-row">
-                        <span class="task-manager__perf-name">{report.label}</span>
-                        <span class="task-manager__perf-meta">
-                          {report.memorySupported
-                            ? `已分配 ${formatMemoryBytes(report.totalBytes)} · 上限 ${formatMemoryBytes(report.limitBytes)}`
-                            : '当前环境无法读取 Worker 堆'}
-                        </span>
-                        <span class="task-manager__perf-side">
-                          {report.memorySupported
-                            ? formatMemoryBytes(report.usedBytes)
-                            : '—'}
-                        </span>
+                  {workerReports.length > 0 && (
+                    <>
+                      <div class="task-manager__list-header task-manager__list-header--sub">
+                        系统服务（{workerReports.length} 个 Worker）
                       </div>
-                    ))
+                      {workerReports.map((report) => (
+                        <div key={report.id} class="task-manager__perf-row">
+                          <span class="task-manager__perf-name">{report.label}</span>
+                          <span class="task-manager__perf-meta">
+                            {WORKER_SERVICE_STATUS_LABELS[report.status]}
+                            {report.restartCount > 0 ? ` · 重启 ${report.restartCount} 次` : ''}
+                          </span>
+                          <span class="task-manager__perf-side">—</span>
+                        </div>
+                      ))}
+                    </>
                   )}
                   {guestClusters.length === 0 ? (
                     <p class="task-manager__list-empty">
