@@ -1,3 +1,4 @@
+import type { WorkerHeapSampleMessage } from '../../os/worker-heap-sampler.ts'
 import type { VscodeWorkspaceSearchHit } from './vscode-workspace-search-core.ts'
 
 export type VscodeWorkspaceSearchWorkerSearchPayload = {
@@ -41,3 +42,4 @@ export type VscodeWorkspaceSearchWorkerResponse =
       requestId: number
       message: string
     }
+  | WorkerHeapSampleMessage

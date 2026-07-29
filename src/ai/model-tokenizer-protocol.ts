@@ -1,4 +1,5 @@
 import type { AiTokenizerFamily } from './ai-providers.ts'
+import type { WorkerHeapSampleMessage } from '../os/worker-heap-sampler.ts'
 
 export type ModelTokenizerFamily = AiTokenizerFamily
 
@@ -37,3 +38,4 @@ export type ModelTokenizerWorkerResponse =
       requestId: number
       message: string
     }
+  | WorkerHeapSampleMessage

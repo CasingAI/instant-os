@@ -76,6 +76,10 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.task-manager__section-title--spaced {
+  margin-top: 28px;
+}
+
 .task-manager__section-subtitle {
   margin: -2px 0 0;
   font-size: 11px;
@@ -146,6 +150,10 @@
 }
 
 .task-manager__th--ai {
+  width: 18%;
+}
+
+.task-manager__th--memory {
   width: 18%;
 }
 

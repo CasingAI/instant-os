@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { startWorkerHeapSampler } from '../../os/worker-heap-sampler.ts'
 import {
   clearTypescriptResolveCaches,
   resolveBareModulesForEntriesCore,
@@ -14,6 +15,8 @@ const abortControllers = new Map<number, AbortController>()
 function post(message: VscodeTypescriptResolveWorkerResponse): void {
   self.postMessage(message)
 }
+
+startWorkerHeapSampler(post)
 
 self.onmessage = (event: MessageEvent<VscodeTypescriptResolveWorkerRequest>) => {
   const message = event.data

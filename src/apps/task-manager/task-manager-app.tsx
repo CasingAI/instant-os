@@ -18,6 +18,11 @@ import { useGeneratedAppHeartbeat } from '../../os/generated-app-heartbeat-conte
 import { useOs } from '../../os/os-context.tsx'
 import type { AppId, WindowState } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
+import {
+  listWorkerHeapReports,
+  WORKER_HEAP_REPORTS_CHANGED_EVENT,
+  type WorkerHeapReport,
+} from '../../os/worker-heap-reports.ts'
 import { TaskManagerPerformancePanel } from './task-manager-performance-panel.tsx'
 import {
   formatSampleIntervalLabel,
@@ -28,6 +33,7 @@ import { useTaskManagerSpeedSeries } from './task-manager-use-speed-series.ts'
 import { useTaskManagerSystemMetrics } from './task-manager-use-system-metrics.ts'
 import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-server-metrics.ts'
 import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
+import { formatMemoryBytes } from './task-manager-system-metrics.ts'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import {
   closeWebViewUnitWindows,
@@ -138,6 +144,9 @@ export function TaskManagerApp() {
   const [tab, setTab] = useState<TaskManagerTab>('programs')
   const [sampleIntervalSec, setSampleIntervalSec] = useState<SpeedSampleIntervalSec>(1)
   const [liveByActor, setLiveByActor] = useState<Map<string, LiveAppActivity>>(() => new Map())
+  const [workerServices, setWorkerServices] = useState<WorkerHeapReport[]>(() =>
+    listWorkerHeapReports(),
+  )
   const speedSeries = useTaskManagerSpeedSeries(sampleIntervalSec)
   const systemMetrics = useTaskManagerSystemMetrics(sampleIntervalSec)
   const proxyServerMetrics = useTaskManagerProxyServerMetrics(sampleIntervalSec)
@@ -145,6 +154,10 @@ export function TaskManagerApp() {
 
   const refreshLiveActivity = useCallback(() => {
     setLiveByActor(collectLiveAppActivity())
+  }, [])
+
+  const refreshWorkerServices = useCallback(() => {
+    setWorkerServices(listWorkerHeapReports())
   }, [])
 
   useEffect(() => {
@@ -155,6 +168,23 @@ export function TaskManagerApp() {
     window.addEventListener(AI_EVENT_LOG_CHANGED_EVENT, onChanged)
     return () => window.removeEventListener(AI_EVENT_LOG_CHANGED_EVENT, onChanged)
   }, [refreshLiveActivity])
+
+  useEffect(() => {
+    refreshWorkerServices()
+    window.addEventListener(WORKER_HEAP_REPORTS_CHANGED_EVENT, refreshWorkerServices)
+    return () =>
+      window.removeEventListener(WORKER_HEAP_REPORTS_CHANGED_EVENT, refreshWorkerServices)
+  }, [refreshWorkerServices])
+
+  useEffect(() => {
+    if (tab !== 'programs') {
+      return
+    }
+    const timer = window.setInterval(() => {
+      refreshWorkerServices()
+    }, sampleIntervalSec * 1000)
+    return () => window.clearInterval(timer)
+  }, [refreshWorkerServices, sampleIntervalSec, tab])
 
   useEffect(() => {
     if (tab !== 'programs') {
@@ -453,6 +483,52 @@ export function TaskManagerApp() {
               「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。WebView
               按浏览单元单独列出。
             </p>
+          )}
+
+          <h2 class="task-manager__section-title task-manager__section-title--spaced">
+            系统服务
+          </h2>
+          <p class="task-manager__section-subtitle">
+            {workerServices.length === 0
+              ? '暂无已启动的系统服务'
+              : `共 ${workerServices.length} 个后台 Worker（独立 JS 堆）`}
+          </p>
+
+          {workerServices.length === 0 ? (
+            <p class="task-manager__empty">
+              Tokenizer、工作区搜索、TypeScript 解析等后台任务启动后会显示在这里。
+            </p>
+          ) : (
+            <div class="task-manager__table-wrap">
+              <table class="task-manager__table">
+                <thead>
+                  <tr>
+                    <th class="task-manager__th task-manager__th--name">名称</th>
+                    <th class="task-manager__th task-manager__th--status">状态</th>
+                    <th class="task-manager__th task-manager__th--memory">内存</th>
+                    <th class="task-manager__th task-manager__th--action">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workerServices.map((service) => (
+                    <tr key={service.id} class="task-manager__tr">
+                      <td class="task-manager__td task-manager__td--name">
+                        <span class="task-manager__name-text">{service.label}</span>
+                      </td>
+                      <td class="task-manager__td task-manager__td--status">运行中</td>
+                      <td class="task-manager__td task-manager__td--memory">
+                        {service.memorySupported
+                          ? formatMemoryBytes(service.usedBytes)
+                          : '—'}
+                      </td>
+                      <td class="task-manager__td task-manager__td--action">
+                        <span class="task-manager__system-badge">系统服务</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 

@@ -1,4 +1,9 @@
 import VscodeTypescriptResolveWorker from './vscode-typescript-resolve.worker.ts?worker'
+import { isWorkerHeapSampleMessage } from '../../os/worker-heap-sampler.ts'
+import {
+  removeWorkerHeapReport,
+  upsertWorkerHeapReport,
+} from '../../os/worker-heap-reports.ts'
 import { appendVscodeInternalLog } from './vscode-internal-log.ts'
 import {
   clearTypescriptResolveCaches,
@@ -17,10 +22,26 @@ type PendingResolve = {
   reject: (error: Error) => void
 }
 
+const SERVICE_ID = 'vscode-typescript-resolve' as const
+
 let worker: Worker | undefined
 let workerFailed = false
 let nextRequestId = 1
 const pending = new Map<number, PendingResolve>()
+
+function clearWorkerHeap(): void {
+  removeWorkerHeapReport(SERVICE_ID)
+}
+
+function registerWorkerAlive(): void {
+  upsertWorkerHeapReport({
+    id: SERVICE_ID,
+    usedBytes: undefined,
+    totalBytes: undefined,
+    limitBytes: undefined,
+    memorySupported: false,
+  })
+}
 
 function getWorker(): Worker | undefined {
   if (workerFailed) return undefined
@@ -31,6 +52,16 @@ function getWorker(): Worker | undefined {
     const instance = new VscodeTypescriptResolveWorker()
     instance.onmessage = (event: MessageEvent<VscodeTypescriptResolveWorkerResponse>) => {
       const message = event.data
+      if (isWorkerHeapSampleMessage(message)) {
+        upsertWorkerHeapReport({
+          id: SERVICE_ID,
+          usedBytes: message.usedBytes,
+          totalBytes: message.totalBytes,
+          limitBytes: message.limitBytes,
+          memorySupported: message.memorySupported,
+        })
+        return
+      }
       const job = pending.get(message.requestId)
       if (!job) return
       pending.delete(message.requestId)
@@ -49,11 +80,14 @@ function getWorker(): Worker | undefined {
       }
       worker?.terminate()
       worker = undefined
+      clearWorkerHeap()
     }
     worker = instance
+    registerWorkerAlive()
     return worker
   } catch (error) {
     workerFailed = true
+    clearWorkerHeap()
     appendVscodeInternalLog(
       'ts-resolve-worker',
       `Worker 创建失败: ${error instanceof Error ? error.message : String(error)}`,

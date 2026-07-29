@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { Tokenizer } from '@huggingface/tokenizers'
+import { startWorkerHeapSampler } from '../os/worker-heap-sampler.ts'
 import type {
   ModelTokenizerFamily,
   ModelTokenizerWorkerRequest,
@@ -24,6 +25,8 @@ const abortControllers = new Map<number, AbortController>()
 function post(message: ModelTokenizerWorkerResponse): void {
   self.postMessage(message)
 }
+
+startWorkerHeapSampler(post)
 
 function touchCache(entry: CacheEntry): void {
   const index = cache.indexOf(entry)

@@ -1,6 +1,12 @@
 import { formatStorageSize } from '../../os/format-storage-size.ts'
 import type { GeneratedAppHeapReport } from '../../os/generated-app-heap-reports.ts'
 import { isGeneratedAppProcessIsolationActive } from '../../os/resolve-generated-app-process-isolation.ts'
+import type { WorkerHeapReport } from '../../os/worker-heap-reports.ts'
+import {
+  sumWorkerHeapLimitBytes,
+  sumWorkerHeapTotalBytes,
+  sumWorkerHeapUsedBytes,
+} from '../../os/worker-heap-reports.ts'
 
 export type JsHeapSnapshot = {
   usedBytes: number
@@ -28,11 +34,14 @@ export type MemoryTrackingMode = 'host-only' | 'deduped-heaps'
 
 export type AggregatedMemorySnapshot = {
   mode: MemoryTrackingMode
-  /** 折线主读数：去重后的各独立堆已用之和（宿主若与某微应用同堆只计一次）。 */
+  /** 折线主读数：宿主 + Worker 独立堆 + 去重后微应用堆。 */
   display: JsHeapSnapshot | undefined
   host: JsHeapSnapshot | undefined
   /** 与宿主不同堆的微应用侧合计（已去重）。 */
   apps: JsHeapSnapshot | undefined
+  /** 系统服务（Dedicated Worker）合计；无存活或无读数时为 undefined。 */
+  workers: JsHeapSnapshot | undefined
+  workerReports: WorkerHeapReport[]
   /** 去重后的独立堆；含宿主时 sharedWithHost 为 true。 */
   heapClusters: MemoryHeapCluster[]
   appReports: GeneratedAppHeapReport[]
@@ -174,24 +183,52 @@ export function clusterSharedHeaps(
   return clusters
 }
 
+function sumWorkerSnapshot(workerReports: WorkerHeapReport[]): JsHeapSnapshot | undefined {
+  if (workerReports.length === 0) return undefined
+  const withMemory = workerReports.filter((report) => report.memorySupported)
+  if (withMemory.length === 0) return undefined
+  return {
+    usedBytes: sumWorkerHeapUsedBytes(withMemory),
+    totalBytes: sumWorkerHeapTotalBytes(withMemory),
+    limitBytes: sumWorkerHeapLimitBytes(withMemory),
+  }
+}
+
+function combineDisplay(
+  base: JsHeapSnapshot | undefined,
+  workers: JsHeapSnapshot | undefined,
+): JsHeapSnapshot | undefined {
+  if (!base && !workers) return undefined
+  return {
+    usedBytes: (base?.usedBytes ?? 0) + (workers?.usedBytes ?? 0),
+    totalBytes: (base?.totalBytes ?? 0) + (workers?.totalBytes ?? 0),
+    limitBytes: (base?.limitBytes ?? 0) + (workers?.limitBytes ?? 0),
+  }
+}
+
 export function aggregateMemorySnapshot(
   host: JsHeapSnapshot | undefined,
   appReports: GeneratedAppHeapReport[],
   isolationActive = isGeneratedAppProcessIsolationActive(),
+  workerReports: WorkerHeapReport[] = [],
 ): AggregatedMemorySnapshot {
   const heapClusters = clusterSharedHeaps(appReports, host)
   const sharedGuestReportCount = heapClusters.reduce(
     (sum, cluster) => sum + Math.max(0, cluster.reportCount - 1),
     0,
   )
+  const workers = sumWorkerSnapshot(workerReports)
 
   if (!isolationActive) {
     // 同域模式下宿主与微应用通常同堆：只计宿主，避免把整堆读数按窗口数翻倍。
+    // Worker 为独立堆，始终与宿主相加。
     return {
       mode: 'host-only',
-      display: host,
+      display: combineDisplay(host, workers),
       host,
       apps: undefined,
+      workers,
+      workerReports,
       heapClusters,
       appReports,
       isolationActive: false,
@@ -209,28 +246,22 @@ export function aggregateMemorySnapshot(
           limitBytes: guestOnlyClusters.reduce((sum, cluster) => sum + cluster.limitBytes, 0),
         }
 
-  if (!host && !apps) {
-    return {
-      mode: 'deduped-heaps',
-      display: undefined,
-      host,
-      apps,
-      heapClusters,
-      appReports,
-      isolationActive: true,
-      sharedGuestReportCount,
-    }
-  }
+  const hostPlusApps =
+    !host && !apps
+      ? undefined
+      : {
+          usedBytes: (host?.usedBytes ?? 0) + (apps?.usedBytes ?? 0),
+          totalBytes: (host?.totalBytes ?? 0) + (apps?.totalBytes ?? 0),
+          limitBytes: (host?.limitBytes ?? 0) + (apps?.limitBytes ?? 0),
+        }
 
   return {
     mode: 'deduped-heaps',
-    display: {
-      usedBytes: (host?.usedBytes ?? 0) + (apps?.usedBytes ?? 0),
-      totalBytes: (host?.totalBytes ?? 0) + (apps?.totalBytes ?? 0),
-      limitBytes: (host?.limitBytes ?? 0) + (apps?.limitBytes ?? 0),
-    },
+    display: combineDisplay(hostPlusApps, workers),
     host,
     apps,
+    workers,
+    workerReports,
     heapClusters,
     appReports,
     isolationActive: true,

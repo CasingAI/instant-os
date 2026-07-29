@@ -152,6 +152,8 @@ export function TaskManagerPerformancePanel({
   const latestHeap = memory.display
   const hostHeap = memory.host
   const appsHeap = memory.apps
+  const workersHeap = memory.workers
+  const workerReports = memory.workerReports
   const isolationActive = memory.isolationActive
 
   const selectedDiskContainer = useMemo((): FilesIoContainerMetrics | undefined => {
@@ -326,11 +328,14 @@ export function TaskManagerPerformancePanel({
         : category === 'memory'
           ? !memorySupported
             ? '当前浏览器不支持读取 JS 堆内存'
-            : isolationActive
-              ? `按独立堆去重后合计${uniqueGuestHeapCount > 0 ? ` · ${uniqueGuestHeapCount} 个微应用堆` : ''}${
-                  memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
-                }`
-              : '宿主 JS 堆（同域微应用通常同堆，不计多份）'
+            : [
+                isolationActive
+                  ? `按独立堆去重后合计${uniqueGuestHeapCount > 0 ? ` · ${uniqueGuestHeapCount} 个微应用堆` : ''}${
+                      memory.sharedGuestReportCount > 0 ? ' · 已合并同堆上报' : ''
+                    }`
+                  : '宿主 JS 堆（同域微应用通常同堆，不计多份）',
+                workerReports.length > 0 ? ` · ${workerReports.length} 个系统服务` : '',
+              ].join('')
           : category === 'proxy-server'
             ? proxyServerConnected
               ? '经代理服务器的吞吐'
@@ -623,7 +628,9 @@ export function TaskManagerPerformancePanel({
                 <div class="task-manager__chart-card task-manager__chart-card--hero">
                   <div class="task-manager__chart-header">
                     <h3 class="task-manager__chart-title">
-                      {isolationActive ? '合计已用内存' : '宿主已用内存'}
+                      {isolationActive || workerReports.length > 0
+                        ? '合计已用内存'
+                        : '宿主已用内存'}
                     </h3>
                     <span class="task-manager__chart-meta">
                       {memorySupported
@@ -663,7 +670,11 @@ export function TaskManagerPerformancePanel({
               <div class="task-manager__perf-side-col">
                 <div class="task-manager__stats">
                   <StatCard
-                    label={isolationActive ? '合计已用' : '宿主已用'}
+                    label={
+                      isolationActive || workerReports.length > 0
+                        ? '合计已用'
+                        : '宿主已用'
+                    }
                     value={formatMemoryBytes(latestHeap?.usedBytes)}
                     hint={
                       heapPercent !== undefined
@@ -695,6 +706,17 @@ export function TaskManagerPerformancePanel({
                           : '进程隔离关闭'
                     }
                   />
+                  <StatCard
+                    label="系统服务"
+                    value={formatMemoryBytes(workersHeap?.usedBytes)}
+                    hint={
+                      workerReports.length > 0
+                        ? workersHeap
+                          ? `${workerReports.length} 个 Worker`
+                          : `${workerReports.length} 个 · 内存不可用`
+                        : '暂无已启动 Worker'
+                    }
+                  />
                 </div>
               </div>
 
@@ -711,6 +733,28 @@ export function TaskManagerPerformancePanel({
                       {formatMemoryBytes(hostHeap?.usedBytes)}
                     </span>
                   </div>
+                  {workerReports.length === 0 ? (
+                    <p class="task-manager__list-empty">
+                      暂无已启动的系统服务 Worker。Tokenizer / 搜索 / TypeScript
+                      解析等后台任务启动后会单独列出（独立 JS 堆，与宿主相加）。
+                    </p>
+                  ) : (
+                    workerReports.map((report) => (
+                      <div key={report.id} class="task-manager__perf-row">
+                        <span class="task-manager__perf-name">{report.label}</span>
+                        <span class="task-manager__perf-meta">
+                          {report.memorySupported
+                            ? `已分配 ${formatMemoryBytes(report.totalBytes)} · 上限 ${formatMemoryBytes(report.limitBytes)}`
+                            : '当前环境无法读取 Worker 堆'}
+                        </span>
+                        <span class="task-manager__perf-side">
+                          {report.memorySupported
+                            ? formatMemoryBytes(report.usedBytes)
+                            : '—'}
+                        </span>
+                      </div>
+                    ))
+                  )}
                   {guestClusters.length === 0 ? (
                     <p class="task-manager__list-empty">
                       {isolationActive
@@ -1073,7 +1117,7 @@ export function TaskManagerPerformancePanel({
                 ? `帧率由主线程动画帧推算，部分浏览器会把页面更新锁在约 60，即使屏幕是 120；拖动等合成器动画仍可能更顺。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
                 : category === 'memory'
                   ? memorySupported
-                    ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。折线为去重后的独立堆之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
+                    ? `JS 堆接口按隔离堆报整堆，不是按应用分摊；多个第三方应用若同堆，只计一份。Dedicated Worker（系统服务）为独立堆，与宿主相加。折线为去重后的独立堆与 Worker 之和（非整机物理内存）。最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`
                     : '内存数据依赖 Chromium 系浏览器的 JS 堆接口；Safari 等环境通常不可用。'
                   : category === 'proxy-server'
                     ? `仅统计经代理服务器的流量。折线按采样间隔写入，最多保留 ${SPEED_SERIES_MAX_POINTS} 个点。`

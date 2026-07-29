@@ -1,5 +1,12 @@
 import type { AiTokenizerFamily } from './ai-providers.ts'
 import ModelTokenizerWorker from './model-tokenizer.worker.ts?worker'
+import {
+  isWorkerHeapSampleMessage,
+} from '../os/worker-heap-sampler.ts'
+import {
+  removeWorkerHeapReport,
+  upsertWorkerHeapReport,
+} from '../os/worker-heap-reports.ts'
 import type {
   ModelTokenizerWorkerRequest,
   ModelTokenizerWorkerResponse,
@@ -8,9 +15,11 @@ import type {
 type TokenizerFamily = AiTokenizerFamily
 
 type PendingJob = {
-  resolve: (value: ModelTokenizerWorkerResponse) => void
+  resolve: (value: Exclude<ModelTokenizerWorkerResponse, { type: 'heap' }>) => void
   reject: (error: Error) => void
 }
+
+const SERVICE_ID = 'tokenizer' as const
 
 let worker: Worker | undefined
 let workerFailed = false
@@ -18,6 +27,20 @@ let nextRequestId = 1
 const pending = new Map<number, PendingJob>()
 const readyFamilies = new Set<TokenizerFamily>()
 const loadInflight = new Map<TokenizerFamily, Promise<boolean>>()
+
+function clearWorkerHeap(): void {
+  removeWorkerHeapReport(SERVICE_ID)
+}
+
+function registerWorkerAlive(): void {
+  upsertWorkerHeapReport({
+    id: SERVICE_ID,
+    usedBytes: undefined,
+    totalBytes: undefined,
+    limitBytes: undefined,
+    memorySupported: false,
+  })
+}
 
 function getWorker(): Worker | undefined {
   if (workerFailed) return undefined
@@ -27,6 +50,16 @@ function getWorker(): Worker | undefined {
     const instance = new ModelTokenizerWorker()
     instance.onmessage = (event: MessageEvent<ModelTokenizerWorkerResponse>) => {
       const message = event.data
+      if (isWorkerHeapSampleMessage(message)) {
+        upsertWorkerHeapReport({
+          id: SERVICE_ID,
+          usedBytes: message.usedBytes,
+          totalBytes: message.totalBytes,
+          limitBytes: message.limitBytes,
+          memorySupported: message.memorySupported,
+        })
+        return
+      }
       const job = pending.get(message.requestId)
       if (!job) return
       pending.delete(message.requestId)
@@ -41,11 +74,14 @@ function getWorker(): Worker | undefined {
       worker?.terminate()
       worker = undefined
       readyFamilies.clear()
+      clearWorkerHeap()
     }
     worker = instance
+    registerWorkerAlive()
     return worker
   } catch {
     workerFailed = true
+    clearWorkerHeap()
     return undefined
   }
 }
@@ -53,11 +89,11 @@ function getWorker(): Worker | undefined {
 function request(
   instance: Worker,
   payload: Omit<ModelTokenizerWorkerRequest, 'requestId'> & { type: 'load' | 'count' },
-): Promise<ModelTokenizerWorkerResponse> {
+): Promise<Exclude<ModelTokenizerWorkerResponse, { type: 'heap' }>> {
   const requestId = nextRequestId
   nextRequestId += 1
 
-  return new Promise<ModelTokenizerWorkerResponse>((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     pending.set(requestId, { resolve, reject })
     instance.postMessage({ ...payload, requestId } satisfies ModelTokenizerWorkerRequest)
   })

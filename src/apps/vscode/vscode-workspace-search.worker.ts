@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { startWorkerHeapSampler } from '../../os/worker-heap-sampler.ts'
 import { searchVscodeWorkspaceFilesCoreDetailed } from './vscode-workspace-search-core.ts'
 import type {
   VscodeWorkspaceSearchWorkerRequest,
@@ -11,6 +12,8 @@ const abortControllers = new Map<number, AbortController>()
 function post(message: VscodeWorkspaceSearchWorkerResponse): void {
   self.postMessage(message)
 }
+
+startWorkerHeapSampler(post)
 
 self.onmessage = (event: MessageEvent<VscodeWorkspaceSearchWorkerRequest>) => {
   const message = event.data

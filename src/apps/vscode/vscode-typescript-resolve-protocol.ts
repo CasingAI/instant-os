@@ -1,3 +1,4 @@
+import type { WorkerHeapSampleMessage } from '../../os/worker-heap-sampler.ts'
 import type { ResolveCompilerOptionsInput } from './vscode-typescript-module-resolve.ts'
 
 export type VscodeTypescriptResolveEntry = {
@@ -60,3 +61,4 @@ export type VscodeTypescriptResolveWorkerResponse =
       requestId: number
       message: string
     }
+  | WorkerHeapSampleMessage
