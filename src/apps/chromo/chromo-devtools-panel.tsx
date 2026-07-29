@@ -83,6 +83,10 @@ type ChromoDevToolsPanelProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange?: (enabled: boolean) => void
+  debugPanelEnabled?: boolean
+  onDebugPanelEnabledChange?: (enabled: boolean) => void
+  /** Viewer iframe bridge ready (DebugPanel lives in viewer). */
+  viewerReady?: boolean
   /** Clear global cookie / storage / hot cache (affects all Chromo tabs). */
   onClearBrowsingData?: () => Promise<void>
   applicationApi?: ChromoApplicationApi
@@ -322,6 +326,9 @@ type ChromoDevToolsPanelBodyProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange?: (enabled: boolean) => void
+  debugPanelEnabled?: boolean
+  onDebugPanelEnabledChange?: (enabled: boolean) => void
+  viewerReady?: boolean
   applicationApi?: ChromoApplicationApi
   onClearBrowsingData?: () => Promise<void>
 }
@@ -353,6 +360,9 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
+  debugPanelEnabled = false,
+  onDebugPanelEnabledChange,
+  viewerReady = true,
   applicationApi,
   onClearBrowsingData,
 }: ChromoDevToolsPanelBodyProps) {
@@ -413,10 +423,13 @@ const ChromoDevToolsPanelBody = memo(function ChromoDevToolsPanelBody({
       <ChromoExtensionsPanel
         pageReady={pageReady}
         pageLoading={pageLoading}
+        viewerReady={viewerReady}
         vConsoleEnabled={vConsoleEnabled}
         vConsoleBusy={vConsoleBusy}
         vConsoleError={vConsoleError}
         onVConsoleEnabledChange={onVConsoleEnabledChange ?? (() => undefined)}
+        debugPanelEnabled={debugPanelEnabled}
+        onDebugPanelEnabledChange={onDebugPanelEnabledChange ?? (() => undefined)}
       />
     )
   }
@@ -540,6 +553,9 @@ export function ChromoDevToolsPanel({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
+  debugPanelEnabled = false,
+  onDebugPanelEnabledChange,
+  viewerReady = true,
   onClearBrowsingData,
   applicationApi,
 }: ChromoDevToolsPanelProps) {
@@ -981,6 +997,9 @@ export function ChromoDevToolsPanel({
             vConsoleBusy={vConsoleBusy}
             vConsoleError={vConsoleError}
             onVConsoleEnabledChange={onVConsoleEnabledChange}
+            debugPanelEnabled={debugPanelEnabled}
+            onDebugPanelEnabledChange={onDebugPanelEnabledChange}
+            viewerReady={viewerReady}
             applicationApi={applicationApi}
             onClearBrowsingData={onClearBrowsingData}
           />

@@ -123,6 +123,8 @@ type ChromoTab = {
   vConsoleEnabled: boolean
   vConsoleBusy: boolean
   vConsoleError?: string
+  /** Extensions：Viewer 内置 Debug Panel（绿色「调」） */
+  debugPanelEnabled: boolean
 }
 
 /** DevTools 可用：viewer 已启动且目标 URL 已知（不等整页 load 完成）。 */
@@ -163,6 +165,7 @@ function createChromoTab(initialUrl = ''): ChromoTab {
     devtoolsUndocked: false,
     vConsoleEnabled: false,
     vConsoleBusy: false,
+    debugPanelEnabled: false,
   }
 }
 
@@ -777,6 +780,17 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     [getViewerRef, updateTab],
   )
 
+  const setTabDebugPanelEnabled = useCallback(
+    (tabId: string, enabled: boolean) => {
+      updateTab(tabId, (entry) => ({
+        ...entry,
+        debugPanelEnabled: enabled,
+      }))
+      getViewerRef(tabId).current?.setDebugPanelEnabled(enabled)
+    },
+    [getViewerRef, updateTab],
+  )
+
   const readActiveNetworkBody = useCallback(
     (entryId: string) => {
       const tabId = activeTabIdRef.current
@@ -907,6 +921,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         vConsoleEnabled: tab.vConsoleEnabled,
         vConsoleBusy: tab.vConsoleBusy,
         vConsoleError: tab.vConsoleError,
+        debugPanelEnabled: tab.debugPanelEnabled,
+        viewerReady: tab.ready,
       }
 
       const handlers: ChromoDevToolsHandlers = {
@@ -963,6 +979,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tab.id, disable),
         onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tab.id, enabled),
+        onDebugPanelEnabledChange: (enabled) => setTabDebugPanelEnabled(tab.id, enabled),
         onClearBrowsingData: () => clearTabBrowsingData(tab.id),
         onRedock: (side) => {
           updateTab(tab.id, (entry) => ({
@@ -1002,6 +1019,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
     getViewerRef,
     parentWindowId,
     selectTabNetwork,
+    setTabDebugPanelEnabled,
     setTabVConsoleEnabled,
     tabs,
     updateTab,
@@ -1082,6 +1100,8 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         vConsoleEnabled: tab.vConsoleEnabled,
         vConsoleBusy: tab.vConsoleBusy,
         vConsoleError: tab.vConsoleError,
+        debugPanelEnabled: tab.debugPanelEnabled,
+        viewerReady: tab.ready,
       }
       // Handlers will be replaced by the sync effect; provide a stub so the window can mount.
       registerChromoDevToolsSession(key, snapshot, {
@@ -1138,6 +1158,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
         onDisableNetworkCacheChange: (disable) =>
           updateTabDisableNetworkCache(tabId, disable),
         onVConsoleEnabledChange: (enabled) => setTabVConsoleEnabled(tabId, enabled),
+        onDebugPanelEnabledChange: (enabled) => setTabDebugPanelEnabled(tabId, enabled),
         onClearBrowsingData: () => clearTabBrowsingData(tabId),
         onRedock: (side) => {
           updateTab(tabId, (entry) => ({
@@ -1174,6 +1195,7 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
       openApp,
       parentWindowId,
       selectTabNetwork,
+      setTabDebugPanelEnabled,
       setTabVConsoleEnabled,
       updateTab,
       updateTabDisableNetworkCache,
@@ -1544,6 +1566,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   ready: true,
                   bootstrapped: entry.url ? true : entry.bootstrapped,
                 }))
+                const current = tabsRef.current.find((entry) => entry.id === tab.id)
+                // Re-apply after viewer remount / VC_READY (bridge state resets).
+                if (current?.debugPanelEnabled) {
+                  getViewerRef(tab.id).current?.setDebugPanelEnabled(true)
+                }
                 const recoverUrl = pendingRecoverNavigateRef.current[tab.id]
                 if (recoverUrl) {
                   delete pendingRecoverNavigateRef.current[tab.id]
@@ -1551,7 +1578,6 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                   return
                 }
                 // 有 initialUrl 时 viewer 已入队导航；空 tab 才走 ensure
-                const current = tabsRef.current.find((entry) => entry.id === tab.id)
                 if (!current?.url) {
                   ensureInitialTabLoad(tab.id)
                 }
@@ -1793,6 +1819,11 @@ export function ChromoApp({ windowId }: { windowId?: string }) {
                 onVConsoleEnabledChange={(enabled) =>
                   setTabVConsoleEnabled(activeTab.id, enabled)
                 }
+                debugPanelEnabled={activeTab.debugPanelEnabled}
+                onDebugPanelEnabledChange={(enabled) =>
+                  setTabDebugPanelEnabled(activeTab.id, enabled)
+                }
+                viewerReady={activeTab.ready}
                 onClearBrowsingData={() => clearTabBrowsingData(activeTab.id)}
                 applicationApi={makeChromoApplicationApi(
                   () => getViewerRef(activeTab.id).current,

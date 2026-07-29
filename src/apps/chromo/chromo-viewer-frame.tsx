@@ -54,6 +54,7 @@ export type ChromoViewerHandle = {
     options?: ChromoRpcOptions,
   ) => Promise<ChromoNetworkHotProbeResult>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
+  setDebugPanelEnabled: (enabled: boolean) => void
   screenshot: (options?: ChromoScreenshotOptions) => Promise<ChromoScreenshotResult>
   clearState: (options?: ChromoRpcOptions) => Promise<void>
   listCookies: ChromoBridge['listCookies']
@@ -268,6 +269,9 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         },
         setNetworkOptions(options) {
           bridgeRef.current?.setNetworkOptions(options)
+        },
+        setDebugPanelEnabled(enabled: boolean) {
+          bridgeRef.current?.setDebugPanelEnabled(enabled)
         },
         screenshot(options?: ChromoScreenshotOptions) {
           return (

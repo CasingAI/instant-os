@@ -9,8 +9,8 @@ type ChromoExtensionsPanelProps = {
   vConsoleBusy?: boolean
   vConsoleError?: string
   onVConsoleEnabledChange: (enabled: boolean) => void
-  debugPanelEnabled?: boolean
-  onDebugPanelEnabledChange?: (enabled: boolean) => void
+  debugPanelEnabled: boolean
+  onDebugPanelEnabledChange: (enabled: boolean) => void
 }
 
 function ExtensionToggle(props: {
@@ -43,7 +43,7 @@ export function ChromoExtensionsPanel({
   vConsoleBusy = false,
   vConsoleError,
   onVConsoleEnabledChange,
-  debugPanelEnabled = false,
+  debugPanelEnabled,
   onDebugPanelEnabledChange,
 }: ChromoExtensionsPanelProps) {
   const vConsoleStatus = !pageReady
@@ -69,26 +69,24 @@ export function ChromoExtensionsPanel({
       </p>
 
       <ul class="chromo-extensions__list" role="list">
-        {onDebugPanelEnabledChange ? (
-          <li class="chromo-extensions__item">
-            <div class="chromo-extensions__item-main">
-              <div class="chromo-extensions__item-title">Chromo 调试面板</div>
-              <div class="chromo-extensions__item-desc">
-                Viewer 左下角绿色「调」圆钮：查看 bridge 日志、通讯、网络与状态。与页内
-                vConsole 独立；导航后仍保留。
-              </div>
+        <li class="chromo-extensions__item">
+          <div class="chromo-extensions__item-main">
+            <div class="chromo-extensions__item-title">Chromo 调试面板</div>
+            <div class="chromo-extensions__item-desc">
+              Viewer 左下角绿色「调」圆钮：查看 bridge 日志、通讯、网络与状态。与页内
+              vConsole 独立；导航后仍保留。
             </div>
-            <div class="chromo-extensions__item-side">
-              <span class="chromo-extensions__status">{debugStatus}</span>
-              <ExtensionToggle
-                checked={debugPanelEnabled}
-                disabled={!viewerReady}
-                ariaLabel="在 Viewer 中启用 Chromo 调试面板"
-                onChange={onDebugPanelEnabledChange}
-              />
-            </div>
-          </li>
-        ) : null}
+          </div>
+          <div class="chromo-extensions__item-side">
+            <span class="chromo-extensions__status">{debugStatus}</span>
+            <ExtensionToggle
+              checked={debugPanelEnabled}
+              disabled={!viewerReady}
+              ariaLabel="在 Viewer 中启用 Chromo 调试面板"
+              onChange={onDebugPanelEnabledChange}
+            />
+          </div>
+        </li>
 
         <li class="chromo-extensions__item">
           <div class="chromo-extensions__item-main">

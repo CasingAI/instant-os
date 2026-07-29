@@ -37,6 +37,8 @@ export type ChromoDevToolsSnapshot = {
   vConsoleEnabled: boolean
   vConsoleBusy: boolean
   vConsoleError?: string
+  debugPanelEnabled: boolean
+  viewerReady: boolean
 }
 
 export type ChromoDevToolsHandlers = {
@@ -58,6 +60,7 @@ export type ChromoDevToolsHandlers = {
   onCloseNetworkDetail: () => void
   onDisableNetworkCacheChange: (disable: boolean) => void
   onVConsoleEnabledChange: (enabled: boolean) => void
+  onDebugPanelEnabledChange: (enabled: boolean) => void
   onClearBrowsingData: () => Promise<void>
   onRedock: (side: ChromoDevToolsDockSide) => void
   onDetachedClosed: () => void

@@ -291,6 +291,7 @@ export type ChromoBridge = {
     options?: ChromoRpcOptions,
   ) => Promise<ChromoNetworkHotProbeResult>
   setNetworkOptions: (options: ChromoNetworkOptions) => void
+  setDebugPanelEnabled: (enabled: boolean) => void
   devtoolsId: string
   screenshot: (
     options?: ChromoScreenshotOptions,
@@ -411,6 +412,7 @@ export function createChromoBridge(
   let ready = false
   const devtoolsId = options.devtoolsId ?? crypto.randomUUID()
   let disableCache = Boolean(options.disableCache)
+  let debugPanelEnabled = false
   const pendingNavigations: Array<{ url: string; method?: 'POST'; body?: string }> = []
   const pendingRpcs = new Map<string, PendingRpc>()
   let pendingClearState: {
@@ -431,8 +433,13 @@ export function createChromoBridge(
     )
   }
 
+  const applyDebugPanelOptions = () => {
+    postCommand(iframe, 'VC_DEBUG_PANEL', { enabled: debugPanelEnabled }, targetOrigin)
+  }
+
   const flushPending = () => {
     applyNetworkOptions()
+    applyDebugPanelOptions()
     while (pendingNavigations.length > 0) {
       const req = pendingNavigations.shift()
       if (req) {
@@ -754,6 +761,10 @@ export function createChromoBridge(
         disableCache = opts.disableCache
       }
       applyNetworkOptions()
+    },
+    setDebugPanelEnabled(enabled) {
+      debugPanelEnabled = !!enabled
+      applyDebugPanelOptions()
     },
     devtoolsId,
     screenshot(options) {
