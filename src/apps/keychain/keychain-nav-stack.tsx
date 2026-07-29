@@ -171,6 +171,14 @@ function layerContent(layer: Element): HTMLElement | null {
   for (const child of settings.children) {
     if (
       child instanceof HTMLElement &&
+      child.classList.contains('settings__body')
+    ) {
+      return child
+    }
+  }
+  for (const child of settings.children) {
+    if (
+      child instanceof HTMLElement &&
       child.classList.contains('settings__content')
     ) {
       return child

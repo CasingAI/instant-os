@@ -123,10 +123,13 @@
 }
 
 .keychain-stack--push .keychain-stack__layer--under .settings__nav,
+.keychain-stack--push .keychain-stack__layer--under .settings__body,
 .keychain-stack--push .keychain-stack__layer--under .settings__content,
 .keychain-stack--pop .keychain-stack__layer--under .settings__nav,
+.keychain-stack--pop .keychain-stack__layer--under .settings__body,
 .keychain-stack--pop .keychain-stack__layer--under .settings__content,
 .keychain-stack--pop .keychain-stack__layer--over .settings__nav,
+.keychain-stack--pop .keychain-stack__layer--over .settings__body,
 .keychain-stack--pop .keychain-stack__layer--over .settings__content {
   pointer-events: none;
 }
@@ -174,7 +177,15 @@
 .keychain-stack--push
   .keychain-stack__layer
   .settings:has(> .settings__nav)
+  > .settings__body,
+.keychain-stack--push
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
   > .settings__content,
+.keychain-stack--pop
+  .keychain-stack__layer
+  .settings:has(> .settings__nav)
+  > .settings__body,
 .keychain-stack--pop
   .keychain-stack__layer
   .settings:has(> .settings__nav)
@@ -194,11 +205,11 @@
 /* 转场时正文才是滚动容器，搜索条贴内容顶即可 */
 .keychain-stack--push
   .keychain-stack__layer
-  .settings__content
+  .settings__body
   > .settings__search-bar,
 .keychain-stack--pop
   .keychain-stack__layer
-  .settings__content
+  .settings__body
   > .settings__search-bar {
   top: 0;
 }
@@ -231,21 +242,25 @@
   z-index: 3;
 }
 
+.keychain-stack--push .keychain-stack__layer--under .settings__body,
 .keychain-stack--push .keychain-stack__layer--under .settings__content {
   animation: keychain-body-under-push 0.35s ease-in-out both;
   z-index: 1;
 }
 
+.keychain-stack--push .keychain-stack__layer--over .settings__body,
 .keychain-stack--push .keychain-stack__layer--over .settings__content {
   animation: keychain-body-over-push 0.35s ease-in-out both;
   z-index: 2;
 }
 
+.keychain-stack--pop .keychain-stack__layer--under .settings__body,
 .keychain-stack--pop .keychain-stack__layer--under .settings__content {
   animation: keychain-body-under-pop 0.35s ease-in-out both;
   z-index: 1;
 }
 
+.keychain-stack--pop .keychain-stack__layer--over .settings__body,
 .keychain-stack--pop .keychain-stack__layer--over .settings__content {
   animation: keychain-body-over-pop 0.35s ease-in-out both;
   z-index: 2;
@@ -334,6 +349,8 @@
 @media (prefers-reduced-motion: reduce) {
   .keychain-stack--push .keychain-stack__layer .settings__nav,
   .keychain-stack--pop .keychain-stack__layer .settings__nav,
+  .keychain-stack--push .keychain-stack__layer .settings__body,
+  .keychain-stack--pop .keychain-stack__layer .settings__body,
   .keychain-stack--push .keychain-stack__layer .settings__content,
   .keychain-stack--pop .keychain-stack__layer .settings__content {
     animation: none !important;

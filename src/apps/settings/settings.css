@@ -99,7 +99,13 @@
 }
 
 .settings:has(> .settings__nav)
-  > .settings__content:has(> .settings__search-bar) {
+  > .settings__body
+  > .settings__content--compact {
+  padding-top: 14px;
+}
+
+.settings__body:has(> .settings__search-bar)
+  > .settings__content--compact {
   padding-top: 0;
 }
 
@@ -216,16 +222,36 @@
   pointer-events: none;
 }
 
-/* 结构在 content；叠在 nav 自带分割线下方，再加一层底部分割线 */
-/* 负边距用 --settings-content-pad-x，与内容区水平 padding 同步，背景条撑满左右 */
-.settings__content > .settings__search-bar {
+/* 搜索条在 body 层全宽铺底，输入框在内部限宽对齐列表 */
+.settings__body {
+  --settings-content-pad-x: 18px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.settings:has(> .settings__nav) > .settings__body > .settings__content {
+  flex: none;
+  overflow: visible;
+  min-height: auto;
+}
+
+.settings__body > .settings__search-bar {
   position: sticky;
   top: 41px;
   z-index: 2;
-  margin: 0 calc(-1 * var(--settings-content-pad-x, 18px)) 12px;
+  flex-shrink: 0;
+  width: 100%;
+  margin-bottom: 12px;
   padding: 6px var(--settings-content-pad-x, 18px);
+  box-sizing: border-box;
   background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.settings__body > .settings__content--compact {
+  padding: 8px var(--settings-content-pad-x, 18px) 18px;
 }
 
 .settings__search {
@@ -2471,6 +2497,14 @@
     padding: 18px max(28px, calc((100% - 860px) / 2)) 28px;
   }
 
+  .settings__body {
+    --settings-content-pad-x: max(28px, calc((100% - 860px) / 2));
+  }
+
+  .settings__body > .settings__content--compact {
+    padding: 18px var(--settings-content-pad-x) 28px;
+  }
+
   .settings__content-columns {
     display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
@@ -2522,6 +2556,14 @@
     --settings-content-pad-x: 16px;
     padding: 10px 16px 18px;
   }
+
+  .settings__body {
+    --settings-content-pad-x: 16px;
+  }
+
+  .settings__body > .settings__content--compact {
+    padding: 10px var(--settings-content-pad-x) 18px;
+  }
 }
 
 @container app-window (max-width: 540px) {
@@ -2529,6 +2571,14 @@
   .settings__content--compact {
     --settings-content-pad-x: 14px;
     padding: 10px 14px 16px;
+  }
+
+  .settings__body {
+    --settings-content-pad-x: 14px;
+  }
+
+  .settings__body > .settings__content--compact {
+    padding: 10px var(--settings-content-pad-x) 16px;
   }
 
   .settings__form-row,

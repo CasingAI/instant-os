@@ -85,7 +85,7 @@ export function SettingsChoicePickerView({
           <span class="settings__nav-trailing" aria-hidden="true" />
         </div>
       </div>
-      <div class="settings__content settings__content--compact">
+      <div class="settings__body">
         {searchable && (
           <div class="settings__search-bar">
             <div class="settings__search">
@@ -108,6 +108,7 @@ export function SettingsChoicePickerView({
             </div>
           </div>
         )}
+        <div class="settings__content settings__content--compact">
         <section class="settings__section">
           {!titleInNav && <h2 class="settings__section-title">{title}</h2>}
           {showEmptyLoading ? (
@@ -146,6 +147,7 @@ export function SettingsChoicePickerView({
             <p class="settings__section-footnote">{footnote}</p>
           )}
         </section>
+        </div>
       </div>
     </>
   )
