@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import type { Plugin } from 'vite'
 import { zipSync } from 'fflate'
@@ -128,6 +128,7 @@ export function sourceSnapshot(): Plugin {
     },
     closeBundle() {
       const zipBytes = buildSourceSnapshotZip(rootDir)
+      mkdirSync(outDir, { recursive: true })
       writeFileSync(resolve(outDir, SNAPSHOT_FILENAME), zipBytes)
     },
   }
