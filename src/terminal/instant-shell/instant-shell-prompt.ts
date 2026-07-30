@@ -50,7 +50,8 @@ console.log(r.matches)
 
 【WebView · globalThis.webview】
 终端另注入 \`webview\`（与 instant 并列）。用于在终端脚本里**打开真实网页、读取结构/正文、操作 DOM、截图、调试**——不是 AI 假页面（browser），也不是用户手点的 Chromo 窗口。
-每个 create 创建一个浏览单元（可含多标签），默认离屏；依附当前终端会话。.reset / 关闭终端会立刻销毁该会话下全部单元。与 Chromo 共用同一套 virtual-chromo 代理与站点数据（cookie 等互通）。
+每个 create 创建一个浏览单元（可含多标签），默认离屏（无 OS 窗口，iframe 在离屏池）；依附当前终端会话。.reset / 关闭终端会立刻销毁该会话下全部单元。与 Chromo 共用同一套 virtual-chromo 代理与站点数据（cookie 等互通）。
+create 不建窗口；show 才打开普通系统窗口（关窗只收壳，不销毁会话；再次 show 若无窗则新开）。
 
 何时用：
 - 需要抓取/操作真实网页内容 → webview.create + wait + snapshot（优先）/ eval

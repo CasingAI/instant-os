@@ -4,6 +4,7 @@ import { Dock } from '../dock/dock.tsx'
 import { useDockViewportFit } from '../dock/use-dock-viewport-fit.ts'
 import { FilesMountPermissionDialog } from '../apps/files/files-mount-permission-dialog.tsx'
 import { scanMountPermissionsNeedingPrompt } from '../apps/files/files-mount-permission-gate.ts'
+import { WebViewOffscreenPool } from '../apps/webview/webview-offscreen-pool.tsx'
 import { IconContextMenuProvider } from './icon-context-menu-context.tsx'
 import { LauncherLayoutProvider } from './launcher-layout-context.tsx'
 import { AboutAppProvider } from './about-app-context.tsx'
@@ -40,6 +41,7 @@ function OsShellContent() {
       <MenuBar />
       <Desktop />
       <WindowManager />
+      <WebViewOffscreenPool />
       <Dock />
       <div class="system-deadlock-dialog-host">
         <SystemDeadlockDialog />

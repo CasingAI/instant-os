@@ -27,7 +27,7 @@ import {
   waitWebViewTab,
   type WebViewUnitEvent,
 } from './webview-registry.ts'
-import { ensureWebViewWindow, showWebViewWindow } from './webview-app.tsx'
+import { showWebViewWindow } from './webview-window-service.ts'
 
 export type WebViewHostBindings = {
   terminalSessionId: string
@@ -37,18 +37,10 @@ export type WebViewHostBindings = {
     appId: string
     documentId?: string
     closing?: boolean
-    windowless?: boolean
+    minimized?: boolean
   }[]
-  revealWindowlessPanel: (
-    windowId: string,
-    opts?: {
-      title?: string
-      width?: number
-      height?: number
-      chromeKind?: 'window' | 'dialog'
-    },
-  ) => void
   focusWindow: (windowId: string) => void
+  restoreWindow: (windowId: string) => void
   closeWindow: (windowId: string) => void
   openDevToolsApp: (documentId: string) => void
 }
@@ -182,9 +174,7 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       const opts = readObjectArg(context, optsHandle, 'options')
       const url = String(opts.url ?? '').trim()
       if (!url) throw new Error('url 不能为空')
-      const created = createWebViewUnit(host.terminalSessionId, url)
-      ensureWebViewWindow(host.openApp, created.unitId)
-      return created
+      return createWebViewUnit(host.terminalSessionId, url)
     }),
   )
 
@@ -207,10 +197,11 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       assertWebViewUnitOwner(unitId, host.terminalSessionId)
       showWebViewWindow(
         {
-          windows: host.getWindows(),
           openApp: host.openApp,
-          revealWindowlessPanel: host.revealWindowlessPanel,
+          getWindows: host.getWindows,
           focusWindow: host.focusWindow,
+          restoreWindow: host.restoreWindow,
+          closeWindow: host.closeWindow,
         },
         unitId,
       )

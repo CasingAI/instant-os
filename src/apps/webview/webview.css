@@ -70,6 +70,12 @@
   background: #fff;
 }
 
+.webview__viewport-slot {
+  position: absolute;
+  inset: 0;
+}
+
+.webview__viewport-slot .chromo__viewer,
 .webview__viewport .chromo__viewer {
   position: absolute;
   inset: 0;
@@ -78,9 +84,25 @@
   border: 0;
 }
 
+.webview__viewport-slot .chromo__viewer--hidden,
 .webview__viewport .chromo__viewer--hidden {
   visibility: hidden;
   pointer-events: none;
+}
+
+.webview-offscreen-pool {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.webview-runtime {
+  display: contents;
 }
 
 .webview--devtools .webview__body {

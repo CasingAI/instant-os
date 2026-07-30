@@ -138,7 +138,6 @@ export function TerminalReplPanel({
     restoreWindow,
     toggleFullscreen,
     toggleMaximize,
-    revealWindowlessPanel,
   } = useOs()
   const { installedApps } = useGeneratedApps()
   const { sessionExtApps } = useDevExtApps()
@@ -179,8 +178,6 @@ export function TerminalReplPanel({
   toggleFullscreenRef.current = toggleFullscreen
   const toggleMaximizeRef = useRef(toggleMaximize)
   toggleMaximizeRef.current = toggleMaximize
-  const revealWindowlessPanelRef = useRef(revealWindowlessPanel)
-  revealWindowlessPanelRef.current = revealWindowlessPanel
   const modalRef = useRef(modal)
   modalRef.current = modal
   /** 当前 busy 切片开始时间；用于关窗确认（短交互命令不弹，长任务中途 close 才确认）。 */
@@ -370,11 +367,11 @@ export function TerminalReplPanel({
               return openAppRef.current(appId, options)
             },
             getWindows: () => windowsRef.current,
-            revealWindowlessPanel: (windowId, opts) => {
-              revealWindowlessPanelRef.current(windowId, opts)
-            },
             focusWindow: (windowId) => {
               focusWindowRef.current(windowId)
+            },
+            restoreWindow: (windowId) => {
+              restoreWindowRef.current(windowId)
             },
             closeWindow: (windowId) => {
               closeWindowRef.current(windowId)

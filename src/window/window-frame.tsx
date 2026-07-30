@@ -61,6 +61,43 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
   const isClosing = window.closing
   const [isEntering, setIsEntering] = useState(false)
   const wasRevealedRef = useRef(false)
+  const windowBounds = useMemo(
+    () => ({
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }),
+    [window.x, window.y, window.width, window.height],
+  )
+  const [minimizeTransform, setMinimizeTransform] = useState<string | undefined>(undefined)
+  const prevMinimizedRef = useRef(window.minimized)
+  const [isMinimizing, setIsMinimizing] = useState(false)
+  const [minimizeVisualSettled, setMinimizeVisualSettled] = useState(window.minimized)
+  const showMinimizeVisual = isMinimizing || minimizeVisualSettled
+  const showAsWindowFrame = revealed || isMinimizing
+
+  useLayoutEffect(() => {
+    const wasMinimized = prevMinimizedRef.current
+    prevMinimizedRef.current = window.minimized
+
+    if (window.minimized && !wasMinimized) {
+      setMinimizeTransform(buildMinimizeTransform(windowBounds, window.appId))
+      setMinimizeVisualSettled(false)
+      setIsMinimizing(true)
+      const timer = globalThis.setTimeout(() => {
+        setIsMinimizing(false)
+        setMinimizeVisualSettled(true)
+      }, 420)
+      return () => globalThis.clearTimeout(timer)
+    }
+
+    if (!window.minimized) {
+      setMinimizeTransform(undefined)
+      setIsMinimizing(false)
+      setMinimizeVisualSettled(false)
+    }
+  }, [window.minimized, windowBounds, window.appId])
 
   useLayoutEffect(() => {
     const wasRevealed = wasRevealedRef.current
@@ -68,10 +105,10 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     if (revealed && !wasRevealed && window.enterAnimation === 'scale-in') {
       setIsEntering(true)
     }
-    if (!revealed) {
+    if (!revealed && !isMinimizing) {
       setIsEntering(false)
     }
-  }, [revealed, window.enterAnimation])
+  }, [isMinimizing, revealed, window.enterAnimation])
 
   const getDragBounds = useCallback(
     () => ({
@@ -92,7 +129,7 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
     releaseAnchoredWindow,
     applyWindowSnap,
     undefined,
-    revealed && !isEntering,
+    revealed && !isEntering && !isMinimizing,
   )
 
   useEffect(() => {
@@ -114,16 +151,19 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
       {dragging && <SnapPreview target={snapPreview} />}
       <section
         class={
-          revealed
-            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${isEntering ? ' window-frame--entering' : ''}`
+          showAsWindowFrame
+            ? `window-frame${isDialogChrome ? ' window-frame--dialog' : ''}${isActive ? ' window-frame--active' : ''}${dragging ? ' window-frame--dragging' : ''}${showMinimizeVisual ? ' window-frame--minimized' : ''}${isMinimizing ? ' window-frame--minimizing' : ''}${isEntering ? ' window-frame--entering' : ''}`
             : 'windowless-app-host'
         }
+        aria-hidden={showMinimizeVisual ? true : undefined}
         style={{
           zIndex: window.zIndex,
           left: `${window.x}px`,
           top: `${window.y}px`,
           width: `${window.width}px`,
           height: `${window.height}px`,
+          transform: isEntering ? undefined : showMinimizeVisual ? minimizeTransform : undefined,
+          opacity: showMinimizeVisual ? 0 : undefined,
         }}
         onAnimationEnd={(event) => {
           if (event.animationName === 'window-frame-open') {
@@ -131,7 +171,7 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
           }
         }}
         onPointerDownCapture={
-          revealed
+          revealed && !isMinimizing
             ? (event) => {
                 if (event.button !== 0) return
                 focusWindow(window.id)
@@ -139,8 +179,8 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
             : undefined
         }
       >
-        <div class={revealed ? 'window-frame__chrome' : 'windowless-app-host__chrome'}>
-          {revealed ? (
+        <div class={showAsWindowFrame ? 'window-frame__chrome' : 'windowless-app-host__chrome'}>
+          {showAsWindowFrame ? (
             <header class="window-frame__titlebar" onPointerDown={onTitlebarPointerDown}>
               <div class="window-frame__controls">
                 <button
@@ -185,7 +225,7 @@ function WindowlessAppHost({ window }: WindowFrameProps) {
               <span class="window-frame__title-trailing" aria-live="polite" />
             </header>
           ) : undefined}
-          <div class={revealed ? 'window-frame__content' : 'windowless-app-host__content'}>
+          <div class={showAsWindowFrame ? 'window-frame__content' : 'windowless-app-host__content'}>
             <WindowModalProvider>{renderAppBody(window, AppComponent)}</WindowModalProvider>
           </div>
         </div>

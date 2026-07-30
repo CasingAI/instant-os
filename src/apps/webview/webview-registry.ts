@@ -27,10 +27,15 @@ export type WebViewUnitRecord = {
   ownerTerminalSessionId: string
   tabs: PageTab[]
   uiDisplayedTabId: string
+  /** @deprecated 派生自 windowId；保留供 listUnits API 兼容 */
   visible: boolean
   windowId?: string
+  /** Window Shell 提供的 viewport 挂载点；Runtime 据此 portal */
+  viewportTarget: HTMLElement | null
   viewerRefs: Record<string, RefObject<PageViewerHandle>>
 }
+
+export type WebViewDisplayState = 'offscreen' | 'displayed' | 'minimized' | 'fault'
 
 type Listener = (event: WebViewUnitEvent) => void
 
@@ -126,6 +131,7 @@ export function createWebViewUnit(
     tabs: [tab],
     uiDisplayedTabId: tab.id,
     visible: false,
+    viewportTarget: null,
     viewerRefs: {},
   }
   units.set(unitId, record)
@@ -168,31 +174,78 @@ export function destroyWebViewUnitsForOwner(
   }
 }
 
-export function setWebViewUnitVisible(
-  unitId: string,
-  visible: boolean,
-  windowId?: string,
-): void {
+/**
+ * 绑定 / 解绑 OS Window 壳。
+ * - windowId 有值：Session 进入「有窗」态（displayed / minimized 由 OS 派生）
+ * - windowId 为 undefined：关壳回离屏，不清 viewportTarget（Shell unmount 会清）
+ */
+export function bindWebViewWindow(unitId: string, windowId: string | undefined): void {
   const unit = units.get(unitId)
   // 单元已被终端/任务管理器销毁时，窗可能仍短暂挂着——静默忽略
   if (!unit) {
     return
   }
-  const prevVisible = unit.visible
   const prevWindowId = unit.windowId
-  unit.visible = visible
-  if (!visible) {
-    unit.windowId = undefined
-  } else if (windowId !== undefined) {
-    unit.windowId = windowId
-  }
-  if (prevVisible === unit.visible && prevWindowId === unit.windowId) {
+  const prevVisible = unit.visible
+  unit.windowId = windowId
+  unit.visible = Boolean(windowId)
+  if (prevWindowId === unit.windowId && prevVisible === unit.visible) {
     return
   }
-  if (visible && !prevVisible) {
+  if (windowId && !prevWindowId) {
     emit({ type: 'unitShown', unitId })
   }
   notifyChanged()
+}
+
+/** @deprecated 使用 bindWebViewWindow */
+export function setWebViewUnitVisible(
+  unitId: string,
+  visible: boolean,
+  windowId?: string,
+): void {
+  if (!visible) {
+    bindWebViewWindow(unitId, undefined)
+    return
+  }
+  bindWebViewWindow(unitId, windowId)
+}
+
+export function setWebViewViewportTarget(
+  unitId: string,
+  target: HTMLElement | null,
+): void {
+  const unit = units.get(unitId)
+  if (!unit) {
+    return
+  }
+  if (unit.viewportTarget === target) {
+    return
+  }
+  unit.viewportTarget = target
+  notifyChanged()
+}
+
+export function getWebViewDisplayState(
+  unit: WebViewUnitRecord,
+  windows: { id: string; closing?: boolean; minimized?: boolean }[],
+): WebViewDisplayState {
+  const displayed =
+    unit.tabs.find((tab) => tab.id === unit.uiDisplayedTabId) ?? unit.tabs[0]
+  if (displayed?.pageFault) {
+    return 'fault'
+  }
+  if (!unit.windowId) {
+    return 'offscreen'
+  }
+  const win = windows.find((window) => window.id === unit.windowId && !window.closing)
+  if (!win) {
+    return 'offscreen'
+  }
+  if (win.minimized) {
+    return 'minimized'
+  }
+  return 'displayed'
 }
 
 export function setWebViewUiDisplayedTab(unitId: string, tabId: string): void {
@@ -465,7 +518,10 @@ export type WebViewUnitSummary = {
   status: string
 }
 
-export function summarizeWebViewUnit(unit: WebViewUnitRecord): WebViewUnitSummary {
+export function summarizeWebViewUnit(
+  unit: WebViewUnitRecord,
+  windows: { id: string; closing?: boolean; minimized?: boolean }[] = [],
+): WebViewUnitSummary {
   const displayed =
     unit.tabs.find((tab) => tab.id === unit.uiDisplayedTabId) ?? unit.tabs[0]
   const url = displayed?.pendingUrl || displayed?.url || ''
@@ -477,14 +533,16 @@ export function summarizeWebViewUnit(unit: WebViewUnitRecord): WebViewUnitSummar
   }
   const loading = Boolean(displayed?.loading)
   const hasFault = Boolean(displayed?.pageFault)
+  const displayState = getWebViewDisplayState(unit, windows)
   let status = '离屏'
-  if (hasFault) status = '错误'
+  if (displayState === 'fault') status = '错误'
   else if (loading) status = '加载中'
-  else if (unit.visible) status = '已显示'
+  else if (displayState === 'minimized') status = '已最小化'
+  else if (displayState === 'displayed') status = '已显示'
   return {
     unitId: unit.unitId,
     ownerTerminalSessionId: unit.ownerTerminalSessionId,
-    visible: unit.visible,
+    visible: Boolean(unit.windowId),
     windowId: unit.windowId,
     tabCount: unit.tabs.length,
     title: `WebView — ${host}`,

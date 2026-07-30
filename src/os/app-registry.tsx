@@ -88,7 +88,6 @@ export const APP_REGISTRY: AppDefinition[] = [
     dock: false,
     dockWhenRunning: true,
     desktop: false,
-    windowless: true,
     multiWindow: true,
   }),
   withAbout({

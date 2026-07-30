@@ -263,14 +263,16 @@ export function TaskManagerApp() {
   useAppMenuBar(APP_ID, menuBar)
 
   const [webviewUnits, setWebviewUnits] = useState<WebViewUnitSummary[]>(() =>
-    listWebViewUnits().map(summarizeWebViewUnit),
+    listWebViewUnits().map((unit) => summarizeWebViewUnit(unit, windows)),
   )
 
   useEffect(() => {
-    return onWebViewRegistryChanged(() => {
-      setWebviewUnits(listWebViewUnits().map(summarizeWebViewUnit))
-    })
-  }, [])
+    const refresh = () => {
+      setWebviewUnits(listWebViewUnits().map((unit) => summarizeWebViewUnit(unit, windows)))
+    }
+    refresh()
+    return onWebViewRegistryChanged(refresh)
+  }, [windows])
 
   const runningApps = useMemo((): RunningAppEntry[] => {
     const groups = new Map<AppId, WindowState[]>()
@@ -459,7 +461,7 @@ export function TaskManagerApp() {
                       <td class="task-manager__td task-manager__td--status">{unit.status}</td>
                       <td class="task-manager__td task-manager__td--ai">—</td>
                       <td class="task-manager__td task-manager__td--windows">
-                        {unit.visible ? 1 : 0}
+                        {unit.windowId ? 1 : 0}
                       </td>
                       <td class="task-manager__td task-manager__td--action">
                         <button
@@ -517,7 +519,8 @@ export function TaskManagerApp() {
           {(endableApps.length > 0 || webviewUnits.length > 0 || workerServices.length > 0) && (
             <p class="task-manager__footnote">
               「AI 速度」只在正在生成时显示数值；点「结束」会关闭该应用的全部窗口。WebView
-              按浏览单元单独列出。系统服务异常时会自动重启（最多 3 次），也可点「重启」手动恢复。
+              按浏览单元单独列出（含尚未 show 的离屏单元）。系统服务异常时会自动重启（最多 3
+              次），也可点「重启」手动恢复。
             </p>
           )}
         </section>
