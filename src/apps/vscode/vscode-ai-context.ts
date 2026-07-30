@@ -145,7 +145,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
           '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
           '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下工作区写操作会被拒绝',
           '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id}）；只读模式下仍可写该目录',
-          '- 终端工具返回超过约 1000 字符时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 自行读取',
+          '- 终端工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
           '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
           mode === 'plan'
             ? '- Plan：run_in_terminal 只读调研（搜索用 instant.grep）；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
@@ -167,7 +167,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
             '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
             '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id} 或 npm 的 /tmp/Npm/{id}）；大文本可写该目录（不进 ChangeSet）',
-            '- 终端 / npm 工具返回超过约 1000 字符时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 自行读取',
+            '- 终端 / npm 工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
             '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
             '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
             '- 需要抓取或操作真实网页时，在 run_in_terminal 里用 await webview.create → wait → snapshot（看结构与 [eN]）→ markdown / eval+__vcRef 操作（默认离屏；用完可 destroy）；不要臆造网页内容，不要整页 innerText',

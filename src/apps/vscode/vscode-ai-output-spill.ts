@@ -9,8 +9,11 @@ import { filesCreateText } from '../files/files-api.ts'
 import { joinFilesAbsolutePath } from '../files/files-path.ts'
 import { ensureTmpFolder } from '../files/files-tmp.ts'
 
-export const TERMINAL_OUTPUT_SPILL_THRESHOLD = 1000
-export const TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS = 1000
+export const TERMINAL_OUTPUT_SPILL_THRESHOLD = 16_000
+export const TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS = 16_000
+/** timeline 展示留 header + grep 提示余量 */
+export const TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT =
+  TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS + 2_048
 
 let spillSeq = 0
 
@@ -19,10 +22,14 @@ function nextSpillId(): string {
   return `${osNowMs()}-${spillSeq}`
 }
 
+export function formatSpillFollowUpHint(path: string): string {
+  return `后续可用 await instant.grep('关键词', { path: ${JSON.stringify(path)} }) 检索；或用 fs.readFileSync(${JSON.stringify(path)}, 'utf8').slice(offset, offset+长度) 分段读取。`
+}
+
 export function formatSpillPreview(fullText: string, path: string): string {
   const total = fullText.length
   const preview = fullText.slice(0, TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS)
-  return `（以下仅为文件开头 ${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS} 字符，共 ${total} 字符；完整内容见 ${path}）\n${preview}`
+  return `（以下仅为文件开头 ${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS} 字符，共 ${total} 字符；完整内容见 ${path}）\n${formatSpillFollowUpHint(path)}\n${preview}`
 }
 
 export async function writeSpillFile(params: {

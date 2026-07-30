@@ -41,11 +41,12 @@ import {
   writeToolPreviewField,
   writeToolTitleField,
 } from './vscode-ai-streaming-json.ts'
+import { TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT } from './vscode-ai-output-spill.ts'
 
 const VSCODE_AI_MAX_STEPS = 30
 const WRITE_PREVIEW_STORE_LIMIT = 8_000
-/** 工具结果 / 命令输出落盘与内存上限，降低长 Agent 回合 OOM 风险 */
-const TOOL_RESULT_STORE_LIMIT = 4_000
+/** 工具结果 / 命令输出落盘与内存上限；对齐 spill preview（16K + header/hint 余量） */
+const TOOL_RESULT_STORE_LIMIT = TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT
 const ACTIVITY_CONTENT_STORE_LIMIT = 4_000
 const REASONING_STORE_LIMIT = 12_000
 

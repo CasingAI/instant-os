@@ -12,6 +12,7 @@ import { filesReadText, filesStat } from '../files/files-api.ts'
 import {
   TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS,
   TERMINAL_OUTPUT_SPILL_THRESHOLD,
+  formatSpillFollowUpHint,
   formatSpillPreview,
   maybeSpillToolOutput,
 } from './vscode-ai-output-spill.ts'
@@ -60,6 +61,9 @@ async function testLongTextSpill(): Promise<void> {
   assert.equal(tool.role, 'tool')
   assert.ok('content' in tool && typeof tool.content === 'string')
   assert.ok(tool.content.startsWith('（以下仅为文件开头'))
+  assert.ok(tool.content.includes('instant.grep'))
+  assert.ok(tool.content.includes(path))
+  assert.ok(tool.content.includes(formatSpillFollowUpHint(path)))
   assert.ok(tool.content.includes(text.slice(0, TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS)))
   assert.equal(
     tool.content.length,
