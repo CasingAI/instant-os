@@ -558,4 +558,5 @@ export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   npx: '运行 npx',
   get_terminal_changes: '查看终端变更',
   revert_terminal_changes: '撤销终端变更',
+  compact_context: '压缩上下文',
 }

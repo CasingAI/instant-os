@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import type OpenAI from 'openai'
 import { MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { parseFilesAbsolutePath } from '../files/files-path.ts'
@@ -200,7 +201,11 @@ type VscodeEditorAreaProps = {
   onNewAiChat?: () => void
   onRestoreAiChat?: (sessionId: string) => void
   onCloseAiChat?: (itemId: string) => void
-  onAiChatMessagesChange?: (sessionId: string, messages: VscodeAiChatMessage[]) => void
+  onAiChatMessagesChange?: (
+    sessionId: string,
+    messages: VscodeAiChatMessage[],
+    extras?: { apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[] },
+  ) => void
   onAiChatBusyChange?: (sessionId: string, busy: boolean) => void
   onAiChatLastSentTerminalChange?: (
     sessionId: string,
@@ -899,7 +904,10 @@ function VscodeEditorGroupView({
                 <VscodeAiPanel
                   sessionId={session.id}
                   messages={session.messages}
-                  onMessagesChange={(next) => onAiChatMessagesChange?.(session.id, next)}
+                  apiTranscript={session.apiTranscript}
+                  onMessagesChange={(next, extras) =>
+                    onAiChatMessagesChange?.(session.id, next, extras)
+                  }
                   mode={resolvedAiMode}
                   onModeChange={resolvedOnAiModeChange}
                   aiModelSource={aiModelSource ?? 'text'}

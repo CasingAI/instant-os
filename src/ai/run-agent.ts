@@ -20,6 +20,19 @@ import {
   raceWithAbortSignal,
   throwIfStreamAborted,
 } from './stream-abort.ts'
+import {
+  appendSelfCompactRubric,
+  applyToolObservationBudget,
+  cloneMessages,
+  createCompactContextTool,
+  createToolBudgetDedupState,
+  estimateMessagesTokensRough,
+  nextCompressionId,
+  resolveCompressionOptions,
+  runCompressionPipeline,
+  type AgentCompressionEvent,
+  type AgentCompressionOptions,
+} from './context-compression/index.ts'
 
 export type AgentToolCallEvent = {
   step: number
@@ -89,6 +102,9 @@ export type RunAgentOptions = {
   config?: Partial<OpenAiConfig>
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  /** 上下文压缩；默认启用 */
+  compression?: AgentCompressionOptions
+  onContextCompression?: (event: AgentCompressionEvent) => void
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
   onToolResult?: (event: AgentToolResultEvent) => void
@@ -100,11 +116,17 @@ export type RunAgentOptions = {
 
 export type RunAgentResult = {
   text: string
+  /** 规范历史（完整，供续跑 / 编辑撤销） */
   messages: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 最后一轮实际发给模型的线历史 */
+  wireMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  compressions?: AgentCompressionEvent[]
   steps: number
   /** 达到 maxSteps 仍有未完成的工具轮次，调用方可携带 messages 继续 */
   incomplete?: boolean
 }
+
+export type { AgentCompressionEvent, AgentCompressionOptions }
 
 type AccumulatedToolCall = {
   id: string
@@ -155,16 +177,6 @@ function serializeToolResult(result: unknown): string {
   }
 
   return JSON.stringify(result)
-}
-
-function appendMessagesAfterToolResult(
-  messages: OpenAI.Chat.ChatCompletionMessageParam[],
-  result: unknown,
-): void {
-  if (!isAgentToolStructuredResult(result) || !result.appendMessages?.length) {
-    return
-  }
-  messages.push(...result.appendMessages)
 }
 
 function emitSyntheticActivities(
@@ -409,10 +421,130 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
   const client = options.client ?? getOpenAiClient(config)
   const model = options.model ?? config.defaultModel
   const maxSteps = options.maxSteps ?? 8
-  const tools = options.tools ?? []
-  const toolByName = new Map(tools.map((tool) => [tool.name, tool]))
+  const compression = resolveCompressionOptions(options.compression)
+  const requireReasoningEcho = providerRequiresReasoningContentEcho(config.providerId, model)
+  const dedup = createToolBudgetDedupState()
+  const compressions: AgentCompressionEvent[] = []
+  let estimatedTokens = 0
 
-  const messages = buildInitialMessages(options)
+  const emitCompression = (event: AgentCompressionEvent) => {
+    compressions.push(event)
+    options.onContextCompression?.(event)
+  }
+
+  const systemPrompt =
+    compression.enabled && compression.selfCompactTool
+      ? appendSelfCompactRubric(options.prompt)
+      : options.prompt
+
+  const canonical = buildInitialMessages({ ...options, prompt: systemPrompt })
+  let wire = cloneMessages(canonical)
+
+  type MutableBuffers = {
+    canonical: OpenAI.Chat.ChatCompletionMessageParam[]
+    wire: OpenAI.Chat.ChatCompletionMessageParam[]
+  }
+  const buffers: MutableBuffers = { canonical, wire }
+
+  const pushBoth = (message: OpenAI.Chat.ChatCompletionMessageParam) => {
+    buffers.canonical.push(message)
+    buffers.wire.push(structuredClone(message))
+  }
+
+  const budgetAndPushTool = async (
+    toolCallId: string,
+    rawContent: string,
+    step: number,
+  ): Promise<string> => {
+    if (!compression.enabled) {
+      const message: OpenAI.Chat.ChatCompletionMessageParam = {
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: rawContent,
+      }
+      pushBoth(message)
+      return rawContent
+    }
+
+    const budgeted = await applyToolObservationBudget(rawContent, {
+      step,
+      dedup,
+      spill: compression.spill,
+    })
+    if (budgeted.changed) {
+      emitCompression({
+        id: nextCompressionId('tool'),
+        kind: 'tool_budget',
+        atStep: step,
+        beforeTokens: estimatedTokens,
+        afterTokens: estimatedTokens,
+        coveredCanonicalFrom: buffers.canonical.length,
+        coveredCanonicalTo: buffers.canonical.length + 1,
+        summaryPreview: budgeted.content.slice(0, 200),
+        spilled: budgeted.spilled,
+        note: budgeted.duplicate ? 'duplicate' : undefined,
+      })
+    }
+    const message: OpenAI.Chat.ChatCompletionMessageParam = {
+      role: 'tool',
+      tool_call_id: toolCallId,
+      content: budgeted.content,
+    }
+    pushBoth(message)
+    return budgeted.content
+  }
+
+  const runPipeline = async (
+    step: number,
+    extras?: { forceLlmCompact?: boolean; focus?: string },
+  ) => {
+    if (!compression.enabled) return
+    const result = await runCompressionPipeline({
+      canonical: buffers.canonical,
+      wire: buffers.wire,
+      step,
+      estimatedTokens,
+      options: compression,
+      requireReasoningEcho,
+      model,
+      usageContext: options.usageContext,
+      client,
+      focus: extras?.focus,
+      forceLlmCompact: extras?.forceLlmCompact,
+      signal: options.signal,
+    })
+    buffers.wire = result.wire
+    estimatedTokens = result.estimatedTokens
+    for (const event of result.events) {
+      emitCompression(event)
+    }
+  }
+
+  const baseTools = options.tools ?? []
+  const tools: AgentTool[] = [...baseTools]
+  if (compression.enabled && compression.selfCompactTool) {
+    tools.push(
+      createCompactContextTool(async (args) => {
+        const before = estimatedTokens || estimateMessagesTokensRough(buffers.wire)
+        await runPipeline(Math.max(0, compressions.length), {
+          forceLlmCompact: true,
+          focus: args.focus,
+        })
+        const last = compressions[compressions.length - 1]
+        return {
+          ok: true,
+          focus: args.focus ?? null,
+          reason: args.reason ?? null,
+          beforeTokens: before,
+          afterTokens: estimatedTokens,
+          compressionId: last?.id ?? null,
+          summaryPreview: last?.summaryPreview ?? null,
+        }
+      }),
+    )
+  }
+
+  const toolByName = new Map(tools.map((tool) => [tool.name, tool]))
   const chatTools = tools.length > 0 ? tools.map(toChatCompletionTool) : undefined
   let accumulatedPromptTokens = 0
   let accumulatedCompletionTokens = 0
@@ -422,19 +554,25 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
     ? startAiEventLogSession(options.usageContext, {
         model,
         thinkingEnabled: config.thinkingEnabled,
-        messages: toEventLogMessages(messages),
+        messages: toEventLogMessages(buffers.canonical),
       })
     : undefined
+
+  const resultExtras = () => ({
+    wireMessages: cloneMessages(buffers.wire),
+    compressions: compressions.length > 0 ? [...compressions] : undefined,
+  })
 
   try {
     for (let step = 0; step < maxSteps; step += 1) {
       throwIfStreamAborted(options.signal)
+      await runPipeline(step)
       options.onStep?.({ step, kind: 'model' })
 
       const turn = await streamAssistantTurn({
         client,
         model,
-        messages,
+        messages: buffers.wire,
         chatTools,
         providerId: config.providerId,
         thinkingEnabled: config.thinkingEnabled,
@@ -452,6 +590,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         accumulatedPromptTokens += turn.usage.promptTokens
         accumulatedCompletionTokens += turn.usage.completionTokens
         accumulatedTotalTokens += turn.usage.totalTokens
+        estimatedTokens = turn.usage.promptTokens
         options.onUsage?.({
           step,
           promptTokens: turn.usage.promptTokens,
@@ -462,7 +601,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
       const assistantMessage: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
         role: 'assistant',
-        // MiMo / 部分兼容网关拒绝 content: null；无正文时用空字符串
         content: turn.content || '',
         ...(turn.toolCalls.length > 0
           ? {
@@ -477,13 +615,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
             }
           : {}),
       }
-      // DeepSeek / MiMo 思维链：多轮工具调用须回传 reasoning_content（可为空串）
-      if (providerRequiresReasoningContentEcho(config.providerId, model)) {
+      if (requireReasoningEcho) {
         ;(assistantMessage as OpenAI.Chat.ChatCompletionAssistantMessageParam & {
           reasoning_content?: string
         }).reasoning_content = turn.reasoning || ''
       }
-      messages.push(assistantMessage)
+      pushBoth(assistantMessage)
 
       if (logSession) {
         logSession.update({
@@ -510,8 +647,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         })
         return {
           text: turn.content,
-          messages,
+          messages: buffers.canonical,
           steps: step + 1,
+          ...resultExtras(),
         }
       }
 
@@ -530,13 +668,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         try {
           args = parseToolArguments(toolCall.function.arguments)
         } catch (error) {
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: serializeToolResult({
+          await budgetAndPushTool(
+            toolCall.id,
+            serializeToolResult({
               error: `工具参数无效: ${error instanceof Error ? error.message : String(error)}`,
             }),
-          })
+            step,
+          )
           continue
         }
 
@@ -559,14 +697,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
         const tool = toolByName.get(toolName)
         if (!tool) {
-          const content = serializeToolResult({
-            error: `未注册的工具: ${toolName}。可用工具: ${availableToolNames.join(', ') || '（无）'}。请改用已注册的工具名重试。`,
-          })
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content,
-          })
+          const content = await budgetAndPushTool(
+            toolCall.id,
+            serializeToolResult({
+              error: `未注册的工具: ${toolName}。可用工具: ${availableToolNames.join(', ') || '（无）'}。请改用已注册的工具名重试。`,
+            }),
+            step,
+          )
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
           continue
@@ -577,13 +714,15 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
             Promise.resolve(tool.execute(args)),
             options.signal,
           )
-          const content = serializeToolResult(result)
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content,
-          })
-          appendMessagesAfterToolResult(messages, result)
+          const rawContent = serializeToolResult(result)
+          // 已由工具侧 spill 的 structured 短柄：跳过二次 L0 大裁剪（budget 内会识别标记）
+          const content = await budgetAndPushTool(toolCall.id, rawContent, step)
+          // appendMessages 仅写入规范+线历史（合成 vision 等）
+          if (isAgentToolStructuredResult(result) && result.appendMessages?.length) {
+            for (const extra of result.appendMessages) {
+              pushBoth(extra)
+            }
+          }
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
           emitSyntheticActivities(step, result, options.onToolCall, options.onToolResult)
@@ -591,22 +730,21 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           if (isStreamAbortError(error, options.signal)) {
             throw error
           }
-          const content = serializeToolResult({
-            error:
-              error instanceof Error ? error.message : `工具执行失败: ${String(error)}`,
-          })
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content,
-          })
+          const content = await budgetAndPushTool(
+            toolCall.id,
+            serializeToolResult({
+              error:
+                error instanceof Error ? error.message : `工具执行失败: ${String(error)}`,
+            }),
+            step,
+          )
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
         }
       }
     }
 
-    const incompleteText = lastAssistantText(messages)
+    const incompleteText = lastAssistantText(buffers.canonical)
     finishAgentUsage({
       usageContext: options.usageContext,
       logSession,
@@ -618,9 +756,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
     return {
       text: incompleteText,
-      messages,
+      messages: buffers.canonical,
       steps: maxSteps,
       incomplete: true,
+      ...resultExtras(),
     }
   } catch (error) {
     if (logSession && options.usageContext) {

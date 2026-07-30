@@ -2191,7 +2191,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   )
 
   const updateAiChatMessages = useCallback(
-    (sessionId: string, messages: VscodeAiChatSession['messages']) => {
+    (
+      sessionId: string,
+      messages: VscodeAiChatSession['messages'],
+      extras?: { apiTranscript?: VscodeAiChatSession['apiTranscript'] },
+    ) => {
       setAiChatSessions((prev) => {
         const current = prev.get(sessionId)
         if (!current) return prev
@@ -2201,6 +2205,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           messages,
           title: titleFromVscodeAiMessages(messages),
           updatedAt: Date.now(),
+          ...(extras?.apiTranscript !== undefined
+            ? { apiTranscript: extras.apiTranscript }
+            : {}),
         })
         persistAiChatStore(next, closedAiChatsRef.current)
         return next

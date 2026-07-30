@@ -37,6 +37,10 @@ import {
   type VscodeAiTimelineItem,
   type VscodeAiWriteItem,
 } from './vscode-ai-agent.ts'
+import {
+  sliceApiTranscriptBeforeUserOrdinal,
+  stripLeadingSystemMessages,
+} from './vscode-ai-transcript.ts'
 import type { VscodeAiToolsHost } from './vscode-ai-tools.ts'
 import {
   collectPathsFromChangeSets,
@@ -386,7 +390,12 @@ function VscodeAiComposerBlock({
 export type VscodeAiPanelProps = {
   sessionId: string
   messages: VscodeAiChatMessage[]
-  onMessagesChange: (messages: VscodeAiChatMessage[]) => void
+  onMessagesChange: (
+    messages: VscodeAiChatMessage[],
+    extras?: { apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[] },
+  ) => void
+  /** 会话级规范 transcript（打开中的会话）；编辑重发时优先用其截断 */
+  apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
   mode: VscodeAiMode
   onModeChange: (mode: VscodeAiMode) => void
   aiModelSource: VscodeModelSource
@@ -483,6 +492,37 @@ function WaitingStatus({ label = '等待响应' }: { label?: string }) {
   return (
     <div class="help-app__reasoning-status help-app__reasoning-status--waiting" aria-live="polite">
       <span class="help-app__reasoning-status-label">{label}</span>
+    </div>
+  )
+}
+
+function CompressionStatus({
+  item,
+}: {
+  item: Extract<VscodeAiTimelineItem, { kind: 'compression' }>
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const hasPreview = Boolean(item.summaryPreview?.trim())
+  return (
+    <div class="help-app__reasoning-status help-app__reasoning-status--done">
+      <button
+        type="button"
+        class="help-app__reasoning-toggle"
+        aria-expanded={expanded}
+        disabled={!hasPreview}
+        onClick={() => hasPreview && setExpanded((value) => !value)}
+      >
+        <span
+          class={`help-app__investigation-chevron${expanded ? ' help-app__investigation-chevron--expanded' : ''}`}
+          aria-hidden="true"
+        />
+        <span class="help-app__reasoning-summary">{item.label}</span>
+      </button>
+      {expanded && hasPreview ? (
+        <pre class="help-app__reasoning-body vscode-ai__compression-preview">
+          {item.summaryPreview}
+        </pre>
+      ) : undefined}
     </div>
   )
 }
@@ -709,6 +749,8 @@ function InvestigationSteps({
               <ActivityStatus activity={item} />
             ) : item.kind === 'write' ? (
               <WriteFileCard item={item} />
+            ) : item.kind === 'compression' ? (
+              <CompressionStatus item={item} />
             ) : (
               <ReasoningStatus text={item.content} durationMs={item.durationMs} />
             )}
@@ -848,6 +890,9 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
         if (item.kind === 'write') {
           return <WriteFileCard key={item.id} item={item} live />
         }
+        if (item.kind === 'compression') {
+          return <CompressionStatus key={item.id} item={item} />
+        }
         if (item.kind === 'reasoning') {
           return (
             <ReasoningStatus
@@ -857,6 +902,9 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
               durationMs={item.durationMs}
             />
           )
+        }
+        if (item.kind !== 'text') {
+          return undefined
         }
         const separated = items.slice(0, index).some((entry) => entry.kind !== 'text')
 
@@ -920,6 +968,7 @@ export function VscodeAiPanel({
   sessionId,
   messages,
   onMessagesChange,
+  apiTranscript,
   mode,
   onModeChange,
   aiModelSource,
@@ -984,6 +1033,9 @@ export function VscodeAiPanel({
   )
   const abortRef = useRef<AbortController | undefined>(undefined)
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
+  const apiTranscriptRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>(
+    apiTranscript ?? [],
+  )
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerWrapRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
@@ -1277,6 +1329,10 @@ export function VscodeAiPanel({
     }
   }, [aiTerminalKind, getAiTerminalHandle])
 
+  useEffect(() => {
+    apiTranscriptRef.current = apiTranscript ?? []
+  }, [apiTranscript])
+
   const rebuildHistoryFromMessages = useCallback((source: readonly VscodeAiChatMessage[]) => {
     const next: OpenAI.Chat.ChatCompletionMessageParam[] = []
     for (const message of source) {
@@ -1291,6 +1347,17 @@ export function VscodeAiPanel({
     return next
   }, [])
 
+  const historyFromCanonicalOrUi = useCallback(
+    (uiMessages: readonly VscodeAiChatMessage[]) => {
+      const transcript = apiTranscriptRef.current
+      if (transcript.length > 0) {
+        return stripLeadingSystemMessages(transcript)
+      }
+      return rebuildHistoryFromMessages(uiMessages)
+    },
+    [rebuildHistoryFromMessages],
+  )
+
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return
     // 先中止旧轮次，让 in-flight catch 仍能读到 live*Ref 快照
@@ -1304,7 +1371,8 @@ export function VscodeAiPanel({
     setComposerContextUsage(undefined)
     setEditContextUsage(undefined)
     // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
-    historyRef.current = rebuildHistoryFromMessages(messages)
+    apiTranscriptRef.current = apiTranscript ?? []
+    historyRef.current = historyFromCanonicalOrUi(messages)
     pendingEditsRef.current = []
     turnChangeSessionsRef.current = []
     lastSentModeRef.current = undefined
@@ -1313,7 +1381,7 @@ export function VscodeAiPanel({
     sendQueueRef.current = []
     setSendQueue([])
     setSendQueueExpanded(false)
-  }, [messages, rebuildHistoryFromMessages, sessionId])
+  }, [apiTranscript, historyFromCanonicalOrUi, messages, sessionId])
 
   useEffect(() => {
     if (busy) return
@@ -1329,7 +1397,7 @@ export function VscodeAiPanel({
         const history =
           historyRef.current.length > 0
             ? historyRef.current
-            : rebuildHistoryFromMessages(messages)
+            : historyFromCanonicalOrUi(messages)
         const currentTerminal = aiTerminalKind
           ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
           : undefined
@@ -1373,6 +1441,7 @@ export function VscodeAiPanel({
     mode,
     problems,
     rebuildHistoryFromMessages,
+    historyFromCanonicalOrUi,
     resolvedModelId,
     resolvedModelKey,
     resolvedProviderEntryId,
@@ -1398,7 +1467,13 @@ export function VscodeAiPanel({
 
         const editingIndex = messages.findIndex((message) => message.id === editingUserId)
         if (editingIndex < 0) return
-        const history = rebuildHistoryFromMessages(messages.slice(0, editingIndex))
+        const userOrdinal = messages
+          .slice(0, editingIndex)
+          .filter((message) => message.role === 'user').length
+        const history =
+          apiTranscriptRef.current.length > 0
+            ? sliceApiTranscriptBeforeUserOrdinal(apiTranscriptRef.current, userOrdinal)
+            : rebuildHistoryFromMessages(messages.slice(0, editingIndex))
         const editTerminalKind: VscodeAiTerminalKind | undefined =
           editingMode === 'ask'
             ? 'ask'
@@ -1454,6 +1529,7 @@ export function VscodeAiPanel({
     messages,
     problems,
     rebuildHistoryFromMessages,
+    historyFromCanonicalOrUi,
     sessionId,
     toolsHost,
     workspaceFolder,
@@ -1488,9 +1564,12 @@ export function VscodeAiPanel({
   }, [runCommandHost])
 
   const applyMessages = useCallback(
-    (next: VscodeAiChatMessage[]) => {
+    (
+      next: VscodeAiChatMessage[],
+      extras?: { apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[] },
+    ) => {
       messagesRef.current = next
-      onMessagesChange(next)
+      onMessagesChange(next, extras)
     },
     [onMessagesChange],
   )
@@ -1645,8 +1724,15 @@ export function VscodeAiPanel({
           sentModelKey: sentModelKeyForMessage,
         }
         withUser = [...currentMessages.slice(0, index), editedUser]
-        historyRef.current = rebuildHistoryFromMessages(currentMessages.slice(0, index))
-        applyMessages(withUser)
+        const userOrdinal = currentMessages
+          .slice(0, index)
+          .filter((message) => message.role === 'user').length
+        historyRef.current =
+          apiTranscriptRef.current.length > 0
+            ? sliceApiTranscriptBeforeUserOrdinal(apiTranscriptRef.current, userOrdinal)
+            : rebuildHistoryFromMessages(currentMessages.slice(0, index))
+        apiTranscriptRef.current = historyRef.current
+        applyMessages(withUser, { apiTranscript: historyRef.current })
         setEditingUserId(undefined)
         setEditingDraft('')
       } else {
@@ -1667,7 +1753,7 @@ export function VscodeAiPanel({
       liveStartedAtRef.current = osNowMs()
       pendingEditsRef.current = []
       if (historyRef.current.length === 0 && currentMessages.length > 0) {
-        historyRef.current = rebuildHistoryFromMessages(currentMessages)
+        historyRef.current = historyFromCanonicalOrUi(currentMessages)
       }
       turnChangeSessionsRef.current = []
 
@@ -1802,11 +1888,19 @@ export function VscodeAiPanel({
             },
           )
           const nextMessages = [...withUser, assistantMessage]
-          applyMessages(nextMessages)
-          historyRef.current = rebuildHistoryFromMessages(nextMessages)
+          const nextTranscript = [
+            ...apiTranscriptRef.current,
+            { role: 'user' as const, content: text },
+            { role: 'assistant' as const, content: assistantMessage.content },
+          ]
+          historyRef.current = nextTranscript
+          apiTranscriptRef.current = nextTranscript
+          applyMessages(nextMessages, { apiTranscript: nextTranscript })
         } else {
           if (result.messages) {
-            historyRef.current = result.messages
+            const canonical = stripLeadingSystemMessages(result.messages)
+            historyRef.current = canonical
+            apiTranscriptRef.current = canonical
           }
 
           const investigation =
@@ -1832,7 +1926,9 @@ export function VscodeAiPanel({
               ...changeExtras,
             },
           )
-          applyMessages([...withUser, assistantMessage])
+          applyMessages([...withUser, assistantMessage], {
+            apiTranscript: apiTranscriptRef.current,
+          })
         }
       } catch (error) {
         if (replaceHandoffRef.current) {
@@ -1859,8 +1955,14 @@ export function VscodeAiPanel({
           ...changeExtras,
         })
         const nextMessages = [...withUser, assistantMessage]
-        applyMessages(nextMessages)
-        historyRef.current = rebuildHistoryFromMessages(nextMessages)
+        const nextTranscript = [
+          ...apiTranscriptRef.current,
+          { role: 'user' as const, content: text },
+          { role: 'assistant' as const, content: content },
+        ]
+        historyRef.current = nextTranscript
+        apiTranscriptRef.current = nextTranscript
+        applyMessages(nextMessages, { apiTranscript: nextTranscript })
       } finally {
         clearCheckpointTimer()
         forceTurnCheckpointRef.current = undefined
@@ -1908,6 +2010,7 @@ export function VscodeAiPanel({
       getAiTerminalSnapshot,
       mode,
       onLastSentTerminalChange,
+      historyFromCanonicalOrUi,
       rebuildHistoryFromMessages,
       releaseBusyTurn,
       runCommandHost,

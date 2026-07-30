@@ -1,6 +1,7 @@
 import type OpenAI from 'openai'
 import type { AgentTool } from './agent-tool.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
+import type { AgentCompressionEvent, AgentCompressionOptions } from './context-compression/types.ts'
 import type { OpenAiConfig } from './openai-config.ts'
 import {
   runAgent,
@@ -23,6 +24,8 @@ export type AgentDefaults = {
   client?: OpenAI
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  compression?: AgentCompressionOptions
+  onContextCompression?: (event: AgentCompressionEvent) => void
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
   onToolResult?: (event: AgentToolResultEvent) => void
@@ -41,6 +44,8 @@ export type AgentCallOptions = {
   maxSteps?: number
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  compression?: AgentCompressionOptions
+  onContextCompression?: (event: AgentCompressionEvent) => void
   onStep?: (event: AgentStepEvent) => void
   onToolCall?: (event: AgentToolCallEvent) => void
   onToolResult?: (event: AgentToolResultEvent) => void
@@ -68,6 +73,9 @@ export function createAgent(defaults: AgentDefaults): AgentRunner {
       config: defaults.config,
       usageContext: options.usageContext ?? defaults.usageContext,
       signal: options.signal ?? defaults.signal,
+      compression: options.compression ?? defaults.compression,
+      onContextCompression:
+        options.onContextCompression ?? defaults.onContextCompression,
       onStep: options.onStep ?? defaults.onStep,
       onToolCall: options.onToolCall ?? defaults.onToolCall,
       onToolResult: options.onToolResult ?? defaults.onToolResult,

@@ -7,6 +7,7 @@ import {
   wouldExceedDataCapacity,
 } from '../../os/device-data-storage.ts'
 import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
+import type OpenAI from 'openai'
 import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
 import { isVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
@@ -77,6 +78,11 @@ export type VscodeAiChatSession = {
   updatedAt: number
   /** 上一轮发送时本模式绑定的 AI 终端快照（供 system-reminder 事件对比） */
   lastSentTerminal?: VscodeAiLastSentTerminal
+  /**
+   * 规范 API transcript（不含当前轮 system；含 tool 轨）。
+   * 用于编辑重发时恢复未压缩上下文；关闭进 closed 时可丢弃。
+   */
+  apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
 }
 
 export type VscodeAiClosedChatSession = VscodeAiChatSession & {
@@ -275,6 +281,33 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
         },
       ]
     }
+    if (item.kind === 'compression') {
+      if (
+        typeof item.id !== 'string' ||
+        typeof item.label !== 'string' ||
+        typeof item.beforeTokens !== 'number' ||
+        typeof item.afterTokens !== 'number' ||
+        typeof item.compressionKind !== 'string'
+      ) {
+        return []
+      }
+      return [
+        {
+          kind: 'compression',
+          id: item.id,
+          label: item.label,
+          detail: normalizeOptionalString(item.detail),
+          summaryPreview: normalizeOptionalString(item.summaryPreview),
+          beforeTokens: item.beforeTokens,
+          afterTokens: item.afterTokens,
+          compressionKind: item.compressionKind as Extract<
+            VscodeAiInvestigation['timeline'][number],
+            { kind: 'compression' }
+          >['compressionKind'],
+          done: true,
+        },
+      ]
+    }
     return []
   })
   if (timeline.length === 0 && entry.activities.length === 0) {
@@ -366,6 +399,21 @@ function normalizeMessages(raw: unknown): VscodeAiChatMessage[] {
     })
 }
 
+function normalizeApiTranscript(
+  raw: unknown,
+): OpenAI.Chat.ChatCompletionMessageParam[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const out: OpenAI.Chat.ChatCompletionMessageParam[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const role = (item as { role?: unknown }).role
+    if (role === 'system' || role === 'user' || role === 'assistant' || role === 'tool') {
+      out.push(item as OpenAI.Chat.ChatCompletionMessageParam)
+    }
+  }
+  return out.length > 0 ? out : undefined
+}
+
 function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const entry = raw as Partial<VscodeAiChatSession>
@@ -383,7 +431,17 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
   const lastSentTerminal = normalizeLastSentTerminal(
     (entry as { lastSentTerminal?: unknown }).lastSentTerminal,
   )
-  return { id: entry.id, title, messages, updatedAt, lastSentTerminal }
+  const apiTranscript = normalizeApiTranscript(
+    (entry as { apiTranscript?: unknown }).apiTranscript,
+  )
+  return {
+    id: entry.id,
+    title,
+    messages,
+    updatedAt,
+    lastSentTerminal,
+    ...(apiTranscript ? { apiTranscript } : {}),
+  }
 }
 
 function normalizeClosedSession(raw: unknown): VscodeAiClosedChatSession | undefined {
@@ -417,10 +475,13 @@ function trimClosedSessions(
   return [...closed]
     .sort((a, b) => b.closedAt - a.closedAt)
     .slice(0, MAX_CLOSED_SESSIONS)
-    .map((session) => ({
-      ...session,
-      title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
-    }))
+    .map((session) => {
+      const { apiTranscript: _drop, ...rest } = session
+      return {
+        ...rest,
+        title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
+      }
+    })
 }
 
 function prepareStoreForSave(store: VscodeAiChatStore): VscodeAiChatStore {

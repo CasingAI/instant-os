@@ -1,6 +1,7 @@
 import type OpenAI from 'openai'
 import { createAgent } from '../../ai/create-agent.ts'
 import type {
+  AgentCompressionEvent,
   AgentReasoningDeltaEvent,
   AgentTextDeltaEvent,
   AgentToolCallDeltaEvent,
@@ -8,6 +9,7 @@ import type {
   AgentToolResultEvent,
   AgentUsageEvent,
 } from '../../ai/run-agent.ts'
+import { formatSpillHint } from '../../ai/context-compression/index.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import {
@@ -33,6 +35,7 @@ import {
   applyVscodeAiPromptTokenUpdate,
   measureVscodeAiContextUsage,
   prepareVscodeAiContextUsage,
+  resolveModelContextWindow,
   type VscodeAiContextUsage,
 } from './vscode-ai-context-usage.ts'
 import {
@@ -41,7 +44,8 @@ import {
   writeToolPreviewField,
   writeToolTitleField,
 } from './vscode-ai-streaming-json.ts'
-import { TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT } from './vscode-ai-output-spill.ts'
+import { TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT, writeSpillFile } from './vscode-ai-output-spill.ts'
+import { formatCompactTokenCount } from '../browser/format-token-count.ts'
 
 const VSCODE_AI_MAX_STEPS = 30
 const WRITE_PREVIEW_STORE_LIMIT = 8_000
@@ -101,12 +105,24 @@ export type VscodeAiTimelineItem =
       content: string
       done: boolean
     }
+  | {
+      kind: 'compression'
+      id: string
+      label: string
+      detail?: string
+      summaryPreview?: string
+      beforeTokens: number
+      afterTokens: number
+      compressionKind: AgentCompressionEvent['kind']
+      done: boolean
+    }
   | VscodeAiWriteItem
 
 export type VscodeAiInvestigationStep =
   | Extract<VscodeAiTimelineItem, { kind: 'activity' }>
   | Extract<VscodeAiTimelineItem, { kind: 'reasoning' }>
   | Extract<VscodeAiTimelineItem, { kind: 'write' }>
+  | Extract<VscodeAiTimelineItem, { kind: 'compression' }>
 
 export type VscodeAiInvestigation = {
   activities: VscodeAiActivity[]
@@ -348,7 +364,10 @@ function investigationStepsFromTimeline(
   return timeline
     .filter(
       (item): item is VscodeAiInvestigationStep =>
-        item.kind === 'activity' || item.kind === 'reasoning' || item.kind === 'write',
+        item.kind === 'activity' ||
+        item.kind === 'reasoning' ||
+        item.kind === 'write' ||
+        item.kind === 'compression',
     )
     .map((item) => {
       if (item.kind === 'reasoning') {
@@ -368,6 +387,9 @@ function investigationStepsFromTimeline(
           result: item.result ? truncateToolResult(item.result) : item.result,
         }
       }
+      if (item.kind === 'compression') {
+        return { ...item, done: true }
+      }
       return {
         ...item,
         content: truncateActivityContent(item.content),
@@ -375,6 +397,29 @@ function investigationStepsFromTimeline(
         done: true,
       }
     })
+}
+
+function formatCompressionLabel(event: AgentCompressionEvent): string {
+  const before = formatCompactTokenCount(event.beforeTokens)
+  const after = formatCompactTokenCount(event.afterTokens)
+  switch (event.kind) {
+    case 'tool_budget':
+      return event.spilled
+        ? `工具输出已外置（约 ${before} → ${after}）`
+        : `工具输出已裁剪（约 ${before} → ${after}）`
+    case 'structure_fold':
+      return `已折叠工具轨迹（约 ${before} → ${after}）`
+    case 'reasoning_prune':
+      return `已修剪思维链（约 ${before} → ${after}）`
+    case 'tail_window':
+      return `已省略更早回合（约 ${before} → ${after}）`
+    case 'llm_compact':
+      return `上下文已压缩（约 ${before} → ${after}）`
+    case 'self_compact':
+      return `模型请求压缩（约 ${before} → ${after}）`
+    default:
+      return `上下文已压缩（约 ${before} → ${after}）`
+  }
 }
 
 export function buildVscodeAiInvestigationFromTimeline(
@@ -460,6 +505,13 @@ export async function askVscodeAiAgent(options: {
           ? '编辑'
           : '代理'
 
+  const contextWindow = resolveModelContextWindow(model, {
+    providerEntryId: modelRef?.providerEntryId,
+    modelKey: options.modelKey,
+  })
+
+  const tmpDir = options.context.aiTerminal?.tmpdir?.trim()
+
   const agent = createAgent({
     prompt: system,
     tools,
@@ -472,6 +524,17 @@ export async function askVscodeAiAgent(options: {
       behavior: options.mode,
       actorLabel: 'Virtual Studio Code',
       behaviorLabel,
+    },
+    compression: {
+      enabled: true,
+      contextWindow,
+      spill: tmpDir
+        ? {
+            write: async (text) =>
+              writeSpillFile({ fullText: text, tmpDir, subdir: 'context-spill' }),
+            hint: formatSpillHint,
+          }
+        : undefined,
     },
   })
 
@@ -511,6 +574,24 @@ export async function askVscodeAiAgent(options: {
     )
     contextUsage = next.usage
     contextUsageCalibrated = next.calibrated
+    emit()
+  }
+
+  const onContextCompression = (event: AgentCompressionEvent) => {
+    // 跳过过于嘈杂的单条 tool_budget（除非 spilled）；结构/LLM 压缩始终展示
+    if (event.kind === 'tool_budget' && !event.spilled) return
+    timeline = markTimelineDone(timeline)
+    timeline.push({
+      kind: 'compression',
+      id: event.id,
+      label: formatCompressionLabel(event),
+      detail: event.note,
+      summaryPreview: event.summaryPreview,
+      beforeTokens: event.beforeTokens,
+      afterTokens: event.afterTokens,
+      compressionKind: event.kind,
+      done: true,
+    })
     emit()
   }
 
@@ -720,6 +801,7 @@ export async function askVscodeAiAgent(options: {
     onTextDelta,
     onReasoningDelta,
     onUsage,
+    onContextCompression,
   })
 
   timeline = markTimelineDone(timeline)
