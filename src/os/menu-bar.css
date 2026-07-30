@@ -190,6 +190,7 @@
   padding: 5px 0;
   color: #1a1a1a;
   text-shadow: none;
+  cursor: default;
   background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
   border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 6px;
@@ -210,6 +211,7 @@
   font-size: 13px;
   text-align: left;
   white-space: nowrap;
+  cursor: default;
 }
 
 .menu-bar__dropdown-item:hover:not(:disabled) {
@@ -244,6 +246,7 @@
   margin: 5px 0;
   background: rgba(0, 0, 0, 0.15);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  pointer-events: none;
 }
 
 .menu-bar__dropdown-item--nav {

@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { memo } from 'preact/compat'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { BatteryIcon, EthernetIcon, ForwardIcon, InstantLogoIcon } from '../icons/app-icons.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../ui/adaptive-action-menu.tsx'
 import { isNarrowWorkArea } from '../window/window-snap.ts'
@@ -322,13 +323,120 @@ function MenuDropdown({ menu, onClose, narrowLayout }: MenuDropdownProps) {
   )
 }
 
+const MenuDropdownMemo = memo(MenuDropdown)
+
+type MenuBarRightSectionProps = {
+  openMenuLabel: string | undefined
+  onToggleMenu: (label: string) => void
+  onCloseMenu: () => void
+  notificationCenterOpen: boolean
+  onToggleNotificationCenter: () => void
+  activeNotificationCount: number
+  onSelectWindow: (windowId: string) => void
+  onOpenTaskManager: () => void
+  onOpenProxyServerSettings: () => void
+}
+
+function MenuBarRightSection({
+  openMenuLabel,
+  onToggleMenu,
+  onCloseMenu,
+  notificationCenterOpen,
+  onToggleNotificationCenter,
+  activeNotificationCount,
+  onSelectWindow,
+  onOpenTaskManager,
+  onOpenProxyServerSettings,
+}: MenuBarRightSectionProps) {
+  const battery = useDeviceBattery()
+  const proxyServer = useProxyServerConnection()
+  const now = useOsNowDate()
+  const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
+
+  useEffect(() => {
+    if (!proxyServer.connected && openMenuLabel === STATUS_PROXY_SERVER_LABEL) {
+      onCloseMenu()
+    }
+  }, [proxyServer.connected, openMenuLabel, onCloseMenu])
+
+  return (
+    <div class="menu-bar__right">
+      {proxyServer.connected && (
+        <div class="menu-bar__menu">
+          <button
+            type="button"
+            class={`menu-bar__status-trigger${openMenuLabel === STATUS_PROXY_SERVER_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+            aria-haspopup="dialog"
+            aria-expanded={openMenuLabel === STATUS_PROXY_SERVER_LABEL}
+            aria-label={
+              proxyServer.proxyHost
+                ? `代理服务器已连接，${proxyServer.proxyHost}`
+                : '代理服务器已连接'
+            }
+            onClick={() => onToggleMenu(STATUS_PROXY_SERVER_LABEL)}
+          >
+            <EthernetIcon />
+          </button>
+          {openMenuLabel === STATUS_PROXY_SERVER_LABEL && (
+            <ProxyServerStatusPanel
+              connection={proxyServer}
+              onOpenProxyServerSettings={onOpenProxyServerSettings}
+              onOpenTaskManager={onOpenTaskManager}
+            />
+          )}
+        </div>
+      )}
+      <div class="menu-bar__menu">
+        <button
+          type="button"
+          class={`menu-bar__status-trigger${openMenuLabel === STATUS_BATTERY_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={openMenuLabel === STATUS_BATTERY_LABEL}
+          aria-label={
+            battery
+              ? `电池 ${battery.levelPercent}%${battery.charging ? '，已连接电源' : ''}`
+              : '电池状态'
+          }
+          onClick={() => onToggleMenu(STATUS_BATTERY_LABEL)}
+        >
+          {battery !== undefined && (
+            <span class="menu-bar__battery">{battery.levelPercent}%</span>
+          )}
+          <BatteryIcon levelPercent={battery?.levelPercent} charging={battery?.charging} />
+        </button>
+        {openMenuLabel === STATUS_BATTERY_LABEL && (
+          <BatteryStatusPanel
+            battery={battery}
+            onSelectWindow={onSelectWindow}
+            onOpenTaskManager={onOpenTaskManager}
+          />
+        )}
+      </div>
+      <button
+        type="button"
+        class={`menu-bar__datetime${notificationCenterOpen ? ' menu-bar__datetime--open' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={notificationCenterOpen}
+        aria-label={
+          activeNotificationCount > 0
+            ? `通知中心，${activeNotificationCount} 条通知`
+            : '通知中心'
+        }
+        onClick={onToggleNotificationCenter}
+      >
+        <span class="menu-bar__datetime-calendar">{calendar}</span>
+        <span class="menu-bar__datetime-weekday">{weekday}</span>
+        <span class="menu-bar__datetime-time">{time}</span>
+      </button>
+    </div>
+  )
+}
+
 export function MenuBar() {
   const { windows, activeWindowId, focusWindow, restoreWindow, openApp } = useOs()
   const { hasImmersiveFullscreen, chromeRevealed, setChromePinSource } = useFullscreenChromeReveal()
   const { menusByApp } = useMenuBar()
   const { showInstantAbout, showAbout } = useAboutApp()
-  const battery = useDeviceBattery()
-  const proxyServer = useProxyServerConnection()
   const { pendingInstalls, failedInstalls, completedInstalls } = useGeneratedApps()
   const appNotifications = useAppNotifications()
   const processIsolationFallbackActive = useProcessIsolationFallbackNotification()
@@ -339,10 +447,10 @@ export function MenuBar() {
   const [openMenuLabel, setOpenMenuLabel] = useState<string | undefined>(undefined)
   const [visibleMenuCount, setVisibleMenuCount] = useState(Number.POSITIVE_INFINITY)
   const narrowLayout = useMenuBarNarrowLayout()
-  const now = useOsNowDate()
   const barRef = useRef<HTMLElement>(null)
   const leftRef = useRef<HTMLDivElement>(null)
   const menusRef = useRef<HTMLDivElement>(null)
+  const closeMenu = useCallback(() => setOpenMenuLabel(undefined), [])
 
   const hasFullscreenWindow = windows.some((window) => window.fullscreen && !window.minimized)
   const hidden = hasImmersiveFullscreen
@@ -426,7 +534,6 @@ export function MenuBar() {
   const hasMenuOverflow = visibleMenuCount < menus.length
   const overflowMenus = hasMenuOverflow ? menus.slice(visibleMenuCount) : []
 
-  const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
   const activeNotificationCount =
     pendingInstalls.length +
     failedInstalls.length +
@@ -440,12 +547,6 @@ export function MenuBar() {
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)
   }, [notificationCenterOpen, openMenuLabel, setChromePinSource])
-
-  useEffect(() => {
-    if (!proxyServer.connected && openMenuLabel === STATUS_PROXY_SERVER_LABEL) {
-      setOpenMenuLabel(undefined)
-    }
-  }, [proxyServer.connected, openMenuLabel])
 
   const prevActiveWindowIdRef = useRef(activeWindowId)
 
@@ -566,33 +667,36 @@ export function MenuBar() {
     }
   }, [openMenuLabel])
 
-  const toggleMenu = (label: string) => {
+  const toggleMenu = useCallback((label: string) => {
     setOpenMenuLabel((current) => (current === label ? undefined : label))
-  }
+  }, [])
 
-  const handleSelectWindow = (windowId: string) => {
-    const target = windows.find((window) => window.id === windowId)
-    if (!target) {
-      return
-    }
-    if (target.minimized) {
-      restoreWindow(windowId)
-    } else {
-      focusWindow(windowId)
-    }
-    setOpenMenuLabel(undefined)
-  }
+  const handleSelectWindow = useCallback(
+    (windowId: string) => {
+      const target = windows.find((window) => window.id === windowId)
+      if (!target) {
+        return
+      }
+      if (target.minimized) {
+        restoreWindow(windowId)
+      } else {
+        focusWindow(windowId)
+      }
+      closeMenu()
+    },
+    [closeMenu, focusWindow, restoreWindow, windows],
+  )
 
-  const handleOpenTaskManager = () => {
+  const handleOpenTaskManager = useCallback(() => {
     openApp('task-manager')
-    setOpenMenuLabel(undefined)
-  }
+    closeMenu()
+  }, [closeMenu, openApp])
 
-  const handleOpenProxyServerSettings = () => {
+  const handleOpenProxyServerSettings = useCallback(() => {
     openApp('settings')
     openSettingsProxyServerView()
-    setOpenMenuLabel(undefined)
-  }
+    closeMenu()
+  }, [closeMenu, openApp])
 
   return (
     <header ref={barRef} class={`menu-bar${hidden ? ' menu-bar--hidden' : ''}`}>
@@ -609,10 +713,10 @@ export function MenuBar() {
             <InstantLogoIcon size={15} />
           </button>
           {openMenuLabel === APPLE_MENU_LABEL && (
-            <MenuDropdown
+            <MenuDropdownMemo
               menu={appleMenu}
               narrowLayout={narrowLayout}
-              onClose={() => setOpenMenuLabel(undefined)}
+              onClose={closeMenu}
             />
           )}
         </div>
@@ -635,10 +739,10 @@ export function MenuBar() {
                     {menu.label}
                   </button>
                   {openMenuLabel === menu.label && (
-                    <MenuDropdown
+                    <MenuDropdownMemo
                       menu={menu}
                       narrowLayout={narrowLayout}
-                      onClose={() => setOpenMenuLabel(undefined)}
+                      onClose={closeMenu}
                     />
                   )}
                 </div>
@@ -684,73 +788,17 @@ export function MenuBar() {
         )}
       </div>
       <div class="menu-bar__center" />
-      <div class="menu-bar__right">
-        {proxyServer.connected && (
-          <div class="menu-bar__menu">
-            <button
-              type="button"
-              class={`menu-bar__status-trigger${openMenuLabel === STATUS_PROXY_SERVER_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
-              aria-haspopup="dialog"
-              aria-expanded={openMenuLabel === STATUS_PROXY_SERVER_LABEL}
-              aria-label={
-                proxyServer.proxyHost
-                  ? `代理服务器已连接，${proxyServer.proxyHost}`
-                  : '代理服务器已连接'
-              }
-              onClick={() => toggleMenu(STATUS_PROXY_SERVER_LABEL)}
-            >
-              <EthernetIcon />
-            </button>
-            {openMenuLabel === STATUS_PROXY_SERVER_LABEL && (
-              <ProxyServerStatusPanel
-                connection={proxyServer}
-                onOpenProxyServerSettings={handleOpenProxyServerSettings}
-                onOpenTaskManager={handleOpenTaskManager}
-              />
-            )}
-          </div>
-        )}
-        <div class="menu-bar__menu">
-          <button
-            type="button"
-            class={`menu-bar__status-trigger${openMenuLabel === STATUS_BATTERY_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
-            aria-haspopup="dialog"
-            aria-expanded={openMenuLabel === STATUS_BATTERY_LABEL}
-            aria-label={
-              battery
-                ? `电池 ${battery.levelPercent}%${battery.charging ? '，已连接电源' : ''}`
-                : '电池状态'
-            }
-            onClick={() => toggleMenu(STATUS_BATTERY_LABEL)}
-          >
-            {battery !== undefined && (
-              <span class="menu-bar__battery">{battery.levelPercent}%</span>
-            )}
-            <BatteryIcon levelPercent={battery?.levelPercent} charging={battery?.charging} />
-          </button>
-          {openMenuLabel === STATUS_BATTERY_LABEL && (
-            <BatteryStatusPanel
-              battery={battery}
-              onSelectWindow={handleSelectWindow}
-              onOpenTaskManager={handleOpenTaskManager}
-            />
-          )}
-        </div>
-        <button
-          type="button"
-          class={`menu-bar__datetime${notificationCenterOpen ? ' menu-bar__datetime--open' : ''}`}
-          aria-haspopup="dialog"
-          aria-expanded={notificationCenterOpen}
-          aria-label={
-            activeNotificationCount > 0
-              ? `通知中心，${activeNotificationCount} 条通知`
-              : '通知中心'
-          }
-          onClick={togglePanel}
-        >
-          <span class="menu-bar__datetime-calendar">{calendar}</span><span class="menu-bar__datetime-weekday">{weekday}</span><span class="menu-bar__datetime-time">{time}</span>
-        </button>
-      </div>
+      <MenuBarRightSection
+        openMenuLabel={openMenuLabel}
+        onToggleMenu={toggleMenu}
+        onCloseMenu={closeMenu}
+        notificationCenterOpen={notificationCenterOpen}
+        onToggleNotificationCenter={togglePanel}
+        activeNotificationCount={activeNotificationCount}
+        onSelectWindow={handleSelectWindow}
+        onOpenTaskManager={handleOpenTaskManager}
+        onOpenProxyServerSettings={handleOpenProxyServerSettings}
+      />
     </header>
   )
 }
