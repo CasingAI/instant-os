@@ -44,16 +44,18 @@ function newNpmRunId(): string {
 /**
  * 解析本轮 npm guest 的 tmp 身份。
  * `terminalSessionId` 优先 → 与 Agent 终端共用 `/tmp/Terminal/{id}`；
- * 否则自建 `npmRunId` → `/tmp/Npm/{id}`。
+ * 否则用传入的 `npmRunId` 或自建 → `/tmp/Npm/{id}`。
  */
-function resolveNpmTmpIdentity(options: {
+export function resolveNpmTmpIdentity(options: {
   terminalSessionId?: string
+  npmRunId?: string
 }): { terminalSessionId?: string; npmRunId?: string } {
   const terminalSessionId = options.terminalSessionId?.trim()
   if (terminalSessionId) {
     return { terminalSessionId }
   }
-  return { npmRunId: newNpmRunId() }
+  const npmRunId = options.npmRunId?.trim() || newNpmRunId()
+  return { npmRunId }
 }
 
 function npmScriptGuestInstanceOptions(
@@ -350,6 +352,8 @@ async function runParsedScriptCommand(params: {
    * `/tmp/Terminal/{id}`。未传则本轮自建 `/tmp/Npm/{runId}`。
    */
   terminalSessionId?: string
+  /** 无 terminalSessionId 时可选固定 npmRunId（避免宿主与 guest 各生成一次） */
+  npmRunId?: string
 }): Promise<QuickJsEvalResult> {
   const parsed = params.parsed
   if (parsed.kind === 'unsupported' || !parsed.target) {
@@ -385,6 +389,7 @@ async function runParsedScriptCommand(params: {
   const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
   const tmpIdentity = resolveNpmTmpIdentity({
     terminalSessionId: params.terminalSessionId,
+    npmRunId: params.npmRunId,
   })
   const instance = await createQuickJsInstance(
     npmScriptGuestInstanceOptions({
@@ -448,6 +453,8 @@ export async function runNpmScript(params: {
    * 未传则每段 script 自建 `/tmp/Npm/{runId}`（见文件头注释）。
    */
   terminalSessionId?: string
+  /** 无 terminalSessionId 时可选固定 npmRunId */
+  npmRunId?: string
 }): Promise<QuickJsEvalResult & { scriptCommand?: string }> {
   const packageRoot = params.packageRoot ?? params.projectRoot
   const pkg = await readPackageJson(packageRoot)
@@ -497,6 +504,7 @@ export async function runNpmScript(params: {
       timeoutMs: params.timeoutMs,
       fsMode: params.fsMode,
       terminalSessionId: params.terminalSessionId,
+      npmRunId: params.npmRunId,
     })
     if (!lastResult.ok || lastResult.exitCode !== 0) {
       return { ...lastResult, scriptCommand: command }
@@ -586,6 +594,8 @@ export async function runNpx(params: {
    * 未传则自建 `/tmp/Npm/{runId}`（见文件头注释）。
    */
   terminalSessionId?: string
+  /** 无 terminalSessionId 时可选固定 npmRunId */
+  npmRunId?: string
 }): Promise<QuickJsEvalResult> {
   const { packageName } = (() => {
     const spec = params.packageSpec
@@ -626,6 +636,7 @@ export async function runNpx(params: {
   const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
   const tmpIdentity = resolveNpmTmpIdentity({
     terminalSessionId: params.terminalSessionId,
+    npmRunId: params.npmRunId,
   })
   const instance = await createQuickJsInstance(
     npmScriptGuestInstanceOptions({

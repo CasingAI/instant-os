@@ -548,7 +548,9 @@ export async function askVscodeAiAgent(options: {
   }
 
   const onToolCall = (event: AgentToolCallEvent) => {
-    toolCallCount += 1
+    if (!event.synthetic) {
+      toolCallCount += 1
+    }
     if (isVscodeAiWriteTool(event.toolName)) {
       const parsed = parseWriteToolArgs(event.toolName, event.arguments)
       const key =
@@ -601,12 +603,13 @@ export async function askVscodeAiAgent(options: {
     }
 
     const desc = describeToolCall(event)
-    const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}`
+    const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}${event.synthetic ? '-syn' : ''}`
     pendingActivityId = id
+    const label = event.synthetic ? `${desc.label} · 自动` : desc.label
     const content = truncateActivityContent(desc.content)
     activities.push({
       id,
-      label: desc.label,
+      label,
       detail: desc.detail,
       content,
       done: false,
@@ -615,7 +618,7 @@ export async function askVscodeAiAgent(options: {
     timeline.push({
       kind: 'activity',
       id,
-      label: desc.label,
+      label,
       detail: desc.detail,
       content,
       done: false,

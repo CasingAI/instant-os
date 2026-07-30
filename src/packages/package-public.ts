@@ -18,7 +18,7 @@ export {
   setPackageServiceConfig,
   uninstallPackages,
 } from './package-service.ts'
-export { runNpmScript, runNpx } from './package-run.ts'
+export { runNpmScript, runNpx, resolveNpmTmpIdentity } from './package-run.ts'
 export { subscribePackageEvents } from './package-events.ts'
 export type {
   CachedStorePackage,

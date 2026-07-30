@@ -27,6 +27,8 @@ export type AgentToolCallEvent = {
   index?: number
   toolName: string
   arguments: Record<string, unknown>
+  /** 宿主合成（如 spill 自动读）；不计模型步数 */
+  synthetic?: boolean
 }
 
 export type AgentToolResultEvent = {
@@ -35,6 +37,8 @@ export type AgentToolResultEvent = {
   arguments: Record<string, unknown>
   /** 与写入 messages 的 tool content 一致（已序列化） */
   result: string
+  /** 宿主合成（如 spill 自动读）；不计模型步数 */
+  synthetic?: boolean
 }
 
 export type AgentStepEvent = {
@@ -161,6 +165,32 @@ function appendMessagesAfterToolResult(
     return
   }
   messages.push(...result.appendMessages)
+}
+
+function emitSyntheticActivities(
+  step: number,
+  result: unknown,
+  onToolCall?: (event: AgentToolCallEvent) => void,
+  onToolResult?: (event: AgentToolResultEvent) => void,
+): void {
+  if (!isAgentToolStructuredResult(result) || !result.syntheticActivities?.length) {
+    return
+  }
+  for (const activity of result.syntheticActivities) {
+    onToolCall?.({
+      step,
+      toolName: activity.toolName,
+      arguments: activity.arguments,
+      synthetic: true,
+    })
+    onToolResult?.({
+      step,
+      toolName: activity.toolName,
+      arguments: activity.arguments,
+      result: activity.result,
+      synthetic: true,
+    })
+  }
 }
 
 function applyToolCallDelta(
@@ -556,6 +586,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           appendMessagesAfterToolResult(messages, result)
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
+          emitSyntheticActivities(step, result, options.onToolCall, options.onToolResult)
         } catch (error) {
           if (isStreamAbortError(error, options.signal)) {
             throw error

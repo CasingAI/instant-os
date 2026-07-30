@@ -198,6 +198,7 @@ function normalizeLastSentTerminal(raw: unknown): VscodeAiLastSentTerminal | und
       status: snapshot.status,
       sessionId: normalizeOptionalString(snapshot.sessionId),
       cwd: normalizeOptionalString(snapshot.cwd),
+      tmpdir: normalizeOptionalString(snapshot.tmpdir),
       recovering: snapshot.recovering === true ? true : undefined,
     },
   }

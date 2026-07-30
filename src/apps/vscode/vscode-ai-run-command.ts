@@ -1,5 +1,9 @@
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
-import { runNpmScript, runNpx } from '../../packages/package-public.ts'
+import {
+  resolveNpmTmpIdentity,
+  runNpmScript,
+  runNpx,
+} from '../../packages/package-public.ts'
 import type { QuickJsEvalResult } from '../../quickjs/quickjs-instance-types.ts'
 import {
   formatTerminalChangeSummary,
@@ -7,6 +11,9 @@ import {
 } from '../../terminal/terminal-changeset.ts'
 import { revertTerminalChangeSet } from '../../terminal/terminal-changeset-journal.ts'
 import { loadTerminalChangeSession } from '../../terminal/terminal-changeset-store.ts'
+import { resolveSessionTmpDir } from '../files/files-tmp.ts'
+import type { AgentToolStructuredResult } from '../../ai/agent-tool.ts'
+import { maybeSpillToolOutput } from './vscode-ai-output-spill.ts'
 import type {
   VscodeAgentTerminalEnsureReason,
   VscodeAgentTerminalSnapshot,
@@ -68,14 +75,16 @@ function appendChangeSummary(base: string, changeSet: TerminalChangeSet | undefi
 
 function formatTerminalBanner(result: VscodeAgentTerminalEnsureResult): string {
   const cwd = result.handle.getCwd()
+  const tmpdir = result.handle.getTmpDir()
   const label = result.kind === 'ask' ? 'Ask' : result.kind === 'plan' ? 'Plan' : 'Agent'
+  const suffix = ` cwd=${cwd} [tmpdir=${tmpdir}]`
   if (result.reason === 'reused') {
-    return `[terminal session=${result.sessionId} kind=reused] cwd=${cwd}`
+    return `[terminal session=${result.sessionId} kind=reused]${suffix}`
   }
   if (result.reason === 'rebuilt') {
-    return `[terminal session=${result.sessionId} kind=rebuilt] 上一会话已关闭，已新开；cwd 已重置为 ${cwd}`
+    return `[terminal session=${result.sessionId} kind=rebuilt] 上一会话已关闭，已新开；cwd 已重置为 ${cwd} [tmpdir=${tmpdir}]`
   }
-  return `[terminal session=${result.sessionId} kind=new] 已新开 ${label} 终端；cwd=${cwd}`
+  return `[terminal session=${result.sessionId} kind=new] 已新开 ${label} 终端；cwd=${cwd} [tmpdir=${tmpdir}]`
 }
 
 function terminalHasChanges(host: VscodeAiRunCommandHost): boolean {
@@ -319,25 +328,50 @@ export async function runVscodeAiTerminalLine(
   return `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`
 }
 
+function resolveNpmSpillTmpDir(host: VscodeAiRunCommandHost): {
+  tmpDir: string
+  terminalSessionId?: string
+  npmRunId?: string
+} {
+  const terminal = host.getAgentTerminalHandle()
+  if (terminal) {
+    return {
+      tmpDir: terminal.getTmpDir(),
+      terminalSessionId: terminal.getTerminalSessionId(),
+    }
+  }
+  const identity = resolveNpmTmpIdentity({})
+  return {
+    tmpDir: resolveSessionTmpDir(identity),
+    npmRunId: identity.npmRunId,
+  }
+}
+
 export async function runVscodeAiNpmScript(
   host: VscodeAiRunCommandHost,
   scriptName: string,
   extraArgs: string[] | undefined,
-): Promise<string> {
+): Promise<string | AgentToolStructuredResult> {
   const root = host.workspaceFolder?.trim()
   if (!root) return '未打开工作区文件夹，无法运行 npm script'
 
   try {
+    const spillTarget = resolveNpmSpillTmpDir(host)
     const result = await runNpmScript({
       projectRoot: root,
       scriptName,
       extraArgs,
       fsMode: 'controlled',
-      terminalSessionId: host.getAgentTerminalHandle()?.getTerminalSessionId(),
+      terminalSessionId: spillTarget.terminalSessionId,
+      npmRunId: spillTarget.npmRunId,
       onConsole: () => undefined,
     })
     rememberNpmChanges(host, result.changes)
-    return appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes)
+    const fullText = appendChangeSummary(
+      formatQuickJsResult(result) || '（无输出）',
+      result.changes,
+    )
+    return maybeSpillToolOutput(fullText, { tmpDir: spillTarget.tmpDir })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
@@ -347,21 +381,27 @@ export async function runVscodeAiNpx(
   host: VscodeAiRunCommandHost,
   packageSpec: string,
   extraArgs: string[] | undefined,
-): Promise<string> {
+): Promise<string | AgentToolStructuredResult> {
   const root = host.workspaceFolder?.trim()
   if (!root) return '未打开工作区文件夹，无法运行 npx'
 
   try {
+    const spillTarget = resolveNpmSpillTmpDir(host)
     const result = await runNpx({
       projectRoot: root,
       packageSpec,
       args: extraArgs,
       fsMode: 'controlled',
-      terminalSessionId: host.getAgentTerminalHandle()?.getTerminalSessionId(),
+      terminalSessionId: spillTarget.terminalSessionId,
+      npmRunId: spillTarget.npmRunId,
       onConsole: () => undefined,
     })
     rememberNpmChanges(host, result.changes)
-    return appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes)
+    const fullText = appendChangeSummary(
+      formatQuickJsResult(result) || '（无输出）',
+      result.changes,
+    )
+    return maybeSpillToolOutput(fullText, { tmpDir: spillTarget.tmpDir })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }

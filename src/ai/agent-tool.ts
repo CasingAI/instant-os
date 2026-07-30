@@ -2,10 +2,19 @@ import type OpenAI from 'openai'
 
 export type JsonSchema = Record<string, unknown>
 
+/** 工具执行后由宿主注入的合成 UI activity（如 spill 自动预览）；不计入模型 tool 步数。 */
+export type AgentSyntheticActivity = {
+  toolName: string
+  arguments: Record<string, unknown>
+  result: string
+}
+
 /** 工具可返回纯数据（序列化为 JSON 字符串），或带追加对话消息的结构（如截图 vision）。 */
 export type AgentToolStructuredResult = {
   content: string
   appendMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 与 appendMessages 配套的 timeline 记录（由 run-agent 再发 onToolCall/onToolResult） */
+  syntheticActivities?: AgentSyntheticActivity[]
 }
 
 export type AgentToolExecuteResult = unknown | AgentToolStructuredResult

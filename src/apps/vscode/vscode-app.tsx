@@ -645,7 +645,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       if (session) {
         const handle = terminalHandlesRef.current.get(session.id)
         if (handle) {
-          return { sessionId: session.id, cwd: handle.getCwd(), status: 'alive' }
+          return {
+            sessionId: session.id,
+            cwd: handle.getCwd(),
+            tmpdir: handle.getTmpDir(),
+            status: 'alive',
+          }
         }
         const fallbackCwd = prefs.workspaceFolder?.trim() || '/user'
         return {

@@ -98,13 +98,14 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
   if (aiTerm) {
     const label = aiTerminalLabel(input.aiTerminalKind)
     if (aiTerm.status === 'alive' && aiTerm.sessionId) {
+      const tmpSuffix = aiTerm.tmpdir ? ` tmpdir=${aiTerm.tmpdir}` : ''
       if (aiTerm.recovering) {
         lines.push(
-          `${label} 终端：session=${aiTerm.sessionId} 会话存在，正在恢复；cwd=${aiTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+          `${label} 终端：session=${aiTerm.sessionId} 会话存在，正在恢复；cwd=${aiTerm.cwd ?? '（未知）'}${tmpSuffix}（同对话复用；勿假设已关闭会话的 cwd/内存/旧 tmpdir 仍在）`,
         )
       } else {
         lines.push(
-          `${label} 终端：session=${aiTerm.sessionId} cwd=${aiTerm.cwd ?? '（未知）'}（同对话复用；勿假设已关闭会话的 cwd/内存仍在）`,
+          `${label} 终端：session=${aiTerm.sessionId} cwd=${aiTerm.cwd ?? '（未知）'}${tmpSuffix}（同对话复用；勿假设已关闭会话的 cwd/内存/旧 tmpdir 仍在）`,
         )
       }
     } else if (aiTerm.status === 'closed') {
@@ -142,10 +143,13 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
     mode === 'ask' || mode === 'plan'
       ? [
           '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
-          '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下写操作会被拒绝',
+          '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下工作区写操作会被拒绝',
+          '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id}）；只读模式下仍可写该目录',
+          '- 终端工具返回超过约 1000 字符时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 自行读取',
+          '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
           mode === 'plan'
             ? '- Plan：run_in_terminal 只读调研（搜索用 instant.grep）；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
-            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），搜索用 instant.grep；不要尝试写入',
+            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），搜索用 instant.grep；不要尝试写入工作区',
           '- /system 与 /models 等只读卷不可写入',
           '- 回答用简洁中文 Markdown；引用路径时用反引号',
           '- 不要编造未执行的工具结果',
@@ -162,6 +166,9 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
             '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
             '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
+            '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id} 或 npm 的 /tmp/Npm/{id}）；大文本可写该目录（不进 ChangeSet）',
+            '- 终端 / npm 工具返回超过约 1000 字符时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 自行读取',
+            '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
             '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
             '- 需要抓取或操作真实网页时，在 run_in_terminal 里用 await webview.create → wait → snapshot（看结构与 [eN]）→ markdown / eval+__vcRef 操作（默认离屏；用完可 destroy）；不要臆造网页内容，不要整页 innerText',
             '- /system 与 /models 等只读卷不可写入',

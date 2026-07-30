@@ -46,6 +46,7 @@ console.log(r.matches)
 - 无 instant 时（未注入宿主）为 undefined；不要假设沙箱/非终端环境有此全局
 - 不要用它改账户、API Key 或系统设置存储；壳层覆盖打开应用/路径/URL、窗口操作与文本搜索
 - 与 fs / path 等 Node 兼容 API 正交：搜索用 instant.grep，读整文件 / 改文件仍用 fs，打开编辑器用 instant.openPath / openApp
+- 大文本可写 os.tmpdir()（session 级 /tmp/Terminal/{id} 或 /tmp/Npm/{id}）；不要塞满上下文，用 fs 分段读取即可
 
 【WebView · globalThis.webview】
 终端另注入 \`webview\`（与 instant 并列）。用于在终端脚本里**打开真实网页、读取结构/正文、操作 DOM、截图、调试**——不是 AI 假页面（browser），也不是用户手点的 Chromo 窗口。
