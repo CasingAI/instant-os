@@ -1855,6 +1855,9 @@ export function VscodeAiPanel({
       if (!root) return
       const target = event.target
       if (target instanceof Node && root.contains(target)) return
+      // 模型列表 / 模式菜单 portal 到浮动层，点击时不应取消编辑
+      const overlay = document.getElementById('instant-os-floating-overlays')
+      if (overlay && target instanceof Node && overlay.contains(target)) return
       // 上下文占用弹层 portal 到 body，点击时不应取消编辑
       if (
         target instanceof Element &&
