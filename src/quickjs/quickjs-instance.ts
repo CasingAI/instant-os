@@ -7,6 +7,10 @@ import {
 import { getResolvedSystemEnv } from '../os/system-env-settings-storage.ts'
 import { appendSystemDebugLog, shortenDebugPath } from '../os/system-debug-log.ts'
 import { FILES_VFS_READ_ROOT } from '../apps/files/files-path.ts'
+import {
+  ensureTmpSessionDir,
+  resolveSessionTmpDir,
+} from '../apps/files/files-tmp.ts'
 import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
 import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
 import {
@@ -42,14 +46,16 @@ import {
   syncExitCodeFromGuest,
 } from './quickjs-process.ts'
 import { isQuickJsRuntimeFatalError } from './quickjs-runtime-fatal.ts'
-import { QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES } from './quickjs-quotas.ts'
+import {
+  QUICKJS_DEFAULT_MAX_FILE_BYTES,
+  QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
+} from './quickjs-quotas.ts'
 
 const DEFAULT_TIMEOUT_MS = 5000
 const DEFAULT_MAX_STACK_SIZE_BYTES = 512 * 1024
-const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024
 const DEFAULT_ARGV = ['instant-node'] as const
 
-export { QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES }
+export { QUICKJS_DEFAULT_MAX_FILE_BYTES, QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES }
 
 const CONSOLE_LEVELS: QuickJsConsoleLevel[] = ['log', 'info', 'warn', 'error']
 
@@ -91,19 +97,38 @@ function resolveHostPermissions(
   workspaceRoot: string | undefined,
   permissions: QuickJsInstanceOptions['permissions'],
   fsMode: TerminalFsMode,
+  sessionTmpDir: string | undefined,
 ): QuickJsHostPermissions {
-  const defaultWriteRoots = workspaceRoot !== undefined ? [workspaceRoot] : []
-  const defaultReadRoots = workspaceRoot !== undefined ? [FILES_VFS_READ_ROOT] : []
+  const defaultWriteRoots =
+    workspaceRoot !== undefined
+      ? sessionTmpDir
+        ? [workspaceRoot, sessionTmpDir]
+        : [workspaceRoot]
+      : sessionTmpDir
+        ? [sessionTmpDir]
+        : []
+  const defaultReadRoots =
+    workspaceRoot !== undefined || sessionTmpDir !== undefined
+      ? [FILES_VFS_READ_ROOT]
+      : []
   const readOnly = fsMode === 'readonly'
+
+  let fsWriteRoots: string[]
+  if (readOnly) {
+    fsWriteRoots = sessionTmpDir ? [sessionTmpDir] : []
+  } else if (permissions?.fsWriteRoots !== undefined) {
+    fsWriteRoots = [...permissions.fsWriteRoots]
+    if (sessionTmpDir && !fsWriteRoots.some((root) => root === sessionTmpDir)) {
+      fsWriteRoots.push(sessionTmpDir)
+    }
+  } else {
+    fsWriteRoots = [...defaultWriteRoots]
+  }
+
   return {
     fsReadRoots:
       permissions?.fsReadRoots !== undefined ? [...permissions.fsReadRoots] : [...defaultReadRoots],
-    // readonly 强制清空写根，忽略外部传入的 fsWriteRoots
-    fsWriteRoots: readOnly
-      ? []
-      : permissions?.fsWriteRoots !== undefined
-        ? [...permissions.fsWriteRoots]
-        : [...defaultWriteRoots],
+    fsWriteRoots,
     fsWriteDenyRoots:
       permissions?.fsWriteDenyRoots !== undefined ? [...permissions.fsWriteDenyRoots] : [],
     network: false,
@@ -115,7 +140,7 @@ function resolveHostQuotas(options: QuickJsInstanceOptions): QuickJsHostQuotas {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     memoryLimitBytes: options.memoryLimitBytes ?? QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
     maxStackSizeBytes: options.maxStackSizeBytes ?? DEFAULT_MAX_STACK_SIZE_BYTES,
-    maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
+    maxFileBytes: options.maxFileBytes ?? QUICKJS_DEFAULT_MAX_FILE_BYTES,
   }
 }
 
@@ -124,11 +149,27 @@ function resolveHostConfig(options: QuickJsInstanceOptions): QuickJsHostConfig {
   const env = options.env !== undefined ? { ...options.env } : getResolvedSystemEnv()
   const argv = options.argv !== undefined ? [...options.argv] : [...DEFAULT_ARGV]
   const fsMode = resolveFsMode(options)
+  const hasSessionTmp =
+    Boolean(options.terminalSessionId?.trim()) || Boolean(options.npmRunId?.trim())
+  const sessionTmpDir = hasSessionTmp
+    ? resolveSessionTmpDir({
+        terminalSessionId: options.terminalSessionId,
+        npmRunId: options.npmRunId,
+      })
+    : undefined
+  if (sessionTmpDir) {
+    env.TMPDIR = sessionTmpDir
+  }
   return {
     workspaceRoot,
     env,
     argv,
-    permissions: resolveHostPermissions(workspaceRoot, options.permissions, fsMode),
+    permissions: resolveHostPermissions(
+      workspaceRoot,
+      options.permissions,
+      fsMode,
+      sessionTmpDir,
+    ),
     quotas: resolveHostQuotas(options),
   }
 }
@@ -272,6 +313,10 @@ export async function createQuickJsInstance(
 ): Promise<QuickJsInstance> {
   const fsMode = resolveFsMode(options)
   const hostConfig = freezeHostConfig(resolveHostConfig(options))
+  const sessionTmpDir = hostConfig.env.TMPDIR
+  if (sessionTmpDir && sessionTmpDir.startsWith('/tmp/')) {
+    await ensureTmpSessionDir(sessionTmpDir)
+  }
   const defaultTimeoutMs = hostConfig.quotas.timeoutMs
   instanceSeq += 1
   const instanceId = `qjs-instance-${instanceSeq}`
@@ -398,6 +443,7 @@ export async function createQuickJsInstance(
       getJournal: () => activeJournal,
     },
     getEvalParentFilename: () => activeEvalFilename,
+    tmpDir: sessionTmpDir,
   })
 
   asyncBridge.injectGlobals()

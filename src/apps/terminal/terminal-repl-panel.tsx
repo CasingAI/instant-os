@@ -22,6 +22,7 @@ import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.t
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
 import type { TerminalFsMode } from '../../terminal/terminal-fs-mode.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
+import { terminalTmpDir } from '../files/files-tmp.ts'
 
 export type TerminalReplRunSource = 'user' | 'program'
 
@@ -37,8 +38,20 @@ export type TerminalReplHandle = {
   getLastChanges: () => TerminalChangeSet | undefined
   /** 仅清除「上一轮可撤销」记录（文件已由外部回滚时用） */
   clearLastChanges: () => void
-  /** @returns 是否成功撤销（有可撤销变更时为 true） */
+  /**
+   * 回滚上一轮 ChangeSet，并轮换 sessionId、重建 QuickJS。
+   * @returns 是否成功撤销（有可撤销变更时为 true）
+   */
   revertLastChanges: () => Promise<boolean>
+  /**
+   * 轮换 sessionId 并重建 QuickJS（不回滚文件）。
+   * 用于外部已回滚 ChangeSet 后仍需作废内存状态。
+   */
+  rebuildInstance: () => Promise<void>
+  /** 当前终端 session UUID（对应 `/tmp/Terminal/{id}`） */
+  getTerminalSessionId: () => string
+  /** 当前 `os.tmpdir()` 路径 */
+  getTmpDir: () => string
 }
 
 export type TerminalReplPanelProps = {
@@ -132,6 +145,9 @@ export function TerminalReplPanel({
   const modal = useWindowModal()
 
   const terminalSessionIdRef = useRef(crypto.randomUUID())
+  const rotateTerminalSessionId = useCallback(() => {
+    terminalSessionIdRef.current = crypto.randomUUID()
+  }, [])
   const instanceRef = useRef<QuickJsInstance | undefined>(undefined)
   /** 合并并发 createInstance（mount boot 与 Agent runCode/ensureInstance 竞态）。 */
   const createInFlightRef = useRef<Promise<void> | undefined>(undefined)
@@ -346,6 +362,7 @@ export function TerminalReplPanel({
           workspaceRoot: root,
           cwd: root,
           fsMode: fsModeRef.current,
+          terminalSessionId: terminalSessionIdRef.current,
           instantShellHost,
           webviewHost: {
             terminalSessionId: terminalSessionIdRef.current,
@@ -400,7 +417,7 @@ export function TerminalReplPanel({
     }
   }, [createInstance])
 
-  // fsMode 变化时重建实例（权限在创建时冻结，不可中途变更）
+  // fsMode 变化时轮换 session 并重建实例（权限在创建时冻结，不可中途变更）
   const firstFsModeRef = useRef(true)
   useEffect(() => {
     if (firstFsModeRef.current) {
@@ -408,8 +425,9 @@ export function TerminalReplPanel({
       return
     }
     onChangesAvailableRef.current?.(false)
+    rotateTerminalSessionId()
     void createInstance({ force: true })
-  }, [fsMode, createInstance])
+  }, [fsMode, createInstance, rotateTerminalSessionId])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -440,9 +458,10 @@ export function TerminalReplPanel({
     unsubRef.current = undefined
     instanceRef.current?.destroy()
     instanceRef.current = undefined
+    rotateTerminalSessionId()
     await createInstance({ force: true })
     focusInput()
-  }, [appendLine, busy, createInstance, focusInput])
+  }, [appendLine, busy, createInstance, focusInput, rotateTerminalSessionId])
 
   const ensureInstance = useCallback(async (): Promise<QuickJsInstance | undefined> => {
     if (createInFlightRef.current) {
@@ -617,15 +636,36 @@ export function TerminalReplPanel({
     }
     try {
       await instance.revertLastChanges()
-      appendLine({ kind: 'info', text: '已撤销上一轮改动' })
+      appendLine({ kind: 'info', text: '已撤销上一轮改动，终端已重建' })
       onChangesAvailableRef.current?.(false)
+      seenConsoleIdsRef.current = new Set()
+      unsubRef.current?.()
+      unsubRef.current = undefined
+      instanceRef.current?.destroy()
+      instanceRef.current = undefined
+      rotateTerminalSessionId()
+      await createInstance({ force: true })
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       appendLine({ kind: 'error', text: `撤销失败：${message}` })
       return false
     }
-  }, [appendLine])
+  }, [appendLine, createInstance, rotateTerminalSessionId])
+
+  const rebuildInstance = useCallback(async () => {
+    if (busy) {
+      instanceRef.current?.abort()
+    }
+    appendLine({ kind: 'info', text: '── 重建 QuickJS 实例 ──' })
+    seenConsoleIdsRef.current = new Set()
+    unsubRef.current?.()
+    unsubRef.current = undefined
+    instanceRef.current?.destroy()
+    instanceRef.current = undefined
+    rotateTerminalSessionId()
+    await createInstance({ force: true })
+  }, [appendLine, busy, createInstance, rotateTerminalSessionId])
 
   const appendInfo = useCallback(
     (text: string) => {
@@ -646,6 +686,9 @@ export function TerminalReplPanel({
       getLastChanges,
       clearLastChanges,
       revertLastChanges,
+      rebuildInstance,
+      getTerminalSessionId: () => terminalSessionIdRef.current,
+      getTmpDir: () => terminalTmpDir(terminalSessionIdRef.current),
     }
 
     if (typeof handleRef === 'function') {
@@ -669,6 +712,7 @@ export function TerminalReplPanel({
     getLastChanges,
     handleAbort,
     handleRef,
+    rebuildInstance,
     revertLastChanges,
     runCode,
   ])

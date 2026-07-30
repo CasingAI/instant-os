@@ -1,5 +1,16 @@
 /**
  * 运行 package.json scripts / npx bin（宿主编排 → QuickJS）。
+ *
+ * ## `/tmp` 与 session id（与终端 REPL 对齐）
+ *
+ * - Guest `os.tmpdir()` / `process.env.TMPDIR` 指向 session 级目录，不是卷根 `/tmp`。
+ * - 若调用方传入 `terminalSessionId`（例如 VS Code Agent 终端仍存活），则共用
+ *   `/tmp/Terminal/{terminalSessionId}/`，与 REPL 同一沙箱。
+ * - 否则每次 run 生成 `npmRunId`，写入 `/tmp/Npm/{npmRunId}/`，避免无终端上下文时
+ *   伪造 REPL session。
+ * - `/tmp` 写入不进入 ChangeSet journal（长期缓存；撤销工作区改动不删 tmp）。
+ * - `resolveHostPermissions` 会把 session tmpdir 并入 `fsWriteRoots`（即使本函数
+ *   显式传入了项目写根）。
  */
 import {
   filesLstat,
@@ -26,10 +37,36 @@ function resolveNpmScriptTimeoutMs(override: number | undefined): number {
   return override ?? NPM_SCRIPT_TIMEOUT_MS
 }
 
+function newNpmRunId(): string {
+  return crypto.randomUUID()
+}
+
+/**
+ * 解析本轮 npm guest 的 tmp 身份。
+ * `terminalSessionId` 优先 → 与 Agent 终端共用 `/tmp/Terminal/{id}`；
+ * 否则自建 `npmRunId` → `/tmp/Npm/{id}`。
+ */
+function resolveNpmTmpIdentity(options: {
+  terminalSessionId?: string
+}): { terminalSessionId?: string; npmRunId?: string } {
+  const terminalSessionId = options.terminalSessionId?.trim()
+  if (terminalSessionId) {
+    return { terminalSessionId }
+  }
+  return { npmRunId: newNpmRunId() }
+}
+
 function npmScriptGuestInstanceOptions(
   params: Pick<
     QuickJsInstanceOptions,
-    'workspaceRoot' | 'cwd' | 'argv' | 'permissions' | 'env' | 'fsMode'
+    | 'workspaceRoot'
+    | 'cwd'
+    | 'argv'
+    | 'permissions'
+    | 'env'
+    | 'fsMode'
+    | 'terminalSessionId'
+    | 'npmRunId'
   > & { timeoutMs?: number },
 ): QuickJsInstanceOptions {
   const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
@@ -43,6 +80,9 @@ function npmScriptGuestInstanceOptions(
     permissions: params.permissions,
     env: params.env,
     fsMode: params.fsMode,
+    // tmp：有 terminalSessionId 则挂靠终端；否则用 npmRunId（见文件头注释）
+    terminalSessionId: params.terminalSessionId,
+    npmRunId: params.npmRunId,
   }
 }
 
@@ -305,6 +345,11 @@ async function runParsedScriptCommand(params: {
   onConsole?: (level: string, text: string) => void
   timeoutMs?: number
   fsMode?: QuickJsInstanceOptions['fsMode']
+  /**
+   * 可选：绑定 Agent/用户终端 session，使 `os.tmpdir()` 指向
+   * `/tmp/Terminal/{id}`。未传则本轮自建 `/tmp/Npm/{runId}`。
+   */
+  terminalSessionId?: string
 }): Promise<QuickJsEvalResult> {
   const parsed = params.parsed
   if (parsed.kind === 'unsupported' || !parsed.target) {
@@ -338,6 +383,9 @@ async function runParsedScriptCommand(params: {
   const code = source.replace(/^#![^\n]*\n/, '')
 
   const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
+  const tmpIdentity = resolveNpmTmpIdentity({
+    terminalSessionId: params.terminalSessionId,
+  })
   const instance = await createQuickJsInstance(
     npmScriptGuestInstanceOptions({
       workspaceRoot: params.projectRoot,
@@ -346,6 +394,8 @@ async function runParsedScriptCommand(params: {
       argv: ['instant-node', entryFile, ...args],
       permissions: npmScriptGuestPermissions(params.projectRoot),
       fsMode: params.fsMode,
+      terminalSessionId: tmpIdentity.terminalSessionId,
+      npmRunId: tmpIdentity.npmRunId,
       env: {
         ...params.env,
         npm_lifecycle_event: params.scriptName,
@@ -393,6 +443,11 @@ export async function runNpmScript(params: {
   timeoutMs?: number
   /** 受控模式下记录 ChangeSet，结果附带 `changes` */
   fsMode?: QuickJsInstanceOptions['fsMode']
+  /**
+   * 可选：绑定终端 session，使本轮 `os.tmpdir()` 指向 `/tmp/Terminal/{id}`。
+   * 未传则每段 script 自建 `/tmp/Npm/{runId}`（见文件头注释）。
+   */
+  terminalSessionId?: string
 }): Promise<QuickJsEvalResult & { scriptCommand?: string }> {
   const packageRoot = params.packageRoot ?? params.projectRoot
   const pkg = await readPackageJson(packageRoot)
@@ -441,6 +496,7 @@ export async function runNpmScript(params: {
       onConsole: params.onConsole,
       timeoutMs: params.timeoutMs,
       fsMode: params.fsMode,
+      terminalSessionId: params.terminalSessionId,
     })
     if (!lastResult.ok || lastResult.exitCode !== 0) {
       return { ...lastResult, scriptCommand: command }
@@ -525,6 +581,11 @@ export async function runNpx(params: {
   fsMode?: QuickJsInstanceOptions['fsMode']
   /** 若未安装则先 install */
   ensureInstalled?: (spec: string) => Promise<void>
+  /**
+   * 可选：绑定终端 session，使本轮 `os.tmpdir()` 指向 `/tmp/Terminal/{id}`。
+   * 未传则自建 `/tmp/Npm/{runId}`（见文件头注释）。
+   */
+  terminalSessionId?: string
 }): Promise<QuickJsEvalResult> {
   const { packageName } = (() => {
     const spec = params.packageSpec
@@ -563,6 +624,9 @@ export async function runNpx(params: {
   const source = (await filesReadText(entryFile)).replace(/^#![^\n]*\n/, '')
 
   const timeoutMs = resolveNpmScriptTimeoutMs(params.timeoutMs)
+  const tmpIdentity = resolveNpmTmpIdentity({
+    terminalSessionId: params.terminalSessionId,
+  })
   const instance = await createQuickJsInstance(
     npmScriptGuestInstanceOptions({
       workspaceRoot: params.projectRoot,
@@ -571,6 +635,8 @@ export async function runNpx(params: {
       argv: ['instant-node', entryFile, ...(params.args ?? [])],
       permissions: npmScriptGuestPermissions(params.projectRoot),
       fsMode: params.fsMode,
+      terminalSessionId: tmpIdentity.terminalSessionId,
+      npmRunId: tmpIdentity.npmRunId,
       env: {
         ...params.env,
         PATH: `${params.projectRoot}/node_modules/.bin:${params.env?.PATH ?? ''}`,

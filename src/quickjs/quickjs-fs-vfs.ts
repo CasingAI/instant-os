@@ -26,6 +26,7 @@ import {
 import type { QuickJsHostPermissions } from './quickjs-instance-types.ts'
 import { beginFsHostTrace } from '../os/system-debug-log.ts'
 import type { TerminalFsJournal } from '../terminal/terminal-changeset-journal.ts'
+import { isUnderTmpPath } from '../apps/files/files-tmp.ts'
 
 const REALPATH_MAX_SYMLINKS = 40
 
@@ -133,6 +134,18 @@ function assertAlive(ops: QuickJsFsHostOps): void {
 
 function getJournal(ops: QuickJsFsHostOps): TerminalFsJournal | undefined {
   return ops.getJournal?.()
+}
+
+/** ChangeSet 不记录 `/tmp` 卷写入（长期缓存，撤销不回滚） */
+async function noteJournal(
+  ops: QuickJsFsHostOps,
+  absolute: string,
+  note: (journal: TerminalFsJournal) => Promise<void>,
+): Promise<void> {
+  if (isUnderTmpPath(absolute)) return
+  const journal = getJournal(ops)
+  if (!journal) return
+  await note(journal)
 }
 
 async function resolvePath(
@@ -336,7 +349,7 @@ export async function fsHostWriteFile(
         })
       }
 
-      await getJournal(ops)?.noteWrite(absolute)
+      await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
       assertAlive(ops)
 
       if (typeof data === 'string') {
@@ -380,7 +393,7 @@ export async function fsHostAppendFile(
         })
       }
 
-      await getJournal(ops)?.noteWrite(absolute)
+      await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
       assertAlive(ops)
 
       let next: string | Uint8Array
@@ -449,7 +462,7 @@ export async function fsHostMkdir(
       }
 
       if (!recursive) {
-        await getJournal(ops)?.noteMkdir(absolute)
+        await noteJournal(ops, absolute, (j) => j.noteMkdir(absolute))
         assertAlive(ops)
         await filesMkdir(absolute)
         assertAlive(ops)
@@ -464,7 +477,7 @@ export async function fsHostMkdir(
         const entry = await filesStat(current)
         assertAlive(ops)
         if (entry === undefined) {
-          await getJournal(ops)?.noteMkdir(current)
+          await noteJournal(ops, current, (j) => j.noteMkdir(current))
           assertAlive(ops)
           await filesMkdir(current)
           assertAlive(ops)
@@ -754,7 +767,9 @@ export async function fsHostRename(
         })
       }
 
-      await getJournal(ops)?.noteRename(oldPath, newPath)
+      if (!isUnderTmpPath(oldPath) && !isUnderTmpPath(newPath)) {
+        await noteJournal(ops, oldPath, (j) => j.noteRename(oldPath, newPath))
+      }
       assertAlive(ops)
 
       const oldDir = pathDirname(oldPath)
@@ -797,7 +812,7 @@ export async function fsHostUnlink(ops: QuickJsFsHostOps, rawPath: unknown): Pro
           syscall: 'unlink',
         })
       }
-      await getJournal(ops)?.noteUnlink(absolute)
+      await noteJournal(ops, absolute, (j) => j.noteUnlink(absolute))
       assertAlive(ops)
       await filesRemove(absolute)
       assertAlive(ops)
@@ -841,7 +856,7 @@ export async function fsHostRm(
           })
         }
       }
-      await getJournal(ops)?.noteRmTree(absolute)
+      await noteJournal(ops, absolute, (j) => j.noteRmTree(absolute))
       assertAlive(ops)
       await filesRemove(absolute)
       assertAlive(ops)
@@ -879,7 +894,7 @@ export async function fsHostRmdir(ops: QuickJsFsHostOps, rawPath: unknown): Prom
           syscall: 'rmdir',
         })
       }
-      await getJournal(ops)?.noteRmTree(absolute)
+      await noteJournal(ops, absolute, (j) => j.noteRmTree(absolute))
       assertAlive(ops)
       await filesRemove(absolute)
       assertAlive(ops)

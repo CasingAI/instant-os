@@ -1,4 +1,4 @@
-export type BuiltinFilesLocationId = 'local' | 'applications' | 'models3d' | 'source' | 'dev'
+export type BuiltinFilesLocationId = 'local' | 'applications' | 'models3d' | 'source' | 'dev' | 'tmp'
 
 /** 动态挂载卷：`mount:{文件夹名键}`，键由本机文件夹名派生，便于稳定路径 */
 export type MountFilesLocationId = `mount:${string}`
@@ -41,7 +41,7 @@ export type FilesNode = {
 
 /** 第一期允许创建 symlink 的卷（挂载卷 / 投影卷拒绝） */
 export function canCreateSymlinkOnLocation(locationId: FilesLocationId): boolean {
-  return locationId === 'local' || locationId === 'dev'
+  return locationId === 'local' || locationId === 'dev' || locationId === 'tmp'
 }
 
 /** 每次内容写入时生成的版本戳 */
@@ -64,6 +64,7 @@ export const FILES_LOCATIONS: readonly FilesLocation[] = [
   { id: 'local', label: '用户文件', writable: true },
   { id: 'applications', label: '应用程序', writable: false },
   { id: 'dev', label: '开发者数据', writable: true },
+  { id: 'tmp', label: '临时文件', writable: true },
   { id: 'models3d', label: '3D 模型', writable: false },
   { id: 'source', label: '系统', writable: false },
 ]

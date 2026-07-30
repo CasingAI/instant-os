@@ -6,8 +6,11 @@ const OS_BUNDLE_GLOBAL_KEY = '__instantOsBundle'
 /**
  * L2.5.4 薄 os：手写 guest 源，供 CLI 探测环境。
  * 假值对齐 Instant process（linux / x64）；tmpdir/homedir 走 VFS 约定路径。
+ * `tmpDir` 由宿主注入（session 级 `/tmp/Terminal/{id}` 或 `/tmp/Npm/{id}`）。
  */
-const QUICKJS_OS_GUEST_SOURCE = `(function () {
+function buildOsGuestSource(tmpDir: string): string {
+  const tmpDirLiteral = JSON.stringify(tmpDir)
+  return `(function () {
   'use strict';
 
   var EOL = '\\n';
@@ -15,7 +18,7 @@ const QUICKJS_OS_GUEST_SOURCE = `(function () {
   var arch = 'x64';
   var typeName = 'Linux';
   var release = '5.0.0-instant';
-  var tmpDir = '/tmp';
+  var tmpDir = ${tmpDirLiteral};
   var homeDir = '/user';
   var hostname = 'instant';
   var endianness = 'LE';
@@ -86,11 +89,17 @@ const QUICKJS_OS_GUEST_SOURCE = `(function () {
   };
 
   globalThis.${OS_BUNDLE_GLOBAL_KEY} = os;
-})();
-`
+})();`
+}
 
-export function injectOs(context: QuickJSContext): QuickJSHandle {
-  const evalResult = context.evalCode(QUICKJS_OS_GUEST_SOURCE, 'instant-os-bundle.js')
+export type InjectOsOptions = {
+  /** Session 级临时目录；默认 `/tmp`（卷根，通常无写沙箱）。 */
+  tmpDir?: string
+}
+
+export function injectOs(context: QuickJSContext, options?: InjectOsOptions): QuickJSHandle {
+  const tmpDir = options?.tmpDir?.trim() || '/tmp'
+  const evalResult = context.evalCode(buildOsGuestSource(tmpDir), 'instant-os-bundle.js')
   if (evalResult.error) {
     const message = (() => {
       try {

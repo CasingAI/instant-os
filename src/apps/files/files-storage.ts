@@ -334,7 +334,7 @@ export async function getFilesTotalBytes(): Promise<number> {
 }
 
 /** 计入数据空间配额的文件卷（IndexedDB 本地卷） */
-export const DATA_SPACE_FILE_LOCATIONS: readonly FilesLocationId[] = ['local', 'dev']
+export const DATA_SPACE_FILE_LOCATIONS: readonly FilesLocationId[] = ['local', 'dev', 'tmp']
 
 export type FilesLocationBytes = {
   locationId: FilesLocationId
@@ -342,7 +342,7 @@ export type FilesLocationBytes = {
 }
 
 /**
- * 按卷汇总文件节点 byteSize（仅 local / dev）。
+ * 按卷汇总文件节点 byteSize（仅 local / dev / tmp）。
  * 用于设置「文件」次级页展示；总占用仍以 getFilesTotalBytes() 为准。
  */
 export async function getFilesBytesByLocation(): Promise<FilesLocationBytes[]> {

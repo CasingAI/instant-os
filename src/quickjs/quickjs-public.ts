@@ -3,7 +3,10 @@
  * 宿主会话（终端会话 / Virtual JS 窗口）应 create 一个实例，关闭时 destroy。
  */
 export { createQuickJsInstance } from './quickjs-instance.ts'
-export { QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES } from './quickjs-quotas.ts'
+export {
+  QUICKJS_DEFAULT_MAX_FILE_BYTES,
+  QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
+} from './quickjs-quotas.ts'
 export {
   isQuickJsRuntimeFatalError,
   QuickJsRuntimeFatalError,

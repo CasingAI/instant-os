@@ -184,6 +184,16 @@ export function getVscodeAiLastChangeSet(
   return undefined
 }
 
+function formatRebuiltAfterRevertBanner(terminal: TerminalReplHandle): string {
+  const sessionId = terminal.getTerminalSessionId()
+  const tmpdir = terminal.getTmpDir()
+  return [
+    `[terminal session=${sessionId} kind=rebuilt reason=changes_reverted]`,
+    'cwd 已重置；上一轮文件改动已撤销。请勿假设内存变量或旧 tmpdir 仍有效。',
+    `[tmpdir=${tmpdir}]`,
+  ].join('\n')
+}
+
 /** 按审查卡 session 回滚（优先走 host 当前 last，否则按 session 加载） */
 export async function revertVscodeAiTerminalChangeReview(
   host: VscodeAiRunCommandHost,
@@ -217,6 +227,12 @@ export async function revertVscodeAiTerminalChangeReview(
         : undefined
   }
   notifyChangesAvailable(host)
+
+  if (review.source === 'terminal' && terminal) {
+    await terminal.rebuildInstance()
+    return `已撤销本轮改动（${formatTerminalChangeSummary(changeSet)}）\n${formatRebuiltAfterRevertBanner(terminal)}`
+  }
+
   return `已撤销本轮改动（${formatTerminalChangeSummary(changeSet)}）`
 }
 
@@ -242,7 +258,10 @@ export async function revertVscodeAiLastChanges(host: VscodeAiRunCommandHost): P
     if (!ok) return '撤销失败'
     host.lastChangeSource.current = npmHasChanges(host) ? 'npm' : undefined
     notifyChangesAvailable(host)
-    return `已撤销终端改动（${formatTerminalChangeSummary(terminalChanges)}）`
+    return [
+      `已撤销终端改动（${formatTerminalChangeSummary(terminalChanges)}）`,
+      formatRebuiltAfterRevertBanner(terminal),
+    ].join('\n')
   }
 
   const npm = host.npmLastChanges.current
@@ -314,6 +333,7 @@ export async function runVscodeAiNpmScript(
       scriptName,
       extraArgs,
       fsMode: 'controlled',
+      terminalSessionId: host.getAgentTerminalHandle()?.getTerminalSessionId(),
       onConsole: () => undefined,
     })
     rememberNpmChanges(host, result.changes)
@@ -337,6 +357,7 @@ export async function runVscodeAiNpx(
       packageSpec,
       args: extraArgs,
       fsMode: 'controlled',
+      terminalSessionId: host.getAgentTerminalHandle()?.getTerminalSessionId(),
       onConsole: () => undefined,
     })
     rememberNpmChanges(host, result.changes)

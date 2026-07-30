@@ -52,7 +52,7 @@ export type TaskManagerFilesIoMetrics = {
 /** @deprecated 使用 FilesIoContainerMetrics */
 export type FilesIoVolumeMetrics = FilesIoContainerMetrics
 
-const DATA_LOCATION_IDS: readonly FilesLocationId[] = ['local', 'dev']
+const DATA_LOCATION_IDS: readonly FilesLocationId[] = ['local', 'dev', 'tmp']
 /** 系统投影卷：系统源码 + 3D 模型 */
 const SYSTEM_LOCATION_IDS: readonly FilesLocationId[] = ['source', 'models3d']
 

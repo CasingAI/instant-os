@@ -68,8 +68,8 @@ export type QuickJsInstanceOptions = {
   /**
    * 文件系统工作模式（创建时冻结；切换需重建实例）。
    * - `normal`：可写，不记变更
-   * - `readonly`：强制 `fsWriteRoots` 为空，写操作 EACCES
-   * - `controlled`：可写，每轮 eval 记录 ChangeSet（before + 清单）
+   * - `readonly`：工作区只读；若有 session tmpdir 则仅该目录可写
+   * - `controlled`：可写，每轮 eval 记录 ChangeSet（before + 清单；不含 `/tmp`）
    */
   fsMode?: TerminalFsMode
   /**
@@ -77,8 +77,18 @@ export type QuickJsInstanceOptions = {
    */
   readOnly?: boolean
   /**
-   * 权限覆盖。未传时：无 workspaceRoot → 读写根为空；
-   * 有 workspaceRoot → 读写根默认为该根；network 始终 false。
+   * 终端 REPL / Agent 会话 UUID。优先用于解析 `os.tmpdir()` = `/tmp/Terminal/{id}`。
+   */
+  terminalSessionId?: string
+  /**
+   * 无绑定终端时 npm/npx 独立 run UUID。解析为 `/tmp/Npm/{id}`。
+   * 与 `terminalSessionId` 并存时后者优先。
+   */
+  npmRunId?: string
+  /**
+   * 权限覆盖。未传时：无 workspaceRoot → 读写根为空（有 session tmp 时写根含 tmpdir）；
+   * 有 workspaceRoot → 读根为 `/`，写根为工作区 + session tmpdir；network 始终 false。
+   * `readonly`：写根仅为 session tmpdir（若有）。
    */
   permissions?: {
     fsReadRoots?: string[]
@@ -87,11 +97,11 @@ export type QuickJsInstanceOptions = {
   }
   /** 单次 eval 默认超时（毫秒），默认 5000。属配额。 */
   timeoutMs?: number
-  /** QuickJS 堆内存上限（字节），默认 16 MiB。属配额。 */
+  /** QuickJS 堆内存上限（字节），默认 128 MiB。属配额。 */
   memoryLimitBytes?: number
   /** 栈大小上限（字节），默认 512 KiB。属配额。 */
   maxStackSizeBytes?: number
-  /** 单文件读写上限（字节），默认 2 MiB。属配额；L1.6 起执行。 */
+  /** 单文件读写上限（字节），默认与数据空间上限对齐（1 GiB）。属配额。 */
   maxFileBytes?: number
   /** 注入到隔离上下文 globalThis 的可序列化全局变量（仅创建时一次）。 */
   globals?: Record<string, unknown>

@@ -338,6 +338,8 @@ export function injectNodeBuiltins(
     fsOps: QuickJsFsHostOps
     /** 当前 eval 入口（供顶层 CJS require 相对路径）。 */
     getEvalParentFilename?: () => string | undefined
+    /** Session 级 os.tmpdir()；未传则 guest 回落 `/tmp` */
+    tmpDir?: string
   },
 ): QuickJsNodeBuiltinRegistry {
   const implemented = new Set<string>([
@@ -360,7 +362,7 @@ export function injectNodeBuiltins(
   const eventsHandle = injectEvents(context)
   const assertHandle = injectAssert(context)
   const utilHandle = injectUtil(context)
-  const osHandle = injectOs(context)
+  const osHandle = injectOs(context, { tmpDir: options.tmpDir })
   const perfHooksHandle = injectPerfHooks(context)
   const { fsHandle, promisesHandle, disposeFsWatchers } = injectFs({
     context,

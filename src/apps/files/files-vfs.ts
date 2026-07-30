@@ -1364,8 +1364,8 @@ function canShareBlobOnCopy(source: FilesNode, destLocationId: FilesLocationId):
     return false
   }
   return (
-    (source.locationId === 'local' || source.locationId === 'dev') &&
-    (destLocationId === 'local' || destLocationId === 'dev')
+    (source.locationId === 'local' || source.locationId === 'dev' || source.locationId === 'tmp') &&
+    (destLocationId === 'local' || destLocationId === 'dev' || destLocationId === 'tmp')
   )
 }
 

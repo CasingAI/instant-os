@@ -140,10 +140,78 @@ async function testReadOutsideWorkspaceWriteDenied(): Promise<void> {
   console.log('ok: read outside workspace, write denied outside')
 }
 
+async function testReadonlyAllowsSessionTmpWrite(): Promise<void> {
+  await resetRoot()
+  const sessionId = 'tcs-readonly-tmp'
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    fsMode: 'readonly',
+    terminalSessionId: sessionId,
+    timeoutMs: 10_000,
+  })
+  const result = await instance.eval(`
+    var fs = require('fs')
+    var os = require('os')
+    var path = require('path')
+    var tmp = os.tmpdir()
+    var denied
+    try {
+      fs.writeFileSync('x.txt', 'nope')
+      denied = 'wrote-workspace'
+    } catch (e) {
+      denied = String(e && e.code ? e.code : e)
+    }
+    fs.writeFileSync(path.join(tmp, 'spill.txt'), 'ok')
+    ;({
+      denied: denied,
+      tmpdir: tmp,
+      spill: fs.readFileSync(path.join(tmp, 'spill.txt'), 'utf8'),
+    })
+  `)
+  instance.destroy()
+  assert.equal(result.ok, true)
+  const value = result.value as { denied: string; tmpdir: string; spill: string }
+  assert.equal(value.denied, 'EACCES')
+  assert.equal(value.tmpdir, `/tmp/Terminal/${sessionId}`)
+  assert.equal(value.spill, 'ok')
+  assert.equal(await filesStat(`${ROOT}/x.txt`), undefined)
+  assert.equal(await filesReadText(`/tmp/Terminal/${sessionId}/spill.txt`), 'ok')
+  console.log('ok: readonly allows session tmp write')
+}
+
+async function testControlledTmpNotInChangeset(): Promise<void> {
+  await resetRoot()
+  const sessionId = 'tcs-ctrl-tmp'
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    fsMode: 'controlled',
+    terminalSessionId: sessionId,
+    timeoutMs: 10_000,
+  })
+  const result = await instance.eval(`
+    var fs = require('fs')
+    var os = require('os')
+    var path = require('path')
+    fs.writeFileSync('tracked.txt', 'ws')
+    fs.writeFileSync(path.join(os.tmpdir(), 'scratch.txt'), 'tmp')
+    'ok'
+  `)
+  instance.destroy()
+  assert.equal(result.ok, true)
+  assert.ok(result.changes)
+  const paths = result.changes!.changes.map((c) => c.path)
+  assert.ok(paths.some((p) => p.endsWith('/tracked.txt')))
+  assert.ok(!paths.some((p) => p.includes('/tmp/')))
+  assert.equal(await filesReadText(`/tmp/Terminal/${sessionId}/scratch.txt`), 'tmp')
+  console.log('ok: controlled tmp writes excluded from changeset')
+}
+
 async function main(): Promise<void> {
   await testReadonlyRejectsWrite()
+  await testReadonlyAllowsSessionTmpWrite()
   await testNormalDoesNotTrack()
   await testControlledTracksAndReverts()
+  await testControlledTmpNotInChangeset()
   await testReadOutsideWorkspaceWriteDenied()
   console.log('terminal-controlled: all passed')
 }

@@ -4,7 +4,7 @@
  *
  * 路径约定：
  * - `/` — 命名空间根（虚拟）：下列出各卷，不可写入
- * - `/user` · `/dev` · `/models` · `/system` · `/mount/{文件夹名}` — 各卷根
+ * - `/user` · `/dev` · `/tmp` · `/models` · `/system` · `/mount/{文件夹名}` — 各卷根
  */
 import {
   filesLocationPathRoot,
