@@ -63,7 +63,7 @@ import {
   collectVscodeAiReminderEvents,
   type VscodeAiLastSentTerminal,
 } from './vscode-ai-system-reminder.ts'
-import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
+import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search-core.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import {

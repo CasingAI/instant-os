@@ -1,4 +1,4 @@
-import VscodeTypescriptResolveWorker from './vscode-typescript-resolve.worker.ts?worker'
+import VscodeTypescriptResolveWorker from './vscode-unified.worker.ts?worker'
 import { defineService } from '../../os/service-supervisor.ts'
 import { appendVscodeInternalLog } from './vscode-internal-log.ts'
 import type {

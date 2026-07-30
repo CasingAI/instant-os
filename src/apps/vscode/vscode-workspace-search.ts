@@ -1,4 +1,4 @@
-import VscodeWorkspaceSearchWorker from './vscode-workspace-search.worker.ts?worker'
+import VscodeWorkspaceSearchWorker from './vscode-unified.worker.ts?worker'
 import { defineService } from '../../os/service-supervisor.ts'
 import {
   matchVscodeOpenFiles,

@@ -18,7 +18,7 @@ import { searchVfsText } from '../files/vfs-text-search.ts'
 import {
   matchVscodeOpenFiles,
   type VscodeWorkspaceSearchOpenFile,
-} from './vscode-workspace-search.ts'
+} from './vscode-workspace-search-core.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
 import type { VscodeAiRunCommandHost } from './vscode-ai-run-command.ts'

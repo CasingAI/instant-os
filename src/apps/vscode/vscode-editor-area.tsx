@@ -37,7 +37,7 @@ import type {
   VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
-import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts'
+import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search-core.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
