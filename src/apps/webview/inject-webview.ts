@@ -16,9 +16,11 @@ import {
   getWebViewUnit,
   listWebViewTabs,
   listWebViewUnits,
+  markdownWebViewTab,
   requireLiveWebViewTab,
   resolveWebViewTabId,
   screenshotWebViewTab,
+  snapshotWebViewTab,
   subscribeWebViewRegistry,
   updateWebViewTab,
   waitWebViewTab,
@@ -361,6 +363,36 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
         hasOptions ? screenshotOptions : undefined,
         getViewer,
       )
+    }),
+  )
+
+  bind('snapshot', (optsHandle) =>
+    runAsync(async () => {
+      const opts = readObjectArg(context, optsHandle, 'options')
+      const unitId = String(opts.unitId ?? '')
+      const tabId = String(opts.tabId ?? 'default')
+      if (!unitId) {
+        throw new Error('unitId 不能为空')
+      }
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      return snapshotWebViewTab(resolved.unitId, resolved.tabId, getViewer)
+    }),
+  )
+
+  bind('markdown', (optsHandle) =>
+    runAsync(async () => {
+      const opts = readObjectArg(context, optsHandle, 'options')
+      const unitId = String(opts.unitId ?? '')
+      const tabId = String(opts.tabId ?? 'default')
+      if (!unitId) {
+        throw new Error('unitId 不能为空')
+      }
+      const resolved = resolveOwnedTab(host, unitId, tabId)
+      const ref =
+        opts.ref === undefined || opts.ref === null || opts.ref === ''
+          ? undefined
+          : String(opts.ref)
+      return markdownWebViewTab(resolved.unitId, resolved.tabId, ref, getViewer)
     }),
   )
 

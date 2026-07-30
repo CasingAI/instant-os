@@ -6,6 +6,12 @@ import { formatPageFault } from '../../page-host/page-fault.ts'
 import { displayPageUrl, normalizePageUrl, pageTitleFromUrl } from '../../page-host/page-url.ts'
 import type { PageViewerHandle } from '../../page-host/page-viewer-frame.tsx'
 import type { RefObject } from 'preact'
+import {
+  capturePageAgentMarkdown,
+  capturePageAgentSnapshot,
+  type PageAgentMarkdownResult,
+  type PageAgentSnapshotResult,
+} from '../../page-host/page-agent-scripts.ts'
 
 export type WebViewUnitEvent =
   | { type: 'unitCreated'; unitId: string; tabId: string; url: string }
@@ -527,6 +533,51 @@ export async function screenshotWebViewTab(
     throw new Error('网页尚未就绪')
   }
   return viewer.screenshot(options)
+}
+
+function requireReadyViewer(
+  unitId: string,
+  tabId: string,
+  getViewer: (unitId: string, tabId: string) => PageViewerHandle | null | undefined,
+): PageViewerHandle {
+  requireLiveWebViewTab(unitId, tabId)
+  const viewer = getViewer(unitId, tabId)
+  if (!viewer?.isReady()) {
+    throw new Error('网页尚未就绪')
+  }
+  return viewer
+}
+
+export async function snapshotWebViewTab(
+  unitId: string,
+  tabId: string,
+  getViewer: (unitId: string, tabId: string) => PageViewerHandle | null | undefined,
+): Promise<PageAgentSnapshotResult> {
+  const viewer = requireReadyViewer(unitId, tabId, getViewer)
+  const result = await capturePageAgentSnapshot((code, options) =>
+    viewer.evalInPage(code, options),
+  )
+  if (result.error) {
+    throw new Error(result.error)
+  }
+  return result
+}
+
+export async function markdownWebViewTab(
+  unitId: string,
+  tabId: string,
+  ref: string | undefined,
+  getViewer: (unitId: string, tabId: string) => PageViewerHandle | null | undefined,
+): Promise<PageAgentMarkdownResult> {
+  const viewer = requireReadyViewer(unitId, tabId, getViewer)
+  const result = await capturePageAgentMarkdown(
+    (code, options) => viewer.evalInPage(code, options),
+    ref,
+  )
+  if (result.error) {
+    throw new Error(result.error)
+  }
+  return result
 }
 
 export { CHANGED_EVENT as WEBVIEW_REGISTRY_CHANGED_EVENT }
