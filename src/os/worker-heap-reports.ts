@@ -25,8 +25,8 @@ export const SERVICE_STARTUP_TYPES = [
 ] as const satisfies readonly ServiceStartupType[]
 
 export const SERVICE_STARTUP_TYPE_LABELS: Record<ServiceStartupType, string> = {
-  auto: '自动',
-  'auto-delayed': '自动（延迟启动）',
+  auto: '自动启动',
+  'auto-delayed': '延迟启动',
   manual: '手动',
   disabled: '禁用',
 }

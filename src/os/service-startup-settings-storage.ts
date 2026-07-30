@@ -1,6 +1,8 @@
-import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 import {
-  SERVICE_STARTUP_TYPES,
+  DEVICE_STORAGE_KEYS,
+  writeLocalStorageItem,
+} from './device-storage.ts'
+import {
   WORKER_HEAP_SERVICE_IDS,
   type ServiceStartupType,
   type WorkerHeapServiceId,
@@ -22,11 +24,10 @@ const DEFAULT_SETTINGS: ServiceStartupSettings = {
   types: {},
 }
 
-function isServiceStartupType(value: unknown): value is ServiceStartupType {
-  return (
-    typeof value === 'string' &&
-    (SERVICE_STARTUP_TYPES as readonly string[]).includes(value)
-  )
+function isSelectableServiceStartupType(
+  value: unknown,
+): value is Exclude<ServiceStartupType, 'disabled'> {
+  return value === 'auto' || value === 'auto-delayed' || value === 'manual'
 }
 
 function normalizeServiceStartupSettings(raw: unknown): ServiceStartupSettings {
@@ -39,7 +40,10 @@ function normalizeServiceStartupSettings(raw: unknown): ServiceStartupSettings {
       : {}
   for (const id of WORKER_HEAP_SERVICE_IDS) {
     const value = typesRaw[id]
-    if (isServiceStartupType(value)) {
+    // 「禁用」易导致请求被拒等异常，不再接受；旧数据回落为手动
+    if (value === 'disabled') {
+      settings.types[id] = 'manual'
+    } else if (isSelectableServiceStartupType(value)) {
       settings.types[id] = value
     }
   }
@@ -69,6 +73,9 @@ export function patchServiceStartupType(
   id: WorkerHeapServiceId,
   startupType: ServiceStartupType,
 ): boolean {
+  if (startupType === 'disabled') {
+    return false
+  }
   const settings = loadServiceStartupSettings()
   return saveServiceStartupSettings({
     ...settings,
@@ -81,7 +88,8 @@ export function getServiceStartupType(
   id: WorkerHeapServiceId,
   defaultType: ServiceStartupType = 'manual',
 ): ServiceStartupType {
-  return loadServiceStartupSettings().types[id] ?? defaultType
+  const resolved = loadServiceStartupSettings().types[id] ?? defaultType
+  return resolved === 'disabled' ? 'manual' : resolved
 }
 
 export function subscribeServiceStartupSettings(listener: () => void): () => void {

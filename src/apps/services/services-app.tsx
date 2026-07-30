@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
-import { AppIconTile } from '../../icons/app-icon-tile.tsx'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
@@ -19,17 +18,36 @@ import {
 } from '../../os/service-supervisor.ts'
 import {
   listWorkerHeapReports,
-  SERVICE_STARTUP_TYPE_LABELS,
-  SERVICE_STARTUP_TYPES,
   WORKER_HEAP_REPORTS_CHANGED_EVENT,
   WORKER_SERVICE_STATUS_LABELS,
   type ServiceStartupType,
   type WorkerHeapReport,
   type WorkerHeapServiceId,
 } from '../../os/worker-heap-reports.ts'
+import {
+  KeychainNavStack,
+  useKeychainNavStack,
+} from '../keychain/keychain-nav-stack.tsx'
+import { IosButton } from '../../ui/ios-button.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
+import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
+import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
+import '../../ui/ios-nav-back.css'
+import '../settings/settings.css'
+import '../keychain/keychain.css'
 import './services.css'
 
 const APP_ID = 'services' as const
+
+type ServicesScreen = 'list' | 'detail' | 'startup-type'
+
+const STARTUP_TYPE_OPTIONS = [
+  { id: 'auto', label: '自动启动' },
+  { id: 'auto-delayed', label: '延迟启动' },
+  { id: 'manual', label: '手动' },
+] as const satisfies ReadonlyArray<{ id: ServiceStartupType; label: string }>
 
 function formatHeartbeat(at: number): string {
   if (!at) return '—'
@@ -52,13 +70,48 @@ function resolveEffectiveStartupType(service: WorkerHeapReport): ServiceStartupT
   return getServiceStartupType(service.id, service.defaultStartupType)
 }
 
+/** 与 `.settings` 面板纵向渐变 (#ececec → #d8d8d8) 对齐 */
+function settingsPanelColorAt(ratio: number): string {
+  const t = Math.min(1, Math.max(0, ratio))
+  const channel = (top: number, bottom: number) =>
+    Math.round(top + (bottom - top) * t)
+  const r = channel(0xec, 0xd8)
+  const g = channel(0xec, 0xd8)
+  const b = channel(0xec, 0xd8)
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 export function ServicesApp() {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
+  const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
   const definition = getAppDefinition(APP_ID)
   const [services, setServices] = useState<WorkerHeapReport[]>(() => listWorkerHeapReports())
-  const [selectedId, setSelectedId] = useState<WorkerHeapServiceId | undefined>(undefined)
+  const [selectedId, setSelectedId] = useState<WorkerHeapServiceId | undefined>(() => {
+    const initial = listWorkerHeapReports()
+    return initial[0]?.id
+  })
   const [settingsTick, setSettingsTick] = useState(0)
+  const [caretPos, setCaretPos] = useState<
+    { x: number; y: number; fill: string } | undefined
+  >(undefined)
+  const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
+  const splitRef = useRef<HTMLDivElement>(null)
+  const listPaneRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const detailPanelRef = useRef<HTMLDivElement>(null)
+  const selectedRowRef = useRef<HTMLButtonElement>(null)
+
+  const {
+    page: screen,
+    stack: navStack,
+    transition: navTransition,
+    queuedTransition: navQueuedTransition,
+    commitQueuedTransition: commitNavQueuedTransition,
+    navigate: navigateTo,
+    handleMotionEnd: handleStackMotionEnd,
+    setPage: resetNavPage,
+  } = useKeychainNavStack<ServicesScreen>('list')
 
   const refresh = useCallback(() => {
     setServices(listWorkerHeapReports())
@@ -77,19 +130,39 @@ export function ServicesApp() {
     })
   }, [refresh])
 
-  // 选中项若已不存在则清空
   useEffect(() => {
-    if (selectedId && !services.some((s) => s.id === selectedId)) {
+    if (services.length === 0) {
       setSelectedId(undefined)
+      return
+    }
+    if (!selectedId || !services.some((s) => s.id === selectedId)) {
+      setSelectedId(services[0]?.id)
     }
   }, [selectedId, services])
+
+  useLayoutEffect(() => {
+    if (!layoutReady) {
+      return
+    }
+
+    const previous = prevNarrowLayoutRef.current
+    if (previous === undefined) {
+      prevNarrowLayoutRef.current = narrowLayout
+      return
+    }
+
+    prevNarrowLayoutRef.current = narrowLayout
+
+    if (previous && !narrowLayout) {
+      resetNavPage('list')
+    }
+  }, [layoutReady, narrowLayout, resetNavPage])
 
   const selected = useMemo(
     () => (selectedId ? services.find((s) => s.id === selectedId) : undefined),
     [selectedId, services],
   )
 
-  // settingsTick 用于在启动类型变更后强制重算有效类型
   const effectiveTypeOf = useCallback(
     (service: WorkerHeapReport): ServiceStartupType => {
       void settingsTick
@@ -133,199 +206,311 @@ export function ServicesApp() {
     setWorkerServiceStartupType(id, type)
   }
 
-  return (
-    <div class="services">
-      <section class="services__section">
-        <h2 class="services__title">服务</h2>
-        <p class="services__subtitle">
-          共 {services.length} 个服务 · {runningCount} 个运行中
-        </p>
+  const handleSelectService = (id: WorkerHeapServiceId): void => {
+    setSelectedId(id)
+    if (narrowLayout) {
+      navigateTo('detail', 'push')
+    }
+  }
 
+  const syncCaretPos = useCallback(() => {
+    if (narrowLayout) {
+      setCaretPos(undefined)
+      return
+    }
+    const row = selectedRowRef.current
+    const split = splitRef.current
+    const panel = detailPanelRef.current
+    if (!row || !split || !panel) {
+      setCaretPos(undefined)
+      return
+    }
+    const rowRect = row.getBoundingClientRect()
+    const splitRect = split.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const rowCenterY = rowRect.top + rowRect.height / 2
+    const gradientT =
+      panelRect.height > 0 ? (rowCenterY - panelRect.top) / panelRect.height : 0
+    setCaretPos({
+      x: panelRect.left - splitRect.left,
+      y: rowCenterY - splitRect.top,
+      fill: settingsPanelColorAt(gradientT),
+    })
+  }, [narrowLayout])
+
+  useLayoutEffect(() => {
+    syncCaretPos()
+  }, [syncCaretPos, selectedId, services, narrowLayout])
+
+  useEffect(() => {
+    const listPane = listPaneRef.current
+    const split = splitRef.current
+    const panel = detailPanelRef.current
+    const row = selectedRowRef.current
+    listPane?.addEventListener('scroll', syncCaretPos, { passive: true })
+    panel?.addEventListener('scroll', syncCaretPos, { passive: true })
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            syncCaretPos()
+          })
+        : undefined
+    if (split) {
+      observer?.observe(split)
+    }
+    if (panel) {
+      observer?.observe(panel)
+    }
+    if (listPane) {
+      observer?.observe(listPane)
+    }
+    if (row) {
+      observer?.observe(row)
+    }
+    window.addEventListener('resize', syncCaretPos)
+    return () => {
+      listPane?.removeEventListener('scroll', syncCaretPos)
+      panel?.removeEventListener('scroll', syncCaretPos)
+      observer?.disconnect()
+      window.removeEventListener('resize', syncCaretPos)
+    }
+  }, [syncCaretPos, selectedId, services, narrowLayout])
+
+  const selectedStartupType = selected ? effectiveTypeOf(selected) : undefined
+  const canStart =
+    selected !== undefined &&
+    (selected.status === 'stopped' || selected.status === 'failed')
+  const canStop =
+    selected !== undefined &&
+    (selected.status === 'running' || selected.status === 'restarting')
+  const canRestart = selected !== undefined
+
+  const renderListNav = () => (
+    <div class="settings__nav settings__nav--titled">
+      <div class="settings__nav-bar">
+        <span class="settings__nav-heading-spacer" aria-hidden="true" />
+        <h1 class="settings__nav-heading">服务</h1>
+        <span class="settings__nav-trailing" aria-hidden="true" />
+      </div>
+    </div>
+  )
+
+  const renderListContent = (stacked: boolean) => (
+    <div class="settings__content settings__content--compact">
+      <section class="settings__section">
         {services.length === 0 ? (
-          <p class="services__empty">暂无已注册的系统服务</p>
+          <div class="settings__box settings__empty">暂无已注册的系统服务</div>
         ) : (
-          <div class="services__table-wrap">
-            <table class="services__table">
-              <thead>
-                <tr>
-                  <th class="services__th services__th--name">名称</th>
-                  <th class="services__th services__th--desc">描述</th>
-                  <th class="services__th services__th--status">状态</th>
-                  <th class="services__th services__th--startup">启动类型</th>
-                  <th class="services__th services__th--restarts">重启</th>
-                  <th class="services__th services__th--action">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {services.map((service) => {
-                  const startupType = effectiveTypeOf(service)
-                  const isSelected = service.id === selectedId
-                  const canStart =
-                    service.status === 'stopped' || service.status === 'failed'
-                  const canStop =
-                    service.status === 'running' || service.status === 'restarting'
-                  const canRestart = startupType !== 'disabled'
-                  return (
-                    <tr
-                      key={service.id}
-                      class={`services__tr${isSelected ? ' services__tr--selected' : ''}`}
-                      onClick={() => setSelectedId(service.id)}
-                    >
-                      <td class="services__td services__td--name">
-                        <span class="services__name-cell">
-                          <span class="services__app-icon">
-                            <AppIconTile color="#5a6a7a" size={28}>
-                              <span style={{ fontSize: '15px' }}>⚙️</span>
-                            </AppIconTile>
-                          </span>
-                          <span class="services__name-text">{service.label}</span>
-                        </span>
-                      </td>
-                      <td class="services__td services__td--desc" title={service.description}>
-                        {service.description || '—'}
-                      </td>
-                      <td class="services__td services__td--status">
-                        {WORKER_SERVICE_STATUS_LABELS[service.status]}
-                      </td>
-                      <td class="services__td services__td--startup">
-                        {SERVICE_STARTUP_TYPE_LABELS[startupType]}
-                      </td>
-                      <td class="services__td services__td--restarts">
-                        {service.restartCount > 0 ? service.restartCount : '—'}
-                      </td>
-                      <td class="services__td services__td--action">
-                        <span class="services__actions">
-                          {canStart && (
-                            <button
-                              type="button"
-                              class="services__btn"
-                              disabled={startupType === 'disabled'}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                startWorkerService(service.id)
-                              }}
-                            >
-                              开始
-                            </button>
-                          )}
-                          {canStop && (
-                            <button
-                              type="button"
-                              class="services__btn services__btn--stop"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                stopWorkerService(service.id)
-                              }}
-                            >
-                              停止
-                            </button>
-                          )}
-                          {canRestart && (
-                            <button
-                              type="button"
-                              class="services__btn"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                restartWorkerService(service.id)
-                              }}
-                            >
-                              重启
-                            </button>
-                          )}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          <div ref={listRef} class="settings__list">
+            {services.map((service) => {
+              const isSelected = service.id === selectedId
+              if (stacked) {
+                return (
+                  <SettingsNavRow
+                    key={service.id}
+                    label={service.label}
+                    value={WORKER_SERVICE_STATUS_LABELS[service.status]}
+                    onClick={() => handleSelectService(service.id)}
+                  />
+                )
+              }
+              return (
+                <button
+                  key={service.id}
+                  ref={isSelected ? selectedRowRef : undefined}
+                  type="button"
+                  class={`settings__row services__pick-row${isSelected ? ' services__pick-row--selected' : ''}`}
+                  onClick={() => handleSelectService(service.id)}
+                >
+                  <span class="settings__row-name">{service.label}</span>
+                  <span class="settings__row-size">
+                    {WORKER_SERVICE_STATUS_LABELS[service.status]}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         )}
+        <p class="settings__section-footnote">
+          共 {services.length} 个服务 · {runningCount} 个运行中
+        </p>
       </section>
+    </div>
+  )
 
-      {selected && (
-        <section class="services__detail">
-          <h3 class="services__detail-title">{selected.label}</h3>
-          <p class="services__detail-desc">
+  const renderDetailNav = (stacked: boolean) => (
+    <div class="settings__nav settings__nav--titled">
+      <div class="settings__nav-bar">
+        {stacked ? (
+          <IosNavBackButton
+            label="服务"
+            onClick={() => navigateTo('list', 'pop')}
+          />
+        ) : (
+          <span class="settings__nav-heading-spacer" aria-hidden="true" />
+        )}
+        <h1 class="settings__nav-heading">{selected?.label ?? '详情'}</h1>
+        <span class="settings__nav-trailing" aria-hidden="true" />
+      </div>
+    </div>
+  )
+
+  const renderDetailContent = () => (
+    <div class="settings__content settings__content--compact">
+      {!selected ? (
+        <section class="settings__section">
+          <div class="settings__box settings__empty">选择一个服务以查看详情。</div>
+        </section>
+      ) : (
+        <section class="settings__section">
+          <p class="settings__section-footnote services__detail-lead">
             {selected.description || '暂无描述'}
           </p>
-          <div class="services__detail-grid">
-            <div class="services__detail-row">
-              <span class="services__detail-label">服务 ID</span>
-              <span class="services__detail-value services__detail-value--mono">{selected.id}</span>
+          <div class="settings__list">
+            <div class="settings__row">
+              <span class="settings__row-name">服务 ID</span>
+              <span class="settings__row-size settings__row-size--mono">{selected.id}</span>
             </div>
-            <div class="services__detail-row">
-              <span class="services__detail-label">状态</span>
-              <span class="services__detail-value">
+            <div class="settings__row">
+              <span class="settings__row-name">状态</span>
+              <span class="settings__row-size">
                 {WORKER_SERVICE_STATUS_LABELS[selected.status]}
                 {selected.restartCount > 0 ? ` · 重启 ${selected.restartCount} 次` : ''}
               </span>
             </div>
-            <div class="services__detail-row">
-              <span class="services__detail-label">启动类型</span>
-              <select
-                class="services__select"
-                value={effectiveTypeOf(selected)}
-                onChange={(event) => {
-                  const value = (event.target as HTMLSelectElement).value
-                  if ((SERVICE_STARTUP_TYPES as readonly string[]).includes(value)) {
-                    changeStartupType(selected.id, value as ServiceStartupType)
-                  }
-                }}
-              >
-                {SERVICE_STARTUP_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {SERVICE_STARTUP_TYPE_LABELS[type]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div class="services__detail-row">
-              <span class="services__detail-label">最近心跳</span>
-              <span class="services__detail-value">
+            <div class="settings__row">
+              <span class="settings__row-name">最近心跳</span>
+              <span class="settings__row-size">
                 {selected.status === 'running' || selected.status === 'restarting'
                   ? formatHeartbeat(selected.at)
                   : '—'}
               </span>
             </div>
+            <SettingsChoiceField
+              label="启动类型"
+              value={selectedStartupType ?? 'manual'}
+              options={STARTUP_TYPE_OPTIONS}
+              onChange={(value) => {
+                if (STARTUP_TYPE_OPTIONS.some((option) => option.id === value)) {
+                  changeStartupType(selected.id, value as ServiceStartupType)
+                }
+              }}
+              wideLayout={!narrowLayout}
+              onNavigate={
+                narrowLayout ? () => navigateTo('startup-type', 'push') : undefined
+              }
+            />
           </div>
+
           <div class="services__detail-actions">
-            {(selected.status === 'stopped' || selected.status === 'failed') && (
-              <button
-                type="button"
-                class="services__btn"
-                disabled={effectiveTypeOf(selected) === 'disabled'}
-                onClick={() => startWorkerService(selected.id)}
-              >
+            {canStart && (
+              <IosButton size="compact" onClick={() => startWorkerService(selected.id)}>
                 开始
-              </button>
+              </IosButton>
             )}
-            {(selected.status === 'running' || selected.status === 'restarting') && (
-              <button
-                type="button"
-                class="services__btn services__btn--stop"
+            {canStop && (
+              <IosButton
+                size="compact"
+                tone="danger"
                 onClick={() => stopWorkerService(selected.id)}
               >
                 停止
-              </button>
+              </IosButton>
             )}
-            {effectiveTypeOf(selected) !== 'disabled' && (
-              <button
-                type="button"
-                class="services__btn"
-                onClick={() => restartWorkerService(selected.id)}
-              >
+            {canRestart && (
+              <IosButton size="compact" onClick={() => restartWorkerService(selected.id)}>
                 重启
-              </button>
+              </IosButton>
             )}
           </div>
         </section>
       )}
+    </div>
+  )
 
-      <p class="services__footnote">
-        手动：按需拉起，停止后新请求仍会透明启动。禁用：功能不可用直到改回。自动（延迟）：开机约
-        10 秒后启动；延迟等待期内有请求会立即拉起。自动：显式停止后需手动开始或下次开机恢复。
-      </p>
+  const renderScreen = (target: ServicesScreen) => {
+    if (target === 'startup-type' && selected) {
+      return (
+        <SettingsChoicePickerView
+          title="启动类型"
+          backLabel={selected.label}
+          options={STARTUP_TYPE_OPTIONS}
+          value={selectedStartupType ?? 'manual'}
+          titleInNav
+          onChange={(value) => {
+            if (STARTUP_TYPE_OPTIONS.some((option) => option.id === value)) {
+              changeStartupType(selected.id, value as ServiceStartupType)
+            }
+          }}
+          onBack={() => navigateTo('detail', 'pop')}
+        />
+      )
+    }
+    if (target === 'detail') {
+      return (
+        <>
+          {renderDetailNav(true)}
+          {renderDetailContent()}
+        </>
+      )
+    }
+    return (
+      <>
+        {renderListNav()}
+        {renderListContent(true)}
+      </>
+    )
+  }
+
+  if (narrowLayout) {
+    return (
+      <div ref={hostRef} class="services-host services-host--narrow">
+        <KeychainNavStack
+          stack={navStack}
+          page={screen}
+          transition={navTransition}
+          queuedTransition={navQueuedTransition}
+          commitQueuedTransition={commitNavQueuedTransition}
+          onMotionEnd={handleStackMotionEnd}
+          renderPage={renderScreen}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div ref={hostRef} class="services-host">
+      <div
+        ref={splitRef}
+        class="services-split"
+        style={
+          caretPos
+            ? ({
+                ['--services-caret-x' as string]: `${caretPos.x}px`,
+                ['--services-caret-y' as string]: `${caretPos.y}px`,
+                ['--services-caret-fill' as string]: caretPos.fill,
+              } as Record<string, string>)
+            : undefined
+        }
+      >
+        <div
+          ref={listPaneRef}
+          class="settings services-split__pane services-split__pane--list"
+        >
+          {renderListNav()}
+          {renderListContent(false)}
+        </div>
+        <div
+          ref={detailPanelRef}
+          class="settings services-split__pane services-split__pane--detail"
+        >
+          {renderDetailNav(false)}
+          {renderDetailContent()}
+        </div>
+        {selected && caretPos ? (
+          <span class="services__detail-caret" aria-hidden="true" />
+        ) : undefined}
+      </div>
     </div>
   )
 }
