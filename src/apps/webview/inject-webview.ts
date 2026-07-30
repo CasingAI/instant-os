@@ -1,5 +1,6 @@
 import type { QuickJSAsyncContext, QuickJSHandle } from 'quickjs-emscripten'
 import type { QuickJsAsyncBridge } from '../../quickjs/quickjs-async-bridge.ts'
+import { formatQuickJsBridgeErrorMessage } from '../../quickjs/quickjs-bridge-error.ts'
 import type { ChromoScreenshotOptions } from '../../page-host/page-bridge.ts'
 import { openDevTools } from '../../page-host/open-devtools.ts'
 import { displayPageUrl, normalizePageUrl, pageTitleFromUrl } from '../../page-host/page-url.ts'
@@ -60,7 +61,7 @@ export type InjectWebViewOptions = {
 }
 
 function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = formatQuickJsBridgeErrorMessage('webview', error)
   return context.unwrapResult(
     context.evalCode(
       `(function () { return new Error(${JSON.stringify(message)}); })()`,
@@ -76,7 +77,7 @@ function encodeJsonValue(context: QuickJSAsyncContext, value: unknown): QuickJSH
   const json = JSON.stringify(value)
   if (json.length > WEBVIEW_ENCODE_MAX_JSON_CHARS) {
     throw new Error(
-      `webview 返回值过大（${json.length} 字符，上限 ${WEBVIEW_ENCODE_MAX_JSON_CHARS}）；请用 snapshot/markdown 或缩小 eval 结果，勿整页 innerText`,
+      `返回值过大（${json.length} 字符，上限 ${WEBVIEW_ENCODE_MAX_JSON_CHARS}）；请用 snapshot/markdown 或缩小 eval 结果，勿整页 innerText`,
     )
   }
   return context.unwrapResult(context.evalCode(`(${json})`, 'webview-json.js'))

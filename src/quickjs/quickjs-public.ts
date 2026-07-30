@@ -9,6 +9,7 @@ export {
 } from './quickjs-quotas.ts'
 export {
   isQuickJsRuntimeFatalError,
+  isQuickJsWasmBoundaryFatalError,
   QuickJsRuntimeFatalError,
 } from './quickjs-runtime-fatal.ts'
 export type {

@@ -1,5 +1,6 @@
 import type { QuickJSAsyncContext, QuickJSHandle } from 'quickjs-emscripten'
 import type { QuickJsAsyncBridge } from '../../quickjs/quickjs-async-bridge.ts'
+import { formatQuickJsBridgeErrorMessage } from '../../quickjs/quickjs-bridge-error.ts'
 import { createInstantShellApi } from './instant-shell-host.ts'
 import type {
   InstantShellGrepOptions,
@@ -15,7 +16,7 @@ export type InjectInstantShellOptions = {
 }
 
 function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = formatQuickJsBridgeErrorMessage('instant-shell', error)
   return context.unwrapResult(
     context.evalCode(
       `(function () { return new Error(${JSON.stringify(message)}); })()`,

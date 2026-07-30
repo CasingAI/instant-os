@@ -45,7 +45,7 @@ import {
   injectProcess,
   syncExitCodeFromGuest,
 } from './quickjs-process.ts'
-import { isQuickJsRuntimeFatalError } from './quickjs-runtime-fatal.ts'
+import { isQuickJsWasmBoundaryFatalError } from './quickjs-runtime-fatal.ts'
 import {
   QUICKJS_DEFAULT_MAX_FILE_BYTES,
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
@@ -576,22 +576,14 @@ export async function createQuickJsInstance(
       activeJournal = createTerminalFsJournal()
     }
 
-    const makeFailure = (error: string): QuickJsEvalFailure => {
-      const failure: QuickJsEvalFailure = {
-        ok: false,
-        error,
-        exited: false,
-        exitCode: processState.exitCode,
-        consoleLines: consoleSlice(),
-      }
-      if (isQuickJsRuntimeFatalError(error)) {
-        if (!state.destroyed) {
-          destroy()
-        }
-        return { ...failure, fatal: true }
-      }
-      return failure
-    }
+    /** guest / timeout / bridge reject：普通 failure，不因错误串误标 fatal。 */
+    const makeFailure = (error: string): QuickJsEvalFailure => ({
+      ok: false,
+      error,
+      exited: false,
+      exitCode: processState.exitCode,
+      consoleLines: consoleSlice(),
+    })
 
     let result: QuickJsEvalResult | undefined
     let sliceOpen = true
@@ -790,7 +782,7 @@ export async function createQuickJsInstance(
     } catch (error) {
       if (state.destroyed) {
         result = makeFailure('QuickJS instance destroyed during evaluation')
-      } else if (isQuickJsRuntimeFatalError(error)) {
+      } else if (isQuickJsWasmBoundaryFatalError(error)) {
         const message = error instanceof Error ? error.message : String(error)
         destroy()
         result = {

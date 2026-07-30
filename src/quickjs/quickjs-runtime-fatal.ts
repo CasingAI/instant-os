@@ -1,26 +1,24 @@
 /**
- * QuickJS / Emscripten WASM 致命错误识别。
+ * QuickJS / Emscripten WASM 边界致命错误识别。
+ * 仅用于 eval 外层 catch 的原始异常；guest JS 错误串勿走此判定。
  * 命中后实例不可再 eval，宿主应 destroy 并重建。
  */
 
-const FATAL_PATTERNS: readonly RegExp[] = [
+/** 极窄：仅 WASM trap / Emscripten abort / QuickJS C 层断言特征。 */
+const WASM_BOUNDARY_FATAL_PATTERNS: readonly RegExp[] = [
   /memory access out of bounds/i,
   /Aborted\s*\(/i,
-  /Assertion failed/i,
-  /out of memory/i,
-  /\bOOM\b/,
-  /RuntimeError/i,
+  /vendor\/quickjs\/quickjs\.c/i,
   /table index is out of bounds/i,
   /null function or function signature mismatch/i,
-  /unreachable/i,
 ]
 
 export class QuickJsRuntimeFatalError extends Error {
   override readonly name = 'QuickJsRuntimeFatalError'
-  readonly cause: unknown
+  override readonly cause: unknown
 
   constructor(message: string, cause?: unknown) {
-    super(message)
+    super(message, cause !== undefined ? { cause } : undefined)
     this.cause = cause
   }
 }
@@ -49,14 +47,25 @@ function errorText(error: unknown): string {
   }
 }
 
-/** 判断是否为 WASM/QuickJS 硬崩类错误（实例此后不可信）。 */
-export function isQuickJsRuntimeFatalError(error: unknown): boolean {
+/**
+ * 判断是否为 WASM/QuickJS 宿主边界硬崩（实例此后不可信）。
+ * 仅应对外层 catch 的原始异常调用，勿对 guest 错误字符串调用。
+ */
+export function isQuickJsWasmBoundaryFatalError(error: unknown): boolean {
   if (error instanceof QuickJsRuntimeFatalError) {
+    return true
+  }
+  if (typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError) {
     return true
   }
   const text = errorText(error)
   if (!text) {
     return false
   }
-  return FATAL_PATTERNS.some((pattern) => pattern.test(text))
+  return WASM_BOUNDARY_FATAL_PATTERNS.some((pattern) => pattern.test(text))
+}
+
+/** @deprecated 请用 isQuickJsWasmBoundaryFatalError；保留为薄别名以免调用方漂移。 */
+export function isQuickJsRuntimeFatalError(error: unknown): boolean {
+  return isQuickJsWasmBoundaryFatalError(error)
 }

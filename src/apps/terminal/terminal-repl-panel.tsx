@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type { Ref } from 'preact'
 import {
   createQuickJsInstance,
-  isQuickJsRuntimeFatalError,
+  isQuickJsWasmBoundaryFatalError,
   type QuickJsConsoleLine,
   type QuickJsInstance,
 } from '../../quickjs/quickjs-public.ts'
@@ -112,7 +112,7 @@ function formatEvalOutput(result: Awaited<ReturnType<QuickJsInstance['eval']>>):
 
 function formatRuntimeFatalMessage(reason: string): string {
   return (
-    `【运行时致命错误】QuickJS 实例已销毁并重建；勿依赖此前内存变量；webview 需重新 create。原因: ${reason}`
+    `【运行时致命错误】QuickJS 实例已销毁并重建；勿依赖此前内存变量；cwd 已重置为工作区根目录；webview 需重新 create。原因: ${reason}`
   )
 }
 
@@ -550,7 +550,7 @@ export function TerminalReplPanel({
           onChangesAvailableRef.current?.(true)
         }
 
-        if (result.fatal || isQuickJsRuntimeFatalError(result.error)) {
+        if (result.fatal) {
           const message = formatRuntimeFatalMessage(result.error)
           appendLine({ kind: 'error', text: message })
           unsubRef.current?.()
@@ -568,7 +568,7 @@ export function TerminalReplPanel({
         return formatEvalOutput(result)
       } catch (error) {
         const raw = error instanceof Error ? error.message : String(error)
-        if (isQuickJsRuntimeFatalError(error) || isQuickJsRuntimeFatalError(raw)) {
+        if (isQuickJsWasmBoundaryFatalError(error)) {
           const message = formatRuntimeFatalMessage(raw)
           appendLine({ kind: 'error', text: message })
           unsubRef.current?.()
