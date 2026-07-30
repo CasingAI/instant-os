@@ -371,7 +371,10 @@ export async function runVscodeAiNpmScript(
       formatQuickJsResult(result) || '（无输出）',
       result.changes,
     )
-    return maybeSpillToolOutput(fullText, { tmpDir: spillTarget.tmpDir })
+    return maybeSpillToolOutput(fullText, {
+      tmpDir: spillTarget.tmpDir,
+      runTerminalLine: (cmd) => runVscodeAiTerminalLine(host, cmd),
+    })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
@@ -401,7 +404,10 @@ export async function runVscodeAiNpx(
       formatQuickJsResult(result) || '（无输出）',
       result.changes,
     )
-    return maybeSpillToolOutput(fullText, { tmpDir: spillTarget.tmpDir })
+    return maybeSpillToolOutput(fullText, {
+      tmpDir: spillTarget.tmpDir,
+      runTerminalLine: (cmd) => runVscodeAiTerminalLine(host, cmd),
+    })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }

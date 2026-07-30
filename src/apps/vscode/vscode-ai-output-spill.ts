@@ -1,6 +1,7 @@
 /**
- * AI 工具结果超长时 spill 到 session tmp，并向 LLM 注入合成「读取前缀」消息。
- * 终端面板仍展示完整输出；本模块只包装发给模型的 tool result。
+ * AI 工具结果超长时 spill 到 session tmp，并在终端真实执行预览读；
+ * 再向 LLM / timeline 注入合成「读取前缀」消息。
+ * 终端面板仍展示完整原始输出；本模块只包装发给模型的 tool result。
  */
 import type OpenAI from 'openai'
 import type { AgentToolStructuredResult } from '../../ai/agent-tool.ts'
@@ -11,7 +12,7 @@ import { ensureTmpFolder } from '../files/files-tmp.ts'
 
 export const TERMINAL_OUTPUT_SPILL_THRESHOLD = 16_000
 export const TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS = 16_000
-/** timeline 展示留 header + grep 提示余量 */
+/** timeline 展示留 header + console 余量 */
 export const TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT =
   TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS + 2_048
 
@@ -22,14 +23,23 @@ function nextSpillId(): string {
   return `${osNowMs()}-${spillSeq}`
 }
 
-export function formatSpillFollowUpHint(path: string): string {
-  return `后续可用 await instant.grep('关键词', { path: ${JSON.stringify(path)} }) 检索；或用 fs.readFileSync(${JSON.stringify(path)}, 'utf8').slice(offset, offset+长度) 分段读取。`
+export function buildSpillPreviewTerminalCommand(path: string): string {
+  return [
+    `const fs = require('fs');`,
+    `console.log(fs.readFileSync(${JSON.stringify(path)}, 'utf8').slice(0, ${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS}));`,
+  ].join('\n')
 }
 
-export function formatSpillPreview(fullText: string, path: string): string {
-  const total = fullText.length
-  const preview = fullText.slice(0, TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS)
-  return `（以下仅为文件开头 ${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS} 字符，共 ${total} 字符；完整内容见 ${path}）\n${formatSpillFollowUpHint(path)}\n${preview}`
+/** 仅放在主 tool 短 content 里，不混入终端输出。 */
+export function formatSpillFollowUpHint(path: string): string {
+  const pathLit = JSON.stringify(path)
+  const end = TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS * 2
+  return [
+    `后续可用 await instant.grep('error', { path: ${pathLit} }) 检索；`,
+    `或在终端执行：`,
+    `const fs = require('fs');`,
+    `console.log(fs.readFileSync(${pathLit}, 'utf8').slice(${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS}, ${end}));`,
+  ].join('\n')
 }
 
 export async function writeSpillFile(params: {
@@ -50,11 +60,10 @@ export async function writeSpillFile(params: {
 }
 
 function buildSyntheticReadMessages(
-  path: string,
-  preview: string,
+  command: string,
+  previewTerminalOutput: string,
   toolCallId: string,
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
-  const command = `fs.readFileSync(${JSON.stringify(path)}, 'utf8').slice(0, ${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS})`
   const description = '读取溢出输出（自动）'
   return [
     {
@@ -74,18 +83,21 @@ function buildSyntheticReadMessages(
     {
       role: 'tool',
       tool_call_id: toolCallId,
-      content: preview,
+      content: previewTerminalOutput,
     },
   ]
 }
 
 /**
- * 工具结果不超过阈值则原样返回；否则写 tmp 并返回 structured result
- *（短提示 + appendMessages 合成读 + syntheticActivities）。
+ * 工具结果不超过阈值则原样返回；否则写 tmp、在终端真跑预览读，
+ * 返回 structured result（短提示 + appendMessages + syntheticActivities）。
  */
 export async function maybeSpillToolOutput(
   fullText: string,
-  options: { tmpDir: string },
+  options: {
+    tmpDir: string
+    runTerminalLine: (command: string) => Promise<string>
+  },
 ): Promise<string | AgentToolStructuredResult> {
   if (fullText.length <= TERMINAL_OUTPUT_SPILL_THRESHOLD) {
     return fullText
@@ -96,19 +108,23 @@ export async function maybeSpillToolOutput(
     tmpDir: options.tmpDir,
   })
   const total = fullText.length
-  const preview = formatSpillPreview(fullText, path)
-  const toolCallId = `spill-read-${nextSpillId()}`
-  const command = `fs.readFileSync(${JSON.stringify(path)}, 'utf8').slice(0, ${TERMINAL_OUTPUT_SPILL_PREVIEW_CHARS})`
+  const command = buildSpillPreviewTerminalCommand(path)
   const description = '读取溢出输出（自动）'
+  const previewTerminalOutput = await options.runTerminalLine(command)
+  const toolCallId = `spill-read-${nextSpillId()}`
 
   return {
-    content: `输出过长（${total} 字符），已保存至 ${path}`,
-    appendMessages: buildSyntheticReadMessages(path, preview, toolCallId),
+    content: `输出过长（${total} 字符），已保存至 ${path}\n\n${formatSpillFollowUpHint(path)}`,
+    appendMessages: buildSyntheticReadMessages(
+      command,
+      previewTerminalOutput,
+      toolCallId,
+    ),
     syntheticActivities: [
       {
         toolName: 'run_in_terminal',
         arguments: { command, description },
-        result: preview,
+        result: previewTerminalOutput,
       },
     ],
   }

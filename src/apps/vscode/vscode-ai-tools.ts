@@ -318,7 +318,11 @@ export function createVscodeAiTools(
               )
               const tmpDir = host.runCommandHost.getAgentTerminalHandle()?.getTmpDir()
               if (!tmpDir) return fullText
-              return maybeSpillToolOutput(fullText, { tmpDir })
+              return maybeSpillToolOutput(fullText, {
+                tmpDir,
+                runTerminalLine: (cmd) =>
+                  runVscodeAiTerminalLine(host.runCommandHost, cmd),
+              })
             },
           }),
         ]
@@ -442,7 +446,11 @@ export function createVscodeAiTools(
               )
               const tmpDir = host.runCommandHost.getAgentTerminalHandle()?.getTmpDir()
               if (!tmpDir) return fullText
-              return maybeSpillToolOutput(fullText, { tmpDir })
+              return maybeSpillToolOutput(fullText, {
+                tmpDir,
+                runTerminalLine: (cmd) =>
+                  runVscodeAiTerminalLine(host.runCommandHost, cmd),
+              })
             },
           }),
           defineTool({
