@@ -692,7 +692,7 @@ export function injectFs(options: InjectFsOptions): {
         const encoded = encode(context, value)
         return encoded ?? context.undefined
       } catch (error) {
-        return context.fail(createGuestFsError(context, error))
+        return context['fail'](createGuestFsError(context, error))
       }
     })
     context.setProp(fsObject, syncName, syncFn)
@@ -823,7 +823,7 @@ export function injectFs(options: InjectFsOptions): {
       const value = await fsHostRealpath(ops, dumpPrimitive(context, pathHandle))
       return context.newString(value)
     } catch (error) {
-      return context.fail(createGuestFsError(context, error))
+      return context['fail'](createGuestFsError(context, error))
     }
   })
   context.setProp(realpathSyncHandle, 'native', realpathNativeFn)
@@ -1289,7 +1289,7 @@ export function injectFs(options: InjectFsOptions): {
       const ok = await fsHostExists(ops, dumpPrimitive(context, pathHandle))
       return ok ? context.true : context.false
     } catch (error) {
-      return context.fail(createGuestFsError(context, error))
+      return context['fail'](createGuestFsError(context, error))
     }
   })
   context.setProp(fsObject, 'existsSync', existsSync)

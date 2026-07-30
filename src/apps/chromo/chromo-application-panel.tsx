@@ -560,7 +560,7 @@ export function ChromoApplicationPanel({
           <div class="chromo-application__toolbar-actions">
             {pageLoading ? <span class="chromo-application__muted">页面仍在加载中</span> : null}
             {busy ? <span class="chromo-application__muted">加载中…</span> : null}
-            <button type="button" class="chromo-application__btn" onClick={refresh} disabled={!pageReady}>
+            <button type="button" class="chromo-application__btn" onClick={() => { void refresh() }} disabled={!pageReady}>
               刷新
             </button>
           </div>

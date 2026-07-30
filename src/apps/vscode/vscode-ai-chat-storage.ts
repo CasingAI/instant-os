@@ -705,7 +705,7 @@ export async function saveVscodeAiChatThread(thread: VscodeAiChatThread): Promis
 export function createVscodeAiChatMessage(
   role: VscodeAiChatRole,
   content: string,
-  extras?: Pick<
+  extras?: Partial<Pick<
     VscodeAiChatMessage,
     | 'id'
     | 'createdAt'
@@ -721,7 +721,7 @@ export function createVscodeAiChatMessage(
     | 'sentMode'
     | 'sentModelSource'
     | 'sentModelKey'
-  >,
+  >>,
 ): VscodeAiChatMessage {
   return {
     id: extras?.id ?? `vscode-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

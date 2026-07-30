@@ -158,7 +158,7 @@ function emitFilesVfsChanged(change: FilesWatchChange | readonly FilesWatchChang
     if (Array.isArray(change)) {
       vfsChangeBatchPending.push(...change)
     } else {
-      vfsChangeBatchPending.push(change)
+      vfsChangeBatchPending.push(change as FilesWatchChange)
     }
     return
   }

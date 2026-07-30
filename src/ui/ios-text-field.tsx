@@ -49,8 +49,8 @@ export function IosTextField({
   const dictation = useSpeechDictation({
     voiceDictation,
     type,
-    disabled,
-    readOnly,
+    disabled: disabled as boolean | undefined,
+    readOnly: readOnly as boolean | undefined,
   })
 
   const wrapClass = ['ios-text-field-wrap', wrapPhaseClass(dictation.phase)]

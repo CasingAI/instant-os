@@ -349,6 +349,15 @@ function pinnedToRect(tile: PinnedTile, width: number, height: number): TileRect
   }
 }
 
+function pinnedShellToRect(shell: PinnedShell, width: number, height: number): TileRect {
+  return {
+    x: shell.x * width,
+    y: shell.y * height,
+    width: Math.max(1, shell.width * width),
+    height: Math.max(1, shell.height * height),
+  }
+}
+
 function pinnedToTiles(pinned: PinnedTile[], width: number, height: number): TreemapTile[] {
   return pinned.map((tile) => ({
     node: tile.node,
@@ -602,8 +611,8 @@ export function SpaceSnifferTreemap({
           path: shell.path,
           name: shell.name,
           byteSize: shell.byteSize,
-          from: pinnedToRect(shell, size.width, size.height),
-          to: pinnedToRect(slot, size.width, size.height),
+          from: pinnedShellToRect(shell, size.width, size.height),
+          to: pinnedShellToRect(slot, size.width, size.height),
           depth: shell.depth,
           primary: shell.path === leaveFrame.folderPath,
         }
@@ -654,8 +663,8 @@ export function SpaceSnifferTreemap({
           path: shell.path,
           name: shell.name,
           byteSize: shell.byteSize,
-          from: pinnedToRect(slot, size.width, size.height),
-          to: pinnedToRect(shell, size.width, size.height),
+          from: pinnedShellToRect(slot, size.width, size.height),
+          to: pinnedShellToRect(shell, size.width, size.height),
           depth: shell.depth,
           primary: shell.path === enterFrame.folderPath,
         }

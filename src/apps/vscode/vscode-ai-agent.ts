@@ -623,7 +623,7 @@ export async function askVscodeAiAgent(options: {
   const tokenizerFamily = tokenizerFamilyForVscodeAiModelKey(options.modelKey)
 
   await prepareVscodeAiContextUsage(model, tokenizerFamily)
-  const modelRef = parseVscodeAiModelRefKey(options.modelKey)
+  const modelRef = parseVscodeAiModelRefKey(options.modelKey ?? '')
   let contextUsage = await measureVscodeAiContextUsage({
     mode: options.mode,
     context: options.context,

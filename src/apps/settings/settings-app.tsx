@@ -94,6 +94,7 @@ export function SettingsApp() {
     booksDataBytes: 0,
     aiUsageBytes: 0,
     aiEventLogBytes: 0,
+    vscodeAiChatBytes: 0,
     folderIconSnapshotsBytes: 0,
     modelVisionBytes: 0,
     filesBytes: 0,

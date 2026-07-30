@@ -935,7 +935,7 @@ export function VirtualJsApp() {
             <textarea
               class="virtual-js-app__textarea"
               value={source}
-              spellCheck={false}
+              spellcheck={false}
               readOnly={testingAll}
               onInput={(event) => {
                 setSource((event.target as HTMLTextAreaElement).value)

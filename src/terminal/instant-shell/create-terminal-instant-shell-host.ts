@@ -79,16 +79,16 @@ export function createTerminalInstantShellHost(
       deps.openApp(appId as AppId, options)
     },
     openGeneratedApp: (appId, title) => {
-      if (!isGeneratedAppId(appId)) {
+      if (!isGeneratedAppId(appId as AppId)) {
         throw new Error(`无效的生成应用 id: ${appId}`)
       }
-      deps.openGeneratedApp(appId, title)
+      deps.openGeneratedApp(appId as `gen:${string}`, title)
     },
     openExtApp: (appId, title) => {
-      if (!isExtAppId(appId)) {
+      if (!isExtAppId(appId as AppId)) {
         throw new Error(`无效的外链应用 id: ${appId}`)
       }
-      deps.openExtApp(appId, title)
+      deps.openExtApp(appId as `ext:${string}`, title)
     },
     listApps,
     listWindows: () =>

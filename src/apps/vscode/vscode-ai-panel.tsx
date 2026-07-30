@@ -1198,7 +1198,7 @@ export function VscodeAiPanel({
     [resolvedModelKey],
   )
   const resolvedProviderEntryId = useMemo(
-    () => parseVscodeAiModelRefKey(resolvedModelKey)?.providerEntryId,
+    () => parseVscodeAiModelRefKey(resolvedModelKey ?? '')?.providerEntryId,
     [resolvedModelKey],
   )
   const resolvedTokenizerFamily = useMemo(
@@ -1210,7 +1210,7 @@ export function VscodeAiPanel({
     [editingResolvedModelKey],
   )
   const editingResolvedProviderEntryId = useMemo(
-    () => parseVscodeAiModelRefKey(editingResolvedModelKey)?.providerEntryId,
+    () => parseVscodeAiModelRefKey(editingResolvedModelKey ?? '')?.providerEntryId,
     [editingResolvedModelKey],
   )
   const editingResolvedTokenizerFamily = useMemo(

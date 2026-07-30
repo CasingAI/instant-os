@@ -128,7 +128,7 @@ function buildChromoTools(
         required: ['code'],
       },
       execute: async ({ code }) => {
-        const trimmed = code.trim()
+        const trimmed = String(code).trim()
         if (!trimmed) {
           throw new Error('code 不能为空')
         }

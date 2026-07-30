@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { VscodeAiPanel, type VscodeAiChatMessage } from './vscode-ai-panel.tsx'
+import { VscodeAiPanel } from './vscode-ai-panel.tsx'
+import type { VscodeAiChatMessage } from './vscode-ai-chat-storage.ts'
 import type {
   VscodeAiAgentResult,
   VscodeAiInvestigation,
@@ -26,7 +27,7 @@ function emptyContext(): VscodeAiContextInput {
     workspaceFolder: undefined,
     tabs: [],
     activeTabId: undefined,
-    editor: { path: undefined, content: '', selection: undefined },
+    editor: { activePath: undefined, cursorLine: 0, cursorColumn: 0, selectionText: undefined },
     problems: [],
   }
 }
@@ -124,9 +125,9 @@ export function VscodeSubagentPanel({
         problems={[]}
         getNpmLastChangesSlot={() => ({ current: undefined })}
         getLastChangeSourceSlot={() => ({ current: undefined })}
-        ensureAiTerminal={async () => ({ kind: 'ask', sessionId: '', handle: undefined as never })}
+        ensureAiTerminal={async () => ({ handle: undefined as never, sessionId: '', created: false, reason: 'new' as const })}
         getAiTerminalHandle={() => undefined}
-        getAiTerminalSnapshot={() => ({ kind: 'ask', state: 'none' })}
+        getAiTerminalSnapshot={() => ({ status: 'none' as const })}
         openPlanFile={async () => undefined}
         onApplyEdit={async () => undefined}
         onRejectEdit={() => undefined}

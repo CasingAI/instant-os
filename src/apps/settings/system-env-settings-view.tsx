@@ -143,7 +143,7 @@ export function SystemEnvSettingsView({ onBack }: SystemEnvSettingsViewProps) {
                       value={row.key}
                       placeholder="NAME"
                       autoComplete="off"
-                      spellCheck={false}
+                      spellcheck={false}
                       aria-label="变量名"
                       onInput={(event) =>
                         handleChangeKey(row.id, (event.currentTarget as HTMLInputElement).value)
@@ -155,7 +155,7 @@ export function SystemEnvSettingsView({ onBack }: SystemEnvSettingsViewProps) {
                       value={row.value}
                       placeholder="value"
                       autoComplete="off"
-                      spellCheck={false}
+                      spellcheck={false}
                       aria-label={`变量 ${row.key || '未命名'} 的值`}
                       onInput={(event) =>
                         handleChangeValue(row.id, (event.currentTarget as HTMLInputElement).value)

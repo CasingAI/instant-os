@@ -431,7 +431,7 @@ export function waitWebViewTab(
       }
       if (tab.pageFault) {
         finish(() =>
-          reject(new Error(formatPageFault(tab.pageFault) || tab.pageFault.message)),
+          reject(new Error(formatPageFault(tab.pageFault!) || tab.pageFault!.message)),
         )
         return
       }

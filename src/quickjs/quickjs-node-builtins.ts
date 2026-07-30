@@ -506,7 +506,7 @@ export function injectNodeBuiltins(
         const parentFilename = dumpArgString(context, parentHandle)
         return await cjs.fetchModule(requested, parentFilename)
       } catch (error) {
-        return context.fail(createModuleErrorHandle(context, error))
+        return context['fail'](createModuleErrorHandle(context, error))
       }
     },
   )
@@ -522,7 +522,7 @@ export function injectNodeBuiltins(
         const resolved = await cjs.resolve(requested, parentFilename)
         return context.newString(resolved)
       } catch (error) {
-        return context.fail(createModuleErrorHandle(context, error))
+        return context['fail'](createModuleErrorHandle(context, error))
       }
     },
   )

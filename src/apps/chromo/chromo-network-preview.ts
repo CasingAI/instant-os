@@ -414,7 +414,7 @@ export function networkBodyToImageBlob(
     sniffed ||
     headerMime ||
     'application/octet-stream'
-  return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], {
+  return new Blob([new Uint8Array(bytes)], {
     type,
   })
 }

@@ -30,9 +30,7 @@ export type BackgroundRefreshSettings = {
   enabled: boolean
   /** 刷新间隔（小时）。只允许 REFRESH_INTERVAL_OPTIONS 中的值。 */
   intervalHours: number
-  /** 各任务的刷新状态，键为 `task-state:${任务 id}` */
-  [taskStateKey: `task-state:${BackgroundRefreshTaskId}`]: BackgroundRefreshTaskState
-}
+} & Record<`task-state:${BackgroundRefreshTaskId}`, BackgroundRefreshTaskState>
 
 export const BACKGROUND_REFRESH_SETTINGS_CHANGED_EVENT =
   'instant-os:background-refresh-settings-changed'

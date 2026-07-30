@@ -161,14 +161,14 @@ export function SpaceSnifferView({ rootPath, onNewScan, onRequestClose }: SpaceS
         {
           type: 'action' as const,
           label: '在文件中显示',
-          onClick: () => openApp('files', { documentId: node.path }),
+          onClick: () => { openApp('files', { documentId: node.path }) },
         },
       ]
       if (node.kind === 'folder') {
         items.push({
           type: 'action',
           label: '进入此文件夹',
-          onClick: () => navigateTo(node.path, true),
+          onClick: () => { navigateTo(node.path, true) },
         })
       }
       showIconContextMenu(event, items)

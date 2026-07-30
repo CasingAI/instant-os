@@ -2128,10 +2128,11 @@ export function GithubDesktopApp() {
                     )
                   })}
                   {filteredListedLocalRepos.map((repo) => {
+                    const v = view as View
                     const active =
-                      (view.kind === 'repo' || view.kind === 'missing') &&
-                      view.meta.owner === repo.owner &&
-                      view.meta.repo === repo.repo
+                      (v.kind === 'repo' || v.kind === 'missing') &&
+                      v.meta.owner === repo.owner &&
+                      v.meta.repo === repo.repo
                     return (
                       <button
                         key={`${repo.owner}/${repo.repo}`}
@@ -2416,7 +2417,8 @@ export function GithubDesktopApp() {
                   ) : (
                     <>
                       {filteredCloningRepos.map((entry) => {
-                        const active = view.kind === 'cloning' && view.id === entry.id
+                        const v = view as View
+                        const active = v.kind === 'cloning' && v.id === entry.id
                         return (
                           <button
                             key={`cloning-${entry.id}`}
@@ -2440,10 +2442,11 @@ export function GithubDesktopApp() {
                         )
                       })}
                       {filteredListedLocalRepos.map((repo) => {
+                        const v = view as View
                         const active =
-                          (view.kind === 'repo' || view.kind === 'missing') &&
-                          view.meta.owner === repo.owner &&
-                          view.meta.repo === repo.repo
+                          (v.kind === 'repo' || v.kind === 'missing') &&
+                          v.meta.owner === repo.owner &&
+                          v.meta.repo === repo.repo
                         return (
                           <button
                             key={`${repo.owner}/${repo.repo}`}

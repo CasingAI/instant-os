@@ -103,7 +103,7 @@ export function StartupItemsSettingsView({ onBack }: StartupItemsSettingsViewPro
                         value={item.label}
                         placeholder="名称（可选）"
                         autoComplete="off"
-                        spellCheck={false}
+                        spellcheck={false}
                         aria-label="启动项名称"
                         onInput={(event) =>
                           handleChangeLabel(item.id, (event.currentTarget as HTMLInputElement).value)
@@ -122,7 +122,7 @@ export function StartupItemsSettingsView({ onBack }: StartupItemsSettingsViewPro
                       value={item.command}
                       placeholder="await instant.openApp('files')"
                       autoComplete="off"
-                      spellCheck={false}
+                      spellcheck={false}
                       rows={2}
                       aria-label={item.label.trim() || '启动命令'}
                       onInput={(event) =>

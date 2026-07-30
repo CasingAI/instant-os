@@ -500,9 +500,10 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
               return
             }
             cancelClickNavigate(tab.id)
+            const href = payload.href
             clickNavigateTimersRef.current[tab.id] = window.setTimeout(() => {
               delete clickNavigateTimersRef.current[tab.id]
-              navigateTab(tab.id, payload.href)
+              navigateTab(tab.id, href)
             }, 150)
           }}
         />

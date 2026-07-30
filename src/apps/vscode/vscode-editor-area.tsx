@@ -1001,7 +1001,7 @@ function VscodeEditorGroupView({
                 workspaceFolder,
                 tabs: [],
                 activeTabId: undefined,
-                editor: { path: undefined, content: '', selection: undefined },
+                editor: { activePath: undefined, cursorLine: 0, cursorColumn: 0, selectionText: undefined },
                 problems: [],
               }))}
               aiModelSource={aiModelSource}

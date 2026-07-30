@@ -536,7 +536,7 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
         return
       }
       // unit 已删的非 unitDestroyed 事件忽略
-      if (!unit && event.type !== 'unitDestroyed') {
+      if (!unit) {
         return
       }
     }

@@ -2,7 +2,7 @@ import { filesStat } from '../../apps/files/files-api.ts'
 import { searchVfsText } from '../../apps/files/vfs-text-search.ts'
 import { getDefaultFileOpenApp } from '../../os/file-open-registry.ts'
 import { getDefaultUrlOpenApp } from '../../os/url-open-registry.ts'
-import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
+import { isExtAppId, isGeneratedAppId, type AppId } from '../../os/types.ts'
 import { basenameInstantShellPath, resolveInstantShellPath } from './instant-shell-path.ts'
 import type {
   InstantShellApi,
@@ -45,7 +45,7 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     }
     const opts = assertOpenAppOptions(options)
 
-    if (isGeneratedAppId(id)) {
+    if (isGeneratedAppId(id as AppId)) {
       const apps = host.listApps()
       const found = apps.find((app) => app.id === id)
       if (!found) {
@@ -55,7 +55,7 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
       return
     }
 
-    if (isExtAppId(id)) {
+    if (isExtAppId(id as AppId)) {
       const apps = host.listApps()
       const found = apps.find((app) => app.id === id)
       if (!found) {
