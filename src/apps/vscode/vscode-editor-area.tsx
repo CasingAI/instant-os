@@ -2,7 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preac
 import { MonacoEditor, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { parseFilesAbsolutePath } from '../files/files-path.ts'
-import type { VscodeAiModelOptionPrefs, VscodePrefs } from './vscode-prefs.ts'
+import type {
+  VscodeAiModelOptionPrefs,
+  VscodeModelSource,
+  VscodePrefs,
+} from './vscode-prefs.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import {
   type VscodeEditorDragPayload,
@@ -204,8 +208,12 @@ type VscodeEditorAreaProps = {
   ) => void
   aiMode?: VscodeAiMode
   onAiModeChange?: (mode: VscodeAiMode) => void
+  aiModelSource?: VscodeModelSource
   aiModelKey?: string | undefined
-  onAiModelKeyChange?: (key: string) => void
+  onAiModelSelectionChange?: (
+    source: VscodeModelSource,
+    modelKey: string | undefined,
+  ) => void
   aiModelOptions?: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange?: (next: Record<string, VscodeAiModelOptionPrefs>) => void
   aiDebugSystemReminder?: boolean
@@ -350,8 +358,9 @@ function VscodeEditorGroupView({
   onAiChatLastSentTerminalChange,
   aiMode,
   onAiModeChange,
+  aiModelSource,
   aiModelKey,
-  onAiModelKeyChange,
+  onAiModelSelectionChange,
   aiModelOptions,
   onAiModelOptionsChange,
   aiDebugSystemReminder,
@@ -893,8 +902,11 @@ function VscodeEditorGroupView({
                   onMessagesChange={(next) => onAiChatMessagesChange?.(session.id, next)}
                   mode={resolvedAiMode}
                   onModeChange={resolvedOnAiModeChange}
+                  aiModelSource={aiModelSource ?? 'text'}
                   aiModelKey={aiModelKey}
-                  onAiModelKeyChange={(key) => onAiModelKeyChange?.(key)}
+                  onAiModelSelectionChange={(source, modelKey) =>
+                    onAiModelSelectionChange?.(source, modelKey)
+                  }
                   aiModelOptions={aiModelOptions ?? {}}
                   onAiModelOptionsChange={(next) => onAiModelOptionsChange?.(next)}
                   aiDebugSystemReminder={aiDebugSystemReminder}

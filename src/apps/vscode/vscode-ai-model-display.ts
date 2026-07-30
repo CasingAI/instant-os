@@ -36,8 +36,18 @@ export const MIMO_FAST_MODEL_ID = 'mimo-v2.5-pro-ultraspeed'
 
 export type VscodeAiModelLabelParts = {
   primary: string
-  /** 当前模型配置摘要（如深度思考），不是型号后缀 */
-  secondary?: string
+  /** 当前模型配置摘要片段（思考、64K 等），同行展示 */
+  configBits?: string[]
+}
+
+/** 钥匙串/定价链路解析的系统上下文长度（忽略 VS Code 本地覆盖） */
+export function resolveVscodeAiSystemContextWindow(
+  model: Pick<FlatEnabledModel, 'modelId' | 'providerEntryId' | 'providerId'>,
+): number {
+  return resolveModelContextWindow(model.modelId, {
+    providerEntryId: model.providerEntryId,
+    providerId: model.providerId,
+  })
 }
 
 export function describeVscodeAiModel(model: FlatEnabledModel): string {
@@ -50,10 +60,17 @@ export function describeVscodeAiModel(model: FlatEnabledModel): string {
 
 export function formatVscodeAiModelContextLabel(
   model: Pick<FlatEnabledModel, 'modelId' | 'providerEntryId' | 'providerId'>,
+  options?: Record<string, VscodeAiModelOptionPrefs>,
 ): string {
+  const modelKey = formatVscodeAiModelRefKey({
+    providerEntryId: model.providerEntryId,
+    modelId: model.modelId,
+  })
   const window = resolveModelContextWindow(model.modelId, {
     providerEntryId: model.providerEntryId,
     providerId: model.providerId,
+    modelKey,
+    aiModelOptions: options,
   })
   return `${formatCompactTokenCount(window)} 上下文窗口`
 }
@@ -98,7 +115,7 @@ export function resolveVscodeAiFastPair(
   }
 }
 
-/** 主标题为完整型号名；次要文字为该模型当前配置（深度思考等） */
+/** 主标题为完整型号名；configBits 为思考/上下文等激活摘要 */
 export function displayPartsForVscodeAiModel(
   model: FlatEnabledModel,
   options?: Record<string, VscodeAiModelOptionPrefs>,
@@ -114,11 +131,15 @@ export function displayPartsForVscodeAiModel(
     supportsThinkingParam(model.providerId, model.modelId) &&
     resolveVscodeAiThinkingEnabledForModelKey(modelKey, options)
   ) {
-    bits.push('深度思考')
+    bits.push('思考')
   }
+
+  const contextPref = options?.[modelKey]?.contextWindow
+  if (contextPref === 64000) bits.push('64K')
+  else if (contextPref === 128000) bits.push('128K')
 
   return {
     primary,
-    secondary: bits.length > 0 ? bits.join(' · ') : undefined,
+    configBits: bits.length > 0 ? bits : undefined,
   }
 }

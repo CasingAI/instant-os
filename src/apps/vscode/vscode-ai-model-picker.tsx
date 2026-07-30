@@ -11,21 +11,34 @@ import {
   displayPartsForVscodeAiModel,
   formatVscodeAiModelContextLabel,
   resolveVscodeAiFastPair,
+  resolveVscodeAiSystemContextWindow,
 } from './vscode-ai-model-display.ts'
 import {
+  encodeVscodeModelPickerValue,
   formatVscodeAiModelRefKey,
+  isVscodeModelCapabilityValue,
+  labelForPreferredCapabilityModel,
   labelForVscodeAiModel,
+  labelForVscodeModelPickerValue,
+  resolveVscodeAiContextWindowPrefForModelKey,
   resolveVscodeAiThinkingEnabledForModelKey,
+  resolveVscodeCapabilityPickerModelKey,
+  tagsForVscodeAiModelKey,
+  type VscodeAiCapabilityTags,
 } from './vscode-ai-models.ts'
-import type { VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
+import type {
+  VscodeAiContextWindowPref,
+  VscodeAiModelOptionPrefs,
+} from './vscode-prefs.ts'
+import { formatCompactTokenCount } from '../browser/format-token-count.ts'
 import './vscode-ai-model-picker.css'
 
 const MAIN_PANEL_WIDTH = 280
-const MAIN_PANEL_FALLBACK_HEIGHT = 288
+const MAIN_PANEL_FALLBACK_HEIGHT = 220
 const TIP_WIDTH = 248
 const TIP_FALLBACK_HEIGHT = 110
 const EDIT_WIDTH = 208
-const EDIT_FALLBACK_HEIGHT = 120
+const EDIT_FALLBACK_HEIGHT = 220
 const ARROW_EDGE_PAD = 14
 /** 与 CSS --picker-arrow-size 一致；箭头计入壳尺寸，尖端与锚点间距 1px */
 const PICKER_ARROW_SIZE = 8
@@ -258,6 +271,7 @@ function PickerBubbleShell({
   role,
   ariaLabel,
   onMouseEnter,
+  onPointerDown,
   children,
 }: {
   panelRef?: RefObject<HTMLDivElement>
@@ -267,6 +281,7 @@ function PickerBubbleShell({
   role?: 'listbox'
   ariaLabel?: string
   onMouseEnter?: () => void
+  onPointerDown?: (event: PointerEvent) => void
   children: ComponentChildren
 }) {
   const chromeRef = useRef<HTMLDivElement>(null)
@@ -309,6 +324,7 @@ function PickerBubbleShell({
       role={role}
       aria-label={ariaLabel}
       onMouseEnter={onMouseEnter}
+      onPointerDown={onPointerDown}
     >
       <div
         ref={chromeRef}
@@ -386,6 +402,13 @@ export type VscodeAiModelPickerProps = {
   onChange: (modelKey: string) => void
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
+  /** 传入时在列表项显示「基座」「副基座」标签 */
+  capabilityTags?: VscodeAiCapabilityTags
+  /**
+   * agent / completion：列表顶部均插入副基座/基座快捷项；
+   * 值为 encodeVscodeModelPickerValue 结果。
+   */
+  selectionMode?: 'agent' | 'completion'
   disabled?: boolean
   dark?: boolean
   presentation?: 'composer' | 'form'
@@ -408,6 +431,8 @@ export function VscodeAiModelPicker({
   onChange,
   aiModelOptions,
   onAiModelOptionsChange,
+  capabilityTags,
+  selectionMode = 'agent',
   disabled,
   dark,
   presentation = 'composer',
@@ -419,7 +444,10 @@ export function VscodeAiModelPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [hoveredKey, setHoveredKey] = useState<string | undefined>()
+  /** 实际模型键，用于读写 aiModelOptions */
   const [editKey, setEditKey] = useState<string | undefined>()
+  /** DOM 锚点行 id（快捷项为 @capability:…，列表为 modelKey） */
+  const [editRowKey, setEditRowKey] = useState<string | undefined>()
   const [mainPosition, setMainPosition] = useState<AnchoredPanelPosition>({
     top: 0,
     left: 0,
@@ -466,11 +494,54 @@ export function VscodeAiModelPicker({
   }, [models, query])
 
   const selectedModel = modelByKey.get(value)
-  const displayValue = selectedModel
-    ? labelForVscodeAiModel(selectedModel)
-    : value || '未配置文本模型'
+  const displayValue = isVscodeModelCapabilityValue(value)
+    ? labelForVscodeModelPickerValue(value)
+    : selectedModel
+      ? labelForVscodeAiModel(selectedModel)
+      : selectionMode === 'completion' || selectionMode === 'agent'
+        ? labelForVscodeModelPickerValue(value)
+        : value || '未配置文本模型'
 
-  const hoveredModel = hoveredKey ? modelByKey.get(hoveredKey) : undefined
+  const showCapabilityPins = selectionMode === 'completion' || selectionMode === 'agent'
+  const completionPinned = showCapabilityPins
+      ? ([
+          {
+            key: encodeVscodeModelPickerValue('text-secondary'),
+            primary: '副基座',
+            secondary: labelForPreferredCapabilityModel('text-secondary'),
+          },
+          {
+            key: encodeVscodeModelPickerValue('text'),
+            primary: '基座',
+            secondary: labelForPreferredCapabilityModel('text'),
+          },
+        ] as const)
+      : []
+
+  const showPinned =
+    showCapabilityPins &&
+    (query.trim() === '' ||
+      completionPinned.some((item) => {
+        const haystack = `${item.primary} ${item.secondary ?? ''}`.toLowerCase()
+        return haystack.includes(query.trim().toLowerCase())
+      }))
+
+  const visiblePinned = showPinned
+    ? completionPinned.filter((item) => {
+        const normalized = query.trim().toLowerCase()
+        if (!normalized) return true
+        const haystack = `${item.primary} ${item.secondary ?? ''}`.toLowerCase()
+        return haystack.includes(normalized)
+      })
+    : []
+
+  const hoveredModel = (() => {
+    if (!hoveredKey) return undefined
+    const key = isVscodeModelCapabilityValue(hoveredKey)
+      ? resolveVscodeCapabilityPickerModelKey(hoveredKey)
+      : hoveredKey
+    return key ? modelByKey.get(key) : undefined
+  })()
   const editModel = editKey ? modelByKey.get(editKey) : undefined
   const showTip = open && !!hoveredModel && !editKey
 
@@ -499,14 +570,14 @@ export function VscodeAiModelPicker({
     }
 
     if (editKey) {
-      const row = rowRefs.current.get(editKey)
+      const row = rowRefs.current.get(editRowKey ?? editKey)
       const edit = editPanelRef.current?.getBoundingClientRect()
       const editWidth = edit && edit.width > 0 ? edit.width : EDIT_WIDTH
       const editHeight = edit && edit.height > 0 ? edit.height : EDIT_FALLBACK_HEIGHT
       const anchor = row?.getBoundingClientRect() ?? main
       setEditPosition(positionBeside(anchor, editWidth, editHeight, true))
     }
-  }, [editKey, hoveredKey])
+  }, [editKey, editRowKey, hoveredKey])
 
   useLayoutEffect(() => {
     if (!open) return
@@ -529,13 +600,14 @@ export function VscodeAiModelPicker({
     updateSidePositions()
     const frame = window.requestAnimationFrame(updateSidePositions)
     return () => window.cancelAnimationFrame(frame)
-  }, [open, hoveredKey, editKey, updateSidePositions, aiModelOptions])
+  }, [open, hoveredKey, editKey, editRowKey, updateSidePositions, aiModelOptions])
 
   useEffect(() => {
     if (!open) {
       setQuery('')
       setHoveredKey(undefined)
       setEditKey(undefined)
+      setEditRowKey(undefined)
       return
     }
     const frame = window.requestAnimationFrame(() => {
@@ -560,6 +632,7 @@ export function VscodeAiModelPicker({
       if (event.key === 'Escape') {
         if (editKey) {
           setEditKey(undefined)
+          setEditRowKey(undefined)
           return
         }
         setOpen(false)
@@ -574,6 +647,20 @@ export function VscodeAiModelPicker({
     }
   }, [open, editKey])
 
+  const clearEdit = () => {
+    setEditKey(undefined)
+    setEditRowKey(undefined)
+  }
+
+  const toggleEdit = (modelKey: string, rowKey: string) => {
+    if (editKey === modelKey && editRowKey === rowKey) {
+      clearEdit()
+      return
+    }
+    setEditKey(modelKey)
+    setEditRowKey(rowKey)
+  }
+
   const setThinkingForKey = (modelKey: string, thinkingEnabled: boolean) => {
     const next = { ...aiModelOptions }
     const current = next[modelKey] ?? {}
@@ -581,9 +668,36 @@ export function VscodeAiModelPicker({
     onAiModelOptionsChange(next)
   }
 
+  const setContextWindowForKey = (
+    modelKey: string,
+    contextWindow: VscodeAiContextWindowPref,
+  ) => {
+    const next = { ...aiModelOptions }
+    const current = next[modelKey] ?? {}
+    if (contextWindow === 'system') {
+      const { contextWindow: _removed, ...rest } = current
+      if (rest.thinkingEnabled === undefined) {
+        delete next[modelKey]
+      } else {
+        next[modelKey] = rest
+      }
+    } else {
+      next[modelKey] = { ...current, contextWindow }
+    }
+    onAiModelOptionsChange(next)
+  }
+
   const handleSelect = (modelKey: string) => {
     onChange(modelKey)
     setOpen(false)
+  }
+
+  const handleEditFocusPointerDown = (event: PointerEvent) => {
+    if (!editKey) return
+    const target = event.target as Node
+    const editingRow = rowRefs.current.get(editRowKey ?? editKey)
+    if (editingRow?.contains(target)) return
+    clearEdit()
   }
 
   const darkClass = dark ? ' vscode-ai-model-picker__panel--dark' : ''
@@ -595,11 +709,12 @@ export function VscodeAiModelPicker({
         <>
           <PickerBubbleShell
             panelRef={panelRef}
-            className={`vscode-ai-model-picker__panel${darkClass}`}
+            className={`vscode-ai-model-picker__panel${darkClass}${editKey ? ' vscode-ai-model-picker__panel--edit-focus' : ''}`}
             arrow={mainPosition.arrow}
             position={mainPosition}
             role="listbox"
             ariaLabel={ariaLabel ?? label}
+            onPointerDown={handleEditFocusPointerDown}
           >
             <div class="vscode-ai-model-picker__search-wrap">
               <input
@@ -611,8 +726,88 @@ export function VscodeAiModelPicker({
                 onInput={(event) => setQuery((event.currentTarget as HTMLInputElement).value)}
               />
             </div>
-            <div class="vscode-ai-model-picker__list">
-              {filteredModels.length === 0 ? (
+            <div
+              class="vscode-ai-model-picker__list"
+              onWheel={(event) => {
+                if (!editKey) return
+                event.preventDefault()
+              }}
+            >
+              {visiblePinned.map((item) => {
+                const selected = item.key === value
+                const resolvedKey = resolveVscodeCapabilityPickerModelKey(item.key)
+                const resolvedModel = resolvedKey ? modelByKey.get(resolvedKey) : undefined
+                const parts = resolvedModel
+                  ? displayPartsForVscodeAiModel(resolvedModel, aiModelOptions)
+                  : undefined
+                const editing = editRowKey === item.key
+                const hot = !editing && item.key === hoveredKey
+                return (
+                  <div
+                    key={item.key}
+                    ref={(node) => {
+                      if (node) rowRefs.current.set(item.key, node)
+                      else rowRefs.current.delete(item.key)
+                    }}
+                    role="option"
+                    aria-selected={selected}
+                    class={`vscode-ai-model-picker__item${hot ? ' vscode-ai-model-picker__item--hot' : ''}${editing ? ' vscode-ai-model-picker__item--editing' : ''}`}
+                    onMouseEnter={() => setHoveredKey(item.key)}
+                  >
+                    <button
+                      type="button"
+                      class="vscode-ai-model-picker__item-select"
+                      onFocus={() => setHoveredKey(item.key)}
+                      onClick={() => handleSelect(item.key)}
+                    >
+                      {selected ? (
+                        <span class="vscode-ai-model-picker__check" aria-hidden="true">
+                          ✓
+                        </span>
+                      ) : undefined}
+                      <span class="vscode-ai-model-picker__item-text">
+                        <span class="vscode-ai-model-picker__item-primary-row">
+                          <span class="vscode-ai-model-picker__item-primary">
+                            {item.primary}
+                          </span>
+                          {item.secondary ? (
+                            <span class="vscode-ai-model-picker__item-secondary">
+                              {item.secondary}
+                            </span>
+                          ) : undefined}
+                          {parts?.configBits && parts.configBits.length > 0 ? (
+                            <span class="vscode-ai-model-picker__item-config">
+                              {parts.configBits.join(' · ')}
+                            </span>
+                          ) : undefined}
+                        </span>
+                      </span>
+                    </button>
+                    {resolvedKey && resolvedModel ? (
+                      <span class="vscode-ai-model-picker__item-actions">
+                        <button
+                          type="button"
+                          class={`vscode-ai-model-picker__edit${editing ? ' vscode-ai-model-picker__edit--open' : ''}`}
+                          aria-label="编辑"
+                          title="编辑"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            toggleEdit(resolvedKey, item.key)
+                            setHoveredKey(item.key)
+                          }}
+                        >
+                          <EditPencilIcon />
+                        </button>
+                      </span>
+                    ) : undefined}
+                  </div>
+                )
+              })}
+              {visiblePinned.length > 0 && filteredModels.length > 0 ? (
+                <div class="vscode-ai-model-picker__list-divider" aria-hidden="true" />
+              ) : undefined}
+              {filteredModels.length === 0 && visiblePinned.length === 0 ? (
                 <div class="vscode-ai-model-picker__empty">无匹配模型</div>
               ) : (
                 filteredModels.map((model) => {
@@ -621,8 +816,11 @@ export function VscodeAiModelPicker({
                     modelId: model.modelId,
                   })
                   const parts = displayPartsForVscodeAiModel(model, aiModelOptions)
+                  const capabilityLabels = capabilityTags
+                    ? tagsForVscodeAiModelKey(key, capabilityTags)
+                    : []
                   const selected = key === value
-                  const editing = key === editKey
+                  const editing = editRowKey === key
                   const hot = !editing && key === hoveredKey
                   return (
                     <div
@@ -648,24 +846,34 @@ export function VscodeAiModelPicker({
                           </span>
                         ) : undefined}
                         <span class="vscode-ai-model-picker__item-text">
-                          <span class="vscode-ai-model-picker__item-primary">{parts.primary}</span>
-                          {parts.secondary ? (
-                            <span class="vscode-ai-model-picker__item-secondary">
-                              {parts.secondary}
-                            </span>
-                          ) : undefined}
+                          <span class="vscode-ai-model-picker__item-primary-row">
+                            <span class="vscode-ai-model-picker__item-primary">{parts.primary}</span>
+                            {capabilityLabels.map((tag) => (
+                              <span
+                                key={tag}
+                                class={`vscode-ai-model-picker__capability-tag${tag === '副基座' ? ' vscode-ai-model-picker__capability-tag--secondary' : ''}`}
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {parts.configBits && parts.configBits.length > 0 ? (
+                              <span class="vscode-ai-model-picker__item-config">
+                                {parts.configBits.join(' · ')}
+                              </span>
+                            ) : undefined}
+                          </span>
                         </span>
                       </button>
                       <span class="vscode-ai-model-picker__item-actions">
                         <button
                           type="button"
-                          class={`vscode-ai-model-picker__edit${editKey === key ? ' vscode-ai-model-picker__edit--open' : ''}`}
+                          class={`vscode-ai-model-picker__edit${editing ? ' vscode-ai-model-picker__edit--open' : ''}`}
                           aria-label="编辑"
                           title="编辑"
                           onClick={(event) => {
                             event.preventDefault()
                             event.stopPropagation()
-                            setEditKey((current) => (current === key ? undefined : key))
+                            toggleEdit(key, key)
                             setHoveredKey(key)
                           }}
                         >
@@ -693,7 +901,7 @@ export function VscodeAiModelPicker({
                 {describeVscodeAiModel(hoveredModel)}
               </p>
               <p class="vscode-ai-model-picker__tip-meta">
-                {formatVscodeAiModelContextLabel(hoveredModel)}
+                {formatVscodeAiModelContextLabel(hoveredModel, aiModelOptions)}
               </p>
             </PickerBubbleShell>
           ) : undefined}
@@ -704,15 +912,15 @@ export function VscodeAiModelPicker({
               className={`vscode-ai-model-picker__edit-panel${editDarkClass}`}
               arrow={editPosition.arrow}
               position={editPosition}
-              onMouseEnter={() => setHoveredKey(editKey)}
+              onMouseEnter={() => setHoveredKey(editRowKey ?? editKey)}
             >
               {supportsThinkingParam(editModel.providerId, editModel.modelId) ? (
                 <>
                   <div class="vscode-ai-model-picker__edit-section-label">选项</div>
                   <div class="vscode-ai-model-picker__edit-row">
-                    <span class="vscode-ai-model-picker__edit-row-label">深度思考</span>
+                    <span class="vscode-ai-model-picker__edit-row-label">思考</span>
                     <IosSwitch
-                      label="深度思考"
+                      label="思考"
                       checked={resolveVscodeAiThinkingEnabledForModelKey(
                         editKey,
                         aiModelOptions,
@@ -740,17 +948,47 @@ export function VscodeAiModelPicker({
                           const nextKey = checked ? pair.fastKey : pair.baseKey
                           onChange(nextKey)
                           setEditKey(nextKey)
-                          setHoveredKey(nextKey)
+                          // 从列表打开时锚点随模型走；从快捷项打开时保持锚在快捷项行
+                          if (!editRowKey || !isVscodeModelCapabilityValue(editRowKey)) {
+                            setEditRowKey(nextKey)
+                          }
+                          setHoveredKey(editRowKey ?? nextKey)
                         }}
                       />
                     </div>
                   </>
                 )
               })()}
-              {!supportsThinkingParam(editModel.providerId, editModel.modelId) &&
-              !resolveVscodeAiFastPair(editModel, models) ? (
-                <div class="vscode-ai-model-picker__empty">无可调选项</div>
-              ) : undefined}
+              <div class="vscode-ai-model-picker__edit-section-label">上下文长度</div>
+              {(
+                [
+                  {
+                    value: 'system' as const,
+                    label: `使用系统值（${formatCompactTokenCount(resolveVscodeAiSystemContextWindow(editModel))}）`,
+                  },
+                  { value: 64000 as const, label: '64K' },
+                  { value: 128000 as const, label: '128K' },
+                ] as const
+              ).map((option) => {
+                const current = resolveVscodeAiContextWindowPrefForModelKey(
+                  editKey,
+                  aiModelOptions,
+                )
+                const checked = current === option.value
+                return (
+                  <button
+                    key={String(option.value)}
+                    type="button"
+                    class={`vscode-ai-model-picker__edit-choice${checked ? ' vscode-ai-model-picker__edit-choice--checked' : ''}`}
+                    onClick={() => setContextWindowForKey(editKey, option.value)}
+                  >
+                    <span class="vscode-ai-model-picker__edit-choice-check" aria-hidden="true">
+                      {checked ? '✓' : ''}
+                    </span>
+                    <span class="vscode-ai-model-picker__edit-choice-label">{option.label}</span>
+                  </button>
+                )
+              })}
             </PickerBubbleShell>
           ) : undefined}
         </>,

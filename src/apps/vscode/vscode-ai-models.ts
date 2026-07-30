@@ -12,7 +12,13 @@ import {
   loadAccountSettings,
   openAiConfigForModelRef,
 } from '../../os/account-settings-storage.ts'
-import { loadVscodePrefs, type VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
+import {
+  loadVscodePrefs,
+  type VscodeAiContextWindowPref,
+  type VscodeAiModelOptionPrefs,
+  type VscodeModelSource,
+  type VscodePrefs,
+} from './vscode-prefs.ts'
 import { useEffect, useMemo, useState } from 'preact/hooks'
 
 export function formatVscodeAiModelRefKey(ref: PreferredModelRef): string {
@@ -72,6 +78,116 @@ export function resolveVscodeAiModelRefKey(storedKey: string | undefined): strin
     providerEntryId: first.providerEntryId,
     modelId: first.modelId,
   })
+}
+
+function preferredCapabilityKey(
+  capability: 'text' | 'text-secondary',
+): string | undefined {
+  const settings = loadAccountSettings()
+  if (!settings) return undefined
+  const preferred = resolvePreferredModelRef(settings, capability)
+  if (!preferred) return undefined
+  const models = listVscodeAiTextModels()
+  if (
+    !models.some(
+      (item) =>
+        item.providerEntryId === preferred.providerEntryId &&
+        item.modelId === preferred.modelId,
+    )
+  ) {
+    return undefined
+  }
+  return formatVscodeAiModelRefKey(preferred)
+}
+
+/** 按来源解析实际模型键（副基座 / 基座 / 指定） */
+function resolveModelKeyFromSource(
+  source: VscodeModelSource,
+  customKey: string | undefined,
+): string | undefined {
+  if (source === 'custom') {
+    return resolveVscodeAiModelRefKey(customKey)
+  }
+  if (source === 'text') {
+    return preferredCapabilityKey('text') ?? resolveVscodeAiModelRefKey(undefined)
+  }
+  return (
+    preferredCapabilityKey('text-secondary') ??
+    preferredCapabilityKey('text') ??
+    resolveVscodeAiModelRefKey(undefined)
+  )
+}
+
+/** 按补全来源解析实际模型键（副基座 / 基座 / 指定） */
+export function resolveVscodeCompletionModelKey(
+  prefs?: Pick<VscodePrefs, 'completionModelSource' | 'completionModelKey'>,
+): string | undefined {
+  const resolved = prefs ?? loadVscodePrefs()
+  return resolveModelKeyFromSource(
+    resolved.completionModelSource,
+    resolved.completionModelKey,
+  )
+}
+
+/** 按 Agent 来源解析实际模型键（副基座 / 基座 / 指定） */
+export function resolveVscodeAiModelKey(
+  prefs?: Pick<VscodePrefs, 'aiModelSource' | 'aiModelKey'>,
+): string | undefined {
+  const resolved = prefs ?? loadVscodePrefs()
+  return resolveModelKeyFromSource(resolved.aiModelSource, resolved.aiModelKey)
+}
+
+export type VscodeAiCapabilityTags = {
+  text?: PreferredModelRef
+  textSecondary?: PreferredModelRef
+}
+
+/** 读取当前基座 / 副基座首选，供模型列表标签使用 */
+export function loadVscodeAiCapabilityTags(): VscodeAiCapabilityTags {
+  const settings = loadAccountSettings()
+  if (!settings) return {}
+  return {
+    text: resolvePreferredModelRef(settings, 'text'),
+    textSecondary: resolvePreferredModelRef(settings, 'text-secondary'),
+  }
+}
+
+export function tagsForVscodeAiModelKey(
+  modelKey: string,
+  tags?: VscodeAiCapabilityTags,
+): Array<'基座' | '副基座'> {
+  const ref = parseVscodeAiModelRefKey(modelKey)
+  if (!ref) return []
+  const resolved = tags ?? loadVscodeAiCapabilityTags()
+  const labels: Array<'基座' | '副基座'> = []
+  if (
+    resolved.text &&
+    resolved.text.providerEntryId === ref.providerEntryId &&
+    resolved.text.modelId === ref.modelId
+  ) {
+    labels.push('基座')
+  }
+  if (
+    resolved.textSecondary &&
+    resolved.textSecondary.providerEntryId === ref.providerEntryId &&
+    resolved.textSecondary.modelId === ref.modelId
+  ) {
+    labels.push('副基座')
+  }
+  return labels
+}
+
+export function resolveVscodeAiContextWindowPrefForModelKey(
+  modelKey: string,
+  options?: Record<string, VscodeAiModelOptionPrefs>,
+): VscodeAiContextWindowPref {
+  const override =
+    options?.[modelKey]?.contextWindow ??
+    loadVscodePrefs().aiModelOptions[modelKey]?.contextWindow
+  if (override === 64000 || override === 128000 || override === 'system') {
+    return override
+  }
+  return 'system'
 }
 
 export function resolveVscodeAiThinkingEnabledForModelKey(
@@ -145,6 +261,130 @@ export function useVscodeAiTextModels(): FlatEnabledModel[] {
   }, [revision])
 }
 
+export function useVscodeAiCapabilityTags(): VscodeAiCapabilityTags {
+  const [revision, setRevision] = useState(0)
+  useEffect(() => subscribeOpenAiConfig(() => setRevision((value) => value + 1)), [])
+  return useMemo(() => {
+    void revision
+    return loadVscodeAiCapabilityTags()
+  }, [revision])
+}
+
 export function labelForVscodeAiModel(model: FlatEnabledModel): string {
   return model.name.trim() || model.modelId
+}
+
+const MODEL_CAPABILITY_PREFIX = '@capability:'
+
+export type VscodeModelPickerDecoded = {
+  source: VscodeModelSource
+  modelKey?: string
+}
+
+export function encodeVscodeModelPickerValue(
+  source: VscodeModelSource,
+  modelKey?: string,
+): string {
+  if (source === 'text-secondary') return `${MODEL_CAPABILITY_PREFIX}text-secondary`
+  if (source === 'text') return `${MODEL_CAPABILITY_PREFIX}text`
+  return modelKey?.trim() || ''
+}
+
+export function decodeVscodeModelPickerValue(value: string): VscodeModelPickerDecoded {
+  const trimmed = value.trim()
+  if (trimmed === `${MODEL_CAPABILITY_PREFIX}text-secondary`) {
+    return { source: 'text-secondary' }
+  }
+  if (trimmed === `${MODEL_CAPABILITY_PREFIX}text`) {
+    return { source: 'text' }
+  }
+  return { source: 'custom', modelKey: trimmed || undefined }
+}
+
+export function isVscodeModelCapabilityValue(value: string): boolean {
+  return (
+    value === `${MODEL_CAPABILITY_PREFIX}text-secondary` ||
+    value === `${MODEL_CAPABILITY_PREFIX}text`
+  )
+}
+
+/** 将 picker 值（含 @capability:…）解析为实际 modelKey，供编辑/悬停提示使用 */
+export function resolveVscodeCapabilityPickerModelKey(
+  pickerValue: string,
+): string | undefined {
+  const decoded = decodeVscodeModelPickerValue(pickerValue)
+  if (decoded.source === 'custom') {
+    return resolveVscodeAiModelRefKey(decoded.modelKey)
+  }
+  if (decoded.source === 'text') {
+    return preferredCapabilityKey('text')
+  }
+  return preferredCapabilityKey('text-secondary') ?? preferredCapabilityKey('text')
+}
+
+/** 模型来源选项的展示名（含当前解析到的模型名） */
+export function labelForVscodeModelSource(
+  source: VscodeModelSource,
+  customKey?: string,
+): string {
+  if (source === 'custom') {
+    const key = resolveVscodeAiModelRefKey(customKey)
+    const models = listVscodeAiTextModels()
+    const ref = key ? parseVscodeAiModelRefKey(key) : undefined
+    const model = ref
+      ? models.find(
+          (item) =>
+            item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
+        )
+      : undefined
+    const name = model ? labelForVscodeAiModel(model) : undefined
+    return name ? name : '指定模型'
+  }
+  const key =
+    source === 'text'
+      ? preferredCapabilityKey('text')
+      : preferredCapabilityKey('text-secondary') ?? preferredCapabilityKey('text')
+  const models = listVscodeAiTextModels()
+  const ref = key ? parseVscodeAiModelRefKey(key) : undefined
+  const model = ref
+    ? models.find(
+        (item) =>
+          item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
+      )
+    : undefined
+  const name = model ? labelForVscodeAiModel(model) : undefined
+  const prefix = source === 'text' ? '基座' : '副基座'
+  return name ? `${prefix} · ${name}` : prefix
+}
+
+export function labelForVscodeModelPickerValue(value: string): string {
+  const decoded = decodeVscodeModelPickerValue(value)
+  return labelForVscodeModelSource(decoded.source, decoded.modelKey)
+}
+
+/** @deprecated 使用 encodeVscodeModelPickerValue */
+export const encodeVscodeCompletionPickerValue = encodeVscodeModelPickerValue
+/** @deprecated 使用 decodeVscodeModelPickerValue */
+export const decodeVscodeCompletionPickerValue = decodeVscodeModelPickerValue
+/** @deprecated 使用 isVscodeModelCapabilityValue */
+export const isVscodeCompletionCapabilityValue = isVscodeModelCapabilityValue
+/** @deprecated 使用 labelForVscodeModelPickerValue */
+export const labelForVscodeCompletionPickerValue = labelForVscodeModelPickerValue
+/** @deprecated 使用 labelForVscodeModelSource */
+export const labelForVscodeCompletionModelSource = labelForVscodeModelSource
+export type VscodeCompletionPickerDecoded = VscodeModelPickerDecoded
+
+/** 解析 capability 首选对应的模型展示名 */
+export function labelForPreferredCapabilityModel(
+  capability: 'text' | 'text-secondary',
+): string | undefined {
+  const key = preferredCapabilityKey(capability)
+  if (!key) return undefined
+  const ref = parseVscodeAiModelRefKey(key)
+  if (!ref) return undefined
+  const model = listVscodeAiTextModels().find(
+    (item) =>
+      item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
+  )
+  return model ? labelForVscodeAiModel(model) : undefined
 }

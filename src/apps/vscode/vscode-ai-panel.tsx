@@ -63,13 +63,20 @@ import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search.ts
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import {
+  decodeVscodeModelPickerValue,
+  encodeVscodeModelPickerValue,
   openAiConfigForVscodeAiModelKey,
   parseVscodeAiModelRefKey,
-  resolveVscodeAiModelRefKey,
+  resolveVscodeAiModelKey,
   tokenizerFamilyForVscodeAiModelKey,
+  useVscodeAiCapabilityTags,
   useVscodeAiTextModels,
+  type VscodeAiCapabilityTags,
 } from './vscode-ai-models.ts'
-import type { VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
+import type {
+  VscodeAiModelOptionPrefs,
+  VscodeModelSource,
+} from './vscode-prefs.ts'
 import {
   measureVscodeAiContextUsage,
   prepareVscodeAiContextUsage,
@@ -191,9 +198,10 @@ type VscodeAiComposerBlockProps = {
   onStop: () => void
   mode: VscodeAiMode
   onModeChange: (mode: VscodeAiMode) => void
-  resolvedModelKey: string | undefined
-  onAiModelKeyChange: (key: string) => void
+  modelPickerValue: string
+  onModelPickerChange: (encoded: string) => void
   textModels: FlatEnabledModel[]
+  capabilityTags?: VscodeAiCapabilityTags
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
   contextUsage: VscodeAiContextUsage | undefined
@@ -214,9 +222,10 @@ function VscodeAiComposerBlock({
   onStop,
   mode,
   onModeChange,
-  resolvedModelKey,
-  onAiModelKeyChange,
+  modelPickerValue,
+  onModelPickerChange,
   textModels,
+  capabilityTags,
   aiModelOptions,
   onAiModelOptionsChange,
   contextUsage,
@@ -290,11 +299,13 @@ function VscodeAiComposerBlock({
           <span class="vscode-ai__footer-label">模型</span>
           <VscodeAiModelPicker
             label="模型"
-            value={resolvedModelKey ?? ''}
+            selectionMode="agent"
+            value={modelPickerValue}
             models={textModels}
-            onChange={onAiModelKeyChange}
+            onChange={onModelPickerChange}
             aiModelOptions={aiModelOptions}
             onAiModelOptionsChange={onAiModelOptionsChange}
+            capabilityTags={capabilityTags}
             disabled={textModels.length === 0}
             dark={dark}
             ariaLabel="模型"
@@ -350,8 +361,9 @@ export type VscodeAiPanelProps = {
   onMessagesChange: (messages: VscodeAiChatMessage[]) => void
   mode: VscodeAiMode
   onModeChange: (mode: VscodeAiMode) => void
+  aiModelSource: VscodeModelSource
   aiModelKey: string | undefined
-  onAiModelKeyChange: (key: string) => void
+  onAiModelSelectionChange: (source: VscodeModelSource, modelKey: string | undefined) => void
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
   /** Debug：展示本轮注入的 system-reminder */
@@ -882,8 +894,9 @@ export function VscodeAiPanel({
   onMessagesChange,
   mode,
   onModeChange,
+  aiModelSource,
   aiModelKey,
-  onAiModelKeyChange,
+  onAiModelSelectionChange,
   aiModelOptions,
   onAiModelOptionsChange,
   aiDebugSystemReminder = false,
@@ -908,16 +921,26 @@ export function VscodeAiPanel({
 }: VscodeAiPanelProps) {
   const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
+  const capabilityTags = useVscodeAiCapabilityTags()
+  const modelPickerValue = useMemo(
+    () => encodeVscodeModelPickerValue(aiModelSource, aiModelKey),
+    [aiModelKey, aiModelSource],
+  )
   const resolvedModelKey = useMemo(
-    () => resolveVscodeAiModelRefKey(aiModelKey),
-    [aiModelKey, textModels],
+    () => resolveVscodeAiModelKey({ aiModelSource, aiModelKey }),
+    [aiModelKey, aiModelSource, textModels],
   )
 
-  useEffect(() => {
-    if (!resolvedModelKey) return
-    if (aiModelKey === resolvedModelKey) return
-    onAiModelKeyChange(resolvedModelKey)
-  }, [aiModelKey, onAiModelKeyChange, resolvedModelKey])
+  const handleModelPickerChange = useCallback(
+    (encoded: string) => {
+      const decoded = decodeVscodeModelPickerValue(encoded)
+      onAiModelSelectionChange(
+        decoded.source,
+        decoded.source === 'custom' ? decoded.modelKey : aiModelKey,
+      )
+    },
+    [aiModelKey, onAiModelSelectionChange],
+  )
 
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1268,6 +1291,7 @@ export function VscodeAiPanel({
           reminderText,
           model: resolvedModelId,
           providerEntryId: resolvedProviderEntryId,
+          modelKey: resolvedModelKey,
           tokenizerFamily: resolvedTokenizerFamily,
           toolsHost,
         })
@@ -1280,6 +1304,7 @@ export function VscodeAiPanel({
       window.clearTimeout(timer)
     }
   }, [
+    aiModelOptions,
     aiTerminalKind,
     busy,
     contextWithTerminal,
@@ -1292,6 +1317,7 @@ export function VscodeAiPanel({
     problems,
     rebuildHistoryFromMessages,
     resolvedModelId,
+    resolvedModelKey,
     resolvedProviderEntryId,
     resolvedTokenizerFamily,
     sessionId,
@@ -1559,7 +1585,7 @@ export function VscodeAiPanel({
           toolsHost,
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
           signal: controller.signal,
-          modelKey: aiModelKey,
+          modelKey: resolvedModelKey,
           onProgress: (progress) => {
             if (controller.signal.aborted) return
             const previousToolCount = liveToolCallCountRef.current
@@ -1711,7 +1737,6 @@ export function VscodeAiPanel({
       }
     },
     [
-      aiModelKey,
       aiTerminalKind,
       applyMessages,
       clearLiveTurnState,
@@ -1725,6 +1750,7 @@ export function VscodeAiPanel({
       onLastSentTerminalChange,
       rebuildHistoryFromMessages,
       releaseBusyTurn,
+      resolvedModelKey,
       runCommandHost,
       sessionId,
       stop,
@@ -2021,9 +2047,10 @@ export function VscodeAiPanel({
                           onStop={stop}
                           mode={mode}
                           onModeChange={onModeChange}
-                          resolvedModelKey={resolvedModelKey}
-                          onAiModelKeyChange={onAiModelKeyChange}
+                          modelPickerValue={modelPickerValue}
+                          onModelPickerChange={handleModelPickerChange}
                           textModels={textModels}
+                          capabilityTags={capabilityTags}
                           aiModelOptions={aiModelOptions}
                           onAiModelOptionsChange={onAiModelOptionsChange}
                           contextUsage={contextUsage}
@@ -2227,9 +2254,10 @@ export function VscodeAiPanel({
           onStop={stop}
           mode={mode}
           onModeChange={onModeChange}
-          resolvedModelKey={resolvedModelKey}
-          onAiModelKeyChange={onAiModelKeyChange}
+          modelPickerValue={modelPickerValue}
+          onModelPickerChange={handleModelPickerChange}
           textModels={textModels}
+          capabilityTags={capabilityTags}
           aiModelOptions={aiModelOptions}
           onAiModelOptionsChange={onAiModelOptionsChange}
           contextUsage={contextUsage}

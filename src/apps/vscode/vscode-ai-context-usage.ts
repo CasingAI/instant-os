@@ -7,6 +7,7 @@ import {
 } from '../../ai/ai-providers.ts'
 import type { TokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { loadAccountSettings } from '../../os/account-settings-storage.ts'
+import { loadVscodePrefs } from './vscode-prefs.ts'
 import {
   estimateTokensFromTextsAsync,
   prepareTokenEstimation,
@@ -57,15 +58,26 @@ const CATEGORY_META: Record<
 }
 
 /**
- * 解析上下文窗口：优先账户里该模型条目的自动/手动配置，否则 128K。
+ * 解析上下文窗口：VS Code 本地覆盖 → 账户条目自动/手动配置 → 128K。
  */
 export function resolveModelContextWindow(
   modelId: string | undefined,
   options?: {
     providerEntryId?: string
     providerId?: AiProviderId
+    /** providerEntryId:modelId；用于读取 VS Code aiModelOptions.contextWindow */
+    modelKey?: string
+    aiModelOptions?: Record<string, { contextWindow?: 'system' | 64000 | 128000 }>
   },
 ): number {
+  const modelKey = options?.modelKey?.trim()
+  if (modelKey) {
+    const override =
+      options?.aiModelOptions?.[modelKey]?.contextWindow ??
+      loadVscodePrefs().aiModelOptions[modelKey]?.contextWindow
+    if (override === 64000 || override === 128000) return override
+  }
+
   const id = modelId?.trim()
   if (!id) return DEFAULT_MODEL_CONTEXT_WINDOW
 
@@ -193,6 +205,8 @@ export async function measureVscodeAiContextUsage(options: {
   model?: string
   providerEntryId?: string
   providerId?: AiProviderId
+  /** providerEntryId:modelId；用于 VS Code 本地上下文覆盖 */
+  modelKey?: string
   tokenizerFamily?: TokenizerFamily
   /** 传入则跳过 createVscodeAiTools（避免无 host 时无法计量） */
   tools?: AgentTool[]
@@ -262,6 +276,7 @@ export async function measureVscodeAiContextUsage(options: {
     contextWindow: resolveModelContextWindow(model, {
       providerEntryId: options.providerEntryId,
       providerId: options.providerId,
+      modelKey: options.modelKey,
     }),
     estimated: resolveUsageEstimated(false, model, tokenizerFamily),
     breakdown,

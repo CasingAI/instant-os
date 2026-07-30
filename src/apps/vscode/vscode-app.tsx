@@ -140,7 +140,10 @@ import {
 } from './vscode-ai-chat-storage.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import {
-  resolveVscodeAiModelRefKey,
+  decodeVscodeModelPickerValue,
+  encodeVscodeModelPickerValue,
+  resolveVscodeCompletionModelKey,
+  useVscodeAiCapabilityTags,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
 import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
@@ -327,6 +330,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
   const textModels = useVscodeAiTextModels()
+  const capabilityTags = useVscodeAiCapabilityTags()
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [activityCaretTop, setActivityCaretTop] = useState(78)
   const [caretReady, setCaretReady] = useState(false)
@@ -3108,21 +3112,27 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 {prefs.completionEnabled ? (
                   <VscodeAiModelPicker
                     label="补全模型"
-                    value={
-                      resolveVscodeAiModelRefKey(
-                        prefs.completionModelKey ?? prefs.aiModelKey,
-                      ) ?? ''
-                    }
+                    selectionMode="completion"
+                    value={encodeVscodeModelPickerValue(
+                      prefs.completionModelSource,
+                      prefs.completionModelKey,
+                    )}
                     models={textModels}
-                    onChange={(value) =>
+                    onChange={(encoded) => {
+                      const decoded = decodeVscodeModelPickerValue(encoded)
                       updatePrefs({
-                        completionModelKey: value.trim() ? value : undefined,
+                        completionModelSource: decoded.source,
+                        completionModelKey:
+                          decoded.source === 'custom'
+                            ? decoded.modelKey
+                            : prefs.completionModelKey,
                       })
-                    }
+                    }}
                     aiModelOptions={prefs.aiModelOptions}
                     onAiModelOptionsChange={(aiModelOptions) =>
                       updatePrefs({ aiModelOptions })
                     }
+                    capabilityTags={capabilityTags}
                     disabled={textModels.length === 0}
                     presentation="form"
                     fieldClass="vscode__setting"
@@ -3159,7 +3169,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 wordWrap: prefs.wordWrap,
                 completionEnabled: prefs.completionEnabled,
                 completionDebounceMs: prefs.completionDebounceMs,
-                completionModelKey: prefs.completionModelKey ?? prefs.aiModelKey,
+                completionModelKey: resolveVscodeCompletionModelKey(prefs),
               }}
               revealPosition={revealPosition}
               onRevealPositionApplied={() => setRevealPosition(undefined)}
@@ -3216,8 +3226,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onAiChatLastSentTerminalChange={updateAiChatLastSentTerminal}
               aiMode={prefs.aiMode}
               onAiModeChange={(aiMode) => updatePrefs({ aiMode })}
+              aiModelSource={prefs.aiModelSource}
               aiModelKey={prefs.aiModelKey}
-              onAiModelKeyChange={(key) => updatePrefs({ aiModelKey: key })}
+              onAiModelSelectionChange={(aiModelSource, aiModelKey) =>
+                updatePrefs({ aiModelSource, aiModelKey })
+              }
               aiModelOptions={prefs.aiModelOptions}
               onAiModelOptionsChange={(aiModelOptions) =>
                 updatePrefs({ aiModelOptions })

@@ -445,6 +445,7 @@ export async function askVscodeAiAgent(options: {
     userMessageAlreadyWrapped: true,
     model,
     providerEntryId: modelRef?.providerEntryId,
+    modelKey: options.modelKey,
     tokenizerFamily,
     tools,
   })

@@ -19,9 +19,19 @@ export type VscodeSearchPrefs = {
   searchEditorContextLines: number
 }
 
+/** VS Code 本地覆盖的上下文窗口；缺省视为跟随系统（钥匙串）配置 */
+export type VscodeAiContextWindowPref = 'system' | 64000 | 128000
+
 export type VscodeAiModelOptionPrefs = {
   thinkingEnabled?: boolean
+  /** 上下文窗口覆盖；缺省 / system = 跟随钥匙串解析 */
+  contextWindow?: VscodeAiContextWindowPref
 }
+
+/** 模型来源：副基座首选 / 基座首选 / 用户指定（Agent 与补全共用） */
+export type VscodeModelSource = 'text-secondary' | 'text' | 'custom'
+/** @deprecated 使用 VscodeModelSource */
+export type VscodeCompletionModelSource = VscodeModelSource
 
 export type VscodePrefs = {
   theme: MonacoEditorTheme
@@ -38,7 +48,9 @@ export type VscodePrefs = {
   workspaceFolder: string | undefined
   search: VscodeSearchPrefs
   aiMode: VscodeAiMode
-  /** providerEntryId:modelId；未设置时用钥匙串文本首选 */
+  /** Agent 模型来源；默认基座 */
+  aiModelSource: VscodeModelSource
+  /** Agent 指定模型（仅 aiModelSource === 'custom' 时使用） */
   aiModelKey: string | undefined
   /** 按模型键覆盖供应商级 thinking 等选项 */
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
@@ -46,7 +58,9 @@ export type VscodePrefs = {
   aiDebugSystemReminder: boolean
   /** AI 内联代码补全（幽灵文本）；默认关闭，需用户主动开启 */
   completionEnabled: boolean
-  /** 补全专用模型；未设置时复用 aiModelKey / 文本首选 */
+  /** 补全模型来源；默认副基座 */
+  completionModelSource: VscodeModelSource
+  /** 补全指定模型（仅 completionModelSource === 'custom' 时使用） */
   completionModelKey: string | undefined
   /** 停止输入后触发补全的防抖毫秒数 */
   completionDebounceMs: number
@@ -85,12 +99,33 @@ const DEFAULT_PREFS: VscodePrefs = {
   workspaceFolder: undefined,
   search: { ...DEFAULT_SEARCH_PREFS },
   aiMode: 'ask',
+  aiModelSource: 'text',
   aiModelKey: undefined,
   aiModelOptions: {},
   aiDebugSystemReminder: false,
   completionEnabled: false,
+  completionModelSource: 'text-secondary',
   completionModelKey: undefined,
   completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
+}
+
+function normalizeContextWindowPref(
+  value: unknown,
+): VscodeAiContextWindowPref | undefined {
+  if (value === 'system' || value === 64000 || value === 128000) return value
+  return undefined
+}
+
+function normalizeModelSource(
+  value: unknown,
+  hasCustomKey: boolean,
+  fallback: VscodeModelSource,
+): VscodeModelSource {
+  if (value === 'text-secondary' || value === 'text' || value === 'custom') {
+    return value
+  }
+  // 旧偏好：已有自定义 key 视为指定模型；否则用场景默认
+  return hasCustomKey ? 'custom' : fallback
 }
 
 function normalizeAiModelOptions(value: unknown): Record<string, VscodeAiModelOptionPrefs> {
@@ -99,9 +134,17 @@ function normalizeAiModelOptions(value: unknown): Record<string, VscodeAiModelOp
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const trimmedKey = key.trim()
     if (!trimmedKey || !entry || typeof entry !== 'object') continue
-    const raw = entry as { thinkingEnabled?: unknown }
+    const raw = entry as { thinkingEnabled?: unknown; contextWindow?: unknown }
+    const next: VscodeAiModelOptionPrefs = {}
     if (typeof raw.thinkingEnabled === 'boolean') {
-      result[trimmedKey] = { thinkingEnabled: raw.thinkingEnabled }
+      next.thinkingEnabled = raw.thinkingEnabled
+    }
+    const contextWindow = normalizeContextWindowPref(raw.contextWindow)
+    if (contextWindow !== undefined) {
+      next.contextWindow = contextWindow
+    }
+    if (next.thinkingEnabled !== undefined || next.contextWindow !== undefined) {
+      result[trimmedKey] = next
     }
   }
   return result
@@ -186,6 +229,11 @@ export function loadVscodePrefs(): VscodePrefs {
         typeof parsed.aiModelKey === 'string' && parsed.aiModelKey.trim()
           ? parsed.aiModelKey.trim()
           : undefined,
+      aiModelSource: normalizeModelSource(
+        (parsed as { aiModelSource?: unknown }).aiModelSource,
+        typeof parsed.aiModelKey === 'string' && parsed.aiModelKey.trim().length > 0,
+        'text',
+      ),
       aiModelOptions: normalizeAiModelOptions(parsed.aiModelOptions),
       aiDebugSystemReminder: parsed.aiDebugSystemReminder === true,
       completionEnabled: parsed.completionEnabled === true,
@@ -193,6 +241,12 @@ export function loadVscodePrefs(): VscodePrefs {
         typeof parsed.completionModelKey === 'string' && parsed.completionModelKey.trim()
           ? parsed.completionModelKey.trim()
           : undefined,
+      completionModelSource: normalizeModelSource(
+        (parsed as { completionModelSource?: unknown }).completionModelSource,
+        typeof parsed.completionModelKey === 'string' &&
+          parsed.completionModelKey.trim().length > 0,
+        'text-secondary',
+      ),
       completionDebounceMs:
         typeof parsed.completionDebounceMs === 'number' && Number.isFinite(parsed.completionDebounceMs)
           ? clamp(Math.round(parsed.completionDebounceMs), 100, 2000)

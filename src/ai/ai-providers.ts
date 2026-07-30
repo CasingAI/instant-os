@@ -802,6 +802,8 @@ export function reconcilePreferredByCapability(
   const preferredByCapability: PreferredByCapability = {}
 
   for (const capability of AI_MODEL_CAPABILITIES) {
+    // 副基座在基座确定后再单独处理，缺省时与基座保持相同
+    if (capability === 'text-secondary') continue
     const kept = isPreferredRefValid(providers, existing?.[capability], capability)
       ? existing![capability]
       : undefined
@@ -840,6 +842,22 @@ export function reconcilePreferredByCapability(
       const fallback = firstModelForCapability(providers, 'text')
       if (fallback) preferredByCapability.text = fallback
     }
+  }
+
+  // 副基座：已有有效首选则保留；否则与基座对齐
+  const keptSecondary = isPreferredRefValid(
+    providers,
+    existing?.['text-secondary'],
+    'text-secondary',
+  )
+    ? existing!['text-secondary']
+    : undefined
+  const secondary =
+    keptSecondary ??
+    preferredByCapability.text ??
+    firstModelForCapability(providers, 'text-secondary')
+  if (secondary) {
+    preferredByCapability['text-secondary'] = secondary
   }
 
   let preferredIndex = 0
