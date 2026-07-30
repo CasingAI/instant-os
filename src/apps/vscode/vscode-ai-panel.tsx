@@ -110,6 +110,34 @@ const INVESTIGATION_STEP_ANIM_MS = 320
 const INVESTIGATION_COLLAPSE_MS = 280
 const COMPOSER_INPUT_MAX_LINES = 5
 
+function resolveMessageSendSettings(
+  message: VscodeAiChatMessage,
+  fallback: {
+    mode: VscodeAiMode
+    source: VscodeModelSource
+    key: string | undefined
+  },
+): { mode: VscodeAiMode; source: VscodeModelSource; key: string | undefined } {
+  const mode = message.sentMode ?? fallback.mode
+  const source = message.sentModelSource ?? fallback.source
+  const key =
+    message.sentModelSource !== undefined
+      ? source === 'custom'
+        ? message.sentModelKey
+        : undefined
+      : source === 'custom'
+        ? fallback.key
+        : undefined
+  return { mode, source, key }
+}
+
+type SendOptions = {
+  replaceFromUserId?: string
+  sendMode?: VscodeAiMode
+  sendModelSource?: VscodeModelSource
+  sendModelKey?: string | undefined
+}
+
 function syncComposerTextareaHeight(
   el: HTMLTextAreaElement,
   maxLines: number,
@@ -948,7 +976,12 @@ export function VscodeAiPanel({
   const [sendQueueExpanded, setSendQueueExpanded] = useState(false)
   const [liveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
   const [liveAnswer, setLiveAnswer] = useState('')
-  const [contextUsage, setContextUsage] = useState<VscodeAiContextUsage | undefined>(undefined)
+  const [composerContextUsage, setComposerContextUsage] = useState<
+    VscodeAiContextUsage | undefined
+  >(undefined)
+  const [editContextUsage, setEditContextUsage] = useState<VscodeAiContextUsage | undefined>(
+    undefined,
+  )
   const abortRef = useRef<AbortController | undefined>(undefined)
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -983,7 +1016,7 @@ export function VscodeAiPanel({
   >(undefined)
   /** 页面隐藏/卸载时强制把 live 进度 checkpoint 到消息存储 */
   const forceTurnCheckpointRef = useRef<(() => void) | undefined>(undefined)
-  const sendRef = useRef<(textOverride?: string, options?: { replaceFromUserId?: string }) => Promise<void>>(
+  const sendRef = useRef<(textOverride?: string, options?: SendOptions) => Promise<void>>(
     async () => {},
   )
 
@@ -1011,6 +1044,9 @@ export function VscodeAiPanel({
 
   const [editingUserId, setEditingUserId] = useState<string | undefined>(undefined)
   const [editingDraft, setEditingDraft] = useState('')
+  const [editingMode, setEditingMode] = useState<VscodeAiMode>('ask')
+  const [editingModelSource, setEditingModelSource] = useState<VscodeModelSource>('text')
+  const [editingModelKey, setEditingModelKey] = useState<string | undefined>(undefined)
   const [reviewBusy, setReviewBusy] = useState(false)
   reviewBusyRef.current = reviewBusy
   const [reviewChangesOpen, setReviewChangesOpen] = useState(false)
@@ -1019,6 +1055,24 @@ export function VscodeAiPanel({
   useEffect(() => {
     onBusyChangeRef.current?.(busy || reviewBusy)
   }, [busy, reviewBusy])
+
+  const editingModelPickerValue = useMemo(
+    () => encodeVscodeModelPickerValue(editingModelSource, editingModelKey),
+    [editingModelKey, editingModelSource],
+  )
+  const editingResolvedModelKey = useMemo(
+    () =>
+      resolveVscodeAiModelKey({
+        aiModelSource: editingModelSource,
+        aiModelKey: editingModelKey,
+      }),
+    [editingModelKey, editingModelSource, textModels],
+  )
+  const handleEditingModelPickerChange = useCallback((encoded: string) => {
+    const decoded = decodeVscodeModelPickerValue(encoded)
+    setEditingModelSource(decoded.source)
+    setEditingModelKey(decoded.source === 'custom' ? decoded.modelKey : undefined)
+  }, [])
 
   const resolvedModelId = useMemo(
     () => openAiConfigForVscodeAiModelKey(resolvedModelKey).defaultModel,
@@ -1031,6 +1085,18 @@ export function VscodeAiPanel({
   const resolvedTokenizerFamily = useMemo(
     () => tokenizerFamilyForVscodeAiModelKey(resolvedModelKey),
     [resolvedModelKey],
+  )
+  const editingResolvedModelId = useMemo(
+    () => openAiConfigForVscodeAiModelKey(editingResolvedModelKey).defaultModel,
+    [editingResolvedModelKey],
+  )
+  const editingResolvedProviderEntryId = useMemo(
+    () => parseVscodeAiModelRefKey(editingResolvedModelKey)?.providerEntryId,
+    [editingResolvedModelKey],
+  )
+  const editingResolvedTokenizerFamily = useMemo(
+    () => tokenizerFamilyForVscodeAiModelKey(editingResolvedModelKey),
+    [editingResolvedModelKey],
   )
 
   useLayoutEffect(() => {
@@ -1235,7 +1301,8 @@ export function VscodeAiPanel({
     setBusy(false)
     setLiveTimeline([])
     setLiveAnswer('')
-    setContextUsage(undefined)
+    setComposerContextUsage(undefined)
+    setEditContextUsage(undefined)
     // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
     historyRef.current = rebuildHistoryFromMessages(messages)
     pendingEditsRef.current = []
@@ -1259,18 +1326,10 @@ export function VscodeAiPanel({
         )
         if (cancelled || busyRef.current) return
 
-        // 编辑气泡重发：按「该条之前的历史 + 当前编辑文案」预估发送后占用
-        const editingIndex = editingUserId
-          ? messages.findIndex((message) => message.id === editingUserId)
-          : -1
-        const isResubmitPreview = editingIndex >= 0
-        const history = isResubmitPreview
-          ? rebuildHistoryFromMessages(messages.slice(0, editingIndex))
-          : historyRef.current.length > 0
+        const history =
+          historyRef.current.length > 0
             ? historyRef.current
             : rebuildHistoryFromMessages(messages)
-        const userMessage = isResubmitPreview ? editingDraft : draft
-
         const currentTerminal = aiTerminalKind
           ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
           : undefined
@@ -1287,7 +1346,7 @@ export function VscodeAiPanel({
           mode,
           context: contextWithTerminal(),
           history,
-          userMessage,
+          userMessage: draft,
           reminderText,
           model: resolvedModelId,
           providerEntryId: resolvedProviderEntryId,
@@ -1296,7 +1355,7 @@ export function VscodeAiPanel({
           toolsHost,
         })
         if (cancelled || busyRef.current) return
-        setContextUsage(usage)
+        setComposerContextUsage(usage)
       })()
     }, CONTEXT_USAGE_DEBOUNCE_MS)
     return () => {
@@ -1309,8 +1368,6 @@ export function VscodeAiPanel({
     busy,
     contextWithTerminal,
     draft,
-    editingDraft,
-    editingUserId,
     getAiTerminalSnapshot,
     messages,
     mode,
@@ -1320,6 +1377,83 @@ export function VscodeAiPanel({
     resolvedModelKey,
     resolvedProviderEntryId,
     resolvedTokenizerFamily,
+    sessionId,
+    toolsHost,
+    workspaceFolder,
+  ])
+
+  useEffect(() => {
+    if (busy || !editingUserId) {
+      setEditContextUsage(undefined)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        await prepareVscodeAiContextUsage(
+          editingResolvedModelId,
+          editingResolvedTokenizerFamily,
+        )
+        if (cancelled || busyRef.current) return
+
+        const editingIndex = messages.findIndex((message) => message.id === editingUserId)
+        if (editingIndex < 0) return
+        const history = rebuildHistoryFromMessages(messages.slice(0, editingIndex))
+        const editTerminalKind: VscodeAiTerminalKind | undefined =
+          editingMode === 'ask'
+            ? 'ask'
+            : editingMode === 'plan'
+              ? 'plan'
+              : editingMode === 'agent'
+                ? 'agent'
+                : undefined
+        const currentTerminal = editTerminalKind
+          ? getAiTerminalSnapshot(editTerminalKind, sessionId)
+          : undefined
+        const reminderText = buildVscodeAiSystemReminder(
+          collectVscodeAiReminderEvents({
+            mode: editingMode,
+            previousMode: lastSentModeRef.current,
+            aiTerminalKind: editTerminalKind,
+            currentTerminal,
+            lastSentTerminal: lastSentTerminalRef.current,
+          }),
+        )
+        const usage = await measureVscodeAiContextUsage({
+          mode: editingMode,
+          context: contextWithTerminal(),
+          history,
+          userMessage: editingDraft,
+          reminderText,
+          model: editingResolvedModelId,
+          providerEntryId: editingResolvedProviderEntryId,
+          modelKey: editingResolvedModelKey,
+          tokenizerFamily: editingResolvedTokenizerFamily,
+          toolsHost,
+        })
+        if (cancelled || busyRef.current) return
+        setEditContextUsage(usage)
+      })()
+    }, CONTEXT_USAGE_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    aiModelOptions,
+    busy,
+    contextWithTerminal,
+    editingDraft,
+    editingMode,
+    editingResolvedModelId,
+    editingResolvedModelKey,
+    editingResolvedProviderEntryId,
+    editingResolvedTokenizerFamily,
+    editingUserId,
+    getAiTerminalSnapshot,
+    messages,
+    problems,
+    rebuildHistoryFromMessages,
     sessionId,
     toolsHost,
     workspaceFolder,
@@ -1410,9 +1544,28 @@ export function VscodeAiPanel({
   }, [clearLiveTurnState])
 
   const send = useCallback(
-    async (textOverride?: string, options?: { replaceFromUserId?: string }) => {
+    async (textOverride?: string, options?: SendOptions) => {
       const text = (textOverride ?? draft).trim()
       if (!text) return
+
+      const turnMode = options?.sendMode ?? mode
+      const turnModelSource = options?.sendModelSource ?? aiModelSource
+      const turnModelKey =
+        options?.sendModelSource !== undefined ? options.sendModelKey : aiModelKey
+      const turnResolvedModelKey = resolveVscodeAiModelKey({
+        aiModelSource: turnModelSource,
+        aiModelKey: turnModelKey,
+      })
+      const turnTerminalKind: VscodeAiTerminalKind | undefined =
+        turnMode === 'ask'
+          ? 'ask'
+          : turnMode === 'plan'
+            ? 'plan'
+            : turnMode === 'agent'
+              ? 'agent'
+              : undefined
+      const sentModelKeyForMessage =
+        turnModelSource === 'custom' ? turnModelKey : undefined
 
       let handoffOrphanedSessionIds: string[] = []
       let keptBusyFromHandoff = false
@@ -1447,14 +1600,14 @@ export function VscodeAiPanel({
 
       let withUser: VscodeAiChatMessage[]
       const currentMessages = messagesRef.current
-      const currentTerminal = aiTerminalKind
-        ? getAiTerminalSnapshot(aiTerminalKind, sessionId)
+      const currentTerminal = turnTerminalKind
+        ? getAiTerminalSnapshot(turnTerminalKind, sessionId)
         : undefined
       const reminderText = buildVscodeAiSystemReminder(
         collectVscodeAiReminderEvents({
-          mode,
+          mode: turnMode,
           previousMode: lastSentModeRef.current,
-          aiTerminalKind,
+          aiTerminalKind: turnTerminalKind,
           currentTerminal,
           lastSentTerminal: lastSentTerminalRef.current,
         }),
@@ -1487,6 +1640,9 @@ export function VscodeAiPanel({
           content: text,
           createdAt: Date.now(),
           systemReminder: reminderForStorage,
+          sentMode: turnMode,
+          sentModelSource: turnModelSource,
+          sentModelKey: sentModelKeyForMessage,
         }
         withUser = [...currentMessages.slice(0, index), editedUser]
         historyRef.current = rebuildHistoryFromMessages(currentMessages.slice(0, index))
@@ -1497,6 +1653,9 @@ export function VscodeAiPanel({
         if (!textOverride) setDraft('')
         const userMessage = createVscodeAiChatMessage('user', text, {
           systemReminder: reminderForStorage,
+          sentMode: turnMode,
+          sentModelSource: turnModelSource,
+          sentModelKey: sentModelKeyForMessage,
         })
         withUser = [...currentMessages, userMessage]
         applyMessages(withUser)
@@ -1578,14 +1737,14 @@ export function VscodeAiPanel({
 
       try {
         const result = await askVscodeAiAgent({
-          mode,
+          mode: turnMode,
           userMessage: text,
           reminderText,
           context: contextWithTerminal(),
           toolsHost,
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
           signal: controller.signal,
-          modelKey: resolvedModelKey,
+          modelKey: turnResolvedModelKey,
           onProgress: (progress) => {
             if (controller.signal.aborted) return
             const previousToolCount = liveToolCallCountRef.current
@@ -1596,7 +1755,7 @@ export function VscodeAiPanel({
             setLiveAnswer(progress.answerText)
             pendingEditsRef.current = progress.pendingEdits
             if (progress.contextUsage) {
-              setContextUsage(progress.contextUsage)
+              setComposerContextUsage(progress.contextUsage)
             }
             if (progress.toolCallCount > previousToolCount) {
               clearCheckpointTimer()
@@ -1612,11 +1771,11 @@ export function VscodeAiPanel({
           return
         }
 
-        lastSentModeRef.current = mode
-        if (aiTerminalKind) {
+        lastSentModeRef.current = turnMode
+        if (turnTerminalKind) {
           const nextLastSent: VscodeAiLastSentTerminal = {
-            kind: aiTerminalKind,
-            snapshot: getAiTerminalSnapshot(aiTerminalKind, sessionId),
+            kind: turnTerminalKind,
+            snapshot: getAiTerminalSnapshot(turnTerminalKind, sessionId),
           }
           lastSentTerminalRef.current = nextLastSent
           onLastSentTerminalChange?.(nextLastSent)
@@ -1737,7 +1896,8 @@ export function VscodeAiPanel({
       }
     },
     [
-      aiTerminalKind,
+      aiModelKey,
+      aiModelSource,
       applyMessages,
       clearLiveTurnState,
       clearSendQueue,
@@ -1750,7 +1910,6 @@ export function VscodeAiPanel({
       onLastSentTerminalChange,
       rebuildHistoryFromMessages,
       releaseBusyTurn,
-      resolvedModelKey,
       runCommandHost,
       sessionId,
       stop,
@@ -1824,10 +1983,18 @@ export function VscodeAiPanel({
         userBubbleMorphFromRef.current = undefined
       }
       userEditInputHeightRef.current = undefined
+      const settings = resolveMessageSendSettings(message, {
+        mode,
+        source: aiModelSource,
+        key: aiModelKey,
+      })
       setEditingUserId(message.id)
       setEditingDraft(message.content)
+      setEditingMode(settings.mode)
+      setEditingModelSource(settings.source)
+      setEditingModelKey(settings.key)
     },
-    [],
+    [aiModelKey, aiModelSource, mode],
   )
 
   const cancelEditUserMessage = useCallback(() => {
@@ -1893,9 +2060,25 @@ export function VscodeAiPanel({
         if (!ok) return
       }
       // 确认后再打断并重发；取消时绝不动当前生成
-      await send(text, { replaceFromUserId: messageId })
+      await send(text, {
+        replaceFromUserId: messageId,
+        sendMode: editingMode,
+        sendModelSource: editingModelSource,
+        sendModelKey: editingModelKey,
+      })
     },
-    [busy, collectSessionIdsAfter, editingDraft, messages, modal, reviewBusy, send],
+    [
+      busy,
+      collectSessionIdsAfter,
+      editingDraft,
+      editingMode,
+      editingModelKey,
+      editingModelSource,
+      messages,
+      modal,
+      reviewBusy,
+      send,
+    ],
   )
 
   const applyEdit = useCallback(
@@ -2048,15 +2231,15 @@ export function VscodeAiPanel({
                           sendDisabled={!editingDraft.trim() || textModels.length === 0}
                           busy={false}
                           onStop={stop}
-                          mode={mode}
-                          onModeChange={onModeChange}
-                          modelPickerValue={modelPickerValue}
-                          onModelPickerChange={handleModelPickerChange}
+                          mode={editingMode}
+                          onModeChange={setEditingMode}
+                          modelPickerValue={editingModelPickerValue}
+                          onModelPickerChange={handleEditingModelPickerChange}
                           textModels={textModels}
                           capabilityTags={capabilityTags}
                           aiModelOptions={aiModelOptions}
                           onAiModelOptionsChange={onAiModelOptionsChange}
-                          contextUsage={contextUsage}
+                          contextUsage={editContextUsage}
                           dark={dark}
                         />
                       ) : (
@@ -2263,7 +2446,7 @@ export function VscodeAiPanel({
           capabilityTags={capabilityTags}
           aiModelOptions={aiModelOptions}
           onAiModelOptionsChange={onAiModelOptionsChange}
-          contextUsage={contextUsage}
+          contextUsage={composerContextUsage}
           dark={dark}
         />
       </div>

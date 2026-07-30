@@ -8,7 +8,9 @@ import {
 } from '../../os/device-data-storage.ts'
 import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
 import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
+import { isVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
+import type { VscodeModelSource } from './vscode-prefs.ts'
 import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
@@ -60,6 +62,12 @@ export type VscodeAiChatMessage = {
   investigation?: VscodeAiInvestigation
   /** 本轮发给模型的 system-reminder 正文（不含标签；debug 展示用） */
   systemReminder?: string
+  /** 本轮发送时的 AI 模式（user 消息） */
+  sentMode?: VscodeAiMode
+  /** 本轮发送时的模型来源（user 消息） */
+  sentModelSource?: VscodeModelSource
+  /** 本轮发送时的指定模型键（仅 sentModelSource === 'custom'） */
+  sentModelKey?: string
 }
 
 export type VscodeAiChatSession = {
@@ -159,6 +167,13 @@ function normalizeTerminalChangeReview(raw: unknown): VscodeAiTerminalChangeRevi
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function normalizeSentModelSource(value: unknown): VscodeModelSource | undefined {
+  if (value === 'text-secondary' || value === 'text' || value === 'custom') {
+    return value
+  }
+  return undefined
 }
 
 function normalizeLastSentTerminal(raw: unknown): VscodeAiLastSentTerminal | undefined {
@@ -336,6 +351,15 @@ function normalizeMessages(raw: unknown): VscodeAiChatMessage[] {
         reviewStatus,
         systemReminder: normalizeOptionalString(
           (message as { systemReminder?: unknown }).systemReminder,
+        ),
+        sentMode: isVscodeAiMode((message as { sentMode?: unknown }).sentMode)
+          ? (message as { sentMode: VscodeAiMode }).sentMode
+          : undefined,
+        sentModelSource: normalizeSentModelSource(
+          (message as { sentModelSource?: unknown }).sentModelSource,
+        ),
+        sentModelKey: normalizeOptionalString(
+          (message as { sentModelKey?: unknown }).sentModelKey,
         ),
       }
     })
@@ -632,6 +656,9 @@ export function createVscodeAiChatMessage(
     | 'incomplete'
     | 'investigation'
     | 'systemReminder'
+    | 'sentMode'
+    | 'sentModelSource'
+    | 'sentModelKey'
   >,
 ): VscodeAiChatMessage {
   return {
@@ -648,6 +675,9 @@ export function createVscodeAiChatMessage(
     incomplete: extras?.incomplete,
     investigation: extras?.investigation,
     systemReminder: extras?.systemReminder,
+    sentMode: extras?.sentMode,
+    sentModelSource: extras?.sentModelSource,
+    sentModelKey: extras?.sentModelKey,
   }
 }
 
