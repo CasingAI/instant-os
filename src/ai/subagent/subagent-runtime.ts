@@ -1,47 +1,37 @@
 import type { AgentTool } from '../agent-tool.ts'
 import type { AiUsageContext } from '../ai-usage-context.ts'
-import { createAgent } from '../create-agent.ts'
-import { createOpenAiClient } from '../openai-client.ts'
-import { mergeOpenAiConfig } from '../openai-config.ts'
-import {
-  loadAccountSettings,
-  openAiConfigForModelRef,
-} from '../../os/account-settings-storage.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { EffectiveSubAgent, SubAgentRunResult } from './subagent-types.ts'
 
-const SUBAGENT_MAX_STEPS = 20
-
+/** 并发池：限制同时运行的 Sub Agent 数量 */
 const running = new Map<string, AbortController>()
 
 export function getRunningSubAgentCount(): number {
   return running.size
 }
 
-function parseModelRef(modelKey: string | undefined): {
-  providerEntryId: string
-  modelId: string
-} | undefined {
-  if (!modelKey) return undefined
-  const separator = modelKey.indexOf(':')
-  if (separator <= 0) return undefined
-  const providerEntryId = modelKey.slice(0, separator)
-  const modelId = modelKey.slice(separator + 1)
-  if (!providerEntryId || !modelId) return undefined
-  return { providerEntryId, modelId }
+/**
+ * 注册一个 Sub Agent 运行（占用并发槽）。
+ * 返回 runId 与 AbortController；调用方在完成/失败时务必调 releaseSubAgentSlot。
+ */
+export function acquireSubAgentSlot(
+  agentId: string,
+  maxConcurrent: number,
+): { runId: string; controller: AbortController } | undefined {
+  if (running.size >= maxConcurrent) {
+    throw new Error(
+      `Sub Agent 并发已达上限（${maxConcurrent}）。请等待现有子任务完成，或在设置中提高上限。`,
+    )
+  }
+  const runId = `subagent-${agentId}-${osNowMs()}-${Math.random().toString(36).slice(2, 8)}`
+  const controller = new AbortController()
+  running.set(runId, controller)
+  return { runId, controller }
 }
 
-function openAiConfigForModelKey(modelKey: string | undefined) {
-  const settings = loadAccountSettings()
-  let config = mergeOpenAiConfig(undefined, 'text')
-  const ref = parseModelRef(modelKey)
-  if (settings && ref) {
-    const partial = openAiConfigForModelRef(settings, ref, 'text')
-    if (partial) {
-      config = mergeOpenAiConfig(partial, 'text')
-    }
-  }
-  return config
+/** 释放并发槽 */
+export function releaseSubAgentSlot(runId: string): void {
+  running.delete(runId)
 }
 
 export type RunSubAgentOptions = {
@@ -58,23 +48,24 @@ export type RunSubAgentOptions = {
     phase: 'started' | 'tool' | 'done'
     label?: string
     text?: string
+    toolCallCount?: number
+    incomplete?: boolean
   }) => void
 }
 
 /**
  * 在独立上下文中跑一个 Sub Agent（无父对话历史）。
  * 不向子 Agent 注册 delegate_subagent（禁止嵌套）。
+ *
+ * 注意：此为核心实现，使用 createAgent 直接跑。
+ * VSCode 宿主通常注入自己的 runSubAgentFn（复用 askVscodeAiAgent）以获得完整 UI 数据。
  */
 export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgentRunResult> {
-  if (running.size >= options.maxConcurrent) {
-    throw new Error(
-      `Sub Agent 并发已达上限（${options.maxConcurrent}）。请等待现有子任务完成，或在设置中提高上限。`,
-    )
+  const slot = acquireSubAgentSlot(options.definition.id, options.maxConcurrent)
+  if (!slot) {
+    throw new Error('Sub Agent 并发已达上限')
   }
-
-  const runId = `subagent-${options.definition.id}-${osNowMs()}-${Math.random().toString(36).slice(2, 8)}`
-  const localController = new AbortController()
-  running.set(runId, localController)
+  const { runId, controller: localController } = slot
 
   const onAbort = () => {
     localController.abort()
@@ -82,7 +73,32 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   options.signal?.addEventListener('abort', onAbort)
 
   try {
-    const modelConfig = openAiConfigForModelKey(options.definition.modelKey)
+    // 延迟导入避免循环依赖
+    const { createAgent } = await import('../create-agent.ts')
+    const { createOpenAiClient } = await import('../openai-client.ts')
+    const { mergeOpenAiConfig } = await import('../openai-config.ts')
+    const {
+      loadAccountSettings,
+      openAiConfigForModelRef,
+    } = await import('../../os/account-settings-storage.ts')
+
+    const modelConfig = (() => {
+      let config = mergeOpenAiConfig(undefined, 'text')
+      const settings = loadAccountSettings()
+      const modelKey = options.definition.modelKey
+      if (modelKey && settings) {
+        const separator = modelKey.indexOf(':')
+        if (separator > 0) {
+          const ref = {
+            providerEntryId: modelKey.slice(0, separator),
+            modelId: modelKey.slice(separator + 1),
+          }
+          const partial = openAiConfigForModelRef(settings, ref, 'text')
+          if (partial) config = mergeOpenAiConfig(partial, 'text')
+        }
+      }
+      return config
+    })()
     const client = createOpenAiClient(modelConfig, 'text')
     const model = modelConfig.defaultModel
 
@@ -100,7 +116,7 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
     const agent = createAgent({
       prompt: system,
       tools: options.tools,
-      maxSteps: SUBAGENT_MAX_STEPS,
+      maxSteps: 30,
       config: modelConfig,
       client,
       model,
@@ -131,6 +147,8 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
       runId,
       phase: 'done',
       text,
+      toolCallCount,
+      incomplete: result.incomplete,
     })
 
     return {
@@ -141,7 +159,7 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
     }
   } finally {
     options.signal?.removeEventListener('abort', onAbort)
-    running.delete(runId)
+    releaseSubAgentSlot(runId)
   }
 }
 

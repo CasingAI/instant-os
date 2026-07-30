@@ -9,7 +9,7 @@ import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { VscodeIcon } from '../../icons/app-icons.tsx'
+import { SubagentIcon, VscodeIcon } from '../../icons/app-icons.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type {
   VscodeAgentTerminalEnsureResult,
@@ -450,6 +450,20 @@ export type VscodeAiPanelProps = {
   onBusyChange?: (busy: boolean) => void
   /** 查看更改时打开文件 */
   onOpenPath?: (path: string) => void
+  /** 打开子 Agent 详情 Tab */
+  onOpenSubagentDetail?: (runId: string) => void
+  /** 只读模式：隐藏 composer、禁用消息编辑，用于子 Agent 详情 Tab */
+  readOnly?: boolean
+  /** 只读模式下顶部的信息栏（模型 / 状态等） */
+  headerInfo?: {
+    agentId: string
+    modelLabel: string
+    status: string
+  }
+  /** 外部注入的实时时间线（只读模式下由子 Agent store 驱动，覆盖内部 liveTimeline） */
+  externalLiveTimeline?: VscodeAiTimelineItem[]
+  /** 外部注入的实时回答文本（只读模式下由子 Agent store 驱动，覆盖内部 liveAnswer） */
+  externalLiveAnswer?: string
 }
 
 function formatError(err: unknown): string {
@@ -595,10 +609,12 @@ function ActivityStatus({
   activity,
   live,
   isCurrent,
+  onOpenSubagentDetail,
 }: {
   activity: VscodeAiActivity
   live?: boolean
   isCurrent?: boolean
+  onOpenSubagentDetail?: (runId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const current = Boolean(live) && Boolean(isCurrent) && !activity.done
@@ -622,6 +638,15 @@ function ActivityStatus({
       >
         <WaitingDots />
         <span class="help-app__reasoning-status-label">{summary}</span>
+        {activity.subagentRunId && onOpenSubagentDetail ? (
+          <button
+            type="button"
+            class="vscode__subagent-detail-btn"
+            onClick={() => onOpenSubagentDetail(activity.subagentRunId!)}
+          >
+            查看详情
+          </button>
+        ) : undefined}
       </div>
     )
   }
@@ -660,6 +685,15 @@ function ActivityStatus({
               <div class="help-app__reasoning-result-label">输出</div>
               <pre class="help-app__reasoning-body help-app__reasoning-body--code">{result}</pre>
             </>
+          ) : undefined}
+          {activity.subagentRunId && onOpenSubagentDetail ? (
+            <button
+              type="button"
+              class="vscode__subagent-detail-btn"
+              onClick={() => onOpenSubagentDetail(activity.subagentRunId!)}
+            >
+              查看详情
+            </button>
           ) : undefined}
         </div>
       ) : undefined}
@@ -729,9 +763,11 @@ function ReasoningStatus({
 function InvestigationSteps({
   timeline,
   exiting = false,
+  onOpenSubagentDetail,
 }: {
   timeline: VscodeAiInvestigationStep[]
   exiting?: boolean
+  onOpenSubagentDetail?: (runId: string) => void
 }) {
   if (timeline.length === 0) {
     return undefined
@@ -754,7 +790,7 @@ function InvestigationSteps({
             style={stepStyle}
           >
             {item.kind === 'activity' ? (
-              <ActivityStatus activity={item} />
+              <ActivityStatus activity={item} onOpenSubagentDetail={onOpenSubagentDetail} />
             ) : item.kind === 'write' ? (
               <WriteFileCard item={item} />
             ) : item.kind === 'compression' ? (
@@ -771,8 +807,10 @@ function InvestigationSteps({
 
 function InvestigationPanel({
   investigation,
+  onOpenSubagentDetail,
 }: {
   investigation: VscodeAiInvestigation
+  onOpenSubagentDetail?: (runId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [bodyMounted, setBodyMounted] = useState(false)
@@ -860,6 +898,7 @@ function InvestigationPanel({
               <InvestigationSteps
                 timeline={investigation.timeline}
                 exiting={exiting}
+                onOpenSubagentDetail={onOpenSubagentDetail}
               />
             </div>
           </div>
@@ -869,7 +908,13 @@ function InvestigationPanel({
   )
 }
 
-function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
+function LiveTimeline({
+  items,
+  onOpenSubagentDetail,
+}: {
+  items: VscodeAiTimelineItem[]
+  onOpenSubagentDetail?: (runId: string) => void
+}) {
   if (items.length === 0) {
     return <ReasoningStatus text="" streaming />
   }
@@ -889,9 +934,11 @@ function LiveTimeline({ items }: { items: VscodeAiTimelineItem[] }) {
                 content: item.content,
                 result: item.result,
                 done: item.done,
+                subagentRunId: item.subagentRunId,
               }}
               live
               isCurrent={isLast && !item.done}
+              onOpenSubagentDetail={onOpenSubagentDetail}
             />
           )
         }
@@ -1007,6 +1054,11 @@ export function VscodeAiPanel({
   onRejectEdit,
   onBusyChange,
   onOpenPath,
+  onOpenSubagentDetail,
+  readOnly = false,
+  headerInfo,
+  externalLiveTimeline,
+  externalLiveAnswer,
 }: VscodeAiPanelProps) {
   const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
@@ -1035,8 +1087,11 @@ export function VscodeAiPanel({
   const [busy, setBusy] = useState(false)
   const [sendQueue, setSendQueue] = useState<QueuedSend[]>([])
   const [sendQueueExpanded, setSendQueueExpanded] = useState(false)
-  const [liveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
-  const [liveAnswer, setLiveAnswer] = useState('')
+  const [internalLiveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
+  const [internalLiveAnswer, setLiveAnswer] = useState('')
+  /** 只读模式下由外部注入的实时数据优先；否则随 busy 内部状态 */
+  const liveTimeline = externalLiveTimeline ?? internalLiveTimeline
+  const liveAnswer = externalLiveAnswer ?? internalLiveAnswer
   const [composerContextUsage, setComposerContextUsage] = useState<
     VscodeAiContextUsage | undefined
   >(undefined)
@@ -2247,8 +2302,17 @@ export function VscodeAiPanel({
     [messages, onMessagesChange, onRejectEdit],
   )
 
-  const showWelcome = messages.length === 0 && !busy
-  const showLive = busy
+  /**
+   * 只读模式：子 Agent 处于 running 就持续渲染 live 气泡（无数据时与主聊天一样
+   * 显示 WaitingStatus 等待动画）；完成/出错后由 messages 落盘渲染。
+   */
+  const showLive = readOnly
+    ? headerInfo?.status === 'running' ||
+      (externalLiveTimeline?.length ?? 0) > 0 ||
+      !!externalLiveAnswer
+    : busy
+  /** 欢迎页仅用于可交互的主对话；只读面板不显示 */
+  const showWelcome = !readOnly && messages.length === 0 && !busy
   /** busy 时末尾 incomplete 草稿由 live 气泡展示，避免与落盘 checkpoint 双份渲染 */
   const displayMessages = useMemo(() => {
     if (!busy || messages.length === 0) return messages
@@ -2272,6 +2336,22 @@ export function VscodeAiPanel({
       class="help-app vscode-ai help-app--width-full"
       style={{ '--vscode-ai-composer-inset': `${composerInset}px` }}
     >
+      {readOnly && headerInfo ? (
+        <div class="vscode-ai__readonly-header" role="status">
+          <span class="vscode-ai__readonly-header-label">Sub Agent</span>
+          <span class="vscode-ai__readonly-header-agent">{headerInfo.agentId}</span>
+          <span class="vscode-ai__readonly-header-sep">·</span>
+          <span class="vscode-ai__readonly-header-model" title={headerInfo.modelLabel}>
+            {headerInfo.modelLabel}
+          </span>
+          <span class="vscode-ai__readonly-header-sep">·</span>
+          <span
+            class={`vscode-ai__readonly-header-status vscode-ai__readonly-header-status--${headerInfo.status}`}
+          >
+            {headerInfo.status === 'running' ? '运行中' : headerInfo.status === 'done' ? '已完成' : headerInfo.status === 'error' ? '出错' : headerInfo.status}
+          </span>
+        </div>
+      ) : undefined}
       <div class="help-app__chat vscode-ai__chat" ref={scrollRef}>
         {showWelcome ? (
           <div class="help-app__welcome vscode-ai__welcome">
@@ -2299,9 +2379,28 @@ export function VscodeAiPanel({
           <div class="help-app__messages">
             {displayMessages.map((message) => {
               const isEditingUser = message.role === 'user' && editingUserId === message.id
-              const isEditableUser = message.role === 'user' && !editingUserId
+              const isEditableUser = message.role === 'user' && !editingUserId && !readOnly
 
               if (message.role === 'user') {
+                // 只读详情（子 Agent Tab）：任务消息是主 Agent 的发言，
+                // 群聊式渲染——左侧气泡 + 主聊天同款头像，而非右侧用户气泡
+                if (readOnly) {
+                  return (
+                    <div
+                      key={message.id}
+                      class="help-app__message help-app__message--assistant"
+                    >
+                      <span class="help-app__avatar" aria-hidden="true">
+                        <VscodeIcon size={30} />
+                      </span>
+                      <div class="help-app__bubble">
+                        <div class="help-app__answer help-app__answer--plain">
+                          {message.content}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
                 return (
                   <div
                     key={message.id}
@@ -2398,13 +2497,13 @@ export function VscodeAiPanel({
                   class={`help-app__message help-app__message--${message.role}${message.isError ? ' help-app__message--error' : ''}`}
                 >
                   <span class="help-app__avatar" aria-hidden="true">
-                    {message.isError ? '!' : <VscodeIcon size={30} />}
+                    {message.isError ? '!' : readOnly ? <SubagentIcon size={30} /> : <VscodeIcon size={30} />}
                   </span>
                   <div
                     class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
                   >
                     {message.investigation ? (
-                      <InvestigationPanel investigation={message.investigation} />
+                      <InvestigationPanel investigation={message.investigation} onOpenSubagentDetail={onOpenSubagentDetail} />
                     ) : undefined}
                     {message.role === 'assistant' && !message.isError ? (
                       <div class="help-app__answer">
@@ -2436,10 +2535,10 @@ export function VscodeAiPanel({
             {showLive ? (
               <div class="help-app__message help-app__message--assistant">
                 <span class="help-app__avatar" aria-hidden="true">
-                  <VscodeIcon size={30} />
+                  {readOnly ? <SubagentIcon size={30} /> : <VscodeIcon size={30} />}
                 </span>
                 <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
-                  <LiveTimeline items={liveTimeline} />
+                  <LiveTimeline items={liveTimeline} onOpenSubagentDetail={onOpenSubagentDetail} />
                   {liveAnswer && !liveTimeline.some((item) => item.kind === 'text') ? (
                     <div
                       class={buildLiveAnswerClassName({
@@ -2457,6 +2556,7 @@ export function VscodeAiPanel({
         )}
       </div>
 
+      {readOnly ? undefined : (
       <div class="help-app__composer-wrap vscode-ai__composer-wrap" ref={composerWrapRef}>
         {pendingReview.fileCount > 0 ? (
           <div class="vscode-ai__review-dock">
@@ -2580,6 +2680,7 @@ export function VscodeAiPanel({
           dark={dark}
         />
       </div>
+      )}
     </div>
   )
 }

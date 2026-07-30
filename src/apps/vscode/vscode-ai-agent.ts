@@ -21,8 +21,15 @@ import {
   buildSubAgentDelegationPromptSection,
   createDelegateSubAgentTool,
   listAvailableSubAgents,
+  type RunSubAgentFn,
   type SubAgentHostConfig,
 } from '../../ai/subagent/index.ts'
+import {
+  startRun,
+  updateProgress,
+  completeRun,
+  failRun,
+} from './vscode-subagent-store.ts'
 import {
   createVscodeAiTools,
   VSCODE_AI_TOOL_LABELS,
@@ -33,6 +40,8 @@ import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
 import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
 import {
+  labelForVscodeAiModel,
+  listVscodeAiTextModels,
   openAiConfigForVscodeAiModelKey,
   parseVscodeAiModelRefKey,
   tokenizerFamilyForVscodeAiModelKey,
@@ -70,6 +79,8 @@ export type VscodeAiActivity = {
   /** 工具返回结果（如终端 stdout） */
   result?: string
   done?: boolean
+  /** 关联的 Sub Agent runId，用于打开详情 Tab */
+  subagentRunId?: string
 }
 
 export type VscodeAiWritePhase = 'streaming' | 'writing' | 'done'
@@ -96,6 +107,7 @@ export type VscodeAiTimelineItem =
       content?: string
       result?: string
       done: boolean
+      subagentRunId?: string
     }
   | {
       kind: 'reasoning'
@@ -478,6 +490,10 @@ export async function askVscodeAiAgent(options: {
   /** 应用侧构建的 Sub Agent 配置；enabled 且有可用 Agent 时注册委派工具 */
   subAgentConfig?: SubAgentHostConfig
   onProgress?: (progress: VscodeAiAgentProgress) => void
+  /** 子 Agent 运行时：覆盖默认 system prompt（使用子 Agent 自带 prompt） */
+  systemPromptOverride?: string
+  /** 子 Agent 运行时：覆盖默认 maxSteps */
+  maxStepsOverride?: number
 }): Promise<VscodeAiAgentResult> {
   const pendingEdits: VscodeAiPendingEdit[] = []
   const toolsHost: VscodeAiToolsHost = {
@@ -490,21 +506,103 @@ export async function askVscodeAiAgent(options: {
   const tools = createVscodeAiTools(options.mode, toolsHost)
 
   const contextSection = buildVscodeAiContextSection(options.context)
-  let system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
+  let system = options.systemPromptOverride
+    ? `${options.systemPromptOverride}\n\n【当前工作区快照】\n${contextSection}`
+    : `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
 
   const subAgentConfig = options.subAgentConfig
   if (subAgentConfig) {
     const available = listAvailableSubAgents(subAgentConfig)
+
+    /** 为每个子 Agent 运行解析模型标签 */
+    const modelLabelFor = (modelKey: string | undefined): string => {
+      if (!modelKey) return '未配置'
+      const ref = parseVscodeAiModelRefKey(modelKey)
+      if (!ref) return modelKey
+      const model = listVscodeAiTextModels().find(
+        (item) =>
+          item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
+      )
+      return model ? labelForVscodeAiModel(model) : modelKey
+    }
+
+    /** 子 Agent 运行函数：复用 askVscodeAiAgent，获得完整 timeline/investigation/messages */
+    const runSubAgentFn: RunSubAgentFn = async ({ definition, taskPrompt, signal, onProgress }) => {
+      const subMode = definition.access === 'readonly' ? 'ask' : 'agent'
+      const result = await askVscodeAiAgent({
+        mode: subMode,
+        userMessage: taskPrompt,
+        context: options.context,
+        toolsHost,
+        signal: signal ?? options.signal,
+        modelKey: definition.modelKey ?? options.modelKey,
+        systemPromptOverride: definition.systemPrompt,
+        onProgress: (progress) => {
+          onProgress?.(progress)
+        },
+      })
+      return {
+        text: result.text,
+        toolCallCount: result.toolCallCount,
+        incomplete: result.incomplete,
+        finalResult: result,
+      }
+    }
+
     const delegateTool = createDelegateSubAgentTool({
       config: subAgentConfig,
       getToolsForAccess: (access) =>
         createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', toolsHost),
       getEnvironmentSection: () => contextSection,
-      parentUsageContext: {
-        actor: 'vscode',
-        actorLabel: 'Virtual Studio Code',
-      },
       signal: options.signal,
+      runSubAgentFn,
+      onSubAgentProgress: (event) => {
+        if (event.phase === 'started') {
+          startRun(
+            event.runId,
+            event.agentId,
+            event.description,
+            event.taskPrompt ?? event.description,
+            event.modelKey,
+            modelLabelFor(event.modelKey),
+          )
+          pendingSubagentRunId = event.runId
+          subagentCompleted = false
+          // 立即把 runId 关联到正在进行的 activity，让「查看详情」按钮在运行中即可出现
+          if (pendingActivityId) {
+            const actIdx = activities.findIndex((item) => item.id === pendingActivityId)
+            if (actIdx >= 0) {
+              activities[actIdx] = { ...activities[actIdx], subagentRunId: event.runId }
+            }
+            timeline = timeline.map((item) => {
+              if (item.kind !== 'activity' || item.id !== pendingActivityId) return item
+              return { ...item, subagentRunId: event.runId }
+            })
+            emit()
+          }
+        }
+        if (event.phase === 'progress' && event.progress) {
+          updateProgress(event.runId, event.progress as VscodeAiAgentProgress)
+        }
+        if (event.phase === 'done') {
+          completeRun(
+            event.runId,
+            (event.finalResult as VscodeAiAgentResult | undefined) ?? {
+              text: event.text ?? '',
+              toolCallCount: event.toolCallCount ?? 0,
+              pendingEdits: [],
+              investigation: {
+                activities: [],
+                timeline: [],
+                toolCallCount: event.toolCallCount ?? 0,
+                durationMs: 0,
+              },
+              incomplete: event.incomplete,
+            },
+          )
+          subagentCompleted = true
+        }
+      },
     })
     if (delegateTool) {
       tools.push(delegateTool)
@@ -559,7 +657,7 @@ export async function askVscodeAiAgent(options: {
   const agent = createAgent({
     prompt: system,
     tools,
-    maxSteps: VSCODE_AI_MAX_STEPS,
+    maxSteps: options.maxStepsOverride ?? VSCODE_AI_MAX_STEPS,
     config: modelConfig,
     client,
     model,
@@ -591,6 +689,8 @@ export async function askVscodeAiAgent(options: {
   let reasoningItemId: string | undefined
   let pendingActivityId: string | undefined
   let pendingWriteId: string | undefined
+  let pendingSubagentRunId: string | undefined
+  let subagentCompleted = false
   /** step → index → write timeline id（流式阶段） */
   const writeIdsByStepIndex = new Map<string, string>()
 
@@ -782,6 +882,8 @@ export async function askVscodeAiAgent(options: {
 
     const id = pendingActivityId
     pendingActivityId = undefined
+    const subagentRunId = pendingSubagentRunId
+    pendingSubagentRunId = undefined
     if (!id) return
     const activityIndex = activities.findIndex((item) => item.id === id)
     if (activityIndex >= 0) {
@@ -790,11 +892,17 @@ export async function askVscodeAiAgent(options: {
         ...current,
         result: resultText,
         done: true,
+        subagentRunId: subagentRunId || current.subagentRunId,
       }
     }
+    // 如果子 Agent 未正常完成（抛错），标记失败
+    if (subagentRunId && !subagentCompleted) {
+      failRun(subagentRunId, resultText)
+    }
+    subagentCompleted = false
     timeline = timeline.map((item) => {
       if (item.kind !== 'activity' || item.id !== id) return item
-      return { ...item, result: resultText, done: true }
+      return { ...item, result: resultText, done: true, subagentRunId: subagentRunId || item.subagentRunId }
     })
     emit()
   }

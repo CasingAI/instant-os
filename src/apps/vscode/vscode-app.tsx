@@ -82,6 +82,7 @@ import {
   openAiChatInFocusedGroup,
   openMarkdownPreviewToSide,
   openSearchEditorInFocusedGroup,
+  openSubagentDetailInFocusedGroup,
   openWelcomeInFocusedGroup,
   removeEditorItem,
   removeFileTabFromLayout,
@@ -1908,6 +1909,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     })
   }, [])
 
+  const openSubagentDetail = useCallback((runId: string) => {
+    setEditorLayout((layout) => {
+      const next = openSubagentDetailInFocusedGroup(layout, runId)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [])
+
+  const closeSubagentDetailItem = useCallback((itemId: string) => {
+    setEditorLayout((layout) => {
+      const next = removeEditorItem(layout, itemId)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [])
+
   const closeTab = useCallback(
     async (tabId: string) => {
       const proceed = await ensureTabCleanOrConfirm(tabId)
@@ -2254,8 +2271,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       closeWelcomeTab()
       return
     }
+    if (target.kind === 'subagentDetail') {
+      closeSubagentDetailItem(target.itemId)
+      return
+    }
     void closeTab(target.tabId)
-  }, [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab, closeWelcomeTab])
+  }, [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeSubagentDetailItem, closeTab, closeWelcomeTab])
 
   const closeOtherInGroup = useCallback(
     async (groupId: string, keepItemId: string) => {
@@ -2291,10 +2312,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           closeWelcomeTab()
           continue
         }
+        if (item.kind === 'subagentDetail') {
+          closeSubagentDetailItem(item.id)
+          continue
+        }
         await closeTab(item.tabId)
       }
     },
-    [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeTab, closeWelcomeTab],
+    [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeSubagentDetailItem, closeTab, closeWelcomeTab],
   )
 
   const handleCloseOtherTabs = useCallback(() => {
@@ -3276,6 +3301,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               pickAndOpenFolder={pickAndOpenFolder}
               pickAndOpen={pickAndOpen}
               onCloseWelcome={closeWelcomeTab}
+              onCloseSubagentDetail={closeSubagentDetailItem}
+              onOpenSubagentDetail={openSubagentDetail}
             />
           </div>
 

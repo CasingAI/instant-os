@@ -1194,6 +1194,93 @@
   color: #a1260d;
 }
 
+/* ---- 聊天内「查看详情」按钮 ---- */
+
+.vscode__subagent-detail-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: #1565c0;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.vscode__subagent-detail-btn:hover {
+  background: #bbdefb;
+}
+
+/* ---- Sub Agent 详情 Tab ---- */
+
+.vscode__subagent-detail-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---- Sub Agent 只读信息栏（复用主 Agent 面板，仅顶部状态条） ---- */
+
+.vscode-ai__readonly-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--vscode-border, #e0e0e0);
+  background: var(--vscode-editor-background, #ffffff);
+  font-size: 12px;
+  color: var(--vscode-foreground, #1e1e1e);
+  flex-shrink: 0;
+}
+
+.vscode-ai__readonly-header-label {
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vscode-ai__readonly-header-agent {
+  font-weight: 600;
+}
+
+.vscode-ai__readonly-header-sep {
+  color: #bbb;
+}
+
+.vscode-ai__readonly-header-model {
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.vscode-ai__readonly-header-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.vscode-ai__readonly-header-status--running {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.vscode-ai__readonly-header-status--done {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.vscode-ai__readonly-header-status--error {
+  background: #fce4ec;
+  color: #c62828;
+}
+
 .vscode__setting .settings-choice-field__trigger:disabled {
   opacity: 0.55;
   cursor: default;
@@ -3062,6 +3149,51 @@
   background: #1e1e24;
   color: var(--vscode-ink);
   border-color: var(--vscode-border);
+}
+
+/* ---- Sub Agent 只读详情 Dark ---- */
+
+.vscode--chrome-dark .vscode-ai__readonly-header {
+  background: var(--vscode-editor-bg, #1e1e1e);
+  border-color: #333;
+  color: #d4d4d4;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-header-label {
+  color: #777;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-header-sep {
+  color: #555;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-header-model {
+  color: #999;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-header-status--running {
+  background: #1a2a3a;
+  color: #82b1ff;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-header-status--done {
+  background: #1a2e1a;
+  color: #81c784;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-header-status--error {
+  background: #3a1a1a;
+  color: #ef9a9a;
+}
+
+.vscode--chrome-dark .vscode__subagent-detail-btn {
+  color: #82b1ff;
+  background: #1a2a3a;
+  border-color: #2a4a5a;
+}
+
+.vscode--chrome-dark .vscode__subagent-detail-btn:hover {
+  background: #233a4a;
 }
 
 .vscode--chrome-dark .vscode__search-advanced-toggle {

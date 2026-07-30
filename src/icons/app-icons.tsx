@@ -256,6 +256,46 @@ export function VscodeIcon({ size = 64 }: IconProps) {
   )
 }
 
+/** Sub Agent 头像：紫色底 + 机器人面屏，与主 Agent（蓝色 VscodeIcon 代码窗口）区分 */
+export function SubagentIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#7c5cff" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 天线 */}
+        <line
+          x1="32"
+          y1="9"
+          x2="32"
+          y2="17"
+          stroke="rgba(255,255,255,0.85)"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+        <circle cx="32" cy="7.5" r="3" fill="#ffd166" />
+        {/* 耳朵 */}
+        <rect x="9" y="29" width="4.5" height="11" rx="2.25" fill="rgba(255,255,255,0.5)" />
+        <rect x="50.5" y="29" width="4.5" height="11" rx="2.25" fill="rgba(255,255,255,0.5)" />
+        {/* 头部：深色面屏 */}
+        <rect
+          x="13.5"
+          y="17"
+          width="37"
+          height="33"
+          rx="9"
+          fill="#241b3a"
+          stroke="rgba(255,255,255,0.75)"
+          stroke-width="2"
+        />
+        {/* 眼睛 */}
+        <circle cx="25.5" cy="31" r="3.4" fill="#7ee7ff" />
+        <circle cx="38.5" cy="31" r="3.4" fill="#7ee7ff" />
+        {/* 嘴 */}
+        <rect x="25" y="39.5" width="14" height="2.8" rx="1.4" fill="#7ee7ff" opacity="0.85" />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SettingsIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#6d737c" size={size}>

@@ -9,6 +9,7 @@ export type VscodeGroupItem =
   | { kind: 'preview'; id: string; sourcePath: string }
   | { kind: 'searchEditor'; id: string; sessionId: string }
   | { kind: 'aiChat'; id: string; sessionId: string }
+  | { kind: 'subagentDetail'; id: string; runId: string }
   | { kind: 'welcome'; id: string }
 
 export type VscodeEditorGroupState = {
@@ -176,6 +177,7 @@ export function getFocusedCloseTarget(
   | { kind: 'preview'; itemId: string }
   | { kind: 'searchEditor'; itemId: string }
   | { kind: 'aiChat'; itemId: string }
+  | { kind: 'subagentDetail'; itemId: string }
   | { kind: 'welcome'; itemId: string }
   | undefined {
   const group = layout.groups[layout.focusedGroupId]
@@ -184,6 +186,7 @@ export function getFocusedCloseTarget(
   if (item.kind === 'file') return { kind: 'file', tabId: item.tabId }
   if (item.kind === 'searchEditor') return { kind: 'searchEditor', itemId: item.id }
   if (item.kind === 'aiChat') return { kind: 'aiChat', itemId: item.id }
+  if (item.kind === 'subagentDetail') return { kind: 'subagentDetail', itemId: item.id }
   if (item.kind === 'welcome') return { kind: 'welcome', itemId: item.id }
   return { kind: 'preview', itemId: item.id }
 }
@@ -438,6 +441,54 @@ export function openAiChatInFocusedGroup(
 
   const itemId = `ai-chat-item-${sessionId}`
   const item: VscodeGroupItem = { kind: 'aiChat', id: itemId, sessionId }
+  return {
+    ...layout,
+    focusedGroupId,
+    groups: {
+      ...layout.groups,
+      [focusedGroupId]: {
+        ...group,
+        items: [...group.items, item],
+        activeItemId: itemId,
+      },
+    },
+  }
+}
+
+export function findSubagentDetailItem(
+  layout: VscodeEditorLayoutState,
+  runId: string,
+): { groupId: string; item: VscodeGroupItem & { kind: 'subagentDetail' } } | undefined {
+  for (const group of Object.values(layout.groups)) {
+    const item = group.items.find(
+      (item): item is VscodeGroupItem & { kind: 'subagentDetail' } =>
+        item.kind === 'subagentDetail' && item.runId === runId,
+    )
+    if (item) return { groupId: group.id, item }
+  }
+  return undefined
+}
+
+export function openSubagentDetailInFocusedGroup(
+  layout: VscodeEditorLayoutState,
+  runId: string,
+): VscodeEditorLayoutState {
+  const existing = findSubagentDetailItem(layout, runId)
+  if (existing) {
+    return focusEditorItem(layout, existing.groupId, existing.item.id)
+  }
+
+  let focusedGroupId = layout.focusedGroupId
+  let group = layout.groups[focusedGroupId]
+  if (!group) {
+    const fresh = createEmptyEditorLayout()
+    focusedGroupId = fresh.focusedGroupId
+    group = fresh.groups[focusedGroupId]!
+    layout = fresh
+  }
+
+  const itemId = `subagent-detail-${runId}`
+  const item: VscodeGroupItem = { kind: 'subagentDetail', id: itemId, runId }
   return {
     ...layout,
     focusedGroupId,

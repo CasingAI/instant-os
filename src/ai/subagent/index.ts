@@ -17,9 +17,12 @@ export {
 export {
   createDelegateSubAgentTool,
   type CreateDelegateSubAgentToolOptions,
+  type RunSubAgentFn,
 } from './subagent-delegate-tool.ts'
 export {
+  acquireSubAgentSlot,
   getRunningSubAgentCount,
+  releaseSubAgentSlot,
   resetSubAgentRuntimeForTests,
   runSubAgent,
   type RunSubAgentOptions,

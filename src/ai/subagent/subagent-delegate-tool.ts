@@ -1,43 +1,57 @@
 import { defineTool, type AgentTool } from '../agent-tool.ts'
-import type { AiUsageContext } from '../ai-usage-context.ts'
-import type { SubAgentAccess } from './subagent-types.ts'
+import type { EffectiveSubAgent, SubAgentAccess } from './subagent-types.ts'
 import {
   listAvailableSubAgents,
   resolveSubAgent,
   shouldExposeSubAgentDelegation,
 } from './subagent-registry.ts'
-import { runSubAgent } from './subagent-runtime.ts'
 import type { SubAgentHostConfig } from './subagent-types.ts'
+
+/** 子 Agent 运行函数签名：由宿主注入（VSCode 端注入复用主 Agent 逻辑的实现） */
+export type RunSubAgentFn = (params: {
+  definition: EffectiveSubAgent
+  taskPrompt: string
+  signal?: AbortSignal
+  onProgress?: (progress: unknown) => void
+}) => Promise<{
+  text: string
+  toolCallCount: number
+  incomplete?: boolean
+  /**
+   * 宿主可附加的完整运行结果（VSCode 端为 VscodeAiAgentResult），
+   * 透传到 done 事件，供详情 Tab 完成后渲染完整 messages/investigation。
+   */
+  finalResult?: unknown
+}>
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
-}
-
-function usageBehaviorForAgentId(agentId: string): { behavior: string; behaviorLabel: string } {
-  if (agentId === 'explore') {
-    return { behavior: 'subagent:explore', behaviorLabel: 'Sub Agent · Explore' }
-  }
-  if (agentId === 'general') {
-    return { behavior: 'subagent:general', behaviorLabel: 'Sub Agent · General' }
-  }
-  return {
-    behavior: `subagent:custom:${agentId}`,
-    behaviorLabel: `Sub Agent · ${agentId}`,
-  }
 }
 
 export type CreateDelegateSubAgentToolOptions = {
   config: SubAgentHostConfig
   getToolsForAccess: (access: SubAgentAccess) => AgentTool[]
   getEnvironmentSection?: () => string
-  parentUsageContext?: Pick<AiUsageContext, 'actor' | 'actorLabel'>
   signal?: AbortSignal
+  /** 宿主注入的子 Agent 运行函数（VSCode 端复用 askVscodeAiAgent） */
+  runSubAgentFn: RunSubAgentFn
   onSubAgentProgress?: (event: {
+    runId: string
     agentId: string
     description: string
-    runId: string
-    phase: 'started' | 'tool' | 'done'
-    label?: string
+    /** 子 Agent 解析出的 modelKey */
+    modelKey: string | undefined
+    phase: 'started' | 'progress' | 'done'
+    /** 主 Agent 下发的完整任务 Prompt（started 时携带，供详情 Tab 渲染用户气泡） */
+    taskPrompt?: string
+    /** 主 Agent 的 progress 数据（timeline/activities/answerText 等） */
+    progress?: unknown
+    /** 完成时的最终文本与统计 */
+    text?: string
+    toolCallCount?: number
+    incomplete?: boolean
+    /** 宿主附加的完整运行结果，供详情 Tab 完成后渲染 */
+    finalResult?: unknown
   }) => void
 }
 
@@ -106,40 +120,46 @@ export function createDelegateSubAgentTool(
         return `错误：未知或未启用的 Sub Agent「${agentId}」。可用：${available || '（无）'}`
       }
 
-      const { behavior, behaviorLabel } = usageBehaviorForAgentId(resolved.id)
-      const usageContext: AiUsageContext = {
-        actor: options.parentUsageContext?.actor ?? options.config.actor ?? 'subagent',
-        actorLabel:
-          options.parentUsageContext?.actorLabel ?? options.config.actorLabel,
-        behavior,
-        behaviorLabel: options.config.parentRunId
-          ? `${behaviorLabel} · parent=${options.config.parentRunId}`
-          : behaviorLabel,
-      }
-
       try {
-        const result = await runSubAgent({
+        const runId = `subagent-${resolved.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        options.onSubAgentProgress?.({
+          runId,
+          agentId: resolved.id,
+          description,
+          modelKey: resolved.modelKey,
+          phase: 'started',
+          taskPrompt: prompt,
+        })
+        const result = await options.runSubAgentFn({
           definition: resolved,
           taskPrompt: prompt,
-          tools: options.getToolsForAccess(resolved.access),
-          usageContext,
-          environmentSection: options.getEnvironmentSection?.(),
-          maxConcurrent: options.config.maxConcurrent,
           signal: options.signal,
-          onProgress: (event) => {
+          onProgress: (progress) => {
             options.onSubAgentProgress?.({
+              runId,
               agentId: resolved.id,
               description,
-              runId: event.runId,
-              phase: event.phase,
-              label: event.label,
+              modelKey: resolved.modelKey,
+              phase: 'progress',
+              progress,
             })
           },
         })
 
+        options.onSubAgentProgress?.({
+          runId,
+          agentId: resolved.id,
+          description,
+          modelKey: resolved.modelKey,
+          phase: 'done',
+          text: result.text,
+          toolCallCount: result.toolCallCount,
+          incomplete: result.incomplete,
+          finalResult: result.finalResult,
+        })
+
         const header = [
           `【Sub Agent ${resolved.id}】${description}`,
-          `runId=${result.runId}`,
           `access=${resolved.access}`,
           result.incomplete ? 'status=incomplete' : 'status=ok',
           `tools=${result.toolCallCount}`,

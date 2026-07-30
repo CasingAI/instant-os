@@ -28,6 +28,7 @@ import { VscodeSearchEditor } from './vscode-search-editor.tsx'
 import type { VscodeSearchEditorSession } from './vscode-search-editor-session.ts'
 import type { VscodeWorkspaceSearchHit } from './vscode-workspace-search-core.ts'
 import { VscodeAiPanel } from './vscode-ai-panel.tsx'
+import { VscodeSubagentPanel } from './vscode-subagent-panel.tsx'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import type {
   VscodeAiChatMessage,
@@ -82,19 +83,21 @@ function computeTabSnapshot(
       ? '搜索编辑器'
       : item.kind === 'aiChat'
         ? aiSession?.title || '新对话'
-        : item.kind === 'preview'
-          ? `Preview ${previewSource?.name ?? 'Markdown'}`
-          : item.kind === 'welcome'
-            ? '欢迎'
-            : fileTab
-              ? fileTab.deleted
-                ? `${fileTab.name}（已删除）`
-                : fileTab.conflict
-                  ? `${fileTab.name}（冲突）`
-                  : fileTab.binaryPrompt
-                    ? `${fileTab.name}（二进制）`
-                    : fileTab.name
-              : '未知文件'
+        : item.kind === 'subagentDetail'
+          ? 'Sub Agent'
+          : item.kind === 'preview'
+            ? `Preview ${previewSource?.name ?? 'Markdown'}`
+            : item.kind === 'welcome'
+              ? '欢迎'
+              : fileTab
+                ? fileTab.deleted
+                  ? `${fileTab.name}（已删除）`
+                  : fileTab.conflict
+                    ? `${fileTab.name}（冲突）`
+                    : fileTab.binaryPrompt
+                      ? `${fileTab.name}（二进制）`
+                      : fileTab.name
+                : '未知文件'
 
   return {
     title,
@@ -103,9 +106,11 @@ function computeTabSnapshot(
         ? 'Search Editor'
         : item.kind === 'aiChat'
           ? 'AI Chat'
-          : item.kind === 'preview'
-            ? previewSource?.path ?? item.sourcePath
-            : item.kind === 'welcome'
+          : item.kind === 'subagentDetail'
+            ? 'Sub Agent'
+            : item.kind === 'preview'
+              ? previewSource?.path ?? item.sourcePath
+              : item.kind === 'welcome'
               ? 'Welcome'
               : fileTab?.path ?? '',
     dirty: fileTab ? isVscodeTabDirty(fileTab) : false,
@@ -255,6 +260,8 @@ type VscodeEditorAreaProps = {
   pickAndOpenFolder?: () => Promise<boolean>
   pickAndOpen?: () => Promise<boolean>
   onCloseWelcome?: () => void
+  onCloseSubagentDetail?: (itemId: string) => void
+  onOpenSubagentDetail?: (runId: string) => void
   onApplyAiEdit?: (edit: VscodeAiPendingEdit) => Promise<void>
   onRejectAiEdit?: (editId: string) => void
 }
@@ -270,7 +277,7 @@ function pathForGroupItem(
   tabs: readonly VscodeTab[],
 ): string | undefined {
   if (item.kind === 'preview') return item.sourcePath
-  if (item.kind === 'searchEditor' || item.kind === 'aiChat' || item.kind === 'welcome') return undefined
+  if (item.kind === 'searchEditor' || item.kind === 'aiChat' || item.kind === 'subagentDetail' || item.kind === 'welcome') return undefined
   return tabs.find((tab) => tab.id === item.tabId)?.path
 }
 
@@ -394,6 +401,8 @@ function VscodeEditorGroupView({
   pickAndOpenFolder,
   pickAndOpen,
   onCloseWelcome,
+  onCloseSubagentDetail,
+  onOpenSubagentDetail,
 }: GroupViewProps) {
   const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
@@ -532,6 +541,7 @@ function VscodeEditorGroupView({
             if (item.kind === 'file') onCloseFileTab(item.tabId)
             else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
             else if (item.kind === 'aiChat') onCloseAiChat?.(item.id)
+            else if (item.kind === 'subagentDetail') onCloseSubagentDetail?.(item.id)
             else if (item.kind === 'welcome') onCloseWelcome?.()
             else onClosePreview(item.id)
           },
@@ -765,6 +775,7 @@ function VscodeEditorGroupView({
                 if (entry.item.kind === 'file') onCloseFileTab(entry.item.tabId)
                 else if (entry.item.kind === 'searchEditor') onCloseSearchEditor?.(entry.item.id)
                 else if (entry.item.kind === 'aiChat') onCloseAiChat?.(entry.item.id)
+                else if (entry.item.kind === 'subagentDetail') onCloseSubagentDetail?.(entry.item.id)
                 else if (entry.item.kind === 'welcome') onCloseWelcome?.()
                 else onClosePreview(entry.item.id)
               }}
@@ -955,6 +966,7 @@ function VscodeEditorGroupView({
                   onRejectEdit={onRejectAiEdit ?? (() => undefined)}
                   onBusyChange={(busy) => onAiChatBusyChange?.(session.id, busy)}
                   onOpenPath={(path) => void onOpenPath(path)}
+                  onOpenSubagentDetail={onOpenSubagentDetail}
                 />
               </div>
             )
@@ -981,6 +993,23 @@ function VscodeEditorGroupView({
               />
             )
           })()
+        ) : activeItem?.kind === 'subagentDetail' ? (
+          <div class="vscode__subagent-detail-wrapper">
+            <VscodeSubagentPanel
+              runId={activeItem.runId}
+              getContext={getAiContext ?? (() => ({
+                workspaceFolder,
+                tabs: [],
+                activeTabId: undefined,
+                editor: { path: undefined, content: '', selection: undefined },
+                problems: [],
+              }))}
+              aiModelSource={aiModelSource}
+              aiModelKey={aiModelKey}
+              dark={aiDark}
+              workspaceFolder={workspaceFolder}
+            />
+          </div>
         ) : activeItem?.kind === 'welcome' ? (
           <div class="vscode__welcome">
             <h1>Virtual Studio Code Desktop</h1>
