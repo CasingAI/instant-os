@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type { Ref } from 'preact'
 import {
   createQuickJsInstance,
+  isQuickJsRuntimeFatalError,
   type QuickJsConsoleLine,
   type QuickJsInstance,
 } from '../../quickjs/quickjs-public.ts'
@@ -94,6 +95,12 @@ function formatEvalOutput(result: Awaited<ReturnType<QuickJsInstance['eval']>>):
     parts.push(`【exit】\nexitCode=${result.exitCode}`)
   }
   return parts.join('\n\n') || '（无输出）'
+}
+
+function formatRuntimeFatalMessage(reason: string): string {
+  return (
+    `【运行时致命错误】QuickJS 实例已销毁并重建；勿依赖此前内存变量；webview 需重新 create。原因: ${reason}`
+  )
 }
 
 export function TerminalReplPanel({
@@ -523,12 +530,40 @@ export function TerminalReplPanel({
           })
           onChangesAvailableRef.current?.(true)
         }
+
+        if (result.fatal || isQuickJsRuntimeFatalError(result.error)) {
+          const message = formatRuntimeFatalMessage(result.error)
+          appendLine({ kind: 'error', text: message })
+          unsubRef.current?.()
+          unsubRef.current = undefined
+          if (!instance.getSnapshot().destroyed) {
+            instance.destroy()
+          }
+          instanceRef.current = undefined
+          await createInstance({ force: true })
+          appendLine({ kind: 'info', text: '── 运行时致命错误后已重建 QuickJS 实例 ──' })
+          return message
+        }
+
         appendLine({ kind: 'error', text: result.error })
         return formatEvalOutput(result)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        appendLine({ kind: 'error', text: message })
-        return message
+        const raw = error instanceof Error ? error.message : String(error)
+        if (isQuickJsRuntimeFatalError(error) || isQuickJsRuntimeFatalError(raw)) {
+          const message = formatRuntimeFatalMessage(raw)
+          appendLine({ kind: 'error', text: message })
+          unsubRef.current?.()
+          unsubRef.current = undefined
+          if (instanceRef.current && !instanceRef.current.getSnapshot().destroyed) {
+            instanceRef.current.destroy()
+          }
+          instanceRef.current = undefined
+          await createInstance({ force: true })
+          appendLine({ kind: 'info', text: '── 运行时致命错误后已重建 QuickJS 实例 ──' })
+          return message
+        }
+        appendLine({ kind: 'error', text: raw })
+        return raw
       } finally {
         const snap = instanceRef.current?.getSnapshot()
         setBusy(snap?.busy ?? false)

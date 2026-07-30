@@ -69,8 +69,17 @@ function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle
   )
 }
 
+/** webview 桥接回传 guest 的 JSON 文本硬上限（避免大字符串打穿 QuickJS WASM）。 */
+const WEBVIEW_ENCODE_MAX_JSON_CHARS = 2 * 1024 * 1024
+
 function encodeJsonValue(context: QuickJSAsyncContext, value: unknown): QuickJSHandle {
-  return context.unwrapResult(context.evalCode(`(${JSON.stringify(value)})`, 'webview-json.js'))
+  const json = JSON.stringify(value)
+  if (json.length > WEBVIEW_ENCODE_MAX_JSON_CHARS) {
+    throw new Error(
+      `webview 返回值过大（${json.length} 字符，上限 ${WEBVIEW_ENCODE_MAX_JSON_CHARS}）；请用 snapshot/markdown 或缩小 eval 结果，勿整页 innerText`,
+    )
+  }
+  return context.unwrapResult(context.evalCode(`(${json})`, 'webview-json.js'))
 }
 
 function readStringArg(

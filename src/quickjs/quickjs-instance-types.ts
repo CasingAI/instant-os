@@ -142,6 +142,10 @@ export type QuickJsEvalFailure = {
   exited: boolean
   consoleLines: QuickJsConsoleLine[]
   changes?: TerminalChangeSet
+  /**
+   * WASM/QuickJS 硬崩：实例已 destroy，宿主须重建，勿再 eval。
+   */
+  fatal?: true
 }
 
 export type QuickJsEvalResult = QuickJsEvalSuccess | QuickJsEvalFailure

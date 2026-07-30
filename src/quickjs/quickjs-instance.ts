@@ -19,6 +19,7 @@ import { createQuickJsAsyncContext } from './quickjs-runtime.ts'
 import type {
   QuickJsConsoleLevel,
   QuickJsConsoleLine,
+  QuickJsEvalFailure,
   QuickJsEvalOptions,
   QuickJsEvalResult,
   QuickJsHostConfig,
@@ -40,12 +41,15 @@ import {
   injectProcess,
   syncExitCodeFromGuest,
 } from './quickjs-process.ts'
+import { isQuickJsRuntimeFatalError } from './quickjs-runtime-fatal.ts'
+import { QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES } from './quickjs-quotas.ts'
 
 const DEFAULT_TIMEOUT_MS = 5000
-const DEFAULT_MEMORY_LIMIT_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_STACK_SIZE_BYTES = 512 * 1024
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024
 const DEFAULT_ARGV = ['instant-node'] as const
+
+export { QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES }
 
 const CONSOLE_LEVELS: QuickJsConsoleLevel[] = ['log', 'info', 'warn', 'error']
 
@@ -109,7 +113,7 @@ function resolveHostPermissions(
 function resolveHostQuotas(options: QuickJsInstanceOptions): QuickJsHostQuotas {
   return {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    memoryLimitBytes: options.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_BYTES,
+    memoryLimitBytes: options.memoryLimitBytes ?? QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
     maxStackSizeBytes: options.maxStackSizeBytes ?? DEFAULT_MAX_STACK_SIZE_BYTES,
     maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
   }
@@ -526,6 +530,23 @@ export async function createQuickJsInstance(
       activeJournal = createTerminalFsJournal()
     }
 
+    const makeFailure = (error: string): QuickJsEvalFailure => {
+      const failure: QuickJsEvalFailure = {
+        ok: false,
+        error,
+        exited: false,
+        exitCode: processState.exitCode,
+        consoleLines: consoleSlice(),
+      }
+      if (isQuickJsRuntimeFatalError(error)) {
+        if (!state.destroyed) {
+          destroy()
+        }
+        return { ...failure, fatal: true }
+      }
+      return failure
+    }
+
     let result: QuickJsEvalResult | undefined
     let sliceOpen = true
     const evalDeadlineMs = Date.now() + timeoutMs
@@ -621,13 +642,7 @@ export async function createQuickJsInstance(
       const evalResult = await context.evalCodeAsync(code, evalFilename)
 
       if (state.destroyed) {
-        result = {
-          ok: false,
-          error: 'QuickJS instance destroyed during evaluation',
-          exited: false,
-          exitCode: processState.exitCode,
-          consoleLines: consoleSlice(),
-        }
+        result = makeFailure('QuickJS instance destroyed during evaluation')
       } else if (evalResult.error) {
         const error = formatQuickJsError(context, evalResult.error)
         appendSystemDebugLog({
@@ -648,13 +663,7 @@ export async function createQuickJsInstance(
           }
         } else {
           syncExitCodeFromGuest(context, processState)
-          result = {
-            ok: false,
-            error: abortRequested ? `interrupted: ${error}` : error,
-            exited: false,
-            exitCode: processState.exitCode,
-            consoleLines: consoleSlice(),
-          }
+          result = makeFailure(abortRequested ? `interrupted: ${error}` : error)
         }
       } else {
         try {
@@ -687,13 +696,7 @@ export async function createQuickJsInstance(
                 consoleLines: consoleSlice(),
               }
             } else if (!settled.ok) {
-              result = {
-                ok: false,
-                error: settled.error,
-                exited: false,
-                exitCode: processState.exitCode,
-                consoleLines: consoleSlice(),
-              }
+              result = makeFailure(settled.error)
             } else {
               // 先释放 busy，定时器回调才能 tryBeginSlice
               releaseSlice()
@@ -712,13 +715,7 @@ export async function createQuickJsInstance(
                 }
               } else if (idleError) {
                 // 已有 console/返回值时仍带回；超时记为失败以便 Agent 感知
-                result = {
-                  ok: false,
-                  error: idleError,
-                  exited: false,
-                  exitCode: processState.exitCode,
-                  consoleLines: consoleSlice(),
-                }
+                result = makeFailure(idleError)
               } else {
                 appendSystemDebugLog({
                   layer: 'qjs',
@@ -738,7 +735,7 @@ export async function createQuickJsInstance(
             }
           }
         } finally {
-          if (evalResult.value.alive) {
+          if (!state.destroyed && evalResult.value.alive) {
             evalResult.value.dispose()
           }
         }
@@ -746,9 +743,14 @@ export async function createQuickJsInstance(
 
     } catch (error) {
       if (state.destroyed) {
+        result = makeFailure('QuickJS instance destroyed during evaluation')
+      } else if (isQuickJsRuntimeFatalError(error)) {
+        const message = error instanceof Error ? error.message : String(error)
+        destroy()
         result = {
           ok: false,
-          error: 'QuickJS instance destroyed during evaluation',
+          error: message,
+          fatal: true,
           exited: false,
           exitCode: processState.exitCode,
           consoleLines: consoleSlice(),
