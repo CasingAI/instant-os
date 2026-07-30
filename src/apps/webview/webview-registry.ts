@@ -178,7 +178,7 @@ export function destroyWebViewUnitsForOwner(
 /**
  * 绑定 / 解绑 OS Window 壳。
  * - windowId 有值：Session 进入「有窗」态（displayed / minimized 由 OS 派生）
- * - windowId 为 undefined：关壳回离屏，不清 viewportTarget（Shell unmount 会清）
+ * - windowId 为 undefined：关壳回离屏。viewportTarget 由 detach / Shell unmount 清理。
  */
 export function bindWebViewWindow(unitId: string, windowId: string | undefined): void {
   const unit = units.get(unitId)

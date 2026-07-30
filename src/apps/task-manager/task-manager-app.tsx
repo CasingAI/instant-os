@@ -38,13 +38,12 @@ import { useTaskManagerProxyServerMetrics } from './task-manager-use-proxy-serve
 import { useTaskManagerFilesIoMetrics } from './task-manager-use-files-io-metrics.ts'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import {
-  closeWebViewUnitWindows,
-  destroyWebViewUnit,
   listWebViewUnits,
   onWebViewRegistryChanged,
   summarizeWebViewUnit,
   type WebViewUnitSummary,
 } from '../webview/webview-registry.ts'
+import { destroyWebViewUnitFully } from '../webview/webview-window-service.ts'
 import { ChromoIcon } from '../../icons/app-icons.tsx'
 import './task-manager.css'
 
@@ -468,8 +467,10 @@ export function TaskManagerApp() {
                           type="button"
                           class="task-manager__end-button"
                           onClick={() => {
-                            closeWebViewUnitWindows(unit.unitId, windows, closeWindow)
-                            destroyWebViewUnit(unit.unitId)
+                            destroyWebViewUnitFully(
+                              { getWindows: () => windows, closeWindow },
+                              unit.unitId,
+                            )
                           }}
                         >
                           结束

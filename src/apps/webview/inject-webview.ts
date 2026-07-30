@@ -7,12 +7,9 @@ import { displayPageUrl, normalizePageUrl, pageTitleFromUrl } from '../../page-h
 import type { PageViewerHandle } from '../../page-host/page-viewer-frame.tsx'
 import {
   assertWebViewUnitOwner,
-  closeWebViewUnitWindows,
   addWebViewTab,
   closeWebViewTab,
   createWebViewUnit,
-  destroyWebViewUnit,
-  destroyWebViewUnitsForOwner,
   evalWebViewTab,
   getWebViewUnit,
   listWebViewTabs,
@@ -27,7 +24,12 @@ import {
   waitWebViewTab,
   type WebViewUnitEvent,
 } from './webview-registry.ts'
-import { hideWebViewWindow, showWebViewWindow } from './webview-window-service.ts'
+import {
+  destroyWebViewUnitFully,
+  destroyWebViewUnitsForOwnerFully,
+  hideWebViewWindow,
+  showWebViewWindow,
+} from './webview-window-service.ts'
 
 export type WebViewHostBindings = {
   terminalSessionId: string
@@ -184,8 +186,13 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       const unitId = String(opts.unitId ?? '')
       if (!unitId) throw new Error('unitId 不能为空')
       assertWebViewUnitOwner(unitId, host.terminalSessionId)
-      closeWebViewUnitWindows(unitId, host.getWindows(), host.closeWindow)
-      destroyWebViewUnit(unitId)
+      destroyWebViewUnitFully(
+        {
+          getWindows: host.getWindows,
+          closeWindow: host.closeWindow,
+        },
+        unitId,
+      )
     }),
   )
 
@@ -297,7 +304,18 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
         throw new Error('unitId 不能为空')
       }
       const resolved = resolveOwnedTab(host, unitId, tabId)
-      closeWebViewTab(resolved.unitId, resolved.tabId)
+      const unit = getWebViewUnit(resolved.unitId)
+      if (unit && unit.tabs.length <= 1) {
+        destroyWebViewUnitFully(
+          {
+            getWindows: host.getWindows,
+            closeWindow: host.closeWindow,
+          },
+          resolved.unitId,
+        )
+      } else {
+        closeWebViewTab(resolved.unitId, resolved.tabId)
+      }
     }),
   )
 
@@ -325,6 +343,7 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
         inputUrl: displayPageUrl(normalized),
         loading: true,
         pageFault: undefined,
+        bootstrapped: true,
       }))
       viewer.navigate(normalized)
     }),
@@ -560,14 +579,12 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       }
     }
     guestListeners.clear()
-    const ownedIds = new Set(
-      listWebViewUnits()
-        .filter((unit) => unit.ownerTerminalSessionId === host.terminalSessionId)
-        .map((unit) => unit.unitId),
+    destroyWebViewUnitsForOwnerFully(
+      {
+        getWindows: host.getWindows,
+        closeWindow: host.closeWindow,
+      },
+      host.terminalSessionId,
     )
-    for (const unitId of ownedIds) {
-      closeWebViewUnitWindows(unitId, host.getWindows(), host.closeWindow)
-    }
-    destroyWebViewUnitsForOwner(host.terminalSessionId, host.closeWindow)
   }
 }

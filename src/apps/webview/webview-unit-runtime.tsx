@@ -28,6 +28,10 @@ import {
   onWebViewRegistryChanged,
   updateWebViewTab,
 } from './webview-registry.ts'
+import {
+  syncWebViewUndockedDevToolsSessions,
+  unregisterWebViewUnitDevToolsSessions,
+} from './webview-devtools-session.ts'
 
 type WebViewUnitRuntimeProps = {
   unitId: string
@@ -218,6 +222,21 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
       void pullConsoleDelta(tab.id)
     }
   }, [pullConsoleDelta, pullNetworkDelta, unit, tick])
+
+  // 独立 DevTools hub session 由 Runtime 注册（离屏/有窗均覆盖）
+  useEffect(() => {
+    syncWebViewUndockedDevToolsSessions(unitId, {
+      getViewerRef,
+      windowId: unit?.windowId,
+    })
+  }, [unitId, unit?.windowId, tick, getViewerRef])
+
+  useEffect(() => {
+    const capturedUnitId = unitId
+    return () => {
+      unregisterWebViewUnitDevToolsSessions(capturedUnitId)
+    }
+  }, [unitId])
 
   const navigateTab = useCallback(
     (tabId: string, url: string, options?: { method?: 'POST'; body?: string }) => {

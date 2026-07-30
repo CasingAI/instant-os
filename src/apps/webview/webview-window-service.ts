@@ -1,7 +1,9 @@
 import {
   bindWebViewWindow,
+  destroyWebViewUnit,
   findWebViewWindowId,
   getWebViewUnit,
+  listWebViewUnits,
   setWebViewViewportTarget,
   updateWebViewTab,
 } from './webview-registry.ts'
@@ -36,7 +38,7 @@ export function findLiveWebViewWindow(
 /**
  * 显示 WebView 窗口壳。
  * - 已有 live Window → focus / restore（不新开）
- * - 否则 openApp 新开普通窗，并 bindWebViewWindow
+ * - 否则 openApp 新开普通窗（Shell mount effect 负责 bind）
  */
 export function showWebViewWindow(host: WebViewWindowHost, unitId: string): void {
   if (!getWebViewUnit(unitId)) {
@@ -49,7 +51,6 @@ export function showWebViewWindow(host: WebViewWindowHost, unitId: string): void
       host.restoreWindow(existing.id)
     }
     host.focusWindow(existing.id)
-    bindWebViewWindow(unitId, existing.id)
     return
   }
 
@@ -57,7 +58,6 @@ export function showWebViewWindow(host: WebViewWindowHost, unitId: string): void
   if (!windowId) {
     throw new Error(`无法打开 WebView 窗口: ${unitId}`)
   }
-  bindWebViewWindow(unitId, windowId)
   host.focusWindow(windowId)
 }
 
@@ -119,5 +119,32 @@ export function detachWebViewWindow(
     if (stillOpen) {
       host.closeWindow(windowId)
     }
+  }
+}
+
+/**
+ * 完整销毁 WebView unit：先 detach 清理窗口/DevTools/viewport 绑定，再删除 unit。
+ * 顺序固定（先 detach 再 destroy）避免 guard 对已删 unit no-op 时 devtools 泄漏。
+ */
+export function destroyWebViewUnitFully(
+  host: Pick<WebViewWindowHost, 'getWindows' | 'closeWindow'>,
+  unitId: string,
+): void {
+  detachWebViewWindow(host, unitId, { closeOsWindow: true })
+  destroyWebViewUnit(unitId)
+}
+
+/**
+ * 销毁指定 owner 的所有 WebView unit（完整 teardown）。
+ */
+export function destroyWebViewUnitsForOwnerFully(
+  host: Pick<WebViewWindowHost, 'getWindows' | 'closeWindow'>,
+  ownerTerminalSessionId: string,
+): void {
+  const ownedIds = listWebViewUnits()
+    .filter((unit) => unit.ownerTerminalSessionId === ownerTerminalSessionId)
+    .map((unit) => unit.unitId)
+  for (const unitId of ownedIds) {
+    destroyWebViewUnitFully(host, unitId)
   }
 }
