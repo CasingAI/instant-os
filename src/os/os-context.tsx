@@ -25,6 +25,7 @@ import { isMultiWindowApp } from './app-multi-window.ts'
 import { isWindowlessApp } from './app-windowless.ts'
 import { registerOsOpenApp } from './os-open-app-bridge.ts'
 import { enqueueTerminalPendingAction } from '../terminal/terminal-pending-actions.ts'
+import { WEBVIEW_OFFSCREEN_VIEWPORT } from '../apps/webview/webview-constants.ts'
 import type { AppId, BuiltinAppId, GeneratedAppId, ExtAppId, OpenAppOptions, WindowState, WindowRestoredBounds } from './types.ts'
 import { isExtAppId, isGeneratedAppId } from './types.ts'
 
@@ -95,7 +96,11 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   browser: { title: '网络浏览器', width: 880, height: 720 },
   chromo: { title: 'Chromo', width: 960, height: 720 },
   'page-devtools': { title: '开发者工具', width: 720, height: 480 },
-  webview: { title: 'WebView', width: 960, height: 720 },
+  webview: {
+    title: 'WebView',
+    width: WEBVIEW_OFFSCREEN_VIEWPORT.width,
+    height: WEBVIEW_OFFSCREEN_VIEWPORT.height,
+  },
   settings: { title: '系统设置', width: 780, height: 540 },
   photos: { title: '照片', width: 720, height: 620 },
   files: { title: '文件', width: 900, height: 620 },

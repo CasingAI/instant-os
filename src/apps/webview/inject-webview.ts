@@ -27,7 +27,7 @@ import {
   waitWebViewTab,
   type WebViewUnitEvent,
 } from './webview-registry.ts'
-import { showWebViewWindow } from './webview-window-service.ts'
+import { hideWebViewWindow, showWebViewWindow } from './webview-window-service.ts'
 
 export type WebViewHostBindings = {
   terminalSessionId: string
@@ -196,6 +196,25 @@ export function injectWebView(options: InjectWebViewOptions): () => void {
       if (!unitId) throw new Error('unitId 不能为空')
       assertWebViewUnitOwner(unitId, host.terminalSessionId)
       showWebViewWindow(
+        {
+          openApp: host.openApp,
+          getWindows: host.getWindows,
+          focusWindow: host.focusWindow,
+          restoreWindow: host.restoreWindow,
+          closeWindow: host.closeWindow,
+        },
+        unitId,
+      )
+    }),
+  )
+
+  bind('hide', (optsHandle) =>
+    runAsync(async () => {
+      const opts = readObjectArg(context, optsHandle, 'options')
+      const unitId = String(opts.unitId ?? '')
+      if (!unitId) throw new Error('unitId 不能为空')
+      assertWebViewUnitOwner(unitId, host.terminalSessionId)
+      hideWebViewWindow(
         {
           openApp: host.openApp,
           getWindows: host.getWindows,

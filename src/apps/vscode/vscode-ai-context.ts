@@ -170,7 +170,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '- 终端 / npm 工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
             '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
             '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
-            '- 需要抓取或操作真实网页时，在 run_in_terminal 里用 await webview.create → wait → snapshot（看结构与 [eN]）→ markdown / eval+__vcRef 操作（默认离屏；用完可 destroy）；不要臆造网页内容，不要整页 innerText',
+            '- 需要抓取或操作真实网页时，在 run_in_terminal 里先 listUnits：有 unit 则 navigate/openTab 复用，否则 create；再 wait → snapshot（看结构与 [eN]）→ markdown / eval+__vcRef（默认离屏 960×720，勿仅为确认加载而 show；用户要看再用 show，看完可 hide；用完可 destroy）；不要臆造网页内容，不要整页 innerText',
             '- /system 与 /models 等只读卷不可写入',
             '- 回答用简洁中文 Markdown；引用路径时用反引号',
             '- 修改前先在终端里读确认现状',

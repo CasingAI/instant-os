@@ -50,19 +50,28 @@ console.log(r.matches)
 
 【WebView · globalThis.webview】
 终端另注入 \`webview\`（与 instant 并列）。用于在终端脚本里**打开真实网页、读取结构/正文、操作 DOM、截图、调试**——不是 AI 假页面（browser），也不是用户手点的 Chromo 窗口。
-每个 create 创建一个浏览单元（可含多标签），默认离屏（无 OS 窗口，iframe 在离屏池）；依附当前终端会话。.reset / 关闭终端会立刻销毁该会话下全部单元。与 Chromo 共用同一套 virtual-chromo 代理与站点数据（cookie 等互通）。
-create 不建窗口；show 才打开普通系统窗口（关窗只收壳，不销毁会话；再次 show 若无窗则新开）。
+每个 create 创建一个浏览单元（可含多标签），默认离屏（无 OS 窗口，iframe 在离屏池，视口固定 **960×720**、无 chrome）；依附当前终端会话。.reset / 关闭终端会立刻销毁该会话下全部单元。与 Chromo 共用同一套 virtual-chromo 代理与站点数据（cookie 等互通）。
+create 不建窗口；show 才打开普通系统窗口（关窗 / hide 只收壳，不销毁会话；再次 show 若无窗则新开）。show 后内容区因 tab/地址栏会略小于离屏视口。
+
+复用优先（同会话多步抓取）：
+- 操作网页前先 \`await webview.listUnits()\`
+- 已有可用 unit → \`navigate({ unitId, tabId?, url })\` 或 \`openTab({ unitId, url })\`，不要再 create
+- 仅当无 unit，或需隔离 cookie/状态时才 create
+- 同一会话内尽量复用同一 unitId；用完 destroy，或保留供下一步
 
 何时用：
-- 需要抓取/操作真实网页内容 → webview.create + wait + snapshot（优先）/ eval
-- 用户要看见页面 → show；默认不要 show（离屏即可）
+- 需要抓取/操作真实网页内容 →（复用或 create）+ wait + snapshot（优先）/ eval；**默认离屏，不要 show**
+- snapshot / eval / markdown / screenshot **不需要** show；禁止仅为确认加载成功而 show
+- 用户明确要求看见页面 → show；看完可 hide 回离屏
 - 调试页面 → openDevTools（默认独立窗口）
 - 仅「打开网址给人看」且不需读 DOM → 优先 instant.openUrl / openApp('chromo')，不必强开 WebView
 
 API（均返回 Promise，须 await）：
 - webview.create({ url }) → { unitId, tabId }（url 必填）
 - webview.wait({ unitId, tabId?, timeoutMs? }) — 等到 ready 且非 loading；fault/超时 reject。tabId 可省略或传 'default'（当前 UI 展示 tab）
-- webview.show({ unitId }) / destroy({ unitId })
+- webview.show({ unitId }) — 打开/聚焦普通系统窗口
+- webview.hide({ unitId }) — 收壳回离屏（不销毁）；未 show 时 no-op
+- webview.destroy({ unitId }) — 销毁单元（关窗并释放会话）
 - webview.listUnits() → 本会话单元摘要；listTabs({ unitId }) → 各 tab 的 url/title/loading/fault
 - webview.openTab({ unitId, url }) → { unitId, tabId }；closeTab({ unitId, tabId? }) — 关最后一 tab 会销毁整个单元（先 tabClosed 再 unitDestroyed）
 - webview.navigate({ unitId, tabId?, url }) / eval({ unitId, tabId?, code }) / screenshot({ unitId, tabId?, format?, quality?, fullPage?, scale?, timeout?, options? })
@@ -77,9 +86,23 @@ API（均返回 Promise，须 await）：
   - 输出里可交互节点仍带 [eN]，可接着用 __vcRef 操作
 - webview.openDevTools({ unitId, tabId?, mode? }) — mode 默认 undocked；可传 'embedded'（内嵌到 WebView 窗口）
 - const stop = webview.on(event, fn) — 返回取消函数；webview.off(event) 清空该事件全部监听
-  - 事件：unitCreated / unitDestroyed / unitShown / tabOpened / tabClosed / tabFault / navigated
+  - 事件：unitCreated / unitDestroyed / unitShown / unitHidden / tabOpened / tabClosed / tabFault / navigated
 
-推荐工作流（读结构 → 操作 / 读长文）：
+复用示例：
+const units = await webview.listUnits()
+let unitId, tabId
+if (units.length) {
+  unitId = units[0].unitId
+  tabId = units[0].uiDisplayedTabId
+  await webview.navigate({ unitId, tabId, url: 'https://example.com' })
+} else {
+  ;({ unitId, tabId } = await webview.create({ url: 'https://example.com' }))
+}
+await webview.wait({ unitId, tabId })
+const snap = await webview.snapshot({ unitId, tabId })
+console.log(snap.tree)
+
+推荐工作流（读结构 → 操作 / 读长文；默认离屏）：
 const { unitId, tabId } = await webview.create({ url: 'https://example.com' })
 await webview.wait({ unitId, tabId })
 const snap = await webview.snapshot({ unitId, tabId })
@@ -106,14 +129,17 @@ el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 // 滚到可见
 __vcRef('e12').scrollIntoView({ block: 'center' })
 
-典型用法（低层 eval / 截图 / 调试）：
+典型用法（低层 eval / 截图；仍默认离屏）：
 const { unitId, tabId } = await webview.create({ url: 'https://example.com' })
 await webview.wait({ unitId, tabId })
 const title = await webview.eval({ unitId, tabId, code: 'document.title' })
 console.log(title)
+await webview.destroy({ unitId }) // 用完销毁；终端结束也会级联销毁
+
+仅当用户要求可见或调试时：
 await webview.show({ unitId })
 await webview.openDevTools({ unitId, tabId })
-await webview.destroy({ unitId }) // 用完销毁；终端结束也会级联销毁
+await webview.hide({ unitId }) // 看完收壳回离屏；不销毁
 
 注意：
 - 务必 await webview.wait 后再 snapshot / eval / markdown；不要盲 sleep
@@ -129,5 +155,5 @@ export function buildInstantShellSystemPromptSection(): string {
 
 /** 更短的提示行（欢迎语 / 工具描述旁注）。 */
 export function buildInstantShellPromptHint(): string {
-  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / …）与 globalThis.webview（create / wait / snapshot / markdown / eval / show / …），详见壳层 API 说明。'
+  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / …）与 globalThis.webview（listUnits / create / wait / snapshot / markdown / eval / show / hide / …），详见壳层 API 说明。'
 }

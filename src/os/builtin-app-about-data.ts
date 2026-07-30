@@ -37,8 +37,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   webview: {
     version: '终端驱动的离屏网页',
     paragraphs: [
-      'WebView 是基于 Page Host 的浏览单元，默认在离屏池中运行，供终端脚本通过 globalThis.webview 操作与读取网页。',
-      'create 不建窗口；show 时打开普通系统窗口（关窗仅收起壳，不销毁会话）。与 Chromo 共用同一套 virtual-chromo 代理与站点数据。',
+      'WebView 是基于 Page Host 的浏览单元，默认在离屏池中运行（视口 960×720），供终端脚本通过 globalThis.webview 操作与读取网页。',
+      'create 不建窗口；show 时打开普通系统窗口（关窗或 hide 仅收起壳，不销毁会话）。与 Chromo 共用同一套 virtual-chromo 代理与站点数据。',
     ],
   },
   mail: {

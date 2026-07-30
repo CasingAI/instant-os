@@ -62,6 +62,21 @@ export function showWebViewWindow(host: WebViewWindowHost, unitId: string): void
 }
 
 /**
+ * 收起 WebView 窗口壳回离屏（不销毁 unit）。
+ * 未 show 时为 no-op。
+ */
+export function hideWebViewWindow(host: WebViewWindowHost, unitId: string): void {
+  if (!getWebViewUnit(unitId)) {
+    throw new Error(`浏览单元不存在: ${unitId}`)
+  }
+  const existing = findLiveWebViewWindow(host, unitId)
+  if (!existing && !getWebViewUnit(unitId)?.windowId) {
+    return
+  }
+  detachWebViewWindow(host, unitId, { closeOsWindow: true })
+}
+
+/**
  * 关壳：清 window 绑定与 viewportTarget，关关联 page-devtools 窗，收起内嵌 DevTools。
  * 不 destroy unit。调用方负责 closeWindow（Close Guard 路径里 OS 已在关窗）。
  */

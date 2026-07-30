@@ -17,6 +17,7 @@ export type WebViewUnitEvent =
   | { type: 'unitCreated'; unitId: string; tabId: string; url: string }
   | { type: 'unitDestroyed'; unitId: string; ownerTerminalSessionId: string }
   | { type: 'unitShown'; unitId: string }
+  | { type: 'unitHidden'; unitId: string }
   | { type: 'tabOpened'; unitId: string; tabId: string; url: string }
   | { type: 'tabClosed'; unitId: string; tabId: string }
   | { type: 'tabFault'; unitId: string; tabId: string; message: string }
@@ -194,6 +195,8 @@ export function bindWebViewWindow(unitId: string, windowId: string | undefined):
   }
   if (windowId && !prevWindowId) {
     emit({ type: 'unitShown', unitId })
+  } else if (!windowId && prevWindowId) {
+    emit({ type: 'unitHidden', unitId })
   }
   notifyChanged()
 }

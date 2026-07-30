@@ -8,6 +8,7 @@
   color: #202124;
 }
 
+/* sync with WEBVIEW_OFFSCREEN_VIEWPORT in webview-constants.ts */
 .webview--offscreen {
   position: fixed;
   left: -10000px;
