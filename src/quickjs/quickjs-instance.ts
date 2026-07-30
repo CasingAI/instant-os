@@ -51,7 +51,8 @@ import {
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
 } from './quickjs-quotas.ts'
 
-const DEFAULT_TIMEOUT_MS = 5000
+/** 默认无超时；传入有限正数毫秒可限制单次 eval。 */
+const DEFAULT_TIMEOUT_MS = Number.POSITIVE_INFINITY
 const DEFAULT_MAX_STACK_SIZE_BYTES = 512 * 1024
 const DEFAULT_ARGV = ['instant-node'] as const
 
@@ -65,6 +66,11 @@ let instanceSeq = 0
 function nextConsoleLineId(): string {
   consoleLineSeq += 1
   return `qjs-console-${consoleLineSeq}`
+}
+
+/** 是否启用墙钟时间上限（Infinity / 非正数 = 不限时，仅靠 abort / destroy）。 */
+function hasEvalTimeLimit(timeoutMs: number): boolean {
+  return Number.isFinite(timeoutMs) && timeoutMs > 0
 }
 
 function resolveWorkspaceRoot(raw: string | undefined): string | undefined {
@@ -342,6 +348,9 @@ export async function createQuickJsInstance(
     if (abortRequested || processState.exitRequested) {
       return true
     }
+    if (!hasEvalTimeLimit(activeSliceTimeoutMs ?? defaultTimeoutMs)) {
+      return false
+    }
     return shouldInterruptAfterDeadline(evalDeadline)(rt)
   })
 
@@ -605,20 +614,33 @@ export async function createQuickJsInstance(
         return { ok: true, value: dumpEvalValue(context, valueHandle) }
       }
 
-      while (promiseState.type === 'pending') {
-        if (state.destroyed) {
-          return { ok: false, error: 'QuickJS instance destroyed during evaluation' }
-        }
-        if (abortRequested) {
-          return { ok: false, error: 'interrupted: aborted while waiting for Promise' }
-        }
-        if (Date.now() > evalDeadlineMs) {
-          return { ok: false, error: `timeout after ${timeoutMs}ms waiting for Promise` }
-        }
-        asyncBridge.drainAfterSync()
-        await yieldToHostEventLoop()
-        promiseState = context.getPromiseState(valueHandle)
-      }
+while (promiseState.type === 'pending') {
+	        if (state.destroyed) {
+	          return { ok: false, error: 'QuickJS instance destroyed during evaluation' }
+	        }
+	        if (abortRequested) {
+	          return { ok: false, error: 'interrupted: aborted while waiting for Promise' }
+	        }
+	        if (hasEvalTimeLimit(timeoutMs) && Date.now() > evalDeadlineMs) {
+	          return { ok: false, error: `timeout after ${timeoutMs}ms waiting for Promise` }
+	        }
+	        // 释放 busy 让定时器回调能通过 tryBeginSlice 执行（否则 Promise 永不 settle）
+	        const savedAbort = abortRequested
+	        const savedExit = processState.exitRequested
+	        state.busy = false
+	        notify()
+	        try {
+	          asyncBridge.flushHostTasks()
+	          asyncBridge.drainAfterSync()
+	          await yieldToHostEventLoop()
+	        } finally {
+	          state.busy = true
+	          if (savedAbort) abortRequested = true
+	          if (savedExit) processState.exitRequested = true
+	          notify()
+	        }
+	        promiseState = context.getPromiseState(valueHandle)
+	      }
 
       if (promiseState.type === 'rejected') {
         const error = formatQuickJsError(context, promiseState.error)
@@ -649,7 +671,7 @@ export async function createQuickJsInstance(
         if (abortRequested) {
           return 'interrupted: aborted while waiting for async work'
         }
-        if (Date.now() > evalDeadlineMs) {
+        if (hasEvalTimeLimit(timeoutMs) && Date.now() > evalDeadlineMs) {
           const timers = asyncBridge.getPendingTimerCount()
           return `timeout after ${timeoutMs}ms with pending async work (timers=${timers})`
         }

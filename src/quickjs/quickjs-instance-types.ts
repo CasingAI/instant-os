@@ -26,6 +26,10 @@ export type QuickJsHostPermissions = {
 
 /** 实例资源配额（含已有 runtime 限额）。 */
 export type QuickJsHostQuotas = {
+  /**
+   * 单次 eval 墙钟上限（毫秒）。
+   * 可为 `Infinity`（默认）：不限时，仅靠 abort / destroy 中断。
+   */
   timeoutMs: number
   memoryLimitBytes: number
   maxStackSizeBytes: number
@@ -95,7 +99,10 @@ export type QuickJsInstanceOptions = {
     fsWriteRoots?: string[]
     fsWriteDenyRoots?: string[]
   }
-  /** 单次 eval 默认超时（毫秒），默认 5000。属配额。 */
+  /**
+   * 单次 eval 默认墙钟上限（毫秒）。属配额。
+   * 默认无超时；传入有限正数可限制。同步死循环 / pending Promise / waitUntilIdle 共用该预算。
+   */
   timeoutMs?: number
   /** QuickJS 堆内存上限（字节），默认 128 MiB。属配额。 */
   memoryLimitBytes?: number
@@ -118,7 +125,10 @@ export type QuickJsInstanceOptions = {
 }
 
 export type QuickJsEvalOptions = {
-  /** 覆盖实例默认超时。 */
+  /**
+   * 覆盖实例默认墙钟上限（毫秒）。
+   * 传入有限正数可限制；省略则用实例默认（通常为无超时）。
+   */
   timeoutMs?: number
   /**
    * 本轮入口模块文件名（绝对 VFS 路径，或相对 cwd）。
@@ -127,7 +137,7 @@ export type QuickJsEvalOptions = {
   filename?: string
   /**
    * 为 true 时：在返回前等到挂起定时器 / 未结算 host Promise / 微任务排空
-   *（仍受 timeoutMs 约束；setInterval 可能拖到超时）。
+   *（若设置了有限 timeoutMs 则受其约束；setInterval 可能拖到超时）。
    * Agent / program 脚本默认开启；交互 REPL 默认关闭。
    */
   waitUntilIdle?: boolean

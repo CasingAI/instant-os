@@ -28,13 +28,18 @@ import { getPackageServiceConfig } from './package-service.ts'
 
 /** npm run / npx guest 堆上限（高于 Virtual JS 默认，便于读 node_modules 大文件）。 */
 export const NPM_SCRIPT_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024
-/** 未显式传入时的 script eval 超时（构建级）。 */
+/**
+ * 历史默认 script eval 超时（10 分钟）。现已改为默认无超时；
+ * 调用方可显式传入 `timeoutMs`，或用本常量作为建议上限。
+ * @deprecated 默认不再隐式套用；仅作显式 override 参考值。
+ */
 export const NPM_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000
 /** guest fs 不限制单文件体积（仍受堆与宿主 Files 约束）。 */
 export const NPM_SCRIPT_MAX_FILE_BYTES = Number.POSITIVE_INFINITY
 
-function resolveNpmScriptTimeoutMs(override: number | undefined): number {
-  return override ?? NPM_SCRIPT_TIMEOUT_MS
+/** 仅当调用方显式传入时返回超时；否则 undefined → 实例默认无超时。 */
+function resolveNpmScriptTimeoutMs(override: number | undefined): number | undefined {
+  return override
 }
 
 function newNpmRunId(): string {
@@ -75,7 +80,7 @@ function npmScriptGuestInstanceOptions(
   return {
     workspaceRoot: params.workspaceRoot,
     cwd: params.cwd,
-    timeoutMs,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     memoryLimitBytes: NPM_SCRIPT_MEMORY_LIMIT_BYTES,
     maxFileBytes: NPM_SCRIPT_MAX_FILE_BYTES,
     argv: params.argv,
@@ -102,7 +107,11 @@ export function npmScriptGuestPermissions(projectRoot: string): {
   }
 }
 
-/** install lifecycle 默认超时（高于普通 eval 的 5s） */
+/**
+ * install lifecycle 建议超时参考值。
+ * 默认已无超时；调用方可显式传入 `timeoutMs: LIFECYCLE_SCRIPT_TIMEOUT_MS`。
+ * @deprecated 默认不再隐式套用。
+ */
 export const LIFECYCLE_SCRIPT_TIMEOUT_MS = 60_000
 
 function parseBinField(
@@ -395,7 +404,7 @@ async function runParsedScriptCommand(params: {
     npmScriptGuestInstanceOptions({
       workspaceRoot: params.projectRoot,
       cwd: params.packageRoot,
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       argv: ['instant-node', entryFile, ...args],
       permissions: npmScriptGuestPermissions(params.projectRoot),
       fsMode: params.fsMode,
@@ -415,7 +424,7 @@ async function runParsedScriptCommand(params: {
     params.signal?.throwIfAborted()
     const result = await instance.eval(code, {
       filename: entryFile,
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     })
     for (const line of result.consoleLines) {
       params.onConsole?.(line.level, line.text)
@@ -532,7 +541,7 @@ export async function runLifecycleScripts(params: {
   const pkg = await tryReadPackageJson(params.packageRoot)
   if (!pkg) return
   const scripts = (pkg.scripts as Record<string, string> | undefined) ?? {}
-  const timeoutMs = params.timeoutMs ?? LIFECYCLE_SCRIPT_TIMEOUT_MS
+  const timeoutMs = params.timeoutMs
 
   for (const scriptName of params.scriptNames) {
     params.signal?.throwIfAborted()
@@ -562,7 +571,7 @@ export async function runLifecycleScripts(params: {
         env: params.env,
         signal: params.signal,
         onConsole: params.onConsole,
-        timeoutMs,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       })
       if (!result.ok) {
         throw new Error(
@@ -642,7 +651,7 @@ export async function runNpx(params: {
     npmScriptGuestInstanceOptions({
       workspaceRoot: params.projectRoot,
       cwd: pkgRoot,
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       argv: ['instant-node', entryFile, ...(params.args ?? [])],
       permissions: npmScriptGuestPermissions(params.projectRoot),
       fsMode: params.fsMode,
@@ -656,7 +665,10 @@ export async function runNpx(params: {
   )
   try {
     params.signal?.throwIfAborted()
-    const result = await instance.eval(source, { filename: entryFile, timeoutMs })
+    const result = await instance.eval(source, {
+      filename: entryFile,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    })
     for (const line of result.consoleLines) {
       params.onConsole?.(line.level, line.text)
     }

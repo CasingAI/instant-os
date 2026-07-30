@@ -130,12 +130,59 @@ setTimeout(function () { console.log('later') }, 80)
   console.log('ok: default eval does not wait for setTimeout')
 }
 
+/** 默认实例无超时：超过原 5s 默认仍应成功。 */
+async function testDefaultNoTimeoutAllowsLongAwait(): Promise<void> {
+  await resetRoot()
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    fsMode: 'normal',
+  })
+  const snippet = `
+await new Promise(function (resolve) { setTimeout(resolve, 6000) })
+return 'slept'
+`
+  const result = await instance.eval(wrapTerminalProgramEval(snippet), {
+    waitUntilIdle: true,
+  })
+  instance.destroy()
+  assert.equal(result.ok, true, result.ok ? '' : result.error)
+  assert.equal(result.ok ? result.value : undefined, 'slept')
+  console.log('ok: default instance allows await beyond former 5s timeout')
+}
+
+/** 显式 timeoutMs 仍生效。 */
+async function testExplicitTimeoutStillFails(): Promise<void> {
+  await resetRoot()
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    fsMode: 'normal',
+    timeoutMs: 500,
+  })
+  const snippet = `
+await new Promise(function (resolve) { setTimeout(resolve, 2000) })
+return 'should-not'
+`
+  const result = await instance.eval(wrapTerminalProgramEval(snippet), {
+    waitUntilIdle: true,
+    timeoutMs: 500,
+  })
+  instance.destroy()
+  assert.equal(result.ok, false, 'explicit short timeout should fail')
+  assert.ok(
+    String(result.ok ? '' : result.error).includes('timeout after 500ms'),
+    `expected timeout error, got: ${result.ok ? '' : result.error}`,
+  )
+  console.log('ok: explicit timeoutMs still enforces deadline')
+}
+
 async function main(): Promise<void> {
   await testProgramAllowsRedeclareConst()
   await testBareEvalStillRedeclares()
   await testProgramAwaitAndReturn()
   await testWaitUntilIdleDrainsTimeout()
   await testWithoutWaitUntilIdleSkipsTimeout()
+  await testDefaultNoTimeoutAllowsLongAwait()
+  await testExplicitTimeoutStillFails()
   console.log('all program-eval smoke tests passed')
 }
 
