@@ -5,6 +5,7 @@ import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { parseFilesAbsolutePath } from '../files/files-path.ts'
 import type {
   VscodeAiModelOptionPrefs,
+  VscodeCustomSubAgent,
   VscodeModelSource,
   VscodePrefs,
 } from './vscode-prefs.ts'
@@ -221,6 +222,10 @@ type VscodeEditorAreaProps = {
   ) => void
   aiModelOptions?: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange?: (next: Record<string, VscodeAiModelOptionPrefs>) => void
+  subAgentsEnabled?: boolean
+  subAgentsMaxConcurrent?: number
+  subAgentBuiltinOverrides?: VscodePrefs['subAgentBuiltinOverrides']
+  customSubAgents?: VscodeCustomSubAgent[]
   aiDebugSystemReminder?: boolean
   aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
@@ -368,6 +373,10 @@ function VscodeEditorGroupView({
   onAiModelSelectionChange,
   aiModelOptions,
   onAiModelOptionsChange,
+  subAgentsEnabled,
+  subAgentsMaxConcurrent,
+  subAgentBuiltinOverrides,
+  customSubAgents,
   aiDebugSystemReminder,
   aiDark,
   getAiContext,
@@ -917,6 +926,10 @@ function VscodeEditorGroupView({
                   }
                   aiModelOptions={aiModelOptions ?? {}}
                   onAiModelOptionsChange={(next) => onAiModelOptionsChange?.(next)}
+                  subAgentsEnabled={subAgentsEnabled}
+                  subAgentsMaxConcurrent={subAgentsMaxConcurrent}
+                  subAgentBuiltinOverrides={subAgentBuiltinOverrides}
+                  customSubAgents={customSubAgents}
                   aiDebugSystemReminder={aiDebugSystemReminder}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}

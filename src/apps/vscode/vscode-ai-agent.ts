@@ -18,6 +18,12 @@ import {
   type VscodeAiContextInput,
 } from './vscode-ai-context.ts'
 import {
+  buildSubAgentDelegationPromptSection,
+  createDelegateSubAgentTool,
+  listAvailableSubAgents,
+  type SubAgentHostConfig,
+} from '../../ai/subagent/index.ts'
+import {
   createVscodeAiTools,
   VSCODE_AI_TOOL_LABELS,
   type VscodeAiToolsHost,
@@ -172,6 +178,17 @@ function describeToolCall(event: AgentToolCallEvent): {
 } {
   const label = VSCODE_AI_TOOL_LABELS[event.toolName] ?? event.toolName
   const args = event.arguments
+  if (event.toolName === 'delegate_subagent') {
+    const agentId = typeof args.agent_id === 'string' ? args.agent_id.trim() : ''
+    const description =
+      typeof args.description === 'string' ? args.description.trim() : ''
+    const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+    return {
+      label: agentId ? `${label} · ${agentId}` : label,
+      detail: description || undefined,
+      content: prompt || undefined,
+    }
+  }
   if (event.toolName === 'run_in_terminal') {
     const description =
       typeof args.description === 'string' ? args.description.trim() : ''
@@ -458,18 +475,45 @@ export async function askVscodeAiAgent(options: {
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
   signal?: AbortSignal
   modelKey?: string | undefined
+  /** 应用侧构建的 Sub Agent 配置；enabled 且有可用 Agent 时注册委派工具 */
+  subAgentConfig?: SubAgentHostConfig
   onProgress?: (progress: VscodeAiAgentProgress) => void
 }): Promise<VscodeAiAgentResult> {
   const pendingEdits: VscodeAiPendingEdit[] = []
-  const tools = createVscodeAiTools(options.mode, {
+  const toolsHost: VscodeAiToolsHost = {
     ...options.toolsHost,
     onProposeEdit: (edit) => {
       pendingEdits.push(edit)
       options.toolsHost.onProposeEdit(edit)
     },
-  })
+  }
+  const tools = createVscodeAiTools(options.mode, toolsHost)
 
-  const system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${buildVscodeAiContextSection(options.context)}`
+  const contextSection = buildVscodeAiContextSection(options.context)
+  let system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
+
+  const subAgentConfig = options.subAgentConfig
+  if (subAgentConfig) {
+    const available = listAvailableSubAgents(subAgentConfig)
+    const delegateTool = createDelegateSubAgentTool({
+      config: subAgentConfig,
+      getToolsForAccess: (access) =>
+        createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', toolsHost),
+      getEnvironmentSection: () => contextSection,
+      parentUsageContext: {
+        actor: 'vscode',
+        actorLabel: 'Virtual Studio Code',
+      },
+      signal: options.signal,
+    })
+    if (delegateTool) {
+      tools.push(delegateTool)
+      const section = buildSubAgentDelegationPromptSection(available)
+      if (section) {
+        system = `${system}\n\n${section}`
+      }
+    }
+  }
   const wrappedUserMessage = wrapVscodeAiUserMessage(
     options.userMessage,
     options.reminderText ?? '',

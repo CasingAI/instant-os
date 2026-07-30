@@ -139,6 +139,7 @@ import {
   type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
+import { VscodeSubAgentSettings } from './vscode-subagent-settings.tsx'
 import {
   decodeVscodeModelPickerValue,
   encodeVscodeModelPickerValue,
@@ -3152,6 +3153,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     dark={isVscodeChromeDark(prefs.theme)}
                   />
                 ) : undefined}
+                <VscodeSubAgentSettings
+                  prefs={prefs}
+                  dark={isVscodeChromeDark(prefs.theme)}
+                  onChange={(patch) => updatePrefs(patch)}
+                />
               </div>
             ) : undefined}
           </aside>
@@ -3247,6 +3253,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onAiModelOptionsChange={(aiModelOptions) =>
                 updatePrefs({ aiModelOptions })
               }
+              subAgentsEnabled={prefs.subAgentsEnabled}
+              subAgentsMaxConcurrent={prefs.subAgentsMaxConcurrent}
+              subAgentBuiltinOverrides={prefs.subAgentBuiltinOverrides}
+              customSubAgents={prefs.customSubAgents}
               aiDebugSystemReminder={prefs.aiDebugSystemReminder}
               aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}

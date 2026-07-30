@@ -1077,6 +1077,123 @@
   border-color: var(--vscode-accent);
 }
 
+.vscode__sidebar-subheader {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--vscode-muted, #666);
+  text-transform: uppercase;
+}
+
+.vscode__subagent-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-border-light);
+}
+
+.vscode__subagent-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.vscode__subagent-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--vscode-muted, #666);
+}
+
+.vscode__subagent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vscode__subagent-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-border-light);
+  border-radius: var(--vscode-radius);
+  background: #fff;
+}
+
+.vscode__subagent-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.vscode__subagent-list-desc {
+  color: var(--vscode-muted, #666);
+}
+
+.vscode__subagent-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vscode__subagent-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 5px;
+  background: linear-gradient(180deg, #fff 0%, #f0f0f0 100%);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.vscode__subagent-btn--danger {
+  color: #a1260d;
+}
+
+.vscode__subagent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vscode__subagent-textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--vscode-ink);
+  font: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.vscode__setting select,
+.vscode__setting input[type='text'] {
+  padding: 7px 10px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--vscode-ink);
+  font: inherit;
+  box-shadow: var(--vscode-shadow-in);
+  outline: none;
+}
+
+.vscode__subagent-error {
+  margin: 0;
+  font-size: 12px;
+  color: #a1260d;
+}
+
 .vscode__setting .settings-choice-field__trigger:disabled {
   opacity: 0.55;
   cursor: default;
@@ -2936,6 +3053,9 @@
 
 .vscode--chrome-dark .vscode__search-input,
 .vscode--chrome-dark .vscode__setting input[type='number'],
+.vscode--chrome-dark .vscode__setting input[type='text'],
+.vscode--chrome-dark .vscode__setting select,
+.vscode--chrome-dark .vscode__subagent-textarea,
 .vscode--chrome-dark .vscode-quick-pick__input,
 .vscode--chrome-dark .vscode__quick-search-input,
 .vscode--chrome-dark .vscode__search-editor-context input {

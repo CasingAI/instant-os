@@ -79,8 +79,11 @@ import {
 } from './vscode-ai-models.ts'
 import type {
   VscodeAiModelOptionPrefs,
+  VscodeCustomSubAgent,
   VscodeModelSource,
+  VscodePrefs,
 } from './vscode-prefs.ts'
+import { buildVscodeSubAgentHostConfig } from './vscode-subagent-config.ts'
 import {
   measureVscodeAiContextUsage,
   prepareVscodeAiContextUsage,
@@ -403,6 +406,11 @@ export type VscodeAiPanelProps = {
   onAiModelSelectionChange: (source: VscodeModelSource, modelKey: string | undefined) => void
   aiModelOptions: Record<string, VscodeAiModelOptionPrefs>
   onAiModelOptionsChange: (next: Record<string, VscodeAiModelOptionPrefs>) => void
+  /** Sub Agent 相关 prefs（全局）；缺省视为关闭 */
+  subAgentsEnabled?: boolean
+  subAgentsMaxConcurrent?: number
+  subAgentBuiltinOverrides?: VscodePrefs['subAgentBuiltinOverrides']
+  customSubAgents?: VscodeCustomSubAgent[]
   /** Debug：展示本轮注入的 system-reminder */
   aiDebugSystemReminder?: boolean
   dark?: boolean
@@ -976,6 +984,10 @@ export function VscodeAiPanel({
   onAiModelSelectionChange,
   aiModelOptions,
   onAiModelOptionsChange,
+  subAgentsEnabled = false,
+  subAgentsMaxConcurrent = 5,
+  subAgentBuiltinOverrides = {},
+  customSubAgents = [],
   aiDebugSystemReminder = false,
   dark,
   workspaceFolder,
@@ -1831,6 +1843,17 @@ export function VscodeAiPanel({
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
           signal: controller.signal,
           modelKey: turnResolvedModelKey,
+          subAgentConfig: buildVscodeSubAgentHostConfig(
+            {
+              subAgentsEnabled,
+              subAgentsMaxConcurrent,
+              subAgentBuiltinOverrides,
+              customSubAgents,
+            },
+            turnMode,
+            turnResolvedModelKey,
+            { parentRunId: sessionId },
+          ),
           onProgress: (progress) => {
             if (controller.signal.aborted) return
             const previousToolCount = liveToolCallCountRef.current
@@ -2005,6 +2028,7 @@ export function VscodeAiPanel({
       clearSendQueue,
       collectSessionIdsAfter,
       contextWithTerminal,
+      customSubAgents,
       draft,
       enqueueSend,
       getAiTerminalSnapshot,
@@ -2016,6 +2040,9 @@ export function VscodeAiPanel({
       runCommandHost,
       sessionId,
       stop,
+      subAgentBuiltinOverrides,
+      subAgentsEnabled,
+      subAgentsMaxConcurrent,
       toolsHost,
       turnChangeExtras,
       waitUntilSendIdle,

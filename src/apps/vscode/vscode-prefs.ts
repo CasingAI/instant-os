@@ -33,6 +33,24 @@ export type VscodeModelSource = 'text-secondary' | 'text' | 'custom'
 /** @deprecated 使用 VscodeModelSource */
 export type VscodeCompletionModelSource = VscodeModelSource
 
+/** 内置 Sub Agent（explore/general）的 VS Code 侧 override：仅 enabled + 模型 */
+export type VscodeSubAgentBuiltinOverride = {
+  enabled?: boolean
+  modelSource?: VscodeModelSource
+  modelKey?: string
+}
+
+/** 用户自定义 Sub Agent（全局，不随工作区） */
+export type VscodeCustomSubAgent = {
+  id: string
+  description: string
+  prompt: string
+  access: 'readonly' | 'full'
+  enabled?: boolean
+  modelSource?: VscodeModelSource
+  modelKey?: string
+}
+
 export type VscodePrefs = {
   theme: MonacoEditorTheme
   fontSize: number
@@ -64,6 +82,17 @@ export type VscodePrefs = {
   completionModelKey: string | undefined
   /** 停止输入后触发补全的防抖毫秒数 */
   completionDebounceMs: number
+  /** 是否启用 Sub Agent（VS Code 默认开启；系统层无总开关） */
+  subAgentsEnabled: boolean
+  /** 同时运行的 Sub Agent 上限 */
+  subAgentsMaxConcurrent: number
+  /** 内置 explore/general 的 enabled + 模型 override（不可改 prompt） */
+  subAgentBuiltinOverrides: {
+    explore?: VscodeSubAgentBuiltinOverride
+    general?: VscodeSubAgentBuiltinOverride
+  }
+  /** 自定义 Sub Agent 列表（全局） */
+  customSubAgents: VscodeCustomSubAgent[]
 }
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.vscodePrefs
@@ -85,6 +114,9 @@ export const DEFAULT_SEARCH_PREFS: VscodeSearchPrefs = {
 }
 
 const DEFAULT_COMPLETION_DEBOUNCE_MS = 400
+const DEFAULT_SUB_AGENTS_MAX_CONCURRENT = 5
+const MIN_SUB_AGENTS_MAX_CONCURRENT = 1
+const MAX_SUB_AGENTS_MAX_CONCURRENT = 20
 
 const DEFAULT_PREFS: VscodePrefs = {
   theme: 'light-plus',
@@ -107,6 +139,10 @@ const DEFAULT_PREFS: VscodePrefs = {
   completionModelSource: 'text-secondary',
   completionModelKey: undefined,
   completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
+  subAgentsEnabled: true,
+  subAgentsMaxConcurrent: DEFAULT_SUB_AGENTS_MAX_CONCURRENT,
+  subAgentBuiltinOverrides: {},
+  customSubAgents: [],
 }
 
 function normalizeContextWindowPref(
@@ -194,6 +230,98 @@ function normalizeSearchPrefs(value: unknown): VscodeSearchPrefs {
   }
 }
 
+function normalizeOptionalModelSource(value: unknown): VscodeModelSource | undefined {
+  if (value === 'text-secondary' || value === 'text' || value === 'custom') return value
+  return undefined
+}
+
+function normalizeSubAgentBuiltinOverride(
+  value: unknown,
+): VscodeSubAgentBuiltinOverride | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as {
+    enabled?: unknown
+    modelSource?: unknown
+    modelKey?: unknown
+  }
+  const next: VscodeSubAgentBuiltinOverride = {}
+  if (typeof raw.enabled === 'boolean') next.enabled = raw.enabled
+  const modelSource = normalizeOptionalModelSource(raw.modelSource)
+  if (modelSource) next.modelSource = modelSource
+  if (typeof raw.modelKey === 'string' && raw.modelKey.trim()) {
+    next.modelKey = raw.modelKey.trim()
+  }
+  if (
+    next.enabled === undefined &&
+    next.modelSource === undefined &&
+    next.modelKey === undefined
+  ) {
+    return undefined
+  }
+  return next
+}
+
+function normalizeSubAgentBuiltinOverrides(value: unknown): VscodePrefs['subAgentBuiltinOverrides'] {
+  if (!value || typeof value !== 'object') return {}
+  const raw = value as {
+    explore?: unknown
+    general?: unknown
+  }
+  const result: VscodePrefs['subAgentBuiltinOverrides'] = {}
+  const explore = normalizeSubAgentBuiltinOverride(raw.explore)
+  const general = normalizeSubAgentBuiltinOverride(raw.general)
+  if (explore) result.explore = explore
+  if (general) result.general = general
+  return result
+}
+
+function normalizeCustomSubAgents(value: unknown): VscodeCustomSubAgent[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const result: VscodeCustomSubAgent[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as {
+      id?: unknown
+      description?: unknown
+      prompt?: unknown
+      access?: unknown
+      enabled?: unknown
+      modelSource?: unknown
+      modelKey?: unknown
+    }
+    const id =
+      typeof raw.id === 'string'
+        ? raw.id
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+        : ''
+    if (!id || id === 'explore' || id === 'general' || seen.has(id)) continue
+    const prompt = typeof raw.prompt === 'string' ? raw.prompt : ''
+    if (!prompt.trim()) continue
+    seen.add(id)
+    const modelSource = normalizeOptionalModelSource(raw.modelSource)
+    result.push({
+      id,
+      description:
+        typeof raw.description === 'string' && raw.description.trim()
+          ? raw.description.trim()
+          : id,
+      prompt,
+      access: raw.access === 'readonly' ? 'readonly' : 'full',
+      enabled: raw.enabled !== false,
+      modelSource,
+      modelKey:
+        typeof raw.modelKey === 'string' && raw.modelKey.trim()
+          ? raw.modelKey.trim()
+          : undefined,
+    })
+  }
+  return result
+}
+
 export function pushSearchHistory(history: string[], query: string): string[] {
   const trimmed = query.trim()
   if (!trimmed) return history
@@ -251,6 +379,20 @@ export function loadVscodePrefs(): VscodePrefs {
         typeof parsed.completionDebounceMs === 'number' && Number.isFinite(parsed.completionDebounceMs)
           ? clamp(Math.round(parsed.completionDebounceMs), 100, 2000)
           : DEFAULT_PREFS.completionDebounceMs,
+      subAgentsEnabled: parsed.subAgentsEnabled !== false,
+      subAgentsMaxConcurrent:
+        typeof parsed.subAgentsMaxConcurrent === 'number' &&
+        Number.isFinite(parsed.subAgentsMaxConcurrent)
+          ? clamp(
+              Math.round(parsed.subAgentsMaxConcurrent),
+              MIN_SUB_AGENTS_MAX_CONCURRENT,
+              MAX_SUB_AGENTS_MAX_CONCURRENT,
+            )
+          : DEFAULT_PREFS.subAgentsMaxConcurrent,
+      subAgentBuiltinOverrides: normalizeSubAgentBuiltinOverrides(
+        parsed.subAgentBuiltinOverrides,
+      ),
+      customSubAgents: normalizeCustomSubAgents(parsed.customSubAgents),
     }
   } catch {
     return { ...DEFAULT_PREFS, search: { ...DEFAULT_SEARCH_PREFS } }
