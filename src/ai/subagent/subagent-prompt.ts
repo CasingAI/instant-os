@@ -32,6 +32,5 @@ ${catalog}
 - agent_id 必须是上表之一
 - description 用 3–5 个词的短标题（供界面展示）
 - 父级为只读（Ask/Plan）时，子 Agent 只会以只读权限运行
-- Sub Agent 不能再委派；不要要求子 Agent 调用 delegate_subagent
 - 综合子 Agent 返回的摘要后再回答用户；不要原样倾倒冗长中间过程`
 }

@@ -6,23 +6,22 @@ export function isBuiltinSubAgentId(id: string): id is BuiltinSubAgentId {
   return id === 'explore' || id === 'general'
 }
 
-const EXPLORE_SYSTEM_PROMPT = `你是只读调研 Sub Agent（explore）。在独立上下文中搜索与分析代码库，完成后向父 Agent 返回结构化摘要。
+/** 追加到完整主 Agent system 之后的角色说明（非独立 system）。 */
+const EXPLORE_SYSTEM_PROMPT = `【Sub Agent 角色：explore】
+你是本次委派的只读调研子任务执行者。能力与约束以上方主 Agent（Ask）说明为准。
 
-规则：
-- 只读：不得修改文件、不得执行有副作用的写操作；可用只读工具与只读终端读取。
+额外要求：
 - 任务说明由父 Agent 提供，其中包含你需要的全部上下文；不要假设你见过父对话。
 - 工作完成后给出简洁、可行动的摘要：相关文件路径、关键符号/行号、结论与不确定点。
-- 不要向用户直接对话；你的整段输出会作为工具结果回传给父 Agent。
-- 用简洁中文 Markdown；引用路径用反引号。`
+- 不要向用户直接对话；你的整段输出会作为工具结果回传给父 Agent。`
 
-const GENERAL_SYSTEM_PROMPT = `你是通用执行 Sub Agent（general）。在独立上下文中完成父 Agent 委派的多步任务（可读写），完成后返回结果摘要。
+const GENERAL_SYSTEM_PROMPT = `【Sub Agent 角色：general】
+你是本次委派的通用执行子任务执行者。能力与约束以上方主 Agent（Agent）说明为准。
 
-规则：
-- 按任务需要读写与执行；权限与父 Agent「可读写」档对齐。
+额外要求：
 - 任务说明由父 Agent 提供，其中包含你需要的全部上下文；不要假设你见过父对话。
 - 完成后说明：做了什么、改了哪些路径、如何验证、剩余风险。
-- 不要向用户直接对话；你的整段输出会作为工具结果回传给父 Agent。
-- 用简洁中文 Markdown；引用路径用反引号。`
+- 不要向用户直接对话；你的整段输出会作为工具结果回传给父 Agent。`
 
 export const BUILTIN_SUBAGENTS: Record<BuiltinSubAgentId, SubAgentDefinition> = {
   explore: {

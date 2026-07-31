@@ -482,8 +482,11 @@ export async function askVscodeAiAgent(options: {
   /** 应用侧构建的 Sub Agent 配置；enabled 且有可用 Agent 时注册委派工具 */
   subAgentConfig?: SubAgentHostConfig
   onProgress?: (progress: VscodeAiAgentProgress) => void
-  /** 子 Agent 运行时：覆盖默认 system prompt（使用子 Agent 自带 prompt） */
-  systemPromptOverride?: string
+  /**
+   * 追加到完整主 Agent system 之后的角色说明（子 Agent / 自定义 Agent）。
+   * 不替换 `buildVscodeAiSystemPrompt`；子调用勿传 `subAgentConfig`，以免再挂委派工具。
+   */
+  systemPromptAppendix?: string
   /** 子 Agent 运行时：覆盖默认 maxSteps */
   maxStepsOverride?: number
   /** 单轮流空闲超时后的额外重试次数（不含首次）；默认 10 */
@@ -492,9 +495,11 @@ export async function askVscodeAiAgent(options: {
   const tools = createVscodeAiTools(options.mode, options.toolsHost)
 
   const contextSection = buildVscodeAiContextSection(options.context)
-  let system = options.systemPromptOverride
-    ? `${options.systemPromptOverride}\n\n【当前工作区快照】\n${contextSection}`
-    : `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
+  let system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
+  const appendix = options.systemPromptAppendix?.trim()
+  if (appendix) {
+    system = `${system}\n\n${appendix}`
+  }
 
   const subAgentConfig = options.subAgentConfig
   if (subAgentConfig) {
@@ -522,7 +527,8 @@ export async function askVscodeAiAgent(options: {
         toolsHost: options.toolsHost,
         signal: signal ?? options.signal,
         modelKey: definition.modelKey ?? options.modelKey,
-        systemPromptOverride: definition.systemPrompt,
+        // 完整主 system + 角色附录；不传 subAgentConfig → 无嵌套委派
+        systemPromptAppendix: definition.systemPrompt,
         idleRetryCount: options.idleRetryCount,
         onProgress: (progress) => {
           onProgress?.(progress)
