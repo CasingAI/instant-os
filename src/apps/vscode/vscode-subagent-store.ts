@@ -4,15 +4,17 @@ export type SubagentRunState = {
   runId: string
   agentId: string
   description: string
-  /** 主 Agent 下发的完整任务 Prompt，详情 Tab 里渲染为用户气泡 */
+  /** 主 Agent 下发的首轮任务 Prompt，详情 Tab 里渲染为第一条用户气泡 */
   taskPrompt: string
+  /** 最近一次追问文案（resume 时设置；首轮为空） */
+  lastFollowUpPrompt: string | undefined
   modelKey: string | undefined
   modelLabel: string
   status: 'running' | 'done' | 'error'
   startedAt: number
   /** 运行中的实时进度（timeline/activities/answerText 等） */
   liveProgress: VscodeAiAgentProgress | undefined
-  /** 完成后的完整结果（messages + investigation） */
+  /** 完成后的完整结果（messages + investigation）；resume 期间保留上一轮直至 complete */
   result: VscodeAiAgentResult | undefined
   error: string | undefined
 }
@@ -41,6 +43,7 @@ export function startRun(
     agentId,
     description,
     taskPrompt,
+    lastFollowUpPrompt: undefined,
     modelKey,
     modelLabel,
     status: 'running',
@@ -50,6 +53,22 @@ export function startRun(
     error: undefined,
   })
   notify()
+}
+
+/**
+ * 同一 runId 进入下一轮追问：保留既有 result 供详情展示历史，
+ * status → running，清 error / liveProgress。
+ */
+export function resumeRun(runId: string, followUpMessage: string): boolean {
+  const run = runs.get(runId)
+  if (!run) return false
+  run.status = 'running'
+  run.lastFollowUpPrompt = followUpMessage
+  run.error = undefined
+  run.liveProgress = undefined
+  run.startedAt = Date.now()
+  notify()
+  return true
 }
 
 export function updateProgress(
@@ -93,4 +112,10 @@ export function subscribe(listener: SubagentStoreListener): () => void {
   return () => {
     listeners.delete(listener)
   }
+}
+
+/** 测试用：清空内存会话 */
+export function resetSubagentStoreForTests(): void {
+  runs.clear()
+  notify()
 }

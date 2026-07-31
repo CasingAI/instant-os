@@ -20,15 +20,20 @@ import {
 import {
   buildSubAgentDelegationPromptSection,
   createDelegateSubAgentTool,
+  createFollowUpSubAgentTool,
   listAvailableSubAgents,
   type RunSubAgentFn,
   type SubAgentHostConfig,
+  type SubAgentProgressEvent,
 } from '../../ai/subagent/index.ts'
+import { stripLeadingSystemMessages } from './vscode-ai-transcript.ts'
 import {
   startRun,
+  resumeRun,
   updateProgress,
   completeRun,
   failRun,
+  getRun,
 } from './vscode-subagent-store.ts'
 import {
   createVscodeAiTools,
@@ -196,6 +201,16 @@ function describeToolCall(event: AgentToolCallEvent): {
       label: agentId ? `${label} · ${agentId}` : label,
       detail: description || undefined,
       content: prompt || undefined,
+    }
+  }
+  if (event.toolName === 'followup_subagent') {
+    const runId = typeof args.run_id === 'string' ? args.run_id.trim() : ''
+    const message = typeof args.message === 'string' ? args.message.trim() : ''
+    const shortId = runId.length > 24 ? `${runId.slice(0, 24)}…` : runId
+    return {
+      label: shortId ? `${label} · ${shortId}` : label,
+      detail: runId || undefined,
+      content: message || undefined,
     }
   }
   if (event.toolName === 'run_in_terminal') {
@@ -518,11 +533,18 @@ export async function askVscodeAiAgent(options: {
     }
 
     /** 子 Agent 运行函数：复用 askVscodeAiAgent，获得完整 timeline/investigation/messages */
-    const runSubAgentFn: RunSubAgentFn = async ({ definition, taskPrompt, signal, onProgress }) => {
+    const runSubAgentFn: RunSubAgentFn = async ({
+      definition,
+      taskPrompt,
+      history,
+      signal,
+      onProgress,
+    }) => {
       const subMode = definition.access === 'readonly' ? 'ask' : 'agent'
       const result = await askVscodeAiAgent({
         mode: subMode,
         userMessage: taskPrompt,
+        history,
         context: options.context,
         toolsHost: options.toolsHost,
         signal: signal ?? options.signal,
@@ -542,15 +564,12 @@ export async function askVscodeAiAgent(options: {
       }
     }
 
-    const delegateTool = createDelegateSubAgentTool({
-      config: subAgentConfig,
-      getToolsForAccess: (access) =>
-        createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', options.toolsHost),
-      getEnvironmentSection: () => contextSection,
-      signal: options.signal,
-      runSubAgentFn,
-      onSubAgentProgress: (event) => {
-        if (event.phase === 'started') {
+    const onSubAgentProgress = (event: SubAgentProgressEvent) => {
+      if (event.phase === 'started') {
+        const existing = getRun(event.runId)
+        if (existing) {
+          resumeRun(event.runId, event.taskPrompt ?? '')
+        } else {
           startRun(
             event.runId,
             event.agentId,
@@ -559,45 +578,84 @@ export async function askVscodeAiAgent(options: {
             event.modelKey,
             modelLabelFor(event.modelKey),
           )
-          pendingSubagentRunId = event.runId
-          subagentCompleted = false
-          // 立即把 runId 关联到正在进行的 activity，让「查看详情」按钮在运行中即可出现
-          if (pendingActivityId) {
-            const actIdx = activities.findIndex((item) => item.id === pendingActivityId)
-            if (actIdx >= 0) {
-              activities[actIdx] = { ...activities[actIdx], subagentRunId: event.runId }
-            }
-            timeline = timeline.map((item) => {
-              if (item.kind !== 'activity' || item.id !== pendingActivityId) return item
-              return { ...item, subagentRunId: event.runId }
-            })
-            emit()
+        }
+        pendingSubagentRunId = event.runId
+        subagentCompleted = false
+        // 立即把 runId 关联到正在进行的 activity，让「查看详情」按钮在运行中即可出现
+        if (pendingActivityId) {
+          const actIdx = activities.findIndex((item) => item.id === pendingActivityId)
+          if (actIdx >= 0) {
+            activities[actIdx] = { ...activities[actIdx], subagentRunId: event.runId }
+          }
+          timeline = timeline.map((item) => {
+            if (item.kind !== 'activity' || item.id !== pendingActivityId) return item
+            return { ...item, subagentRunId: event.runId }
+          })
+          emit()
+        }
+      }
+      if (event.phase === 'progress' && event.progress) {
+        updateProgress(event.runId, event.progress as VscodeAiAgentProgress)
+      }
+      if (event.phase === 'done') {
+        completeRun(
+          event.runId,
+          (event.finalResult as VscodeAiAgentResult | undefined) ?? {
+            text: event.text ?? '',
+            toolCallCount: event.toolCallCount ?? 0,
+            investigation: {
+              activities: [],
+              timeline: [],
+              toolCallCount: event.toolCallCount ?? 0,
+              durationMs: 0,
+            },
+            incomplete: event.incomplete,
+          },
+        )
+        subagentCompleted = true
+      }
+    }
+
+    const delegateTool = createDelegateSubAgentTool({
+      config: subAgentConfig,
+      getToolsForAccess: (access) =>
+        createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', options.toolsHost),
+      getEnvironmentSection: () => contextSection,
+      signal: options.signal,
+      runSubAgentFn,
+      onSubAgentProgress,
+    })
+    const followUpTool = createFollowUpSubAgentTool({
+      config: subAgentConfig,
+      signal: options.signal,
+      getSession: (runId) => {
+        const run = getRun(runId)
+        if (!run) return undefined
+        const history = run.result?.messages
+          ? stripLeadingSystemMessages(run.result.messages)
+          : []
+        if (history.length === 0 && run.taskPrompt) {
+          history.push({ role: 'user', content: run.taskPrompt })
+          if (run.error) {
+            history.push({ role: 'assistant', content: run.error })
+          } else if (run.result?.text) {
+            history.push({ role: 'assistant', content: run.result.text })
           }
         }
-        if (event.phase === 'progress' && event.progress) {
-          updateProgress(event.runId, event.progress as VscodeAiAgentProgress)
-        }
-        if (event.phase === 'done') {
-          completeRun(
-            event.runId,
-            (event.finalResult as VscodeAiAgentResult | undefined) ?? {
-              text: event.text ?? '',
-              toolCallCount: event.toolCallCount ?? 0,
-              investigation: {
-                activities: [],
-                timeline: [],
-                toolCallCount: event.toolCallCount ?? 0,
-                durationMs: 0,
-              },
-              incomplete: event.incomplete,
-            },
-          )
-          subagentCompleted = true
+        return {
+          agentId: run.agentId,
+          description: run.description,
+          status: run.status,
+          history,
+          modelKey: run.modelKey,
         }
       },
+      runSubAgentFn,
+      onSubAgentProgress,
     })
     if (delegateTool) {
       tools.push(delegateTool)
+      if (followUpTool) tools.push(followUpTool)
       const section = buildSubAgentDelegationPromptSection(available)
       if (section) {
         system = `${system}\n\n${section}`

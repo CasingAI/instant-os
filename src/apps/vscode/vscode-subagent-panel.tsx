@@ -1,3 +1,4 @@
+import type OpenAI from 'openai'
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { VscodeAiPanel } from './vscode-ai-panel.tsx'
 import type { VscodeAiChatMessage } from './vscode-ai-chat-storage.ts'
@@ -9,6 +10,7 @@ import type {
 import { createVscodeAiChatMessage } from './vscode-ai-chat-storage.ts'
 import { getRun, subscribe, type SubagentRunState } from './vscode-subagent-store.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
+import { isSyntheticUserContextMessage } from './vscode-ai-transcript.ts'
 
 export type VscodeSubagentPanelProps = {
   runId: string
@@ -36,20 +38,139 @@ function statusLabel(state: SubagentRunState): string {
   return state.status
 }
 
+function contentToText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (part && typeof part === 'object' && 'text' in part) {
+        return String((part as { text?: unknown }).text ?? '')
+      }
+      return ''
+    })
+    .join('')
+}
+
+/** 去掉注入的 system-reminder，详情里只展示主 Agent 原话 */
+function stripSystemReminder(text: string): string {
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, '').trim()
+}
+
 /** 从完成结果构建一条 assistant 消息（含 investigation） */
-function buildAssistantMessage(result: VscodeAiAgentResult): VscodeAiChatMessage {
+function buildAssistantMessage(
+  text: string,
+  result?: VscodeAiAgentResult,
+  extras?: { isError?: boolean },
+): VscodeAiChatMessage {
   const investigation: VscodeAiInvestigation | undefined =
-    result.investigation.timeline.length > 0 ? result.investigation : undefined
-  return createVscodeAiChatMessage('assistant', result.text || '（无输出）', {
-    incomplete: result.incomplete,
+    result && result.investigation.timeline.length > 0 ? result.investigation : undefined
+  return createVscodeAiChatMessage('assistant', text || '（无输出）', {
+    incomplete: result?.incomplete,
     investigation,
+    isError: extras?.isError,
   })
+}
+
+/**
+ * 从 API transcript 抽出可读的 user/assistant 轮次（跳过 tool / 合成上下文）。
+ */
+function buildMessagesFromTranscript(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  lastResult?: VscodeAiAgentResult,
+): VscodeAiChatMessage[] {
+  const out: VscodeAiChatMessage[] = []
+  const textTurns: { role: 'user' | 'assistant'; text: string }[] = []
+
+  for (const message of messages) {
+    if (message.role === 'user') {
+      const raw = contentToText('content' in message ? message.content : '')
+      if (isSyntheticUserContextMessage(raw)) continue
+      const text = stripSystemReminder(raw)
+      if (!text) continue
+      textTurns.push({ role: 'user', text })
+      continue
+    }
+    if (message.role === 'assistant') {
+      const text = contentToText('content' in message ? message.content : '').trim()
+      if (!text) continue
+      textTurns.push({ role: 'assistant', text })
+    }
+  }
+
+  for (let i = 0; i < textTurns.length; i += 1) {
+    const turn = textTurns[i]
+    if (turn.role === 'user') {
+      out.push(createVscodeAiChatMessage('user', turn.text))
+      continue
+    }
+    const isLast = i === textTurns.length - 1
+    out.push(
+      buildAssistantMessage(turn.text, isLast ? lastResult : undefined),
+    )
+  }
+  return out
+}
+
+function buildDetailMessages(run: SubagentRunState): VscodeAiChatMessage[] {
+  const prior =
+    run.result?.messages && run.result.messages.length > 0
+      ? buildMessagesFromTranscript(
+          run.result.messages,
+          run.status === 'done' ? run.result : undefined,
+        )
+      : [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
+
+  if (run.status === 'running') {
+    // 首轮：只有任务气泡；追问轮：保留上一轮 transcript + 新追问气泡
+    if (run.lastFollowUpPrompt) {
+      const base =
+        run.result?.messages && run.result.messages.length > 0
+          ? buildMessagesFromTranscript(run.result.messages)
+          : [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
+      return [...base, createVscodeAiChatMessage('user', run.lastFollowUpPrompt)]
+    }
+    return [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
+  }
+
+  if (run.status === 'error') {
+    if (run.result?.messages && run.result.messages.length > 0) {
+      const base = buildMessagesFromTranscript(run.result.messages)
+      if (run.lastFollowUpPrompt) {
+        return [
+          ...base,
+          createVscodeAiChatMessage('user', run.lastFollowUpPrompt),
+          buildAssistantMessage(run.error ?? '运行失败', undefined, { isError: true }),
+        ]
+      }
+      return [
+        ...base.slice(0, -1),
+        buildAssistantMessage(run.error ?? '运行失败', undefined, { isError: true }),
+      ]
+    }
+    return [
+      createVscodeAiChatMessage('user', run.taskPrompt || run.description),
+      buildAssistantMessage(run.error ?? '运行失败', undefined, { isError: true }),
+    ]
+  }
+
+  // done
+  if (run.result?.messages && run.result.messages.length > 0) {
+    return prior
+  }
+  if (run.result) {
+    return [
+      createVscodeAiChatMessage('user', run.taskPrompt || run.description),
+      buildAssistantMessage(run.result.text, run.result),
+    ]
+  }
+  return [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
 }
 
 /**
  * 子 Agent 只读详情面板：复用 VscodeAiPanel，以 readOnly 模式渲染。
  * 运行中：用 store 的 liveProgress 驱动 liveTimeline/liveAnswer。
- * 完成后：用 result 构造 assistant 消息展示完整调查过程与回答。
+ * 完成后：用 result.messages 重建多轮 transcript。
  */
 export function VscodeSubagentPanel({
   runId,
@@ -76,25 +197,17 @@ export function VscodeSubagentPanel({
     return run.liveProgress?.answerText ?? ''
   }, [run?.liveProgress, run?.status])
 
-  // 消息列表：首条固定为主 Agent 下发的任务 Prompt（用户气泡），
-  // 群聊式观感——主 Agent 发言，子 Agent 随后处理/回复。
   const messages: VscodeAiChatMessage[] = useMemo(() => {
     if (!run) return []
-    const userMessage = createVscodeAiChatMessage('user', run.taskPrompt || run.description)
-    if (run.status === 'done' && run.result) {
-      return [userMessage, buildAssistantMessage(run.result)]
-    }
-    if (run.status === 'error') {
-      return [
-        userMessage,
-        createVscodeAiChatMessage('assistant', run.error ?? '运行失败', {
-          isError: true,
-        }),
-      ]
-    }
-    // 运行中：只有用户气泡，子 Agent 的输出走 live 气泡实时渲染
-    return [userMessage]
-  }, [run?.status, run?.result, run?.error, run?.taskPrompt, run?.description])
+    return buildDetailMessages(run)
+  }, [
+    run?.status,
+    run?.result,
+    run?.error,
+    run?.taskPrompt,
+    run?.description,
+    run?.lastFollowUpPrompt,
+  ])
 
   if (!run) {
     return (

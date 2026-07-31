@@ -1,3 +1,4 @@
+import type OpenAI from 'openai'
 import { defineTool, type AgentTool } from '../agent-tool.ts'
 import type { EffectiveSubAgent, SubAgentAccess } from './subagent-types.ts'
 import {
@@ -11,6 +12,8 @@ import type { SubAgentHostConfig } from './subagent-types.ts'
 export type RunSubAgentFn = (params: {
   definition: EffectiveSubAgent
   taskPrompt: string
+  /** 续聊时传入上一轮完整 transcript；首轮省略 */
+  history?: OpenAI.Chat.ChatCompletionMessageParam[]
   signal?: AbortSignal
   onProgress?: (progress: unknown) => void
 }) => Promise<{
@@ -24,8 +27,46 @@ export type RunSubAgentFn = (params: {
   finalResult?: unknown
 }>
 
+export type SubAgentProgressEvent = {
+  runId: string
+  agentId: string
+  description: string
+  /** 子 Agent 解析出的 modelKey */
+  modelKey: string | undefined
+  phase: 'started' | 'progress' | 'done'
+  /** 本轮用户侧文案（首轮任务 / 追问）；started 时携带 */
+  taskPrompt?: string
+  /** 主 Agent 的 progress 数据（timeline/activities/answerText 等） */
+  progress?: unknown
+  /** 完成时的最终文本与统计 */
+  text?: string
+  toolCallCount?: number
+  incomplete?: boolean
+  /** 宿主附加的完整运行结果，供详情 Tab 完成后渲染 */
+  finalResult?: unknown
+}
+
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
+}
+
+export function formatSubAgentToolResult(params: {
+  agentId: string
+  description: string
+  access: SubAgentAccess
+  runId: string
+  text: string
+  toolCallCount: number
+  incomplete?: boolean
+}): string {
+  const header = [
+    `【Sub Agent ${params.agentId}】${params.description}`,
+    `run_id=${params.runId}`,
+    `access=${params.access}`,
+    params.incomplete ? 'status=incomplete' : 'status=ok',
+    `tools=${params.toolCallCount}`,
+  ].join(' · ')
+  return `${header}\n\n${params.text}`
 }
 
 export type CreateDelegateSubAgentToolOptions = {
@@ -35,24 +76,7 @@ export type CreateDelegateSubAgentToolOptions = {
   signal?: AbortSignal
   /** 宿主注入的子 Agent 运行函数（VSCode 端复用 askVscodeAiAgent） */
   runSubAgentFn: RunSubAgentFn
-  onSubAgentProgress?: (event: {
-    runId: string
-    agentId: string
-    description: string
-    /** 子 Agent 解析出的 modelKey */
-    modelKey: string | undefined
-    phase: 'started' | 'progress' | 'done'
-    /** 主 Agent 下发的完整任务 Prompt（started 时携带，供详情 Tab 渲染用户气泡） */
-    taskPrompt?: string
-    /** 主 Agent 的 progress 数据（timeline/activities/answerText 等） */
-    progress?: unknown
-    /** 完成时的最终文本与统计 */
-    text?: string
-    toolCallCount?: number
-    incomplete?: boolean
-    /** 宿主附加的完整运行结果，供详情 Tab 完成后渲染 */
-    finalResult?: unknown
-  }) => void
+  onSubAgentProgress?: (event: SubAgentProgressEvent) => void
 }
 
 function buildToolDescription(config: SubAgentHostConfig): string {
@@ -62,7 +86,8 @@ function buildToolDescription(config: SubAgentHostConfig): string {
     return `- ${agent.id}（${access}）：${agent.description}`
   })
   return [
-    '将独立子任务委派给 Sub Agent。子 Agent 有独立上下文，看不到本对话；prompt 必须自包含。',
+    '将独立子任务委派给 Sub Agent，开启一条可多轮私聊线程。子 Agent 有独立上下文，看不到本对话；prompt 必须自包含。',
+    '成功后会返回 run_id；若结果不够可再用 followup_subagent 对同一 run_id 追问。',
     '可并行发起多个 delegate_subagent（受并发上限约束）。',
     '可用 agent_id：',
     ...lines,
@@ -158,13 +183,15 @@ export function createDelegateSubAgentTool(
           finalResult: result.finalResult,
         })
 
-        const header = [
-          `【Sub Agent ${resolved.id}】${description}`,
-          `access=${resolved.access}`,
-          result.incomplete ? 'status=incomplete' : 'status=ok',
-          `tools=${result.toolCallCount}`,
-        ].join(' · ')
-        return `${header}\n\n${result.text}`
+        return formatSubAgentToolResult({
+          agentId: resolved.id,
+          description,
+          access: resolved.access,
+          runId,
+          text: result.text,
+          toolCallCount: result.toolCallCount,
+          incomplete: result.incomplete,
+        })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         return `Sub Agent「${resolved.id}」失败：${message}`

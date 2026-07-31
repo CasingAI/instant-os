@@ -281,4 +281,5 @@ export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   revert_terminal_changes: '撤销终端变更',
   compact_context: '压缩上下文',
   delegate_subagent: '委派 Sub Agent',
+  followup_subagent: '追问 Sub Agent',
 }

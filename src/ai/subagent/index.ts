@@ -16,9 +16,16 @@ export {
 } from './subagent-registry.ts'
 export {
   createDelegateSubAgentTool,
+  formatSubAgentToolResult,
   type CreateDelegateSubAgentToolOptions,
   type RunSubAgentFn,
+  type SubAgentProgressEvent,
 } from './subagent-delegate-tool.ts'
+export {
+  createFollowUpSubAgentTool,
+  type CreateFollowUpSubAgentToolOptions,
+  type SubAgentFollowUpSession,
+} from './subagent-followup-tool.ts'
 export {
   acquireSubAgentSlot,
   getRunningSubAgentCount,
