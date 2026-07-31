@@ -1,3 +1,4 @@
+import type OpenAI from 'openai'
 import {
   findAiModelPreset,
   isAiReasoningEffort,
@@ -40,10 +41,14 @@ export function totalStreamTextLength(reasoningText: string, contentText: string
   return reasoningText.length + contentText.length
 }
 
+/**
+ * 传给 OpenAI SDK create() 的 thinking 扩展字段。
+ * 运行时仍可发送 DeepSeek 等兼容端的 `max`；SDK 的 ReasoningEffort 不含该字面量，故对外收窄为 SDK 类型。
+ */
 export type ThinkingRequestParam = {
   thinking: { type: 'enabled' | 'disabled' }
   /** OpenAI 标准推理力度；未设置则不传，走模型默认 */
-  reasoning_effort?: AiReasoningEffort
+  reasoning_effort?: OpenAI.ReasoningEffort
 }
 
 /** 小米语音识别 / 合成不支持 thinking 参数 */
@@ -143,7 +148,8 @@ export function buildThinkingRequestExtras(
   ) {
     const supported = listSupportedReasoningEfforts(providerId, modelId)
     if (supported === null || supported.includes(thinkingEffort)) {
-      extras.reasoning_effort = thinkingEffort
+      // DeepSeek 等扩展档位（如 max）不在 OpenAI SDK ReasoningEffort 联合内，运行时原样发送
+      extras.reasoning_effort = thinkingEffort as OpenAI.ReasoningEffort
     }
   }
   return extras

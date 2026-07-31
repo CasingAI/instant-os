@@ -41,7 +41,7 @@ export async function pasteIntoEditor(editor: Editor): Promise<void> {
           const raw = await blob.text()
           const parsed = JSON.parse(raw) as { type?: string; content?: unknown }
           if (parsed?.type === 'doc' && parsed.content) {
-            editor.commands.insertContent(parsed)
+            editor.commands.insertContent(parsed as Parameters<Editor['commands']['insertContent']>[0])
             return
           }
         }

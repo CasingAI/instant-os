@@ -205,7 +205,7 @@ function BuiltinSubAgentPage({
           {onOpenModelConfig ? (
             <SettingsNavRow
               label="配置"
-              value={modelConfigSummary}
+              value={modelConfigSummary ?? ''}
               onClick={onOpenModelConfig}
             />
           ) : undefined}
@@ -564,11 +564,13 @@ export function VscodeSettingsPanel({
                     return (
                       <SettingsNavRow
                         label="配置"
-                        value={summaryForSettingsModelConfig(
-                          encoded,
-                          textModels,
-                          prefs.aiModelOptions,
-                        )}
+                        value={
+                          summaryForSettingsModelConfig(
+                            encoded,
+                            textModels,
+                            prefs.aiModelOptions,
+                          ) ?? ''
+                        }
                         onClick={() =>
                           openModelConfig({
                             back: 'completion',
@@ -951,11 +953,13 @@ export function VscodeSettingsPanel({
                 return (
                   <SettingsNavRow
                     label="配置"
-                    value={summaryForSettingsModelConfig(
-                      encoded,
-                      textModels,
-                      prefs.aiModelOptions,
-                    )}
+                    value={
+                      summaryForSettingsModelConfig(
+                        encoded,
+                        textModels,
+                        prefs.aiModelOptions,
+                      ) ?? ''
+                    }
                     onClick={() =>
                       openModelConfig({
                         back: 'subagent-custom',

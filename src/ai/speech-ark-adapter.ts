@@ -321,7 +321,7 @@ async function consumeTtsSse(options: {
                 totalTokens: usageWords,
               }
             : undefined,
-        status: 'ok',
+        status: 'success',
       })
     }
 
@@ -504,7 +504,7 @@ export async function arkRecognizeSpeech(options: {
     if (logSession && options.usageContext) {
       finishAiEventLogSession(logSession, options.usageContext, {
         response: text,
-        status: 'ok',
+        status: 'success',
       })
     }
 

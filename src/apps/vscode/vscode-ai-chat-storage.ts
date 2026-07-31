@@ -14,6 +14,7 @@ import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
 import type { VscodeModelSource } from './vscode-prefs.ts'
 import type { PersistedSubagentRun } from './vscode-subagent-persistence.ts'
 import { normalizePersistedSubagentRuns } from './vscode-subagent-persistence.ts'
+import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
 
