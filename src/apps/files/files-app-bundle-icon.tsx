@@ -5,10 +5,10 @@ import { AppIconTile } from '../../icons/app-icon-tile.tsx'
 import {
   getCachedAppCatalogEntryByBundlePath,
   listAppCatalogEntries,
-  loadAppRegistryModule,
   resolveAppCatalogEntryByBundlePath,
   type AppCatalogEntry,
 } from '../../os/app-catalog.ts'
+import { loadAppRegistryModule } from '../../os/app-registry-loader.ts'
 import type { BuiltinAppId } from '../../os/types.ts'
 import { parseApplicationsDirPath } from './files-location-applications.ts'
 import type { FilesNode } from './files-types.ts'

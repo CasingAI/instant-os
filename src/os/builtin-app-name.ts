@@ -1,9 +1,9 @@
-import { getAppDefinition } from './app-registry.tsx'
+import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
 import type { BuiltinAppId } from './types.ts'
 
-/** 内置应用在系统中的显示名称；以 {@link APP_REGISTRY} 为唯一数据源。 */
+/** 内置应用在系统中的显示名称；以 {@link BUILTIN_APP_DISPLAY_NAMES} 为唯一数据源。 */
 export function getBuiltinAppName(appId: BuiltinAppId): string {
-  return getAppDefinition(appId)?.name ?? appId
+  return BUILTIN_APP_DISPLAY_NAMES[appId] ?? appId
 }
 
 /** 「在 {应用名} 中打开」的标准文案。 */

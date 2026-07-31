@@ -1,5 +1,9 @@
 import { sanitizeFilesPathSegment } from '../apps/files/files-path.ts'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
+import {
+  BUILTIN_APP_CATALOG_ORDER,
+  BUILTIN_APP_DISPLAY_NAMES,
+} from './builtin-app-display-names.ts'
 import { loadInstalledApps } from './generated-apps-storage.ts'
 import type { AppId, GeneratedAppId } from './types.ts'
 
@@ -24,15 +28,9 @@ export type AppCatalogEntry = {
 
 const APP_BUNDLE_SUFFIX = '.app'
 
-let registryModulePromise: Promise<typeof import('./app-registry.tsx')> | undefined
 let cachedEntries: AppCatalogEntry[] | undefined
 let cachedByBundlePath: Map<string, AppCatalogEntry> | undefined
 let catalogLoadPromise: Promise<AppCatalogEntry[]> | undefined
-
-function loadAppRegistryModule(): Promise<typeof import('./app-registry.tsx')> {
-  registryModulePromise ??= import('./app-registry.tsx')
-  return registryModulePromise
-}
 
 export function isAppBundleName(name: string): boolean {
   return name.endsWith(APP_BUNDLE_SUFFIX)
@@ -71,23 +69,23 @@ function makeBundleName(name: string, id: AppId, usedNames: Set<string>): string
 }
 
 async function buildAppCatalogEntries(): Promise<AppCatalogEntry[]> {
-  const { APP_REGISTRY } = await loadAppRegistryModule()
   const usedNames = new Set<string>()
   const entries: AppCatalogEntry[] = []
 
-  for (const app of APP_REGISTRY) {
-    const about = BUILTIN_APP_ABOUT[app.id]
-    const bundleName = makeBundleName(app.name, app.id, usedNames)
+  for (const appId of BUILTIN_APP_CATALOG_ORDER) {
+    const name = BUILTIN_APP_DISPLAY_NAMES[appId]
+    const about = BUILTIN_APP_ABOUT[appId]
+    const bundleName = makeBundleName(name, appId, usedNames)
     entries.push({
-      id: app.id,
+      id: appId,
       kind: 'builtin',
-      name: app.name,
+      name,
       bundleName,
       bundlePath: bundleName,
       version: about?.version,
       description: about?.paragraphs?.[0],
       removable: false,
-      sourceRootPath: `src/apps/${app.id}`,
+      sourceRootPath: `src/apps/${appId}`,
     })
   }
 
@@ -137,5 +135,3 @@ export async function resolveAppCatalogEntryById(appId: AppId): Promise<AppCatal
   const entries = await listAppCatalogEntries()
   return entries.find((entry) => entry.id === appId)
 }
-
-export { loadAppRegistryModule }
