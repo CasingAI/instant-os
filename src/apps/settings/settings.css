@@ -47,9 +47,53 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
-  color: #000;
   font-size: 13px;
+
+  /* ── Theme tokens（浅色默认；.settings--dark 覆盖）── */
+  --settings-page-bg: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+  --settings-ink: #000;
+  --settings-nav-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  --settings-nav-border: 1px solid rgba(0, 0, 0, 0.14);
+  --settings-nav-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72),
+    0 5px 14px -8px rgba(0, 0, 0, 0.22);
+  --settings-nav-heading: #222;
+  --settings-nav-heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-section-title: #555;
+  --settings-section-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-footnote: #666;
+  --settings-footnote-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-list-bg: #fff;
+  --settings-list-border: #a8a8a8;
+  --settings-list-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --settings-row-border: #ececec;
+  --settings-row-size: #666;
+  --settings-disclosure: #b4b4b4;
+  --settings-field-label: #333;
+  --settings-input-bg: #fff;
+  --settings-input-border: #a8a8a8;
+  --settings-input-ink: #222;
+  --settings-input-list-ink: #666;
+  --settings-input-list-ink-hover: #444;
+  --settings-box-bg: #f6f6f6;
+  --settings-box-border: #a8a8a8;
+  --settings-option-ink: #222;
+  --settings-option-bg: #fff;
+  --settings-option-check: #007aff;
+  --settings-check: #007aff;
+  --settings-btn-plain-color: #333;
+  --settings-btn-plain-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --settings-btn-plain-bg-active: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  --settings-btn-border: 1px solid rgba(0, 0, 0, 0.28);
+  --settings-btn-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+  --settings-btn-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --settings-stepper-btn-bg: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  --settings-stepper-btn-border: 1px solid rgba(0, 0, 0, 0.28);
+  --settings-stepper-btn-ink: #222;
+  --settings-stepper-value-ink: #444;
+  --settings-error: #c0392b;
 
   --ios-nav-back-color: #007aff;
   --ios-nav-back-color-active: #0056b3;
@@ -65,6 +109,9 @@
   --ios-nav-back-radius: 4px;
   --ios-nav-back-height: 28px;
   --ios-nav-back-font-size: 13px;
+
+  background: var(--settings-page-bg);
+  color: var(--settings-ink);
 }
 
 /* ── In-content navigation (not a second title bar) ── */
@@ -81,11 +128,9 @@
   flex-shrink: 0;
   margin: 0;
   padding: 6px 12px;
-  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.72),
-    0 5px 14px -8px rgba(0, 0, 0, 0.22);
+  background: var(--settings-nav-bg);
+  border-bottom: var(--settings-nav-border);
+  box-shadow: var(--settings-nav-shadow);
 }
 
 .settings:has(> .settings__nav) > .settings__content {
@@ -186,8 +231,8 @@
   text-align: center;
   font-size: 15px;
   font-weight: 600;
-  color: #222;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  color: var(--settings-nav-heading);
+  text-shadow: var(--settings-nav-heading-shadow);
   /* 避免与两侧按钮抢层叠时文字叠在按钮上 */
   position: relative;
   z-index: 0;
@@ -545,30 +590,30 @@
   margin: 0 0 6px;
   font-size: 11px;
   font-weight: 600;
-  color: #555;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  color: var(--settings-section-title);
+  text-shadow: var(--settings-section-title-shadow);
 }
 
 .settings__section-footnote {
   margin: 8px 0 0;
   font-size: 11px;
   line-height: 1.45;
-  color: #666;
+  color: var(--settings-footnote);
   text-align: start;
   text-align-last: start;
   text-justify: none;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  text-shadow: var(--settings-footnote-shadow);
 }
 
 .settings__section-subtitle {
   margin: -2px 0 8px;
   font-size: 11px;
   line-height: 1.4;
-  color: #777;
+  color: var(--settings-footnote);
   text-align: start;
   text-align-last: start;
   text-justify: none;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  text-shadow: var(--settings-footnote-shadow);
 }
 
 .settings__mono {
@@ -913,10 +958,10 @@
 
 .settings__list {
   overflow: hidden;
-  border: 1px solid #a8a8a8;
+  border: 1px solid var(--settings-list-border);
   border-radius: 4px;
-  background: #fff;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  background: var(--settings-list-bg);
+  box-shadow: var(--settings-list-shadow);
 }
 
 .settings__list-head {
@@ -1019,7 +1064,7 @@
   min-height: 36px;
   padding: 4px 10px;
   text-align: left;
-  border-bottom: 1px solid #ececec;
+  border-bottom: 1px solid var(--settings-row-border);
   font-size: 13px;
 }
 
@@ -1029,7 +1074,7 @@
 
 /* 包装在 choice-field 等容器内的行仍是 :last-child，需保留底部分隔线 */
 .settings__list > *:not(:last-child) > .settings__row:last-child {
-  border-bottom: 1px solid #ececec;
+  border-bottom: 1px solid var(--settings-row-border);
 }
 
 .settings__row-name {
@@ -1063,13 +1108,13 @@
 
 .settings__row-size {
   font-size: 12px;
-  color: #666;
+  color: var(--settings-row-size);
   font-variant-numeric: tabular-nums;
 }
 
 .settings__row-count {
   text-align: right;
-  color: #666;
+  color: var(--settings-row-size);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1080,7 +1125,7 @@
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  color: #b4b4b4;
+  color: var(--settings-disclosure);
   transition:
     transform 0.15s ease,
     color 0.1s ease;
@@ -1609,13 +1654,11 @@
   height: 28px;
   padding: 0 14px;
   border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.28);
+  border: var(--settings-btn-border);
   font-size: 13px;
   font-weight: 600;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 0 rgba(255, 255, 255, 0.35);
+  text-shadow: var(--settings-btn-text-shadow);
+  box-shadow: var(--settings-btn-shadow);
 }
 
 .settings__btn--default {
@@ -1756,12 +1799,12 @@
 }
 
 .settings__btn--plain {
-  color: #333;
-  background: linear-gradient(180deg, #fff 0%, #ececec 55%, #dcdcdc 100%);
+  color: var(--settings-btn-plain-color);
+  background: var(--settings-btn-plain-bg);
 }
 
 .settings__btn--plain:active {
-  background: linear-gradient(180deg, #dcdcdc 0%, #ececec 100%);
+  background: var(--settings-btn-plain-bg-active);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
@@ -1798,7 +1841,7 @@
   font-size: 15px;
   font-weight: 700;
   line-height: 1;
-  color: #007aff;
+  color: var(--settings-check);
 }
 
 .settings__row--check:hover:not(:disabled) .settings__row-check,
@@ -1894,7 +1937,7 @@
 .settings__field-label {
   font-size: 12px;
   font-weight: 500;
-  color: #333;
+  color: var(--settings-field-label);
 }
 
 .settings__input {
@@ -1902,11 +1945,11 @@
   min-width: 0;
   height: 24px;
   padding: 0 8px;
-  border: 1px solid #a8a8a8;
+  border: 1px solid var(--settings-input-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--settings-input-bg);
   font-size: 12px;
-  color: #222;
+  color: var(--settings-input-ink);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
@@ -1945,7 +1988,7 @@
   padding: 0 8px;
   border: 1px solid transparent;
   background: transparent;
-  color: #666;
+  color: var(--settings-input-list-ink);
   box-shadow: none;
   transition:
     border-color 0.12s ease,
@@ -1955,17 +1998,17 @@
 }
 
 .settings__input.settings__input--list::placeholder {
-  color: #666;
+  color: var(--settings-input-list-ink);
 }
 
 .settings__input.settings__input--list:hover:not(:focus) {
-  color: #444;
+  color: var(--settings-input-list-ink-hover);
 }
 
 .settings__input.settings__input--list:focus {
-  color: #222;
-  border-color: #a8a8a8;
-  background: #fff;
+  color: var(--settings-input-ink);
+  border-color: var(--settings-input-border);
+  background: var(--settings-input-bg);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
@@ -2113,7 +2156,7 @@
 }
 
 .settings__form-status--error {
-  color: #c0392b;
+  color: var(--settings-error);
 }
 
 /* ── Option list (radio-style rows) ── */
@@ -2126,10 +2169,10 @@
   min-height: 32px;
   padding: 6px 12px;
   text-align: left;
-  border-bottom: 1px solid #ececec;
+  border-bottom: 1px solid var(--settings-row-border);
   font-size: 13px;
-  color: #222;
-  background: #fff;
+  color: var(--settings-option-ink);
+  background: var(--settings-option-bg);
 }
 
 .settings__option-row:last-child {
@@ -2162,7 +2205,7 @@
   flex-shrink: 0;
   font-size: 14px;
   font-weight: 700;
-  color: #007aff;
+  color: var(--settings-option-check);
 }
 
 .settings__emoji-preview {
@@ -3300,4 +3343,192 @@
 
 .proxy-probe-modal__message--error {
   color: #c0392b;
+}
+
+/* ── Number stepper row ── */
+
+.settings__row--stepper {
+  grid-template-columns: 1fr auto;
+  padding: 4px 8px 4px 12px;
+  gap: 8px;
+}
+
+.settings__stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.settings__stepper-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: var(--settings-stepper-btn-border);
+  border-radius: 4px;
+  background: var(--settings-stepper-btn-bg);
+  color: var(--settings-stepper-btn-ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--settings-btn-shadow);
+  user-select: none;
+}
+
+.settings__stepper-btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.settings__stepper-btn:active:not(:disabled) {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+.settings__stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.settings__stepper-value {
+  min-width: 36px;
+  padding: 0 4px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--settings-stepper-value-ink);
+}
+
+.settings__stepper-input {
+  width: 48px;
+  height: 26px;
+  margin: 0 2px;
+  padding: 0 4px;
+  text-align: center;
+  border: 1px solid var(--settings-input-border);
+  border-radius: 4px;
+  background: var(--settings-input-bg);
+  color: var(--settings-input-ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
+.settings__stepper-input:focus {
+  border-color: #4a90e2;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 2px rgba(74, 144, 226, 0.25);
+}
+
+/* ── Dark theme ── */
+
+.settings--dark {
+  --settings-page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
+  --settings-ink: #e6e6e8;
+  --settings-nav-bg: linear-gradient(180deg, #323238 0%, #28282e 100%);
+  --settings-nav-border: 1px solid rgba(255, 255, 255, 0.08);
+  --settings-nav-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06),
+    0 5px 14px -8px rgba(0, 0, 0, 0.55);
+  --settings-nav-heading: #f0f0f2;
+  --settings-nav-heading-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
+  --settings-section-title: #a0a0a8;
+  --settings-section-title-shadow: none;
+  --settings-footnote: #9a9aa2;
+  --settings-footnote-shadow: none;
+  --settings-list-bg: #2a2a30;
+  --settings-list-border: #3e3e46;
+  --settings-list-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --settings-row-border: #3a3a42;
+  --settings-row-size: #9a9aa2;
+  --settings-disclosure: #6e6e78;
+  --settings-field-label: #c8c8ce;
+  --settings-input-bg: #1e1e24;
+  --settings-input-border: #4a4a54;
+  --settings-input-ink: #e6e6e8;
+  --settings-input-list-ink: #9a9aa2;
+  --settings-input-list-ink-hover: #c8c8ce;
+  --settings-box-bg: #25252b;
+  --settings-box-border: #3e3e46;
+  --settings-option-ink: #e6e6e8;
+  --settings-option-bg: #2a2a30;
+  --settings-option-check: #5eb0ff;
+  --settings-check: #5eb0ff;
+  --settings-btn-plain-color: #e6e6e8;
+  --settings-btn-plain-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
+  --settings-btn-plain-bg-active: linear-gradient(180deg, #323238 0%, #3a3a42 100%);
+  --settings-btn-border: 1px solid rgba(255, 255, 255, 0.14);
+  --settings-btn-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 0 rgba(0, 0, 0, 0.35);
+  --settings-btn-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  --settings-stepper-btn-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
+  --settings-stepper-btn-border: 1px solid rgba(255, 255, 255, 0.14);
+  --settings-stepper-btn-ink: #e6e6e8;
+  --settings-stepper-value-ink: #c8c8ce;
+  --settings-error: #ff8a80;
+
+  --ios-nav-back-color: #5eb0ff;
+  --ios-nav-back-color-active: #8ec8ff;
+  --ios-nav-back-bg: linear-gradient(180deg, #4a4a52 0%, #3a3a42 55%, #323238 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #52525a 0%, #42424a 55%, #3a3a42 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
+  --ios-nav-back-border: 1px solid rgba(255, 255, 255, 0.16);
+  --ios-nav-back-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 0 rgba(0, 0, 0, 0.35);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.settings--dark .settings__box,
+.settings--dark .settings__empty {
+  background: var(--settings-box-bg);
+  border-color: var(--settings-box-border);
+  color: var(--settings-ink);
+}
+
+.settings--dark .settings__btn--default:disabled,
+.settings--dark .settings__btn:disabled {
+  color: #888;
+  text-shadow: none;
+  background: linear-gradient(180deg, #3a3a42 0%, #2e2e34 100%);
+  border-color: #4a4a54;
+  box-shadow: none;
+}
+
+.settings--dark .ios-switch__track {
+  border-color: #6a4a28;
+  background: linear-gradient(180deg, #8a6030 0%, #6e4a22 48%, #5a3c1c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.settings--dark .ios-switch__caption--off {
+  color: rgba(255, 220, 180, 0.75);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.settings--dark .ios-switch__knob {
+  border-color: rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #f0f0f2 0%, #d8d8dc 50%, #c0c0c6 100%);
+}
+
+.settings--dark .ios-switch input:checked + .ios-switch__track {
+  border-color: #1a4a7a;
+  background: linear-gradient(180deg, #4a90d8 0%, #2f6fb8 48%, #245a98 100%);
+}
+
+.settings--dark .vscode__settings-textarea,
+.settings--dark textarea.vscode__settings-textarea {
+  background: var(--settings-input-bg);
+  color: var(--settings-input-ink);
+  border-color: var(--settings-input-border);
 }

@@ -266,6 +266,45 @@
   box-sizing: border-box;
 }
 
+.vscode__settings {
+  padding-left: var(--vscode-caret-size);
+  box-sizing: border-box;
+  /* 转场时 .settings 会 display:contents，需由宿主/栈层顶住底色，避免闪白 */
+  --settings-page-bg: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+  background: var(--settings-page-bg);
+}
+
+.vscode__settings > .keychain-stack,
+.vscode__settings .keychain-stack__layer {
+  background: var(--settings-page-bg);
+}
+
+.vscode__settings > .keychain-stack {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.vscode__settings-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  background: #fff;
+  color: #000;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 96px;
+}
+
+.vscode__settings-textarea:focus {
+  outline: none;
+  border-color: #007aff;
+}
+
 .vscode__explorer > .vscode__sidebar-header,
 .vscode__search > .vscode__sidebar-header {
   margin-left: calc(-1 * var(--vscode-caret-size));
@@ -1028,18 +1067,26 @@
 }
 
 .vscode__settings {
-  padding: 0 14px 14px;
-  padding-left: calc(14px + var(--vscode-caret-size));
-  gap: 12px;
-  overflow: auto;
+  /* 分层设置由内部 .settings / keychain-stack 负责滚动与内边距 */
+  padding: 0;
+  padding-left: var(--vscode-caret-size);
+  gap: 0;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
-.vscode__settings > .vscode__sidebar-header {
-  margin-left: calc(-1 * (14px + var(--vscode-caret-size)));
-  margin-right: -14px;
-  padding-left: calc(14px + var(--vscode-caret-size));
-  padding-right: 14px;
+.vscode--chrome-dark .vscode__settings {
+  --settings-page-bg: linear-gradient(180deg, #2c2c30 0%, #1e1e22 100%);
+}
+
+.vscode__settings .settings__content--compact {
+  --settings-content-pad-x: 12px;
+  padding: 10px 12px 16px;
+}
+
+.vscode__settings .settings__nav {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .vscode__setting {
@@ -1077,121 +1124,9 @@
   border-color: var(--vscode-accent);
 }
 
-.vscode__sidebar-subheader {
-  margin: 12px 0 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--vscode-muted, #666);
-  text-transform: uppercase;
-}
-
-.vscode__subagent-settings {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--vscode-border-light);
-}
-
-.vscode__subagent-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.vscode__subagent-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--vscode-muted, #666);
-}
-
-.vscode__subagent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.vscode__subagent-list-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--vscode-border-light);
-  border-radius: var(--vscode-radius);
-  background: #fff;
-}
-
-.vscode__subagent-list-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-}
-
-.vscode__subagent-list-desc {
-  color: var(--vscode-muted, #666);
-}
-
-.vscode__subagent-list-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.vscode__subagent-btn {
-  padding: 4px 8px;
-  border: 1px solid var(--vscode-border);
-  border-radius: 5px;
-  background: linear-gradient(180deg, #fff 0%, #f0f0f0 100%);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.vscode__subagent-btn--danger {
-  color: #a1260d;
-}
-
-.vscode__subagent-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.vscode__subagent-textarea {
-  padding: 7px 10px;
-  border: 1px solid var(--vscode-border);
-  border-radius: 5px;
-  background: #fff;
-  color: var(--vscode-ink);
-  font: inherit;
-  resize: vertical;
-  min-height: 80px;
-}
-
-.vscode__setting select,
-.vscode__setting input[type='text'] {
-  padding: 7px 10px;
-  border: 1px solid var(--vscode-border);
-  border-radius: 5px;
-  background: #fff;
-  color: var(--vscode-ink);
-  font: inherit;
-  box-shadow: var(--vscode-shadow-in);
-  outline: none;
-}
-
-.vscode__subagent-error {
-  margin: 0;
-  font-size: 12px;
-  color: #a1260d;
+.vscode__setting .settings-choice-field__trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* ---- 聊天内「查看详情」按钮 ---- */
@@ -1279,11 +1214,6 @@
 .vscode-ai__readonly-header-status--error {
   background: #fce4ec;
   color: #c62828;
-}
-
-.vscode__setting .settings-choice-field__trigger:disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 
 /* AI 代码补全：光标处脉冲点 */
@@ -3153,7 +3083,7 @@
 .vscode--chrome-dark .vscode__setting input[type='number'],
 .vscode--chrome-dark .vscode__setting input[type='text'],
 .vscode--chrome-dark .vscode__setting select,
-.vscode--chrome-dark .vscode__subagent-textarea,
+.vscode--chrome-dark .vscode__settings-textarea,
 .vscode--chrome-dark .vscode-quick-pick__input,
 .vscode--chrome-dark .vscode__quick-search-input,
 .vscode--chrome-dark .vscode__search-editor-context input {

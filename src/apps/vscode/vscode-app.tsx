@@ -48,8 +48,6 @@ import {
   type VscodeTerminalSession,
 } from './vscode-terminal-sessions.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
-import { IosSwitch } from '../../ui/ios-switch.tsx'
-import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { VscodeIcon } from '../../icons/app-icons.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -139,15 +137,8 @@ import {
   type VscodeAiClosedChatSession,
   type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
-import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
-import { VscodeSubAgentSettings } from './vscode-subagent-settings.tsx'
-import {
-  decodeVscodeModelPickerValue,
-  encodeVscodeModelPickerValue,
-  resolveVscodeCompletionModelKey,
-  useVscodeAiCapabilityTags,
-  useVscodeAiTextModels,
-} from './vscode-ai-models.ts'
+import { resolveVscodeCompletionModelKey } from './vscode-ai-models.ts'
+import { VscodeSettingsPanel } from './vscode-settings-panel.tsx'
 import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
 import './vscode.css'
 
@@ -231,16 +222,6 @@ type DirtyPromptState = {
 }
 
 type SidebarView = 'explorer' | 'search' | 'settings'
-
-const VSCODE_THEME_OPTIONS = [
-  { id: 'vs-dark', label: '深色' },
-  { id: 'vs', label: '浅色' },
-  { id: 'hc-black', label: '高对比' },
-  { id: 'dark-plus', label: '深色+' },
-  { id: 'light-plus', label: '浅色+' },
-  { id: 'dark-modern', label: '现代深色' },
-  { id: 'light-modern', label: '现代浅色' },
-] as const
 
 type VscodeAppProps = {
   windowId?: string
@@ -331,8 +312,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
-  const textModels = useVscodeAiTextModels()
-  const capabilityTags = useVscodeAiCapabilityTags()
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [activityCaretTop, setActivityCaretTop] = useState(78)
   const [caretReady, setCaretReady] = useState(false)
@@ -3094,112 +3073,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             ) : undefined}
 
             {sidebarView === 'settings' ? (
-              <div class="vscode__settings">
-                <div class="vscode__sidebar-header">设置</div>
-                <SettingsChoiceField
-                  label="主题"
-                  value={prefs.theme}
-                  options={VSCODE_THEME_OPTIONS}
-                  onChange={(value) =>
-                    updatePrefs({ theme: value as VscodePrefs['theme'] })
-                  }
-                  wideLayout
-                  presentation="form"
-                  fieldClass="vscode__setting"
-                  labelClass=""
-                  dark={isVscodeChromeDark(prefs.theme)}
-                />
-                <label class="vscode__setting">
-                  <span>字号</span>
-                  <input
-                    type="number"
-                    min={10}
-                    max={24}
-                    value={prefs.fontSize}
-                    onInput={(event) =>
-                      updatePrefs({
-                        fontSize: Number((event.target as HTMLInputElement).value) || 13,
-                      })
-                    }
-                  />
-                </label>
-                <div class="vscode__setting vscode__setting--row">
-                  <span>小地图</span>
-                  <IosSwitch
-                    checked={prefs.minimap}
-                    onChange={(checked) => updatePrefs({ minimap: checked })}
-                    label="小地图"
-                  />
-                </div>
-                <div class="vscode__setting vscode__setting--row">
-                  <span>自动换行</span>
-                  <IosSwitch
-                    checked={prefs.wordWrap}
-                    onChange={(checked) => updatePrefs({ wordWrap: checked })}
-                    label="自动换行"
-                  />
-                </div>
-                <div class="vscode__setting vscode__setting--row">
-                  <span>代码补全</span>
-                  <IosSwitch
-                    checked={prefs.completionEnabled}
-                    onChange={(checked) => updatePrefs({ completionEnabled: checked })}
-                    label="代码补全"
-                  />
-                </div>
-                {prefs.completionEnabled ? (
-                  <VscodeAiModelPicker
-                    label="补全模型"
-                    selectionMode="completion"
-                    value={encodeVscodeModelPickerValue(
-                      prefs.completionModelSource,
-                      prefs.completionModelKey,
-                    )}
-                    models={textModels}
-                    onChange={(encoded) => {
-                      const decoded = decodeVscodeModelPickerValue(encoded)
-                      updatePrefs({
-                        completionModelSource: decoded.source,
-                        completionModelKey:
-                          decoded.source === 'custom'
-                            ? decoded.modelKey
-                            : prefs.completionModelKey,
-                      })
-                    }}
-                    aiModelOptions={prefs.aiModelOptions}
-                    onAiModelOptionsChange={(aiModelOptions) =>
-                      updatePrefs({ aiModelOptions })
-                    }
-                    capabilityTags={capabilityTags}
-                    disabled={textModels.length === 0}
-                    presentation="form"
-                    fieldClass="vscode__setting"
-                    labelClass=""
-                    dark={isVscodeChromeDark(prefs.theme)}
-                  />
-                ) : undefined}
-                <label class="vscode__setting">
-                  <span>Agent 空闲重试次数</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={50}
-                    value={prefs.aiIdleRetryCount}
-                    onInput={(event) => {
-                      const value = Number((event.target as HTMLInputElement).value)
-                      if (!Number.isFinite(value)) return
-                      updatePrefs({
-                        aiIdleRetryCount: Math.min(50, Math.max(0, Math.round(value))),
-                      })
-                    }}
-                  />
-                </label>
-                <VscodeSubAgentSettings
-                  prefs={prefs}
-                  dark={isVscodeChromeDark(prefs.theme)}
-                  onChange={(patch) => updatePrefs(patch)}
-                />
-              </div>
+              <VscodeSettingsPanel
+                prefs={prefs}
+                dark={isVscodeChromeDark(prefs.theme)}
+                onChange={(patch) => updatePrefs(patch)}
+              />
             ) : undefined}
           </aside>
           </div>

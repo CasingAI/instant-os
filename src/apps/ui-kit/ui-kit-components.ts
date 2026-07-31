@@ -207,6 +207,31 @@ export const UI_COMPONENTS: ComponentDemo[] = [
 />`,
   },
   {
+    id: 'settings-stepper-row',
+    name: 'SettingsStepperRow',
+    description: '设置数字步进行；[−] / 可编辑数值 / [+]，支持 min/max/step',
+    category: 'settings',
+    importPath: "import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'",
+    props: [
+      { name: 'label', type: 'string', description: '左侧标签' },
+      { name: 'value', type: 'number', description: '当前值' },
+      { name: 'onChange', type: '(value: number) => void', description: '值变化回调' },
+      { name: 'min', type: 'number?', description: '最小值' },
+      { name: 'max', type: 'number?', description: '最大值' },
+      { name: 'step', type: 'number?', description: '步进，默认 1' },
+      { name: 'unit', type: 'string?', description: '单位（editable=false 时展示）' },
+      { name: 'editable', type: 'boolean?', description: '是否允许直接输入，默认 true' },
+      { name: 'disabled', type: 'boolean?', description: '是否禁用' },
+    ],
+    codeExample: `<SettingsStepperRow
+  label="字号"
+  value={fontSize}
+  min={10}
+  max={24}
+  onChange={setFontSize}
+/>`,
+  },
+  {
     id: 'settings-check-row',
     name: 'SettingsCheckRow',
     description: '设置勾选行；左侧标签、右侧无边框勾，整行点按切换；禁用态灰底灰字',

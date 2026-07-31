@@ -154,6 +154,8 @@ type KeychainNavStackProps<T extends string> = {
   onMotionEnd: (event: AnimationEvent) => void
   renderPage: (page: T) => ComponentChildren
   hostRef?: Ref<HTMLDivElement>
+  /** 追加到每层 `.settings` 上的 class（如 settings--dark） */
+  settingsClassName?: string
 }
 
 function layerSettings(layer: Element): HTMLElement | null {
@@ -210,6 +212,7 @@ export function KeychainNavStack<T extends string>({
   onMotionEnd,
   renderPage,
   hostRef,
+  settingsClassName,
 }: KeychainNavStackProps<T>) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollByPageRef = useRef(new Map<string, number>())
@@ -378,7 +381,11 @@ export function KeychainNavStack<T extends string>({
             hidden={!visible}
           >
             <div
-              class="settings"
+              class={
+                settingsClassName
+                  ? `settings ${settingsClassName}`
+                  : 'settings'
+              }
               onScroll={(event) => {
                 rememberScroll(id, event.currentTarget.scrollTop)
               }}

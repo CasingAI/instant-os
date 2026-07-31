@@ -198,8 +198,8 @@
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  /* .settings 在 display:contents 下不再铺背景，改由正文承担 */
-  background: linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+  /* .settings 在 display:contents 下不再铺背景，改由正文承担；跟主题 token */
+  background: var(--settings-page-bg, linear-gradient(180deg, #ececec 0%, #d8d8d8 100%));
 }
 
 /* 转场时正文才是滚动容器，搜索条贴内容顶即可 */

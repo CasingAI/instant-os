@@ -9,6 +9,7 @@ import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
 import { SettingsCheckRow } from '../../ui/settings-check-row.tsx'
 import { SettingsSwitchRow } from '../../ui/settings-switch-row.tsx'
+import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 import { DocumentTabBar, type DocumentTabItem } from '../../ui/document-tab-bar.tsx'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
@@ -40,11 +41,7 @@ function DemoVariant({
 }
 
 function SettingsGroup({ children }: { children: preact.ComponentChildren }) {
-  return (
-    <div class="ui-kit-demo__settings-group">
-      {children}
-    </div>
-  )
+  return <div class="settings__list ui-kit-demo__settings-group">{children}</div>
 }
 
 export function IosSwitchDemo() {
@@ -410,6 +407,42 @@ export function SettingsSwitchRowDemo() {
           />
           <SettingsSwitchRow label="提示音" checked={sounds} onChange={setSounds} />
           <SettingsSwitchRow label="角标" checked={badge} onChange={setBadge} />
+        </SettingsGroup>
+      </DemoVariant>
+    </DemoVariants>
+  )
+}
+
+export function SettingsStepperRowDemo() {
+  const [fontSize, setFontSize] = useState(13)
+  const [retries, setRetries] = useState(10)
+  const [concurrency, setConcurrency] = useState(5)
+
+  return (
+    <DemoVariants>
+      <DemoVariant label="数字步进" wide>
+        <SettingsGroup>
+          <SettingsStepperRow
+            label="字号"
+            value={fontSize}
+            min={10}
+            max={24}
+            onChange={setFontSize}
+          />
+          <SettingsStepperRow
+            label="空闲重试"
+            value={retries}
+            min={0}
+            max={50}
+            onChange={setRetries}
+          />
+          <SettingsStepperRow
+            label="并发上限"
+            value={concurrency}
+            min={1}
+            max={20}
+            onChange={setConcurrency}
+          />
         </SettingsGroup>
       </DemoVariant>
     </DemoVariants>
