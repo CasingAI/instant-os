@@ -1172,7 +1172,8 @@ export function VscodeAiPanel({
   const [reviewBusy, setReviewBusy] = useState(false)
   reviewBusyRef.current = reviewBusy
   const [reviewChangesOpen, setReviewChangesOpen] = useState(false)
-  const [composerInset, setComposerInset] = useState(96)
+  // readOnly（Sub Agent 详情）无底部输入框，勿预留 composer 高度，否则滚底会留白
+  const [composerInset, setComposerInset] = useState(readOnly ? 0 : 96)
 
   useEffect(() => {
     onBusyChangeRef.current?.(busy || reviewBusy)
@@ -2339,7 +2340,7 @@ export function VscodeAiPanel({
   return (
     <div
       class="help-app vscode-ai help-app--width-full"
-      style={{ '--vscode-ai-composer-inset': `${composerInset}px` }}
+      style={{ '--vscode-ai-composer-inset': `${readOnly ? 0 : composerInset}px` }}
     >
       {readOnly && headerInfo ? (
         <div class="vscode-ai__readonly-header" role="status">
