@@ -1,4 +1,3 @@
-import { isReadableVfsAbsolutePath } from '../files/files-path.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import { buildInstantShellSystemPromptSection } from '../../terminal/instant-shell/instant-shell-prompt.ts'
 import type { VscodeTab } from './vscode-tabs.ts'
@@ -25,39 +24,6 @@ export type VscodeAiContextInput = {
   aiTerminal?: VscodeAgentTerminalSnapshot
   /** 与 aiTerminal 配套，决定上下文文案用 Ask / Plan / Agent */
   aiTerminalKind?: VscodeAiTerminalKind
-}
-
-function normalizeRoot(path: string | undefined): string | undefined {
-  if (!path) return undefined
-  const trimmed = path.trim().replace(/\/+$/, '') || '/'
-  return trimmed
-}
-
-/** AI 读取工具：允许访问虚拟文件系统内任意卷，写入仍限工作区 */
-export function isPathAllowedForAiRead(path: string): boolean {
-  return isReadableVfsAbsolutePath(path)
-}
-
-export function isPathAllowedForWrite(path: string, input: VscodeAiContextInput): boolean {
-  const workspace = normalizeRoot(input.workspaceFolder)
-  const normalized = path.replace(/\/+$/, '') || '/'
-  if (workspace) {
-    return normalized === workspace || normalized.startsWith(`${workspace}/`)
-  }
-  for (const tab of input.tabs) {
-    const tabPath = tab.path.replace(/\/+$/, '') || '/'
-    if (normalized === tabPath || normalized.startsWith(`${tabPath}/`)) {
-      return true
-    }
-    const slash = tabPath.lastIndexOf('/')
-    if (slash > 0) {
-      const parent = tabPath.slice(0, slash)
-      if (normalized === parent || normalized.startsWith(`${parent}/`)) {
-        return true
-      }
-    }
-  }
-  return false
 }
 
 function aiTerminalLabel(kind: VscodeAiTerminalKind | undefined): string {
@@ -130,14 +96,9 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '落盘 Markdown 建议含：# 标题、overview、实现要点（关键路径）、todos checklist；复杂时可用 mermaid。',
             '写完计划即可结束本轮，不要开始改业务代码。',
           ].join(' ')
-        : mode === 'edit'
-          ? '当前模式：Edit。可用读取类工具了解工作区，通过 propose_file_edit 提交修改提案（用户确认后才写入）。不得执行终端/npm。'
-          : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时用 globalThis.instant；需要打开/读取/操作真实网页时用 globalThis.webview（见下方壳层 API）。'
+        : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时用 globalThis.instant；需要打开/读取/操作真实网页时用 globalThis.webview（见下方壳层 API）。'
 
-  const instantShellSection =
-    mode === 'ask' || mode === 'plan' || mode === 'agent'
-      ? `\n\n${buildInstantShellSystemPromptSection()}`
-      : ''
+  const instantShellSection = `\n\n${buildInstantShellSystemPromptSection()}`
 
   const envLines =
     mode === 'ask' || mode === 'plan'
@@ -154,28 +115,20 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
           '- 回答用简洁中文 Markdown；引用路径时用反引号',
           '- 不要编造未执行的工具结果',
         ]
-      : mode === 'edit'
-        ? [
-            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
-            '- 没有真实 shell、管道或网络下载',
-            '- /system 与 /models 等只读卷不可写入',
-            '- 回答用简洁中文 Markdown；引用路径时用反引号',
-            '- 不要编造未执行的工具结果',
-          ]
-        : [
-            '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
-            '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
-            '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
-            '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id} 或 npm 的 /tmp/Npm/{id}）；大文本可写该目录（不进 ChangeSet）',
-            '- 终端 / npm 工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
-            '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
-            '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
-            '- 需要抓取或操作真实网页时，在 run_in_terminal 里先 listUnits：有 unit 则 navigate/openTab 复用，否则 create；再 wait → snapshot（看结构与 [eN]）→ markdown / eval+__vcRef（默认离屏 960×720，勿仅为确认加载而 show；用户要看再用 show，看完可 hide；用完可 destroy）；不要臆造网页内容，不要整页 innerText',
-            '- /system 与 /models 等只读卷不可写入',
-            '- 回答用简洁中文 Markdown；引用路径时用反引号',
-            '- 修改前先在终端里读确认现状',
-            '- 不要编造未执行的工具结果',
-          ]
+      : [
+          '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
+          '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
+          '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）；可读任意卷，写入仅限工作区',
+          '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id} 或 npm 的 /tmp/Npm/{id}）；大文本可写该目录（不进 ChangeSet）',
+          '- 终端 / npm 工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
+          '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
+          '- 搜索代码优先 await instant.grep(query, { path })，不要手写 fs 递归搜索',
+          '- 需要抓取或操作真实网页时，在 run_in_terminal 里先 listUnits：有 unit 则 navigate/openTab 复用，否则 create；再 wait → snapshot（看结构与 [eN]）→ markdown / eval+__vcRef（默认离屏 960×720，勿仅为确认加载而 show；用户要看再用 show，看完可 hide；用完可 destroy）；不要臆造网页内容，不要整页 innerText',
+          '- /system 与 /models 等只读卷不可写入',
+          '- 回答用简洁中文 Markdown；引用路径时用反引号',
+          '- 修改前先在终端里读确认现状',
+          '- 不要编造未执行的工具结果',
+        ]
 
   return `你是 Virtual Studio Code Desktop 内置的 AI 编程助手，帮助用户理解、修改 Instant OS 虚拟文件系统中的项目代码。
 

@@ -3,7 +3,7 @@ import { listAvailableSubAgents } from '../../ai/subagent/index.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodePrefs } from './vscode-prefs.ts'
 
-/** Ask/Plan → 只读父；Edit/Agent → 可读写父（子 Agent 权限不得高于父） */
+/** Ask/Plan → 只读父；Agent → 可读写父（子 Agent 权限不得高于父） */
 export function parentAccessForVscodeAiMode(
   mode: VscodeAiMode,
 ): SubAgentHostConfig['parentAccess'] {

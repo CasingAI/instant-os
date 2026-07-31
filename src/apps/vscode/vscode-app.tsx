@@ -5,8 +5,6 @@ import {
   MONACO_SELECTABLE_LANGUAGES,
   monacoLanguageLabel,
   parentDirFromPath,
-  fileNameFromPath,
-  monacoLanguageFromFileName,
 } from '../../monaco/monaco-language.ts'
 import { monacoEditorBackgroundForTheme } from '../../monaco/monaco-themes.ts'
 import {
@@ -135,11 +133,9 @@ import {
   type VscodeAiChatSession,
   type VscodeAiChatStore,
   type VscodeAiClosedChatSession,
-  type VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
 import { resolveVscodeCompletionModelKey } from './vscode-ai-models.ts'
 import { VscodeSettingsPanel } from './vscode-settings-panel.tsx'
-import { ensureMonacoPathModel } from '../../monaco/monaco-editor.tsx'
 import './vscode.css'
 
 const SESSION_PERSIST_DEBOUNCE_MS = 400
@@ -1291,41 +1287,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       problems,
     }
   }, [prefs.workspaceFolder, problems])
-
-  const applyVscodeAiEdit = useCallback(
-    async (edit: VscodeAiPendingEdit) => {
-      const existing = tabsRef.current.find((tab) => tab.path === edit.path)
-      if (existing) {
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.id === existing.id
-              ? { ...tab, text: edit.nextText, savedText: edit.nextText }
-              : tab,
-          ),
-        )
-        ensureMonacoPathModel(
-          edit.path,
-          edit.nextText,
-          monacoLanguageFromFileName(fileNameFromPath(edit.path)),
-          { overwrite: true },
-        )
-      }
-      try {
-        const node = await resolveNodeByAbsolutePath(edit.path)
-        if (node && node.kind === 'file') {
-          await writeTextFile(edit.path, edit.nextText)
-        } else {
-          await filesCreateText(edit.path, edit.nextText)
-        }
-      } catch {
-        await filesCreateText(edit.path, edit.nextText)
-      }
-      if (!existing) {
-        await openDocument(edit.path)
-      }
-    },
-    [openDocument],
-  )
 
   const confirmGotoLine = useCallback(() => {
     if (!activeTab) {
@@ -3180,7 +3141,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               aiDebugSystemReminder={prefs.aiDebugSystemReminder}
               aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}
-              getOpenFilesForSearch={() => openSearchFiles}
               problems={problems}
               getNpmLastChangesSlot={getNpmLastChangesSlot}
               getLastChangeSourceSlot={getLastChangeSourceSlot}
@@ -3191,8 +3151,6 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               openPlanFile={async (path) => {
                 await openDocument(path)
               }}
-              onApplyAiEdit={applyVscodeAiEdit}
-              onRejectAiEdit={() => undefined}
               pickAndOpenFolder={pickAndOpenFolder}
               pickAndOpen={pickAndOpen}
               onCloseWelcome={closeWelcomeTab}

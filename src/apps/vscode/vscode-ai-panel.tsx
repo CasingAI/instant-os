@@ -23,6 +23,7 @@ import type {
 } from './vscode-terminal-sessions.ts'
 import {
   isVscodeAiMode,
+  normalizeVscodeAiMode,
   VSCODE_AI_MODE_LABELS,
   type VscodeAiMode,
 } from './vscode-ai-mode.ts'
@@ -50,12 +51,10 @@ import {
 } from './vscode-ai-run-command.ts'
 import {
   VscodeAiPendingChangesPanel,
-  VscodeAiUnifiedDiffView,
 } from './vscode-ai-change-review.tsx'
 import {
   createVscodeAiChatMessage,
   type VscodeAiChatMessage,
-  type VscodeAiPendingEdit,
   type VscodeAiReviewStatus,
 } from './vscode-ai-chat-storage.ts'
 import {
@@ -63,7 +62,6 @@ import {
   collectVscodeAiReminderEvents,
   type VscodeAiLastSentTerminal,
 } from './vscode-ai-system-reminder.ts'
-import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search-core.ts'
 import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
 import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import {
@@ -107,7 +105,7 @@ const SAMPLE_PROMPTS = [
   '在工作区里搜索某个符号',
 ] as const
 
-const VSCODE_AI_MODE_OPTIONS = (['ask', 'plan', 'edit', 'agent'] as const).map((item) => ({
+const VSCODE_AI_MODE_OPTIONS = (['ask', 'plan', 'agent'] as const).map((item) => ({
   id: item as string,
   label: VSCODE_AI_MODE_LABELS[item],
 }))
@@ -125,7 +123,7 @@ function resolveMessageSendSettings(
     key: string | undefined
   },
 ): { mode: VscodeAiMode; source: VscodeModelSource; key: string | undefined } {
-  const mode = message.sentMode ?? fallback.mode
+  const mode = normalizeVscodeAiMode(message.sentMode ?? fallback.mode)
   const source = message.sentModelSource ?? fallback.source
   const key =
     message.sentModelSource !== undefined
@@ -421,7 +419,6 @@ export type VscodeAiPanelProps = {
   lastSentTerminal?: VscodeAiLastSentTerminal
   onLastSentTerminalChange?: (value: VscodeAiLastSentTerminal | undefined) => void
   getContext: () => VscodeAiContextInput
-  getOpenFilesForSearch: () => VscodeWorkspaceSearchOpenFile[]
   problems: readonly MonacoProblem[]
   /** 按对话取 npm/npx 受控变更槽 */
   getNpmLastChangesSlot: (chatSessionId: string) => {
@@ -446,8 +443,6 @@ export type VscodeAiPanelProps = {
     chatSessionId: string,
   ) => VscodeAgentTerminalSnapshot
   openPlanFile: (path: string) => Promise<void>
-  onApplyEdit: (edit: VscodeAiPendingEdit) => Promise<void>
-  onRejectEdit: (editId: string) => void
   /** 本轮 Agent/Ask/Plan 是否在运行，供编辑器 Tab 显示加载指示 */
   onBusyChange?: (busy: boolean) => void
   /** 查看更改时打开文件 */
@@ -979,48 +974,6 @@ function LiveTimeline({
   )
 }
 
-function PendingEditCard({
-  edit,
-  onApply,
-  onReject,
-}: {
-  edit: VscodeAiPendingEdit
-  onApply: () => void
-  onReject: () => void
-}) {
-  if (edit.status === 'applied') {
-    return (
-      <div class="vscode-ai__edit-card">
-        <div class="vscode-ai__edit-card-title">已应用修改</div>
-        <div class="vscode-ai__edit-card-path">{edit.path}</div>
-      </div>
-    )
-  }
-  if (edit.status === 'rejected') {
-    return (
-      <div class="vscode-ai__edit-card">
-        <div class="vscode-ai__edit-card-title">已拒绝修改</div>
-        <div class="vscode-ai__edit-card-path">{edit.path}</div>
-      </div>
-    )
-  }
-  return (
-    <div class="vscode-ai__edit-card">
-      <div class="vscode-ai__edit-card-title">修改提案</div>
-      <div class="vscode-ai__edit-card-path">{edit.path}</div>
-      <VscodeAiUnifiedDiffView original={edit.previousText} modified={edit.nextText} />
-      <div class="vscode-ai__edit-card-actions">
-        <button type="button" class="help-app__sample" onClick={onApply}>
-          应用
-        </button>
-        <button type="button" class="help-app__sample" onClick={onReject}>
-          拒绝
-        </button>
-      </div>
-    </div>
-  )
-}
-
 export function VscodeAiPanel({
   sessionId,
   messages,
@@ -1044,7 +997,6 @@ export function VscodeAiPanel({
   lastSentTerminal,
   onLastSentTerminalChange,
   getContext,
-  getOpenFilesForSearch,
   problems,
   getNpmLastChangesSlot,
   getLastChangeSourceSlot,
@@ -1053,8 +1005,6 @@ export function VscodeAiPanel({
   getAiTerminalHandle,
   getAiTerminalSnapshot,
   openPlanFile,
-  onApplyEdit,
-  onRejectEdit,
   onBusyChange,
   onOpenPath,
   onOpenSubagentDetail,
@@ -1114,7 +1064,6 @@ export function VscodeAiPanel({
   const userEditComposerRef = useRef<HTMLDivElement>(null)
   const userBubbleMorphFromRef = useRef<UserBubbleMorphFrom | undefined>(undefined)
   const userEditInputHeightRef = useRef<number | undefined>(undefined)
-  const pendingEditsRef = useRef<VscodeAiPendingEdit[]>([])
   const liveTimelineRef = useRef<VscodeAiTimelineItem[]>([])
   const liveAnswerRef = useRef('')
   const liveToolCallCountRef = useRef(0)
@@ -1280,8 +1229,8 @@ export function VscodeAiPanel({
     return firstUser?.slice(0, 40) || '对话'
   }, [messages])
 
-  const aiTerminalKind: VscodeAiTerminalKind | undefined =
-    mode === 'ask' ? 'ask' : mode === 'plan' ? 'plan' : mode === 'agent' ? 'agent' : undefined
+  const aiTerminalKind: VscodeAiTerminalKind =
+    mode === 'ask' ? 'ask' : mode === 'plan' ? 'plan' : 'agent'
 
   const runCommandHost = useMemo<VscodeAiRunCommandHost>(
     () => ({
@@ -1290,25 +1239,16 @@ export function VscodeAiPanel({
       lastChangeSource: getLastChangeSourceSlot(sessionId),
       turnChangeSessions: turnChangeSessionsRef,
       onChangesAvailable,
-      ensureAgentTerminal: () => {
-        if (!aiTerminalKind) {
-          return Promise.reject(new Error('当前模式不支持终端'))
-        }
-        return ensureAiTerminal(
+      ensureAgentTerminal: () =>
+        ensureAiTerminal(
           aiTerminalKind,
           sessionIdRef.current,
           messagesRef.current.find((m) => m.role === 'user')?.content?.trim().slice(0, 40) ||
             chatTitle,
-        )
-      },
-      getAgentTerminalHandle: () =>
-        aiTerminalKind
-          ? getAiTerminalHandle(aiTerminalKind, sessionIdRef.current)
-          : undefined,
+        ),
+      getAgentTerminalHandle: () => getAiTerminalHandle(aiTerminalKind, sessionIdRef.current),
       getAgentTerminalSnapshot: () =>
-        aiTerminalKind
-          ? getAiTerminalSnapshot(aiTerminalKind, sessionIdRef.current)
-          : { status: 'none' },
+        getAiTerminalSnapshot(aiTerminalKind, sessionIdRef.current),
     }),
     [
       aiTerminalKind,
@@ -1356,7 +1296,6 @@ export function VscodeAiPanel({
 
   const contextWithTerminal = useCallback((): VscodeAiContextInput => {
     const base = getContext()
-    if (!aiTerminalKind) return base
     return {
       ...base,
       aiTerminal: getAiTerminalSnapshot(aiTerminalKind, sessionId),
@@ -1367,15 +1306,10 @@ export function VscodeAiPanel({
   const toolsHost = useMemo<VscodeAiToolsHost>(
     () => ({
       getContext: contextWithTerminal,
-      getProblems: () => problems,
-      getOpenFilesForSearch,
-      onProposeEdit: (edit) => {
-        pendingEditsRef.current = [...pendingEditsRef.current, edit]
-      },
       runCommandHost,
       openPlanFile,
     }),
-    [contextWithTerminal, getOpenFilesForSearch, openPlanFile, problems, runCommandHost],
+    [contextWithTerminal, openPlanFile, runCommandHost],
   )
 
   useEffect(() => {
@@ -1395,9 +1329,7 @@ export function VscodeAiPanel({
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = undefined
-    if (aiTerminalKind) {
-      getAiTerminalHandle(aiTerminalKind, sessionIdRef.current)?.abort()
-    }
+    getAiTerminalHandle(aiTerminalKind, sessionIdRef.current)?.abort()
   }, [aiTerminalKind, getAiTerminalHandle])
 
   useEffect(() => {
@@ -1444,7 +1376,6 @@ export function VscodeAiPanel({
     // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
     apiTranscriptRef.current = apiTranscript ?? []
     historyRef.current = historyFromCanonicalOrUi(messages)
-    pendingEditsRef.current = []
     turnChangeSessionsRef.current = []
     lastSentModeRef.current = undefined
     setEditingUserId(undefined)
@@ -1706,14 +1637,8 @@ export function VscodeAiPanel({
         aiModelSource: turnModelSource,
         aiModelKey: turnModelKey,
       })
-      const turnTerminalKind: VscodeAiTerminalKind | undefined =
-        turnMode === 'ask'
-          ? 'ask'
-          : turnMode === 'plan'
-            ? 'plan'
-            : turnMode === 'agent'
-              ? 'agent'
-              : undefined
+      const turnTerminalKind: VscodeAiTerminalKind =
+        turnMode === 'ask' ? 'ask' : turnMode === 'plan' ? 'plan' : 'agent'
       const sentModelKeyForMessage =
         turnModelSource === 'custom' ? turnModelKey : undefined
 
@@ -1750,9 +1675,7 @@ export function VscodeAiPanel({
 
       let withUser: VscodeAiChatMessage[]
       const currentMessages = messagesRef.current
-      const currentTerminal = turnTerminalKind
-        ? getAiTerminalSnapshot(turnTerminalKind, sessionId)
-        : undefined
+      const currentTerminal = getAiTerminalSnapshot(turnTerminalKind, sessionId)
       const reminderText = buildVscodeAiSystemReminder(
         collectVscodeAiReminderEvents({
           mode: turnMode,
@@ -1822,7 +1745,6 @@ export function VscodeAiPanel({
       busyRef.current = true
       clearLiveTurnState()
       liveStartedAtRef.current = osNowMs()
-      pendingEditsRef.current = []
       if (historyRef.current.length === 0 && currentMessages.length > 0) {
         historyRef.current = historyFromCanonicalOrUi(currentMessages)
       }
@@ -1871,8 +1793,6 @@ export function VscodeAiPanel({
             id: draftAssistantId,
             createdAt: draftCreatedAt,
             incomplete: true,
-            pendingEdits:
-              pendingEditsRef.current.length > 0 ? [...pendingEditsRef.current] : undefined,
             investigation,
             ...changeExtras,
           }),
@@ -1922,7 +1842,6 @@ export function VscodeAiPanel({
             liveToolCallCountRef.current = progress.toolCallCount
             setLiveTimeline(progress.timeline)
             setLiveAnswer(progress.answerText)
-            pendingEditsRef.current = progress.pendingEdits
             if (progress.contextUsage) {
               setComposerContextUsage(progress.contextUsage)
             }
@@ -1941,14 +1860,12 @@ export function VscodeAiPanel({
         }
 
         lastSentModeRef.current = turnMode
-        if (turnTerminalKind) {
-          const nextLastSent: VscodeAiLastSentTerminal = {
-            kind: turnTerminalKind,
-            snapshot: getAiTerminalSnapshot(turnTerminalKind, sessionId),
-          }
-          lastSentTerminalRef.current = nextLastSent
-          onLastSentTerminalChange?.(nextLastSent)
+        const nextLastSent: VscodeAiLastSentTerminal = {
+          kind: turnTerminalKind,
+          snapshot: getAiTerminalSnapshot(turnTerminalKind, sessionId),
         }
+        lastSentTerminalRef.current = nextLastSent
+        onLastSentTerminalChange?.(nextLastSent)
 
         if (controller.signal.aborted) {
           const snapshotTimeline = liveTimelineRef.current
@@ -2003,7 +1920,6 @@ export function VscodeAiPanel({
             {
               id: draftAssistantId,
               createdAt: draftCreatedAt,
-              pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
               incomplete: result.incomplete,
               investigation,
               ...changeExtras,
@@ -2059,7 +1975,6 @@ export function VscodeAiPanel({
           clearLiveTurnState()
           abortRef.current = undefined
           turnChangeSessionsRef.current = []
-          pendingEditsRef.current = []
           handoff.resolve(orphanedSessionIds)
           return
         }
@@ -2270,42 +2185,6 @@ export function VscodeAiPanel({
       reviewBusy,
       send,
     ],
-  )
-
-  const applyEdit = useCallback(
-    async (edit: VscodeAiPendingEdit) => {
-      await onApplyEdit(edit)
-      onMessagesChange(
-        messages.map((message) => {
-          if (!message.pendingEdits) return message
-          return {
-            ...message,
-            pendingEdits: message.pendingEdits.map((item) =>
-              item.id === edit.id ? { ...item, status: 'applied' as const } : item,
-            ),
-          }
-        }),
-      )
-    },
-    [messages, onApplyEdit, onMessagesChange],
-  )
-
-  const rejectEdit = useCallback(
-    (editId: string) => {
-      onRejectEdit(editId)
-      onMessagesChange(
-        messages.map((message) => {
-          if (!message.pendingEdits) return message
-          return {
-            ...message,
-            pendingEdits: message.pendingEdits.map((item) =>
-              item.id === editId ? { ...item, status: 'rejected' as const } : item,
-            ),
-          }
-        }),
-      )
-    },
-    [messages, onMessagesChange, onRejectEdit],
   )
 
   /**
@@ -2525,14 +2404,6 @@ export function VscodeAiPanel({
                         本轮未完整结束，已保存的进度如下。可继续提问。
                       </p>
                     ) : undefined}
-                    {message.pendingEdits?.map((edit) => (
-                      <PendingEditCard
-                        key={edit.id}
-                        edit={edit}
-                        onApply={() => void applyEdit(edit)}
-                        onReject={() => rejectEdit(edit.id)}
-                      />
-                    ))}
                   </div>
                 </div>
               )
@@ -2667,9 +2538,7 @@ export function VscodeAiPanel({
                 ? '只读问答…'
                 : mode === 'plan'
                   ? '调研并写计划…'
-                  : mode === 'edit'
-                    ? '描述要做的修改…'
-                    : '描述任务…'
+                  : '描述任务…'
           }
           sendDisabled={!draft.trim() || textModels.length === 0}
           busy={busy}

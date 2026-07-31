@@ -38,7 +38,6 @@ import {
 import { wrapVscodeAiUserMessage } from './vscode-ai-system-reminder.ts'
 import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
-import type { VscodeAiPendingEdit } from './vscode-ai-chat-storage.ts'
 import {
   labelForVscodeAiModel,
   listVscodeAiTextModels,
@@ -158,14 +157,12 @@ export type VscodeAiAgentProgress = {
   answerText: string
   reasoningText: string
   toolCallCount: number
-  pendingEdits: VscodeAiPendingEdit[]
   contextUsage?: VscodeAiContextUsage
 }
 
 export type VscodeAiAgentResult = {
   text: string
   toolCallCount: number
-  pendingEdits: VscodeAiPendingEdit[]
   investigation: VscodeAiInvestigation
   incomplete?: boolean
   messages?: OpenAI.Chat.ChatCompletionMessageParam[]
@@ -339,11 +336,6 @@ function writeCardTitle(
     if (phase === 'writing') return '正在写入计划'
     return '已写入计划'
   }
-  if (toolName === 'propose_file_edit') {
-    if (phase === 'streaming') return '正在生成文件'
-    if (phase === 'writing') return '正在提交修改'
-    return '已提交修改提案'
-  }
   const label = VSCODE_AI_TOOL_LABELS[toolName] ?? toolName
   if (phase === 'done') return label
   return `正在${label}`
@@ -367,7 +359,7 @@ function parseWriteToolArgs(
   const previewRaw =
     previewKey && typeof args[previewKey] === 'string' ? (args[previewKey] as string) : ''
   return {
-    title: titleRaw || (toolName === 'write_plan' ? '未命名计划' : '未命名文件'),
+    title: titleRaw || (toolName === 'write_plan' ? '未命名计划' : toolName),
     preview: previewRaw,
   }
 }
@@ -380,7 +372,7 @@ function parseWriteToolArgsRaw(
   const previewKey = writeToolPreviewField(toolName)
   const title =
     (titleKey ? extractPartialJsonStringField(argumentsRaw, titleKey)?.trim() : undefined) ||
-    (toolName === 'write_plan' ? '计划' : '文件')
+    (toolName === 'write_plan' ? '计划' : toolName)
   const preview =
     (previewKey ? extractPartialJsonStringField(argumentsRaw, previewKey) : undefined) ?? ''
   return { title, preview }
@@ -497,15 +489,7 @@ export async function askVscodeAiAgent(options: {
   /** 单轮流空闲超时后的额外重试次数（不含首次）；默认 10 */
   idleRetryCount?: number
 }): Promise<VscodeAiAgentResult> {
-  const pendingEdits: VscodeAiPendingEdit[] = []
-  const toolsHost: VscodeAiToolsHost = {
-    ...options.toolsHost,
-    onProposeEdit: (edit) => {
-      pendingEdits.push(edit)
-      options.toolsHost.onProposeEdit(edit)
-    },
-  }
-  const tools = createVscodeAiTools(options.mode, toolsHost)
+  const tools = createVscodeAiTools(options.mode, options.toolsHost)
 
   const contextSection = buildVscodeAiContextSection(options.context)
   let system = options.systemPromptOverride
@@ -535,7 +519,7 @@ export async function askVscodeAiAgent(options: {
         mode: subMode,
         userMessage: taskPrompt,
         context: options.context,
-        toolsHost,
+        toolsHost: options.toolsHost,
         signal: signal ?? options.signal,
         modelKey: definition.modelKey ?? options.modelKey,
         systemPromptOverride: definition.systemPrompt,
@@ -555,7 +539,7 @@ export async function askVscodeAiAgent(options: {
     const delegateTool = createDelegateSubAgentTool({
       config: subAgentConfig,
       getToolsForAccess: (access) =>
-        createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', toolsHost),
+        createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', options.toolsHost),
       getEnvironmentSection: () => contextSection,
       signal: options.signal,
       runSubAgentFn,
@@ -593,7 +577,6 @@ export async function askVscodeAiAgent(options: {
             (event.finalResult as VscodeAiAgentResult | undefined) ?? {
               text: event.text ?? '',
               toolCallCount: event.toolCallCount ?? 0,
-              pendingEdits: [],
               investigation: {
                 activities: [],
                 timeline: [],
@@ -642,13 +625,7 @@ export async function askVscodeAiAgent(options: {
   })
 
   const behaviorLabel =
-    options.mode === 'ask'
-      ? '问答'
-      : options.mode === 'plan'
-        ? '计划'
-        : options.mode === 'edit'
-          ? '编辑'
-          : '代理'
+    options.mode === 'ask' ? '问答' : options.mode === 'plan' ? '计划' : '代理'
 
   const contextWindow = resolveModelContextWindow(model, {
     providerEntryId: modelRef?.providerEntryId,
@@ -706,7 +683,6 @@ export async function askVscodeAiAgent(options: {
       answerText,
       reasoningText,
       toolCallCount,
-      pendingEdits: [...pendingEdits],
       contextUsage,
     })
   }
@@ -866,9 +842,6 @@ export async function askVscodeAiAgent(options: {
       if (event.toolName === 'write_plan') {
         const match = /已写入计划并打开：(.+)$/.exec(event.result.trim())
         if (match?.[1]) titleFromResult = match[1].trim()
-      } else if (event.toolName === 'propose_file_edit') {
-        const match = /已提交修改提案：(.+?)（/.exec(event.result.trim())
-        if (match?.[1]) titleFromResult = match[1].trim()
       }
       timeline = timeline.map((item) => {
         if (item.kind !== 'write' || item.id !== id) return item
@@ -972,7 +945,6 @@ export async function askVscodeAiAgent(options: {
   return {
     text: result.text.trim() || answerText.trim(),
     toolCallCount,
-    pendingEdits,
     investigation,
     incomplete: result.incomplete,
     messages: result.messages,

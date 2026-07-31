@@ -9,20 +9,12 @@ import {
 import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
 import type OpenAI from 'openai'
 import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
-import { isVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
+import { normalizeVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
 import type { VscodeModelSource } from './vscode-prefs.ts'
 import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
-
-export type VscodeAiPendingEdit = {
-  id: string
-  path: string
-  previousText: string
-  nextText: string
-  status: 'pending' | 'applied' | 'rejected'
-}
 
 /** Agent 受控终端/npm 本轮已写入的改动审查（Keep=保留，Revert=整轮回滚） */
 export type VscodeAiTerminalChangeReviewFile = {
@@ -50,7 +42,6 @@ export type VscodeAiChatMessage = {
   content: string
   createdAt: number
   isError?: boolean
-  pendingEdits?: VscodeAiPendingEdit[]
   /** @deprecated 旧气泡审查卡；仅兼容存储，UI 不再展示 */
   terminalChangeReview?: VscodeAiTerminalChangeReview
   /** 本轮 Agent 产生的受控 ChangeSet sessionId（时间序） */
@@ -386,9 +377,11 @@ function normalizeMessages(raw: unknown): VscodeAiChatMessage[] {
         systemReminder: normalizeOptionalString(
           (message as { systemReminder?: unknown }).systemReminder,
         ),
-        sentMode: isVscodeAiMode((message as { sentMode?: unknown }).sentMode)
-          ? (message as { sentMode: VscodeAiMode }).sentMode
-          : undefined,
+        sentMode: (() => {
+          const raw = (message as { sentMode?: unknown }).sentMode
+          if (raw === undefined || raw === null) return undefined
+          return normalizeVscodeAiMode(raw)
+        })(),
         sentModelSource: normalizeSentModelSource(
           (message as { sentModelSource?: unknown }).sentModelSource,
         ),
@@ -710,7 +703,6 @@ export function createVscodeAiChatMessage(
     | 'id'
     | 'createdAt'
     | 'isError'
-    | 'pendingEdits'
     | 'terminalChangeReview'
     | 'changeSessionIds'
     | 'changePaths'
@@ -729,7 +721,6 @@ export function createVscodeAiChatMessage(
     content,
     createdAt: extras?.createdAt ?? Date.now(),
     isError: extras?.isError,
-    pendingEdits: extras?.pendingEdits,
     terminalChangeReview: extras?.terminalChangeReview,
     changeSessionIds: extras?.changeSessionIds,
     changePaths: extras?.changePaths,

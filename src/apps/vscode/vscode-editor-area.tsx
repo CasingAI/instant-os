@@ -34,10 +34,8 @@ import type {
   VscodeAiChatMessage,
   VscodeAiChatSession,
   VscodeAiClosedChatSession,
-  VscodeAiPendingEdit,
 } from './vscode-ai-chat-storage.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
-import type { VscodeWorkspaceSearchOpenFile } from './vscode-workspace-search-core.ts'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { TerminalChangeSet } from '../../terminal/terminal-changeset.ts'
@@ -235,7 +233,6 @@ type VscodeEditorAreaProps = {
   aiDebugSystemReminder?: boolean
   aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
-  getOpenFilesForSearch?: () => VscodeWorkspaceSearchOpenFile[]
   problems?: readonly MonacoProblem[]
   getNpmLastChangesSlot?: (chatSessionId: string) => {
     current: TerminalChangeSet | undefined
@@ -263,8 +260,6 @@ type VscodeEditorAreaProps = {
   onCloseWelcome?: () => void
   onCloseSubagentDetail?: (itemId: string) => void
   onOpenSubagentDetail?: (runId: string) => void
-  onApplyAiEdit?: (edit: VscodeAiPendingEdit) => Promise<void>
-  onRejectAiEdit?: (editId: string) => void
 }
 
 function pathInWorkspace(workspaceFolder: string | undefined, path: string | undefined): boolean {
@@ -389,7 +384,6 @@ function VscodeEditorGroupView({
   aiDebugSystemReminder,
   aiDark,
   getAiContext,
-  getOpenFilesForSearch,
   problems,
   getNpmLastChangesSlot,
   getLastChangeSourceSlot,
@@ -398,8 +392,6 @@ function VscodeEditorGroupView({
   getAiTerminalHandle,
   getAiTerminalSnapshot,
   openPlanFile,
-  onApplyAiEdit,
-  onRejectAiEdit,
   pickAndOpenFolder,
   pickAndOpen,
   onCloseWelcome,
@@ -952,7 +944,6 @@ function VscodeEditorGroupView({
                     onAiChatLastSentTerminalChange?.(session.id, value)
                   }
                   getContext={resolvedGetAiContext}
-                  getOpenFilesForSearch={getOpenFilesForSearch ?? (() => [])}
                   problems={problems ?? []}
                   getNpmLastChangesSlot={
                     getNpmLastChangesSlot ?? (() => ({ current: undefined }))
@@ -965,8 +956,6 @@ function VscodeEditorGroupView({
                   getAiTerminalHandle={resolvedGetAiTerminalHandle}
                   getAiTerminalSnapshot={resolvedGetAiTerminalSnapshot}
                   openPlanFile={resolvedOpenPlanFile}
-                  onApplyEdit={onApplyAiEdit ?? (async () => undefined)}
-                  onRejectEdit={onRejectAiEdit ?? (() => undefined)}
                   onBusyChange={(busy) => onAiChatBusyChange?.(session.id, busy)}
                   onOpenPath={(path) => void onOpenPath(path)}
                   onOpenSubagentDetail={onOpenSubagentDetail}

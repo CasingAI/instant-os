@@ -55,7 +55,7 @@ export function extractPartialJsonStringField(
   return undefined
 }
 
-export const VSCODE_AI_WRITE_TOOLS = new Set(['write_plan', 'propose_file_edit'])
+export const VSCODE_AI_WRITE_TOOLS = new Set(['write_plan'])
 
 export function isVscodeAiWriteTool(toolName: string): boolean {
   return VSCODE_AI_WRITE_TOOLS.has(toolName)
@@ -63,12 +63,10 @@ export function isVscodeAiWriteTool(toolName: string): boolean {
 
 export function writeToolPreviewField(toolName: string): string | undefined {
   if (toolName === 'write_plan') return 'markdown'
-  if (toolName === 'propose_file_edit') return 'text'
   return undefined
 }
 
 export function writeToolTitleField(toolName: string): string | undefined {
   if (toolName === 'write_plan') return 'name'
-  if (toolName === 'propose_file_edit') return 'path'
   return undefined
 }

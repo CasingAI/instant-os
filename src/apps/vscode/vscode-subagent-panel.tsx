@@ -43,7 +43,6 @@ function buildAssistantMessage(result: VscodeAiAgentResult): VscodeAiChatMessage
   return createVscodeAiChatMessage('assistant', result.text || '（无输出）', {
     incomplete: result.incomplete,
     investigation,
-    pendingEdits: result.pendingEdits.length > 0 ? result.pendingEdits : undefined,
   })
 }
 
@@ -121,7 +120,6 @@ export function VscodeSubagentPanel({
         dark={dark}
         workspaceFolder={workspaceFolder}
         getContext={getContext ?? emptyContext}
-        getOpenFilesForSearch={() => []}
         problems={[]}
         getNpmLastChangesSlot={() => ({ current: undefined })}
         getLastChangeSourceSlot={() => ({ current: undefined })}
@@ -129,8 +127,6 @@ export function VscodeSubagentPanel({
         getAiTerminalHandle={() => undefined}
         getAiTerminalSnapshot={() => ({ status: 'none' as const })}
         openPlanFile={async () => undefined}
-        onApplyEdit={async () => undefined}
-        onRejectEdit={() => undefined}
         readOnly
         headerInfo={{
           agentId: run.agentId,
