@@ -18,6 +18,32 @@ export const PAGES_EMPTY_MARKDOWN = '# 无标题文档\n\n'
 /** 文稿可打开的扩展名（原生包 + Markdown 兼容） */
 export const PAGES_OPEN_EXTENSIONS = [PAGES_FILE_EXTENSION, 'md', 'markdown'] as const
 
+/** 新插入图片的默认显示宽度（px） */
+export const PAGES_IMAGE_DEFAULT_WIDTH = 360
+
+export type PagesImageAlign = 'left' | 'center' | 'right'
+
+const PagesImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      align: {
+        default: 'left' satisfies PagesImageAlign,
+        parseHTML: (element) => {
+          const value = element.getAttribute('data-align')
+          if (value === 'center' || value === 'right' || value === 'left') return value
+          return 'left'
+        },
+        renderHTML: (attributes) => {
+          const align = attributes.align as PagesImageAlign | null | undefined
+          if (!align || align === 'left') return {}
+          return { 'data-align': align }
+        },
+      },
+    }
+  },
+})
+
 export type PagesSlashHandlers = {
   items: SlashCommandItem[]
   onOpen: (props: {
@@ -49,10 +75,17 @@ export function createPagesExtensions(slash?: PagesSlashHandlers): Extensions {
       },
     }),
     Underline,
-    Image.configure({
+    PagesImage.configure({
       inline: false,
       allowBase64: false,
       HTMLAttributes: { class: 'pages-editor__image' },
+      resize: {
+        enabled: true,
+        directions: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+        minWidth: 96,
+        minHeight: 72,
+        alwaysPreserveAspectRatio: true,
+      },
     }),
     Placeholder.configure({
       placeholder: '输入「/」或点左侧「+」插入块…',

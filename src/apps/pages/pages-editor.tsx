@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { Editor, type JSONContent } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
-import { createPagesExtensions } from './pages-markdown.ts'
+import { createPagesExtensions, PAGES_IMAGE_DEFAULT_WIDTH } from './pages-markdown.ts'
 import type { SlashCommandItem } from './pages-slash-commands.ts'
 import {
   applyBlockInsert,
@@ -88,6 +88,8 @@ type BubbleState = {
   mode: BubbleMode
   top: number
   left: number
+  /** center：相对 left 水平居中；start：贴选区左侧 */
+  align: 'center' | 'start'
   blockPos: number | null
 }
 
@@ -117,7 +119,15 @@ function selectionCoords(editor: Editor): DOMRect | null {
 
   if (state.selection instanceof NodeSelection) {
     const dom = view.nodeDOM(state.selection.from)
-    if (dom instanceof HTMLElement) return dom.getBoundingClientRect()
+    if (dom instanceof HTMLElement) {
+      const rect = dom.getBoundingClientRect()
+      // 个别节点（未完成布局的 img）可能短暂给出 0 宽，回退到父级测量
+      if (rect.width < 1 || rect.height < 1) {
+        const parent = dom.parentElement
+        if (parent) return parent.getBoundingClientRect()
+      }
+      return rect
+    }
     return null
   }
 
@@ -132,6 +142,30 @@ function selectionCoords(editor: Editor): DOMRect | null {
   } catch {
     return null
   }
+}
+
+function loadImageNaturalSize(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.onload = () => {
+      resolve({
+        width: Math.max(1, img.naturalWidth || 1),
+        height: Math.max(1, img.naturalHeight || 1),
+      })
+    }
+    img.onerror = () => reject(new Error('image-load-failed'))
+    img.src = src
+  })
+}
+
+function fitImageDisplaySize(
+  naturalWidth: number,
+  naturalHeight: number,
+  maxWidth = PAGES_IMAGE_DEFAULT_WIDTH,
+): { width: number; height: number } {
+  const width = Math.min(naturalWidth, maxWidth)
+  const height = Math.max(1, Math.round((naturalHeight * width) / naturalWidth))
+  return { width, height }
 }
 
 export function PagesEditor({
@@ -151,6 +185,7 @@ export function PagesEditor({
 
   const rootRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const editorRef = useRef<Editor | null>(null)
@@ -270,17 +305,98 @@ export function PagesEditor({
     const root = mainRef.current
     if (!root) return
     const rootRect = root.getBoundingClientRect()
-    let blockPos: number | null = null
-    if (isNode) {
-      blockPos = selection.from
+    // 选区滚出主编辑区则隐藏气泡
+    if (rect.bottom < rootRect.top + 8 || rect.top > rootRect.bottom - 8) {
+      setBubble(null)
+      return
     }
+    const isImage = isNode && selection.node.type.name === 'image'
+    const pad = 8
+    // 图片菜单更宽；夹紧时留半宽余量
+    const halfW = isImage ? 170 : isNode ? 90 : 140
+    const rawTop = rect.top - rootRect.top - 40
+    const top = Math.min(Math.max(pad, rawTop), Math.max(pad, rootRect.height - 40))
+    let left: number
+    let align: BubbleState['align']
+    if (isNode) {
+      align = 'start'
+      left = rect.left - rootRect.left + 12
+    } else {
+      align = 'center'
+      left = rect.left - rootRect.left + rect.width / 2
+    }
+    if (align === 'center') {
+      left = Math.min(Math.max(left, halfW + pad), Math.max(halfW + pad, rootRect.width - halfW - pad))
+    } else {
+      left = Math.min(Math.max(left, pad), Math.max(pad, rootRect.width - halfW * 2 - pad))
+    }
+    const mode: BubbleMode = isImage ? 'image' : isNode ? 'block' : 'text'
     setBubble({
-      mode: isNode ? 'block' : 'text',
-      top: rect.top - rootRect.top - 44,
-      left: rect.left - rootRect.left + rect.width / 2,
-      blockPos,
+      mode,
+      top,
+      left,
+      align,
+      blockPos: isNode ? selection.from : null,
     })
   }, [])
+
+  const syncFloatingToScroll = useCallback(() => {
+    const editor = editorRef.current
+    if (!editor || editor.isDestroyed) return
+
+    refreshBubble(editor)
+
+    // 滚动时关掉右键（坐标相对点击瞬间，难可靠跟随）
+    setContextMenu(null)
+
+    const hover = hoverBlockRef.current
+    if (hover) {
+      const measured = measureControlsForBlock(editor, hover.blockPos)
+      if (measured) {
+        setHoverBlockSafe({ blockPos: hover.blockPos, ...measured })
+      }
+    }
+
+    const insert = insertPanelRef.current
+    if (insert) {
+      const highlight = measureBlockHighlight(editor, insert.blockPos)
+      if (highlight) setTargetHighlight(highlight)
+      const controls = measureControlsForBlock(editor, insert.blockPos)
+      if (controls) {
+        updateInsertPanel({
+          ...insert,
+          controls,
+          rect: { top: controls.top + 26, left: controls.left },
+        })
+      }
+    }
+
+    const slash = slashMenuRef.current
+    if (slash?.rect) {
+      const nextRect = (() => {
+        try {
+          // 斜杠仍尽量用当前选区坐标
+          const selRect = selectionCoords(editor)
+          return selRect
+        } catch {
+          return null
+        }
+      })()
+      if (nextRect) {
+        updateSlashMenu({ ...slash, rect: nextRect })
+      }
+    }
+  }, [measureBlockHighlight, measureControlsForBlock, refreshBubble])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const onScroll = () => {
+      syncFloatingToScroll()
+    }
+    stage.addEventListener('scroll', onScroll, { passive: true })
+    return () => stage.removeEventListener('scroll', onScroll)
+  }, [syncFloatingToScroll, viewMode])
 
   const insertImageFile = useCallback(async (file: File) => {
     const editor = editorRef.current
@@ -288,7 +404,25 @@ export function PagesEditor({
     if (!editor || editor.isDestroyed || !register) return
     try {
       const src = await register(file)
-      editor.chain().focus().setImage({ src }).run()
+      let width = PAGES_IMAGE_DEFAULT_WIDTH
+      let height: number | undefined
+      try {
+        const natural = await loadImageNaturalSize(src)
+        const fitted = fitImageDisplaySize(natural.width, natural.height)
+        width = fitted.width
+        height = fitted.height
+      } catch {
+        // 测尺寸失败时仍插入默认宽度
+      }
+      editor
+        .chain()
+        .focus()
+        .setImage({
+          src,
+          width,
+          ...(height != null ? { height } : {}),
+        })
+        .run()
     } catch {
       // 父级注册失败时忽略
     }
@@ -413,9 +547,13 @@ export function PagesEditor({
             if (!root) return true
             const rootRect = root.getBoundingClientRect()
             closeFloatingExcept('context')
+            const menuW = 180
+            const menuH = 220
+            const rawLeft = event.clientX - rootRect.left
+            const rawTop = event.clientY - rootRect.top
             setContextMenu({
-              top: event.clientY - rootRect.top,
-              left: event.clientX - rootRect.left,
+              top: Math.min(Math.max(4, rawTop), Math.max(4, rootRect.height - menuH)),
+              left: Math.min(Math.max(4, rawLeft), Math.max(4, rootRect.width - menuW)),
               blockPos: block.pos,
               items: buildContextMenuItems({ inTable, onLink, onImage }),
             })
@@ -908,7 +1046,7 @@ export function PagesEditor({
     ? {
         top: `${Math.max(4, bubble.top)}px`,
         left: `${bubble.left}px`,
-        transform: 'translateX(-50%)',
+        ...(bubble.align === 'center' ? { transform: 'translateX(-50%)' } : {}),
       }
     : undefined
 
@@ -948,6 +1086,7 @@ export function PagesEditor({
       </div>
       <div class="pages-editor__main" ref={mainRef}>
         <div
+          ref={stageRef}
           class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}`}
         >
           <div

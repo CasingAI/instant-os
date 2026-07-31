@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/core'
+import type { PagesImageAlign } from './pages-markdown.ts'
 
-export type BubbleMode = 'text' | 'block'
+export type BubbleMode = 'text' | 'block' | 'image'
 
 export type PagesBubbleMenuProps = {
   editor: Editor
@@ -40,6 +41,32 @@ function BubbleBtn({
   )
 }
 
+const IMAGE_WIDTH_PRESETS = [
+  { label: '小', title: '窄图', width: 240 },
+  { label: '中', title: '默认宽度', width: 360 },
+  { label: '大', title: '较宽', width: 520 },
+] as const
+
+function setImageAlign(editor: Editor, align: PagesImageAlign) {
+  editor.chain().focus().updateAttributes('image', { align }).run()
+}
+
+function setImageWidth(editor: Editor, width: number) {
+  const attrs = editor.getAttributes('image') as {
+    width?: number | null
+    height?: number | null
+  }
+  const currentW = typeof attrs.width === 'number' && attrs.width > 0 ? attrs.width : width
+  const currentH = typeof attrs.height === 'number' && attrs.height > 0 ? attrs.height : null
+  const height =
+    currentH && currentW > 0 ? Math.max(1, Math.round((currentH * width) / currentW)) : null
+  editor
+    .chain()
+    .focus()
+    .updateAttributes('image', height ? { width, height } : { width })
+    .run()
+}
+
 export function PagesBubbleMenu({
   editor,
   mode,
@@ -49,6 +76,46 @@ export function PagesBubbleMenu({
   onCopyBlock,
   onDeleteBlock,
 }: PagesBubbleMenuProps) {
+  if (mode === 'image') {
+    const align = (editor.getAttributes('image').align as PagesImageAlign | undefined) ?? 'left'
+    const width = Number(editor.getAttributes('image').width) || 0
+    return (
+      <div class="pages-bubble" style={style} role="toolbar" aria-label="图片操作">
+        <BubbleBtn
+          label="左"
+          title="左对齐"
+          active={align === 'left'}
+          onClick={() => setImageAlign(editor, 'left')}
+        />
+        <BubbleBtn
+          label="中"
+          title="居中"
+          active={align === 'center'}
+          onClick={() => setImageAlign(editor, 'center')}
+        />
+        <BubbleBtn
+          label="右"
+          title="右对齐"
+          active={align === 'right'}
+          onClick={() => setImageAlign(editor, 'right')}
+        />
+        <span class="pages-bubble__divider" />
+        {IMAGE_WIDTH_PRESETS.map((preset) => (
+          <BubbleBtn
+            key={preset.width}
+            label={preset.label}
+            title={preset.title}
+            active={width > 0 && Math.abs(width - preset.width) < 8}
+            onClick={() => setImageWidth(editor, preset.width)}
+          />
+        ))}
+        <span class="pages-bubble__divider" />
+        <BubbleBtn label="复制" title="复制图片" onClick={onCopyBlock} />
+        <BubbleBtn label="删除" title="删除图片" onClick={onDeleteBlock} />
+      </div>
+    )
+  }
+
   if (mode === 'block') {
     return (
       <div class="pages-bubble" style={style} role="toolbar" aria-label="块操作">
