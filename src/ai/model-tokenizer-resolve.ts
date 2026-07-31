@@ -85,6 +85,11 @@ export function resolveTokenizerFamilyCandidates(
     return families('kimi')
   }
 
+  // 豆包 Seed（方舟 Coding / Agent Plan）；无专用词表时回退 DeepSeek V3
+  if (id.startsWith('doubao-seed') || id === 'ark-code-latest') {
+    return families('deepseek-v3', 'deepseek-v4')
+  }
+
   // GLM 5.x（含 5.2 旗舰、5V-Turbo）
   if (id.startsWith('glm-5')) {
     return families('glm-5', 'glm-4')

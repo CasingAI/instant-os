@@ -42,7 +42,81 @@ export function isAiTokenizerFamily(value: string): value is AiTokenizerFamily {
   return (AI_TOKENIZER_FAMILIES as readonly string[]).includes(value)
 }
 
-export type AiProviderId = 'openai' | 'deepseek' | 'mimo' | 'mimo-token-plan' | 'custom'
+/** OpenAI / 兼容端 reasoning_effort 档位全集（含 DeepSeek max） */
+export const AI_REASONING_EFFORT_PRESETS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+export type AiReasoningEffort = (typeof AI_REASONING_EFFORT_PRESETS)[number]
+
+export function isAiReasoningEffort(value: unknown): value is AiReasoningEffort {
+  return (
+    typeof value === 'string' &&
+    (AI_REASONING_EFFORT_PRESETS as readonly string[]).includes(value)
+  )
+}
+
+/** DeepSeek V4：开启思考后仅 high / max */
+export const REASONING_EFFORTS_DEEPSEEK_V4 = [
+  'high',
+  'max',
+] as const satisfies readonly AiReasoningEffort[]
+
+/** OpenAI GPT-5.4 系 */
+export const REASONING_EFFORTS_OPENAI_GPT54 = [
+  'none',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const satisfies readonly AiReasoningEffort[]
+
+/** 较完整的 OpenAI 档位（含 minimal） */
+export const REASONING_EFFORTS_OPENAI_FULL = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const satisfies readonly AiReasoningEffort[]
+
+/** GLM 5.x */
+export const REASONING_EFFORTS_GLM = [
+  'high',
+  'max',
+] as const satisfies readonly AiReasoningEffort[]
+
+/** 仅开/关思考、无深度档位 */
+export const REASONING_EFFORTS_BINARY = [] as const satisfies readonly AiReasoningEffort[]
+
+/** Kimi / MiniMax / Doubao 等常见三档 */
+export const REASONING_EFFORTS_LOW_MED_HIGH = [
+  'low',
+  'medium',
+  'high',
+] as const satisfies readonly AiReasoningEffort[]
+
+const CW_128K = 128_000
+const CW_200K = 200_000
+const CW_256K = 256_000
+const CW_400K = 400_000
+const CW_1M = 1_000_000
+const CW_1050K = 1_050_000
+
+export type AiProviderId =
+  | 'openai'
+  | 'deepseek'
+  | 'mimo'
+  | 'mimo-token-plan'
+  | 'ark-coding-plan'
+  | 'ark-agent-plan'
+  | 'custom'
 
 /**
  * 模型供应商页的分类（按序展示为页签）：基座 / 副基座 / 图像识别 / 语音识别 / 语音合成。
@@ -104,6 +178,15 @@ export type AiModelPreset = {
     outputPricePerMillion: number
     currency: 'USD' | 'CNY'
   }
+  /** 官方/厂商文档中的上下文窗口（token）；auto 模式优先用此值 */
+  contextWindow?: number
+  /**
+   * 开启思考时支持的 reasoning_effort 档位。
+   * - 省略：按「仅开/关」处理（不展示虚假全量档位）
+   * - `[]`：仅开/关
+   * - 非空：仅展示列出的档位
+   */
+  reasoningEfforts?: readonly AiReasoningEffort[]
 }
 
 export type AiProviderPreset = {
@@ -203,7 +286,7 @@ export type AccountSettingsV2 = {
 }
 
 /** 预设模型同步版本：上调后，下次加载会为各供应商补全新增的内置模型 */
-export const CURRENT_PRESET_SYNC_REVISION = 1
+export const CURRENT_PRESET_SYNC_REVISION = 2
 
 export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
   {
@@ -211,8 +294,20 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     name: 'DeepSeek',
     baseURL: 'https://api.deepseek.com/v1',
     models: [
-      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', capabilities: CAP_TEXT },
-      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', capabilities: CAP_TEXT },
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+      },
     ],
     defaultModel: 'deepseek-v4-flash',
   },
@@ -221,14 +316,62 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     name: 'OpenAI',
     baseURL: 'https://api.openai.com/v1',
     models: [
-      { id: 'gpt-5.5', name: 'GPT-5.5', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-5.4', name: 'GPT-5.4', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-5.4-nano', name: 'GPT-5.4 Nano', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-4.1', name: 'GPT-4.1', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-4o', name: 'GPT-4o', capabilities: CAP_TEXT_VISION },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', capabilities: CAP_TEXT_VISION },
+      {
+        id: 'gpt-5.5',
+        name: 'GPT-5.5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1050K,
+        reasoningEfforts: REASONING_EFFORTS_OPENAI_FULL,
+      },
+      {
+        id: 'gpt-5.4',
+        name: 'GPT-5.4',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1050K,
+        reasoningEfforts: REASONING_EFFORTS_OPENAI_GPT54,
+      },
+      {
+        id: 'gpt-5.4-mini',
+        name: 'GPT-5.4 Mini',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_400K,
+        reasoningEfforts: REASONING_EFFORTS_OPENAI_GPT54,
+      },
+      {
+        id: 'gpt-5.4-nano',
+        name: 'GPT-5.4 Nano',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_128K,
+        reasoningEfforts: REASONING_EFFORTS_OPENAI_GPT54,
+      },
+      {
+        id: 'gpt-4.1',
+        name: 'GPT-4.1',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'gpt-4.1-mini',
+        name: 'GPT-4.1 Mini',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'gpt-4o',
+        name: 'GPT-4o',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_128K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'gpt-4o-mini',
+        name: 'GPT-4o Mini',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_128K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
     ],
     defaultModel: 'gpt-5.4-mini',
   },
@@ -237,24 +380,48 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     name: '小米 MiMo (API)',
     baseURL: 'https://api.xiaomimimo.com/v1',
     models: [
-      { id: 'mimo-v2.5-pro', name: 'MiMo V2.5 Pro', capabilities: CAP_TEXT },
+      {
+        id: 'mimo-v2.5-pro',
+        name: 'MiMo V2.5 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
       {
         id: 'mimo-v2.5-pro-ultraspeed',
         name: 'MiMo V2.5 Pro UltraSpeed',
         capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
       },
-      { id: 'mimo-v2-pro', name: 'MiMo V2 Pro', capabilities: CAP_TEXT },
+      {
+        id: 'mimo-v2-pro',
+        name: 'MiMo V2 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
       {
         id: 'mimo-v2.5',
         name: 'MiMo V2.5',
         capabilities: CAP_TEXT_VISION_SPEECH_RECOGNITION,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
       },
       {
         id: 'mimo-v2-omni',
         name: 'MiMo V2 Omni',
         capabilities: CAP_TEXT_VISION_SPEECH_RECOGNITION,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
       },
-      { id: 'mimo-v2-flash', name: 'MiMo V2 Flash', capabilities: CAP_TEXT },
+      {
+        id: 'mimo-v2-flash',
+        name: 'MiMo V2 Flash',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
       {
         id: 'mimo-v2.5-asr',
         name: 'MiMo V2.5 ASR',
@@ -273,11 +440,19 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     name: '小米 MiMo (Token Plan)',
     baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
     models: [
-      { id: 'mimo-v2.5-pro', name: 'MiMo V2.5 Pro', capabilities: CAP_TEXT },
+      {
+        id: 'mimo-v2.5-pro',
+        name: 'MiMo V2.5 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
       {
         id: 'mimo-v2.5',
         name: 'MiMo V2.5',
         capabilities: CAP_TEXT_VISION_SPEECH_RECOGNITION,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
       },
       {
         id: 'mimo-v2.5-asr',
@@ -291,6 +466,221 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
       },
     ],
     defaultModel: 'mimo-v2.5-pro',
+  },
+  {
+    id: 'ark-coding-plan',
+    name: '火山方舟 (Coding Plan)',
+    baseURL: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+    models: [
+      {
+        id: 'ark-code-latest',
+        name: 'Ark Code Latest（路由）',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-mini',
+        name: 'Doubao Seed 2.0 Mini',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-lite',
+        name: 'Doubao Seed 2.0 Lite',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-code',
+        name: 'Doubao Seed 2.0 Code',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-pro',
+        name: 'Doubao Seed 2.0 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+      },
+      {
+        id: 'deepseek-v3.2',
+        name: 'DeepSeek V3.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_128K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'glm-5.2',
+        name: 'GLM 5.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_GLM,
+      },
+      {
+        id: 'kimi-k2.6',
+        name: 'Kimi K2.6',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'minimax-m2.7',
+        name: 'MiniMax M2.7',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_200K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'minimax-m3',
+        name: 'MiniMax M3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+    ],
+    defaultModel: 'ark-code-latest',
+  },
+  {
+    id: 'ark-agent-plan',
+    name: '火山方舟 (Agent Plan)',
+    baseURL: 'https://ark.cn-beijing.volces.com/api/plan/v3',
+    models: [
+      {
+        id: 'ark-code-latest',
+        name: 'Ark Code Latest（路由）',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-mini',
+        name: 'Doubao Seed 2.0 Mini',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-lite',
+        name: 'Doubao Seed 2.0 Lite',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-code',
+        name: 'Doubao Seed 2.0 Code',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'doubao-seed-2.0-pro',
+        name: 'Doubao Seed 2.0 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+      },
+      {
+        id: 'deepseek-v3.2',
+        name: 'DeepSeek V3.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_128K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'glm-5.2',
+        name: 'GLM 5.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_GLM,
+      },
+      {
+        id: 'kimi-k2.6',
+        name: 'Kimi K2.6',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+      },
+      {
+        id: 'minimax-m2.7',
+        name: 'MiniMax M2.7',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_200K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'minimax-m3',
+        name: 'MiniMax M3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+      },
+      {
+        id: 'doubao-seed-asr-2.0',
+        name: 'Doubao Seed ASR 2.0',
+        capabilities: CAP_SPEECH_RECOGNITION,
+      },
+      {
+        id: 'doubao-seed-tts-2.0',
+        name: 'Doubao Seed TTS 2.0',
+        capabilities: CAP_SPEECH_SYNTHESIS,
+      },
+    ],
+    defaultModel: 'ark-code-latest',
   },
   {
     id: 'custom',
@@ -347,7 +737,9 @@ export function resolvePricingByModelKey(
     providerId === 'openai' ||
     providerId === 'deepseek' ||
     providerId === 'mimo' ||
-    providerId === 'mimo-token-plan'
+    providerId === 'mimo-token-plan' ||
+    providerId === 'ark-coding-plan' ||
+    providerId === 'ark-agent-plan'
   ) {
     return findAiModelPreset(providerId, modelId)?.pricing
   }
@@ -488,7 +880,9 @@ export function listPricingModelOptions(): PricingModelOption[] {
       providerId === 'openai' ||
       providerId === 'deepseek' ||
       providerId === 'mimo' ||
-      providerId === 'mimo-token-plan'
+      providerId === 'mimo-token-plan' ||
+      providerId === 'ark-coding-plan' ||
+      providerId === 'ark-agent-plan'
         ? findAiModelPreset(providerId, modelId)?.name
         : undefined
     const modelName = knownName ?? modelId
@@ -562,10 +956,10 @@ function positiveContextWindow(value: number | null | undefined): number | undef
 }
 
 /**
- * 解析模型上下文窗口：手动值 → OpenRouter/PriceToken 匹配源 → 默认 128K。
+ * 解析模型上下文窗口：手动值 → OpenRouter/PriceToken 匹配源 → 内置预设 → 默认 128K。
  */
 export function resolveModelEntryContextWindow(
-  _providerId: AiProviderId,
+  providerId: AiProviderId,
   entry: Pick<
     AiModelEntry,
     | 'modelId'
@@ -596,6 +990,11 @@ export function resolveModelEntryContextWindow(
     const fromPriceToken = positiveContextWindow(fromKey?.contextWindow)
     if (fromPriceToken !== undefined) return fromPriceToken
   }
+
+  const fromPreset = positiveContextWindow(
+    findAiModelPreset(providerId, entry.modelId)?.contextWindow,
+  )
+  if (fromPreset !== undefined) return fromPreset
 
   return DEFAULT_MODEL_CONTEXT_WINDOW
 }
@@ -943,6 +1342,16 @@ export function isMimoUltraSpeedModel(modelId: string): boolean {
   return modelId.trim() === 'mimo-v2.5-pro-ultraspeed'
 }
 
+/** 火山方舟 Coding / Agent Plan 订阅入口 */
+export function isArkPlanProvider(providerId: AiProviderId | undefined): boolean {
+  return providerId === 'ark-coding-plan' || providerId === 'ark-agent-plan'
+}
+
+/** 必须经代理服务器访问的供应商（浏览器直连会因 CORS / 网络策略失败） */
+export function providerRequiresProxy(providerId: AiProviderId | undefined): boolean {
+  return isArkPlanProvider(providerId)
+}
+
 export function normalizeStoredModel(providerId: AiProviderId, model: string): string {
   const trimmed = model.trim()
   if (providerId === 'custom') {
@@ -1036,7 +1445,7 @@ export function defaultProviderEntry(
     enabledModels: buildEnabledModelsFromPreset(providerId),
     defaultModel: preset?.defaultModel ?? '',
     thinkingEnabled: getDefaultThinkingEnabled(providerId),
-    useProxy: false,
+    useProxy: providerRequiresProxy(providerId),
   }
 }
 

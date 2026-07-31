@@ -6,6 +6,7 @@ import {
   findAiProviderPreset,
   isCustomProvider,
   normalizeCustomModelCapabilities,
+  providerRequiresProxy,
   resolveModelCapabilities,
   type AiModelCapability,
   type AiModelEntry,
@@ -62,7 +63,9 @@ export function AiProviderForm({
     newEntry.id = entry.id
     newEntry.name = entry.name
     newEntry.apiKey = entry.apiKey
-    newEntry.useProxy = entry.useProxy
+    newEntry.useProxy = providerRequiresProxy(providerId)
+      ? true
+      : entry.useProxy
     if (entry.baseURL) {
       newEntry.baseURL = entry.baseURL
     }
@@ -339,8 +342,17 @@ export function AiProviderForm({
 
       <SettingsSwitchRow
         label="使用代理服务器访问"
-        checked={entry.useProxy}
-        onChange={(useProxy) => onChange({ ...entry, useProxy })}
+        checked={providerRequiresProxy(entry.providerId) ? true : entry.useProxy}
+        disabled={providerRequiresProxy(entry.providerId)}
+        detail={
+          providerRequiresProxy(entry.providerId)
+            ? '火山方舟需经代理服务器访问，无法关闭。'
+            : undefined
+        }
+        onChange={(useProxy) => {
+          if (providerRequiresProxy(entry.providerId)) return
+          onChange({ ...entry, useProxy })
+        }}
       />
     </>
   )

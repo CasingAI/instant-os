@@ -2,7 +2,7 @@
  * 系统级语音服务：App 只调用本模块入口。
  * - 首选模型：钥匙串按能力（speech-recognition / speech-synthesis）
  * - 默认音色 / 语种：系统设置 → 语音
- * - 供应商协议细节：内部适配器（当前仅 MiMo）
+ * - 供应商协议细节：内部适配器（MiMo / 方舟 Agent Plan）
  */
 import { loadAccountSettings } from '../os/account-settings-storage.ts'
 import {
@@ -18,6 +18,14 @@ import {
 } from './ai-providers.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { hasOpenAiApiKey, mergeOpenAiConfig, readDefaultModelFriendlyName } from './openai-config.ts'
+import {
+  arkRecognizeSpeech,
+  arkRecognizeSpeechStream,
+  arkSynthesizeSpeech,
+  arkSynthesizeSpeechStream,
+  ARK_TTS_PCM_SAMPLE_RATE,
+  ARK_TTS_VOICES,
+} from './speech-ark-adapter.ts'
 import {
   mimoRecognizeSpeech,
   mimoRecognizeSpeechStream,
@@ -100,7 +108,7 @@ function requireCapabilityConfig(capability: AiModelCapability) {
     const label =
       capability === 'speech-recognition' ? '语音识别' : '语音合成'
     throw new Error(
-      `未找到可用的${label}模型。请在钥匙串启用并选用对应模型（如小米 MiMo ASR / TTS）。`,
+      `未找到可用的${label}模型。请在钥匙串启用并选用对应模型（如小米 MiMo ASR / TTS，或方舟 Agent Plan 语音模型）。`,
     )
   }
   const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
@@ -123,7 +131,11 @@ function isMimoProvider(providerId: AiProviderId): boolean {
   return providerId === 'mimo' || providerId === 'mimo-token-plan'
 }
 
-/** 当前可用音色列表（随合成首选供应商变化；暂仅 MiMo） */
+function isArkSpeechProvider(providerId: AiProviderId): boolean {
+  return providerId === 'ark-agent-plan'
+}
+
+/** 当前可用音色列表（随合成首选供应商变化） */
 export function listSpeechVoices(): readonly SpeechVoiceOption[] {
   const settings = loadAccountSettings()
   if (settings) {
@@ -131,8 +143,13 @@ export function listSpeechVoices(): readonly SpeechVoiceOption[] {
     const entry = ref
       ? settings.providers.find((item) => item.id === ref.providerEntryId)
       : undefined
-    if (entry && !isMimoProvider(entry.providerId)) {
-      return []
+    if (entry) {
+      if (isArkSpeechProvider(entry.providerId)) {
+        return ARK_TTS_VOICES
+      }
+      if (!isMimoProvider(entry.providerId)) {
+        return []
+      }
     }
   }
   return MIMO_TTS_VOICES
@@ -175,24 +192,34 @@ export async function recognizeSpeech(
   const mimeType = options.mimeType ?? 'audio/wav'
   const language = options.language ?? resolveDefaultAsrLanguage()
 
-  if (!isMimoProvider(providerId)) {
-    throw new Error(
-      '当前语音识别供应商尚未接入系统语音服务（目前仅支持小米 MiMo）。',
-    )
+  if (isMimoProvider(providerId)) {
+    return mimoRecognizeSpeech({
+      config,
+      audioBase64: options.audioBase64,
+      mimeType,
+      language,
+      usageContext: options.usageContext,
+    })
   }
 
-  return mimoRecognizeSpeech({
-    config,
-    audioBase64: options.audioBase64,
-    mimeType,
-    language,
-    usageContext: options.usageContext,
-  })
+  if (isArkSpeechProvider(providerId)) {
+    return arkRecognizeSpeech({
+      config,
+      audioBase64: options.audioBase64,
+      mimeType,
+      language,
+      usageContext: options.usageContext,
+    })
+  }
+
+  throw new Error(
+    '当前语音识别供应商尚未接入系统语音服务（目前支持小米 MiMo 与火山方舟 Agent Plan）。',
+  )
 }
 
 /**
- * 流式语音识别（MiMo：整段上传 + SSE 文本增量）。
- * 可用于长句说话过程中的预识别，以及终识别时更快出字。
+ * 流式语音识别。
+ * MiMo：整段上传 + SSE 文本增量；方舟：HTTP 极速识别（完成后一次性回调）。
  */
 export async function recognizeSpeechStream(
   options: RecognizeSpeechStreamOptions,
@@ -201,21 +228,33 @@ export async function recognizeSpeechStream(
   const mimeType = options.mimeType ?? 'audio/wav'
   const language = options.language ?? resolveDefaultAsrLanguage()
 
-  if (!isMimoProvider(providerId)) {
-    throw new Error(
-      '当前语音识别供应商尚未接入系统语音服务（目前仅支持小米 MiMo）。',
-    )
+  if (isMimoProvider(providerId)) {
+    return mimoRecognizeSpeechStream({
+      config,
+      audioBase64: options.audioBase64,
+      mimeType,
+      language,
+      usageContext: options.usageContext,
+      signal: options.signal,
+      onTextChunk: options.onTextChunk,
+    })
   }
 
-  return mimoRecognizeSpeechStream({
-    config,
-    audioBase64: options.audioBase64,
-    mimeType,
-    language,
-    usageContext: options.usageContext,
-    signal: options.signal,
-    onTextChunk: options.onTextChunk,
-  })
+  if (isArkSpeechProvider(providerId)) {
+    return arkRecognizeSpeechStream({
+      config,
+      audioBase64: options.audioBase64,
+      mimeType,
+      language,
+      usageContext: options.usageContext,
+      signal: options.signal,
+      onTextChunk: options.onTextChunk,
+    })
+  }
+
+  throw new Error(
+    '当前语音识别供应商尚未接入系统语音服务（目前支持小米 MiMo 与火山方舟 Agent Plan）。',
+  )
 }
 
 /** 调用系统「语音合成」首选模型生成音频 */
@@ -226,24 +265,35 @@ export async function synthesizeSpeech(
   const format = options.format ?? 'wav'
   const voice = options.voice?.trim() || resolveDefaultSpeechVoice()
 
-  if (!isMimoProvider(providerId)) {
-    throw new Error(
-      '当前语音合成供应商尚未接入系统语音服务（目前仅支持小米 MiMo）。',
-    )
+  if (isMimoProvider(providerId)) {
+    return mimoSynthesizeSpeech({
+      config,
+      text: options.text,
+      styleInstruction: options.styleInstruction,
+      voice,
+      format,
+      usageContext: options.usageContext,
+    })
   }
 
-  return mimoSynthesizeSpeech({
-    config,
-    text: options.text,
-    styleInstruction: options.styleInstruction,
-    voice,
-    format,
-    usageContext: options.usageContext,
-  })
+  if (isArkSpeechProvider(providerId)) {
+    return arkSynthesizeSpeech({
+      config,
+      text: options.text,
+      styleInstruction: options.styleInstruction,
+      voice,
+      format,
+      usageContext: options.usageContext,
+    })
+  }
+
+  throw new Error(
+    '当前语音合成供应商尚未接入系统语音服务（目前支持小米 MiMo 与火山方舟 Agent Plan）。',
+  )
 }
 
 /**
- * 流式语音合成（MiMo：pcm16 + stream）。
+ * 流式语音合成（pcm16）。
  * 首包到达后即可边收边播；完整 PCM 在 Promise resolve 时返回。
  */
 export async function synthesizeSpeechStream(
@@ -252,22 +302,53 @@ export async function synthesizeSpeechStream(
   const { config, providerId } = requireCapabilityConfig('speech-synthesis')
   const voice = options.voice?.trim() || resolveDefaultSpeechVoice()
 
-  if (!isMimoProvider(providerId)) {
-    throw new Error(
-      '当前语音合成供应商尚未接入系统语音服务（目前仅支持小米 MiMo）。',
-    )
+  if (isMimoProvider(providerId)) {
+    return mimoSynthesizeSpeechStream({
+      config,
+      text: options.text,
+      styleInstruction: options.styleInstruction,
+      voice,
+      usageContext: options.usageContext,
+      signal: options.signal,
+      onPcmChunk: options.onPcmChunk,
+    })
   }
 
-  return mimoSynthesizeSpeechStream({
-    config,
-    text: options.text,
-    styleInstruction: options.styleInstruction,
-    voice,
-    usageContext: options.usageContext,
-    signal: options.signal,
-    onPcmChunk: options.onPcmChunk,
-  })
+  if (isArkSpeechProvider(providerId)) {
+    return arkSynthesizeSpeechStream({
+      config,
+      text: options.text,
+      styleInstruction: options.styleInstruction,
+      voice,
+      usageContext: options.usageContext,
+      signal: options.signal,
+      onPcmChunk: options.onPcmChunk,
+    })
+  }
+
+  throw new Error(
+    '当前语音合成供应商尚未接入系统语音服务（目前支持小米 MiMo 与火山方舟 Agent Plan）。',
+  )
 }
 
 /** @deprecated 请使用 listSpeechVoices；保留别名以免旧引用断裂 */
-export { MIMO_TTS_PCM_SAMPLE_RATE, MIMO_TTS_VOICES }
+export {
+  ARK_TTS_PCM_SAMPLE_RATE,
+  MIMO_TTS_PCM_SAMPLE_RATE,
+  MIMO_TTS_VOICES,
+}
+
+/** 当前合成首选对应的 PCM 采样率（方舟 / MiMo 均为 24kHz） */
+export function resolveSpeechPcmSampleRate(): number {
+  const settings = loadAccountSettings()
+  if (settings) {
+    const ref = resolvePreferredModelRef(settings, 'speech-synthesis')
+    const entry = ref
+      ? settings.providers.find((item) => item.id === ref.providerEntryId)
+      : undefined
+    if (entry && isArkSpeechProvider(entry.providerId)) {
+      return ARK_TTS_PCM_SAMPLE_RATE
+    }
+  }
+  return MIMO_TTS_PCM_SAMPLE_RATE
+}

@@ -1,4 +1,8 @@
-import { supportsThinkingParam } from '../../ai/ai-thinking.ts'
+import {
+  listSupportedReasoningEfforts,
+  modelSupportsReasoningEffortPicker,
+  supportsThinkingParam,
+} from '../../ai/ai-thinking.ts'
 import {
   findAiProviderPreset,
   type FlatEnabledModel,
@@ -12,7 +16,6 @@ import {
 } from './vscode-ai-models.ts'
 import {
   VSCODE_AI_CONTEXT_WINDOW_PRESETS,
-  VSCODE_AI_THINKING_EFFORT_PRESETS,
   type VscodeAiContextWindowPref,
   type VscodeAiModelOptionPrefs,
   type VscodeAiThinkingEffortPref,
@@ -35,6 +38,20 @@ const PRESET_BLURBS: Record<string, string> = {
   'gpt-4.1-mini': '轻量长上下文多模态模型。',
   'gpt-4o': 'OpenAI 多模态通用模型。',
   'gpt-4o-mini': '轻量多模态模型，适合快速迭代。',
+  'ark-code-latest': '方舟控制台路由模型，可按开通情况自动切换。',
+  'doubao-seed-2.0-mini': '豆包 Seed 轻量型号，适合快速对话。',
+  'doubao-seed-2.0-lite': '豆包 Seed 轻量多模态，兼顾视觉理解。',
+  'doubao-seed-2.0-code': '豆包 Seed 编程主力，适合代码生成与重构。',
+  'doubao-seed-2.0-pro': '豆包 Seed 旗舰文本型号。',
+  'deepseek-v3.2': 'DeepSeek V3.2，性价比通用编码模型。',
+  'glm-5.2': '智谱 GLM 5.2，适合复杂推理与工程任务。',
+  'kimi-k2.6': 'Kimi K2.6，长上下文与前端表现力较强。',
+  'kimi-k2.7-code': 'Kimi K2.7 Code，面向编程场景。',
+  'kimi-k3': 'Kimi K3（Agent Plan，常需 Medium 及以上）。',
+  'minimax-m2.7': 'MiniMax M2.7，工具调用与生产力场景。',
+  'minimax-m3': 'MiniMax M3，更大上下文旗舰型号。',
+  'doubao-seed-asr-2.0': '豆包流式语音识别 2.0（Agent Plan）。',
+  'doubao-seed-tts-2.0': '豆包语音合成 2.0（Agent Plan）。',
 }
 
 export const MIMO_FAST_BASE_MODEL_ID = 'mimo-v2.5-pro'
@@ -87,6 +104,7 @@ const THINKING_EFFORT_LABELS: Record<VscodeAiThinkingEffortPref, string> = {
   medium: '中',
   high: '高',
   xhigh: '极高',
+  max: '最大',
 }
 
 export function formatVscodeAiThinkingEffortPrefLabel(
@@ -95,17 +113,33 @@ export function formatVscodeAiThinkingEffortPrefLabel(
   return THINKING_EFFORT_LABELS[pref]
 }
 
-export function listVscodeAiThinkingEffortPrefOptions(): ReadonlyArray<{
+export function listVscodeAiThinkingEffortPrefOptions(
+  providerId?: FlatEnabledModel['providerId'],
+  modelId?: string,
+): ReadonlyArray<{
   value: VscodeAiThinkingEffortPref
   label: string
 }> {
+  const supported = listSupportedReasoningEfforts(providerId, modelId)
+  const efforts =
+    supported === null
+      ? (['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)
+      : supported
   return [
     { value: 'default', label: '默认' },
-    ...VSCODE_AI_THINKING_EFFORT_PRESETS.map((value) => ({
-      value,
-      label: THINKING_EFFORT_LABELS[value],
+    ...efforts.map((value) => ({
+      value: value as VscodeAiThinkingEffortPref,
+      label: THINKING_EFFORT_LABELS[value as VscodeAiThinkingEffortPref],
     })),
   ]
+}
+
+/** 当前模型是否应展示「思考深度」行 */
+export function shouldShowVscodeAiThinkingEffortPicker(
+  providerId?: FlatEnabledModel['providerId'],
+  modelId?: string,
+): boolean {
+  return modelSupportsReasoningEffortPicker(providerId, modelId)
 }
 
 export function describeVscodeAiModel(model: FlatEnabledModel): string {
@@ -191,7 +225,11 @@ export function displayPartsForVscodeAiModel(
   ) {
     bits.push('思考')
     const effort = options?.[modelKey]?.thinkingEffort
-    if (effort && effort !== 'default') {
+    if (
+      effort &&
+      effort !== 'default' &&
+      shouldShowVscodeAiThinkingEffortPicker(model.providerId, model.modelId)
+    ) {
       bits.push(formatVscodeAiThinkingEffortPrefLabel(effort))
     }
   }

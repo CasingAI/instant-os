@@ -1833,6 +1833,36 @@
   padding: 4px 12px 4px 10px;
 }
 
+.settings__row--switch-with-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
+.settings__row-switch-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 28px;
+}
+
+.settings__row-switch-detail {
+  margin: 0;
+  padding-right: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--settings-secondary-label, #8e8e93);
+}
+
+.settings__row--switch-disabled .settings__row-name {
+  opacity: 0.72;
+}
+
 .settings__row--check {
   grid-template-columns: 1fr auto;
   padding: 4px 12px 4px 10px;

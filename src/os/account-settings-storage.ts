@@ -17,6 +17,7 @@ import {
   reconcilePreferredByCapability,
   applyTextPreferredToProviders,
   modelHasCapability,
+  providerRequiresProxy,
   resolvePreferredModelRef,
   resolveProviderEntryBaseURL,
   type AccountSettingsV2,
@@ -99,6 +100,8 @@ function normalizeProviderId(value: unknown): AiProviderId {
     value === 'deepseek' ||
     value === 'mimo' ||
     value === 'mimo-token-plan' ||
+    value === 'ark-coding-plan' ||
+    value === 'ark-agent-plan' ||
     value === 'custom'
   ) {
     return value
@@ -122,8 +125,9 @@ function normalizeProviderEntry(raw: unknown): AiProviderEntry | undefined {
     typeof record.thinkingEnabled === 'boolean'
       ? record.thinkingEnabled
       : false
-  const useProxy =
+  const storedUseProxy =
     typeof record.useProxy === 'boolean' ? record.useProxy : false
+  const useProxy = providerRequiresProxy(providerId) ? true : storedUseProxy
   const baseURL =
     typeof record.baseURL === 'string' ? record.baseURL.trim() : ''
   const id =

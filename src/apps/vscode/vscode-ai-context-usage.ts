@@ -2,6 +2,7 @@ import type OpenAI from 'openai'
 import { toChatCompletionTool, type AgentTool } from '../../ai/agent-tool.ts'
 import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
+  findAiModelPreset,
   resolveModelEntryContextWindow,
   type AiProviderId,
 } from '../../ai/ai-providers.ts'
@@ -106,6 +107,17 @@ export function resolveModelContextWindow(
       if (entry) {
         return resolveModelEntryContextWindow(provider.providerId, entry)
       }
+    }
+  }
+
+  if (options?.providerId) {
+    const presetWindow = findAiModelPreset(options.providerId, id)?.contextWindow
+    if (
+      typeof presetWindow === 'number' &&
+      Number.isFinite(presetWindow) &&
+      Math.floor(presetWindow) >= 1
+    ) {
+      return Math.floor(presetWindow)
     }
   }
 

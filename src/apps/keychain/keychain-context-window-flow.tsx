@@ -128,7 +128,7 @@ export function KeychainContextWindowFlow({
           </div>
           {mode === 'auto' ? (
             <p class="settings__section-footnote">
-              已匹配定价模型时使用其上下文长度；否则为{' '}
+              优先使用 OpenRouter / 定价缓存的上下文长度，否则使用内置预设；都没有时为{' '}
               {formatCompactTokenCount(DEFAULT_MODEL_CONTEXT_WINDOW)}
               。当前：{formatCompactTokenCount(autoPreview)}。
             </p>

@@ -76,6 +76,11 @@ const MATCH_CASES: Case[] = [
   { modelId: 'moonshotai/kimi-k2.7-code', family: 'kimi' },
   { modelId: 'moonshotai/kimi-k3', family: 'kimi' },
 
+  // E2. Doubao Seed / Ark route（回退 deepseek-v3）
+  { modelId: 'doubao-seed-2.0-code', family: 'deepseek-v3' },
+  { modelId: 'doubao-seed-2.0-pro', family: 'deepseek-v3' },
+  { modelId: 'ark-code-latest', family: 'deepseek-v3' },
+
   // F. glm-5
   { modelId: 'glm-5.2', family: 'glm-5' },
   { modelId: 'glm-5.2[1m]', family: 'glm-5' },

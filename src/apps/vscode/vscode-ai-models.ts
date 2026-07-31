@@ -5,6 +5,7 @@ import {
   type FlatEnabledModel,
   type PreferredModelRef,
 } from '../../ai/ai-providers.ts'
+import { listSupportedReasoningEfforts } from '../../ai/ai-thinking.ts'
 import { resolveTokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from '../../ai/openai-config.ts'
 import { subscribeOpenAiConfig } from '../../ai/openai-config-events.ts'
@@ -221,13 +222,26 @@ export function resolveVscodeAiThinkingEffortPrefForModelKey(
     options?.[modelKey]?.thinkingEffort ??
     loadVscodePrefs().aiModelOptions[modelKey]?.thinkingEffort
   if (
-    override === 'default' ||
-    (typeof override === 'string' &&
-      (VSCODE_AI_THINKING_EFFORT_PRESETS as readonly string[]).includes(override))
+    !(
+      override === 'default' ||
+      (typeof override === 'string' &&
+        (VSCODE_AI_THINKING_EFFORT_PRESETS as readonly string[]).includes(override))
+    )
   ) {
-    return override
+    return 'default'
   }
-  return 'default'
+  if (override === 'default') return 'default'
+
+  const settings = loadAccountSettings()
+  const ref = parseVscodeAiModelRefKey(modelKey)
+  const entry = settings?.providers.find((item) => item.id === ref?.providerEntryId)
+  if (entry && ref) {
+    const supported = listSupportedReasoningEfforts(entry.providerId, ref.modelId)
+    if (supported !== null && !supported.includes(override)) {
+      return 'default'
+    }
+  }
+  return override
 }
 
 export function openAiConfigForVscodeAiModelKey(

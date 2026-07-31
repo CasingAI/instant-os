@@ -19,9 +19,9 @@ export type VscodeSearchPrefs = {
   searchEditorContextLines: number
 }
 
-/** VS Code 本地可选手动上下文档位（token） */
+/** VS Code 本地可选手动上下文档位（token）；覆盖系统预设时选用 */
 export const VSCODE_AI_CONTEXT_WINDOW_PRESETS = [
-  64000, 128000, 200000, 300000, 500000,
+  64_000, 128_000, 200_000, 256_000, 400_000, 512_000, 1_000_000, 1_050_000,
 ] as const
 
 export type VscodeAiContextWindowPreset =
@@ -30,7 +30,7 @@ export type VscodeAiContextWindowPreset =
 /** VS Code 本地覆盖的上下文窗口；缺省视为跟随系统（钥匙串）配置 */
 export type VscodeAiContextWindowPref = 'system' | VscodeAiContextWindowPreset
 
-/** OpenAI reasoning_effort 档位；default = 不传参数 */
+/** 思考深度档位全集；default = 不传参数。实际可选集按模型过滤 */
 export const VSCODE_AI_THINKING_EFFORT_PRESETS = [
   'none',
   'minimal',
@@ -38,6 +38,7 @@ export const VSCODE_AI_THINKING_EFFORT_PRESETS = [
   'medium',
   'high',
   'xhigh',
+  'max',
 ] as const
 
 export type VscodeAiThinkingEffortPreset =

@@ -1,6 +1,7 @@
 import { accountSettingsToOpenAiConfig, loadAccountSettings } from '../os/account-settings-storage.ts'
 import {
   getDefaultThinkingEnabled,
+  providerRequiresProxy,
   resolveModelFriendlyName,
   resolvePreferredModelRef,
   type AiModelCapability,
@@ -71,8 +72,9 @@ export function mergeOpenAiConfig(
     overrides?.thinkingEnabled ??
     stored?.thinkingEnabled ??
     getDefaultThinkingEnabled(providerId)
-  const useProxy =
-    overrides?.useProxy ?? stored?.useProxy ?? false
+  const useProxy = providerRequiresProxy(providerId)
+    ? true
+    : (overrides?.useProxy ?? stored?.useProxy ?? false)
   const thinkingEffort = overrides?.thinkingEffort
 
   if (!apiKey) {

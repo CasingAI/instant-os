@@ -1,4 +1,23 @@
-import { isMimoUltraSpeedModel, type AiProviderId } from './ai-providers.ts'
+import {
+  findAiModelPreset,
+  isAiReasoningEffort,
+  isMimoUltraSpeedModel,
+  REASONING_EFFORTS_BINARY,
+  type AiProviderId,
+  type AiReasoningEffort,
+} from './ai-providers.ts'
+
+export type { AiReasoningEffort } from './ai-providers.ts'
+export {
+  AI_REASONING_EFFORT_PRESETS,
+  REASONING_EFFORTS_BINARY,
+  REASONING_EFFORTS_DEEPSEEK_V4,
+  REASONING_EFFORTS_GLM,
+  REASONING_EFFORTS_LOW_MED_HIGH,
+  REASONING_EFFORTS_OPENAI_FULL,
+  REASONING_EFFORTS_OPENAI_GPT54,
+  isAiReasoningEffort,
+} from './ai-providers.ts'
 
 export type StreamTextDelta = {
   reasoning: string
@@ -27,29 +46,12 @@ export type ThinkingRequestParam = {
   reasoning_effort?: AiReasoningEffort
 }
 
-/** OpenAI reasoning_effort 常用档位（模型实际支持集可能更窄） */
-export const AI_REASONING_EFFORT_PRESETS = [
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-] as const
-
-export type AiReasoningEffort = (typeof AI_REASONING_EFFORT_PRESETS)[number]
-
-export function isAiReasoningEffort(value: unknown): value is AiReasoningEffort {
-  return (
-    typeof value === 'string' &&
-    (AI_REASONING_EFFORT_PRESETS as readonly string[]).includes(value)
-  )
-}
-
 /** 小米语音识别 / 合成不支持 thinking 参数 */
 const THINKING_UNSUPPORTED_MODEL_IDS = new Set([
   'mimo-v2.5-asr',
   'mimo-v2.5-tts',
+  'doubao-seed-asr-2.0',
+  'doubao-seed-tts-2.0',
 ])
 
 /**
@@ -67,6 +69,37 @@ export function supportsThinkingParam(
   return true
 }
 
+/**
+ * 解析模型支持的思考深度档位。
+ * - `null`：未知/自定义，展示完整通用列表
+ * - `[]`：仅支持开/关，不展示深度选择
+ * - 非空：仅展示这些档位
+ */
+export function listSupportedReasoningEfforts(
+  providerId?: AiProviderId,
+  modelId?: string,
+): readonly AiReasoningEffort[] | null {
+  if (!providerId || !modelId) return null
+  if (!supportsThinkingParam(providerId, modelId)) {
+    return REASONING_EFFORTS_BINARY
+  }
+  const preset = findAiModelPreset(providerId, modelId)
+  if (preset && preset.reasoningEfforts !== undefined) {
+    return preset.reasoningEfforts
+  }
+  if (providerId === 'custom') return null
+  // 内置但未标注时，保守：不展示虚假的全量 OpenAI 档位
+  return REASONING_EFFORTS_BINARY
+}
+
+export function modelSupportsReasoningEffortPicker(
+  providerId?: AiProviderId,
+  modelId?: string,
+): boolean {
+  const efforts = listSupportedReasoningEfforts(providerId, modelId)
+  return efforts === null || efforts.length > 0
+}
+
 /** 微应用生成时 DeepSeek / MiMo 始终启用思维链，不受账户设置影响；UltraSpeed 尊重用户设置以保留极速优势。 */
 export function resolveAppGenerationThinkingEnabled(
   providerId: AiProviderId | undefined,
@@ -76,7 +109,13 @@ export function resolveAppGenerationThinkingEnabled(
   if (modelId && isMimoUltraSpeedModel(modelId)) {
     return thinkingEnabled
   }
-  if (providerId === 'deepseek' || providerId === 'mimo' || providerId === 'mimo-token-plan') {
+  if (
+    providerId === 'deepseek' ||
+    providerId === 'mimo' ||
+    providerId === 'mimo-token-plan' ||
+    providerId === 'ark-coding-plan' ||
+    providerId === 'ark-agent-plan'
+  ) {
     return true
   }
   return thinkingEnabled
@@ -102,7 +141,10 @@ export function buildThinkingRequestExtras(
     thinkingEffort !== 'default' &&
     isAiReasoningEffort(thinkingEffort)
   ) {
-    extras.reasoning_effort = thinkingEffort
+    const supported = listSupportedReasoningEfforts(providerId, modelId)
+    if (supported === null || supported.includes(thinkingEffort)) {
+      extras.reasoning_effort = thinkingEffort
+    }
   }
   return extras
 }

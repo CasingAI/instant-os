@@ -22,6 +22,7 @@ import {
   listVscodeAiThinkingEffortPrefOptions,
   resolveVscodeAiFastPair,
   resolveVscodeAiSystemContextWindow,
+  shouldShowVscodeAiThinkingEffortPicker,
 } from './vscode-ai-model-display.ts'
 import {
   encodeVscodeModelPickerValue,
@@ -1021,7 +1022,10 @@ export function VscodeAiModelPicker({
                       editKey,
                       aiModelOptions,
                     )
-                    const options = listVscodeAiThinkingEffortPrefOptions()
+                    const options = listVscodeAiThinkingEffortPrefOptions(
+                      editModel.providerId,
+                      editModel.modelId,
+                    )
                     return (
                       <>
                         <PopoverNavHeader
@@ -1096,7 +1100,11 @@ export function VscodeAiModelPicker({
                           />
                         </div>
                       ) : undefined}
-                      {thinkingOn ? (
+                      {thinkingOn &&
+                      shouldShowVscodeAiThinkingEffortPicker(
+                        editModel.providerId,
+                        editModel.modelId,
+                      ) ? (
                         <div class="vscode-ai-model-picker__edit-nav-row">
                           <PopoverNavRow
                             label="思考深度"

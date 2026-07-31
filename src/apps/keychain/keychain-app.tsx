@@ -44,6 +44,7 @@ import {
   modelCapabilitiesEqual,
   normalizeCustomModelCapabilities,
   preferredByCapabilityEqual,
+  providerRequiresProxy,
   reconcilePreferredByCapability,
   resolveModelCapabilities,
   type AiContextWindowMode,
@@ -658,6 +659,7 @@ export function KeychainApp() {
         version: 2,
         providers: synced.providers.map((p) => ({
           ...p,
+          useProxy: providerRequiresProxy(p.providerId) ? true : p.useProxy,
           enabledModels: p.enabledModels.map((m) => ({ ...m })),
         })),
         preferredIndex: synced.preferredIndex,
@@ -1451,7 +1453,9 @@ function ProviderSettingsForm({
     newEntry.id = entry.id
     newEntry.name = entry.name
     newEntry.apiKey = entry.apiKey
-    newEntry.useProxy = entry.useProxy
+    newEntry.useProxy = providerRequiresProxy(providerId)
+      ? true
+      : entry.useProxy
     if (entry.baseURL) newEntry.baseURL = entry.baseURL
     onChange(newEntry)
   }
@@ -1569,8 +1573,19 @@ function ProviderSettingsForm({
           />
           <SettingsSwitchRow
             label="使用代理服务器访问"
-            checked={entry.useProxy}
-            onChange={(useProxy) => onChange({ ...entry, useProxy })}
+            checked={
+              providerRequiresProxy(entry.providerId) ? true : entry.useProxy
+            }
+            disabled={providerRequiresProxy(entry.providerId)}
+            detail={
+              providerRequiresProxy(entry.providerId)
+                ? '火山方舟需经代理服务器访问，无法关闭。'
+                : undefined
+            }
+            onChange={(useProxy) => {
+              if (providerRequiresProxy(entry.providerId)) return
+              onChange({ ...entry, useProxy })
+            }}
           />
         </div>
       </div>
