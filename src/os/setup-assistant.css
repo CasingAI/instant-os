@@ -742,16 +742,21 @@
   box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
 }
 
-.setup-ai-form__model-cards {
-  max-height: calc(88px * 2.5);
+.setup-ai-form__choice.settings {
+  height: auto;
+}
+
+.setup-ai-form__choice .settings__list {
+  max-height: 168px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 1px;
 }
 
-.setup-ai-form__model-cards .ai-model-cards {
+.setup-ai-form__custom-model {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -761,7 +766,16 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 36px;
-  padding: 4px 0;
+  padding: 0 2px;
+  font-size: 13px;
+  color: #6d6d72;
+  cursor: pointer;
+  user-select: none;
+}
+
+.setup-ai-form__switch-row input {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

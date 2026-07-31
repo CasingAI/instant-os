@@ -45,6 +45,9 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
           enabledModels: [],
         },
       ],
+      // 清空默认 Flash 首选，避免选模型时被 reconcile 写回
+      preferredByCapability: {},
+      preferredIndex: 0,
     }
   })
   const [saveError, setSaveError] = useState(false)
@@ -149,9 +152,21 @@ export function SetupAssistant({ onLaunch, launching = false }: SetupAssistantPr
   const updateProvider = useCallback((entry: AiProviderEntry) => {
     setSettings((prev) => {
       const providers = [entry]
+      // 以当前 defaultModel 为文本首选种子，避免旧首选把选中态盖回去
+      const seededPreferred = { ...prev.preferredByCapability }
+      const selectedModel = entry.defaultModel.trim()
+      if (
+        selectedModel &&
+        entry.enabledModels.some((model) => model.modelId === selectedModel)
+      ) {
+        seededPreferred.text = {
+          providerEntryId: entry.id,
+          modelId: selectedModel,
+        }
+      }
       const reconciled = reconcilePreferredByCapability(
         providers,
-        prev.preferredByCapability,
+        seededPreferred,
         0,
       )
       return {

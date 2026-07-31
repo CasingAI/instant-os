@@ -7,13 +7,12 @@ import {
   findAiProviderPreset,
   isCustomProvider,
   normalizeCustomModelCapabilities,
-  resolveModelCapabilities,
   type AiProviderEntry,
   type AiProviderId,
 } from '../ai/ai-providers.ts'
 import { SettingsChoiceField } from '../ui/settings-choice-field.tsx'
-import { AiModelCapabilityTags } from '../ui/ai-model-capability-tags.tsx'
-import '../ui/ai-model-capability-tags.css'
+import { SettingsChoiceOptionList } from '../ui/settings-choice-option-list.tsx'
+import '../apps/settings/settings.css'
 
 const PROVIDER_OPTIONS = AI_PROVIDER_PRESETS.map((item) => ({
   id: item.id,
@@ -51,7 +50,9 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
     onChange(newEntry)
   }
 
-  const handleSelectModel = (modelId: string, name: string) => {
+  const handleSelectModel = (modelId: string) => {
+    const name =
+      preset?.models.find((model) => model.id === modelId)?.name ?? modelId
     onChange({
       ...entry,
       defaultModel: modelId,
@@ -87,8 +88,10 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
     }
   }
 
-  const presetModels = preset?.models ?? []
-  const customCapabilities = buildCustomModelCapabilities(customSupportsVision)
+  const modelOptions = (preset?.models ?? []).map((model) => ({
+    id: model.id,
+    label: model.name,
+  }))
 
   return (
     <div class="setup-ai-form">
@@ -139,59 +142,42 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
       </div>
 
       <div class="setup-ai-form__field">
-        <span class="setup-ai-form__label">模型</span>
+        <span class="setup-ai-form__label">首选模型</span>
         {isCustom ? (
-          <div class="setup-ai-form__model-cards">
-            <div class="ai-model-card ai-model-card--add">
-              <div class="ai-model-card__header">
-                <input
-                  class="setup-ai-form__input ai-model-card__title-input"
-                  type="text"
-                  value={entry.defaultModel}
-                  placeholder="model-name"
-                  autoComplete="off"
-                  onInput={(event) =>
-                    handleCustomModelChange(
-                      (event.currentTarget as HTMLInputElement).value,
-                    )
-                  }
-                />
-              </div>
-              <AiModelCapabilityTags
-                capabilities={customCapabilities}
-                visionEditable
-                onVisionChange={handleCustomVisionChange}
+          <div class="setup-ai-form__custom-model">
+            <input
+              class="setup-ai-form__input"
+              type="text"
+              value={entry.defaultModel}
+              placeholder="model-name"
+              autoComplete="off"
+              onInput={(event) =>
+                handleCustomModelChange(
+                  (event.currentTarget as HTMLInputElement).value,
+                )
+              }
+            />
+            <label class="setup-ai-form__switch-row">
+              <span>支持图像识别</span>
+              <input
+                type="checkbox"
+                checked={customSupportsVision}
+                onChange={(event) =>
+                  handleCustomVisionChange(
+                    (event.currentTarget as HTMLInputElement).checked,
+                  )
+                }
               />
-            </div>
+            </label>
           </div>
         ) : (
-          <div class="setup-ai-form__model-cards">
-            <div class="ai-model-cards">
-              {presetModels.map((model) => {
-                const selected = entry.defaultModel === model.id
-                const caps = resolveModelCapabilities(entry.providerId, model.id)
-                return (
-                  <button
-                    key={model.id}
-                    type="button"
-                    class={`ai-model-card ai-model-card--selectable${
-                      selected ? ' ai-model-card--selected' : ''
-                    }`}
-                    onClick={() => handleSelectModel(model.id, model.name)}
-                  >
-                    <div class="ai-model-card__header">
-                      <span class="ai-model-card__title">{model.name}</span>
-                      {selected && (
-                        <span class="ai-model-card__check" aria-hidden="true">
-                          ✓
-                        </span>
-                      )}
-                    </div>
-                    <AiModelCapabilityTags capabilities={caps} />
-                  </button>
-                )
-              })}
-            </div>
+          <div class="setup-ai-form__choice settings">
+            <SettingsChoiceOptionList
+              options={modelOptions}
+              value={entry.defaultModel}
+              onChange={handleSelectModel}
+              ariaLabel="选择首选模型"
+            />
           </div>
         )}
       </div>
