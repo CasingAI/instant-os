@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useCallback, useMemo, useState } from 'preact/hooks'
+import { PlusIcon } from '../../icons/app-icons.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -10,15 +11,27 @@ import {
   useKeychainNavStack,
 } from '../keychain/keychain-nav-stack.tsx'
 import { SettingsChoicePickerView } from '../settings/settings-choice-picker-view.tsx'
-import { VscodeAiModelPicker } from './vscode-ai-model-picker.tsx'
+import { labelForVscodeModelPickerDisplay } from './vscode-ai-model-picker-data.ts'
 import {
   decodeVscodeModelPickerValue,
   encodeVscodeModelPickerValue,
-  labelForVscodeModelPickerValue,
+  formatVscodeAiModelRefKey,
   labelForVscodeModelSource,
-  useVscodeAiCapabilityTags,
+  resolveVscodeAiContextWindowPrefForModelKey,
+  resolveVscodeAiThinkingEffortPrefForModelKey,
+  resolveVscodeCapabilityPickerModelKey,
   useVscodeAiTextModels,
 } from './vscode-ai-models.ts'
+import {
+  applySettingsModelContextChange,
+  applySettingsModelThinkingChange,
+  listSettingsModelContextOptions,
+  listSettingsModelThinkingOptions,
+  summaryForSettingsModelConfig,
+  VscodeSettingsModelChoiceView,
+  VscodeSettingsModelOptionsView,
+  VscodeSettingsModelPickerView,
+} from './vscode-settings-model-picker-view.tsx'
 import type {
   VscodeCustomSubAgent,
   VscodeModelSource,
@@ -48,6 +61,25 @@ type VscodeSettingsScreen =
   | 'subagent-explore'
   | 'subagent-general'
   | 'subagent-custom'
+  | 'model-picker'
+  | 'model-options'
+  | 'model-context'
+  | 'model-thinking'
+
+type ModelPickerSession = {
+  back: Exclude<
+    VscodeSettingsScreen,
+    'model-picker' | 'model-options' | 'model-context' | 'model-thinking'
+  >
+  backLabel: string
+  title: string
+  selectionMode: 'agent' | 'completion'
+  target:
+    | { kind: 'completion' }
+    | { kind: 'builtin'; id: 'explore' | 'general' }
+    | { kind: 'custom' }
+  editModelKey?: string
+}
 
 type VscodeSettingsPanelProps = {
   prefs: VscodePrefs
@@ -57,56 +89,6 @@ type VscodeSettingsPanelProps = {
 
 function themeLabel(theme: VscodePrefs['theme']): string {
   return VSCODE_THEME_OPTIONS.find((item) => item.id === theme)?.label ?? theme
-}
-
-function SettingsAiModelNavRow({
-  label,
-  value,
-  models,
-  onChange,
-  aiModelOptions,
-  onAiModelOptionsChange,
-  capabilityTags,
-  selectionMode = 'agent',
-  disabled,
-  dark,
-}: {
-  label: string
-  value: string
-  models: ReturnType<typeof useVscodeAiTextModels>
-  onChange: (modelKey: string) => void
-  aiModelOptions: VscodePrefs['aiModelOptions']
-  onAiModelOptionsChange: (next: VscodePrefs['aiModelOptions']) => void
-  capabilityTags?: ReturnType<typeof useVscodeAiCapabilityTags>
-  selectionMode?: 'agent' | 'completion'
-  disabled?: boolean
-  dark?: boolean
-}) {
-  return (
-    <VscodeAiModelPicker
-      label={label}
-      ariaLabel={label}
-      value={value}
-      models={models}
-      onChange={onChange}
-      aiModelOptions={aiModelOptions}
-      onAiModelOptionsChange={onAiModelOptionsChange}
-      capabilityTags={capabilityTags}
-      selectionMode={selectionMode}
-      disabled={disabled}
-      dark={dark}
-    >
-      {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
-        <SettingsNavRow
-          rowRef={triggerRef}
-          label={label}
-          value={displayValue}
-          disabled={triggerDisabled}
-          onClick={() => setOpen(!open)}
-        />
-      )}
-    </VscodeAiModelPicker>
-  )
 }
 
 function slugifySubAgentId(raw: string): string {
@@ -164,28 +146,23 @@ function builtinSummary(
 function BuiltinSubAgentPage({
   override,
   allowInheritParent,
-  dark,
-  aiModelOptions,
-  onAiModelOptionsChange,
+  modelDisabled,
+  modelDisplay,
+  modelConfigSummary,
+  onOpenModelPicker,
+  onOpenModelConfig,
   onChange,
 }: {
-  label: string
   override: VscodeSubAgentBuiltinOverride | undefined
   allowInheritParent?: boolean
-  dark?: boolean
-  aiModelOptions: VscodePrefs['aiModelOptions']
-  onAiModelOptionsChange: (next: VscodePrefs['aiModelOptions']) => void
+  modelDisabled?: boolean
+  modelDisplay: string
+  modelConfigSummary?: string
+  onOpenModelPicker: () => void
+  onOpenModelConfig?: () => void
   onChange: (next: VscodeSubAgentBuiltinOverride | undefined) => void
 }) {
-  const textModels = useVscodeAiTextModels()
-  const capabilityTags = useVscodeAiCapabilityTags()
   const inheritParent = Boolean(allowInheritParent) && !override?.modelSource
-  const pickerValue = inheritParent
-    ? ''
-    : encodeVscodeModelPickerValue(
-        override?.modelSource ?? (allowInheritParent ? 'custom' : 'text-secondary'),
-        override?.modelKey,
-      )
 
   return (
     <div class="settings__list">
@@ -218,32 +195,21 @@ function BuiltinSubAgentPage({
         />
       ) : undefined}
       {!inheritParent ? (
-        <SettingsAiModelNavRow
-          label="模型"
-          selectionMode="agent"
-          value={
-            pickerValue ||
-            encodeVscodeModelPickerValue(
-              allowInheritParent ? 'text' : 'text-secondary',
-              override?.modelKey,
-            )
-          }
-          models={textModels}
-          onChange={(encoded) => {
-            const decoded = decodeVscodeModelPickerValue(encoded)
-            onChange({
-              ...override,
-              modelSource: decoded.source,
-              modelKey:
-                decoded.source === 'custom' ? decoded.modelKey : override?.modelKey,
-            })
-          }}
-          aiModelOptions={aiModelOptions}
-          onAiModelOptionsChange={onAiModelOptionsChange}
-          capabilityTags={capabilityTags}
-          disabled={textModels.length === 0}
-          dark={dark}
-        />
+        <>
+          <SettingsNavRow
+            label="模型"
+            value={modelDisplay}
+            disabled={modelDisabled}
+            onClick={onOpenModelPicker}
+          />
+          {onOpenModelConfig ? (
+            <SettingsNavRow
+              label="配置"
+              value={modelConfigSummary}
+              onClick={onOpenModelConfig}
+            />
+          ) : undefined}
+        </>
       ) : undefined}
     </div>
   )
@@ -255,7 +221,6 @@ export function VscodeSettingsPanel({
   onChange,
 }: VscodeSettingsPanelProps) {
   const textModels = useVscodeAiTextModels()
-  const capabilityTags = useVscodeAiCapabilityTags()
   const {
     page: screen,
     stack,
@@ -275,6 +240,9 @@ export function VscodeSettingsPanel({
   const [draftModelKey, setDraftModelKey] = useState<string | undefined>()
   const [formError, setFormError] = useState<string | undefined>()
   const [editingId, setEditingId] = useState<string | undefined>()
+  const [modelPickerSession, setModelPickerSession] = useState<
+    ModelPickerSession | undefined
+  >()
 
   const reservedIds = useMemo(() => {
     const set = new Set(['explore', 'general'])
@@ -283,6 +251,90 @@ export function VscodeSettingsPanel({
     }
     return set
   }, [editingId, prefs.customSubAgents])
+
+  const openModelPicker = useCallback(
+    (session: ModelPickerSession) => {
+      setModelPickerSession(session)
+      navigate('model-picker', 'push')
+    },
+    [navigate],
+  )
+
+  const openModelConfig = useCallback(
+    (session: ModelPickerSession & { editModelKey: string }) => {
+      setModelPickerSession(session)
+      navigate('model-options', 'push')
+    },
+    [navigate],
+  )
+
+  const modelPickerValue = useMemo(() => {
+    if (!modelPickerSession) return ''
+    const { target } = modelPickerSession
+    if (target.kind === 'completion') {
+      return encodeVscodeModelPickerValue(
+        prefs.completionModelSource,
+        prefs.completionModelKey,
+      )
+    }
+    if (target.kind === 'custom') {
+      return encodeVscodeModelPickerValue(draftModelSource, draftModelKey)
+    }
+    const override = prefs.subAgentBuiltinOverrides[target.id]
+    const allowInherit = target.id === 'general'
+    if (allowInherit && !override?.modelSource) {
+      return encodeVscodeModelPickerValue('text')
+    }
+    return encodeVscodeModelPickerValue(
+      override?.modelSource ?? (allowInherit ? 'text' : 'text-secondary'),
+      override?.modelKey,
+    )
+  }, [
+    draftModelKey,
+    draftModelSource,
+    modelPickerSession,
+    prefs.completionModelKey,
+    prefs.completionModelSource,
+    prefs.subAgentBuiltinOverrides,
+  ])
+
+  const applyModelPickerValue = useCallback(
+    (encoded: string) => {
+      if (!modelPickerSession) return
+      const decoded = decodeVscodeModelPickerValue(encoded)
+      const { target } = modelPickerSession
+      if (target.kind === 'completion') {
+        onChange({
+          completionModelSource: decoded.source,
+          completionModelKey:
+            decoded.source === 'custom'
+              ? decoded.modelKey
+              : prefs.completionModelKey,
+        })
+        return
+      }
+      if (target.kind === 'custom') {
+        setDraftModelSource(decoded.source)
+        if (decoded.source === 'custom') {
+          setDraftModelKey(decoded.modelKey)
+        }
+        return
+      }
+      const override = prefs.subAgentBuiltinOverrides[target.id]
+      onChange({
+        subAgentBuiltinOverrides: {
+          ...prefs.subAgentBuiltinOverrides,
+          [target.id]: {
+            ...override,
+            modelSource: decoded.source,
+            modelKey:
+              decoded.source === 'custom' ? decoded.modelKey : override?.modelKey,
+          },
+        },
+      })
+    },
+    [modelPickerSession, onChange, prefs.completionModelKey, prefs.subAgentBuiltinOverrides],
+  )
 
   const resetDraft = useCallback(() => {
     setDraftId('')
@@ -373,11 +425,13 @@ export function VscodeSettingsPanel({
   )
 
   const completionSummary = prefs.completionEnabled
-    ? labelForVscodeModelPickerValue(
+    ? labelForVscodeModelPickerDisplay(
         encodeVscodeModelPickerValue(
           prefs.completionModelSource,
           prefs.completionModelKey,
         ),
+        textModels,
+        'completion',
       )
     : '已关闭'
   const agentSummary = `重试 ${prefs.aiIdleRetryCount}`
@@ -477,32 +531,58 @@ export function VscodeSettingsPanel({
                 onChange={(completionEnabled) => onChange({ completionEnabled })}
               />
               {prefs.completionEnabled ? (
-                <SettingsAiModelNavRow
-                  label="补全模型"
-                  selectionMode="completion"
-                  value={encodeVscodeModelPickerValue(
-                    prefs.completionModelSource,
-                    prefs.completionModelKey,
-                  )}
-                  models={textModels}
-                  onChange={(encoded) => {
-                    const decoded = decodeVscodeModelPickerValue(encoded)
-                    onChange({
-                      completionModelSource: decoded.source,
-                      completionModelKey:
-                        decoded.source === 'custom'
-                          ? decoded.modelKey
-                          : prefs.completionModelKey,
-                    })
-                  }}
-                  aiModelOptions={prefs.aiModelOptions}
-                  onAiModelOptionsChange={(aiModelOptions) =>
-                    onChange({ aiModelOptions })
-                  }
-                  capabilityTags={capabilityTags}
-                  disabled={textModels.length === 0}
-                  dark={dark}
-                />
+                <>
+                  <SettingsNavRow
+                    label="补全模型"
+                    value={labelForVscodeModelPickerDisplay(
+                      encodeVscodeModelPickerValue(
+                        prefs.completionModelSource,
+                        prefs.completionModelKey,
+                      ),
+                      textModels,
+                      'completion',
+                    )}
+                    disabled={textModels.length === 0}
+                    onClick={() =>
+                      openModelPicker({
+                        back: 'completion',
+                        backLabel: '代码补全',
+                        title: '补全模型',
+                        selectionMode: 'completion',
+                        target: { kind: 'completion' },
+                      })
+                    }
+                  />
+                  {(() => {
+                    const encoded = encodeVscodeModelPickerValue(
+                      prefs.completionModelSource,
+                      prefs.completionModelKey,
+                    )
+                    const editKey =
+                      resolveVscodeCapabilityPickerModelKey(encoded)
+                    if (!editKey) return undefined
+                    return (
+                      <SettingsNavRow
+                        label="配置"
+                        value={summaryForSettingsModelConfig(
+                          encoded,
+                          textModels,
+                          prefs.aiModelOptions,
+                        )}
+                        onClick={() =>
+                          openModelConfig({
+                            back: 'completion',
+                            backLabel: '代码补全',
+                            title: '补全模型',
+                            selectionMode: 'completion',
+                            target: { kind: 'completion' },
+                            editModelKey: editKey,
+                          })
+                        }
+                      />
+                    )
+                  })()}
+                </>
               ) : undefined}
             </div>
           </section>
@@ -544,10 +624,12 @@ export function VscodeSettingsPanel({
               <div class="settings__nav-trailing">
                 <button
                   type="button"
-                  class="settings__btn settings__btn--plain"
+                  class="settings__btn settings__btn--plain settings__btn--icon"
+                  aria-label="添加"
+                  title="添加"
                   onClick={() => openCustomForm()}
                 >
-                  添加
+                  <PlusIcon />
                 </button>
               </div>
             ) : undefined
@@ -599,7 +681,7 @@ export function VscodeSettingsPanel({
                 <h2 class="settings__section-title">自定义</h2>
                 {prefs.customSubAgents.length === 0 ? (
                   <p class="settings__section-footnote" style={{ marginTop: 0 }}>
-                    暂无自定义 Sub Agent。点右上角「添加」创建。
+                    暂无自定义 Sub Agent。点右上角「+」创建。
                   </p>
                 ) : (
                   <div class="settings__list">
@@ -627,6 +709,12 @@ export function VscodeSettingsPanel({
     }
 
     if (target === 'subagent-explore') {
+      const exploreEncoded = encodeVscodeModelPickerValue(
+        prefs.subAgentBuiltinOverrides.explore?.modelSource ?? 'text-secondary',
+        prefs.subAgentBuiltinOverrides.explore?.modelKey,
+      )
+      const exploreEditKey =
+        resolveVscodeCapabilityPickerModelKey(exploreEncoded)
       return (
         <SettingsPageShell
           title="Explore"
@@ -635,12 +723,39 @@ export function VscodeSettingsPanel({
         >
           <section class="settings__section">
             <BuiltinSubAgentPage
-              label="Explore"
               override={prefs.subAgentBuiltinOverrides.explore}
-              dark={dark}
-              aiModelOptions={prefs.aiModelOptions}
-              onAiModelOptionsChange={(aiModelOptions) =>
-                onChange({ aiModelOptions })
+              modelDisabled={textModels.length === 0}
+              modelDisplay={labelForVscodeModelPickerDisplay(
+                exploreEncoded,
+                textModels,
+                'agent',
+              )}
+              modelConfigSummary={summaryForSettingsModelConfig(
+                exploreEncoded,
+                textModels,
+                prefs.aiModelOptions,
+              )}
+              onOpenModelPicker={() =>
+                openModelPicker({
+                  back: 'subagent-explore',
+                  backLabel: 'Explore',
+                  title: '模型',
+                  selectionMode: 'agent',
+                  target: { kind: 'builtin', id: 'explore' },
+                })
+              }
+              onOpenModelConfig={
+                exploreEditKey
+                  ? () =>
+                      openModelConfig({
+                        back: 'subagent-explore',
+                        backLabel: 'Explore',
+                        title: '模型',
+                        selectionMode: 'agent',
+                        target: { kind: 'builtin', id: 'explore' },
+                        editModelKey: exploreEditKey,
+                      })
+                  : undefined
               }
               onChange={(next) => patchBuiltin('explore', next)}
             />
@@ -650,6 +765,12 @@ export function VscodeSettingsPanel({
     }
 
     if (target === 'subagent-general') {
+      const generalEncoded = encodeVscodeModelPickerValue(
+        prefs.subAgentBuiltinOverrides.general?.modelSource ?? 'text',
+        prefs.subAgentBuiltinOverrides.general?.modelKey,
+      )
+      const generalEditKey =
+        resolveVscodeCapabilityPickerModelKey(generalEncoded)
       return (
         <SettingsPageShell
           title="General"
@@ -658,13 +779,40 @@ export function VscodeSettingsPanel({
         >
           <section class="settings__section">
             <BuiltinSubAgentPage
-              label="General"
               override={prefs.subAgentBuiltinOverrides.general}
               allowInheritParent
-              dark={dark}
-              aiModelOptions={prefs.aiModelOptions}
-              onAiModelOptionsChange={(aiModelOptions) =>
-                onChange({ aiModelOptions })
+              modelDisabled={textModels.length === 0}
+              modelDisplay={labelForVscodeModelPickerDisplay(
+                generalEncoded,
+                textModels,
+                'agent',
+              )}
+              modelConfigSummary={summaryForSettingsModelConfig(
+                generalEncoded,
+                textModels,
+                prefs.aiModelOptions,
+              )}
+              onOpenModelPicker={() =>
+                openModelPicker({
+                  back: 'subagent-general',
+                  backLabel: 'General',
+                  title: '模型',
+                  selectionMode: 'agent',
+                  target: { kind: 'builtin', id: 'general' },
+                })
+              }
+              onOpenModelConfig={
+                generalEditKey
+                  ? () =>
+                      openModelConfig({
+                        back: 'subagent-general',
+                        backLabel: 'General',
+                        title: '模型',
+                        selectionMode: 'agent',
+                        target: { kind: 'builtin', id: 'general' },
+                        editModelKey: generalEditKey,
+                      })
+                  : undefined
               }
               onChange={(next) => patchBuiltin('general', next)}
             />
@@ -767,26 +915,54 @@ export function VscodeSettingsPanel({
 
           <section class="settings__section">
             <div class="settings__list">
-              <SettingsAiModelNavRow
+              <SettingsNavRow
                 label="模型"
-                selectionMode="agent"
-                value={encodeVscodeModelPickerValue(draftModelSource, draftModelKey)}
-                models={textModels}
-                onChange={(encoded) => {
-                  const decoded = decodeVscodeModelPickerValue(encoded)
-                  setDraftModelSource(decoded.source)
-                  if (decoded.source === 'custom') {
-                    setDraftModelKey(decoded.modelKey)
-                  }
-                }}
-                aiModelOptions={prefs.aiModelOptions}
-                onAiModelOptionsChange={(aiModelOptions) =>
-                  onChange({ aiModelOptions })
-                }
-                capabilityTags={capabilityTags}
+                value={labelForVscodeModelPickerDisplay(
+                  encodeVscodeModelPickerValue(draftModelSource, draftModelKey),
+                  textModels,
+                  'agent',
+                )}
                 disabled={textModels.length === 0}
-                dark={dark}
+                onClick={() =>
+                  openModelPicker({
+                    back: 'subagent-custom',
+                    backLabel: editingId ? `编辑「${editingId}」` : '添加 Sub Agent',
+                    title: '模型',
+                    selectionMode: 'agent',
+                    target: { kind: 'custom' },
+                  })
+                }
               />
+              {(() => {
+                const encoded = encodeVscodeModelPickerValue(
+                  draftModelSource,
+                  draftModelKey,
+                )
+                const editKey = resolveVscodeCapabilityPickerModelKey(encoded)
+                if (!editKey) return undefined
+                return (
+                  <SettingsNavRow
+                    label="配置"
+                    value={summaryForSettingsModelConfig(
+                      encoded,
+                      textModels,
+                      prefs.aiModelOptions,
+                    )}
+                    onClick={() =>
+                      openModelConfig({
+                        back: 'subagent-custom',
+                        backLabel: editingId
+                          ? `编辑「${editingId}」`
+                          : '添加 Sub Agent',
+                        title: '模型',
+                        selectionMode: 'agent',
+                        target: { kind: 'custom' },
+                        editModelKey: editKey,
+                      })
+                    }
+                  />
+                )
+              })()}
             </div>
             {formError ? (
               <p class="settings__section-footnote settings__form-status--error">
@@ -816,6 +992,124 @@ export function VscodeSettingsPanel({
             </section>
           ) : undefined}
         </SettingsPageShell>
+      )
+    }
+
+    if (target === 'model-picker' && modelPickerSession) {
+      return (
+        <VscodeSettingsModelPickerView
+          title={modelPickerSession.title}
+          backLabel={modelPickerSession.backLabel}
+          value={modelPickerValue}
+          models={textModels}
+          selectionMode={modelPickerSession.selectionMode}
+          onChange={applyModelPickerValue}
+          onBack={() => navigate(modelPickerSession.back, 'pop')}
+        />
+      )
+    }
+
+    if (
+      (target === 'model-options' ||
+        target === 'model-context' ||
+        target === 'model-thinking') &&
+      modelPickerSession?.editModelKey
+    ) {
+      const editModelKey = modelPickerSession.editModelKey
+      const editModel = textModels.find(
+        (model) =>
+          formatVscodeAiModelRefKey({
+            providerEntryId: model.providerEntryId,
+            modelId: model.modelId,
+          }) === editModelKey,
+      )
+
+      if (target === 'model-options') {
+        return (
+          <VscodeSettingsModelOptionsView
+            editModelKey={editModelKey}
+            backLabel={modelPickerSession.backLabel}
+            models={textModels}
+            aiModelOptions={prefs.aiModelOptions}
+            onAiModelOptionsChange={(aiModelOptions) =>
+              onChange({ aiModelOptions })
+            }
+            onSelectModelKey={(nextKey) => {
+              applyModelPickerValue(nextKey)
+              setModelPickerSession({
+                ...modelPickerSession,
+                editModelKey: nextKey,
+              })
+            }}
+            onOpenContext={() => navigate('model-context', 'push')}
+            onOpenThinking={() => navigate('model-thinking', 'push')}
+            onBack={() => navigate(modelPickerSession.back, 'pop')}
+          />
+        )
+      }
+
+      if (!editModel) {
+        return (
+          <VscodeSettingsModelOptionsView
+            editModelKey={editModelKey}
+            backLabel={modelPickerSession.backLabel}
+            models={textModels}
+            aiModelOptions={prefs.aiModelOptions}
+            onAiModelOptionsChange={(aiModelOptions) =>
+              onChange({ aiModelOptions })
+            }
+            onSelectModelKey={() => undefined}
+            onOpenContext={() => undefined}
+            onOpenThinking={() => undefined}
+            onBack={() => navigate(modelPickerSession.back, 'pop')}
+          />
+        )
+      }
+
+      if (target === 'model-context') {
+        const current = resolveVscodeAiContextWindowPrefForModelKey(
+          editModelKey,
+          prefs.aiModelOptions,
+        )
+        return (
+          <VscodeSettingsModelChoiceView
+            title="上下文长度"
+            options={listSettingsModelContextOptions(editModel)}
+            value={String(current)}
+            onChange={(raw) => {
+              onChange({
+                aiModelOptions: applySettingsModelContextChange(
+                  prefs.aiModelOptions,
+                  editModelKey,
+                  raw,
+                ),
+              })
+            }}
+            onBack={() => navigate('model-options', 'pop')}
+          />
+        )
+      }
+
+      const current = resolveVscodeAiThinkingEffortPrefForModelKey(
+        editModelKey,
+        prefs.aiModelOptions,
+      )
+      return (
+        <VscodeSettingsModelChoiceView
+          title="思考深度"
+          options={listSettingsModelThinkingOptions(editModel)}
+          value={current}
+          onChange={(raw) => {
+            onChange({
+              aiModelOptions: applySettingsModelThinkingChange(
+                prefs.aiModelOptions,
+                editModelKey,
+                raw,
+              ),
+            })
+          }}
+          onBack={() => navigate('model-options', 'pop')}
+        />
       )
     }
 

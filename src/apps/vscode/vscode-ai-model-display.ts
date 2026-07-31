@@ -7,6 +7,7 @@ import {
   findAiProviderPreset,
   type FlatEnabledModel,
 } from '../../ai/ai-providers.ts'
+import { loadAccountSettings } from '../../os/account-settings-storage.ts'
 import { formatCompactTokenCount } from '../browser/format-token-count.ts'
 import { resolveModelContextWindow } from './vscode-ai-context-usage.ts'
 import {
@@ -76,8 +77,13 @@ export function resolveVscodeAiSystemContextWindow(
 /** 编辑气泡披露行 / 选项列表用的档位短文案 */
 export function formatVscodeAiContextWindowPrefLabel(
   pref: VscodeAiContextWindowPref,
+  systemTokens?: number,
 ): string {
-  if (pref === 'system') return '系统'
+  if (pref === 'system') {
+    return typeof systemTokens === 'number'
+      ? `系统（${formatCompactTokenCount(systemTokens)}）`
+      : '系统'
+  }
   return formatCompactTokenCount(pref)
 }
 
@@ -145,9 +151,21 @@ export function shouldShowVscodeAiThinkingEffortPicker(
 export function describeVscodeAiModel(model: FlatEnabledModel): string {
   const blurb = PRESET_BLURBS[model.modelId.trim().toLowerCase()]
   if (blurb) return blurb
-  const providerName =
-    findAiProviderPreset(model.providerId)?.name ?? model.providerId
-  return `${providerName} 文本模型。`
+  return `${labelForVscodeAiModelProvider(model)} 文本模型。`
+}
+
+/** 钥匙串条目自定义名 → 预设名 → providerId */
+export function labelForVscodeAiModelProvider(
+  model: Pick<FlatEnabledModel, 'providerEntryId' | 'providerId'>,
+): string {
+  const entry = loadAccountSettings()?.providers.find(
+    (item) => item.id === model.providerEntryId,
+  )
+  return (
+    entry?.name?.trim() ||
+    findAiProviderPreset(model.providerId)?.name ||
+    model.providerId
+  )
 }
 
 export function formatVscodeAiModelContextLabel(

@@ -88,7 +88,12 @@ import {
   type VscodeEditorLayoutState,
 } from './vscode-editor-layout.ts'
 import { VscodeExplorer } from './vscode-explorer.tsx'
-import { loadVscodePrefs, saveVscodePrefs, type VscodePrefs } from './vscode-prefs.ts'
+import {
+  loadVscodePrefs,
+  saveVscodePrefs,
+  type VscodePrefs,
+  type VscodeSidebarView,
+} from './vscode-prefs.ts'
 import { VscodeProblemsPanel } from './vscode-problems-panel.tsx'
 import { VscodeLogPanel } from './vscode-log-panel.tsx'
 import { VscodeQuickPick } from './vscode-quick-pick.tsx'
@@ -217,7 +222,7 @@ type DirtyPromptState = {
   resolve: (choice: DirtyChoice) => void
 }
 
-type SidebarView = 'explorer' | 'search' | 'settings'
+type SidebarView = VscodeSidebarView
 
 type VscodeAppProps = {
   windowId?: string
@@ -308,9 +313,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const isActiveWindow = windowId !== undefined && activeWindowId === windowId
 
   const [prefs, setPrefs] = useState<VscodePrefs>(() => loadVscodePrefs())
-  const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
+  const sidebarView = prefs.sidebarView
   const [activityCaretTop, setActivityCaretTop] = useState(78)
   const [caretReady, setCaretReady] = useState(false)
+  const caretReadyRef = useRef(false)
   const activityRailRef = useRef<HTMLElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
   const explorerBtnRef = useRef<HTMLButtonElement>(null)
@@ -1489,8 +1495,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const openWorkspaceFolderAtPath = useCallback(
     (path: string): void => {
-      updatePrefs({ workspaceFolder: path, sidebarVisible: true })
-      setSidebarView('explorer')
+      updatePrefs({ workspaceFolder: path, sidebarVisible: true, sidebarView: 'explorer' })
       setRevealPath(path)
       if (activeTerminalHandleRef.current?.getCwd() !== path) {
         void activeTerminalHandleRef.current?.chdir(path).catch(() => undefined)
@@ -2316,19 +2321,26 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
       if (key === 'f' && event.shiftKey && !event.altKey) {
         event.preventDefault()
-        setSidebarView('search')
-        setPrefs((current) => ({ ...current, sidebarVisible: true }))
+        setPrefs((current) => {
+          const next = { ...current, sidebarVisible: true, sidebarView: 'search' as const }
+          saveVscodePrefs(next)
+          return next
+        })
         setSearchFocusNonce((value) => value + 1)
         return
       }
       if (key === 'h' && event.shiftKey && !event.altKey) {
         event.preventDefault()
-        setSidebarView('search')
-        setPrefs((current) => ({
-          ...current,
-          sidebarVisible: true,
-          search: { ...current.search, showReplace: true },
-        }))
+        setPrefs((current) => {
+          const next = {
+            ...current,
+            sidebarVisible: true,
+            sidebarView: 'search' as const,
+            search: { ...current.search, showReplace: true },
+          }
+          saveVscodePrefs(next)
+          return next
+        })
         setSearchFocusNonce((value) => value + 1)
         setSearchExpandReplaceNonce((value) => value + 1)
         return
@@ -2405,14 +2417,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
 
   const activateSearchSidebar = useCallback(
     (options?: { expandReplace?: boolean }) => {
-      setSidebarView('search')
-      setPrefs((current) => ({
-        ...current,
-        sidebarVisible: true,
-        ...(options?.expandReplace
-          ? { search: { ...current.search, showReplace: true } }
-          : {}),
-      }))
+      setPrefs((current) => {
+        const next = {
+          ...current,
+          sidebarVisible: true,
+          sidebarView: 'search' as const,
+          ...(options?.expandReplace
+            ? { search: { ...current.search, showReplace: true } }
+            : {}),
+        }
+        saveVscodePrefs(next)
+        return next
+      })
       setSearchFocusNonce((value) => value + 1)
       if (options?.expandReplace) {
         setSearchExpandReplaceNonce((value) => value + 1)
@@ -2703,8 +2719,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             type: 'action',
             label: '工作区',
             onClick: () => {
-              setSidebarView('explorer')
-              updatePrefs({ sidebarVisible: true })
+              updatePrefs({ sidebarVisible: true, sidebarView: 'explorer' })
             },
           },
           {
@@ -2734,8 +2749,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             type: 'action',
             label: '设置',
             onClick: () => {
-              setSidebarView('settings')
-              updatePrefs({ sidebarVisible: true })
+              updatePrefs({ sidebarVisible: true, sidebarView: 'settings' })
             },
           },
           { type: 'separator' },
@@ -2817,14 +2831,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       updatePrefs({ sidebarVisible: false })
       return
     }
-    setSidebarView(view)
-    updatePrefs({ sidebarVisible: true })
+    updatePrefs({ sidebarVisible: true, sidebarView: view })
   }
 
   const revealInExplorer = useCallback(
     (path: string) => {
-      setSidebarView('explorer')
-      updatePrefs({ sidebarVisible: true })
+      updatePrefs({ sidebarVisible: true, sidebarView: 'explorer' })
       setRevealPath(path)
       setRevealNonce((value) => value + 1)
     },
@@ -2839,25 +2851,39 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     [openApp],
   )
 
-  // 侧栏（重新）打开或会话恢复完成后，展开并滚到当前编辑文件；同一轮打开内切 Tab 不重复
-  const explorerVisible = prefs.sidebarVisible && sidebarView === 'explorer'
-  const explorerRevealDoneRef = useRef(false)
-  useEffect(() => {
-    if (!explorerVisible) {
-      explorerRevealDoneRef.current = false
-      return
-    }
-    if (explorerRevealDoneRef.current) return
-    // 等会话恢复出 activeTab，避免恢复前空跑后不再揭示
-    if (!sessionReady) return
-    const path = activeTab?.path
-    if (!path || !prefs.workspaceFolder) return
-    const root = prefs.workspaceFolder.replace(/\/+$/, '') || '/'
-    if (path !== root && !path.startsWith(`${root}/`)) return
-    explorerRevealDoneRef.current = true
-    setRevealPath(path)
-    setRevealNonce((value) => value + 1)
-  }, [activeTab?.path, explorerVisible, prefs.workspaceFolder, sessionReady])
+  // 仅用户显式「在工作区列表显示」时 reveal；冷启动不再强行展开树
+
+  const explorerExpandedPaths = useMemo(() => {
+    const folder = prefs.workspaceFolder
+    if (!folder) return [] as string[]
+    const persisted = prefs.explorerExpandedPathsByWorkspace[folder]
+    // 尚未记住：默认只展开工作区根
+    return persisted ?? [folder]
+  }, [prefs.explorerExpandedPathsByWorkspace, prefs.workspaceFolder])
+
+  const onExplorerExpandedPathToggle = useCallback(
+    (path: string, next: boolean) => {
+      const folder = prefs.workspaceFolder
+      if (!folder) return
+      setPrefs((current) => {
+        const persisted = current.explorerExpandedPathsByWorkspace[folder]
+        const base = persisted ?? [folder]
+        const set = new Set(base)
+        if (next) set.add(path)
+        else set.delete(path)
+        const nextPrefs = {
+          ...current,
+          explorerExpandedPathsByWorkspace: {
+            ...current.explorerExpandedPathsByWorkspace,
+            [folder]: [...set],
+          },
+        }
+        saveVscodePrefs(nextPrefs)
+        return nextPrefs
+      })
+    },
+    [prefs.workspaceFolder],
+  )
 
   const getActiveActivityButton = useCallback((): HTMLButtonElement | undefined => {
     if (!prefs.sidebarVisible) return undefined
@@ -2866,7 +2892,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     return settingsBtnRef.current ?? undefined
   }, [prefs.sidebarVisible, sidebarView])
 
-  const syncActivityCaretTop = useCallback(() => {
+  const syncActivityCaretTop = useCallback((options?: { arm?: boolean }) => {
     if (!windowId || !prefs.sidebarVisible) return false
     const rail = activityRailRef.current
     const sidebar = sidebarRef.current
@@ -2886,7 +2912,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     }
 
     setActivityCaretTop(Math.round(caretY))
-    setCaretReady(true)
+    // 冷启动先在 --caret-instant 下对齐真实按钮，再打开过渡；
+    // 否则默认 Y 在顶部，记忆到设置时会从上往下飘一截。
+    if (options?.arm && !caretReadyRef.current) {
+      caretReadyRef.current = true
+      setCaretReady(true)
+    }
     return true
   }, [getActiveActivityButton, prefs.sidebarVisible, windowId])
 
@@ -2921,7 +2952,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     const raf1 = window.requestAnimationFrame(() => {
       syncActivityCaretTop()
       raf2 = window.requestAnimationFrame(() => {
-        syncActivityCaretTop()
+        // 布局稳定后再允许箭头滑动，避免打开应用时从默认顶部落下
+        syncActivityCaretTop({ arm: true })
       })
     })
     const timer = window.setTimeout(() => {
@@ -2992,9 +3024,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           </button>
         </aside>
 
-        {prefs.sidebarVisible ? (
-          <>
-          <div class="vscode__sidebar-shell" style={{ width: `${prefs.sidebarWidth}px` }}>
+        <>
+          <div
+            class="vscode__sidebar-shell"
+            hidden={!prefs.sidebarVisible}
+            style={{ width: `${prefs.sidebarWidth}px` }}
+          >
             <aside
               class={`vscode__sidebar${caretReady ? '' : ' vscode__sidebar--caret-instant'}`}
               ref={bindSidebarRef}
@@ -3002,21 +3037,23 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 ['--vscode-caret-y' as string]: `${activityCaretTop}px`,
               }}
             >
-            {sidebarView === 'explorer' ? (
+            <div hidden={sidebarView !== 'explorer'}>
               <VscodeExplorer
                 workspaceFolder={prefs.workspaceFolder}
                 selectedPath={activeTab?.path}
                 revealPath={revealPath}
                 revealNonce={revealNonce}
+                expandedPaths={explorerExpandedPaths}
+                onToggleExpandedPath={onExplorerExpandedPathToggle}
                 problemDecorations={problemDecorations}
                 onOpenFile={(path) => void openDocument(path)}
                 onOpenFolder={() => void pickAndOpenFolder()}
                 onOpenInFiles={openInFiles}
                 onFindInFolder={findInFolder}
               />
-            ) : undefined}
+            </div>
 
-            {sidebarView === 'search' ? (
+            <div hidden={sidebarView !== 'search'}>
               <VscodeSearchPanel
                 workspaceFolder={prefs.workspaceFolder}
                 openFiles={openSearchFiles}
@@ -3031,26 +3068,26 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                 onUpdateOpenFileText={updateOpenFileTextByPath}
                 onOpenSearchEditor={(payload) => void openSearchEditorFromPanel(payload)}
               />
-            ) : undefined}
+            </div>
 
-            {sidebarView === 'settings' ? (
+            <div hidden={sidebarView !== 'settings'}>
               <VscodeSettingsPanel
                 prefs={prefs}
                 dark={isVscodeChromeDark(prefs.theme)}
                 onChange={(patch) => updatePrefs(patch)}
               />
-            ) : undefined}
+            </div>
           </aside>
           </div>
           <div
             class="vscode__sidebar-sash"
+            hidden={!prefs.sidebarVisible}
             role="separator"
             aria-orientation="vertical"
             aria-label="调整侧栏宽度"
             onPointerDown={onSidebarSashPointerDown}
           />
-          </>
-        ) : undefined}
+        </>
 
         <div class="vscode__main" ref={mainPaneRef}>
           <div class="vscode__editor-pane">

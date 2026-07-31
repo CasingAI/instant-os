@@ -71,6 +71,24 @@
   inset: auto;
 }
 
+/*
+ * display:contents 特异性高于 UA 的 [hidden]{display:none}，
+ * 会把栈里未参与转场的层（如更深的 Sub Agent「+」）抬进 Header 交叉动画。
+ * 强制隐藏层继续不渲染。
+ */
+.keychain-stack--push .keychain-stack__layer[hidden],
+.keychain-stack--pop .keychain-stack__layer[hidden],
+.keychain-stack--push
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer[hidden],
+.keychain-stack--pop
+  .keychain-stack__layer
+  .keychain-stack:not([class*='keychain-stack--'])
+  > .keychain-stack__layer[hidden] {
+  display: none !important;
+}
+
 .keychain-stack--push .keychain-stack__layer > .settings,
 .keychain-stack--pop .keychain-stack__layer > .settings {
   display: contents;
@@ -369,12 +387,12 @@
   gap: 10px;
 }
 
-.keychain__nav .settings__btn {
+.keychain__nav .settings__btn:not(.settings__btn--icon) {
   flex-shrink: 0;
   min-width: 64px;
 }
 
-.settings__nav--titled .settings__nav-trailing .settings__btn {
+.settings__nav--titled .settings__nav-trailing .settings__btn:not(.settings__btn--icon) {
   flex-shrink: 0;
   min-width: 64px;
 }

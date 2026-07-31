@@ -4,6 +4,10 @@ import { normalizeVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 
 export type VscodePanelTab = 'problems' | 'terminal' | 'logs'
 
+export type VscodeSidebarView = 'explorer' | 'search' | 'settings'
+
+const MAX_EXPLORER_EXPANDED_PATHS = 500
+
 export type VscodeSearchPrefs = {
   isCaseSensitive: boolean
   matchWholeWord: boolean
@@ -83,6 +87,8 @@ export type VscodePrefs = {
   minimap: boolean
   wordWrap: boolean
   sidebarVisible: boolean
+  /** 侧栏当前视图：工作区 / 搜索 / 设置 */
+  sidebarView: VscodeSidebarView
   terminalVisible: boolean
   /** 底部面板当前页：问题 / 终端 / 日志 */
   panelTab: VscodePanelTab
@@ -90,6 +96,11 @@ export type VscodePrefs = {
   sidebarWidth: number
   /** 当前工作区文件夹绝对路径；未打开时为 undefined */
   workspaceFolder: string | undefined
+  /**
+   * 各工作区已展开的文件夹路径。
+   * 缺省键表示尚未记住（打开时默认展开根）；空数组表示用户已全部收起。
+   */
+  explorerExpandedPathsByWorkspace: Record<string, string[]>
   search: VscodeSearchPrefs
   aiMode: VscodeAiMode
   /** Agent 模型来源；默认基座 */
@@ -158,11 +169,13 @@ const DEFAULT_PREFS: VscodePrefs = {
   minimap: true,
   wordWrap: true,
   sidebarVisible: true,
+  sidebarView: 'explorer',
   terminalVisible: true,
   panelTab: 'terminal',
   terminalHeight: 220,
   sidebarWidth: 240,
   workspaceFolder: undefined,
+  explorerExpandedPathsByWorkspace: {},
   search: { ...DEFAULT_SEARCH_PREFS },
   aiMode: 'ask',
   aiModelSource: 'text',
@@ -259,6 +272,34 @@ function normalizeAiModelOptions(value: unknown): Record<string, VscodeAiModelOp
 function normalizePanelTab(value: unknown): VscodePanelTab {
   if (value === 'problems' || value === 'logs') return value
   return 'terminal'
+}
+
+function normalizeSidebarView(value: unknown): VscodeSidebarView {
+  if (value === 'search' || value === 'settings' || value === 'explorer') return value
+  return 'explorer'
+}
+
+function normalizeExplorerExpandedPathsByWorkspace(
+  value: unknown,
+): Record<string, string[]> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<string, string[]> = {}
+  for (const [key, paths] of Object.entries(value as Record<string, unknown>)) {
+    const folder = key.trim()
+    if (!folder || !Array.isArray(paths)) continue
+    const normalized: string[] = []
+    const seen = new Set<string>()
+    for (const path of paths) {
+      if (typeof path !== 'string') continue
+      const trimmed = path.trim()
+      if (!trimmed || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      normalized.push(trimmed)
+      if (normalized.length >= MAX_EXPLORER_EXPANDED_PATHS) break
+    }
+    result[folder] = normalized
+  }
+  return result
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -410,6 +451,7 @@ export function loadVscodePrefs(): VscodePrefs {
       minimap: parsed.minimap !== false,
       wordWrap: parsed.wordWrap !== false,
       sidebarVisible: parsed.sidebarVisible !== false,
+      sidebarView: normalizeSidebarView(parsed.sidebarView),
       terminalVisible: parsed.terminalVisible !== false,
       panelTab: normalizePanelTab(parsed.panelTab),
       terminalHeight:
@@ -421,6 +463,9 @@ export function loadVscodePrefs(): VscodePrefs {
           ? Math.max(0, parsed.sidebarWidth)
           : DEFAULT_PREFS.sidebarWidth,
       workspaceFolder: normalizeWorkspaceFolder(parsed.workspaceFolder),
+      explorerExpandedPathsByWorkspace: normalizeExplorerExpandedPathsByWorkspace(
+        parsed.explorerExpandedPathsByWorkspace,
+      ),
       search: normalizeSearchPrefs(parsed.search),
       aiMode: normalizeVscodeAiMode(parsed.aiMode),
       aiModelKey:

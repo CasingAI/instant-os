@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { MonacoProblemTreeDecoration } from '../../monaco/monaco-markers.ts'
 import { useIconContextMenu } from '../../os/icon-context-menu-context.tsx'
 import { filesList, filesStat, type FilesApiEntry } from '../files/files-api.ts'
@@ -13,6 +13,9 @@ type VscodeExplorerProps = {
   revealPath?: string
   /** 递增以强制再次展开 / 滚入视口（同一路径再次「在列表显示」） */
   revealNonce?: number
+  /** 已展开文件夹路径；缺省未记住时由父级传入默认根路径 */
+  expandedPaths: readonly string[]
+  onToggleExpandedPath: (path: string, next: boolean) => void
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
   onOpenFile: (path: string) => void
   onOpenFolder: () => void
@@ -27,10 +30,11 @@ type TreeNodeProps = {
   selectedPath?: string
   revealPath?: string
   revealNonce?: number
-  /** VFS 变更世代：递增时已展开目录重新拉列表 */
+  /** VFS 变更世代：递增时已展开目录后台刷新（保留旧列表） */
   vfsEpoch?: number
+  expandedPaths: ReadonlySet<string>
+  onToggleExpanded: (path: string, next: boolean) => void
   problemDecorations?: Map<string, MonacoProblemTreeDecoration>
-  defaultExpanded?: boolean
   workspaceFolder?: string
   onOpenFile: (path: string) => void
   onOpenInFiles: (path: string) => void
@@ -106,8 +110,9 @@ function TreeNode({
   revealPath,
   revealNonce = 0,
   vfsEpoch = 0,
+  expandedPaths,
+  onToggleExpanded,
   problemDecorations,
-  defaultExpanded = false,
   workspaceFolder,
   onOpenFile,
   onOpenInFiles,
@@ -119,33 +124,39 @@ function TreeNode({
     revealPath !== undefined &&
     (revealPath === entry.path || revealPath.startsWith(`${entry.path}/`))
   const isRevealTarget = revealPath === entry.path
-  const [expanded, setExpanded] = useState(defaultExpanded || shouldReveal)
+  const expanded = isFolder && expandedPaths.has(entry.path)
   const [children, setChildren] = useState<FilesApiEntry[] | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
   const itemRef = useRef<HTMLButtonElement>(null)
+  const childrenRef = useRef(children)
+  childrenRef.current = children
   const decoration = problemDecorations?.get(entry.path)
   const problemCount = decoration ? decoration.errors + decoration.warnings : 0
 
-  const loadChildren = useCallback(async () => {
-    setLoading(true)
-    setError(undefined)
-    try {
-      const listed = await listExplorerChildren(entry.path)
-      setChildren(listed)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '无法列出目录')
-      setChildren([])
-    } finally {
-      setLoading(false)
-    }
-  }, [entry.path])
+  const loadChildren = useCallback(
+    async (opts?: { quiet?: boolean }) => {
+      const quiet = opts?.quiet === true && childrenRef.current !== undefined
+      if (!quiet) setLoading(true)
+      setError(undefined)
+      try {
+        const listed = await listExplorerChildren(entry.path)
+        setChildren(listed)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '无法列出目录')
+        if (!quiet) setChildren([])
+      } finally {
+        setLoading(false)
+      }
+    },
+    [entry.path],
+  )
 
-  // npm install 等会边写边链：已展开目录跟随 VFS 世代刷新
+  // npm install 等会边写边链：已展开目录跟随 VFS 世代后台刷新，保留旧列表避免闪空
   useEffect(() => {
     if (!isFolder || !expanded || vfsEpoch === 0) return
-    setChildren(undefined)
-  }, [expanded, isFolder, vfsEpoch])
+    void loadChildren({ quiet: true })
+  }, [expanded, isFolder, loadChildren, vfsEpoch])
 
   const openEntryContextMenu = useCallback(
     (event: MouseEvent) => {
@@ -210,8 +221,9 @@ function TreeNode({
   // 否则用户手动收起后会被 shouldReveal 立刻顶回去。
   useEffect(() => {
     if (!isFolder || !shouldReveal) return
-    setExpanded(true)
-  }, [isFolder, revealPath, revealNonce, shouldReveal])
+    if (expandedPaths.has(entry.path)) return
+    onToggleExpanded(entry.path, true)
+  }, [entry.path, expandedPaths, isFolder, onToggleExpanded, revealNonce, revealPath, shouldReveal])
 
   useEffect(() => {
     if (!isFolder || !expanded) return
@@ -269,7 +281,7 @@ function TreeNode({
         class={`vscode__tree-item vscode__tree-item--folder${selectedPath === entry.path ? ' vscode__tree-item--selected' : ''}${decorationClassName(decoration)}`}
         style={{ paddingLeft: `${10 + depth * 12}px` }}
         title={decorationTitle(entry.path, decoration)}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => onToggleExpanded(entry.path, !expanded)}
         onContextMenu={openEntryContextMenu}
       >
         <span class="vscode__tree-chevron" aria-hidden="true">
@@ -285,7 +297,9 @@ function TreeNode({
       </button>
       {expanded ? (
         <div class="vscode__tree-children">
-          {loading ? <div class="vscode__tree-hint">加载中…</div> : undefined}
+          {loading && children === undefined ? (
+            <div class="vscode__tree-hint">加载中…</div>
+          ) : undefined}
           {error ? <div class="vscode__tree-hint vscode__tree-hint--error">{error}</div> : undefined}
           {children?.map((child) => (
             <TreeNode
@@ -296,6 +310,8 @@ function TreeNode({
               revealPath={revealPath}
               revealNonce={revealNonce}
               vfsEpoch={vfsEpoch}
+              expandedPaths={expandedPaths}
+              onToggleExpanded={onToggleExpanded}
               problemDecorations={problemDecorations}
               workspaceFolder={workspaceFolder}
               onOpenFile={onOpenFile}
@@ -314,6 +330,8 @@ export function VscodeExplorer({
   selectedPath,
   revealPath,
   revealNonce = 0,
+  expandedPaths,
+  onToggleExpandedPath,
   problemDecorations,
   onOpenFile,
   onOpenFolder,
@@ -324,6 +342,8 @@ export function VscodeExplorer({
   const [error, setError] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [vfsEpoch, setVfsEpoch] = useState(0)
+
+  const expandedPathSet = useMemo(() => new Set(expandedPaths), [expandedPaths])
 
   useEffect(() => {
     let trailingTimer: number | undefined
@@ -359,6 +379,7 @@ export function VscodeExplorer({
     }
 
     let cancelled = false
+    setRoot((current) => (current?.path === workspaceFolder ? current : undefined))
     setLoading(true)
     void (async () => {
       try {
@@ -396,7 +417,9 @@ export function VscodeExplorer({
           </button>
         </div>
       ) : undefined}
-      {workspaceFolder && loading ? <div class="vscode__tree-hint">加载中…</div> : undefined}
+      {workspaceFolder && loading && !root ? (
+        <div class="vscode__tree-hint">加载中…</div>
+      ) : undefined}
       {error ? <div class="vscode__tree-hint vscode__tree-hint--error">{error}</div> : undefined}
       {root ? (
         <div class="vscode__tree">
@@ -408,8 +431,9 @@ export function VscodeExplorer({
             revealPath={revealPath}
             revealNonce={revealNonce}
             vfsEpoch={vfsEpoch}
+            expandedPaths={expandedPathSet}
+            onToggleExpanded={onToggleExpandedPath}
             problemDecorations={problemDecorations}
-            defaultExpanded
             workspaceFolder={workspaceFolder}
             onOpenFile={onOpenFile}
             onOpenInFiles={onOpenInFiles}

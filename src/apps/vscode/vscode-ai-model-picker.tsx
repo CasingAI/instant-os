@@ -18,6 +18,7 @@ import {
   formatVscodeAiContextWindowPrefLabel,
   formatVscodeAiModelContextLabel,
   formatVscodeAiThinkingEffortPrefLabel,
+  labelForVscodeAiModelProvider,
   listVscodeAiContextWindowPrefOptions,
   listVscodeAiThinkingEffortPrefOptions,
   resolveVscodeAiFastPair,
@@ -25,12 +26,9 @@ import {
   shouldShowVscodeAiThinkingEffortPicker,
 } from './vscode-ai-model-display.ts'
 import {
-  encodeVscodeModelPickerValue,
   formatVscodeAiModelRefKey,
   isVscodeModelCapabilityValue,
-  labelForPreferredCapabilityModel,
   labelForVscodeAiModel,
-  labelForVscodeModelPickerValue,
   resolveVscodeAiContextWindowPrefForModelKey,
   resolveVscodeAiThinkingEffortPrefForModelKey,
   resolveVscodeAiThinkingEnabledForModelKey,
@@ -38,6 +36,15 @@ import {
   tagsForVscodeAiModelKey,
   type VscodeAiCapabilityTags,
 } from './vscode-ai-models.ts'
+import {
+  filterVscodeAiModelPickerPins,
+  filterVscodeAiModelsByQuery,
+  labelForVscodeModelPickerDisplay,
+  listVscodeAiModelCapabilityPins,
+  withVscodeAiContextWindow,
+  withVscodeAiThinkingEffort,
+  withVscodeAiThinkingEnabled,
+} from './vscode-ai-model-picker-data.ts'
 import type {
   VscodeAiContextWindowPref,
   VscodeAiModelOptionPrefs,
@@ -403,12 +410,6 @@ function EditPencilIcon() {
   )
 }
 
-function modelMatchesQuery(model: FlatEnabledModel, query: string): boolean {
-  if (!query) return true
-  const haystack = `${labelForVscodeAiModel(model)} ${model.modelId}`.toLowerCase()
-  return haystack.includes(query)
-}
-
 export type VscodeAiModelPickerProps = {
   label: string
   value: string
@@ -512,51 +513,20 @@ export function VscodeAiModelPicker({
   }, [models])
 
   const filteredModels = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    return models.filter((model) => modelMatchesQuery(model, normalized))
+    return filterVscodeAiModelsByQuery(models, query)
   }, [models, query])
 
-  const selectedModel = modelByKey.get(value)
-  const displayValue = isVscodeModelCapabilityValue(value)
-    ? labelForVscodeModelPickerValue(value)
-    : selectedModel
-      ? labelForVscodeAiModel(selectedModel)
-      : selectionMode === 'completion' || selectionMode === 'agent'
-        ? labelForVscodeModelPickerValue(value)
-        : value || '未配置文本模型'
+  const displayValue = labelForVscodeModelPickerDisplay(value, models, selectionMode)
 
-  const showCapabilityPins = selectionMode === 'completion' || selectionMode === 'agent'
-  const completionPinned = showCapabilityPins
-      ? ([
-          {
-            key: encodeVscodeModelPickerValue('text-secondary'),
-            primary: '副基座',
-            secondary: labelForPreferredCapabilityModel('text-secondary'),
-          },
-          {
-            key: encodeVscodeModelPickerValue('text'),
-            primary: '基座',
-            secondary: labelForPreferredCapabilityModel('text'),
-          },
-        ] as const)
-      : []
+  const completionPinned = useMemo(
+    () => listVscodeAiModelCapabilityPins(selectionMode),
+    [selectionMode],
+  )
 
-  const showPinned =
-    showCapabilityPins &&
-    (query.trim() === '' ||
-      completionPinned.some((item) => {
-        const haystack = `${item.primary} ${item.secondary ?? ''}`.toLowerCase()
-        return haystack.includes(query.trim().toLowerCase())
-      }))
-
-  const visiblePinned = showPinned
-    ? completionPinned.filter((item) => {
-        const normalized = query.trim().toLowerCase()
-        if (!normalized) return true
-        const haystack = `${item.primary} ${item.secondary ?? ''}`.toLowerCase()
-        return haystack.includes(normalized)
-      })
-    : []
+  const visiblePinned = useMemo(
+    () => filterVscodeAiModelPickerPins(completionPinned, query),
+    [completionPinned, query],
+  )
 
   const hoveredModel = (() => {
     if (!hoveredKey) return undefined
@@ -634,10 +604,14 @@ export function VscodeAiModelPicker({
       resetEditNav()
       return
     }
+    setHoveredKey(value || undefined)
+    const selectedKey = value
     const frame = window.requestAnimationFrame(() => {
       searchRef.current?.focus()
+      rowRefs.current.get(selectedKey)?.scrollIntoView({ block: 'nearest' })
     })
     return () => window.cancelAnimationFrame(frame)
+    // 仅在打开瞬间滚到当前选中项；勿依赖 value/hover，否则滚动会被反复拽回
   }, [open, resetEditNav])
 
   useEffect(() => {
@@ -690,53 +664,27 @@ export function VscodeAiModelPicker({
   }
 
   const setThinkingForKey = (modelKey: string, thinkingEnabled: boolean) => {
-    const next = { ...aiModelOptions }
-    const current = next[modelKey] ?? {}
-    next[modelKey] = { ...current, thinkingEnabled }
-    onAiModelOptionsChange(next)
+    onAiModelOptionsChange(
+      withVscodeAiThinkingEnabled(aiModelOptions, modelKey, thinkingEnabled),
+    )
   }
-
-  const isModelOptionEmpty = (prefs: VscodeAiModelOptionPrefs) =>
-    prefs.thinkingEnabled === undefined &&
-    prefs.thinkingEffort === undefined &&
-    prefs.contextWindow === undefined
 
   const setThinkingEffortForKey = (
     modelKey: string,
     thinkingEffort: VscodeAiThinkingEffortPref,
   ) => {
-    const next = { ...aiModelOptions }
-    const current = next[modelKey] ?? {}
-    if (thinkingEffort === 'default') {
-      const { thinkingEffort: _removed, ...rest } = current
-      if (isModelOptionEmpty(rest)) {
-        delete next[modelKey]
-      } else {
-        next[modelKey] = rest
-      }
-    } else {
-      next[modelKey] = { ...current, thinkingEffort }
-    }
-    onAiModelOptionsChange(next)
+    onAiModelOptionsChange(
+      withVscodeAiThinkingEffort(aiModelOptions, modelKey, thinkingEffort),
+    )
   }
 
   const setContextWindowForKey = (
     modelKey: string,
     contextWindow: VscodeAiContextWindowPref,
   ) => {
-    const next = { ...aiModelOptions }
-    const current = next[modelKey] ?? {}
-    if (contextWindow === 'system') {
-      const { contextWindow: _removed, ...rest } = current
-      if (isModelOptionEmpty(rest)) {
-        delete next[modelKey]
-      } else {
-        next[modelKey] = rest
-      }
-    } else {
-      next[modelKey] = { ...current, contextWindow }
-    }
-    onAiModelOptionsChange(next)
+    onAiModelOptionsChange(
+      withVscodeAiContextWindow(aiModelOptions, modelKey, contextWindow),
+    )
   }
 
   const handleSelect = (modelKey: string) => {
@@ -817,22 +765,27 @@ export function VscodeAiModelPicker({
                           ✓
                         </span>
                       ) : undefined}
-                      <span class="vscode-ai-model-picker__item-text">
+                      <span class="vscode-ai-model-picker__item-text vscode-ai-model-picker__item-text--stacked">
                         <span class="vscode-ai-model-picker__item-primary-row">
                           <span class="vscode-ai-model-picker__item-primary">
                             {item.primary}
                           </span>
-                          {item.secondary ? (
-                            <span class="vscode-ai-model-picker__item-secondary">
-                              {item.secondary}
-                            </span>
-                          ) : undefined}
+                          <span
+                            class={`vscode-ai-model-picker__capability-tag${item.tag === '副基座' ? ' vscode-ai-model-picker__capability-tag--secondary' : ''}`}
+                          >
+                            {item.tag}
+                          </span>
                           {parts?.configBits && parts.configBits.length > 0 ? (
                             <span class="vscode-ai-model-picker__item-config">
                               {parts.configBits.join(' · ')}
                             </span>
                           ) : undefined}
                         </span>
+                        {item.secondary ? (
+                          <span class="vscode-ai-model-picker__item-secondary vscode-ai-model-picker__item-secondary--below">
+                            {item.secondary}
+                          </span>
+                        ) : undefined}
                       </span>
                     </button>
                     {resolvedKey && resolvedModel ? (
@@ -897,7 +850,7 @@ export function VscodeAiModelPicker({
                             ✓
                           </span>
                         ) : undefined}
-                        <span class="vscode-ai-model-picker__item-text">
+                        <span class="vscode-ai-model-picker__item-text vscode-ai-model-picker__item-text--stacked">
                           <span class="vscode-ai-model-picker__item-primary-row">
                             <span class="vscode-ai-model-picker__item-primary">{parts.primary}</span>
                             {capabilityLabels.map((tag) => (
@@ -913,6 +866,9 @@ export function VscodeAiModelPicker({
                                 {parts.configBits.join(' · ')}
                               </span>
                             ) : undefined}
+                          </span>
+                          <span class="vscode-ai-model-picker__item-secondary vscode-ai-model-picker__item-secondary--below">
+                            {labelForVscodeAiModelProvider(model)}
                           </span>
                         </span>
                       </button>
@@ -953,6 +909,9 @@ export function VscodeAiModelPicker({
                 {describeVscodeAiModel(hoveredModel)}
               </p>
               <p class="vscode-ai-model-picker__tip-meta">
+                {labelForVscodeAiModelProvider(hoveredModel)}
+              </p>
+              <p class="vscode-ai-model-picker__tip-meta vscode-ai-model-picker__tip-meta--secondary">
                 {formatVscodeAiModelContextLabel(hoveredModel, aiModelOptions)}
               </p>
             </PickerBubbleShell>
@@ -1085,6 +1044,9 @@ export function VscodeAiModelPicker({
                   return (
                     <>
                       <PopoverNavHeader title="选项" dark={dark} />
+                      <p class="vscode-ai-model-picker__edit-provider">
+                        {labelForVscodeAiModelProvider(editModel)}
+                      </p>
                       {showThinking ? (
                         <div class="vscode-ai-model-picker__edit-row">
                           <span class="vscode-ai-model-picker__edit-row-label">思考</span>
@@ -1142,7 +1104,10 @@ export function VscodeAiModelPicker({
                       <div class="vscode-ai-model-picker__edit-nav-row">
                         <PopoverNavRow
                           label="上下文长度"
-                          value={formatVscodeAiContextWindowPrefLabel(contextPref)}
+                          value={formatVscodeAiContextWindowPrefLabel(
+                            contextPref,
+                            resolveVscodeAiSystemContextWindow(editModel),
+                          )}
                           dark={dark}
                           onClick={() => pushEditNav('context')}
                         />
