@@ -534,36 +534,75 @@ export async function askVscodeAiAgent(options: {
       return model ? labelForVscodeAiModel(model) : modelKey
     }
 
-    /** 子 Agent 运行函数：复用 askVscodeAiAgent，获得完整 timeline/investigation/messages */
+    /** 子 Agent 运行函数：独立终端；改动仍记入主对话 ChangeSet；结束拆终端 */
     const runSubAgentFn: RunSubAgentFn = async ({
       definition,
       taskPrompt,
       history,
+      runId,
+      description,
       signal,
       onProgress,
     }) => {
       const subMode = definition.access === 'readonly' ? 'ask' : 'agent'
-      const result = await askVscodeAiAgent({
-        mode: subMode,
-        userMessage: taskPrompt,
-        history,
-        context: options.context,
-        toolsHost: options.toolsHost,
-        signal: signal ?? options.signal,
-        modelKey: definition.modelKey ?? options.modelKey,
-        // 完整主 system + 角色附录；不传 subAgentConfig → 无嵌套委派
-        systemPromptAppendix: definition.systemPrompt,
-        idleTimeoutMs: options.idleTimeoutMs,
-        idleRetryCount: options.idleRetryCount,
-        onProgress: (progress) => {
-          onProgress?.(progress)
+      const subKind = subMode === 'ask' ? 'ask' : 'agent'
+      const parentChatId = options.toolsHost.chatSessionId
+      const parentHost = options.toolsHost.runCommandHost
+      const ensure = options.toolsHost.ensureAiTerminal
+      const getHandle = options.toolsHost.getAiTerminalHandle
+      const getSnapshot = options.toolsHost.getAiTerminalSnapshot
+      const closeTerminal = options.toolsHost.closeAiTerminal
+
+      const subRunCommandHost: typeof parentHost = {
+        workspaceFolder: parentHost.workspaceFolder,
+        // 文件改动算父 Agent：复用主对话的 ChangeSet 槽
+        npmLastChanges: parentHost.npmLastChanges,
+        lastChangeSource: parentHost.lastChangeSource,
+        turnChangeSessions: parentHost.turnChangeSessions,
+        onChangesAvailable: parentHost.onChangesAvailable,
+        ensureAgentTerminal: () => {
+          if (!ensure) {
+            return parentHost.ensureAgentTerminal()
+          }
+          return ensure(subKind, runId, description || definition.id, {
+            parentChatId,
+          })
         },
-      })
-      return {
-        text: result.text,
-        toolCallCount: result.toolCallCount,
-        incomplete: result.incomplete,
-        finalResult: result,
+        getAgentTerminalHandle: () =>
+          getHandle ? getHandle(subKind, runId) : parentHost.getAgentTerminalHandle(),
+        getAgentTerminalSnapshot: () =>
+          getSnapshot
+            ? getSnapshot(subKind, runId)
+            : parentHost.getAgentTerminalSnapshot(),
+      }
+
+      try {
+        const result = await askVscodeAiAgent({
+          mode: subMode,
+          userMessage: taskPrompt,
+          history,
+          context: options.context,
+          toolsHost: {
+            ...options.toolsHost,
+            runCommandHost: subRunCommandHost,
+          },
+          signal: signal ?? options.signal,
+          modelKey: definition.modelKey ?? options.modelKey,
+          systemPromptAppendix: definition.systemPrompt,
+          idleTimeoutMs: options.idleTimeoutMs,
+          idleRetryCount: options.idleRetryCount,
+          onProgress: (progress) => {
+            onProgress?.(progress)
+          },
+        })
+        return {
+          text: result.text,
+          toolCallCount: result.toolCallCount,
+          incomplete: result.incomplete,
+          finalResult: result,
+        }
+      } finally {
+        closeTerminal?.(subKind, runId)
       }
     }
 
@@ -580,6 +619,7 @@ export async function askVscodeAiAgent(options: {
             event.taskPrompt ?? event.description,
             event.modelKey,
             modelLabelFor(event.modelKey),
+            options.toolsHost.chatSessionId,
           )
         }
         pendingSubagentRunId = event.runId
@@ -601,9 +641,15 @@ export async function askVscodeAiAgent(options: {
         updateProgress(event.runId, event.progress as VscodeAiAgentProgress)
       }
       if (event.phase === 'done') {
-        completeRun(
-          event.runId,
-          (event.finalResult as VscodeAiAgentResult | undefined) ?? {
+        const fromHost = event.finalResult as VscodeAiAgentResult | undefined
+        if (fromHost) {
+          completeRun(event.runId, fromHost)
+        } else if (event.incomplete) {
+          // 抛错路径没有 finalResult：failRun 保留既有 messages，供后续追问
+          failRun(event.runId, event.text ?? 'Sub Agent 失败')
+        } else {
+          const prior = getRun(event.runId)
+          completeRun(event.runId, {
             text: event.text ?? '',
             toolCallCount: event.toolCallCount ?? 0,
             investigation: {
@@ -612,9 +658,9 @@ export async function askVscodeAiAgent(options: {
               toolCallCount: event.toolCallCount ?? 0,
               durationMs: 0,
             },
-            incomplete: event.incomplete,
-          },
-        )
+            messages: prior?.result?.messages,
+          })
+        }
         subagentCompleted = true
       }
     }

@@ -435,6 +435,7 @@ export type VscodeAiPanelProps = {
     kind: VscodeAiTerminalKind,
     chatSessionId: string,
     chatTitle: string,
+    options?: { parentChatId?: string },
   ) => Promise<VscodeAgentTerminalEnsureResult>
   getAiTerminalHandle: (
     kind: VscodeAiTerminalKind,
@@ -444,6 +445,9 @@ export type VscodeAiPanelProps = {
     kind: VscodeAiTerminalKind,
     chatSessionId: string,
   ) => VscodeAgentTerminalSnapshot
+  closeAiTerminal?: (kind: VscodeAiTerminalKind, chatSessionId: string) => void
+  /** 编辑重发：拆掉本聊天主终端 + 全部子终端 */
+  closeAiTerminalsBoundToChat?: (chatSessionId: string) => void
   openPlanFile: (path: string) => Promise<void>
   /** 本轮 Agent/Ask/Plan 是否在运行，供编辑器 Tab 显示加载指示 */
   onBusyChange?: (busy: boolean) => void
@@ -1035,6 +1039,8 @@ export function VscodeAiPanel({
   ensureAiTerminal,
   getAiTerminalHandle,
   getAiTerminalSnapshot,
+  closeAiTerminal,
+  closeAiTerminalsBoundToChat,
   openPlanFile,
   onBusyChange,
   onOpenPath,
@@ -1341,8 +1347,22 @@ export function VscodeAiPanel({
       getContext: contextWithTerminal,
       runCommandHost,
       openPlanFile,
+      chatSessionId: sessionId,
+      ensureAiTerminal,
+      getAiTerminalHandle,
+      getAiTerminalSnapshot,
+      closeAiTerminal,
     }),
-    [contextWithTerminal, openPlanFile, runCommandHost],
+    [
+      closeAiTerminal,
+      contextWithTerminal,
+      ensureAiTerminal,
+      getAiTerminalHandle,
+      getAiTerminalSnapshot,
+      openPlanFile,
+      runCommandHost,
+      sessionId,
+    ],
   )
 
   useEffect(() => {
@@ -1752,6 +1772,7 @@ export function VscodeAiPanel({
             setReviewBusy(false)
           }
         }
+        closeAiTerminalsBoundToChat?.(sessionIdRef.current)
         const editedUser: VscodeAiChatMessage = {
           ...currentMessages[index],
           content: text,
@@ -2056,6 +2077,7 @@ export function VscodeAiPanel({
       applyMessages,
       clearLiveTurnState,
       clearSendQueue,
+      closeAiTerminalsBoundToChat,
       collectSessionIdsAfter,
       contextWithTerminal,
       customSubAgents,

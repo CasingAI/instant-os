@@ -5,9 +5,13 @@ import {
   filesStat,
   filesWriteText,
 } from '../files/files-api.ts'
+import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
-import type { VscodeAiRunCommandHost } from './vscode-ai-run-command.ts'
+import type {
+  VscodeAiRunCommandHost,
+  VscodeAgentTerminalEnsureResult,
+} from './vscode-ai-run-command.ts'
 import {
   getVscodeAiLastChangeSet,
   revertVscodeAiLastChanges,
@@ -17,6 +21,10 @@ import {
 } from './vscode-ai-run-command.ts'
 import { maybeSpillToolOutput } from './vscode-ai-output-spill.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
+import type {
+  VscodeAgentTerminalSnapshot,
+  VscodeAiTerminalKind,
+} from './vscode-terminal-sessions.ts'
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
@@ -53,6 +61,23 @@ export type VscodeAiToolsHost = {
   runCommandHost: VscodeAiRunCommandHost
   /** Plan 模式写完计划后打开文件 */
   openPlanFile?: (path: string) => Promise<void>
+  /** 主聊天 sessionId；Sub Agent 终端以之为 parentChatId */
+  chatSessionId?: string
+  ensureAiTerminal?: (
+    kind: VscodeAiTerminalKind,
+    ownerId: string,
+    title: string,
+    options?: { parentChatId?: string },
+  ) => Promise<VscodeAgentTerminalEnsureResult>
+  getAiTerminalHandle?: (
+    kind: VscodeAiTerminalKind,
+    ownerId: string,
+  ) => TerminalReplHandle | undefined
+  getAiTerminalSnapshot?: (
+    kind: VscodeAiTerminalKind,
+    ownerId: string,
+  ) => VscodeAgentTerminalSnapshot
+  closeAiTerminal?: (kind: VscodeAiTerminalKind, ownerId: string) => void
 }
 
 export function createVscodeAiTools(

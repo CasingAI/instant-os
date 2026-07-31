@@ -114,6 +114,8 @@ export function createFollowUpSubAgentTool(
         const result = await options.runSubAgentFn({
           definition,
           taskPrompt: message,
+          runId,
+          description,
           history: session.history,
           signal: options.signal,
           onProgress: (progress) => {
@@ -151,7 +153,25 @@ export function createFollowUpSubAgentTool(
         })
       } catch (error) {
         const errMessage = error instanceof Error ? error.message : String(error)
-        return `Sub Agent「${definition.id}」追问失败：${errMessage}`
+        options.onSubAgentProgress?.({
+          runId,
+          agentId: definition.id,
+          description,
+          modelKey: definition.modelKey,
+          phase: 'done',
+          text: errMessage,
+          toolCallCount: 0,
+          incomplete: true,
+        })
+        return formatSubAgentToolResult({
+          agentId: definition.id,
+          description,
+          access: definition.access,
+          runId,
+          text: `追问失败：${errMessage}`,
+          toolCallCount: 0,
+          incomplete: true,
+        })
       }
     },
   })

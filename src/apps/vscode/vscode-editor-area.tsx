@@ -246,6 +246,7 @@ type VscodeEditorAreaProps = {
     kind: VscodeAiTerminalKind,
     chatSessionId: string,
     chatTitle: string,
+    options?: { parentChatId?: string },
   ) => Promise<VscodeAgentTerminalEnsureResult>
   getAiTerminalHandle?: (
     kind: VscodeAiTerminalKind,
@@ -255,6 +256,8 @@ type VscodeEditorAreaProps = {
     kind: VscodeAiTerminalKind,
     chatSessionId: string,
   ) => VscodeAgentTerminalSnapshot
+  closeAiTerminal?: (kind: VscodeAiTerminalKind, chatSessionId: string) => void
+  closeAiTerminalsBoundToChat?: (chatSessionId: string) => void
   openPlanFile?: (path: string) => Promise<void>
   pickAndOpenFolder?: () => Promise<boolean>
   pickAndOpen?: () => Promise<boolean>
@@ -393,6 +396,8 @@ function VscodeEditorGroupView({
   ensureAiTerminal,
   getAiTerminalHandle,
   getAiTerminalSnapshot,
+  closeAiTerminal,
+  closeAiTerminalsBoundToChat,
   openPlanFile,
   pickAndOpenFolder,
   pickAndOpen,
@@ -958,6 +963,8 @@ function VscodeEditorGroupView({
                   ensureAiTerminal={resolvedEnsureAiTerminal}
                   getAiTerminalHandle={resolvedGetAiTerminalHandle}
                   getAiTerminalSnapshot={resolvedGetAiTerminalSnapshot}
+                  closeAiTerminal={closeAiTerminal}
+                  closeAiTerminalsBoundToChat={closeAiTerminalsBoundToChat}
                   openPlanFile={resolvedOpenPlanFile}
                   onBusyChange={(busy) => onAiChatBusyChange?.(session.id, busy)}
                   onOpenPath={(path) => void onOpenPath(path)}

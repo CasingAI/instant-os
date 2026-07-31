@@ -5,6 +5,8 @@ export type SubagentRunState = {
   runId: string
   agentId: string
   description: string
+  /** 主聊天 sessionId；持久化与终端 parent 归属 */
+  parentChatId: string | undefined
   /** 主 Agent 下发的首轮任务 Prompt，详情 Tab 里渲染为第一条用户气泡 */
   taskPrompt: string
   /** 最近一次追问文案（resume 时设置；首轮为空） */
@@ -40,11 +42,13 @@ export function startRun(
   taskPrompt: string,
   modelKey: string | undefined,
   modelLabel: string,
+  parentChatId?: string,
 ): void {
   runs.set(runId, {
     runId,
     agentId,
     description,
+    parentChatId,
     taskPrompt,
     lastFollowUpPrompt: undefined,
     modelKey,
@@ -107,6 +111,33 @@ export function failRun(runId: string, error: string): void {
 
 export function getRun(runId: string): SubagentRunState | undefined {
   return runs.get(runId)
+}
+
+export function listRuns(): SubagentRunState[] {
+  return [...runs.values()]
+}
+
+/** 用持久化快照覆盖内存（同 runId 已存在则跳过，避免冲掉正在跑的） */
+export function hydrateRuns(snapshots: readonly SubagentRunState[]): void {
+  let changed = false
+  for (const snap of snapshots) {
+    if (runs.has(snap.runId)) continue
+    const status =
+      snap.status === 'running'
+        ? ('error' as const)
+        : snap.status
+    runs.set(snap.runId, {
+      ...snap,
+      status,
+      liveProgress: undefined,
+      error:
+        snap.status === 'running'
+          ? snap.error ?? '上次运行中断（页面刷新或崩溃），可 followup_subagent 续聊'
+          : snap.error,
+    })
+    changed = true
+  }
+  if (changed) notify()
 }
 
 export function removeRun(runId: string): void {

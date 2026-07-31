@@ -12,7 +12,8 @@ import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
 import { normalizeVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
 import type { VscodeModelSource } from './vscode-prefs.ts'
-import type { VscodeAgentTerminalSnapshot } from './vscode-terminal-sessions.ts'
+import type { PersistedSubagentRun } from './vscode-subagent-persistence.ts'
+import { normalizePersistedSubagentRuns } from './vscode-subagent-persistence.ts'
 
 export type VscodeAiChatRole = 'user' | 'assistant'
 
@@ -88,6 +89,8 @@ export type VscodeAiChatStore = {
   lastFocusedEditor?: 'file' | 'aiChat'
   /** lastFocusedEditor === 'aiChat' 时对应的 sessionId */
   activeSessionId?: string
+  /** Sub Agent 私聊线程（长期存，供崩溃后续聊） */
+  subagentRuns?: PersistedSubagentRun[]
 }
 
 type VscodeAiChatDbRecord = VscodeAiChatStore & {
@@ -485,6 +488,8 @@ function prepareStoreForSave(store: VscodeAiChatStore): VscodeAiChatStore {
   const closedSessions = trimClosedSessions(store.closedSessions)
   const lastFocusedEditor = store.lastFocusedEditor
   const activeSessionId = store.activeSessionId
+  const subagentRuns =
+    store.subagentRuns && store.subagentRuns.length > 0 ? store.subagentRuns : undefined
   return {
     workspaceKey: store.workspaceKey,
     openSessions,
@@ -496,6 +501,7 @@ function prepareStoreForSave(store: VscodeAiChatStore): VscodeAiChatStore {
       openSessions.some((session) => session.id === activeSessionId)
         ? activeSessionId
         : undefined,
+    ...(subagentRuns ? { subagentRuns } : {}),
   }
 }
 
@@ -508,6 +514,7 @@ function normalizeStore(raw: unknown, key: string): VscodeAiChatStore {
     closedSessions?: unknown[]
     lastFocusedEditor?: unknown
     activeSessionId?: unknown
+    subagentRuns?: unknown
   }
   if (parsed.workspaceKey && parsed.workspaceKey !== key) return emptyStore(key)
 
@@ -535,6 +542,7 @@ function normalizeStore(raw: unknown, key: string): VscodeAiChatStore {
 
   const lastFocusedEditor = normalizeLastFocusedEditor(parsed.lastFocusedEditor)
   const activeSessionId = normalizeActiveSessionId(parsed.activeSessionId)
+  const subagentRuns = normalizePersistedSubagentRuns(parsed.subagentRuns)
 
   return prepareStoreForSave({
     workspaceKey: key,
@@ -542,6 +550,7 @@ function normalizeStore(raw: unknown, key: string): VscodeAiChatStore {
     closedSessions,
     lastFocusedEditor,
     activeSessionId,
+    ...(subagentRuns.length > 0 ? { subagentRuns } : {}),
   })
 }
 

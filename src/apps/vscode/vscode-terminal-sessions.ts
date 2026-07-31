@@ -10,8 +10,13 @@ export type VscodeTerminalSession = {
   id: string
   title: string
   kind: VscodeTerminalSessionKind
-  /** ask/plan/agent 会话绑定的 AI chat sessionId */
+  /** ask/plan/agent 会话绑定的 AI chat sessionId；Sub Agent 为 run 级 ownerId */
   ownerChatId?: string
+  /**
+   * Sub Agent 终端归属的主聊天 sessionId。
+   * 主 AI 终端不设；用于关对话 / 编辑重发时批量拆掉子终端。
+   */
+  parentChatId?: string
   fsMode: TerminalFsMode
 }
 
@@ -47,13 +52,18 @@ export function createAiTerminalSession(
   kind: VscodeAiTerminalKind,
   ownerChatId: string,
   chatTitle: string,
+  extras?: { parentChatId?: string },
 ): VscodeTerminalSession {
   const short = chatTitle.trim() || '对话'
+  const isSub = Boolean(extras?.parentChatId) || ownerChatId.startsWith('subagent-')
   return {
     id: createVscodeTerminalSessionId(),
-    title: `${AI_TERMINAL_LABEL[kind]} · ${short.slice(0, 24)}`,
+    title: isSub
+      ? `Sub · ${short.slice(0, 24)}`
+      : `${AI_TERMINAL_LABEL[kind]} · ${short.slice(0, 24)}`,
     kind,
     ownerChatId,
+    parentChatId: extras?.parentChatId,
     fsMode: kind === 'agent' ? 'controlled' : 'readonly',
   }
 }

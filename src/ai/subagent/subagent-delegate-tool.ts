@@ -12,6 +12,10 @@ import type { SubAgentHostConfig } from './subagent-types.ts'
 export type RunSubAgentFn = (params: {
   definition: EffectiveSubAgent
   taskPrompt: string
+  /** 与工具侧 / store 一致的线程 id */
+  runId: string
+  /** 界面短标题，亦用于子终端 tab 名 */
+  description: string
   /** 续聊时传入上一轮完整 transcript；首轮省略 */
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
   signal?: AbortSignal
@@ -147,8 +151,8 @@ export function createDelegateSubAgentTool(
         return `错误：未知或未启用的 Sub Agent「${agentId}」。可用：${available || '（无）'}`
       }
 
+      const runId = `subagent-${resolved.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       try {
-        const runId = `subagent-${resolved.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         options.onSubAgentProgress?.({
           runId,
           agentId: resolved.id,
@@ -160,6 +164,8 @@ export function createDelegateSubAgentTool(
         const result = await options.runSubAgentFn({
           definition: resolved,
           taskPrompt: prompt,
+          runId,
+          description,
           signal: options.signal,
           onProgress: (progress) => {
             options.onSubAgentProgress?.({
@@ -196,7 +202,25 @@ export function createDelegateSubAgentTool(
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        return `Sub Agent「${resolved.id}」失败：${message}`
+        options.onSubAgentProgress?.({
+          runId,
+          agentId: resolved.id,
+          description,
+          modelKey: resolved.modelKey,
+          phase: 'done',
+          text: message,
+          toolCallCount: 0,
+          incomplete: true,
+        })
+        return formatSubAgentToolResult({
+          agentId: resolved.id,
+          description,
+          access: resolved.access,
+          runId,
+          text: `失败：${message}`,
+          toolCallCount: 0,
+          incomplete: true,
+        })
       }
     },
   })

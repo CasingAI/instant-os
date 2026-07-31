@@ -139,6 +139,11 @@ import {
   type VscodeAiChatStore,
   type VscodeAiClosedChatSession,
 } from './vscode-ai-chat-storage.ts'
+import {
+  hydrateSubagentStoreFromPersisted,
+  serializeSubagentRunsForPersist,
+} from './vscode-subagent-persistence.ts'
+import { subscribe as subscribeSubagentStore } from './vscode-subagent-store.ts'
 import { resolveVscodeCompletionModelKey } from './vscode-ai-models.ts'
 import { VscodeSettingsPanel } from './vscode-settings-panel.tsx'
 import './vscode.css'
@@ -569,7 +574,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   }, [refreshCanRevertTerminal, syncActiveTerminalHandle])
 
   const ensureAiTerminal = useCallback(
-    async (kind: VscodeAiTerminalKind, chatSessionId: string, chatTitle: string) => {
+    async (
+      kind: VscodeAiTerminalKind,
+      chatSessionId: string,
+      chatTitle: string,
+      options?: { parentChatId?: string },
+    ) => {
       const sessions = terminalSessionsRef.current
       const existing = sessions.find(
         (s) => s.kind === kind && s.ownerChatId === chatSessionId,
@@ -592,7 +602,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       const closedSet = closedAiChatIdsRef.current[kind]
       const reason = closedSet.has(chatSessionId) ? 'rebuilt' : 'new'
       closedSet.delete(chatSessionId)
-      const session = createAiTerminalSession(kind, chatSessionId, chatTitle)
+      const session = createAiTerminalSession(kind, chatSessionId, chatTitle, {
+        parentChatId: options?.parentChatId,
+      })
       setTerminalSessions((prev) => [
         ...prev.filter((s) => !(s.kind === kind && s.ownerChatId === chatSessionId)),
         session,
@@ -607,6 +619,34 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
     },
     [waitForTerminalHandle],
+  )
+
+  const closeAiTerminal = useCallback(
+    (kind: VscodeAiTerminalKind, chatSessionId: string) => {
+      const session = terminalSessionsRef.current.find(
+        (s) => s.kind === kind && s.ownerChatId === chatSessionId,
+      )
+      if (session) closeTerminalSession(session.id)
+    },
+    [closeTerminalSession],
+  )
+
+  /** 关闭主聊天绑定的 Ask/Plan/Agent 终端，以及 parentChatId 指向该聊天的全部 Sub 终端 */
+  const closeAiTerminalsBoundToChat = useCallback(
+    (chatSessionId: string) => {
+      const sessions = terminalSessionsRef.current
+      const ids = sessions
+        .filter(
+          (s) =>
+            isVscodeAiTerminalKind(s.kind) &&
+            (s.ownerChatId === chatSessionId || s.parentChatId === chatSessionId),
+        )
+        .map((s) => s.id)
+      for (const id of ids) {
+        closeTerminalSession(id)
+      }
+    },
+    [closeTerminalSession],
   )
 
   const getAiTerminalHandle = useCallback(
@@ -968,6 +1008,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       const aiChatMap = new Map(aiStore.openSessions.map((session) => [session.id, session]))
       setAiChatSessions(aiChatMap)
       setClosedAiChats([...aiStore.closedSessions])
+      if (aiStore.subagentRuns && aiStore.subagentRuns.length > 0) {
+        hydrateSubagentStoreFromPersisted(aiStore.subagentRuns)
+      }
 
       const fileLayout = createEditorLayoutWithTabs(
         restored.map((tab) => tab.id),
@@ -1917,6 +1960,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         lastFocusedEditor: focus.lastFocusedEditor,
         activeSessionId:
           focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
+        subagentRuns: serializeSubagentRunsForPersist(),
       }
       aiChatPersistChainRef.current = aiChatPersistChainRef.current
         .then(async () => {
@@ -1971,6 +2015,19 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       window.removeEventListener('pagehide', flush)
       document.removeEventListener('visibilitychange', onVisibility)
     }
+  }, [persistAiChatStore, sessionReady])
+
+  useEffect(() => {
+    if (!sessionReady) return
+    let timer: number | undefined
+    return subscribeSubagentStore(() => {
+      if (skipSessionPersistRef.current || !mountedRef.current) return
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        if (skipSessionPersistRef.current || !mountedRef.current) return
+        void persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current)
+      }, SESSION_PERSIST_DEBOUNCE_MS)
+    })
   }, [persistAiChatStore, sessionReady])
 
   const setAiChatSessionBusy = useCallback((sessionId: string, busy: boolean) => {
@@ -2049,7 +2106,11 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       const sessions = terminalSessionsRef.current
       const ownedIds = new Set(
         sessions
-          .filter((s) => isVscodeAiTerminalKind(s.kind) && s.ownerChatId === sessionId)
+          .filter(
+            (s) =>
+              isVscodeAiTerminalKind(s.kind) &&
+              (s.ownerChatId === sessionId || s.parentChatId === sessionId),
+          )
           .map((s) => s.id),
       )
       if (ownedIds.size > 0) {
@@ -3186,6 +3247,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               ensureAiTerminal={ensureAiTerminal}
               getAiTerminalHandle={getAiTerminalHandle}
               getAiTerminalSnapshot={getAiTerminalSnapshot}
+              closeAiTerminal={closeAiTerminal}
+              closeAiTerminalsBoundToChat={closeAiTerminalsBoundToChat}
               openPlanFile={async (path) => {
                 await openDocument(path)
               }}

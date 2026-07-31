@@ -1313,8 +1313,53 @@ function CapabilitySection({
       setGripActiveIndex(index)
       grip.setPointerCapture(event.pointerId)
 
+      const EDGE_PX = 48
+      const MAX_SCROLL_STEP = 28
+      let scrollRaf = 0
+      let lastClientY = event.clientY
+
+      const findScrollParent = (from: HTMLElement | null): HTMLElement | null => {
+        let node: HTMLElement | null = from
+        while (node) {
+          const style = getComputedStyle(node)
+          const overflowY = style.overflowY
+          if (
+            (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+            node.scrollHeight > node.clientHeight + 1
+          ) {
+            return node
+          }
+          node = node.parentElement
+        }
+        return null
+      }
+      const scrollParent = findScrollParent(grip)
+
+      const tickAutoScroll = () => {
+        scrollRaf = 0
+        if (dragIndexRef.current === undefined || !scrollParent) return
+        const rect = scrollParent.getBoundingClientRect()
+        const y = lastClientY
+        let delta = 0
+        if (y < rect.top + EDGE_PX) {
+          const t = Math.min(1, (rect.top + EDGE_PX - y) / EDGE_PX)
+          delta = -Math.ceil(MAX_SCROLL_STEP * t)
+        } else if (y > rect.bottom - EDGE_PX) {
+          const t = Math.min(1, (y - (rect.bottom - EDGE_PX)) / EDGE_PX)
+          delta = Math.ceil(MAX_SCROLL_STEP * t)
+        }
+        if (delta !== 0) {
+          scrollParent.scrollTop += delta
+          preventClickRef.current = true
+          const nextOver = resolveHoverIndex(lastClientY)
+          setOverIndex((prev) => (prev === nextOver ? prev : nextOver))
+          scrollRaf = requestAnimationFrame(tickAutoScroll)
+        }
+      }
+
       const onPointerMove = (moveEvent: PointerEvent) => {
         if (dragIndexRef.current === undefined) return
+        lastClientY = moveEvent.clientY
         const nextOver = resolveHoverIndex(moveEvent.clientY)
         setOverIndex((prev) => {
           if (prev !== nextOver) {
@@ -1322,9 +1367,18 @@ function CapabilitySection({
           }
           return nextOver
         })
+        if (scrollParent && scrollRaf === 0) {
+          const rect = scrollParent.getBoundingClientRect()
+          const y = moveEvent.clientY
+          if (y < rect.top + EDGE_PX || y > rect.bottom - EDGE_PX) {
+            scrollRaf = requestAnimationFrame(tickAutoScroll)
+          }
+        }
       }
 
       const onPointerEnd = (endEvent: PointerEvent) => {
+        if (scrollRaf) cancelAnimationFrame(scrollRaf)
+        scrollRaf = 0
         grip.releasePointerCapture(endEvent.pointerId)
         grip.removeEventListener('pointermove', onPointerMove)
         grip.removeEventListener('pointerup', onPointerEnd)
