@@ -1,3 +1,4 @@
+import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 import {
   isMountLocationId,
   makeMountLocationId,
@@ -78,7 +79,7 @@ export function getCachedMount(id: string): FilesMountRecord | undefined {
 
 export async function listMounts(): Promise<FilesMountRecord[]> {
   const db = await openMountsDb()
-  const tx = db.transaction(FILES_MOUNTS_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_MOUNTS_STORE, 'readonly')
   const store = tx.objectStore(FILES_MOUNTS_STORE)
   const records = await requestToPromise(store.getAll() as IDBRequest<FilesMountRecord[]>)
   await waitForTransaction(tx)
@@ -92,7 +93,7 @@ export async function getMount(id: MountFilesLocationId): Promise<FilesMountReco
   if (cached) return cached
 
   const db = await openMountsDb()
-  const tx = db.transaction(FILES_MOUNTS_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_MOUNTS_STORE, 'readonly')
   const store = tx.objectStore(FILES_MOUNTS_STORE)
   const record = await requestToPromise(store.get(id) as IDBRequest<FilesMountRecord | undefined>)
   await waitForTransaction(tx)
@@ -128,7 +129,7 @@ export async function addMount(handle: FileSystemDirectoryHandle): Promise<Files
   }
 
   const db = await openMountsDb()
-  const tx = db.transaction(FILES_MOUNTS_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, FILES_MOUNTS_STORE, 'readwrite')
   const store = tx.objectStore(FILES_MOUNTS_STORE)
   store.put(record)
   await waitForTransaction(tx)
@@ -142,7 +143,7 @@ export async function addMount(handle: FileSystemDirectoryHandle): Promise<Files
 
 export async function removeMount(id: MountFilesLocationId): Promise<void> {
   const db = await openMountsDb()
-  const tx = db.transaction(FILES_MOUNTS_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, FILES_MOUNTS_STORE, 'readwrite')
   const store = tx.objectStore(FILES_MOUNTS_STORE)
   store.delete(id)
   await waitForTransaction(tx)

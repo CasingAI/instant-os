@@ -1262,6 +1262,39 @@
   color: #c62828;
 }
 
+/* Sub Agent 只读底栏：与顶部 header 对称的状态条，不是输入卡 */
+.vscode-ai__readonly-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 16px;
+  border-top: 1px solid var(--vscode-border, #e0e0e0);
+  background: var(--vscode-editor-background, #ffffff);
+  font-size: 12px;
+  color: var(--vscode-foreground, #1e1e1e);
+}
+
+.vscode-ai__readonly-footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: #666;
+}
+
+.vscode-ai__readonly-footer-stat {
+  white-space: nowrap;
+}
+
+.vscode-ai__readonly-footer-trailing {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 /* AI 代码补全：光标处脉冲点 */
 @keyframes vscode-completion-pulse {
   0%,
@@ -3171,6 +3204,15 @@
 .vscode--chrome-dark .vscode-ai__readonly-header-status--error {
   background: #3a1a1a;
   color: #ef9a9a;
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-footer {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+
+.vscode--chrome-dark .vscode-ai__readonly-footer-meta {
+  color: #aaa;
 }
 
 .vscode--chrome-dark .vscode__subagent-detail-btn {

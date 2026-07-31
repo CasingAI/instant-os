@@ -1,5 +1,6 @@
 import type { GithubRepoSummary } from './github-api.ts'
 import { githubRepoId } from './github-repo-paths.ts'
+import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 
 /** 从 GitHub API 拉取并持久化的仓库快照 */
 export type GithubStoredRemoteRepo = GithubRepoSummary & {
@@ -400,7 +401,7 @@ export function groupRepoBranchList(
 
 export async function listGithubRepoMeta(): Promise<GithubRepoSyncMeta[]> {
   const db = await openDb()
-  const tx = db.transaction(STORE, 'readonly')
+  const tx = beginIdbTransaction(db, STORE, 'readonly')
   const records = await requestToPromise(
     tx.objectStore(STORE).getAll() as IDBRequest<RepoRecord[]>,
   )
@@ -415,7 +416,7 @@ export async function getGithubRepoMeta(
   repo: string,
 ): Promise<GithubRepoSyncMeta | undefined> {
   const db = await openDb()
-  const tx = db.transaction(STORE, 'readonly')
+  const tx = beginIdbTransaction(db, STORE, 'readonly')
   const record = await requestToPromise(
     tx.objectStore(STORE).get(githubRepoId(owner, repo)) as IDBRequest<RepoRecord | undefined>,
   )
@@ -431,7 +432,7 @@ export async function getGithubRepoMeta(
 
 export async function saveGithubRepoMeta(meta: GithubRepoSyncMeta): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction(STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, STORE, 'readwrite')
   const normalized: GithubRepoSyncMeta = { ...meta, version: 2 }
   if (!normalized.missing) {
     delete normalized.missing
@@ -467,7 +468,7 @@ export async function saveGithubMissingRepoMeta(
 
 export async function deleteGithubRepoMeta(owner: string, repo: string): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction(
+  const tx = beginIdbTransaction(db, 
     [STORE, COMMITS_STORE, COMMIT_DETAILS_STORE, COMMIT_LISTS_STORE],
     'readwrite',
   )
@@ -484,7 +485,7 @@ export async function listGithubLocalCommits(
   repo: string,
 ): Promise<GithubLocalCommit[]> {
   const db = await openDb()
-  const tx = db.transaction(COMMITS_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, COMMITS_STORE, 'readonly')
   const record = await requestToPromise(
     tx.objectStore(COMMITS_STORE).get(githubRepoId(owner, repo)) as IDBRequest<
       CommitsRecord | undefined
@@ -501,7 +502,7 @@ export async function appendGithubLocalCommit(
 ): Promise<void> {
   const db = await openDb()
   const id = githubRepoId(owner, repo)
-  const tx = db.transaction(COMMITS_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, COMMITS_STORE, 'readwrite')
   const store = tx.objectStore(COMMITS_STORE)
   const existing = await requestToPromise(
     store.get(id) as IDBRequest<CommitsRecord | undefined>,
@@ -535,7 +536,7 @@ export async function finalizePushedLocalCommits(
   if (mappings.length === 0) return
   const db = await openDb()
   const id = githubRepoId(owner, repo)
-  const tx = db.transaction(COMMITS_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, COMMITS_STORE, 'readwrite')
   const store = tx.objectStore(COMMITS_STORE)
   const existing = await requestToPromise(
     store.get(id) as IDBRequest<CommitsRecord | undefined>,
@@ -557,7 +558,7 @@ export async function getCachedGithubCommitDetail(
 ): Promise<GithubCachedCommitDetail | undefined> {
   const db = await openDb()
   const id = githubRepoId(owner, repo)
-  const tx = db.transaction(COMMIT_DETAILS_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, COMMIT_DETAILS_STORE, 'readonly')
   const record = await requestToPromise(
     tx.objectStore(COMMIT_DETAILS_STORE).get(id) as IDBRequest<
       CommitDetailsRecord | undefined
@@ -574,7 +575,7 @@ export async function putCachedGithubCommitDetail(
 ): Promise<void> {
   const db = await openDb()
   const id = githubRepoId(owner, repo)
-  const tx = db.transaction(COMMIT_DETAILS_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, COMMIT_DETAILS_STORE, 'readwrite')
   const store = tx.objectStore(COMMIT_DETAILS_STORE)
   const existing = await requestToPromise(
     store.get(id) as IDBRequest<CommitDetailsRecord | undefined>,
@@ -597,7 +598,7 @@ export async function getCachedGithubCommitList(
 ): Promise<CommitListRecord | undefined> {
   const db = await openDb()
   const id = githubRepoId(owner, repo)
-  const tx = db.transaction(COMMIT_LISTS_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, COMMIT_LISTS_STORE, 'readonly')
   const record = await requestToPromise(
     tx.objectStore(COMMIT_LISTS_STORE).get(id) as IDBRequest<CommitListRecord | undefined>,
   )
@@ -613,7 +614,7 @@ export async function putCachedGithubCommitList(
 ): Promise<void> {
   const db = await openDb()
   const id = githubRepoId(owner, repo)
-  const tx = db.transaction(COMMIT_LISTS_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, COMMIT_LISTS_STORE, 'readwrite')
   tx.objectStore(COMMIT_LISTS_STORE).put({
     id,
     tipSha,

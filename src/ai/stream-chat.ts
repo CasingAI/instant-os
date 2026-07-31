@@ -16,6 +16,7 @@ import {
   resolveStreamIdleTimeoutError,
   STREAM_IDLE_ERROR,
 } from './stream-idle-timeout.ts'
+import { appendOsDateTimeSystemSection } from './os-datetime-system-context.ts'
 
 export type StreamChatActivity = 'reasoning' | 'content'
 
@@ -75,9 +76,11 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     throw createAbortError()
   }
 
+  const system = appendOsDateTimeSystemSection(options.system)
+
   const eventMessages: AiEventLogMessage[] | undefined = options.usageContext
     ? [
-        { role: 'system', content: options.system },
+        { role: 'system', content: system },
         { role: 'user', content: options.user },
         ...(options.followUp ?? []),
       ]
@@ -102,7 +105,7 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
           ? { max_tokens: options.maxCompletionTokens }
           : {}),
         messages: [
-          { role: 'system', content: options.system },
+          { role: 'system', content: system },
           { role: 'user', content: options.user },
           ...(options.followUp ?? []),
         ],

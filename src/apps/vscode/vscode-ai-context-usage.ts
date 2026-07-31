@@ -25,6 +25,7 @@ import {
 } from './vscode-ai-context.ts'
 import { createVscodeAiTools, type VscodeAiToolsHost } from './vscode-ai-tools.ts'
 import { wrapVscodeAiUserMessage } from './vscode-ai-system-reminder.ts'
+import { buildOsDateTimeSystemSection } from '../../ai/os-datetime-system-context.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 
 export type VscodeAiContextUsageCategoryId =
@@ -242,6 +243,8 @@ export async function measureVscodeAiContextUsage(options: {
   const workspaceSection = buildVscodeAiContextSection(options.context)
   jobs.push({ category: 'system', text: systemPrompt, overhead: 4 })
   jobs.push({ category: 'workspace', text: workspaceSection, overhead: 8 })
+  // 与 runAgent 入口注入的 OS 时间段对齐，避免占用环少计
+  jobs.push({ category: 'system', text: buildOsDateTimeSystemSection(), overhead: 4 })
 
   const tools =
     options.tools ??

@@ -197,6 +197,12 @@ export function VscodeSubagentPanel({
     return run.liveProgress?.answerText ?? ''
   }, [run?.liveProgress, run?.status])
 
+  const externalContextUsage = run?.contextUsage
+  const externalToolCallCount =
+    run?.status === 'running'
+      ? run.liveProgress?.toolCallCount
+      : run?.result?.toolCallCount
+
   const messages: VscodeAiChatMessage[] = useMemo(() => {
     if (!run) return []
     return buildDetailMessages(run)
@@ -248,6 +254,8 @@ export function VscodeSubagentPanel({
         }}
         externalLiveTimeline={externalLiveTimeline}
         externalLiveAnswer={externalLiveAnswer}
+        externalContextUsage={externalContextUsage}
+        externalToolCallCount={externalToolCallCount}
       />
     </div>
   )

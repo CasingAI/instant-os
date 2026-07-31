@@ -1,4 +1,5 @@
 import type { VscodeAiAgentProgress, VscodeAiAgentResult } from './vscode-ai-agent.ts'
+import type { VscodeAiContextUsage } from './vscode-ai-context-usage.ts'
 
 export type SubagentRunState = {
   runId: string
@@ -16,6 +17,8 @@ export type SubagentRunState = {
   liveProgress: VscodeAiAgentProgress | undefined
   /** 完成后的完整结果（messages + investigation）；resume 期间保留上一轮直至 complete */
   result: VscodeAiAgentResult | undefined
+  /** 最近一次上下文占用（运行中随 progress 更新；完成后保留供 Footer 展示） */
+  contextUsage: VscodeAiContextUsage | undefined
   error: string | undefined
 }
 
@@ -50,6 +53,7 @@ export function startRun(
     startedAt: Date.now(),
     liveProgress: undefined,
     result: undefined,
+    contextUsage: undefined,
     error: undefined,
   })
   notify()
@@ -78,6 +82,9 @@ export function updateProgress(
   const run = runs.get(runId)
   if (!run) return
   run.liveProgress = progress
+  if (progress.contextUsage) {
+    run.contextUsage = progress.contextUsage
+  }
   notify()
 }
 

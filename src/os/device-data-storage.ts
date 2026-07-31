@@ -1,4 +1,5 @@
 import { formatStorageSize } from './format-storage-size.ts'
+import { beginIdbTransaction } from './idb-transaction.ts'
 import { osNowMs } from './os-clock.ts'
 /** IndexedDB 数据空间硬上限 1 GB */
 export const DATA_CAPACITY_BYTES = 1024 * 1024 * 1024
@@ -170,7 +171,7 @@ export function runDataStoreTransaction<T>(
   return openDataDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const tx = db.transaction(storeName, mode)
+        const tx = beginIdbTransaction(db, storeName, mode)
         const store = tx.objectStore(storeName)
         const result = fn(store)
 

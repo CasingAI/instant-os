@@ -461,6 +461,10 @@ export type VscodeAiPanelProps = {
   externalLiveTimeline?: VscodeAiTimelineItem[]
   /** 外部注入的实时回答文本（只读模式下由子 Agent store 驱动，覆盖内部 liveAnswer） */
   externalLiveAnswer?: string
+  /** 外部注入的上下文占用（只读详情 Footer） */
+  externalContextUsage?: VscodeAiContextUsage
+  /** 外部注入的工具调用次数（只读详情 Footer） */
+  externalToolCallCount?: number
 }
 
 function formatError(err: unknown): string {
@@ -1012,6 +1016,8 @@ export function VscodeAiPanel({
   headerInfo,
   externalLiveTimeline,
   externalLiveAnswer,
+  externalContextUsage,
+  externalToolCallCount,
 }: VscodeAiPanelProps) {
   const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
@@ -1121,7 +1127,7 @@ export function VscodeAiPanel({
   const [reviewBusy, setReviewBusy] = useState(false)
   reviewBusyRef.current = reviewBusy
   const [reviewChangesOpen, setReviewChangesOpen] = useState(false)
-  // readOnly（Sub Agent 详情）无底部输入框，勿预留 composer 高度，否则滚底会留白
+  // readOnly 底栏在文档流内，无需为绝对定位 composer 预留下方空白
   const [composerInset, setComposerInset] = useState(readOnly ? 0 : 96)
 
   useEffect(() => {
@@ -1627,7 +1633,18 @@ export function VscodeAiPanel({
   const send = useCallback(
     async (textOverride?: string, options?: SendOptions) => {
       const text = (textOverride ?? draft).trim()
-      if (!text) return
+      if (!text) {
+        // 输入为空时回车：有排队则打断当前任务，由 finally 立刻发送「下一个」
+        if (
+          textOverride === undefined &&
+          !options?.replaceFromUserId &&
+          busyRef.current &&
+          sendQueueRef.current.length > 0
+        ) {
+          stop()
+        }
+        return
+      }
 
       const turnMode = options?.sendMode ?? mode
       const turnModelSource = options?.sendModelSource ?? aiModelSource
@@ -2433,7 +2450,18 @@ export function VscodeAiPanel({
         )}
       </div>
 
-      {readOnly ? undefined : (
+      {readOnly ? (
+        <div class="vscode-ai__readonly-footer" role="status" ref={composerWrapRef}>
+          <div class="vscode-ai__readonly-footer-meta">
+            {typeof externalToolCallCount === 'number' && externalToolCallCount > 0 ? (
+              <span class="vscode-ai__readonly-footer-stat">工具 {externalToolCallCount}</span>
+            ) : undefined}
+          </div>
+          <div class="vscode-ai__readonly-footer-trailing">
+            <VscodeAiContextUsageView usage={externalContextUsage} dark={dark} />
+          </div>
+        </div>
+      ) : (
       <div class="help-app__composer-wrap vscode-ai__composer-wrap" ref={composerWrapRef}>
         {pendingReview.fileCount > 0 ? (
           <div class="vscode-ai__review-dock">
@@ -2451,7 +2479,7 @@ export function VscodeAiPanel({
                 <button
                   type="button"
                   class="help-app__sample"
-                  disabled={busy || reviewBusy}
+                  disabled={reviewBusy}
                   aria-expanded={reviewChangesOpen}
                   onClick={() => setReviewChangesOpen((value) => !value)}
                 >
@@ -2533,7 +2561,9 @@ export function VscodeAiPanel({
           inputRef={composerInputRef}
           placeholder={
             busy
-              ? '继续输入，发送后将排队…'
+              ? sendQueue.length > 0
+                ? '空回车跳过当前，立即发送排队消息…'
+                : '继续输入，发送后将排队…'
               : mode === 'ask'
                 ? '只读问答…'
                 : mode === 'plan'

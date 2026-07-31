@@ -4,6 +4,7 @@
  * 面向用户的读写请走 files-vfs / files-api。
  */
 import { osNowMs } from '../../os/os-clock.ts'
+import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 import {
   DATA_CAPACITY_BYTES,
   DATA_STORAGE_CHANGED_EVENT,
@@ -199,7 +200,7 @@ export async function getFileBlobRefForTests(
   nodeId: string,
 ): Promise<{ blobId: string; refCount: number; byteLength: number } | undefined> {
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const node = await requestToPromise(
     tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -325,7 +326,7 @@ export function newFilesNodeId(): string {
 
 export async function getFilesTotalBytes(): Promise<number> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_META_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_META_STORE, 'readonly')
   const meta = await requestToPromise(
     tx.objectStore(FILES_META_STORE).get('byte-total') as IDBRequest<FilesMetaRecord | undefined>,
   )
@@ -347,7 +348,7 @@ export type FilesLocationBytes = {
  */
 export async function getFilesBytesByLocation(): Promise<FilesLocationBytes[]> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const index = tx.objectStore(FILES_NODES_STORE).index('by-location')
 
   const results: FilesLocationBytes[] = []
@@ -395,7 +396,7 @@ export async function listChildNodes(
   parentId: string | undefined,
 ): Promise<FilesNode[]> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const index = tx.objectStore(FILES_NODES_STORE).index('by-parent')
   const records = await requestToPromise(
     index.getAll([locationId, parentKey(parentId)]) as IDBRequest<FilesNodeRecord[]>,
@@ -411,7 +412,7 @@ export async function listChildNodes(
 
 export async function getNode(id: string): Promise<FilesNode | undefined> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const record = await requestToPromise(
     tx.objectStore(FILES_NODES_STORE).get(id) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -421,7 +422,7 @@ export async function getNode(id: string): Promise<FilesNode | undefined> {
 
 export async function readBlobText(nodeId: string): Promise<string> {
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const nodeRecord = await requestToPromise(
     tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -444,7 +445,7 @@ export async function readBlobText(nodeId: string): Promise<string> {
 /** 读取本地卷内容字节；仅有旧 text 时按 UTF-8 编码返回（兼容迁移前数据） */
 export async function readBlobBytes(nodeId: string): Promise<ArrayBuffer | undefined> {
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const nodeRecord = await requestToPromise(
     tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -479,7 +480,7 @@ export async function createFileWithBlob(params: {
   const blobId = node.id
 
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
   tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
   tx.objectStore(FILES_BLOBS_STORE).put({
     id: blobId,
@@ -511,7 +512,7 @@ export async function createFileWithBytes(params: {
   const blobId = node.id
 
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
   tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
   tx.objectStore(FILES_BLOBS_STORE).put({
     id: blobId,
@@ -539,7 +540,7 @@ export async function cloneFileNodeWithSharedBlob(params: {
   const total = await assertCapacity(params.metaBytes)
 
   const db = await openFilesDb()
-  const readTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const readTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const source = await requestToPromise(
     readTx
       .objectStore(FILES_NODES_STORE)
@@ -566,7 +567,7 @@ export async function cloneFileNodeWithSharedBlob(params: {
     contentRevisionId: source.contentRevisionId ?? newContentRevisionId(),
   }
 
-  const writeTx = db.transaction(
+  const writeTx = beginIdbTransaction(db, 
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
     'readwrite',
   )
@@ -591,7 +592,7 @@ export async function createFolderNode(params: {
 }): Promise<FilesNode> {
   const total = await assertCapacity(params.metaBytes)
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
   tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(params.node))
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
@@ -653,7 +654,7 @@ async function writeFileContentCow(params: {
   nameMetaDelta: number
 }): Promise<FilesNode> {
   const db = await openFilesDb()
-  const readTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const readTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const existing = await requestToPromise(
     readTx.objectStore(FILES_NODES_STORE).get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -682,7 +683,7 @@ async function writeFileContentCow(params: {
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
-  const writeTx = db.transaction(
+  const writeTx = beginIdbTransaction(db, 
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
     'readwrite',
   )
@@ -731,7 +732,7 @@ export async function renameNodeRecord(params: {
   const total = await assertCapacity(params.metaDelta)
 
   const db = await openFilesDb()
-  const readTx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const readTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const existing = await requestToPromise(
     readTx.objectStore(FILES_NODES_STORE).get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -747,7 +748,7 @@ export async function renameNodeRecord(params: {
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
 
-  const writeTx = db.transaction([FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
+  const writeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
   if (params.metaDelta !== 0) {
     writeTx.objectStore(FILES_META_STORE).put({
@@ -766,7 +767,7 @@ export async function updateNodeAttributes(
   attributes: FilesNodeAttributes,
 ): Promise<FilesNode> {
   const db = await openFilesDb()
-  const readTx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const readTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const existing = await requestToPromise(
     readTx.objectStore(FILES_NODES_STORE).get(id) as IDBRequest<FilesNodeRecord | undefined>,
   )
@@ -781,7 +782,7 @@ export async function updateNodeAttributes(
     attributes: normalizeFilesNodeAttributes(existing.locationId, attributes),
   }
 
-  const writeTx = db.transaction(FILES_NODES_STORE, 'readwrite')
+  const writeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
   await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
@@ -794,7 +795,7 @@ export async function collectSubtreeIds(rootId: string): Promise<{
   reclaimBytes: number
 }> {
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const store = tx.objectStore(FILES_NODES_STORE)
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const index = store.index('by-parent')
@@ -856,7 +857,7 @@ export async function collectSubtreesBatch(
   }
 
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
   const store = tx.objectStore(FILES_NODES_STORE)
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const index = store.index('by-parent')
@@ -960,7 +961,7 @@ export async function deleteSubtree(params: {
 }): Promise<void> {
   const total = await getFilesTotalBytes()
   const db = await openFilesDb()
-  const tx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
   const nodes = tx.objectStore(FILES_NODES_STORE)
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const meta = tx.objectStore(FILES_META_STORE)
@@ -1080,7 +1081,7 @@ export async function commitFilesBatch(
   const blobIdByNodeId = new Map<string, string>()
   const sourceRecordById = new Map<string, FilesNodeRecord>()
   if (probeIds.size > 0) {
-    const probeTx = db.transaction([FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+    const probeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
     for (const id of probeIds) {
       const existing = await requestToPromise(
         probeTx.objectStore(FILES_NODES_STORE).get(id) as IDBRequest<FilesNodeRecord | undefined>,
@@ -1125,7 +1126,7 @@ export async function commitFilesBatch(
   }
   const total = await assertCapacity(needed)
 
-  const tx = db.transaction(
+  const tx = beginIdbTransaction(db, 
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
     'readwrite',
   )
@@ -1310,7 +1311,7 @@ export async function listLocalVolumeFileNodes(
   rootFolderId: string | undefined,
 ): Promise<LocalVolumeFileNodeMeta[]> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const store = tx.objectStore(FILES_NODES_STORE)
   const index = store.index('by-parent')
 
@@ -1351,7 +1352,7 @@ export async function backfillContentRevisionIds(
   rootFolderId: string | undefined,
 ): Promise<number> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
   const store = tx.objectStore(FILES_NODES_STORE)
   const index = store.index('by-parent')
 
@@ -1396,7 +1397,7 @@ export async function listLocalVolumeSubtreeNodes(
   folders: Map<string, { parentId: string | undefined; name: string }>
 }> {
   const db = await openFilesDb()
-  const tx = db.transaction(FILES_NODES_STORE, 'readonly')
+  const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const store = tx.objectStore(FILES_NODES_STORE)
   const index = store.index('by-parent')
 

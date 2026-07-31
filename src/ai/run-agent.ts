@@ -40,6 +40,7 @@ import {
   type AgentCompressionEvent,
   type AgentCompressionOptions,
 } from './context-compression/index.ts'
+import { appendOsDateTimeSystemSection } from './os-datetime-system-context.ts'
 
 export type AgentToolCallEvent = {
   step: number
@@ -465,10 +466,11 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
     options.onContextCompression?.(event)
   }
 
-  const systemPrompt =
+  const systemPrompt = appendOsDateTimeSystemSection(
     compression.enabled && compression.selfCompactTool
       ? appendSelfCompactRubric(options.prompt)
-      : options.prompt
+      : options.prompt,
+  )
 
   const canonical = buildInitialMessages({ ...options, prompt: systemPrompt })
   let wire = cloneMessages(canonical)

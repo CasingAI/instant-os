@@ -3,6 +3,7 @@ import {
   proxiedFetch,
 } from '../../os/proxy-server-api.ts'
 import { loadGithubCredentials } from '../../os/github-credentials-storage.ts'
+import { beginIdbTransaction } from '../../os/idb-transaction.ts'
 import { githubTokenFingerprint } from './github-account-cache.ts'
 
 const DB_NAME = 'instant-os-github-avatar'
@@ -66,7 +67,7 @@ function objectUrlFromRecord(record: StoredAvatar): string {
 
 async function readStoredAvatar(): Promise<StoredAvatar | undefined> {
   const db = await openDb()
-  const tx = db.transaction(STORE, 'readonly')
+  const tx = beginIdbTransaction(db, STORE, 'readonly')
   const raw = await requestToPromise(tx.objectStore(STORE).get('current'))
   if (!raw || typeof raw !== 'object') return undefined
   const record = raw as StoredAvatar
@@ -83,7 +84,7 @@ async function readStoredAvatar(): Promise<StoredAvatar | undefined> {
 
 async function writeStoredAvatar(record: StoredAvatar): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction(STORE, 'readwrite')
+  const tx = beginIdbTransaction(db, STORE, 'readwrite')
   tx.objectStore(STORE).put(record)
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
@@ -180,7 +181,7 @@ export async function clearGithubAvatarCache(): Promise<void> {
   revokeLiveObjectUrl()
   try {
     const db = await openDb()
-    const tx = db.transaction(STORE, 'readwrite')
+    const tx = beginIdbTransaction(db, STORE, 'readwrite')
     tx.objectStore(STORE).delete('current')
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
