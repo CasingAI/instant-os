@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   connectProxyServer,
   disconnectProxyServer,
@@ -6,6 +6,8 @@ import {
 } from '../../os/proxy-server-api.ts'
 import {
   loadProxyServerSettings,
+  normalizeProxyBaseUrl,
+  saveProxyServerSettings,
   subscribeProxyServerSettings,
 } from '../../os/proxy-server-settings-storage.ts'
 import { PROXY_SERVER_URL_PLACEHOLDER } from '../../page-host/page-host-config.ts'
@@ -18,7 +20,14 @@ type ProxyServerSettingsViewProps = {
 
 type StatusKind = 'idle' | 'connecting' | 'probing' | 'success' | 'error'
 
-function connectionStatusLabel(connected: boolean, hasUrl: boolean): string {
+function connectionStatusLabel(
+  connected: boolean,
+  hasUrl: boolean,
+  urlDirty: boolean,
+): string {
+  if (connected && urlDirty) {
+    return '已连接（地址已改，未生效）'
+  }
   if (connected) {
     return '已连接'
   }
@@ -32,22 +41,34 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
   const [proxyBaseUrl, setProxyBaseUrl] = useState(
     () => loadProxyServerSettings().proxyBaseUrl,
   )
+  const [savedProxyBaseUrl, setSavedProxyBaseUrl] = useState(
+    () => loadProxyServerSettings().proxyBaseUrl,
+  )
   const [connected, setConnected] = useState(() => loadProxyServerSettings().connected)
   const [statusKind, setStatusKind] = useState<StatusKind>('idle')
   const [statusMessage, setStatusMessage] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  /** 用户正在编辑输入框时，忽略来自 storage 的回写，避免改地址被旧值盖掉 */
+  const editingRef = useRef(false)
 
   useEffect(() => {
     const sync = () => {
       const settings = loadProxyServerSettings()
-      setProxyBaseUrl(settings.proxyBaseUrl)
+      setSavedProxyBaseUrl(settings.proxyBaseUrl)
       setConnected(settings.connected)
+      if (!editingRef.current) {
+        setProxyBaseUrl(settings.proxyBaseUrl)
+      }
     }
     sync()
     return subscribeProxyServerSettings(sync)
   }, [])
 
+  const normalizedInput = normalizeProxyBaseUrl(proxyBaseUrl)
   const hasUrl = proxyBaseUrl.trim().length > 0
+  const urlDirty = normalizedInput !== savedProxyBaseUrl
+  const showReconnect = connected && urlDirty
+  const showConnect = !connected || urlDirty
 
   const handleConnect = async () => {
     if (busy) {
@@ -58,14 +79,17 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
     setStatusMessage('正在探测 WebView 后端 Worker…')
     try {
       const result = await connectProxyServer(proxyBaseUrl)
+      editingRef.current = false
       if (result.ok) {
         setConnected(true)
         setProxyBaseUrl(result.settings.proxyBaseUrl)
+        setSavedProxyBaseUrl(result.settings.proxyBaseUrl)
         setStatusKind('success')
         setStatusMessage(`已连接（探测 ${result.durationMs} ms）`)
       } else {
         setConnected(false)
         setProxyBaseUrl(result.settings.proxyBaseUrl)
+        setSavedProxyBaseUrl(result.settings.proxyBaseUrl)
         setStatusKind('error')
         setStatusMessage(result.message)
       }
@@ -78,12 +102,22 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
     if (busy) {
       return
     }
-    if (!disconnectProxyServer()) {
+    // 若已改地址但未点连接：断开时一并写入新地址，供浏览立刻切到新 Worker
+    const nextUrl = urlDirty ? normalizedInput : savedProxyBaseUrl
+    const ok = urlDirty
+      ? nextUrl
+        ? saveProxyServerSettings({ version: 1, proxyBaseUrl: nextUrl, connected: false })
+        : saveProxyServerSettings({ version: 1, proxyBaseUrl: '', connected: false })
+      : disconnectProxyServer()
+    if (!ok) {
       setStatusKind('error')
       setStatusMessage('无法保存断开状态（存储空间可能已满）')
       return
     }
+    editingRef.current = false
     setConnected(false)
+    setProxyBaseUrl(nextUrl)
+    setSavedProxyBaseUrl(nextUrl)
     setStatusKind('idle')
     setStatusMessage('已断开连接（已保存的地址仍可用于 Chromo / WebView 浏览）')
   }
@@ -126,20 +160,37 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
             <div class="settings__row settings__row--static">
               <span class="settings__row-name">状态</span>
               <span class="settings__row-size">
-                {connectionStatusLabel(connected, hasUrl)}
+                {connectionStatusLabel(connected, hasUrl, urlDirty)}
               </span>
             </div>
             <SettingsInlineInputRow
               label="服务器地址"
               type="url"
               value={proxyBaseUrl}
-              onChange={setProxyBaseUrl}
+              onChange={(value) => {
+                editingRef.current = true
+                setProxyBaseUrl(value)
+              }}
               placeholder={PROXY_SERVER_URL_PLACEHOLDER}
             />
           </div>
 
           <div class="settings__actions settings__actions--form">
-            {connected ? (
+            {showConnect && (
+              <button
+                type="button"
+                class="settings__btn settings__btn--default"
+                disabled={busy || !hasUrl || !normalizedInput}
+                onClick={() => void handleConnect()}
+              >
+                {busy && statusKind === 'connecting'
+                  ? '连接中…'
+                  : showReconnect
+                    ? '重新连接'
+                    : '连接'}
+              </button>
+            )}
+            {connected && (
               <button
                 type="button"
                 class="settings__btn settings__btn--danger"
@@ -147,15 +198,6 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
                 onClick={handleDisconnect}
               >
                 断开
-              </button>
-            ) : (
-              <button
-                type="button"
-                class="settings__btn settings__btn--default"
-                disabled={busy || !hasUrl}
-                onClick={() => void handleConnect()}
-              >
-                {busy && statusKind === 'connecting' ? '连接中…' : '连接'}
               </button>
             )}
             <button
@@ -186,7 +228,8 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
           <p class="settings__section-footnote">
             宿主出网路径：{'{Worker 根地址}'}/-----{'{目标绝对 URL}'}（需部署支持宿主 CORS
             relay 的 virtual-chromo）。无内置默认地址；本地调试请自行填写 wrangler 地址（如
-            http://localhost:8787）。
+            http://localhost:8787）。改地址后需点「连接」或「重新连接」才会切换 Chromo /
+            WebView 与宿主出网所用的 Worker。
           </p>
         </section>
       </div>
