@@ -420,30 +420,32 @@ export function SettingsStepperRowDemo() {
 
   return (
     <DemoVariants>
-      <DemoVariant label="数字步进" wide>
-        <SettingsGroup>
-          <SettingsStepperRow
-            label="字号"
-            value={fontSize}
-            min={10}
-            max={24}
-            onChange={setFontSize}
-          />
-          <SettingsStepperRow
-            label="空闲重试"
-            value={retries}
-            min={0}
-            max={50}
-            onChange={setRetries}
-          />
-          <SettingsStepperRow
-            label="并发上限"
-            value={concurrency}
-            min={1}
-            max={20}
-            onChange={setConcurrency}
-          />
-        </SettingsGroup>
+      <DemoVariant label="点击弹出步进" wide>
+        <div class="settings" style={{ position: 'relative', minHeight: 220 }}>
+          <SettingsGroup>
+            <SettingsStepperRow
+              label="字号"
+              value={fontSize}
+              min={10}
+              max={24}
+              onChange={setFontSize}
+            />
+            <SettingsStepperRow
+              label="空闲重试"
+              value={retries}
+              min={0}
+              max={50}
+              onChange={setRetries}
+            />
+            <SettingsStepperRow
+              label="并发上限"
+              value={concurrency}
+              min={1}
+              max={20}
+              onChange={setConcurrency}
+            />
+          </SettingsGroup>
+        </div>
       </DemoVariant>
     </DemoVariants>
   )

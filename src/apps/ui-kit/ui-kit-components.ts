@@ -209,7 +209,7 @@ export const UI_COMPONENTS: ComponentDemo[] = [
   {
     id: 'settings-stepper-row',
     name: 'SettingsStepperRow',
-    description: '设置数字步进行；[−] / 可编辑数值 / [+]，支持 min/max/step',
+    description: '设置数字行；点击弹出模态，在模态内用 [−] / 输入 / [+] 调节',
     category: 'settings',
     importPath: "import { SettingsStepperRow } from '../../ui/settings-stepper-row.tsx'",
     props: [
@@ -219,8 +219,8 @@ export const UI_COMPONENTS: ComponentDemo[] = [
       { name: 'min', type: 'number?', description: '最小值' },
       { name: 'max', type: 'number?', description: '最大值' },
       { name: 'step', type: 'number?', description: '步进，默认 1' },
-      { name: 'unit', type: 'string?', description: '单位（editable=false 时展示）' },
-      { name: 'editable', type: 'boolean?', description: '是否允许直接输入，默认 true' },
+      { name: 'unit', type: 'string?', description: '单位，显示在右侧当前值旁' },
+      { name: 'editable', type: 'boolean?', description: '模态内是否允许直接输入，默认 true' },
       { name: 'disabled', type: 'boolean?', description: '是否禁用' },
     ],
     codeExample: `<SettingsStepperRow

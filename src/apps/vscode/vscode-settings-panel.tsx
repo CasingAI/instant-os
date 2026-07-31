@@ -41,8 +41,7 @@ export const VSCODE_THEME_OPTIONS = [
 
 type VscodeSettingsScreen =
   | 'root'
-  | 'editor'
-  | 'editor-theme'
+  | 'theme'
   | 'completion'
   | 'agent'
   | 'subagent'
@@ -58,6 +57,56 @@ type VscodeSettingsPanelProps = {
 
 function themeLabel(theme: VscodePrefs['theme']): string {
   return VSCODE_THEME_OPTIONS.find((item) => item.id === theme)?.label ?? theme
+}
+
+function SettingsAiModelNavRow({
+  label,
+  value,
+  models,
+  onChange,
+  aiModelOptions,
+  onAiModelOptionsChange,
+  capabilityTags,
+  selectionMode = 'agent',
+  disabled,
+  dark,
+}: {
+  label: string
+  value: string
+  models: ReturnType<typeof useVscodeAiTextModels>
+  onChange: (modelKey: string) => void
+  aiModelOptions: VscodePrefs['aiModelOptions']
+  onAiModelOptionsChange: (next: VscodePrefs['aiModelOptions']) => void
+  capabilityTags?: ReturnType<typeof useVscodeAiCapabilityTags>
+  selectionMode?: 'agent' | 'completion'
+  disabled?: boolean
+  dark?: boolean
+}) {
+  return (
+    <VscodeAiModelPicker
+      label={label}
+      ariaLabel={label}
+      value={value}
+      models={models}
+      onChange={onChange}
+      aiModelOptions={aiModelOptions}
+      onAiModelOptionsChange={onAiModelOptionsChange}
+      capabilityTags={capabilityTags}
+      selectionMode={selectionMode}
+      disabled={disabled}
+      dark={dark}
+    >
+      {({ open, setOpen, triggerRef, displayValue, disabled: triggerDisabled }) => (
+        <SettingsNavRow
+          rowRef={triggerRef}
+          label={label}
+          value={displayValue}
+          disabled={triggerDisabled}
+          onClick={() => setOpen(!open)}
+        />
+      )}
+    </VscodeAiModelPicker>
+  )
 }
 
 function slugifySubAgentId(raw: string): string {
@@ -113,7 +162,6 @@ function builtinSummary(
 }
 
 function BuiltinSubAgentPage({
-  label,
   override,
   allowInheritParent,
   dark,
@@ -140,40 +188,38 @@ function BuiltinSubAgentPage({
       )
 
   return (
-    <>
-      <div class="settings__list">
+    <div class="settings__list">
+      <SettingsSwitchRow
+        label="启用"
+        checked={override?.enabled !== false}
+        onChange={(checked) => {
+          onChange({
+            ...override,
+            enabled: checked,
+          })
+        }}
+      />
+      {allowInheritParent ? (
         <SettingsSwitchRow
-          label="启用"
-          checked={override?.enabled !== false}
+          label="跟随主 Agent 模型"
+          checked={inheritParent}
           onChange={(checked) => {
+            if (checked) {
+              onChange({
+                enabled: override?.enabled,
+              })
+              return
+            }
             onChange({
               ...override,
-              enabled: checked,
+              modelSource: 'text',
             })
           }}
         />
-        {allowInheritParent ? (
-          <SettingsSwitchRow
-            label="跟随主 Agent 模型"
-            checked={inheritParent}
-            onChange={(checked) => {
-              if (checked) {
-                onChange({
-                  enabled: override?.enabled,
-                })
-                return
-              }
-              onChange({
-                ...override,
-                modelSource: 'text',
-              })
-            }}
-          />
-        ) : undefined}
-      </div>
+      ) : undefined}
       {!inheritParent ? (
-        <VscodeAiModelPicker
-          label={`${label}模型`}
+        <SettingsAiModelNavRow
+          label="模型"
           selectionMode="agent"
           value={
             pickerValue ||
@@ -196,13 +242,10 @@ function BuiltinSubAgentPage({
           onAiModelOptionsChange={onAiModelOptionsChange}
           capabilityTags={capabilityTags}
           disabled={textModels.length === 0}
-          presentation="form"
-          fieldClass="settings__field settings__field--stacked"
-          labelClass="settings__field-label"
           dark={dark}
         />
       ) : undefined}
-    </>
+    </div>
   )
 }
 
@@ -329,7 +372,6 @@ export function VscodeSettingsPanel({
     [onChange, prefs.subAgentBuiltinOverrides],
   )
 
-  const editorSummary = `${themeLabel(prefs.theme)} · ${prefs.fontSize}`
   const completionSummary = prefs.completionEnabled
     ? labelForVscodeModelPickerValue(
         encodeVscodeModelPickerValue(
@@ -348,12 +390,19 @@ export function VscodeSettingsPanel({
       return (
         <SettingsPageShell title="设置">
           <section class="settings__section">
-            <h2 class="settings__section-title">外观与编辑</h2>
+            <h2 class="settings__section-title">外观</h2>
             <div class="settings__list">
               <SettingsNavRow
-                label="编辑器"
-                value={editorSummary}
-                onClick={() => navigate('editor', 'push')}
+                label="主题"
+                value={themeLabel(prefs.theme)}
+                onClick={() => navigate('theme', 'push')}
+              />
+              <SettingsStepperRow
+                label="字号"
+                value={prefs.fontSize}
+                min={10}
+                max={24}
+                onChange={(fontSize) => onChange({ fontSize })}
               />
             </div>
           </section>
@@ -378,30 +427,10 @@ export function VscodeSettingsPanel({
               />
             </div>
           </section>
-        </SettingsPageShell>
-      )
-    }
 
-    if (target === 'editor') {
-      return (
-        <SettingsPageShell
-          title="编辑器"
-          onBack={() => navigate('root', 'pop')}
-        >
           <section class="settings__section">
+            <h2 class="settings__section-title">编辑</h2>
             <div class="settings__list">
-              <SettingsNavRow
-                label="主题"
-                value={themeLabel(prefs.theme)}
-                onClick={() => navigate('editor-theme', 'push')}
-              />
-              <SettingsStepperRow
-                label="字号"
-                value={prefs.fontSize}
-                min={10}
-                max={24}
-                onChange={(fontSize) => onChange({ fontSize })}
-              />
               <SettingsSwitchRow
                 label="小地图"
                 checked={prefs.minimap}
@@ -418,18 +447,18 @@ export function VscodeSettingsPanel({
       )
     }
 
-    if (target === 'editor-theme') {
+    if (target === 'theme') {
       return (
         <SettingsChoicePickerView
           title="主题"
-          backLabel="编辑器"
+          backLabel="设置"
           titleInNav
           options={VSCODE_THEME_OPTIONS}
           value={prefs.theme}
           onChange={(value) =>
             onChange({ theme: value as VscodePrefs['theme'] })
           }
-          onBack={() => navigate('editor', 'pop')}
+          onBack={() => navigate('root', 'pop')}
         />
       )
     }
@@ -447,42 +476,36 @@ export function VscodeSettingsPanel({
                 checked={prefs.completionEnabled}
                 onChange={(completionEnabled) => onChange({ completionEnabled })}
               />
+              {prefs.completionEnabled ? (
+                <SettingsAiModelNavRow
+                  label="补全模型"
+                  selectionMode="completion"
+                  value={encodeVscodeModelPickerValue(
+                    prefs.completionModelSource,
+                    prefs.completionModelKey,
+                  )}
+                  models={textModels}
+                  onChange={(encoded) => {
+                    const decoded = decodeVscodeModelPickerValue(encoded)
+                    onChange({
+                      completionModelSource: decoded.source,
+                      completionModelKey:
+                        decoded.source === 'custom'
+                          ? decoded.modelKey
+                          : prefs.completionModelKey,
+                    })
+                  }}
+                  aiModelOptions={prefs.aiModelOptions}
+                  onAiModelOptionsChange={(aiModelOptions) =>
+                    onChange({ aiModelOptions })
+                  }
+                  capabilityTags={capabilityTags}
+                  disabled={textModels.length === 0}
+                  dark={dark}
+                />
+              ) : undefined}
             </div>
           </section>
-          {prefs.completionEnabled ? (
-            <section class="settings__section">
-              <h2 class="settings__section-title">模型</h2>
-              <VscodeAiModelPicker
-                label="补全模型"
-                selectionMode="completion"
-                value={encodeVscodeModelPickerValue(
-                  prefs.completionModelSource,
-                  prefs.completionModelKey,
-                )}
-                models={textModels}
-                onChange={(encoded) => {
-                  const decoded = decodeVscodeModelPickerValue(encoded)
-                  onChange({
-                    completionModelSource: decoded.source,
-                    completionModelKey:
-                      decoded.source === 'custom'
-                        ? decoded.modelKey
-                        : prefs.completionModelKey,
-                  })
-                }}
-                aiModelOptions={prefs.aiModelOptions}
-                onAiModelOptionsChange={(aiModelOptions) =>
-                  onChange({ aiModelOptions })
-                }
-                capabilityTags={capabilityTags}
-                disabled={textModels.length === 0}
-                presentation="form"
-                fieldClass="settings__field settings__field--stacked"
-                labelClass="settings__field-label"
-                dark={dark}
-              />
-            </section>
-          ) : undefined}
         </SettingsPageShell>
       )
     }
@@ -730,45 +753,41 @@ export function VscodeSettingsPanel({
           </section>
 
           <section class="settings__section">
-            <label class="settings__field settings__field--stacked">
-              <span class="settings__field-label">Prompt</span>
-              <textarea
-                class="vscode__settings-textarea"
-                rows={6}
-                value={draftPrompt}
-                placeholder="子 Agent 的系统提示词"
-                onInput={(event) =>
-                  setDraftPrompt((event.target as HTMLTextAreaElement).value)
-                }
-              />
-            </label>
+            <h2 class="settings__section-title">Prompt</h2>
+            <textarea
+              class="vscode__settings-textarea"
+              rows={6}
+              value={draftPrompt}
+              placeholder="子 Agent 的系统提示词"
+              onInput={(event) =>
+                setDraftPrompt((event.target as HTMLTextAreaElement).value)
+              }
+            />
           </section>
 
           <section class="settings__section">
-            <h2 class="settings__section-title">模型</h2>
-            <VscodeAiModelPicker
-              label="模型"
-              selectionMode="agent"
-              value={encodeVscodeModelPickerValue(draftModelSource, draftModelKey)}
-              models={textModels}
-              onChange={(encoded) => {
-                const decoded = decodeVscodeModelPickerValue(encoded)
-                setDraftModelSource(decoded.source)
-                if (decoded.source === 'custom') {
-                  setDraftModelKey(decoded.modelKey)
+            <div class="settings__list">
+              <SettingsAiModelNavRow
+                label="模型"
+                selectionMode="agent"
+                value={encodeVscodeModelPickerValue(draftModelSource, draftModelKey)}
+                models={textModels}
+                onChange={(encoded) => {
+                  const decoded = decodeVscodeModelPickerValue(encoded)
+                  setDraftModelSource(decoded.source)
+                  if (decoded.source === 'custom') {
+                    setDraftModelKey(decoded.modelKey)
+                  }
+                }}
+                aiModelOptions={prefs.aiModelOptions}
+                onAiModelOptionsChange={(aiModelOptions) =>
+                  onChange({ aiModelOptions })
                 }
-              }}
-              aiModelOptions={prefs.aiModelOptions}
-              onAiModelOptionsChange={(aiModelOptions) =>
-                onChange({ aiModelOptions })
-              }
-              capabilityTags={capabilityTags}
-              disabled={textModels.length === 0}
-              presentation="form"
-              fieldClass="settings__field settings__field--stacked"
-              labelClass="settings__field-label"
-              dark={dark}
-            />
+                capabilityTags={capabilityTags}
+                disabled={textModels.length === 0}
+                dark={dark}
+              />
+            </div>
             {formError ? (
               <p class="settings__section-footnote settings__form-status--error">
                 {formError}
