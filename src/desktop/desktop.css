@@ -16,7 +16,7 @@
   min-height: 0;
   overflow: hidden;
   touch-action: pan-y;
-  overscroll-behavior-x: none;
+  overscroll-behavior: none;
 }
 
 .desktop__pages {

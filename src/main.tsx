@@ -11,9 +11,11 @@ import './global.css'
 import { initBrowserPageCache } from './apps/browser/browser-page-cache.ts'
 import { initializeDockAppearance } from './dock/apply-dock-settings.ts'
 import { blockBrowserZoom } from './os/block-browser-zoom.ts'
+import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
 import { App } from './app.tsx'
 
 blockBrowserZoom()
+blockDocumentOverscroll()
 
 function CrashTestThrow(): null {
   throw new Error('[instant_crash] 模拟 React 组件崩溃（react）')
