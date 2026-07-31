@@ -45,7 +45,7 @@ function createMockHost(overrides?: Partial<InstantShellHost>): InstantShellHost
     listApps: () => [
       { id: 'settings', name: '系统设置', kind: 'builtin' },
       { id: 'files', name: '文件', kind: 'builtin' },
-      { id: 'browser', name: '网络浏览器', kind: 'builtin' },
+      { id: 'browser', name: '网页浏览器', kind: 'builtin' },
     ],
     listWindows: () => [
       {

@@ -44,7 +44,7 @@ const HELP_SYSTEM_PROMPT = `你是 Instant OS 的「帮助」应用助手，面�
 const MODULE_LABELS: Record<string, string> = {
   apps: '应用',
   appstore: '应用集市',
-  browser: '网络浏览器',
+  browser: '网页浏览器',
   mail: '邮件',
   news: '新闻',
   books: '书架',

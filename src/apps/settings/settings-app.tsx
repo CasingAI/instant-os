@@ -671,7 +671,7 @@ function UsageView({
     { id: 'mail', label: '邮件', bytes: summary.mailDataBytes, color: '#5856d6' },
     { id: 'news', label: '新闻', bytes: summary.newsDataBytes, color: '#ff9500' },
     { id: 'books-index', label: '图书索引', bytes: summary.booksIndexBytes, color: '#34c759' },
-    { id: 'browser', label: '网络浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
+    { id: 'browser', label: '网页浏览器', bytes: summary.browserSystemBytes, color: '#5ac8fa' },
     { id: 'system-config', label: '系统配置', bytes: systemConfigBytes, color: '#636366' },
     { id: 'other', label: '其他', bytes: summary.otherBytes, color: '#8e8e93' },
     { id: 'free', label: '剩余', bytes: summary.availableBytes, color: '#d4d4d4', free: true },
@@ -687,7 +687,7 @@ function UsageView({
     summary.filesBytes
   const dataOtherBytes = residualBytes(summary.dataUsedBytes, dataAttributedBytes)
   const dataSegments: StorageMeterSegment[] = [
-    { id: 'safari-cache', label: '网络浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
+    { id: 'safari-cache', label: '网页浏览器缓存', bytes: summary.safariCacheBytes, color: '#ff9500' },
     { id: 'books-data', label: '图书章节', bytes: summary.booksDataBytes, color: '#34c759' },
     { id: 'files', label: '文件', bytes: summary.filesBytes, color: '#007aff' },
     { id: 'ai-usage', label: 'AI 用量', bytes: summary.aiUsageBytes, color: '#af52de' },
@@ -765,7 +765,7 @@ function UsageView({
                   <StorageCategoryRow label="新闻" bytes={summary.newsDataBytes} hint={`${newsCommentStats.threadCount} 篇已开评 · ${newsCommentStats.totalComments} 条评论 · AI ${formatTokenCount(newsTokenUsage.totalTokens)} tokens`} />
                   <StorageCategoryRow label="图书索引" bytes={summary.booksIndexBytes} />
                   <StorageCategoryRow
-                    label="网络浏览器（历史/书签等）"
+                    label="网页浏览器（历史/书签等）"
                     bytes={summary.browserSystemBytes}
                     hint="历史、书签与 Token 统计；网页 HTML 缓存在数据空间"
                   />
@@ -787,7 +787,7 @@ function UsageView({
                   <span>大小</span>
                 </div>
                 <div class="settings__list-body">
-                  <StorageCategoryRow label="网络浏览器网页缓存" bytes={summary.safariCacheBytes} />
+                  <StorageCategoryRow label="网页浏览器网页缓存" bytes={summary.safariCacheBytes} />
                   <StorageCategoryRow label="图书章节正文" bytes={summary.booksDataBytes} />
                   <StorageCategoryRow
                     label="文件"
@@ -830,7 +830,7 @@ function UsageView({
             <InstalledAppsList entries={summary.entries} onSelectApp={onSelectApp} />
           )}
             <p class="settings__section-footnote">
-              系统空间存放配置与索引；数据空间存放网络浏览器网页缓存、图书章节、文件应用用户文件、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
+              系统空间存放配置与索引；数据空间存放网页浏览器网页缓存、图书章节、文件应用用户文件、事件日志、桌面文件夹图标缩略图等大体积数据（IndexedDB）。
               应用程序的用户数据通过 localStorage 桥接按应用独立存储；「文件」应用的用户文件计入数据空间并归在该应用名下。
               系统空间上限 {formatStorageSize(DEVICE_CAPACITY_BYTES)}、数据空间上限{' '}
               {formatStorageSize(DATA_CAPACITY_BYTES)}，均为硬限制。
@@ -1140,7 +1140,7 @@ function AppDetailView({ app, onBack, onOpenSafariSettings, onOpenNewsSettings }
         {app.id === 'browser' && onOpenSafariSettings && (
           <div class="settings__actions">
             <button type="button" class="settings__btn" onClick={onOpenSafariSettings}>
-              管理网络浏览器缓存与用量
+              管理网页浏览器缓存与用量
             </button>
           </div>
         )}

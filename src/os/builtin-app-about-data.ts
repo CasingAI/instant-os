@@ -16,7 +16,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   browser: {
     version: 'AI 网页浏览器',
     paragraphs: [
-      '网络浏览器是 Instant OS 内置浏览器。输入任意网址或搜索词，AI 会实时生成对应页面，在标签页中浏览。',
+      '网页浏览器是 Instant OS 内置浏览器。输入任意网址或搜索词，AI 会实时生成对应页面，在标签页中浏览。',
       '支持多标签、历史记录、前进后退与重新加载；也可作为 .html / .htm / .xhtml / .svg 等本机文件的打开程序，直接预览文件内容（不经 AI 生成）。已生成的网页缓存保存在数据空间（IndexedDB），可在系统设置中管理。',
     ],
   },
@@ -24,7 +24,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     version: 'WebView 浏览器',
     paragraphs: [
       'Chromo 是基于 virtual-chromo 的真网页浏览器，通过 Cloudflare Worker 与 Service Worker 代理加载外部网站。',
-      '与 AI 网络浏览器不同，Chromo 渲染真实网页内容，支持页内链接跳转、前进后退与刷新。网页渲染由 virtual-chromo 组件负责，Instant OS 提供 Chrome 风格外壳与多标签管理。',
+      '与 AI 网页浏览器不同，Chromo 渲染真实网页内容，支持页内链接跳转、前进后退与刷新。网页渲染由 virtual-chromo 组件负责，Instant OS 提供 Chrome 风格外壳与多标签管理。',
     ],
   },
   'page-devtools': {
@@ -78,13 +78,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       'Virtual Studio Code Desktop 是基于 Monaco 的轻量代码编辑器：文件夹浏览、多标签编辑、内嵌终端（QuickJS REPL）与简易编辑器设置。',
       '内置 AI 侧栏支持 Ask / Edit / Agent 三种模式，可感知工作区、读写文件、搜索与在终端运行 JavaScript / npm（敏感操作需确认）。',
-      '默认作为常见源码后缀的打开程序；.txt 仍由文本编辑处理，.html 等网页文件默认仍由网络浏览器打开。只读卷可预览但不可保存。',
+      '默认作为常见源码后缀的打开程序；.txt 仍由文本编辑处理，.html 等网页文件默认仍由网页浏览器打开。只读卷可预览但不可保存。',
     ],
   },
   settings: {
     version: '系统管理',
     paragraphs: [
-      '系统设置用于查看存储用量、管理已安装应用，以及调整网络浏览器缓存与 AI 用量等系统选项。',
+      '系统设置用于查看存储用量、管理已安装应用，以及调整网页浏览器缓存与 AI 用量等系统选项。',
     ],
   },
   'scene3d-lab': {

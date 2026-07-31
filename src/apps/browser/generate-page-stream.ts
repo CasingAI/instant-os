@@ -54,10 +54,10 @@ export function isSiteNotFoundResponse(text: string): boolean {
   return body === BROWSER_PAGE_ERROR_SITE_NOT_FOUND
 }
 
-const PAGE_BUILDER_PROMPT = `你是 Instant OS 网络浏览器的网页生成器。你的首要目标是**尽可能逼真地还原**目标 URL 在真实浏览器中打开后的页面——让用户一眼就能认出是哪个网站、哪类页面。
+const PAGE_BUILDER_PROMPT = `你是 Instant OS 网页浏览器的网页生成器。你的首要目标是**尽可能逼真地还原**目标 URL 在真实浏览器中打开后的页面——让用户一眼就能认出是哪个网站、哪类页面。
 
 ## 运行环境
-Instant OS 内置网络浏览器。你生成的 HTML 渲染在 iframe 内，尺寸以用户消息中的「当前页面视窗」宽高为准。
+Instant OS 内置网页浏览器。你生成的 HTML 渲染在 iframe 内，尺寸以用户消息中的「当前页面视窗」宽高为准。
 浏览器外壳（地址栏、前进后退）由系统提供——不要绘制浏览器 UI。
 
 ## 核心原则：高保真静态快照，不要伪装导航
@@ -291,7 +291,7 @@ function buildPageUserPrompt(
 }
 
 function createSafariAiLogger(url: string) {
-  const tag = `[网络浏览器 AI] ${url}`
+  const tag = `[网页浏览器 AI] ${url}`
 
   return {
     start(model: string, userPrompt: string) {

@@ -137,7 +137,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
   // 网络与内容
   {
     id: 'safari',
-    label: '网络浏览器',
+    label: '网页浏览器',
     Icon: SafariUsagePaneIcon,
     route: { view: 'safari-usage' },
     group: 'network',

@@ -1992,12 +1992,12 @@ export function BrowserApp() {
 
     return [
       {
-        label: '网络浏览器',
+        label: '网页浏览器',
         items: [
-          ...aboutAppMenuPrefix('关于网络浏览器', () => showBuiltinAbout('browser')),
-          { type: 'action', label: '隐藏网络浏览器', shortcut: '⌘H', onClick: () => run('hideSafari') },
+          ...aboutAppMenuPrefix('关于网页浏览器', () => showBuiltinAbout('browser')),
+          { type: 'action', label: '隐藏网页浏览器', shortcut: '⌘H', onClick: () => run('hideSafari') },
           { type: 'separator' },
-          { type: 'action', label: '退出网络浏览器', shortcut: '⌘Q', onClick: () => run('quitSafari') },
+          { type: 'action', label: '退出网页浏览器', shortcut: '⌘Q', onClick: () => run('quitSafari') },
         ],
       },
       {

@@ -92,7 +92,7 @@ export function SafariCacheView({ onCacheChange }: SafariCacheViewProps) {
       {confirmClearAll && (
         <ConfirmSheet
           title="清空全部网页缓存？"
-          message="所有已缓存的网络浏览器网页将被删除，下次访问需重新生成。"
+          message="所有已缓存的网页浏览器网页将被删除，下次访问需重新生成。"
           confirmLabel="清空"
           onCancel={() => setConfirmClearAll(false)}
           onConfirm={handleClearAll}

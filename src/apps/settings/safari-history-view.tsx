@@ -56,7 +56,7 @@ export function SafariHistoryView({ onHistoryChange }: SafariHistoryViewProps) {
       {confirmClearAll && (
         <ConfirmSheet
           title="清空浏览历史？"
-          message="所有网络浏览器浏览历史将被删除，地址栏联想与历史面板将不再显示这些记录。"
+          message="所有网页浏览器浏览历史将被删除，地址栏联想与历史面板将不再显示这些记录。"
           confirmLabel="清空"
           onCancel={() => setConfirmClearAll(false)}
           onConfirm={handleClearAll}

@@ -8,7 +8,7 @@ const CORE_FEATURES = [
   },
   {
     id: 'safari',
-    title: '网络浏览器',
+    title: '网页浏览器',
     description: '访问任意网址，由 AI 即时渲染网页',
   },
   {

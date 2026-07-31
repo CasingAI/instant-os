@@ -6,7 +6,7 @@ import type { BuiltinAppId } from './types.ts'
  */
 export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   appstore: '应用集市',
-  browser: '网络浏览器',
+  browser: '网页浏览器',
   chromo: 'Chromo',
   'page-devtools': '开发者工具',
   webview: 'WebView',
