@@ -74,6 +74,8 @@ function buildAssistantMessage(
 
 /**
  * 从 API transcript 抽出可读的 user/assistant 轮次（跳过 tool / 合成上下文）。
+ * 同一轮内工具调用之间的中间 assistant 旁白合并为一条（只保留最后一段），
+ * 与主对话「一轮一条气泡」一致，避免详情里连发多条相似总结。
  */
 function buildMessagesFromTranscript(
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
@@ -94,7 +96,12 @@ function buildMessagesFromTranscript(
     if (message.role === 'assistant') {
       const text = contentToText('content' in message ? message.content : '').trim()
       if (!text) continue
-      textTurns.push({ role: 'assistant', text })
+      const prev = textTurns[textTurns.length - 1]
+      if (prev?.role === 'assistant') {
+        prev.text = text
+      } else {
+        textTurns.push({ role: 'assistant', text })
+      }
     }
   }
 
@@ -104,10 +111,10 @@ function buildMessagesFromTranscript(
       out.push(createVscodeAiChatMessage('user', turn.text))
       continue
     }
-    const isLast = i === textTurns.length - 1
-    out.push(
-      buildAssistantMessage(turn.text, isLast ? lastResult : undefined),
-    )
+    const isLastAssistant = !textTurns.slice(i + 1).some((item) => item.role === 'assistant')
+    const text =
+      isLastAssistant && lastResult?.text?.trim() ? lastResult.text.trim() : turn.text
+    out.push(buildAssistantMessage(text, isLastAssistant ? lastResult : undefined))
   }
   return out
 }
@@ -170,7 +177,7 @@ function buildDetailMessages(run: SubagentRunState): VscodeAiChatMessage[] {
 /**
  * 子 Agent 只读详情面板：复用 VscodeAiPanel，以 readOnly 模式渲染。
  * 运行中：用 store 的 liveProgress 驱动 liveTimeline/liveAnswer。
- * 完成后：用 result.messages 重建多轮 transcript。
+ * 完成后：用 result.messages 重建多轮对话（每轮只保留一条最终 assistant）。
  */
 export function VscodeSubagentPanel({
   runId,

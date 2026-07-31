@@ -1208,6 +1208,10 @@ button.vscode-ai__subagent-row.help-app__reasoning-status--waiting {
   opacity: 0.75;
 }
 
+.help-app__reasoning-status--waiting .vscode-ai__subagent-row-arrow {
+  animation: help-waiting-label 1.6s ease-in-out infinite;
+}
+
 .vscode-ai__subagent-row:hover .vscode-ai__subagent-row-arrow {
   opacity: 1;
   color: var(--help-ink, #333);
