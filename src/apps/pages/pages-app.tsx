@@ -159,6 +159,8 @@ export function PagesApp({ windowId }: PagesAppProps) {
   const mountedRef = useRef(true)
   const editorRef = useRef<Editor | null>(null)
   const blobUrlMapsRef = useRef(new Map<string, PagesBlobUrlMap>())
+  /** 每个标签编辑器挂载后的首次 onDocumentChange 对齐基线（消化 TipTap 规范化） */
+  const lastBaselineTabIdRef = useRef<string | undefined>(undefined)
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
@@ -636,18 +638,23 @@ export function PagesApp({ windowId }: PagesAppProps) {
     (nextDocument: JSONContent) => {
       const tabId = activeTabIdRef.current
       if (!tabId) return
+      // 该标签首次回调：只对齐 saved* 基线；之后的编辑才记脏
+      const absorbBaseline = lastBaselineTabIdRef.current !== tabId
+      if (absorbBaseline) {
+        lastBaselineTabIdRef.current = tabId
+      }
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.id !== tabId) return tab
-          const blobMap = getBlobMap(tabId)
-          if (tab.format === 'markdown') {
-            const nextMarkdown = jsonContentToMarkdown(nextDocument)
-            if (jsonContentToMarkdown(tab.document) === (tab.savedMarkdown ?? '')) {
-              return { ...tab, document: nextDocument, savedMarkdown: nextMarkdown }
+          if (absorbBaseline) {
+            if (tab.format === 'markdown') {
+              return {
+                ...tab,
+                document: nextDocument,
+                savedMarkdown: jsonContentToMarkdown(nextDocument),
+              }
             }
-            return { ...tab, document: nextDocument }
-          }
-          if (!isTabDirty(tab, blobMap)) {
+            const blobMap = getBlobMap(tabId)
             return {
               ...tab,
               document: nextDocument,
