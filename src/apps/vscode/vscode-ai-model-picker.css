@@ -162,13 +162,13 @@
   color: rgba(0, 0, 0, 0.55);
 }
 
-/* 箭头侧加大布局盒；圆角+箭头外形由 JS path 写入 chrome */
+/* 箭头侧：chrome 预留箭头位；face 只保留内容 padding，不再叠 arrow-size */
 .vscode-ai-model-picker__shell--arrow-bottom .vscode-ai-model-picker__chrome {
   padding-bottom: var(--picker-arrow-size);
 }
 
 .vscode-ai-model-picker__shell--arrow-bottom .vscode-ai-model-picker__face {
-  padding-bottom: calc(var(--picker-face-pad-y) + var(--picker-arrow-size));
+  padding-bottom: var(--picker-face-pad-y);
 }
 
 .vscode-ai-model-picker__shell--arrow-top .vscode-ai-model-picker__chrome {
@@ -176,7 +176,7 @@
 }
 
 .vscode-ai-model-picker__shell--arrow-top .vscode-ai-model-picker__face {
-  padding-top: calc(var(--picker-face-pad-y) + var(--picker-arrow-size));
+  padding-top: var(--picker-face-pad-y);
 }
 
 .vscode-ai-model-picker__shell--arrow-left .vscode-ai-model-picker__chrome {
@@ -184,7 +184,7 @@
 }
 
 .vscode-ai-model-picker__shell--arrow-left .vscode-ai-model-picker__face {
-  padding-left: calc(var(--picker-face-pad-x) + var(--picker-arrow-size));
+  padding-left: var(--picker-face-pad-x);
 }
 
 .vscode-ai-model-picker__shell--arrow-right .vscode-ai-model-picker__chrome {
@@ -192,7 +192,7 @@
 }
 
 .vscode-ai-model-picker__shell--arrow-right .vscode-ai-model-picker__face {
-  padding-right: calc(var(--picker-face-pad-x) + var(--picker-arrow-size));
+  padding-right: var(--picker-face-pad-x);
 }
 
 .vscode-ai-model-picker__panel {
@@ -620,15 +620,6 @@
   --picker-face-pad-x: 6px;
   --picker-face-pad-y: 8px;
   width: min(210px, calc(100vw - 16px));
-}
-
-/* chrome 已预留箭头位，编辑面板 face 不再叠一遍 arrow-size */
-.vscode-ai-model-picker__edit-panel.vscode-ai-model-picker__shell--arrow-left .vscode-ai-model-picker__face {
-  padding-left: var(--picker-face-pad-x);
-}
-
-.vscode-ai-model-picker__edit-panel.vscode-ai-model-picker__shell--arrow-right .vscode-ai-model-picker__face {
-  padding-right: var(--picker-face-pad-x);
 }
 
 .vscode-ai-model-picker__edit-section-label {
