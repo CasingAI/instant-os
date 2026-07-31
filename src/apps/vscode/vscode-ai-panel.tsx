@@ -409,6 +409,8 @@ export type VscodeAiPanelProps = {
   subAgentsMaxConcurrent?: number
   subAgentBuiltinOverrides?: VscodePrefs['subAgentBuiltinOverrides']
   customSubAgents?: VscodeCustomSubAgent[]
+  /** Agent 单轮流空闲超时秒数 */
+  aiIdleTimeoutSeconds?: number
   /** Agent 单轮流空闲超时后的额外重试次数（不含首次） */
   aiIdleRetryCount?: number
   /** Debug：展示本轮注入的 system-reminder */
@@ -994,6 +996,7 @@ export function VscodeAiPanel({
   subAgentsMaxConcurrent = 5,
   subAgentBuiltinOverrides = {},
   customSubAgents = [],
+  aiIdleTimeoutSeconds = 60,
   aiIdleRetryCount = 10,
   aiDebugSystemReminder = false,
   dark,
@@ -1746,6 +1749,16 @@ export function VscodeAiPanel({
         applyMessages(withUser, { apiTranscript: historyRef.current })
         setEditingUserId(undefined)
         setEditingDraft('')
+        // 编辑重发成功：主输入框同步为本次选用的模式与模型
+        if (options.sendMode !== undefined) {
+          onModeChange(options.sendMode)
+        }
+        if (options.sendModelSource !== undefined) {
+          onAiModelSelectionChange(
+            options.sendModelSource,
+            options.sendModelSource === 'custom' ? options.sendModelKey : undefined,
+          )
+        }
       } else {
         if (!textOverride) setDraft('')
         const userMessage = createVscodeAiChatMessage('user', text, {
@@ -1839,6 +1852,7 @@ export function VscodeAiPanel({
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
           signal: controller.signal,
           modelKey: turnResolvedModelKey,
+          idleTimeoutMs: Math.max(5, aiIdleTimeoutSeconds) * 1000,
           idleRetryCount: aiIdleRetryCount,
           subAgentConfig: buildVscodeSubAgentHostConfig(
             {
@@ -2025,7 +2039,9 @@ export function VscodeAiPanel({
       enqueueSend,
       getAiTerminalSnapshot,
       mode,
+      onAiModelSelectionChange,
       onLastSentTerminalChange,
+      onModeChange,
       historyFromCanonicalOrUi,
       rebuildHistoryFromMessages,
       releaseBusyTurn,
@@ -2035,6 +2051,7 @@ export function VscodeAiPanel({
       subAgentBuiltinOverrides,
       subAgentsEnabled,
       subAgentsMaxConcurrent,
+      aiIdleTimeoutSeconds,
       aiIdleRetryCount,
       toolsHost,
       turnChangeExtras,
@@ -2303,9 +2320,7 @@ export function VscodeAiPanel({
                         <VscodeIcon size={30} />
                       </span>
                       <div class="help-app__bubble">
-                        <div class="help-app__answer help-app__answer--plain">
-                          {message.content}
-                        </div>
+                        <HelpMarkdown text={message.content} />
                       </div>
                     </div>
                   )

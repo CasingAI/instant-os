@@ -504,6 +504,8 @@ export async function askVscodeAiAgent(options: {
   systemPromptAppendix?: string
   /** 子 Agent 运行时：覆盖默认 maxSteps */
   maxStepsOverride?: number
+  /** 单轮流空闲超时毫秒；默认 60_000 */
+  idleTimeoutMs?: number
   /** 单轮流空闲超时后的额外重试次数（不含首次）；默认 10 */
   idleRetryCount?: number
 }): Promise<VscodeAiAgentResult> {
@@ -551,6 +553,7 @@ export async function askVscodeAiAgent(options: {
         modelKey: definition.modelKey ?? options.modelKey,
         // 完整主 system + 角色附录；不传 subAgentConfig → 无嵌套委派
         systemPromptAppendix: definition.systemPrompt,
+        idleTimeoutMs: options.idleTimeoutMs,
         idleRetryCount: options.idleRetryCount,
         onProgress: (progress) => {
           onProgress?.(progress)
@@ -705,7 +708,7 @@ export async function askVscodeAiAgent(options: {
     config: modelConfig,
     client,
     model,
-    idleTimeoutMs: 60_000,
+    idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
     idleRetryCount: options.idleRetryCount ?? 10,
     usageContext: {
       actor: 'vscode',

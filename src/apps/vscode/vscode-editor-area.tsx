@@ -229,6 +229,7 @@ type VscodeEditorAreaProps = {
   subAgentsMaxConcurrent?: number
   subAgentBuiltinOverrides?: VscodePrefs['subAgentBuiltinOverrides']
   customSubAgents?: VscodeCustomSubAgent[]
+  aiIdleTimeoutSeconds?: number
   aiIdleRetryCount?: number
   aiDebugSystemReminder?: boolean
   aiDark?: boolean
@@ -380,6 +381,7 @@ function VscodeEditorGroupView({
   subAgentsMaxConcurrent,
   subAgentBuiltinOverrides,
   customSubAgents,
+  aiIdleTimeoutSeconds,
   aiIdleRetryCount,
   aiDebugSystemReminder,
   aiDark,
@@ -935,6 +937,7 @@ function VscodeEditorGroupView({
                   subAgentsMaxConcurrent={subAgentsMaxConcurrent}
                   subAgentBuiltinOverrides={subAgentBuiltinOverrides}
                   customSubAgents={customSubAgents}
+                  aiIdleTimeoutSeconds={aiIdleTimeoutSeconds}
                   aiIdleRetryCount={aiIdleRetryCount}
                   aiDebugSystemReminder={aiDebugSystemReminder}
                   dark={aiDark}

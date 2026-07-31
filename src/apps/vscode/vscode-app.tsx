@@ -3174,6 +3174,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               subAgentsMaxConcurrent={prefs.subAgentsMaxConcurrent}
               subAgentBuiltinOverrides={prefs.subAgentBuiltinOverrides}
               customSubAgents={prefs.customSubAgents}
+              aiIdleTimeoutSeconds={prefs.aiIdleTimeoutSeconds}
               aiIdleRetryCount={prefs.aiIdleRetryCount}
               aiDebugSystemReminder={prefs.aiDebugSystemReminder}
               aiDark={isVscodeChromeDark(prefs.theme)}

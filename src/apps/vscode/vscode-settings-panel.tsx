@@ -434,7 +434,7 @@ export function VscodeSettingsPanel({
         'completion',
       )
     : '已关闭'
-  const agentSummary = `重试 ${prefs.aiIdleRetryCount}`
+  const agentSummary = `${prefs.aiIdleTimeoutSeconds}s · 重试 ${prefs.aiIdleRetryCount}`
   const subAgentSummary = prefs.subAgentsEnabled
     ? `已开启 · 并发 ${prefs.subAgentsMaxConcurrent}`
     : '已关闭'
@@ -599,6 +599,14 @@ export function VscodeSettingsPanel({
           <section class="settings__section">
             <div class="settings__list">
               <SettingsStepperRow
+                label="空闲超时"
+                value={prefs.aiIdleTimeoutSeconds}
+                min={5}
+                max={600}
+                unit="秒"
+                onChange={(aiIdleTimeoutSeconds) => onChange({ aiIdleTimeoutSeconds })}
+              />
+              <SettingsStepperRow
                 label="空闲重试次数"
                 value={prefs.aiIdleRetryCount}
                 min={0}
@@ -607,7 +615,7 @@ export function VscodeSettingsPanel({
               />
             </div>
             <p class="settings__section-footnote">
-              流式响应空闲超时后的额外重试次数（不含首次）。0 表示超时后不重试。
+              流式响应多久无新数据视为空闲超时（最短 5 秒）。超时后的额外重试次数不含首次；0 表示超时后不重试。
             </p>
           </section>
         </SettingsPageShell>
