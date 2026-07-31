@@ -1,7 +1,24 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { Editor } from '@tiptap/core'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { createPagesExtensions } from './pages-markdown.ts'
 import type { SlashCommandItem } from './pages-slash-commands.ts'
+import {
+  applyBlockInsert,
+  buildBlockInsertCatalog,
+  deleteTopLevelBlock,
+  findTopLevelBlock,
+  selectBlockNode,
+  type BlockInsertItem,
+} from './pages-block-insert.ts'
+import { PagesInsertPanel } from './pages-insert-panel.tsx'
+import { PagesBlockControls } from './pages-block-controls.tsx'
+import { PagesBubbleMenu, type BubbleMode } from './pages-bubble-menu.tsx'
+import {
+  PagesContextMenu,
+  buildContextMenuItems,
+  type ContextMenuItem,
+} from './pages-context-menu.tsx'
 
 export type PagesViewMode = 'edit' | 'source'
 
@@ -22,40 +39,61 @@ type SlashMenuState = {
   command: (item: SlashCommandItem) => void
 }
 
+type InsertPanelState = {
+  items: BlockInsertItem[]
+  selectedIndex: number
+  rect: { top: number; left: number }
+  blockPos: number
+  mode: 'replace-or-below' | 'above' | 'below' | 'convert'
+}
+
+type HoverBlockState = {
+  blockPos: number
+  top: number
+  left: number
+}
+
+type BubbleState = {
+  mode: BubbleMode
+  top: number
+  left: number
+  blockPos: number | null
+}
+
+type ContextMenuState = {
+  top: number
+  left: number
+  blockPos: number
+  items: ContextMenuItem[]
+}
+
 function readMarkdown(editor: Editor): string {
   const storage = editor.storage as { markdown?: { getMarkdown?: () => string } }
   return storage.markdown?.getMarkdown?.() ?? ''
 }
 
-function ToolbarButton({
-  label,
-  title,
-  active,
-  disabled,
-  onClick,
-}: {
-  label: string
-  title: string
-  active?: boolean
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      class={`pages-toolbar__btn${active ? ' pages-toolbar__btn--active' : ''}`}
-      title={title}
-      aria-label={title}
-      aria-pressed={active ? 'true' : 'false'}
-      disabled={disabled}
-      onMouseDown={(event) => {
-        event.preventDefault()
-        onClick()
-      }}
-    >
-      {label}
-    </button>
-  )
+function selectionCoords(editor: Editor): DOMRect | null {
+  const { view, state } = editor
+  const { from, to, empty } = state.selection
+  if (empty && !(state.selection instanceof NodeSelection)) return null
+
+  if (state.selection instanceof NodeSelection) {
+    const dom = view.nodeDOM(state.selection.from)
+    if (dom instanceof HTMLElement) return dom.getBoundingClientRect()
+    return null
+  }
+
+  try {
+    const start = view.coordsAtPos(from)
+    const end = view.coordsAtPos(to)
+    const top = Math.min(start.top, end.top)
+    const bottom = Math.max(start.bottom, end.bottom)
+    const left = Math.min(start.left, end.left)
+    const right = Math.max(start.right, end.right)
+    return new DOMRect(left, top, right - left, bottom - top)
+  } catch {
+    return null
+  }
 }
 
 export function PagesEditor({
@@ -63,29 +101,83 @@ export function PagesEditor({
   editable,
   viewMode,
   onMarkdownChange,
-  onViewModeChange,
+  onViewModeChange: _onViewModeChange,
   onEditorReady,
 }: PagesEditorProps) {
+  void _onViewModeChange
+
+  const rootRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Editor | null>(null)
   const slashMenuRef = useRef<SlashMenuState | null>(null)
+  const insertPanelRef = useRef<InsertPanelState | null>(null)
   const onMarkdownChangeRef = useRef(onMarkdownChange)
   const onEditorReadyRef = useRef(onEditorReady)
-  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null)
-  const [toolbarEpoch, setToolbarEpoch] = useState(0)
-  const sourceDraftRef = useRef(initialMarkdown)
-  const [sourceText, setSourceText] = useState(initialMarkdown)
   const suppressNextUpdateRef = useRef(false)
   const viewModeRef = useRef(viewMode)
+  const editableRef = useRef(editable)
+  const sourceDraftRef = useRef(initialMarkdown)
+
+  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null)
+  const [insertPanel, setInsertPanel] = useState<InsertPanelState | null>(null)
+  const [hoverBlock, setHoverBlock] = useState<HoverBlockState | null>(null)
+  const [bubble, setBubble] = useState<BubbleState | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [uiEpoch, setUiEpoch] = useState(0)
+  const [sourceText, setSourceText] = useState(initialMarkdown)
 
   onMarkdownChangeRef.current = onMarkdownChange
   onEditorReadyRef.current = onEditorReady
   viewModeRef.current = viewMode
+  editableRef.current = editable
 
   const updateSlashMenu = (next: SlashMenuState | null) => {
     slashMenuRef.current = next
     setSlashMenu(next)
   }
+
+  const updateInsertPanel = (next: InsertPanelState | null) => {
+    insertPanelRef.current = next
+    setInsertPanel(next)
+    if (next) setBubble(null)
+  }
+
+  const closeFloatingExcept = useCallback((keep?: 'slash' | 'insert' | 'context' | 'none') => {
+    if (keep !== 'slash') updateSlashMenu(null)
+    if (keep !== 'insert') updateInsertPanel(null)
+    if (keep !== 'context') setContextMenu(null)
+  }, [])
+
+  const refreshBubble = useCallback((editor: Editor) => {
+    if (!editableRef.current || viewModeRef.current !== 'edit') {
+      setBubble(null)
+      return
+    }
+    const { selection } = editor.state
+    const isNode = selection instanceof NodeSelection
+    if (selection.empty && !isNode) {
+      setBubble(null)
+      return
+    }
+    const rect = selectionCoords(editor)
+    if (!rect) {
+      setBubble(null)
+      return
+    }
+    const root = rootRef.current
+    if (!root) return
+    const rootRect = root.getBoundingClientRect()
+    let blockPos: number | null = null
+    if (isNode) {
+      blockPos = selection.from
+    }
+    setBubble({
+      mode: isNode ? 'block' : 'text',
+      top: rect.top - rootRect.top - 44,
+      left: rect.left - rootRect.left + rect.width / 2,
+      blockPos,
+    })
+  }, [])
 
   useEffect(() => {
     sourceDraftRef.current = initialMarkdown
@@ -103,6 +195,7 @@ export function PagesEditor({
       extensions: createPagesExtensions({
         items: [],
         onOpen: ({ items, clientRect, command }) => {
+          closeFloatingExcept('slash')
           updateSlashMenu({
             items,
             selectedIndex: 0,
@@ -157,6 +250,53 @@ export function PagesEditor({
           class: 'pages-editor__prose',
           spellcheck: 'false',
         },
+        handleDOMEvents: {
+          contextmenu: (view, event) => {
+            if (!editableRef.current || viewModeRef.current !== 'edit') return false
+            event.preventDefault()
+            const coords = { left: event.clientX, top: event.clientY }
+            const posInfo = view.posAtCoords(coords)
+            if (!posInfo) return true
+            const editorInstance = editorRef.current
+            if (!editorInstance) return true
+
+            const { selection } = view.state
+            const clickInsideSelection =
+              !selection.empty && posInfo.pos >= selection.from && posInfo.pos <= selection.to
+            if (!clickInsideSelection && !(selection instanceof NodeSelection)) {
+              try {
+                const sel = TextSelection.near(view.state.doc.resolve(posInfo.pos))
+                view.dispatch(view.state.tr.setSelection(sel))
+              } catch {
+                // ignore
+              }
+            }
+
+            const block = findTopLevelBlock(editorInstance, posInfo.pos)
+            if (!block) return true
+
+            const $pos = view.state.doc.resolve(posInfo.pos)
+            let inTable = false
+            for (let d = $pos.depth; d > 0; d--) {
+              if ($pos.node(d).type.name === 'table') {
+                inTable = true
+                break
+              }
+            }
+            const onLink = editorInstance.isActive('link')
+            const root = rootRef.current
+            if (!root) return true
+            const rootRect = root.getBoundingClientRect()
+            closeFloatingExcept('context')
+            setContextMenu({
+              top: event.clientY - rootRect.top,
+              left: event.clientX - rootRect.left,
+              blockPos: block.pos,
+              items: buildContextMenuItems({ inTable, onLink }),
+            })
+            return true
+          },
+        },
       },
       onCreate: ({ editor: created }) => {
         suppressNextUpdateRef.current = true
@@ -166,7 +306,8 @@ export function PagesEditor({
         onEditorReadyRef.current?.(created)
       },
       onUpdate: ({ editor: current }) => {
-        setToolbarEpoch((value) => value + 1)
+        setUiEpoch((value) => value + 1)
+        refreshBubble(current)
         if (suppressNextUpdateRef.current) {
           suppressNextUpdateRef.current = false
           return
@@ -176,8 +317,9 @@ export function PagesEditor({
         sourceDraftRef.current = markdown
         onMarkdownChangeRef.current(markdown)
       },
-      onSelectionUpdate: () => {
-        setToolbarEpoch((value) => value + 1)
+      onSelectionUpdate: ({ editor: current }) => {
+        setUiEpoch((value) => value + 1)
+        refreshBubble(current)
       },
     })
 
@@ -188,6 +330,10 @@ export function PagesEditor({
       editor.destroy()
       editorRef.current = null
       updateSlashMenu(null)
+      updateInsertPanel(null)
+      setContextMenu(null)
+      setBubble(null)
+      setHoverBlock(null)
     }
     // 仅挂载一次；标签切换靠父级 key 重挂载
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,7 +345,12 @@ export function PagesEditor({
     if (editor.isEditable !== editable) {
       editor.setEditable(editable)
     }
-  }, [editable])
+    if (!editable) {
+      setHoverBlock(null)
+      setBubble(null)
+      closeFloatingExcept('none')
+    }
+  }, [editable, closeFloatingExcept])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -208,6 +359,9 @@ export function PagesEditor({
       const markdown = readMarkdown(editor)
       sourceDraftRef.current = markdown
       setSourceText(markdown)
+      setHoverBlock(null)
+      setBubble(null)
+      closeFloatingExcept('none')
       return
     }
     suppressNextUpdateRef.current = true
@@ -215,17 +369,150 @@ export function PagesEditor({
     const normalized = readMarkdown(editor)
     sourceDraftRef.current = normalized
     onMarkdownChange(normalized)
-  }, [viewMode, onMarkdownChange])
+  }, [viewMode, onMarkdownChange, closeFloatingExcept])
 
-  const editor = editorRef.current
-  void toolbarEpoch
+  // 行侧控件：悬停定位顶层块
+  useEffect(() => {
+    const editor = editorRef.current
+    const root = rootRef.current
+    if (!editor || editor.isDestroyed || !root) return
+    if (!editable || viewMode !== 'edit') {
+      setHoverBlock(null)
+      return
+    }
 
-  const run = (action: (chain: ReturnType<Editor['chain']>) => void) => {
-    if (!editor || editor.isDestroyed || !editable || viewMode !== 'edit') return
-    action(editor.chain().focus())
+    const onMove = (event: MouseEvent) => {
+      if (insertPanelRef.current || slashMenuRef.current) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.pages-block-controls')) return
+
+      const posInfo = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })
+      if (!posInfo) {
+        setHoverBlock(null)
+        return
+      }
+      const block = findTopLevelBlock(editor, posInfo.pos)
+      if (!block) {
+        setHoverBlock(null)
+        return
+      }
+      const dom = editor.view.nodeDOM(block.pos)
+      if (!(dom instanceof HTMLElement)) {
+        setHoverBlock(null)
+        return
+      }
+      const blockRect = dom.getBoundingClientRect()
+      const rootRect = root.getBoundingClientRect()
+      setHoverBlock({
+        blockPos: block.pos,
+        top: blockRect.top - rootRect.top + 2,
+        left: Math.max(4, blockRect.left - rootRect.left - 56),
+      })
+    }
+
+    const onLeave = (event: MouseEvent) => {
+      const related = event.relatedTarget as HTMLElement | null
+      if (related?.closest('.pages-block-controls')) return
+      if (related && root.contains(related)) return
+      setHoverBlock(null)
+    }
+
+    root.addEventListener('mousemove', onMove)
+    root.addEventListener('mouseleave', onLeave)
+    return () => {
+      root.removeEventListener('mousemove', onMove)
+      root.removeEventListener('mouseleave', onLeave)
+    }
+  }, [editable, viewMode, uiEpoch])
+
+  // Escape / 点击外侧关闭浮层
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (insertPanelRef.current) {
+        event.preventDefault()
+        updateInsertPanel(null)
+        return
+      }
+      if (contextMenu) {
+        event.preventDefault()
+        setContextMenu(null)
+      }
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target) return
+      if (
+        target.closest('.pages-slash') ||
+        target.closest('.pages-context-menu') ||
+        target.closest('.pages-bubble') ||
+        target.closest('.pages-block-controls')
+      ) {
+        return
+      }
+      updateInsertPanel(null)
+      setContextMenu(null)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('mousedown', onPointerDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('mousedown', onPointerDown, true)
+    }
+  }, [contextMenu])
+
+  // 插入面板键盘导航
+  useEffect(() => {
+    if (!insertPanel) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      const panel = insertPanelRef.current
+      if (!panel) return
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        updateInsertPanel({
+          ...panel,
+          selectedIndex: (panel.selectedIndex + 1) % panel.items.length,
+        })
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        updateInsertPanel({
+          ...panel,
+          selectedIndex:
+            (panel.selectedIndex - 1 + panel.items.length) % panel.items.length,
+        })
+      } else if (event.key === 'Enter') {
+        event.preventDefault()
+        const item = panel.items[panel.selectedIndex]
+        if (item) {
+          const editor = editorRef.current
+          if (editor && !editor.isDestroyed) {
+            applyBlockInsert(editor, panel.blockPos, item, panel.mode)
+          }
+          updateInsertPanel(null)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [insertPanel])
+
+  const openInsertPanel = (
+    blockPos: number,
+    mode: InsertPanelState['mode'],
+    anchor: { top: number; left: number },
+  ) => {
+    closeFloatingExcept('insert')
+    updateInsertPanel({
+      items: buildBlockInsertCatalog(),
+      selectedIndex: 0,
+      rect: anchor,
+      blockPos,
+      mode,
+    })
   }
 
   const promptLink = () => {
+    const editor = editorRef.current
     if (!editor || editor.isDestroyed || !editable) return
     const previous = editor.getAttributes('link').href as string | undefined
     const next = window.prompt('链接地址', previous ?? 'https://')
@@ -238,155 +525,129 @@ export function PagesEditor({
     editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run()
   }
 
-  const slashStyle =
-    slashMenu?.rect != null
-      ? {
-          top: `${slashMenu.rect.bottom + 6}px`,
-          left: `${slashMenu.rect.left}px`,
+  const handleContextAction = async (id: string) => {
+    const editor = editorRef.current
+    const menu = contextMenu
+    if (!editor || editor.isDestroyed || !menu) return
+    const { blockPos } = menu
+    setContextMenu(null)
+
+    switch (id) {
+      case 'copy':
+        if (editor.state.selection.empty) {
+          selectBlockNode(editor, blockPos)
         }
-      : undefined
+        document.execCommand('copy')
+        break
+      case 'cut':
+        if (editor.state.selection.empty) {
+          selectBlockNode(editor, blockPos)
+        }
+        document.execCommand('cut')
+        break
+      case 'paste': {
+        try {
+          const text = await navigator.clipboard.readText()
+          editor.chain().focus().insertContent(text).run()
+        } catch {
+          // 权限不足时忽略
+        }
+        break
+      }
+      case 'insert-above': {
+        const root = rootRef.current
+        if (!root) break
+        openInsertPanel(blockPos, 'above', {
+          top: menu.top,
+          left: menu.left,
+        })
+        break
+      }
+      case 'insert-below': {
+        openInsertPanel(blockPos, 'below', {
+          top: menu.top,
+          left: menu.left,
+        })
+        break
+      }
+      case 'delete-block':
+        deleteTopLevelBlock(editor, blockPos)
+        break
+      case 'edit-link':
+        promptLink()
+        break
+      case 'unset-link':
+        editor.chain().focus().extendMarkRange('link').unsetLink().run()
+        break
+      case 'add-row-before':
+        editor.chain().focus().addRowBefore().run()
+        break
+      case 'add-row-after':
+        editor.chain().focus().addRowAfter().run()
+        break
+      case 'add-col-before':
+        editor.chain().focus().addColumnBefore().run()
+        break
+      case 'add-col-after':
+        editor.chain().focus().addColumnAfter().run()
+        break
+      case 'delete-row':
+        editor.chain().focus().deleteRow().run()
+        break
+      case 'delete-col':
+        editor.chain().focus().deleteColumn().run()
+        break
+      default:
+        break
+    }
+  }
+
+  const editor = editorRef.current
+  void uiEpoch
+
+  const slashStyle = (() => {
+    if (!slashMenu?.rect) return undefined
+    const root = rootRef.current
+    if (!root) {
+      return {
+        top: `${slashMenu.rect.bottom + 6}px`,
+        left: `${slashMenu.rect.left}px`,
+      }
+    }
+    const rootRect = root.getBoundingClientRect()
+    return {
+      top: `${slashMenu.rect.bottom + 6 - rootRect.top}px`,
+      left: `${slashMenu.rect.left - rootRect.left}px`,
+    }
+  })()
+
+  const insertStyle = insertPanel
+    ? {
+        top: `${insertPanel.rect.top}px`,
+        left: `${insertPanel.rect.left}px`,
+      }
+    : undefined
+
+  const bubbleStyle = bubble
+    ? {
+        top: `${Math.max(4, bubble.top)}px`,
+        left: `${bubble.left}px`,
+        transform: 'translateX(-50%)',
+      }
+    : undefined
+
+  const contextStyle = contextMenu
+    ? {
+        top: `${contextMenu.top}px`,
+        left: `${contextMenu.left}px`,
+      }
+    : undefined
+
+  const showControls =
+    editable && viewMode === 'edit' && hoverBlock && !slashMenu && !insertPanel && !contextMenu
 
   return (
-    <div class="pages-editor">
-      <div class="pages-toolbar" role="toolbar" aria-label="格式">
-        <div class="pages-toolbar__group">
-          <ToolbarButton
-            label="编辑"
-            title="可视化编辑"
-            active={viewMode === 'edit'}
-            onClick={() => onViewModeChange('edit')}
-          />
-          <ToolbarButton
-            label="源码"
-            title="Markdown 源码"
-            active={viewMode === 'source'}
-            onClick={() => onViewModeChange('source')}
-          />
-        </div>
-        <div class="pages-toolbar__divider" />
-        <div class="pages-toolbar__group">
-          <ToolbarButton
-            label="H1"
-            title="标题 1"
-            active={editor?.isActive('heading', { level: 1 })}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleHeading({ level: 1 }).run())}
-          />
-          <ToolbarButton
-            label="H2"
-            title="标题 2"
-            active={editor?.isActive('heading', { level: 2 })}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleHeading({ level: 2 }).run())}
-          />
-          <ToolbarButton
-            label="H3"
-            title="标题 3"
-            active={editor?.isActive('heading', { level: 3 })}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleHeading({ level: 3 }).run())}
-          />
-        </div>
-        <div class="pages-toolbar__divider" />
-        <div class="pages-toolbar__group">
-          <ToolbarButton
-            label="B"
-            title="粗体"
-            active={editor?.isActive('bold')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleBold().run())}
-          />
-          <ToolbarButton
-            label="I"
-            title="斜体"
-            active={editor?.isActive('italic')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleItalic().run())}
-          />
-          <ToolbarButton
-            label="U"
-            title="下划线"
-            active={editor?.isActive('underline')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleUnderline().run())}
-          />
-          <ToolbarButton
-            label="S"
-            title="删除线"
-            active={editor?.isActive('strike')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleStrike().run())}
-          />
-          <ToolbarButton
-            label="<>"
-            title="行内代码"
-            active={editor?.isActive('code')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleCode().run())}
-          />
-        </div>
-        <div class="pages-toolbar__divider" />
-        <div class="pages-toolbar__group">
-          <ToolbarButton
-            label="•"
-            title="无序列表"
-            active={editor?.isActive('bulletList')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleBulletList().run())}
-          />
-          <ToolbarButton
-            label="1."
-            title="有序列表"
-            active={editor?.isActive('orderedList')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleOrderedList().run())}
-          />
-          <ToolbarButton
-            label="☑"
-            title="任务列表"
-            active={editor?.isActive('taskList')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleTaskList().run())}
-          />
-          <ToolbarButton
-            label="❝"
-            title="引用"
-            active={editor?.isActive('blockquote')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleBlockquote().run())}
-          />
-          <ToolbarButton
-            label="{}"
-            title="代码块"
-            active={editor?.isActive('codeBlock')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleCodeBlock().run())}
-          />
-          <ToolbarButton
-            label="—"
-            title="分割线"
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.setHorizontalRule().run())}
-          />
-          <ToolbarButton
-            label="🔗"
-            title="链接"
-            active={editor?.isActive('link')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={promptLink}
-          />
-          <ToolbarButton
-            label="⊞"
-            title="插入表格"
-            active={editor?.isActive('table')}
-            disabled={!editable || viewMode !== 'edit'}
-            onClick={() =>
-              run((chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())
-            }
-          />
-        </div>
-      </div>
-
+    <div class="pages-editor" ref={rootRef}>
       <div class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}`}>
         <div
           class="pages-editor__paper"
@@ -412,26 +673,103 @@ export function PagesEditor({
         ) : undefined}
       </div>
 
+      {showControls && hoverBlock ? (
+        <PagesBlockControls
+          top={hoverBlock.top}
+          left={hoverBlock.left}
+          onPlus={() => {
+            openInsertPanel(hoverBlock.blockPos, 'replace-or-below', {
+              top: hoverBlock.top + 28,
+              left: hoverBlock.left,
+            })
+          }}
+          onHandle={() => {
+            const current = editorRef.current
+            if (!current || current.isDestroyed) return
+            selectBlockNode(current, hoverBlock.blockPos)
+            refreshBubble(current)
+          }}
+        />
+      ) : null}
+
+      {bubble &&
+      editor &&
+      !editor.isDestroyed &&
+      viewMode === 'edit' &&
+      editable &&
+      !slashMenu &&
+      !insertPanel &&
+      !contextMenu ? (
+        <PagesBubbleMenu
+          editor={editor}
+          mode={bubble.mode}
+          style={bubbleStyle}
+          onPromptLink={promptLink}
+          onConvertBlock={() => {
+            if (bubble.blockPos == null) return
+            openInsertPanel(bubble.blockPos, 'convert', {
+              top: Math.max(4, bubble.top) + 40,
+              left: bubble.left - 110,
+            })
+          }}
+          onCopyBlock={() => {
+            document.execCommand('copy')
+          }}
+          onDeleteBlock={() => {
+            if (bubble.blockPos == null) return
+            deleteTopLevelBlock(editor, bubble.blockPos)
+            setBubble(null)
+          }}
+        />
+      ) : null}
+
       {slashMenu && viewMode === 'edit' && slashMenu.items.length > 0 ? (
-        <div class="pages-slash" style={slashStyle} role="listbox" aria-label="插入块">
-          {slashMenu.items.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              role="option"
-              aria-selected={index === slashMenu.selectedIndex ? 'true' : 'false'}
-              class={`pages-slash__item${index === slashMenu.selectedIndex ? ' pages-slash__item--active' : ''}`}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                slashMenu.command(item)
-              }}
-            >
-              <span class="pages-slash__title">{item.title}</span>
-              <span class="pages-slash__desc">{item.description}</span>
-            </button>
-          ))}
-        </div>
-      ) : undefined}
+        <PagesInsertPanel
+          items={slashMenu.items}
+          selectedIndex={slashMenu.selectedIndex}
+          style={slashStyle}
+          onHoverIndex={(index) => {
+            const prev = slashMenuRef.current
+            if (!prev) return
+            updateSlashMenu({ ...prev, selectedIndex: index })
+          }}
+          onSelect={(item) => {
+            const match = slashMenu.items.find((entry) => entry.id === item.id)
+            if (match) slashMenu.command(match)
+          }}
+        />
+      ) : null}
+
+      {insertPanel && viewMode === 'edit' ? (
+        <PagesInsertPanel
+          items={insertPanel.items}
+          selectedIndex={insertPanel.selectedIndex}
+          style={insertStyle}
+          onHoverIndex={(index) => {
+            const prev = insertPanelRef.current
+            if (!prev) return
+            updateInsertPanel({ ...prev, selectedIndex: index })
+          }}
+          onSelect={(item) => {
+            const current = editorRef.current
+            if (!current || current.isDestroyed) return
+            const catalogItem = insertPanel.items.find((entry) => entry.id === item.id)
+            if (!catalogItem) return
+            applyBlockInsert(current, insertPanel.blockPos, catalogItem, insertPanel.mode)
+            updateInsertPanel(null)
+          }}
+        />
+      ) : null}
+
+      {contextMenu && viewMode === 'edit' && editable ? (
+        <PagesContextMenu
+          items={contextMenu.items}
+          style={contextStyle}
+          onAction={(id) => {
+            void handleContextAction(id)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
