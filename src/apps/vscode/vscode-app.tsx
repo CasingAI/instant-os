@@ -3178,6 +3178,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
                     dark={isVscodeChromeDark(prefs.theme)}
                   />
                 ) : undefined}
+                <label class="vscode__setting">
+                  <span>Agent 空闲重试次数</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={prefs.aiIdleRetryCount}
+                    onInput={(event) => {
+                      const value = Number((event.target as HTMLInputElement).value)
+                      if (!Number.isFinite(value)) return
+                      updatePrefs({
+                        aiIdleRetryCount: Math.min(50, Math.max(0, Math.round(value))),
+                      })
+                    }}
+                  />
+                </label>
                 <VscodeSubAgentSettings
                   prefs={prefs}
                   dark={isVscodeChromeDark(prefs.theme)}
@@ -3282,6 +3298,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               subAgentsMaxConcurrent={prefs.subAgentsMaxConcurrent}
               subAgentBuiltinOverrides={prefs.subAgentBuiltinOverrides}
               customSubAgents={prefs.customSubAgents}
+              aiIdleRetryCount={prefs.aiIdleRetryCount}
               aiDebugSystemReminder={prefs.aiDebugSystemReminder}
               aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}

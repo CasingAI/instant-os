@@ -22,6 +22,12 @@ import {
   throwIfStreamAborted,
 } from './stream-abort.ts'
 import {
+  createStreamIdleAbortSession,
+  createStreamIdleTimeoutError,
+  isStreamIdleTimeoutError,
+  resolveStreamIdleTimeoutError,
+} from './stream-idle-timeout.ts'
+import {
   appendSelfCompactRubric,
   applyToolObservationBudget,
   cloneMessages,
@@ -103,6 +109,10 @@ export type RunAgentOptions = {
   config?: Partial<OpenAiConfig>
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  /** 超过该毫秒数未收到任何流式分片则中断当前轮（默认 0=关闭） */
+  idleTimeoutMs?: number
+  /** 当前轮因空闲超时失败后的额外重试次数（默认 0；不含首次） */
+  idleRetryCount?: number
   /** 上下文压缩；默认启用 */
   compression?: AgentCompressionOptions
   onContextCompression?: (event: AgentCompressionEvent) => void
@@ -304,6 +314,7 @@ async function streamAssistantTurn(options: {
   includeUsage: boolean
   step: number
   signal?: AbortSignal
+  idleTimeoutMs?: number
   onTextDelta?: (event: AgentTextDeltaEvent) => void
   onReasoningDelta?: (event: AgentReasoningDeltaEvent) => void
   onToolCallDelta?: (event: AgentToolCallDeltaEvent) => void
@@ -315,108 +326,127 @@ async function streamAssistantTurn(options: {
 }> {
   throwIfStreamAborted(options.signal)
 
-  const stream = await raceWithAbortSignal(
-    createChatCompletionStream(
-      options.client,
-      {
-        model: options.model,
-        messages: options.messages,
-        tools: options.chatTools,
-        stream: true,
-        ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
-        ...buildThinkingRequestExtras(
-          options.providerId,
-          options.thinkingEnabled,
-          options.model,
-          options.thinkingEffort,
-        ),
-      },
-      options.signal,
-    ),
-    options.signal,
-  )
-
-  // create() 已返回后仍须把外部 abort 打到 SDK 内部 controller，才能取消 body
-  const abortStreamController = () => {
-    if (!stream.controller || stream.controller.signal.aborted) return
-    stream.controller.abort()
-  }
-  if (options.signal) {
-    if (options.signal.aborted) {
-      abortStreamController()
-      throwIfStreamAborted(options.signal)
-    }
-    options.signal.addEventListener('abort', abortStreamController, { once: true })
-  }
-
-  let content = ''
-  let reasoning = ''
-  let usage: ReturnType<typeof snapshotFromOpenAiUsage>
-  const toolCallMap = new Map<number, AccumulatedToolCall>()
+  const idle = createStreamIdleAbortSession({
+    idleTimeoutMs: options.idleTimeoutMs,
+    externalSignal: options.signal,
+  })
+  const signal = idle.signal
 
   try {
-    await forEachStreamChunk(
-      stream,
-      (chunk) => {
-        const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
-        if (chunkUsage) {
-          usage = chunkUsage
-        }
+    idle.resetIdleTimer()
+    const stream = await raceWithAbortSignal(
+      createChatCompletionStream(
+        options.client,
+        {
+          model: options.model,
+          messages: options.messages,
+          tools: options.chatTools,
+          stream: true,
+          ...(options.includeUsage ? { stream_options: { include_usage: true } } : {}),
+          ...buildThinkingRequestExtras(
+            options.providerId,
+            options.thinkingEnabled,
+            options.model,
+            options.thinkingEffort,
+          ),
+        },
+        signal,
+      ),
+      signal,
+    )
 
-        const choice = chunk.choices[0]
-        if (!choice) {
-          return
-        }
+    // create() 已返回后仍须把外部 abort 打到 SDK 内部 controller，才能取消 body
+    const abortStreamController = () => {
+      if (!stream.controller || stream.controller.signal.aborted) return
+      stream.controller.abort()
+    }
+    if (signal) {
+      if (signal.aborted) {
+        abortStreamController()
+        throwIfStreamAborted(signal)
+      }
+      signal.addEventListener('abort', abortStreamController, { once: true })
+    }
 
-        const touchedIndexes = applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
-        if (options.onToolCallDelta && touchedIndexes.length > 0) {
-          for (const index of touchedIndexes) {
-            const toolCall = toolCallMap.get(index)
-            if (!toolCall) continue
-            options.onToolCallDelta({
+    let content = ''
+    let reasoning = ''
+    let usage: ReturnType<typeof snapshotFromOpenAiUsage>
+    const toolCallMap = new Map<number, AccumulatedToolCall>()
+
+    try {
+      await forEachStreamChunk(
+        stream,
+        (chunk) => {
+          idle.resetIdleTimer()
+
+          const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
+          if (chunkUsage) {
+            usage = chunkUsage
+          }
+
+          const choice = chunk.choices[0]
+          if (!choice) {
+            return
+          }
+
+          const touchedIndexes = applyToolCallDelta(toolCallMap, choice.delta.tool_calls)
+          if (options.onToolCallDelta && touchedIndexes.length > 0) {
+            for (const index of touchedIndexes) {
+              const toolCall = toolCallMap.get(index)
+              if (!toolCall) continue
+              options.onToolCallDelta({
+                step: options.step,
+                index,
+                id: toolCall.id,
+                toolName: toolCall.function.name,
+                argumentsRaw: toolCall.function.arguments,
+              })
+            }
+          }
+
+          const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
+            choice.delta,
+          )
+
+          if (reasoningDelta) {
+            reasoning += reasoningDelta
+            options.onReasoningDelta?.({
               step: options.step,
-              index,
-              id: toolCall.id,
-              toolName: toolCall.function.name,
-              argumentsRaw: toolCall.function.arguments,
+              delta: reasoningDelta,
+              accumulated: reasoning,
             })
           }
-        }
 
-        const { reasoning: reasoningDelta, content: contentDelta } = readStreamDelta(
-          choice.delta,
-        )
+          if (contentDelta) {
+            content += contentDelta
+            options.onTextDelta?.({
+              step: options.step,
+              delta: contentDelta,
+              accumulated: content,
+            })
+          }
+        },
+        signal,
+      )
+    } finally {
+      signal?.removeEventListener('abort', abortStreamController)
+    }
 
-        if (reasoningDelta) {
-          reasoning += reasoningDelta
-          options.onReasoningDelta?.({
-            step: options.step,
-            delta: reasoningDelta,
-            accumulated: reasoning,
-          })
-        }
+    const toolCalls = [...toolCallMap.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, toolCall]) => toolCall)
+      .filter((toolCall) => toolCall.function.name.trim().length > 0)
 
-        if (contentDelta) {
-          content += contentDelta
-          options.onTextDelta?.({
-            step: options.step,
-            delta: contentDelta,
-            accumulated: content,
-          })
-        }
-      },
-      options.signal,
-    )
+    return { content, reasoning, toolCalls, usage }
+  } catch (error) {
+    const idleError = resolveStreamIdleTimeoutError(error, signal)
+    if (idleError) {
+      throw idleError
+    }
+    throw error
   } finally {
-    options.signal?.removeEventListener('abort', abortStreamController)
+    idle.dispose()
   }
-
-  const toolCalls = [...toolCallMap.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([, toolCall]) => toolCall)
-    .filter((toolCall) => toolCall.function.name.trim().length > 0)
-
-  return { content, reasoning, toolCalls, usage }
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
@@ -572,21 +602,43 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       await runPipeline(step)
       options.onStep?.({ step, kind: 'model' })
 
-      const turn = await streamAssistantTurn({
-        client,
-        model,
-        messages: buffers.wire,
-        chatTools,
-        providerId: config.providerId,
-        thinkingEnabled: config.thinkingEnabled,
-        thinkingEffort: config.thinkingEffort,
-        includeUsage: Boolean(options.usageContext || options.onUsage),
-        step,
-        signal: options.signal,
-        onTextDelta: options.onTextDelta,
-        onReasoningDelta: options.onReasoningDelta,
-        onToolCallDelta: options.onToolCallDelta,
-      })
+      const idleTimeoutMs = options.idleTimeoutMs ?? 0
+      const idleRetryCount = Math.max(0, options.idleRetryCount ?? 0)
+      const maxAttempts = 1 + idleRetryCount
+      let turn: Awaited<ReturnType<typeof streamAssistantTurn>> | undefined
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        try {
+          turn = await streamAssistantTurn({
+            client,
+            model,
+            messages: buffers.wire,
+            chatTools,
+            providerId: config.providerId,
+            thinkingEnabled: config.thinkingEnabled,
+            thinkingEffort: config.thinkingEffort,
+            includeUsage: Boolean(options.usageContext || options.onUsage),
+            step,
+            signal: options.signal,
+            idleTimeoutMs,
+            onTextDelta: options.onTextDelta,
+            onReasoningDelta: options.onReasoningDelta,
+            onToolCallDelta: options.onToolCallDelta,
+          })
+          break
+        } catch (error) {
+          if (
+            isStreamIdleTimeoutError(error) &&
+            attempt < maxAttempts - 1 &&
+            !options.signal?.aborted
+          ) {
+            continue
+          }
+          throw error
+        }
+      }
+      if (!turn) {
+        throw createStreamIdleTimeoutError()
+      }
 
       throwIfStreamAborted(options.signal)
 

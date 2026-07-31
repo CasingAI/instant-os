@@ -14,9 +14,11 @@ export type VscodeCompletionContext = {
   modelKey?: string | undefined
 }
 
+export type VscodeCompletionUiStatus = 'idle' | 'loading' | 'error'
+
 export type VscodeCompletionManagerOptions = {
   debounceMs?: number
-  onLoadingChange?: (loading: boolean) => void
+  onStatusChange?: (status: VscodeCompletionUiStatus) => void
 }
 
 type CacheEntry = {
@@ -33,16 +35,16 @@ function cacheKeyFor(context: VscodeCompletionContext): string {
 
 export class VscodeCompletionManager {
   private debounceMs: number
-  private onLoadingChange?: (loading: boolean) => void
+  private onStatusChange?: (status: VscodeCompletionUiStatus) => void
   private abortController: AbortController | undefined
   private debounceTimer: ReturnType<typeof setTimeout> | undefined
   private cache: CacheEntry | undefined
-  private loading = false
+  private status: VscodeCompletionUiStatus = 'idle'
   private requestSeq = 0
 
   constructor(options: VscodeCompletionManagerOptions = {}) {
     this.debounceMs = options.debounceMs ?? 400
-    this.onLoadingChange = options.onLoadingChange
+    this.onStatusChange = options.onStatusChange
   }
 
   setDebounceMs(ms: number): void {
@@ -50,12 +52,16 @@ export class VscodeCompletionManager {
     this.debounceMs = Math.min(2000, Math.max(100, Math.round(ms)))
   }
 
-  setOnLoadingChange(callback: ((loading: boolean) => void) | undefined): void {
-    this.onLoadingChange = callback
+  setOnStatusChange(callback: ((status: VscodeCompletionUiStatus) => void) | undefined): void {
+    this.onStatusChange = callback
+  }
+
+  getStatus(): VscodeCompletionUiStatus {
+    return this.status
   }
 
   isLoading(): boolean {
-    return this.loading
+    return this.status === 'loading'
   }
 
   cancel(): void {
@@ -67,13 +73,13 @@ export class VscodeCompletionManager {
       this.abortController.abort()
       this.abortController = undefined
     }
-    this.setLoading(false)
+    this.setStatus('idle')
   }
 
   dispose(): void {
     this.cancel()
     this.cache = undefined
-    this.onLoadingChange = undefined
+    this.onStatusChange = undefined
   }
 
   async requestCompletion(
@@ -129,7 +135,7 @@ export class VscodeCompletionManager {
       return { text: '' }
     }
 
-    this.setLoading(true)
+    this.setStatus('loading')
 
     const request: VscodeCompletionRequest = {
       beforeCursor: context.beforeCursor,
@@ -140,7 +146,7 @@ export class VscodeCompletionManager {
       signal: controller.signal,
       onFirstToken: () => {
         if (seq === this.requestSeq) {
-          this.setLoading(false)
+          this.setStatus('idle')
         }
       },
     }
@@ -153,20 +159,29 @@ export class VscodeCompletionManager {
       if (result.text) {
         this.cache = { key, text: result.text }
       }
+      this.setStatus('idle')
       return result
-    } finally {
-      if (seq === this.requestSeq) {
-        this.setLoading(false)
-        if (this.abortController === controller) {
-          this.abortController = undefined
+    } catch (error) {
+      if (seq !== this.requestSeq || isStreamAbortError(error, controller.signal)) {
+        if (seq === this.requestSeq) {
+          this.setStatus('idle')
         }
+        return { text: '' }
+      }
+      if (seq === this.requestSeq) {
+        this.setStatus('error')
+      }
+      return { text: '' }
+    } finally {
+      if (seq === this.requestSeq && this.abortController === controller) {
+        this.abortController = undefined
       }
     }
   }
 
-  private setLoading(next: boolean): void {
-    if (this.loading === next) return
-    this.loading = next
-    this.onLoadingChange?.(next)
+  private setStatus(next: VscodeCompletionUiStatus): void {
+    if (this.status === next) return
+    this.status = next
+    this.onStatusChange?.(next)
   }
 }

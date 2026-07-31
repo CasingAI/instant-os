@@ -411,6 +411,8 @@ export type VscodeAiPanelProps = {
   subAgentsMaxConcurrent?: number
   subAgentBuiltinOverrides?: VscodePrefs['subAgentBuiltinOverrides']
   customSubAgents?: VscodeCustomSubAgent[]
+  /** Agent 单轮流空闲超时后的额外重试次数（不含首次） */
+  aiIdleRetryCount?: number
   /** Debug：展示本轮注入的 system-reminder */
   aiDebugSystemReminder?: boolean
   dark?: boolean
@@ -1035,6 +1037,7 @@ export function VscodeAiPanel({
   subAgentsMaxConcurrent = 5,
   subAgentBuiltinOverrides = {},
   customSubAgents = [],
+  aiIdleRetryCount = 10,
   aiDebugSystemReminder = false,
   dark,
   workspaceFolder,
@@ -1898,6 +1901,7 @@ export function VscodeAiPanel({
           history: historyRef.current.length > 0 ? historyRef.current : undefined,
           signal: controller.signal,
           modelKey: turnResolvedModelKey,
+          idleRetryCount: aiIdleRetryCount,
           subAgentConfig: buildVscodeSubAgentHostConfig(
             {
               subAgentsEnabled,
@@ -2098,6 +2102,7 @@ export function VscodeAiPanel({
       subAgentBuiltinOverrides,
       subAgentsEnabled,
       subAgentsMaxConcurrent,
+      aiIdleRetryCount,
       toolsHost,
       turnChangeExtras,
       waitUntilSendIdle,

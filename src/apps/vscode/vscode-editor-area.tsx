@@ -231,6 +231,7 @@ type VscodeEditorAreaProps = {
   subAgentsMaxConcurrent?: number
   subAgentBuiltinOverrides?: VscodePrefs['subAgentBuiltinOverrides']
   customSubAgents?: VscodeCustomSubAgent[]
+  aiIdleRetryCount?: number
   aiDebugSystemReminder?: boolean
   aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
@@ -384,6 +385,7 @@ function VscodeEditorGroupView({
   subAgentsMaxConcurrent,
   subAgentBuiltinOverrides,
   customSubAgents,
+  aiIdleRetryCount,
   aiDebugSystemReminder,
   aiDark,
   getAiContext,
@@ -941,6 +943,7 @@ function VscodeEditorGroupView({
                   subAgentsMaxConcurrent={subAgentsMaxConcurrent}
                   subAgentBuiltinOverrides={subAgentBuiltinOverrides}
                   customSubAgents={customSubAgents}
+                  aiIdleRetryCount={aiIdleRetryCount}
                   aiDebugSystemReminder={aiDebugSystemReminder}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}

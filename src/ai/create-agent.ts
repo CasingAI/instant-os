@@ -24,6 +24,8 @@ export type AgentDefaults = {
   client?: OpenAI
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  idleTimeoutMs?: number
+  idleRetryCount?: number
   compression?: AgentCompressionOptions
   onContextCompression?: (event: AgentCompressionEvent) => void
   onStep?: (event: AgentStepEvent) => void
@@ -44,6 +46,8 @@ export type AgentCallOptions = {
   maxSteps?: number
   usageContext?: AiUsageContext
   signal?: AbortSignal
+  idleTimeoutMs?: number
+  idleRetryCount?: number
   compression?: AgentCompressionOptions
   onContextCompression?: (event: AgentCompressionEvent) => void
   onStep?: (event: AgentStepEvent) => void
@@ -73,6 +77,8 @@ export function createAgent(defaults: AgentDefaults): AgentRunner {
       config: defaults.config,
       usageContext: options.usageContext ?? defaults.usageContext,
       signal: options.signal ?? defaults.signal,
+      idleTimeoutMs: options.idleTimeoutMs ?? defaults.idleTimeoutMs,
+      idleRetryCount: options.idleRetryCount ?? defaults.idleRetryCount,
       compression: options.compression ?? defaults.compression,
       onContextCompression:
         options.onContextCompression ?? defaults.onContextCompression,

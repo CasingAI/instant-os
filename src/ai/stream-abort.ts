@@ -1,7 +1,16 @@
 import type OpenAI from 'openai'
+import { isStreamIdleTimeoutError } from './stream-idle-timeout.ts'
 
 function createAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
+}
+
+function rejectReasonFromSignal(signal: AbortSignal): Error {
+  const reason = signal.reason
+  if (reason instanceof Error) {
+    return reason
+  }
+  return createAbortError()
 }
 
 /** OpenAI SDK 的 signal 须在 create 第二参数，不能放进 body */
@@ -15,13 +24,22 @@ export function createChatCompletionStream(
 
 export function throwIfStreamAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw createAbortError()
+    throw rejectReasonFromSignal(signal)
   }
 }
 
+/** 用户取消（不含空闲超时） */
 export function isStreamAbortError(error: unknown, signal?: AbortSignal): boolean {
+  if (isStreamIdleTimeoutError(error)) {
+    return false
+  }
+  if (signal?.aborted === true) {
+    if (isStreamIdleTimeoutError(signal.reason)) {
+      return false
+    }
+    return true
+  }
   return (
-    signal?.aborted === true ||
     (error instanceof DOMException && error.name === 'AbortError') ||
     (error instanceof Error && error.name === 'AbortError')
   )
@@ -36,13 +54,13 @@ export function raceWithAbortSignal<T>(
   }
 
   if (signal.aborted) {
-    return Promise.reject(createAbortError())
+    return Promise.reject(rejectReasonFromSignal(signal))
   }
 
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       cleanup()
-      reject(createAbortError())
+      reject(rejectReasonFromSignal(signal))
     }
 
     const cleanup = () => {
@@ -83,7 +101,7 @@ export async function forEachStreamChunk<T>(
   if (signal) {
     if (signal.aborted) {
       abortStreamController()
-      throw createAbortError()
+      throw rejectReasonFromSignal(signal)
     }
     signal.addEventListener('abort', abortStreamController, { once: true })
   }

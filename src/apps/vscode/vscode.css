@@ -1311,10 +1311,21 @@
   pointer-events: none;
 }
 
+.vscode__completion-dot--error {
+  background: var(--vscode-errorForeground, #f14c4c);
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vscode__completion-dot {
     animation: none;
     opacity: 0.7;
+  }
+
+  .vscode__completion-dot--error {
+    opacity: 1;
   }
 }
 

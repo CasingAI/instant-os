@@ -107,6 +107,11 @@ export type VscodePrefs = {
   completionModelKey: string | undefined
   /** 停止输入后触发补全的防抖毫秒数 */
   completionDebounceMs: number
+  /**
+   * Agent 单轮流式空闲超时后的额外重试次数（不含首次）。
+   * 默认 10；0 表示超时后不重试。
+   */
+  aiIdleRetryCount: number
   /** 是否启用 Sub Agent（VS Code 默认开启；系统层无总开关） */
   subAgentsEnabled: boolean
   /** 同时运行的 Sub Agent 上限 */
@@ -139,6 +144,9 @@ export const DEFAULT_SEARCH_PREFS: VscodeSearchPrefs = {
 }
 
 const DEFAULT_COMPLETION_DEBOUNCE_MS = 400
+const DEFAULT_AI_IDLE_RETRY_COUNT = 10
+const MIN_AI_IDLE_RETRY_COUNT = 0
+const MAX_AI_IDLE_RETRY_COUNT = 50
 const DEFAULT_SUB_AGENTS_MAX_CONCURRENT = 5
 const MIN_SUB_AGENTS_MAX_CONCURRENT = 1
 const MAX_SUB_AGENTS_MAX_CONCURRENT = 20
@@ -164,6 +172,7 @@ const DEFAULT_PREFS: VscodePrefs = {
   completionModelSource: 'text-secondary',
   completionModelKey: undefined,
   completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
+  aiIdleRetryCount: DEFAULT_AI_IDLE_RETRY_COUNT,
   subAgentsEnabled: true,
   subAgentsMaxConcurrent: DEFAULT_SUB_AGENTS_MAX_CONCURRENT,
   subAgentBuiltinOverrides: {},
@@ -439,6 +448,14 @@ export function loadVscodePrefs(): VscodePrefs {
         typeof parsed.completionDebounceMs === 'number' && Number.isFinite(parsed.completionDebounceMs)
           ? clamp(Math.round(parsed.completionDebounceMs), 100, 2000)
           : DEFAULT_PREFS.completionDebounceMs,
+      aiIdleRetryCount:
+        typeof parsed.aiIdleRetryCount === 'number' && Number.isFinite(parsed.aiIdleRetryCount)
+          ? clamp(
+              Math.round(parsed.aiIdleRetryCount),
+              MIN_AI_IDLE_RETRY_COUNT,
+              MAX_AI_IDLE_RETRY_COUNT,
+            )
+          : DEFAULT_PREFS.aiIdleRetryCount,
       subAgentsEnabled: parsed.subAgentsEnabled !== false,
       subAgentsMaxConcurrent:
         typeof parsed.subAgentsMaxConcurrent === 'number' &&

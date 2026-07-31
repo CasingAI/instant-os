@@ -3,6 +3,7 @@ import { monaco } from '../../monaco/monaco-setup.ts'
 import {
   VscodeCompletionManager,
   type VscodeCompletionContext,
+  type VscodeCompletionUiStatus,
 } from './vscode-completion-manager.ts'
 
 export type VscodeCompletionInlineOptions = {
@@ -48,12 +49,12 @@ function extractCursorContext(
 function createLoadingDotWidget(
   editor: Monaco.editor.IStandaloneCodeEditor,
 ): {
-  show: () => void
-  hide: () => void
+  setStatus: (status: VscodeCompletionUiStatus) => void
   dispose: () => void
 } {
   let attached = false
   let position: Monaco.Position | null = editor.getPosition()
+  let status: VscodeCompletionUiStatus = 'idle'
 
   const domNode = document.createElement('div')
   domNode.className = 'vscode__completion-dot'
@@ -74,6 +75,27 @@ function createLoadingDotWidget(
     },
   }
 
+  const syncDom = () => {
+    domNode.classList.toggle('vscode__completion-dot--error', status === 'error')
+  }
+
+  const show = () => {
+    position = editor.getPosition()
+    syncDom()
+    if (!attached) {
+      editor.addContentWidget(widget)
+      attached = true
+    } else {
+      editor.layoutContentWidget(widget)
+    }
+  }
+
+  const hide = () => {
+    if (!attached) return
+    editor.removeContentWidget(widget)
+    attached = false
+  }
+
   const cursorDisposable = editor.onDidChangeCursorPosition((event) => {
     position = event.position
     if (attached) {
@@ -82,26 +104,17 @@ function createLoadingDotWidget(
   })
 
   return {
-    show: () => {
-      position = editor.getPosition()
-      if (!attached) {
-        editor.addContentWidget(widget)
-        attached = true
-      } else {
-        editor.layoutContentWidget(widget)
+    setStatus: (next) => {
+      status = next
+      if (next === 'idle') {
+        hide()
+        return
       }
-    },
-    hide: () => {
-      if (!attached) return
-      editor.removeContentWidget(widget)
-      attached = false
+      show()
     },
     dispose: () => {
       cursorDisposable.dispose()
-      if (attached) {
-        editor.removeContentWidget(widget)
-        attached = false
-      }
+      hide()
     },
   }
 }
@@ -116,9 +129,8 @@ export function registerVscodeCompletionInline(
   const loadingWidget = createLoadingDotWidget(editor)
   const manager = new VscodeCompletionManager({
     debounceMs: options.debounceMs ?? 400,
-    onLoadingChange: (loading) => {
-      if (loading) loadingWidget.show()
-      else loadingWidget.hide()
+    onStatusChange: (status) => {
+      loadingWidget.setStatus(status)
     },
   })
 
@@ -213,7 +225,7 @@ export function registerVscodeCompletionInline(
         registerProvider()
       } else {
         manager.cancel()
-        loadingWidget.hide()
+        loadingWidget.setStatus('idle')
         providerDisposable?.dispose()
         providerDisposable = undefined
       }
@@ -230,4 +242,3 @@ export function registerVscodeCompletionInline(
     },
   }
 }
-

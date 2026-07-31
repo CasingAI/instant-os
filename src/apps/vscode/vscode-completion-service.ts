@@ -171,6 +171,7 @@ export async function completeVscodeCode(
       user: buildUserPrompt(request),
       config,
       thinkingEnabled: false,
+      idleTimeoutMs: 15_000,
       maxCompletionTokens: MAX_COMPLETION_TOKENS,
       allowEmpty: true,
       allowTruncation: true,
@@ -202,7 +203,6 @@ export async function completeVscodeCode(
     if (isStreamAbortError(error, request.signal)) {
       return { text: '' }
     }
-    // 网络/模型错误静默失败，不打扰编辑
-    return { text: '' }
+    throw error
   }
 }

@@ -9,6 +9,13 @@ import { resolveUsageEstimated } from '../apps/browser/estimate-token-usage.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import { getOpenAiClient } from './openai-client.ts'
 import { createChatCompletionStream, isStreamAbortError } from './stream-abort.ts'
+import {
+  createStreamIdleAbortSession,
+  createStreamIdleTimeoutError,
+  isStreamIdleTimeoutError,
+  resolveStreamIdleTimeoutError,
+  STREAM_IDLE_ERROR,
+} from './stream-idle-timeout.ts'
 
 export type StreamChatActivity = 'reasoning' | 'content'
 
@@ -46,11 +53,7 @@ export type StreamChatOptions = {
   allowTruncation?: boolean
 }
 
-const STREAM_IDLE_ERROR = 'STREAM_IDLE_TIMEOUT'
-
-export function isStreamIdleTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message === STREAM_IDLE_ERROR
-}
+export { isStreamIdleTimeoutError, STREAM_IDLE_ERROR }
 
 function createAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
@@ -61,26 +64,15 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
   const client = getOpenAiClient(config)
   const model = config.defaultModel
   const thinkingEnabled = options.thinkingEnabled ?? config.thinkingEnabled
-  const idleTimeoutMs = options.idleTimeoutMs ?? 0
+  const idle = createStreamIdleAbortSession({
+    idleTimeoutMs: options.idleTimeoutMs,
+    externalSignal: options.signal,
+  })
   const externalSignal = options.signal
-  const needsAbort = idleTimeoutMs > 0 || Boolean(externalSignal)
-  const abortController = needsAbort ? new AbortController() : undefined
 
   if (externalSignal?.aborted) {
+    idle.dispose()
     throw createAbortError()
-  }
-
-  const onExternalAbort = () => {
-    if (!abortController || abortController.signal.aborted) return
-    const reason = externalSignal?.reason
-    if (reason instanceof Error) {
-      abortController.abort(reason)
-      return
-    }
-    abortController.abort(createAbortError())
-  }
-  if (externalSignal && abortController) {
-    externalSignal.addEventListener('abort', onExternalAbort)
   }
 
   const eventMessages: AiEventLogMessage[] | undefined = options.usageContext
@@ -98,28 +90,8 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
       })
     : undefined
 
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
-
-  const resetIdleTimer = () => {
-    if (!abortController || idleTimeoutMs <= 0) {
-      return
-    }
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-    }
-    idleTimer = setTimeout(() => {
-      abortController.abort(new Error(STREAM_IDLE_ERROR))
-    }, idleTimeoutMs)
-  }
-
-  const clearIdleTimer = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-    }
-    idleTimer = undefined
-  }
-
   try {
+    idle.resetIdleTimer()
     const stream = await createChatCompletionStream(
       client,
       {
@@ -141,10 +113,10 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
           config.thinkingEffort,
         ),
       },
-      abortController?.signal,
+      idle.signal,
     )
 
-    resetIdleTimer()
+    idle.resetIdleTimer()
 
     let text = ''
     let reasoningText = ''
@@ -152,11 +124,11 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     let finishReason: string | undefined
 
     for await (const chunk of stream) {
-      if (abortController?.signal.aborted) {
-        const reason = abortController.signal.reason
+      if (idle.signal?.aborted) {
+        const reason = idle.signal.reason
         throw reason instanceof Error ? reason : createAbortError()
       }
-      resetIdleTimer()
+      idle.resetIdleTimer()
       options.onAnyStreamChunk?.()
 
       const chunkUsage = snapshotFromOpenAiUsage(chunk.usage)
@@ -226,16 +198,11 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
     return trimmed
   } catch (error) {
-    const abortReason =
-      abortController?.signal.aborted && abortController.signal.reason instanceof Error
-        ? abortController.signal.reason
-        : undefined
-    const idleTimedOut =
-      isStreamIdleTimeoutError(error) || isStreamIdleTimeoutError(abortReason)
+    const idleTimedOut = Boolean(resolveStreamIdleTimeoutError(error, idle.signal))
     const userCancelled =
       !idleTimedOut &&
       (externalSignal?.aborted === true ||
-        (Boolean(externalSignal) && isStreamAbortError(error, abortController?.signal)))
+        (Boolean(externalSignal) && isStreamAbortError(error, idle.signal)))
 
     if (options.usageContext && logSession) {
       const snapshot = logSession.snapshot()
@@ -264,18 +231,14 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
     if (userCancelled) {
       throw createAbortError()
     }
-    if (idleTimedOut || (abortReason && isStreamIdleTimeoutError(abortReason))) {
-      throw new Error(STREAM_IDLE_ERROR)
+    if (idleTimedOut) {
+      throw createStreamIdleTimeoutError()
     }
-    if (abortReason) {
-      throw abortReason
-    }
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(STREAM_IDLE_ERROR)
+    if (error instanceof Error && error.name === 'AbortError' && (options.idleTimeoutMs ?? 0) > 0) {
+      throw createStreamIdleTimeoutError()
     }
     throw error
   } finally {
-    clearIdleTimer()
-    externalSignal?.removeEventListener('abort', onExternalAbort)
+    idle.dispose()
   }
 }
