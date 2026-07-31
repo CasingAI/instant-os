@@ -1,5 +1,9 @@
 import type { Editor } from '@tiptap/core'
-import type { PagesImageAlign } from './pages-markdown.ts'
+import { NodeSelection } from '@tiptap/pm/state'
+import {
+  PAGES_IMAGE_WIDTH_PRESETS,
+  type PagesImageAlign,
+} from './pages-markdown.ts'
 
 export type BubbleMode = 'text' | 'block' | 'image'
 
@@ -41,11 +45,17 @@ function BubbleBtn({
   )
 }
 
-const IMAGE_WIDTH_PRESETS = [
-  { label: '小', title: '窄图', width: 240 },
-  { label: '中', title: '默认宽度', width: 360 },
-  { label: '大', title: '较宽', width: 520 },
-] as const
+function findSelectedImageElement(editor: Editor): HTMLImageElement | null {
+  const { selection } = editor.state
+  if (!(selection instanceof NodeSelection) || selection.node.type.name !== 'image') {
+    return null
+  }
+  const dom = editor.view.nodeDOM(selection.from)
+  if (!(dom instanceof HTMLElement)) return null
+  if (dom instanceof HTMLImageElement) return dom
+  const img = dom.querySelector('img')
+  return img instanceof HTMLImageElement ? img : null
+}
 
 function setImageAlign(editor: Editor, align: PagesImageAlign) {
   editor.chain().focus().updateAttributes('image', { align }).run()
@@ -56,10 +66,24 @@ function setImageWidth(editor: Editor, width: number) {
     width?: number | null
     height?: number | null
   }
-  const currentW = typeof attrs.width === 'number' && attrs.width > 0 ? attrs.width : width
-  const currentH = typeof attrs.height === 'number' && attrs.height > 0 ? attrs.height : null
+  const img = findSelectedImageElement(editor)
+  const currentW =
+    typeof attrs.width === 'number' && attrs.width > 0
+      ? attrs.width
+      : img && img.clientWidth > 0
+        ? img.clientWidth
+        : width
+  const currentH =
+    typeof attrs.height === 'number' && attrs.height > 0
+      ? attrs.height
+      : img && img.naturalWidth > 0
+        ? Math.round((img.naturalHeight * currentW) / img.naturalWidth)
+        : img && img.clientHeight > 0
+          ? img.clientHeight
+          : null
   const height =
     currentH && currentW > 0 ? Math.max(1, Math.round((currentH * width) / currentW)) : null
+
   editor
     .chain()
     .focus()
@@ -100,7 +124,7 @@ export function PagesBubbleMenu({
           onClick={() => setImageAlign(editor, 'right')}
         />
         <span class="pages-bubble__divider" />
-        {IMAGE_WIDTH_PRESETS.map((preset) => (
+        {PAGES_IMAGE_WIDTH_PRESETS.map((preset) => (
           <BubbleBtn
             key={preset.width}
             label={preset.label}

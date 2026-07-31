@@ -1,4 +1,9 @@
 import type { Extensions } from '@tiptap/core'
+import {
+  getRenderedAttributes,
+  mergeAttributes,
+  ResizableNodeView,
+} from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import TaskList from '@tiptap/extension-task-list'
@@ -21,7 +26,32 @@ export const PAGES_OPEN_EXTENSIONS = [PAGES_FILE_EXTENSION, 'md', 'markdown'] as
 /** 新插入图片的默认显示宽度（px） */
 export const PAGES_IMAGE_DEFAULT_WIDTH = 360
 
+/** 气泡预设：小 / 中 / 大 */
+export const PAGES_IMAGE_WIDTH_PRESETS = [
+  { label: '小', title: '窄图（240px）', width: 240 },
+  { label: '中', title: '默认宽度（360px）', width: 360 },
+  { label: '大', title: '较宽（520px）', width: 520 },
+] as const
+
 export type PagesImageAlign = 'left' | 'center' | 'right'
+
+function applyImageDisplaySize(
+  el: HTMLImageElement,
+  width: number | null | undefined,
+  height: number | null | undefined,
+) {
+  if (typeof width === 'number' && width > 0) {
+    el.style.width = `${width}px`
+    el.setAttribute('width', String(Math.round(width)))
+  }
+  if (typeof height === 'number' && height > 0) {
+    el.style.height = `${height}px`
+    el.setAttribute('height', String(Math.round(height)))
+  } else if (typeof width === 'number' && width > 0) {
+    el.style.height = 'auto'
+    el.removeAttribute('height')
+  }
+}
 
 const PagesImage = Image.extend({
   addAttributes() {
@@ -40,6 +70,108 @@ const PagesImage = Image.extend({
           return { 'data-align': align }
         },
       },
+    }
+  },
+
+  /**
+   * TipTap 默认 NodeView 在 onUpdate 里跳过 width/height（只靠拖拽写 style）。
+   * 气泡「小/中/大」走 updateAttributes，必须在此同步到 DOM，否则无视觉变化。
+   */
+  addNodeView() {
+    if (!this.options.resize || !this.options.resize.enabled || typeof document === 'undefined') {
+      return null
+    }
+    const { directions, minWidth, minHeight, alwaysPreserveAspectRatio } = this.options.resize
+    const resizeManagedAttributes = new Set(['src', 'width', 'height'])
+
+    return ({ node, getPos, HTMLAttributes, editor }) => {
+      const el = document.createElement('img')
+      el.draggable = false
+      const mergedAttributes = mergeAttributes(this.options.HTMLAttributes, HTMLAttributes)
+      Object.entries(mergedAttributes).forEach(([key, value]) => {
+        if (value == null) return
+        if (key === 'src' || key === 'width' || key === 'height') return
+        el.setAttribute(key, String(value))
+      })
+      if (mergedAttributes.src != null) {
+        el.src = String(mergedAttributes.src)
+      }
+
+      let previousHTMLAttributes = { ...HTMLAttributes }
+      const syncImageSource = (src: unknown) => {
+        if (typeof src === 'string' && src !== '') {
+          if (el.getAttribute('src') !== src) el.src = src
+          return
+        }
+        if (el.hasAttribute('src')) el.removeAttribute('src')
+        if (el.src !== '') el.src = ''
+      }
+      syncImageSource(HTMLAttributes.src)
+
+      const onUpdate = (updatedNode: typeof node) => {
+        if (updatedNode.type !== node.type) return false
+        const extensionAttributes = editor.extensionManager.attributes.filter(
+          (attribute) => attribute.type === updatedNode.type.name,
+        )
+        const newHTMLAttributes = getRenderedAttributes(updatedNode, extensionAttributes)
+        Object.keys(previousHTMLAttributes).forEach((key) => {
+          if (!resizeManagedAttributes.has(key) && !(key in newHTMLAttributes)) {
+            el.removeAttribute(key)
+          }
+        })
+        Object.entries(newHTMLAttributes).forEach(([key, value]) => {
+          if (resizeManagedAttributes.has(key)) return
+          if (value != null) el.setAttribute(key, String(value))
+          else el.removeAttribute(key)
+        })
+        syncImageSource(newHTMLAttributes.src)
+        // 关键：预设/程序改宽高时写回 style，否则只有文档属性变、画面不变
+        applyImageDisplaySize(
+          el,
+          updatedNode.attrs.width as number | null | undefined,
+          updatedNode.attrs.height as number | null | undefined,
+        )
+        previousHTMLAttributes = newHTMLAttributes
+        return true
+      }
+
+      const nodeView = new ResizableNodeView({
+        element: el,
+        editor,
+        node,
+        getPos,
+        onResize: (width, height) => {
+          el.style.width = `${width}px`
+          el.style.height = `${height}px`
+        },
+        onCommit: (width, height) => {
+          const pos = getPos()
+          if (pos === undefined) return
+          this.editor
+            .chain()
+            .setNodeSelection(pos)
+            .updateAttributes(this.name, { width, height })
+            .run()
+        },
+        onUpdate,
+        options: {
+          directions,
+          min: {
+            width: minWidth,
+            height: minHeight,
+          },
+          preserveAspectRatio: alwaysPreserveAspectRatio === true,
+        },
+      })
+
+      const dom = nodeView.dom
+      dom.style.visibility = 'hidden'
+      dom.style.pointerEvents = 'none'
+      el.onload = () => {
+        dom.style.visibility = ''
+        dom.style.pointerEvents = ''
+      }
+      return nodeView
     }
   },
 })
