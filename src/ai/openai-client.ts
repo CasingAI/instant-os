@@ -3,6 +3,7 @@ import type { AiModelCapability } from './ai-providers.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from './openai-config.ts'
 import {
   isProxyServerConnected,
+  PROXY_SERVER_NOT_CONFIGURED_MESSAGE,
   proxiedFetch,
   ProxyServerApiError,
 } from '../os/proxy-server-api.ts'
@@ -27,9 +28,7 @@ function createProxyFetch(): typeof fetch {
   return (input, init) => {
     if (!isProxyServerConnected()) {
       return Promise.reject(
-        new ProxyServerApiError(
-          '代理服务器未连接，请先在「系统设置 → 代理服务器」中配置并连接',
-        ),
+        new ProxyServerApiError(PROXY_SERVER_NOT_CONFIGURED_MESSAGE),
       )
     }
     return proxiedFetch(input, init)

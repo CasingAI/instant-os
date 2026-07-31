@@ -4,6 +4,9 @@ type SettingsInlineInputRowProps = {
   onChange: (value: string) => void
   type?: 'text' | 'password' | 'url'
   placeholder?: string
+  onBlur?: () => void
+  onKeyDown?: (event: KeyboardEvent) => void
+  disabled?: boolean
 }
 
 export function SettingsInlineInputRow({
@@ -12,6 +15,9 @@ export function SettingsInlineInputRow({
   onChange,
   type = 'text',
   placeholder,
+  onBlur,
+  onKeyDown,
+  disabled,
 }: SettingsInlineInputRowProps) {
   return (
     <label class="settings__row settings__row--static settings__row--inline-input">
@@ -22,7 +28,10 @@ export function SettingsInlineInputRow({
         value={value}
         placeholder={placeholder}
         autoComplete="off"
+        disabled={disabled}
         onInput={(event) => onChange((event.currentTarget as HTMLInputElement).value)}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
       />
     </label>
   )

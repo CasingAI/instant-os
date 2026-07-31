@@ -1,18 +1,14 @@
-import {
-  loadProxyServerSettings,
-  normalizeProxyBaseUrl,
-} from '../os/proxy-server-settings-storage.ts'
+import { resolveProxyBaseUrl } from '../os/proxy-server-settings-storage.ts'
 
-/** 设置页输入框占位示例（非运行时默认，未配置时不会自动使用） */
+/** 设置页自定义输入框占位示例 */
 export const PROXY_SERVER_URL_PLACEHOLDER = 'https://your-worker.workers.dev'
 
 /**
  * Chromo / WebView 与宿主 proxiedFetch 共用的 Worker origin。
- * 仅来自系统设置；未配置时返回 undefined。
+ * 来自系统设置的 preset（共享 / 自定义）；关闭或未填自定义时返回 undefined。
  */
 export function getPageWorkerOrigin(): string | undefined {
-  const configured = normalizeProxyBaseUrl(loadProxyServerSettings().proxyBaseUrl)
-  return configured || undefined
+  return resolveProxyBaseUrl()
 }
 
 export function isPageWorkerConfigured(): boolean {

@@ -2091,6 +2091,17 @@
   gap: 12px;
 }
 
+.settings__actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings__btn--block {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+}
+
 .settings__form-status {
   flex: 1;
   min-height: 16px;
@@ -3224,4 +3235,69 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+
+/* 代理服务器连通性测试：固定高度，避免结果切换时弹层跳动 */
+.proxy-probe-modal .window-modal__body {
+  padding-bottom: 12px;
+}
+
+.proxy-probe-modal__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-height: 112px;
+  box-sizing: border-box;
+}
+
+.proxy-probe-modal__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.proxy-probe-modal__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.proxy-probe-modal__glyph--success {
+  color: #1f7a1f;
+  background: rgba(46, 160, 67, 0.15);
+}
+
+.proxy-probe-modal__glyph--error {
+  color: #a12622;
+  background: rgba(192, 57, 43, 0.12);
+}
+
+.proxy-probe-modal__message {
+  margin: 0;
+  width: 100%;
+  min-height: 48px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  color: #444;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.proxy-probe-modal__message--ok {
+  color: #2d7a2d;
+}
+
+.proxy-probe-modal__message--error {
+  color: #c0392b;
 }

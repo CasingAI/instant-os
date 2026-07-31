@@ -1,6 +1,4 @@
-import {
-  getPageWorkerOrigin,
-} from '../page-host/page-host-config.ts'
+import { getPageWorkerOrigin } from '../page-host/page-host-config.ts'
 import {
   listRecentProxyServerRequests,
   recordProxyServerRequest,
@@ -9,9 +7,10 @@ import {
   isProxyServerConnected,
   loadProxyServerSettings,
   PROXY_SERVER_PATH_PREFIX,
+  PROXY_SERVER_SHARED_ORIGIN,
   normalizeProxyBaseUrl,
-  patchProxyServerSettings,
   saveProxyServerSettings,
+  type ProxyServerPresetId,
   type ProxyServerSettings,
 } from './proxy-server-settings-storage.ts'
 
@@ -22,7 +21,7 @@ export type { ProxyServerSettings } from './proxy-server-settings-storage.ts'
 const PROBE_TARGET_URL = 'https://www.cloudflare.com/cdn-cgi/trace'
 
 export const PROXY_SERVER_NOT_CONFIGURED_MESSAGE =
-  '未配置代理服务器，请先在「系统设置 → 代理服务器」中填写 virtual-chromo Worker 根 URL'
+  '未配置代理服务器，请先在「系统设置 → 代理服务器」中选择 Instant 共享或填写自定义 Worker'
 
 export class ProxyServerApiError extends Error {
   constructor(message: string) {
@@ -125,9 +124,7 @@ export async function proxiedFetch(
     throw new ProxyServerApiError(PROXY_SERVER_NOT_CONFIGURED_MESSAGE)
   }
   if (!isProxyServerConnected()) {
-    throw new ProxyServerApiError(
-      '代理服务器未连接，请先在「系统设置 → 代理服务器」中连接',
-    )
+    throw new ProxyServerApiError(PROXY_SERVER_NOT_CONFIGURED_MESSAGE)
   }
 
   const targetUrl = resolveTargetUrl(input)
@@ -190,7 +187,10 @@ export type ProxyServerProbeResult =
   | { ok: false; message: string }
 
 /** 用给定（或已保存）的 Worker 根地址探测代理是否可用。不要求已连接。 */
-export async function probeProxyServer(proxyBaseUrl?: string): Promise<ProxyServerProbeResult> {
+export async function probeProxyServer(
+  proxyBaseUrl?: string,
+  options?: { signal?: AbortSignal },
+): Promise<ProxyServerProbeResult> {
   const base =
     proxyBaseUrl !== undefined
       ? normalizeProxyBaseUrl(proxyBaseUrl) || undefined
@@ -211,7 +211,7 @@ export async function probeProxyServer(proxyBaseUrl?: string): Promise<ProxyServ
 
   const startedAt = Date.now()
   try {
-    const response = await fetch(proxyUrl)
+    const response = await fetch(proxyUrl, { signal: options?.signal })
     const durationMs = Math.max(0, Date.now() - startedAt)
     if (!response.ok) {
       return {
@@ -226,6 +226,9 @@ export async function probeProxyServer(proxyBaseUrl?: string): Promise<ProxyServ
     }
     return { ok: true, durationMs }
   } catch (error) {
+    if (options?.signal?.aborted) {
+      return { ok: false, message: '已取消' }
+    }
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, message: `无法联系代理服务器：${message}` }
   }
@@ -235,10 +238,69 @@ export type ProxyServerConnectResult =
   | { ok: true; settings: ProxyServerSettings; durationMs: number }
   | { ok: false; message: string; settings: ProxyServerSettings }
 
-/** 保存 URL 并探测；成功则标记已连接。地址必填。 */
-export async function connectProxyServer(proxyBaseUrl: string): Promise<ProxyServerConnectResult> {
-  const normalized = normalizeProxyBaseUrl(proxyBaseUrl)
-  if (!normalized) {
+function originForPreset(
+  preset: ProxyServerPresetId,
+  customProxyBaseUrl: string,
+): string | undefined {
+  if (preset === 'off') {
+    return undefined
+  }
+  if (preset === 'shared') {
+    return PROXY_SERVER_SHARED_ORIGIN
+  }
+  return normalizeProxyBaseUrl(customProxyBaseUrl) || undefined
+}
+
+/**
+ * 选择服务器并保存。有有效 origin 即同时用于浏览与宿主出网。
+ * `off` 立即关闭；`custom` 且地址无效时只保存选择。
+ * 有 origin 时会探测连通性（结果仅作反馈，不另设开关）。
+ */
+export async function selectProxyServerPreset(
+  preset: ProxyServerPresetId,
+  customProxyBaseUrl?: string,
+  options?: { signal?: AbortSignal },
+): Promise<ProxyServerConnectResult> {
+  const current = loadProxyServerSettings()
+  const nextCustom =
+    customProxyBaseUrl !== undefined
+      ? normalizeProxyBaseUrl(customProxyBaseUrl)
+      : current.customProxyBaseUrl
+
+  if (preset === 'off') {
+    if (
+      !saveProxyServerSettings({
+        version: 2,
+        preset: 'off',
+        customProxyBaseUrl: nextCustom,
+        connected: false,
+      })
+    ) {
+      return {
+        ok: false,
+        message: '无法保存代理服务器设置（存储空间可能已满）',
+        settings: loadProxyServerSettings(),
+      }
+    }
+    return { ok: true, settings: loadProxyServerSettings(), durationMs: 0 }
+  }
+
+  const origin = originForPreset(preset, nextCustom)
+  if (!origin) {
+    if (
+      !saveProxyServerSettings({
+        version: 2,
+        preset,
+        customProxyBaseUrl: nextCustom,
+        connected: false,
+      })
+    ) {
+      return {
+        ok: false,
+        message: '无法保存代理服务器设置（存储空间可能已满）',
+        settings: loadProxyServerSettings(),
+      }
+    }
     return {
       ok: false,
       message: '请填写有效的 http(s) Worker 根 URL',
@@ -246,8 +308,14 @@ export async function connectProxyServer(proxyBaseUrl: string): Promise<ProxySer
     }
   }
 
-  // 先写入 URL、保持未连接，避免探测失败时误显示菜单栏图标
-  if (!saveProxyServerSettings({ version: 1, proxyBaseUrl: normalized, connected: false })) {
+  if (
+    !saveProxyServerSettings({
+      version: 2,
+      preset,
+      customProxyBaseUrl: nextCustom,
+      connected: true,
+    })
+  ) {
     return {
       ok: false,
       message: '无法保存代理服务器设置（存储空间可能已满）',
@@ -255,17 +323,9 @@ export async function connectProxyServer(proxyBaseUrl: string): Promise<ProxySer
     }
   }
 
-  const probe = await probeProxyServer(normalized)
+  const probe = await probeProxyServer(origin, { signal: options?.signal })
   if (!probe.ok) {
     return { ok: false, message: probe.message, settings: loadProxyServerSettings() }
-  }
-
-  if (!patchProxyServerSettings({ connected: true })) {
-    return {
-      ok: false,
-      message: '探测成功但无法保存连接状态',
-      settings: loadProxyServerSettings(),
-    }
   }
 
   return {
@@ -275,8 +335,17 @@ export async function connectProxyServer(proxyBaseUrl: string): Promise<ProxySer
   }
 }
 
+/** @deprecated 使用 selectProxyServerPreset；保留给旧调用 */
+export async function connectProxyServer(proxyBaseUrl: string): Promise<ProxyServerConnectResult> {
+  return selectProxyServerPreset('custom', proxyBaseUrl)
+}
+
 export function disconnectProxyServer(): boolean {
-  return patchProxyServerSettings({ connected: false })
+  return saveProxyServerSettings({
+    ...loadProxyServerSettings(),
+    preset: 'off',
+    connected: false,
+  })
 }
 
 export function getProxyServerHost(): string | undefined {

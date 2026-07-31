@@ -6,16 +6,25 @@ import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
  */
 export const PROXY_SERVER_PATH_PREFIX = '/-----'
 
+/** Instant 共享 virtual-chromo Worker（仅在用户显式选择「Instant 共享」时使用） */
+export const PROXY_SERVER_SHARED_ORIGIN = 'https://virtual-chromo.r6sg.workers.dev'
+
+export type ProxyServerPresetId = 'off' | 'shared' | 'custom'
+
 export type ProxyServerSettings = {
-  version: 1
-  /**
-   * virtual-chromo Worker 根地址，无尾斜杠；空字符串表示未配置
-   *（Chromo / WebView / proxiedFetch 均不可用，无内置默认）
-   */
-  proxyBaseUrl: string
-  /** 是否已连接（菜单栏图标、proxiedFetch 均依赖此项；浏览不要求 connected） */
+  version: 2
+  preset: ProxyServerPresetId
+  /** 自定义 Worker 根地址；preset 为 custom 时生效 */
+  customProxyBaseUrl: string
+  /** 宿主出网（菜单栏图标、proxiedFetch）；浏览只要求已解析到 origin */
   connected: boolean
 }
+
+export const PROXY_SERVER_PRESET_OPTIONS = [
+  { id: 'off', label: '关闭' },
+  { id: 'shared', label: 'Instant 共享' },
+  { id: 'custom', label: '自定义' },
+] as const
 
 export const PROXY_SERVER_SETTINGS_CHANGED_EVENT = 'instant-os:proxy-server-settings-changed'
 
@@ -24,8 +33,9 @@ const STORAGE_KEY = DEVICE_STORAGE_KEYS.proxyServerSettings
 const LEGACY_STORAGE_KEY = 'instant-os-network-settings'
 
 const DEFAULT_SETTINGS: ProxyServerSettings = {
-  version: 1,
-  proxyBaseUrl: '',
+  version: 2,
+  preset: 'off',
+  customProxyBaseUrl: '',
   connected: false,
 }
 
@@ -46,19 +56,79 @@ export function normalizeProxyBaseUrl(raw: string): string {
   }
 }
 
+/** 由 preset 解析当前 Worker origin；关闭或自定义无效时返回 undefined */
+export function resolveProxyBaseUrl(settings: ProxyServerSettings = loadProxyServerSettings()): string | undefined {
+  if (settings.preset === 'off') {
+    return undefined
+  }
+  if (settings.preset === 'shared') {
+    return PROXY_SERVER_SHARED_ORIGIN
+  }
+  return normalizeProxyBaseUrl(settings.customProxyBaseUrl) || undefined
+}
+
+function migrateV1(record: Record<string, unknown>): ProxyServerSettings {
+  const proxyBaseUrl =
+    typeof record.proxyBaseUrl === 'string' ? normalizeProxyBaseUrl(record.proxyBaseUrl) : ''
+  if (!proxyBaseUrl) {
+    return { ...DEFAULT_SETTINGS }
+  }
+  const connected = record.connected === true
+  if (proxyBaseUrl === PROXY_SERVER_SHARED_ORIGIN) {
+    return {
+      version: 2,
+      preset: 'shared',
+      customProxyBaseUrl: '',
+      connected,
+    }
+  }
+  return {
+    version: 2,
+    preset: 'custom',
+    customProxyBaseUrl: proxyBaseUrl,
+    connected,
+  }
+}
+
 function normalizeProxyServerSettings(raw: unknown): ProxyServerSettings {
   if (!raw || typeof raw !== 'object') {
     return { ...DEFAULT_SETTINGS }
   }
 
   const record = raw as Record<string, unknown>
-  const proxyBaseUrl =
-    typeof record.proxyBaseUrl === 'string' ? normalizeProxyBaseUrl(record.proxyBaseUrl) : ''
-  const connected = record.connected === true && proxyBaseUrl.length > 0
+  const presetRaw = record.preset
+  const hasV2Shape =
+    record.version === 2 ||
+    presetRaw === 'off' ||
+    presetRaw === 'shared' ||
+    presetRaw === 'custom'
+
+  if (!hasV2Shape) {
+    return migrateV1(record)
+  }
+
+  const preset: ProxyServerPresetId =
+    presetRaw === 'shared' || presetRaw === 'custom' || presetRaw === 'off'
+      ? presetRaw
+      : 'off'
+  const customProxyBaseUrl =
+    typeof record.customProxyBaseUrl === 'string'
+      ? normalizeProxyBaseUrl(record.customProxyBaseUrl)
+      : typeof record.proxyBaseUrl === 'string' && preset === 'custom'
+        ? normalizeProxyBaseUrl(record.proxyBaseUrl)
+        : ''
+  const origin =
+    preset === 'shared'
+      ? PROXY_SERVER_SHARED_ORIGIN
+      : preset === 'custom'
+        ? customProxyBaseUrl
+        : ''
+  const connected = record.connected === true && origin.length > 0
 
   return {
-    version: 1,
-    proxyBaseUrl,
+    version: 2,
+    preset,
+    customProxyBaseUrl,
     connected,
   }
 }
@@ -113,7 +183,8 @@ export function patchProxyServerSettings(patch: Partial<ProxyServerSettings>): b
 }
 
 export function isProxyServerConnected(): boolean {
-  return loadProxyServerSettings().connected
+  // 已选共享/有效自定义即视为可用；浏览与宿主出网同一条件，不再另设开关
+  return resolveProxyBaseUrl() !== undefined
 }
 
 export function subscribeProxyServerSettings(listener: () => void): () => void {
