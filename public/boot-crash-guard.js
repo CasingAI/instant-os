@@ -448,7 +448,7 @@
       '</section>' +
       '<div class="instant-os-crash__actions">' +
       '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-dismiss">忽略此错误</button>' +
-      '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-reload">重新加载</button>' +
+      '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-reload">重新启动</button>' +
       '<button type="button" class="instant-os-crash__btn" id="instant-os-crash-copy">复制诊断信息</button>' +
       '</div>' +
       '</div>' +
@@ -538,7 +538,7 @@
       '<pre style="white-space:pre-wrap;word-wrap:break-word;margin:0">' +
       escapeHtml(primaryMessage || '未知错误') +
       '</pre>' +
-      '<p style="margin:16px 0 0"><button type="button" onclick="location.reload()" style="font:inherit;padding:8px 12px">重新加载</button></p>' +
+      '<p style="margin:16px 0 0"><button type="button" onclick="location.reload()" style="font:inherit;padding:8px 12px">重新启动</button></p>' +
       '</div>'
   }
 
