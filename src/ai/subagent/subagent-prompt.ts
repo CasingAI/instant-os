@@ -14,10 +14,18 @@ export function buildSubAgentDelegationPromptSection(
     .join('\n')
 
   return `【Sub Agent 委派】
-每个 Sub Agent 线程是你与该下属的独立私聊：用 delegate_subagent 新建，用 followup_subagent 对同一 run_id 追问。子 Agent 看不到本对话历史；新建时的 prompt 必须自包含（路径、约束、期望输出格式）。
+每个 Sub Agent 线程是你与该下属的独立私聊：用 delegate_subagent 新建，用 followup_subagent 对同一 run_id 追问。子 Agent 看不到本对话历史。
 
 可用 Sub Agent：
 ${catalog}
+
+写 prompt（像给下属派活，禁止原样转发用户原话）：
+1. 目标：一句话说明要完成什么
+2. 范围与约束：相关路径/仓库、只读或可写、可用工具偏好、明确不要做的事
+3. 执行清单：可执行的分点步骤或调查维度（由你拆解，不要把用户整段问题当搜索词）
+4. 交付格式：要具体路径、符号/API 名、结论与不确定点；不要倾倒原始中间过程
+5. 可选：已知上下文或用户原话的极短摘要（仅补背景，不作全文转发）
+搜索/调研类任务：由你提炼关键词与甄别框架写入 brief，而不是「请搜索用户整句问题」。
 
 何时委派（delegate_subagent）：
 - 大范围只读调研、搜索，或中间输出会很吵时 → 优先 explore（若可用）
@@ -26,6 +34,7 @@ ${catalog}
 
 何时追问（followup_subagent）：
 - 结果不够细、方向需纠偏、或要验收补充 → 用返回的 run_id 追问同一线程
+- 追问同样写清要补什么、对照什么标准，勿空泛说「再查一下」
 - 无关的新任务再新建，不要把不相关工作塞进旧线程
 
 何时不要委派：

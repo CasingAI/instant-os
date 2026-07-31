@@ -86,7 +86,8 @@ function buildToolDescription(config: SubAgentHostConfig): string {
     return `- ${agent.id}（${access}）：${agent.description}`
   })
   return [
-    '将独立子任务委派给 Sub Agent，开启一条可多轮私聊线程。子 Agent 有独立上下文，看不到本对话；prompt 必须自包含。',
+    '将独立子任务委派给 Sub Agent，开启一条可多轮私聊线程。子 Agent 有独立上下文，看不到本对话。',
+    'prompt 须写成下属 brief（目标/范围约束/执行清单/交付格式），禁止原样转发用户原话。',
     '成功后会返回 run_id；若结果不够可再用 followup_subagent 对同一 run_id 追问。',
     '可并行发起多个 delegate_subagent（受并发上限约束）。',
     '可用 agent_id：',
@@ -122,7 +123,8 @@ export function createDelegateSubAgentTool(
         },
         prompt: {
           type: 'string',
-          description: '自包含任务说明（路径、约束、期望输出）；子 Agent 看不到父对话',
+          description:
+            '下属 brief：目标、范围与约束、执行清单、交付格式；可附极短已知上下文。禁止原样转发用户原话；子 Agent 看不到父对话',
         },
       },
     },
@@ -134,7 +136,7 @@ export function createDelegateSubAgentTool(
         return '错误：缺少 agent_id'
       }
       if (!prompt) {
-        return '错误：prompt 不能为空；请写出自包含的任务说明'
+        return '错误：prompt 不能为空；请写出下属 brief（目标/范围/清单/交付格式）'
       }
 
       const resolved = resolveSubAgent(agentId, options.config)

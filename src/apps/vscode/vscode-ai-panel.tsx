@@ -2148,6 +2148,13 @@ export function VscodeAiPanel({
       // 模型列表 / 模式菜单 portal 到浮动层，点击时不应取消编辑
       const overlay = document.getElementById('instant-os-floating-overlays')
       if (overlay && target instanceof Node && overlay.contains(target)) return
+      // 确认框 / prompt 等窗口模态；点按钮不应连带退出编辑
+      if (
+        target instanceof Element &&
+        target.closest('.window-modal-overlay-root')
+      ) {
+        return
+      }
       // 上下文占用弹层 portal 到 body，点击时不应取消编辑
       if (
         target instanceof Element &&

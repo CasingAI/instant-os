@@ -61,7 +61,8 @@ export function createFollowUpSubAgentTool(
         },
         message: {
           type: 'string',
-          description: '追问内容（补细节、纠偏、验收意见等）',
+          description:
+            '追问 brief：要补什么细节、纠偏方向、验收标准；写清期望交付，勿空泛「再查一下」',
         },
       },
     },
