@@ -2,11 +2,16 @@ import type { Editor } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 
+export type BlockInsertSection = 'basic' | 'common'
+
 export type BlockInsertItem = {
   id: string
   title: string
   description: string
   keywords: string[]
+  /** 网格/列表里的短图标文案 */
+  icon: string
+  section: BlockInsertSection
   /** 在当前选区上应用块类型（假定焦点已在目标位置） */
   apply: (editor: Editor) => void
 }
@@ -24,6 +29,8 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '正文',
       description: '普通段落',
       keywords: ['paragraph', 'text', '正文', '段落'],
+      icon: 'T',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().setParagraph().run()
       },
@@ -33,6 +40,8 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '标题 1',
       description: '一级标题',
       keywords: ['h1', 'heading', '标题'],
+      icon: 'H1',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().setHeading({ level: 1 }).run()
       },
@@ -42,6 +51,8 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '标题 2',
       description: '二级标题',
       keywords: ['h2', 'heading', '标题'],
+      icon: 'H2',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().setHeading({ level: 2 }).run()
       },
@@ -51,17 +62,10 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '标题 3',
       description: '三级标题',
       keywords: ['h3', 'heading', '标题'],
+      icon: 'H3',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().setHeading({ level: 3 }).run()
-      },
-    },
-    {
-      id: 'bullet',
-      title: '无序列表',
-      description: '项目符号列表',
-      keywords: ['bullet', 'ul', '列表', '无序'],
-      apply: (editor) => {
-        editor.chain().focus().toggleBulletList().run()
       },
     },
     {
@@ -69,26 +73,32 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '有序列表',
       description: '数字编号列表',
       keywords: ['ordered', 'ol', '有序', '编号'],
+      icon: '1.',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().toggleOrderedList().run()
       },
     },
     {
-      id: 'task',
-      title: '任务列表',
-      description: '可勾选待办',
-      keywords: ['task', 'todo', 'checkbox', '任务', '待办'],
+      id: 'bullet',
+      title: '无序列表',
+      description: '项目符号列表',
+      keywords: ['bullet', 'ul', '列表', '无序'],
+      icon: '•',
+      section: 'basic',
       apply: (editor) => {
-        editor.chain().focus().toggleTaskList().run()
+        editor.chain().focus().toggleBulletList().run()
       },
     },
     {
-      id: 'quote',
-      title: '引用',
-      description: '引用块',
-      keywords: ['quote', 'blockquote', '引用'],
+      id: 'task',
+      title: '任务',
+      description: '可勾选待办',
+      keywords: ['task', 'todo', 'checkbox', '任务', '待办'],
+      icon: '☑',
+      section: 'basic',
       apply: (editor) => {
-        editor.chain().focus().toggleBlockquote().run()
+        editor.chain().focus().toggleTaskList().run()
       },
     },
     {
@@ -96,8 +106,21 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '代码块',
       description: '多行代码',
       keywords: ['code', 'codeblock', '代码'],
+      icon: '{ }',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().toggleCodeBlock().run()
+      },
+    },
+    {
+      id: 'quote',
+      title: '引用',
+      description: '引用块',
+      keywords: ['quote', 'blockquote', '引用'],
+      icon: '❝',
+      section: 'basic',
+      apply: (editor) => {
+        editor.chain().focus().toggleBlockquote().run()
       },
     },
     {
@@ -105,6 +128,8 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '分割线',
       description: '水平分隔',
       keywords: ['hr', 'divider', '分割', '分隔'],
+      icon: '—',
+      section: 'basic',
       apply: (editor) => {
         editor.chain().focus().setHorizontalRule().run()
       },
@@ -114,6 +139,8 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       title: '表格',
       description: '插入 3×3 表格',
       keywords: ['table', '表格'],
+      icon: '⊞',
+      section: 'common',
       apply: (editor) => {
         editor
           .chain()
@@ -162,6 +189,47 @@ export function findTopLevelBlock(editor: Editor, pos: number): TopLevelBlock | 
   const node = $pos.node(depth)
   const blockPos = $pos.before(depth)
   return { node, pos: blockPos }
+}
+
+/** 行侧加号所在 gutter 算进同一行的命中宽度（px） */
+export const BLOCK_ROW_GUTTER_PX = 56
+
+/**
+ * 用「整行」（正文 + 左侧 gutter）做命中测试。
+ * 指针在加号区域、从下方滑入 gutter，都应命中该行，而不是依赖 posAtCoords。
+ */
+export function findTopLevelBlockAtPoint(
+  editor: Editor,
+  clientX: number,
+  clientY: number,
+): TopLevelBlock | null {
+  const { doc } = editor.state
+  let pos = 0
+  let best: TopLevelBlock | null = null
+  let bestScore = Infinity
+
+  for (let i = 0; i < doc.childCount; i++) {
+    const node = doc.child(i)
+    const dom = editor.view.nodeDOM(pos)
+    if (dom instanceof HTMLElement) {
+      const rect = dom.getBoundingClientRect()
+      const left = rect.left - BLOCK_ROW_GUTTER_PX
+      const right = rect.right
+      const top = rect.top
+      const bottom = Math.max(rect.bottom, rect.top + 28)
+      if (clientX >= left && clientX <= right && clientY >= top && clientY <= bottom) {
+        const midY = (top + bottom) / 2
+        const score = Math.abs(clientY - midY)
+        if (score < bestScore) {
+          bestScore = score
+          best = { node, pos }
+        }
+      }
+    }
+    pos += node.nodeSize
+  }
+
+  return best
 }
 
 export function isEmptyConvertibleBlock(node: ProseMirrorNode): boolean {

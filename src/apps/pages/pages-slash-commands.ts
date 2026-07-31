@@ -12,6 +12,8 @@ export type SlashCommandItem = {
   title: string
   description: string
   keywords: string[]
+  icon: string
+  section: BlockInsertItem['section']
   command: (ctx: { editor: Editor; range: Range }) => void
 }
 
@@ -23,6 +25,8 @@ function toSlashItem(item: BlockInsertItem): SlashCommandItem {
     title: item.title,
     description: item.description,
     keywords: item.keywords,
+    icon: item.icon,
+    section: item.section,
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run()
       item.apply(editor)

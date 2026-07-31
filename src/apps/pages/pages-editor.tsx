@@ -5,9 +5,11 @@ import { createPagesExtensions } from './pages-markdown.ts'
 import type { SlashCommandItem } from './pages-slash-commands.ts'
 import {
   applyBlockInsert,
+  BLOCK_ROW_GUTTER_PX,
   buildBlockInsertCatalog,
   deleteTopLevelBlock,
   findTopLevelBlock,
+  findTopLevelBlockAtPoint,
   selectBlockNode,
   type BlockInsertItem,
 } from './pages-block-insert.ts'
@@ -45,12 +47,22 @@ type InsertPanelState = {
   rect: { top: number; left: number }
   blockPos: number
   mode: 'replace-or-below' | 'above' | 'below' | 'convert'
+  /** 打开时锁定的行侧控件位置（菜单锚在加号下） */
+  controls: { top: number; left: number; height: number } | null
 }
 
 type HoverBlockState = {
   blockPos: number
   top: number
   left: number
+  height: number
+}
+
+type TargetHighlightState = {
+  top: number
+  left: number
+  width: number
+  height: number
 }
 
 type BubbleState = {
@@ -107,6 +119,7 @@ export function PagesEditor({
   void _onViewModeChange
 
   const rootRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Editor | null>(null)
   const slashMenuRef = useRef<SlashMenuState | null>(null)
@@ -121,6 +134,8 @@ export function PagesEditor({
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null)
   const [insertPanel, setInsertPanel] = useState<InsertPanelState | null>(null)
   const [hoverBlock, setHoverBlock] = useState<HoverBlockState | null>(null)
+  const hoverBlockRef = useRef<HoverBlockState | null>(null)
+  const [targetHighlight, setTargetHighlight] = useState<TargetHighlightState | null>(null)
   const [bubble, setBubble] = useState<BubbleState | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [uiEpoch, setUiEpoch] = useState(0)
@@ -130,17 +145,56 @@ export function PagesEditor({
   onEditorReadyRef.current = onEditorReady
   viewModeRef.current = viewMode
   editableRef.current = editable
+  hoverBlockRef.current = hoverBlock
+
+  const setHoverBlockSafe = (next: HoverBlockState | null) => {
+    hoverBlockRef.current = next
+    setHoverBlock(next)
+  }
 
   const updateSlashMenu = (next: SlashMenuState | null) => {
     slashMenuRef.current = next
     setSlashMenu(next)
+    if (!next && !insertPanelRef.current) {
+      setTargetHighlight(null)
+    }
   }
 
   const updateInsertPanel = (next: InsertPanelState | null) => {
     insertPanelRef.current = next
     setInsertPanel(next)
     if (next) setBubble(null)
+    if (!next) setTargetHighlight(null)
   }
+
+  const measureBlockHighlight = useCallback((editor: Editor, blockPos: number) => {
+    const root = mainRef.current
+    if (!root) return null
+    const dom = editor.view.nodeDOM(blockPos)
+    if (!(dom instanceof HTMLElement)) return null
+    const blockRect = dom.getBoundingClientRect()
+    const rootRect = root.getBoundingClientRect()
+    return {
+      top: blockRect.top - rootRect.top,
+      left: blockRect.left - rootRect.left - 8,
+      width: Math.max(blockRect.width + 16, 120),
+      height: Math.max(blockRect.height, 28),
+    }
+  }, [])
+
+  const measureControlsForBlock = useCallback((editor: Editor, blockPos: number) => {
+    const root = mainRef.current
+    if (!root) return null
+    const dom = editor.view.nodeDOM(blockPos)
+    if (!(dom instanceof HTMLElement)) return null
+    const blockRect = dom.getBoundingClientRect()
+    const rootRect = root.getBoundingClientRect()
+    return {
+      top: blockRect.top - rootRect.top,
+      left: Math.max(0, blockRect.left - rootRect.left - BLOCK_ROW_GUTTER_PX),
+      height: Math.max(blockRect.height, 28),
+    }
+  }, [])
 
   const closeFloatingExcept = useCallback((keep?: 'slash' | 'insert' | 'context' | 'none') => {
     if (keep !== 'slash') updateSlashMenu(null)
@@ -164,7 +218,7 @@ export function PagesEditor({
       setBubble(null)
       return
     }
-    const root = rootRef.current
+    const root = mainRef.current
     if (!root) return
     const rootRect = root.getBoundingClientRect()
     let blockPos: number | null = null
@@ -196,6 +250,14 @@ export function PagesEditor({
         items: [],
         onOpen: ({ items, clientRect, command }) => {
           closeFloatingExcept('slash')
+          const current = editorRef.current
+          if (current && !current.isDestroyed) {
+            const block = findTopLevelBlock(current, current.state.selection.from)
+            if (block) {
+              const highlight = measureBlockHighlight(current, block.pos)
+              if (highlight) setTargetHighlight(highlight)
+            }
+          }
           updateSlashMenu({
             items,
             selectedIndex: 0,
@@ -284,7 +346,7 @@ export function PagesEditor({
               }
             }
             const onLink = editorInstance.isActive('link')
-            const root = rootRef.current
+            const root = mainRef.current
             if (!root) return true
             const rootRect = root.getBoundingClientRect()
             closeFloatingExcept('context')
@@ -333,7 +395,7 @@ export function PagesEditor({
       updateInsertPanel(null)
       setContextMenu(null)
       setBubble(null)
-      setHoverBlock(null)
+      setHoverBlockSafe(null)
     }
     // 仅挂载一次；标签切换靠父级 key 重挂载
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -346,7 +408,7 @@ export function PagesEditor({
       editor.setEditable(editable)
     }
     if (!editable) {
-      setHoverBlock(null)
+      setHoverBlockSafe(null)
       setBubble(null)
       closeFloatingExcept('none')
     }
@@ -359,7 +421,7 @@ export function PagesEditor({
       const markdown = readMarkdown(editor)
       sourceDraftRef.current = markdown
       setSourceText(markdown)
-      setHoverBlock(null)
+      setHoverBlockSafe(null)
       setBubble(null)
       closeFloatingExcept('none')
       return
@@ -371,42 +433,46 @@ export function PagesEditor({
     onMarkdownChange(normalized)
   }, [viewMode, onMarkdownChange, closeFloatingExcept])
 
-  // 行侧控件：悬停定位顶层块
+  // 行侧控件：整行（正文 + 左侧 gutter）命中，加号条与行同高
   useEffect(() => {
     const editor = editorRef.current
-    const root = rootRef.current
+    const root = mainRef.current
     if (!editor || editor.isDestroyed || !root) return
     if (!editable || viewMode !== 'edit') {
-      setHoverBlock(null)
+      setHoverBlockSafe(null)
       return
     }
 
     const onMove = (event: MouseEvent) => {
-      if (insertPanelRef.current || slashMenuRef.current) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('.pages-block-controls')) return
+      if (slashMenuRef.current) return
+      if (insertPanelRef.current) return
 
-      const posInfo = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })
-      if (!posInfo) {
-        setHoverBlock(null)
+      const target = event.target as HTMLElement | null
+      // 指针已在行侧条上：保持当前行，只刷新位置
+      if (target?.closest('.pages-block-controls')) {
+        const prev = hoverBlockRef.current
+        if (prev) {
+          const measured = measureControlsForBlock(editor, prev.blockPos)
+          if (measured) {
+            setHoverBlockSafe({ blockPos: prev.blockPos, ...measured })
+          }
+        }
         return
       }
-      const block = findTopLevelBlock(editor, posInfo.pos)
+
+      const block = findTopLevelBlockAtPoint(editor, event.clientX, event.clientY)
       if (!block) {
-        setHoverBlock(null)
+        setHoverBlockSafe(null)
         return
       }
-      const dom = editor.view.nodeDOM(block.pos)
-      if (!(dom instanceof HTMLElement)) {
-        setHoverBlock(null)
+      const measured = measureControlsForBlock(editor, block.pos)
+      if (!measured) {
+        setHoverBlockSafe(null)
         return
       }
-      const blockRect = dom.getBoundingClientRect()
-      const rootRect = root.getBoundingClientRect()
-      setHoverBlock({
+      setHoverBlockSafe({
         blockPos: block.pos,
-        top: blockRect.top - rootRect.top + 2,
-        left: Math.max(4, blockRect.left - rootRect.left - 56),
+        ...measured,
       })
     }
 
@@ -414,7 +480,8 @@ export function PagesEditor({
       const related = event.relatedTarget as HTMLElement | null
       if (related?.closest('.pages-block-controls')) return
       if (related && root.contains(related)) return
-      setHoverBlock(null)
+      if (insertPanelRef.current) return
+      setHoverBlockSafe(null)
     }
 
     root.addEventListener('mousemove', onMove)
@@ -423,7 +490,7 @@ export function PagesEditor({
       root.removeEventListener('mousemove', onMove)
       root.removeEventListener('mouseleave', onLeave)
     }
-  }, [editable, viewMode, uiEpoch])
+  }, [editable, viewMode, uiEpoch, measureControlsForBlock])
 
   // Escape / 点击外侧关闭浮层
   useEffect(() => {
@@ -443,7 +510,7 @@ export function PagesEditor({
       const target = event.target as HTMLElement | null
       if (!target) return
       if (
-        target.closest('.pages-slash') ||
+        target.closest('.pages-insert') ||
         target.closest('.pages-context-menu') ||
         target.closest('.pages-bubble') ||
         target.closest('.pages-block-controls')
@@ -499,15 +566,34 @@ export function PagesEditor({
   const openInsertPanel = (
     blockPos: number,
     mode: InsertPanelState['mode'],
-    anchor: { top: number; left: number },
+    controls: { top: number; left: number; height: number } | null,
   ) => {
     closeFloatingExcept('insert')
+    const editor = editorRef.current
+    const highlight = editor && !editor.isDestroyed ? measureBlockHighlight(editor, blockPos) : null
+    if (highlight) setTargetHighlight(highlight)
+
+    const resolvedControls =
+      controls ??
+      (editor && !editor.isDestroyed ? measureControlsForBlock(editor, blockPos) : null)
+
+    const anchor = resolvedControls
+      ? { top: resolvedControls.top + 26, left: resolvedControls.left }
+      : highlight
+        ? { top: highlight.top + highlight.height + 4, left: highlight.left }
+        : { top: 48, left: 48 }
+
+    if (resolvedControls) {
+      setHoverBlockSafe({ blockPos, ...resolvedControls })
+    }
+
     updateInsertPanel({
       items: buildBlockInsertCatalog(),
       selectedIndex: 0,
       rect: anchor,
       blockPos,
       mode,
+      controls: resolvedControls,
     })
   }
 
@@ -555,19 +641,35 @@ export function PagesEditor({
         break
       }
       case 'insert-above': {
-        const root = rootRef.current
-        if (!root) break
-        openInsertPanel(blockPos, 'above', {
-          top: menu.top,
-          left: menu.left,
-        })
+        const controls =
+          hoverBlock?.blockPos === blockPos
+            ? hoverBlock
+            : editor
+              ? measureControlsForBlock(editor, blockPos)
+              : null
+        openInsertPanel(
+          blockPos,
+          'above',
+          controls
+            ? { top: controls.top, left: controls.left, height: controls.height }
+            : null,
+        )
         break
       }
       case 'insert-below': {
-        openInsertPanel(blockPos, 'below', {
-          top: menu.top,
-          left: menu.left,
-        })
+        const controls =
+          hoverBlock?.blockPos === blockPos
+            ? hoverBlock
+            : editor
+              ? measureControlsForBlock(editor, blockPos)
+              : null
+        openInsertPanel(
+          blockPos,
+          'below',
+          controls
+            ? { top: controls.top, left: controls.left, height: controls.height }
+            : null,
+        )
         break
       }
       case 'delete-block':
@@ -607,7 +709,7 @@ export function PagesEditor({
 
   const slashStyle = (() => {
     if (!slashMenu?.rect) return undefined
-    const root = rootRef.current
+    const root = mainRef.current
     if (!root) {
       return {
         top: `${slashMenu.rect.bottom + 6}px`,
@@ -644,132 +746,176 @@ export function PagesEditor({
     : undefined
 
   const showControls =
-    editable && viewMode === 'edit' && hoverBlock && !slashMenu && !insertPanel && !contextMenu
+    editable &&
+    viewMode === 'edit' &&
+    !slashMenu &&
+    !contextMenu &&
+    (hoverBlock != null || insertPanel?.controls != null)
+
+  const activeControls = insertPanel?.controls
+    ? {
+        top: insertPanel.controls.top,
+        left: insertPanel.controls.left,
+        height: insertPanel.controls.height,
+        blockPos: insertPanel.blockPos,
+      }
+    : hoverBlock
+
+  const slashIsFullCatalog =
+    !!slashMenu &&
+    slashMenu.items.length === buildBlockInsertCatalog().length &&
+    slashMenu.items.every((item) => item.section)
 
   return (
     <div class="pages-editor" ref={rootRef}>
-      <div class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}`}>
+      <div class="pages-editor__sidebar" aria-hidden="true" />
+      <div class="pages-editor__main" ref={mainRef}>
         <div
-          class="pages-editor__paper"
-          style={{ display: viewMode === 'edit' ? undefined : 'none' }}
+          class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}`}
         >
-          <div ref={hostRef} class="pages-editor__host" />
+          <div
+            class="pages-editor__canvas"
+            style={{ display: viewMode === 'edit' ? undefined : 'none' }}
+          >
+            <div class="pages-editor__column">
+              <div ref={hostRef} class="pages-editor__host" />
+            </div>
+          </div>
+
+          {viewMode === 'source' ? (
+            <textarea
+              class="pages-editor__source"
+              value={sourceText}
+              readOnly={!editable}
+              spellcheck={false}
+              aria-label="Markdown 源码"
+              onInput={(event) => {
+                const next = (event.target as HTMLTextAreaElement).value
+                setSourceText(next)
+                sourceDraftRef.current = next
+                onMarkdownChange(next)
+              }}
+            />
+          ) : undefined}
         </div>
 
-        {viewMode === 'source' ? (
-          <textarea
-            class="pages-editor__source"
-            value={sourceText}
-            readOnly={!editable}
-            spellcheck={false}
-            aria-label="Markdown 源码"
-            onInput={(event) => {
-              const next = (event.target as HTMLTextAreaElement).value
-              setSourceText(next)
-              sourceDraftRef.current = next
-              onMarkdownChange(next)
+        {targetHighlight && (insertPanel || slashMenu) ? (
+          <div
+            class="pages-insert-target"
+            style={{
+              top: `${targetHighlight.top}px`,
+              left: `${targetHighlight.left}px`,
+              width: `${targetHighlight.width}px`,
+              height: `${targetHighlight.height}px`,
             }}
           />
-        ) : undefined}
+        ) : null}
+
+        {showControls && activeControls ? (
+          <PagesBlockControls
+            top={activeControls.top}
+            left={activeControls.left}
+            height={activeControls.height}
+            plusActive={!!insertPanel}
+            onPlus={() => {
+              if (insertPanel) {
+                updateInsertPanel(null)
+                return
+              }
+              openInsertPanel(activeControls.blockPos, 'replace-or-below', {
+                top: activeControls.top,
+                left: activeControls.left,
+                height: activeControls.height,
+              })
+            }}
+            onHandle={() => {
+              const current = editorRef.current
+              if (!current || current.isDestroyed) return
+              selectBlockNode(current, activeControls.blockPos)
+              refreshBubble(current)
+            }}
+          />
+        ) : null}
+
+        {bubble &&
+        editor &&
+        !editor.isDestroyed &&
+        viewMode === 'edit' &&
+        editable &&
+        !slashMenu &&
+        !insertPanel &&
+        !contextMenu ? (
+          <PagesBubbleMenu
+            editor={editor}
+            mode={bubble.mode}
+            style={bubbleStyle}
+            onPromptLink={promptLink}
+            onConvertBlock={() => {
+              if (bubble.blockPos == null) return
+              const controls = measureControlsForBlock(editor, bubble.blockPos)
+              openInsertPanel(bubble.blockPos, 'convert', controls)
+            }}
+            onCopyBlock={() => {
+              document.execCommand('copy')
+            }}
+            onDeleteBlock={() => {
+              if (bubble.blockPos == null) return
+              deleteTopLevelBlock(editor, bubble.blockPos)
+              setBubble(null)
+            }}
+          />
+        ) : null}
+
+        {slashMenu && viewMode === 'edit' && slashMenu.items.length > 0 ? (
+          <PagesInsertPanel
+            items={slashMenu.items}
+            selectedIndex={slashMenu.selectedIndex}
+            style={slashStyle}
+            layout={slashIsFullCatalog ? 'dense' : 'flat'}
+            onHoverIndex={(index) => {
+              const prev = slashMenuRef.current
+              if (!prev) return
+              updateSlashMenu({ ...prev, selectedIndex: index })
+            }}
+            onSelect={(item) => {
+              const match = slashMenu.items.find((entry) => entry.id === item.id)
+              if (match) slashMenu.command(match)
+            }}
+          />
+        ) : null}
+
+        {insertPanel && viewMode === 'edit' ? (
+          <PagesInsertPanel
+            items={insertPanel.items}
+            selectedIndex={insertPanel.selectedIndex}
+            style={insertStyle}
+            layout="dense"
+            onHoverIndex={(index) => {
+              const prev = insertPanelRef.current
+              if (!prev) return
+              updateInsertPanel({ ...prev, selectedIndex: index })
+            }}
+            onSelect={(item) => {
+              const current = editorRef.current
+              if (!current || current.isDestroyed) return
+              const catalogItem = insertPanel.items.find((entry) => entry.id === item.id)
+              if (!catalogItem) return
+              applyBlockInsert(current, insertPanel.blockPos, catalogItem, insertPanel.mode)
+              updateInsertPanel(null)
+            }}
+          />
+        ) : null}
+
+        {contextMenu && viewMode === 'edit' && editable ? (
+          <PagesContextMenu
+            items={contextMenu.items}
+            style={contextStyle}
+            onAction={(id) => {
+              void handleContextAction(id)
+            }}
+          />
+        ) : null}
       </div>
-
-      {showControls && hoverBlock ? (
-        <PagesBlockControls
-          top={hoverBlock.top}
-          left={hoverBlock.left}
-          onPlus={() => {
-            openInsertPanel(hoverBlock.blockPos, 'replace-or-below', {
-              top: hoverBlock.top + 28,
-              left: hoverBlock.left,
-            })
-          }}
-          onHandle={() => {
-            const current = editorRef.current
-            if (!current || current.isDestroyed) return
-            selectBlockNode(current, hoverBlock.blockPos)
-            refreshBubble(current)
-          }}
-        />
-      ) : null}
-
-      {bubble &&
-      editor &&
-      !editor.isDestroyed &&
-      viewMode === 'edit' &&
-      editable &&
-      !slashMenu &&
-      !insertPanel &&
-      !contextMenu ? (
-        <PagesBubbleMenu
-          editor={editor}
-          mode={bubble.mode}
-          style={bubbleStyle}
-          onPromptLink={promptLink}
-          onConvertBlock={() => {
-            if (bubble.blockPos == null) return
-            openInsertPanel(bubble.blockPos, 'convert', {
-              top: Math.max(4, bubble.top) + 40,
-              left: bubble.left - 110,
-            })
-          }}
-          onCopyBlock={() => {
-            document.execCommand('copy')
-          }}
-          onDeleteBlock={() => {
-            if (bubble.blockPos == null) return
-            deleteTopLevelBlock(editor, bubble.blockPos)
-            setBubble(null)
-          }}
-        />
-      ) : null}
-
-      {slashMenu && viewMode === 'edit' && slashMenu.items.length > 0 ? (
-        <PagesInsertPanel
-          items={slashMenu.items}
-          selectedIndex={slashMenu.selectedIndex}
-          style={slashStyle}
-          onHoverIndex={(index) => {
-            const prev = slashMenuRef.current
-            if (!prev) return
-            updateSlashMenu({ ...prev, selectedIndex: index })
-          }}
-          onSelect={(item) => {
-            const match = slashMenu.items.find((entry) => entry.id === item.id)
-            if (match) slashMenu.command(match)
-          }}
-        />
-      ) : null}
-
-      {insertPanel && viewMode === 'edit' ? (
-        <PagesInsertPanel
-          items={insertPanel.items}
-          selectedIndex={insertPanel.selectedIndex}
-          style={insertStyle}
-          onHoverIndex={(index) => {
-            const prev = insertPanelRef.current
-            if (!prev) return
-            updateInsertPanel({ ...prev, selectedIndex: index })
-          }}
-          onSelect={(item) => {
-            const current = editorRef.current
-            if (!current || current.isDestroyed) return
-            const catalogItem = insertPanel.items.find((entry) => entry.id === item.id)
-            if (!catalogItem) return
-            applyBlockInsert(current, insertPanel.blockPos, catalogItem, insertPanel.mode)
-            updateInsertPanel(null)
-          }}
-        />
-      ) : null}
-
-      {contextMenu && viewMode === 'edit' && editable ? (
-        <PagesContextMenu
-          items={contextMenu.items}
-          style={contextStyle}
-          onAction={(id) => {
-            void handleContextAction(id)
-          }}
-        />
-      ) : null}
     </div>
   )
 }
