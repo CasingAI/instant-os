@@ -1175,7 +1175,7 @@
   cursor: default;
 }
 
-/* ---- Sub Agent 详情行（整行可点，右侧小箭头） ---- */
+/* ---- Sub Agent 详情行（整行可点，文案旁小箭头） ---- */
 
 .vscode-ai__subagent-row {
   width: 100%;
@@ -1183,27 +1183,29 @@
   cursor: pointer;
 }
 
-.vscode-ai__subagent-row .help-app__reasoning-summary,
-.vscode-ai__subagent-row .help-app__reasoning-status-label {
-  flex: 1;
-  min-width: 0;
-}
-
-button.vscode-ai__subagent-row.help-app__reasoning-status--waiting {
+button.vscode-ai__subagent-row.help-app__reasoning-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border: none;
   background: transparent;
   font: inherit;
   padding: 1px 0;
 }
 
+.vscode-ai__subagent-row .help-app__reasoning-summary,
+.vscode-ai__subagent-row .help-app__reasoning-status-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vscode-ai__subagent-row-arrow {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  margin-left: auto;
   color: var(--help-ink-muted, #8b8b95);
   opacity: 0.75;
 }

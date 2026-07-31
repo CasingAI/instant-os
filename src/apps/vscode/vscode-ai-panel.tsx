@@ -674,20 +674,17 @@ function ActivityStatus({
 
   if (canOpenDetail) {
     return (
-      <div class="help-app__reasoning-panel">
-        <button
-          type="button"
-          class="help-app__reasoning-toggle vscode-ai__subagent-row"
-          aria-label={`查看 Sub Agent 详情：${activity.detail || activity.label}`}
-          onClick={openDetail}
-        >
-          <span class="help-app__investigation-chevron" aria-hidden="true" />
-          <span class="help-app__reasoning-summary">{summary}</span>
-          <span class="vscode-ai__subagent-row-arrow" aria-hidden="true">
-            <ForwardIcon size={12} />
-          </span>
-        </button>
-      </div>
+      <button
+        type="button"
+        class="help-app__reasoning-status vscode-ai__subagent-row"
+        aria-label={`查看 Sub Agent 详情：${activity.detail || activity.label}`}
+        onClick={openDetail}
+      >
+        <span class="help-app__reasoning-status-label">{summary}</span>
+        <span class="vscode-ai__subagent-row-arrow" aria-hidden="true">
+          <ForwardIcon size={12} />
+        </span>
+      </button>
     )
   }
 
