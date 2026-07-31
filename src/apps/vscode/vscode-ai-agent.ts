@@ -575,6 +575,12 @@ export async function askVscodeAiAgent(options: {
           getSnapshot
             ? getSnapshot(subKind, runId)
             : parentHost.getAgentTerminalSnapshot(),
+        getFsMode: () => {
+          const handle = getHandle ? getHandle(subKind, runId) : parentHost.getAgentTerminalHandle()
+          const fromHandle = handle?.getFsMode()
+          if (fromHandle) return fromHandle
+          return subMode === 'ask' ? 'readonly' : 'controlled'
+        },
       }
 
       try {

@@ -10,6 +10,8 @@ import {
 import {
   currentHeadSha,
   putCachedGithubCommitList,
+  saveGithubRepoMeta,
+  stampGithubStoredRemoteRepo,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import type { GithubProgress } from './github-progress.ts'
@@ -64,4 +66,29 @@ export async function fetchGithubRemote(params: {
     commits,
     remote,
   }
+}
+
+/**
+ * 将 Fetch 结果写入仓库 meta（远端信息 / 分支列表 / lastFetchedAt）。
+ * 不改工作区；供 GitHub Desktop UI 与 Agent 门面共用。
+ */
+export async function applyGithubFetchResult(
+  meta: GithubRepoSyncMeta,
+  result: GithubFetchResult,
+  fetchedAt = Date.now(),
+): Promise<GithubRepoSyncMeta> {
+  const nextMeta: GithubRepoSyncMeta = {
+    ...meta,
+    defaultBranch: result.remote.defaultBranch,
+    remote: stampGithubStoredRemoteRepo(result.remote, fetchedAt),
+    remoteBranches: result.branches.map((branch) => ({
+      name: branch.name,
+      commitSha: branch.commitSha,
+      protected: branch.protected,
+    })),
+    lastFetchedAt: fetchedAt,
+    updatedAt: fetchedAt,
+  }
+  await saveGithubRepoMeta(nextMeta)
+  return nextMeta
 }

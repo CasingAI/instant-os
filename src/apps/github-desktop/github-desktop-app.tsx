@@ -82,7 +82,7 @@ import {
 import {
   dismissGithubDesktopMissingEmailNotification,
 } from './github-desktop-missing-email-notification-store.ts'
-import { fetchGithubRemote, GITHUB_REMOTE_COMMIT_LIST_LIMIT } from './github-fetch.ts'
+import { applyGithubFetchResult, fetchGithubRemote, GITHUB_REMOTE_COMMIT_LIST_LIMIT } from './github-fetch.ts'
 import { pullGithubRepository, switchGithubBranch } from './github-pull.ts'
 import { githubRepoRootPath, parseGithubRepoUrl } from './github-repo-paths.ts'
 import { reconcileGithubRepoAttributes } from './github-repo-attributes.ts'
@@ -103,8 +103,6 @@ import {
   listGithubRepoMeta,
   putCachedGithubCommitDetail,
   saveGithubMissingRepoMeta,
-  saveGithubRepoMeta,
-  stampGithubStoredRemoteRepo,
   type GithubDesktopBranchListItem,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
@@ -1224,19 +1222,7 @@ export function GithubDesktopApp() {
       result: Awaited<ReturnType<typeof fetchGithubRemote>>,
     ) => {
       const fetchedAt = Date.now()
-      const nextMeta: GithubRepoSyncMeta = {
-        ...meta,
-        defaultBranch: result.remote.defaultBranch,
-        remote: stampGithubStoredRemoteRepo(result.remote, fetchedAt),
-        remoteBranches: result.branches.map((branch) => ({
-          name: branch.name,
-          commitSha: branch.commitSha,
-          protected: branch.protected,
-        })),
-        lastFetchedAt: fetchedAt,
-        updatedAt: fetchedAt,
-      }
-      await saveGithubRepoMeta(nextMeta)
+      const nextMeta = await applyGithubFetchResult(meta, result, fetchedAt)
       setNowMs(fetchedAt)
       setLocalRepos((prev) =>
         prev.map((item) =>

@@ -241,6 +241,7 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       'GitHub Desktop 基于 GitHub REST API 与 Personal Access Token，在本地维护当前分支的工作树副本（保存在 /dev/github/…），支持克隆、切换分支、commit 与推送、拉取。',
       '不是真实 Git 协议客户端：本地不保存 .git 对象库；日常编辑与 AI Agent 读写走本地文件，仅在同步时访问 GitHub API。',
+      'VS Code Agent 可通过 github_* 工具操作同一套工作树；工具遵守终端只读 / 受控 FS 模式。',
     ],
   },
   help: {

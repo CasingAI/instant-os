@@ -710,6 +710,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           },
           getAgentTerminalHandle: () => getAiTerminalHandle('agent', chatId),
           getAgentTerminalSnapshot: () => getAiTerminalSnapshot('agent', chatId),
+          getFsMode: () => getAiTerminalHandle('agent', chatId)?.getFsMode() ?? 'controlled',
         })
         feedbackHandle = getAiTerminalHandle('agent', chatId)
       } else {

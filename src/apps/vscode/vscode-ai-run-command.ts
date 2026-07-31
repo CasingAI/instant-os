@@ -29,11 +29,11 @@ export type VscodeAgentTerminalEnsureResult = {
   kind?: VscodeAiTerminalKind
 }
 
-export type VscodeAiLastChangeSource = 'terminal' | 'npm'
+export type VscodeAiLastChangeSource = 'terminal' | 'npm' | 'github'
 
 export type VscodeAiRunCommandHost = {
   workspaceFolder: string | undefined
-  /** 本对话 npm/npx 最近一次有 fs 改动的 ChangeSet（内嵌终端走 handle） */
+  /** 本对话 npm/npx / github 工作树最近一次有 fs 改动的 ChangeSet（内嵌终端走 handle） */
   npmLastChanges: { current: TerminalChangeSet | undefined }
   /** 本对话最近一次产生非空 fs 改动的来源 */
   lastChangeSource: { current: VscodeAiLastChangeSource | undefined }
@@ -43,6 +43,8 @@ export type VscodeAiRunCommandHost = {
   ensureAgentTerminal: () => Promise<VscodeAgentTerminalEnsureResult>
   getAgentTerminalHandle: () => TerminalReplHandle | undefined
   getAgentTerminalSnapshot: () => VscodeAgentTerminalSnapshot
+  /** Ask/Plan=readonly，Agent=controlled；终端未创建时仍可用 */
+  getFsMode: () => import('../../terminal/terminal-fs-mode.ts').TerminalFsMode
 }
 
 function pushTurnChangeSession(host: VscodeAiRunCommandHost, changeSet: TerminalChangeSet): void {
@@ -136,6 +138,19 @@ function rememberNpmChanges(
   notifyChangesAvailable(host)
 }
 
+/** GitHub 工作树受控变更：复用 npmLastChanges 槽位存储，来源标记为 github */
+export function rememberGithubChanges(
+  host: VscodeAiRunCommandHost,
+  changeSet: TerminalChangeSet | undefined,
+): void {
+  if (changeSet && changeSet.changes.length > 0) {
+    host.npmLastChanges.current = changeSet
+    host.lastChangeSource.current = 'github'
+    pushTurnChangeSession(host, changeSet)
+  }
+  notifyChangesAvailable(host)
+}
+
 function rememberTerminalFsChanges(
   host: VscodeAiRunCommandHost,
   before: TerminalChangeSet | undefined,
@@ -202,7 +217,7 @@ export function getVscodeAiLastChangeSet(
   host: VscodeAiRunCommandHost,
 ): TerminalChangeSet | undefined {
   const source = host.lastChangeSource.current
-  if (source === 'npm') {
+  if (source === 'npm' || source === 'github') {
     const npm = host.npmLastChanges.current
     if (npm && npm.changes.length > 0) return npm
   }
@@ -272,16 +287,17 @@ export async function revertVscodeAiTerminalChangeReview(
 
 export async function revertVscodeAiLastChanges(host: VscodeAiRunCommandHost): Promise<string> {
   const source = host.lastChangeSource.current
-  const preferNpm = source === 'npm'
+  const preferSlot = source === 'npm' || source === 'github'
 
-  if (preferNpm) {
+  if (preferSlot) {
     const npm = host.npmLastChanges.current
     if (npm && npm.changes.length > 0) {
       await revertTerminalChangeSet(npm)
       host.npmLastChanges.current = undefined
       host.lastChangeSource.current = terminalHasChanges(host) ? 'terminal' : undefined
       notifyChangesAvailable(host)
-      return `已撤销 npm/npx 改动（${formatTerminalChangeSummary(npm)}）`
+      const label = source === 'github' ? 'GitHub 工作树' : 'npm/npx'
+      return `已撤销 ${label} 改动（${formatTerminalChangeSummary(npm)}）`
     }
   }
 
@@ -328,6 +344,7 @@ export async function revertVscodeTerminalAndNpmChanges(params: {
     },
     getAgentTerminalHandle: () => params.terminalRepl,
     getAgentTerminalSnapshot: () => ({ status: 'none' }),
+    getFsMode: () => params.terminalRepl?.getFsMode() ?? 'controlled',
   }
   return revertVscodeAiLastChanges(hostLike)
 }

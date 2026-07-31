@@ -350,7 +350,11 @@ export function TerminalChangeReviewCard({
   return (
     <div class="vscode-ai__edit-card vscode-ai__change-review">
       <div class="vscode-ai__edit-card-title">
-        审查本轮改动（{review.source === 'npm' ? 'npm/npx' : '终端'} · {review.files.length}）
+        审查本轮改动（{review.source === 'npm'
+          ? 'npm/npx'
+          : review.source === 'github'
+            ? 'GitHub'
+            : '终端'} · {review.files.length}）
       </div>
       <div class="vscode-ai__change-review-files" role="tablist" aria-label="变更文件">
         {review.files.map((file) => {

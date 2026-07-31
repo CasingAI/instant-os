@@ -1285,6 +1285,12 @@ export function VscodeAiPanel({
       getAgentTerminalHandle: () => getAiTerminalHandle(aiTerminalKind, sessionIdRef.current),
       getAgentTerminalSnapshot: () =>
         getAiTerminalSnapshot(aiTerminalKind, sessionIdRef.current),
+      getFsMode: () => {
+        const handle = getAiTerminalHandle(aiTerminalKind, sessionIdRef.current)
+        const fromHandle = handle?.getFsMode()
+        if (fromHandle) return fromHandle
+        return aiTerminalKind === 'agent' ? 'controlled' : 'readonly'
+      },
     }),
     [
       aiTerminalKind,

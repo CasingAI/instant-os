@@ -52,6 +52,8 @@ export type TerminalReplHandle = {
   getTerminalSessionId: () => string
   /** 当前 `os.tmpdir()` 路径 */
   getTmpDir: () => string
+  /** 当前文件系统工作模式 */
+  getFsMode: () => TerminalFsMode
 }
 
 export type TerminalReplPanelProps = {
@@ -686,6 +688,7 @@ export function TerminalReplPanel({
       rebuildInstance,
       getTerminalSessionId: () => terminalSessionIdRef.current,
       getTmpDir: () => terminalTmpDir(terminalSessionIdRef.current),
+      getFsMode: () => fsModeRef.current,
     }
 
     if (typeof handleRef === 'function') {

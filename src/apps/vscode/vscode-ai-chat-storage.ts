@@ -29,7 +29,7 @@ export type VscodeAiTerminalChangeReviewFile = {
 
 export type VscodeAiTerminalChangeReview = {
   sessionId: string
-  source: 'terminal' | 'npm'
+  source: 'terminal' | 'npm' | 'github'
   sealedAt: number
   status: 'pending' | 'kept' | 'reverted'
   files: VscodeAiTerminalChangeReviewFile[]
@@ -142,7 +142,9 @@ function normalizeTerminalChangeReview(raw: unknown): VscodeAiTerminalChangeRevi
   if (!raw || typeof raw !== 'object') return undefined
   const entry = raw as Partial<VscodeAiTerminalChangeReview>
   if (typeof entry.sessionId !== 'string' || !entry.sessionId.trim()) return undefined
-  if (entry.source !== 'terminal' && entry.source !== 'npm') return undefined
+  if (entry.source !== 'terminal' && entry.source !== 'npm' && entry.source !== 'github') {
+    return undefined
+  }
   if (typeof entry.sealedAt !== 'number' || !Number.isFinite(entry.sealedAt)) return undefined
   if (entry.status !== 'pending' && entry.status !== 'kept' && entry.status !== 'reverted') {
     return undefined
