@@ -169,6 +169,18 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
+/** 从活动字段或工具结果头 `run_id=` 恢复 Sub Agent 详情入口 id */
+function normalizeSubagentRunId(
+  value: unknown,
+  result?: string,
+): string | undefined {
+  const fromField = normalizeOptionalString(value)
+  if (fromField) return fromField
+  if (!result) return undefined
+  const match = /(?:^|[ ·])run_id=([^\s·]+)/.exec(result)
+  return match?.[1] ? match[1] : undefined
+}
+
 function normalizeSentModelSource(value: unknown): VscodeModelSource | undefined {
   if (value === 'text-secondary' || value === 'text' || value === 'custom') {
     return value
@@ -215,6 +227,7 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
     if (!item || typeof item !== 'object') return []
     if (item.kind === 'activity') {
       if (typeof item.id !== 'string' || typeof item.label !== 'string') return []
+      const result = normalizeOptionalString(item.result)
       return [
         {
           kind: 'activity',
@@ -222,8 +235,9 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
           label: item.label,
           detail: normalizeOptionalString(item.detail),
           content: normalizeOptionalString(item.content),
-          result: normalizeOptionalString(item.result),
+          result,
           done: item.done !== false,
+          subagentRunId: normalizeSubagentRunId(item.subagentRunId, result),
         },
       ]
     }
@@ -311,14 +325,16 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
     activities: entry.activities.flatMap((item): VscodeAiInvestigation['activities'] => {
       if (!item || typeof item !== 'object') return []
       if (typeof item.id !== 'string' || typeof item.label !== 'string') return []
+      const result = normalizeOptionalString(item.result)
       return [
         {
           id: item.id,
           label: item.label,
           detail: normalizeOptionalString(item.detail),
           content: normalizeOptionalString(item.content),
-          result: normalizeOptionalString(item.result),
+          result,
           done: item.done !== false,
+          subagentRunId: normalizeSubagentRunId(item.subagentRunId, result),
         },
       ]
     }),

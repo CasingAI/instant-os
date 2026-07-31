@@ -286,6 +286,7 @@ function activitiesFromTimeline(timeline: VscodeAiTimelineItem[]): VscodeAiActiv
       content: item.content,
       result: item.result,
       done: item.done,
+      subagentRunId: item.subagentRunId,
     }))
 }
 
