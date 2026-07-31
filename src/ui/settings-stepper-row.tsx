@@ -33,6 +33,9 @@ function resolveOverlayHost(from: HTMLElement | null): HTMLElement | null {
   )
 }
 
+const STEPPER_HOLD_DELAY_MS = 360
+const STEPPER_HOLD_INTERVAL_MS = 60
+
 function SettingsStepperControls({
   label,
   value,
@@ -53,20 +56,62 @@ function SettingsStepperControls({
   editable: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const valueRef = useRef(value)
+  const holdTimerRef = useRef<number | undefined>(undefined)
+  const holdIntervalRef = useRef<number | undefined>(undefined)
   const [draft, setDraft] = useState(String(value))
   const [editing, setEditing] = useState(false)
   const atMin = value <= min
   const atMax = value >= max
 
+  valueRef.current = value
+
   useEffect(() => {
     if (!editing) setDraft(String(value))
   }, [editing, value])
 
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current !== undefined) window.clearTimeout(holdTimerRef.current)
+      if (holdIntervalRef.current !== undefined) window.clearInterval(holdIntervalRef.current)
+    }
+  }, [])
+
   const commit = (raw: number) => {
     if (!Number.isFinite(raw)) return
     const next = clamp(Math.round(raw / step) * step, min, max)
-    if (next !== value) onChange(next)
+    if (next !== valueRef.current) onChange(next)
     setDraft(String(next))
+    valueRef.current = next
+  }
+
+  const stopHold = () => {
+    if (holdTimerRef.current !== undefined) {
+      window.clearTimeout(holdTimerRef.current)
+      holdTimerRef.current = undefined
+    }
+    if (holdIntervalRef.current !== undefined) {
+      window.clearInterval(holdIntervalRef.current)
+      holdIntervalRef.current = undefined
+    }
+  }
+
+  const startHold = (delta: number) => {
+    setEditing(false)
+    stopHold()
+    commit(valueRef.current + delta)
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = undefined
+      holdIntervalRef.current = window.setInterval(() => {
+        const current = valueRef.current
+        const next = clamp(Math.round((current + delta) / step) * step, min, max)
+        if (next === current) {
+          stopHold()
+          return
+        }
+        commit(next)
+      }, STEPPER_HOLD_INTERVAL_MS)
+    }, STEPPER_HOLD_DELAY_MS)
   }
 
   const commitDraft = () => {
@@ -90,12 +135,17 @@ function SettingsStepperControls({
         class="settings-stepper-modal__btn"
         aria-label={`减少${label}`}
         disabled={atMin}
-        onClick={() => {
-          setEditing(false)
-          commit(value - step)
+        onPointerDown={(event) => {
+          if (event.button !== 0 || atMin) return
+          event.preventDefault()
+          ;(event.currentTarget as HTMLButtonElement).setPointerCapture(event.pointerId)
+          startHold(-step)
         }}
+        onPointerUp={stopHold}
+        onPointerCancel={stopHold}
+        onLostPointerCapture={stopHold}
       >
-        −
+        <span class="settings-stepper-modal__glyph settings-stepper-modal__glyph--minus" aria-hidden="true" />
       </button>
 
       <div class="settings-stepper-modal__value">
@@ -153,12 +203,17 @@ function SettingsStepperControls({
         class="settings-stepper-modal__btn"
         aria-label={`增加${label}`}
         disabled={atMax}
-        onClick={() => {
-          setEditing(false)
-          commit(value + step)
+        onPointerDown={(event) => {
+          if (event.button !== 0 || atMax) return
+          event.preventDefault()
+          ;(event.currentTarget as HTMLButtonElement).setPointerCapture(event.pointerId)
+          startHold(step)
         }}
+        onPointerUp={stopHold}
+        onPointerCancel={stopHold}
+        onLostPointerCapture={stopHold}
       >
-        +
+        <span class="settings-stepper-modal__glyph settings-stepper-modal__glyph--plus" aria-hidden="true" />
       </button>
     </div>
   )

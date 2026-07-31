@@ -3606,12 +3606,42 @@
   background: var(--settings-stepper-btn-bg);
   color: var(--settings-stepper-btn-ink);
   font: inherit;
-  font-size: 22px;
-  font-weight: 600;
   line-height: 1;
   cursor: pointer;
   user-select: none;
+  touch-action: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.settings-stepper-modal__glyph {
+  position: relative;
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.settings-stepper-modal__glyph::before,
+.settings-stepper-modal__glyph--plus::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.settings-stepper-modal__glyph::before {
+  top: 50%;
+  left: 1px;
+  right: 1px;
+  height: 2px;
+  margin-top: -1px;
+}
+
+.settings-stepper-modal__glyph--plus::after {
+  left: 50%;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  margin-left: -1px;
 }
 
 .settings-stepper-modal__btn:last-child {

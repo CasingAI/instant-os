@@ -13,6 +13,7 @@ import { revertTerminalChangeSet } from '../../terminal/terminal-changeset-journ
 import { loadTerminalChangeSession } from '../../terminal/terminal-changeset-store.ts'
 import { resolveSessionTmpDir } from '../files/files-tmp.ts'
 import type { AgentToolStructuredResult } from '../../ai/agent-tool.ts'
+import { formatCalendarInstantLabel, getOsNowInstant } from '../../os/os-clock.ts'
 import { maybeSpillToolOutput } from './vscode-ai-output-spill.ts'
 import type {
   VscodeAgentTerminalEnsureReason,
@@ -48,6 +49,30 @@ function pushTurnChangeSession(host: VscodeAiRunCommandHost, changeSet: Terminal
   const list = host.turnChangeSessions.current
   if (list.some((item) => item.sessionId === changeSet.sessionId)) return
   list.push(changeSet)
+}
+
+function formatElapsedShort(elapsedMs: number): string {
+  if (elapsedMs < 1000) return `${Math.max(0, Math.round(elapsedMs))}ms`
+  if (elapsedMs < 10_000) return `${(elapsedMs / 1000).toFixed(1)}s`
+  return `${Math.round(elapsedMs / 1000)}s`
+}
+
+/** 命令类 tool result 附带 OS 完成时刻与耗时 */
+function formatCommandTimingLine(elapsedMs: number): string {
+  const at = formatCalendarInstantLabel(getOsNowInstant())
+  return `[at=${at} · elapsed=${formatElapsedShort(elapsedMs)}]`
+}
+
+function withCommandTiming(body: string, elapsedMs: number): string {
+  const timing = formatCommandTimingLine(elapsedMs)
+  const trimmed = body.trimEnd()
+  if (!trimmed) return timing
+  // 插在 banner 后一行（若有），否则作为首行
+  const nl = trimmed.indexOf('\n')
+  if (trimmed.startsWith('[') && nl >= 0) {
+    return `${trimmed.slice(0, nl)}\n${timing}\n${trimmed.slice(nl + 1)}`
+  }
+  return `${timing}\n${trimmed}`
 }
 
 function formatQuickJsResult(result: QuickJsEvalResult): string {
@@ -317,6 +342,7 @@ export async function runVscodeAiTerminalLine(
   const ensured = await host.ensureAgentTerminal()
   const banner = formatTerminalBanner(ensured)
   const beforeChanges = ensured.handle.getLastChanges()
+  const startedAt = performance.now()
   let output = ''
   try {
     output = await ensured.handle.runCode(trimmed, { source: 'program' })
@@ -324,8 +350,12 @@ export async function runVscodeAiTerminalLine(
     const changes = ensured.handle.getLastChanges()
     rememberTerminalFsChanges(host, beforeChanges, changes)
   }
+  const elapsedMs = performance.now() - startedAt
   const changes = ensured.handle.getLastChanges()
-  return `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`
+  return withCommandTiming(
+    `${banner}\n${appendChangeSummary(output || '（无输出）', changes)}`,
+    elapsedMs,
+  )
 }
 
 function resolveNpmSpillTmpDir(host: VscodeAiRunCommandHost): {
@@ -357,6 +387,7 @@ export async function runVscodeAiNpmScript(
 
   try {
     const spillTarget = resolveNpmSpillTmpDir(host)
+    const startedAt = performance.now()
     const result = await runNpmScript({
       projectRoot: root,
       scriptName,
@@ -366,10 +397,11 @@ export async function runVscodeAiNpmScript(
       npmRunId: spillTarget.npmRunId,
       onConsole: () => undefined,
     })
+    const elapsedMs = performance.now() - startedAt
     rememberNpmChanges(host, result.changes)
-    const fullText = appendChangeSummary(
-      formatQuickJsResult(result) || '（无输出）',
-      result.changes,
+    const fullText = withCommandTiming(
+      appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes),
+      elapsedMs,
     )
     return maybeSpillToolOutput(fullText, {
       tmpDir: spillTarget.tmpDir,
@@ -390,6 +422,7 @@ export async function runVscodeAiNpx(
 
   try {
     const spillTarget = resolveNpmSpillTmpDir(host)
+    const startedAt = performance.now()
     const result = await runNpx({
       projectRoot: root,
       packageSpec,
@@ -399,10 +432,11 @@ export async function runVscodeAiNpx(
       npmRunId: spillTarget.npmRunId,
       onConsole: () => undefined,
     })
+    const elapsedMs = performance.now() - startedAt
     rememberNpmChanges(host, result.changes)
-    const fullText = appendChangeSummary(
-      formatQuickJsResult(result) || '（无输出）',
-      result.changes,
+    const fullText = withCommandTiming(
+      appendChangeSummary(formatQuickJsResult(result) || '（无输出）', result.changes),
+      elapsedMs,
     )
     return maybeSpillToolOutput(fullText, {
       tmpDir: spillTarget.tmpDir,

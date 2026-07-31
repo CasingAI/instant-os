@@ -1175,23 +1175,42 @@
   cursor: default;
 }
 
-/* ---- 聊天内「查看详情」按钮 ---- */
+/* ---- Sub Agent 详情行（整行可点，右侧小箭头） ---- */
 
-.vscode__subagent-detail-btn {
-  align-self: flex-start;
-  margin-top: 6px;
-  padding: 3px 12px;
-  font-size: 12px;
-  color: #1565c0;
-  background: #e3f2fd;
-  border: 1px solid #90caf9;
-  border-radius: 4px;
+.vscode-ai__subagent-row {
+  width: 100%;
+  text-align: left;
   cursor: pointer;
-  transition: background 0.15s;
 }
 
-.vscode__subagent-detail-btn:hover {
-  background: #bbdefb;
+.vscode-ai__subagent-row .help-app__reasoning-summary,
+.vscode-ai__subagent-row .help-app__reasoning-status-label {
+  flex: 1;
+  min-width: 0;
+}
+
+button.vscode-ai__subagent-row.help-app__reasoning-status--waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  padding: 1px 0;
+}
+
+.vscode-ai__subagent-row-arrow {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-left: auto;
+  color: var(--help-ink-muted, #8b8b95);
+  opacity: 0.75;
+}
+
+.vscode-ai__subagent-row:hover .vscode-ai__subagent-row-arrow {
+  opacity: 1;
+  color: var(--help-ink, #333);
 }
 
 /* ---- Sub Agent 详情 Tab ---- */
@@ -3215,14 +3234,12 @@
   color: #aaa;
 }
 
-.vscode--chrome-dark .vscode__subagent-detail-btn {
-  color: #82b1ff;
-  background: #1a2a3a;
-  border-color: #2a4a5a;
+.vscode--chrome-dark .vscode-ai__subagent-row-arrow {
+  color: #aaa;
 }
 
-.vscode--chrome-dark .vscode__subagent-detail-btn:hover {
-  background: #233a4a;
+.vscode--chrome-dark .vscode-ai__subagent-row:hover .vscode-ai__subagent-row-arrow {
+  color: #ddd;
 }
 
 .vscode--chrome-dark .vscode__search-advanced-toggle {

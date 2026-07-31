@@ -9,7 +9,7 @@ import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { SubagentIcon, VscodeIcon } from '../../icons/app-icons.tsx'
+import { SubagentIcon, VscodeIcon, ForwardIcon } from '../../icons/app-icons.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type {
   VscodeAgentTerminalEnsureResult,
@@ -624,6 +624,12 @@ function ActivityStatus({
   const content = activity.content?.trim() ?? ''
   const result = activity.result?.trim() ?? ''
   const expandable = Boolean(content || result)
+  const canOpenDetail = Boolean(activity.subagentRunId && onOpenSubagentDetail)
+  const openDetail = () => {
+    if (activity.subagentRunId && onOpenSubagentDetail) {
+      onOpenSubagentDetail(activity.subagentRunId)
+    }
+  }
   const summary = (
     <>
       {activity.label}
@@ -634,6 +640,23 @@ function ActivityStatus({
   )
 
   if (current) {
+    if (canOpenDetail) {
+      return (
+        <button
+          type="button"
+          class="help-app__reasoning-status help-app__reasoning-status--waiting vscode-ai__subagent-row"
+          aria-live="polite"
+          aria-label={`查看 Sub Agent 详情：${activity.detail || activity.label}`}
+          onClick={openDetail}
+        >
+          <WaitingDots />
+          <span class="help-app__reasoning-status-label">{summary}</span>
+          <span class="vscode-ai__subagent-row-arrow" aria-hidden="true">
+            <ForwardIcon size={12} />
+          </span>
+        </button>
+      )
+    }
     return (
       <div
         class="help-app__reasoning-status help-app__reasoning-status--waiting"
@@ -641,15 +664,25 @@ function ActivityStatus({
       >
         <WaitingDots />
         <span class="help-app__reasoning-status-label">{summary}</span>
-        {activity.subagentRunId && onOpenSubagentDetail ? (
-          <button
-            type="button"
-            class="vscode__subagent-detail-btn"
-            onClick={() => onOpenSubagentDetail(activity.subagentRunId!)}
-          >
-            查看详情
-          </button>
-        ) : undefined}
+      </div>
+    )
+  }
+
+  if (canOpenDetail) {
+    return (
+      <div class="help-app__reasoning-panel">
+        <button
+          type="button"
+          class="help-app__reasoning-toggle vscode-ai__subagent-row"
+          aria-label={`查看 Sub Agent 详情：${activity.detail || activity.label}`}
+          onClick={openDetail}
+        >
+          <span class="help-app__investigation-chevron" aria-hidden="true" />
+          <span class="help-app__reasoning-summary">{summary}</span>
+          <span class="vscode-ai__subagent-row-arrow" aria-hidden="true">
+            <ForwardIcon size={12} />
+          </span>
+        </button>
       </div>
     )
   }
@@ -688,15 +721,6 @@ function ActivityStatus({
               <div class="help-app__reasoning-result-label">输出</div>
               <pre class="help-app__reasoning-body help-app__reasoning-body--code">{result}</pre>
             </>
-          ) : undefined}
-          {activity.subagentRunId && onOpenSubagentDetail ? (
-            <button
-              type="button"
-              class="vscode__subagent-detail-btn"
-              onClick={() => onOpenSubagentDetail(activity.subagentRunId!)}
-            >
-              查看详情
-            </button>
           ) : undefined}
         </div>
       ) : undefined}

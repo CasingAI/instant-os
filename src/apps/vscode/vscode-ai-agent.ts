@@ -584,7 +584,7 @@ export async function askVscodeAiAgent(options: {
         }
         pendingSubagentRunId = event.runId
         subagentCompleted = false
-        // 立即把 runId 关联到正在进行的 activity，让「查看详情」按钮在运行中即可出现
+        // 立即把 runId 关联到正在进行的 activity，让详情入口在运行中即可出现
         if (pendingActivityId) {
           const actIdx = activities.findIndex((item) => item.id === pendingActivityId)
           if (actIdx >= 0) {
