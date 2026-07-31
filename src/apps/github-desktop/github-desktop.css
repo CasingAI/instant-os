@@ -151,6 +151,7 @@
   height: 50px;
   flex-shrink: 0;
   min-width: 0;
+  box-sizing: border-box;
   background: var(--gd-toolbar-bg);
   color: var(--gd-toolbar-text);
   border-bottom: 1px solid var(--gd-toolbar-border);
@@ -165,9 +166,11 @@
   display: flex;
   flex-direction: row;
   align-items: center;
+  box-sizing: border-box;
   min-width: 0;
+  min-height: 0;
   height: 100%;
-  padding: 10px;
+  padding: 8px 10px;
   border: none;
   border-right: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 0;
@@ -230,6 +233,8 @@
   width: 230px;
   max-width: 230px;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 
 .github-desktop__toolbar-sync.has-menu {
@@ -302,6 +307,7 @@
 .github-desktop__toolbar-btn-title {
   font-size: 12px;
   font-weight: 700;
+  line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -310,6 +316,7 @@
 
 .github-desktop__toolbar-btn-description {
   font-size: 11px;
+  line-height: 14px;
   color: var(--gd-toolbar-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -953,6 +960,7 @@
   display: flex;
   flex-direction: row;
   align-items: stretch;
+  box-sizing: border-box;
   height: 50px;
   min-width: 0;
   background: var(--gd-toolbar-bg);
@@ -993,6 +1001,11 @@
 .github-desktop__toolbar-sync-wrap {
   position: relative;
   flex-shrink: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
 }
 
 .github-desktop__toolbar-segment .github-desktop__toolbar-foldout--branch,
