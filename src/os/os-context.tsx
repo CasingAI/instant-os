@@ -105,6 +105,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   photos: { title: '照片', width: 720, height: 620 },
   files: { title: '文件', width: 900, height: 620 },
   textedit: { title: '文本编辑', width: 720, height: 560 },
+  pages: { title: '文稿', width: 840, height: 720 },
   preview: { title: '预览', width: 780, height: 640 },
   vscode: { title: 'Virtual Studio Code Desktop', width: 1100, height: 720 },
   mail: { title: '邮件', width: 900, height: 640 },

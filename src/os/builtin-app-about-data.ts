@@ -66,11 +66,18 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '默认注册为 .txt 文件的打开程序；也可从「文件」应用中直接打开文本文件。可同时打开多个文稿窗口。只读文件可查看但不可保存。',
     ],
   },
+  pages: {
+    version: 'Markdown 文稿编辑器',
+    paragraphs: [
+      '文稿是面向 Markdown 的飞书式块编辑器：纸面排版、工具栏与「/」斜杠插入，内容以 .md / .markdown 文本保存在本机文件卷。',
+      '可在可视化编辑与 Markdown 源码之间切换；默认作为上述后缀的打开程序。只读卷可查看但不可保存。',
+    ],
+  },
   preview: {
     version: '文档、图片与 3D 预览',
     paragraphs: [
       '预览用于以只读方式查看本机文档、图片与三维模型。支持 Markdown（.md / .markdown / .mdx）的拟物纸面渲染，Word 文档（.docx），常见图片（.png / .jpg / .gif / .webp / .ico），以及 glTF / GLB 模型（含「文件」中的内置 3D 模型卷）。',
-      '默认作为上述格式的打开程序；可在同一窗口用多标签页同时打开多个文件。编辑请使用 Virtual Studio Code Desktop 或文本编辑。',
+      '默认作为图片、模型、docx 等格式的打开程序；Markdown 默认由「文稿」编辑，仍可在「打开方式」中选择预览。编辑请使用文稿、Virtual Studio Code Desktop 或文本编辑。',
     ],
   },
   vscode: {

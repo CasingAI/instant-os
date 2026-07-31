@@ -101,6 +101,16 @@ export function TextEditIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function PagesIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#e8f0ff" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        📄
+      </span>
+    </AppIconTile>
+  )
+}
+
 /** 通用文档预览：画框 + 放大镜 */
 export function PreviewIcon({ size = 64 }: IconProps) {
   return (

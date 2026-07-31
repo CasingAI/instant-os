@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import { fileNameExtension, normalizeFileExtension } from '../os/file-open-registry.ts'
 import { getFloatingOverlayRoot } from '../ui/floating-overlay-root.ts'
-import { useWindowModal } from './window-modal-context.tsx'
+import { useWindowModal, WindowModalProvider } from './window-modal-context.tsx'
 import {
   computeResizedBounds,
   getResizeCursor,
@@ -42,8 +42,10 @@ export type SystemOpenDialogOptions = {
   acceptExtensions?: readonly string[]
   /** 是否显示「新建」；默认 false。folder 模式下忽略 */
   allowCreate?: boolean
-  /** 新建文件后缀，默认 txt；当前仅支持文本文件落盘 */
+  /** 新建文件后缀，默认 txt；支持文本类后缀落盘（txt / md / markdown） */
   createExtension?: string
+  /** 新建文件初始正文；默认空字符串 */
+  createInitialText?: string
   /** 选择目标；默认 file */
   selectionMode?: SystemOpenDialogSelectionMode
   /**
@@ -160,7 +162,10 @@ function SystemOpenDialogBrowser({
   }, [folderMode, options.acceptExtensions])
 
   const createExtension = normalizeFileExtension(options.createExtension ?? 'txt') || 'txt'
+  const createInitialText = options.createInitialText ?? ''
   const allowCreate = !folderMode && options.allowCreate === true
+  const canCreateTextExtension =
+    createExtension === 'txt' || createExtension === 'md' || createExtension === 'markdown'
   const canChooseFormats = !folderMode && configuredAccept !== undefined && configuredAccept.size > 0
 
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -442,17 +447,17 @@ function SystemOpenDialogBrowser({
 
   const handleCreate = useCallback(async () => {
     if (!allowCreate || !canCreateHere || busy) return
-    if (createExtension !== 'txt') {
+    if (!canCreateTextExtension) {
       await modal.alert({
         title: '无法新建',
-        message: '当前仅支持新建文本文件（.txt）。',
+        message: '当前仅支持新建文本类文件（.txt / .md / .markdown）。',
         themeColor: THEME,
       })
       return
     }
 
     const name = await modal.prompt({
-      title: '新建文本文件',
+      title: createExtension === 'txt' ? '新建文本文件' : '新建文稿',
       label: '名称',
       placeholder: '未命名',
       initialValue: '未命名',
@@ -469,6 +474,7 @@ function SystemOpenDialogBrowser({
         locationId,
         parentId: folderId,
         name: toCreateFileName(name, createExtension),
+        text: createInitialText,
       })
       await pickNodePath(node)
     } catch (err) {
@@ -480,7 +486,9 @@ function SystemOpenDialogBrowser({
     allowCreate,
     busy,
     canCreateHere,
+    canCreateTextExtension,
     createExtension,
+    createInitialText,
     folderId,
     locationId,
     modal,
@@ -849,7 +857,10 @@ function SystemOpenDialogPanel({
           <h2 class="system-open-dialog-frame__title">{title}</h2>
         </header>
         <div class="system-open-dialog-frame__body">
-          <SystemOpenDialogBrowser options={options} onClose={onClose} onPick={onPick} />
+          {/* 嵌套模态宿主：prompt/alert 必须盖在本浮层之上，不能落到 App 窗口里 */}
+          <WindowModalProvider>
+            <SystemOpenDialogBrowser options={options} onClose={onClose} onPick={onPick} />
+          </WindowModalProvider>
         </div>
         {RESIZE_DIRECTIONS.map((direction) => (
           <div

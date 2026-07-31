@@ -141,14 +141,20 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
         return
       }
       if (promptState) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
         closePrompt(undefined)
         return
       }
       if (confirmState) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
         closeConfirm(false)
         return
       }
       if (alertState) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
         closeAlert()
       }
     }
@@ -157,8 +163,9 @@ export function WindowModalProvider({ children }: { children: ComponentChildren 
       return
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    // capture：先于系统打开对话框等外层 Escape 处理，避免整层被关掉
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [alertState, closeAlert, closeConfirm, closePrompt, confirmState, promptState])
 
   const submitPrompt = useCallback(() => {

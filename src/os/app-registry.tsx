@@ -34,6 +34,7 @@ import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
 import { GithubDesktopApp } from '../apps/github-desktop/github-desktop-app.tsx'
 import { FilesApp } from '../apps/files/files-app.tsx'
 import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
+import { PagesApp } from '../apps/pages/pages-app.tsx'
 import { PreviewApp } from '../apps/preview/preview-app.tsx'
 import { VscodeApp } from '../apps/vscode/vscode-app.tsx'
 import { UiKitApp } from '../apps/ui-kit/ui-kit-app.tsx'
@@ -42,7 +43,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
@@ -180,6 +181,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'textedit',
     name: BUILTIN_APP_DISPLAY_NAMES['textedit'],
     icon: TextEditIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'pages',
+    name: BUILTIN_APP_DISPLAY_NAMES['pages'],
+    icon: PagesIcon,
     dock: true,
     desktop: true,
   }),
@@ -352,6 +360,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   photos: PlaceholderApp('photos', '照片'),
   files: FilesApp,
   textedit: TextEditApp,
+  pages: PagesApp,
   preview: PreviewApp,
   vscode: VscodeApp,
   'scene3d-lab': Scene3dLabApp,

@@ -1111,6 +1111,10 @@ export function FilesNodeIcon({
   const extension = fileNameExtension(node.name)
   const codeSpec = resolveCodeFileIconSpec(node.name)
 
+  if (defaultApp === 'pages') {
+    return <BlankFileMarkIcon size={size} mark="📄" />
+  }
+
   if (codeSpec) {
     return (
       <CodeFileIcon extension={codeSpec.extension} label={codeSpec.label} size={size} />

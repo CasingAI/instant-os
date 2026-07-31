@@ -115,11 +115,17 @@
 }
 
 .system-open-dialog-frame__body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.system-open-dialog-frame__body > .window-modal-overlay-root {
+  /* 压过对话框内 sheet（z-index: 30） */
+  z-index: 40;
 }
 
 .system-open-dialog-frame__resize {
