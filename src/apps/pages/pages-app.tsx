@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
@@ -12,13 +12,37 @@ import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { FilesStorageFullError } from '../files/files-storage.ts'
 import { isFilesNodeWritable, type FilesNode } from '../files/files-types.ts'
 import {
+  createTextFile,
+  readFileBlob,
   readTextFile,
   resolveFilesAbsolutePath,
+  writeBinaryFile,
   writeTextFile,
 } from '../files/files-vfs.ts'
 import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
+import {
+  buildBlobUrlMap,
+  createPagesAssetFromFile,
+  mergeAsset,
+  revokeBlobUrlMap,
+  rewriteDocumentSrcToAssetPaths,
+  rewriteDocumentSrcToBlobUrls,
+  type PagesBlobUrlMap,
+} from './pages-assets.ts'
+import { jsonContentToMarkdown, markdownToJSONContent } from './pages-doc-convert.ts'
 import { PagesEditor, type PagesViewMode } from './pages-editor.tsx'
 import { PAGES_EMPTY_MARKDOWN, PAGES_OPEN_EXTENSIONS } from './pages-markdown.ts'
+import {
+  createEmptyPagesManifest,
+  packEmptyPagesPackage,
+  packPagesPackage,
+  pruneAssetsToDocument,
+  unpackPagesPackage,
+  PAGES_EMPTY_DOCUMENT,
+  PAGES_FILE_EXTENSION,
+  PAGES_MIME,
+  type PagesAssetMap,
+} from './pages-package.ts'
 import './pages.css'
 
 const APP_ID = 'pages' as const
@@ -40,13 +64,21 @@ type DirtyPromptState = {
   resolve: (choice: DirtyChoice) => void
 }
 
+type PagesTabFormat = 'pages' | 'markdown'
+
 type PagesTab = {
   id: string
   path: string
   node: FilesNode
-  markdown: string
-  savedMarkdown: string
+  format: PagesTabFormat
+  document: JSONContent
+  assets: PagesAssetMap
+  /** pages：规范化后的 {doc, assetIds}；markdown 不用 */
+  savedFingerprint?: string
+  /** markdown：保存时的正文 */
+  savedMarkdown?: string
   viewMode: PagesViewMode
+  outlineOpen: boolean
 }
 
 type PagesAppProps = {
@@ -66,8 +98,29 @@ function formatError(error: unknown): string {
   return '操作失败'
 }
 
-function isTabDirty(tab: PagesTab): boolean {
-  return tab.markdown !== tab.savedMarkdown
+function isPagesPackagePath(path: string): boolean {
+  return path.toLowerCase().endsWith(`.${PAGES_FILE_EXTENSION}`)
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+function pagesFingerprint(
+  doc: JSONContent,
+  assets: PagesAssetMap,
+  blobUrls: PagesBlobUrlMap,
+): string {
+  const normalized = rewriteDocumentSrcToAssetPaths(doc, blobUrls, assets)
+  const assetIds = [...assets.keys()].sort()
+  return JSON.stringify({ doc: normalized, assetIds })
+}
+
+function isTabDirty(tab: PagesTab, blobUrls: PagesBlobUrlMap): boolean {
+  if (tab.format === 'markdown') {
+    return jsonContentToMarkdown(tab.document) !== (tab.savedMarkdown ?? '')
+  }
+  return pagesFingerprint(tab.document, tab.assets, blobUrls) !== (tab.savedFingerprint ?? '')
 }
 
 export function PagesApp({ windowId }: PagesAppProps) {
@@ -105,21 +158,47 @@ export function PagesApp({ windowId }: PagesAppProps) {
   const activeTabIdRef = useRef(activeTabId)
   const mountedRef = useRef(true)
   const editorRef = useRef<Editor | null>(null)
+  const blobUrlMapsRef = useRef(new Map<string, PagesBlobUrlMap>())
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
 
+  const getBlobMap = useCallback((tabId: string): PagesBlobUrlMap => {
+    let map = blobUrlMapsRef.current.get(tabId)
+    if (!map) {
+      map = new Map()
+      blobUrlMapsRef.current.set(tabId, map)
+    }
+    return map
+  }, [])
+
+  const disposeTabBlobs = useCallback((tabId: string) => {
+    const map = blobUrlMapsRef.current.get(tabId)
+    if (!map) return
+    revokeBlobUrlMap(map)
+    blobUrlMapsRef.current.delete(tabId)
+  }, [])
+
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
-  const dirty = activeTab ? isTabDirty(activeTab) : false
+  const activeBlobMap = activeTab ? getBlobMap(activeTab.id) : new Map<string, string>()
+  const dirty = activeTab ? isTabDirty(activeTab, activeBlobMap) : false
   const writable = activeTab ? isFilesNodeWritable(activeTab.node) : false
   const showEditor = ready && activeTab !== undefined
+
+  const editorDocument = useMemo(() => {
+    if (!activeTab) return PAGES_EMPTY_DOCUMENT
+    return rewriteDocumentSrcToBlobUrls(activeTab.document, getBlobMap(activeTab.id))
+  }, [activeTab, getBlobMap])
 
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      for (const tabId of blobUrlMapsRef.current.keys()) {
+        disposeTabBlobs(tabId)
+      }
     }
-  }, [])
+  }, [disposeTabBlobs])
 
   const syncWindowToTab = useCallback(
     (tab: PagesTab | undefined) => {
@@ -133,10 +212,10 @@ export function PagesApp({ windowId }: PagesAppProps) {
       }
       setWindowTitle(windowId, tab.node.name)
       setWindowDocumentId(windowId, tab.path)
-      setWindowDocumentEdited(windowId, isTabDirty(tab))
+      setWindowDocumentEdited(windowId, isTabDirty(tab, getBlobMap(tab.id)))
       setWindowDocumentReadOnly(windowId, !isFilesNodeWritable(tab.node))
     },
-    [setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId],
+    [getBlobMap, setWindowDocumentEdited, setWindowDocumentId, setWindowDocumentReadOnly, setWindowTitle, windowId],
   )
 
   useEffect(() => {
@@ -182,6 +261,39 @@ export function PagesApp({ windowId }: PagesAppProps) {
       loadingPathRef.current = documentRef
       setLoading(true)
       try {
+        if (isPagesPackagePath(documentRef)) {
+          const result = await readFileBlob(documentRef)
+          if (!mountedRef.current) return false
+          const path = await resolveFilesAbsolutePath(result.node)
+          const already = tabsRef.current.find((tab) => tab.path === path)
+          if (already) {
+            setActiveTabId(already.id)
+            setReady(true)
+            return true
+          }
+          const bytes = new Uint8Array(await result.blob.arrayBuffer())
+          const unpacked = unpackPagesPackage(bytes)
+          const tabId = nextTabId()
+          const blobMap = buildBlobUrlMap(unpacked.assets)
+          blobUrlMapsRef.current.set(tabId, blobMap)
+          const fingerprint = pagesFingerprint(unpacked.document, unpacked.assets, blobMap)
+          const tab: PagesTab = {
+            id: tabId,
+            path,
+            node: result.node,
+            format: 'pages',
+            document: unpacked.document,
+            assets: unpacked.assets,
+            savedFingerprint: fingerprint,
+            viewMode: 'edit',
+            outlineOpen: false,
+          }
+          setTabs((prev) => [...prev, tab])
+          setActiveTabId(tab.id)
+          setReady(true)
+          return true
+        }
+
         const result = await readTextFile(documentRef)
         if (!mountedRef.current) return false
         const path = await resolveFilesAbsolutePath(result.node)
@@ -192,13 +304,18 @@ export function PagesApp({ windowId }: PagesAppProps) {
           return true
         }
         const text = result.text.length > 0 ? result.text : PAGES_EMPTY_MARKDOWN
+        const document = markdownToJSONContent(text)
+        const normalizedMarkdown = jsonContentToMarkdown(document)
         const tab: PagesTab = {
           id: nextTabId(),
           path,
           node: result.node,
-          markdown: text,
-          savedMarkdown: text,
+          format: 'markdown',
+          document,
+          assets: new Map(),
+          savedMarkdown: normalizedMarkdown,
           viewMode: 'edit',
+          outlineOpen: false,
         }
         setTabs((prev) => [...prev, tab])
         setActiveTabId(tab.id)
@@ -228,7 +345,45 @@ export function PagesApp({ windowId }: PagesAppProps) {
       if (!tab || !isFilesNodeWritable(tab.node)) return false
       setLoading(true)
       try {
-        const updated = await writeTextFile(tab.path, tab.markdown)
+        if (tab.format === 'pages') {
+          const blobMap = getBlobMap(tabId)
+          const normalized = rewriteDocumentSrcToAssetPaths(tab.document, blobMap, tab.assets)
+          const pruned = pruneAssetsToDocument(normalized, tab.assets)
+          const packed = packPagesPackage({
+            manifest: createEmptyPagesManifest(tab.node.name.replace(/\.pages$/i, '') || '无标题文档'),
+            document: normalized,
+            assets: pruned,
+          })
+          const updated = await writeBinaryFile(tab.path, toArrayBuffer(packed))
+          const nextPath = await resolveFilesAbsolutePath(updated)
+          // 释放已删除资源的 blob
+          for (const [fileName, url] of [...blobMap.entries()]) {
+            const still = [...pruned.values()].some((asset) => asset.fileName === fileName)
+            if (!still) {
+              URL.revokeObjectURL(url)
+              blobMap.delete(fileName)
+            }
+          }
+          const fingerprint = pagesFingerprint(normalized, pruned, blobMap)
+          setTabs((prev) =>
+            prev.map((item) =>
+              item.id === tabId
+                ? {
+                    ...item,
+                    node: updated,
+                    path: nextPath,
+                    document: normalized,
+                    assets: pruned,
+                    savedFingerprint: fingerprint,
+                  }
+                : item,
+            ),
+          )
+          return true
+        }
+
+        const markdown = jsonContentToMarkdown(tab.document)
+        const updated = await writeTextFile(tab.path, markdown)
         const nextPath = await resolveFilesAbsolutePath(updated)
         setTabs((prev) =>
           prev.map((item) =>
@@ -237,7 +392,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
                   ...item,
                   node: updated,
                   path: nextPath,
-                  savedMarkdown: item.markdown,
+                  savedMarkdown: markdown,
                 }
               : item,
           ),
@@ -254,7 +409,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
         setLoading(false)
       }
     },
-    [modal, windowId],
+    [getBlobMap, modal, windowId],
   )
 
   const handleSave = useCallback(async (): Promise<boolean> => {
@@ -264,7 +419,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
   }, [saveTab])
 
   const askDirtyChoice = useCallback((tab: PagesTab): Promise<DirtyChoice> => {
-    if (!isTabDirty(tab)) return Promise.resolve('discard')
+    if (!isTabDirty(tab, getBlobMap(tab.id))) return Promise.resolve('discard')
     return new Promise((resolve) => {
       setDirtyPrompt({
         fileName: tab.node.name,
@@ -272,7 +427,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
         resolve,
       })
     })
-  }, [])
+  }, [getBlobMap])
 
   const resolveDirtyPrompt = useCallback((choice: DirtyChoice) => {
     setDirtyPrompt((current) => {
@@ -305,8 +460,9 @@ export function PagesApp({ windowId }: PagesAppProps) {
         title: OPEN_TITLE,
         acceptExtensions: [...PAGES_OPEN_EXTENSIONS],
         allowCreate: true,
-        createExtension: 'md',
-        createInitialText: PAGES_EMPTY_MARKDOWN,
+        createExtension: PAGES_FILE_EXTENSION,
+        createInitialBytes: packEmptyPagesPackage(),
+        createMimeType: PAGES_MIME,
         presentation,
       })
       if (!path) {
@@ -402,6 +558,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
       const current = tabsRef.current
       const index = current.findIndex((tab) => tab.id === tabId)
       if (index < 0) return
+      disposeTabBlobs(tabId)
       const nextTabs = current.filter((tab) => tab.id !== tabId)
       if (nextTabs.length === 0) {
         setTabs([])
@@ -416,7 +573,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
         setActiveTabId(neighbor?.id)
       }
     },
-    [bypassWindowCloseGuard, closeWindow, windowId],
+    [bypassWindowCloseGuard, closeWindow, disposeTabBlobs, windowId],
   )
 
   const closeTab = useCallback(
@@ -436,13 +593,13 @@ export function PagesApp({ windowId }: PagesAppProps) {
 
   const requestClose = useCallback(() => {
     if (!windowId) return true
-    const dirtyTabs = tabsRef.current.filter(isTabDirty)
+    const dirtyTabs = tabsRef.current.filter((tab) => isTabDirty(tab, getBlobMap(tab.id)))
     if (dirtyTabs.length === 0) return true
 
     void (async () => {
       for (const tab of dirtyTabs) {
         const latest = tabsRef.current.find((item) => item.id === tab.id)
-        if (!latest || !isTabDirty(latest)) continue
+        if (!latest || !isTabDirty(latest, getBlobMap(latest.id))) continue
         setActiveTabId(latest.id)
         const choice = await askDirtyChoice(latest)
         if (choice === 'cancel') {
@@ -467,6 +624,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
     bypassWindowCloseGuard,
     cancelPendingAppQuit,
     closeWindow,
+    getBlobMap,
     saveTab,
     setWindowDocumentEdited,
     windowId,
@@ -474,26 +632,137 @@ export function PagesApp({ windowId }: PagesAppProps) {
 
   useWindowCloseGuard(windowId, requestClose)
 
-  const updateActiveMarkdown = useCallback((nextMarkdown: string) => {
-    const tabId = activeTabIdRef.current
-    if (!tabId) return
-    setTabs((prev) =>
-      prev.map((tab) => {
-        if (tab.id !== tabId) return tab
-        // 打开后编辑器规范化 Markdown：在尚未有用户改动时同步 saved，避免假脏
-        if (tab.markdown === tab.savedMarkdown) {
-          return { ...tab, markdown: nextMarkdown, savedMarkdown: nextMarkdown }
-        }
-        return { ...tab, markdown: nextMarkdown }
-      }),
-    )
-  }, [])
+  const updateActiveDocument = useCallback(
+    (nextDocument: JSONContent) => {
+      const tabId = activeTabIdRef.current
+      if (!tabId) return
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== tabId) return tab
+          const blobMap = getBlobMap(tabId)
+          if (tab.format === 'markdown') {
+            const nextMarkdown = jsonContentToMarkdown(nextDocument)
+            if (jsonContentToMarkdown(tab.document) === (tab.savedMarkdown ?? '')) {
+              return { ...tab, document: nextDocument, savedMarkdown: nextMarkdown }
+            }
+            return { ...tab, document: nextDocument }
+          }
+          if (!isTabDirty(tab, blobMap)) {
+            return {
+              ...tab,
+              document: nextDocument,
+              savedFingerprint: pagesFingerprint(nextDocument, tab.assets, blobMap),
+            }
+          }
+          return { ...tab, document: nextDocument }
+        }),
+      )
+    },
+    [getBlobMap],
+  )
+
+  const registerImage = useCallback(
+    async (file: File): Promise<string> => {
+      const tabId = activeTabIdRef.current
+      const tab = tabsRef.current.find((item) => item.id === tabId)
+      if (!tabId || !tab) throw new Error('无活动标签')
+      if (tab.format === 'markdown') {
+        await modal.alert({
+          title: '无法插入本地图片',
+          message:
+            'Markdown 文件无法持久化本地图片。请改用「新建 / 打开」创建 .pages 文稿后再插入；也可在文稿中「导出 Markdown」。',
+          themeColor: THEME,
+        })
+        throw new Error('markdown-no-local-image')
+      }
+      const asset = await createPagesAssetFromFile(file)
+      const blob = new Blob([asset.bytes.slice()], { type: asset.mimeType })
+      const blobUrl = URL.createObjectURL(blob)
+      const map = getBlobMap(tabId)
+      map.set(asset.fileName, blobUrl)
+      setTabs((prev) =>
+        prev.map((item) =>
+          item.id === tabId ? { ...item, assets: mergeAsset(item.assets, asset) } : item,
+        ),
+      )
+      return blobUrl
+    },
+    [getBlobMap, modal],
+  )
+
+  const handlePromptLink = useCallback(async (): Promise<string | undefined> => {
+    const editor = editorRef.current
+    const previous =
+      editor && !editor.isDestroyed
+        ? (editor.getAttributes('link').href as string | undefined)
+        : undefined
+    return modal.prompt({
+      title: '编辑链接',
+      label: '地址',
+      initialValue: previous ?? 'https://',
+      placeholder: 'https://',
+      themeColor: THEME,
+      confirmLabel: '确定',
+    })
+  }, [modal])
 
   const setActiveViewMode = useCallback((mode: PagesViewMode) => {
     const tabId = activeTabIdRef.current
     if (!tabId) return
     setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, viewMode: mode } : tab)))
   }, [])
+
+  const toggleOutline = useCallback(() => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    setTabs((prev) =>
+      prev.map((tab) => (tab.id === tabId ? { ...tab, outlineOpen: !tab.outlineOpen } : tab)),
+    )
+  }, [])
+
+  const exportMarkdown = useCallback(async () => {
+    const tabId = activeTabIdRef.current
+    const tab = tabsRef.current.find((item) => item.id === tabId)
+    if (!tab || tab.format !== 'pages') return
+    const blobMap = getBlobMap(tab.id)
+    const normalized = rewriteDocumentSrcToAssetPaths(tab.document, blobMap, tab.assets)
+    const markdown = jsonContentToMarkdown(normalized)
+    const mdName = tab.node.name.replace(/\.pages$/i, '.md')
+    const mdPath = tab.path.replace(/\.pages$/i, '.md')
+    const confirmed = await modal.confirm({
+      title: '导出 Markdown',
+      message: `将在同目录写入「${mdName}」（已存在则覆盖）。`,
+      confirmLabel: '导出',
+      themeColor: THEME,
+    })
+    if (!confirmed) return
+    setLoading(true)
+    try {
+      try {
+        await writeTextFile(mdPath, markdown)
+      } catch {
+        await createTextFile({
+          locationId: tab.node.locationId,
+          parentId: tab.node.parentId,
+          name: mdName,
+          text: markdown,
+        })
+      }
+      await modal.alert({
+        title: '已导出',
+        message: `已写入「${mdName}」`,
+        themeColor: THEME,
+      })
+    } catch (err) {
+      await modal.alert({
+        title: '导出失败',
+        message: formatError(err),
+        themeColor: THEME,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [getBlobMap, modal])
 
   const runEditorCommand = useCallback((action: (editor: Editor) => void) => {
     const editor = editorRef.current
@@ -639,14 +908,30 @@ export function PagesApp({ windowId }: PagesAppProps) {
             disabled: !ready || loading,
             onClick: () => setActiveViewMode('source'),
           },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: activeTab?.outlineOpen ? '隐藏大纲' : '显示大纲',
+            disabled: !ready || loading,
+            onClick: () => toggleOutline(),
+          },
+          {
+            type: 'action',
+            label: '导出 Markdown…',
+            disabled: !ready || loading || activeTab?.format !== 'pages',
+            onClick: () => void exportMarkdown(),
+          },
         ],
       },
     ]
   }, [
+    activeTab?.format,
+    activeTab?.outlineOpen,
     activeTab?.viewMode,
     closeWindowsForApp,
     dirty,
     dirtyPrompt,
+    exportMarkdown,
     handleCloseTab,
     handleOpen,
     handleSave,
@@ -658,6 +943,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
     setActiveViewMode,
     showBuiltinAbout,
     tabs.length,
+    toggleOutline,
     windowId,
     writable,
   ])
@@ -697,9 +983,9 @@ export function PagesApp({ windowId }: PagesAppProps) {
         id: tab.id,
         title: tab.node.name,
         pathTitle: tab.path,
-        dirty: isTabDirty(tab),
+        dirty: isTabDirty(tab, getBlobMap(tab.id)),
       })),
-    [tabs],
+    [getBlobMap, tabs],
   )
 
   if (!windowId) {
@@ -733,11 +1019,15 @@ export function PagesApp({ windowId }: PagesAppProps) {
 
       <PagesEditor
         key={activeTab.id}
-        initialMarkdown={activeTab.markdown}
+        initialDocument={editorDocument}
+        format={activeTab.format}
         editable={writable}
         viewMode={activeTab.viewMode}
-        onMarkdownChange={updateActiveMarkdown}
+        outlineOpen={activeTab.outlineOpen}
+        onDocumentChange={updateActiveDocument}
         onViewModeChange={setActiveViewMode}
+        registerImage={registerImage}
+        onPromptLink={handlePromptLink}
         onEditorReady={(editor) => {
           editorRef.current = editor
         }}

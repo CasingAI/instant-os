@@ -40,14 +40,15 @@ export function PagesContextMenu({ items, style, onAction }: PagesContextMenuPro
 export function buildContextMenuItems(opts: {
   inTable: boolean
   onLink: boolean
+  onImage?: boolean
 }): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
     { type: 'action', id: 'copy', label: '复制', shortcut: '⌘C' },
     { type: 'action', id: 'cut', label: '剪切', shortcut: '⌘X' },
     { type: 'action', id: 'paste', label: '粘贴', shortcut: '⌘V' },
     { type: 'separator', id: 'sep-edit' },
-    { type: 'action', id: 'insert-above', label: '上方插入' },
-    { type: 'action', id: 'insert-below', label: '下方插入' },
+    { type: 'action', id: 'insert-above', label: opts.inTable ? '上方插入块' : '上方插入' },
+    { type: 'action', id: 'insert-below', label: opts.inTable ? '下方插入块' : '下方插入' },
     { type: 'action', id: 'delete-block', label: '删除块', danger: true },
   ]
 
@@ -56,6 +57,13 @@ export function buildContextMenuItems(opts: {
       { type: 'separator', id: 'sep-link' },
       { type: 'action', id: 'edit-link', label: '编辑链接' },
       { type: 'action', id: 'unset-link', label: '取消链接' },
+    )
+  }
+
+  if (opts.onImage) {
+    items.push(
+      { type: 'separator', id: 'sep-image' },
+      { type: 'action', id: 'replace-image', label: '替换图片' },
     )
   }
 

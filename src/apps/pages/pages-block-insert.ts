@@ -135,6 +135,18 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       },
     },
     {
+      id: 'image',
+      title: '图片',
+      description: '插入图片',
+      keywords: ['image', 'img', '图片', '照片'],
+      icon: '🖼',
+      section: 'common',
+      apply: (editor) => {
+        const host = editor as Editor & { __pagesInsertImage?: () => void }
+        host.__pagesInsertImage?.()
+      },
+    },
+    {
       id: 'table',
       title: '表格',
       description: '插入 3×3 表格',
@@ -192,7 +204,7 @@ export function findTopLevelBlock(editor: Editor, pos: number): TopLevelBlock | 
 }
 
 /** 行侧加号所在 gutter 算进同一行的命中宽度（px） */
-export const BLOCK_ROW_GUTTER_PX = 56
+export const BLOCK_ROW_GUTTER_PX = 44
 
 /**
  * 用「整行」（正文 + 左侧 gutter）做命中测试。

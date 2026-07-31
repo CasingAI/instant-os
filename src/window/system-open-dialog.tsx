@@ -24,6 +24,7 @@ import {
 } from '../apps/files/files-types.ts'
 import { filesLocationPathRoot } from '../apps/files/files-path.ts'
 import {
+  createBinaryFile,
   createTextFile,
   getFilesLocationLabel,
   listDirectory,
@@ -42,10 +43,14 @@ export type SystemOpenDialogOptions = {
   acceptExtensions?: readonly string[]
   /** 是否显示「新建」；默认 false。folder 模式下忽略 */
   allowCreate?: boolean
-  /** 新建文件后缀，默认 txt；支持文本类后缀落盘（txt / md / markdown） */
+  /** 新建文件后缀，默认 txt；支持 txt / md / markdown / pages */
   createExtension?: string
-  /** 新建文件初始正文；默认空字符串 */
+  /** 新建文本文件初始正文；默认空字符串（与 createInitialBytes 二选一） */
   createInitialText?: string
+  /** 新建二进制文件初始内容（如 .pages 包）；优先于 createInitialText */
+  createInitialBytes?: Uint8Array
+  /** 新建二进制文件的 MIME；默认 application/octet-stream */
+  createMimeType?: string
   /** 选择目标；默认 file */
   selectionMode?: SystemOpenDialogSelectionMode
   /**
@@ -163,9 +168,13 @@ function SystemOpenDialogBrowser({
 
   const createExtension = normalizeFileExtension(options.createExtension ?? 'txt') || 'txt'
   const createInitialText = options.createInitialText ?? ''
+  const createInitialBytes = options.createInitialBytes
+  const createMimeType = options.createMimeType ?? 'application/octet-stream'
   const allowCreate = !folderMode && options.allowCreate === true
   const canCreateTextExtension =
     createExtension === 'txt' || createExtension === 'md' || createExtension === 'markdown'
+  const canCreateBinaryExtension = createExtension === 'pages'
+  const canCreateExtension = canCreateTextExtension || canCreateBinaryExtension
   const canChooseFormats = !folderMode && configuredAccept !== undefined && configuredAccept.size > 0
 
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -447,10 +456,10 @@ function SystemOpenDialogBrowser({
 
   const handleCreate = useCallback(async () => {
     if (!allowCreate || !canCreateHere || busy) return
-    if (!canCreateTextExtension) {
+    if (!canCreateExtension) {
       await modal.alert({
         title: '无法新建',
-        message: '当前仅支持新建文本类文件（.txt / .md / .markdown）。',
+        message: '当前仅支持新建文本类文件（.txt / .md）或文稿包（.pages）。',
         themeColor: THEME,
       })
       return
@@ -470,12 +479,27 @@ function SystemOpenDialogBrowser({
 
     setBusy(true)
     try {
-      const node = await createTextFile({
-        locationId,
-        parentId: folderId,
-        name: toCreateFileName(name, createExtension),
-        text: createInitialText,
-      })
+      const fileName = toCreateFileName(name, createExtension)
+      let node
+      if (canCreateBinaryExtension) {
+        const raw = createInitialBytes ?? new Uint8Array()
+        const copy = new Uint8Array(raw.byteLength)
+        copy.set(raw)
+        node = await createBinaryFile({
+          locationId,
+          parentId: folderId,
+          name: fileName,
+          bytes: copy.buffer,
+          mimeType: createMimeType,
+        })
+      } else {
+        node = await createTextFile({
+          locationId,
+          parentId: folderId,
+          name: fileName,
+          text: createInitialText,
+        })
+      }
       await pickNodePath(node)
     } catch (err) {
       await modal.alert({ title: '无法创建', message: formatError(err), themeColor: THEME })
@@ -485,10 +509,13 @@ function SystemOpenDialogBrowser({
   }, [
     allowCreate,
     busy,
+    canCreateBinaryExtension,
+    canCreateExtension,
     canCreateHere,
-    canCreateTextExtension,
     createExtension,
+    createInitialBytes,
     createInitialText,
+    createMimeType,
     folderId,
     locationId,
     modal,

@@ -7,12 +7,16 @@ import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
+import Image from '@tiptap/extension-image'
+import Underline from '@tiptap/extension-underline'
 import { Markdown } from 'tiptap-markdown'
 import { createSlashCommandsExtension, type SlashCommandItem } from './pages-slash-commands.ts'
+import { PAGES_FILE_EXTENSION } from './pages-package.ts'
 
 export const PAGES_EMPTY_MARKDOWN = '# 无标题文档\n\n'
 
-export const PAGES_OPEN_EXTENSIONS = ['md', 'markdown'] as const
+/** 文稿可打开的扩展名（原生包 + Markdown 兼容） */
+export const PAGES_OPEN_EXTENSIONS = [PAGES_FILE_EXTENSION, 'md', 'markdown'] as const
 
 export type PagesSlashHandlers = {
   items: SlashCommandItem[]
@@ -44,6 +48,12 @@ export function createPagesExtensions(slash?: PagesSlashHandlers): Extensions {
         HTMLAttributes: { class: 'pages-editor__link' },
       },
     }),
+    Underline,
+    Image.configure({
+      inline: false,
+      allowBase64: false,
+      HTMLAttributes: { class: 'pages-editor__image' },
+    }),
     Placeholder.configure({
       placeholder: '输入「/」或点左侧「+」插入块…',
     }),
@@ -55,14 +65,14 @@ export function createPagesExtensions(slash?: PagesSlashHandlers): Extensions {
       HTMLAttributes: { class: 'pages-editor__task-item' },
     }),
     Table.configure({
-      resizable: false,
+      resizable: true,
       HTMLAttributes: { class: 'pages-editor__table' },
     }),
     TableRow,
     TableHeader,
     TableCell,
     Markdown.configure({
-      html: false,
+      html: true,
       tightLists: true,
       bulletListMarker: '-',
       linkify: false,

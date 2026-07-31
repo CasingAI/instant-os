@@ -6,7 +6,8 @@ export type BlockControlsProps = {
   height: number
   plusActive?: boolean
   onPlus: () => void
-  onHandle: () => void
+  /** 手柄按下：拖拽超过阈值后重排，否则松手选中块 */
+  onHandleMouseDown: (event: MouseEvent) => void
 }
 
 export function PagesBlockControls({
@@ -15,7 +16,7 @@ export function PagesBlockControls({
   height,
   plusActive,
   onPlus,
-  onHandle,
+  onHandleMouseDown,
 }: BlockControlsProps) {
   return (
     <div
@@ -44,12 +45,12 @@ export function PagesBlockControls({
       <button
         type="button"
         class="pages-block-controls__btn pages-block-controls__btn--handle"
-        title="选中块"
-        aria-label="选中块"
+        title="拖动或选中块"
+        aria-label="拖动或选中块"
         onMouseDown={(event) => {
           event.preventDefault()
           event.stopPropagation()
-          onHandle()
+          onHandleMouseDown(event)
         }}
       >
         ⋮⋮

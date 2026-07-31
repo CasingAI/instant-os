@@ -75,6 +75,12 @@ export function PagesBubbleMenu({
         onClick={() => editor.chain().focus().toggleItalic().run()}
       />
       <BubbleBtn
+        label="U"
+        title="下划线"
+        active={editor.isActive('underline')}
+        onClick={() => editor.chain().focus().toggleUnderline().run()}
+      />
+      <BubbleBtn
         label="S"
         title="删除线"
         active={editor.isActive('strike')}
