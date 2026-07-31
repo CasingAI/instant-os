@@ -171,7 +171,7 @@ export type AiProviderEntry = {
   enabledModels: AiModelEntry[]
   defaultModel: string
   thinkingEnabled: boolean
-  /** 是否经系统代理服务器访问该供应商 */
+  /** 是否经代理服务器（WebView 后端 Worker）访问该供应商 */
   useProxy: boolean
 }
 

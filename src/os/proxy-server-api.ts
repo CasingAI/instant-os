@@ -1,4 +1,7 @@
 import {
+  getPageWorkerOrigin,
+} from '../page-host/page-host-config.ts'
+import {
   listRecentProxyServerRequests,
   recordProxyServerRequest,
 } from './proxy-server-metrics.ts'
@@ -17,6 +20,9 @@ export type { ProxyServerSettings } from './proxy-server-settings-storage.ts'
 
 /** 连通性探测目标：体积小、公开可达 */
 const PROBE_TARGET_URL = 'https://www.cloudflare.com/cdn-cgi/trace'
+
+export const PROXY_SERVER_NOT_CONFIGURED_MESSAGE =
+  '未配置代理服务器，请先在「系统设置 → 代理服务器」中填写 virtual-chromo Worker 根 URL'
 
 export class ProxyServerApiError extends Error {
   constructor(message: string) {
@@ -62,16 +68,24 @@ function resolveTargetUrl(input: RequestInfo | URL): string {
 }
 
 /**
+ * 解析用于代理/探测的 Worker origin。
+ * 传入 `baseOverride` 时只解析该字符串；未传则读已保存配置。均无则 undefined。
+ */
+export function resolveProxyWorkerOrigin(baseOverride?: string): string | undefined {
+  if (baseOverride !== undefined) {
+    return normalizeProxyBaseUrl(baseOverride) || undefined
+  }
+  return getPageWorkerOrigin()
+}
+
+/**
  * 将绝对目标 URL 拼成 Worker 代理地址：`{base}/-----{target}`。
  * `baseOverride` 用于连接探测（尚未标记 connected）。
  */
 export function buildProxiedUrl(targetUrl: string, baseOverride?: string): string {
-  const settings = loadProxyServerSettings()
-  const base = normalizeProxyBaseUrl(baseOverride ?? settings.proxyBaseUrl)
+  const base = resolveProxyWorkerOrigin(baseOverride)
   if (!base) {
-    throw new ProxyServerApiError(
-      '未配置代理服务器地址，请先在「系统设置 → 代理服务器」中填写 Worker 根 URL',
-    )
+    throw new ProxyServerApiError(PROXY_SERVER_NOT_CONFIGURED_MESSAGE)
   }
 
   let absolute: URL
@@ -100,14 +114,16 @@ function estimateDownloadBytes(response: Response): number {
 }
 
 /**
- * 经系统代理服务器发起请求。未连接时抛错。
- * 现有 CF Worker 侧主要支持 GET（对目标只做 `fetch(targetUrl)`）；
- * 调用方仍可传 init，浏览器会请求 Worker，但 Worker 未必转发 method/body。
+ * 经 WebView / virtual-chromo Worker 的宿主 CORS relay 发起请求。未连接时抛错。
+ * Worker 侧转发 method/body，并返回 access-control-allow-origin: *。
  */
 export async function proxiedFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<Response> {
+  if (!getPageWorkerOrigin()) {
+    throw new ProxyServerApiError(PROXY_SERVER_NOT_CONFIGURED_MESSAGE)
+  }
   if (!isProxyServerConnected()) {
     throw new ProxyServerApiError(
       '代理服务器未连接，请先在「系统设置 → 代理服务器」中连接',
@@ -175,10 +191,12 @@ export type ProxyServerProbeResult =
 
 /** 用给定（或已保存）的 Worker 根地址探测代理是否可用。不要求已连接。 */
 export async function probeProxyServer(proxyBaseUrl?: string): Promise<ProxyServerProbeResult> {
-  const settings = loadProxyServerSettings()
-  const base = normalizeProxyBaseUrl(proxyBaseUrl ?? settings.proxyBaseUrl)
+  const base =
+    proxyBaseUrl !== undefined
+      ? normalizeProxyBaseUrl(proxyBaseUrl) || undefined
+      : getPageWorkerOrigin()
   if (!base) {
-    return { ok: false, message: '请先填写有效的 Worker 根 URL（如 https://xxx.workers.dev）' }
+    return { ok: false, message: PROXY_SERVER_NOT_CONFIGURED_MESSAGE }
   }
 
   let proxyUrl: string
@@ -217,7 +235,7 @@ export type ProxyServerConnectResult =
   | { ok: true; settings: ProxyServerSettings; durationMs: number }
   | { ok: false; message: string; settings: ProxyServerSettings }
 
-/** 保存 URL 并探测；成功则标记已连接。 */
+/** 保存 URL 并探测；成功则标记已连接。地址必填。 */
 export async function connectProxyServer(proxyBaseUrl: string): Promise<ProxyServerConnectResult> {
   const normalized = normalizeProxyBaseUrl(proxyBaseUrl)
   if (!normalized) {
@@ -262,12 +280,15 @@ export function disconnectProxyServer(): boolean {
 }
 
 export function getProxyServerHost(): string | undefined {
-  const { proxyBaseUrl, connected } = loadProxyServerSettings()
-  if (!connected || !proxyBaseUrl) {
+  if (!isProxyServerConnected()) {
+    return undefined
+  }
+  const origin = getPageWorkerOrigin()
+  if (!origin) {
     return undefined
   }
   try {
-    return new URL(proxyBaseUrl).host
+    return new URL(origin).host
   } catch {
     return undefined
   }

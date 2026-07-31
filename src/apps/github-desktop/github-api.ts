@@ -11,7 +11,7 @@ const GITHUB_API = 'https://api.github.com'
 
 /** zipball 经代理下载；未连接时代码与 UI 共用此文案 */
 export const GITHUB_ZIPBALL_PROXY_REQUIRED_MESSAGE =
-  '克隆/整包下载需要代理服务器。请先在「系统设置 → 代理服务器」中连接'
+  '克隆/整包下载需要代理服务器。请先在「系统设置 → 代理服务器」中配置并连接'
 
 export class GithubApiError extends Error {
   status: number

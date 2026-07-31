@@ -1,5 +1,9 @@
 /** Re-export page-host config (Chromo-compatible names). */
 export {
+  PROXY_SERVER_URL_PLACEHOLDER,
+  getPageWorkerOrigin,
+  getPageViewerUrl,
+  isPageWorkerConfigured,
   PAGE_WORKER_ORIGIN,
   CHROMO_WORKER_ORIGIN,
   PAGE_VIEWER_URL,

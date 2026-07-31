@@ -8,7 +8,7 @@ import type {
   ChromoStorageEntry,
   ChromoSwInfo,
 } from './chromo-bridge.ts'
-import { CHROMO_WORKER_ORIGIN } from './chromo-config.ts'
+import { getPageWorkerOrigin } from './chromo-config.ts'
 import { filterFirstPartyCookies, hostnameFromPageUrl } from './chromo-cookie-scope.ts'
 
 export type ChromoApplicationApi = {
@@ -155,7 +155,7 @@ function isTransientStorageOrigin(origin: string): boolean {
  */
 function isViewerShellOrigin(origin: string): boolean {
   const actual = normalizeOrigin(origin)
-  const worker = normalizeOrigin(CHROMO_WORKER_ORIGIN)
+  const worker = normalizeOrigin(getPageWorkerOrigin() ?? '')
   return Boolean(actual && worker && actual === worker)
 }
 

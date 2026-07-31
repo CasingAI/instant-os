@@ -5,6 +5,8 @@ type ChromoPageFaultViewProps = {
   variant?: 'viewport' | 'panel'
   /** load: retry navigation; fatal: reload current Chromo tab (viewer + SW update) */
   onRetry?: () => void
+  /** Override primary button label (default: 重试 / 重新加载 by severity). */
+  actionLabel?: string
   /** When false, hide the “type a new URL in the omnibox” hint (e.g. read-only WebView). Default true. */
   showOmniboxHint?: boolean
 }
@@ -30,9 +32,10 @@ export function ChromoPageFaultView({
   fault,
   variant = 'viewport',
   onRetry,
+  actionLabel,
   showOmniboxHint,
 }: ChromoPageFaultViewProps) {
-  return PageFaultView({ fault, variant, onRetry, showOmniboxHint })
+  return PageFaultView({ fault, variant, onRetry, actionLabel, showOmniboxHint })
 }
 
 /** Alias for ChromoPageFaultView — preferred name in page-host consumers. */
@@ -40,11 +43,12 @@ export function PageFaultView({
   fault,
   variant = 'viewport',
   onRetry,
+  actionLabel,
   showOmniboxHint = true,
 }: ChromoPageFaultViewProps) {
   const isFatal = fault.severity === 'fatal'
   const title = isFatal ? '此页面已停止运行' : '无法加载此页'
-  const primaryLabel = isFatal ? '重新加载' : '重试'
+  const primaryLabel = actionLabel ?? (isFatal ? '重新加载' : '重试')
   const metaLines = buildMetaLines(fault)
 
   return (

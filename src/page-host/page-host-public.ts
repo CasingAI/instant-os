@@ -1,4 +1,8 @@
 export {
+  PROXY_SERVER_URL_PLACEHOLDER,
+  getPageWorkerOrigin,
+  getPageViewerUrl,
+  isPageWorkerConfigured,
   PAGE_WORKER_ORIGIN,
   PAGE_VIEWER_URL,
   PAGE_BLANK_PATH,

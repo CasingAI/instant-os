@@ -28,7 +28,7 @@ function createProxyFetch(): typeof fetch {
     if (!isProxyServerConnected()) {
       return Promise.reject(
         new ProxyServerApiError(
-          '代理服务器未连接，请先在「系统设置 -> 代理服务器」中连接',
+          '代理服务器未连接，请先在「系统设置 → 代理服务器」中配置并连接',
         ),
       )
     }

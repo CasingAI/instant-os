@@ -55,7 +55,7 @@ async function openRouterFetch(url: string): Promise<Response> {
     return await fetch(url)
   } catch {
     if (!isProxyServerConnected()) {
-      throw new Error('无法直连 OpenRouter，请先连接系统代理服务器后重试')
+      throw new Error('无法直连 OpenRouter，请先在「系统设置 → 代理服务器」中配置并连接后重试')
     }
     return proxiedFetch(url)
   }

@@ -8,6 +8,7 @@ import {
   loadProxyServerSettings,
   subscribeProxyServerSettings,
 } from '../../os/proxy-server-settings-storage.ts'
+import { PROXY_SERVER_URL_PLACEHOLDER } from '../../page-host/page-host-config.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { SettingsInlineInputRow } from '../../ui/settings-inline-input-row.tsx'
 
@@ -46,13 +47,15 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
     return subscribeProxyServerSettings(sync)
   }, [])
 
+  const hasUrl = proxyBaseUrl.trim().length > 0
+
   const handleConnect = async () => {
     if (busy) {
       return
     }
     setBusy(true)
     setStatusKind('connecting')
-    setStatusMessage('正在探测代理服务器…')
+    setStatusMessage('正在探测 WebView 后端 Worker…')
     try {
       const result = await connectProxyServer(proxyBaseUrl)
       if (result.ok) {
@@ -82,7 +85,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
     }
     setConnected(false)
     setStatusKind('idle')
-    setStatusMessage('已断开连接')
+    setStatusMessage('已断开连接（已保存的地址仍可用于 Chromo / WebView 浏览）')
   }
 
   const handleProbe = async () => {
@@ -115,14 +118,15 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
         <section class="settings__section">
           <h2 class="settings__section-title">代理服务器</h2>
           <p class="settings__section-subtitle">
-            配置 Cloudflare Worker 反向代理以绕过浏览器 CORS。连接成功后，菜单栏将显示代理服务器图标。
+            配置 Chromo / WebView 所用的 Cloudflare Worker（virtual-chromo）。未配置时浏览与宿主
+            代理出网均不可用。连接成功后，AI、GitHub 等亦可经同一地址绕过 CORS；菜单栏将显示代理服务器图标。
           </p>
 
           <div class="settings__box">
             <div class="settings__row settings__row--static">
               <span class="settings__row-name">状态</span>
               <span class="settings__row-size">
-                {connectionStatusLabel(connected, proxyBaseUrl.trim().length > 0)}
+                {connectionStatusLabel(connected, hasUrl)}
               </span>
             </div>
             <SettingsInlineInputRow
@@ -130,7 +134,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
               type="url"
               value={proxyBaseUrl}
               onChange={setProxyBaseUrl}
-              placeholder="https://xxx.workers.dev"
+              placeholder={PROXY_SERVER_URL_PLACEHOLDER}
             />
           </div>
 
@@ -148,7 +152,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
               <button
                 type="button"
                 class="settings__btn settings__btn--default"
-                disabled={busy || !proxyBaseUrl.trim()}
+                disabled={busy || !hasUrl}
                 onClick={() => void handleConnect()}
               >
                 {busy && statusKind === 'connecting' ? '连接中…' : '连接'}
@@ -157,7 +161,7 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
             <button
               type="button"
               class="settings__btn settings__btn--plain"
-              disabled={busy || !proxyBaseUrl.trim()}
+              disabled={busy || !hasUrl}
               onClick={() => void handleProbe()}
             >
               {busy && statusKind === 'probing' ? '测试中…' : '测试连通性'}
@@ -180,8 +184,9 @@ export function ProxyServerSettingsView({ onBack }: ProxyServerSettingsViewProps
           )}
 
           <p class="settings__section-footnote">
-            路径约定：{'{Worker 根地址}'}/-----{'{目标绝对 URL}'}。请确保 Worker
-            白名单允许本站 Origin/Referer（若已启用校验）。
+            宿主出网路径：{'{Worker 根地址}'}/-----{'{目标绝对 URL}'}（需部署支持宿主 CORS
+            relay 的 virtual-chromo）。无内置默认地址；本地调试请自行填写 wrangler 地址（如
+            http://localhost:8787）。
           </p>
         </section>
       </div>

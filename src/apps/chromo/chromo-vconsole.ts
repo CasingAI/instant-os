@@ -1,4 +1,4 @@
-import { CHROMO_WORKER_ORIGIN } from './chromo-config.ts'
+import { getPageWorkerOrigin } from './chromo-config.ts'
 
 /** Locked to the vendored file in virtual-chromo/public/vendor/vconsole.min.js */
 export const VCONSOLE_VERSION = '3.15.1'
@@ -10,7 +10,13 @@ export type VConsoleEvalResult = {
 }
 
 function workerOrigin(origin?: string): string {
-  return (origin ?? CHROMO_WORKER_ORIGIN).replace(/\/$/, '')
+  const resolved = (origin ?? getPageWorkerOrigin() ?? '').replace(/\/$/, '')
+  if (!resolved) {
+    throw new Error(
+      '未配置代理服务器，无法加载 vConsole（请先在「系统设置 → 代理服务器」中填写 Worker 根 URL）',
+    )
+  }
+  return resolved
 }
 
 /**

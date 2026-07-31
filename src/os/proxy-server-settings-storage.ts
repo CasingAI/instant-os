@@ -1,13 +1,19 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 
-/** 与现有 CF Worker 约定一致：`{base}/-----{absoluteTargetUrl}` */
+/**
+ * 与 virtual-chromo 宿主 CORS relay 约定一致：`{base}/-----{absoluteTargetUrl}`。
+ * Chromo / WebView 浏览与宿主 proxiedFetch 共用同一 Worker origin。
+ */
 export const PROXY_SERVER_PATH_PREFIX = '/-----'
 
 export type ProxyServerSettings = {
   version: 1
-  /** Worker 根地址，无尾斜杠；空字符串表示未配置 */
+  /**
+   * virtual-chromo Worker 根地址，无尾斜杠；空字符串表示未配置
+   *（Chromo / WebView / proxiedFetch 均不可用，无内置默认）
+   */
   proxyBaseUrl: string
-  /** 是否已连接（菜单栏图标、proxiedFetch 均依赖此项） */
+  /** 是否已连接（菜单栏图标、proxiedFetch 均依赖此项；浏览不要求 connected） */
   connected: boolean
 }
 

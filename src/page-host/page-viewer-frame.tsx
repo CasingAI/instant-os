@@ -1,5 +1,14 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'preact/compat'
-import { CHROMO_VIEWER_URL } from './page-host-config.ts'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'preact/compat'
+import {
+  getPageViewerUrl,
+  getPageWorkerOrigin,
+} from './page-host-config.ts'
+import {
+  openSettingsProxyServerView,
+  subscribeProxyServerSettings,
+} from '../os/proxy-server-settings-storage.ts'
+import { PROXY_SERVER_NOT_CONFIGURED_MESSAGE } from '../os/proxy-server-api.ts'
+import { PageFaultView } from './page-fault-view.tsx'
 import {
   createChromoBridge,
   type ChromoBridge,
@@ -125,8 +134,24 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     const bridgeRef = useRef<ChromoBridge | null>(null)
     const initialUrlRef = useRef(initialUrl)
     const disableNetworkCacheRef = useRef(disableNetworkCache)
+    const [viewerUrl, setViewerUrl] = useState(() => getPageViewerUrl())
+    const [viewerEpoch, setViewerEpoch] = useState(0)
 
     disableNetworkCacheRef.current = disableNetworkCache
+    initialUrlRef.current = initialUrl
+
+    useEffect(() => {
+      let lastOrigin = getPageWorkerOrigin()
+      return subscribeProxyServerSettings(() => {
+        const nextOrigin = getPageWorkerOrigin()
+        if (nextOrigin === lastOrigin) {
+          return
+        }
+        lastOrigin = nextOrigin
+        setViewerUrl(getPageViewerUrl())
+        setViewerEpoch((epoch) => epoch + 1)
+      })
+    }, [])
 
     const onReadyRef = useRef(onReady)
     const onNavigatedRef = useRef(onNavigated)
@@ -153,6 +178,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
     onHistoryRef.current = onHistory
 
     useEffect(() => {
+      if (!viewerUrl) {
+        bridgeRef.current?.destroy()
+        bridgeRef.current = null
+        return
+      }
+
       const iframe = iframeRef.current
       if (!iframe) {
         return
@@ -191,7 +222,7 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
         bridge.destroy()
         bridgeRef.current = null
       }
-    }, [devtoolsId])
+    }, [devtoolsId, viewerEpoch, viewerUrl])
 
     useEffect(() => {
       bridgeRef.current?.setNetworkOptions({ disableCache: disableNetworkCache })
@@ -219,11 +250,12 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
             return
           }
           const iframe = iframeRef.current
-          if (!iframe) {
+          const url = getPageViewerUrl()
+          if (!iframe || !url) {
             return
           }
-          const sep = CHROMO_VIEWER_URL.includes('?') ? '&' : '?'
-          iframe.src = `${CHROMO_VIEWER_URL}${sep}_r=${Date.now()}`
+          const sep = url.includes('?') ? '&' : '?'
+          iframe.src = `${url}${sep}_r=${Date.now()}`
         },
         stop() {
           bridgeRef.current?.stop()
@@ -412,11 +444,31 @@ export const ChromoViewerFrame = forwardRef<ChromoViewerHandle, ChromoViewerFram
       [],
     )
 
+    if (!viewerUrl) {
+      return (
+        <div
+          class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden'].filter(Boolean).join(' ')}
+        >
+          <PageFaultView
+            fault={{
+              severity: 'load',
+              code: 'PROXY_NOT_CONFIGURED',
+              message: PROXY_SERVER_NOT_CONFIGURED_MESSAGE,
+            }}
+            onRetry={() => openSettingsProxyServerView()}
+            actionLabel="打开代理服务器设置"
+            showOmniboxHint={false}
+          />
+        </div>
+      )
+    }
+
     return (
       <iframe
+        key={viewerEpoch}
         ref={iframeRef}
         class={['chromo__viewer', active ? '' : 'chromo__viewer--hidden'].filter(Boolean).join(' ')}
-        src={CHROMO_VIEWER_URL}
+        src={viewerUrl}
         title="Chromo WebView"
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
       />

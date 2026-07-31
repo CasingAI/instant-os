@@ -1,14 +1,41 @@
-export const PAGE_WORKER_ORIGIN =
-  import.meta.env.DEV ? 'http://localhost:8787' : 'https://virtual-chromo.r6sg.workers.dev'
+import {
+  loadProxyServerSettings,
+  normalizeProxyBaseUrl,
+} from '../os/proxy-server-settings-storage.ts'
 
-/** @deprecated Prefer PAGE_WORKER_ORIGIN */
-export const CHROMO_WORKER_ORIGIN = PAGE_WORKER_ORIGIN
+/** 设置页输入框占位示例（非运行时默认，未配置时不会自动使用） */
+export const PROXY_SERVER_URL_PLACEHOLDER = 'https://your-worker.workers.dev'
 
-/** 单用户全局 viewer 入口；cookie / storage / hot cache 全局共享。 */
-export const PAGE_VIEWER_URL = `${PAGE_WORKER_ORIGIN}/viewer`
+/**
+ * Chromo / WebView 与宿主 proxiedFetch 共用的 Worker origin。
+ * 仅来自系统设置；未配置时返回 undefined。
+ */
+export function getPageWorkerOrigin(): string | undefined {
+  const configured = normalizeProxyBaseUrl(loadProxyServerSettings().proxyBaseUrl)
+  return configured || undefined
+}
 
-/** @deprecated Prefer PAGE_VIEWER_URL */
-export const CHROMO_VIEWER_URL = PAGE_VIEWER_URL
+export function isPageWorkerConfigured(): boolean {
+  return getPageWorkerOrigin() !== undefined
+}
+
+/** 单用户全局 viewer 入口；未配置代理时返回 undefined。 */
+export function getPageViewerUrl(): string | undefined {
+  const origin = getPageWorkerOrigin()
+  return origin ? `${origin}/viewer` : undefined
+}
+
+/** @deprecated Prefer getPageWorkerOrigin() */
+export const PAGE_WORKER_ORIGIN = ''
+
+/** @deprecated Prefer getPageWorkerOrigin() */
+export const CHROMO_WORKER_ORIGIN = ''
+
+/** @deprecated Prefer getPageViewerUrl() */
+export const PAGE_VIEWER_URL = ''
+
+/** @deprecated Prefer getPageViewerUrl() */
+export const CHROMO_VIEWER_URL = ''
 
 /** Worker 上的新标签空白页（viewer 自动加载；地址栏保持空）。 */
 export const PAGE_BLANK_PATH = '/blank.html'

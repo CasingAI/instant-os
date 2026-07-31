@@ -25,7 +25,7 @@ const TASK_STATE_PATCH_FAILURE = { lastResult: 'failure' as const }
  * 定价数据源：pricetoken.ai 官方 SDK。
  * SDK 内部使用原生 fetch 访问 https://pricetoken.ai（该 API 面向浏览器开放），
  * 默认货币 USD；免费额度 30 次/小时，远高于本系统最小刷新间隔（1 小时）。
- * 注意：SDK 不支持注入 proxiedFetch，因此不经系统代理服务器转发。
+ * 注意：SDK 不支持注入 proxiedFetch，因此不经代理服务器转发。
  */
 const client = new PriceTokenClient()
 

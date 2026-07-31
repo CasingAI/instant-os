@@ -14,7 +14,7 @@ export type OpenAiConfig = {
   defaultModel: string
   providerId: AiProviderId
   thinkingEnabled: boolean
-  /** 是否经系统代理服务器访问 */
+  /** 是否经代理服务器（WebView 后端 Worker）访问 */
   useProxy?: boolean
 }
 
