@@ -10,7 +10,13 @@ import {
   labelForVscodeAiModel,
   resolveVscodeAiThinkingEnabledForModelKey,
 } from './vscode-ai-models.ts'
-import type { VscodeAiModelOptionPrefs } from './vscode-prefs.ts'
+import {
+  VSCODE_AI_CONTEXT_WINDOW_PRESETS,
+  VSCODE_AI_THINKING_EFFORT_PRESETS,
+  type VscodeAiContextWindowPref,
+  type VscodeAiModelOptionPrefs,
+  type VscodeAiThinkingEffortPref,
+} from './vscode-prefs.ts'
 
 const PRESET_BLURBS: Record<string, string> = {
   'deepseek-v4-flash': '快速响应，适合日常对话与轻量编码。',
@@ -48,6 +54,58 @@ export function resolveVscodeAiSystemContextWindow(
     providerEntryId: model.providerEntryId,
     providerId: model.providerId,
   })
+}
+
+/** 编辑气泡披露行 / 选项列表用的档位短文案 */
+export function formatVscodeAiContextWindowPrefLabel(
+  pref: VscodeAiContextWindowPref,
+): string {
+  if (pref === 'system') return '系统'
+  return formatCompactTokenCount(pref)
+}
+
+export function listVscodeAiContextWindowPrefOptions(
+  systemTokens: number,
+): ReadonlyArray<{ value: VscodeAiContextWindowPref; label: string }> {
+  return [
+    {
+      value: 'system',
+      label: `使用系统值（${formatCompactTokenCount(systemTokens)}）`,
+    },
+    ...VSCODE_AI_CONTEXT_WINDOW_PRESETS.map((value) => ({
+      value,
+      label: formatCompactTokenCount(value),
+    })),
+  ]
+}
+
+const THINKING_EFFORT_LABELS: Record<VscodeAiThinkingEffortPref, string> = {
+  default: '默认',
+  none: '无',
+  minimal: '极低',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '极高',
+}
+
+export function formatVscodeAiThinkingEffortPrefLabel(
+  pref: VscodeAiThinkingEffortPref,
+): string {
+  return THINKING_EFFORT_LABELS[pref]
+}
+
+export function listVscodeAiThinkingEffortPrefOptions(): ReadonlyArray<{
+  value: VscodeAiThinkingEffortPref
+  label: string
+}> {
+  return [
+    { value: 'default', label: '默认' },
+    ...VSCODE_AI_THINKING_EFFORT_PRESETS.map((value) => ({
+      value,
+      label: THINKING_EFFORT_LABELS[value],
+    })),
+  ]
 }
 
 export function describeVscodeAiModel(model: FlatEnabledModel): string {
@@ -132,11 +190,16 @@ export function displayPartsForVscodeAiModel(
     resolveVscodeAiThinkingEnabledForModelKey(modelKey, options)
   ) {
     bits.push('思考')
+    const effort = options?.[modelKey]?.thinkingEffort
+    if (effort && effort !== 'default') {
+      bits.push(formatVscodeAiThinkingEffortPrefLabel(effort))
+    }
   }
 
   const contextPref = options?.[modelKey]?.contextWindow
-  if (contextPref === 64000) bits.push('64K')
-  else if (contextPref === 128000) bits.push('128K')
+  if (typeof contextPref === 'number') {
+    bits.push(formatCompactTokenCount(contextPref))
+  }
 
   return {
     primary,

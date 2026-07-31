@@ -23,6 +23,27 @@ export function totalStreamTextLength(reasoningText: string, contentText: string
 
 export type ThinkingRequestParam = {
   thinking: { type: 'enabled' | 'disabled' }
+  /** OpenAI 标准推理力度；未设置则不传，走模型默认 */
+  reasoning_effort?: AiReasoningEffort
+}
+
+/** OpenAI reasoning_effort 常用档位（模型实际支持集可能更窄） */
+export const AI_REASONING_EFFORT_PRESETS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const
+
+export type AiReasoningEffort = (typeof AI_REASONING_EFFORT_PRESETS)[number]
+
+export function isAiReasoningEffort(value: unknown): value is AiReasoningEffort {
+  return (
+    typeof value === 'string' &&
+    (AI_REASONING_EFFORT_PRESETS as readonly string[]).includes(value)
+  )
 }
 
 /** 小米语音识别 / 合成不支持 thinking 参数 */
@@ -66,14 +87,24 @@ export function buildThinkingRequestExtras(
   providerId: AiProviderId | undefined,
   thinkingEnabled: boolean,
   modelId?: string,
+  thinkingEffort?: AiReasoningEffort | 'default' | undefined,
 ): ThinkingRequestParam | Record<string, never> {
   if (!supportsThinkingParam(providerId, modelId)) {
     return {}
   }
 
-  return {
+  const extras: ThinkingRequestParam = {
     thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' },
   }
+  if (
+    thinkingEnabled &&
+    thinkingEffort &&
+    thinkingEffort !== 'default' &&
+    isAiReasoningEffort(thinkingEffort)
+  ) {
+    extras.reasoning_effort = thinkingEffort
+  }
+  return extras
 }
 
 /** 多轮工具调用时是否须在 assistant 消息上回传 reasoning_content */

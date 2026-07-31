@@ -6,6 +6,7 @@ import {
   type AiModelCapability,
   type AiProviderId,
 } from './ai-providers.ts'
+import type { AiReasoningEffort } from './ai-thinking.ts'
 import { notifyOpenAiConfigChange, subscribeOpenAiConfig } from './openai-config-events.ts'
 
 export type OpenAiConfig = {
@@ -14,6 +15,11 @@ export type OpenAiConfig = {
   defaultModel: string
   providerId: AiProviderId
   thinkingEnabled: boolean
+  /**
+   * OpenAI reasoning_effort；缺省不传（模型默认）。
+   * 仅在 thinkingEnabled 时有意义。
+   */
+  thinkingEffort?: AiReasoningEffort
   /** 是否经代理服务器（WebView 后端 Worker）访问 */
   useProxy?: boolean
 }
@@ -67,6 +73,7 @@ export function mergeOpenAiConfig(
     getDefaultThinkingEnabled(providerId)
   const useProxy =
     overrides?.useProxy ?? stored?.useProxy ?? false
+  const thinkingEffort = overrides?.thinkingEffort
 
   if (!apiKey) {
     throw new Error(
@@ -80,6 +87,7 @@ export function mergeOpenAiConfig(
     defaultModel,
     providerId,
     thinkingEnabled,
+    ...(thinkingEffort ? { thinkingEffort } : {}),
     useProxy,
   }
 }

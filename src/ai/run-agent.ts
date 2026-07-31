@@ -3,6 +3,7 @@ import type { AgentTool } from './agent-tool.ts'
 import { isAgentToolStructuredResult, toChatCompletionTool } from './agent-tool.ts'
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
 import { buildThinkingRequestExtras, providerRequiresReasoningContentEcho, readStreamDelta } from './ai-thinking.ts'
+import type { AiReasoningEffort } from './ai-thinking.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import {
   finishAiEventLogSession,
@@ -299,6 +300,7 @@ async function streamAssistantTurn(options: {
   chatTools: OpenAI.Chat.ChatCompletionTool[] | undefined
   providerId: ReturnType<typeof mergeOpenAiConfig>['providerId']
   thinkingEnabled: boolean
+  thinkingEffort?: AiReasoningEffort
   includeUsage: boolean
   step: number
   signal?: AbortSignal
@@ -326,6 +328,7 @@ async function streamAssistantTurn(options: {
           options.providerId,
           options.thinkingEnabled,
           options.model,
+          options.thinkingEffort,
         ),
       },
       options.signal,
@@ -576,6 +579,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         chatTools,
         providerId: config.providerId,
         thinkingEnabled: config.thinkingEnabled,
+        thinkingEffort: config.thinkingEffort,
         includeUsage: Boolean(options.usageContext || options.onUsage),
         step,
         signal: options.signal,

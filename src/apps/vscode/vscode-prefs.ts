@@ -19,11 +19,36 @@ export type VscodeSearchPrefs = {
   searchEditorContextLines: number
 }
 
+/** VS Code 本地可选手动上下文档位（token） */
+export const VSCODE_AI_CONTEXT_WINDOW_PRESETS = [
+  64000, 128000, 200000, 300000, 500000,
+] as const
+
+export type VscodeAiContextWindowPreset =
+  (typeof VSCODE_AI_CONTEXT_WINDOW_PRESETS)[number]
+
 /** VS Code 本地覆盖的上下文窗口；缺省视为跟随系统（钥匙串）配置 */
-export type VscodeAiContextWindowPref = 'system' | 64000 | 128000
+export type VscodeAiContextWindowPref = 'system' | VscodeAiContextWindowPreset
+
+/** OpenAI reasoning_effort 档位；default = 不传参数 */
+export const VSCODE_AI_THINKING_EFFORT_PRESETS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const
+
+export type VscodeAiThinkingEffortPreset =
+  (typeof VSCODE_AI_THINKING_EFFORT_PRESETS)[number]
+
+export type VscodeAiThinkingEffortPref = 'default' | VscodeAiThinkingEffortPreset
 
 export type VscodeAiModelOptionPrefs = {
   thinkingEnabled?: boolean
+  /** 思考深度（reasoning_effort）；缺省 / default = 不传 */
+  thinkingEffort?: VscodeAiThinkingEffortPref
   /** 上下文窗口覆盖；缺省 / system = 跟随钥匙串解析 */
   contextWindow?: VscodeAiContextWindowPref
 }
@@ -145,10 +170,33 @@ const DEFAULT_PREFS: VscodePrefs = {
   customSubAgents: [],
 }
 
+function isThinkingEffortPreset(
+  value: unknown,
+): value is VscodeAiThinkingEffortPreset {
+  return (
+    typeof value === 'string' &&
+    (VSCODE_AI_THINKING_EFFORT_PRESETS as readonly string[]).includes(value)
+  )
+}
+
+function normalizeThinkingEffortPref(
+  value: unknown,
+): VscodeAiThinkingEffortPref | undefined {
+  if (value === 'default' || isThinkingEffortPreset(value)) return value
+  return undefined
+}
+
+function isContextWindowPreset(value: unknown): value is VscodeAiContextWindowPreset {
+  return (
+    typeof value === 'number' &&
+    (VSCODE_AI_CONTEXT_WINDOW_PRESETS as readonly number[]).includes(value)
+  )
+}
+
 function normalizeContextWindowPref(
   value: unknown,
 ): VscodeAiContextWindowPref | undefined {
-  if (value === 'system' || value === 64000 || value === 128000) return value
+  if (value === 'system' || isContextWindowPreset(value)) return value
   return undefined
 }
 
@@ -170,16 +218,28 @@ function normalizeAiModelOptions(value: unknown): Record<string, VscodeAiModelOp
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const trimmedKey = key.trim()
     if (!trimmedKey || !entry || typeof entry !== 'object') continue
-    const raw = entry as { thinkingEnabled?: unknown; contextWindow?: unknown }
+    const raw = entry as {
+      thinkingEnabled?: unknown
+      thinkingEffort?: unknown
+      contextWindow?: unknown
+    }
     const next: VscodeAiModelOptionPrefs = {}
     if (typeof raw.thinkingEnabled === 'boolean') {
       next.thinkingEnabled = raw.thinkingEnabled
+    }
+    const thinkingEffort = normalizeThinkingEffortPref(raw.thinkingEffort)
+    if (thinkingEffort !== undefined) {
+      next.thinkingEffort = thinkingEffort
     }
     const contextWindow = normalizeContextWindowPref(raw.contextWindow)
     if (contextWindow !== undefined) {
       next.contextWindow = contextWindow
     }
-    if (next.thinkingEnabled !== undefined || next.contextWindow !== undefined) {
+    if (
+      next.thinkingEnabled !== undefined ||
+      next.thinkingEffort !== undefined ||
+      next.contextWindow !== undefined
+    ) {
       result[trimmedKey] = next
     }
   }

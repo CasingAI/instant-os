@@ -6,10 +6,20 @@ import type { FlatEnabledModel } from '../../ai/ai-providers.ts'
 import { FLOATING_PANEL_VIEWPORT_PADDING } from '../../ui/compute-floating-panel-position.ts'
 import { getFloatingOverlayRoot } from '../../ui/floating-overlay-root.ts'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { PopoverNavHeader } from '../../ui/popover-nav-header.tsx'
+import { PopoverNavRow } from '../../ui/popover-nav-row.tsx'
+import {
+  PopoverNavStack,
+  usePopoverNavStack,
+} from '../../ui/popover-nav-stack.tsx'
 import {
   describeVscodeAiModel,
   displayPartsForVscodeAiModel,
+  formatVscodeAiContextWindowPrefLabel,
   formatVscodeAiModelContextLabel,
+  formatVscodeAiThinkingEffortPrefLabel,
+  listVscodeAiContextWindowPrefOptions,
+  listVscodeAiThinkingEffortPrefOptions,
   resolveVscodeAiFastPair,
   resolveVscodeAiSystemContextWindow,
 } from './vscode-ai-model-display.ts'
@@ -21,6 +31,7 @@ import {
   labelForVscodeAiModel,
   labelForVscodeModelPickerValue,
   resolveVscodeAiContextWindowPrefForModelKey,
+  resolveVscodeAiThinkingEffortPrefForModelKey,
   resolveVscodeAiThinkingEnabledForModelKey,
   resolveVscodeCapabilityPickerModelKey,
   tagsForVscodeAiModelKey,
@@ -29,8 +40,8 @@ import {
 import type {
   VscodeAiContextWindowPref,
   VscodeAiModelOptionPrefs,
+  VscodeAiThinkingEffortPref,
 } from './vscode-prefs.ts'
-import { formatCompactTokenCount } from '../browser/format-token-count.ts'
 import './vscode-ai-model-picker.css'
 
 const MAIN_PANEL_WIDTH = 280
@@ -46,6 +57,8 @@ const PICKER_ARROW_HALF = 6
 const PICKER_RADIUS = 8
 const PICKER_BORDER_INSET = 1
 const PICKER_PANEL_GAP = 1
+
+type EditNavPage = 'root' | 'context' | 'thinking'
 
 type ArrowSide = 'top' | 'bottom' | 'left' | 'right'
 
@@ -448,6 +461,15 @@ export function VscodeAiModelPicker({
   const [editKey, setEditKey] = useState<string | undefined>()
   /** DOM 锚点行 id（快捷项为 @capability:…，列表为 modelKey） */
   const [editRowKey, setEditRowKey] = useState<string | undefined>()
+  const {
+    page: editNavPage,
+    transition: editNavTransition,
+    canPop: editNavCanPop,
+    push: pushEditNav,
+    pop: popEditNav,
+    reset: resetEditNav,
+    finishTransition: finishEditNavTransition,
+  } = usePopoverNavStack<EditNavPage>('root')
   const [mainPosition, setMainPosition] = useState<AnchoredPanelPosition>({
     top: 0,
     left: 0,
@@ -600,7 +622,7 @@ export function VscodeAiModelPicker({
     updateSidePositions()
     const frame = window.requestAnimationFrame(updateSidePositions)
     return () => window.cancelAnimationFrame(frame)
-  }, [open, hoveredKey, editKey, editRowKey, updateSidePositions, aiModelOptions])
+  }, [open, hoveredKey, editKey, editRowKey, updateSidePositions, aiModelOptions, editNavPage, editNavTransition])
 
   useEffect(() => {
     if (!open) {
@@ -608,13 +630,14 @@ export function VscodeAiModelPicker({
       setHoveredKey(undefined)
       setEditKey(undefined)
       setEditRowKey(undefined)
+      resetEditNav()
       return
     }
     const frame = window.requestAnimationFrame(() => {
       searchRef.current?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [open])
+  }, [open, resetEditNav])
 
   useEffect(() => {
     if (!open) return
@@ -631,8 +654,10 @@ export function VscodeAiModelPicker({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (editKey) {
+          if (editNavCanPop && popEditNav()) return
           setEditKey(undefined)
           setEditRowKey(undefined)
+          resetEditNav()
           return
         }
         setOpen(false)
@@ -645,11 +670,12 @@ export function VscodeAiModelPicker({
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [open, editKey])
+  }, [open, editKey, editNavCanPop, popEditNav, resetEditNav])
 
   const clearEdit = () => {
     setEditKey(undefined)
     setEditRowKey(undefined)
+    resetEditNav()
   }
 
   const toggleEdit = (modelKey: string, rowKey: string) => {
@@ -657,6 +683,7 @@ export function VscodeAiModelPicker({
       clearEdit()
       return
     }
+    resetEditNav()
     setEditKey(modelKey)
     setEditRowKey(rowKey)
   }
@@ -668,6 +695,30 @@ export function VscodeAiModelPicker({
     onAiModelOptionsChange(next)
   }
 
+  const isModelOptionEmpty = (prefs: VscodeAiModelOptionPrefs) =>
+    prefs.thinkingEnabled === undefined &&
+    prefs.thinkingEffort === undefined &&
+    prefs.contextWindow === undefined
+
+  const setThinkingEffortForKey = (
+    modelKey: string,
+    thinkingEffort: VscodeAiThinkingEffortPref,
+  ) => {
+    const next = { ...aiModelOptions }
+    const current = next[modelKey] ?? {}
+    if (thinkingEffort === 'default') {
+      const { thinkingEffort: _removed, ...rest } = current
+      if (isModelOptionEmpty(rest)) {
+        delete next[modelKey]
+      } else {
+        next[modelKey] = rest
+      }
+    } else {
+      next[modelKey] = { ...current, thinkingEffort }
+    }
+    onAiModelOptionsChange(next)
+  }
+
   const setContextWindowForKey = (
     modelKey: string,
     contextWindow: VscodeAiContextWindowPref,
@@ -676,7 +727,7 @@ export function VscodeAiModelPicker({
     const current = next[modelKey] ?? {}
     if (contextWindow === 'system') {
       const { contextWindow: _removed, ...rest } = current
-      if (rest.thinkingEnabled === undefined) {
+      if (isModelOptionEmpty(rest)) {
         delete next[modelKey]
       } else {
         next[modelKey] = rest
@@ -914,81 +965,184 @@ export function VscodeAiModelPicker({
               position={editPosition}
               onMouseEnter={() => setHoveredKey(editRowKey ?? editKey)}
             >
-              {supportsThinkingParam(editModel.providerId, editModel.modelId) ? (
-                <>
-                  <div class="vscode-ai-model-picker__edit-section-label">选项</div>
-                  <div class="vscode-ai-model-picker__edit-row">
-                    <span class="vscode-ai-model-picker__edit-row-label">思考</span>
-                    <IosSwitch
-                      label="思考"
-                      checked={resolveVscodeAiThinkingEnabledForModelKey(
-                        editKey,
-                        aiModelOptions,
-                      )}
-                      onChange={(checked) => setThinkingForKey(editKey, checked)}
-                    />
-                  </div>
-                </>
-              ) : undefined}
-              {(() => {
-                const pair = resolveVscodeAiFastPair(editModel, models)
-                if (!pair) return undefined
-                const fastOn = editKey === pair.fastKey
-                return (
-                  <>
-                    {!supportsThinkingParam(editModel.providerId, editModel.modelId) ? (
-                      <div class="vscode-ai-model-picker__edit-section-label">选项</div>
-                    ) : undefined}
-                    <div class="vscode-ai-model-picker__edit-row">
-                      <span class="vscode-ai-model-picker__edit-row-label">极速</span>
-                      <IosSwitch
-                        label="极速"
-                        checked={fastOn}
-                        onChange={(checked) => {
-                          const nextKey = checked ? pair.fastKey : pair.baseKey
-                          onChange(nextKey)
-                          setEditKey(nextKey)
-                          // 从列表打开时锚点随模型走；从快捷项打开时保持锚在快捷项行
-                          if (!editRowKey || !isVscodeModelCapabilityValue(editRowKey)) {
-                            setEditRowKey(nextKey)
-                          }
-                          setHoveredKey(editRowKey ?? nextKey)
-                        }}
-                      />
-                    </div>
-                  </>
-                )
-              })()}
-              <div class="vscode-ai-model-picker__edit-section-label">上下文长度</div>
-              {(
-                [
-                  {
-                    value: 'system' as const,
-                    label: `使用系统值（${formatCompactTokenCount(resolveVscodeAiSystemContextWindow(editModel))}）`,
-                  },
-                  { value: 64000 as const, label: '64K' },
-                  { value: 128000 as const, label: '128K' },
-                ] as const
-              ).map((option) => {
-                const current = resolveVscodeAiContextWindowPrefForModelKey(
-                  editKey,
-                  aiModelOptions,
-                )
-                const checked = current === option.value
-                return (
-                  <button
-                    key={String(option.value)}
-                    type="button"
-                    class={`vscode-ai-model-picker__edit-choice${checked ? ' vscode-ai-model-picker__edit-choice--checked' : ''}`}
-                    onClick={() => setContextWindowForKey(editKey, option.value)}
-                  >
-                    <span class="vscode-ai-model-picker__edit-choice-check" aria-hidden="true">
-                      {checked ? '✓' : ''}
-                    </span>
-                    <span class="vscode-ai-model-picker__edit-choice-label">{option.label}</span>
-                  </button>
-                )
-              })}
+              <PopoverNavStack
+                page={editNavPage}
+                transition={editNavTransition}
+                onTransitionEnd={finishEditNavTransition}
+                dark={dark}
+                renderPage={(page) => {
+                  if (page === 'context') {
+                    const current = resolveVscodeAiContextWindowPrefForModelKey(
+                      editKey,
+                      aiModelOptions,
+                    )
+                    const options = listVscodeAiContextWindowPrefOptions(
+                      resolveVscodeAiSystemContextWindow(editModel),
+                    )
+                    return (
+                      <>
+                        <PopoverNavHeader
+                          title="上下文长度"
+                          backLabel="选项"
+                          onBack={() => {
+                            popEditNav()
+                          }}
+                          dark={dark}
+                        />
+                        {options.map((option) => {
+                          const checked = current === option.value
+                          return (
+                            <button
+                              key={String(option.value)}
+                              type="button"
+                              class={`vscode-ai-model-picker__edit-choice${checked ? ' vscode-ai-model-picker__edit-choice--checked' : ''}`}
+                              onClick={() =>
+                                setContextWindowForKey(editKey, option.value)
+                              }
+                            >
+                              <span
+                                class="vscode-ai-model-picker__edit-choice-check"
+                                aria-hidden="true"
+                              >
+                                {checked ? '✓' : ''}
+                              </span>
+                              <span class="vscode-ai-model-picker__edit-choice-label">
+                                {option.label}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </>
+                    )
+                  }
+
+                  if (page === 'thinking') {
+                    const current = resolveVscodeAiThinkingEffortPrefForModelKey(
+                      editKey,
+                      aiModelOptions,
+                    )
+                    const options = listVscodeAiThinkingEffortPrefOptions()
+                    return (
+                      <>
+                        <PopoverNavHeader
+                          title="思考深度"
+                          backLabel="选项"
+                          onBack={() => {
+                            popEditNav()
+                          }}
+                          dark={dark}
+                        />
+                        {options.map((option) => {
+                          const checked = current === option.value
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              class={`vscode-ai-model-picker__edit-choice${checked ? ' vscode-ai-model-picker__edit-choice--checked' : ''}`}
+                              onClick={() =>
+                                setThinkingEffortForKey(editKey, option.value)
+                              }
+                            >
+                              <span
+                                class="vscode-ai-model-picker__edit-choice-check"
+                                aria-hidden="true"
+                              >
+                                {checked ? '✓' : ''}
+                              </span>
+                              <span class="vscode-ai-model-picker__edit-choice-label">
+                                {option.label}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </>
+                    )
+                  }
+
+                  const contextPref = resolveVscodeAiContextWindowPrefForModelKey(
+                    editKey,
+                    aiModelOptions,
+                  )
+                  const showThinking = supportsThinkingParam(
+                    editModel.providerId,
+                    editModel.modelId,
+                  )
+                  const thinkingOn =
+                    showThinking &&
+                    resolveVscodeAiThinkingEnabledForModelKey(
+                      editKey,
+                      aiModelOptions,
+                    )
+                  const thinkingEffort = resolveVscodeAiThinkingEffortPrefForModelKey(
+                    editKey,
+                    aiModelOptions,
+                  )
+                  const pair = resolveVscodeAiFastPair(editModel, models)
+                  return (
+                    <>
+                      <PopoverNavHeader title="选项" dark={dark} />
+                      {showThinking ? (
+                        <div class="vscode-ai-model-picker__edit-row">
+                          <span class="vscode-ai-model-picker__edit-row-label">思考</span>
+                          <IosSwitch
+                            label="思考"
+                            checked={thinkingOn}
+                            onChange={(checked) => {
+                              setThinkingForKey(editKey, checked)
+                              if (!checked && editNavPage === 'thinking') {
+                                popEditNav()
+                              }
+                            }}
+                          />
+                        </div>
+                      ) : undefined}
+                      {thinkingOn ? (
+                        <div class="vscode-ai-model-picker__edit-nav-row">
+                          <PopoverNavRow
+                            label="思考深度"
+                            value={formatVscodeAiThinkingEffortPrefLabel(
+                              thinkingEffort,
+                            )}
+                            dark={dark}
+                            onClick={() => pushEditNav('thinking')}
+                          />
+                        </div>
+                      ) : undefined}
+                      {pair ? (
+                        <div
+                          class={`vscode-ai-model-picker__edit-row${showThinking || thinkingOn ? ' vscode-ai-model-picker__edit-row--spaced' : ''}`}
+                        >
+                          <span class="vscode-ai-model-picker__edit-row-label">极速</span>
+                          <IosSwitch
+                            label="极速"
+                            checked={editKey === pair.fastKey}
+                            onChange={(checked) => {
+                              const nextKey = checked ? pair.fastKey : pair.baseKey
+                              onChange(nextKey)
+                              setEditKey(nextKey)
+                              if (
+                                !editRowKey ||
+                                !isVscodeModelCapabilityValue(editRowKey)
+                              ) {
+                                setEditRowKey(nextKey)
+                              }
+                              setHoveredKey(editRowKey ?? nextKey)
+                            }}
+                          />
+                        </div>
+                      ) : undefined}
+                      <div class="vscode-ai-model-picker__edit-nav-row">
+                        <PopoverNavRow
+                          label="上下文长度"
+                          value={formatVscodeAiContextWindowPrefLabel(contextPref)}
+                          dark={dark}
+                          onClick={() => pushEditNav('context')}
+                        />
+                      </div>
+                    </>
+                  )
+                }}
+              />
             </PickerBubbleShell>
           ) : undefined}
         </>,

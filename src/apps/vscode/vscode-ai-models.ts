@@ -14,8 +14,11 @@ import {
 } from '../../os/account-settings-storage.ts'
 import {
   loadVscodePrefs,
+  VSCODE_AI_CONTEXT_WINDOW_PRESETS,
+  VSCODE_AI_THINKING_EFFORT_PRESETS,
   type VscodeAiContextWindowPref,
   type VscodeAiModelOptionPrefs,
+  type VscodeAiThinkingEffortPref,
   type VscodeModelSource,
   type VscodePrefs,
 } from './vscode-prefs.ts'
@@ -184,7 +187,11 @@ export function resolveVscodeAiContextWindowPrefForModelKey(
   const override =
     options?.[modelKey]?.contextWindow ??
     loadVscodePrefs().aiModelOptions[modelKey]?.contextWindow
-  if (override === 64000 || override === 128000 || override === 'system') {
+  if (
+    override === 'system' ||
+    (typeof override === 'number' &&
+      (VSCODE_AI_CONTEXT_WINDOW_PRESETS as readonly number[]).includes(override))
+  ) {
     return override
   }
   return 'system'
@@ -206,6 +213,23 @@ export function resolveVscodeAiThinkingEnabledForModelKey(
   return entry?.thinkingEnabled ?? false
 }
 
+export function resolveVscodeAiThinkingEffortPrefForModelKey(
+  modelKey: string,
+  options?: Record<string, VscodeAiModelOptionPrefs>,
+): VscodeAiThinkingEffortPref {
+  const override =
+    options?.[modelKey]?.thinkingEffort ??
+    loadVscodePrefs().aiModelOptions[modelKey]?.thinkingEffort
+  if (
+    override === 'default' ||
+    (typeof override === 'string' &&
+      (VSCODE_AI_THINKING_EFFORT_PRESETS as readonly string[]).includes(override))
+  ) {
+    return override
+  }
+  return 'default'
+}
+
 export function openAiConfigForVscodeAiModelKey(
   storedKey: string | undefined,
 ): OpenAiConfig {
@@ -223,9 +247,21 @@ export function openAiConfigForVscodeAiModelKey(
   }
 
   if (key) {
-    const override = loadVscodePrefs().aiModelOptions[key]?.thinkingEnabled
-    if (typeof override === 'boolean') {
-      return { ...config, thinkingEnabled: override }
+    const modelOptions = loadVscodePrefs().aiModelOptions[key]
+    const thinkingOverride = modelOptions?.thinkingEnabled
+    const effortPref = resolveVscodeAiThinkingEffortPrefForModelKey(key)
+    const thinkingEnabled =
+      typeof thinkingOverride === 'boolean'
+        ? thinkingOverride
+        : config.thinkingEnabled
+    const thinkingEffort =
+      thinkingEnabled && effortPref !== 'default' ? effortPref : undefined
+    if (typeof thinkingOverride === 'boolean' || thinkingEffort) {
+      return {
+        ...config,
+        ...(typeof thinkingOverride === 'boolean' ? { thinkingEnabled } : {}),
+        ...(thinkingEffort ? { thinkingEffort } : {}),
+      }
     }
   }
   return config

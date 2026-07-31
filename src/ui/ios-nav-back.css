@@ -74,3 +74,11 @@
   opacity: 0.35;
   cursor: default;
 }
+
+.ios-nav-back--mini {
+  --ios-nav-back-height: 22px;
+  --ios-nav-back-font-size: 11px;
+  --ios-nav-back-radius: 4px;
+  --ios-nav-back-padding: 0 7px 0 1px;
+  max-width: min(120px, 100%);
+}

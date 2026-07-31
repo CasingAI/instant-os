@@ -134,7 +134,12 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
           { role: 'user', content: options.user },
           ...(options.followUp ?? []),
         ],
-        ...buildThinkingRequestExtras(config.providerId, thinkingEnabled, model),
+        ...buildThinkingRequestExtras(
+          config.providerId,
+          thinkingEnabled,
+          model,
+          config.thinkingEffort,
+        ),
       },
       abortController?.signal,
     )

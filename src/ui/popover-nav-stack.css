@@ -1,0 +1,90 @@
+.popover-nav-stack {
+  --popover-nav-motion-ms: 200ms;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+}
+
+.popover-nav-stack__page {
+  width: 100%;
+}
+
+.popover-nav-stack--animating {
+  /* 高度由 JS 从 from→to 过渡；页绝对定位避免撑开为 max(from,to) */
+}
+
+.popover-nav-stack--animating > .popover-nav-stack__page {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+}
+
+.popover-nav-stack--push > .popover-nav-stack__page--under {
+  animation: popover-nav-slide-out var(--popover-nav-motion-ms) ease-out forwards;
+}
+
+.popover-nav-stack--push > .popover-nav-stack__page--over {
+  animation: popover-nav-slide-in var(--popover-nav-motion-ms) ease-out forwards;
+}
+
+.popover-nav-stack--pop > .popover-nav-stack__page--under {
+  animation: popover-nav-slide-in-back var(--popover-nav-motion-ms) ease-out forwards;
+}
+
+.popover-nav-stack--pop > .popover-nav-stack__page--over {
+  animation: popover-nav-slide-out-back var(--popover-nav-motion-ms) ease-out forwards;
+}
+
+@keyframes popover-nav-slide-in {
+  from {
+    transform: translateX(40%);
+    opacity: 0.35;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes popover-nav-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-18%);
+    opacity: 0.2;
+  }
+}
+
+@keyframes popover-nav-slide-in-back {
+  from {
+    transform: translateX(-18%);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes popover-nav-slide-out-back {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(40%);
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover-nav-stack--push > .popover-nav-stack__page--under,
+  .popover-nav-stack--push > .popover-nav-stack__page--over,
+  .popover-nav-stack--pop > .popover-nav-stack__page--under,
+  .popover-nav-stack--pop > .popover-nav-stack__page--over {
+    animation-duration: 1ms;
+  }
+}

@@ -666,8 +666,31 @@
   cursor: default;
 }
 
-.vscode-ai-model-picker__edit-row + .vscode-ai-model-picker__edit-row {
+.vscode-ai-model-picker__edit-row + .vscode-ai-model-picker__edit-row,
+.vscode-ai-model-picker__edit-row--spaced {
   margin-top: 6px;
+}
+
+.vscode-ai-model-picker__edit-nav-row {
+  margin-top: 6px;
+}
+
+.vscode-ai-model-picker__edit-nav-row + .vscode-ai-model-picker__edit-row {
+  margin-top: 6px;
+}
+
+.vscode-ai-model-picker__edit-panel--dark .popover-nav-header .ios-nav-back {
+  --ios-nav-back-color: #6db3ff;
+  --ios-nav-back-color-active: #9bcfff;
+  --ios-nav-back-bg: linear-gradient(180deg, #4a4a54 0%, #3a3a42 55%, #2e2e34 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #52525c 0%, #42424a 55%, #36363c 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #2e2e34 0%, #3a3a42 100%);
+  --ios-nav-back-border: 1px solid rgba(0, 0, 0, 0.55);
+  --ios-nav-back-text-shadow: none;
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .vscode-ai-model-picker__edit-panel--dark .vscode-ai-model-picker__edit-row {

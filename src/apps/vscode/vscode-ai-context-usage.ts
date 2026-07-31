@@ -7,7 +7,11 @@ import {
 } from '../../ai/ai-providers.ts'
 import type { TokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { loadAccountSettings } from '../../os/account-settings-storage.ts'
-import { loadVscodePrefs } from './vscode-prefs.ts'
+import {
+  loadVscodePrefs,
+  VSCODE_AI_CONTEXT_WINDOW_PRESETS,
+  type VscodeAiContextWindowPref,
+} from './vscode-prefs.ts'
 import {
   estimateTokensFromTextsAsync,
   prepareTokenEstimation,
@@ -67,7 +71,7 @@ export function resolveModelContextWindow(
     providerId?: AiProviderId
     /** providerEntryId:modelId；用于读取 VS Code aiModelOptions.contextWindow */
     modelKey?: string
-    aiModelOptions?: Record<string, { contextWindow?: 'system' | 64000 | 128000 }>
+    aiModelOptions?: Record<string, { contextWindow?: VscodeAiContextWindowPref }>
   },
 ): number {
   const modelKey = options?.modelKey?.trim()
@@ -75,7 +79,12 @@ export function resolveModelContextWindow(
     const override =
       options?.aiModelOptions?.[modelKey]?.contextWindow ??
       loadVscodePrefs().aiModelOptions[modelKey]?.contextWindow
-    if (override === 64000 || override === 128000) return override
+    if (
+      typeof override === 'number' &&
+      (VSCODE_AI_CONTEXT_WINDOW_PRESETS as readonly number[]).includes(override)
+    ) {
+      return override
+    }
   }
 
   const id = modelId?.trim()
