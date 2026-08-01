@@ -121,6 +121,7 @@ import {
 import {
   buildDeletedVscodeTab,
   buildVscodeTab,
+  isPreviewableTab,
   isVscodeTabDirty,
   VSCODE_OPEN_EXTENSIONS,
   VSCODE_OPTIONAL_OPEN_EXTENSIONS,
@@ -246,6 +247,9 @@ registerFileOpenHandler({
   appId: APP_ID,
   extensions: [...VSCODE_OPEN_EXTENSIONS, ...VSCODE_OPTIONAL_OPEN_EXTENSIONS],
   rank: 10,
+  // JSONL 的结构化预览只在 Code 里，覆盖预览 app（rank 5）让其默认用 Code 打开；
+  // 打开方式里「预览」仍可选。
+  extensionRanks: { jsonl: 4, ndjson: 4 },
 })
 
 type DirtyChoice = 'save' | 'discard' | 'cancel'
@@ -919,7 +923,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const dirty = activeTab ? isVscodeTabDirty(activeTab) : false
   const writable = activeTab?.writable ?? false
   const showMarkdownPreviewAction =
-    focusedItem?.kind === 'file' && activeTab?.language === 'markdown'
+    focusedItem?.kind === 'file' && activeTab !== undefined && isPreviewableTab(activeTab)
   const hasOtherTabsInFocusedGroup =
     focusedItem !== undefined &&
     countOtherItemsInGroup(editorLayout, editorLayout.focusedGroupId, focusedItem.id) > 0
@@ -1070,6 +1074,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       tabsRef.current = restored
       activeTabIdRef.current = nextActiveId
       setTabs(restored)
+      // 恢复的 jsonl 标签同样默认进入内联预览
+      setInlinePreviewTabIds((prev) => {
+        const next = new Set(prev)
+        for (const tab of restored) {
+          if (tab.language === 'jsonl') next.add(tab.id)
+        }
+        return next
+      })
 
       const workspaceFolder = loadVscodePrefs().workspaceFolder
       const aiStore = await loadVscodeAiChatStore(workspaceFolder)
@@ -1318,6 +1330,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         flushSync(() => {
           setTabs(nextTabs)
           setEditorLayout((current) => addFileTabToFocusedGroup(current, tab.id))
+          // jsonl 打开默认进入内联预览（同帧提交，避免编辑模式闪一帧）
+          if (tab.language === 'jsonl') {
+            setInlinePreviewTabIds((prev) => new Set(prev).add(tab.id))
+          }
         })
         setRevealPath(path)
         if (options?.reveal) {
@@ -1945,7 +1961,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       group?.items.find((item) => item.id === group.activeItemId) ?? group?.items[0]
     const tabId = activeItem?.kind === 'file' ? activeItem.tabId : activeTabIdRef.current
     const tab = tabId ? tabsRef.current.find((item) => item.id === tabId) : undefined
-    if (!tab || tab.language !== 'markdown') return
+    if (!tab || !isPreviewableTab(tab)) return
     setEditorLayout((layout) => openMarkdownPreviewToSide(layout, tab.path, groupId))
   }, [])
 

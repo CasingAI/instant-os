@@ -1,29 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
+import './fixed-row-virtual-list.css'
 
 const DEFAULT_ROW_HEIGHT = 32
 const DEFAULT_OVERSCAN = 8
 
-export type GithubChangesVirtualListProps<T> = {
+export type FixedRowVirtualListProps<T> = {
   items: readonly T[]
   itemKey: (item: T, index: number) => string
   renderItem: (item: T, index: number) => ComponentChildren
   rowHeight?: number
   overscan?: number
   className?: string
+  /** 变化时滚动到该行（若在视口外则就近滚入） */
+  scrollToIndex?: number
 }
 
 /**
- * 固定行高的虚拟列表：只挂载可见行 + overscan，避免上千变更时 DOM 爆炸。
+ * 固定行高的虚拟列表：只挂载可见行 + overscan，避免超长列表 DOM 爆炸。
+ * 行高固定；需要滚动到某行时，把 scrollTop 交给外层或传入初始滚动位置。
  */
-export function GithubChangesVirtualList<T>({
+export function FixedRowVirtualList<T>({
   items,
   itemKey,
   renderItem,
   rowHeight = DEFAULT_ROW_HEIGHT,
   overscan = DEFAULT_OVERSCAN,
-  className = 'github-desktop__changes-list',
-}: GithubChangesVirtualListProps<T>) {
+  className = 'fixed-row-virtual-list',
+  scrollToIndex,
+}: FixedRowVirtualListProps<T>) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
@@ -47,6 +52,20 @@ export function GithubChangesVirtualList<T>({
     setScrollTop(el.scrollTop)
   }, [])
 
+  // 当前行变化时就近滚入视口（行在视口内则不动）
+  useEffect(() => {
+    if (scrollToIndex === undefined) return
+    const el = scrollerRef.current
+    if (!el) return
+    const top = scrollToIndex * rowHeight
+    const bottom = top + rowHeight
+    if (top < el.scrollTop) {
+      el.scrollTop = top
+    } else if (bottom > el.scrollTop + el.clientHeight) {
+      el.scrollTop = Math.max(0, bottom - el.clientHeight)
+    }
+  }, [scrollToIndex, rowHeight])
+
   const { startIndex, endIndex, offsetY, totalHeight } = useMemo(() => {
     const total = items.length * rowHeight
     if (items.length === 0 || viewportHeight <= 0) {
@@ -68,12 +87,9 @@ export function GithubChangesVirtualList<T>({
 
   return (
     <div ref={scrollerRef} class={className} onScroll={onScroll}>
-      <div
-        class="github-desktop__changes-virtual-spacer"
-        style={{ height: `${totalHeight}px` }}
-      >
+      <div class="fixed-row-virtual-list__spacer" style={{ height: `${totalHeight}px` }}>
         <div
-          class="github-desktop__changes-virtual-window"
+          class="fixed-row-virtual-list__window"
           style={{ transform: `translateY(${offsetY}px)` }}
         >
           {visible.map((item, i) => {
@@ -81,7 +97,7 @@ export function GithubChangesVirtualList<T>({
             return (
               <div
                 key={itemKey(item, index)}
-                class="github-desktop__changes-virtual-row"
+                class="fixed-row-virtual-list__row"
                 style={{ height: `${rowHeight}px` }}
               >
                 {renderItem(item, index)}

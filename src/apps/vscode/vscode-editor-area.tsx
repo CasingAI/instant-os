@@ -10,6 +10,7 @@ import type {
   VscodePrefs,
 } from './vscode-prefs.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
+import { VscodeJsonlPreview } from '../../jsonl/vscode-jsonl-preview.tsx'
 import {
   type VscodeEditorDragPayload,
   type VscodeEditorGroupState,
@@ -97,7 +98,9 @@ function computeTabSnapshot(
                 return compressionKindTabTitle(record?.compressionKind)
               })()
           : item.kind === 'preview'
-            ? `Preview ${previewSource?.name ?? 'Markdown'}`
+            ? previewSource
+              ? `Preview ${previewSource.name}`
+              : 'Preview'
             : item.kind === 'welcome'
               ? '欢迎'
               : fileTab
@@ -1006,7 +1009,21 @@ function VscodeEditorGroupView({
 
         {activeItem?.kind === 'aiChat' ? undefined : activeItem?.kind === 'preview' ? (
           <div class="vscode__preview-body">
-            <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
+            {previewSourceTab?.language === 'jsonl' ? (
+              <VscodeJsonlPreview
+                text={previewSourceTab?.text ?? ''}
+                modelPath={`vscode-jsonl-side:${activeItem.id}`}
+                prefs={{
+                  theme: prefs.theme,
+                  fontSize: prefs.fontSize,
+                  minimap: prefs.minimap,
+                  wordWrap: prefs.wordWrap,
+                }}
+                active={isActiveWindow && focused}
+              />
+            ) : (
+              <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
+            )}
           </div>
         ) : activeItem?.kind === 'searchEditor' ? (
           (() => {
@@ -1165,11 +1182,25 @@ function VscodeEditorGroupView({
             </div>
             {inlinePreviewOpen ? (
               <div class="vscode__preview-body">
-                <VscodeMarkdownPreview text={activeFileTab.text} />
+                {activeFileTab.language === 'jsonl' ? (
+                  <VscodeJsonlPreview
+                    text={activeFileTab.text}
+                    modelPath={`vscode-jsonl-inline:${activeFileTab.id}`}
+                    prefs={{
+                      theme: prefs.theme,
+                      fontSize: prefs.fontSize,
+                      minimap: prefs.minimap,
+                      wordWrap: prefs.wordWrap,
+                    }}
+                    active={isActiveWindow && focused}
+                  />
+                ) : (
+                  <VscodeMarkdownPreview text={activeFileTab.text} />
+                )}
               </div>
             ) : undefined}
             {isPreviewableTab(activeFileTab) ? (
-              <div class="vscode__preview-footer" role="toolbar" aria-label="Markdown 预览">
+              <div class="vscode__preview-footer" role="toolbar" aria-label="文档预览">
                 <button
                   type="button"
                   class={`vscode__preview-footer-seg${!inlinePreviewOpen ? ' vscode__preview-footer-seg--active' : ''}`}

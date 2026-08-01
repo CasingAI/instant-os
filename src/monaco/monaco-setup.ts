@@ -3,6 +3,7 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import { createTokenizationSupport } from 'monaco-editor/esm/vs/language/json/tokenization.js'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import * as monaco from 'monaco-editor'
 import { installMonacoDialogService } from './monaco-dialog-service.ts'
@@ -47,6 +48,39 @@ export function ensureMonacoEnvironment(): void {
 
   registerMonacoThemes()
   ensureMonacoTypescriptDefaults()
+
+  registerJsonlLanguage()
+}
+
+/**
+ * jsonl / ndjson：逐行 JSON。注册独立 language id，复用 json 的按行 tokenizer 与
+ * 语言配置，但不启用 json worker —— 避免整文件按单个 JSON schema 校验导致满屏诊断。
+ */
+function registerJsonlLanguage(): void {
+  monaco.languages.register({
+    id: 'jsonl',
+    extensions: ['.jsonl', '.ndjson'],
+    aliases: ['JSON Lines', 'jsonl', 'ndjson'],
+    mimetypes: ['application/x-ndjson'],
+  })
+  monaco.languages.setTokensProvider('jsonl', createTokenizationSupport(true))
+  // 与 jsonMode.js 的 richEditConfiguration 保持一致
+  monaco.languages.setLanguageConfiguration('jsonl', {
+    wordPattern: /(-?\d*\.\d\w*)|([^\[\{\]\}\:\"\,\s]+)/g,
+    comments: {
+      lineComment: '//',
+      blockComment: ['/*', '*/'],
+    },
+    brackets: [
+      ['{', '}'],
+      ['[', ']'],
+    ],
+    autoClosingPairs: [
+      { open: '{', close: '}', notIn: ['string'] },
+      { open: '[', close: ']', notIn: ['string'] },
+      { open: '"', close: '"', notIn: ['string'] },
+    ],
+  })
 }
 
 /**

@@ -5,12 +5,18 @@ export type FileOpenHandler = {
   extensions: readonly string[]
   /** 数字越小越优先；缺省为 100 */
   rank?: number
+  /**
+   * 个别后缀的优先级覆盖（数字越小越优先），未列出的后缀仍用 rank。
+   * 用于个别后缀需要比同 App 其它后缀更高优先级（如默认用 Code 打开 JSONL）的场景。
+   */
+  extensionRanks?: Readonly<Record<string, number>>
 }
 
 type NormalizedHandler = {
   appId: BuiltinAppId
   extensions: Set<string>
   rank: number
+  extensionRanks: Map<string, number>
 }
 
 const PREFS_STORAGE_KEY = 'instant-os-file-open-prefs-v2'
@@ -41,10 +47,19 @@ export function registerFileOpenHandler(handler: FileOpenHandler): void {
     return
   }
 
+  const extensionRanks = new Map<string, number>()
+  for (const [ext, rank] of Object.entries(handler.extensionRanks ?? {})) {
+    const key = normalizeFileExtension(ext)
+    if (key.length > 0) extensionRanks.set(key, rank)
+  }
+
   const existing = handlers.find((item) => item.appId === handler.appId)
   if (existing) {
     for (const ext of extensions) {
       existing.extensions.add(ext)
+    }
+    for (const [ext, rank] of extensionRanks) {
+      existing.extensionRanks.set(ext, rank)
     }
     if (handler.rank !== undefined) {
       existing.rank = handler.rank
@@ -56,6 +71,7 @@ export function registerFileOpenHandler(handler: FileOpenHandler): void {
     appId: handler.appId,
     extensions,
     rank: handler.rank ?? 100,
+    extensionRanks,
   })
 }
 
@@ -67,7 +83,11 @@ export function listFileOpenHandlers(fileName: string): BuiltinAppId[] {
 
   return handlers
     .filter((handler) => handler.extensions.has(extension))
-    .sort((a, b) => a.rank - b.rank || a.appId.localeCompare(b.appId))
+    .sort((a, b) => {
+      const rankA = a.extensionRanks.get(extension) ?? a.rank
+      const rankB = b.extensionRanks.get(extension) ?? b.rank
+      return rankA - rankB || a.appId.localeCompare(b.appId)
+    })
     .map((handler) => handler.appId)
 }
 

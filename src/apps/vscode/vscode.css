@@ -3303,6 +3303,17 @@ button.vscode-ai__compression-row.help-app__reasoning-status {
   background: color-mix(in srgb, var(--vscode-ink) 5%, transparent);
 }
 
+/* ── JSONL preview ── */
+
+.vscode__jsonl-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--vscode-ink);
+  font-size: var(--vscode-font-size, 13px);
+}
+
 /* ── Dark chrome（主题切换为深色时整壳跟进）── */
 
 .vscode--chrome-dark {
@@ -3652,6 +3663,20 @@ button.vscode-ai__compression-row.help-app__reasoning-status {
 
 .vscode--chrome-dark .vscode__markdown-preview pre {
   background: #1e1e24;
+}
+
+.vscode--chrome-dark .jsonl-line-viewer__nav-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vscode--chrome-dark .jsonl-line-viewer__error-banner {
+  color: #f48771;
+  background: #33201c;
+  border-bottom-color: #4a2c26;
+}
+
+.vscode--chrome-dark .jsonl-line-viewer__error-count {
+  color: #f48771;
 }
 
 .vscode--chrome-dark .vscode__panel-tab {

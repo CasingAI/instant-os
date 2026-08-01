@@ -27,6 +27,8 @@ export const PREVIEW_TEXT_EXTENSIONS = [
   'tsx',
   'json',
   'jsonc',
+  'jsonl',
+  'ndjson',
   'css',
   'scss',
   'less',

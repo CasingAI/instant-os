@@ -26,6 +26,9 @@ export function monacoLanguageFromFileName(fileName: string): string {
     case 'json':
     case 'jsonc':
       return 'json'
+    case 'jsonl':
+    case 'ndjson':
+      return 'jsonl'
     case 'html':
     case 'htm':
     case 'xhtml':
@@ -120,6 +123,7 @@ const MONACO_LANGUAGE_LABELS: Record<string, string> = {
   javascript: 'JavaScript',
   typescript: 'TypeScript',
   json: 'JSON',
+  jsonl: 'JSON Lines',
   html: 'HTML',
   css: 'CSS',
   scss: 'SCSS',
@@ -170,6 +174,7 @@ export const MONACO_SELECTABLE_LANGUAGES: readonly {
   { id: 'java', label: 'Java', keywords: ['java'] },
   { id: 'javascript', label: 'JavaScript', keywords: ['js', 'mjs', 'cjs', 'jsx'] },
   { id: 'json', label: 'JSON', keywords: ['json', 'jsonc'] },
+  { id: 'jsonl', label: 'JSON Lines', keywords: ['jsonl', 'ndjson'] },
   { id: 'kotlin', label: 'Kotlin', keywords: ['kt', 'kts'] },
   { id: 'less', label: 'Less', keywords: ['less'] },
   { id: 'lua', label: 'Lua', keywords: ['lua'] },

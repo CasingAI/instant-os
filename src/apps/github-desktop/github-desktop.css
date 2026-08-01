@@ -1171,27 +1171,7 @@
   background: var(--gd-changes-list-bg);
 }
 
-.github-desktop__changes-virtual-spacer {
-  position: relative;
-  width: 100%;
-}
-
-.github-desktop__changes-virtual-window {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  will-change: transform;
-}
-
-.github-desktop__changes-virtual-row {
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.github-desktop__changes-virtual-row > .github-desktop__change {
+.fixed-row-virtual-list__row > .github-desktop__change {
   flex: 1;
   min-width: 0;
 }

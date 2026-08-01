@@ -70,7 +70,7 @@ import {
   stashPopGithubChanges,
   stashSaveGithubChanges,
 } from './github-stash.ts'
-import { GithubChangesVirtualList } from './github-changes-virtual-list.tsx'
+import { FixedRowVirtualList } from '../../ui/fixed-row-virtual-list.tsx'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
 import {
   buildGithubCommitMessage,
@@ -2776,9 +2776,10 @@ export function GithubDesktopApp() {
 
               {sidebarTab === 'changes' ? (
                 <>
-                  <GithubChangesVirtualList
+                  <FixedRowVirtualList
                     items={changes}
                     itemKey={(change) => change.path}
+                    className="github-desktop__changes-list"
                     renderItem={(change) => {
                       const staged = !unstagedPaths.has(change.path)
                       return (

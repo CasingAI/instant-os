@@ -41,7 +41,7 @@ export function isVscodeTabDirty(tab: VscodeTab): boolean {
 }
 
 export function isPreviewableTab(tab: VscodeTab): boolean {
-  return tab.language === 'markdown'
+  return tab.language === 'markdown' || tab.language === 'jsonl'
 }
 
 function stubNodeForDeletedPath(path: string): FilesNode {
@@ -117,6 +117,8 @@ export const VSCODE_OPEN_EXTENSIONS = [
   'tsx',
   'json',
   'jsonc',
+  'jsonl',
+  'ndjson',
   'md',
   'markdown',
   'mdx',
