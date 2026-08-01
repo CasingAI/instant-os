@@ -976,7 +976,7 @@
 
 /* 图片独占气泡：紧凑内边距，尺寸小于文字气泡 */
 .vscode-ai .help-app__bubble.vscode-ai__bubble--image {
-  padding: 6px;
+  padding: 0;
   max-width: min(200px, calc(100% - 40px));
   width: fit-content;
 }
@@ -1000,6 +1000,34 @@
   overflow: hidden;
   line-height: 0;
   border: 1px solid color-mix(in srgb, var(--help-accent) 18%, transparent);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: zoom-in;
+  font: inherit;
+  text-align: left;
+}
+
+.vscode-ai__msg-image-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, #000 55%, transparent);
+  cursor: zoom-out;
+}
+
+.vscode-ai__msg-image-overlay-img {
+  max-width: min(96%, 1200px);
+  max-height: 92%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+  cursor: default;
 }
 
 .vscode-ai__msg-image {
