@@ -90,9 +90,16 @@ import {
 import { filesWorkloadUnits } from './files-op-progress-policy.ts'
 import { isBinaryFile } from './is-binary-file.ts'
 import {
+  ensureUserSpecialFolders,
+  isUserSpecialFolderNode,
+  isUserSpecialFolderPath,
+} from './files-user-special.ts'
+import {
   notifyFilesWatch,
   type FilesWatchChange,
 } from './files-watch.ts'
+
+const USER_SPECIAL_FOLDER_PROTECTED_MESSAGE = '此文件夹受保护，无法重命名或删除'
 
 /** 虚拟文件系统内容变更（新建 / 写入 / 重命名 / 删除等），供文件管理器等订阅刷新 */
 export const FILES_VFS_CHANGED_EVENT = 'instant-os-files-vfs-changed'
@@ -331,6 +338,11 @@ export async function listDirectory(
   const cached = listDirectoryCache.get(cacheKey)
   if (cached !== undefined) {
     return cached
+  }
+
+  // `/user` 根：缓存未命中时补齐固定特殊文件夹
+  if (locationId === 'local' && folderId === undefined) {
+    await ensureUserSpecialFolders()
   }
 
   let listed: FilesNode[]
@@ -1005,6 +1017,9 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
 export async function renameNode(id: string, nextName: string): Promise<FilesNode> {
   const trimmed = normalizeFilesNodeName(nextName)
   const node = await getNodeOrThrow(id)
+  if (isUserSpecialFolderNode(node)) {
+    throw new Error(USER_SPECIAL_FOLDER_PROTECTED_MESSAGE)
+  }
   assertNodeWritable(node)
   const previousPath = await resolveFilesAbsolutePath(node)
   const names = await siblingNames(node.locationId, node.parentId, node.id)
@@ -1140,6 +1155,9 @@ export async function removeNode(
   options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
 ): Promise<void> {
   const node = await getNodeOrThrow(id)
+  if (isUserSpecialFolderNode(node)) {
+    throw new Error(USER_SPECIAL_FOLDER_PROTECTED_MESSAGE)
+  }
   assertNodeWritable(node)
   await removeNodeInner(node, options)
 }
@@ -1213,11 +1231,17 @@ export async function removeNodesByPathsBatch(
     if (parsed.locationId === 'models3d' || parsed.locationId === 'source' || parsed.locationId === 'applications') {
       throw new Error('此位置不支持批量删除')
     }
+    if (isUserSpecialFolderPath(absolutePath)) {
+      throw new Error(USER_SPECIAL_FOLDER_PROTECTED_MESSAGE)
+    }
 
     const node = await resolveNodeByAbsolutePath(absolutePath)
     if (!node) {
       if (skipMissing) continue
       throw new Error('项目不存在')
+    }
+    if (isUserSpecialFolderNode(node)) {
+      throw new Error(USER_SPECIAL_FOLDER_PROTECTED_MESSAGE)
     }
     assertNodeWritable(node)
     localRootIds.push(node.id)

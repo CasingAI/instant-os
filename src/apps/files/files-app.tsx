@@ -45,6 +45,7 @@ import {
   type FilesNode,
   type MountFilesLocationId,
 } from './files-types.ts'
+import { isUserSpecialFolderNode } from './files-user-special.ts'
 import { FilesOpProgressDialog } from './files-op-progress-dialog.tsx'
 import { estimateFilesOpDurationMs } from './files-op-progress-policy.ts'
 import {
@@ -98,6 +99,10 @@ import '../../ui/ios-nav-back.css'
 import './files.css'
 
 const APP_ID = 'files' as const
+
+function canRenameOrDeleteFilesNode(node: FilesNode): boolean {
+  return isFilesNodeWritable(node) && !isUserSpecialFolderNode(node)
+}
 const THEME = '#8a6a38'
 const LONG_PRESS_MS = 380
 const LONG_PRESS_MOVE_PX = 8
@@ -1395,7 +1400,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   const handleRename = useCallback(
     async (node: FilesNode) => {
-      if (!isFilesNodeWritable(node)) return
+      if (!canRenameOrDeleteFilesNode(node)) return
       closeTransientMenus()
       const name = await modal.prompt({
         title: '重新命名',
@@ -1418,7 +1423,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   const handleDelete = useCallback(
     async (node: FilesNode) => {
-      if (!isFilesNodeWritable(node)) return
+      if (!canRenameOrDeleteFilesNode(node)) return
       closeTransientMenus()
       const ok = await modal.confirm({
         title: node.kind === 'folder' ? '删除文件夹？' : '删除文件？',
@@ -1597,7 +1602,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onClick: () => void handlePaste(),
         })
       }
-      if (isFilesNodeWritable(node)) {
+      if (canRenameOrDeleteFilesNode(node)) {
         items.push({ type: 'separator' })
         items.push({
           type: 'action',
@@ -2120,7 +2125,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               粘贴
             </button>
           ) : undefined}
-          {isFilesNodeWritable(contextMenu.node) ? (
+          {canRenameOrDeleteFilesNode(contextMenu.node) ? (
             <>
               <button
                 type="button"

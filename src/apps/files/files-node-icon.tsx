@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact'
 import { useEffect, useId, useState } from 'preact/hooks'
 import {
   FILE_OPEN_PREFS_CHANGED_EVENT,
@@ -8,6 +9,10 @@ import { isApplicationsBundleRootNode } from './files-location-applications.ts'
 import { FilesAppBundleIcon } from './files-app-bundle-icon.tsx'
 import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import type { FilesNode } from './files-types.ts'
+import {
+  isUserSpecialFolderNode,
+  type UserSpecialFolderName,
+} from './files-user-special.ts'
 import { FILES_VFS_CHANGED_EVENT, readTextFile } from './files-vfs.ts'
 import './files-node-icon.css'
 
@@ -296,20 +301,63 @@ function codeFileExtTone(extension: string): CodeExtTone {
   }
 }
 
-function FolderGlyph({ className }: { className: string }) {
+type FolderTint = {
+  tab: string
+  body: string
+  lip: string
+  shade: string
+}
+
+const DEFAULT_FOLDER_TINT: FolderTint = {
+  tab: '#c9a046',
+  body: '#e8c56a',
+  lip: '#f3dfa0',
+  shade: '#a67c42',
+}
+
+const SPECIAL_FOLDER_TINTS: Record<UserSpecialFolderName, FolderTint> = {
+  Downloads: {
+    tab: '#4a8fd4',
+    body: '#6eb0ef',
+    lip: '#a8d4ff',
+    shade: '#2f6eab',
+  },
+  Musics: {
+    tab: '#9a5bb8',
+    body: '#c07ad9',
+    lip: '#e2b6f2',
+    shade: '#6e3a88',
+  },
+  Pictures: {
+    tab: '#3f9a72',
+    body: '#5fc496',
+    lip: '#a8e8c8',
+    shade: '#2a6e50',
+  },
+}
+
+function FolderGlyph({
+  className,
+  tint = DEFAULT_FOLDER_TINT,
+  badge,
+}: {
+  className: string
+  tint?: FolderTint
+  badge?: ComponentChildren
+}) {
   return (
     <svg class={className} viewBox="0 0 64 52" aria-hidden="true">
       <ellipse cx="32" cy="48.5" rx="20" ry="2.8" fill="rgba(40, 25, 8, 0.22)" />
       <path
-        fill="#c9a046"
+        fill={tint.tab}
         d="M7 13.5c0-2.4 1.9-4.3 4.3-4.3h13.2c.9 0 1.7.4 2.3 1.1l1.8 2.1c.3.4.8.6 1.3.6H53c2.2 0 4 1.8 4 4v3.1H7v-6.6z"
       />
       <path
-        fill="#e8c56a"
+        fill={tint.body}
         d="M5 19.2c0-2.5 2-4.5 4.5-4.5h45c2.5 0 4.5 2 4.5 4.5V42c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5V19.2z"
       />
       <path
-        fill="#f3dfa0"
+        fill={tint.lip}
         d="M9.5 14.7h45c1.5 0 2.9.8 3.7 2H5.8c.8-1.2 2.2-2 3.7-2z"
       />
       <path
@@ -318,12 +366,82 @@ function FolderGlyph({ className }: { className: string }) {
         d="M10 16.2h44c.9 0 1.7.4 2.2 1.1H7.8c.5-.7 1.3-1.1 2.2-1.1z"
       />
       <path
-        fill="#a67c42"
+        fill={tint.shade}
         opacity="0.28"
         d="M5 34h54v8c0 2.8-2.2 5-5 5H10c-2.8 0-5-2.2-5-5v-8z"
       />
+      {badge}
     </svg>
   )
+}
+
+function DownloadsFolderBadge() {
+  return (
+    <g transform="translate(32 31)">
+      <circle cx="0" cy="0" r="9.2" fill="rgba(255,255,255,0.92)" />
+      <circle cx="0" cy="0" r="9.2" fill="none" stroke="rgba(30,70,120,0.28)" stroke-width="1" />
+      <path
+        fill="#1f6fc2"
+        d="M-1.4-5.2h2.8v5.4h3.4L0 6.2l-4.8-6h3.4z"
+      />
+      <rect x="-5.2" y="6.6" width="10.4" height="1.8" rx="0.7" fill="#1f6fc2" />
+    </g>
+  )
+}
+
+function MusicsFolderBadge() {
+  return (
+    <g transform="translate(32 31)">
+      <circle cx="0" cy="0" r="9.2" fill="rgba(255,255,255,0.92)" />
+      <circle cx="0" cy="0" r="9.2" fill="none" stroke="rgba(80,40,110,0.28)" stroke-width="1" />
+      <path
+        fill="#7a3fa0"
+        d="M2.2-6.2v8.4c-.4-.3-.9-.5-1.5-.5-1.5 0-2.7 1-2.7 2.2S-.8 6.1.7 6.1c1.4 0 2.6-.9 2.7-2.1V-3.4l4.2-1v6.6c-.4-.3-.9-.4-1.4-.4-1.5 0-2.7 1-2.7 2.2s1.2 2.2 2.7 2.2 2.7-1 2.7-2.2V-6.8l-5.5 1.6z"
+      />
+    </g>
+  )
+}
+
+function PicturesFolderBadge() {
+  return (
+    <g transform="translate(32 31)">
+      <circle cx="0" cy="0" r="9.2" fill="rgba(255,255,255,0.92)" />
+      <circle cx="0" cy="0" r="9.2" fill="none" stroke="rgba(30,90,60,0.28)" stroke-width="1" />
+      <rect x="-6.2" y="-4.6" width="12.4" height="9.6" rx="1.4" fill="#d9f0e4" />
+      <rect
+        x="-6.2"
+        y="-4.6"
+        width="12.4"
+        height="9.6"
+        rx="1.4"
+        fill="none"
+        stroke="#2f7a56"
+        stroke-width="0.9"
+      />
+      <circle cx="2.4" cy="-1.8" r="1.35" fill="#f0c060" />
+      <path fill="#3f9a72" d="M-5.4 4.2h10.8L2.2-.2l-2.4 2.4-1.9-1.6z" />
+      <path fill="#2a6e50" opacity="0.9" d="M-5.4 4.2h5.8L-1.6.8l-2 1.5z" />
+    </g>
+  )
+}
+
+function SpecialUserFolderGlyph({
+  name,
+  className,
+}: {
+  name: UserSpecialFolderName
+  className: string
+}) {
+  const tint = SPECIAL_FOLDER_TINTS[name]
+  const badge =
+    name === 'Downloads' ? (
+      <DownloadsFolderBadge />
+    ) : name === 'Musics' ? (
+      <MusicsFolderBadge />
+    ) : (
+      <PicturesFolderBadge />
+    )
+  return <FolderGlyph className={className} tint={tint} badge={badge} />
 }
 
 /** 未知 / 无关联类型的通用文件图标（空白页，无正文暗示） */
@@ -1095,6 +1213,16 @@ export function FilesNodeIcon({
   if (node.kind === 'folder') {
     if (isApplicationsBundleRootNode(node)) {
       return <FilesAppBundleIcon node={node} size={size} />
+    }
+    if (isUserSpecialFolderNode(node)) {
+      return (
+        <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
+          <SpecialUserFolderGlyph
+            name={node.name as UserSpecialFolderName}
+            className="files-node-icon__glyph files-node-icon__glyph--folder"
+          />
+        </span>
+      )
     }
     return (
       <span class={`files-node-icon files-node-icon--${size}`} aria-hidden="true">
