@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
+import { osOpenApp } from './os-open-app-bridge.ts'
 
 /**
  * 与 virtual-chromo 宿主 CORS relay 约定一致：`{base}/-----{absoluteTargetUrl}`。
@@ -197,6 +198,11 @@ export const OPEN_SETTINGS_PROXY_SERVER_EVENT = 'instant-os:open-settings-proxy-
 let pendingOpenProxyServerView = false
 
 export function openSettingsProxyServerView() {
+  try {
+    osOpenApp('settings')
+  } catch {
+    // 系统尚未挂载 openApp（极少见）；仍保留 pending，设置打开后会 consume
+  }
   pendingOpenProxyServerView = true
   window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_PROXY_SERVER_EVENT))
 }
