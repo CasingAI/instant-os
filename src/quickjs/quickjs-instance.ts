@@ -10,6 +10,7 @@ import { FILES_VFS_READ_ROOT } from '../apps/files/files-path.ts'
 import {
   ensureTmpSessionDir,
   resolveSessionTmpDir,
+  workspaceTmpRoot,
 } from '../apps/files/files-tmp.ts'
 import { normalizeTerminalAbsolutePath } from '../terminal/terminal-path.ts'
 import type { TerminalChangeSet } from '../terminal/terminal-changeset.ts'
@@ -49,8 +50,6 @@ import { isQuickJsWasmBoundaryFatalError } from './quickjs-runtime-fatal.ts'
 import {
   QUICKJS_DEFAULT_MAX_FILE_BYTES,
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
-  QUICKJS_MAX_CONSOLE_LINE_CHARS,
-  QUICKJS_MAX_CONSOLE_LINES,
 } from './quickjs-quotas.ts'
 
 /** 默认无超时；传入有限正数毫秒可限制单次 eval。 */
@@ -58,12 +57,7 @@ const DEFAULT_TIMEOUT_MS = Number.POSITIVE_INFINITY
 const DEFAULT_MAX_STACK_SIZE_BYTES = 512 * 1024
 const DEFAULT_ARGV = ['instant-node'] as const
 
-export {
-  QUICKJS_DEFAULT_MAX_FILE_BYTES,
-  QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
-  QUICKJS_MAX_CONSOLE_LINE_CHARS,
-  QUICKJS_MAX_CONSOLE_LINES,
-}
+export { QUICKJS_DEFAULT_MAX_FILE_BYTES, QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES }
 
 const CONSOLE_LEVELS: QuickJsConsoleLevel[] = ['log', 'info', 'warn', 'error']
 
@@ -112,14 +106,12 @@ function resolveHostPermissions(
   fsMode: TerminalFsMode,
   sessionTmpDir: string | undefined,
 ): QuickJsHostPermissions {
-  const defaultWriteRoots =
-    workspaceRoot !== undefined
-      ? sessionTmpDir
-        ? [workspaceRoot, sessionTmpDir]
-        : [workspaceRoot]
-      : sessionTmpDir
-        ? [sessionTmpDir]
-        : []
+  const workspaceTmp = workspaceRoot ? workspaceTmpRoot(workspaceRoot) : undefined
+  const defaultWriteRoots = [
+    ...(workspaceRoot !== undefined ? [workspaceRoot] : []),
+    ...(workspaceTmp !== undefined ? [workspaceTmp] : []),
+    ...(sessionTmpDir !== undefined ? [sessionTmpDir] : []),
+  ]
   const defaultReadRoots =
     workspaceRoot !== undefined || sessionTmpDir !== undefined
       ? [FILES_VFS_READ_ROOT]
@@ -128,11 +120,19 @@ function resolveHostPermissions(
 
   let fsWriteRoots: string[]
   if (readOnly) {
-    fsWriteRoots = sessionTmpDir ? [sessionTmpDir] : []
+    fsWriteRoots = [
+      ...(sessionTmpDir !== undefined ? [sessionTmpDir] : []),
+      ...(workspaceTmp !== undefined ? [workspaceTmp] : []),
+    ]
   } else if (permissions?.fsWriteRoots !== undefined) {
     fsWriteRoots = [...permissions.fsWriteRoots]
-    if (sessionTmpDir && !fsWriteRoots.some((root) => root === sessionTmpDir)) {
-      fsWriteRoots.push(sessionTmpDir)
+    const extras = [workspaceTmp, sessionTmpDir].filter(
+      (root): root is string => root !== undefined,
+    )
+    for (const root of extras) {
+      if (!fsWriteRoots.some((item) => item === root)) {
+        fsWriteRoots.push(root)
+      }
     }
   } else {
     fsWriteRoots = [...defaultWriteRoots]
@@ -340,7 +340,6 @@ export async function createQuickJsInstance(
   let activeSliceTimeoutMs = defaultTimeoutMs
   let activeJournal: TerminalFsJournal | undefined
   let lastChanges: TerminalChangeSet | undefined
-  let pendingExternalChangeSet: TerminalChangeSet | undefined
   const processState = createProcessState(
     hostConfig.workspaceRoot,
     hostConfig.env,
@@ -376,21 +375,13 @@ export async function createQuickJsInstance(
   }
 
   const pushConsole = (level: QuickJsConsoleLevel, text: string): QuickJsConsoleLine => {
-    const raw = text ?? ''
-    const clipped =
-      raw.length > QUICKJS_MAX_CONSOLE_LINE_CHARS
-        ? `${raw.slice(0, QUICKJS_MAX_CONSOLE_LINE_CHARS)}…`
-        : raw
     const line: QuickJsConsoleLine = {
       id: nextConsoleLineId(),
       level,
-      text: clipped,
+      text,
       at: Date.now(),
     }
-    const next = state.consoleLines.length >= QUICKJS_MAX_CONSOLE_LINES
-      ? state.consoleLines.slice(-(QUICKJS_MAX_CONSOLE_LINES - 1))
-      : state.consoleLines
-    state.consoleLines = [...next, line]
+    state.consoleLines = [...state.consoleLines, line]
     notify()
     return line
   }
@@ -472,6 +463,15 @@ export async function createQuickJsInstance(
   })
 
   asyncBridge.injectGlobals()
+
+  if (options.instantShellHost !== undefined) {
+    injectInstantShell({
+      context,
+      asyncBridge,
+      host: options.instantShellHost,
+      isDestroyed: () => state.destroyed,
+    })
+  }
 
   let disposeWebView: (() => void) | undefined
   if (options.webviewHost !== undefined) {
@@ -559,68 +559,20 @@ export async function createQuickJsInstance(
     context.dispose()
   }
 
-  const mergeChangeSets = (
-    primary: TerminalChangeSet | undefined,
-    secondary: TerminalChangeSet | undefined,
-  ): TerminalChangeSet | undefined => {
-    if (!primary && !secondary) return undefined
-    if (!primary) return secondary
-    if (!secondary) return primary
-    const byPath = new Map<string, (typeof primary.changes)[number]>()
-    for (const entry of primary.changes) byPath.set(entry.path, entry)
-    for (const entry of secondary.changes) byPath.set(entry.path, entry)
-    return {
-      sessionId: primary.sessionId || secondary.sessionId,
-      createdAt: Math.min(primary.createdAt, secondary.createdAt),
-      sealedAt: Math.max(primary.sealedAt ?? 0, secondary.sealedAt ?? 0) || undefined,
-      changes: [...byPath.values()],
-    }
-  }
-
-  const noteExternalChangeSet = (changeSet: TerminalChangeSet): void => {
-    if (changeSet.changes.length === 0) return
-    pendingExternalChangeSet = mergeChangeSets(pendingExternalChangeSet, changeSet)
-  }
-
   const sealActiveJournal = async (): Promise<TerminalChangeSet | undefined> => {
     const journal = activeJournal
     activeJournal = undefined
-    const external = pendingExternalChangeSet
-    pendingExternalChangeSet = undefined
-
-    let journalSet: TerminalChangeSet | undefined
-    if (journal) {
-      try {
-        const changeSet = await journal.seal()
-        if (changeSet.changes.length > 0) {
-          journalSet = changeSet
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        pushConsole('warn', `changeset seal failed: ${message}`)
-      }
+    if (!journal) return undefined
+    try {
+      const changeSet = await journal.seal()
+      if (changeSet.changes.length === 0) return undefined
+      lastChanges = changeSet
+      return changeSet
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushConsole('warn', `changeset seal failed: ${message}`)
+      return undefined
     }
-
-    const merged = mergeChangeSets(journalSet, external)
-    if (!merged || merged.changes.length === 0) return undefined
-    lastChanges = merged
-    return merged
-  }
-
-  if (options.instantShellHost !== undefined) {
-    const panelHost = options.instantShellHost
-    injectInstantShell({
-      context,
-      asyncBridge,
-      host: {
-        ...panelHost,
-        noteExternalChangeSet: (changeSet) => {
-          noteExternalChangeSet(changeSet)
-          panelHost.noteExternalChangeSet(changeSet)
-        },
-      },
-      isDestroyed: () => state.destroyed,
-    })
   }
 
   const evalCode = async (
@@ -639,7 +591,6 @@ export async function createQuickJsInstance(
     if (fsMode === 'controlled') {
       activeJournal = createTerminalFsJournal()
     }
-    pendingExternalChangeSet = undefined
 
     /** guest / timeout / bridge reject：普通 failure，不因错误串误标 fatal。 */
     const makeFailure = (error: string): QuickJsEvalFailure => ({
@@ -909,7 +860,6 @@ while (promiseState.type === 'pending') {
     getHostConfig,
     eval: evalCode,
     getLastChanges,
-    noteExternalChangeSet,
     clearLastChanges,
     revertLastChanges,
     abort,
