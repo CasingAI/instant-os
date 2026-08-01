@@ -10,6 +10,7 @@ export type VscodeGroupItem =
   | { kind: 'searchEditor'; id: string; sessionId: string }
   | { kind: 'aiChat'; id: string; sessionId: string }
   | { kind: 'subagentDetail'; id: string; runId: string }
+  | { kind: 'compressionDetail'; id: string; sessionId: string; compressionId: string }
   | { kind: 'welcome'; id: string }
 
 export type VscodeEditorGroupState = {
@@ -178,6 +179,7 @@ export function getFocusedCloseTarget(
   | { kind: 'searchEditor'; itemId: string }
   | { kind: 'aiChat'; itemId: string }
   | { kind: 'subagentDetail'; itemId: string }
+  | { kind: 'compressionDetail'; itemId: string }
   | { kind: 'welcome'; itemId: string }
   | undefined {
   const group = layout.groups[layout.focusedGroupId]
@@ -187,6 +189,7 @@ export function getFocusedCloseTarget(
   if (item.kind === 'searchEditor') return { kind: 'searchEditor', itemId: item.id }
   if (item.kind === 'aiChat') return { kind: 'aiChat', itemId: item.id }
   if (item.kind === 'subagentDetail') return { kind: 'subagentDetail', itemId: item.id }
+  if (item.kind === 'compressionDetail') return { kind: 'compressionDetail', itemId: item.id }
   if (item.kind === 'welcome') return { kind: 'welcome', itemId: item.id }
   return { kind: 'preview', itemId: item.id }
 }
@@ -489,6 +492,63 @@ export function openSubagentDetailInFocusedGroup(
 
   const itemId = `subagent-detail-${runId}`
   const item: VscodeGroupItem = { kind: 'subagentDetail', id: itemId, runId }
+  return {
+    ...layout,
+    focusedGroupId,
+    groups: {
+      ...layout.groups,
+      [focusedGroupId]: {
+        ...group,
+        items: [...group.items, item],
+        activeItemId: itemId,
+      },
+    },
+  }
+}
+
+export function findCompressionDetailItem(
+  layout: VscodeEditorLayoutState,
+  sessionId: string,
+  compressionId: string,
+): { groupId: string; item: VscodeGroupItem & { kind: 'compressionDetail' } } | undefined {
+  for (const group of Object.values(layout.groups)) {
+    const item = group.items.find(
+      (entry): entry is VscodeGroupItem & { kind: 'compressionDetail' } =>
+        entry.kind === 'compressionDetail' &&
+        entry.sessionId === sessionId &&
+        entry.compressionId === compressionId,
+    )
+    if (item) return { groupId: group.id, item }
+  }
+  return undefined
+}
+
+export function openCompressionDetailInFocusedGroup(
+  layout: VscodeEditorLayoutState,
+  sessionId: string,
+  compressionId: string,
+): VscodeEditorLayoutState {
+  const existing = findCompressionDetailItem(layout, sessionId, compressionId)
+  if (existing) {
+    return focusEditorItem(layout, existing.groupId, existing.item.id)
+  }
+
+  let focusedGroupId = layout.focusedGroupId
+  let group = layout.groups[focusedGroupId]
+  if (!group) {
+    const fresh = createEmptyEditorLayout()
+    focusedGroupId = fresh.focusedGroupId
+    group = fresh.groups[focusedGroupId]!
+    layout = fresh
+  }
+
+  const itemId = `compression-detail-${sessionId}-${compressionId}`
+  const item: VscodeGroupItem = {
+    kind: 'compressionDetail',
+    id: itemId,
+    sessionId,
+    compressionId,
+  }
   return {
     ...layout,
     focusedGroupId,

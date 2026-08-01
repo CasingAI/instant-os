@@ -91,6 +91,14 @@ import {
   )
   // keep recent intact
   assert.ok(folded.wire.some((m) => m.role === 'user' && m.content === 'u2 keep'))
+  const foldEvent = folded.events[0]!
+  assert.equal(foldEvent.detail?.kind, 'structure_fold')
+  if (foldEvent.detail?.kind === 'structure_fold') {
+    assert.ok(foldEvent.detail.foldedToolsText.includes('[folded_tools]'))
+    assert.ok(foldEvent.detail.foldedToolsText.includes('read_file'))
+    assert.equal(foldEvent.detail.toolCallCount, 1)
+    assert.equal(foldEvent.detail.trigger, 'soft')
+  }
 }
 
 // --- L1 对已折叠 wire 幂等：跨轮复用 wire 时不应再次发出 structure_fold ---
@@ -172,6 +180,13 @@ import {
   const last = pruned.wire[2] as { reasoning_content?: string }
   assert.equal(first.reasoning_content, '')
   assert.equal(last.reasoning_content, 'latest think')
+  const pruneEvent = pruned.events[0]!
+  assert.equal(pruneEvent.detail?.kind, 'reasoning_prune')
+  if (pruneEvent.detail?.kind === 'reasoning_prune') {
+    assert.equal(pruneEvent.detail.prunedAssistantCount, 1)
+    assert.ok(pruneEvent.detail.prunedChars >= 'old think'.length)
+    assert.ok(pruneEvent.summaryPreview)
+  }
 }
 
 // --- L3 omit ---

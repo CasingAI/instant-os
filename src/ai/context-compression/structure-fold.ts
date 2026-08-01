@@ -5,6 +5,7 @@ import {
   nextCompressionId,
   summaryPreviewFromText,
   type AgentCompressionEvent,
+  type AgentCompressionTrigger,
   type ChatMessage,
 } from './types.ts'
 
@@ -79,6 +80,7 @@ export function foldCompletedToolRounds(
     keepRecentTurns: number
     step: number
     beforeTokens: number
+    trigger?: AgentCompressionTrigger
   },
 ): { wire: ChatMessage[]; events: AgentCompressionEvent[] } {
   const keepStart = findKeepRecentStartIndex(wire, options.keepRecentTurns)
@@ -90,6 +92,8 @@ export function foldCompletedToolRounds(
   const tail = wire.slice(keepStart)
   const folded: ChatMessage[] = []
   const events: AgentCompressionEvent[] = []
+  const foldedBlocks: string[] = []
+  let toolCallCount = 0
   let i = 0
   let foldedAny = false
   let foldFrom = -1
@@ -129,6 +133,7 @@ export function foldCompletedToolRounds(
     const lines: string[] = ['[folded_tools]']
     for (const call of toolCalls) {
       if (call.type !== 'function') continue
+      toolCallCount += 1
       const name = call.function.name
       const argsSummary = summarizeToolArgs(call.function.arguments ?? '')
       const matching = toolResults.find(
@@ -145,12 +150,15 @@ export function foldCompletedToolRounds(
     }
     lines.push('[/folded_tools]')
 
+    const block = lines.join('\n')
+    foldedBlocks.push(block)
+
     if (foldFrom < 0) foldFrom = i
     foldTo = j
     foldedAny = true
     folded.push({
       role: 'assistant',
-      content: lines.join('\n'),
+      content: block,
     })
     i = j
   }
@@ -159,6 +167,7 @@ export function foldCompletedToolRounds(
     return { wire, events: [] }
   }
 
+  const foldedToolsText = foldedBlocks.join('\n\n')
   const nextWire = [...folded, ...tail]
   const afterRough = Math.max(1, Math.ceil(JSON.stringify(nextWire).length / 2.5))
   events.push({
@@ -169,10 +178,13 @@ export function foldCompletedToolRounds(
     afterTokens: afterRough,
     coveredCanonicalFrom: foldFrom,
     coveredCanonicalTo: foldTo,
-    summaryPreview: summaryPreviewFromText(
-      contentToText((folded.find((m) => m.role === 'assistant') as { content?: unknown })?.content) ||
-        '[folded_tools]',
-    ),
+    summaryPreview: summaryPreviewFromText(foldedToolsText),
+    detail: {
+      kind: 'structure_fold',
+      trigger: options.trigger ?? 'soft',
+      foldedToolsText,
+      toolCallCount,
+    },
   })
 
   return { wire: nextWire, events }
@@ -188,6 +200,7 @@ export function pruneReasoningContent(
     requireEcho: boolean
     step: number
     beforeTokens: number
+    trigger?: AgentCompressionTrigger
   },
 ): { wire: ChatMessage[]; events: AgentCompressionEvent[] } {
   let lastToolAssistantIndex = -1
@@ -204,6 +217,8 @@ export function pruneReasoningContent(
   }
 
   let changed = false
+  let prunedAssistantCount = 0
+  let prunedChars = 0
   const next = wire.map((message, index) => {
     if (message.role !== 'assistant') return message
     const assistant = message as AssistantWithTools
@@ -214,6 +229,8 @@ export function pruneReasoningContent(
       return message
     }
     changed = true
+    prunedAssistantCount += 1
+    prunedChars += assistant.reasoning_content.length
     const clone = structuredClone(assistant)
     if (options.requireEcho) {
       clone.reasoning_content = ''
@@ -236,6 +253,15 @@ export function pruneReasoningContent(
         afterTokens: Math.max(1, Math.ceil(JSON.stringify(next).length / 2.5)),
         coveredCanonicalFrom: 0,
         coveredCanonicalTo: wire.length,
+        summaryPreview: summaryPreviewFromText(
+          `已修剪 ${prunedAssistantCount} 段思维链（约 ${prunedChars} 字符）`,
+        ),
+        detail: {
+          kind: 'reasoning_prune',
+          trigger: options.trigger ?? 'soft',
+          prunedAssistantCount,
+          prunedChars,
+        },
       },
     ],
   }
@@ -251,6 +277,7 @@ export function omitEarlierTurns(
     keepRecentTurns: number
     step: number
     beforeTokens: number
+    trigger?: AgentCompressionTrigger
   },
 ): {
   wire: ChatMessage[]
@@ -312,10 +339,11 @@ export function omitEarlierTurns(
   }
 
   const userCount = omitted.filter((m) => m.role === 'user').length
+  const omittedUserCount = userCount || omitted.length
   const marker: ChatMessage = {
     role: 'user',
     content: [
-      `[earlier_turns_omitted count=${userCount || omitted.length}]`,
+      `[earlier_turns_omitted count=${omittedUserCount}]`,
       '（细节见下方 context-compaction 摘要；需要时可查阅会话记录）',
     ].join('\n'),
   }
@@ -330,6 +358,12 @@ export function omitEarlierTurns(
     coveredCanonicalFrom: prefixEnd,
     coveredCanonicalTo: keepStart,
     summaryPreview: summaryPreviewFromText(contentToText(marker.content)),
+    detail: {
+      kind: 'tail_window',
+      trigger: options.trigger ?? 'soft',
+      omittedUserCount,
+      keepRecentTurns: options.keepRecentTurns,
+    },
   }
 
   return {

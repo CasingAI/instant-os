@@ -8,6 +8,8 @@ import {
   contentToText,
   nextCompressionId,
   summaryPreviewFromText,
+  type AgentCompressionEvent,
+  type AgentCompressionTrigger,
   type ChatMessage,
   type CompressionUsageContext,
 } from './types.ts'
@@ -82,21 +84,12 @@ export type RunLlmCompactParams = {
   usageContext?: CompressionUsageContext | AiUsageContext
   signal?: AbortSignal
   kind?: 'llm_compact' | 'self_compact'
+  trigger?: AgentCompressionTrigger
 }
 
 export type RunLlmCompactResult = {
   wire: ChatMessage[]
-  event: {
-    id: string
-    kind: 'llm_compact' | 'self_compact'
-    atStep: number
-    beforeTokens: number
-    afterTokens: number
-    coveredCanonicalFrom: number
-    coveredCanonicalTo: number
-    summaryPreview?: string
-    note?: string
-  }
+  event: AgentCompressionEvent
   summary: string
 }
 
@@ -170,19 +163,27 @@ export async function runLlmCompact(
     })
 
     const wire: ChatMessage[] = [...params.prefix, compactionMessage, ...params.recent]
+    const kind = params.kind ?? 'llm_compact'
+    const trigger = params.trigger ?? (kind === 'self_compact' ? 'self_compact' : 'hard')
 
     return {
       wire,
       summary,
       event: {
         id,
-        kind: params.kind ?? 'llm_compact',
+        kind,
         atStep: params.step,
         beforeTokens: params.beforeTokens,
         afterTokens,
         coveredCanonicalFrom: params.from,
         coveredCanonicalTo: params.to,
         summaryPreview: summaryPreviewFromText(summary),
+        detail: {
+          kind,
+          trigger,
+          summary,
+          focus: params.focus?.trim() || undefined,
+        },
       },
     }
   } catch (error) {
@@ -208,19 +209,30 @@ export async function runLlmCompact(
       tokensAfter: afterTokens,
     })
 
+    const kind = params.kind ?? 'llm_compact'
+    const trigger = params.trigger ?? (kind === 'self_compact' ? 'self_compact' : 'hard')
+    const failNote = `llm_compact_failed: ${note}`
+
     return {
       wire: [...params.prefix, compactionMessage, ...params.recent],
       summary: fallbackSummary,
       event: {
         id,
-        kind: params.kind ?? 'llm_compact',
+        kind,
         atStep: params.step,
         beforeTokens: params.beforeTokens,
         afterTokens,
         coveredCanonicalFrom: params.from,
         coveredCanonicalTo: params.to,
         summaryPreview: summaryPreviewFromText(fallbackSummary),
-        note: `llm_compact_failed: ${note}`,
+        note: failNote,
+        detail: {
+          kind,
+          trigger,
+          summary: fallbackSummary,
+          focus: params.focus?.trim() || undefined,
+          note: failNote,
+        },
       },
     }
   }

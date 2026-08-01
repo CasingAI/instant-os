@@ -28,6 +28,11 @@ import { VscodeSearchEditor } from './vscode-search-editor.tsx'
 import type { VscodeSearchEditorSession } from './vscode-search-editor-session.ts'
 import type { VscodeWorkspaceSearchHit } from './vscode-workspace-search-core.ts'
 import { VscodeAiPanel } from './vscode-ai-panel.tsx'
+import { VscodeCompressionPanel } from './vscode-compression-panel.tsx'
+import {
+  compressionKindTabTitle,
+  findCompressionDetailInSession,
+} from './vscode-compression-lookup.ts'
 import { VscodeSubagentPanel } from './vscode-subagent-panel.tsx'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import type {
@@ -83,6 +88,14 @@ function computeTabSnapshot(
         ? aiSession?.title || '新对话'
         : item.kind === 'subagentDetail'
           ? 'Sub Agent'
+          : item.kind === 'compressionDetail'
+            ? (() => {
+                const session = aiChatSessions?.get(item.sessionId)
+                const record = session
+                  ? findCompressionDetailInSession(session, item.compressionId, item.sessionId)
+                  : findCompressionDetailInSession(undefined, item.compressionId, item.sessionId)
+                return compressionKindTabTitle(record?.compressionKind)
+              })()
           : item.kind === 'preview'
             ? `Preview ${previewSource?.name ?? 'Markdown'}`
             : item.kind === 'welcome'
@@ -106,6 +119,8 @@ function computeTabSnapshot(
           ? 'AI Chat'
           : item.kind === 'subagentDetail'
             ? 'Sub Agent'
+            : item.kind === 'compressionDetail'
+              ? 'Compression'
             : item.kind === 'preview'
               ? previewSource?.path ?? item.sourcePath
               : item.kind === 'welcome'
@@ -268,6 +283,8 @@ type VscodeEditorAreaProps = {
   onCloseWelcome?: () => void
   onCloseSubagentDetail?: (itemId: string) => void
   onOpenSubagentDetail?: (runId: string) => void
+  onCloseCompressionDetail?: (itemId: string) => void
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
 }
 
 function pathInWorkspace(workspaceFolder: string | undefined, path: string | undefined): boolean {
@@ -281,7 +298,7 @@ function pathForGroupItem(
   tabs: readonly VscodeTab[],
 ): string | undefined {
   if (item.kind === 'preview') return item.sourcePath
-  if (item.kind === 'searchEditor' || item.kind === 'aiChat' || item.kind === 'subagentDetail' || item.kind === 'welcome') return undefined
+  if (item.kind === 'searchEditor' || item.kind === 'aiChat' || item.kind === 'subagentDetail' || item.kind === 'compressionDetail' || item.kind === 'welcome') return undefined
   return tabs.find((tab) => tab.id === item.tabId)?.path
 }
 
@@ -409,6 +426,8 @@ function VscodeEditorGroupView({
   onCloseWelcome,
   onCloseSubagentDetail,
   onOpenSubagentDetail,
+  onCloseCompressionDetail,
+  onOpenCompressionDetail,
 }: GroupViewProps) {
   const { showIconContextMenu } = useIconContextMenu()
   const [dropZone, setDropZone] = useState<DropZone | undefined>(undefined)
@@ -548,6 +567,7 @@ function VscodeEditorGroupView({
             else if (item.kind === 'searchEditor') onCloseSearchEditor?.(item.id)
             else if (item.kind === 'aiChat') onCloseAiChat?.(item.id)
             else if (item.kind === 'subagentDetail') onCloseSubagentDetail?.(item.id)
+            else if (item.kind === 'compressionDetail') onCloseCompressionDetail?.(item.id)
             else if (item.kind === 'welcome') onCloseWelcome?.()
             else onClosePreview(item.id)
           },
@@ -782,6 +802,7 @@ function VscodeEditorGroupView({
                 else if (entry.item.kind === 'searchEditor') onCloseSearchEditor?.(entry.item.id)
                 else if (entry.item.kind === 'aiChat') onCloseAiChat?.(entry.item.id)
                 else if (entry.item.kind === 'subagentDetail') onCloseSubagentDetail?.(entry.item.id)
+                else if (entry.item.kind === 'compressionDetail') onCloseCompressionDetail?.(entry.item.id)
                 else if (entry.item.kind === 'welcome') onCloseWelcome?.()
                 else onClosePreview(entry.item.id)
               }}
@@ -976,6 +997,7 @@ function VscodeEditorGroupView({
                   onBusyChange={(busy) => onAiChatBusyChange?.(session.id, busy)}
                   onOpenPath={(path) => void onOpenPath(path)}
                   onOpenSubagentDetail={onOpenSubagentDetail}
+                  onOpenCompressionDetail={onOpenCompressionDetail}
                 />
               </div>
             )
@@ -1017,6 +1039,15 @@ function VscodeEditorGroupView({
               aiModelKey={aiModelKey}
               dark={aiDark}
               workspaceFolder={workspaceFolder}
+            />
+          </div>
+        ) : activeItem?.kind === 'compressionDetail' ? (
+          <div class="vscode__compression-detail-wrapper">
+            <VscodeCompressionPanel
+              sessionId={activeItem.sessionId}
+              compressionId={activeItem.compressionId}
+              session={aiChatSessions?.get(activeItem.sessionId)}
+              dark={aiDark}
             />
           </div>
         ) : activeItem?.kind === 'welcome' ? (

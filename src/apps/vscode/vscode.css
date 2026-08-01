@@ -1219,12 +1219,217 @@ button.vscode-ai__subagent-row.help-app__reasoning-status {
   color: var(--help-ink, #333);
 }
 
+.vscode-ai__compression-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.vscode-ai__compression-row.help-app__reasoning-status {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.vscode-ai__compression-row--disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.vscode-ai__compression-row .help-app__reasoning-summary {
+  flex: 1;
+  min-width: 0;
+}
+
+.vscode-ai__compression-row-arrow {
+  flex-shrink: 0;
+  opacity: 0.35;
+  font-size: 12px;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.vscode-ai__compression-row:hover:not(:disabled) .vscode-ai__compression-row-arrow {
+  opacity: 1;
+  color: var(--help-ink, #333);
+}
+
 /* ---- Sub Agent 详情 Tab ---- */
 
 .vscode__subagent-detail-wrapper {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+/* ---- 压缩详情 Tab ---- */
+
+.vscode__compression-detail-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vscode-compression {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--vscode-editor-background, #ffffff);
+  color: var(--vscode-foreground, #1e1e1e);
+}
+
+.vscode-compression__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--vscode-border, #e0e0e0);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.vscode-compression__header-label {
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vscode-compression__header-kind {
+  font-weight: 600;
+}
+
+.vscode-compression__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.vscode-compression__section-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vscode-compression__overview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.vscode-compression__overview-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.vscode-compression__overview-label {
+  color: #888;
+}
+
+.vscode-compression__overview-value {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.vscode-compression__muted {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.vscode-compression__focus,
+.vscode-compression__note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #666;
+}
+
+.vscode-compression__note {
+  color: #a15c00;
+}
+
+.vscode-compression__tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vscode-compression__tool-item {
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-border, #e0e0e0);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.vscode-compression__tool-name {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.vscode-compression__tool-args,
+.vscode-compression__tool-result {
+  margin-top: 4px;
+  color: #555;
+  word-break: break-word;
+}
+
+.vscode-compression__pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-border, #e0e0e0);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.vscode-compression__summary {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.vscode-compression__empty {
+  margin: auto;
+  padding: 24px;
+  color: #888;
+  font-size: 13px;
+}
+
+.vscode-compression--dark .vscode-compression__muted,
+.vscode-compression--dark .vscode-compression__focus,
+.vscode-compression--dark .vscode-compression__tool-args,
+.vscode-compression--dark .vscode-compression__tool-result {
+  color: #aaa;
+}
+
+.vscode-compression--dark .vscode-compression__header-label,
+.vscode-compression--dark .vscode-compression__overview-label,
+.vscode-compression--dark .vscode-compression__empty {
+  color: #999;
 }
 
 /* ---- Sub Agent 只读信息栏（复用主 Agent 面板，仅顶部状态条） ---- */

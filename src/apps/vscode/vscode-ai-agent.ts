@@ -1,6 +1,7 @@
 import type OpenAI from 'openai'
 import { createAgent } from '../../ai/create-agent.ts'
 import type {
+  AgentCompressionDetail,
   AgentCompressionEvent,
   AgentReasoningDeltaEvent,
   AgentTextDeltaEvent,
@@ -80,6 +81,8 @@ const WRITE_PREVIEW_STORE_LIMIT = 8_000
 const TOOL_RESULT_STORE_LIMIT = TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT
 const ACTIVITY_CONTENT_STORE_LIMIT = 4_000
 const REASONING_STORE_LIMIT = 12_000
+/** 压缩详情落盘上限（L1 foldedToolsText / L4 summary） */
+const COMPRESSION_DETAIL_TEXT_STORE_LIMIT = 12_000
 
 export type VscodeAiActivity = {
   id: string
@@ -139,11 +142,16 @@ export type VscodeAiTimelineItem =
       kind: 'compression'
       id: string
       label: string
+      /** 失败说明等短文案（兼容旧字段名 detail） */
       detail?: string
       summaryPreview?: string
       beforeTokens: number
       afterTokens: number
       compressionKind: AgentCompressionEvent['kind']
+      coveredCanonicalFrom?: number
+      coveredCanonicalTo?: number
+      /** 详情 Tab 结构化载荷 */
+      compressionDetail?: AgentCompressionDetail
       done: boolean
     }
   | VscodeAiWriteItem
@@ -376,6 +384,35 @@ function truncateReasoningText(text: string): string {
   return truncateStoredText(text, REASONING_STORE_LIMIT)
 }
 
+function truncateCompressionDetailText(text: string): string {
+  return truncateStoredText(text, COMPRESSION_DETAIL_TEXT_STORE_LIMIT)
+}
+
+function trimCompressionDetailForPersist(
+  detail: AgentCompressionDetail | undefined,
+): AgentCompressionDetail | undefined {
+  if (!detail) return undefined
+  if (detail.kind === 'structure_fold') {
+    return {
+      ...detail,
+      foldedToolsText: truncateCompressionDetailText(detail.foldedToolsText),
+    }
+  }
+  if (detail.kind === 'llm_compact' || detail.kind === 'self_compact') {
+    return {
+      ...detail,
+      summary: truncateCompressionDetailText(detail.summary),
+    }
+  }
+  if (detail.kind === 'tool_budget' && detail.preview) {
+    return {
+      ...detail,
+      preview: truncateCompressionDetailText(detail.preview),
+    }
+  }
+  return detail
+}
+
 /** 落盘前压缩 investigation，避免超长 tool/reasoning 文本撑爆存储与重开内存。 */
 export function trimInvestigationForPersist(
   investigation: VscodeAiInvestigation,
@@ -406,6 +443,15 @@ export function trimInvestigationForPersist(
           ...item,
           preview: truncateWritePreview(item.preview),
           result: item.result ? truncateToolResultForStore(item.result) : item.result,
+        }
+      }
+      if (item.kind === 'compression') {
+        return {
+          ...item,
+          summaryPreview: item.summaryPreview
+            ? truncateStoredText(item.summaryPreview, 400)
+            : item.summaryPreview,
+          compressionDetail: trimCompressionDetailForPersist(item.compressionDetail),
         }
       }
       return item
@@ -1004,6 +1050,9 @@ export async function askVscodeAiAgent(options: {
       beforeTokens: event.beforeTokens,
       afterTokens: event.afterTokens,
       compressionKind: event.kind,
+      coveredCanonicalFrom: event.coveredCanonicalFrom,
+      coveredCanonicalTo: event.coveredCanonicalTo,
+      compressionDetail: event.detail,
       done: true,
     })
     emit({ immediate: true })

@@ -30,6 +30,7 @@ import {
   type VscodeAiMode,
 } from './vscode-ai-mode.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
+import { rememberLiveCompressionDetail } from './vscode-compression-lookup.ts'
 import {
   askVscodeAiAgent,
   buildVscodeAiInvestigationFromTimeline,
@@ -784,6 +785,8 @@ export type VscodeAiPanelProps = {
   onOpenPath?: (path: string) => void
   /** 打开子 Agent 详情 Tab */
   onOpenSubagentDetail?: (runId: string) => void
+  /** 打开压缩详情 Tab */
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
   /** 只读模式：隐藏 composer、禁用消息编辑，用于子 Agent 详情 Tab */
   readOnly?: boolean
   /** 只读模式下顶部的信息栏（模型 / 状态等） */
@@ -856,32 +859,33 @@ function WaitingStatus({ label = '等待响应' }: { label?: string }) {
 
 function CompressionStatus({
   item,
+  sessionId,
+  onOpenCompressionDetail,
 }: {
   item: Extract<VscodeAiTimelineItem, { kind: 'compression' }>
+  sessionId?: string
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const hasPreview = Boolean(item.summaryPreview?.trim())
+  const canOpen = Boolean(sessionId && onOpenCompressionDetail)
   return (
-    <div class="help-app__reasoning-status help-app__reasoning-status--done">
-      <button
-        type="button"
-        class="help-app__reasoning-toggle"
-        aria-expanded={expanded}
-        disabled={!hasPreview}
-        onClick={() => hasPreview && setExpanded((value) => !value)}
-      >
-        <span
-          class={`help-app__investigation-chevron${expanded ? ' help-app__investigation-chevron--expanded' : ''}`}
-          aria-hidden="true"
-        />
-        <span class="help-app__reasoning-summary">{item.label}</span>
-      </button>
-      {expanded && hasPreview ? (
-        <pre class="help-app__reasoning-body vscode-ai__compression-preview">
-          {item.summaryPreview}
-        </pre>
+    <button
+      type="button"
+      class={`help-app__reasoning-status help-app__reasoning-status--done vscode-ai__compression-row${canOpen ? '' : ' vscode-ai__compression-row--disabled'}`}
+      aria-label={canOpen ? `查看压缩详情：${item.label}` : item.label}
+      disabled={!canOpen}
+      onClick={() => {
+        if (!canOpen || !sessionId || !onOpenCompressionDetail) return
+        rememberLiveCompressionDetail(sessionId, item)
+        onOpenCompressionDetail(sessionId, item.id)
+      }}
+    >
+      <span class="help-app__reasoning-summary">{item.label}</span>
+      {canOpen ? (
+        <span class="vscode-ai__compression-row-arrow" aria-hidden="true">
+          →
+        </span>
       ) : undefined}
-    </div>
+    </button>
   )
 }
 
@@ -1198,11 +1202,15 @@ function ReasoningStatus({
 function InvestigationSteps({
   timeline,
   exiting = false,
+  sessionId,
   onOpenSubagentDetail,
+  onOpenCompressionDetail,
 }: {
   timeline: VscodeAiInvestigationStep[]
   exiting?: boolean
+  sessionId?: string
   onOpenSubagentDetail?: (runId: string) => void
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
 }) {
   if (timeline.length === 0) {
     return undefined
@@ -1229,7 +1237,11 @@ function InvestigationSteps({
             ) : item.kind === 'write' ? (
               <WriteFileCard item={item} />
             ) : item.kind === 'compression' ? (
-              <CompressionStatus item={item} />
+              <CompressionStatus
+                item={item}
+                sessionId={sessionId}
+                onOpenCompressionDetail={onOpenCompressionDetail}
+              />
             ) : (
               <ReasoningStatus text={item.content} durationMs={item.durationMs} />
             )}
@@ -1242,10 +1254,14 @@ function InvestigationSteps({
 
 function InvestigationPanel({
   investigation,
+  sessionId,
   onOpenSubagentDetail,
+  onOpenCompressionDetail,
 }: {
   investigation: VscodeAiInvestigation
+  sessionId?: string
   onOpenSubagentDetail?: (runId: string) => void
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [bodyMounted, setBodyMounted] = useState(false)
@@ -1333,7 +1349,9 @@ function InvestigationPanel({
               <InvestigationSteps
                 timeline={investigation.timeline}
                 exiting={exiting}
+                sessionId={sessionId}
                 onOpenSubagentDetail={onOpenSubagentDetail}
+                onOpenCompressionDetail={onOpenCompressionDetail}
               />
             </div>
           </div>
@@ -1345,10 +1363,14 @@ function InvestigationPanel({
 
 function LiveTimeline({
   items,
+  sessionId,
   onOpenSubagentDetail,
+  onOpenCompressionDetail,
 }: {
   items: VscodeAiTimelineItem[]
+  sessionId?: string
   onOpenSubagentDetail?: (runId: string) => void
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
 }) {
   if (items.length === 0) {
     return <ReasoningStatus text="" streaming />
@@ -1381,7 +1403,14 @@ function LiveTimeline({
           return <WriteFileCard key={item.id} item={item} live />
         }
         if (item.kind === 'compression') {
-          return <CompressionStatus key={item.id} item={item} />
+          return (
+            <CompressionStatus
+              key={item.id}
+              item={item}
+              sessionId={sessionId}
+              onOpenCompressionDetail={onOpenCompressionDetail}
+            />
+          )
         }
         if (item.kind === 'reasoning') {
           return (
@@ -1451,6 +1480,7 @@ export function VscodeAiPanel({
   onBusyChange,
   onOpenPath,
   onOpenSubagentDetail,
+  onOpenCompressionDetail,
   readOnly = false,
   headerInfo,
   externalLiveTimeline,
@@ -3121,7 +3151,12 @@ export function VscodeAiPanel({
                         class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
                       >
                         {message.investigation ? (
-                          <InvestigationPanel investigation={message.investigation} onOpenSubagentDetail={onOpenSubagentDetail} />
+                          <InvestigationPanel
+                            investigation={message.investigation}
+                            sessionId={sessionId}
+                            onOpenSubagentDetail={onOpenSubagentDetail}
+                            onOpenCompressionDetail={onOpenCompressionDetail}
+                          />
                         ) : undefined}
                         {message.role === 'assistant' && !message.isError ? (
                           <div class="help-app__answer">
@@ -3173,7 +3208,12 @@ export function VscodeAiPanel({
                       </span>
                       <div class="vscode-ai__message-stack">
                         <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
-                          <LiveTimeline items={liveTimeline} onOpenSubagentDetail={onOpenSubagentDetail} />
+                          <LiveTimeline
+                            items={liveTimeline}
+                            sessionId={sessionId}
+                            onOpenSubagentDetail={onOpenSubagentDetail}
+                            onOpenCompressionDetail={onOpenCompressionDetail}
+                          />
                           {liveAnswer && !liveTimeline.some((item) => item.kind === 'text') ? (
                             <div
                               class={buildLiveAnswerClassName({

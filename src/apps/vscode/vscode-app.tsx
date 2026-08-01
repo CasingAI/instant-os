@@ -81,6 +81,7 @@ import {
   openMarkdownPreviewToSide,
   openSearchEditorInFocusedGroup,
   openSubagentDetailInFocusedGroup,
+  openCompressionDetailInFocusedGroup,
   openWelcomeInFocusedGroup,
   removeEditorItem,
   removeFileTabFromLayout,
@@ -2003,6 +2004,22 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     })
   }, [])
 
+  const openCompressionDetail = useCallback((sessionId: string, compressionId: string) => {
+    setEditorLayout((layout) => {
+      const next = openCompressionDetailInFocusedGroup(layout, sessionId, compressionId)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [])
+
+  const closeCompressionDetailItem = useCallback((itemId: string) => {
+    setEditorLayout((layout) => {
+      const next = removeEditorItem(layout, itemId)
+      editorLayoutRef.current = next
+      return next
+    })
+  }, [])
+
   const closeTab = useCallback(
     async (tabId: string) => {
       const proceed = await ensureTabCleanOrConfirm(tabId)
@@ -2378,8 +2395,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       closeSubagentDetailItem(target.itemId)
       return
     }
+    if (target.kind === 'compressionDetail') {
+      closeCompressionDetailItem(target.itemId)
+      return
+    }
     void closeTab(target.tabId)
-  }, [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeSubagentDetailItem, closeTab, closeWelcomeTab])
+  }, [closeAiChatItem, closeCompressionDetailItem, closePreviewItem, closeSearchEditorItem, closeSubagentDetailItem, closeTab, closeWelcomeTab])
 
   const closeOtherInGroup = useCallback(
     async (groupId: string, keepItemId: string) => {
@@ -2419,10 +2440,14 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           closeSubagentDetailItem(item.id)
           continue
         }
+        if (item.kind === 'compressionDetail') {
+          closeCompressionDetailItem(item.id)
+          continue
+        }
         await closeTab(item.tabId)
       }
     },
-    [closeAiChatItem, closePreviewItem, closeSearchEditorItem, closeSubagentDetailItem, closeTab, closeWelcomeTab],
+    [closeAiChatItem, closeCompressionDetailItem, closePreviewItem, closeSearchEditorItem, closeSubagentDetailItem, closeTab, closeWelcomeTab],
   )
 
   const handleCloseOtherTabs = useCallback(() => {
@@ -3360,6 +3385,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               onCloseWelcome={closeWelcomeTab}
               onCloseSubagentDetail={closeSubagentDetailItem}
               onOpenSubagentDetail={openSubagentDetail}
+              onCloseCompressionDetail={closeCompressionDetailItem}
+              onOpenCompressionDetail={openCompressionDetail}
             />
           </div>
 

@@ -13,6 +13,7 @@ import {
   truncateToolResultForStore,
   type VscodeAiInvestigation,
 } from './vscode-ai-agent.ts'
+import type { AgentCompressionDetail } from '../../ai/context-compression/index.ts'
 import {
   normalizeVscodeAiImageAttachments,
   type VscodeAiImageAttachment,
@@ -197,6 +198,76 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
+function normalizeCompressionDetail(raw: unknown): AgentCompressionDetail | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entry = raw as Record<string, unknown>
+  const kind = entry.kind
+  const trigger =
+    entry.trigger === 'soft' || entry.trigger === 'hard' || entry.trigger === 'self_compact'
+      ? entry.trigger
+      : 'soft'
+
+  if (kind === 'structure_fold') {
+    if (typeof entry.foldedToolsText !== 'string') return undefined
+    return {
+      kind: 'structure_fold',
+      trigger,
+      foldedToolsText: entry.foldedToolsText,
+      toolCallCount:
+        typeof entry.toolCallCount === 'number' && Number.isFinite(entry.toolCallCount)
+          ? Math.max(0, Math.floor(entry.toolCallCount))
+          : 0,
+    }
+  }
+  if (kind === 'reasoning_prune') {
+    return {
+      kind: 'reasoning_prune',
+      trigger,
+      prunedAssistantCount:
+        typeof entry.prunedAssistantCount === 'number' && Number.isFinite(entry.prunedAssistantCount)
+          ? Math.max(0, Math.floor(entry.prunedAssistantCount))
+          : 0,
+      prunedChars:
+        typeof entry.prunedChars === 'number' && Number.isFinite(entry.prunedChars)
+          ? Math.max(0, Math.floor(entry.prunedChars))
+          : 0,
+    }
+  }
+  if (kind === 'tail_window') {
+    return {
+      kind: 'tail_window',
+      trigger,
+      omittedUserCount:
+        typeof entry.omittedUserCount === 'number' && Number.isFinite(entry.omittedUserCount)
+          ? Math.max(0, Math.floor(entry.omittedUserCount))
+          : 0,
+      keepRecentTurns:
+        typeof entry.keepRecentTurns === 'number' && Number.isFinite(entry.keepRecentTurns)
+          ? Math.max(1, Math.floor(entry.keepRecentTurns))
+          : 2,
+    }
+  }
+  if (kind === 'llm_compact' || kind === 'self_compact') {
+    if (typeof entry.summary !== 'string') return undefined
+    return {
+      kind,
+      trigger,
+      summary: entry.summary,
+      focus: typeof entry.focus === 'string' && entry.focus.trim() ? entry.focus.trim() : undefined,
+      note: typeof entry.note === 'string' && entry.note.trim() ? entry.note.trim() : undefined,
+    }
+  }
+  if (kind === 'tool_budget') {
+    return {
+      kind: 'tool_budget',
+      trigger,
+      spilled: entry.spilled === true,
+      preview: typeof entry.preview === 'string' ? entry.preview : undefined,
+    }
+  }
+  return undefined
+}
+
 /** 从活动字段或工具结果头 `run_id=` 恢复 Sub Agent 详情入口 id */
 function normalizeSubagentRunId(
   value: unknown,
@@ -340,6 +411,18 @@ function normalizeInvestigation(raw: unknown): VscodeAiInvestigation | undefined
             VscodeAiInvestigation['timeline'][number],
             { kind: 'compression' }
           >['compressionKind'],
+          coveredCanonicalFrom:
+            typeof item.coveredCanonicalFrom === 'number' &&
+            Number.isFinite(item.coveredCanonicalFrom)
+              ? item.coveredCanonicalFrom
+              : undefined,
+          coveredCanonicalTo:
+            typeof item.coveredCanonicalTo === 'number' && Number.isFinite(item.coveredCanonicalTo)
+              ? item.coveredCanonicalTo
+              : undefined,
+          compressionDetail: normalizeCompressionDetail(
+            (item as { compressionDetail?: unknown }).compressionDetail,
+          ),
           done: true,
         },
       ]

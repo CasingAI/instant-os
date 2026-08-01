@@ -12,6 +12,7 @@ import {
   estimateMessagesTokensRough,
   messagePlainText,
   type AgentCompressionEvent,
+  type AgentCompressionTrigger,
   type ChatMessage,
   type CompressionPipelineInput,
   type CompressionPipelineResult,
@@ -63,12 +64,19 @@ export async function runCompressionPipeline(
     return { wire, events, estimatedTokens }
   }
 
+  const trigger: AgentCompressionTrigger = forceLlm
+    ? 'self_compact'
+    : overHard
+      ? 'hard'
+      : 'soft'
+
   // L1 structure fold
   {
     const folded = foldCompletedToolRounds(wire, {
       keepRecentTurns: options.keepRecentTurns,
       step: input.step,
       beforeTokens: estimatedTokens,
+      trigger,
     })
     if (folded.events.length > 0) {
       wire = folded.wire
@@ -84,6 +92,7 @@ export async function runCompressionPipeline(
       requireEcho: input.requireReasoningEcho,
       step: input.step,
       beforeTokens: estimatedTokens,
+      trigger,
     })
     if (pruned.events.length > 0) {
       wire = pruned.wire
@@ -103,6 +112,7 @@ export async function runCompressionPipeline(
       keepRecentTurns: options.keepRecentTurns,
       step: input.step,
       beforeTokens: estimatedTokens,
+      trigger,
     })
     if (omitted.events.length > 0) {
       wire = omitted.wire
@@ -128,6 +138,12 @@ export async function runCompressionPipeline(
         return { wire, events, estimatedTokens }
       }
 
+      const l4Trigger: AgentCompressionTrigger = forceLlm
+        ? 'self_compact'
+        : estimatedTokens >= hardLimit || overHard
+          ? 'hard'
+          : trigger
+
       const compact = await runLlmCompact({
         slice: sliced.slice,
         from: sliced.from,
@@ -143,6 +159,7 @@ export async function runCompressionPipeline(
         usageContext: input.usageContext,
         signal: input.signal,
         kind: forceLlm ? 'self_compact' : 'llm_compact',
+        trigger: l4Trigger,
       })
 
       if (compact) {

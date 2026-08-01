@@ -37,6 +37,7 @@ import {
   nextCompressionId,
   resolveCompressionOptions,
   runCompressionPipeline,
+  type AgentCompressionDetail,
   type AgentCompressionEvent,
   type AgentCompressionOptions,
 } from './context-compression/index.ts'
@@ -138,7 +139,7 @@ export type RunAgentResult = {
   incomplete?: boolean
 }
 
-export type { AgentCompressionEvent, AgentCompressionOptions }
+export type { AgentCompressionDetail, AgentCompressionEvent, AgentCompressionOptions }
 
 type AccumulatedToolCall = {
   id: string

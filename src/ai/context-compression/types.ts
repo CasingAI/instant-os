@@ -8,6 +8,41 @@ export type AgentCompressionKind =
   | 'llm_compact'
   | 'self_compact'
 
+export type AgentCompressionTrigger = 'soft' | 'hard' | 'self_compact'
+
+export type AgentCompressionDetail =
+  | {
+      kind: 'structure_fold'
+      trigger: AgentCompressionTrigger
+      foldedToolsText: string
+      toolCallCount: number
+    }
+  | {
+      kind: 'reasoning_prune'
+      trigger: AgentCompressionTrigger
+      prunedAssistantCount: number
+      prunedChars: number
+    }
+  | {
+      kind: 'tail_window'
+      trigger: AgentCompressionTrigger
+      omittedUserCount: number
+      keepRecentTurns: number
+    }
+  | {
+      kind: 'llm_compact' | 'self_compact'
+      trigger: AgentCompressionTrigger
+      summary: string
+      focus?: string
+      note?: string
+    }
+  | {
+      kind: 'tool_budget'
+      trigger: AgentCompressionTrigger
+      spilled?: boolean
+      preview?: string
+    }
+
 export type AgentCompressionEvent = {
   id: string
   kind: AgentCompressionKind
@@ -21,6 +56,8 @@ export type AgentCompressionEvent = {
   spilled?: boolean
   /** L4 失败等说明 */
   note?: string
+  /** 详情 Tab 用的结构化载荷 */
+  detail?: AgentCompressionDetail
 }
 
 export type AgentCompressionSpill = {

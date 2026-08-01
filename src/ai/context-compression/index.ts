@@ -1,8 +1,10 @@
 export type {
+  AgentCompressionDetail,
   AgentCompressionEvent,
   AgentCompressionKind,
   AgentCompressionOptions,
   AgentCompressionSpill,
+  AgentCompressionTrigger,
   ResolvedAgentCompressionOptions,
 } from './types.ts'
 export {
