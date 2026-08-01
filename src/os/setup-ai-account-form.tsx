@@ -88,10 +88,13 @@ export function SetupAiAccountForm({ entry, onChange }: SetupAiAccountFormProps)
     }
   }
 
-  const modelOptions = (preset?.models ?? []).map((model) => ({
-    id: model.id,
-    label: model.name,
-  }))
+  // 首选模型即基座：只列出支持 text 能力的模型（排除纯 ASR / TTS 等）
+  const modelOptions = (preset?.models ?? [])
+    .filter((model) => model.capabilities.includes('text'))
+    .map((model) => ({
+      id: model.id,
+      label: model.name,
+    }))
 
   return (
     <div class="setup-ai-form">
