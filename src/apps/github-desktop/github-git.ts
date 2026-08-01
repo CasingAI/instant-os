@@ -53,9 +53,28 @@ export type GithubGitContext = {
   terminalSessionId?: string
 }
 
-export type GithubGitResult = {
+/**
+ * 门面结果：summary 给人读；data 为客侧结构化字段；changeSet 仅宿主撤销用。
+ */
+export type GithubGitResult<T extends Record<string, unknown> = Record<string, unknown>> = {
   summary: string
+  data: T
   changeSet?: TerminalChangeSet
+}
+
+/** 剥掉 changeSet，展平为客侧 `{ summary, ...data }`。 */
+export function flattenGithubGitResultForGuest<T extends Record<string, unknown>>(
+  result: GithubGitResult<T>,
+): { summary: string } & T {
+  return { summary: result.summary, ...result.data }
+}
+
+function headShaOrNull(sha: string | undefined): string | null {
+  return sha && sha.length > 0 ? sha : null
+}
+
+function toGitChanges(changes: GithubChange[]): Array<{ path: string; kind: GithubChange['kind'] }> {
+  return changes.map((c) => ({ path: c.path, kind: c.kind }))
 }
 
 export function assertGithubGitMutationAllowed(fsMode: TerminalFsMode): void {
@@ -163,14 +182,24 @@ function appendChangeSummary(text: string, changeSet?: TerminalChangeSet): strin
   return `${text}\n${formatTerminalChangeSummary(changeSet)}`
 }
 
-export async function githubGitStatus(ctx: GithubGitContext): Promise<GithubGitResult> {
+export async function githubGitStatus(ctx: GithubGitContext): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    clean: boolean
+    hasUnpushedCommits: boolean
+    changes: Array<{ path: string; kind: GithubChange['kind'] }>
+  }>
+> {
   const meta = await resolveMeta(ctx)
   const changes = await detectGithubChanges(meta)
-  const head = currentHeadSha(meta)
+  const head = headShaOrNull(currentHeadSha(meta))
   const unpushed = branchHasUnpushedCommits(meta)
   const lines = [
     `仓库 ${meta.owner}/${meta.repo}`,
-    `分支 ${meta.currentBranch} · tip ${shortSha(head)}${unpushed ? ' · 有未推送本地 commit' : ''}`,
+    `分支 ${meta.currentBranch} · tip ${shortSha(head ?? undefined)}${unpushed ? ' · 有未推送本地 commit' : ''}`,
     changes.length === 0
       ? '工作区干净'
       : `变更 ${changes.length} 项（${summarizeChanges(changes)}）：`,
@@ -179,13 +208,35 @@ export async function githubGitStatus(ctx: GithubGitContext): Promise<GithubGitR
   if (changes.length > 40) {
     lines.push(`  …另有 ${changes.length - 40} 项`)
   }
-  return { summary: lines.join('\n') }
+  return {
+    summary: lines.join('\n'),
+    data: {
+      owner: meta.owner,
+      repo: meta.repo,
+      branch: meta.currentBranch,
+      head,
+      clean: changes.length === 0,
+      hasUnpushedCommits: unpushed,
+      changes: toGitChanges(changes),
+    },
+  }
 }
 
 export async function githubGitDiff(
   ctx: GithubGitContext,
   path?: string,
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    files: Array<{
+      path: string
+      kind: GithubChange['kind']
+      notice?: string
+      original?: string
+      modified?: string
+    }>
+    truncated: boolean
+  }>
+> {
   const meta = await resolveMeta(ctx)
   const changes = await detectGithubChanges(meta)
   const target = path?.trim()
@@ -194,71 +245,133 @@ export async function githubGitDiff(
     : changes
 
   if (filtered.length === 0) {
-    return { summary: target ? `无变更：${target}` : '工作区无变更' }
+    return {
+      summary: target ? `无变更：${target}` : '工作区无变更',
+      data: { files: [], truncated: false },
+    }
   }
 
   const parts: string[] = []
   const limit = target ? filtered : filtered.slice(0, 8)
+  const truncated = !target && filtered.length > 8
+  const files: Array<{
+    path: string
+    kind: GithubChange['kind']
+    notice?: string
+    original?: string
+    modified?: string
+  }> = []
+
   for (const change of limit) {
     const preview = await buildChangePreview(meta, change)
     if (preview.notice) {
       parts.push(`## ${change.path} (${change.kind})\n${preview.notice}`)
+      files.push({ path: change.path, kind: change.kind, notice: preview.notice })
       continue
     }
+    const original = preview.original.slice(0, 4000)
+    const modified = preview.modified.slice(0, 4000)
     parts.push(
-      `## ${change.path} (${change.kind})\n--- original ---\n${preview.original.slice(0, 4000)}\n--- modified ---\n${preview.modified.slice(0, 4000)}`,
+      `## ${change.path} (${change.kind})\n--- original ---\n${original}\n--- modified ---\n${modified}`,
     )
+    files.push({ path: change.path, kind: change.kind, original, modified })
   }
-  if (!target && filtered.length > 8) {
+  if (truncated) {
     parts.push(`…另有 ${filtered.length - 8} 个文件未展开，可传 path 查看单个文件`)
   }
-  return { summary: parts.join('\n\n') }
+  return {
+    summary: parts.join('\n\n'),
+    data: { files, truncated },
+  }
 }
 
 export async function githubGitLog(
   ctx: GithubGitContext,
   limit = 20,
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    localCommits: Array<{ sha: string; message: string }>
+    remoteCommits: Array<{ sha: string; message: string }>
+    branches: Array<{ name: string; tip: string | null; current: boolean }>
+  }>
+> {
   const meta = await resolveMeta(ctx)
   const n = Math.min(Math.max(1, Math.floor(limit)), 50)
   const local = await listGithubLocalCommits(meta.owner, meta.repo)
   const remoteRecord = await getCachedGithubCommitList(meta.owner, meta.repo)
   const remoteCached = remoteRecord?.commits ?? []
 
+  const localCommits = local.slice(0, n).map((c) => ({
+    sha: c.sha,
+    message: c.message.split('\n')[0] ?? '',
+  }))
+  const remoteCommits = remoteCached.slice(0, n).map((c) => ({
+    sha: c.sha,
+    message: c.message.split('\n')[0] ?? '',
+  }))
+
   const lines: string[] = [`仓库 ${meta.owner}/${meta.repo} · ${meta.currentBranch}`]
-  if (local.length > 0) {
+  if (localCommits.length > 0) {
     lines.push('本地 commit：')
-    for (const c of local.slice(0, n)) {
-      lines.push(`  ${shortSha(c.sha)}  ${c.message.split('\n')[0] ?? ''}`)
+    for (const c of localCommits) {
+      lines.push(`  ${shortSha(c.sha)}  ${c.message}`)
     }
   }
-  if (remoteCached.length > 0) {
+  if (remoteCommits.length > 0) {
     lines.push('远端缓存历史：')
-    for (const c of remoteCached.slice(0, n)) {
-      lines.push(`  ${shortSha(c.sha)}  ${c.message.split('\n')[0] ?? ''}`)
+    for (const c of remoteCommits) {
+      lines.push(`  ${shortSha(c.sha)}  ${c.message}`)
     }
   }
-  if (local.length === 0 && remoteCached.length === 0) {
+  if (localCommits.length === 0 && remoteCommits.length === 0) {
     lines.push('暂无历史。可先 await instant.git.fetch() 刷新远端缓存。')
   }
 
-  const branches = buildRepoBranchList(meta)
+  const branchList = buildRepoBranchList(meta)
+  const branches = branchList.slice(0, 30).map((b) => ({
+    name: b.name,
+    tip: headShaOrNull(b.localTipSha || b.commitSha),
+    current: b.name === meta.currentBranch,
+  }))
   if (branches.length > 0) {
     lines.push('分支：')
-    for (const b of branches.slice(0, 30)) {
-      const mark = b.name === meta.currentBranch ? '*' : ' '
-      lines.push(`  ${mark} ${b.name}  ${shortSha(b.localTipSha || b.commitSha)}`)
+    for (const b of branches) {
+      const mark = b.current ? '*' : ' '
+      lines.push(`  ${mark} ${b.name}  ${shortSha(b.tip ?? undefined)}`)
     }
   }
 
-  return { summary: lines.join('\n') }
+  return {
+    summary: lines.join('\n'),
+    data: {
+      owner: meta.owner,
+      repo: meta.repo,
+      branch: meta.currentBranch,
+      head: headShaOrNull(currentHeadSha(meta)),
+      localCommits,
+      remoteCommits,
+      branches,
+    },
+  }
 }
 
 export async function githubGitClone(
   ctx: GithubGitContext,
   input: { url?: string; owner?: string; repo?: string; branch?: string },
   onProgress?: GithubProgress,
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    repoRoot: string
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
 
   let owner = input.owner?.trim()
@@ -288,11 +401,19 @@ export async function githubGitClone(
       }),
   )
 
+  const head = headShaOrNull(currentHeadSha(meta))
   return {
     summary: appendChangeSummary(
-      `已克隆 ${meta.owner}/${meta.repo} → ${repoRoot}\n分支 ${meta.currentBranch} · tip ${shortSha(currentHeadSha(meta))}`,
+      `已克隆 ${meta.owner}/${meta.repo} → ${repoRoot}\n分支 ${meta.currentBranch} · tip ${shortSha(head ?? undefined)}`,
       changeSet,
     ),
+    data: {
+      owner: meta.owner,
+      repo: meta.repo,
+      branch: meta.currentBranch,
+      head,
+      repoRoot,
+    },
     changeSet,
   }
 }
@@ -300,7 +421,16 @@ export async function githubGitClone(
 export async function githubGitCommit(
   ctx: GithubGitContext,
   options: { message: string; paths?: string[]; all?: boolean },
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    message: string
+    changes: Array<{ path: string; kind: GithubChange['kind'] }>
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const message = options.message.trim()
@@ -332,29 +462,59 @@ export async function githubGitCommit(
   const committed = selectedPaths
     ? allChanges.filter((c) => selectedPaths!.has(c.path))
     : allChanges
+  const head = headShaOrNull(currentHeadSha(next))
 
   return {
     summary: appendChangeSummary(
-      `已本地 commit ${shortSha(currentHeadSha(next))}：${message}\n${summarizeChanges(committed)}（尚未 push）`,
+      `已本地 commit ${shortSha(head ?? undefined)}：${message}\n${summarizeChanges(committed)}（尚未 push）`,
       changeSet,
     ),
+    data: {
+      owner: next.owner,
+      repo: next.repo,
+      branch: next.currentBranch,
+      head,
+      message,
+      changes: toGitChanges(committed),
+    },
     changeSet,
   }
 }
 
-export async function githubGitPush(ctx: GithubGitContext): Promise<GithubGitResult> {
+export async function githubGitPush(ctx: GithubGitContext): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const next = await pushGithubBranch(meta)
+  const head = headShaOrNull(currentHeadSha(next))
   return {
-    summary: `已推送 ${next.owner}/${next.repo} · ${next.currentBranch} → ${shortSha(currentHeadSha(next))}`,
+    summary: `已推送 ${next.owner}/${next.repo} · ${next.currentBranch} → ${shortSha(head ?? undefined)}`,
+    data: {
+      owner: next.owner,
+      repo: next.repo,
+      branch: next.currentBranch,
+      head,
+    },
   }
 }
 
 export async function githubGitPull(
   ctx: GithubGitContext,
   onProgress?: GithubProgress,
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const repoRoot = githubRepoRootPath(meta.owner, meta.repo)
@@ -363,27 +523,59 @@ export async function githubGitPull(
     repoRoot,
     () => pullGithubRepository({ meta, onProgress }),
   )
+  const head = headShaOrNull(currentHeadSha(next))
   return {
     summary: appendChangeSummary(
-      `已拉取 ${next.owner}/${next.repo} · ${next.currentBranch} · tip ${shortSha(currentHeadSha(next))}`,
+      `已拉取 ${next.owner}/${next.repo} · ${next.currentBranch} · tip ${shortSha(head ?? undefined)}`,
       changeSet,
     ),
+    data: {
+      owner: next.owner,
+      repo: next.repo,
+      branch: next.currentBranch,
+      head,
+    },
     changeSet,
   }
 }
 
-export async function githubGitFetch(ctx: GithubGitContext): Promise<GithubGitResult> {
+export async function githubGitFetch(ctx: GithubGitContext): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    localSha: string | null
+    remoteSha: string | null
+    upToDate: boolean
+    branchCount: number
+    cachedCommitCount: number
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const result = await fetchGithubRemote({ meta })
   const next = await applyGithubFetchResult(meta, result)
+  const localSha = headShaOrNull(result.localSha)
+  const remoteSha = headShaOrNull(result.remoteSha)
   return {
     summary: [
       `已 fetch ${next.owner}/${next.repo} · ${next.currentBranch}`,
-      `本地 tip ${shortSha(result.localSha)} · 远端 tip ${shortSha(result.remoteSha)}`,
+      `本地 tip ${shortSha(localSha ?? undefined)} · 远端 tip ${shortSha(remoteSha ?? undefined)}`,
       result.upToDate ? '已与远端 tip 一致' : '远端有新提交（工作区未改；可用 await instant.git.pull() 更新）',
       `远端分支 ${result.branches.length} 个 · 历史缓存 ${result.commits.length} 条`,
     ].join('\n'),
+    data: {
+      owner: next.owner,
+      repo: next.repo,
+      branch: next.currentBranch,
+      head: headShaOrNull(currentHeadSha(next)),
+      localSha,
+      remoteSha,
+      upToDate: result.upToDate,
+      branchCount: result.branches.length,
+      cachedCommitCount: result.commits.length,
+    },
   }
 }
 
@@ -391,7 +583,15 @@ export async function githubGitSwitchBranch(
   ctx: GithubGitContext,
   branch: string,
   onProgress?: GithubProgress,
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    syncedWithRemote: boolean
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const name = branch.trim()
@@ -400,13 +600,21 @@ export async function githubGitSwitchBranch(
   const { result, changeSet } = await withControlledWorkingTreeMutation(ctx, repoRoot, () =>
     switchGithubBranch({ meta, branch: name, onProgress }),
   )
+  const head = headShaOrNull(currentHeadSha(result.meta))
   return {
     summary: appendChangeSummary(
-      `已切换到 ${result.meta.currentBranch} · tip ${shortSha(currentHeadSha(result.meta))}${
+      `已切换到 ${result.meta.currentBranch} · tip ${shortSha(head ?? undefined)}${
         result.syncedWithRemote ? '（已与远端同步）' : '（本地快照）'
       }`,
       changeSet,
     ),
+    data: {
+      owner: result.meta.owner,
+      repo: result.meta.repo,
+      branch: result.meta.currentBranch,
+      head,
+      syncedWithRemote: result.syncedWithRemote,
+    },
     changeSet,
   }
 }
@@ -414,7 +622,15 @@ export async function githubGitSwitchBranch(
 export async function githubGitDiscard(
   ctx: GithubGitContext,
   paths: string[],
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    owner: string
+    repo: string
+    branch: string
+    head: string | null
+    discarded: Array<{ path: string; kind: GithubChange['kind'] }>
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const wanted = new Set(paths.map((p) => p.trim()).filter(Boolean))
@@ -444,28 +660,41 @@ export async function githubGitDiscard(
       `已丢弃 ${changes.length} 项变更（${summarizeChanges(changes)}）\n仓库 ${next.owner}/${next.repo}`,
       changeSet,
     ),
+    data: {
+      owner: next.owner,
+      repo: next.repo,
+      branch: next.currentBranch,
+      head: headShaOrNull(currentHeadSha(next)),
+      discarded: toGitChanges(changes),
+    },
     changeSet,
   }
 }
 
-export async function githubGitUndo(ctx: GithubGitContext): Promise<GithubGitResult> {
+export async function githubGitUndo(ctx: GithubGitContext): Promise<
+  GithubGitResult<{ head: string | null }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const next = await undoLastUnpushedCommit(meta)
+  const head = headShaOrNull(currentHeadSha(next))
   return {
-    summary: `已撤销最近一次未推送 commit · tip ${shortSha(currentHeadSha(next))}`,
+    summary: `已撤销最近一次未推送 commit · tip ${shortSha(head ?? undefined)}`,
+    data: { head },
   }
 }
 
 export async function githubGitAmend(
   ctx: GithubGitContext,
   message: string,
-): Promise<GithubGitResult> {
+): Promise<GithubGitResult<{ head: string | null }>> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const next = await amendUnpushedCommit({ meta, message })
+  const head = headShaOrNull(currentHeadSha(next))
   return {
-    summary: `已 amend 未推送 commit · tip ${shortSha(currentHeadSha(next))}`,
+    summary: `已 amend 未推送 commit · tip ${shortSha(head ?? undefined)}`,
+    data: { head },
   }
 }
 
@@ -473,7 +702,15 @@ export async function githubGitCreateBranch(
   ctx: GithubGitContext,
   name: string,
   options?: { checkout?: boolean; publish?: boolean },
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    branch: string
+    currentBranch: string
+    head: string | null
+    published: boolean
+    checkedOut: boolean
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const next = await createGithubBranch({
@@ -482,17 +719,31 @@ export async function githubGitCreateBranch(
     checkout: options?.checkout,
     publish: options?.publish,
   })
+  const checkedOut = options?.checkout !== false
+  const published = options?.publish === true
   return {
-    summary: `已创建分支 ${name}${options?.publish ? '（已发布）' : ''}${
-      options?.checkout === false ? '' : ` · 当前 ${next.currentBranch}`
+    summary: `已创建分支 ${name}${published ? '（已发布）' : ''}${
+      checkedOut ? ` · 当前 ${next.currentBranch}` : ''
     }`,
+    data: {
+      branch: name,
+      currentBranch: next.currentBranch,
+      head: headShaOrNull(currentHeadSha(next)),
+      published,
+      checkedOut,
+    },
   }
 }
 
 export async function githubGitStashSave(
   ctx: GithubGitContext,
   message?: string,
-): Promise<GithubGitResult> {
+): Promise<
+  GithubGitResult<{
+    stashedCount: number
+    message?: string
+  }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const repoRoot = githubRepoRootPath(meta.owner, meta.repo)
@@ -500,18 +751,25 @@ export async function githubGitStashSave(
     const saved = await stashSaveGithubChanges({ meta, message })
     return saved
   })
+  const stashMessage = result.stash.message || undefined
   return {
     summary: appendChangeSummary(
       `已贮藏 ${result.stash.changes.length} 项变更${
-        result.stash.message ? `（${result.stash.message}）` : ''
+        stashMessage ? `（${stashMessage}）` : ''
       }`,
       changeSet,
     ),
+    data: {
+      stashedCount: result.stash.changes.length,
+      ...(stashMessage ? { message: stashMessage } : {}),
+    },
     changeSet,
   }
 }
 
-export async function githubGitStashPop(ctx: GithubGitContext): Promise<GithubGitResult> {
+export async function githubGitStashPop(ctx: GithubGitContext): Promise<
+  GithubGitResult<{ remainingStashCount: number }>
+> {
   assertGithubGitMutationAllowed(ctx.fsMode)
   const meta = await resolveMeta(ctx)
   const repoRoot = githubRepoRootPath(meta.owner, meta.repo)
@@ -526,6 +784,7 @@ export async function githubGitStashPop(ctx: GithubGitContext): Promise<GithubGi
       `已弹出贮藏 · 剩余 ${remaining.length} 条`,
       changeSet,
     ),
+    data: { remainingStashCount: remaining.length },
     changeSet,
   }
 }

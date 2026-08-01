@@ -36,14 +36,14 @@ export const INSTANT_SHELL_RUNTIME_SECTION = `【Instant 壳层 API · globalThi
 GitHub 工作树（非真实 git；经 instant.git，须 await）：
 - 工作区 cwd 须能解析到 /dev/github/{owner}/{repo}（与 GitHub Desktop 同一套本地工作树）
 - 只读终端（Ask/Plan）可 status / diff / log；clone / commit / push / pull / fetch / switchBranch / discard 会被拒绝
-- instant.git.status() → 分支、tip、工作区变更摘要
-- instant.git.diff(path?) → 相对已 commit 基线的差异；可传仓库内相对路径
-- instant.git.log(limit?) → 本地/缓存历史与分支列表；limit 默认 20、最大 50
-- instant.git.clone({ url?, owner?, repo?, branch? }) → 克隆到 /dev/github/{owner}/{repo}
-- instant.git.commit({ message, paths?, all? }) → 本地 commit（须 all:true 或 paths；无 git add）
-- instant.git.push() / pull() / fetch()
-- instant.git.switchBranch(branch) / discard(paths)
-- 返回值为 summary 字符串；受控模式下工作树改动计入终端 ChangeSet，可撤销
+- instant.git.status() → { summary, owner, repo, branch, head, clean, hasUnpushedCommits, changes[] }
+- instant.git.diff(path?) → { summary, files[], truncated }；可传仓库内相对路径
+- instant.git.log(limit?) → { summary, localCommits[], remoteCommits[], branches[] }；limit 默认 20、最大 50
+- instant.git.clone({ url?, owner?, repo?, branch? }) → { summary, repoRoot, owner, repo, branch, head }
+- instant.git.commit({ message, paths?, all? }) → { summary, message, head, changes[] }（须 all:true 或 paths；无 git add）
+- instant.git.push() / pull() / fetch() → 结构化对象（含 summary、head / tip 等）
+- instant.git.switchBranch(branch) / discard(paths) → 结构化对象
+- 返回值为带 summary 的结构化对象；受控模式下工作树改动计入终端 ChangeSet，可撤销
 
 示例（经 run_in_terminal 下发）：
 await instant.openApp('settings')
@@ -53,8 +53,8 @@ const apps = await instant.listApps()
 await instant.focus('files')
 const r = await instant.grep('foo', { path: 'src' })
 console.log(r.matches)
-console.log(await instant.git.status())
-console.log(await instant.git.diff('README.md'))
+console.log(JSON.stringify(await instant.git.status(), null, 2))
+console.log(JSON.stringify(await instant.git.diff('README.md'), null, 2))
 
 注意：
 - 无 instant 时（未注入宿主）为 undefined；不要假设沙箱/非终端环境有此全局

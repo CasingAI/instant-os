@@ -1,4 +1,5 @@
 import {
+  flattenGithubGitResultForGuest,
   githubGitClone,
   githubGitCommit,
   githubGitDiff,
@@ -61,15 +62,15 @@ function buildGithubGitContext(host: InstantShellHost): GithubGitContext {
   }
 }
 
-async function runGithubGit(
+async function runGithubGit<T extends Record<string, unknown>>(
   host: InstantShellHost,
-  exec: (ctx: GithubGitContext) => Promise<GithubGitResult>,
-): Promise<string> {
+  exec: (ctx: GithubGitContext) => Promise<GithubGitResult<T>>,
+): Promise<{ summary: string } & T> {
   const result = await exec(buildGithubGitContext(host))
   if (result.changeSet && result.changeSet.changes.length > 0) {
     host.noteExternalChangeSet(result.changeSet)
   }
-  return result.summary
+  return flattenGithubGitResultForGuest(result)
 }
 
 function assertGitCloneOptions(options: InstantShellGitCloneOptions): InstantShellGitCloneOptions {

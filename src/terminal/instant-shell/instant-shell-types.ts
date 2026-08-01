@@ -70,21 +70,111 @@ export type InstantShellGitCommitOptions = {
   all?: boolean
 }
 
+export type InstantShellGitChangeKind = 'added' | 'modified' | 'deleted'
+
+export type InstantShellGitChange = {
+  path: string
+  kind: InstantShellGitChangeKind
+}
+
+export type InstantShellGitRepoRef = {
+  owner: string
+  repo: string
+  branch: string
+  /** 完整 tip SHA；无 tip 时为 null */
+  head: string | null
+}
+
+export type InstantShellGitStatusResult = InstantShellGitRepoRef & {
+  summary: string
+  clean: boolean
+  hasUnpushedCommits: boolean
+  changes: InstantShellGitChange[]
+}
+
+export type InstantShellGitDiffFile = InstantShellGitChange & {
+  notice?: string
+  original?: string
+  modified?: string
+}
+
+export type InstantShellGitDiffResult = {
+  summary: string
+  files: InstantShellGitDiffFile[]
+  truncated: boolean
+}
+
+export type InstantShellGitCommitEntry = {
+  sha: string
+  message: string
+}
+
+export type InstantShellGitBranchEntry = {
+  name: string
+  tip: string | null
+  current: boolean
+}
+
+export type InstantShellGitLogResult = InstantShellGitRepoRef & {
+  summary: string
+  localCommits: InstantShellGitCommitEntry[]
+  remoteCommits: InstantShellGitCommitEntry[]
+  branches: InstantShellGitBranchEntry[]
+}
+
+export type InstantShellGitCloneResult = InstantShellGitRepoRef & {
+  summary: string
+  repoRoot: string
+}
+
+export type InstantShellGitCommitResult = InstantShellGitRepoRef & {
+  summary: string
+  message: string
+  changes: InstantShellGitChange[]
+}
+
+export type InstantShellGitPushResult = InstantShellGitRepoRef & {
+  summary: string
+}
+
+export type InstantShellGitPullResult = InstantShellGitRepoRef & {
+  summary: string
+}
+
+export type InstantShellGitFetchResult = InstantShellGitRepoRef & {
+  summary: string
+  localSha: string | null
+  remoteSha: string | null
+  upToDate: boolean
+  branchCount: number
+  cachedCommitCount: number
+}
+
+export type InstantShellGitSwitchBranchResult = InstantShellGitRepoRef & {
+  summary: string
+  syncedWithRemote: boolean
+}
+
+export type InstantShellGitDiscardResult = InstantShellGitRepoRef & {
+  summary: string
+  discarded: InstantShellGitChange[]
+}
+
 /**
  * 客侧 `instant.git`：GitHub 工作树门面（非真实 git）。
- * 路径须能解析到 `/dev/github/{owner}/{repo}`；返回值为 summary 文本。
+ * 路径须能解析到 `/dev/github/{owner}/{repo}`；返回值为带 summary 的结构化对象。
  */
 export type InstantShellGitApi = {
-  status: () => Promise<string>
-  diff: (path?: string) => Promise<string>
-  log: (limit?: number) => Promise<string>
-  clone: (options: InstantShellGitCloneOptions) => Promise<string>
-  commit: (options: InstantShellGitCommitOptions) => Promise<string>
-  push: () => Promise<string>
-  pull: () => Promise<string>
-  fetch: () => Promise<string>
-  switchBranch: (branch: string) => Promise<string>
-  discard: (paths: string[]) => Promise<string>
+  status: () => Promise<InstantShellGitStatusResult>
+  diff: (path?: string) => Promise<InstantShellGitDiffResult>
+  log: (limit?: number) => Promise<InstantShellGitLogResult>
+  clone: (options: InstantShellGitCloneOptions) => Promise<InstantShellGitCloneResult>
+  commit: (options: InstantShellGitCommitOptions) => Promise<InstantShellGitCommitResult>
+  push: () => Promise<InstantShellGitPushResult>
+  pull: () => Promise<InstantShellGitPullResult>
+  fetch: () => Promise<InstantShellGitFetchResult>
+  switchBranch: (branch: string) => Promise<InstantShellGitSwitchBranchResult>
+  discard: (paths: string[]) => Promise<InstantShellGitDiscardResult>
 }
 
 /** 客侧 `globalThis.instant` 表面（均为 Promise，便于 async 宿主桥）。 */

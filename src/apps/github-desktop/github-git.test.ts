@@ -1,11 +1,12 @@
 /**
- * github-repo-paths / github-git fsMode 门禁。
+ * github-repo-paths / github-git fsMode 门禁 / 客侧展平。
  *
  * 运行：node --experimental-strip-types src/apps/github-desktop/github-git.test.ts
  */
 import assert from 'node:assert/strict'
 import {
   assertGithubGitMutationAllowed,
+  flattenGithubGitResultForGuest,
   GITHUB_GIT_READONLY_MUTATION_MESSAGE,
   githubGitCommit,
   githubGitFetch,
@@ -61,4 +62,34 @@ import { parseGithubRepoPath, GITHUB_USER_ROOT } from './github-repo-paths.ts'
   )
 }
 
-console.log('ok: github-git path parse + readonly mutation gate')
+{
+  const guest = flattenGithubGitResultForGuest({
+    summary: '仓库 acme/demo\n工作区干净',
+    data: {
+      owner: 'acme',
+      repo: 'demo',
+      branch: 'main',
+      head: 'abc123',
+      clean: true,
+      hasUnpushedCommits: false,
+      changes: [],
+    },
+    changeSet: {
+      sessionId: 's1',
+      createdAt: 1,
+      sealedAt: 2,
+      changes: [{ path: '/dev/github/acme/demo/a.ts', kind: 'modified' }],
+    },
+  })
+  assert.equal(guest.summary, '仓库 acme/demo\n工作区干净')
+  assert.equal(guest.owner, 'acme')
+  assert.equal(guest.repo, 'demo')
+  assert.equal(guest.branch, 'main')
+  assert.equal(guest.head, 'abc123')
+  assert.equal(guest.clean, true)
+  assert.equal(guest.hasUnpushedCommits, false)
+  assert.deepEqual(guest.changes, [])
+  assert.equal('changeSet' in guest, false)
+}
+
+console.log('ok: github-git path parse + readonly mutation gate + guest flatten')
