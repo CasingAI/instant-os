@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   SYSTEM_SOUND_PACKS,
   loadSystemSoundSettings,
@@ -7,7 +7,10 @@ import {
   type SystemSoundPack,
 } from '../../os/system-sound-settings-storage.ts'
 import {
+  beginSystemSoundVolumePreview,
+  endSystemSoundVolumePreview,
   playSystemSound,
+  updateSystemSoundVolumePreview,
   type SystemSoundCue,
 } from '../../os/system-sounds.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
@@ -41,6 +44,9 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
   const [wideLayout, setWideLayout] = useState(true)
   const [pickingPack, setPickingPack] = useState(false)
   const [saveError, setSaveError] = useState(false)
+  const volumePreviewingRef = useRef(false)
+  const volumePercentLabelRef = useRef<HTMLParagraphElement>(null)
+  const sliderRef = useRef<HTMLInputElement>(null)
 
   const initial = loadSystemSoundSettings()
   const [enabled, setEnabled] = useState(initial.enabled)
@@ -64,6 +70,13 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      volumePreviewingRef.current = false
+      endSystemSoundVolumePreview()
+    }
+  }, [])
+
   const commit = (patch: {
     enabled?: boolean
     pack?: SystemSoundPack
@@ -78,6 +91,10 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
   }
 
   const handleEnabledChange = (checked: boolean) => {
+    if (!checked && volumePreviewingRef.current) {
+      volumePreviewingRef.current = false
+      endSystemSoundVolumePreview()
+    }
     if (!commit({ enabled: checked })) return
     setEnabled(checked)
     if (checked) {
@@ -85,16 +102,61 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
     }
   }
 
-  const handleVolumeInput = (event: Event) => {
-    const next = Number((event.currentTarget as HTMLInputElement).value) / 100
-    setVolume(next)
+  const readSliderVolume = (el: HTMLInputElement): number => Number(el.value) / 100
+
+  const syncVolumeLabel = (next: number) => {
+    const label = volumePercentLabelRef.current
+    if (label) label.textContent = `当前 ${Math.round(next * 100)}%`
   }
 
-  const handleVolumeCommit = (event: Event) => {
-    const next = Number((event.currentTarget as HTMLInputElement).value) / 100
-    if (!commit({ volume: next })) return
+  const handleVolumePointerDown = (event: PointerEvent) => {
+    const el = event.currentTarget as HTMLInputElement
+    try {
+      el.setPointerCapture(event.pointerId)
+    } catch {
+      // ignore
+    }
+    const next = readSliderVolume(el)
+    volumePreviewingRef.current = true
+    beginSystemSoundVolumePreview(next)
+  }
+
+  const handleVolumeInput = (event: Event) => {
+    const el = event.currentTarget as HTMLInputElement
+    const next = readSliderVolume(el)
+    syncVolumeLabel(next)
+    if (!volumePreviewingRef.current) {
+      volumePreviewingRef.current = true
+      beginSystemSoundVolumePreview(next)
+      return
+    }
+    updateSystemSoundVolumePreview(next)
+  }
+
+  const finishVolumeGesture = (el: HTMLInputElement) => {
+    if (!volumePreviewingRef.current) return
+    const next = readSliderVolume(el)
+    volumePreviewingRef.current = false
+    endSystemSoundVolumePreview()
     setVolume(next)
-    playSystemSound('volume-change', { volume: next, force: true })
+    syncVolumeLabel(next)
+    void commit({ volume: next })
+  }
+
+  const handleVolumePointerUp = (event: PointerEvent) => {
+    const el = event.currentTarget as HTMLInputElement
+    try {
+      if (el.hasPointerCapture?.(event.pointerId)) {
+        el.releasePointerCapture(event.pointerId)
+      }
+    } catch {
+      // ignore
+    }
+    finishVolumeGesture(el)
+  }
+
+  const handleVolumeBlur = (event: FocusEvent) => {
+    finishVolumeGesture(event.currentTarget as HTMLInputElement)
   }
 
   const commitPack = (value: string) => {
@@ -164,25 +226,31 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
                 <VolumeQuietIcon />
               </span>
               <input
+                ref={sliderRef}
                 type="range"
                 class="settings__emoji-offset-slider settings__sound-volume-slider"
                 min={0}
                 max={100}
                 step={1}
-                value={volumePercent}
+                defaultValue={Math.round(volume * 100)}
                 disabled={!enabled}
                 aria-label="提示音音量"
+                onPointerDown={handleVolumePointerDown}
                 onInput={handleVolumeInput}
-                onChange={handleVolumeCommit}
-                onPointerUp={handleVolumeCommit}
+                onPointerUp={handleVolumePointerUp}
+                onPointerCancel={handleVolumePointerUp}
+                onBlur={handleVolumeBlur}
               />
               <span class="settings__sound-volume-icon" aria-hidden="true">
                 <VolumeLoudIcon />
               </span>
             </div>
             {wideLayout ? (
-              <p class="settings__section-footnote settings__sound-volume-footnote">
-                当前 {volumePercent}%
+              <p
+                ref={volumePercentLabelRef}
+                class="settings__section-footnote settings__sound-volume-footnote"
+              >
+                当前 {Math.round(volume * 100)}%
               </p>
             ) : null}
           </div>

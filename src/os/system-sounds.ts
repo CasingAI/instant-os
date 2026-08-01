@@ -198,6 +198,127 @@ export function playSystemSound(cue: SystemSoundCue, options: PlayOptions = {}):
   })()
 }
 
+type VolumePreviewSession = {
+  osc: OscillatorNode
+  gain: GainNode
+}
+
+let volumePreview: VolumePreviewSession | undefined
+/** 递增以作废尚未完成的异步 begin */
+let volumePreviewGeneration = 0
+/** 最新试听增益（0–约 0.14） */
+let volumePreviewTarget = 0
+
+function clampVolume(value: number): number {
+  return Math.min(1, Math.max(0, value))
+}
+
+/** 滑杆 0–1 → 实际试听增益；压低峰值避免破音。 */
+function previewGainFromVolume(volume: number): number {
+  return clampVolume(volume) * 0.12
+}
+
+function setPreviewGainNow(gain: AudioParam, volume: number, ctx: AudioContext): void {
+  volumePreviewTarget = previewGainFromVolume(volume)
+  // 用 setValueAtTime 写当前时刻，避免 cancelScheduledValues 打断音频线程
+  gain.setValueAtTime(volumePreviewTarget, ctx.currentTime)
+}
+
+function startPreviewOscillator(ctx: AudioContext): void {
+  if (volumePreview) {
+    volumePreview.gain.gain.setValueAtTime(volumePreviewTarget, ctx.currentTime)
+    return
+  }
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = 'sine'
+  osc.frequency.value = 660
+  gain.gain.setValueAtTime(volumePreviewTarget, ctx.currentTime)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start()
+  volumePreview = { osc, gain }
+}
+
+/**
+ * 音量滑杆拖动：连续正弦试听音，只改增益。
+ * 可重复调用；已在预览中则只更新音量。
+ */
+export function beginSystemSoundVolumePreview(volume: number): void {
+  const ctx = getAudioContext()
+  if (!ctx) return
+
+  volumePreviewTarget = previewGainFromVolume(volume)
+
+  if (volumePreview) {
+    volumePreview.gain.gain.setValueAtTime(volumePreviewTarget, ctx.currentTime)
+    return
+  }
+
+  if (ctx.state === 'suspended') {
+    const generation = ++volumePreviewGeneration
+    void ctx.resume().then(() => {
+      if (generation !== volumePreviewGeneration) return
+      try {
+        startPreviewOscillator(ctx)
+      } catch {
+        volumePreview = undefined
+      }
+    })
+    return
+  }
+
+  try {
+    startPreviewOscillator(ctx)
+  } catch {
+    volumePreview = undefined
+  }
+}
+
+/** 拖动中更新预览音量（不重新开播）。 */
+export function updateSystemSoundVolumePreview(volume: number): void {
+  volumePreviewTarget = previewGainFromVolume(volume)
+  const ctx = getAudioContext()
+  if (!ctx || !volumePreview) return
+  setPreviewGainNow(volumePreview.gain.gain, volume, ctx)
+}
+
+/** 松手结束预览。可重复调用。 */
+export function endSystemSoundVolumePreview(): void {
+  volumePreviewGeneration += 1
+  const session = volumePreview
+  volumePreview = undefined
+  if (!session) return
+
+  const ctx = getAudioContext()
+  const now = ctx?.currentTime ?? 0
+  try {
+    // 仅在结束时做一次短淡出，避免硬切爆音
+    session.gain.gain.setValueAtTime(session.gain.gain.value, now)
+    session.gain.gain.linearRampToValueAtTime(0.0001, now + 0.04)
+  } catch {
+    try {
+      session.gain.gain.value = 0
+    } catch {
+      // ignore
+    }
+  }
+
+  window.setTimeout(() => {
+    try {
+      session.osc.stop()
+    } catch {
+      // already stopped
+    }
+    try {
+      session.osc.disconnect()
+      session.gain.disconnect()
+    } catch {
+      // ignore
+    }
+  }, 50)
+}
+
 /** 应用内错误通知等。 */
 export function playSystemNotificationSound(): void {
   playSystemSound('notification')
