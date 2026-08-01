@@ -21,7 +21,10 @@ export function bootCrashGuardFirst(): Plugin {
         return html
       }
       const withoutGuard = html.replace(
-        new RegExp(`\\s*<script src="${BOOT_CRASH_GUARD_SRC.replace('/', '\\/')}"><\\/script>`, 'g'),
+        new RegExp(
+          `\\s*<script(?:\\s[^>]*?)?\\ssrc="${BOOT_CRASH_GUARD_SRC.replace('/', '\\/')}"[^>]*><\\/script>`,
+          'g',
+        ),
         '',
       )
 
@@ -32,7 +35,8 @@ export function bootCrashGuardFirst(): Plugin {
         return withoutGuard
       }
 
-      const guardScript = `<script src="${BOOT_CRASH_GUARD_SRC}"></script>`
+      // defer：等 HTML 解析完（含 splash DOM）再执行，避免 head 内同步脚本跑太早
+      const guardScript = `<script defer src="${BOOT_CRASH_GUARD_SRC}"></script>`
       const moduleScript = ensureMainModuleScriptId(moduleScriptMatch[0])
       return withoutGuard.replace(moduleScriptMatch[0], `${guardScript}\n    ${moduleScript}`)
     },

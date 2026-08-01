@@ -158,12 +158,26 @@
       return
     }
     bootProgressState.ratio = next
+    paintBootProgress()
+  }
+
+  function paintBootProgress() {
     var arc = document.getElementById(BOOT_SPLASH_ARC_ID)
-    if (arc) {
-      arc.style.strokeDashoffset = String(
-        BOOT_PROGRESS_CIRCUMFERENCE * (1 - bootProgressState.ratio),
-      )
+    if (!arc) {
+      return
     }
+    arc.style.strokeDashoffset = String(
+      BOOT_PROGRESS_CIRCUMFERENCE * (1 - bootProgressState.ratio),
+    )
+  }
+
+  function refreshBootSplashUi() {
+    if (state.moduleExecuted) {
+      setBootStatus(BOOT_STATUS_STARTING)
+    } else {
+      setBootStatus(BOOT_STATUS_LOADING)
+    }
+    paintBootProgress()
   }
 
   function recomputeBootProgress() {
@@ -315,6 +329,34 @@
     }
   }
 
+  function trackBootResourceTree(node) {
+    if (!node || node.nodeType !== 1) {
+      return
+    }
+
+    trackBootResourceNode(node)
+
+    if (typeof node.querySelectorAll === 'function') {
+      var nested = node.querySelectorAll(
+        'link[rel="modulepreload"], link[rel="stylesheet"], link[rel="preload"], script[type="module"][src], #' +
+          MAIN_MODULE_ID,
+      )
+      for (var i = 0; i < nested.length; i++) {
+        trackBootResourceNode(nested[i])
+      }
+    }
+
+    var splashMounted =
+      node.id === BOOT_SPLASH_STATUS_ID ||
+      node.id === BOOT_SPLASH_ARC_ID ||
+      (typeof node.querySelector === 'function' &&
+        (node.querySelector('#' + BOOT_SPLASH_STATUS_ID) ||
+          node.querySelector('#' + BOOT_SPLASH_ARC_ID)))
+    if (splashMounted) {
+      refreshBootSplashUi()
+    }
+  }
+
   function scanExistingBootResources() {
     var nodes = document.querySelectorAll(
       'link[rel="modulepreload"], link[rel="stylesheet"], link[rel="preload"], script[type="module"][src], #' +
@@ -336,7 +378,7 @@
             continue
           }
           for (var j = 0; j < mutation.addedNodes.length; j++) {
-            trackBootResourceNode(mutation.addedNodes[j])
+            trackBootResourceTree(mutation.addedNodes[j])
           }
         }
       })
@@ -367,7 +409,9 @@
       }
     }
 
-    setBootStatus(BOOT_STATUS_LOADING)
+    refreshBootSplashUi()
+    // 留一点可见弧，避免 0% 时看起来像空环卡住
+    bootProgressState.manualFloor = Math.max(bootProgressState.manualFloor, 0.04)
     recomputeBootProgress()
   }
 
