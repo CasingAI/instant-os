@@ -1094,14 +1094,22 @@ function ModeSwitchBar({
   const [secondsLeft, setSecondsLeft] = useState(() =>
     Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000)),
   )
+  const [progress, setProgress] = useState(() =>
+    Math.max(0, Math.min(1, (pending.expiresAt - Date.now()) / MODE_SWITCH_TIMEOUT_MS)),
+  )
 
   useEffect(() => {
+    let frame = 0
     const tick = () => {
-      setSecondsLeft(Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000)))
+      const remainingMs = pending.expiresAt - Date.now()
+      setSecondsLeft(Math.max(0, Math.ceil(remainingMs / 1000)))
+      setProgress(Math.max(0, Math.min(1, remainingMs / MODE_SWITCH_TIMEOUT_MS)))
+      if (remainingMs > 0) {
+        frame = window.requestAnimationFrame(tick)
+      }
     }
-    tick()
-    const id = window.setInterval(tick, 250)
-    return () => window.clearInterval(id)
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
   }, [pending.expiresAt])
 
   const label = `切换到 ${toLabel}`
@@ -1114,6 +1122,7 @@ function ModeSwitchBar({
       class="vscode-ai__banner vscode-ai__banner--mode-switch"
       role="alertdialog"
       aria-label="切换 AI 模式"
+      style={{ ['--mode-switch-progress' as string]: String(progress) }}
     >
       <span class="vscode-ai__banner-label" title={title}>
         {label}

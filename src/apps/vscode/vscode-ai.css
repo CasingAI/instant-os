@@ -561,10 +561,38 @@
 }
 
 .vscode-ai__banner--mode-switch {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   border: 1px solid rgba(47, 135, 226, 0.42);
-  background: linear-gradient(180deg, #eef6ff 0%, #dcecff 100%);
+  /* 耗尽后露出的底色 */
+  background: linear-gradient(180deg, #e8f1fa 0%, #d5e4f2 100%);
   box-shadow: 0 4px 14px rgba(47, 135, 226, 0.14);
   color: #1a4f86;
+  --mode-switch-progress: 1;
+}
+
+/* 倒计时填充：满宽起步，从右往左收回（scaleX 锚定左侧） */
+.vscode-ai__banner--mode-switch::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  transform-origin: left center;
+  transform: scaleX(var(--mode-switch-progress, 1));
+  background: linear-gradient(
+    90deg,
+    rgba(47, 135, 226, 0.1) 0%,
+    rgba(47, 135, 226, 0.22) 72%,
+    rgba(120, 190, 255, 0.55) 100%
+  );
+  box-shadow: inset -1.5px 0 0 0 rgba(255, 255, 255, 0.75);
+}
+
+.vscode-ai__banner--mode-switch > * {
+  position: relative;
+  z-index: 1;
 }
 
 .vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn {
@@ -1599,10 +1627,20 @@
 }
 
 .vscode--chrome-dark .vscode-ai__banner--mode-switch {
-  background: linear-gradient(180deg, #243548 0%, #1c2a3a 100%);
+  background: linear-gradient(180deg, #1a2533 0%, #141c28 100%);
   border-color: rgba(47, 135, 226, 0.4);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
   color: #c5ddf5;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch::before {
+  background: linear-gradient(
+    90deg,
+    rgba(47, 135, 226, 0.18) 0%,
+    rgba(47, 135, 226, 0.32) 72%,
+    rgba(90, 170, 240, 0.55) 100%
+  );
+  box-shadow: inset -1.5px 0 0 0 rgba(180, 220, 255, 0.55);
 }
 
 .vscode--chrome-dark .vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn {
