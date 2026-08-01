@@ -116,6 +116,7 @@ import {
   listGithubRepoMeta,
   putCachedGithubCommitDetail,
   saveGithubMissingRepoMeta,
+  subscribeGithubRepoMeta,
   type GithubDesktopBranchListItem,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
@@ -433,7 +434,9 @@ export function GithubDesktopApp() {
   const [avatarDisplayUrl, setAvatarDisplayUrl] = useState<string | undefined>()
   const [busyKind, setBusyKind] = useState<BusyKind>()
   const busyKindRef = useRef<BusyKind>(undefined)
+  const viewRef = useRef(view)
   const repoWatchTimerRef = useRef<number | undefined>(undefined)
+  const localReposWatchTimerRef = useRef<number | undefined>(undefined)
   const progressValueRef = useRef(0.08)
   const [progressLabel, setProgressLabel] = useState<string | undefined>()
   /** 0–1，对齐 GitHub Desktop 工具栏按钮进度条；未知进度时用不确定动画 */
@@ -840,8 +843,27 @@ export function GithubDesktopApp() {
     }
   }, [])
 
+  const scheduleRepoRefresh = useCallback(
+    (owner: string, repo: string) => {
+      if (busyKindRef.current) return
+      if (repoWatchTimerRef.current !== undefined) {
+        window.clearTimeout(repoWatchTimerRef.current)
+      }
+      repoWatchTimerRef.current = window.setTimeout(() => {
+        repoWatchTimerRef.current = undefined
+        if (busyKindRef.current) return
+        void refreshRepoChanges(owner, repo)
+      }, 100)
+    },
+    [refreshRepoChanges],
+  )
+
   const repoWatchKey =
     view.kind === 'repo' ? `${view.meta.owner}/${view.meta.repo}` : undefined
+
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
 
   useEffect(() => {
     busyKindRef.current = busyKind
@@ -858,15 +880,8 @@ export function GithubDesktopApp() {
     const root = githubRepoRootPath(owner, repo)
     let cancelled = false
     const unwatch = filesWatch(root, () => {
-      if (busyKindRef.current) return
-      if (repoWatchTimerRef.current !== undefined) {
-        window.clearTimeout(repoWatchTimerRef.current)
-      }
-      repoWatchTimerRef.current = window.setTimeout(() => {
-        repoWatchTimerRef.current = undefined
-        if (cancelled || busyKindRef.current) return
-        void refreshRepoChanges(owner, repo)
-      }, 100)
+      if (cancelled || busyKindRef.current) return
+      scheduleRepoRefresh(owner, repo)
     })
     return () => {
       cancelled = true
@@ -876,7 +891,41 @@ export function GithubDesktopApp() {
       }
       unwatch()
     }
-  }, [repoWatchKey, refreshRepoChanges])
+  }, [repoWatchKey, scheduleRepoRefresh])
+
+  useEffect(() => {
+    const unsubscribe = subscribeGithubRepoMeta((change) => {
+      if (localReposWatchTimerRef.current !== undefined) {
+        window.clearTimeout(localReposWatchTimerRef.current)
+      }
+      localReposWatchTimerRef.current = window.setTimeout(() => {
+        localReposWatchTimerRef.current = undefined
+        void refreshLocalRepos()
+      }, 100)
+
+      const current = viewRef.current
+      if (
+        current.kind === 'repo' &&
+        current.meta.owner === change.owner &&
+        current.meta.repo === change.repo
+      ) {
+        if (change.kind === 'deleted') {
+          setView({ kind: 'home' })
+          setChanges([])
+          setSelectedPath(undefined)
+          return
+        }
+        scheduleRepoRefresh(change.owner, change.repo)
+      }
+    })
+    return () => {
+      unsubscribe()
+      if (localReposWatchTimerRef.current !== undefined) {
+        window.clearTimeout(localReposWatchTimerRef.current)
+        localReposWatchTimerRef.current = undefined
+      }
+    }
+  }, [refreshLocalRepos, scheduleRepoRefresh])
 
   useEffect(() => {
     setUnstagedPaths((prev) => {

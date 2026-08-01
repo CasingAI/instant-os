@@ -136,6 +136,37 @@ const COMMIT_LISTS_STORE = 'commit-lists'
 const STASHES_STORE = 'stashes'
 const MAX_CACHED_COMMIT_DETAILS = 100
 
+/** 仓库 meta / 同步账本变更（供 Desktop 跨应用实时刷新） */
+export type GithubRepoMetaChange = {
+  owner: string
+  repo: string
+  kind: 'updated' | 'deleted'
+}
+
+type GithubRepoMetaListener = (change: GithubRepoMetaChange) => void
+
+const githubRepoMetaListeners = new Set<GithubRepoMetaListener>()
+
+/** 订阅本地仓库 meta 写入；终端 instant.git 与 Desktop 共用同一账本 */
+export function subscribeGithubRepoMeta(listener: GithubRepoMetaListener): () => void {
+  githubRepoMetaListeners.add(listener)
+  return () => {
+    githubRepoMetaListeners.delete(listener)
+  }
+}
+
+/** 由 save / 账本写入成功后调用；也可供测试手动触发 */
+export function notifyGithubRepoMetaChanged(change: GithubRepoMetaChange): void {
+  if (githubRepoMetaListeners.size === 0) return
+  for (const listener of [...githubRepoMetaListeners]) {
+    try {
+      listener(change)
+    } catch (err) {
+      console.error('[github-sync-meta] listener error', err)
+    }
+  }
+}
+
 let dbPromise: Promise<IDBDatabase> | undefined
 
 function openDb(): Promise<IDBDatabase> {
@@ -467,6 +498,11 @@ export async function saveGithubRepoMeta(meta: GithubRepoSyncMeta): Promise<void
     id: githubRepoId(meta.owner, meta.repo),
   } satisfies RepoRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({
+    owner: meta.owner,
+    repo: meta.repo,
+    kind: 'updated',
+  })
 }
 
 /** 克隆失败或工作树丢失时写入/更新占位记录，便于列表保留并可重新克隆 */
@@ -504,6 +540,7 @@ export async function deleteGithubRepoMeta(owner: string, repo: string): Promise
   tx.objectStore(COMMIT_LISTS_STORE).delete(id)
   tx.objectStore(STASHES_STORE).delete(id)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'deleted' })
 }
 
 export async function listGithubLocalCommits(
@@ -538,6 +575,7 @@ export async function appendGithubLocalCommit(
   withoutDup.unshift(commit)
   store.put({ id, commits: withoutDup.slice(0, 200) } satisfies CommitsRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
 }
 
 export async function listUnpushedLocalCommits(
@@ -575,6 +613,7 @@ export async function finalizePushedLocalCommits(
   })
   store.put({ id, commits } satisfies CommitsRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
 }
 
 /** 变基后按 sha 写回未推送本地 commit（保留其它历史） */
@@ -595,6 +634,7 @@ export async function replaceUnpushedLocalCommits(
   const commits = (existing?.commits ?? []).map((item) => bySha.get(item.sha) ?? item)
   store.put({ id, commits } satisfies CommitsRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
 }
 
 export async function removeGithubLocalCommit(
@@ -612,6 +652,7 @@ export async function removeGithubLocalCommit(
   const commits = (existing?.commits ?? []).filter((item) => item.sha !== sha)
   store.put({ id, commits } satisfies CommitsRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
 }
 
 /** 将某分支上的未推送本地 commit 改挂到新分支名 */
@@ -641,6 +682,7 @@ export async function reassignUnpushedLocalCommitsBranch(
   })
   store.put({ id, commits } satisfies CommitsRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
 }
 
 export async function listGithubStashes(
@@ -673,6 +715,7 @@ export async function pushGithubStashEntry(
   const entries = [entry, ...(existing?.entries ?? [])].slice(0, 50)
   store.put({ id, entries } satisfies StashesRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
 }
 
 export async function removeGithubStashEntry(
@@ -698,6 +741,7 @@ export async function removeGithubStashEntry(
     entries: entries.filter((item) => item.id !== stashId),
   } satisfies StashesRecord)
   await waitForTransaction(tx)
+  notifyGithubRepoMetaChanged({ owner, repo, kind: 'updated' })
   return hit
 }
 
