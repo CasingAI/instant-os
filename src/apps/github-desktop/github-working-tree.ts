@@ -184,9 +184,14 @@ export async function readWorkingTreeBytes(absolutePath: string): Promise<Uint8A
   try {
     const blob = await filesReadBlob(absolutePath)
     return new Uint8Array(await blob.arrayBuffer())
-  } catch {
-    const text = await filesReadText(absolutePath)
-    return new TextEncoder().encode(text)
+  } catch (first) {
+    // blob 失败时再试文本；文件已删等两边都失败时保留第一次错误，勿让二次抛出变成未捕获
+    try {
+      const text = await filesReadText(absolutePath)
+      return new TextEncoder().encode(text)
+    } catch {
+      throw first
+    }
   }
 }
 

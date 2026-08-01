@@ -938,11 +938,22 @@ export function GithubDesktopApp() {
     let cancelled = false
     setDiffLoading(true)
     setDiffPreview((prev) => (prev?.path === change.path ? prev : undefined))
-    void buildChangePreview(view.meta, change).then((preview) => {
-      if (cancelled) return
-      setDiffPreview(preview)
-      setDiffLoading(false)
-    })
+    void buildChangePreview(view.meta, change)
+      .then((preview) => {
+        if (cancelled) return
+        setDiffPreview(preview)
+        setDiffLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setDiffPreview({
+          path: change.path,
+          original: '',
+          modified: '',
+          notice: '无法读取该文件（可能已被删除或移动）',
+        })
+        setDiffLoading(false)
+      })
     return () => {
       cancelled = true
     }

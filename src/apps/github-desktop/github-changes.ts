@@ -353,11 +353,16 @@ async function readPathAsText(absolutePath: string): Promise<string> {
   try {
     return await filesReadText(absolutePath)
   } catch {
-    const bytes = await readWorkingTreeBytes(absolutePath)
-    if (!isProbablyTextBytes(bytes)) {
-      return `（二进制文件，${bytes.byteLength} 字节）\n`
+    try {
+      const bytes = await readWorkingTreeBytes(absolutePath)
+      if (!isProbablyTextBytes(bytes)) {
+        return `（二进制文件，${bytes.byteLength} 字节）\n`
+      }
+      return new TextDecoder().decode(bytes)
+    } catch {
+      // 检测与预览之间文件可能已删/移走；预览降级为空，勿抛到全局
+      return ''
     }
-    return new TextDecoder().decode(bytes)
   }
 }
 
