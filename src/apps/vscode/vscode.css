@@ -2958,7 +2958,7 @@ button.vscode-ai__subagent-row.help-app__reasoning-status {
   padding: 24px 32px 48px;
   max-width: 900px;
   margin: 0 auto;
-  font-size: 14px;
+  font-size: var(--vscode-font-size, 13px);
   line-height: 1.6;
   color: var(--vscode-ink);
 }

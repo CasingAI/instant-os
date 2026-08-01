@@ -3130,7 +3130,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   return (
     <div
       class={`vscode${isVscodeChromeDark(prefs.theme) ? ' vscode--chrome-dark' : ''}`}
-      style={{ '--vscode-editor-bg': monacoEditorBackgroundForTheme(prefs.theme) }}
+      style={{
+        '--vscode-editor-bg': monacoEditorBackgroundForTheme(prefs.theme),
+        '--vscode-font-size': `${prefs.fontSize}px`,
+      }}
     >
       <div class="vscode__body">
         <aside class="vscode__activity" aria-label="工具栏" ref={activityRailRef}>

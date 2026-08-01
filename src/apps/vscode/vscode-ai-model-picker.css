@@ -398,13 +398,13 @@
 .vscode-ai-model-picker__item-config {
   flex-shrink: 0;
   font-size: 12px;
-  font-weight: 600;
-  color: #1f6bb8;
+  font-weight: 400;
+  color: color-mix(in srgb, #1f6bb8 42%, #6a5f54);
   white-space: nowrap;
 }
 
 .vscode-ai-model-picker__panel--dark .vscode-ai-model-picker__item-config {
-  color: #6db3ff;
+  color: rgba(255, 255, 255, 0.36);
 }
 
 .vscode-ai-model-picker__item:hover .vscode-ai-model-picker__item-config,
@@ -418,6 +418,20 @@
   font-size: 12px;
   color: #6a5f54;
   white-space: nowrap;
+}
+
+.vscode-ai-model-picker__item-secondary-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.vscode-ai-model-picker__item-secondary-row .vscode-ai-model-picker__item-secondary--below {
+  flex: 1;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .vscode-ai-model-picker__item-secondary--below {

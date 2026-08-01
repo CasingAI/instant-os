@@ -410,6 +410,18 @@ function EditPencilIcon() {
   )
 }
 
+function VscodeAiModelCapabilityTag({ label }: { label: string }) {
+  return (
+    <span
+      class={`vscode-ai-model-picker__capability-tag${
+        label === '副基座' ? ' vscode-ai-model-picker__capability-tag--secondary' : ''
+      }`}
+    >
+      {label}
+    </span>
+  )
+}
+
 export type VscodeAiModelPickerProps = {
   label: string
   value: string
@@ -770,20 +782,20 @@ export function VscodeAiModelPicker({
                           <span class="vscode-ai-model-picker__item-primary">
                             {item.primary}
                           </span>
-                          <span
-                            class={`vscode-ai-model-picker__capability-tag${item.tag === '副基座' ? ' vscode-ai-model-picker__capability-tag--secondary' : ''}`}
-                          >
-                            {item.tag}
-                          </span>
                           {parts?.configBits && parts.configBits.length > 0 ? (
                             <span class="vscode-ai-model-picker__item-config">
                               {parts.configBits.join(' · ')}
                             </span>
                           ) : undefined}
                         </span>
-                        {item.secondary ? (
-                          <span class="vscode-ai-model-picker__item-secondary vscode-ai-model-picker__item-secondary--below">
-                            {item.secondary}
+                        {item.secondary || item.tag ? (
+                          <span class="vscode-ai-model-picker__item-secondary-row">
+                            <VscodeAiModelCapabilityTag label={item.tag} />
+                            {item.secondary ? (
+                              <span class="vscode-ai-model-picker__item-secondary vscode-ai-model-picker__item-secondary--below">
+                                {item.secondary}
+                              </span>
+                            ) : undefined}
                           </span>
                         ) : undefined}
                       </span>
@@ -853,22 +865,19 @@ export function VscodeAiModelPicker({
                         <span class="vscode-ai-model-picker__item-text vscode-ai-model-picker__item-text--stacked">
                           <span class="vscode-ai-model-picker__item-primary-row">
                             <span class="vscode-ai-model-picker__item-primary">{parts.primary}</span>
-                            {capabilityLabels.map((tag) => (
-                              <span
-                                key={tag}
-                                class={`vscode-ai-model-picker__capability-tag${tag === '副基座' ? ' vscode-ai-model-picker__capability-tag--secondary' : ''}`}
-                              >
-                                {tag}
-                              </span>
-                            ))}
                             {parts.configBits && parts.configBits.length > 0 ? (
                               <span class="vscode-ai-model-picker__item-config">
                                 {parts.configBits.join(' · ')}
                               </span>
                             ) : undefined}
                           </span>
-                          <span class="vscode-ai-model-picker__item-secondary vscode-ai-model-picker__item-secondary--below">
-                            {labelForVscodeAiModelProvider(model)}
+                          <span class="vscode-ai-model-picker__item-secondary-row">
+                            {capabilityLabels.map((tag) => (
+                              <VscodeAiModelCapabilityTag key={tag} label={tag} />
+                            ))}
+                            <span class="vscode-ai-model-picker__item-secondary vscode-ai-model-picker__item-secondary--below">
+                              {labelForVscodeAiModelProvider(model)}
+                            </span>
                           </span>
                         </span>
                       </button>
