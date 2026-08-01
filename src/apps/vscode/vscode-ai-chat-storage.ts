@@ -13,6 +13,10 @@ import {
   truncateToolResultForStore,
   type VscodeAiInvestigation,
 } from './vscode-ai-agent.ts'
+import {
+  normalizeVscodeAiImageAttachments,
+  type VscodeAiImageAttachment,
+} from './vscode-ai-attachments.ts'
 import { normalizeVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
 import type { VscodeModelSource } from './vscode-prefs.ts'
@@ -66,6 +70,8 @@ export type VscodeAiChatMessage = {
   sentModelSource?: VscodeModelSource
   /** 本轮发送时的指定模型键（仅 sentModelSource === 'custom'） */
   sentModelKey?: string
+  /** 用户附加的图片（仅路径元数据，不含 blob） */
+  attachments?: VscodeAiImageAttachment[]
 }
 
 export type VscodeAiChatSession = {
@@ -413,6 +419,9 @@ function normalizeMessages(raw: unknown): VscodeAiChatMessage[] {
         ),
         sentModelKey: normalizeOptionalString(
           (message as { sentModelKey?: unknown }).sentModelKey,
+        ),
+        attachments: normalizeVscodeAiImageAttachments(
+          (message as { attachments?: unknown }).attachments,
         ),
       }
     })
@@ -794,6 +803,7 @@ export function createVscodeAiChatMessage(
     | 'sentMode'
     | 'sentModelSource'
     | 'sentModelKey'
+    | 'attachments'
   >>,
 ): VscodeAiChatMessage {
   return {
@@ -812,6 +822,7 @@ export function createVscodeAiChatMessage(
     sentMode: extras?.sentMode,
     sentModelSource: extras?.sentModelSource,
     sentModelKey: extras?.sentModelKey,
+    attachments: extras?.attachments,
   }
 }
 

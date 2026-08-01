@@ -7,6 +7,7 @@ import type OpenAI from 'openai'
 import {
   createDelegateSubAgentTool,
   formatSubAgentToolResult,
+  parseSubAgentImagePaths,
 } from './subagent-delegate-tool.ts'
 import { createFollowUpSubAgentTool } from './subagent-followup-tool.ts'
 import type { SubAgentHostConfig } from './subagent-types.ts'
@@ -160,6 +161,55 @@ function baseConfig(overrides: Partial<SubAgentHostConfig> = {}): SubAgentHostCo
   assert.ok(tool)
   assert.match(String(await tool!.execute({ run_id: '', message: 'hi' })), /缺少 run_id/)
   assert.match(String(await tool!.execute({ run_id: 'r', message: '' })), /message 不能为空/)
+}
+
+{
+  assert.deepEqual(parseSubAgentImagePaths(['/tmp/a.png', 'rel', '/tmp/a.png', 1]), [
+    '/tmp/a.png',
+  ])
+  assert.deepEqual(parseSubAgentImagePaths(undefined), [])
+}
+
+{
+  // 无可用 vision 时委派 vision 会失败（未知 agent）；有路径也不过
+  const tool = createDelegateSubAgentTool({
+    config: baseConfig(),
+    getToolsForAccess: () => [],
+    runSubAgentFn: async () => ({ text: 'should not run', toolCallCount: 0 }),
+  })
+  assert.ok(tool)
+  assert.match(
+    String(
+      await tool!.execute({
+        agent_id: 'vision',
+        description: 'see img',
+        prompt: '描述图片',
+        image_paths: ['/tmp/x.png'],
+      }),
+    ),
+    /未知或未启用/,
+  )
+}
+
+{
+  let sawPaths: readonly string[] | undefined
+  const tool = createDelegateSubAgentTool({
+    config: baseConfig(),
+    getToolsForAccess: () => [],
+    runSubAgentFn: async ({ imagePaths }) => {
+      sawPaths = imagePaths
+      return { text: 'ok', toolCallCount: 0 }
+    },
+  })
+  assert.ok(tool)
+  await tool!.execute({
+    agent_id: 'explore',
+    description: 'x',
+    prompt: 'scan',
+    image_paths: ['/tmp/a.png'],
+  })
+  // 非 vision 不传 imagePaths
+  assert.equal(sawPaths, undefined)
 }
 
 console.log('subagent-tools.test.ts: ok')

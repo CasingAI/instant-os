@@ -63,10 +63,13 @@ export type VscodeModelSource = 'text-secondary' | 'text' | 'custom'
 /** @deprecated 使用 VscodeModelSource */
 export type VscodeCompletionModelSource = VscodeModelSource
 
-/** 内置 Sub Agent（explore/general）的 VS Code 侧 override：仅 enabled + 模型 */
+/** Sub Agent 模型来源；vision 仅内置识图 Agent */
+export type VscodeSubAgentModelSource = VscodeModelSource | 'vision'
+
+/** 内置 Sub Agent（explore/general/vision）的 VS Code 侧 override：仅 enabled + 模型 */
 export type VscodeSubAgentBuiltinOverride = {
   enabled?: boolean
-  modelSource?: VscodeModelSource
+  modelSource?: VscodeSubAgentModelSource
   modelKey?: string
 }
 
@@ -138,10 +141,11 @@ export type VscodePrefs = {
   subAgentsEnabled: boolean
   /** 同时运行的 Sub Agent 上限 */
   subAgentsMaxConcurrent: number
-  /** 内置 explore/general 的 enabled + 模型 override（不可改 prompt） */
+  /** 内置 explore/general/vision 的 enabled + 模型 override（不可改 prompt） */
   subAgentBuiltinOverrides: {
     explore?: VscodeSubAgentBuiltinOverride
     general?: VscodeSubAgentBuiltinOverride
+    vision?: VscodeSubAgentBuiltinOverride
   }
   /** 自定义 Sub Agent 列表（全局） */
   customSubAgents: VscodeCustomSubAgent[]
@@ -361,6 +365,13 @@ function normalizeOptionalModelSource(value: unknown): VscodeModelSource | undef
   return undefined
 }
 
+function normalizeOptionalSubAgentModelSource(
+  value: unknown,
+): VscodeSubAgentModelSource | undefined {
+  if (value === 'vision') return 'vision'
+  return normalizeOptionalModelSource(value)
+}
+
 function normalizeSubAgentBuiltinOverride(
   value: unknown,
 ): VscodeSubAgentBuiltinOverride | undefined {
@@ -372,7 +383,7 @@ function normalizeSubAgentBuiltinOverride(
   }
   const next: VscodeSubAgentBuiltinOverride = {}
   if (typeof raw.enabled === 'boolean') next.enabled = raw.enabled
-  const modelSource = normalizeOptionalModelSource(raw.modelSource)
+  const modelSource = normalizeOptionalSubAgentModelSource(raw.modelSource)
   if (modelSource) next.modelSource = modelSource
   if (typeof raw.modelKey === 'string' && raw.modelKey.trim()) {
     next.modelKey = raw.modelKey.trim()
@@ -392,12 +403,15 @@ function normalizeSubAgentBuiltinOverrides(value: unknown): VscodePrefs['subAgen
   const raw = value as {
     explore?: unknown
     general?: unknown
+    vision?: unknown
   }
   const result: VscodePrefs['subAgentBuiltinOverrides'] = {}
   const explore = normalizeSubAgentBuiltinOverride(raw.explore)
   const general = normalizeSubAgentBuiltinOverride(raw.general)
+  const vision = normalizeSubAgentBuiltinOverride(raw.vision)
   if (explore) result.explore = explore
   if (general) result.general = general
+  if (vision) result.vision = vision
   return result
 }
 
@@ -424,7 +438,7 @@ function normalizeCustomSubAgents(value: unknown): VscodeCustomSubAgent[] {
             .replace(/[^a-z0-9_-]+/g, '-')
             .replace(/^-+|-+$/g, '')
         : ''
-    if (!id || id === 'explore' || id === 'general' || seen.has(id)) continue
+    if (!id || id === 'explore' || id === 'general' || id === 'vision' || seen.has(id)) continue
     const prompt = typeof raw.prompt === 'string' ? raw.prompt : ''
     if (!prompt.trim()) continue
     seen.add(id)

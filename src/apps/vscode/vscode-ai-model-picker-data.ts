@@ -8,6 +8,7 @@ import {
   labelForVscodeAiModel,
   labelForVscodeModelPickerValue,
   listVscodeAiTextModels,
+  listVscodeAiVisionModels,
   resolveVscodeCapabilityPickerModelKey,
 } from './vscode-ai-models.ts'
 import type {
@@ -26,7 +27,7 @@ export type VscodeAiModelPickerPin = {
   secondary?: string
 }
 
-export type VscodeAiModelPickerSelectionMode = 'agent' | 'completion'
+export type VscodeAiModelPickerSelectionMode = 'agent' | 'completion' | 'vision'
 
 /** `query` 应为已 trim + toLowerCase；空串匹配全部。 */
 export function modelMatchesQuery(model: FlatEnabledModel, query: string): boolean {
@@ -45,13 +46,16 @@ export function filterVscodeAiModelsByQuery(
 }
 
 function pinForCapability(
-  capability: 'text' | 'text-secondary',
+  capability: 'text' | 'text-secondary' | 'vision',
   tag: string,
 ): VscodeAiModelPickerPin {
   const key = encodeVscodeModelPickerValue(capability)
   const modelKey = resolveVscodeCapabilityPickerModelKey(key)
   const model = modelKey
-    ? listVscodeAiTextModels().find(
+    ? (capability === 'vision'
+        ? listVscodeAiVisionModels()
+        : listVscodeAiTextModels()
+      ).find(
         (item) =>
           formatVscodeAiModelRefKey({
             providerEntryId: item.providerEntryId,
@@ -63,16 +67,21 @@ function pinForCapability(
     key,
     primary: model
       ? labelForVscodeAiModel(model)
-      : (labelForPreferredCapabilityModel(capability) ?? '未配置'),
+      : capability === 'vision'
+        ? '未配置'
+        : (labelForPreferredCapabilityModel(capability) ?? '未配置'),
     tag,
     secondary: model ? labelForVscodeAiModelProvider(model) : undefined,
   }
 }
 
-/** agent / completion 模式下列表顶部的副基座 / 基座快捷项。 */
+/** agent / completion / vision 模式下列表顶部的能力快捷项。 */
 export function listVscodeAiModelCapabilityPins(
   selectionMode: VscodeAiModelPickerSelectionMode | undefined,
 ): readonly VscodeAiModelPickerPin[] {
+  if (selectionMode === 'vision') {
+    return [pinForCapability('vision', '视觉')]
+  }
   if (selectionMode !== 'agent' && selectionMode !== 'completion') return []
   return [
     pinForCapability('text-secondary', '副基座'),
@@ -109,7 +118,7 @@ export function labelForVscodeModelPickerDisplay(
       }) === value,
   )
   if (selected) return labelForVscodeAiModel(selected)
-  if (selectionMode === 'completion' || selectionMode === 'agent') {
+  if (selectionMode === 'completion' || selectionMode === 'agent' || selectionMode === 'vision') {
     return labelForVscodeModelPickerValue(value)
   }
   return value || '未配置文本模型'

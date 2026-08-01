@@ -9,6 +9,7 @@ export {
 export {
   capSubAgentAccess,
   listAvailableSubAgents,
+  platformHasVisionModel,
   resolveModelKeyFromSource,
   resolveSubAgent,
   resolveSubAgentModelKey,
@@ -17,6 +18,7 @@ export {
 export {
   createDelegateSubAgentTool,
   formatSubAgentToolResult,
+  parseSubAgentImagePaths,
   type CreateDelegateSubAgentToolOptions,
   type RunSubAgentFn,
   type SubAgentProgressEvent,

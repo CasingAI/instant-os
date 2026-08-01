@@ -15,6 +15,10 @@ export type PersistedSubagentRun = {
   description: string
   taskPrompt: string
   lastFollowUpPrompt?: string
+  /** 各轮用户侧 image_paths（仅路径） */
+  userTurns?: Array<{ prompt: string; imagePaths?: string[] }>
+  /** vision 首轮图片路径（详情 UI 兜底） */
+  firstImagePaths?: string[]
   modelKey?: string
   modelLabel: string
   status: 'running' | 'done' | 'error'
@@ -46,6 +50,32 @@ function normalizeMessages(
   return out.length > 0 ? out : undefined
 }
 
+function normalizeUserTurns(
+  raw: unknown,
+  fallbackPrompt: string,
+): Array<{ prompt: string; imagePaths?: string[] }> {
+  if (Array.isArray(raw) && raw.length > 0) {
+    const out: Array<{ prompt: string; imagePaths?: string[] }> = []
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const entry = item as { prompt?: unknown; imagePaths?: unknown }
+      const prompt = typeof entry.prompt === 'string' ? entry.prompt : ''
+      const imagePaths = Array.isArray(entry.imagePaths)
+        ? entry.imagePaths.filter(
+            (path): path is string =>
+              typeof path === 'string' && path.trim().startsWith('/'),
+          )
+        : undefined
+      out.push({
+        prompt,
+        ...(imagePaths && imagePaths.length > 0 ? { imagePaths } : {}),
+      })
+    }
+    if (out.length > 0) return out
+  }
+  return fallbackPrompt ? [{ prompt: fallbackPrompt }] : []
+}
+
 export function normalizePersistedSubagentRuns(raw: unknown): PersistedSubagentRun[] {
   if (!Array.isArray(raw)) return []
   const out: PersistedSubagentRun[] = []
@@ -58,6 +88,7 @@ export function normalizePersistedSubagentRuns(raw: unknown): PersistedSubagentR
       entry.status === 'running' || entry.status === 'done' || entry.status === 'error'
         ? entry.status
         : 'error'
+    const taskPrompt = typeof entry.taskPrompt === 'string' ? entry.taskPrompt : ''
     out.push({
       runId: entry.runId,
       parentChatId:
@@ -69,11 +100,18 @@ export function normalizePersistedSubagentRuns(raw: unknown): PersistedSubagentR
         typeof entry.description === 'string' && entry.description.trim()
           ? entry.description
           : entry.agentId,
-      taskPrompt: typeof entry.taskPrompt === 'string' ? entry.taskPrompt : '',
+      taskPrompt,
       lastFollowUpPrompt:
         typeof entry.lastFollowUpPrompt === 'string'
           ? entry.lastFollowUpPrompt
           : undefined,
+      userTurns: normalizeUserTurns(entry.userTurns, taskPrompt),
+      firstImagePaths: Array.isArray(entry.firstImagePaths)
+        ? entry.firstImagePaths.filter(
+            (path): path is string =>
+              typeof path === 'string' && path.trim().startsWith('/'),
+          )
+        : undefined,
       modelKey: typeof entry.modelKey === 'string' ? entry.modelKey : undefined,
       modelLabel:
         typeof entry.modelLabel === 'string' && entry.modelLabel.trim()
@@ -112,6 +150,29 @@ function trimMessagesForPersist(
     ) {
       return { ...item, content: truncateToolResultForStore(item.content) }
     }
+    // 多模态 user：丢掉 data URL 像素，只留占位（预览靠 userTurns.imagePaths 读 VFS）
+    if (item.role === 'user' && Array.isArray(item.content)) {
+      const next = item.content.map((part) => {
+        if (!part || typeof part !== 'object') return part
+        const typed = part as {
+          type?: unknown
+          image_url?: { url?: unknown; detail?: unknown }
+        }
+        if (typed.type !== 'image_url') return part
+        const url =
+          typed.image_url &&
+          typeof typed.image_url === 'object' &&
+          typeof typed.image_url.url === 'string'
+            ? typed.image_url.url
+            : ''
+        if (!url.startsWith('data:')) return part
+        return {
+          type: 'image_url' as const,
+          image_url: { url: 'about:blank#vscode-ai-image-omitted' },
+        }
+      })
+      return { ...item, content: next }
+    }
     return item
   })
 }
@@ -130,6 +191,15 @@ export function serializeSubagentRunsForPersist(
       lastFollowUpPrompt: run.lastFollowUpPrompt
         ? truncateToolResultForStore(run.lastFollowUpPrompt)
         : undefined,
+      userTurns: run.userTurns.map((turn) => ({
+        prompt: truncateToolResultForStore(turn.prompt),
+        ...(turn.imagePaths && turn.imagePaths.length > 0
+          ? { imagePaths: turn.imagePaths }
+          : {}),
+      })),
+      ...(run.firstImagePaths && run.firstImagePaths.length > 0
+        ? { firstImagePaths: run.firstImagePaths }
+        : {}),
       modelKey: run.modelKey,
       modelLabel: run.modelLabel,
       status: run.status,
@@ -163,6 +233,8 @@ export function persistedRunsToStoreStates(
             messages: item.messages,
           }
         : undefined
+    const userTurns = normalizeUserTurns(item.userTurns, item.taskPrompt)
+    const firstFromTurn = userTurns[0]?.imagePaths
     return {
       runId: item.runId,
       agentId: item.agentId,
@@ -170,6 +242,13 @@ export function persistedRunsToStoreStates(
       parentChatId: item.parentChatId,
       taskPrompt: item.taskPrompt,
       lastFollowUpPrompt: item.lastFollowUpPrompt,
+      userTurns,
+      firstImagePaths:
+        item.firstImagePaths && item.firstImagePaths.length > 0
+          ? item.firstImagePaths
+          : firstFromTurn && firstFromTurn.length > 0
+            ? firstFromTurn
+            : undefined,
       modelKey: item.modelKey,
       modelLabel: item.modelLabel,
       status: item.status,

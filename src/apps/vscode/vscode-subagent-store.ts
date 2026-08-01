@@ -1,6 +1,12 @@
 import type { VscodeAiAgentProgress, VscodeAiAgentResult } from './vscode-ai-agent.ts'
 import type { VscodeAiContextUsage } from './vscode-ai-context-usage.ts'
 
+/** 子 Agent 线程中每一轮「主 Agent → 子」用户侧发言（含可选图片路径） */
+export type SubagentUserTurn = {
+  prompt: string
+  imagePaths?: string[]
+}
+
 export type SubagentRunState = {
   runId: string
   agentId: string
@@ -11,6 +17,13 @@ export type SubagentRunState = {
   taskPrompt: string
   /** 最近一次追问文案（resume 时设置；首轮为空） */
   lastFollowUpPrompt: string | undefined
+  /**
+   * 各轮用户侧发言元数据（含 image_paths）。
+   * 详情 UI 用路径渲染图片预览；不存 blob。
+   */
+  userTurns: SubagentUserTurn[]
+  /** vision 首轮注入的图片路径（详情 UI 兜底） */
+  firstImagePaths?: string[]
   modelKey: string | undefined
   modelLabel: string
   status: 'running' | 'done' | 'error'
@@ -35,6 +48,21 @@ function notify() {
   }
 }
 
+function normalizeImagePaths(
+  paths: readonly string[] | undefined,
+): string[] | undefined {
+  if (!paths || paths.length === 0) return undefined
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const path of paths) {
+    const trimmed = path.trim()
+    if (!trimmed.startsWith('/') || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out.length > 0 ? out : undefined
+}
+
 export function startRun(
   runId: string,
   agentId: string,
@@ -43,7 +71,9 @@ export function startRun(
   modelKey: string | undefined,
   modelLabel: string,
   parentChatId?: string,
+  imagePaths?: readonly string[],
 ): void {
+  const paths = normalizeImagePaths(imagePaths)
   runs.set(runId, {
     runId,
     agentId,
@@ -51,6 +81,13 @@ export function startRun(
     parentChatId,
     taskPrompt,
     lastFollowUpPrompt: undefined,
+    userTurns: [
+      {
+        prompt: taskPrompt,
+        ...(paths ? { imagePaths: paths } : {}),
+      },
+    ],
+    ...(paths ? { firstImagePaths: paths } : {}),
     modelKey,
     modelLabel,
     status: 'running',
@@ -67,11 +104,23 @@ export function startRun(
  * 同一 runId 进入下一轮追问：保留既有 result 供详情展示历史，
  * status → running，清 error / liveProgress。
  */
-export function resumeRun(runId: string, followUpMessage: string): boolean {
+export function resumeRun(
+  runId: string,
+  followUpMessage: string,
+  imagePaths?: readonly string[],
+): boolean {
   const run = runs.get(runId)
   if (!run) return false
   run.status = 'running'
   run.lastFollowUpPrompt = followUpMessage
+  const paths = normalizeImagePaths(imagePaths)
+  run.userTurns = [
+    ...run.userTurns,
+    {
+      prompt: followUpMessage,
+      ...(paths ? { imagePaths: paths } : {}),
+    },
+  ]
   run.error = undefined
   run.liveProgress = undefined
   run.startedAt = Date.now()
@@ -109,6 +158,35 @@ export function failRun(runId: string, error: string): void {
   notify()
 }
 
+export function patchLatestTurnImagePaths(
+  runId: string,
+  imagePaths?: readonly string[],
+): boolean {
+  const run = runs.get(runId)
+  if (!run) return false
+  const paths = normalizeImagePaths(imagePaths)
+  if (!paths) return false
+  if (run.userTurns.length === 0) {
+    run.userTurns = [{ prompt: run.taskPrompt || run.description, imagePaths: paths }]
+    if (!run.firstImagePaths?.length) {
+      run.firstImagePaths = paths
+    }
+    notify()
+    return true
+  }
+  const last = run.userTurns[run.userTurns.length - 1]
+  if (last.imagePaths && last.imagePaths.length > 0) return false
+  run.userTurns = [
+    ...run.userTurns.slice(0, -1),
+    { ...last, imagePaths: paths },
+  ]
+  if (!run.firstImagePaths?.length) {
+    run.firstImagePaths = paths
+  }
+  notify()
+  return true
+}
+
 export function getRun(runId: string): SubagentRunState | undefined {
   return runs.get(runId)
 }
@@ -128,6 +206,7 @@ export function hydrateRuns(snapshots: readonly SubagentRunState[]): void {
         : snap.status
     runs.set(snap.runId, {
       ...snap,
+      userTurns: Array.isArray(snap.userTurns) ? snap.userTurns : [],
       status,
       liveProgress: undefined,
       error:

@@ -423,7 +423,7 @@ export type VscodeAiModelPickerProps = {
    * agent / completion：列表顶部均插入副基座/基座快捷项；
    * 值为 encodeVscodeModelPickerValue 结果。
    */
-  selectionMode?: 'agent' | 'completion'
+  selectionMode?: 'agent' | 'completion' | 'vision'
   disabled?: boolean
   dark?: boolean
   presentation?: 'composer' | 'form'

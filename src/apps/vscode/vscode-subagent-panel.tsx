@@ -8,7 +8,17 @@ import type {
   VscodeAiTimelineItem,
 } from './vscode-ai-agent.ts'
 import { createVscodeAiChatMessage } from './vscode-ai-chat-storage.ts'
-import { getRun, subscribe, type SubagentRunState } from './vscode-subagent-store.ts'
+import type { VscodeAiImageAttachment } from './vscode-ai-attachments.ts'
+import {
+  attachmentsFromMultimodalContent,
+  parseVscodeAiImagePathsFromText,
+} from './vscode-ai-attachments.ts'
+import {
+  getRun,
+  subscribe,
+  type SubagentRunState,
+  type SubagentUserTurn,
+} from './vscode-subagent-store.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
 import { isSyntheticUserContextMessage } from './vscode-ai-transcript.ts'
 
@@ -57,6 +67,73 @@ function stripSystemReminder(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, '').trim()
 }
 
+function attachmentsFromPaths(
+  messageId: string,
+  paths: readonly string[] | undefined,
+): VscodeAiImageAttachment[] | undefined {
+  if (!paths || paths.length === 0) return undefined
+  return paths.map((path, index) => ({
+    id: `${messageId}-img-${index}`,
+    path,
+    name: path.split('/').pop() || path,
+    mimeType: 'image/png',
+  }))
+}
+
+function resolveTurnImagePaths(
+  run: SubagentRunState,
+  turnIndex: number,
+  turn: SubagentUserTurn | undefined,
+  messageText: string,
+): string[] | undefined {
+  if (turn?.imagePaths && turn.imagePaths.length > 0) {
+    return turn.imagePaths
+  }
+  const fromMessage = parseVscodeAiImagePathsFromText(messageText)
+  if (fromMessage.length > 0) return fromMessage
+  if (turn?.prompt) {
+    const fromTurnPrompt = parseVscodeAiImagePathsFromText(turn.prompt)
+    if (fromTurnPrompt.length > 0) return fromTurnPrompt
+  }
+  if (turnIndex === 0) {
+    if (run.firstImagePaths && run.firstImagePaths.length > 0) {
+      return run.firstImagePaths
+    }
+    const fromTask = parseVscodeAiImagePathsFromText(run.taskPrompt)
+    if (fromTask.length > 0) return fromTask
+  }
+  return undefined
+}
+
+function withTurnAttachments(
+  message: VscodeAiChatMessage,
+  run: SubagentRunState,
+  turnIndex: number,
+  turn: SubagentUserTurn | undefined,
+): VscodeAiChatMessage {
+  if (message.attachments && message.attachments.length > 0) return message
+  const paths = resolveTurnImagePaths(run, turnIndex, turn, message.content)
+  const attachments = attachmentsFromPaths(message.id, paths)
+  if (!attachments) return message
+  return { ...message, attachments }
+}
+
+/** 按用户气泡顺序贴上各轮 image_paths */
+function applyUserTurnAttachments(
+  messages: VscodeAiChatMessage[],
+  run: SubagentRunState,
+): VscodeAiChatMessage[] {
+  const turns = run.userTurns ?? []
+  let userIndex = 0
+  return messages.map((message) => {
+    if (message.role !== 'user') return message
+    const turn = turns[userIndex]
+    const next = withTurnAttachments(message, run, userIndex, turn)
+    userIndex += 1
+    return next
+  })
+}
+
 /** 从完成结果构建一条 assistant 消息（含 investigation） */
 function buildAssistantMessage(
   text: string,
@@ -76,21 +153,27 @@ function buildAssistantMessage(
  * 从 API transcript 抽出可读的 user/assistant 轮次（跳过 tool / 合成上下文）。
  * 同一轮内工具调用之间的中间 assistant 旁白合并为一条（只保留最后一段），
  * 与主对话「一轮一条气泡」一致，避免详情里连发多条相似总结。
+ * 多模态 user 的 image_url 会挂到气泡 attachments（previewUrl），不依赖 VFS。
  */
 function buildMessagesFromTranscript(
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   lastResult?: VscodeAiAgentResult,
 ): VscodeAiChatMessage[] {
   const out: VscodeAiChatMessage[] = []
-  const textTurns: { role: 'user' | 'assistant'; text: string }[] = []
+  const textTurns: {
+    role: 'user' | 'assistant'
+    text: string
+    content?: unknown
+  }[] = []
 
   for (const message of messages) {
     if (message.role === 'user') {
-      const raw = contentToText('content' in message ? message.content : '')
+      const content = 'content' in message ? message.content : ''
+      const raw = contentToText(content)
       if (isSyntheticUserContextMessage(raw)) continue
       const text = stripSystemReminder(raw)
-      if (!text) continue
-      textTurns.push({ role: 'user', text })
+      // 纯图轮次（极少）：仍占一个 user 槽，方便对齐 userTurns
+      textTurns.push({ role: 'user', text: text || '（图片）', content })
       continue
     }
     if (message.role === 'assistant') {
@@ -108,7 +191,17 @@ function buildMessagesFromTranscript(
   for (let i = 0; i < textTurns.length; i += 1) {
     const turn = textTurns[i]
     if (turn.role === 'user') {
-      out.push(createVscodeAiChatMessage('user', turn.text))
+      const message = createVscodeAiChatMessage(
+        'user',
+        turn.text === '（图片）' ? '' : turn.text,
+      )
+      const fromContent = attachmentsFromMultimodalContent(message.id, turn.content)
+      const fromText = attachmentsFromPaths(
+        message.id,
+        parseVscodeAiImagePathsFromText(turn.text),
+      )
+      const attachments = fromContent ?? fromText
+      out.push(attachments ? { ...message, attachments } : message)
       continue
     }
     const isLastAssistant = !textTurns.slice(i + 1).some((item) => item.role === 'assistant')
@@ -126,7 +219,9 @@ function buildDetailMessages(run: SubagentRunState): VscodeAiChatMessage[] {
           run.result.messages,
           run.status === 'done' ? run.result : undefined,
         )
-      : [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
+      : [
+          createVscodeAiChatMessage('user', run.taskPrompt || run.description),
+        ]
 
   if (run.status === 'running') {
     // 首轮：只有任务气泡；追问轮：保留上一轮 transcript + 新追问气泡
@@ -135,43 +230,66 @@ function buildDetailMessages(run: SubagentRunState): VscodeAiChatMessage[] {
         run.result?.messages && run.result.messages.length > 0
           ? buildMessagesFromTranscript(run.result.messages)
           : [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
-      return [...base, createVscodeAiChatMessage('user', run.lastFollowUpPrompt)]
+      const withHistory = applyUserTurnAttachments(base, run)
+      const followUp = createVscodeAiChatMessage('user', run.lastFollowUpPrompt)
+      const followTurn = run.userTurns[Math.max(0, run.userTurns.length - 1)]
+      const followIndex = withHistory.filter((item) => item.role === 'user').length
+      return [
+        ...withHistory,
+        withTurnAttachments(followUp, run, followIndex, followTurn),
+      ]
     }
-    return [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
+    return applyUserTurnAttachments(
+      [createVscodeAiChatMessage('user', run.taskPrompt || run.description)],
+      run,
+    )
   }
 
   if (run.status === 'error') {
     if (run.result?.messages && run.result.messages.length > 0) {
       const base = buildMessagesFromTranscript(run.result.messages)
       if (run.lastFollowUpPrompt) {
+        const followUp = createVscodeAiChatMessage('user', run.lastFollowUpPrompt)
+        const followTurn = run.userTurns[Math.max(0, run.userTurns.length - 1)]
+        const baseWithTurns = applyUserTurnAttachments(base, run)
+        const followIndex = baseWithTurns.filter((item) => item.role === 'user').length
         return [
-          ...base,
-          createVscodeAiChatMessage('user', run.lastFollowUpPrompt),
+          ...baseWithTurns,
+          withTurnAttachments(followUp, run, followIndex, followTurn),
           buildAssistantMessage(run.error ?? '运行失败', undefined, { isError: true }),
         ]
       }
       return [
-        ...base.slice(0, -1),
+        ...applyUserTurnAttachments(base.slice(0, -1), run),
         buildAssistantMessage(run.error ?? '运行失败', undefined, { isError: true }),
       ]
     }
     return [
-      createVscodeAiChatMessage('user', run.taskPrompt || run.description),
+      ...applyUserTurnAttachments(
+        [createVscodeAiChatMessage('user', run.taskPrompt || run.description)],
+        run,
+      ),
       buildAssistantMessage(run.error ?? '运行失败', undefined, { isError: true }),
     ]
   }
 
   // done
   if (run.result?.messages && run.result.messages.length > 0) {
-    return prior
+    return applyUserTurnAttachments(prior, run)
   }
   if (run.result) {
     return [
-      createVscodeAiChatMessage('user', run.taskPrompt || run.description),
+      ...applyUserTurnAttachments(
+        [createVscodeAiChatMessage('user', run.taskPrompt || run.description)],
+        run,
+      ),
       buildAssistantMessage(run.result.text, run.result),
     ]
   }
-  return [createVscodeAiChatMessage('user', run.taskPrompt || run.description)]
+  return applyUserTurnAttachments(
+    [createVscodeAiChatMessage('user', run.taskPrompt || run.description)],
+    run,
+  )
 }
 
 /**
@@ -220,6 +338,8 @@ export function VscodeSubagentPanel({
     run?.taskPrompt,
     run?.description,
     run?.lastFollowUpPrompt,
+    run?.userTurns,
+    run?.firstImagePaths,
   ])
 
   if (!run) {

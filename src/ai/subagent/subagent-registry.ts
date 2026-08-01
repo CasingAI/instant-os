@@ -1,10 +1,11 @@
 import {
+  listEnabledModels,
   listEnabledModelsForCapability,
   resolvePreferredModelRef,
   type PreferredModelRef,
 } from '../ai-providers.ts'
 import { loadAccountSettings } from '../../os/account-settings-storage.ts'
-import { BUILTIN_SUBAGENTS, isBuiltinSubAgentId } from './subagent-builtin.ts'
+import { BUILTIN_SUBAGENT_IDS, BUILTIN_SUBAGENTS, isBuiltinSubAgentId } from './subagent-builtin.ts'
 import type {
   CustomSubAgentDefinition,
   EffectiveSubAgent,
@@ -42,12 +43,36 @@ function listTextModels() {
   return listEnabledModelsForCapability(settings.providers, 'text')
 }
 
-function preferredCapabilityKey(capability: 'text' | 'text-secondary'): string | undefined {
+/** 平台是否存在任一可用的视觉模型（含 text 模型自带 vision） */
+export function platformHasVisionModel(): boolean {
+  const settings = loadAccountSettings()
+  if (!settings || settings.providers.length === 0) return false
+  if (listEnabledModelsForCapability(settings.providers, 'vision').length > 0) {
+    return true
+  }
+  return listEnabledModels(settings.providers).some((item) =>
+    item.capabilities.includes('vision'),
+  )
+}
+
+function listVisionModels() {
+  const settings = loadAccountSettings()
+  if (!settings || settings.providers.length === 0) return []
+  const byCapability = listEnabledModelsForCapability(settings.providers, 'vision')
+  if (byCapability.length > 0) return byCapability
+  return listEnabledModels(settings.providers).filter((item) =>
+    item.capabilities.includes('vision'),
+  )
+}
+
+function preferredCapabilityKey(
+  capability: 'text' | 'text-secondary' | 'vision',
+): string | undefined {
   const settings = loadAccountSettings()
   if (!settings) return undefined
   const preferred = resolvePreferredModelRef(settings, capability)
   if (!preferred) return undefined
-  const models = listTextModels()
+  const models = capability === 'vision' ? listVisionModels() : listTextModels()
   if (
     !models.some(
       (item) =>
@@ -60,8 +85,11 @@ function preferredCapabilityKey(capability: 'text' | 'text-secondary'): string |
   return formatModelRefKey(preferred)
 }
 
-function resolveValidModelKey(storedKey: string | undefined): string | undefined {
-  const models = listTextModels()
+function resolveValidModelKey(
+  storedKey: string | undefined,
+  capability: 'text' | 'vision' = 'text',
+): string | undefined {
+  const models = capability === 'vision' ? listVisionModels() : listTextModels()
   if (models.length === 0) return undefined
   if (storedKey) {
     const ref = parseModelRefKey(storedKey)
@@ -75,7 +103,10 @@ function resolveValidModelKey(storedKey: string | undefined): string | undefined
       return storedKey
     }
   }
-  const preferred = preferredCapabilityKey('text')
+  const preferred =
+    capability === 'vision'
+      ? preferredCapabilityKey('vision')
+      : preferredCapabilityKey('text')
   if (preferred) return preferred
   const first = models[0]
   if (!first) return undefined
@@ -85,11 +116,14 @@ function resolveValidModelKey(storedKey: string | undefined): string | undefined
   })
 }
 
-/** 按模型来源解析实际 modelKey（副基座 / 基座 / 指定） */
+/** 按模型来源解析实际 modelKey（副基座 / 基座 / 指定 / 视觉） */
 export function resolveModelKeyFromSource(
   source: SubAgentModelSource,
   customKey: string | undefined,
 ): string | undefined {
+  if (source === 'vision') {
+    return preferredCapabilityKey('vision') ?? resolveValidModelKey(undefined, 'vision')
+  }
   if (source === 'custom') {
     return resolveValidModelKey(customKey)
   }
@@ -108,6 +142,12 @@ export function resolveSubAgentModelKey(
   config: Pick<SubAgentHostConfig, 'parentModelKey'>,
   override?: SubAgentBuiltinOverride | Pick<CustomSubAgentDefinition, 'modelSource' | 'modelKey'>,
 ): string | undefined {
+  if (def.defaultModelPolicy === 'vision') {
+    if (override?.modelSource === 'custom') {
+      return resolveValidModelKey(override.modelKey, 'vision')
+    }
+    return preferredCapabilityKey('vision') ?? resolveValidModelKey(undefined, 'vision')
+  }
   if (override?.modelSource) {
     return resolveModelKeyFromSource(override.modelSource, override.modelKey)
   }
@@ -144,15 +184,25 @@ function toEffective(
   }
 }
 
+function shouldIncludeVisionAgent(config: SubAgentHostConfig): boolean {
+  if (config.parentHasVision) return false
+  if (!platformHasVisionModel()) return false
+  // 必须能解析出可用视觉 modelKey，否则不提供
+  const override = config.builtinOverrides.vision
+  const modelKey = resolveSubAgentModelKey(BUILTIN_SUBAGENTS.vision, config, override)
+  return modelKey !== undefined
+}
+
 /** 列出当前可用（enabled + 权限封顶后）的 Sub Agent */
 export function listAvailableSubAgents(config: SubAgentHostConfig): EffectiveSubAgent[] {
   if (!config.enabled) return []
 
   const result: EffectiveSubAgent[] = []
 
-  for (const id of ['explore', 'general'] as const) {
+  for (const id of BUILTIN_SUBAGENT_IDS) {
     const override = config.builtinOverrides[id]
     if (!isBuiltinEnabled(override)) continue
+    if (id === 'vision' && !shouldIncludeVisionAgent(config)) continue
     result.push(toEffective(BUILTIN_SUBAGENTS[id], config, override))
   }
 

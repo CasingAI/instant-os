@@ -1,13 +1,13 @@
 /** 子 Agent 权限：只读调研 vs 可读写执行 */
 export type SubAgentAccess = 'readonly' | 'full'
 
-export type BuiltinSubAgentId = 'explore' | 'general'
+export type BuiltinSubAgentId = 'explore' | 'general' | 'vision'
 
-/** 默认模型策略：副基座首选，或继承主 Agent 当前模型 */
-export type SubAgentDefaultModelPolicy = 'text-secondary' | 'inherit-parent'
+/** 默认模型策略：副基座首选、继承主 Agent、或视觉首选 */
+export type SubAgentDefaultModelPolicy = 'text-secondary' | 'inherit-parent' | 'vision'
 
-/** 模型来源（与 VS Code VscodeModelSource 对齐） */
-export type SubAgentModelSource = 'text-secondary' | 'text' | 'custom'
+/** 模型来源（与 VS Code VscodeModelSource 对齐；vision 仅内置识图 Agent） */
+export type SubAgentModelSource = 'text-secondary' | 'text' | 'custom' | 'vision'
 
 export type SubAgentDefinition = {
   id: string
@@ -41,12 +41,18 @@ export type SubAgentHostConfig = {
   builtinOverrides: {
     explore?: SubAgentBuiltinOverride
     general?: SubAgentBuiltinOverride
+    vision?: SubAgentBuiltinOverride
   }
   customAgents: CustomSubAgentDefinition[]
   /** 主 Agent 当前解析出的 modelKey（general 默认 inherit） */
   parentModelKey: string | undefined
   /** 主 Agent 权限档；只读父强制子只读 */
   parentAccess: SubAgentAccess
+  /**
+   * 主 Agent 当前模型是否具备视觉能力。
+   * 为 true 时不暴露内置 vision（父可直接看图）。
+   */
+  parentHasVision?: boolean
   actor?: string
   actorLabel?: string
   /** 可选：关联主对话用量/日志 */

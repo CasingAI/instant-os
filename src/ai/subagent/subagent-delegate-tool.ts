@@ -18,6 +18,11 @@ export type RunSubAgentFn = (params: {
   description: string
   /** 续聊时传入上一轮完整 transcript；首轮省略 */
   history?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /**
+   * 图片绝对路径（vision 专用）。
+   * 宿主读 VFS 后注入多模态 user content；子 Agent 无读图工具。
+   */
+  imagePaths?: readonly string[]
   signal?: AbortSignal
   onProgress?: (progress: unknown) => void
 }) => Promise<{
@@ -40,6 +45,8 @@ export type SubAgentProgressEvent = {
   phase: 'started' | 'progress' | 'done'
   /** 本轮用户侧文案（首轮任务 / 追问）；started 时携带 */
   taskPrompt?: string
+  /** 本轮注入的图片路径（vision）；started 时携带供 UI 展示 */
+  imagePaths?: readonly string[]
   /** 主 Agent 的 progress 数据（timeline/activities/answerText 等） */
   progress?: unknown
   /** 完成时的最终文本与统计 */
@@ -52,6 +59,21 @@ export type SubAgentProgressEvent = {
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
+}
+
+/** 解析工具参数中的 image_paths（仅保留绝对路径） */
+export function parseSubAgentImagePaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const path = item.trim()
+    if (!path.startsWith('/') || seen.has(path)) continue
+    seen.add(path)
+    out.push(path)
+  }
+  return out
 }
 
 export function formatSubAgentToolResult(params: {
@@ -85,18 +107,25 @@ export type CreateDelegateSubAgentToolOptions = {
 
 function buildToolDescription(config: SubAgentHostConfig): string {
   const available = listAvailableSubAgents(config)
+  const hasVision = available.some((agent) => agent.id === 'vision')
   const lines = available.map((agent) => {
     const access = agent.access === 'readonly' ? '只读' : '可读写'
     return `- ${agent.id}（${access}）：${agent.description}`
   })
+  const visionHint = hasVision
+    ? '委派 vision 时必须传 image_paths（VFS 绝对路径数组）；宿主会把图片直接注入子 Agent，勿让子 Agent 自己读文件。'
+    : undefined
   return [
     '将独立子任务委派给 Sub Agent，开启一条可多轮私聊线程。子 Agent 有独立上下文，看不到本对话。',
     'prompt 须写成下属 brief（目标/范围约束/执行清单/交付格式），禁止原样转发用户原话。',
     '成功后会返回 run_id；若结果不够可再用 followup_subagent 对同一 run_id 追问。',
     '可并行发起多个 delegate_subagent（受并发上限约束）。',
+    visionHint,
     '可用 agent_id：',
     ...lines,
-  ].join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**
@@ -130,12 +159,19 @@ export function createDelegateSubAgentTool(
           description:
             '下属 brief：目标、范围与约束、执行清单、交付格式；可附极短已知上下文。禁止原样转发用户原话；子 Agent 看不到父对话',
         },
+        image_paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            '仅 vision：要识别的图片 VFS 绝对路径列表（必填至少一条）。宿主注入像素，子 Agent 无读图工具。',
+        },
       },
     },
     execute: async (args) => {
       const agentId = asString(args.agent_id).trim()
       const description = asString(args.description).trim() || agentId
       const prompt = asString(args.prompt).trim()
+      const imagePaths = parseSubAgentImagePaths(args.image_paths)
       if (!agentId) {
         return '错误：缺少 agent_id'
       }
@@ -151,6 +187,10 @@ export function createDelegateSubAgentTool(
         return `错误：未知或未启用的 Sub Agent「${agentId}」。可用：${available || '（无）'}`
       }
 
+      if (resolved.id === 'vision' && imagePaths.length === 0) {
+        return '错误：委派 vision 必须提供 image_paths（至少一条 VFS 绝对路径）'
+      }
+
       const runId = `subagent-${resolved.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       try {
         options.onSubAgentProgress?.({
@@ -160,12 +200,14 @@ export function createDelegateSubAgentTool(
           modelKey: resolved.modelKey,
           phase: 'started',
           taskPrompt: prompt,
+          imagePaths: resolved.id === 'vision' ? imagePaths : undefined,
         })
         const result = await options.runSubAgentFn({
           definition: resolved,
           taskPrompt: prompt,
           runId,
           description,
+          imagePaths: resolved.id === 'vision' ? imagePaths : undefined,
           signal: options.signal,
           onProgress: (progress) => {
             options.onSubAgentProgress?.({

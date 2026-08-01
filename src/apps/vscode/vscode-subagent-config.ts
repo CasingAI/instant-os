@@ -1,6 +1,7 @@
 import type { SubAgentHostConfig } from '../../ai/subagent/index.ts'
 import { listAvailableSubAgents } from '../../ai/subagent/index.ts'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
+import { vscodeAiModelKeyHasVision } from './vscode-ai-models.ts'
 import type { VscodePrefs } from './vscode-prefs.ts'
 
 /** Ask/Plan → 只读父；Agent → 可读写父（子 Agent 权限不得高于父） */
@@ -34,6 +35,7 @@ export function buildVscodeSubAgentHostConfig(
     builtinOverrides: {
       explore: prefs.subAgentBuiltinOverrides.explore,
       general: prefs.subAgentBuiltinOverrides.general,
+      vision: prefs.subAgentBuiltinOverrides.vision,
     },
     customAgents: prefs.customSubAgents.map((agent) => ({
       id: agent.id,
@@ -46,6 +48,7 @@ export function buildVscodeSubAgentHostConfig(
     })),
     parentModelKey,
     parentAccess: parentAccessForVscodeAiMode(mode),
+    parentHasVision: vscodeAiModelKeyHasVision(parentModelKey),
     actor: 'vscode',
     actorLabel: 'Virtual Studio Code',
     parentRunId: extras?.parentRunId,

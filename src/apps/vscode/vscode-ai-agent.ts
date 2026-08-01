@@ -34,6 +34,7 @@ import {
   completeRun,
   failRun,
   getRun,
+  patchLatestTurnImagePaths,
 } from './vscode-subagent-store.ts'
 import {
   createVscodeAiTools,
@@ -46,10 +47,17 @@ import { createOpenAiClient } from '../../ai/openai-client.ts'
 import {
   labelForVscodeAiModel,
   listVscodeAiTextModels,
+  listVscodeAiVisionModels,
   openAiConfigForVscodeAiModelKey,
   parseVscodeAiModelRefKey,
   tokenizerFamilyForVscodeAiModelKey,
+  vscodeAiModelKeyHasVision,
 } from './vscode-ai-models.ts'
+import {
+  buildVscodeAiMultimodalUserContent,
+  mergeUserTextWithImageAttachments,
+  type VscodeAiImageAttachment,
+} from './vscode-ai-attachments.ts'
 import {
   applyVscodeAiPromptTokenUpdate,
   measureVscodeAiContextUsage,
@@ -197,20 +205,32 @@ function describeToolCall(event: AgentToolCallEvent): {
     const description =
       typeof args.description === 'string' ? args.description.trim() : ''
     const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+    const imagePaths = Array.isArray(args.image_paths)
+      ? args.image_paths.filter((item): item is string => typeof item === 'string')
+      : []
     return {
       label: agentId ? `${label} · ${agentId}` : label,
       detail: description || undefined,
-      content: prompt || undefined,
+      content:
+        imagePaths.length > 0
+          ? `${prompt}\n\n【image_paths】\n${imagePaths.map((path) => `- ${path}`).join('\n')}`
+          : prompt || undefined,
     }
   }
   if (event.toolName === 'followup_subagent') {
     const runId = typeof args.run_id === 'string' ? args.run_id.trim() : ''
     const message = typeof args.message === 'string' ? args.message.trim() : ''
     const shortId = runId.length > 24 ? `${runId.slice(0, 24)}…` : runId
+    const imagePaths = Array.isArray(args.image_paths)
+      ? args.image_paths.filter((item): item is string => typeof item === 'string')
+      : []
     return {
       label: shortId ? `${label} · ${shortId}` : label,
       detail: runId || undefined,
-      content: message || undefined,
+      content:
+        imagePaths.length > 0
+          ? `${message}\n\n【image_paths】\n${imagePaths.map((path) => `- ${path}`).join('\n')}`
+          : message || undefined,
     }
   }
   if (event.toolName === 'run_in_terminal') {
@@ -556,8 +576,22 @@ export async function askVscodeAiAgent(options: {
   idleTimeoutMs?: number
   /** 单轮流空闲超时后的额外重试次数（不含首次）；默认 10 */
   idleRetryCount?: number
+  /**
+   * 本轮用户附加的图片路径（仅路径引用）。
+   * 父模型有视觉时注入 image_url；否则写入文本【附件图片】供委派 vision。
+   */
+  imageAttachments?: readonly VscodeAiImageAttachment[]
+  /** 识图 Sub Agent：零工具 + vision client；图片由宿主注入 imageAttachments */
+  visionOnly?: boolean
 }): Promise<VscodeAiAgentResult> {
-  const tools = createVscodeAiTools(options.mode, options.toolsHost)
+  const visionOnly = options.visionOnly === true
+  const imageAttachments = options.imageAttachments ?? []
+  const imagePaths = imageAttachments.map((item) => item.path)
+  const parentHasVision = vscodeAiModelKeyHasVision(options.modelKey)
+  const useVisionClient = visionOnly || (parentHasVision && imagePaths.length > 0)
+  const injectImages = imagePaths.length > 0 && (visionOnly || parentHasVision)
+
+  const tools = visionOnly ? [] : createVscodeAiTools(options.mode, options.toolsHost)
 
   const contextSection = buildVscodeAiContextSection(options.context)
   let system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
@@ -567,7 +601,7 @@ export async function askVscodeAiAgent(options: {
   }
 
   const subAgentConfig = options.subAgentConfig
-  if (subAgentConfig) {
+  if (subAgentConfig && !visionOnly) {
     const available = listAvailableSubAgents(subAgentConfig)
 
     /** 为每个子 Agent 运行解析模型标签 */
@@ -575,7 +609,8 @@ export async function askVscodeAiAgent(options: {
       if (!modelKey) return '未配置'
       const ref = parseVscodeAiModelRefKey(modelKey)
       if (!ref) return modelKey
-      const model = listVscodeAiTextModels().find(
+      const models = [...listVscodeAiVisionModels(), ...listVscodeAiTextModels()]
+      const model = models.find(
         (item) =>
           item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
       )
@@ -589,9 +624,11 @@ export async function askVscodeAiAgent(options: {
       history,
       runId,
       description,
+      imagePaths: subImagePaths,
       signal,
       onProgress,
     }) => {
+      const isVisionAgent = definition.id === 'vision'
       const subMode = definition.access === 'readonly' ? 'ask' : 'agent'
       const subKind = subMode === 'ask' ? 'ask' : 'agent'
       const parentChatId = options.toolsHost.chatSessionId
@@ -600,6 +637,49 @@ export async function askVscodeAiAgent(options: {
       const getHandle = options.toolsHost.getAiTerminalHandle
       const getSnapshot = options.toolsHost.getAiTerminalSnapshot
       const closeTerminal = options.toolsHost.closeAiTerminal
+
+      const visionAttachments: VscodeAiImageAttachment[] | undefined =
+        isVisionAgent && subImagePaths && subImagePaths.length > 0
+          ? subImagePaths.map((path, index) => ({
+              id: `vision-${index}-${path}`,
+              path,
+              name: path.split('/').pop() || path,
+              mimeType: 'image/png',
+            }))
+          : undefined
+
+      if (isVisionAgent) {
+        if (visionAttachments && visionAttachments.length > 0) {
+          patchLatestTurnImagePaths(
+            runId,
+            visionAttachments.map((item) => item.path),
+          )
+        }
+        const result = await askVscodeAiAgent({
+          mode: 'ask',
+          userMessage: taskPrompt,
+          history,
+          context: options.context,
+          toolsHost: options.toolsHost,
+          signal: signal ?? options.signal,
+          modelKey: definition.modelKey ?? options.modelKey,
+          systemPromptAppendix: definition.systemPrompt,
+          idleTimeoutMs: options.idleTimeoutMs,
+          idleRetryCount: options.idleRetryCount,
+          visionOnly: true,
+          imageAttachments: visionAttachments,
+          maxStepsOverride: 4,
+          onProgress: (progress) => {
+            onProgress?.(progress)
+          },
+        })
+        return {
+          text: result.text,
+          toolCallCount: result.toolCallCount,
+          incomplete: result.incomplete,
+          finalResult: result,
+        }
+      }
 
       const subRunCommandHost: typeof parentHost = {
         workspaceFolder: parentHost.workspaceFolder,
@@ -663,9 +743,7 @@ export async function askVscodeAiAgent(options: {
     const onSubAgentProgress = (event: SubAgentProgressEvent) => {
       if (event.phase === 'started') {
         const existing = getRun(event.runId)
-        if (existing) {
-          resumeRun(event.runId, event.taskPrompt ?? '')
-        } else {
+        if (!existing) {
           startRun(
             event.runId,
             event.agentId,
@@ -674,7 +752,14 @@ export async function askVscodeAiAgent(options: {
             event.modelKey,
             modelLabelFor(event.modelKey),
             options.toolsHost.chatSessionId,
+            event.imagePaths,
           )
+        } else if (existing.status === 'running') {
+          if (event.imagePaths && event.imagePaths.length > 0) {
+            patchLatestTurnImagePaths(event.runId, event.imagePaths)
+          }
+        } else {
+          resumeRun(event.runId, event.taskPrompt ?? '', event.imagePaths)
         }
         pendingSubagentRunId = event.runId
         subagentCompleted = false
@@ -765,13 +850,24 @@ export async function askVscodeAiAgent(options: {
       }
     }
   }
+  const userTextForModel =
+    !visionOnly && imageAttachments.length > 0 && !parentHasVision
+      ? mergeUserTextWithImageAttachments(options.userMessage, imageAttachments)
+      : options.userMessage
+
   const wrappedUserMessage = wrapVscodeAiUserMessage(
-    options.userMessage,
+    userTextForModel,
     options.reminderText ?? '',
   )
 
-  const modelConfig: OpenAiConfig = openAiConfigForVscodeAiModelKey(options.modelKey)
-  const client = createOpenAiClient(modelConfig, 'text')
+  const modelConfig: OpenAiConfig = openAiConfigForVscodeAiModelKey(
+    options.modelKey,
+    useVisionClient ? 'vision' : 'text',
+  )
+  const client = createOpenAiClient(
+    modelConfig,
+    useVisionClient ? 'vision' : 'text',
+  )
   const model = modelConfig.defaultModel
   const tokenizerFamily = tokenizerFamilyForVscodeAiModelKey(options.modelKey)
 
@@ -1112,8 +1208,23 @@ export async function askVscodeAiAgent(options: {
   }
 
   const result = await agent.run({
-    input: wrappedUserMessage,
-    messages: options.history,
+    ...(injectImages
+      ? {
+          messages: [
+            ...(options.history ?? []),
+            {
+              role: 'user' as const,
+              content: await buildVscodeAiMultimodalUserContent(
+                wrappedUserMessage,
+                imagePaths,
+              ),
+            },
+          ],
+        }
+      : {
+          input: wrappedUserMessage,
+          messages: options.history,
+        }),
     signal: options.signal,
     onToolCall,
     onToolResult,

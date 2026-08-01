@@ -30,11 +30,13 @@ ${catalog}
 何时委派（delegate_subagent）：
 - 大范围只读调研、搜索，或中间输出会很吵时 → 优先 explore（若可用）
 - 需要改代码/跑命令的独立子任务 → general 或匹配的自定义 Agent
+- 用户消息含【附件图片】路径且你看不见像素时 → 委派 vision（若可用）：prompt 写清要分析什么，并把路径放进 image_paths（必填）；宿主会注入图片，勿让 vision 自己读文件
 - 多个互不依赖的调研可并行发起多个 delegate_subagent
 
 何时追问（followup_subagent）：
 - 结果不够细、方向需纠偏、要验收补充，或用户说「继续 / 复用 / 接着查」→ 用返回的 run_id 追问同一线程
 - 追问同样写清要补什么、对照什么标准，勿空泛说「再查一下」
+- 追问 vision 可只传文字（沿用历史图），也可再传 image_paths 追加新图
 - 工具结果里已有 run_id 时优先 followup，勿无谓再 delegate
 - 无关的新任务再新建，不要把不相关工作塞进旧线程
 - 子终端与 WebView 每轮结束会拆掉；追问须假定需重新 create webview / 新开终端

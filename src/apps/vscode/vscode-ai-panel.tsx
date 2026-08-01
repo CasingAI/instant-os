@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { RefObject } from 'preact'
+import type { RefObject, VNode } from 'preact'
 import type OpenAI from 'openai'
 import {
   formatHumanDurationMs,
@@ -59,6 +59,16 @@ import {
   type VscodeAiChatMessage,
   type VscodeAiReviewStatus,
 } from './vscode-ai-chat-storage.ts'
+import {
+  attachmentFromVfsPath,
+  VSCODE_AI_IMAGE_ACCEPT_EXTENSIONS,
+  VSCODE_AI_NO_VISION_ATTACH_ERROR,
+  vscodeAiCanAttachImages,
+  writeVscodeAiPastedImage,
+  type VscodeAiImageAttachment,
+} from './vscode-ai-attachments.ts'
+import { VscodeAiAttachmentImages } from './vscode-ai-attachment-images.tsx'
+import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import {
   buildVscodeAiSystemReminder,
   collectVscodeAiReminderEvents,
@@ -143,6 +153,7 @@ type SendOptions = {
   sendMode?: VscodeAiMode
   sendModelSource?: VscodeModelSource
   sendModelKey?: string | undefined
+  attachments?: readonly VscodeAiImageAttachment[]
 }
 
 function syncComposerTextareaHeight(
@@ -183,6 +194,7 @@ type UserBubbleMorphFrom = {
 type QueuedSend = {
   id: string
   text: string
+  attachments?: VscodeAiImageAttachment[]
 }
 
 function createQueuedSendId(): string {
@@ -243,6 +255,10 @@ type VscodeAiComposerBlockProps = {
   dark?: boolean
   /** composer=底部输入卡；bubble=用户气泡内编辑（无独立卡片外观） */
   surface?: 'composer' | 'bubble'
+  attachments?: readonly VscodeAiImageAttachment[]
+  onAttachmentsChange?: (next: VscodeAiImageAttachment[]) => void
+  onAttachError?: (message: string) => void
+  chatSessionId?: string
 }
 
 function dictationWrapPhaseClass(phase: string): string {
@@ -276,11 +292,16 @@ function VscodeAiComposerBlock({
   contextUsage,
   dark,
   surface = 'composer',
+  attachments = [],
+  onAttachmentsChange,
+  onAttachError,
+  chatSessionId,
 }: VscodeAiComposerBlockProps) {
   const dictation = useSpeechDictation({
     as: 'textarea',
     disabled: inputDisabled,
   })
+  const { showSystemOpenDialog, dialog: openDialog } = useSystemOpenDialog()
   const rootClass = [
     surface === 'bubble'
       ? 'vscode-ai__bubble-edit'
@@ -306,8 +327,131 @@ function VscodeAiComposerBlock({
       ? 'vscode-ai__bubble-edit-select'
       : 'vscode-ai__footer-select vscode-ai__footer-select--trigger'
 
+  const reportAttachError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : VSCODE_AI_NO_VISION_ATTACH_ERROR
+    onAttachError?.(message)
+  }
+
+  const addAttachment = (item: VscodeAiImageAttachment) => {
+    if (!onAttachmentsChange) return
+    if (attachments.some((existing) => existing.path === item.path)) return
+    onAttachmentsChange([...attachments, item])
+  }
+
+  const removeAttachment = (id: string) => {
+    onAttachmentsChange?.(attachments.filter((item) => item.id !== id))
+  }
+
+  const pickVfsImage = async () => {
+    if (!onAttachmentsChange) return
+    try {
+      if (!vscodeAiCanAttachImages()) {
+        throw new Error(VSCODE_AI_NO_VISION_ATTACH_ERROR)
+      }
+      const path = await showSystemOpenDialog({
+        title: '附加图片',
+        acceptExtensions: [...VSCODE_AI_IMAGE_ACCEPT_EXTENSIONS],
+        presentation: 'modal',
+      })
+      if (!path) return
+      addAttachment(attachmentFromVfsPath(path))
+    } catch (error) {
+      reportAttachError(error)
+    }
+  }
+
+  const handlePaste = async (event: ClipboardEvent) => {
+    const items = event.clipboardData?.items
+    if (!items || !onAttachmentsChange) return
+    for (const item of Array.from(items)) {
+      if (!item.type.startsWith('image/')) continue
+      event.preventDefault()
+      try {
+        if (!vscodeAiCanAttachImages()) {
+          throw new Error(VSCODE_AI_NO_VISION_ATTACH_ERROR)
+        }
+        const file = item.getAsFile()
+        if (!file) continue
+        const bytes = await file.arrayBuffer()
+        const attached = await writeVscodeAiPastedImage({
+          chatSessionId: chatSessionId ?? 'anonymous',
+          bytes,
+          mimeType: file.type || item.type,
+          fileName: file.name,
+        })
+        addAttachment(attached)
+      } catch (error) {
+        reportAttachError(error)
+      }
+      return
+    }
+  }
+
+  const handleDrop = (event: DragEvent) => {
+    event.preventDefault()
+    if (!onAttachmentsChange) return
+    try {
+      if (!vscodeAiCanAttachImages()) {
+        throw new Error(VSCODE_AI_NO_VISION_ATTACH_ERROR)
+      }
+      const path =
+        event.dataTransfer?.getData('text/plain')?.trim() ||
+        event.dataTransfer?.getData('text/uri-list')?.trim()
+      if (path?.startsWith('/')) {
+        addAttachment(attachmentFromVfsPath(path))
+        return
+      }
+      // 非 VFS 拖入（少见）：落入 /tmp 后再以路径引用
+      const file = event.dataTransfer?.files?.[0]
+      if (file?.type.startsWith('image/')) {
+        void (async () => {
+          try {
+            const bytes = await file.arrayBuffer()
+            const attached = await writeVscodeAiPastedImage({
+              chatSessionId: chatSessionId ?? 'anonymous',
+              bytes,
+              mimeType: file.type,
+              fileName: file.name,
+            })
+            addAttachment(attached)
+          } catch (error) {
+            reportAttachError(error)
+          }
+        })()
+      }
+    } catch (error) {
+      reportAttachError(error)
+    }
+  }
+
   return (
-    <div class={rootClass}>
+    <div
+      class={rootClass}
+      onDragOver={(event) => {
+        if (!onAttachmentsChange) return
+        event.preventDefault()
+      }}
+      onDrop={handleDrop}
+    >
+      {attachments.length > 0 ? (
+        <div class="vscode-ai__attach-chips" aria-label="附件图片">
+          {attachments.map((item) => (
+            <span key={item.id} class="vscode-ai__attach-chip" title={item.path}>
+              <span class="vscode-ai__attach-chip-name">{item.name}</span>
+              <button
+                type="button"
+                class="vscode-ai__attach-chip-remove"
+                aria-label={`移除 ${item.name}`}
+                disabled={inputDisabled}
+                onClick={() => removeAttachment(item.id)}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : undefined}
       <div class={inputWrapClass}>
         <textarea
           ref={inputRef}
@@ -317,6 +461,7 @@ function VscodeAiComposerBlock({
           value={value}
           disabled={inputDisabled}
           onInput={(event) => onChange((event.target as HTMLTextAreaElement).value)}
+          onPaste={(event) => void handlePaste(event)}
           onKeyDown={(event) => {
             dictation.onKeyDown(event)
             if (dictation.phase !== 'idle') {
@@ -409,6 +554,18 @@ function VscodeAiComposerBlock({
           </VscodeAiModelPicker>
         </label>
         <div class="vscode-ai__composer-footer-trailing">
+          {onAttachmentsChange ? (
+            <button
+              type="button"
+              class="vscode-ai__attach-btn"
+              aria-label="附加图片"
+              title="附加图片"
+              disabled={inputDisabled}
+              onClick={() => void pickVfsImage()}
+            >
+              +
+            </button>
+          ) : undefined}
           <VscodeAiContextUsageView usage={contextUsage} dark={dark} />
           {busy ? (
             <button
@@ -433,6 +590,7 @@ function VscodeAiComposerBlock({
           </button>
         </div>
       </div>
+      {openDialog}
     </div>
   )
 }
@@ -1116,6 +1274,7 @@ export function VscodeAiPanel({
   const handleModelPickerChange = useCallback(
     (encoded: string) => {
       const decoded = decodeVscodeModelPickerValue(encoded)
+      if (decoded.source === 'vision') return
       onAiModelSelectionChange(
         decoded.source,
         decoded.source === 'custom' ? decoded.modelKey : aiModelKey,
@@ -1125,6 +1284,13 @@ export function VscodeAiPanel({
   )
 
   const [draft, setDraft] = useState('')
+  const [draftAttachments, setDraftAttachments] = useState<VscodeAiImageAttachment[]>(
+    [],
+  )
+  const [editingAttachments, setEditingAttachments] = useState<
+    VscodeAiImageAttachment[]
+  >([])
+  const [attachError, setAttachError] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
   const [sendQueue, setSendQueue] = useState<QueuedSend[]>([])
   const [sendQueueExpanded, setSendQueueExpanded] = useState(false)
@@ -1230,6 +1396,7 @@ export function VscodeAiPanel({
   )
   const handleEditingModelPickerChange = useCallback((encoded: string) => {
     const decoded = decodeVscodeModelPickerValue(encoded)
+    if (decoded.source === 'vision') return
     setEditingModelSource(decoded.source)
     setEditingModelKey(decoded.source === 'custom' ? decoded.modelKey : undefined)
   }, [])
@@ -1476,6 +1643,7 @@ export function VscodeAiPanel({
     abortRef.current = undefined
     sessionIdRef.current = sessionId
     setDraft('')
+    setDraftAttachments([])
     setBusy(false)
     setLiveTimeline([])
     setLiveAnswer('')
@@ -1488,6 +1656,8 @@ export function VscodeAiPanel({
     lastSentModeRef.current = undefined
     setEditingUserId(undefined)
     setEditingDraft('')
+    setEditingAttachments([])
+    setAttachError(undefined)
     sendQueueRef.current = []
     setSendQueue([])
     setSendQueueExpanded(false)
@@ -1684,12 +1854,19 @@ export function VscodeAiPanel({
     [onMessagesChange],
   )
 
-  const enqueueSend = useCallback((text: string) => {
-    const item: QueuedSend = { id: createQueuedSendId(), text }
-    const next = [...sendQueueRef.current, item]
-    sendQueueRef.current = next
-    setSendQueue(next)
-  }, [])
+  const enqueueSend = useCallback(
+    (text: string, attachments?: readonly VscodeAiImageAttachment[]) => {
+      const item: QueuedSend = {
+        id: createQueuedSendId(),
+        text,
+        attachments: attachments && attachments.length > 0 ? [...attachments] : undefined,
+      }
+      const next = [...sendQueueRef.current, item]
+      sendQueueRef.current = next
+      setSendQueue(next)
+    },
+    [],
+  )
 
   const removeQueuedSend = useCallback((id: string) => {
     const next = sendQueueRef.current.filter((item) => item.id !== id)
@@ -1735,7 +1912,14 @@ export function VscodeAiPanel({
   const send = useCallback(
     async (textOverride?: string, options?: SendOptions) => {
       const text = (textOverride ?? draft).trim()
-      if (!text) {
+      const turnAttachments =
+        options?.attachments ??
+        (textOverride === undefined && !options?.replaceFromUserId
+          ? draftAttachments
+          : options?.replaceFromUserId
+            ? editingAttachments
+            : [])
+      if (!text && turnAttachments.length === 0) {
         // 输入为空时回车：有排队则打断当前任务，由 finally 立刻发送「下一个」
         if (
           textOverride === undefined &&
@@ -1783,8 +1967,11 @@ export function VscodeAiPanel({
 
       // 普通发送在 busy / 回滚中入队；编辑重发在 handoff 后继续（busy 仍为 true）
       if (!options?.replaceFromUserId && (busyRef.current || reviewBusyRef.current)) {
-        enqueueSend(text)
-        if (!textOverride) setDraft('')
+        enqueueSend(text, turnAttachments)
+        if (!textOverride) {
+          setDraft('')
+          setDraftAttachments([])
+        }
         return
       }
 
@@ -1836,6 +2023,8 @@ export function VscodeAiPanel({
           sentMode: turnMode,
           sentModelSource: turnModelSource,
           sentModelKey: sentModelKeyForMessage,
+          attachments:
+            turnAttachments.length > 0 ? [...turnAttachments] : undefined,
         }
         withUser = [...currentMessages.slice(0, index), editedUser]
         const userOrdinal = currentMessages
@@ -1849,6 +2038,7 @@ export function VscodeAiPanel({
         applyMessages(withUser, { apiTranscript: historyRef.current })
         setEditingUserId(undefined)
         setEditingDraft('')
+        setEditingAttachments([])
         // 编辑重发成功：主输入框同步为本次选用的模式与模型
         if (options.sendMode !== undefined) {
           onModeChange(options.sendMode)
@@ -1860,12 +2050,17 @@ export function VscodeAiPanel({
           )
         }
       } else {
-        if (!textOverride) setDraft('')
+        if (!textOverride) {
+          setDraft('')
+          setDraftAttachments([])
+        }
         const userMessage = createVscodeAiChatMessage('user', text, {
           systemReminder: reminderForStorage,
           sentMode: turnMode,
           sentModelSource: turnModelSource,
           sentModelKey: sentModelKeyForMessage,
+          attachments:
+            turnAttachments.length > 0 ? [...turnAttachments] : undefined,
         })
         withUser = [...currentMessages, userMessage]
         applyMessages(withUser)
@@ -1956,6 +2151,7 @@ export function VscodeAiPanel({
           modelKey: turnResolvedModelKey,
           idleTimeoutMs: Math.max(5, aiIdleTimeoutSeconds) * 1000,
           idleRetryCount: aiIdleRetryCount,
+          imageAttachments: turnAttachments,
           subAgentConfig: buildVscodeSubAgentHostConfig(
             {
               subAgentsEnabled,
@@ -2140,7 +2336,9 @@ export function VscodeAiPanel({
           sendQueueRef.current = rest
           setSendQueue(rest)
           queueMicrotask(() => {
-            void sendRef.current(next.text)
+            void sendRef.current(next.text, {
+              attachments: next.attachments,
+            })
           })
         } else if (aiPlayCompletionSound && !controller.signal.aborted) {
           playSystemSound('complete')
@@ -2158,6 +2356,8 @@ export function VscodeAiPanel({
       contextWithTerminal,
       customSubAgents,
       draft,
+      draftAttachments,
+      editingAttachments,
       enqueueSend,
       getAiTerminalHandle,
       getAiTerminalSnapshot,
@@ -2254,6 +2454,7 @@ export function VscodeAiPanel({
       })
       setEditingUserId(message.id)
       setEditingDraft(message.content)
+      setEditingAttachments(message.attachments ? [...message.attachments] : [])
       setEditingMode(settings.mode)
       setEditingModelSource(settings.source)
       setEditingModelKey(settings.key)
@@ -2276,6 +2477,7 @@ export function VscodeAiPanel({
     }
     setEditingUserId(undefined)
     setEditingDraft('')
+    setEditingAttachments([])
     userEditInputHeightRef.current = undefined
   }, [])
 
@@ -2312,7 +2514,7 @@ export function VscodeAiPanel({
   const resubmitEditedUserMessage = useCallback(
     async (messageId: string) => {
       const text = editingDraft.trim()
-      if (!text) return
+      if (!text && editingAttachments.length === 0) return
       const index = messages.findIndex((message) => message.id === messageId)
       if (index < 0) return
       const hasLater = index < messages.length - 1
@@ -2336,11 +2538,13 @@ export function VscodeAiPanel({
         sendMode: editingMode,
         sendModelSource: editingModelSource,
         sendModelKey: editingModelKey,
+        attachments: editingAttachments,
       })
     },
     [
       busy,
       collectSessionIdsAfter,
+      editingAttachments,
       editingDraft,
       editingMode,
       editingModelKey,
@@ -2433,21 +2637,47 @@ export function VscodeAiPanel({
 
               if (message.role === 'user') {
                 // 只读详情（子 Agent Tab）：任务消息是主 Agent 的发言，
-                // 群聊式渲染——左侧气泡 + 主聊天同款头像，而非右侧用户气泡
+                // 微信式：图片单独一个气泡，问题文案再一个气泡，都在左侧
                 if (readOnly) {
-                  return (
-                    <div
-                      key={message.id}
-                      class="help-app__message help-app__message--assistant"
-                    >
-                      <span class="help-app__avatar" aria-hidden="true">
-                        <VscodeIcon size={30} />
-                      </span>
-                      <div class="help-app__bubble">
-                        <HelpMarkdown text={message.content} />
-                      </div>
-                    </div>
-                  )
+                  const attachments = message.attachments
+                  const hasAttachments = !!attachments && attachments.length > 0
+                  const text = message.content.trim()
+                  if (!hasAttachments && !text) return null
+                  const rows: VNode[] = []
+                  if (hasAttachments) {
+                    rows.push(
+                      <div
+                        key={`${message.id}-img`}
+                        class="help-app__message help-app__message--assistant"
+                      >
+                        <span class="help-app__avatar" aria-hidden="true">
+                          <VscodeIcon size={30} />
+                        </span>
+                        <div class="help-app__bubble vscode-ai__bubble--image">
+                          <VscodeAiAttachmentImages
+                            attachments={attachments}
+                            layout="stack"
+                          />
+                        </div>
+                      </div>,
+                    )
+                  }
+                  if (text) {
+                    rows.push(
+                      <div
+                        key={`${message.id}-text`}
+                        class="help-app__message help-app__message--assistant"
+                      >
+                        <span class="help-app__avatar" aria-hidden="true">
+                          <VscodeIcon size={30} />
+                        </span>
+                        <div class="help-app__bubble">
+                          <HelpMarkdown text={message.content} />
+                        </div>
+                      </div>,
+                    )
+                  }
+                  return rows
                 }
                 return (
                   <div
@@ -2505,7 +2735,10 @@ export function VscodeAiPanel({
                           onSend={() => void resubmitEditedUserMessage(message.id)}
                           inputRef={userEditInputRef}
                           placeholder="编辑消息…"
-                          sendDisabled={!editingDraft.trim() || textModels.length === 0}
+                          sendDisabled={
+                            (!editingDraft.trim() && editingAttachments.length === 0) ||
+                            textModels.length === 0
+                          }
                           busy={false}
                           onStop={stop}
                           mode={editingMode}
@@ -2518,9 +2751,26 @@ export function VscodeAiPanel({
                           onAiModelOptionsChange={onAiModelOptionsChange}
                           contextUsage={editContextUsage}
                           dark={dark}
+                          attachments={editingAttachments}
+                          onAttachmentsChange={setEditingAttachments}
+                          onAttachError={setAttachError}
+                          chatSessionId={sessionId}
                         />
                       ) : (
                         <>
+                          {message.attachments && message.attachments.length > 0 ? (
+                            <div class="vscode-ai__attach-chips vscode-ai__attach-chips--bubble">
+                              {message.attachments.map((item) => (
+                                <span
+                                  key={item.id}
+                                  class="vscode-ai__attach-chip"
+                                  title={item.path}
+                                >
+                                  <span class="vscode-ai__attach-chip-name">{item.name}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : undefined}
                           {aiDebugSystemReminder && message.systemReminder?.trim() ? (
                             <details class="vscode-ai__system-reminder" open>
                               <summary>System Reminder（debug）</summary>
@@ -2700,6 +2950,19 @@ export function VscodeAiPanel({
             ) : undefined}
           </div>
         ) : undefined}
+        {attachError ? (
+          <div class="vscode-ai__attach-error" role="alert">
+            {attachError}
+            <button
+              type="button"
+              class="vscode-ai__attach-error-dismiss"
+              aria-label="关闭"
+              onClick={() => setAttachError(undefined)}
+            >
+              ×
+            </button>
+          </div>
+        ) : undefined}
         <VscodeAiComposerBlock
           value={draft}
           onChange={setDraft}
@@ -2716,7 +2979,9 @@ export function VscodeAiPanel({
                   ? '调研并写计划…'
                   : '描述任务…'
           }
-          sendDisabled={!draft.trim() || textModels.length === 0}
+          sendDisabled={
+            (!draft.trim() && draftAttachments.length === 0) || textModels.length === 0
+          }
           busy={busy}
           onStop={stop}
           mode={mode}
@@ -2729,6 +2994,10 @@ export function VscodeAiPanel({
           onAiModelOptionsChange={onAiModelOptionsChange}
           contextUsage={composerContextUsage}
           dark={dark}
+          attachments={draftAttachments}
+          onAttachmentsChange={setDraftAttachments}
+          onAttachError={setAttachError}
+          chatSessionId={sessionId}
         />
       </div>
       )}

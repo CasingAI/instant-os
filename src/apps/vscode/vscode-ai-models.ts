@@ -1,10 +1,13 @@
 import {
+  listEnabledModels,
   listEnabledModelsForCapability,
+  modelHasCapability,
   resolvePreferredModelRef,
   type AiTokenizerFamily,
   type FlatEnabledModel,
   type PreferredModelRef,
 } from '../../ai/ai-providers.ts'
+import { platformHasVisionModel } from '../../ai/subagent/index.ts'
 import { listSupportedReasoningEfforts } from '../../ai/ai-thinking.ts'
 import { resolveTokenizerFamily } from '../../ai/model-tokenizer.ts'
 import { mergeOpenAiConfig, type OpenAiConfig } from '../../ai/openai-config.ts'
@@ -20,8 +23,8 @@ import {
   type VscodeAiContextWindowPref,
   type VscodeAiModelOptionPrefs,
   type VscodeAiThinkingEffortPref,
-  type VscodeModelSource,
   type VscodePrefs,
+  type VscodeSubAgentModelSource,
 } from './vscode-prefs.ts'
 import { useEffect, useMemo, useState } from 'preact/hooks'
 
@@ -42,6 +45,132 @@ export function listVscodeAiTextModels(): FlatEnabledModel[] {
   const settings = loadAccountSettings()
   if (!settings || settings.providers.length === 0) return []
   return listEnabledModelsForCapability(settings.providers, 'text')
+}
+
+/** 可用的视觉模型（vision 槽位优先；否则任意带 vision 能力的已启用模型） */
+export function listVscodeAiVisionModels(): FlatEnabledModel[] {
+  const settings = loadAccountSettings()
+  if (!settings || settings.providers.length === 0) return []
+  const byCapability = listEnabledModelsForCapability(settings.providers, 'vision')
+  if (byCapability.length > 0) return byCapability
+  return listEnabledModels(settings.providers).filter((item) =>
+    item.capabilities.includes('vision'),
+  )
+}
+
+/** 平台是否有可用视觉模型（附件门控） */
+export function vscodeAiCanAttachImages(): boolean {
+  return platformHasVisionModel()
+}
+
+export function resolveVscodeAiVisionModelRefKey(
+  storedKey: string | undefined,
+): string | undefined {
+  const models = listVscodeAiVisionModels()
+  if (models.length === 0) return undefined
+  if (storedKey) {
+    const ref = parseVscodeAiModelRefKey(storedKey)
+    if (
+      ref &&
+      models.some(
+        (item) =>
+          item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
+      )
+    ) {
+      return storedKey
+    }
+  }
+  const settings = loadAccountSettings()
+  const preferred = settings ? resolvePreferredModelRef(settings, 'vision') : undefined
+  if (preferred) {
+    const key = formatVscodeAiModelRefKey(preferred)
+    if (
+      models.some(
+        (item) =>
+          item.providerEntryId === preferred.providerEntryId &&
+          item.modelId === preferred.modelId,
+      )
+    ) {
+      return key
+    }
+  }
+  const first = models[0]
+  if (!first) return undefined
+  return formatVscodeAiModelRefKey({
+    providerEntryId: first.providerEntryId,
+    modelId: first.modelId,
+  })
+}
+
+/** 给定 VS Code 模型键是否具备视觉能力 */
+export function vscodeAiModelKeyHasVision(modelKey: string | undefined): boolean {
+  if (!modelKey) return false
+  const ref = parseVscodeAiModelRefKey(modelKey)
+  if (!ref) return false
+  const settings = loadAccountSettings()
+  if (!settings) return false
+  const entry = settings.providers.find((item) => item.id === ref.providerEntryId)
+  if (!entry) return false
+  const model = entry.enabledModels.find((item) => item.modelId === ref.modelId)
+  if (!model) return false
+  return modelHasCapability(
+    entry.providerId,
+    model.modelId,
+    'vision',
+    model.capabilities,
+  )
+}
+
+/**
+ * 按模型键生成 OpenAI 配置。
+ * `capability` 为 vision 时走视觉路由（同一 modelKey 须具备 vision）。
+ */
+export function openAiConfigForVscodeAiModelKey(
+  storedKey: string | undefined,
+  capability: 'text' | 'vision' = 'text',
+): OpenAiConfig {
+  const key =
+    capability === 'vision'
+      ? resolveVscodeAiVisionModelRefKey(storedKey) ??
+        resolveVscodeAiModelRefKey(storedKey)
+      : resolveVscodeAiModelRefKey(storedKey)
+  const settings = loadAccountSettings()
+  let config = mergeOpenAiConfig(undefined, capability)
+  if (settings && key) {
+    const ref = parseVscodeAiModelRefKey(key)
+    if (ref) {
+      const partial = openAiConfigForModelRef(settings, ref, capability)
+      if (partial) {
+        config = mergeOpenAiConfig(partial, capability)
+      } else if (capability === 'vision') {
+        // 回退：若 vision 校验失败但 text 可用且模型自带 vision，仍用 text 配置同模型
+        const textPartial = openAiConfigForModelRef(settings, ref, 'text')
+        if (textPartial && vscodeAiModelKeyHasVision(key)) {
+          config = mergeOpenAiConfig(textPartial, 'vision')
+        }
+      }
+    }
+  }
+
+  if (key) {
+    const modelOptions = loadVscodePrefs().aiModelOptions[key]
+    const thinkingOverride = modelOptions?.thinkingEnabled
+    const effortPref = resolveVscodeAiThinkingEffortPrefForModelKey(key)
+    const thinkingEnabled =
+      typeof thinkingOverride === 'boolean'
+        ? thinkingOverride
+        : config.thinkingEnabled
+    const thinkingEffort =
+      thinkingEnabled && effortPref !== 'default' ? effortPref : undefined
+    if (typeof thinkingOverride === 'boolean' || thinkingEffort) {
+      return {
+        ...config,
+        ...(typeof thinkingOverride === 'boolean' ? { thinkingEnabled } : {}),
+        ...(thinkingEffort ? { thinkingEffort } : {}),
+      }
+    }
+  }
+  return config
 }
 
 export function resolveVscodeAiModelRefKey(storedKey: string | undefined): string | undefined {
@@ -244,43 +373,6 @@ export function resolveVscodeAiThinkingEffortPrefForModelKey(
   return override
 }
 
-export function openAiConfigForVscodeAiModelKey(
-  storedKey: string | undefined,
-): OpenAiConfig {
-  const key = resolveVscodeAiModelRefKey(storedKey)
-  const settings = loadAccountSettings()
-  let config = mergeOpenAiConfig(undefined, 'text')
-  if (settings && key) {
-    const ref = parseVscodeAiModelRefKey(key)
-    if (ref) {
-      const partial = openAiConfigForModelRef(settings, ref, 'text')
-      if (partial) {
-        config = mergeOpenAiConfig(partial, 'text')
-      }
-    }
-  }
-
-  if (key) {
-    const modelOptions = loadVscodePrefs().aiModelOptions[key]
-    const thinkingOverride = modelOptions?.thinkingEnabled
-    const effortPref = resolveVscodeAiThinkingEffortPrefForModelKey(key)
-    const thinkingEnabled =
-      typeof thinkingOverride === 'boolean'
-        ? thinkingOverride
-        : config.thinkingEnabled
-    const thinkingEffort =
-      thinkingEnabled && effortPref !== 'default' ? effortPref : undefined
-    if (typeof thinkingOverride === 'boolean' || thinkingEffort) {
-      return {
-        ...config,
-        ...(typeof thinkingOverride === 'boolean' ? { thinkingEnabled } : {}),
-        ...(thinkingEffort ? { thinkingEffort } : {}),
-      }
-    }
-  }
-  return config
-}
-
 /** 解析 VS Code 模型键对应的词表族（条目覆盖 > modelId 推断） */
 export function tokenizerFamilyForVscodeAiModelKey(
   storedKey: string | undefined,
@@ -327,16 +419,17 @@ export function labelForVscodeAiModel(model: FlatEnabledModel): string {
 const MODEL_CAPABILITY_PREFIX = '@capability:'
 
 export type VscodeModelPickerDecoded = {
-  source: VscodeModelSource
+  source: VscodeSubAgentModelSource
   modelKey?: string
 }
 
 export function encodeVscodeModelPickerValue(
-  source: VscodeModelSource,
+  source: VscodeSubAgentModelSource,
   modelKey?: string,
 ): string {
   if (source === 'text-secondary') return `${MODEL_CAPABILITY_PREFIX}text-secondary`
   if (source === 'text') return `${MODEL_CAPABILITY_PREFIX}text`
+  if (source === 'vision') return `${MODEL_CAPABILITY_PREFIX}vision`
   return modelKey?.trim() || ''
 }
 
@@ -348,13 +441,17 @@ export function decodeVscodeModelPickerValue(value: string): VscodeModelPickerDe
   if (trimmed === `${MODEL_CAPABILITY_PREFIX}text`) {
     return { source: 'text' }
   }
+  if (trimmed === `${MODEL_CAPABILITY_PREFIX}vision`) {
+    return { source: 'vision' }
+  }
   return { source: 'custom', modelKey: trimmed || undefined }
 }
 
 export function isVscodeModelCapabilityValue(value: string): boolean {
   return (
     value === `${MODEL_CAPABILITY_PREFIX}text-secondary` ||
-    value === `${MODEL_CAPABILITY_PREFIX}text`
+    value === `${MODEL_CAPABILITY_PREFIX}text` ||
+    value === `${MODEL_CAPABILITY_PREFIX}vision`
   )
 }
 
@@ -364,7 +461,13 @@ export function resolveVscodeCapabilityPickerModelKey(
 ): string | undefined {
   const decoded = decodeVscodeModelPickerValue(pickerValue)
   if (decoded.source === 'custom') {
-    return resolveVscodeAiModelRefKey(decoded.modelKey)
+    return (
+      resolveVscodeAiVisionModelRefKey(decoded.modelKey) ??
+      resolveVscodeAiModelRefKey(decoded.modelKey)
+    )
+  }
+  if (decoded.source === 'vision') {
+    return resolveVscodeAiVisionModelRefKey(undefined)
   }
   if (decoded.source === 'text') {
     return preferredCapabilityKey('text')
@@ -374,12 +477,14 @@ export function resolveVscodeCapabilityPickerModelKey(
 
 /** 模型来源选项的展示名（含当前解析到的模型名） */
 export function labelForVscodeModelSource(
-  source: VscodeModelSource,
+  source: VscodeSubAgentModelSource,
   customKey?: string,
 ): string {
   if (source === 'custom') {
-    const key = resolveVscodeAiModelRefKey(customKey)
-    const models = listVscodeAiTextModels()
+    const key =
+      resolveVscodeAiVisionModelRefKey(customKey) ??
+      resolveVscodeAiModelRefKey(customKey)
+    const models = [...listVscodeAiVisionModels(), ...listVscodeAiTextModels()]
     const ref = key ? parseVscodeAiModelRefKey(key) : undefined
     const model = ref
       ? models.find(
@@ -389,6 +494,19 @@ export function labelForVscodeModelSource(
       : undefined
     const name = model ? labelForVscodeAiModel(model) : undefined
     return name ? name : '指定模型'
+  }
+  if (source === 'vision') {
+    const key = resolveVscodeAiVisionModelRefKey(undefined)
+    const models = listVscodeAiVisionModels()
+    const ref = key ? parseVscodeAiModelRefKey(key) : undefined
+    const model = ref
+      ? models.find(
+          (item) =>
+            item.providerEntryId === ref.providerEntryId && item.modelId === ref.modelId,
+        )
+      : undefined
+    const name = model ? labelForVscodeAiModel(model) : undefined
+    return name ? `视觉 · ${name}` : '视觉'
   }
   const key =
     source === 'text'

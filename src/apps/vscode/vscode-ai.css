@@ -888,6 +888,174 @@
   flex-shrink: 0;
 }
 
+.vscode-ai__attach-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--help-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--help-accent) 8%, transparent);
+  color: var(--help-accent);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.vscode-ai__attach-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--help-accent) 16%, transparent);
+}
+
+.vscode-ai__attach-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.vscode-ai__attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+
+.vscode-ai__attach-chips--bubble {
+  padding: 0 0 8px;
+}
+
+.vscode-ai__attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--help-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--help-accent) 10%, #fff);
+  font-size: 12px;
+  color: #334;
+}
+
+.vscode-ai__attach-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.vscode-ai__attach-chip-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.vscode-ai__attach-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #c0392b 35%, transparent);
+  background: color-mix(in srgb, #c0392b 10%, #fff);
+  color: #8b1e14;
+  font-size: 12px;
+}
+
+.vscode-ai__attach-error-dismiss {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+}
+
+/* 图片独占气泡：紧凑内边距，尺寸小于文字气泡 */
+.vscode-ai .help-app__bubble.vscode-ai__bubble--image {
+  padding: 6px;
+  max-width: min(200px, calc(100% - 40px));
+  width: fit-content;
+}
+
+.vscode-ai__msg-images {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.vscode-ai__msg-images--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.vscode-ai__msg-image-link {
+  display: block;
+  max-width: min(188px, 100%);
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+  border: 1px solid color-mix(in srgb, var(--help-accent) 18%, transparent);
+}
+
+.vscode-ai__msg-image {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  background: color-mix(in srgb, #000 4%, transparent);
+}
+
+.vscode-ai__msg-image--inline {
+  width: 72px;
+  height: 72px;
+  max-height: none;
+  object-fit: cover;
+}
+
+.vscode-ai__msg-image--loading,
+.vscode-ai__msg-image--failed {
+  min-height: 64px;
+  max-width: min(188px, 100%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--help-accent) 10%, transparent);
+}
+
+.vscode-ai__msg-image--failed {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.3;
+}
+
+.vscode--chrome-dark .vscode-ai__msg-image-link {
+  border-color: color-mix(in srgb, #fff 12%, transparent);
+}
+
+.vscode--chrome-dark .vscode-ai__msg-image {
+  background: color-mix(in srgb, #fff 6%, transparent);
+}
+
+.vscode--chrome-dark .vscode-ai__msg-image--failed {
+  color: #b0b0b8;
+}
+
+.vscode--chrome-dark .vscode-ai__attach-chip {
+  background: color-mix(in srgb, var(--help-accent) 18%, #1c1c1e);
+  color: #dce6f2;
+}
+
+.vscode--chrome-dark .vscode-ai__attach-error {
+  background: color-mix(in srgb, #c0392b 22%, #1c1c1e);
+  color: #f5c6c0;
+}
+
 .vscode-ai__context-usage {
   position: relative;
   flex-shrink: 0;

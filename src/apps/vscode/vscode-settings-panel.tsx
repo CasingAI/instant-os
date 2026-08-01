@@ -21,6 +21,7 @@ import {
   resolveVscodeAiThinkingEffortPrefForModelKey,
   resolveVscodeCapabilityPickerModelKey,
   useVscodeAiTextModels,
+  listVscodeAiVisionModels,
 } from './vscode-ai-models.ts'
 import {
   applySettingsModelContextChange,
@@ -37,6 +38,7 @@ import type {
   VscodeModelSource,
   VscodePrefs,
   VscodeSubAgentBuiltinOverride,
+  VscodeSubAgentModelSource,
 } from './vscode-prefs.ts'
 import '../../ui/ios-nav-back.css'
 import '../settings/settings.css'
@@ -60,6 +62,7 @@ type VscodeSettingsScreen =
   | 'subagent'
   | 'subagent-explore'
   | 'subagent-general'
+  | 'subagent-vision'
   | 'subagent-custom'
   | 'model-picker'
   | 'model-options'
@@ -73,10 +76,10 @@ type ModelPickerSession = {
   >
   backLabel: string
   title: string
-  selectionMode: 'agent' | 'completion'
+  selectionMode: 'agent' | 'completion' | 'vision'
   target:
     | { kind: 'completion' }
-    | { kind: 'builtin'; id: 'explore' | 'general' }
+    | { kind: 'builtin'; id: 'explore' | 'general' | 'vision' }
     | { kind: 'custom' }
   editModelKey?: string
 }
@@ -134,11 +137,12 @@ function SettingsPageShell({
 function builtinSummary(
   override: VscodeSubAgentBuiltinOverride | undefined,
   allowInheritParent?: boolean,
+  defaultSource: VscodeSubAgentModelSource = 'text-secondary',
 ): string {
   if (override?.enabled === false) return '已禁用'
   if (allowInheritParent && !override?.modelSource) return '跟随主 Agent'
   return labelForVscodeModelSource(
-    override?.modelSource ?? (allowInheritParent ? 'text' : 'text-secondary'),
+    override?.modelSource ?? (allowInheritParent ? 'text' : defaultSource),
     override?.modelKey,
   )
 }
@@ -221,6 +225,7 @@ export function VscodeSettingsPanel({
   onChange,
 }: VscodeSettingsPanelProps) {
   const textModels = useVscodeAiTextModels()
+  const visionModels = useMemo(() => listVscodeAiVisionModels(), [textModels])
   const {
     page: screen,
     stack,
@@ -245,7 +250,7 @@ export function VscodeSettingsPanel({
   >()
 
   const reservedIds = useMemo(() => {
-    const set = new Set(['explore', 'general'])
+    const set = new Set(['explore', 'general', 'vision'])
     for (const agent of prefs.customSubAgents) {
       if (agent.id !== editingId) set.add(agent.id)
     }
@@ -285,8 +290,14 @@ export function VscodeSettingsPanel({
     if (allowInherit && !override?.modelSource) {
       return encodeVscodeModelPickerValue('text')
     }
+    const defaultSource =
+      target.id === 'vision'
+        ? 'vision'
+        : allowInherit
+          ? 'text'
+          : 'text-secondary'
     return encodeVscodeModelPickerValue(
-      override?.modelSource ?? (allowInherit ? 'text' : 'text-secondary'),
+      override?.modelSource ?? defaultSource,
       override?.modelKey,
     )
   }, [
@@ -413,7 +424,10 @@ export function VscodeSettingsPanel({
   ])
 
   const patchBuiltin = useCallback(
-    (id: 'explore' | 'general', next: VscodeSubAgentBuiltinOverride | undefined) => {
+    (
+      id: 'explore' | 'general' | 'vision',
+      next: VscodeSubAgentBuiltinOverride | undefined,
+    ) => {
       onChange({
         subAgentBuiltinOverrides: {
           ...prefs.subAgentBuiltinOverrides,
@@ -695,6 +709,19 @@ export function VscodeSettingsPanel({
                     )}
                     onClick={() => navigate('subagent-general', 'push')}
                   />
+                  <SettingsNavRow
+                    label="Vision"
+                    value={
+                      visionModels.length === 0
+                        ? '无可用视觉模型'
+                        : builtinSummary(
+                            prefs.subAgentBuiltinOverrides.vision,
+                            false,
+                            'vision',
+                          )
+                    }
+                    onClick={() => navigate('subagent-vision', 'push')}
+                  />
                 </div>
               </section>
 
@@ -836,6 +863,65 @@ export function VscodeSettingsPanel({
                   : undefined
               }
               onChange={(next) => patchBuiltin('general', next)}
+            />
+          </section>
+        </SettingsPageShell>
+      )
+    }
+
+    if (target === 'subagent-vision') {
+      const visionEncoded = encodeVscodeModelPickerValue(
+        prefs.subAgentBuiltinOverrides.vision?.modelSource ?? 'vision',
+        prefs.subAgentBuiltinOverrides.vision?.modelKey,
+      )
+      const visionEditKey =
+        resolveVscodeCapabilityPickerModelKey(visionEncoded)
+      return (
+        <SettingsPageShell
+          title="Vision"
+          backLabel="Sub Agent"
+          onBack={() => navigate('subagent', 'pop')}
+        >
+          <section class="settings__section">
+            <p class="settings__section-footnote" style={{ marginTop: 0 }}>
+              专职识图。委派须传 image_paths，由宿主注入图片（无工具）。仅当主模型无视觉且平台有可用视觉模型时可见。
+            </p>
+            <BuiltinSubAgentPage
+              override={prefs.subAgentBuiltinOverrides.vision}
+              modelDisabled={visionModels.length === 0}
+              modelDisplay={labelForVscodeModelPickerDisplay(
+                visionEncoded,
+                visionModels,
+                'vision',
+              )}
+              modelConfigSummary={summaryForSettingsModelConfig(
+                visionEncoded,
+                visionModels,
+                prefs.aiModelOptions,
+              )}
+              onOpenModelPicker={() =>
+                openModelPicker({
+                  back: 'subagent-vision',
+                  backLabel: 'Vision',
+                  title: '模型',
+                  selectionMode: 'vision',
+                  target: { kind: 'builtin', id: 'vision' },
+                })
+              }
+              onOpenModelConfig={
+                visionEditKey
+                  ? () =>
+                      openModelConfig({
+                        back: 'subagent-vision',
+                        backLabel: 'Vision',
+                        title: '模型',
+                        selectionMode: 'vision',
+                        target: { kind: 'builtin', id: 'vision' },
+                        editModelKey: visionEditKey,
+                      })
+                  : undefined
+              }
+              onChange={(next) => patchBuiltin('vision', next)}
             />
           </section>
         </SettingsPageShell>
@@ -1019,12 +1105,14 @@ export function VscodeSettingsPanel({
     }
 
     if (target === 'model-picker' && modelPickerSession) {
+      const pickerModels =
+        modelPickerSession.selectionMode === 'vision' ? visionModels : textModels
       return (
         <VscodeSettingsModelPickerView
           title={modelPickerSession.title}
           backLabel={modelPickerSession.backLabel}
           value={modelPickerValue}
-          models={textModels}
+          models={pickerModels}
           selectionMode={modelPickerSession.selectionMode}
           onChange={applyModelPickerValue}
           onBack={() => navigate(modelPickerSession.back, 'pop')}

@@ -2,6 +2,7 @@ import type OpenAI from 'openai'
 import { defineTool, type AgentTool } from '../agent-tool.ts'
 import {
   formatSubAgentToolResult,
+  parseSubAgentImagePaths,
   type RunSubAgentFn,
   type SubAgentProgressEvent,
 } from './subagent-delegate-tool.ts'
@@ -49,6 +50,7 @@ export function createFollowUpSubAgentTool(
       '对已有 Sub Agent 私聊线程追加一轮追问（同一 run_id 续聊）。',
       'run_id 来自先前 delegate_subagent / followup_subagent 的返回。',
       '仅当该线程不在 running 时可追问；结果不够细或需纠偏时优先用本工具，勿无谓新开线程。',
+      '追问 vision 时可只传文字（沿用历史中的图），也可再传 image_paths 由宿主注入新图。',
     ].join('\n'),
     parameters: {
       type: 'object',
@@ -64,11 +66,18 @@ export function createFollowUpSubAgentTool(
           description:
             '追问 brief：要补什么细节、纠偏方向、验收标准；写清期望交付，勿空泛「再查一下」',
         },
+        image_paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            '可选。追问 vision 时追加的新图片 VFS 绝对路径；宿主注入后本轮可见。省略则仅文字追问。',
+        },
       },
     },
     execute: async (args) => {
       const runId = asString(args.run_id).trim()
       const message = asString(args.message).trim()
+      const imagePaths = parseSubAgentImagePaths(args.image_paths)
       if (!runId) {
         return '错误：缺少 run_id'
       }
@@ -110,6 +119,10 @@ export function createFollowUpSubAgentTool(
           modelKey: definition.modelKey,
           phase: 'started',
           taskPrompt: message,
+          imagePaths:
+            definition.id === 'vision' && imagePaths.length > 0
+              ? imagePaths
+              : undefined,
         })
         const result = await options.runSubAgentFn({
           definition,
@@ -117,6 +130,10 @@ export function createFollowUpSubAgentTool(
           runId,
           description,
           history: session.history,
+          imagePaths:
+            definition.id === 'vision' && imagePaths.length > 0
+              ? imagePaths
+              : undefined,
           signal: options.signal,
           onProgress: (progress) => {
             options.onSubAgentProgress?.({

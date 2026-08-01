@@ -1,6 +1,7 @@
 /**
- * Sub Agent registry 单测。
- * 运行：node --experimental-strip-types src/ai/subagent/subagent-registry.test.ts
+ * Vision subagent registry + 附件门控单测。
+ * 运行：node --experimental-strip-types --test src/ai/subagent/subagent-registry.test.ts
+ *       node --experimental-strip-types --test src/apps/vscode/vscode-ai-attachments.test.ts
  */
 import assert from 'node:assert/strict'
 import {
@@ -30,9 +31,15 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
 
 {
   const available = listAvailableSubAgents(baseConfig())
+  // 无账户视觉模型时不应出现 vision；explore/general 仍在
   assert.deepEqual(
-    available.map((item) => item.id),
+    available.map((item) => item.id).filter((id) => id !== 'vision'),
     ['explore', 'general'],
+  )
+  assert.equal(
+    available.some((item) => item.id === 'vision'),
+    false,
+    '无视觉模型时不暴露 vision',
   )
   assert.equal(available.find((item) => item.id === 'explore')?.access, 'readonly')
   assert.equal(available.find((item) => item.id === 'general')?.access, 'full')
@@ -52,6 +59,7 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
       builtinOverrides: {
         explore: { enabled: false },
         general: { enabled: false },
+        vision: { enabled: false },
       },
     }),
   )
@@ -62,6 +70,7 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
         builtinOverrides: {
           explore: { enabled: false },
           general: { enabled: false },
+          vision: { enabled: false },
         },
       }),
     ),
@@ -106,7 +115,7 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
 }
 
 {
-  // 自定义不得占用内置 id
+  // 自定义不得占用内置 id（含 vision）
   const available = listAvailableSubAgents(
     baseConfig({
       customAgents: [
@@ -116,6 +125,12 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
           prompt: 'x',
           access: 'full',
         },
+        {
+          id: 'vision',
+          description: '假 vision',
+          prompt: 'x',
+          access: 'readonly',
+        },
       ],
     }),
   )
@@ -123,6 +138,23 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
   assert.equal(explores.length, 1)
   assert.equal(explores[0]?.builtin, true)
   assert.equal(explores[0]?.access, 'readonly')
+  assert.equal(
+    available.some((item) => item.id === 'vision' && item.builtin === false),
+    false,
+  )
+}
+
+{
+  // 父模型有视觉时即使开启 vision override 也不暴露
+  const available = listAvailableSubAgents(
+    baseConfig({
+      parentHasVision: true,
+      builtinOverrides: {
+        vision: { enabled: true, modelSource: 'vision' },
+      },
+    }),
+  )
+  assert.equal(available.some((item) => item.id === 'vision'), false)
 }
 
 {
@@ -135,6 +167,7 @@ assert.equal(capSubAgentAccess('readonly', 'full'), 'readonly')
     ),
     undefined,
   )
+  assert.equal(resolveSubAgent('vision', baseConfig()), undefined)
 }
 
 {
