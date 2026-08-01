@@ -3,6 +3,8 @@ import type { QuickJsAsyncBridge } from '../../quickjs/quickjs-async-bridge.ts'
 import { formatQuickJsBridgeErrorMessage } from '../../quickjs/quickjs-bridge-error.ts'
 import { createInstantShellApi } from './instant-shell-host.ts'
 import type {
+  InstantShellGitCloneOptions,
+  InstantShellGitCommitOptions,
   InstantShellGrepOptions,
   InstantShellHost,
   InstantShellOpenAppOptions,
@@ -40,6 +42,34 @@ function readStringArg(
   const dumped = context.dump(handle)
   if (typeof dumped !== 'string') {
     throw new Error(`${label} 必须是字符串`)
+  }
+  return dumped
+}
+
+function readOptionalStringArg(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): string | undefined {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    return undefined
+  }
+  const dumped = context.dump(handle)
+  if (typeof dumped !== 'string') {
+    throw new Error('参数必须是字符串')
+  }
+  return dumped
+}
+
+function readOptionalNumberArg(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): number | undefined {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    return undefined
+  }
+  const dumped = context.dump(handle)
+  if (typeof dumped !== 'number' || !Number.isFinite(dumped)) {
+    throw new Error('参数必须是数字')
   }
   return dumped
 }
@@ -118,6 +148,85 @@ function readGrepOptions(
   return options
 }
 
+function readGitCloneOptions(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): InstantShellGitCloneOptions {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    throw new Error('clone 选项必须是对象')
+  }
+  const dumped = context.dump(handle)
+  if (dumped === null || typeof dumped !== 'object' || Array.isArray(dumped)) {
+    throw new Error('clone 选项必须是对象')
+  }
+  const record = dumped as Record<string, unknown>
+  const options: InstantShellGitCloneOptions = {}
+  if (record.url !== undefined) {
+    if (typeof record.url !== 'string') throw new Error('url 必须是字符串')
+    options.url = record.url
+  }
+  if (record.owner !== undefined) {
+    if (typeof record.owner !== 'string') throw new Error('owner 必须是字符串')
+    options.owner = record.owner
+  }
+  if (record.repo !== undefined) {
+    if (typeof record.repo !== 'string') throw new Error('repo 必须是字符串')
+    options.repo = record.repo
+  }
+  if (record.branch !== undefined) {
+    if (typeof record.branch !== 'string') throw new Error('branch 必须是字符串')
+    options.branch = record.branch
+  }
+  return options
+}
+
+function readGitCommitOptions(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): InstantShellGitCommitOptions {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    throw new Error('commit 选项必须是对象')
+  }
+  const dumped = context.dump(handle)
+  if (dumped === null || typeof dumped !== 'object' || Array.isArray(dumped)) {
+    throw new Error('commit 选项必须是对象')
+  }
+  const record = dumped as Record<string, unknown>
+  if (typeof record.message !== 'string') {
+    throw new Error('message 必须是字符串')
+  }
+  const options: InstantShellGitCommitOptions = { message: record.message }
+  if (record.all !== undefined) {
+    if (typeof record.all !== 'boolean') throw new Error('all 必须是布尔值')
+    options.all = record.all
+  }
+  if (record.paths !== undefined) {
+    if (
+      !Array.isArray(record.paths) ||
+      !record.paths.every((item) => typeof item === 'string')
+    ) {
+      throw new Error('paths 必须是字符串数组')
+    }
+    options.paths = record.paths as string[]
+  }
+  return options
+}
+
+function readStringArrayArg(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+  label: string,
+): string[] {
+  if (handle === undefined) {
+    throw new Error(`${label} 不能为空`)
+  }
+  const dumped = context.dump(handle)
+  if (!Array.isArray(dumped) || !dumped.every((item) => typeof item === 'string')) {
+    throw new Error(`${label} 必须是字符串数组`)
+  }
+  return dumped as string[]
+}
+
 /**
  * 将 `globalThis.instant` 注入 QuickJS（终端专用壳层 API）。
  * 须在 asyncBridge.injectGlobals() 之后调用。
@@ -162,13 +271,17 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
 
   const instant = context.newObject()
 
-  const bind = (name: string, impl: (...args: QuickJSHandle[]) => QuickJSHandle) => {
+  const bind = (
+    target: QuickJSHandle,
+    name: string,
+    impl: (...args: QuickJSHandle[]) => QuickJSHandle,
+  ) => {
     const fn = context.newFunction(name, (...argHandles) => impl(...argHandles))
-    context.setProp(instant, name, fn)
+    context.setProp(target, name, fn)
     fn.dispose()
   }
 
-  bind('openApp', (appIdHandle, optionsHandle) =>
+  bind(instant, 'openApp', (appIdHandle, optionsHandle) =>
     runAsync(async () => {
       const appId = readStringArg(context, appIdHandle, 'appId')
       const openOptions = readOpenAppOptions(context, optionsHandle)
@@ -176,65 +289,95 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
     }),
   )
 
-  bind('openPath', (pathHandle) =>
+  bind(instant, 'openPath', (pathHandle) =>
     runAsync(async () => {
       await api.openPath(readStringArg(context, pathHandle, 'path'))
     }),
   )
 
-  bind('openUrl', (urlHandle) =>
+  bind(instant, 'openUrl', (urlHandle) =>
     runAsync(async () => {
       await api.openUrl(readStringArg(context, urlHandle, 'url'))
     }),
   )
 
-  bind('listApps', () => runAsync(async () => api.listApps()))
+  bind(instant, 'listApps', () => runAsync(async () => api.listApps()))
 
-  bind('listWindows', () => runAsync(async () => api.listWindows()))
+  bind(instant, 'listWindows', () => runAsync(async () => api.listWindows()))
 
-  bind('focus', (targetHandle) =>
+  bind(instant, 'focus', (targetHandle) =>
     runAsync(async () => {
       await api.focus(readStringArg(context, targetHandle, 'target'))
     }),
   )
 
-  bind('close', (targetHandle) =>
+  bind(instant, 'close', (targetHandle) =>
     runAsync(async () => {
       await api.close(readStringArg(context, targetHandle, 'target'))
     }),
   )
 
-  bind('minimize', (targetHandle) =>
+  bind(instant, 'minimize', (targetHandle) =>
     runAsync(async () => {
       await api.minimize(readStringArg(context, targetHandle, 'target'))
     }),
   )
 
-  bind('restore', (targetHandle) =>
+  bind(instant, 'restore', (targetHandle) =>
     runAsync(async () => {
       await api.restore(readStringArg(context, targetHandle, 'target'))
     }),
   )
 
-  bind('toggleFullscreen', (targetHandle) =>
+  bind(instant, 'toggleFullscreen', (targetHandle) =>
     runAsync(async () => {
       await api.toggleFullscreen(readStringArg(context, targetHandle, 'target'))
     }),
   )
 
-  bind('toggleMaximize', (targetHandle) =>
+  bind(instant, 'toggleMaximize', (targetHandle) =>
     runAsync(async () => {
       await api.toggleMaximize(readStringArg(context, targetHandle, 'target'))
     }),
   )
 
-  bind('grep', (queryHandle, optionsHandle) =>
+  bind(instant, 'grep', (queryHandle, optionsHandle) =>
     runAsync(async () => {
       const query = readStringArg(context, queryHandle, 'query')
       const grepOptions = readGrepOptions(context, optionsHandle)
       return await api.grep(query, grepOptions)
     }),
   )
+
+  const git = context.newObject()
+  bind(git, 'status', () => runAsync(async () => api.git.status()))
+  bind(git, 'diff', (pathHandle) =>
+    runAsync(async () => api.git.diff(readOptionalStringArg(context, pathHandle))),
+  )
+  bind(git, 'log', (limitHandle) =>
+    runAsync(async () => api.git.log(readOptionalNumberArg(context, limitHandle))),
+  )
+  bind(git, 'clone', (optionsHandle) =>
+    runAsync(async () => api.git.clone(readGitCloneOptions(context, optionsHandle))),
+  )
+  bind(git, 'commit', (optionsHandle) =>
+    runAsync(async () => api.git.commit(readGitCommitOptions(context, optionsHandle))),
+  )
+  bind(git, 'push', () => runAsync(async () => api.git.push()))
+  bind(git, 'pull', () => runAsync(async () => api.git.pull()))
+  bind(git, 'fetch', () => runAsync(async () => api.git.fetch()))
+  bind(git, 'switchBranch', (branchHandle) =>
+    runAsync(async () =>
+      api.git.switchBranch(readStringArg(context, branchHandle, 'branch')),
+    ),
+  )
+  bind(git, 'discard', (pathsHandle) =>
+    runAsync(async () =>
+      api.git.discard(readStringArrayArg(context, pathsHandle, 'paths')),
+    ),
+  )
+  context.setProp(instant, 'git', git)
+  git.dispose()
 
   context.setProp(context.global, 'instant', instant)
   instant.dispose()

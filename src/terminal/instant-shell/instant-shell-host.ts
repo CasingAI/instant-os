@@ -1,3 +1,17 @@
+import {
+  githubGitClone,
+  githubGitCommit,
+  githubGitDiff,
+  githubGitDiscard,
+  githubGitFetch,
+  githubGitLog,
+  githubGitPull,
+  githubGitPush,
+  githubGitStatus,
+  githubGitSwitchBranch,
+  type GithubGitContext,
+  type GithubGitResult,
+} from '../../apps/github-desktop/github-git.ts'
 import { filesStat } from '../../apps/files/files-api.ts'
 import { searchVfsText } from '../../apps/files/vfs-text-search.ts'
 import { getDefaultFileOpenApp } from '../../os/file-open-registry.ts'
@@ -6,6 +20,9 @@ import { isExtAppId, isGeneratedAppId, type AppId } from '../../os/types.ts'
 import { basenameInstantShellPath, resolveInstantShellPath } from './instant-shell-path.ts'
 import type {
   InstantShellApi,
+  InstantShellGitApi,
+  InstantShellGitCloneOptions,
+  InstantShellGitCommitOptions,
   InstantShellGrepOptions,
   InstantShellGrepResult,
   InstantShellHost,
@@ -34,6 +51,121 @@ function requireWindowId(
     return resolved.windowId
   }
   throw new Error(`没有可${action}的窗口: ${resolved.appId}`)
+}
+
+function buildGithubGitContext(host: InstantShellHost): GithubGitContext {
+  return {
+    cwd: host.getCwd(),
+    fsMode: host.getFsMode(),
+    terminalSessionId: host.getTerminalSessionId(),
+  }
+}
+
+async function runGithubGit(
+  host: InstantShellHost,
+  exec: (ctx: GithubGitContext) => Promise<GithubGitResult>,
+): Promise<string> {
+  const result = await exec(buildGithubGitContext(host))
+  if (result.changeSet && result.changeSet.changes.length > 0) {
+    host.noteExternalChangeSet(result.changeSet)
+  }
+  return result.summary
+}
+
+function assertGitCloneOptions(options: InstantShellGitCloneOptions): InstantShellGitCloneOptions {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('clone 选项必须是对象')
+  }
+  const out: InstantShellGitCloneOptions = {}
+  if (options.url !== undefined) {
+    if (typeof options.url !== 'string') throw new Error('url 必须是字符串')
+    out.url = options.url
+  }
+  if (options.owner !== undefined) {
+    if (typeof options.owner !== 'string') throw new Error('owner 必须是字符串')
+    out.owner = options.owner
+  }
+  if (options.repo !== undefined) {
+    if (typeof options.repo !== 'string') throw new Error('repo 必须是字符串')
+    out.repo = options.repo
+  }
+  if (options.branch !== undefined) {
+    if (typeof options.branch !== 'string') throw new Error('branch 必须是字符串')
+    out.branch = options.branch
+  }
+  return out
+}
+
+function assertGitCommitOptions(options: InstantShellGitCommitOptions): InstantShellGitCommitOptions {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('commit 选项必须是对象')
+  }
+  if (typeof options.message !== 'string') {
+    throw new Error('message 必须是字符串')
+  }
+  const out: InstantShellGitCommitOptions = { message: options.message }
+  if (options.all !== undefined) {
+    if (typeof options.all !== 'boolean') throw new Error('all 必须是布尔值')
+    out.all = options.all
+  }
+  if (options.paths !== undefined) {
+    if (!Array.isArray(options.paths) || !options.paths.every((item) => typeof item === 'string')) {
+      throw new Error('paths 必须是字符串数组')
+    }
+    out.paths = options.paths
+  }
+  return out
+}
+
+function assertGitDiscardPaths(paths: string[]): string[] {
+  if (!Array.isArray(paths) || !paths.every((item) => typeof item === 'string')) {
+    throw new Error('paths 必须是字符串数组')
+  }
+  return paths
+}
+
+function createInstantShellGitApi(host: InstantShellHost): InstantShellGitApi {
+  return {
+    status: () => runGithubGit(host, (ctx) => githubGitStatus(ctx)),
+    diff: (path) =>
+      runGithubGit(host, (ctx) =>
+        githubGitDiff(ctx, typeof path === 'string' && path.trim() ? path.trim() : undefined),
+      ),
+    log: (limit) =>
+      runGithubGit(host, (ctx) =>
+        githubGitLog(
+          ctx,
+          typeof limit === 'number' && Number.isFinite(limit) ? limit : undefined,
+        ),
+      ),
+    clone: (options) => {
+      const opts = assertGitCloneOptions(options)
+      return runGithubGit(host, (ctx) => githubGitClone(ctx, opts))
+    },
+    commit: (options) => {
+      const opts = assertGitCommitOptions(options)
+      return runGithubGit(host, (ctx) =>
+        githubGitCommit(ctx, {
+          message: opts.message,
+          paths: opts.paths,
+          all: opts.all === true,
+        }),
+      )
+    },
+    push: () => runGithubGit(host, (ctx) => githubGitPush(ctx)),
+    pull: () => runGithubGit(host, (ctx) => githubGitPull(ctx)),
+    fetch: () => runGithubGit(host, (ctx) => githubGitFetch(ctx)),
+    switchBranch: (branch) => {
+      if (typeof branch !== 'string' || !branch.trim()) {
+        throw new Error('branch 必须是非空字符串')
+      }
+      return runGithubGit(host, (ctx) => githubGitSwitchBranch(ctx, branch))
+    },
+    discard: (paths) => {
+      const list = assertGitDiscardPaths(paths)
+      return runGithubGit(host, (ctx) => githubGitDiscard(ctx, list))
+    },
+  }
 }
 
 /** 由宿主绑定组装客侧 API 实现（纯 TS，不含 React / QuickJS）。 */
@@ -192,5 +324,6 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     toggleFullscreen,
     toggleMaximize,
     grep,
+    git: createInstantShellGitApi(host),
   }
 }

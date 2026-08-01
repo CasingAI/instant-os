@@ -19,18 +19,6 @@ import {
   runVscodeAiNpx,
   runVscodeAiTerminalLine,
 } from './vscode-ai-run-command.ts'
-import {
-  runVscodeAiGithubClone,
-  runVscodeAiGithubCommit,
-  runVscodeAiGithubDiff,
-  runVscodeAiGithubDiscard,
-  runVscodeAiGithubFetch,
-  runVscodeAiGithubLog,
-  runVscodeAiGithubPull,
-  runVscodeAiGithubPush,
-  runVscodeAiGithubStatus,
-  runVscodeAiGithubSwitchBranch,
-} from './vscode-ai-github.ts'
 import { maybeSpillToolOutput } from './vscode-ai-output-spill.ts'
 import { formatTerminalChangeSummary } from '../../terminal/terminal-changeset.ts'
 import type {
@@ -310,157 +298,9 @@ export function createVscodeAiTools(
         ]
       : []
 
-  const githubReadTools: AgentTool[] = [
-    defineTool({
-      name: 'github_status',
-      description:
-        '查看当前工作区对应的 GitHub 工作树状态（非真实 git；路径须为 /dev/github/{owner}/{repo}）。只读。受终端 FS 模式约束。',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {},
-      },
-      execute: async () => runVscodeAiGithubStatus(host.runCommandHost),
-    }),
-    defineTool({
-      name: 'github_diff',
-      description: '查看 GitHub 工作树相对已 commit 基线的文件差异（可传 path）。只读。',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          path: { type: 'string', description: '仓库内相对路径；省略则预览多个变更文件' },
-        },
-      },
-      execute: async (args) => {
-        const path = asString(args.path).trim() || undefined
-        return runVscodeAiGithubDiff(host.runCommandHost, path)
-      },
-    }),
-    defineTool({
-      name: 'github_log',
-      description: '查看本地/缓存的 commit 历史与分支列表。只读。',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          limit: { type: 'number', description: '条数上限，默认 20，最大 50' },
-        },
-      },
-      execute: async (args) => {
-        const limit =
-          typeof args.limit === 'number' && Number.isFinite(args.limit) ? args.limit : undefined
-        return runVscodeAiGithubLog(host.runCommandHost, limit)
-      },
-    }),
-  ]
-
-  const githubWriteTools: AgentTool[] =
-    mode === 'agent'
-      ? [
-          defineTool({
-            name: 'github_clone',
-            description:
-              '克隆 GitHub 仓库到 /dev/github/{owner}/{repo}（zipball + API；需 PAT 与代理）。只读终端会拒绝。',
-            parameters: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                url: { type: 'string', description: 'github.com HTTPS 或 SSH URL' },
-                owner: { type: 'string' },
-                repo: { type: 'string' },
-                branch: { type: 'string' },
-              },
-            },
-            execute: async (args) =>
-              runVscodeAiGithubClone(host.runCommandHost, {
-                url: asString(args.url).trim() || undefined,
-                owner: asString(args.owner).trim() || undefined,
-                repo: asString(args.repo).trim() || undefined,
-                branch: asString(args.branch).trim() || undefined,
-              }),
-          }),
-          defineTool({
-            name: 'github_commit',
-            description:
-              '本地 commit 工作树变更（不调用 GitHub 直到 push）。须 all:true 或提供 paths；无 git add 暂存区。',
-            parameters: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['message'],
-              properties: {
-                message: { type: 'string' },
-                paths: { type: 'array', items: { type: 'string' } },
-                all: { type: 'boolean', description: '提交全部变更' },
-              },
-            },
-            execute: async (args) => {
-              const paths =
-                Array.isArray(args.paths) && args.paths.every((item) => typeof item === 'string')
-                  ? (args.paths as string[])
-                  : undefined
-              return runVscodeAiGithubCommit(host.runCommandHost, {
-                message: asString(args.message),
-                paths,
-                all: args.all === true,
-              })
-            },
-          }),
-          defineTool({
-            name: 'github_push',
-            description: '将未推送的本地 commit 推到 GitHub 远端分支。',
-            parameters: { type: 'object', additionalProperties: false, properties: {} },
-            execute: async () => runVscodeAiGithubPush(host.runCommandHost),
-          }),
-          defineTool({
-            name: 'github_pull',
-            description: '拉取远端并更新工作树（有未 commit 变更时会失败）。',
-            parameters: { type: 'object', additionalProperties: false, properties: {} },
-            execute: async () => runVscodeAiGithubPull(host.runCommandHost),
-          }),
-          defineTool({
-            name: 'github_fetch',
-            description: '刷新远端分支与历史缓存，不改工作树。只读终端会拒绝。',
-            parameters: { type: 'object', additionalProperties: false, properties: {} },
-            execute: async () => runVscodeAiGithubFetch(host.runCommandHost),
-          }),
-          defineTool({
-            name: 'github_switch_branch',
-            description: '切换分支（有未 commit 变更时会失败）。',
-            parameters: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['branch'],
-              properties: { branch: { type: 'string' } },
-            },
-            execute: async (args) =>
-              runVscodeAiGithubSwitchBranch(host.runCommandHost, asString(args.branch)),
-          }),
-          defineTool({
-            name: 'github_discard',
-            description: '丢弃工作树中指定路径的未 commit 变更（还原到当前 tip 基线）。',
-            parameters: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['paths'],
-              properties: {
-                paths: { type: 'array', items: { type: 'string' } },
-              },
-            },
-            execute: async (args) => {
-              const paths =
-                Array.isArray(args.paths) && args.paths.every((item) => typeof item === 'string')
-                  ? (args.paths as string[])
-                  : []
-              return runVscodeAiGithubDiscard(host.runCommandHost, paths)
-            },
-          }),
-        ]
-      : []
-
-  if (mode === 'ask') return [...askRunTools, ...githubReadTools]
-  if (mode === 'plan') return [...askRunTools, ...planWriteTools, ...githubReadTools]
-  return [...agentRunTools, ...githubReadTools, ...githubWriteTools]
+  if (mode === 'ask') return [...askRunTools]
+  if (mode === 'plan') return [...askRunTools, ...planWriteTools]
+  return [...agentRunTools]
 }
 
 export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
@@ -473,14 +313,4 @@ export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   compact_context: '压缩上下文',
   delegate_subagent: '委派 Sub Agent',
   followup_subagent: '追问 Sub Agent',
-  github_status: 'GitHub 状态',
-  github_diff: 'GitHub 差异',
-  github_log: 'GitHub 历史',
-  github_clone: '克隆仓库',
-  github_commit: '提交',
-  github_push: '推送',
-  github_pull: '拉取',
-  github_fetch: 'Fetch',
-  github_switch_branch: '切换分支',
-  github_discard: '丢弃变更',
 }

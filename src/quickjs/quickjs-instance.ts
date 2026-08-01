@@ -340,6 +340,7 @@ export async function createQuickJsInstance(
   let activeSliceTimeoutMs = defaultTimeoutMs
   let activeJournal: TerminalFsJournal | undefined
   let lastChanges: TerminalChangeSet | undefined
+  let pendingExternalChangeSet: TerminalChangeSet | undefined
   const processState = createProcessState(
     hostConfig.workspaceRoot,
     hostConfig.env,
@@ -472,15 +473,6 @@ export async function createQuickJsInstance(
 
   asyncBridge.injectGlobals()
 
-  if (options.instantShellHost !== undefined) {
-    injectInstantShell({
-      context,
-      asyncBridge,
-      host: options.instantShellHost,
-      isDestroyed: () => state.destroyed,
-    })
-  }
-
   let disposeWebView: (() => void) | undefined
   if (options.webviewHost !== undefined) {
     disposeWebView = injectWebView({
@@ -567,20 +559,68 @@ export async function createQuickJsInstance(
     context.dispose()
   }
 
+  const mergeChangeSets = (
+    primary: TerminalChangeSet | undefined,
+    secondary: TerminalChangeSet | undefined,
+  ): TerminalChangeSet | undefined => {
+    if (!primary && !secondary) return undefined
+    if (!primary) return secondary
+    if (!secondary) return primary
+    const byPath = new Map<string, (typeof primary.changes)[number]>()
+    for (const entry of primary.changes) byPath.set(entry.path, entry)
+    for (const entry of secondary.changes) byPath.set(entry.path, entry)
+    return {
+      sessionId: primary.sessionId || secondary.sessionId,
+      createdAt: Math.min(primary.createdAt, secondary.createdAt),
+      sealedAt: Math.max(primary.sealedAt ?? 0, secondary.sealedAt ?? 0) || undefined,
+      changes: [...byPath.values()],
+    }
+  }
+
+  const noteExternalChangeSet = (changeSet: TerminalChangeSet): void => {
+    if (changeSet.changes.length === 0) return
+    pendingExternalChangeSet = mergeChangeSets(pendingExternalChangeSet, changeSet)
+  }
+
   const sealActiveJournal = async (): Promise<TerminalChangeSet | undefined> => {
     const journal = activeJournal
     activeJournal = undefined
-    if (!journal) return undefined
-    try {
-      const changeSet = await journal.seal()
-      if (changeSet.changes.length === 0) return undefined
-      lastChanges = changeSet
-      return changeSet
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushConsole('warn', `changeset seal failed: ${message}`)
-      return undefined
+    const external = pendingExternalChangeSet
+    pendingExternalChangeSet = undefined
+
+    let journalSet: TerminalChangeSet | undefined
+    if (journal) {
+      try {
+        const changeSet = await journal.seal()
+        if (changeSet.changes.length > 0) {
+          journalSet = changeSet
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        pushConsole('warn', `changeset seal failed: ${message}`)
+      }
     }
+
+    const merged = mergeChangeSets(journalSet, external)
+    if (!merged || merged.changes.length === 0) return undefined
+    lastChanges = merged
+    return merged
+  }
+
+  if (options.instantShellHost !== undefined) {
+    const panelHost = options.instantShellHost
+    injectInstantShell({
+      context,
+      asyncBridge,
+      host: {
+        ...panelHost,
+        noteExternalChangeSet: (changeSet) => {
+          noteExternalChangeSet(changeSet)
+          panelHost.noteExternalChangeSet(changeSet)
+        },
+      },
+      isDestroyed: () => state.destroyed,
+    })
   }
 
   const evalCode = async (
@@ -599,6 +639,7 @@ export async function createQuickJsInstance(
     if (fsMode === 'controlled') {
       activeJournal = createTerminalFsJournal()
     }
+    pendingExternalChangeSet = undefined
 
     /** guest / timeout / bridge reject：普通 failure，不因错误串误标 fatal。 */
     const makeFailure = (error: string): QuickJsEvalFailure => ({
@@ -868,6 +909,7 @@ while (promiseState.type === 'pending') {
     getHostConfig,
     eval: evalCode,
     getLastChanges,
+    noteExternalChangeSet,
     clearLastChanges,
     revertLastChanges,
     abort,

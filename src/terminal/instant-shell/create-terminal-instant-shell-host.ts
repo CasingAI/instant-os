@@ -3,6 +3,8 @@ import { APP_REGISTRY } from '../../os/app-registry.tsx'
 import type { ExtAppRecord } from '../../os/ext-app-types.ts'
 import type { AppId, WindowState } from '../../os/types.ts'
 import { isExtAppId, isGeneratedAppId } from '../../os/types.ts'
+import type { TerminalChangeSet } from '../terminal-changeset.ts'
+import type { TerminalFsMode } from '../terminal-fs-mode.ts'
 import type {
   InstantShellAppInfo,
   InstantShellHost,
@@ -25,6 +27,9 @@ export type TerminalInstantShellHostDeps = {
   toggleFullscreen: (windowId: string) => void
   toggleMaximize: (windowId: string) => void
   getCwd: () => string
+  getFsMode: () => TerminalFsMode
+  getTerminalSessionId: () => string
+  noteExternalChangeSet: (changeSet: TerminalChangeSet) => void
   isBusy: () => boolean
   confirmClose: (message: string) => Promise<boolean>
 }
@@ -128,6 +133,9 @@ export function createTerminalInstantShellHost(
     toggleFullscreen: deps.toggleFullscreen,
     toggleMaximize: deps.toggleMaximize,
     getCwd: deps.getCwd,
+    getFsMode: deps.getFsMode,
+    getTerminalSessionId: deps.getTerminalSessionId,
+    noteExternalChangeSet: deps.noteExternalChangeSet,
     isBusy: deps.isBusy,
     confirmClose: deps.confirmClose,
   }

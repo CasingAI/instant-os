@@ -86,6 +86,9 @@ function createMockHost(overrides?: Partial<InstantShellHost>): InstantShellHost
       calls.push(`toggleMaximize:${windowId}`)
     },
     getCwd: () => ROOT,
+    getFsMode: () => 'normal' as const,
+    getTerminalSessionId: () => 'smoke-session',
+    noteExternalChangeSet: () => undefined,
     isBusy: () => false,
     confirmClose: async () => true,
     ...overrides,
@@ -190,7 +193,7 @@ async function testInjectInstantGlobal(): Promise<void> {
       assert.deepEqual(result.value, { apps: 3, windows: 1 })
     }
     assert.ok(host.calls.includes('openApp:settings:{}'))
-    assert.ok(host.calls.some((line) => line.startsWith('openApp:browser:')))
+    assert.ok(host.calls.some((line) => line.startsWith('openApp:chromo:') || line.startsWith('openApp:browser:')))
   } finally {
     instance.destroy()
   }

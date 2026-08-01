@@ -200,6 +200,11 @@ export type QuickJsInstance = {
   eval: (code: string, options?: QuickJsEvalOptions) => Promise<QuickJsEvalResult>
   /** 最近一轮受控 eval 的 ChangeSet（若有）。 */
   getLastChanges: () => TerminalChangeSet | undefined
+  /**
+   * 记录本轮 eval 期间宿主侧（如 instant.git）产生的工作树变更。
+   * 在 seal 时与 FS journal 合并进 lastChanges。
+   */
+  noteExternalChangeSet: (changeSet: TerminalChangeSet) => void
   /** 仅清除上一轮 ChangeSet 指针（不回滚文件）。 */
   clearLastChanges: () => void
   /** 整轮回滚最近一轮受控变更；无则 no-op。 */

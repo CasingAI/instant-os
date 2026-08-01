@@ -232,7 +232,7 @@ export async function githubGitLog(
     }
   }
   if (local.length === 0 && remoteCached.length === 0) {
-    lines.push('暂无历史。可先 github_fetch 刷新远端缓存。')
+    lines.push('暂无历史。可先 await instant.git.fetch() 刷新远端缓存。')
   }
 
   const branches = buildRepoBranchList(meta)
@@ -374,7 +374,7 @@ export async function githubGitFetch(ctx: GithubGitContext): Promise<GithubGitRe
     summary: [
       `已 fetch ${next.owner}/${next.repo} · ${next.currentBranch}`,
       `本地 tip ${shortSha(result.localSha)} · 远端 tip ${shortSha(result.remoteSha)}`,
-      result.upToDate ? '已与远端 tip 一致' : '远端有新提交（工作区未改；可用 github_pull 更新）',
+      result.upToDate ? '已与远端 tip 一致' : '远端有新提交（工作区未改；可用 await instant.git.pull() 更新）',
       `远端分支 ${result.branches.length} 个 · 历史缓存 ${result.commits.length} 条`,
     ].join('\n'),
   }

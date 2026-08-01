@@ -363,6 +363,13 @@ export function TerminalReplPanel({
             toggleMaximizeRef.current(windowId)
           },
           getCwd: () => instanceRef.current?.getSnapshot().cwd ?? workspaceRootRef.current,
+          getFsMode: () => fsModeRef.current,
+          getTerminalSessionId: () => terminalSessionIdRef.current,
+          noteExternalChangeSet: (changeSet) => {
+            if (changeSet.changes.length > 0) {
+              onChangesAvailableRef.current?.(true)
+            }
+          },
           isBusy: () => {
             // 调用 instant.close 时当前 eval 必然 busy；用持续时间区分「空闲下的短命令」与「长任务中途关窗」。
             if (!(instanceRef.current?.getSnapshot().busy ?? false)) {

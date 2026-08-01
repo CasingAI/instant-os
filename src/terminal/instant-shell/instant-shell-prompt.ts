@@ -33,6 +33,18 @@ export const INSTANT_SHELL_RUNTIME_SECTION = `【Instant 壳层 API · globalThi
   - opts.maxMatches?：默认 40
   - 尊重 gitignore 与默认排除（如 node_modules）；不要手写 fs 递归搜索
 
+GitHub 工作树（非真实 git；经 instant.git，须 await）：
+- 工作区 cwd 须能解析到 /dev/github/{owner}/{repo}（与 GitHub Desktop 同一套本地工作树）
+- 只读终端（Ask/Plan）可 status / diff / log；clone / commit / push / pull / fetch / switchBranch / discard 会被拒绝
+- instant.git.status() → 分支、tip、工作区变更摘要
+- instant.git.diff(path?) → 相对已 commit 基线的差异；可传仓库内相对路径
+- instant.git.log(limit?) → 本地/缓存历史与分支列表；limit 默认 20、最大 50
+- instant.git.clone({ url?, owner?, repo?, branch? }) → 克隆到 /dev/github/{owner}/{repo}
+- instant.git.commit({ message, paths?, all? }) → 本地 commit（须 all:true 或 paths；无 git add）
+- instant.git.push() / pull() / fetch()
+- instant.git.switchBranch(branch) / discard(paths)
+- 返回值为 summary 字符串；受控模式下工作树改动计入终端 ChangeSet，可撤销
+
 示例（经 run_in_terminal 下发）：
 await instant.openApp('settings')
 await instant.openPath('/user/readme.txt')
@@ -41,11 +53,13 @@ const apps = await instant.listApps()
 await instant.focus('files')
 const r = await instant.grep('foo', { path: 'src' })
 console.log(r.matches)
+console.log(await instant.git.status())
+console.log(await instant.git.diff('README.md'))
 
 注意：
 - 无 instant 时（未注入宿主）为 undefined；不要假设沙箱/非终端环境有此全局
-- 不要用它改账户、API Key 或系统设置存储；壳层覆盖打开应用/路径/URL、窗口操作与文本搜索
-- 与 fs / path 等 Node 兼容 API 正交：搜索用 instant.grep，读整文件 / 改文件仍用 fs，打开编辑器用 instant.openPath / openApp
+- 不要用它改账户、API Key 或系统设置存储；壳层覆盖打开应用/路径/URL、窗口操作、文本搜索与 GitHub 工作树
+- 与 fs / path 等 Node 兼容 API 正交：搜索用 instant.grep，读整文件 / 改文件仍用 fs，打开编辑器用 instant.openPath / openApp；GitHub 同步用 instant.git，不要假设有真实 git 二进制
 - 大文本可写 os.tmpdir()（session 级 /tmp/Terminal/{id} 或 /tmp/Npm/{id}）；不要塞满上下文，用 fs 分段读取即可
 
 【WebView · globalThis.webview】
@@ -155,5 +169,5 @@ export function buildInstantShellSystemPromptSection(): string {
 
 /** 更短的提示行（欢迎语 / 工具描述旁注）。 */
 export function buildInstantShellPromptHint(): string {
-  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / …）与 globalThis.webview（listUnits / create / wait / snapshot / markdown / eval / show / hide / …），详见壳层 API 说明。'
+  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / git / …）与 globalThis.webview（listUnits / create / wait / snapshot / markdown / eval / show / hide / …），详见壳层 API 说明。'
 }
