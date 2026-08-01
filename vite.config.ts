@@ -5,7 +5,11 @@ import { bootCrashGuardFirst } from './vite-boot-crash-guard-first.ts'
 import { corsForSandboxedIframeAssets } from './vite-cors-for-sandboxed-iframe-assets.ts'
 import { sourceSnapshot } from './vite-source-snapshot.ts'
 
-/** OS 壳状态复杂，模块热替换易卡死；改文件后也不整页刷新，需手动刷新或菜单「重新启动」。 */
+/**
+ * OS 壳状态复杂，模块热替换易卡死；改文件后也不整页刷新，需手动刷新或菜单「重新启动」。
+ * 仅拦截 Vite HMR 推送不够：@preact/preset-vite 默认仍注入 Prefresh 运行时（window.__PREFRESH__），
+ * 会在长会话里滞留 VNode/组件闭包导致 dev 内存暴涨，故一并关闭 prefreshEnabled。
+ */
 function suppressHotUpdate(): Plugin {
   return {
     name: 'suppress-hot-update',
@@ -18,7 +22,7 @@ function suppressHotUpdate(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    preact(),
+    preact({ prefreshEnabled: false }),
     corsForSandboxedIframeAssets(),
     bootCrashGuardFirst(),
     sourceSnapshot(),
