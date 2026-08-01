@@ -1953,15 +1953,30 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.github-desktop__history-detail-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
 .github-desktop__history-coauthors {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin: 6px 0 0 !important;
+  margin: 0 !important;
+  min-width: 0;
   max-width: 100%;
   font-size: 12px;
   color: var(--gd-muted);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.github-desktop__history-detail-meta-row > .github-desktop__btn {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .github-desktop__history-coauthors span {

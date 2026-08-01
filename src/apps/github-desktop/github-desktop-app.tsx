@@ -3237,28 +3237,34 @@ export function GithubDesktopApp() {
                         const coAuthorLabel = formatCoAuthorNames(
                           parseCoAuthorTrailers(historyDetail.message),
                         )
-                        if (!coAuthorLabel) return undefined
+                        if (!coAuthorLabel && !canUndoTip) return undefined
                         return (
-                          <p
-                            class="github-desktop__history-coauthors"
-                            title="来自 commit 说明中的 Co-authored-by"
-                          >
-                            <CoAuthorsIcon />
-                            <span>协作者 · {coAuthorLabel}</span>
-                          </p>
+                          <div class="github-desktop__history-detail-meta-row">
+                            {coAuthorLabel ? (
+                              <p
+                                class="github-desktop__history-coauthors"
+                                title="来自 commit 说明中的 Co-authored-by"
+                              >
+                                <CoAuthorsIcon />
+                                <span>协作者 · {coAuthorLabel}</span>
+                              </p>
+                            ) : (
+                              <span />
+                            )}
+                            {canUndoTip ? (
+                              <button
+                                type="button"
+                                class="github-desktop__btn"
+                                disabled={busy}
+                                onClick={handleUndoTipCommit}
+                                title="撤销此未推送 commit，变更回到 Changes"
+                              >
+                                撤销
+                              </button>
+                            ) : undefined}
+                          </div>
                         )
                       })()}
-                      {canUndoTip ? (
-                        <button
-                          type="button"
-                          class="github-desktop__btn"
-                          disabled={busy}
-                          onClick={handleUndoTipCommit}
-                          title="撤销此未推送 commit，变更回到 Changes"
-                        >
-                          撤销此未推送 commit
-                        </button>
-                      ) : undefined}
                     </div>
                     <div class="github-desktop__history-files">
                       {historyDetail.files.length === 0 ? (
