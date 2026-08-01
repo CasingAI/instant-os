@@ -184,6 +184,20 @@ export function resolveCommitCoAuthors(
   return prefs.includeCasingAiCoAuthor ? [INSTANT_AGENT_COAUTHOR] : []
 }
 
+/**
+ * 为 commit message 附加 Instant Agent 的 Co-authored-by（默认开启）。
+ * 若 message 已含同一邮箱的 trailer 则不重复追加。
+ */
+export function withInstantAgentCoAuthor(message: string, include = true): string {
+  const trimmed = message.trim()
+  if (!trimmed || !include) return trimmed
+  const already = parseCoAuthorTrailers(trimmed).some(
+    (entry) => entry.email.toLowerCase() === INSTANT_AGENT_COAUTHOR.email.toLowerCase(),
+  )
+  if (already) return trimmed
+  return buildGithubCommitMessage(trimmed, '', [INSTANT_AGENT_COAUTHOR])
+}
+
 const EXTERNAL_EDITOR_APP_IDS: Record<GithubExternalEditor, BuiltinAppId> = {
   vscode: 'vscode',
   files: 'files',

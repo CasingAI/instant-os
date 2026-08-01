@@ -68,6 +68,11 @@ export type InstantShellGitCommitOptions = {
   message: string
   paths?: string[]
   all?: boolean
+  /**
+   * 是否在 commit 说明末尾附加 Instant Agent 的 Co-authored-by。
+   * 默认 true；传 false 可取消。
+   */
+  includeCoAuthor?: boolean
 }
 
 export type InstantShellGitChangeKind = 'added' | 'modified' | 'deleted'

@@ -19,6 +19,7 @@ import {
   type GithubGitContext,
   type GithubGitResult,
 } from '../../apps/github-desktop/github-git.ts'
+import { withInstantAgentCoAuthor } from '../../apps/github-desktop/github-desktop-prefs.ts'
 import { filesStat } from '../../apps/files/files-api.ts'
 import { searchVfsText } from '../../apps/files/vfs-text-search.ts'
 import { getDefaultFileOpenApp } from '../../os/file-open-registry.ts'
@@ -122,6 +123,12 @@ function assertGitCommitOptions(options: InstantShellGitCommitOptions): InstantS
     }
     out.paths = options.paths
   }
+  if (options.includeCoAuthor !== undefined) {
+    if (typeof options.includeCoAuthor !== 'boolean') {
+      throw new Error('includeCoAuthor 必须是布尔值')
+    }
+    out.includeCoAuthor = options.includeCoAuthor
+  }
   return out
 }
 
@@ -175,7 +182,7 @@ function createInstantShellGitApi(host: InstantShellHost): InstantShellGitApi {
       const opts = assertGitCommitOptions(options)
       return runGithubGit(host, (ctx) =>
         githubGitCommit(ctx, {
-          message: opts.message,
+          message: withInstantAgentCoAuthor(opts.message, opts.includeCoAuthor !== false),
           paths: opts.paths,
           all: opts.all === true,
         }),

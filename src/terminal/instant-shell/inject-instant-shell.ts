@@ -210,6 +210,12 @@ function readGitCommitOptions(
     }
     options.paths = record.paths as string[]
   }
+  if (record.includeCoAuthor !== undefined) {
+    if (typeof record.includeCoAuthor !== 'boolean') {
+      throw new Error('includeCoAuthor 必须是布尔值')
+    }
+    options.includeCoAuthor = record.includeCoAuthor
+  }
   return options
 }
 

@@ -40,7 +40,7 @@ GitHub 工作树（非真实 git；经 instant.git，须 await）：
 - instant.git.diff(path?) → { summary, files[], truncated }；可传仓库内相对路径
 - instant.git.log(limit?) → { summary, localCommits[], remoteCommits[], branches[] }；limit 默认 20、最大 50
 - instant.git.clone({ url?, owner?, repo?, branch? }) → { summary, repoRoot, owner, repo, branch, head }
-- instant.git.commit({ message, paths?, all? }) → { summary, message, head, changes[] }（须 all:true 或 paths；无 git add）
+- instant.git.commit({ message, paths?, all?, includeCoAuthor? }) → { summary, message, head, changes[] }（须 all:true 或 paths；无 git add；默认附带 Instant Agent 的 Co-authored-by，传 includeCoAuthor:false 可取消）
 - instant.git.push() / pull() / fetch() → 结构化对象（含 summary、head / tip 等）
 - instant.git.switchBranch(branch) / discard(paths) → 结构化对象
 - instant.git.undo() → { summary, head }（仅未推送本地 commit）

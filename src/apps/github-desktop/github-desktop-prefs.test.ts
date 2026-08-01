@@ -10,6 +10,7 @@ import {
   formatCoAuthorTrailer,
   INSTANT_AGENT_COAUTHOR,
   parseCoAuthorTrailers,
+  withInstantAgentCoAuthor,
 } from './github-desktop-prefs.ts'
 
 {
@@ -61,6 +62,21 @@ import {
 {
   assert.deepEqual(parseCoAuthorTrailers('no trailers'), [])
   assert.equal(formatCoAuthorNames([]), '')
+}
+
+{
+  const withTrailer = withInstantAgentCoAuthor('fix: oops')
+  assert.equal(
+    withTrailer,
+    [
+      'fix: oops',
+      '',
+      'Co-authored-by: Instant Agent <instantagent@casing-ai.com>',
+    ].join('\n'),
+  )
+  assert.equal(withInstantAgentCoAuthor('fix: oops', false), 'fix: oops')
+  assert.equal(withInstantAgentCoAuthor(withTrailer), withTrailer)
+  assert.equal(withInstantAgentCoAuthor('  '), '')
 }
 
 console.log('github-desktop-prefs.test.ts: ok')

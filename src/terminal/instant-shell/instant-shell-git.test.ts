@@ -63,6 +63,14 @@ function createMockHost(overrides?: Partial<InstantShellHost>): InstantShellHost
 
   assert.throws(
     () => {
+      void api.git.commit({ message: 'x', includeCoAuthor: 1 as unknown as boolean })
+    },
+    (error: unknown) =>
+      error instanceof Error && error.message === 'includeCoAuthor 必须是布尔值',
+  )
+
+  assert.throws(
+    () => {
       void api.git.discard('x' as unknown as string[])
     },
     (error: unknown) => error instanceof Error && error.message === 'paths 必须是字符串数组',
