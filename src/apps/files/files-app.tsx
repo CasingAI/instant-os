@@ -581,7 +581,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   )
 
   const refresh = useCallback(async (options?: { quiet?: boolean }) => {
-    const gen = ++refreshGenRef.current
+    // quiet 刷新不递增 gen，避免盖掉进行中的显式 refresh 导致加载卡片无法结束
+    //（例如新建文件：create 触发 VFS 事件 debounce 与 await refresh() 并行）
+    const gen = options?.quiet ? refreshGenRef.current : ++refreshGenRef.current
     resetViewportMeta()
     if (!options?.quiet) beginRefreshingUi(gen)
     setError(undefined)
