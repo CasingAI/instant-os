@@ -12,6 +12,7 @@ import {
   mergeLiveAndPersistedEventLogs,
   refreshLiveAiEventLogPerformance,
   startAiEventLogSession,
+  takeLiveAiEventLogFinishInputsForActor,
   type AiEventLogSessionHandle,
 } from './ai-event-log-session.ts'
 import type { AiEventLogInput, AiEventLogRecord } from './ai-event-log-types.ts'
@@ -50,6 +51,7 @@ export {
   listLiveAiEventLogs,
   refreshLiveAiEventLogPerformance,
   startAiEventLogSession,
+  takeLiveAiEventLogFinishInputsForActor,
   type AiEventLogSessionHandle,
 }
 
@@ -111,6 +113,14 @@ export function finishAiEventLogSession(
   }
 
   recordAiEventLog(context, finishInput)
+}
+
+/** 关窗扫尾：结束指定 actor 的全部进行中会话并异步落盘。 */
+export function abortLiveAiEventLogSessionsForActor(actor: string): void {
+  const taken = takeLiveAiEventLogFinishInputsForActor(actor, 'aborted', '窗口已关闭')
+  for (const { context, input } of taken) {
+    recordAiEventLog(context, input)
+  }
 }
 
 export async function loadRecentEventLogs(limit = 100): Promise<AiEventLogRecord[]> {

@@ -79,3 +79,8 @@ export function clearBareModulesResolveState(): void {
   // fire-and-forget；服务不在运行时下新 Worker 天然是空缓存，丢弃即可
   service.post({ type: 'clear' })
 }
+
+/** 无 VS Code 窗口时停止解析服务 Worker，释放独立堆。 */
+export function stopVscodeTypescriptResolveService(): void {
+  service.stop()
+}

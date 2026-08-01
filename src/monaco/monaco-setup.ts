@@ -10,6 +10,12 @@ import { registerMonacoThemes } from './monaco-themes.ts'
 import { ensureMonacoTypescriptDefaults } from './monaco-typescript.ts'
 
 let configured = false
+const monacoWorkers = new Set<Worker>()
+
+function trackWorker(worker: Worker): Worker {
+  monacoWorkers.add(worker)
+  return worker
+}
 
 export function ensureMonacoEnvironment(): void {
   if (configured) {
@@ -21,18 +27,18 @@ export function ensureMonacoEnvironment(): void {
   self.MonacoEnvironment = {
     getWorker(_workerId: string, label: string) {
       if (label === 'json') {
-        return new jsonWorker()
+        return trackWorker(new jsonWorker())
       }
       if (label === 'css' || label === 'scss' || label === 'less') {
-        return new cssWorker()
+        return trackWorker(new cssWorker())
       }
       if (label === 'html' || label === 'handlebars' || label === 'razor') {
-        return new htmlWorker()
+        return trackWorker(new htmlWorker())
       }
       if (label === 'typescript' || label === 'javascript') {
-        return new tsWorker()
+        return trackWorker(new tsWorker())
       }
-      return new editorWorker()
+      return trackWorker(new editorWorker())
     },
   }
 
@@ -41,6 +47,21 @@ export function ensureMonacoEnvironment(): void {
 
   registerMonacoThemes()
   ensureMonacoTypescriptDefaults()
+}
+
+/**
+ * 终止由 getWorker 创建的全部 Monaco 语言 Worker。
+ * 仅在无 VS Code / iCode 等共享 Monaco 的窗口存活时调用；下次编辑会再懒创建。
+ */
+export function disposeMonacoWorkers(): void {
+  for (const worker of monacoWorkers) {
+    try {
+      worker.terminate()
+    } catch {
+      // 已终止或不可达时忽略
+    }
+  }
+  monacoWorkers.clear()
 }
 
 export { monaco }

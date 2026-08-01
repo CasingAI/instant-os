@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { flushSync } from 'preact/compat'
 import { disposeMonacoModelForPath, type MonacoRevealPosition } from '../../monaco/monaco-editor.tsx'
+import { disposeMonacoWorkers } from '../../monaco/monaco-setup.ts'
 import {
   MONACO_SELECTABLE_LANGUAGES,
   monacoLanguageLabel,
@@ -126,6 +127,7 @@ import {
 import {
   matchVscodeOpenFiles,
   searchVscodeWorkspaceFilesDetailed,
+  stopVscodeWorkspaceSearchService,
   type VscodeWorkspaceSearchHit,
 } from './vscode-workspace-search.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
@@ -143,8 +145,11 @@ import {
 import {
   hydrateSubagentStoreFromPersisted,
   serializeSubagentRunsForPersist,
+  type PersistedSubagentRun,
 } from './vscode-subagent-persistence.ts'
 import { clearSubagentStore, subscribe as subscribeSubagentStore } from './vscode-subagent-store.ts'
+import { stopVscodeTypescriptResolveService } from './vscode-typescript-resolve-client.ts'
+import { abortLiveAiEventLogSessionsForActor } from '../../ai/ai-event-log.ts'
 import { resolveVscodeCompletionModelKey } from './vscode-ai-models.ts'
 import { VscodeSettingsPanel } from './vscode-settings-panel.tsx'
 import './vscode.css'
@@ -168,6 +173,23 @@ function getEditorFocusFromLayout(
     return { lastFocusedEditor: 'aiChat', activeSessionId: focusedItem.sessionId }
   }
   return { lastFocusedEditor: 'file' }
+}
+
+/** 系统中是否还有未关闭的 VS Code 窗口（当前窗 closing 时不算存活）。 */
+function hasLivingVscodeWindow(
+  windows: readonly { appId: string; closing?: boolean }[],
+): boolean {
+  return windows.some((window) => window.appId === 'vscode' && !window.closing)
+}
+
+/** Monaco 与 iCode 共享；仅当 vscode 与 icode 都无存活窗时才 terminate Worker。 */
+function hasLivingMonacoHostWindow(
+  windows: readonly { appId: string; closing?: boolean }[],
+): boolean {
+  return windows.some(
+    (window) =>
+      (window.appId === 'vscode' || window.appId === 'icode') && !window.closing,
+  )
 }
 
 function restoreOpenAiChatTabsInLayout(
@@ -350,6 +372,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   const aiWorkspaceFolderRef = useRef(prefs.workspaceFolder)
   const aiChatPersistChainRef = useRef(Promise.resolve())
   const aiChatPersistAlertOpenRef = useRef(false)
+  const windowsRef = useRef(windows)
+  windowsRef.current = windows
   aiChatSessionsRef.current = aiChatSessions
   closedAiChatsRef.current = closedAiChats
   aiChatBusySessionIdsRef.current = aiChatBusySessionIds
@@ -906,26 +930,38 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
   useEffect(() => {
     mountedRef.current = true
     return () => {
+      // 先快照 subagent，避免与异步落盘竞态；clear 放到 persist finally。
+      const subagentRuns = serializeSubagentRunsForPersist()
+      const livingWindows = windowsRef.current
+      const releaseVscodeServices = !hasLivingVscodeWindow(livingWindows)
+      const releaseMonacoWorkers = !hasLivingMonacoHostWindow(livingWindows)
+
+      abortLiveAiEventLogSessionsForActor('vscode')
+
+      let persistAfter: Promise<void> = aiChatPersistChainRef.current
       if (!skipSessionPersistRef.current && sessionReadyRef.current) {
         saveVscodeSession(
           buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current),
         )
         const focus = getEditorFocusFromLayout(editorLayoutRef.current)
-        const subagentRuns = serializeSubagentRunsForPersist()
-        void aiChatPersistChainRef.current.then(() =>
-          saveVscodeAiChatStore({
-            workspaceKey: vscodeAiChatWorkspaceKey(aiWorkspaceFolderRef.current),
-            openSessions: [...aiChatSessionsRef.current.values()].sort(
-              (a, b) => b.updatedAt - a.updatedAt,
-            ),
-            closedSessions: [...closedAiChatsRef.current],
-            lastFocusedEditor: focus.lastFocusedEditor,
-            activeSessionId:
-              focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
-            subagentRuns,
-          }),
-        )
+        persistAfter = aiChatPersistChainRef.current
+          .then(() =>
+            saveVscodeAiChatStore({
+              workspaceKey: vscodeAiChatWorkspaceKey(aiWorkspaceFolderRef.current),
+              openSessions: [...aiChatSessionsRef.current.values()].sort(
+                (a, b) => b.updatedAt - a.updatedAt,
+              ),
+              closedSessions: [...closedAiChatsRef.current],
+              lastFocusedEditor: focus.lastFocusedEditor,
+              activeSessionId:
+                focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
+              subagentRuns,
+            }),
+          )
+          .then(() => undefined)
+        aiChatPersistChainRef.current = persistAfter.catch(() => undefined)
       }
+
       typescriptWorkspaceAbortRef.current?.abort()
       typescriptWorkspaceAbortRef.current = undefined
       resetVscodeTypescriptWorkspaceCaches()
@@ -935,7 +971,18 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       for (const path of openPaths) {
         disposeMonacoModelForPath(path)
       }
-      clearSubagentStore()
+
+      void persistAfter.finally(() => {
+        clearSubagentStore()
+        if (releaseVscodeServices) {
+          stopVscodeTypescriptResolveService()
+          stopVscodeWorkspaceSearchService()
+        }
+        if (releaseMonacoWorkers) {
+          disposeMonacoWorkers()
+        }
+      })
+
       mountedRef.current = false
     }
   }, [])
@@ -1965,6 +2012,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       openMap: ReadonlyMap<string, VscodeAiChatSession>,
       closed: readonly VscodeAiClosedChatSession[],
       focusOverride?: Pick<VscodeAiChatStore, 'lastFocusedEditor' | 'activeSessionId'>,
+      options?: { subagentRuns?: PersistedSubagentRun[] },
     ) => {
       const focus = focusOverride ?? getEditorFocusFromLayout(editorLayoutRef.current)
       const store: VscodeAiChatStore = {
@@ -1974,7 +2022,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         lastFocusedEditor: focus.lastFocusedEditor,
         activeSessionId:
           focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
-        subagentRuns: serializeSubagentRunsForPersist(),
+        subagentRuns: options?.subagentRuns ?? serializeSubagentRunsForPersist(),
       }
       aiChatPersistChainRef.current = aiChatPersistChainRef.current
         .then(async () => {
@@ -2354,8 +2402,12 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     if (!windowId) return true
     skipSessionPersistRef.current = true
     saveVscodeSession(buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current))
+    // 在 unmount clear 之前快照；后续 persist 使用该快照，避免空 subagentRuns。
+    const subagentRuns = serializeSubagentRunsForPersist()
     void flushAiChatPersist().then(() =>
-      persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current),
+      persistAiChatStore(aiChatSessionsRef.current, closedAiChatsRef.current, undefined, {
+        subagentRuns,
+      }),
     )
     setWindowDocumentEdited(windowId, false)
     return true

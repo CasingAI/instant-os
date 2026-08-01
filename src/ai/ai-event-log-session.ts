@@ -313,6 +313,64 @@ export function getLiveAiEventLogCount(): number {
   return liveSessions.size
 }
 
+/**
+ * 强制结束指定 actor 的进行中会话，返回待落盘的 finish 输入（已从 live Map 移除）。
+ * 用于应用关窗时扫尾，避免 messages/response 常驻。
+ */
+export function takeLiveAiEventLogFinishInputsForActor(
+  actor: string,
+  status: AiEventLogStatus = 'aborted',
+  errorMessage = '窗口已关闭',
+): Array<{ context: AiUsageContext; input: AiEventLogInput }> {
+  const taken: Array<{ context: AiUsageContext; input: AiEventLogInput }> = []
+  for (const [id, state] of [...liveSessions.entries()]) {
+    if (state.context.actor !== actor && state.record.actor !== actor) {
+      continue
+    }
+    if (state.pendingDispatch) {
+      clearTimeout(state.pendingDispatch)
+      state.pendingDispatch = undefined
+    }
+    liveSessions.delete(id)
+    applyLivePerformance(state)
+    taken.push({
+      context: state.context,
+      input: {
+        id,
+        model: state.record.model,
+        thinkingEnabled: state.record.thinkingEnabled,
+        messages: state.record.messages,
+        response: state.record.response,
+        usage:
+          state.record.promptTokens !== undefined ||
+          state.record.completionTokens !== undefined
+            ? {
+                promptTokens: state.record.promptTokens ?? 0,
+                completionTokens: state.record.completionTokens ?? 0,
+                totalTokens:
+                  state.record.totalTokens ??
+                  (state.record.promptTokens ?? 0) +
+                    (state.record.completionTokens ?? 0),
+              }
+            : undefined,
+        usageEstimated: state.record.usageEstimated,
+        status,
+        errorMessage,
+        timing: {
+          startedAt: state.timingStartedAt,
+          startedRealAt: state.timingStartedRealAt,
+          firstTokenAt: state.firstTokenAt,
+          firstTokenRealAt: state.firstTokenRealAt,
+        },
+      },
+    })
+  }
+  if (taken.length > 0) {
+    dispatchEventLogChanged()
+  }
+  return taken
+}
+
 export function mergeLiveAndPersistedEventLogs(
   persisted: AiEventLogRecord[],
   limit: number,

@@ -97,3 +97,8 @@ export async function searchVscodeWorkspaceFilesDetailed(
     return { hits: [], patternError: '搜索服务不可用，可在性能监视器中重启该服务' }
   }
 }
+
+/** 无 VS Code 窗口时停止搜索服务 Worker，释放独立堆。 */
+export function stopVscodeWorkspaceSearchService(): void {
+  service.stop()
+}
