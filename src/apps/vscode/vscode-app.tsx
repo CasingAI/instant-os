@@ -3303,6 +3303,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               customSubAgents={prefs.customSubAgents}
               aiIdleTimeoutSeconds={prefs.aiIdleTimeoutSeconds}
               aiIdleRetryCount={prefs.aiIdleRetryCount}
+              aiPlayCompletionSound={prefs.aiPlayCompletionSound}
               aiDebugSystemReminder={prefs.aiDebugSystemReminder}
               aiDark={isVscodeChromeDark(prefs.theme)}
               getAiContext={getVscodeAiContext}

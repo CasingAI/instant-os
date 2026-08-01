@@ -434,7 +434,12 @@ export function VscodeSettingsPanel({
         'completion',
       )
     : '已关闭'
-  const agentSummary = `${prefs.aiIdleTimeoutSeconds}s · 重试 ${prefs.aiIdleRetryCount}`
+  const agentSummary = [
+    `${prefs.aiIdleTimeoutSeconds}s · 重试 ${prefs.aiIdleRetryCount}`,
+    prefs.aiPlayCompletionSound ? '完成提示音' : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const subAgentSummary = prefs.subAgentsEnabled
     ? `已开启 · 并发 ${prefs.subAgentsMaxConcurrent}`
     : '已关闭'
@@ -615,9 +620,15 @@ export function VscodeSettingsPanel({
                 max={50}
                 onChange={(aiIdleRetryCount) => onChange({ aiIdleRetryCount })}
               />
+              <SettingsSwitchRow
+                label="完成时播放提示音"
+                checked={prefs.aiPlayCompletionSound}
+                onChange={(aiPlayCompletionSound) => onChange({ aiPlayCompletionSound })}
+              />
             </div>
             <p class="settings__section-footnote">
-              流式响应多久无新数据视为空闲超时（最短 5 秒）。超时后的额外重试次数不含首次；0 表示超时后不重试。
+              流式响应多久无新数据视为空闲超时（最短 5 秒）。超时后的额外重试次数不含首次；0
+              表示超时后不重试。完成提示音仅在本轮结束且发送队列为空时播放；用户中止或还有排队任务时不播放。
             </p>
           </section>
         </SettingsPageShell>

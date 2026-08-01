@@ -231,6 +231,7 @@ type VscodeEditorAreaProps = {
   customSubAgents?: VscodeCustomSubAgent[]
   aiIdleTimeoutSeconds?: number
   aiIdleRetryCount?: number
+  aiPlayCompletionSound?: boolean
   aiDebugSystemReminder?: boolean
   aiDark?: boolean
   getAiContext?: () => VscodeAiContextInput
@@ -386,6 +387,7 @@ function VscodeEditorGroupView({
   customSubAgents,
   aiIdleTimeoutSeconds,
   aiIdleRetryCount,
+  aiPlayCompletionSound,
   aiDebugSystemReminder,
   aiDark,
   getAiContext,
@@ -944,6 +946,7 @@ function VscodeEditorGroupView({
                   customSubAgents={customSubAgents}
                   aiIdleTimeoutSeconds={aiIdleTimeoutSeconds}
                   aiIdleRetryCount={aiIdleRetryCount}
+                  aiPlayCompletionSound={aiPlayCompletionSound}
                   aiDebugSystemReminder={aiDebugSystemReminder}
                   dark={aiDark}
                   workspaceFolder={workspaceFolder}

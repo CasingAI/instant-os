@@ -7,6 +7,7 @@ import {
 } from '../../ai/format-human-duration.ts'
 import { useSpeechDictation } from '../../ai/use-speech-dictation.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
+import { playSystemSound } from '../../os/system-sounds.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -461,6 +462,8 @@ export type VscodeAiPanelProps = {
   aiIdleTimeoutSeconds?: number
   /** Agent 单轮流空闲超时后的额外重试次数（不含首次） */
   aiIdleRetryCount?: number
+  /** 任务完成且队列为空时播放系统完成提示音 */
+  aiPlayCompletionSound?: boolean
   /** Debug：展示本轮注入的 system-reminder */
   aiDebugSystemReminder?: boolean
   dark?: boolean
@@ -1071,6 +1074,7 @@ export function VscodeAiPanel({
   customSubAgents = [],
   aiIdleTimeoutSeconds = 60,
   aiIdleRetryCount = 10,
+  aiPlayCompletionSound = true,
   aiDebugSystemReminder = false,
   dark,
   workspaceFolder,
@@ -2138,6 +2142,8 @@ export function VscodeAiPanel({
           queueMicrotask(() => {
             void sendRef.current(next.text)
           })
+        } else if (aiPlayCompletionSound && !controller.signal.aborted) {
+          playSystemSound('complete')
         }
       }
     },
@@ -2170,6 +2176,7 @@ export function VscodeAiPanel({
       subAgentsMaxConcurrent,
       aiIdleTimeoutSeconds,
       aiIdleRetryCount,
+      aiPlayCompletionSound,
       toolsHost,
       turnChangeExtras,
       waitUntilSendIdle,

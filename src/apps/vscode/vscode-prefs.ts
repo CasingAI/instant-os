@@ -129,6 +129,11 @@ export type VscodePrefs = {
    * 默认 10；0 表示超时后不重试。
    */
   aiIdleRetryCount: number
+  /**
+   * Agent 任务完成且发送队列为空时播放系统完成提示音。
+   * 默认开启；用户中止或还有排队任务时不播放。
+   */
+  aiPlayCompletionSound: boolean
   /** 是否启用 Sub Agent（VS Code 默认开启；系统层无总开关） */
   subAgentsEnabled: boolean
   /** 同时运行的 Sub Agent 上限 */
@@ -196,6 +201,7 @@ const DEFAULT_PREFS: VscodePrefs = {
   completionDebounceMs: DEFAULT_COMPLETION_DEBOUNCE_MS,
   aiIdleTimeoutSeconds: DEFAULT_AI_IDLE_TIMEOUT_SECONDS,
   aiIdleRetryCount: DEFAULT_AI_IDLE_RETRY_COUNT,
+  aiPlayCompletionSound: true,
   subAgentsEnabled: true,
   subAgentsMaxConcurrent: DEFAULT_SUB_AGENTS_MAX_CONCURRENT,
   subAgentBuiltinOverrides: {},
@@ -520,6 +526,7 @@ export function loadVscodePrefs(): VscodePrefs {
               MAX_AI_IDLE_RETRY_COUNT,
             )
           : DEFAULT_PREFS.aiIdleRetryCount,
+      aiPlayCompletionSound: parsed.aiPlayCompletionSound !== false,
       subAgentsEnabled: parsed.subAgentsEnabled !== false,
       subAgentsMaxConcurrent:
         typeof parsed.subAgentsMaxConcurrent === 'number' &&
