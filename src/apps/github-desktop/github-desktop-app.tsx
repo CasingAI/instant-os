@@ -1117,16 +1117,27 @@ export function GithubDesktopApp() {
     } else if (
       message.includes('应用变更') ||
       message.includes('写入文件') ||
-      message.includes('写入基线快照')
+      message.includes('写入基线快照') ||
+      message.includes('上传文件') ||
+      message.includes('推送 commit') ||
+      message.includes('合并远端变更')
     ) {
       const match = /(\d+)\s*\/\s*(\d+)/.exec(message)
       if (match) {
         const done = Number(match[1])
         const total = Number(match[2])
-        candidate = total > 0 ? 0.35 + (done / total) * 0.55 : 0.6
+        const base = message.includes('上传文件') || message.includes('推送 commit') ? 0.45 : 0.35
+        const span = message.includes('上传文件') || message.includes('推送 commit') ? 0.45 : 0.55
+        candidate = total > 0 ? base + (done / total) * span : base + 0.2
       } else {
         candidate = 0.6
       }
+    } else if (message.includes('创建 commit') || message.includes('更新远端分支')) {
+      candidate = 0.9
+    } else if (message.includes('推送完成')) {
+      candidate = 1
+    } else if (message.includes('读取远端 tree') || message.includes('检查未 commit')) {
+      candidate = Math.max(0.35, progressValueRef.current)
     } else if (message.includes('解压压缩包')) {
       candidate = 0.68
     } else if (message.includes('更新同步') || message.includes('建立同步')) {
@@ -1287,7 +1298,7 @@ export function GithubDesktopApp() {
   const handlePush = useCallback(() => {
     if (view.kind !== 'repo') return
     void runBusy('push', '正在推送到 origin…', '推送失败', async () => {
-      const next = await pushGithubBranch(view.meta)
+      const next = await pushGithubBranch(view.meta, reportSyncProgress)
       await refreshRepoState(next, reportSyncProgress)
       await syncRemoteCaches(next)
     })

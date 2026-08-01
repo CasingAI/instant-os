@@ -35,6 +35,7 @@ import {
   type GithubChange,
 } from './github-changes.ts'
 import { rebaseUnpushedOntoRemoteTip } from './github-rebase.ts'
+import type { GithubProgress } from './github-progress.ts'
 
 /** 仅本地 commit：更新 fileIndex / tip，不调用 GitHub API */
 export async function commitGithubChanges(params: {
@@ -100,6 +101,7 @@ async function pushLocalCommitToRemote(
   meta: GithubRepoSyncMeta,
   commit: GithubLocalCommit,
   parentSha: string,
+  onProgress?: GithubProgress,
 ): Promise<string> {
   const author = resolveGithubCommitAuthor()
   if (!author) {
@@ -115,12 +117,15 @@ async function pushLocalCommitToRemote(
   }
 
   const { owner, repo } = meta
+  onProgress?.('读取远端 tree…')
   const baseTreeSha = await githubGetCommitTreeSha(owner, repo, parentSha)
   const treeEntries: Array<
     | { path: string; mode: '100644'; type: 'blob'; sha: string }
     | { path: string; mode: '100644'; type: 'blob'; sha: null }
   > = []
 
+  const uploadTotal = changes.filter((change) => change.kind !== 'deleted').length
+  let uploaded = 0
   for (const change of changes) {
     if (change.kind === 'deleted') {
       treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: null })
@@ -134,10 +139,16 @@ async function pushLocalCommitToRemote(
     if (bytes === undefined) {
       throw new Error(`本地基线缺少文件 ${change.path}`)
     }
+    uploaded += 1
+    onProgress?.(
+      `上传文件 ${uploaded}/${uploadTotal}…`,
+      uploadTotal > 0 ? { fraction: uploaded / uploadTotal } : undefined,
+    )
     const blobSha = await githubCreateBlob(owner, repo, bytes, 'base64')
     treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: blobSha })
   }
 
+  onProgress?.('创建 commit…')
   const treeSha = await githubCreateTree(owner, repo, baseTreeSha, treeEntries)
   return githubCreateCommit(owner, repo, {
     message: commit.message,
@@ -148,9 +159,12 @@ async function pushLocalCommitToRemote(
 }
 
 /** 将尚未推送的本地 commit 链推送到远端分支 */
-export async function pushGithubBranch(meta: GithubRepoSyncMeta): Promise<GithubRepoSyncMeta> {
+export async function pushGithubBranch(
+  meta: GithubRepoSyncMeta,
+  onProgress?: GithubProgress,
+): Promise<GithubRepoSyncMeta> {
   // 远端若已超前：先把未推送链接到 live tip，避免非快进 422
-  const synced = await rebaseUnpushedOntoRemoteTip({ meta })
+  const synced = await rebaseUnpushedOntoRemoteTip({ meta, onProgress })
 
   const unpushed = await listUnpushedLocalCommits(
     synced.owner,
@@ -166,13 +180,20 @@ export async function pushGithubBranch(meta: GithubRepoSyncMeta): Promise<Github
     throw new Error('无法推送：缺少已同步到远端的基点，请先获取或拉取')
   }
 
+  const commitTotal = unpushed.length
   const mappings: Array<{ localSha: string; remoteSha: string }> = []
-  for (const commit of unpushed) {
-    const remoteSha = await pushLocalCommitToRemote(synced, commit, parentSha)
+  for (let index = 0; index < unpushed.length; index += 1) {
+    const commit = unpushed[index]!
+    onProgress?.(
+      `推送 commit ${index + 1}/${commitTotal}…`,
+      { fraction: index / Math.max(commitTotal, 1) },
+    )
+    const remoteSha = await pushLocalCommitToRemote(synced, commit, parentSha, onProgress)
     mappings.push({ localSha: commit.sha, remoteSha })
     parentSha = remoteSha
   }
 
+  onProgress?.('更新远端分支…')
   const remoteTipSha = parentSha
   await githubUpdateBranchRef(synced.owner, synced.repo, synced.currentBranch, remoteTipSha)
   await finalizePushedLocalCommits(synced.owner, synced.repo, mappings)
@@ -190,6 +211,7 @@ export async function pushGithubBranch(meta: GithubRepoSyncMeta): Promise<Github
   )
   next.updatedAt = osNowMs()
   await saveGithubRepoMeta(next)
+  onProgress?.('推送完成', { fraction: 1 })
   return next
 }
 
