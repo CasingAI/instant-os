@@ -306,7 +306,12 @@ export function selectBlockNode(editor: Editor, blockPos: number) {
 }
 
 export function deleteTopLevelBlock(editor: Editor, blockPos: number) {
-  const block = findTopLevelBlock(editor, blockPos + 1)
+  // 图片等原子块：blockPos 已是节点起点，+1 会落到下一块；段落则常需 +1 进入块内解析
+  const atStart = findTopLevelBlock(editor, blockPos)
+  const block =
+    atStart && atStart.pos === blockPos
+      ? atStart
+      : (findTopLevelBlock(editor, blockPos + 1) ?? atStart)
   if (!block) return
   selectBlockNode(editor, block.pos)
   editor.chain().focus().deleteSelection().run()

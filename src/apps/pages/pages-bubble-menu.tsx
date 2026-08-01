@@ -1,11 +1,13 @@
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import {
   PAGES_IMAGE_WIDTH_PRESETS,
   type PagesImageAlign,
 } from './pages-markdown.ts'
 
-export type BubbleMode = 'text' | 'block' | 'image'
+export type BubbleMode = 'text' | 'block' | 'image' | 'table'
+export type TableCellAlign = 'left' | 'center' | 'right'
 
 export type PagesBubbleMenuProps = {
   editor: Editor
@@ -17,6 +19,7 @@ export type PagesBubbleMenuProps = {
   onConvertBlock: () => void
   onCopyBlock: () => void
   onDeleteBlock: () => void
+  onOpenSheet?: () => void
 }
 
 function BubbleBtn({
@@ -93,6 +96,89 @@ function setImageWidth(editor: Editor, width: number) {
     .run()
 }
 
+export function tableHasHeaderRow(editor: Editor): boolean {
+  const { $from } = editor.state.selection
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d)
+    if (node.type.name !== 'table') continue
+    const firstRow = node.firstChild
+    if (!firstRow) return false
+    let hasHeader = false
+    firstRow.forEach((cell) => {
+      if (cell.type.name === 'tableHeader') hasHeader = true
+    })
+    return hasHeader
+  }
+  return false
+}
+
+function currentCellAlign(editor: Editor): TableCellAlign | null {
+  const { selection } = editor.state
+  if (selection instanceof CellSelection) {
+    let common: TableCellAlign | null | undefined
+    let mixed = false
+    selection.forEachCell((node) => {
+      const raw = node.attrs.align as string | null | undefined
+      const align: TableCellAlign =
+        raw === 'center' || raw === 'right' || raw === 'left' ? raw : 'left'
+      if (common === undefined) common = align
+      else if (common !== align) mixed = true
+    })
+    if (mixed) return null
+    return common ?? 'left'
+  }
+  const fromHeader = editor.getAttributes('tableHeader').align
+  const fromCell = editor.getAttributes('tableCell').align
+  const raw = (editor.isActive('tableHeader') ? fromHeader : fromCell) as string | null | undefined
+  if (raw === 'center' || raw === 'right' || raw === 'left') return raw
+  return 'left'
+}
+
+/** 批量设置选中单元格对齐；绕过 setCellAttr 在锚点已是目标值时提前 return 的问题 */
+function setCellAlign(editor: Editor, align: TableCellAlign) {
+  const { state } = editor
+  const { selection } = state
+  if (selection instanceof CellSelection) {
+    let tr = state.tr
+    let changed = false
+    selection.forEachCell((node, pos) => {
+      if (node.attrs.align === align) return
+      tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, align })
+      changed = true
+    })
+    if (changed) {
+      editor.view.dispatch(tr)
+      editor.view.focus()
+    }
+    return
+  }
+  editor.chain().focus().setCellAttribute('align', align).run()
+}
+
+function clearSelectedCells(editor: Editor) {
+  const { state } = editor
+  const { selection } = state
+  if (!(selection instanceof CellSelection)) return
+  const paragraph = state.schema.nodes.paragraph
+  if (!paragraph) return
+  let tr = state.tr
+  const cells: { pos: number; size: number }[] = []
+  selection.forEachCell((node, pos) => {
+    cells.push({ pos, size: node.nodeSize })
+  })
+  // 从后往前清，避免位置偏移
+  for (let i = cells.length - 1; i >= 0; i--) {
+    const cell = cells[i]!
+    const node = tr.doc.nodeAt(cell.pos)
+    if (!node) continue
+    const from = cell.pos + 1
+    const to = cell.pos + node.nodeSize - 1
+    tr = tr.replaceWith(from, to, paragraph.create())
+  }
+  editor.view.dispatch(tr)
+  editor.view.focus()
+}
+
 export function PagesBubbleMenu({
   editor,
   mode,
@@ -102,7 +188,69 @@ export function PagesBubbleMenu({
   onConvertBlock,
   onCopyBlock,
   onDeleteBlock,
+  onOpenSheet,
 }: PagesBubbleMenuProps) {
+  if (mode === 'table') {
+    const align = currentCellAlign(editor)
+    const hasHeader = tableHasHeaderRow(editor)
+    const isCellSel = editor.state.selection instanceof CellSelection
+    const canMerge = editor.can().mergeCells()
+    const canSplit = editor.can().splitCell()
+    return (
+      <div ref={menuRef} class="pages-bubble" style={style} role="toolbar" aria-label="表格操作">
+        <BubbleBtn
+          label="左"
+          title="左对齐"
+          active={align === 'left'}
+          onClick={() => setCellAlign(editor, 'left')}
+        />
+        <BubbleBtn
+          label="中"
+          title="居中"
+          active={align === 'center'}
+          onClick={() => setCellAlign(editor, 'center')}
+        />
+        <BubbleBtn
+          label="右"
+          title="右对齐"
+          active={align === 'right'}
+          onClick={() => setCellAlign(editor, 'right')}
+        />
+        <span class="pages-bubble__divider" />
+        {canMerge ? (
+          <BubbleBtn
+            label="合并"
+            title="合并单元格"
+            onClick={() => editor.chain().focus().mergeCells().run()}
+          />
+        ) : null}
+        {canSplit ? (
+          <BubbleBtn
+            label="拆分"
+            title="拆分单元格"
+            onClick={() => editor.chain().focus().splitCell().run()}
+          />
+        ) : null}
+        {isCellSel ? (
+          <BubbleBtn label="清空" title="清空选中单元格" onClick={() => clearSelectedCells(editor)} />
+        ) : null}
+        {canMerge || canSplit || isCellSel ? <span class="pages-bubble__divider" /> : null}
+        <BubbleBtn
+          label={hasHeader ? '取消表头' : '表头'}
+          title={hasHeader ? '取消表头行' : '设为表头行'}
+          active={hasHeader}
+          onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+        />
+        {onOpenSheet ? (
+          <>
+            <span class="pages-bubble__divider" />
+            <BubbleBtn label="表格视图" title="在表格视图中编辑" onClick={onOpenSheet} />
+          </>
+        ) : null}
+      </div>
+    )
+  }
+
   if (mode === 'image') {
     const align = (editor.getAttributes('image').align as PagesImageAlign | undefined) ?? 'left'
     const width = Number(editor.getAttributes('image').width) || 0

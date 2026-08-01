@@ -980,6 +980,48 @@ export function PagesApp({ windowId }: PagesAppProps) {
 
   useAppMenuBar(APP_ID, menuBar, isActiveWindow)
 
+  // 菜单 shortcut 仅展示；文件快捷键需自行监听（与 VS Code / Virtual JS 一致）
+  useEffect(() => {
+    if (!isActiveWindow) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (openDialogOpen || dirtyPrompt || loading || !ready) return
+
+      const key = event.key.toLowerCase()
+      if (key === 's' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        const tab = tabsRef.current.find((item) => item.id === activeTabIdRef.current)
+        if (!tab || !isFilesNodeWritable(tab.node)) return
+        if (!isTabDirty(tab, getBlobMap(tab.id))) return
+        void handleSave()
+        return
+      }
+      if (key === 'o' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        void handleOpen()
+        return
+      }
+      if (key === 'w' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        handleCloseTab()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [
+    dirtyPrompt,
+    getBlobMap,
+    handleCloseTab,
+    handleOpen,
+    handleSave,
+    isActiveWindow,
+    loading,
+    openDialogOpen,
+    ready,
+  ])
+
   const dirtyPromptActions = useMemo(
     () => [
       {

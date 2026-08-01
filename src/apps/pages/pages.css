@@ -239,8 +239,10 @@
 }
 
 .pages-editor__prose .tableWrapper {
-  margin: 0 0 1em;
+  margin: 0 0 0.75em;
+  /* overflow-y: clip 避免把 sticky 表头锁死在 wrapper 内 */
   overflow-x: auto;
+  overflow-y: clip;
 }
 
 .pages-editor__prose table,
@@ -250,8 +252,10 @@
   border-spacing: 0;
   margin: 0;
   table-layout: fixed;
-  border: 1px solid #6b7280;
+  border: 1px solid #d1d5db;
   background: #fff;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .pages-editor__prose table td,
@@ -259,12 +263,13 @@
 .pages-editor__table td,
 .pages-editor__table th {
   position: relative;
-  border-right: 1px solid #6b7280;
-  border-bottom: 1px solid #6b7280;
-  padding: 8px 10px;
-  vertical-align: top;
-  min-width: 80px;
-  min-height: 2.2em;
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 4px 8px;
+  vertical-align: middle;
+  min-width: 64px;
+  min-height: 0;
+  height: 28px;
   box-sizing: border-box;
   background: #fff;
 }
@@ -283,6 +288,27 @@
 .pages-editor__table th {
   background: #f3f4f6;
   font-weight: 600;
+  color: #374151;
+}
+
+.pages-editor__prose table tr:first-child > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 #e5e7eb;
+}
+
+/* prosemirror-tables CellSelection 装饰类；特异性需压过 td/th 默认背景 */
+.pages-editor__prose table td.selectedCell,
+.pages-editor__prose table th.selectedCell,
+.pages-editor__table td.selectedCell,
+.pages-editor__table th.selectedCell {
+  background: color-mix(in srgb, var(--pages-theme) 16%, #fff);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--pages-theme) 65%, transparent);
+}
+
+.pages-editor__prose table tr:first-child > th.selectedCell {
+  background: color-mix(in srgb, var(--pages-theme) 16%, #f3f4f6);
 }
 
 .pages-editor__prose table p,
@@ -834,10 +860,51 @@
 .pages-block-drop-indicator {
   position: absolute;
   z-index: 54;
-  height: 2px;
-  border-radius: 1px;
+  height: 3px;
+  border-radius: 999px;
   background: var(--pages-theme);
+  /* 白边保证叠在蓝色图片等深色内容上仍可辨认 */
+  box-shadow:
+    0 0 0 2px #fff,
+    0 1px 4px rgba(15, 23, 42, 0.28);
   pointer-events: none;
+}
+
+.pages-block-drop-indicator::before,
+.pages-block-drop-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--pages-theme);
+  box-shadow: 0 0 0 2px #fff;
+  transform: translateY(-50%);
+}
+
+.pages-block-drop-indicator::before {
+  left: -4px;
+}
+
+.pages-block-drop-indicator::after {
+  right: -4px;
+}
+
+/* 拖拽块时隐藏节点选区描边与缩放把手，避免与落点线叠在一起 */
+.pages-editor--block-dragging .pages-editor__prose img.ProseMirror-selectednode,
+.pages-editor--block-dragging .pages-editor__image.ProseMirror-selectednode,
+.pages-editor--block-dragging
+  .pages-editor__prose
+  [data-resize-container][data-node='image']:has(.ProseMirror-selectednode),
+.pages-editor--block-dragging
+  .pages-editor__prose
+  [data-resize-container][data-node='image'].ProseMirror-selectednode {
+  outline: none;
+}
+
+.pages-editor--block-dragging .pages-editor__prose [data-resize-handle] {
+  display: none;
 }
 
 .pages-outline {

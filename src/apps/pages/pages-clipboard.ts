@@ -1,5 +1,10 @@
 import type { Editor } from '@tiptap/core'
 import { jsonContentToMarkdown } from './pages-doc-convert.ts'
+import {
+  clipboardLooksLikeTsvTable,
+  promotePastedTableHeaderHtml,
+  tsvToTableHtml,
+} from './pages-table-paste.ts'
 
 const PAGES_CLIP_MIME = 'application/x-instant-pages-fragment+json'
 
@@ -55,6 +60,14 @@ export async function pasteIntoEditor(editor: Editor): Promise<void> {
             return
           }
         }
+        if (item.types.includes('text/html')) {
+          const blob = await item.getType('text/html')
+          const html = promotePastedTableHeaderHtml(await blob.text())
+          if (html.trim()) {
+            editor.chain().focus().insertContent(html).run()
+            return
+          }
+        }
       }
     }
   } catch {
@@ -63,7 +76,15 @@ export async function pasteIntoEditor(editor: Editor): Promise<void> {
 
   try {
     const text = await navigator.clipboard.readText()
-    if (text) editor.chain().focus().insertContent(text).run()
+    if (!text) return
+    if (clipboardLooksLikeTsvTable(text)) {
+      const tableHtml = tsvToTableHtml(text)
+      if (tableHtml) {
+        editor.chain().focus().insertContent(tableHtml).run()
+        return
+      }
+    }
+    editor.chain().focus().insertContent(text).run()
   } catch {
     // ignore
   }

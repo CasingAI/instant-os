@@ -39,6 +39,9 @@ export function PagesContextMenu({ items, style, onAction }: PagesContextMenuPro
 
 export function buildContextMenuItems(opts: {
   inTable: boolean
+  hasHeaderRow?: boolean
+  canMergeCells?: boolean
+  canSplitCell?: boolean
   onLink: boolean
   onImage?: boolean
 }): ContextMenuItem[] {
@@ -71,6 +74,19 @@ export function buildContextMenuItems(opts: {
     items.push(
       { type: 'separator', id: 'sep-table' },
       { type: 'action', id: 'open-sheet', label: '在表格视图中编辑' },
+      {
+        type: 'action',
+        id: 'toggle-header-row',
+        label: opts.hasHeaderRow ? '取消表头行' : '设为表头行',
+      },
+    )
+    if (opts.canMergeCells) {
+      items.push({ type: 'action', id: 'merge-cells', label: '合并单元格' })
+    }
+    if (opts.canSplitCell) {
+      items.push({ type: 'action', id: 'split-cell', label: '拆分单元格' })
+    }
+    items.push(
       { type: 'action', id: 'add-row-before', label: '向上插入行' },
       { type: 'action', id: 'add-row-after', label: '向下插入行' },
       { type: 'action', id: 'add-col-before', label: '向左插入列' },

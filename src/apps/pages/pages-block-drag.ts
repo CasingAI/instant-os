@@ -71,27 +71,21 @@ export function dropIndicatorForIndex(
 ): BlockDropIndicator | null {
   const rects = listTopLevelRects(editor)
   if (rects.length === 0) return null
+  // 落点线始终按编辑区内容全宽，不跟窄块（如图片）收缩
+  const proseRect = editor.view.dom.getBoundingClientRect()
   let y: number
-  let left: number
-  let width: number
   if (index <= 0) {
     y = rects[0].top
-    left = rects[0].left
-    width = rects[0].width
   } else if (index >= rects.length) {
-    const last = rects[rects.length - 1]
-    y = last.bottom
-    left = last.left
-    width = last.width
+    y = rects[rects.length - 1].bottom
   } else {
     y = rects[index].top
-    left = rects[index].left
-    width = rects[index].width
   }
   return {
-    top: y - rootRect.top - 1,
-    left: left - rootRect.left,
-    width,
+    // 3px 线居中对齐到块缝；略上移避免贴死下一块顶边
+    top: y - rootRect.top - 2,
+    left: proseRect.left - rootRect.left,
+    width: proseRect.width,
   }
 }
 

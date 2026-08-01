@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { Editor, type JSONContent } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import { createPagesExtensions, PAGES_IMAGE_DEFAULT_WIDTH } from './pages-markdown.ts'
 import type { SlashCommandItem } from './pages-slash-commands.ts'
 import {
@@ -42,6 +43,11 @@ import {
   recalculateAllTablesInEditor,
   replaceTableAtPos,
 } from './pages-table-formula.ts'
+import {
+  clipboardLooksLikeTsvTable,
+  promotePastedTableHeaderHtml,
+  tsvToTableHtml,
+} from './pages-table-paste.ts'
 
 export type PagesViewMode = 'edit' | 'source' | 'sheet'
 export type PagesEditorFormat = 'pages' | 'markdown'
@@ -123,10 +129,43 @@ type PagesEditorHost = Editor & {
   __pagesPasteImage?: (file: File) => void
 }
 
-function selectionCoords(editor: Editor): DOMRect | null {
+function selectionCoords(editor: Editor, allowEmptyCaret = false): DOMRect | null {
   const { view, state } = editor
   const { from, to, empty } = state.selection
-  if (empty && !(state.selection instanceof NodeSelection)) return null
+
+  if (state.selection instanceof CellSelection) {
+    let minTop = Infinity
+    let minLeft = Infinity
+    let maxBottom = -Infinity
+    let maxRight = -Infinity
+    state.selection.forEachCell((_node, pos) => {
+      const dom = view.nodeDOM(pos)
+      if (!(dom instanceof HTMLElement)) return
+      const rect = dom.getBoundingClientRect()
+      minTop = Math.min(minTop, rect.top)
+      minLeft = Math.min(minLeft, rect.left)
+      maxBottom = Math.max(maxBottom, rect.bottom)
+      maxRight = Math.max(maxRight, rect.right)
+    })
+    if (minTop < Infinity) {
+      return new DOMRect(minLeft, minTop, Math.max(1, maxRight - minLeft), Math.max(1, maxBottom - minTop))
+    }
+  }
+
+  if (empty && !(state.selection instanceof NodeSelection)) {
+    if (!allowEmptyCaret) return null
+    try {
+      const caret = view.coordsAtPos(from)
+      return new DOMRect(
+        caret.left,
+        caret.top,
+        Math.max(1, caret.right - caret.left),
+        Math.max(1, caret.bottom - caret.top),
+      )
+    } catch {
+      return null
+    }
+  }
 
   if (state.selection instanceof NodeSelection) {
     const dom = view.nodeDOM(state.selection.from)
@@ -318,11 +357,15 @@ export function PagesEditor({
     }
     const { selection } = editor.state
     const isNode = selection instanceof NodeSelection
-    if (selection.empty && !isNode) {
+    const isCellSel = selection instanceof CellSelection
+    const inTable = editor.isActive('table') || isCellSel
+    const isTableNode = isNode && selection.node.type.name === 'table'
+    // 表内空光标 / 多单元格选区显示表格气泡；其它空选区不显示
+    if (selection.empty && !isNode && !inTable) {
       setBubble(null)
       return
     }
-    const rect = selectionCoords(editor)
+    const rect = selectionCoords(editor, inTable && selection.empty && !isCellSel)
     if (!rect) {
       setBubble(null)
       return
@@ -341,14 +384,21 @@ export function PagesEditor({
       return
     }
     const isImage = isNode && selection.node.type.name === 'image'
+    const mode: BubbleMode = isImage
+      ? 'image'
+      : isCellSel || isTableNode || (inTable && selection.empty)
+        ? 'table'
+        : isNode
+          ? 'block'
+          : 'text'
     const pad = 8
     // 预估全宽（实测校正见下方 effect）；文字条含「正文/H1…」远宽于旧 halfW=140
-    const estW = isImage ? 340 : isNode ? 200 : 420
+    const estW = mode === 'image' ? 340 : mode === 'table' ? 380 : mode === 'block' ? 200 : 420
     const rawTop = rect.top - rootRect.top - 40
     const top = Math.min(Math.max(pad, rawTop), Math.max(pad, rootRect.height - 40))
     let left: number
     let align: BubbleState['align']
-    if (isNode) {
+    if (isNode || isCellSel || mode === 'table') {
       align = 'start'
       left = rect.left - rootRect.left + 12
     } else {
@@ -364,7 +414,6 @@ export function PagesEditor({
     } else {
       left = Math.min(Math.max(left, pad), rootRect.width - estW - pad)
     }
-    const mode: BubbleMode = isImage ? 'image' : isNode ? 'block' : 'text'
     setBubble({
       mode,
       top,
@@ -569,6 +618,7 @@ export function PagesEditor({
           class: 'pages-editor__prose',
           spellcheck: 'false',
         },
+        transformPastedHTML: (html) => promotePastedTableHeaderHtml(html),
         handleDOMEvents: {
           contextmenu: (view, event) => {
             if (!editableRef.current || viewModeRef.current !== 'edit') return false
@@ -580,8 +630,17 @@ export function PagesEditor({
             if (!editorInstance) return true
 
             const { selection } = view.state
-            const clickInsideSelection =
-              !selection.empty && posInfo.pos >= selection.from && posInfo.pos <= selection.to
+            let clickInsideSelection = false
+            if (selection instanceof CellSelection) {
+              selection.forEachCell((node, cellPos) => {
+                if (posInfo.pos >= cellPos && posInfo.pos <= cellPos + node.nodeSize) {
+                  clickInsideSelection = true
+                }
+              })
+            } else if (!selection.empty) {
+              clickInsideSelection =
+                posInfo.pos >= selection.from && posInfo.pos <= selection.to
+            }
             if (!clickInsideSelection && !(selection instanceof NodeSelection)) {
               try {
                 const sel = TextSelection.near(view.state.doc.resolve(posInfo.pos))
@@ -596,12 +655,20 @@ export function PagesEditor({
 
             const $pos = view.state.doc.resolve(posInfo.pos)
             let inTable = false
+            let hasHeaderRow = false
             for (let d = $pos.depth; d > 0; d--) {
-              if ($pos.node(d).type.name === 'table') {
-                inTable = true
-                break
+              const node = $pos.node(d)
+              if (node.type.name !== 'table') continue
+              inTable = true
+              const firstRow = node.firstChild
+              if (firstRow) {
+                firstRow.forEach((cell) => {
+                  if (cell.type.name === 'tableHeader') hasHeaderRow = true
+                })
               }
+              break
             }
+            if (view.state.selection instanceof CellSelection) inTable = true
             const onLink = editorInstance.isActive('link')
             const onImage =
               editorInstance.isActive('image') || block.node.type.name === 'image'
@@ -610,28 +677,53 @@ export function PagesEditor({
             const rootRect = root.getBoundingClientRect()
             closeFloatingExcept('context')
             const menuW = 180
-            const menuH = 220
+            const menuH = 300
             const rawLeft = event.clientX - rootRect.left
             const rawTop = event.clientY - rootRect.top
             setContextMenu({
               top: Math.min(Math.max(4, rawTop), Math.max(4, rootRect.height - menuH)),
               left: Math.min(Math.max(4, rawLeft), Math.max(4, rootRect.width - menuW)),
               blockPos: block.pos,
-              items: buildContextMenuItems({ inTable, onLink, onImage }),
+              items: buildContextMenuItems({
+                inTable,
+                hasHeaderRow,
+                canMergeCells: inTable && editorInstance.can().mergeCells(),
+                canSplitCell: inTable && editorInstance.can().splitCell(),
+                onLink,
+                onImage,
+              }),
             })
             return true
           },
           paste: (_view, event) => {
             if (!editableRef.current || viewModeRef.current !== 'edit') return false
             const items = event.clipboardData?.items
-            if (!items) return false
-            for (const item of Array.from(items)) {
-              if (!item.type.startsWith('image/')) continue
-              const file = item.getAsFile()
-              if (!file) continue
-              event.preventDefault()
-              void insertImageFile(file)
-              return true
+            if (items) {
+              for (const item of Array.from(items)) {
+                if (!item.type.startsWith('image/')) continue
+                const file = item.getAsFile()
+                if (!file) continue
+                event.preventDefault()
+                void insertImageFile(file)
+                return true
+              }
+            }
+
+            const html = event.clipboardData?.getData('text/html') ?? ''
+            const text = event.clipboardData?.getData('text/plain') ?? ''
+            // 纯 TSV（无 HTML 表）时转成带表头的表格，避免落成一堆段落
+            if (
+              text &&
+              clipboardLooksLikeTsvTable(text) &&
+              !/<table\b/i.test(html)
+            ) {
+              const tableHtml = tsvToTableHtml(text)
+              const editorInstance = editorRef.current
+              if (tableHtml && editorInstance && !editorInstance.isDestroyed) {
+                event.preventDefault()
+                editorInstance.chain().focus().insertContent(tableHtml).run()
+                return true
+              }
             }
             return false
           },
@@ -1074,6 +1166,40 @@ export function PagesEditor({
     editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run()
   }
 
+  const openCurrentTableSheet = (editor: Editor) => {
+    const { state } = editor
+    const $pos = state.doc.resolve(
+      Math.min(Math.max(1, state.selection.from), state.doc.content.size),
+    )
+    let tablePos = -1
+    let tableNode = null as ReturnType<typeof state.doc.nodeAt>
+    for (let d = $pos.depth; d > 0; d--) {
+      if ($pos.node(d).type.name === 'table') {
+        tablePos = $pos.before(d)
+        tableNode = $pos.node(d)
+        break
+      }
+    }
+    if (tablePos < 0 || !tableNode) return
+    let tableId = typeof tableNode.attrs.id === 'string' ? tableNode.attrs.id : ''
+    if (!tableId) {
+      tableId = createTableId()
+      editor
+        .chain()
+        .command(({ tr }) => {
+          tr.setNodeMarkup(tablePos, undefined, {
+            ...tableNode!.attrs,
+            id: tableId,
+          })
+          return true
+        })
+        .run()
+    }
+    const fresh = editor.state.doc.nodeAt(tablePos) ?? tableNode
+    setSheetTableJSON(fresh.toJSON() as JSONContent)
+    onEnterSheet?.(tableId)
+  }
+
   const handleContextAction = async (id: string) => {
     const editor = editorRef.current
     const menu = contextMenu
@@ -1142,40 +1268,18 @@ export function PagesEditor({
         selectBlockNode(editor, blockPos)
         fileInputRef.current?.click()
         break
-      case 'open-sheet': {
-        const { state } = editor
-        const $pos = state.doc.resolve(
-          Math.min(Math.max(1, state.selection.from), state.doc.content.size),
-        )
-        let tablePos = -1
-        let tableNode = null as ReturnType<typeof state.doc.nodeAt>
-        for (let d = $pos.depth; d > 0; d--) {
-          if ($pos.node(d).type.name === 'table') {
-            tablePos = $pos.before(d)
-            tableNode = $pos.node(d)
-            break
-          }
-        }
-        if (tablePos < 0 || !tableNode) break
-        let tableId = typeof tableNode.attrs.id === 'string' ? tableNode.attrs.id : ''
-        if (!tableId) {
-          tableId = createTableId()
-          editor
-            .chain()
-            .command(({ tr }) => {
-              tr.setNodeMarkup(tablePos, undefined, {
-                ...tableNode!.attrs,
-                id: tableId,
-              })
-              return true
-            })
-            .run()
-        }
-        const fresh = editor.state.doc.nodeAt(tablePos) ?? tableNode
-        setSheetTableJSON(fresh.toJSON() as JSONContent)
-        onEnterSheet?.(tableId)
+      case 'open-sheet':
+        openCurrentTableSheet(editor)
         break
-      }
+      case 'toggle-header-row':
+        editor.chain().focus().toggleHeaderRow().run()
+        break
+      case 'merge-cells':
+        editor.chain().focus().mergeCells().run()
+        break
+      case 'split-cell':
+        editor.chain().focus().splitCell().run()
+        break
       case 'add-row-before':
         editor.chain().focus().addRowBefore().run()
         break
@@ -1278,7 +1382,12 @@ export function PagesEditor({
     slashMenu.items.every((item) => item.section)
 
   return (
-    <div class={`pages-editor${outlineOpen ? ' pages-editor--with-sidebar' : ''}`} ref={rootRef}>
+    <div
+      class={`pages-editor${outlineOpen ? ' pages-editor--with-sidebar' : ''}${
+        dragSession ? ' pages-editor--block-dragging' : ''
+      }`}
+      ref={rootRef}
+    >
       <div class="pages-editor__sidebar">
         {outlineOpen && viewMode !== 'sheet' ? (
           <PagesOutline items={outlineItems} onJump={jumpToOutline} />
@@ -1430,8 +1539,18 @@ export function PagesEditor({
               void copyEditorSelection(editor)
             }}
             onDeleteBlock={() => {
+              // 图片等 NodeSelection：直接删当前选区，避免块位解析偏差
+              if (editor.state.selection instanceof NodeSelection) {
+                editor.chain().focus().deleteSelection().run()
+                setBubble(null)
+                return
+              }
               if (bubble.blockPos == null) return
               deleteTopLevelBlock(editor, bubble.blockPos)
+              setBubble(null)
+            }}
+            onOpenSheet={() => {
+              openCurrentTableSheet(editor)
               setBubble(null)
             }}
           />
