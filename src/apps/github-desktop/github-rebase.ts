@@ -12,13 +12,9 @@ import {
 } from './github-baseline.ts'
 import {
   detectGithubChanges,
-  persistBaselineFromWorkingTree,
   stampFileIndexRevisionIdsFromWorkingTree,
 } from './github-changes.ts'
-import { joinFilesAbsolutePath } from '../files/files-path.ts'
-import { filesRemoveBatch } from '../files/files-api.ts'
 import type { GithubProgress } from './github-progress.ts'
-import { githubRepoRootPath } from './github-repo-paths.ts'
 import {
   currentBranchPushedSha,
   currentFileIndex,
@@ -34,11 +30,8 @@ import {
   type GithubLocalCommit,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
-import {
-  syncWorkingTreeToFileIndex,
-  unzipGithubZipball,
-  writeWorkingTreeFile,
-} from './github-working-tree.ts'
+import { diffFileIndexes } from './github-file-index-diff.ts'
+import { syncWorkingTreeToFileIndex, unzipGithubZipball } from './github-working-tree.ts'
 
 /** 变更文件数超过此阈值时回退整包 zip */
 const INCREMENTAL_FILE_LIMIT = 80
@@ -67,6 +60,25 @@ export function findRebaseConflictPaths(
   }
   conflicts.sort((a, b) => a.localeCompare(b))
   return conflicts
+}
+
+/** 错误文案用的路径预览 */
+export function formatPathList(paths: ReadonlyArray<string>): string {
+  const sorted = [...paths].sort((a, b) => a.localeCompare(b))
+  const preview = sorted.slice(0, 8).join('、')
+  const more = sorted.length > 8 ? ` 等 ${sorted.length} 个文件` : ''
+  return `${preview}${more}`
+}
+
+function throwIfDirtyOverlapsRemote(
+  remotePaths: ReadonlyArray<string>,
+  dirtyPaths: ReadonlySet<string>,
+): void {
+  const overlaps = findRebaseConflictPaths(remotePaths, dirtyPaths)
+  if (overlaps.length === 0) return
+  throw new Error(
+    `无法同步：未 commit 的本地修改与远端即将写入的文件冲突（${formatPathList(overlaps)}）。请先 commit 或丢弃这些文件后再试。`,
+  )
 }
 
 /**
@@ -178,6 +190,7 @@ export async function rematerializeBranchFromZip(params: {
   onProgress?.('写入基线快照…')
   let fileIndex = await persistBaselineFromFiles(files)
   const fromIndex = currentFileIndex(meta)
+  const writtenPaths = new Set(diffFileIndexes(fromIndex, fileIndex).map((op) => op.path))
   onProgress?.('增量同步工作区…')
   await syncWorkingTreeToFileIndex(
     meta.owner,
@@ -186,10 +199,12 @@ export async function rematerializeBranchFromZip(params: {
     fileIndex,
     onProgress,
   )
+  // 只 stamp 实际写入的路径，避免把无关 WIP 的 revisionId 写进 tip
   fileIndex = await stampFileIndexRevisionIdsFromWorkingTree(
     meta.owner,
     meta.repo,
     fileIndex,
+    writtenPaths,
   )
   const next = withBranchSnapshot(
     meta,
@@ -216,6 +231,14 @@ async function fastForwardToRemoteTip(params: {
   const { meta, baseSha, remoteSha, onProgress } = params
   onProgress?.('比较本地与远端差异…')
   const compare = await githubCompare(meta.owner, meta.repo, baseSha, remoteSha)
+  const remotePaths = compare.files.map((file) => file.filename)
+
+  onProgress?.('检查未 commit 变更是否与远端冲突…')
+  const dirty = await detectGithubChanges(meta)
+  throwIfDirtyOverlapsRemote(
+    remotePaths,
+    new Set(dirty.map((change) => change.path)),
+  )
 
   if (compare.files.length > INCREMENTAL_FILE_LIMIT) {
     onProgress?.(`变更文件较多（${compare.files.length}），改用完整压缩包…`)
@@ -227,48 +250,36 @@ async function fastForwardToRemoteTip(params: {
     })
   }
 
-  const root = githubRepoRootPath(meta.owner, meta.repo)
-  const removedPaths: string[] = []
-  const writeFiles: typeof compare.files = []
-
-  for (const file of compare.files) {
-    if (file.status === 'removed') {
-      removedPaths.push(joinFilesAbsolutePath(root, ...file.filename.split('/')))
-    } else {
-      writeFiles.push(file)
-    }
-  }
-
-  if (removedPaths.length > 0) {
-    await filesRemoveBatch(removedPaths, { skipMissing: true })
-  }
-
-  let applied = removedPaths.length
-  for (const file of writeFiles) {
-    const absolute = joinFilesAbsolutePath(root, ...file.filename.split('/'))
-    const bytes = await githubGetFileContent(
-      meta.owner,
-      meta.repo,
-      file.filename,
-      remoteSha,
-    )
-    await writeWorkingTreeFile(absolute, bytes)
-    applied += 1
-    if (applied % 10 === 0) {
-      onProgress?.(`应用变更 ${applied}/${compare.files.length}…`)
-    }
-  }
-
-  onProgress?.('更新同步快照…')
-  const fileIndex = await persistBaselineFromWorkingTree(
+  const fromIndex = currentFileIndex(meta)
+  onProgress?.('合并远端变更…')
+  const nextIndex = await applyRemoteCompareToFileIndex({
+    baseIndex: fromIndex,
+    files: compare.files,
+    protectedPaths: new Set(),
+    owner: meta.owner,
+    repo: meta.repo,
+    remoteSha,
+    onProgress,
+  })
+  const writtenPaths = new Set(diffFileIndexes(fromIndex, nextIndex).map((op) => op.path))
+  onProgress?.('同步工作区…')
+  await syncWorkingTreeToFileIndex(
     meta.owner,
     meta.repo,
-    currentFileIndex(meta),
+    fromIndex,
+    nextIndex,
+    onProgress,
+  )
+  const stampedIndex = await stampFileIndexRevisionIdsFromWorkingTree(
+    meta.owner,
+    meta.repo,
+    nextIndex,
+    writtenPaths,
   )
   const next = withRemoteBranchTip(
     withBranchSnapshot(meta, meta.currentBranch, {
       tipSha: remoteSha,
-      fileIndex,
+      fileIndex: stampedIndex,
       baselineComplete: true,
       pushedTipSha: remoteSha,
     }),
@@ -295,12 +306,17 @@ async function rebaseUnpushedChain(params: {
   const remotePaths = compare.files.map((file) => file.filename)
   const conflicts = findRebaseConflictPaths(remotePaths, localPaths)
   if (conflicts.length > 0) {
-    const preview = conflicts.slice(0, 8).join('、')
-    const more = conflicts.length > 8 ? ` 等 ${conflicts.length} 个文件` : ''
     throw new Error(
-      `无法自动变基：远端与本地未推送 commit 修改了同一文件（${preview}${more}）。请先处理冲突后再推送或拉取。`,
+      `无法自动变基：远端与本地未推送 commit 修改了同一文件（${formatPathList(conflicts)}）。请先处理冲突后再推送或拉取。`,
     )
   }
+
+  onProgress?.('检查未 commit 变更是否与远端冲突…')
+  const dirty = await detectGithubChanges(meta)
+  throwIfDirtyOverlapsRemote(
+    remotePaths,
+    new Set(dirty.map((change) => change.path)),
+  )
 
   let remoteTipIndex: Record<string, GithubFileIndexEntry>
   const first = unpushed[0]!
@@ -336,10 +352,9 @@ async function rebaseUnpushedChain(params: {
     remoteSha,
   )
 
-  // 重写后的 parentSha：链式应为 liveTip → commit0 → commit1 …
-  // rebaseLocalCommitChainOntoFileIndex 用 commits[i-1].sha，在重写前 sha 未变，正确。
   const tipSha = rewritten[rewritten.length - 1]!.sha
   const fromIndex = currentFileIndex(meta)
+  const writtenPaths = new Set(diffFileIndexes(fromIndex, tipFileIndex).map((op) => op.path))
   onProgress?.('同步工作区…')
   await syncWorkingTreeToFileIndex(
     meta.owner,
@@ -352,6 +367,7 @@ async function rebaseUnpushedChain(params: {
     meta.owner,
     meta.repo,
     tipFileIndex,
+    writtenPaths,
   )
   const stampedRewritten = rewritten.map((commit, index) => {
     if (index !== rewritten.length - 1) return commit
@@ -377,7 +393,7 @@ async function rebaseUnpushedChain(params: {
 
 /**
  * 若远端 tip 超前于本地已推送基点：快进或把未推送本地 commit 变基到远端 tip。
- * Push / Pull 共用；冲突路径相交时抛错，不修改本地 commit。
+ * Push / Pull 共用；仅当未 commit WIP 与远端写入路径冲突时拒绝（对齐 git）。
  */
 export async function rebaseUnpushedOntoRemoteTip(params: {
   meta: GithubRepoSyncMeta
@@ -401,12 +417,6 @@ export async function rebaseUnpushedOntoRemoteTip(params: {
   if (head === remoteSha && !isLocalCommitSha(head)) {
     onProgress?.('已是最新')
     return meta
-  }
-
-  onProgress?.('检查本地是否有未 commit 变更…')
-  const localChanges = await detectGithubChanges(meta)
-  if (localChanges.length > 0) {
-    throw new Error('本地有未 commit 变更，请先 commit 或丢弃后再同步')
   }
 
   const unpushed = await listUnpushedLocalCommits(

@@ -8,6 +8,7 @@ import {
   applyLocalCommitChangesToFileIndex,
   collectUnpushedChangePaths,
   findRebaseConflictPaths,
+  formatPathList,
   rebaseLocalCommitChainOntoFileIndex,
 } from './github-rebase.ts'
 import type { GithubFileIndexEntry, GithubLocalCommit } from './github-sync-meta.ts'
@@ -48,6 +49,23 @@ function commit(partial: Partial<GithubLocalCommit> & Pick<GithubLocalCommit, 's
   assert.deepEqual(
     findRebaseConflictPaths(['b.ts', 'a.ts', 'c.ts'], new Set(['a.ts', 'c.ts'])),
     ['a.ts', 'c.ts'],
+  )
+  // dirty WIP ∩ remote：无交 / 有交（对齐 git 仅冲突时拦截）
+  assert.deepEqual(
+    findRebaseConflictPaths(['remote-a.ts', 'remote-b.ts'], new Set(['wip.ts'])),
+    [],
+  )
+  assert.deepEqual(
+    findRebaseConflictPaths(['remote-a.ts', 'wip.ts'], new Set(['wip.ts', 'other.ts'])),
+    ['wip.ts'],
+  )
+}
+
+{
+  assert.equal(formatPathList(['b.ts', 'a.ts']), 'a.ts、b.ts')
+  assert.equal(
+    formatPathList(['8', '7', '6', '5', '4', '3', '2', '1', '9']),
+    '1、2、3、4、5、6、7、8 等 9 个文件',
   )
 }
 
