@@ -34,12 +34,14 @@ import {
   getMountNode,
   listMountDirectory,
   mkdirMount,
+  createMountBinaryFile,
   readMountBlob,
   readMountText,
   removeMountNode,
   renameMountNode,
   resolveMountPath,
   resolveMountRelativePath,
+  writeMountBlob,
   writeMountText,
 } from './files-location-mount.ts'
 import {
@@ -487,13 +489,27 @@ export async function createBinaryFile(params: {
   mimeType?: string
 }): Promise<FilesNode> {
   await assertCanCreateIn(params.locationId, params.parentId)
-  if (isMountLocationId(params.locationId)) {
-    throw new Error('挂载卷暂不支持从此处创建二进制文件')
-  }
   const desired = normalizeFilesNodeName(params.name.trim() || '未命名.bin')
   const names = await siblingNames(params.locationId, params.parentId)
   const name = uniqueName(names, desired)
   const startedAt = performance.now()
+
+  if (isMountLocationId(params.locationId)) {
+    const created = await createMountBinaryFile({
+      locationId: params.locationId,
+      parentId: params.parentId,
+      name,
+      bytes: params.bytes,
+    })
+    await emitNodeCreated(created)
+    recordFilesIoWrite(
+      created,
+      params.bytes.byteLength,
+      'createBinary',
+      performance.now() - startedAt,
+    )
+    return created
+  }
 
   const now = osNowMs()
   const node: FilesNode = {
@@ -968,10 +984,13 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
   }
   assertNodeWritable(target)
 
-  if (isMountNodeId(target.id)) {
-    throw new Error('挂载卷暂不支持从此处写入二进制文件')
-  }
   const startedAt = performance.now()
+  if (isMountNodeId(target.id)) {
+    const written = await writeMountBlob(target.id, bytes)
+    await emitNodeModified(written)
+    recordFilesIoWrite(written, bytes.byteLength, 'writeBinary', performance.now() - startedAt)
+    return written
+  }
   const written = await writeBlobBytes({
     id: target.id,
     bytes,
@@ -1422,9 +1441,6 @@ async function copyNodeTree(
     })
     let created: FilesNode
     if (asBinary) {
-      if (isMountLocationId(destLocationId)) {
-        throw new Error('挂载卷暂不支持粘贴二进制文件')
-      }
       created = await createBinaryFile({
         locationId: destLocationId,
         parentId: destParentId,

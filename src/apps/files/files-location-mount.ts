@@ -387,6 +387,20 @@ export async function writeMountText(id: string, text: string): Promise<FilesNod
   return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
 }
 
+export async function writeMountBlob(id: string, bytes: ArrayBuffer): Promise<FilesNode> {
+  const parsed = parseFilePath(id)
+  if (!parsed) {
+    throw new Error('文件不存在')
+  }
+  const { parent, name } = await resolveParentAndName(parsed.locationId, parsed.path)
+  const handle = await parent.getFileHandle(name)
+  const writable = await handle.createWritable()
+  await writable.write(bytes)
+  await writable.close()
+  const blob = await handle.getFile()
+  return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
+}
+
 export async function mkdirMount(params: {
   locationId: MountFilesLocationId
   parentId: string | undefined
@@ -427,6 +441,28 @@ export async function createMountTextFile(params: {
   return makeFileNode(params.locationId, path, blob.size, blob.lastModified)
 }
 
+export async function createMountBinaryFile(params: {
+  locationId: MountFilesLocationId
+  parentId: string | undefined
+  name: string
+  bytes: ArrayBuffer
+}): Promise<FilesNode> {
+  const root = await getRootHandle(params.locationId)
+  const parentPath =
+    params.parentId === undefined ? undefined : parseDirPath(params.parentId)?.path
+  if (params.parentId !== undefined && parentPath === undefined) {
+    throw new Error('父级不是文件夹')
+  }
+  const parent = await resolveDirectoryHandle(params.locationId, root, parentPath)
+  const handle = await parent.getFileHandle(params.name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(params.bytes)
+  await writable.close()
+  const path = joinPath(parentPath, params.name)
+  const blob = await handle.getFile()
+  return makeFileNode(params.locationId, path, blob.size, blob.lastModified)
+}
+
 export async function renameMountNode(id: string, nextName: string): Promise<FilesNode> {
   const dir = parseDirPath(id)
   if (dir) {
@@ -453,10 +489,10 @@ export async function renameMountNode(id: string, nextName: string): Promise<Fil
     await handle.move(nextName)
   } else {
     const blob = await handle.getFile()
-    const text = await blob.text()
+    const buffer = await blob.arrayBuffer()
     const next = await parent.getFileHandle(nextName, { create: true })
     const writable = await next.createWritable()
-    await writable.write(text)
+    await writable.write(buffer)
     await writable.close()
     await parent.removeEntry(name)
   }
