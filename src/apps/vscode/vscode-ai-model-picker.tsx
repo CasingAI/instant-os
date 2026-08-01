@@ -37,6 +37,7 @@ import {
   type VscodeAiCapabilityTags,
 } from './vscode-ai-models.ts'
 import {
+  filterModelsExcludingPinnedKeys,
   filterVscodeAiModelPickerPins,
   filterVscodeAiModelsByQuery,
   labelForVscodeModelPickerDisplay,
@@ -524,12 +525,6 @@ export function VscodeAiModelPicker({
     return map
   }, [models])
 
-  const filteredModels = useMemo(() => {
-    return filterVscodeAiModelsByQuery(models, query)
-  }, [models, query])
-
-  const displayValue = labelForVscodeModelPickerDisplay(value, models, selectionMode)
-
   const completionPinned = useMemo(
     () => listVscodeAiModelCapabilityPins(selectionMode),
     [selectionMode],
@@ -539,6 +534,15 @@ export function VscodeAiModelPicker({
     () => filterVscodeAiModelPickerPins(completionPinned, query),
     [completionPinned, query],
   )
+
+  const filteredModels = useMemo(() => {
+    return filterModelsExcludingPinnedKeys(
+      filterVscodeAiModelsByQuery(models, query),
+      visiblePinned,
+    )
+  }, [models, query, visiblePinned])
+
+  const displayValue = labelForVscodeModelPickerDisplay(value, models, selectionMode)
 
   const hoveredModel = (() => {
     if (!hoveredKey) return undefined
@@ -946,7 +950,8 @@ export function VscodeAiModelPicker({
                       aiModelOptions,
                     )
                     const options = listVscodeAiContextWindowPrefOptions(
-                      resolveVscodeAiSystemContextWindow(editModel),
+                      editModel,
+                      aiModelOptions,
                     )
                     return (
                       <>

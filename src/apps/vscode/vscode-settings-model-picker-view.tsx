@@ -18,6 +18,7 @@ import {
   shouldShowVscodeAiThinkingEffortPicker,
 } from './vscode-ai-model-display.ts'
 import {
+  filterModelsExcludingPinnedKeys,
   filterVscodeAiModelPickerPins,
   filterVscodeAiModelsByQuery,
   listVscodeAiModelCapabilityPins,
@@ -120,8 +121,12 @@ export function VscodeSettingsModelPickerView({
     [pins, query],
   )
   const filteredModels = useMemo(
-    () => filterVscodeAiModelsByQuery(models, query),
-    [models, query],
+    () =>
+      filterModelsExcludingPinnedKeys(
+        filterVscodeAiModelsByQuery(models, query),
+        visiblePins,
+      ),
+    [models, query, visiblePins],
   )
 
   const handleSelect = (next: string) => {
@@ -416,13 +421,14 @@ export function VscodeSettingsModelChoiceView({
 
 export function listSettingsModelContextOptions(
   model: FlatEnabledModel,
+  aiModelOptions?: Record<string, VscodeAiModelOptionPrefs>,
 ): { id: string; label: string }[] {
-  return listVscodeAiContextWindowPrefOptions(
-    resolveVscodeAiSystemContextWindow(model),
-  ).map((option) => ({
-    id: String(option.value),
-    label: option.label,
-  }))
+  return listVscodeAiContextWindowPrefOptions(model, aiModelOptions).map(
+    (option) => ({
+      id: String(option.value),
+      label: option.label,
+    }),
+  )
 }
 
 export function listSettingsModelThinkingOptions(

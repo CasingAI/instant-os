@@ -25,8 +25,11 @@ export type VscodeSearchPrefs = {
 
 /** VS Code 本地可选手动上下文档位（token）；覆盖系统预设时选用 */
 export const VSCODE_AI_CONTEXT_WINDOW_PRESETS = [
-  64_000, 128_000, 200_000, 256_000, 400_000, 512_000, 1_000_000, 1_050_000,
+  64_000, 128_000, 200_000, 256_000, 400_000, 1_000_000,
 ] as const
+
+/** 已废弃的手动档；加载时丢弃，回落为跟随系统 */
+const LEGACY_CONTEXT_WINDOW_PRESETS = [512_000, 1_050_000] as const
 
 export type VscodeAiContextWindowPreset =
   (typeof VSCODE_AI_CONTEXT_WINDOW_PRESETS)[number]
@@ -239,6 +242,13 @@ function normalizeContextWindowPref(
   value: unknown,
 ): VscodeAiContextWindowPref | undefined {
   if (value === 'system' || isContextWindowPreset(value)) return value
+  // 512K / 1.05M 等旧档：丢弃字段 → 跟随系统
+  if (
+    typeof value === 'number' &&
+    (LEGACY_CONTEXT_WINDOW_PRESETS as readonly number[]).includes(value)
+  ) {
+    return undefined
+  }
   return undefined
 }
 

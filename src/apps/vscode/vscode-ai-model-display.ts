@@ -4,23 +4,34 @@ import {
   supportsThinkingParam,
 } from '../../ai/ai-thinking.ts'
 import {
+  findAiModelPreset,
   findAiProviderPreset,
   type FlatEnabledModel,
 } from '../../ai/ai-providers.ts'
 import { loadAccountSettings } from '../../os/account-settings-storage.ts'
-import { formatCompactTokenCount } from '../browser/format-token-count.ts'
+import {
+  buildVscodeAiContextWindowManualPresets,
+  formatContextWindowTokenLabel,
+} from './vscode-ai-context-window-options.ts'
 import { resolveModelContextWindow } from './vscode-ai-context-usage.ts'
 import {
   formatVscodeAiModelRefKey,
   labelForVscodeAiModel,
+  resolveVscodeAiContextWindowPrefForModelKey,
   resolveVscodeAiThinkingEnabledForModelKey,
 } from './vscode-ai-models.ts'
 import {
   VSCODE_AI_CONTEXT_WINDOW_PRESETS,
   type VscodeAiContextWindowPref,
+  type VscodeAiContextWindowPreset,
   type VscodeAiModelOptionPrefs,
   type VscodeAiThinkingEffortPref,
 } from './vscode-prefs.ts'
+
+export {
+  formatContextWindowTokenLabel,
+  mergeNearContextWindowPresets,
+} from './vscode-ai-context-window-options.ts'
 
 const PRESET_BLURBS: Record<string, string> = {
   'deepseek-v4-flash': '快速响应，适合日常对话与轻量编码。',
@@ -81,23 +92,39 @@ export function formatVscodeAiContextWindowPrefLabel(
 ): string {
   if (pref === 'system') {
     return typeof systemTokens === 'number'
-      ? `系统（${formatCompactTokenCount(systemTokens)}）`
+      ? `系统（${formatContextWindowTokenLabel(systemTokens)}）`
       : '系统'
   }
-  return formatCompactTokenCount(pref)
+  return formatContextWindowTokenLabel(pref)
 }
 
 export function listVscodeAiContextWindowPrefOptions(
-  systemTokens: number,
+  model: Pick<FlatEnabledModel, 'modelId' | 'providerEntryId' | 'providerId'>,
+  options?: Record<string, VscodeAiModelOptionPrefs>,
 ): ReadonlyArray<{ value: VscodeAiContextWindowPref; label: string }> {
+  const systemTokens = resolveVscodeAiSystemContextWindow(model)
+  const presetTokens = findAiModelPreset(model.providerId, model.modelId)
+    ?.contextWindow
+  const modelKey = formatVscodeAiModelRefKey({
+    providerEntryId: model.providerEntryId,
+    modelId: model.modelId,
+  })
+  const current = resolveVscodeAiContextWindowPrefForModelKey(modelKey, options)
+  const merged = buildVscodeAiContextWindowManualPresets({
+    systemTokens,
+    catalog: VSCODE_AI_CONTEXT_WINDOW_PRESETS,
+    presetTokens: typeof presetTokens === 'number' ? presetTokens : undefined,
+    currentOverride: typeof current === 'number' ? current : undefined,
+  })
+
   return [
     {
       value: 'system',
-      label: `使用系统值（${formatCompactTokenCount(systemTokens)}）`,
+      label: `使用系统值（${formatContextWindowTokenLabel(systemTokens)}）`,
     },
-    ...VSCODE_AI_CONTEXT_WINDOW_PRESETS.map((value) => ({
-      value,
-      label: formatCompactTokenCount(value),
+    ...merged.map((value) => ({
+      value: value as VscodeAiContextWindowPreset,
+      label: formatContextWindowTokenLabel(value),
     })),
   ]
 }
@@ -182,7 +209,7 @@ export function formatVscodeAiModelContextLabel(
     modelKey,
     aiModelOptions: options,
   })
-  return `${formatCompactTokenCount(window)} 上下文窗口`
+  return `${formatContextWindowTokenLabel(window)} 上下文窗口`
 }
 
 export type VscodeAiFastPair = {
@@ -254,7 +281,7 @@ export function displayPartsForVscodeAiModel(
 
   const contextPref = options?.[modelKey]?.contextWindow
   if (typeof contextPref === 'number') {
-    bits.push(formatCompactTokenCount(contextPref))
+    bits.push(formatContextWindowTokenLabel(contextPref))
   }
 
   return {

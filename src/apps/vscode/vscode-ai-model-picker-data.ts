@@ -25,6 +25,8 @@ export type VscodeAiModelPickerPin = {
   tag: string
   /** 供应商 */
   secondary?: string
+  /** 钉住所指向的实际 modelKey；有则用于从全量列表去重 */
+  resolvedModelKey?: string
 }
 
 export type VscodeAiModelPickerSelectionMode = 'agent' | 'completion' | 'vision'
@@ -43,6 +45,29 @@ export function filterVscodeAiModelsByQuery(
 ): FlatEnabledModel[] {
   const normalized = query.trim().toLowerCase()
   return models.filter((model) => modelMatchesQuery(model, normalized))
+}
+
+/** 从全量列表排除钉住项已解析到的 modelKey，避免快捷行与「全部」重复。 */
+export function filterModelsExcludingPinnedKeys(
+  models: readonly FlatEnabledModel[],
+  pins: readonly VscodeAiModelPickerPin[],
+): FlatEnabledModel[] {
+  const excluded = new Set<string>()
+  for (const pin of pins) {
+    const key =
+      pin.resolvedModelKey ?? resolveVscodeCapabilityPickerModelKey(pin.key)
+    if (key) excluded.add(key)
+  }
+  if (excluded.size === 0) return [...models]
+  return models.filter(
+    (model) =>
+      !excluded.has(
+        formatVscodeAiModelRefKey({
+          providerEntryId: model.providerEntryId,
+          modelId: model.modelId,
+        }),
+      ),
+  )
 }
 
 function pinForCapability(
@@ -72,6 +97,7 @@ function pinForCapability(
         : (labelForPreferredCapabilityModel(capability) ?? '未配置'),
     tag,
     secondary: model ? labelForVscodeAiModelProvider(model) : undefined,
+    ...(modelKey ? { resolvedModelKey: modelKey } : {}),
   }
 }
 

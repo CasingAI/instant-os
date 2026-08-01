@@ -1185,7 +1185,10 @@ export function VscodeSettingsPanel({
         return (
           <VscodeSettingsModelChoiceView
             title="上下文长度"
-            options={listSettingsModelContextOptions(editModel)}
+            options={listSettingsModelContextOptions(
+              editModel,
+              prefs.aiModelOptions,
+            )}
             value={String(current)}
             onChange={(raw) => {
               onChange({
