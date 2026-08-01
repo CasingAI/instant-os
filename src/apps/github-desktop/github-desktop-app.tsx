@@ -60,6 +60,16 @@ import {
 import { generateGithubCommitMessage } from './github-commit-agent.ts'
 import { buildLocalCommitDetail, buildLocalCommitFilePreview, commitGithubChanges, formatStagedChangesSummary, pushGithubBranch } from './github-commit.ts'
 import { discardGithubChanges } from './github-discard.ts'
+import { createGithubBranch, validateGithubBranchName } from './github-branch.ts'
+import {
+  amendUnpushedCommit,
+  undoLastUnpushedCommit,
+} from './github-local-history.ts'
+import {
+  stashListGithub,
+  stashPopGithubChanges,
+  stashSaveGithubChanges,
+} from './github-stash.ts'
 import { GithubChangesVirtualList } from './github-changes-virtual-list.tsx'
 import { GithubDesktopDiffView } from './github-desktop-diff-view.tsx'
 import {
@@ -148,6 +158,9 @@ type BusyKind =
   | 'delete'
   | 'rebuild'
   | 'discard'
+  | 'stash'
+  | 'branch'
+  | 'undo'
   | undefined
 
 type ChangeKindMarkKind = 'added' | 'modified' | 'deleted'
@@ -458,6 +471,8 @@ export function GithubDesktopApp() {
   const [historyFilePreview, setHistoryFilePreview] = useState<GithubChangePreview | undefined>()
   const [historyFilePreviewLoading, setHistoryFilePreviewLoading] = useState(false)
   const [unpushedCommitCount, setUnpushedCommitCount] = useState(0)
+  const [stashCount, setStashCount] = useState(0)
+  const [tipUnpushedSha, setTipUnpushedSha] = useState<string | undefined>()
 
   const busy = busyKind !== undefined
   const showNonRepoToolbar = view.kind === 'cloning' || view.kind === 'missing'
@@ -475,19 +490,30 @@ export function GithubDesktopApp() {
     branchRemoteSha !== branchPushedSha
 
   useEffect(() => {
-    if (view.kind !== 'repo' || !canPush) {
+    if (view.kind !== 'repo') {
       setUnpushedCommitCount(0)
+      setTipUnpushedSha(undefined)
+      setStashCount(0)
       return
     }
     let cancelled = false
     const { owner, repo, currentBranch } = view.meta
     void listUnpushedLocalCommits(owner, repo, currentBranch).then((commits) => {
-      if (!cancelled) setUnpushedCommitCount(commits.length)
+      if (cancelled) return
+      setUnpushedCommitCount(commits.length)
+      setTipUnpushedSha(commits.length > 0 ? commits[commits.length - 1]!.sha : undefined)
+    })
+    void stashListGithub(view.meta).then((entries) => {
+      if (!cancelled) setStashCount(entries.length)
     })
     return () => {
       cancelled = true
     }
   }, [view, canPush])
+
+  const canAmend = canPush && Boolean(tipUnpushedSha)
+  const canUndoTip =
+    canPush && Boolean(tipUnpushedSha) && selectedCommitSha === tipUnpushedSha
 
   const banner = useMemo(() => {
     if (!hasToken) {
@@ -1520,6 +1546,106 @@ export function GithubDesktopApp() {
     })
   }, [view, stagedChanges, desktopPrefs, runBusy, submitCommit])
 
+  const handleUndoTipCommit = useCallback(() => {
+    if (view.kind !== 'repo') return
+    void runBusy('undo', '正在撤销未推送 commit…', '撤销失败', async () => {
+      const next = await undoLastUnpushedCommit(view.meta)
+      setSelectedCommitSha(undefined)
+      await refreshRepoState(next, reportSyncProgress)
+    })
+  }, [view, runBusy, refreshRepoState, reportSyncProgress])
+
+  const handleAmend = useCallback(() => {
+    if (view.kind !== 'repo' || !canAmend) return
+    const message = buildGithubCommitMessage(
+      commitSummary,
+      commitDescription,
+      resolveCommitCoAuthors(desktopPrefs),
+    )
+    if (!message.trim()) {
+      void modal.alert({ title: '无法 Amend', message: '请先填写 commit 摘要。' })
+      return
+    }
+    void runBusy('commit', '正在 amend…', 'Amend 失败', async () => {
+      const next = await amendUnpushedCommit({
+        meta: view.meta,
+        message,
+      })
+      setCommitSummary('')
+      setCommitDescription('')
+      await refreshRepoState(next, reportSyncProgress)
+    })
+  }, [
+    view,
+    canAmend,
+    commitSummary,
+    commitDescription,
+    desktopPrefs,
+    runBusy,
+    modal,
+    refreshRepoState,
+    reportSyncProgress,
+  ])
+
+  const handleCreateBranch = useCallback(() => {
+    if (view.kind !== 'repo') return
+    void (async () => {
+      const name = await modal.prompt({
+        title: '新建分支',
+        label: '分支名',
+        placeholder: 'feature/…',
+        confirmLabel: '继续',
+        validate: (value) => validateGithubBranchName(value),
+      })
+      if (!name) return
+      const checkout = await modal.confirm({
+        title: '切换到新分支？',
+        message: `创建 ${name.trim()} 后切换过去（推荐）。取消则仅创建本地快照。`,
+        confirmLabel: '创建并切换',
+        cancelLabel: '仅创建',
+      })
+      const publish = await modal.confirm({
+        title: '发布到 origin？',
+        message: `在 GitHub 上创建 refs/heads/${name.trim()}（基于已推送基点）。`,
+        confirmLabel: '发布',
+        cancelLabel: '仅本地',
+      })
+      void runBusy('branch', `创建分支 ${name.trim()}…`, '创建分支失败', async () => {
+        const next = await createGithubBranch({
+          meta: view.meta,
+          name,
+          checkout,
+          publish,
+        })
+        setBranchFoldoutOpen(false)
+        await refreshRepoState(next, reportSyncProgress)
+        if (publish) await syncRemoteCaches(next)
+      })
+    })()
+  }, [view, modal, runBusy, refreshRepoState, reportSyncProgress, syncRemoteCaches])
+
+  const handleStashSave = useCallback(() => {
+    if (view.kind !== 'repo' || changes.length === 0) return
+    void runBusy('stash', '正在贮藏…', '贮藏失败', async () => {
+      const { meta: next } = await stashSaveGithubChanges({
+        meta: view.meta,
+        onProgress: reportSyncProgress,
+      })
+      await refreshRepoState(next, reportSyncProgress)
+    })
+  }, [view, changes.length, runBusy, refreshRepoState, reportSyncProgress])
+
+  const handleStashPop = useCallback(() => {
+    if (view.kind !== 'repo') return
+    void runBusy('stash', '正在弹出贮藏…', '弹出贮藏失败', async () => {
+      const next = await stashPopGithubChanges({
+        meta: view.meta,
+        onProgress: reportSyncProgress,
+      })
+      await refreshRepoState(next, reportSyncProgress)
+    })
+  }, [view, runBusy, refreshRepoState, reportSyncProgress])
+
   const handleRebuildBaseline = useCallback(() => {
     if (view.kind !== 'repo') return
     if (!proxyConnected) {
@@ -1786,6 +1912,30 @@ export function GithubDesktopApp() {
         items: [
           {
             type: 'action',
+            label: '新建分支…',
+            disabled: view.kind !== 'repo' || busy,
+            onClick: () => handleCreateBranch(),
+          },
+          {
+            type: 'action',
+            label: '撤销未推送 commit',
+            disabled: view.kind !== 'repo' || busy || !canAmend,
+            onClick: () => handleUndoTipCommit(),
+          },
+          {
+            type: 'action',
+            label: changes.length > 0 ? '贮藏更改' : '弹出贮藏',
+            disabled:
+              view.kind !== 'repo' ||
+              busy ||
+              (changes.length === 0 && stashCount === 0),
+            onClick: () => {
+              if (changes.length > 0) handleStashSave()
+              else handleStashPop()
+            },
+          },
+          {
+            type: 'action',
             label: canPush ? '推送' : canPull ? '拉取' : '获取',
             disabled: view.kind !== 'repo' || busy,
             onClick: () => handleSyncPrimary(),
@@ -1830,8 +1980,16 @@ export function GithubDesktopApp() {
     busy,
     canPush,
     canPull,
+    canAmend,
+    changes.length,
+    stashCount,
     handleFetch,
+    handlePull,
     handleSyncPrimary,
+    handleCreateBranch,
+    handleUndoTipCommit,
+    handleStashSave,
+    handleStashPop,
   ])
 
   useAppMenuBar(APP_ID, menuBar)
@@ -1843,7 +2001,10 @@ export function GithubDesktopApp() {
     busyKind === 'switch' ||
     busyKind === 'rebuild' ||
     busyKind === 'discard' ||
-    busyKind === 'load'
+    busyKind === 'load' ||
+    busyKind === 'stash' ||
+    busyKind === 'branch' ||
+    busyKind === 'undo'
 
   const syncButtonTitle = (() => {
     if (busyKind === 'pull') return '拉取 origin'
@@ -1853,6 +2014,9 @@ export function GithubDesktopApp() {
     if (busyKind === 'rebuild') return '重建本地基线'
     if (busyKind === 'load') return '打开仓库'
     if (busyKind === 'discard') return '丢弃更改'
+    if (busyKind === 'stash') return '贮藏'
+    if (busyKind === 'branch') return '创建分支'
+    if (busyKind === 'undo') return '撤销 commit'
     if (canPush) return '推送 origin'
     if (canPull) return '拉取 origin'
     return '获取 origin'
@@ -2590,6 +2754,28 @@ export function GithubDesktopApp() {
                         丢弃全部
                       </button>
                     ) : undefined}
+                    {changes.length > 0 ? (
+                      <button
+                        type="button"
+                        class="github-desktop__discard-all"
+                        disabled={busy}
+                        onClick={handleStashSave}
+                        title="贮藏当前未 commit 变更"
+                      >
+                        贮藏
+                      </button>
+                    ) : undefined}
+                    {stashCount > 0 ? (
+                      <button
+                        type="button"
+                        class="github-desktop__discard-all"
+                        disabled={busy}
+                        onClick={handleStashPop}
+                        title={`弹出最近一条贮藏（共 ${stashCount}）`}
+                      >
+                        弹出贮藏{stashCount > 1 ? ` (${stashCount})` : ''}
+                      </button>
+                    ) : undefined}
                   </div>
                   <div class="github-desktop__commit">
                     <div class="github-desktop__commit-panel">
@@ -2597,7 +2783,7 @@ export function GithubDesktopApp() {
                         <>
                           <input
                             value={commitSummary}
-                            disabled={busy || changes.length === 0}
+                            disabled={busy || (changes.length === 0 && !canAmend)}
                             placeholder="摘要（必填）"
                             onInput={(event) =>
                               setCommitSummary((event.target as HTMLInputElement).value)
@@ -2605,7 +2791,7 @@ export function GithubDesktopApp() {
                           />
                           <textarea
                             value={commitDescription}
-                            disabled={busy || changes.length === 0}
+                            disabled={busy || (changes.length === 0 && !canAmend)}
                             placeholder="描述"
                             onInput={(event) =>
                               setCommitDescription((event.target as HTMLTextAreaElement).value)
@@ -2627,6 +2813,17 @@ export function GithubDesktopApp() {
                               ? `Commit ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
                               : `Commit 到 ${view.meta.currentBranch}`}
                           </button>
+                          {canAmend ? (
+                            <button
+                              type="button"
+                              class="github-desktop__commit-btn"
+                              disabled={busy || !commitSummary.trim()}
+                              title="修改最近一次未推送 commit"
+                              onClick={handleAmend}
+                            >
+                              Amend 未推送 commit
+                            </button>
+                          ) : undefined}
                         </>
                       ) : (
                         <button
@@ -2820,6 +3017,17 @@ export function GithubDesktopApp() {
                         ) : undefined}
                       </>
                     )}
+                    <button
+                      type="button"
+                      class="github-desktop__foldout-item github-desktop__foldout-item--action"
+                      disabled={busy}
+                      onClick={() => {
+                        handleCreateBranch()
+                      }}
+                    >
+                      <strong>新建分支…</strong>
+                      <span>从当前 tip 创建本地分支，可选发布到 origin</span>
+                    </button>
                   </div>
                 ) : undefined}
               </div>
@@ -2954,6 +3162,17 @@ export function GithubDesktopApp() {
                           ? ` · ${new Date(historyDetail.authorDate).toLocaleString()}`
                           : ''}
                       </p>
+                      {canUndoTip ? (
+                        <button
+                          type="button"
+                          class="github-desktop__btn"
+                          disabled={busy}
+                          onClick={handleUndoTipCommit}
+                          title="撤销此未推送 commit，变更回到 Changes"
+                        >
+                          撤销此未推送 commit
+                        </button>
+                      ) : undefined}
                     </div>
                     <div class="github-desktop__history-files">
                       {historyDetail.files.length === 0 ? (

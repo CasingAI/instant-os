@@ -784,3 +784,19 @@ export async function githubUpdateBranchRef(
     },
   )
 }
+
+/** 在远端创建新分支（sha 必须是 GitHub 上已有的 commit） */
+export async function githubCreateBranchRef(
+  owner: string,
+  repo: string,
+  branch: string,
+  commitSha: string,
+): Promise<void> {
+  await githubJson(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ref: `refs/heads/${branch}`,
+      sha: commitSha,
+    }),
+  })
+}

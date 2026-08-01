@@ -45,8 +45,8 @@ export async function switchGithubBranch(params: {
   params.onProgress?.('检查本地是否有未 commit 变更…')
   const localChanges = await detectGithubChanges(params.meta)
   if (localChanges.length > 0) {
-    throw new Error('本地有未 commit 变更，请先 commit 或丢弃后再切换分支')
-  }
+  throw new Error('本地有未 commit 变更，请先 commit、丢弃或贮藏后再切换分支')
+}
 
   params.onProgress?.(`切换到 ${branch}…`)
 

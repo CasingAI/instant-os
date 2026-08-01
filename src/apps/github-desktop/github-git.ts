@@ -35,6 +35,13 @@ import {
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
 import { cloneGithubRepository } from './github-working-tree.ts'
+import { amendUnpushedCommit, undoLastUnpushedCommit } from './github-local-history.ts'
+import { createGithubBranch } from './github-branch.ts'
+import {
+  stashPopGithubChanges,
+  stashSaveGithubChanges,
+  stashListGithub,
+} from './github-stash.ts'
 
 export const GITHUB_GIT_READONLY_MUTATION_MESSAGE =
   '当前终端为只读模式，无法执行会修改仓库的 Git 操作'
@@ -435,6 +442,88 @@ export async function githubGitDiscard(
   return {
     summary: appendChangeSummary(
       `已丢弃 ${changes.length} 项变更（${summarizeChanges(changes)}）\n仓库 ${next.owner}/${next.repo}`,
+      changeSet,
+    ),
+    changeSet,
+  }
+}
+
+export async function githubGitUndo(ctx: GithubGitContext): Promise<GithubGitResult> {
+  assertGithubGitMutationAllowed(ctx.fsMode)
+  const meta = await resolveMeta(ctx)
+  const next = await undoLastUnpushedCommit(meta)
+  return {
+    summary: `已撤销最近一次未推送 commit · tip ${shortSha(currentHeadSha(next))}`,
+  }
+}
+
+export async function githubGitAmend(
+  ctx: GithubGitContext,
+  message: string,
+): Promise<GithubGitResult> {
+  assertGithubGitMutationAllowed(ctx.fsMode)
+  const meta = await resolveMeta(ctx)
+  const next = await amendUnpushedCommit({ meta, message })
+  return {
+    summary: `已 amend 未推送 commit · tip ${shortSha(currentHeadSha(next))}`,
+  }
+}
+
+export async function githubGitCreateBranch(
+  ctx: GithubGitContext,
+  name: string,
+  options?: { checkout?: boolean; publish?: boolean },
+): Promise<GithubGitResult> {
+  assertGithubGitMutationAllowed(ctx.fsMode)
+  const meta = await resolveMeta(ctx)
+  const next = await createGithubBranch({
+    meta,
+    name,
+    checkout: options?.checkout,
+    publish: options?.publish,
+  })
+  return {
+    summary: `已创建分支 ${name}${options?.publish ? '（已发布）' : ''}${
+      options?.checkout === false ? '' : ` · 当前 ${next.currentBranch}`
+    }`,
+  }
+}
+
+export async function githubGitStashSave(
+  ctx: GithubGitContext,
+  message?: string,
+): Promise<GithubGitResult> {
+  assertGithubGitMutationAllowed(ctx.fsMode)
+  const meta = await resolveMeta(ctx)
+  const repoRoot = githubRepoRootPath(meta.owner, meta.repo)
+  const { result, changeSet } = await withControlledWorkingTreeMutation(ctx, repoRoot, async () => {
+    const saved = await stashSaveGithubChanges({ meta, message })
+    return saved
+  })
+  return {
+    summary: appendChangeSummary(
+      `已贮藏 ${result.stash.changes.length} 项变更${
+        result.stash.message ? `（${result.stash.message}）` : ''
+      }`,
+      changeSet,
+    ),
+    changeSet,
+  }
+}
+
+export async function githubGitStashPop(ctx: GithubGitContext): Promise<GithubGitResult> {
+  assertGithubGitMutationAllowed(ctx.fsMode)
+  const meta = await resolveMeta(ctx)
+  const repoRoot = githubRepoRootPath(meta.owner, meta.repo)
+  const { result: next, changeSet } = await withControlledWorkingTreeMutation(
+    ctx,
+    repoRoot,
+    () => stashPopGithubChanges({ meta }),
+  )
+  const remaining = await stashListGithub(next)
+  return {
+    summary: appendChangeSummary(
+      `已弹出贮藏 · 剩余 ${remaining.length} 条`,
       changeSet,
     ),
     changeSet,

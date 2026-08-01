@@ -125,13 +125,15 @@ type GithubRepoSyncMetaV1 = {
 type StoredRepoMeta = GithubRepoSyncMeta | GithubRepoSyncMetaV1
 
 const DB_NAME = 'instant-os-github-repos'
-const DB_VERSION = 4
+const DB_VERSION = 5
 const STORE = 'repos'
 const COMMITS_STORE = 'commits'
 /** 已看过的远端 commit 详情（按 sha 不可变，可安全缓存） */
 const COMMIT_DETAILS_STORE = 'commit-details'
 /** 上次 Fetch/Pull 拿到的 commit 列表（按 tip 缓存） */
 const COMMIT_LISTS_STORE = 'commit-lists'
+/** 本地 stash（按仓库 id 一条记录） */
+const STASHES_STORE = 'stashes'
 const MAX_CACHED_COMMIT_DETAILS = 100
 
 let dbPromise: Promise<IDBDatabase> | undefined
@@ -153,6 +155,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(COMMIT_LISTS_STORE)) {
         db.createObjectStore(COMMIT_LISTS_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STASHES_STORE)) {
+        db.createObjectStore(STASHES_STORE, { keyPath: 'id' })
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -217,6 +222,26 @@ type CommitListRecord = {
   id: string
   tipSha: string
   commits: GithubCachedCommitSummary[]
+}
+
+export type GithubStashChange = {
+  path: string
+  kind: 'added' | 'modified' | 'deleted'
+}
+
+export type GithubStashEntry = {
+  id: string
+  branch: string
+  createdAt: number
+  message?: string
+  changes: GithubStashChange[]
+  /** added/modified 路径的基线 blob；deleted 无条目 */
+  blobs: Record<string, GithubFileIndexEntry>
+}
+
+type StashesRecord = {
+  id: string
+  entries: GithubStashEntry[]
 }
 
 export function migrateRepoMetaToV2(raw: StoredRepoMeta): GithubRepoSyncMeta {
@@ -469,7 +494,7 @@ export async function saveGithubMissingRepoMeta(
 export async function deleteGithubRepoMeta(owner: string, repo: string): Promise<void> {
   const db = await openDb()
   const tx = beginIdbTransaction(db, 
-    [STORE, COMMITS_STORE, COMMIT_DETAILS_STORE, COMMIT_LISTS_STORE],
+    [STORE, COMMITS_STORE, COMMIT_DETAILS_STORE, COMMIT_LISTS_STORE, STASHES_STORE],
     'readwrite',
   )
   const id = githubRepoId(owner, repo)
@@ -477,6 +502,7 @@ export async function deleteGithubRepoMeta(owner: string, repo: string): Promise
   tx.objectStore(COMMITS_STORE).delete(id)
   tx.objectStore(COMMIT_DETAILS_STORE).delete(id)
   tx.objectStore(COMMIT_LISTS_STORE).delete(id)
+  tx.objectStore(STASHES_STORE).delete(id)
   await waitForTransaction(tx)
 }
 
@@ -569,6 +595,110 @@ export async function replaceUnpushedLocalCommits(
   const commits = (existing?.commits ?? []).map((item) => bySha.get(item.sha) ?? item)
   store.put({ id, commits } satisfies CommitsRecord)
   await waitForTransaction(tx)
+}
+
+export async function removeGithubLocalCommit(
+  owner: string,
+  repo: string,
+  sha: string,
+): Promise<void> {
+  const db = await openDb()
+  const id = githubRepoId(owner, repo)
+  const tx = beginIdbTransaction(db, COMMITS_STORE, 'readwrite')
+  const store = tx.objectStore(COMMITS_STORE)
+  const existing = await requestToPromise(
+    store.get(id) as IDBRequest<CommitsRecord | undefined>,
+  )
+  const commits = (existing?.commits ?? []).filter((item) => item.sha !== sha)
+  store.put({ id, commits } satisfies CommitsRecord)
+  await waitForTransaction(tx)
+}
+
+/** 将某分支上的未推送本地 commit 改挂到新分支名 */
+export async function reassignUnpushedLocalCommitsBranch(
+  owner: string,
+  repo: string,
+  fromBranch: string,
+  toBranch: string,
+): Promise<void> {
+  if (fromBranch === toBranch) return
+  const db = await openDb()
+  const id = githubRepoId(owner, repo)
+  const tx = beginIdbTransaction(db, COMMITS_STORE, 'readwrite')
+  const store = tx.objectStore(COMMITS_STORE)
+  const existing = await requestToPromise(
+    store.get(id) as IDBRequest<CommitsRecord | undefined>,
+  )
+  const commits = (existing?.commits ?? []).map((item) => {
+    if (
+      item.branch === fromBranch &&
+      isLocalCommitSha(item.sha) &&
+      item.remoteSha === undefined
+    ) {
+      return { ...item, branch: toBranch }
+    }
+    return item
+  })
+  store.put({ id, commits } satisfies CommitsRecord)
+  await waitForTransaction(tx)
+}
+
+export async function listGithubStashes(
+  owner: string,
+  repo: string,
+): Promise<GithubStashEntry[]> {
+  const db = await openDb()
+  const tx = beginIdbTransaction(db, STASHES_STORE, 'readonly')
+  const record = await requestToPromise(
+    tx.objectStore(STASHES_STORE).get(githubRepoId(owner, repo)) as IDBRequest<
+      StashesRecord | undefined
+    >,
+  )
+  await waitForTransaction(tx)
+  return record?.entries ?? []
+}
+
+export async function pushGithubStashEntry(
+  owner: string,
+  repo: string,
+  entry: GithubStashEntry,
+): Promise<void> {
+  const db = await openDb()
+  const id = githubRepoId(owner, repo)
+  const tx = beginIdbTransaction(db, STASHES_STORE, 'readwrite')
+  const store = tx.objectStore(STASHES_STORE)
+  const existing = await requestToPromise(
+    store.get(id) as IDBRequest<StashesRecord | undefined>,
+  )
+  const entries = [entry, ...(existing?.entries ?? [])].slice(0, 50)
+  store.put({ id, entries } satisfies StashesRecord)
+  await waitForTransaction(tx)
+}
+
+export async function removeGithubStashEntry(
+  owner: string,
+  repo: string,
+  stashId: string,
+): Promise<GithubStashEntry | undefined> {
+  const db = await openDb()
+  const id = githubRepoId(owner, repo)
+  const tx = beginIdbTransaction(db, STASHES_STORE, 'readwrite')
+  const store = tx.objectStore(STASHES_STORE)
+  const existing = await requestToPromise(
+    store.get(id) as IDBRequest<StashesRecord | undefined>,
+  )
+  const entries = existing?.entries ?? []
+  const hit = entries.find((item) => item.id === stashId)
+  if (!hit) {
+    await waitForTransaction(tx)
+    return undefined
+  }
+  store.put({
+    id,
+    entries: entries.filter((item) => item.id !== stashId),
+  } satisfies StashesRecord)
+  await waitForTransaction(tx)
+  return hit
 }
 
 export async function getCachedGithubCommitDetail(
