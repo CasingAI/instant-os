@@ -51,6 +51,7 @@
     "fflate": "^0.8.3",
     "frimousse": "^0.3.0",
     "html-to-image": "^1.11.13",
+    "hyperformula": "^3.3.0",
     "katex": "^0.16.22",
     "marked": "^18.0.5",
     "marked-katex-extension": "^5.1.10",

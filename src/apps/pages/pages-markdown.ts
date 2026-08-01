@@ -18,6 +18,68 @@ import { Markdown } from 'tiptap-markdown'
 import { createSlashCommandsExtension, type SlashCommandItem } from './pages-slash-commands.ts'
 import { PAGES_FILE_EXTENSION } from './pages-package.ts'
 
+const PagesTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      id: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-table-id'),
+        renderHTML: (attributes) => {
+          if (!attributes.id) return {}
+          return { 'data-table-id': attributes.id }
+        },
+      },
+    }
+  },
+})
+
+function formulaCellAttributes() {
+  return {
+    formula: {
+      default: null as string | null,
+      parseHTML: (element: HTMLElement) => {
+        const value = element.getAttribute('data-formula')
+        return value && value.trim() ? value.trim() : null
+      },
+      renderHTML: (attributes: Record<string, unknown>) => {
+        const formula = attributes.formula
+        if (typeof formula !== 'string' || !formula) return {}
+        return {
+          'data-formula': formula,
+          title: formula,
+        }
+      },
+    },
+    formulaError: {
+      default: false,
+      parseHTML: (element: HTMLElement) => element.getAttribute('data-formula-error') === 'true',
+      renderHTML: (attributes: Record<string, unknown>) => {
+        if (!attributes.formulaError) return {}
+        return { 'data-formula-error': 'true' }
+      },
+    },
+  }
+}
+
+const PagesTableCell = TableCell.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      ...formulaCellAttributes(),
+    }
+  },
+})
+
+const PagesTableHeader = TableHeader.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      ...formulaCellAttributes(),
+    }
+  },
+})
+
 export const PAGES_EMPTY_MARKDOWN = '# 无标题文档\n\n'
 
 /** 文稿可打开的扩展名（原生包 + Markdown 兼容） */
@@ -229,13 +291,13 @@ export function createPagesExtensions(slash?: PagesSlashHandlers): Extensions {
       nested: true,
       HTMLAttributes: { class: 'pages-editor__task-item' },
     }),
-    Table.configure({
+    PagesTable.configure({
       resizable: true,
       HTMLAttributes: { class: 'pages-editor__table' },
     }),
     TableRow,
-    TableHeader,
-    TableCell,
+    PagesTableHeader,
+    PagesTableCell,
     Markdown.configure({
       html: true,
       tightLists: true,

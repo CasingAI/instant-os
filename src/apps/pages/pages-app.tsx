@@ -78,6 +78,7 @@ type PagesTab = {
   /** markdown：保存时的正文 */
   savedMarkdown?: string
   viewMode: PagesViewMode
+  sheetTableId: string | null
   outlineOpen: boolean
 }
 
@@ -288,6 +289,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
             assets: unpacked.assets,
             savedFingerprint: fingerprint,
             viewMode: 'edit',
+            sheetTableId: null,
             outlineOpen: false,
           }
           setTabs((prev) => [...prev, tab])
@@ -317,6 +319,7 @@ export function PagesApp({ windowId }: PagesAppProps) {
           assets: new Map(),
           savedMarkdown: normalizedMarkdown,
           viewMode: 'edit',
+          sheetTableId: null,
           outlineOpen: false,
         }
         setTabs((prev) => [...prev, tab])
@@ -716,7 +719,27 @@ export function PagesApp({ windowId }: PagesAppProps) {
   const setActiveViewMode = useCallback((mode: PagesViewMode) => {
     const tabId = activeTabIdRef.current
     if (!tabId) return
-    setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, viewMode: mode } : tab)))
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              viewMode: mode,
+              sheetTableId: mode === 'sheet' ? tab.sheetTableId : null,
+            }
+          : tab,
+      ),
+    )
+  }, [])
+
+  const enterSheetView = useCallback((tableId: string) => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === tabId ? { ...tab, viewMode: 'sheet', sheetTableId: tableId } : tab,
+      ),
+    )
   }, [])
 
   const toggleOutline = useCallback(() => {
@@ -1030,9 +1053,11 @@ export function PagesApp({ windowId }: PagesAppProps) {
         format={activeTab.format}
         editable={writable}
         viewMode={activeTab.viewMode}
+        sheetTableId={activeTab.sheetTableId}
         outlineOpen={activeTab.outlineOpen}
         onDocumentChange={updateActiveDocument}
         onViewModeChange={setActiveViewMode}
+        onEnterSheet={enterSheetView}
         registerImage={registerImage}
         onPromptLink={handlePromptLink}
         onEditorReady={(editor) => {

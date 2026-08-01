@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { createTableId } from './pages-table-formula.ts'
 
 export type BlockInsertSection = 'basic' | 'common'
 
@@ -159,6 +160,27 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
           .focus()
           .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
           .run()
+        // 为新表写入稳定 id（insertTable 不支持自定义 attrs）
+        const { state } = editor
+        const $from = state.selection.$from
+        for (let d = $from.depth; d > 0; d--) {
+          const node = $from.node(d)
+          if (node.type.name !== 'table') continue
+          const pos = $from.before(d)
+          if (!node.attrs.id) {
+            editor
+              .chain()
+              .command(({ tr }) => {
+                tr.setNodeMarkup(pos, undefined, {
+                  ...node.attrs,
+                  id: createTableId(),
+                })
+                return true
+              })
+              .run()
+          }
+          break
+        }
       },
     },
   ]

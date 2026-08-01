@@ -70,6 +70,7 @@ export function buildContextMenuItems(opts: {
   if (opts.inTable) {
     items.push(
       { type: 'separator', id: 'sep-table' },
+      { type: 'action', id: 'open-sheet', label: '在表格视图中编辑' },
       { type: 'action', id: 'add-row-before', label: '向上插入行' },
       { type: 'action', id: 'add-row-after', label: '向下插入行' },
       { type: 'action', id: 'add-col-before', label: '向左插入列' },

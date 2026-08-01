@@ -34,8 +34,16 @@ import {
   type ContextMenuItem,
 } from './pages-context-menu.tsx'
 import { collectOutlineItems, PagesOutline } from './pages-outline.tsx'
+import { PagesSheetView } from './pages-sheet-view.tsx'
+import {
+  createTableId,
+  findTablePosById,
+  promoteEqualsTextToFormulas,
+  recalculateAllTablesInEditor,
+  replaceTableAtPos,
+} from './pages-table-formula.ts'
 
-export type PagesViewMode = 'edit' | 'source'
+export type PagesViewMode = 'edit' | 'source' | 'sheet'
 export type PagesEditorFormat = 'pages' | 'markdown'
 
 export type PagesEditorProps = {
@@ -44,9 +52,12 @@ export type PagesEditorProps = {
   format: PagesEditorFormat
   editable: boolean
   viewMode: PagesViewMode
+  /** sheet 模式下聚焦的表 id */
+  sheetTableId?: string | null
   outlineOpen: boolean
   onDocumentChange: (doc: JSONContent) => void
   onViewModeChange: (mode: PagesViewMode) => void
+  onEnterSheet?: (tableId: string) => void
   /** 注册图片资源并返回可显示的 blob URL */
   registerImage?: (file: File) => Promise<string>
   onPromptLink: () => Promise<string | undefined>
@@ -173,15 +184,16 @@ export function PagesEditor({
   format: _format,
   editable,
   viewMode,
+  sheetTableId = null,
   outlineOpen,
   onDocumentChange,
-  onViewModeChange: _onViewModeChange,
+  onViewModeChange,
+  onEnterSheet,
   registerImage,
   onPromptLink,
   onEditorReady,
 }: PagesEditorProps) {
   void _format
-  void _onViewModeChange
 
   const rootRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLDivElement>(null)
@@ -196,12 +208,16 @@ export function PagesEditor({
   const registerImageRef = useRef(registerImage)
   const onPromptLinkRef = useRef(onPromptLink)
   const suppressNextUpdateRef = useRef(false)
+  const suppressFormulaRecalcRef = useRef(false)
+  const formulaRecalcTimerRef = useRef<number | null>(null)
   const viewModeRef = useRef(viewMode)
+  const prevViewModeRef = useRef(viewMode)
   const editableRef = useRef(editable)
   const sourceDraftRef = useRef(jsonContentToMarkdown(initialDocument))
   const pendingDragRef = useRef<PendingDrag | null>(null)
   const dragSessionRef = useRef<BlockDragSession | null>(null)
   const insertFilteredRef = useRef<BlockInsertItem[] | null>(null)
+  const [sheetTableJSON, setSheetTableJSON] = useState<JSONContent | null>(null)
 
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null)
   const [insertPanel, setInsertPanel] = useState<InsertPanelState | null>(null)
@@ -573,6 +589,28 @@ export function PagesEditor({
             }
             return false
           },
+          blur: () => {
+            if (!editableRef.current || viewModeRef.current !== 'edit') return false
+            const ed = editorRef.current
+            if (!ed || ed.isDestroyed) return false
+            // 失焦后把单元格里以 = 开头的文本提升为公式并重算
+            window.setTimeout(() => {
+              const current = editorRef.current
+              if (!current || current.isDestroyed || viewModeRef.current !== 'edit') return
+              if (current.view.hasFocus()) return
+              suppressFormulaRecalcRef.current = true
+              try {
+                promoteEqualsTextToFormulas(current)
+                recalculateAllTablesInEditor(current)
+              } finally {
+                suppressFormulaRecalcRef.current = false
+              }
+              const doc = current.getJSON()
+              sourceDraftRef.current = jsonContentToMarkdown(doc)
+              onDocumentChangeRef.current(doc)
+            }, 0)
+            return false
+          },
         },
       },
       onCreate: ({ editor: created }) => {
@@ -597,9 +635,39 @@ export function PagesEditor({
           return
         }
         if (viewModeRef.current === 'source') return
-        const doc = current.getJSON()
-        sourceDraftRef.current = jsonContentToMarkdown(doc)
-        onDocumentChangeRef.current(doc)
+
+        const emitDoc = () => {
+          const doc = current.getJSON()
+          sourceDraftRef.current = jsonContentToMarkdown(doc)
+          onDocumentChangeRef.current(doc)
+        }
+
+        if (viewModeRef.current === 'edit' && !suppressFormulaRecalcRef.current) {
+          if (formulaRecalcTimerRef.current != null) {
+            window.clearTimeout(formulaRecalcTimerRef.current)
+          }
+          formulaRecalcTimerRef.current = window.setTimeout(() => {
+            formulaRecalcTimerRef.current = null
+            const ed = editorRef.current
+            if (!ed || ed.isDestroyed || viewModeRef.current !== 'edit') return
+            if (suppressFormulaRecalcRef.current) return
+            suppressFormulaRecalcRef.current = true
+            try {
+              const changed = recalculateAllTablesInEditor(ed)
+              if (!changed) emitDoc()
+              // changed 时 nested onUpdate 会 emit
+            } finally {
+              suppressFormulaRecalcRef.current = false
+            }
+          }, 350)
+        }
+
+        if (suppressFormulaRecalcRef.current) {
+          emitDoc()
+          return
+        }
+
+        emitDoc()
       },
       onSelectionUpdate: ({ editor: current }) => {
         setUiEpoch((value) => value + 1)
@@ -610,6 +678,10 @@ export function PagesEditor({
     editorRef.current = editor
 
     return () => {
+      if (formulaRecalcTimerRef.current != null) {
+        window.clearTimeout(formulaRecalcTimerRef.current)
+        formulaRecalcTimerRef.current = null
+      }
       const hostEditor = editor as PagesEditorHost
       hostEditor.__pagesInsertImage = undefined
       hostEditor.__pagesPasteImage = undefined
@@ -646,6 +718,9 @@ export function PagesEditor({
   useEffect(() => {
     const editor = editorRef.current
     if (!editor || editor.isDestroyed) return
+    const prev = prevViewModeRef.current
+    prevViewModeRef.current = viewMode
+
     if (viewMode === 'source') {
       const markdown = jsonContentToMarkdown(editor.getJSON())
       sourceDraftRef.current = markdown
@@ -655,15 +730,57 @@ export function PagesEditor({
       closeFloatingExcept('none')
       updateDragSession(null)
       pendingDragRef.current = null
+      setSheetTableJSON(null)
       return
     }
-    suppressNextUpdateRef.current = true
-    const doc = markdownToJSONContent(sourceDraftRef.current)
-    editor.commands.setContent(doc)
-    const normalized = editor.getJSON()
-    sourceDraftRef.current = jsonContentToMarkdown(normalized)
-    onDocumentChange(normalized)
+
+    if (viewMode === 'sheet') {
+      setHoverBlockSafe(null)
+      setBubble(null)
+      closeFloatingExcept('none')
+      updateDragSession(null)
+      pendingDragRef.current = null
+      return
+    }
+
+    // edit
+    if (prev === 'source') {
+      suppressNextUpdateRef.current = true
+      const doc = markdownToJSONContent(sourceDraftRef.current)
+      editor.commands.setContent(doc)
+      const normalized = editor.getJSON()
+      sourceDraftRef.current = jsonContentToMarkdown(normalized)
+      onDocumentChange(normalized)
+    }
+
+    if (prev === 'sheet') {
+      suppressFormulaRecalcRef.current = true
+      try {
+        recalculateAllTablesInEditor(editor)
+      } finally {
+        suppressFormulaRecalcRef.current = false
+      }
+      const doc = editor.getJSON()
+      sourceDraftRef.current = jsonContentToMarkdown(doc)
+      onDocumentChange(doc)
+      setSheetTableJSON(null)
+    }
   }, [viewMode, onDocumentChange, closeFloatingExcept])
+
+  // 进入 sheet：从编辑器取出目标表 JSON
+  useEffect(() => {
+    if (viewMode !== 'sheet' || !sheetTableId) {
+      return
+    }
+    const editor = editorRef.current
+    if (!editor || editor.isDestroyed) return
+    const found = findTablePosById(editor, sheetTableId)
+    if (!found) {
+      onViewModeChange('edit')
+      return
+    }
+    setSheetTableJSON(found.node.toJSON() as JSONContent)
+  }, [viewMode, sheetTableId, onViewModeChange])
 
   // 行侧控件：整行（正文 + 左侧 gutter）命中，加号条与行同高
   useEffect(() => {
@@ -978,6 +1095,40 @@ export function PagesEditor({
         selectBlockNode(editor, blockPos)
         fileInputRef.current?.click()
         break
+      case 'open-sheet': {
+        const { state } = editor
+        const $pos = state.doc.resolve(
+          Math.min(Math.max(1, state.selection.from), state.doc.content.size),
+        )
+        let tablePos = -1
+        let tableNode = null as ReturnType<typeof state.doc.nodeAt>
+        for (let d = $pos.depth; d > 0; d--) {
+          if ($pos.node(d).type.name === 'table') {
+            tablePos = $pos.before(d)
+            tableNode = $pos.node(d)
+            break
+          }
+        }
+        if (tablePos < 0 || !tableNode) break
+        let tableId = typeof tableNode.attrs.id === 'string' ? tableNode.attrs.id : ''
+        if (!tableId) {
+          tableId = createTableId()
+          editor
+            .chain()
+            .command(({ tr }) => {
+              tr.setNodeMarkup(tablePos, undefined, {
+                ...tableNode!.attrs,
+                id: tableId,
+              })
+              return true
+            })
+            .run()
+        }
+        const fresh = editor.state.doc.nodeAt(tablePos) ?? tableNode
+        setSheetTableJSON(fresh.toJSON() as JSONContent)
+        onEnterSheet?.(tableId)
+        break
+      }
       case 'add-row-before':
         editor.chain().focus().addRowBefore().run()
         break
@@ -1082,12 +1233,16 @@ export function PagesEditor({
   return (
     <div class={`pages-editor${outlineOpen ? ' pages-editor--with-sidebar' : ''}`} ref={rootRef}>
       <div class="pages-editor__sidebar">
-        {outlineOpen ? <PagesOutline items={outlineItems} onJump={jumpToOutline} /> : null}
+        {outlineOpen && viewMode !== 'sheet' ? (
+          <PagesOutline items={outlineItems} onJump={jumpToOutline} />
+        ) : null}
       </div>
       <div class="pages-editor__main" ref={mainRef}>
         <div
           ref={stageRef}
-          class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}`}
+          class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}${
+            viewMode === 'sheet' ? ' pages-editor__stage--sheet' : ''
+          }`}
         >
           <div
             class="pages-editor__canvas"
@@ -1110,6 +1265,27 @@ export function PagesEditor({
                 setSourceText(next)
                 sourceDraftRef.current = next
                 onDocumentChange(markdownToJSONContent(next))
+              }}
+            />
+          ) : undefined}
+
+          {viewMode === 'sheet' && sheetTableJSON ? (
+            <PagesSheetView
+              key={sheetTableId ?? 'sheet'}
+              table={sheetTableJSON}
+              editable={editable}
+              onBack={() => onViewModeChange('edit')}
+              onTableChange={(nextTable) => {
+                setSheetTableJSON(nextTable)
+                const ed = editorRef.current
+                if (!ed || ed.isDestroyed || !sheetTableId) return
+                const found = findTablePosById(ed, sheetTableId)
+                if (!found) return
+                suppressNextUpdateRef.current = true
+                replaceTableAtPos(ed, found.pos, nextTable)
+                const doc = ed.getJSON()
+                sourceDraftRef.current = jsonContentToMarkdown(doc)
+                onDocumentChange(doc)
               }}
             />
           ) : undefined}
