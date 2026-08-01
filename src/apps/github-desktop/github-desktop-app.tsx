@@ -76,9 +76,11 @@ import {
   buildGithubCommitMessage,
   defaultGithubCommitIdentity,
   externalEditorLabel,
+  formatCoAuthorNames,
   GITHUB_DESKTOP_SIDEBAR_WIDTH_MAX,
   GITHUB_DESKTOP_SIDEBAR_WIDTH_MIN,
   loadGithubDesktopPrefs,
+  parseCoAuthorTrailers,
   resolveCommitCoAuthors,
   updateGithubDesktopPrefs,
   type GithubDesktopPrefs,
@@ -356,6 +358,17 @@ function SyncIcon() {
 }
 
 /** GitHub octicon arrow-up：推送 / 超前 */
+function CoAuthorsIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M5.5 7a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Zm5 0a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5ZM1.75 12.25c0-1.66 1.79-3 3.75-3s3.75 1.34 3.75 3v.5a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1-.75-.75v-.5Zm7.25.5v-.5c0-.7-.23-1.35-.63-1.9.55-.2 1.16-.35 1.88-.35 1.96 0 3.75 1.34 3.75 3v.5a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75Z"
+      />
+    </svg>
+  )
+}
+
 function PushIcon({ size = 16 }: { size?: number }) {
   return (
     <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" aria-hidden="true">
@@ -886,6 +899,8 @@ export function GithubDesktopApp() {
   const allChangesStaged =
     changes.length > 0 && stagedChanges.length === changes.length
   const partialCommit = stagedChanges.length > 0 && stagedChanges.length < changes.length
+  const pendingCoAuthors = resolveCommitCoAuthors(desktopPrefs)
+  const pendingCoAuthorLabel = formatCoAuthorNames(pendingCoAuthors)
   const commitButtonTitle =
     view.kind === 'repo'
       ? partialCommit
@@ -2797,6 +2812,18 @@ export function GithubDesktopApp() {
                               setCommitDescription((event.target as HTMLTextAreaElement).value)
                             }
                           />
+                          {pendingCoAuthorLabel ? (
+                            <button
+                              type="button"
+                              class="github-desktop__commit-coauthors"
+                              disabled={busy}
+                              title="commit 说明将附带 Co-authored-by；点击打开设置"
+                              onClick={() => openPreferences('git')}
+                            >
+                              <CoAuthorsIcon />
+                              <span>协作者 · {pendingCoAuthorLabel}</span>
+                            </button>
+                          ) : undefined}
                           <button
                             type="button"
                             class="github-desktop__commit-btn"
@@ -2826,32 +2853,46 @@ export function GithubDesktopApp() {
                           ) : undefined}
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          class="github-desktop__commit-btn github-desktop__commit-btn--auto"
-                          disabled={
-                            busy ||
-                            !aiReady ||
-                            changes.length === 0 ||
-                            stagedChanges.length === 0
-                          }
-                          title={
-                            busyKind === 'commit'
-                              ? undefined
-                              : aiReady
-                                ? partialCommit
-                                  ? `由 AI 为 ${stagedChanges.length} 项已选变更生成说明并 commit，其余留在本地`
-                                  : `由 AI 生成 commit 说明并 commit 到 ${view.meta.currentBranch}`
-                                : '请先在设置中配置 AI API Key'
-                          }
-                          onClick={handleAutoCommit}
-                        >
-                          {busyKind === 'commit'
-                            ? '正在处理…'
-                            : partialCommit
-                              ? `Commit ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
-                              : `Commit 到 ${view.meta.currentBranch}`}
-                        </button>
+                        <>
+                          {pendingCoAuthorLabel ? (
+                            <button
+                              type="button"
+                              class="github-desktop__commit-coauthors"
+                              disabled={busy}
+                              title="commit 说明将附带 Co-authored-by；点击打开设置"
+                              onClick={() => openPreferences('git')}
+                            >
+                              <CoAuthorsIcon />
+                              <span>协作者 · {pendingCoAuthorLabel}</span>
+                            </button>
+                          ) : undefined}
+                          <button
+                            type="button"
+                            class="github-desktop__commit-btn github-desktop__commit-btn--auto"
+                            disabled={
+                              busy ||
+                              !aiReady ||
+                              changes.length === 0 ||
+                              stagedChanges.length === 0
+                            }
+                            title={
+                              busyKind === 'commit'
+                                ? undefined
+                                : aiReady
+                                  ? partialCommit
+                                    ? `由 AI 为 ${stagedChanges.length} 项已选变更生成说明并 commit，其余留在本地`
+                                    : `由 AI 生成 commit 说明并 commit 到 ${view.meta.currentBranch}`
+                                  : '请先在设置中配置 AI API Key'
+                            }
+                            onClick={handleAutoCommit}
+                          >
+                            {busyKind === 'commit'
+                              ? '正在处理…'
+                              : partialCommit
+                                ? `Commit ${stagedChanges.length} 项到 ${view.meta.currentBranch}`
+                                : `Commit 到 ${view.meta.currentBranch}`}
+                          </button>
+                        </>
                       )}
                     </div>
                     <div class="github-desktop__commit-tabs" role="tablist" aria-label="Commit 方式">
@@ -2891,6 +2932,9 @@ export function GithubDesktopApp() {
                       <>
                         {historyCommits.map((commit) => {
                           const unpushed = isLocalCommitSha(commit.sha)
+                          const coAuthorLabel = formatCoAuthorNames(
+                            parseCoAuthorTrailers(commit.message),
+                          )
                           return (
                           <button
                             key={commit.sha}
@@ -2916,6 +2960,7 @@ export function GithubDesktopApp() {
                             </span>
                             <span class="github-desktop__history-meta">
                               {shortSha(commit.sha)} · {commit.authorName}
+                              {coAuthorLabel ? ` · ${coAuthorLabel}` : ''}
                               {unpushed ? ' · 未推送' : ''}
                             </span>
                           </button>
@@ -3162,6 +3207,21 @@ export function GithubDesktopApp() {
                           ? ` · ${new Date(historyDetail.authorDate).toLocaleString()}`
                           : ''}
                       </p>
+                      {(() => {
+                        const coAuthorLabel = formatCoAuthorNames(
+                          parseCoAuthorTrailers(historyDetail.message),
+                        )
+                        if (!coAuthorLabel) return undefined
+                        return (
+                          <p
+                            class="github-desktop__history-coauthors"
+                            title="来自 commit 说明中的 Co-authored-by"
+                          >
+                            <CoAuthorsIcon />
+                            <span>协作者 · {coAuthorLabel}</span>
+                          </p>
+                        )
+                      })()}
                       {canUndoTip ? (
                         <button
                           type="button"

@@ -132,6 +132,34 @@ export function formatCoAuthorTrailer(coAuthor: GithubCoAuthor): string {
   return `Co-authored-by: ${coAuthor.name} <${coAuthor.email}>`
 }
 
+const CO_AUTHOR_TRAILER_RE = /^Co-authored-by:\s*(.+?)\s*<([^<>\s]+)>\s*$/i
+
+/** 从 commit message 解析 Co-authored-by trailer */
+export function parseCoAuthorTrailers(message: string): GithubCoAuthor[] {
+  const result: GithubCoAuthor[] = []
+  const seen = new Set<string>()
+  for (const rawLine of message.split(/\r?\n/)) {
+    const match = CO_AUTHOR_TRAILER_RE.exec(rawLine.trim())
+    if (!match) continue
+    const name = match[1]?.trim() ?? ''
+    const email = match[2]?.trim() ?? ''
+    if (!name || !email) continue
+    const key = `${name.toLowerCase()}\0${email.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push({ name, email })
+  }
+  return result
+}
+
+/** 展示用：协作者姓名列表 */
+export function formatCoAuthorNames(coAuthors: readonly GithubCoAuthor[]): string {
+  return coAuthors
+    .map((entry) => entry.name.trim())
+    .filter((name) => name.length > 0)
+    .join('、')
+}
+
 /** 组装提交说明；可选附加协作者 trailer（与正文空一行） */
 export function buildGithubCommitMessage(
   summary: string,
