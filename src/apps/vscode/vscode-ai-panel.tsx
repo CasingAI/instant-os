@@ -396,6 +396,8 @@ function VscodeAiComposerBlock({
     as: 'textarea',
     disabled: inputDisabled,
   })
+  const imeComposingRef = useRef(false)
+  const imeGuardUntilRef = useRef(0)
   const { showSystemOpenDialog, dialog: openDialog } = useSystemOpenDialog()
   const rootClass = [
     surface === 'bubble'
@@ -564,14 +566,30 @@ function VscodeAiComposerBlock({
               return
             }
             if (event.key === 'Enter' && !event.shiftKey) {
+              // IME 选字确认的 Enter：勿当作发送（部分浏览器 compositionend 会早于该 keydown）
+              const composing =
+                imeComposingRef.current ||
+                event.isComposing ||
+                event.keyCode === 229
+              if (composing || Date.now() < imeGuardUntilRef.current) return
               event.preventDefault()
               onSend()
             }
           }}
           onKeyUp={dictation.onKeyUp}
           onBlur={dictation.onBlur}
-          onCompositionStart={dictation.onCompositionStart}
-          onCompositionEnd={dictation.onCompositionEnd}
+          onCompositionStart={(event) => {
+            imeComposingRef.current = true
+            dictation.onCompositionStart(event)
+          }}
+          onCompositionEnd={(event) => {
+            imeComposingRef.current = false
+            imeGuardUntilRef.current = Math.max(
+              imeGuardUntilRef.current,
+              Date.now() + 80,
+            )
+            dictation.onCompositionEnd(event)
+          }}
         />
         <span class="vscode-ai__composer-input-wave" aria-hidden="true">
           <i />
