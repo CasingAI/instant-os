@@ -1611,6 +1611,8 @@ export function VscodeAiPanel({
   sendQueueRef.current = sendQueue
   const turnChangeSessionsRef = useRef<TerminalChangeSet[]>([])
   const lastSentModeRef = useRef<VscodeAiMode | undefined>(undefined)
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   const lastSentTerminalRef = useRef<VscodeAiLastSentTerminal | undefined>(lastSentTerminal)
   lastSentTerminalRef.current = lastSentTerminal
   const busyRef = useRef(false)
@@ -1857,6 +1859,24 @@ export function VscodeAiPanel({
       getAiTerminalHandle,
       getAiTerminalSnapshot,
       closeAiTerminal,
+      requestModeSwitch: async ({ target, explanation }) => {
+        const fromLabel = VSCODE_AI_MODE_LABELS[modeRef.current]
+        const toLabel = VSCODE_AI_MODE_LABELS[target]
+        const reason = explanation?.trim()
+        const ok = await modal.confirm({
+          title: '切换 AI 模式？',
+          message: reason
+            ? `从 ${fromLabel} 切换到 ${toLabel}。\n\n${reason}`
+            : `从 ${fromLabel} 切换到 ${toLabel}。同意后将以新模式继续当前任务。`,
+          confirmLabel: `切换到 ${toLabel}`,
+          cancelLabel: '保持当前',
+          themeColor: VSCODE_AI_MODAL_THEME,
+        })
+        if (!ok) return 'denied'
+        onModeChange(target)
+        modeRef.current = target
+        return 'approved'
+      },
     }),
     [
       closeAiTerminal,
@@ -1864,6 +1884,8 @@ export function VscodeAiPanel({
       ensureAiTerminal,
       getAiTerminalHandle,
       getAiTerminalSnapshot,
+      modal,
+      onModeChange,
       openPlanFile,
       runCommandHost,
       sessionId,
@@ -2251,6 +2273,7 @@ export function VscodeAiPanel({
       scrollToBottom(true)
 
       const turnMode = options?.sendMode ?? mode
+      modeRef.current = turnMode
       const turnModelSource = options?.sendModelSource ?? aiModelSource
       const turnModelKey =
         options?.sendModelSource !== undefined ? options.sendModelKey : aiModelKey
@@ -2509,6 +2532,10 @@ export function VscodeAiPanel({
               scheduleCheckpoint()
             }
           },
+          onModeChangeDuringRun: (nextMode) => {
+            modeRef.current = nextMode
+            lastSentModeRef.current = nextMode
+          },
         })
 
         // 已被编辑重发接管：丢弃本轮结果，由 finally 做 handoff
@@ -2516,10 +2543,13 @@ export function VscodeAiPanel({
           return
         }
 
-        lastSentModeRef.current = turnMode
+        lastSentModeRef.current = result.finalMode ?? turnMode
+        const finalMode = result.finalMode ?? turnMode
+        const finalTerminalKind: VscodeAiTerminalKind =
+          finalMode === 'ask' ? 'ask' : finalMode === 'plan' ? 'plan' : 'agent'
         const nextLastSent: VscodeAiLastSentTerminal = {
-          kind: turnTerminalKind,
-          snapshot: getAiTerminalSnapshot(turnTerminalKind, sessionId),
+          kind: finalTerminalKind,
+          snapshot: getAiTerminalSnapshot(finalTerminalKind, sessionId),
         }
         lastSentTerminalRef.current = nextLastSent
         onLastSentTerminalChange?.(nextLastSent)

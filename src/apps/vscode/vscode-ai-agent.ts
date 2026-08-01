@@ -42,7 +42,11 @@ import {
   VSCODE_AI_TOOL_LABELS,
   type VscodeAiToolsHost,
 } from './vscode-ai-tools.ts'
-import { wrapVscodeAiUserMessage } from './vscode-ai-system-reminder.ts'
+import {
+  wrapVscodeAiUserMessage,
+  wrapVscodeAiUserMessageForMode,
+} from './vscode-ai-system-reminder.ts'
+import { parentAccessForVscodeAiMode } from './vscode-subagent-config.ts'
 import type { OpenAiConfig } from '../../ai/openai-config.ts'
 import { createOpenAiClient } from '../../ai/openai-client.ts'
 import {
@@ -190,6 +194,8 @@ export type VscodeAiAgentResult = {
   messages?: OpenAI.Chat.ChatCompletionMessageParam[]
   /** 压缩后的线历史（下一轮续聊用；不含 system） */
   wireMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 本轮结束时的模式（可能经 switch_mode 变更） */
+  finalMode?: VscodeAiMode
 }
 
 function formatArgsSuffix(args: unknown): string {
@@ -211,6 +217,17 @@ function describeToolCall(event: AgentToolCallEvent): {
 } {
   const label = VSCODE_AI_TOOL_LABELS[event.toolName] ?? event.toolName
   const args = event.arguments
+  if (event.toolName === 'switch_mode') {
+    const target =
+      typeof args.target_mode_id === 'string' ? args.target_mode_id.trim() : ''
+    const explanation =
+      typeof args.explanation === 'string' ? args.explanation.trim() : ''
+    return {
+      label: target ? `${label} · ${target}` : label,
+      detail: explanation || undefined,
+      content: explanation || undefined,
+    }
+  }
   if (event.toolName === 'delegate_subagent') {
     const agentId = typeof args.agent_id === 'string' ? args.agent_id.trim() : ''
     const description =
@@ -641,6 +658,8 @@ export async function askVscodeAiAgent(options: {
   imageAttachments?: readonly VscodeAiImageAttachment[]
   /** 识图 Sub Agent：零工具 + vision client；图片由宿主注入 imageAttachments */
   visionOnly?: boolean
+  /** switch_mode 同意后同步 UI / lastSentMode（panel 侧） */
+  onModeChangeDuringRun?: (mode: VscodeAiMode) => void
 }): Promise<VscodeAiAgentResult> {
   const visionOnly = options.visionOnly === true
   const imageAttachments = options.imageAttachments ?? []
@@ -649,16 +668,54 @@ export async function askVscodeAiAgent(options: {
   const useVisionClient = visionOnly || (parentHasVision && imagePaths.length > 0)
   const injectImages = imagePaths.length > 0 && (visionOnly || parentHasVision)
 
-  const tools = visionOnly ? [] : createVscodeAiTools(options.mode, options.toolsHost)
-
-  const contextSection = buildVscodeAiContextSection(options.context)
-  let system = `${buildVscodeAiSystemPrompt(options.mode)}\n\n【当前工作区快照】\n${contextSection}`
-  const appendix = options.systemPromptAppendix?.trim()
-  if (appendix) {
-    system = `${system}\n\n${appendix}`
+  let currentMode: VscodeAiMode = options.mode
+  let pendingModeSwitch: VscodeAiMode | undefined
+  const toolsHost: VscodeAiToolsHost = {
+    ...options.toolsHost,
+    getCurrentMode: () => currentMode,
+    setPendingModeSwitch: (target) => {
+      pendingModeSwitch = target
+    },
   }
 
+  const contextForMode = (mode: VscodeAiMode): VscodeAiContextInput => {
+    const base = mode === options.mode ? options.context : toolsHost.getContext()
+    const kind = mode === 'ask' ? 'ask' : mode === 'plan' ? 'plan' : 'agent'
+    const ownerId = toolsHost.chatSessionId
+    const snapshot =
+      ownerId && toolsHost.getAiTerminalSnapshot
+        ? toolsHost.getAiTerminalSnapshot(kind, ownerId)
+        : base.aiTerminal
+    return {
+      ...base,
+      aiTerminalKind: kind,
+      aiTerminal: snapshot ?? base.aiTerminal,
+    }
+  }
+
+  const appendix = options.systemPromptAppendix?.trim()
+
+  const buildSystemAndTools = (mode: VscodeAiMode, context: VscodeAiContextInput) => {
+    const nextTools = visionOnly ? [] : createVscodeAiTools(mode, toolsHost)
+    let nextSystem = `${buildVscodeAiSystemPrompt(mode)}\n\n【当前工作区快照】\n${buildVscodeAiContextSection(context)}`
+    if (appendix) {
+      nextSystem = `${nextSystem}\n\n${appendix}`
+    }
+    return { tools: nextTools, system: nextSystem }
+  }
+
+  let { tools, system } = buildSystemAndTools(currentMode, options.context)
+
   const subAgentConfig = options.subAgentConfig
+  // Subagent helpers closed over below; delegate tools attached per mode-loop iteration
+  let attachSubAgentTools:
+    | ((
+        mode: VscodeAiMode,
+        toolsIn: import('../../ai/agent-tool.ts').AgentTool[],
+        systemIn: string,
+      ) => { tools: import('../../ai/agent-tool.ts').AgentTool[]; system: string })
+    | undefined
+
   if (subAgentConfig && !visionOnly) {
     const available = listAvailableSubAgents(subAgentConfig)
 
@@ -689,12 +746,12 @@ export async function askVscodeAiAgent(options: {
       const isVisionAgent = definition.id === 'vision'
       const subMode = definition.access === 'readonly' ? 'ask' : 'agent'
       const subKind = subMode === 'ask' ? 'ask' : 'agent'
-      const parentChatId = options.toolsHost.chatSessionId
-      const parentHost = options.toolsHost.runCommandHost
-      const ensure = options.toolsHost.ensureAiTerminal
-      const getHandle = options.toolsHost.getAiTerminalHandle
-      const getSnapshot = options.toolsHost.getAiTerminalSnapshot
-      const closeTerminal = options.toolsHost.closeAiTerminal
+      const parentChatId = toolsHost.chatSessionId
+      const parentHost = toolsHost.runCommandHost
+      const ensure = toolsHost.ensureAiTerminal
+      const getHandle = toolsHost.getAiTerminalHandle
+      const getSnapshot = toolsHost.getAiTerminalSnapshot
+      const closeTerminal = toolsHost.closeAiTerminal
 
       const visionAttachments: VscodeAiImageAttachment[] | undefined =
         isVisionAgent && subImagePaths && subImagePaths.length > 0
@@ -718,7 +775,12 @@ export async function askVscodeAiAgent(options: {
           userMessage: taskPrompt,
           history,
           context: options.context,
-          toolsHost: options.toolsHost,
+          toolsHost: {
+            ...toolsHost,
+            requestModeSwitch: undefined,
+            getCurrentMode: undefined,
+            setPendingModeSwitch: undefined,
+          },
           signal: signal ?? options.signal,
           modelKey: definition.modelKey ?? options.modelKey,
           systemPromptAppendix: definition.systemPrompt,
@@ -775,8 +837,11 @@ export async function askVscodeAiAgent(options: {
           history,
           context: options.context,
           toolsHost: {
-            ...options.toolsHost,
+            ...toolsHost,
             runCommandHost: subRunCommandHost,
+            requestModeSwitch: undefined,
+            getCurrentMode: undefined,
+            setPendingModeSwitch: undefined,
           },
           signal: signal ?? options.signal,
           modelKey: definition.modelKey ?? options.modelKey,
@@ -809,7 +874,7 @@ export async function askVscodeAiAgent(options: {
             event.taskPrompt ?? event.description,
             event.modelKey,
             modelLabelFor(event.modelKey),
-            options.toolsHost.chatSessionId,
+            toolsHost.chatSessionId,
             event.imagePaths,
           )
         } else if (existing.status === 'running') {
@@ -862,50 +927,64 @@ export async function askVscodeAiAgent(options: {
       }
     }
 
-    const delegateTool = createDelegateSubAgentTool({
-      config: subAgentConfig,
-      getToolsForAccess: (access) =>
-        createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', options.toolsHost),
-      getEnvironmentSection: () => contextSection,
-      signal: options.signal,
-      runSubAgentFn,
-      onSubAgentProgress,
-    })
-    const followUpTool = createFollowUpSubAgentTool({
-      config: subAgentConfig,
-      signal: options.signal,
-      getSession: (runId) => {
-        const run = getRun(runId)
-        if (!run) return undefined
-        const history = run.result?.messages
-          ? stripLeadingSystemMessages(run.result.messages)
-          : []
-        if (history.length === 0 && run.taskPrompt) {
-          history.push({ role: 'user', content: run.taskPrompt })
-          if (run.error) {
-            history.push({ role: 'assistant', content: run.error })
-          } else if (run.result?.text) {
-            history.push({ role: 'assistant', content: run.result.text })
+    const subAgentToolsHost: VscodeAiToolsHost = {
+      ...toolsHost,
+      requestModeSwitch: undefined,
+      getCurrentMode: undefined,
+      setPendingModeSwitch: undefined,
+    }
+
+    attachSubAgentTools = (mode, toolsIn, systemIn) => {
+      subAgentConfig.parentAccess = parentAccessForVscodeAiMode(mode)
+      const nextTools = [...toolsIn]
+      let nextSystem = systemIn
+      const delegateTool = createDelegateSubAgentTool({
+        config: subAgentConfig,
+        getToolsForAccess: (access) =>
+          createVscodeAiTools(access === 'readonly' ? 'ask' : 'agent', subAgentToolsHost),
+        getEnvironmentSection: () =>
+          buildVscodeAiContextSection(contextForMode(currentMode)),
+        signal: options.signal,
+        runSubAgentFn,
+        onSubAgentProgress,
+      })
+      const followUpTool = createFollowUpSubAgentTool({
+        config: subAgentConfig,
+        signal: options.signal,
+        getSession: (runId) => {
+          const run = getRun(runId)
+          if (!run) return undefined
+          const history = run.result?.messages
+            ? stripLeadingSystemMessages(run.result.messages)
+            : []
+          if (history.length === 0 && run.taskPrompt) {
+            history.push({ role: 'user', content: run.taskPrompt })
+            if (run.error) {
+              history.push({ role: 'assistant', content: run.error })
+            } else if (run.result?.text) {
+              history.push({ role: 'assistant', content: run.result.text })
+            }
           }
+          return {
+            agentId: run.agentId,
+            description: run.description,
+            status: run.status,
+            history,
+            modelKey: run.modelKey,
+          }
+        },
+        runSubAgentFn,
+        onSubAgentProgress,
+      })
+      if (delegateTool) {
+        nextTools.push(delegateTool)
+        if (followUpTool) nextTools.push(followUpTool)
+        const section = buildSubAgentDelegationPromptSection(available)
+        if (section) {
+          nextSystem = `${nextSystem}\n\n${section}`
         }
-        return {
-          agentId: run.agentId,
-          description: run.description,
-          status: run.status,
-          history,
-          modelKey: run.modelKey,
-        }
-      },
-      runSubAgentFn,
-      onSubAgentProgress,
-    })
-    if (delegateTool) {
-      tools.push(delegateTool)
-      if (followUpTool) tools.push(followUpTool)
-      const section = buildSubAgentDelegationPromptSection(available)
-      if (section) {
-        system = `${system}\n\n${section}`
       }
+      return { tools: nextTools, system: nextSystem }
     }
   }
   const userTextForModel =
@@ -929,10 +1008,14 @@ export async function askVscodeAiAgent(options: {
   const model = modelConfig.defaultModel
   const tokenizerFamily = tokenizerFamilyForVscodeAiModelKey(options.modelKey)
 
+  if (attachSubAgentTools) {
+    ;({ tools, system } = attachSubAgentTools(currentMode, tools, system))
+  }
+
   await prepareVscodeAiContextUsage(model, tokenizerFamily)
   const modelRef = parseVscodeAiModelRefKey(options.modelKey ?? '')
   let contextUsage = await measureVscodeAiContextUsage({
-    mode: options.mode,
+    mode: currentMode,
     context: options.context,
     history: options.history,
     userMessage: wrappedUserMessage,
@@ -945,42 +1028,12 @@ export async function askVscodeAiAgent(options: {
     tools,
   })
 
-  const behaviorLabel =
-    options.mode === 'ask' ? '问答' : options.mode === 'plan' ? '计划' : '代理'
+  const behaviorLabelFor = (mode: VscodeAiMode) =>
+    mode === 'ask' ? '问答' : mode === 'plan' ? '计划' : '代理'
 
   const contextWindow = resolveModelContextWindow(model, {
     providerEntryId: modelRef?.providerEntryId,
     modelKey: options.modelKey,
-  })
-
-  const tmpDir = options.context.aiTerminal?.tmpdir?.trim()
-
-  const agent = createAgent({
-    prompt: system,
-    tools,
-    maxSteps: options.maxStepsOverride ?? VSCODE_AI_MAX_STEPS,
-    config: modelConfig,
-    client,
-    model,
-    idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
-    idleRetryCount: options.idleRetryCount ?? 10,
-    usageContext: {
-      actor: 'vscode',
-      behavior: options.mode,
-      actorLabel: 'Virtual Studio Code',
-      behaviorLabel,
-    },
-    compression: {
-      enabled: true,
-      contextWindow,
-      spill: tmpDir
-        ? {
-            write: async (text) =>
-              writeSpillFile({ fullText: text, tmpDir, subdir: 'context-spill' }),
-            hint: formatSpillHint,
-          }
-        : undefined,
-    },
   })
 
   const startedAt = osNowMs()
@@ -1271,33 +1324,119 @@ export async function askVscodeAiAgent(options: {
     emit()
   }
 
-  const result = await agent.run({
-    ...(injectImages
-      ? {
-          messages: [
-            ...(options.history ?? []),
-            {
-              role: 'user' as const,
-              content: await buildVscodeAiMultimodalUserContent(
-                wrappedUserMessage,
-                imagePaths,
-              ),
-            },
-          ],
-        }
-      : {
-          input: wrappedUserMessage,
-          messages: options.history,
-        }),
-    signal: options.signal,
-    onToolCall,
-    onToolResult,
-    onToolCallDelta,
-    onTextDelta,
-    onReasoningDelta,
-    onUsage,
-    onContextCompression,
-  })
+  let result: Awaited<ReturnType<ReturnType<typeof createAgent>['run']>> | undefined
+  let firstSegment = true
+  let previousModeForSwitch: VscodeAiMode | undefined
+
+  // switch_mode 同意后 stopRun，以新模式重建 agent 续跑；timeline / toolCallCount 跨段保留
+  while (true) {
+    pendingModeSwitch = undefined
+    const segmentContext = firstSegment ? options.context : contextForMode(currentMode)
+    ;({ tools, system } = buildSystemAndTools(currentMode, segmentContext))
+    if (attachSubAgentTools) {
+      ;({ tools, system } = attachSubAgentTools(currentMode, tools, system))
+    }
+
+    const tmpDir = segmentContext.aiTerminal?.tmpdir?.trim()
+    const agent = createAgent({
+      prompt: system,
+      tools,
+      maxSteps: options.maxStepsOverride ?? VSCODE_AI_MAX_STEPS,
+      config: modelConfig,
+      client,
+      model,
+      idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
+      idleRetryCount: options.idleRetryCount ?? 10,
+      usageContext: {
+        actor: 'vscode',
+        behavior: currentMode,
+        actorLabel: 'Virtual Studio Code',
+        behaviorLabel: behaviorLabelFor(currentMode),
+      },
+      compression: {
+        enabled: true,
+        contextWindow,
+        spill: tmpDir
+          ? {
+              write: async (text) =>
+                writeSpillFile({ fullText: text, tmpDir, subdir: 'context-spill' }),
+              hint: formatSpillHint,
+            }
+          : undefined,
+      },
+    })
+
+    if (firstSegment) {
+      result = await agent.run({
+        ...(injectImages
+          ? {
+              messages: [
+                ...(options.history ?? []),
+                {
+                  role: 'user' as const,
+                  content: await buildVscodeAiMultimodalUserContent(
+                    wrappedUserMessage,
+                    imagePaths,
+                  ),
+                },
+              ],
+            }
+          : {
+              input: wrappedUserMessage,
+              messages: options.history,
+            }),
+        signal: options.signal,
+        onToolCall,
+        onToolResult,
+        onToolCallDelta,
+        onTextDelta,
+        onReasoningDelta,
+        onUsage,
+        onContextCompression,
+      })
+      firstSegment = false
+    } else {
+      const continuation = wrapVscodeAiUserMessageForMode(
+        '请在新模式下继续处理上一轮用户请求。',
+        currentMode,
+        previousModeForSwitch,
+      )
+      const historyWithoutSystem = stripLeadingSystemMessages(result!.messages)
+      result = await agent.run({
+        messages: [
+          ...historyWithoutSystem,
+          { role: 'user', content: continuation },
+        ],
+        signal: options.signal,
+        onToolCall,
+        onToolResult,
+        onToolCallDelta,
+        onTextDelta,
+        onReasoningDelta,
+        onUsage,
+        onContextCompression,
+      })
+    }
+
+    if (result.stoppedByTool && pendingModeSwitch) {
+      previousModeForSwitch = currentMode
+      currentMode = pendingModeSwitch
+      pendingModeSwitch = undefined
+      options.onModeChangeDuringRun?.(currentMode)
+      timeline = markTimelineDone(timeline)
+      answerText = ''
+      reasoningText = ''
+      reasoningItemId = undefined
+      emit({ immediate: true })
+      continue
+    }
+
+    break
+  }
+
+  if (!result) {
+    throw new Error('Agent 未产生结果')
+  }
 
   timeline = markTimelineDone(timeline)
   emit({ immediate: true })
@@ -1316,5 +1455,6 @@ export async function askVscodeAiAgent(options: {
     wireMessages: result.wireMessages
       ? stripLeadingSystemMessages(result.wireMessages)
       : undefined,
+    finalMode: currentMode,
   }
 }

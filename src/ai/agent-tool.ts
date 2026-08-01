@@ -15,6 +15,11 @@ export type AgentToolStructuredResult = {
   appendMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
   /** 与 appendMessages 配套的 timeline 记录（由 run-agent 再发 onToolCall/onToolResult） */
   syntheticActivities?: AgentSyntheticActivity[]
+  /**
+   * 为 true 时：本工具结果写入 transcript 后立刻结束当前 runAgent 循环
+   *（不再进入下一步 model 调用；同轮后续 tool_calls 仍会先跑完）。
+   */
+  stopRun?: boolean
 }
 
 export type AgentToolExecuteResult = unknown | AgentToolStructuredResult

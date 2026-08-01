@@ -137,6 +137,8 @@ export type RunAgentResult = {
   steps: number
   /** 达到 maxSteps 仍有未完成的工具轮次，调用方可携带 messages 继续 */
   incomplete?: boolean
+  /** 某工具返回 stopRun，循环提前结束（调用方可据此换工具集续跑） */
+  stoppedByTool?: boolean
 }
 
 export type { AgentCompressionDetail, AgentCompressionEvent, AgentCompressionOptions }
@@ -729,6 +731,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       })
 
       const availableToolNames = [...toolByName.keys()]
+      let stopRunRequested = false
 
       for (const [toolIndex, toolCall] of turn.toolCalls.entries()) {
         throwIfStreamAborted(options.signal)
@@ -795,6 +798,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
           emitSyntheticActivities(step, result, options.onToolCall, options.onToolResult)
+          if (isAgentToolStructuredResult(result) && result.stopRun) {
+            stopRunRequested = true
+          }
         } catch (error) {
           if (isStreamAbortError(error, options.signal)) {
             throw error
@@ -809,6 +815,25 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
           )
           throwIfStreamAborted(options.signal)
           emitToolResult(content)
+        }
+      }
+
+      if (stopRunRequested) {
+        const stoppedText = lastAssistantText(buffers.canonical)
+        finishAgentUsage({
+          usageContext: options.usageContext,
+          logSession,
+          response: formatStreamEventResponse(turn.reasoning, turn.content),
+          promptTokens: accumulatedPromptTokens,
+          completionTokens: accumulatedCompletionTokens,
+          totalTokens: accumulatedTotalTokens,
+        })
+        return {
+          text: stoppedText || turn.content,
+          messages: buffers.canonical,
+          steps: step + 1,
+          stoppedByTool: true,
+          ...resultExtras(),
         }
       }
     }

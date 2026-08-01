@@ -90,7 +90,10 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
 export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').VscodeAiMode): string {
   const modeLine =
     mode === 'ask'
-      ? '当前模式：Ask（只读）。只能用 run_in_terminal 在只读终端中读取；写/删/建文件与 npm/npx / GitHub 写操作均不可用。GitHub 工作树用 await instant.git.status/diff/log（经 run_in_terminal）。回答用简洁中文。'
+      ? [
+          '当前模式：Ask（只读）。只能用 run_in_terminal 在只读终端中读取；写/删/建文件与 npm/npx / GitHub 写操作均不可用。GitHub 工作树用 await instant.git.status/diff/log（经 run_in_terminal）。回答用简洁中文。',
+          '若任务需要多方案规划或大范围改动设计，可调用 switch_mode 切到 Plan（需用户确认；同意后自动以 Plan 续跑）。不要尝试切到 Agent。',
+        ].join(' ')
       : mode === 'plan'
         ? [
             '当前模式：Plan（只读协作规划）。不得修改业务代码或运行 npm/npx / GitHub 写操作。',
@@ -101,10 +104,12 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
             '复杂时可用 mermaid。骨架示例：',
             VSCODE_AI_PLAN_MARKDOWN_SKELETON,
             '写完计划即可结束本轮，不要开始改业务代码。',
+            '若用户明确要求开始实施、或计划已落盘且下一步就是改代码，可调用 switch_mode 切到 Agent（需用户确认；同意后自动以 Agent 续跑）。',
           ].join(' ')
         : [
             '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；GitHub 工作树用 await instant.git.*（经 run_in_terminal）。调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时用 globalThis.instant；需要打开/读取/操作真实网页时用 globalThis.webview（见下方壳层 API）。',
             '若用户要求按 /tmp/Workspace/.../vscode/plans/*.md 实施：先读取该计划；每完成一项 Todo，调用 update_plan 将对应 `- [ ]` 改为 `- [x]` 并传入完整文件内容，保持其余正文稳定；不要只用终端改计划文件，也不要只改代码不更新计划。',
+            '任务复杂、多方案有显著权衡、或需要先对齐架构时，可主动调用 switch_mode 切到 Plan（需用户确认；同意后自动以 Plan 续跑）。不要过度切换。',
           ].join(' ')
 
   const instantShellSection = `\n\n${buildInstantShellSystemPromptSection()}`

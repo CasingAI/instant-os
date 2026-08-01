@@ -9,6 +9,11 @@ import { workspaceAppTmpDir, workspaceTmpRoot } from '../files/files-tmp.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
+import {
+  resolveSwitchModeTarget,
+  VSCODE_AI_MODE_LABELS,
+  VSCODE_AI_SWITCH_MODE_TARGETS,
+} from './vscode-ai-mode.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
 import {
   assertVscodePlanPath,
@@ -124,12 +129,81 @@ export type VscodeAiToolsHost = {
     ownerId: string,
   ) => VscodeAgentTerminalSnapshot
   closeAiTerminal?: (kind: VscodeAiTerminalKind, ownerId: string) => void
+  /** 当前主 Agent 模式（续跑循环中可变）；缺省时用 createVscodeAiTools 的 mode 参数 */
+  getCurrentMode?: () => VscodeAiMode
+  /**
+   * 用户确认是否切换模式。
+   * approved 时宿主应同步 UI prefs；agent 层会 stopRun 并以新模式续跑。
+   */
+  requestModeSwitch?: (input: {
+    target: VscodeAiMode
+    explanation?: string
+  }) => Promise<'approved' | 'denied'>
+  /** 同意切换后写入目标模式，供续跑循环读取 */
+  setPendingModeSwitch?: (target: VscodeAiMode | undefined) => void
 }
 
 export function createVscodeAiTools(
   mode: VscodeAiMode,
   host: VscodeAiToolsHost,
 ): AgentTool[] {
+  const allowedTargets = VSCODE_AI_SWITCH_MODE_TARGETS[mode]
+  const switchModeTools: AgentTool[] =
+    allowedTargets.length > 0 && host.requestModeSwitch
+      ? [
+          defineTool({
+            name: 'switch_mode',
+            description:
+              `请求切换 AI 模式（需用户确认）。当前为 ${VSCODE_AI_MODE_LABELS[mode]}，可切到：${allowedTargets
+                .map((item) => `${item}（${VSCODE_AI_MODE_LABELS[item]}）`)
+                .join('、')}。` +
+              '复杂/多方案/架构决策切 Plan；计划就绪或需改代码切 Agent。' +
+              '同意后本轮会结束并以新模式自动续跑；拒绝则继续当前模式。',
+            parameters: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['target_mode_id'],
+              properties: {
+                target_mode_id: {
+                  type: 'string',
+                  enum: [...allowedTargets],
+                  description: `目标模式：${allowedTargets.join(' | ')}`,
+                },
+                explanation: {
+                  type: 'string',
+                  description: '简短说明为何切换（展示给用户确认）',
+                },
+              },
+            },
+            execute: async (args) => {
+              const current = host.getCurrentMode?.() ?? mode
+              const resolved = resolveSwitchModeTarget(current, args.target_mode_id)
+              if (!resolved.ok) {
+                return resolved.error
+              }
+              const explanation =
+                typeof args.explanation === 'string' ? args.explanation.trim() : ''
+              const request = host.requestModeSwitch
+              if (!request) {
+                return '当前环境不支持切换模式。'
+              }
+              const decision = await request({
+                target: resolved.target,
+                explanation: explanation || undefined,
+              })
+              if (decision !== 'approved') {
+                return `用户拒绝切换到 ${VSCODE_AI_MODE_LABELS[resolved.target]}，请继续当前模式（${VSCODE_AI_MODE_LABELS[current]}）。`
+              }
+              host.setPendingModeSwitch?.(resolved.target)
+              return {
+                content: `已切换到 ${VSCODE_AI_MODE_LABELS[resolved.target]}。将以新模式继续处理。`,
+                stopRun: true,
+              }
+            },
+          }),
+        ]
+      : []
+
   const askRunTools: AgentTool[] =
     mode === 'ask' || mode === 'plan'
       ? [
@@ -398,12 +472,13 @@ export function createVscodeAiTools(
         ]
       : []
 
-  if (mode === 'ask') return [...askRunTools]
-  if (mode === 'plan') return [...askRunTools, ...planWriteTools]
-  return [...agentRunTools, ...planUpdateTools]
+  if (mode === 'ask') return [...switchModeTools, ...askRunTools]
+  if (mode === 'plan') return [...switchModeTools, ...askRunTools, ...planWriteTools]
+  return [...switchModeTools, ...agentRunTools, ...planUpdateTools]
 }
 
 export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
+  switch_mode: '切换模式',
   write_plan: '写入计划',
   update_plan: '更新计划',
   run_in_terminal: '使用终端',
