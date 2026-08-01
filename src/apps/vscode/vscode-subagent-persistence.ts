@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import type { VscodeAiAgentResult } from './vscode-ai-agent.ts'
+import { truncateToolResultForStore } from './vscode-ai-agent.ts'
 import {
   hydrateRuns,
   listRuns,
@@ -100,6 +101,21 @@ export function normalizePersistedSubagentRuns(raw: unknown): PersistedSubagentR
   return out
 }
 
+function trimMessagesForPersist(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[] | undefined,
+): OpenAI.Chat.ChatCompletionMessageParam[] | undefined {
+  if (!messages || messages.length === 0) return messages
+  return messages.map((item) => {
+    if (
+      (item.role === 'tool' || item.role === 'assistant' || item.role === 'user') &&
+      typeof item.content === 'string'
+    ) {
+      return { ...item, content: truncateToolResultForStore(item.content) }
+    }
+    return item
+  })
+}
+
 export function serializeSubagentRunsForPersist(
   states: readonly SubagentRunState[] = listRuns(),
 ): PersistedSubagentRun[] {
@@ -110,17 +126,19 @@ export function serializeSubagentRunsForPersist(
       parentChatId: run.parentChatId,
       agentId: run.agentId,
       description: run.description,
-      taskPrompt: run.taskPrompt,
-      lastFollowUpPrompt: run.lastFollowUpPrompt,
+      taskPrompt: truncateToolResultForStore(run.taskPrompt),
+      lastFollowUpPrompt: run.lastFollowUpPrompt
+        ? truncateToolResultForStore(run.lastFollowUpPrompt)
+        : undefined,
       modelKey: run.modelKey,
       modelLabel: run.modelLabel,
       status: run.status,
       startedAt: run.startedAt,
-      text: result?.text,
+      text: result?.text ? truncateToolResultForStore(result.text) : result?.text,
       toolCallCount: result?.toolCallCount,
       incomplete: result?.incomplete,
-      messages: result?.messages,
-      error: run.error,
+      messages: trimMessagesForPersist(result?.messages),
+      error: run.error ? truncateToolResultForStore(run.error) : run.error,
       updatedAt: Date.now(),
     }
   })

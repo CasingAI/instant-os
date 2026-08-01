@@ -152,8 +152,13 @@ export function subscribe(listener: SubagentStoreListener): () => void {
   }
 }
 
-/** 测试用：清空内存会话 */
-export function resetSubagentStoreForTests(): void {
+/** 清空内存中的 Sub Agent 会话（关窗 teardown / 测试） */
+export function clearSubagentStore(): void {
   runs.clear()
   notify()
+}
+
+/** @deprecated 使用 clearSubagentStore */
+export function resetSubagentStoreForTests(): void {
+  clearSubagentStore()
 }

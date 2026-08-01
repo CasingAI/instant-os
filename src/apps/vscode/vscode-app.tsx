@@ -111,6 +111,7 @@ import {
   type VscodeDraftEntry,
 } from './vscode-session.ts'
 import {
+  resetVscodeTypescriptWorkspaceCaches,
   syncVscodeTypescriptAll,
   type VscodeTypescriptSyncEntry,
 } from './vscode-typescript-workspace.ts'
@@ -143,7 +144,7 @@ import {
   hydrateSubagentStoreFromPersisted,
   serializeSubagentRunsForPersist,
 } from './vscode-subagent-persistence.ts'
-import { subscribe as subscribeSubagentStore } from './vscode-subagent-store.ts'
+import { clearSubagentStore, subscribe as subscribeSubagentStore } from './vscode-subagent-store.ts'
 import { resolveVscodeCompletionModelKey } from './vscode-ai-models.ts'
 import { VscodeSettingsPanel } from './vscode-settings-panel.tsx'
 import './vscode.css'
@@ -910,6 +911,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           buildVscodeSessionFromTabs(tabsRef.current, activeTabIdRef.current),
         )
         const focus = getEditorFocusFromLayout(editorLayoutRef.current)
+        const subagentRuns = serializeSubagentRunsForPersist()
         void aiChatPersistChainRef.current.then(() =>
           saveVscodeAiChatStore({
             workspaceKey: vscodeAiChatWorkspaceKey(aiWorkspaceFolderRef.current),
@@ -920,9 +922,20 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
             lastFocusedEditor: focus.lastFocusedEditor,
             activeSessionId:
               focus.lastFocusedEditor === 'aiChat' ? focus.activeSessionId : undefined,
+            subagentRuns,
           }),
         )
       }
+      typescriptWorkspaceAbortRef.current?.abort()
+      typescriptWorkspaceAbortRef.current = undefined
+      resetVscodeTypescriptWorkspaceCaches()
+      const openPaths = new Set(
+        tabsRef.current.map((tab) => tab.path).filter((path) => Boolean(path)),
+      )
+      for (const path of openPaths) {
+        disposeMonacoModelForPath(path)
+      }
+      clearSubagentStore()
       mountedRef.current = false
     }
   }, [])

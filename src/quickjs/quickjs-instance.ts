@@ -49,6 +49,8 @@ import { isQuickJsWasmBoundaryFatalError } from './quickjs-runtime-fatal.ts'
 import {
   QUICKJS_DEFAULT_MAX_FILE_BYTES,
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
+  QUICKJS_MAX_CONSOLE_LINE_CHARS,
+  QUICKJS_MAX_CONSOLE_LINES,
 } from './quickjs-quotas.ts'
 
 /** 默认无超时；传入有限正数毫秒可限制单次 eval。 */
@@ -56,7 +58,12 @@ const DEFAULT_TIMEOUT_MS = Number.POSITIVE_INFINITY
 const DEFAULT_MAX_STACK_SIZE_BYTES = 512 * 1024
 const DEFAULT_ARGV = ['instant-node'] as const
 
-export { QUICKJS_DEFAULT_MAX_FILE_BYTES, QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES }
+export {
+  QUICKJS_DEFAULT_MAX_FILE_BYTES,
+  QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
+  QUICKJS_MAX_CONSOLE_LINE_CHARS,
+  QUICKJS_MAX_CONSOLE_LINES,
+}
 
 const CONSOLE_LEVELS: QuickJsConsoleLevel[] = ['log', 'info', 'warn', 'error']
 
@@ -368,13 +375,21 @@ export async function createQuickJsInstance(
   }
 
   const pushConsole = (level: QuickJsConsoleLevel, text: string): QuickJsConsoleLine => {
+    const raw = text ?? ''
+    const clipped =
+      raw.length > QUICKJS_MAX_CONSOLE_LINE_CHARS
+        ? `${raw.slice(0, QUICKJS_MAX_CONSOLE_LINE_CHARS)}…`
+        : raw
     const line: QuickJsConsoleLine = {
       id: nextConsoleLineId(),
       level,
-      text,
+      text: clipped,
       at: Date.now(),
     }
-    state.consoleLines = [...state.consoleLines, line]
+    const next = state.consoleLines.length >= QUICKJS_MAX_CONSOLE_LINES
+      ? state.consoleLines.slice(-(QUICKJS_MAX_CONSOLE_LINES - 1))
+      : state.consoleLines
+    state.consoleLines = [...next, line]
     notify()
     return line
   }

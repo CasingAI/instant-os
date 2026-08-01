@@ -423,6 +423,9 @@ export async function runVscodeAiNpmScript(
     return maybeSpillToolOutput(fullText, {
       tmpDir: spillTarget.tmpDir,
       runTerminalLine: (cmd) => runVscodeAiTerminalLine(host, cmd),
+      notifyTerminal: (message) => {
+        host.getAgentTerminalHandle()?.appendInfo(message)
+      },
     })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
@@ -458,6 +461,9 @@ export async function runVscodeAiNpx(
     return maybeSpillToolOutput(fullText, {
       tmpDir: spillTarget.tmpDir,
       runTerminalLine: (cmd) => runVscodeAiTerminalLine(host, cmd),
+      notifyTerminal: (message) => {
+        host.getAgentTerminalHandle()?.appendInfo(message)
+      },
     })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)

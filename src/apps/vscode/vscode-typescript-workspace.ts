@@ -187,12 +187,32 @@ export function clearVscodeTypescriptLocalModules(preservePaths?: ReadonlySet<st
   }
 }
 
-function clearPackageModuleModels(preservePaths?: ReadonlySet<string>): void {
+export function clearVscodeTypescriptPackageModules(
+  preservePaths?: ReadonlySet<string>,
+): void {
   for (const path of [...packageModuleModelPaths]) {
     if (preservePaths?.has(path)) continue
     disposeMonacoModelForPath(path)
     packageModuleModelPaths.delete(path)
   }
+}
+
+/** @deprecated 使用 clearVscodeTypescriptPackageModules */
+function clearPackageModuleModels(preservePaths?: ReadonlySet<string>): void {
+  clearVscodeTypescriptPackageModules(preservePaths)
+}
+
+/**
+ * 关窗 / 无工作区时重置 TS 相关 Monaco 缓存（local、package、extraLibs、bare resolve）。
+ */
+export function resetVscodeTypescriptWorkspaceCaches(): void {
+  ensureMonacoEnvironment()
+  clearMonacoTypescriptExtraLibs()
+  applyMonacoTypescriptCompilerOverrides(undefined)
+  clearVscodeTypescriptLocalModules()
+  clearVscodeTypescriptPackageModules()
+  lastInjectedExtraLibPaths = new Set()
+  clearBareModulesResolveState()
 }
 
 /**
@@ -268,12 +288,7 @@ export async function syncVscodeTypescriptWorkspace(
   ensureMonacoEnvironment()
 
   if (!workspaceFolder) {
-    clearMonacoTypescriptExtraLibs()
-    applyMonacoTypescriptCompilerOverrides(undefined)
-    clearVscodeTypescriptLocalModules()
-    clearPackageModuleModels()
-    lastInjectedExtraLibPaths = new Set()
-    clearBareModulesResolveState()
+    resetVscodeTypescriptWorkspaceCaches()
     return ''
   }
 

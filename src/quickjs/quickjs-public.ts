@@ -6,6 +6,8 @@ export { createQuickJsInstance } from './quickjs-instance.ts'
 export {
   QUICKJS_DEFAULT_MAX_FILE_BYTES,
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
+  QUICKJS_MAX_CONSOLE_LINE_CHARS,
+  QUICKJS_MAX_CONSOLE_LINES,
 } from './quickjs-quotas.ts'
 export {
   isQuickJsRuntimeFatalError,

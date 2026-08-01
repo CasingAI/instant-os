@@ -126,6 +126,9 @@ export function createVscodeAiTools(
                 tmpDir,
                 runTerminalLine: (cmd) =>
                   runVscodeAiTerminalLine(host.runCommandHost, cmd),
+                notifyTerminal: (message) => {
+                  host.runCommandHost.getAgentTerminalHandle()?.appendInfo(message)
+                },
               })
             },
           }),
@@ -216,6 +219,9 @@ export function createVscodeAiTools(
                 tmpDir,
                 runTerminalLine: (cmd) =>
                   runVscodeAiTerminalLine(host.runCommandHost, cmd),
+                notifyTerminal: (message) => {
+                  host.runCommandHost.getAgentTerminalHandle()?.appendInfo(message)
+                },
               })
             },
           }),

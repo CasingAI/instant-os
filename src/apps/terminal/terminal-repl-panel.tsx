@@ -3,6 +3,8 @@ import type { Ref } from 'preact'
 import {
   createQuickJsInstance,
   isQuickJsWasmBoundaryFatalError,
+  QUICKJS_MAX_CONSOLE_LINE_CHARS,
+  QUICKJS_MAX_CONSOLE_LINES,
   type QuickJsConsoleLine,
   type QuickJsInstance,
 } from '../../quickjs/quickjs-public.ts'
@@ -80,6 +82,19 @@ type DisplayLine =
   | { id: string; kind: 'result'; text: string }
   | { id: string; kind: 'error'; text: string }
   | { id: string; kind: 'info'; text: string }
+
+const MAX_DISPLAY_LINES = QUICKJS_MAX_CONSOLE_LINES
+const MAX_DISPLAY_LINE_CHARS = QUICKJS_MAX_CONSOLE_LINE_CHARS
+
+function clipDisplayText(text: string): string {
+  if (text.length <= MAX_DISPLAY_LINE_CHARS) return text
+  return `${text.slice(0, MAX_DISPLAY_LINE_CHARS)}…`
+}
+
+function trimDisplayLines(lines: DisplayLine[]): DisplayLine[] {
+  if (lines.length <= MAX_DISPLAY_LINES) return lines
+  return lines.slice(-MAX_DISPLAY_LINES)
+}
 
 function consoleLevelClass(level: QuickJsConsoleLine['level']): string {
   if (level === 'error') return 'terminal-panel__line--error'
@@ -221,8 +236,12 @@ export function TerminalReplPanel({
   }, [])
 
   const appendLine = useCallback((line: Omit<DisplayLine, 'id'>) => {
-    const withId = { ...line, id: nextLineId() } as DisplayLine
-    setLines((prev) => [...prev, withId])
+    const withId = {
+      ...line,
+      id: nextLineId(),
+      text: clipDisplayText(line.text),
+    } as DisplayLine
+    setLines((prev) => trimDisplayLines([...prev, withId]))
   }, [nextLineId])
 
   const focusInput = useCallback(() => {
@@ -241,11 +260,17 @@ export function TerminalReplPanel({
         id: line.id,
         kind: 'output',
         level: line.level,
-        text: line.text,
+        text: clipDisplayText(line.text),
       })
     }
+    const liveIds = new Set(consoleLines.map((line) => line.id))
+    for (const id of [...seenConsoleIdsRef.current]) {
+      if (!liveIds.has(id)) {
+        seenConsoleIdsRef.current.delete(id)
+      }
+    }
     if (fresh.length > 0) {
-      setLines((prev) => [...prev, ...fresh])
+      setLines((prev) => trimDisplayLines([...prev, ...fresh]))
     }
   }, [])
 

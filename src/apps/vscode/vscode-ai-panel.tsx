@@ -1857,8 +1857,10 @@ export function VscodeAiPanel({
 
         lastCheckpointToolCount = toolCount
         lastCheckpointAt = now
+        // live 气泡已展示完整 timeline；纯文本流式 interval 不把 investigation 再写进 messages，
+        // 避免与 live 双份常驻。工具推进 / force 仍写入，供崩溃恢复工具轨迹。
         const investigation =
-          timeline.length > 0
+          (force || toolAdvanced) && timeline.length > 0
             ? buildVscodeAiInvestigationFromTimeline(timeline, {
                 toolCallCount: toolCount,
                 startedAt: liveStartedAtRef.current,
@@ -2063,6 +2065,23 @@ export function VscodeAiPanel({
         clearLiveTurnState()
         abortRef.current = undefined
 
+        // QuickJS Asyncify WASM 堆只涨不缩；回合结束后重建以归还 ArrayBuffer。
+        // 有未审改动时保留实例，避免丢掉可回滚 ChangeSet。
+        const terminalHandle = getAiTerminalHandle(turnTerminalKind, sessionId)
+        if (terminalHandle) {
+          const pending = terminalHandle.getLastChanges()
+          if (!pending || pending.changes.length === 0) {
+            void (async () => {
+              try {
+                terminalHandle.clear()
+                await terminalHandle.rebuildInstance()
+              } catch {
+                // 回收失败不阻断下一轮发送
+              }
+            })()
+          }
+        }
+
         const queued = sendQueueRef.current
         if (queued.length > 0) {
           const [next, ...rest] = queued
@@ -2086,6 +2105,7 @@ export function VscodeAiPanel({
       customSubAgents,
       draft,
       enqueueSend,
+      getAiTerminalHandle,
       getAiTerminalSnapshot,
       mode,
       onAiModelSelectionChange,

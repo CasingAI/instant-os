@@ -69,6 +69,9 @@ async function runGithubGit(
     return maybeSpillToolOutput(fullText, {
       tmpDir,
       runTerminalLine: (cmd) => runVscodeAiTerminalLine(host, cmd),
+      notifyTerminal: (message) => {
+        host.getAgentTerminalHandle()?.appendInfo(message)
+      },
     })
   } catch (error) {
     return error instanceof Error ? error.message : String(error)

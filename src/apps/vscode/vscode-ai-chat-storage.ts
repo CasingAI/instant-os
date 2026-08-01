@@ -8,7 +8,11 @@ import {
 } from '../../os/device-data-storage.ts'
 import type { TerminalChangeKind } from '../../terminal/terminal-changeset.ts'
 import type OpenAI from 'openai'
-import type { VscodeAiInvestigation } from './vscode-ai-agent.ts'
+import {
+  trimInvestigationForPersist,
+  truncateToolResultForStore,
+  type VscodeAiInvestigation,
+} from './vscode-ai-agent.ts'
 import { normalizeVscodeAiMode, type VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiLastSentTerminal } from './vscode-ai-system-reminder.ts'
 import type { VscodeModelSource } from './vscode-prefs.ts'
@@ -495,20 +499,69 @@ function trimClosedSessions(
       return {
         ...rest,
         title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
+        messages: trimChatMessagesForPersist(session.messages),
       }
     })
+}
+
+function truncateOptionalText(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined
+  return truncateToolResultForStore(text)
+}
+
+function trimChatMessagesForPersist(
+  messages: readonly VscodeAiChatMessage[],
+): VscodeAiChatMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    content: truncateToolResultForStore(message.content),
+    investigation: message.investigation
+      ? trimInvestigationForPersist(message.investigation)
+      : undefined,
+  }))
+}
+
+function trimApiTranscriptForPersist(
+  transcript: OpenAI.Chat.ChatCompletionMessageParam[] | undefined,
+): OpenAI.Chat.ChatCompletionMessageParam[] | undefined {
+  if (!transcript || transcript.length === 0) return transcript
+  return transcript.map((item) => {
+    if (item.role === 'tool' && typeof item.content === 'string') {
+      return { ...item, content: truncateToolResultForStore(item.content) }
+    }
+    if (item.role === 'assistant' && typeof item.content === 'string') {
+      return { ...item, content: truncateToolResultForStore(item.content) }
+    }
+    if (item.role === 'user' && typeof item.content === 'string') {
+      return { ...item, content: truncateToolResultForStore(item.content) }
+    }
+    return item
+  })
 }
 
 function prepareStoreForSave(store: VscodeAiChatStore): VscodeAiChatStore {
   const openSessions = store.openSessions.map((session) => ({
     ...session,
     title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
+    messages: trimChatMessagesForPersist(session.messages),
+    apiTranscript: trimApiTranscriptForPersist(session.apiTranscript),
   }))
   const closedSessions = trimClosedSessions(store.closedSessions)
   const lastFocusedEditor = store.lastFocusedEditor
   const activeSessionId = store.activeSessionId
   const subagentRuns =
-    store.subagentRuns && store.subagentRuns.length > 0 ? store.subagentRuns : undefined
+    store.subagentRuns && store.subagentRuns.length > 0
+      ? store.subagentRuns.map((run) => ({
+          ...run,
+          text: truncateOptionalText(run.text),
+          error: truncateOptionalText(run.error),
+          taskPrompt: truncateToolResultForStore(run.taskPrompt),
+          lastFollowUpPrompt: truncateOptionalText(run.lastFollowUpPrompt),
+          messages: run.messages
+            ? (trimApiTranscriptForPersist(run.messages) as typeof run.messages)
+            : undefined,
+        }))
+      : undefined
   return {
     workspaceKey: store.workspaceKey,
     openSessions,

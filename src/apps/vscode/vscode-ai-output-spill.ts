@@ -1,7 +1,9 @@
 /**
  * AI 工具结果超长时 spill 到 session tmp，并在终端真实执行预览读；
  * 再向 LLM / timeline 注入合成「读取前缀」消息。
- * 终端面板仍展示完整原始输出；本模块只包装发给模型的 tool result。
+ *
+ * 全量文本只保留在 tmp；终端面板受 console/display 行数与单行字符上限约束，
+ * 不再假设可常驻完整原始输出。spill 后可通过 notifyTerminal 提示落盘路径。
  */
 import type OpenAI from 'openai'
 import type { AgentToolStructuredResult } from '../../ai/agent-tool.ts'
@@ -97,6 +99,8 @@ export async function maybeSpillToolOutput(
   options: {
     tmpDir: string
     runTerminalLine: (command: string) => Promise<string>
+    /** 可选：向终端面板追加一行 spill 提示（不依赖全量输出常驻） */
+    notifyTerminal?: (message: string) => void
   },
 ): Promise<string | AgentToolStructuredResult> {
   if (fullText.length <= TERMINAL_OUTPUT_SPILL_THRESHOLD) {
@@ -112,6 +116,10 @@ export async function maybeSpillToolOutput(
   const description = '读取溢出输出（自动）'
   const previewTerminalOutput = await options.runTerminalLine(command)
   const toolCallId = `spill-read-${nextSpillId()}`
+
+  options.notifyTerminal?.(
+    `── 输出过长（${total} 字符），已写入 ${path}；面板仅保留近期行，完整内容请读该文件 ──`,
+  )
 
   return {
     content: `输出过长（${total} 字符），已保存至 ${path}\n\n${formatSpillFollowUpHint(path)}`,

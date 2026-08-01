@@ -1,6 +1,9 @@
-import { useMemo } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { MarkdownHtmlView } from '../../markdown/markdown-html-view.tsx'
 import { renderMarkdownHtml } from '../../markdown/render-markdown-html.ts'
+
+/** 流式阶段降低 Markdown 全量重解析频率，减轻分配与主线程压力 */
+const STREAMING_MARKDOWN_MIN_INTERVAL_MS = 120
 
 /** 把模型常写出的「假换行」收成真正换行，并给挤成一团的中文步骤补断行 */
 function normalizeHelpMarkdownSource(text: string): string {
@@ -70,10 +73,57 @@ export function buildLiveAnswerClassName(options: {
 }
 
 export function HelpMarkdown({ text, class: className, streaming }: HelpMarkdownProps) {
-  const html = useMemo(() => {
-    const rendered = renderHelpMarkdown(text)
-    return streaming ? appendStreamCaret(rendered) : rendered
+  const [renderText, setRenderText] = useState(text)
+  const lastFlushAtRef = useRef(0)
+  const pendingTimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (!streaming) {
+      if (pendingTimerRef.current !== undefined) {
+        window.clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = undefined
+      }
+      setRenderText(text)
+      lastFlushAtRef.current = Date.now()
+      return
+    }
+
+    const now = Date.now()
+    const elapsed = now - lastFlushAtRef.current
+    if (elapsed >= STREAMING_MARKDOWN_MIN_INTERVAL_MS) {
+      if (pendingTimerRef.current !== undefined) {
+        window.clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = undefined
+      }
+      lastFlushAtRef.current = now
+      setRenderText(text)
+      return
+    }
+
+    if (pendingTimerRef.current !== undefined) {
+      window.clearTimeout(pendingTimerRef.current)
+    }
+    pendingTimerRef.current = window.setTimeout(() => {
+      pendingTimerRef.current = undefined
+      lastFlushAtRef.current = Date.now()
+      setRenderText(text)
+    }, STREAMING_MARKDOWN_MIN_INTERVAL_MS - elapsed)
+
+    return () => {
+      if (pendingTimerRef.current !== undefined) {
+        window.clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = undefined
+      }
+    }
   }, [text, streaming])
+
+  // 流式结束时用最终 text，避免末尾节流残留旧稿
+  const source = streaming ? renderText : text
+
+  const html = useMemo(() => {
+    const rendered = renderHelpMarkdown(source)
+    return streaming ? appendStreamCaret(rendered) : rendered
+  }, [source, streaming])
   if (!html) {
     return undefined
   }

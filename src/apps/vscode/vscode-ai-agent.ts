@@ -330,17 +330,64 @@ function truncateWritePreview(text: string): string {
   return truncateStoredText(text, WRITE_PREVIEW_STORE_LIMIT, '\n…（预览已截断）')
 }
 
-function truncateToolResult(text: string): string {
+export function truncateToolResultForStore(text: string): string {
   return truncateStoredText(text, TOOL_RESULT_STORE_LIMIT)
 }
 
-function truncateActivityContent(text: string | undefined): string | undefined {
+export function truncateActivityContentForStore(
+  text: string | undefined,
+): string | undefined {
   if (text === undefined) return undefined
   return truncateStoredText(text, ACTIVITY_CONTENT_STORE_LIMIT)
 }
 
+function truncateToolResult(text: string): string {
+  return truncateToolResultForStore(text)
+}
+
+function truncateActivityContent(text: string | undefined): string | undefined {
+  return truncateActivityContentForStore(text)
+}
+
 function truncateReasoningText(text: string): string {
   return truncateStoredText(text, REASONING_STORE_LIMIT)
+}
+
+/** 落盘前压缩 investigation，避免超长 tool/reasoning 文本撑爆存储与重开内存。 */
+export function trimInvestigationForPersist(
+  investigation: VscodeAiInvestigation,
+): VscodeAiInvestigation {
+  return {
+    ...investigation,
+    activities: investigation.activities.map((item) => ({
+      ...item,
+      content: truncateActivityContentForStore(item.content),
+      result: item.result ? truncateToolResultForStore(item.result) : item.result,
+    })),
+    timeline: investigation.timeline.map((item) => {
+      if (item.kind === 'activity') {
+        return {
+          ...item,
+          content: truncateActivityContentForStore(item.content),
+          result: item.result ? truncateToolResultForStore(item.result) : item.result,
+        }
+      }
+      if (item.kind === 'reasoning') {
+        return {
+          ...item,
+          content: truncateReasoningText(item.content),
+        }
+      }
+      if (item.kind === 'write') {
+        return {
+          ...item,
+          preview: truncateWritePreview(item.preview),
+          result: item.result ? truncateToolResultForStore(item.result) : item.result,
+        }
+      }
+      return item
+    }),
+  }
 }
 
 function writeCardTitle(
@@ -641,7 +688,7 @@ export async function askVscodeAiAgent(options: {
             if (item.kind !== 'activity' || item.id !== pendingActivityId) return item
             return { ...item, subagentRunId: event.runId }
           })
-          emit()
+          emit({ immediate: true })
         }
       }
       if (event.phase === 'progress' && event.progress) {
@@ -796,7 +843,13 @@ export async function askVscodeAiAgent(options: {
   /** step → index → write timeline id（流式阶段） */
   const writeIdsByStepIndex = new Map<string, string>()
 
-  const emit = () => {
+  /**
+   * 流式 delta 合并到下一帧再推 UI，避免每个 token 全量拷贝 timeline + React setState。
+   * 工具起止等离散事件用 immediate，保证状态立刻可见。
+   */
+  let emitFrame: number | undefined
+  const flushEmit = () => {
+    emitFrame = undefined
     options.onProgress?.({
       activities: [...activities],
       timeline: [...timeline],
@@ -806,8 +859,25 @@ export async function askVscodeAiAgent(options: {
       contextUsage,
     })
   }
+  const emit = (opts?: { immediate?: boolean }) => {
+    if (opts?.immediate) {
+      if (emitFrame !== undefined && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(emitFrame)
+      }
+      flushEmit()
+      return
+    }
+    if (emitFrame !== undefined) return
+    if (typeof requestAnimationFrame === 'function') {
+      emitFrame = requestAnimationFrame(() => {
+        flushEmit()
+      })
+      return
+    }
+    flushEmit()
+  }
 
-  emit()
+  emit({ immediate: true })
 
   let contextUsageCalibrated = false
   const onUsage = (event: AgentUsageEvent) => {
@@ -837,7 +907,7 @@ export async function askVscodeAiAgent(options: {
       compressionKind: event.kind,
       done: true,
     })
-    emit()
+    emit({ immediate: true })
   }
 
   const onToolCallDelta = (event: AgentToolCallDeltaEvent) => {
@@ -858,7 +928,7 @@ export async function askVscodeAiAgent(options: {
         phase: 'streaming',
         done: false,
       })
-      emit()
+      emit({ immediate: true })
       return
     }
     timeline = timeline.map((item) => {
@@ -909,7 +979,7 @@ export async function askVscodeAiAgent(options: {
             done: false,
           }
         })
-        emit()
+        emit({ immediate: true })
         return
       }
       const id = `vscode-ai-write-${osNowMs()}-${toolCallCount}`
@@ -925,7 +995,7 @@ export async function askVscodeAiAgent(options: {
         phase: 'writing',
         done: false,
       })
-      emit()
+      emit({ immediate: true })
       return
     }
 
@@ -950,7 +1020,7 @@ export async function askVscodeAiAgent(options: {
       content,
       done: false,
     })
-    emit()
+    emit({ immediate: true })
   }
 
   const onToolResult = (event: AgentToolResultEvent) => {
@@ -974,7 +1044,7 @@ export async function askVscodeAiAgent(options: {
           result: resultText,
         }
       })
-      emit()
+      emit({ immediate: true })
       return
     }
 
@@ -1002,7 +1072,7 @@ export async function askVscodeAiAgent(options: {
       if (item.kind !== 'activity' || item.id !== id) return item
       return { ...item, result: resultText, done: true, subagentRunId: subagentRunId || item.subagentRunId }
     })
-    emit()
+    emit({ immediate: true })
   }
 
   const onTextDelta = (event: AgentTextDeltaEvent) => {
@@ -1055,7 +1125,7 @@ export async function askVscodeAiAgent(options: {
   })
 
   timeline = markTimelineDone(timeline)
-  emit()
+  emit({ immediate: true })
 
   const investigation = buildVscodeAiInvestigationFromTimeline(timeline, {
     toolCallCount,

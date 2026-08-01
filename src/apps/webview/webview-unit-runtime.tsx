@@ -29,6 +29,11 @@ import {
   updateWebViewTab,
 } from './webview-registry.ts'
 import {
+  WEBVIEW_MAX_CONSOLE_ENTRIES,
+  WEBVIEW_MAX_NETWORK_ENTRIES,
+  trimRingBuffer,
+} from './webview-constants.ts'
+import {
   syncWebViewUndockedDevToolsSessions,
   unregisterWebViewUnitDevToolsSessions,
 } from './webview-devtools-session.ts'
@@ -98,7 +103,10 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
           }
           return {
             ...entry,
-            consoleEntries: [...entry.consoleEntries, ...fresh],
+            consoleEntries: trimRingBuffer(
+              [...entry.consoleEntries, ...fresh],
+              WEBVIEW_MAX_CONSOLE_ENTRIES,
+            ),
             lastConsoleId: result.latestId ?? entry.lastConsoleId,
           }
         })
@@ -145,7 +153,10 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
           }
           return {
             ...entry,
-            networkEntries: Array.from(byId.values()),
+            networkEntries: trimRingBuffer(
+              Array.from(byId.values()),
+              WEBVIEW_MAX_NETWORK_ENTRIES,
+            ),
             lastNetworkId: result.latestId ?? entry.lastNetworkId,
           }
         })
@@ -160,13 +171,13 @@ export function WebViewUnitRuntime({ unitId }: WebViewUnitRuntimeProps) {
     (tabId: string, entry: ChromoNetworkEntry, latestId?: string) => {
       updateWebViewTab(unitId, tabId, (current) => {
         const idx = current.networkEntries.findIndex((item) => item.id === entry.id)
-        const networkEntries =
+        const merged =
           idx >= 0
             ? current.networkEntries.map((item, i) => (i === idx ? entry : item))
             : [...current.networkEntries, entry]
         return {
           ...current,
-          networkEntries,
+          networkEntries: trimRingBuffer(merged, WEBVIEW_MAX_NETWORK_ENTRIES),
           lastNetworkId: latestId || entry.id || current.lastNetworkId,
         }
       })
