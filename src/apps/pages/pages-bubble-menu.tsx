@@ -11,6 +11,8 @@ export type PagesBubbleMenuProps = {
   editor: Editor
   mode: BubbleMode
   style?: Record<string, string | number>
+  /** 用于定位夹紧时测量实际宽度 */
+  menuRef?: { current: HTMLDivElement | null }
   onPromptLink: () => void
   onConvertBlock: () => void
   onCopyBlock: () => void
@@ -95,6 +97,7 @@ export function PagesBubbleMenu({
   editor,
   mode,
   style,
+  menuRef,
   onPromptLink,
   onConvertBlock,
   onCopyBlock,
@@ -104,7 +107,7 @@ export function PagesBubbleMenu({
     const align = (editor.getAttributes('image').align as PagesImageAlign | undefined) ?? 'left'
     const width = Number(editor.getAttributes('image').width) || 0
     return (
-      <div class="pages-bubble" style={style} role="toolbar" aria-label="图片操作">
+      <div ref={menuRef} class="pages-bubble" style={style} role="toolbar" aria-label="图片操作">
         <BubbleBtn
           label="左"
           title="左对齐"
@@ -142,7 +145,7 @@ export function PagesBubbleMenu({
 
   if (mode === 'block') {
     return (
-      <div class="pages-bubble" style={style} role="toolbar" aria-label="块操作">
+      <div ref={menuRef} class="pages-bubble" style={style} role="toolbar" aria-label="块操作">
         <BubbleBtn label="复制" title="复制块" onClick={onCopyBlock} />
         <BubbleBtn label="删除" title="删除块" onClick={onDeleteBlock} />
         <span class="pages-bubble__divider" />
@@ -152,7 +155,7 @@ export function PagesBubbleMenu({
   }
 
   return (
-    <div class="pages-bubble" style={style} role="toolbar" aria-label="文字格式">
+    <div ref={menuRef} class="pages-bubble" style={style} role="toolbar" aria-label="文字格式">
       <BubbleBtn
         label="B"
         title="粗体"

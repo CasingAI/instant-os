@@ -225,6 +225,7 @@ export function PagesEditor({
   const hoverBlockRef = useRef<HoverBlockState | null>(null)
   const [targetHighlight, setTargetHighlight] = useState<TargetHighlightState | null>(null)
   const [bubble, setBubble] = useState<BubbleState | null>(null)
+  const bubbleElRef = useRef<HTMLDivElement | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [dragSession, setDragSession] = useState<BlockDragSession | null>(null)
   const [uiEpoch, setUiEpoch] = useState(0)
@@ -322,14 +323,19 @@ export function PagesEditor({
     if (!root) return
     const rootRect = root.getBoundingClientRect()
     // 选区滚出主编辑区则隐藏气泡
-    if (rect.bottom < rootRect.top + 8 || rect.top > rootRect.bottom - 8) {
+    if (
+      rect.bottom < rootRect.top + 8 ||
+      rect.top > rootRect.bottom - 8 ||
+      rect.right < rootRect.left + 8 ||
+      rect.left > rootRect.right - 8
+    ) {
       setBubble(null)
       return
     }
     const isImage = isNode && selection.node.type.name === 'image'
     const pad = 8
-    // 图片菜单更宽；夹紧时留半宽余量
-    const halfW = isImage ? 170 : isNode ? 90 : 140
+    // 预估全宽（实测校正见下方 effect）；文字条含「正文/H1…」远宽于旧 halfW=140
+    const estW = isImage ? 340 : isNode ? 200 : 420
     const rawTop = rect.top - rootRect.top - 40
     const top = Math.min(Math.max(pad, rawTop), Math.max(pad, rootRect.height - 40))
     let left: number
@@ -341,10 +347,14 @@ export function PagesEditor({
       align = 'center'
       left = rect.left - rootRect.left + rect.width / 2
     }
-    if (align === 'center') {
-      left = Math.min(Math.max(left, halfW + pad), Math.max(halfW + pad, rootRect.width - halfW - pad))
+    if (estW >= rootRect.width - pad * 2) {
+      align = 'start'
+      left = pad
+    } else if (align === 'center') {
+      const halfW = estW / 2
+      left = Math.min(Math.max(left, halfW + pad), rootRect.width - halfW - pad)
     } else {
-      left = Math.min(Math.max(left, pad), Math.max(pad, rootRect.width - halfW * 2 - pad))
+      left = Math.min(Math.max(left, pad), rootRect.width - estW - pad)
     }
     const mode: BubbleMode = isImage ? 'image' : isNode ? 'block' : 'text'
     setBubble({
@@ -355,6 +365,34 @@ export function PagesEditor({
       blockPos: isNode ? selection.from : null,
     })
   }, [])
+
+  // 按气泡实际宽度再夹紧一次，避免预估偏小导致溢出编辑区
+  useEffect(() => {
+    if (!bubble) return
+    const el = bubbleElRef.current
+    const root = mainRef.current
+    if (!el || !root) return
+    const pad = 8
+    const rootW = root.clientWidth
+    const bubbleW = el.offsetWidth
+    if (bubbleW <= 0) return
+
+    let nextLeft = bubble.left
+    let nextAlign = bubble.align
+    if (bubbleW >= rootW - pad * 2) {
+      nextAlign = 'start'
+      nextLeft = pad
+    } else if (nextAlign === 'center') {
+      const half = bubbleW / 2
+      nextLeft = Math.min(Math.max(nextLeft, half + pad), rootW - half - pad)
+    } else {
+      nextLeft = Math.min(Math.max(nextLeft, pad), rootW - bubbleW - pad)
+    }
+
+    if (Math.abs(nextLeft - bubble.left) > 0.5 || nextAlign !== bubble.align) {
+      setBubble({ ...bubble, left: nextLeft, align: nextAlign })
+    }
+  }, [bubble])
 
   const syncFloatingToScroll = useCallback(() => {
     const editor = editorRef.current
@@ -1370,6 +1408,7 @@ export function PagesEditor({
             editor={editor}
             mode={bubble.mode}
             style={bubbleStyle}
+            menuRef={bubbleElRef}
             onPromptLink={() => {
               void promptLink()
             }}
