@@ -2387,11 +2387,19 @@ export function GithubDesktopApp() {
       {!showRepoWorkspace ? (
       <div class="github-desktop__body">
         {view.kind === 'home' ? (
-          <div class="github-desktop__blank">
+          <div
+            class={`github-desktop__blank${
+              cloningRepos.length > 0 || listedLocalRepos.length > 0
+                ? ' github-desktop__blank--has-repos'
+                : ''
+            }`}
+          >
             <div class="github-desktop__blank-left">
-              <GithubDesktopIcon size={56} />
-              <h2>开始使用吧！</h2>
-              <p>把仓库添加到 GitHub Desktop，即可开始协作。</p>
+              <div class="github-desktop__blank-intro">
+                <GithubDesktopIcon size={56} />
+                <h2>开始使用吧！</h2>
+                <p>把仓库添加到 GitHub Desktop，即可开始协作。</p>
+              </div>
               {user ? (
                 <p>
                   已登录为 <strong>@{user.login}</strong>

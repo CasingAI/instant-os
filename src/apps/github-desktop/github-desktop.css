@@ -685,6 +685,12 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
+.github-desktop__blank-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .github-desktop__blank-left p {
   margin: 0;
   color: var(--gd-muted);
@@ -2295,19 +2301,36 @@
   max-height: min(380px, 52vh);
 }
 
-@media (max-width: 720px) {
+/* 按应用窗口宽度断，不跟整页视口；窄窗下列表在上、引导在下 */
+@container app-window (max-width: 720px) {
   .github-desktop__blank {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 8px;
     padding: 12px;
   }
 
   .github-desktop__blank-left {
+    order: 2;
     margin-right: 0;
-    margin-bottom: 8px;
+    margin-bottom: 0;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .github-desktop__blank-intro {
+    display: none;
   }
 
   .github-desktop__blank-right {
+    order: 1;
     margin-left: 0;
-    margin-top: 8px;
+    margin-top: 0;
+    min-height: 160px;
+  }
+
+  .github-desktop__blank--has-repos .github-desktop__blank-actions {
+    margin-top: 0;
   }
 }
