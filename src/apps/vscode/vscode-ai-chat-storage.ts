@@ -95,6 +95,12 @@ export type VscodeAiChatSession = {
    * 用于编辑重发时恢复未压缩上下文；关闭进 closed 时可丢弃。
    */
   apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /**
+   * 压缩后的线 transcript（不含 system）。
+   * 下一轮续聊以此为 history，避免每轮从 canonical 全量重压。
+   * 关闭进 closed 时可丢弃。
+   */
+  wireTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
 }
 
 export type VscodeAiClosedChatSession = VscodeAiChatSession & {
@@ -476,6 +482,9 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
   const apiTranscript = normalizeApiTranscript(
     (entry as { apiTranscript?: unknown }).apiTranscript,
   )
+  const wireTranscript = normalizeApiTranscript(
+    (entry as { wireTranscript?: unknown }).wireTranscript,
+  )
   return {
     id: entry.id,
     title,
@@ -483,6 +492,7 @@ function normalizeSession(raw: unknown): VscodeAiChatSession | undefined {
     updatedAt,
     lastSentTerminal,
     ...(apiTranscript ? { apiTranscript } : {}),
+    ...(wireTranscript ? { wireTranscript } : {}),
   }
 }
 
@@ -518,7 +528,7 @@ function trimClosedSessions(
     .sort((a, b) => b.closedAt - a.closedAt)
     .slice(0, MAX_CLOSED_SESSIONS)
     .map((session) => {
-      const { apiTranscript: _drop, ...rest } = session
+      const { apiTranscript: _dropApi, wireTranscript: _dropWire, ...rest } = session
       return {
         ...rest,
         title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
@@ -568,6 +578,7 @@ function prepareStoreForSave(store: VscodeAiChatStore): VscodeAiChatStore {
     title: session.title.trim() || titleFromVscodeAiMessages(session.messages),
     messages: trimChatMessagesForPersist(session.messages),
     apiTranscript: trimApiTranscriptForPersist(session.apiTranscript),
+    wireTranscript: trimApiTranscriptForPersist(session.wireTranscript),
   }))
   const closedSessions = trimClosedSessions(store.closedSessions)
   const lastFocusedEditor = store.lastFocusedEditor

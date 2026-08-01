@@ -178,7 +178,10 @@ export type VscodeAiAgentResult = {
   toolCallCount: number
   investigation: VscodeAiInvestigation
   incomplete?: boolean
+  /** 规范历史（完整 tool 轨；编辑重发用） */
   messages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 压缩后的线历史（下一轮续聊用；不含 system） */
+  wireMessages?: OpenAI.Chat.ChatCompletionMessageParam[]
 }
 
 function formatArgsSuffix(args: unknown): string {
@@ -1249,5 +1252,8 @@ export async function askVscodeAiAgent(options: {
     investigation,
     incomplete: result.incomplete,
     messages: result.messages,
+    wireMessages: result.wireMessages
+      ? stripLeadingSystemMessages(result.wireMessages)
+      : undefined,
   }
 }

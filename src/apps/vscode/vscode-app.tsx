@@ -2309,7 +2309,10 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     (
       sessionId: string,
       messages: VscodeAiChatSession['messages'],
-      extras?: { apiTranscript?: VscodeAiChatSession['apiTranscript'] },
+      extras?: {
+        apiTranscript?: VscodeAiChatSession['apiTranscript']
+        wireTranscript?: VscodeAiChatSession['wireTranscript']
+      },
     ) => {
       setAiChatSessions((prev) => {
         const current = prev.get(sessionId)
@@ -2322,6 +2325,9 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
           updatedAt: Date.now(),
           ...(extras?.apiTranscript !== undefined
             ? { apiTranscript: extras.apiTranscript }
+            : {}),
+          ...(extras?.wireTranscript !== undefined
+            ? { wireTranscript: extras.wireTranscript }
             : {}),
         })
         persistAiChatStore(next, closedAiChatsRef.current)

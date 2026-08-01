@@ -208,7 +208,10 @@ type VscodeEditorAreaProps = {
   onAiChatMessagesChange?: (
     sessionId: string,
     messages: VscodeAiChatMessage[],
-    extras?: { apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[] },
+    extras?: {
+      apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+      wireTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+    },
   ) => void
   onAiChatBusyChange?: (sessionId: string, busy: boolean) => void
   onAiChatLastSentTerminalChange?: (
@@ -928,6 +931,7 @@ function VscodeEditorGroupView({
                   sessionId={session.id}
                   messages={session.messages}
                   apiTranscript={session.apiTranscript}
+                  wireTranscript={session.wireTranscript}
                   onMessagesChange={(next, extras) =>
                     onAiChatMessagesChange?.(session.id, next, extras)
                   }

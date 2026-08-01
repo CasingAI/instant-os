@@ -93,6 +93,46 @@ import {
   assert.ok(folded.wire.some((m) => m.role === 'user' && m.content === 'u2 keep'))
 }
 
+// --- L1 对已折叠 wire 幂等：跨轮复用 wire 时不应再次发出 structure_fold ---
+{
+  const wire: ChatMessage[] = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'u1' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        {
+          id: 'c1',
+          type: 'function',
+          function: { name: 'read_file', arguments: '{"path":"a.ts"}' },
+        },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: 'file contents here' },
+    { role: 'assistant', content: 'done u1' },
+    { role: 'user', content: 'u2 keep' },
+    { role: 'assistant', content: 'reply u2' },
+  ]
+  const folded = foldCompletedToolRounds(wire, {
+    keepRecentTurns: 1,
+    step: 0,
+    beforeTokens: 9_000,
+  })
+  assert.ok(folded.events.length >= 1)
+  // 模拟下一轮：在已压缩 wire 上追加新 user，保护区覆盖整段则无可折 tool
+  const nextWire: ChatMessage[] = [
+    ...folded.wire,
+    { role: 'user', content: 'u3 simple' },
+  ]
+  const refold = foldCompletedToolRounds(nextWire, {
+    keepRecentTurns: 2,
+    step: 1,
+    beforeTokens: 2_000,
+  })
+  assert.equal(refold.events.length, 0)
+}
+
 // --- L2 reasoning prune ---
 {
   const wire: ChatMessage[] = [

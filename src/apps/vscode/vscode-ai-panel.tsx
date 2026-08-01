@@ -695,10 +695,15 @@ export type VscodeAiPanelProps = {
   messages: VscodeAiChatMessage[]
   onMessagesChange: (
     messages: VscodeAiChatMessage[],
-    extras?: { apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[] },
+    extras?: {
+      apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+      wireTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+    },
   ) => void
   /** 会话级规范 transcript（打开中的会话）；编辑重发时优先用其截断 */
   apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 压缩后的线 transcript；下一轮续聊 history 优先用它 */
+  wireTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
   mode: VscodeAiMode
   onModeChange: (mode: VscodeAiMode) => void
   aiModelSource: VscodeModelSource
@@ -1392,6 +1397,7 @@ export function VscodeAiPanel({
   messages,
   onMessagesChange,
   apiTranscript,
+  wireTranscript,
   mode,
   onModeChange,
   aiModelSource,
@@ -1482,6 +1488,9 @@ export function VscodeAiPanel({
   const historyRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>([])
   const apiTranscriptRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>(
     apiTranscript ?? [],
+  )
+  const wireTranscriptRef = useRef<OpenAI.Chat.ChatCompletionMessageParam[]>(
+    wireTranscript ?? [],
   )
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerWrapRef = useRef<HTMLDivElement>(null)
@@ -1786,6 +1795,10 @@ export function VscodeAiPanel({
     apiTranscriptRef.current = apiTranscript ?? []
   }, [apiTranscript])
 
+  useEffect(() => {
+    wireTranscriptRef.current = wireTranscript ?? []
+  }, [wireTranscript])
+
   const rebuildHistoryFromMessages = useCallback((source: readonly VscodeAiChatMessage[]) => {
     const next: OpenAI.Chat.ChatCompletionMessageParam[] = []
     for (const message of source) {
@@ -1802,6 +1815,10 @@ export function VscodeAiPanel({
 
   const historyFromCanonicalOrUi = useCallback(
     (uiMessages: readonly VscodeAiChatMessage[]) => {
+      const wire = wireTranscriptRef.current
+      if (wire.length > 0) {
+        return stripLeadingSystemMessages(wire)
+      }
       const transcript = apiTranscriptRef.current
       if (transcript.length > 0) {
         return stripLeadingSystemMessages(transcript)
@@ -1826,6 +1843,7 @@ export function VscodeAiPanel({
     setEditContextUsage(undefined)
     // refs 由旧 send 的 finally / catch 自行收尾；此处只重置 UI
     apiTranscriptRef.current = apiTranscript ?? []
+    wireTranscriptRef.current = wireTranscript ?? []
     historyRef.current = historyFromCanonicalOrUi(messages)
     turnChangeSessionsRef.current = []
     lastSentModeRef.current = undefined
@@ -1836,7 +1854,7 @@ export function VscodeAiPanel({
     sendQueueRef.current = []
     setSendQueue([])
     setSendQueueExpanded(false)
-  }, [apiTranscript, historyFromCanonicalOrUi, messages, sessionId])
+  }, [apiTranscript, historyFromCanonicalOrUi, messages, sessionId, wireTranscript])
 
   useEffect(() => {
     if (busy) return
@@ -2021,7 +2039,10 @@ export function VscodeAiPanel({
   const applyMessages = useCallback(
     (
       next: VscodeAiChatMessage[],
-      extras?: { apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[] },
+      extras?: {
+        apiTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+        wireTranscript?: OpenAI.Chat.ChatCompletionMessageParam[]
+      },
     ) => {
       messagesRef.current = next
       onMessagesChange(next, extras)
@@ -2216,7 +2237,11 @@ export function VscodeAiPanel({
             ? sliceApiTranscriptBeforeUserOrdinal(apiTranscriptRef.current, userOrdinal)
             : rebuildHistoryFromMessages(currentMessages.slice(0, index))
         apiTranscriptRef.current = historyRef.current
-        applyMessages(withUser, { apiTranscript: historyRef.current })
+        wireTranscriptRef.current = historyRef.current
+        applyMessages(withUser, {
+          apiTranscript: historyRef.current,
+          wireTranscript: historyRef.current,
+        })
         setEditingUserId(undefined)
         setEditingDraft('')
         setEditingAttachments([])
@@ -2406,19 +2431,33 @@ export function VscodeAiPanel({
             },
           )
           const nextMessages = [...withUser, assistantMessage]
-          const nextTranscript = [
+          const nextCanonical = [
             ...apiTranscriptRef.current,
             { role: 'user' as const, content: text },
             { role: 'assistant' as const, content: assistantMessage.content },
           ]
-          historyRef.current = nextTranscript
-          apiTranscriptRef.current = nextTranscript
-          applyMessages(nextMessages, { apiTranscript: nextTranscript })
+          const nextWire = [
+            ...historyRef.current,
+            { role: 'user' as const, content: text },
+            { role: 'assistant' as const, content: assistantMessage.content },
+          ]
+          historyRef.current = nextWire
+          apiTranscriptRef.current = nextCanonical
+          wireTranscriptRef.current = nextWire
+          applyMessages(nextMessages, {
+            apiTranscript: nextCanonical,
+            wireTranscript: nextWire,
+          })
         } else {
           if (result.messages) {
             const canonical = stripLeadingSystemMessages(result.messages)
-            historyRef.current = canonical
+            const wire =
+              result.wireMessages && result.wireMessages.length > 0
+                ? result.wireMessages
+                : canonical
+            historyRef.current = wire
             apiTranscriptRef.current = canonical
+            wireTranscriptRef.current = wire
           }
 
           const investigation =
@@ -2449,6 +2488,7 @@ export function VscodeAiPanel({
           )
           applyMessages([...withUser, assistantMessage], {
             apiTranscript: apiTranscriptRef.current,
+            wireTranscript: wireTranscriptRef.current,
           })
         }
       } catch (error) {
@@ -2478,14 +2518,23 @@ export function VscodeAiPanel({
           ...changeExtras,
         })
         const nextMessages = [...withUser, assistantMessage]
-        const nextTranscript = [
+        const nextCanonical = [
           ...apiTranscriptRef.current,
           { role: 'user' as const, content: text },
           { role: 'assistant' as const, content: content },
         ]
-        historyRef.current = nextTranscript
-        apiTranscriptRef.current = nextTranscript
-        applyMessages(nextMessages, { apiTranscript: nextTranscript })
+        const nextWire = [
+          ...historyRef.current,
+          { role: 'user' as const, content: text },
+          { role: 'assistant' as const, content: content },
+        ]
+        historyRef.current = nextWire
+        apiTranscriptRef.current = nextCanonical
+        wireTranscriptRef.current = nextWire
+        applyMessages(nextMessages, {
+          apiTranscript: nextCanonical,
+          wireTranscript: nextWire,
+        })
       } finally {
         clearCheckpointTimer()
         forceTurnCheckpointRef.current = undefined
