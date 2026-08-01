@@ -75,6 +75,7 @@ import {
   filesNodeNeedsViewportMeta,
   getFilesLocationLabel,
   getNodeOrThrow,
+  getCachedListDirectory,
   listDirectory,
   listFilesLocations,
   mkdir,
@@ -589,8 +590,23 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     // quiet 刷新不递增 gen，避免盖掉进行中的显式 refresh 导致加载卡片无法结束
     //（例如新建文件：create 触发 VFS 事件 debounce 与 await refresh() 并行）
     const gen = options?.quiet ? refreshGenRef.current : ++refreshGenRef.current
+    const cachedListing = getCachedListDirectory(locationId, folderId)
+    const showLoadingUi = !options?.quiet && cachedListing === undefined
+
     resetViewportMeta()
-    if (!options?.quiet) beginRefreshingUi(gen)
+    if (cachedListing !== undefined) {
+      setItems(cachedListing)
+    }
+    if (!options?.quiet) {
+      if (showLoadingUi) {
+        beginRefreshingUi(gen)
+      } else {
+        clearLoadingTimers()
+        loadingCardShownAtRef.current = undefined
+        setShowLoadingCard(false)
+        setRefreshing(false)
+      }
+    }
     setError(undefined)
     try {
       if (locationId === 'dev') {
@@ -612,9 +628,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       setItems([])
       setPathNodes([])
     } finally {
-      if (gen === refreshGenRef.current && !options?.quiet) endRefreshingUi(gen)
+      if (gen === refreshGenRef.current && showLoadingUi) endRefreshingUi(gen)
     }
-  }, [beginRefreshingUi, endRefreshingUi, folderId, locationId, resetViewportMeta])
+  }, [beginRefreshingUi, clearLoadingTimers, endRefreshingUi, folderId, locationId, resetViewportMeta])
 
   useEffect(() => () => clearLoadingTimers(), [clearLoadingTimers])
 
@@ -680,8 +696,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
     const applyBrowse = (nextLocationId: FilesLocationId, nextFolderId: string | undefined) => {
-      // 递增 gen，丢弃仍在飞的旧 refresh，避免导航后被过期列表盖回
-      refreshGenRef.current += 1
       setLocationId(nextLocationId)
       setFolderId(nextFolderId)
       setFolderMotion('push')

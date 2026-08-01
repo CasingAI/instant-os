@@ -79,7 +79,6 @@ async function ensureUserSpecialFolder(name: UserSpecialFolderName): Promise<Fil
     attributes: USER_SPECIAL_FOLDER_ATTRIBUTES,
   }
   await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node) })
-  emitSystemVfsChange(absolutePath, 'created')
   return node
 }
 
@@ -88,9 +87,18 @@ let ensureAllPromise: Promise<FilesNode[]> | undefined
 /** 确保三个特殊文件夹存在（幂等；并发调用共用同一 Promise） */
 export async function ensureUserSpecialFolders(): Promise<FilesNode[]> {
   if (!ensureAllPromise) {
-    ensureAllPromise = Promise.all(
-      USER_SPECIAL_FOLDER_NAMES.map((name) => ensureUserSpecialFolder(name)),
-    ).finally(() => {
+    ensureAllPromise = (async () => {
+      const before = await listChildNodes('local', undefined)
+      const beforeIds = new Set(before.map((node) => node.id))
+      const nodes = await Promise.all(
+        USER_SPECIAL_FOLDER_NAMES.map((name) => ensureUserSpecialFolder(name)),
+      )
+      const created = nodes.some((node) => !beforeIds.has(node.id))
+      if (created) {
+        emitSystemVfsChange(USER_ROOT)
+      }
+      return nodes
+    })().finally(() => {
       ensureAllPromise = undefined
     })
   }

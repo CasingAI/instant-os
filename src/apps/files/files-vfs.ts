@@ -127,6 +127,14 @@ export function invalidateFilesVfsPathCaches(): void {
   resolveNodeCache.clear()
 }
 
+/** 读取 listDirectory 内存缓存（不触发 ensure / IndexedDB） */
+export function getCachedListDirectory(
+  locationId: FilesLocationId,
+  folderId: string | undefined,
+): FilesNode[] | undefined {
+  return listDirectoryCache.get(listDirectoryCacheKey(locationId, folderId))
+}
+
 /** 批量写入时合并变更通知，避免解压等场景每文件打断 UI debounce */
 let vfsChangeBatchDepth = 0
 const vfsChangeBatchPending: FilesWatchChange[] = []

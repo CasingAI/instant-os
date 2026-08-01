@@ -375,38 +375,48 @@ function FolderGlyph({
   )
 }
 
-function DownloadsFolderBadge() {
+const USER_SPECIAL_FOLDER_BADGE_RADIUS = 12.2
+
+function UserSpecialFolderBadge({
+  ringStroke,
+  children,
+}: {
+  ringStroke: string
+  children: ComponentChildren
+}) {
+  const r = USER_SPECIAL_FOLDER_BADGE_RADIUS
   return (
     <g transform="translate(32 31)">
-      <circle cx="0" cy="0" r="9.2" fill="rgba(255,255,255,0.92)" />
-      <circle cx="0" cy="0" r="9.2" fill="none" stroke="rgba(30,70,120,0.28)" stroke-width="1" />
-      <path
-        fill="#1f6fc2"
-        d="M-1.4-5.2h2.8v5.4h3.4L0 6.2l-4.8-6h3.4z"
-      />
-      <rect x="-5.2" y="6.6" width="10.4" height="1.8" rx="0.7" fill="#1f6fc2" />
+      <circle cx="0" cy="0" r={r} fill="rgba(255,255,255,0.92)" />
+      <circle cx="0" cy="0" r={r} fill="none" stroke={ringStroke} stroke-width="1.1" />
+      <g transform="scale(1.32)">{children}</g>
     </g>
+  )
+}
+
+function DownloadsFolderBadge() {
+  return (
+    <UserSpecialFolderBadge ringStroke="rgba(30,70,120,0.28)">
+      <path fill="#1f6fc2" d="M-1.4-5.2h2.8v5.4h3.4L0 6.2l-4.8-6h3.4z" />
+      <rect x="-5.2" y="6.6" width="10.4" height="1.8" rx="0.7" fill="#1f6fc2" />
+    </UserSpecialFolderBadge>
   )
 }
 
 function MusicsFolderBadge() {
   return (
-    <g transform="translate(32 31)">
-      <circle cx="0" cy="0" r="9.2" fill="rgba(255,255,255,0.92)" />
-      <circle cx="0" cy="0" r="9.2" fill="none" stroke="rgba(80,40,110,0.28)" stroke-width="1" />
+    <UserSpecialFolderBadge ringStroke="rgba(80,40,110,0.28)">
       <path
         fill="#7a3fa0"
         d="M2.2-6.2v8.4c-.4-.3-.9-.5-1.5-.5-1.5 0-2.7 1-2.7 2.2S-.8 6.1.7 6.1c1.4 0 2.6-.9 2.7-2.1V-3.4l4.2-1v6.6c-.4-.3-.9-.4-1.4-.4-1.5 0-2.7 1-2.7 2.2s1.2 2.2 2.7 2.2 2.7-1 2.7-2.2V-6.8l-5.5 1.6z"
       />
-    </g>
+    </UserSpecialFolderBadge>
   )
 }
 
 function PicturesFolderBadge() {
   return (
-    <g transform="translate(32 31)">
-      <circle cx="0" cy="0" r="9.2" fill="rgba(255,255,255,0.92)" />
-      <circle cx="0" cy="0" r="9.2" fill="none" stroke="rgba(30,90,60,0.28)" stroke-width="1" />
+    <UserSpecialFolderBadge ringStroke="rgba(30,90,60,0.28)">
       <rect x="-6.2" y="-4.6" width="12.4" height="9.6" rx="1.4" fill="#d9f0e4" />
       <rect
         x="-6.2"
@@ -421,7 +431,7 @@ function PicturesFolderBadge() {
       <circle cx="2.4" cy="-1.8" r="1.35" fill="#f0c060" />
       <path fill="#3f9a72" d="M-5.4 4.2h10.8L2.2-.2l-2.4 2.4-1.9-1.6z" />
       <path fill="#2a6e50" opacity="0.9" d="M-5.4 4.2h5.8L-1.6.8l-2 1.5z" />
-    </g>
+    </UserSpecialFolderBadge>
   )
 }
 
