@@ -24,6 +24,7 @@ import {
   copyEditorSelection,
   cutEditorSelection,
   pasteIntoEditor,
+  tryPasteGridIntoEditor,
 } from './pages-clipboard.ts'
 import { jsonContentToMarkdown, markdownToJSONContent } from './pages-doc-convert.ts'
 import { PagesInsertPanel } from './pages-insert-panel.tsx'
@@ -31,6 +32,7 @@ import { PagesBlockControls } from './pages-block-controls.tsx'
 import { PagesBubbleMenu, type BubbleMode } from './pages-bubble-menu.tsx'
 import {
   PagesContextMenu,
+  buildBlockOpsMenuItems,
   buildContextMenuItems,
   type ContextMenuItem,
 } from './pages-context-menu.tsx'
@@ -45,6 +47,8 @@ import {
 } from './pages-table-formula.ts'
 import {
   clipboardLooksLikeTsvTable,
+  extractGridFromHtml,
+  extractGridFromTsv,
   promotePastedTableHeaderHtml,
   tsvToTableHtml,
 } from './pages-table-paste.ts'
@@ -115,6 +119,8 @@ type ContextMenuState = {
   left: number
   blockPos: number
   items: ContextMenuItem[]
+  /** 手柄操作菜单：复制/剪切始终针对整块 */
+  source?: 'context' | 'block-ops'
 }
 
 type PendingDrag = {
@@ -709,17 +715,30 @@ export function PagesEditor({
               }
             }
 
+            const editorInstance = editorRef.current
+            if (!editorInstance || editorInstance.isDestroyed) return false
+
             const html = event.clipboardData?.getData('text/html') ?? ''
             const text = event.clipboardData?.getData('text/plain') ?? ''
-            // 纯 TSV（无 HTML 表）时转成带表头的表格，避免落成一堆段落
-            if (
-              text &&
-              clipboardLooksLikeTsvTable(text) &&
-              !/<table\b/i.test(html)
-            ) {
+
+            // 表内粘贴 HTML 表 → 合并进当前表
+            if (/<table\b/i.test(html)) {
+              const grid = extractGridFromHtml(promotePastedTableHeaderHtml(html))
+              if (tryPasteGridIntoEditor(editorInstance, grid)) {
+                event.preventDefault()
+                return true
+              }
+            }
+
+            // 纯 TSV（无 HTML 表）
+            if (text && clipboardLooksLikeTsvTable(text) && !/<table\b/i.test(html)) {
+              const grid = extractGridFromTsv(text)
+              if (tryPasteGridIntoEditor(editorInstance, grid)) {
+                event.preventDefault()
+                return true
+              }
               const tableHtml = tsvToTableHtml(text)
-              const editorInstance = editorRef.current
-              if (tableHtml && editorInstance && !editorInstance.isDestroyed) {
+              if (tableHtml) {
                 event.preventDefault()
                 editorInstance.chain().focus().insertContent(tableHtml).run()
                 return true
@@ -1018,8 +1037,28 @@ export function PagesEditor({
 
       if (!pending.started) {
         if (editor && !editor.isDestroyed) {
-          selectBlockNode(editor, pending.blockPos)
-          refreshBubble(editor)
+          const root = mainRef.current
+          const controls =
+            hoverBlockRef.current?.blockPos === pending.blockPos
+              ? hoverBlockRef.current
+              : measureControlsForBlock(editor, pending.blockPos)
+          if (!root || !controls) return
+          const block = editor.state.doc.nodeAt(pending.blockPos)
+          const isTable = block?.type.name === 'table'
+          closeFloatingExcept('context')
+          setBubble(null)
+          const menuW = 180
+          const menuH = 220
+          const rootRect = root.getBoundingClientRect()
+          const rawLeft = controls.left + 22
+          const rawTop = controls.top
+          setContextMenu({
+            top: Math.min(Math.max(4, rawTop), Math.max(4, rootRect.height - menuH)),
+            left: Math.min(Math.max(4, rawLeft), Math.max(4, rootRect.width - menuW)),
+            blockPos: pending.blockPos,
+            items: buildBlockOpsMenuItems({ isTable: !!isTable }),
+            source: 'block-ops',
+          })
         }
         return
       }
@@ -1036,7 +1075,7 @@ export function PagesEditor({
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [closeFloatingExcept, refreshBubble])
+  }, [closeFloatingExcept, measureControlsForBlock])
 
   // Escape / 点击外侧关闭浮层；Escape 取消拖拽
   useEffect(() => {
@@ -1166,18 +1205,29 @@ export function PagesEditor({
     editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run()
   }
 
-  const openCurrentTableSheet = (editor: Editor) => {
+  const openCurrentTableSheet = (editor: Editor, preferredTablePos?: number) => {
     const { state } = editor
-    const $pos = state.doc.resolve(
-      Math.min(Math.max(1, state.selection.from), state.doc.content.size),
-    )
     let tablePos = -1
     let tableNode = null as ReturnType<typeof state.doc.nodeAt>
-    for (let d = $pos.depth; d > 0; d--) {
-      if ($pos.node(d).type.name === 'table') {
-        tablePos = $pos.before(d)
-        tableNode = $pos.node(d)
-        break
+
+    if (typeof preferredTablePos === 'number') {
+      const node = state.doc.nodeAt(preferredTablePos)
+      if (node?.type.name === 'table') {
+        tablePos = preferredTablePos
+        tableNode = node
+      }
+    }
+
+    if (tablePos < 0) {
+      const $pos = state.doc.resolve(
+        Math.min(Math.max(1, state.selection.from), state.doc.content.size),
+      )
+      for (let d = $pos.depth; d > 0; d--) {
+        if ($pos.node(d).type.name === 'table') {
+          tablePos = $pos.before(d)
+          tableNode = $pos.node(d)
+          break
+        }
       }
     }
     if (tablePos < 0 || !tableNode) return
@@ -1209,13 +1259,13 @@ export function PagesEditor({
 
     switch (id) {
       case 'copy':
-        if (editor.state.selection.empty) {
+        if (menu.source === 'block-ops' || editor.state.selection.empty) {
           selectBlockNode(editor, blockPos)
         }
         await copyEditorSelection(editor)
         break
       case 'cut':
-        if (editor.state.selection.empty) {
+        if (menu.source === 'block-ops' || editor.state.selection.empty) {
           selectBlockNode(editor, blockPos)
         }
         await cutEditorSelection(editor)
@@ -1268,9 +1318,14 @@ export function PagesEditor({
         selectBlockNode(editor, blockPos)
         fileInputRef.current?.click()
         break
-      case 'open-sheet':
-        openCurrentTableSheet(editor)
+      case 'open-sheet': {
+        const node = editor.state.doc.nodeAt(blockPos)
+        openCurrentTableSheet(
+          editor,
+          node?.type.name === 'table' ? blockPos : undefined,
+        )
         break
+      }
       case 'toggle-header-row':
         editor.chain().focus().toggleHeaderRow().run()
         break
@@ -1464,18 +1519,6 @@ export function PagesEditor({
             top={activeControls.top}
             left={activeControls.left}
             height={activeControls.height}
-            plusActive={!!insertPanel}
-            onPlus={() => {
-              if (insertPanel) {
-                updateInsertPanel(null)
-                return
-              }
-              openInsertPanel(activeControls.blockPos, 'replace-or-below', {
-                top: activeControls.top,
-                left: activeControls.left,
-                height: activeControls.height,
-              })
-            }}
             onHandleMouseDown={(event) => {
               if (!editable || viewMode !== 'edit') return
               pendingDragRef.current = {

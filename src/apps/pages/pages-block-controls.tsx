@@ -4,9 +4,7 @@ export type BlockControlsProps = {
   left: number
   /** 与目标块同高，整行左侧 gutter 都可悬停 */
   height: number
-  plusActive?: boolean
-  onPlus: () => void
-  /** 手柄按下：拖拽超过阈值后重排，否则松手选中块 */
+  /** 手柄按下：拖拽超过阈值后重排，否则松手打开操作菜单 */
   onHandleMouseDown: (event: MouseEvent) => void
 }
 
@@ -14,8 +12,6 @@ export function PagesBlockControls({
   top,
   left,
   height,
-  plusActive,
-  onPlus,
   onHandleMouseDown,
 }: BlockControlsProps) {
   return (
@@ -30,23 +26,9 @@ export function PagesBlockControls({
     >
       <button
         type="button"
-        class={`pages-block-controls__btn pages-block-controls__btn--plus${plusActive ? ' pages-block-controls__btn--active' : ''}`}
-        title="插入块"
-        aria-label="插入块"
-        aria-expanded={plusActive ? 'true' : 'false'}
-        onMouseDown={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          onPlus()
-        }}
-      >
-        +
-      </button>
-      <button
-        type="button"
         class="pages-block-controls__btn pages-block-controls__btn--handle"
-        title="拖动或选中块"
-        aria-label="拖动或选中块"
+        title="拖动或打开操作菜单"
+        aria-label="拖动或打开操作菜单"
         onMouseDown={(event) => {
           event.preventDefault()
           event.stopPropagation()

@@ -813,7 +813,7 @@
   display: flex;
   align-items: flex-start;
   gap: 0;
-  width: 40px;
+  width: 22px;
   padding: 1px 4px 1px 0;
   /* 整行左侧条：指针在 gutter 任意高度都算在这一行上 */
   pointer-events: auto;

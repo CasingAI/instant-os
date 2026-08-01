@@ -98,3 +98,22 @@ export function buildContextMenuItems(opts: {
 
   return items
 }
+
+/** 块手柄单击：飞书式操作菜单（新建收进「上方/下方添加」） */
+export function buildBlockOpsMenuItems(opts: { isTable: boolean }): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [
+    { type: 'action', id: 'copy', label: '复制', shortcut: '⌘C' },
+    { type: 'action', id: 'cut', label: '剪切', shortcut: '⌘X' },
+    { type: 'action', id: 'delete-block', label: '删除块', danger: true },
+    { type: 'separator', id: 'sep-insert' },
+    { type: 'action', id: 'insert-above', label: '在上方添加' },
+    { type: 'action', id: 'insert-below', label: '在下方添加' },
+  ]
+  if (opts.isTable) {
+    items.push(
+      { type: 'separator', id: 'sep-sheet' },
+      { type: 'action', id: 'open-sheet', label: '在表格视图中编辑' },
+    )
+  }
+  return items
+}
