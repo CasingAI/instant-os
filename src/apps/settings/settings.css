@@ -94,6 +94,13 @@
   --settings-stepper-btn-ink: #222;
   --settings-stepper-value-ink: #444;
   --settings-error: #c0392b;
+  --settings-search-bar-bg: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  --settings-search-bar-border: 1px solid rgba(0, 0, 0, 0.14);
+  --settings-search-bg: linear-gradient(180deg, #f7f7f7 0%, #ffffff 40%, #f2f2f2 100%);
+  --settings-search-border: #a8a8a8;
+  --settings-search-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --settings-search-icon: #8e8e93;
+  --settings-search-placeholder: #8e8e93;
 
   --ios-nav-back-color: #007aff;
   --ios-nav-back-color-active: #0056b3;
@@ -291,8 +298,8 @@
   margin-bottom: 12px;
   padding: 6px var(--settings-content-pad-x, 18px);
   box-sizing: border-box;
-  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+  background: var(--settings-search-bar-bg);
+  border-bottom: var(--settings-search-bar-border);
 }
 
 .settings__body > .settings__content--compact {
@@ -308,10 +315,10 @@
   margin-inline: auto;
   min-height: 30px;
   padding: 0 10px;
-  border: 1px solid #a8a8a8;
+  border: 1px solid var(--settings-search-border);
   border-radius: 999px;
-  background: linear-gradient(180deg, #f7f7f7 0%, #ffffff 40%, #f2f2f2 100%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  background: var(--settings-search-bg);
+  box-shadow: var(--settings-search-shadow);
 }
 
 .settings__search-icon {
@@ -319,7 +326,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #8e8e93;
+  color: var(--settings-search-icon);
 }
 
 .settings__search-input {
@@ -331,11 +338,11 @@
   background: transparent;
   font: inherit;
   font-size: 13px;
-  color: #222;
+  color: var(--settings-input-ink);
 }
 
 .settings__search-input::placeholder {
-  color: #8e8e93;
+  color: var(--settings-search-placeholder);
 }
 
 .settings__search-input::-webkit-search-cancel-button {
@@ -3802,6 +3809,13 @@
   --settings-stepper-btn-ink: #e6e6e8;
   --settings-stepper-value-ink: #c8c8ce;
   --settings-error: #ff8a80;
+  --settings-search-bar-bg: var(--settings-nav-bg);
+  --settings-search-bar-border: var(--settings-nav-border);
+  --settings-search-bg: linear-gradient(180deg, #323238 0%, #28282e 55%, #242428 100%);
+  --settings-search-border: var(--settings-input-border);
+  --settings-search-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --settings-search-icon: #9a9aa2;
+  --settings-search-placeholder: #7a7a82;
 
   --ios-nav-back-color: #5eb0ff;
   --ios-nav-back-color-active: #8ec8ff;
