@@ -127,6 +127,8 @@ const INVESTIGATION_STEP_STAGGER_MS = 55
 const INVESTIGATION_STEP_ANIM_MS = 320
 const INVESTIGATION_COLLAPSE_MS = 280
 const COMPOSER_INPUT_MAX_LINES = 5
+/** 离底部不超过该距离视为「贴底」，继续自动跟滚 */
+const STICK_TO_BOTTOM_THRESHOLD_PX = 64
 
 function resolveMessageSendSettings(
   message: VscodeAiChatMessage,
@@ -1511,6 +1513,8 @@ export function VscodeAiPanel({
     wireTranscript ?? [],
   )
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** 贴底才跟滚：用户上翻后暂停，滚回底部再恢复 */
+  const stickToBottomRef = useRef(true)
   const composerWrapRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const composerInputHeightRef = useRef<number | undefined>(undefined)
@@ -1793,11 +1797,25 @@ export function VscodeAiPanel({
     void prepareVscodeAiContextUsage(resolvedModelId, resolvedTokenizerFamily)
   }, [resolvedModelId, resolvedTokenizerFamily])
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((force = false) => {
     const node = scrollRef.current
     if (!node) return
+    if (!force && !stickToBottomRef.current) return
+    stickToBottomRef.current = true
     node.scrollTop = node.scrollHeight
   }, [])
+
+  const onChatScroll = useCallback(() => {
+    const node = scrollRef.current
+    if (!node) return
+    const distanceFromBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight
+    stickToBottomRef.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX
+  }, [])
+
+  useEffect(() => {
+    stickToBottomRef.current = true
+  }, [sessionId])
 
   useEffect(() => {
     scrollToBottom()
@@ -2151,6 +2169,9 @@ export function VscodeAiPanel({
         }
         return
       }
+
+      // 用户主动发送：强制贴底并恢复跟滚
+      scrollToBottom(true)
 
       const turnMode = options?.sendMode ?? mode
       const turnModelSource = options?.sendModelSource ?? aiModelSource
@@ -2634,6 +2655,7 @@ export function VscodeAiPanel({
       rebuildHistoryFromMessages,
       releaseBusyTurn,
       runCommandHost,
+      scrollToBottom,
       sessionId,
       stop,
       subAgentBuiltinOverrides,
@@ -2890,7 +2912,11 @@ export function VscodeAiPanel({
           </span>
         </div>
       ) : undefined}
-      <div class="help-app__chat vscode-ai__chat" ref={scrollRef}>
+      <div
+        class="help-app__chat vscode-ai__chat"
+        ref={scrollRef}
+        onScroll={onChatScroll}
+      >
         {showWelcome ? (
           <div class="help-app__welcome vscode-ai__welcome">
             <div class="help-app__welcome-icon" aria-hidden="true">
