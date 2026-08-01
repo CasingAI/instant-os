@@ -12,9 +12,13 @@ import { initBrowserPageCache } from './apps/browser/browser-page-cache.ts'
 import { initializeDockAppearance } from './dock/apply-dock-settings.ts'
 import { blockBrowserZoom } from './os/block-browser-zoom.ts'
 import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
+import { setBootSplashProgress, setBootSplashStatus } from './os/boot-splash-host.ts'
 import { preloadSystemSounds, unlockSystemSounds } from './os/system-sounds.ts'
 import { App } from './app.tsx'
 
+// 大包已拉取并开始执行主模块，才切到「正在启动…」
+setBootSplashStatus('正在启动…')
+setBootSplashProgress(0.95)
 blockBrowserZoom()
 blockDocumentOverscroll()
 unlockSystemSounds()

@@ -172,10 +172,9 @@
   }
 
   function refreshBootSplashUi() {
-    if (state.moduleExecuted) {
-      setBootStatus(BOOT_STATUS_STARTING)
-    } else {
-      setBootStatus(BOOT_STATUS_LOADING)
+    var status = document.getElementById(BOOT_SPLASH_STATUS_ID)
+    if (status && !String(status.textContent || '').trim()) {
+      status.textContent = BOOT_STATUS_LOADING
     }
     paintBootProgress()
   }
@@ -417,12 +416,6 @@
 
   function markModuleExecuted() {
     state.moduleExecuted = true
-    setBootStatus(BOOT_STATUS_STARTING)
-    bootProgressState.manualFloor = Math.max(
-      bootProgressState.manualFloor,
-      BOOT_PROGRESS_MODULE_MIN,
-    )
-    recomputeBootProgress()
   }
 
   function markBootComplete() {
