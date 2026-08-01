@@ -29,6 +29,7 @@ const TMP_ROOT = filesLocationPathRoot('tmp')
 
 export const TMP_TERMINAL_PREFIX = joinFilesAbsolutePath(TMP_ROOT, 'Terminal')
 export const TMP_NPM_PREFIX = joinFilesAbsolutePath(TMP_ROOT, 'Npm')
+export const TMP_WORKSPACE_PREFIX = joinFilesAbsolutePath(TMP_ROOT, 'Workspace')
 
 export const TMP_FOLDER_ATTRIBUTES: FilesNodeAttributes = {
   readable: true,
@@ -45,6 +46,32 @@ export function terminalTmpDir(sessionId: string): string {
 export function npmRunTmpDir(runId: string): string {
   const id = normalizeFilesNodeName(runId.trim())
   return joinFilesAbsolutePath(TMP_NPM_PREFIX, id)
+}
+
+/**
+ * FNV-1a 32 位哈希，返回 8 位 hex（确定性、无依赖，QuickJS 与宿主端均可用）。
+ * 用于工作区容器目录名：基于完整路径哈希，不同路径不会冲突。
+ */
+export function fnv1a32Hex(text: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+/** 工作区容器根：/tmp/Workspace/{hash}（hash 基于完整 workspace 路径） */
+export function workspaceTmpRoot(workspaceRoot: string): string {
+  const clean = workspaceRoot.trim().replace(/\/+$/, '')
+  if (!clean) return joinFilesAbsolutePath(TMP_WORKSPACE_PREFIX, 'workspace')
+  return joinFilesAbsolutePath(TMP_WORKSPACE_PREFIX, fnv1a32Hex(clean))
+}
+
+/** 工作区容器下某应用的分区：/tmp/Workspace/{hash}/{appId}（appId 已 sanitize） */
+export function workspaceAppTmpDir(workspaceRoot: string, appId: string): string {
+  const app = appId.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+$/, '') || 'app'
+  return joinFilesAbsolutePath(workspaceTmpRoot(workspaceRoot), app)
 }
 
 /** 路径是否落在 `/tmp` 卷下（含卷根本身） */

@@ -11,9 +11,12 @@ import { resetFilesDbForTests } from './files-storage.ts'
 import {
   clearTmpCreatedBefore,
   ensureTmpSessionDir,
+  fnv1a32Hex,
   isUnderTmpPath,
   npmRunTmpDir,
   terminalTmpDir,
+  workspaceAppTmpDir,
+  workspaceTmpRoot,
 } from './files-tmp.ts'
 import { invalidateFilesVfsPathCaches, resolveNodeByAbsolutePath } from './files-vfs.ts'
 import { filesCreateText, filesStat } from './files-api.ts'
@@ -50,6 +53,34 @@ async function testEnsureAndClear(): Promise<void> {
   console.log('ok: tmp ensure + clearTmpCreatedBefore')
 }
 
+async function testWorkspaceContainer(): Promise<void> {
+  // FNV-1a 确定性
+  const h1 = fnv1a32Hex('/dev/github/CasingAI/instant-os')
+  const h2 = fnv1a32Hex('/dev/github/CasingAI/instant-os')
+  assert.equal(h1, h2)
+  assert.match(h1, /^[0-9a-f]{8}$/)
+
+  // 不同路径不同 hash
+  const h3 = fnv1a32Hex('/dev/github/CasingAI/instant-os')
+  const h4 = fnv1a32Hex('/dev/github/google/gemini')
+  assert.notEqual(h3, h4)
+
+  // workspace 容器路径
+  const root = workspaceTmpRoot('/dev/github/CasingAI/instant-os')
+  assert.ok(root.startsWith('/tmp/Workspace/'))
+  assert.equal(root, `/tmp/Workspace/${fnv1a32Hex('/dev/github/CasingAI/instant-os')}`)
+
+  // 应用分区 + sanitize
+  const app = workspaceAppTmpDir('/dev/github/CasingAI/instant-os', 'vscode')
+  assert.equal(app, `${root}/vscode`)
+  const ext = workspaceAppTmpDir('/dev/github/CasingAI/instant-os', 'ext:foo')
+  assert.equal(ext, `${root}/ext-foo`)
+
+  // 尾斜杠归一化
+  assert.equal(workspaceTmpRoot('/dev/github/CasingAI/instant-os/'), root)
+  console.log('ok: workspace tmp container paths')
+}
+
 async function testQuotaConstant(): Promise<void> {
   assert.equal(QUICKJS_DEFAULT_MAX_FILE_BYTES, DATA_CAPACITY_BYTES)
   console.log('ok: maxFileBytes === DATA_CAPACITY_BYTES')
@@ -58,6 +89,7 @@ async function testQuotaConstant(): Promise<void> {
 async function main(): Promise<void> {
   await testPathParsing()
   await testEnsureAndClear()
+  await testWorkspaceContainer()
   await testQuotaConstant()
   console.log('files-tmp tests passed')
 }

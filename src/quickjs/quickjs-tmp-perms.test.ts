@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { assertFsPermission } from './quickjs-fs-path.ts'
 import type { QuickJsHostPermissions } from './quickjs-instance-types.ts'
-import { terminalTmpDir } from '../apps/files/files-tmp.ts'
+import { terminalTmpDir, workspaceTmpRoot } from '../apps/files/files-tmp.ts'
 
 function perms(partial: Partial<QuickJsHostPermissions>): QuickJsHostPermissions {
   return {
@@ -42,6 +42,29 @@ function testControlledIncludesTmpAndWorkspace(): void {
   console.log('ok: controlled write roots include workspace + tmp')
 }
 
+function testWorkspaceTmpIncludedInBothModes(): void {
+  const workspace = '/dev/github/CasingAI/instant-os'
+  const wsTmp = workspaceTmpRoot(workspace)
+  const sessionTmp = terminalTmpDir('perm-sess')
+
+  // readonly：workspace tmp 可写，但工作区仍被拒
+  const readonly = perms({ fsWriteRoots: [sessionTmp, wsTmp] })
+  assert.doesNotThrow(() => assertFsPermission(`${wsTmp}/vscode/plans/a.md`, 'write', readonly, 'writeFile'))
+  assert.throws(
+    () => assertFsPermission(workspace + '/src/a.ts', 'write', readonly, 'writeFile'),
+    (error: unknown) =>
+      error instanceof Error && (error as { code?: string }).code === 'EACCES',
+  )
+
+  // controlled：workspace + workspace tmp + session tmp 均可写
+  const controlled = perms({ fsWriteRoots: [workspace, wsTmp, sessionTmp] })
+  assert.doesNotThrow(() => assertFsPermission(`${wsTmp}/vscode/plans/a.md`, 'write', controlled, 'writeFile'))
+  assert.doesNotThrow(() => assertFsPermission(workspace + '/src/a.ts', 'write', controlled, 'writeFile'))
+  assert.doesNotThrow(() => assertFsPermission(`${sessionTmp}/b.txt`, 'write', controlled, 'writeFile'))
+  console.log('ok: workspace tmp writable in readonly + controlled')
+}
+
 testReadonlySessionTmpWriteAllowed()
 testControlledIncludesTmpAndWorkspace()
+testWorkspaceTmpIncludedInBothModes()
 console.log('quickjs-tmp-perms: all passed')

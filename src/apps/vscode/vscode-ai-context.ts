@@ -86,17 +86,17 @@ export function buildVscodeAiContextSection(input: VscodeAiContextInput): string
 export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').VscodeAiMode): string {
   const modeLine =
     mode === 'ask'
-      ? '当前模式：Ask（只读）。只能用 run_in_terminal 在只读终端中读取；写/删/建文件与 npm/npx / GitHub 写操作均不可用。GitHub 工作树用 await instant.git.status/diff/log（经 run_in_terminal）。回答用简洁中文。'
+      ? '当前模式：Ask（只读）。只能用 run_in_terminal 在只读终端中读取；写/删/建文件与 npm/npx / GitHub 写操作均不可用。可用 github_status / github_diff / github_log 只读查看。回答用简洁中文。'
       : mode === 'plan'
         ? [
             '当前模式：Plan（只读协作规划）。不得修改业务代码或运行 npm/npx / GitHub 写操作。',
-            '用 run_in_terminal（只读）调研，含 await instant.git.status/diff/log；唯一写出口是 write_plan（写入工作区 .vscode/plans/*.md 并打开）。',
+            '用 run_in_terminal（只读）与 github_status / github_diff / github_log 调研；唯一写出口是 write_plan（写入工作区临时容器 /tmp/Workspace/{hash}/vscode/plans/*.md 并打开，不污染工作区 Git）。',
             '需求不清时先问 1–2 个关键问题，再写计划。信息足够后必须调用 write_plan 落盘，不要只用聊天长文替代。',
             '计划须具体可执行：选定一种方案写死，禁止 Option A/B、TBD、「视情况」。',
             '落盘 Markdown 建议含：# 标题、overview、实现要点（关键路径）、todos checklist；复杂时可用 mermaid。',
             '写完计划即可结束本轮，不要开始改业务代码。',
           ].join(' ')
-        : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）；GitHub 工作树用 await instant.git.*（经 run_in_terminal）。调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时用 globalThis.instant；需要打开/读取/操作真实网页时用 globalThis.webview（见下方壳层 API）。'
+        : '当前模式：Agent。读写与副作用一律走受控终端（run_in_terminal / npm_run / npx）或 GitHub 工具（github_*）；调用 run_in_terminal 须带 description。多文件改动尽量合并同一次执行以便回滚。需要打开应用、文件、URL 或操纵窗口时用 globalThis.instant；需要打开/读取/操作真实网页时用 globalThis.webview（见下方壳层 API）。'
 
   const instantShellSection = `\n\n${buildInstantShellSystemPromptSection()}`
 
@@ -105,13 +105,14 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
       ? [
           '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
           '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），只读模式下工作区写操作会被拒绝',
-          '- 无真实 git：用 await instant.git.status/diff/log（经 run_in_terminal）只读查看 /dev/github/... 工作树；写操作不可用',
+          '- 无真实 git：可用 github_status / github_diff / github_log 只读查看 /dev/github/... 工作树；写操作不可用',
           '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id}）；只读模式下仍可写该目录',
+          '- 工作区级临时容器：/tmp/Workspace/{hash}/（config.json 记录 workspace 路径；各应用有独立子目录，如 vscode/plans/）；Ask/Plan/Agent 终端均可读写该目录',
           '- 终端工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
           '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
           mode === 'plan'
-            ? '- Plan：run_in_terminal 只读调研（搜索用 instant.grep；GitHub 用 instant.git）；唯一落盘出口是 write_plan（.vscode/plans/*.md）'
-            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），搜索用 instant.grep，GitHub 用 instant.git；不要尝试写入工作区',
+            ? '- Plan：run_in_terminal 只读调研（搜索用 instant.grep）；唯一落盘出口是 write_plan（/tmp/Workspace/{hash}/vscode/plans/*.md）'
+            : '- Ask 只有 run_in_terminal；用终端脚本读取（如 fs.readFileSync / fs.readdirSync），搜索用 instant.grep；不要尝试写入工作区',
           '- /system 与 /models 等只读卷不可写入',
           '- 回答用简洁中文 Markdown；引用路径时用反引号',
           '- 不要编造未执行的工具结果',
@@ -119,8 +120,8 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
       : [
           '- 路径均为 Instant OS VFS 绝对路径（如 /user/...、/mount/...）；可读任意卷内路径，写入仅限当前工作区',
           '- 没有真实 shell、管道或网络下载；终端是 InstantREPL（QuickJS），受控模式下会记录可回滚的文件系统变更',
-          '- Agent 只有终端相关工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）或 instant.git.*；可读任意卷，写入仅限工作区',
-          '- 无真实 git：GitHub 工作树在 /dev/github/{owner}/{repo}；用 await instant.git.status/commit/push 等（与 GitHub Desktop 同一套 API 同步）。终端只读模式下写操作会被门面拒绝',
+          '- Agent 只有终端相关工具与 GitHub 工具；读写与副作用都走终端脚本（如 fs.readFileSync / fs.writeFileSync / fs.unlinkSync）或 github_*；可读任意卷，写入仅限工作区',
+          '- 无真实 git：GitHub 工作树在 /dev/github/{owner}/{repo}；用 github_status / github_commit / github_push 等工具（与 GitHub Desktop 同一套 API 同步）。终端只读模式下写操作会被门面拒绝',
           '- os.tmpdir() / process.env.TMPDIR 指向 session 级临时目录（/tmp/Terminal/{id} 或 npm 的 /tmp/Npm/{id}）；大文本可写该目录（不进 ChangeSet）',
           '- 终端 / npm 工具返回超过约 16000 字符（16K）时会自动 spill 到 tmp 并预览开头；完整文件可用 fs 或 instant.grep 自行检索/分段读取',
           '- 终端 rebuild / 撤销改动后勿假设旧 tmpdir 或内存变量仍有效；以 banner / 上下文中的新 session、tmpdir 为准',
