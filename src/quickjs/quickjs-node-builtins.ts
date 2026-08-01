@@ -52,6 +52,7 @@ import {
 import { buildTtyModuleSource, injectTty } from './quickjs-tty.ts'
 import { buildUrlModuleSource, injectUrl } from './quickjs-url.ts'
 import { buildUtilModuleSource, injectUtil } from './quickjs-util.ts'
+import { buildZlibModuleSource, injectZlib } from './quickjs-zlib.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import {
   buildCjsGuestRequireSource,
@@ -241,6 +242,9 @@ function builtinModuleSource(canonical: string): string | undefined {
   if (canonical === 'readline/promises') {
     return READLINE_PROMISES_MODULE_SOURCE
   }
+  if (canonical === 'zlib') {
+    return ZLIB_MODULE_SOURCE
+  }
   return undefined
 }
 
@@ -374,6 +378,7 @@ const STREAM_MODULE_SOURCE = buildStreamModuleSource(BUILTINS_GLOBAL_KEY)
 const STRING_DECODER_MODULE_SOURCE = buildStringDecoderModuleSource(BUILTINS_GLOBAL_KEY)
 const READLINE_MODULE_SOURCE = buildReadlineModuleSource(BUILTINS_GLOBAL_KEY)
 const READLINE_PROMISES_MODULE_SOURCE = buildReadlinePromisesModuleSource(BUILTINS_GLOBAL_KEY)
+const ZLIB_MODULE_SOURCE = buildZlibModuleSource(BUILTINS_GLOBAL_KEY)
 
 function lookupBuiltinHandle(
   context: QuickJSContext,
@@ -439,6 +444,7 @@ export function injectNodeBuiltins(
     'string_decoder',
     'readline',
     'readline/promises',
+    'zlib',
   ])
   const listImplemented = () => [...implemented]
 
@@ -447,6 +453,7 @@ export function injectNodeBuiltins(
   const bufferHandle = injectBuffer(context)
   const eventsHandle = injectEvents(context)
   const streamHandle = injectStream(context, eventsHandle)
+  const { handle: zlibHandle, dispose: disposeZlib } = injectZlib(context, streamHandle)
   const readlineHandle = injectReadline(context, eventsHandle)
   const assertHandle = injectAssert(context)
   const utilHandle = injectUtil(context)
@@ -475,6 +482,8 @@ export function injectNodeBuiltins(
   eventsHandle.dispose()
   context.setProp(namespace, 'stream', streamHandle)
   streamHandle.dispose()
+  context.setProp(namespace, 'zlib', zlibHandle)
+  zlibHandle.dispose()
   context.setProp(namespace, 'readline', readlineHandle)
   const readlinePromisesHandle = context.getProp(readlineHandle, 'promises')
   context.setProp(namespace, 'readline/promises', readlinePromisesHandle)
@@ -680,6 +689,7 @@ export function injectNodeBuiltins(
       disposeFsWatchers()
       disposePerfObservers()
       disposeCrypto()
+      disposeZlib()
     },
   }
 }

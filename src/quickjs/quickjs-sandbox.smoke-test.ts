@@ -1719,6 +1719,38 @@ export default {
     throw new Error(`unexpected stream batch import: ${JSON.stringify(streamImport.value)}`)
   }
 
+  const zlibSmoke = await timerInstance.eval(`
+    var zlib = require('zlib')
+    var gz = zlib.gzipSync('hello zlib')
+    var plain = zlib.gunzipSync(gz)
+  var deflated = zlib.deflateSync('abc')
+  var inflated = zlib.inflateSync(deflated)
+  var raw = zlib.deflateRawSync('x')
+  var rawInfl = zlib.inflateRawSync(raw)
+    ;({
+      same: zlib === require('node:zlib'),
+      gzipRound: plain.toString() === 'hello zlib',
+      deflateRound: inflated.toString() === 'abc',
+      rawRound: rawInfl.toString() === 'x',
+      constants: zlib.constants.Z_OK === 0,
+      createGzip: typeof zlib.createGzip === 'function',
+    })
+  `)
+  if (!zlibSmoke.ok) {
+    throw new Error(`zlib smoke failed: ${JSON.stringify(zlibSmoke)}`)
+  }
+  const zlibVal = zlibSmoke.value as Record<string, unknown>
+  if (
+    zlibVal.same !== true ||
+    zlibVal.gzipRound !== true ||
+    zlibVal.deflateRound !== true ||
+    zlibVal.rawRound !== true ||
+    zlibVal.constants !== true ||
+    zlibVal.createGzip !== true
+  ) {
+    throw new Error(`unexpected zlib smoke: ${JSON.stringify(zlibVal)}`)
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)
