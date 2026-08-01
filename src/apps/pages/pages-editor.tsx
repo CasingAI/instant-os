@@ -210,6 +210,14 @@ export function PagesEditor({
   const suppressNextUpdateRef = useRef(false)
   const suppressFormulaRecalcRef = useRef(false)
   const formulaRecalcTimerRef = useRef<number | null>(null)
+
+  /** 跳过紧随其后的 onUpdate 上报；若该次 update 未触发则 microtask 清掉，避免吞掉用户下一次编辑 */
+  const suppressNextDocumentEmit = useCallback(() => {
+    suppressNextUpdateRef.current = true
+    queueMicrotask(() => {
+      suppressNextUpdateRef.current = false
+    })
+  }, [])
   const viewModeRef = useRef(viewMode)
   const prevViewModeRef = useRef(viewMode)
   const editableRef = useRef(editable)
@@ -659,7 +667,8 @@ export function PagesEditor({
         hostEditor.__pagesPasteImage = (file) => {
           void insertImageFile(file)
         }
-        suppressNextUpdateRef.current = true
+        // 不在此处 suppress：若 onCreate 后没有 onUpdate，suppress 会卡住并吞掉用户第一次编辑
+        // （例如只改图片对齐），导致画面已变但无法保存。基线由父级首次 onDocumentChange 吸收。
         const markdown = jsonContentToMarkdown(created.getJSON())
         sourceDraftRef.current = markdown
         onDocumentChangeRef.current(created.getJSON())
@@ -783,7 +792,7 @@ export function PagesEditor({
 
     // edit
     if (prev === 'source') {
-      suppressNextUpdateRef.current = true
+      suppressNextDocumentEmit()
       const doc = markdownToJSONContent(sourceDraftRef.current)
       editor.commands.setContent(doc)
       const normalized = editor.getJSON()
@@ -803,7 +812,7 @@ export function PagesEditor({
       onDocumentChange(doc)
       setSheetTableJSON(null)
     }
-  }, [viewMode, onDocumentChange, closeFloatingExcept])
+  }, [viewMode, onDocumentChange, closeFloatingExcept, suppressNextDocumentEmit])
 
   // 进入 sheet：从编辑器取出目标表 JSON
   useEffect(() => {
@@ -1319,7 +1328,7 @@ export function PagesEditor({
                 if (!ed || ed.isDestroyed || !sheetTableId) return
                 const found = findTablePosById(ed, sheetTableId)
                 if (!found) return
-                suppressNextUpdateRef.current = true
+                suppressNextDocumentEmit()
                 replaceTableAtPos(ed, found.pos, nextTable)
                 const doc = ed.getJSON()
                 sourceDraftRef.current = jsonContentToMarkdown(doc)
