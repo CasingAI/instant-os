@@ -560,6 +560,31 @@
   color: #5c4a1f;
 }
 
+.vscode-ai__banner--mode-switch {
+  border: 1px solid rgba(47, 135, 226, 0.42);
+  background: linear-gradient(180deg, #eef6ff 0%, #dcecff 100%);
+  box-shadow: 0 4px 14px rgba(47, 135, 226, 0.14);
+  color: #1a4f86;
+}
+
+.vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn {
+  border-color: rgba(47, 135, 226, 0.45);
+  background: linear-gradient(180deg, #f5faff 0%, #e3f0ff 100%);
+  box-shadow: 0 1px 2px rgba(47, 135, 226, 0.12);
+  color: #1a4f86;
+}
+
+.vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn--primary {
+  border-color: rgba(47, 135, 226, 0.65);
+  background: linear-gradient(180deg, #4d9ee8 0%, #2f87e2 100%);
+  color: #fff;
+}
+
+.vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn:disabled {
+  background: linear-gradient(180deg, #e8f0f8 0%, #d5e4f2 100%);
+  color: #6a8aad;
+}
+
 .vscode-ai__banner-label {
   min-width: 0;
   overflow: hidden;
@@ -1571,6 +1596,26 @@
   border-color: rgba(212, 175, 55, 0.35);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
   color: #f5e6b8;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch {
+  background: linear-gradient(180deg, #243548 0%, #1c2a3a 100%);
+  border-color: rgba(47, 135, 226, 0.4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  color: #c5ddf5;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn {
+  border-color: rgba(47, 135, 226, 0.4);
+  background: linear-gradient(180deg, #2f4560 0%, #243548 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  color: #c5ddf5;
+}
+
+.vscode--chrome-dark .vscode-ai__banner--mode-switch .vscode-ai__plan-bar-btn--primary {
+  border-color: rgba(77, 158, 232, 0.7);
+  background: linear-gradient(180deg, #3d8fd4 0%, #2a6fb0 100%);
+  color: #fff;
 }
 
 .vscode--chrome-dark .vscode-ai__plan-bar-btn {

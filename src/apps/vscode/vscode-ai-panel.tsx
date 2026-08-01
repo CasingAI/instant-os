@@ -969,7 +969,9 @@ function WriteFileCard({
 }
 
 /** 全宽横幅气泡变体；后续可加 review / tip 等 */
-type VscodeAiBannerKind = 'plan'
+type VscodeAiBannerKind = 'plan' | 'mode-switch'
+
+const MODE_SWITCH_TIMEOUT_MS = 30_000
 
 function PlanReadyBar({
   planPath,
@@ -1065,6 +1067,77 @@ function PlanReadyBar({
             {implemented ? '已实施' : '用 Agent 实施'}
           </button>
         ) : undefined}
+      </div>
+    </div>
+  )
+}
+
+type ModeSwitchPendingUi = {
+  target: VscodeAiMode
+  from: VscodeAiMode
+  explanation?: string
+  expiresAt: number
+}
+
+function ModeSwitchBar({
+  pending,
+  onApprove,
+  onReject,
+}: {
+  pending: ModeSwitchPendingUi
+  onApprove: () => void
+  onReject: () => void
+}) {
+  const toLabel = VSCODE_AI_MODE_LABELS[pending.target]
+  const fromLabel = VSCODE_AI_MODE_LABELS[pending.from]
+  const reason = pending.explanation?.trim()
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000)),
+  )
+
+  useEffect(() => {
+    const tick = () => {
+      setSecondsLeft(Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000)))
+    }
+    tick()
+    const id = window.setInterval(tick, 250)
+    return () => window.clearInterval(id)
+  }, [pending.expiresAt])
+
+  const label = `切换到 ${toLabel}`
+  const title = reason
+    ? `${fromLabel} → ${toLabel}：${reason}`
+    : `${fromLabel} → ${toLabel}`
+
+  return (
+    <div
+      class="vscode-ai__banner vscode-ai__banner--mode-switch"
+      role="alertdialog"
+      aria-label="切换 AI 模式"
+    >
+      <span class="vscode-ai__banner-label" title={title}>
+        {label}
+        {reason ? (
+          <span class="vscode-ai__banner-progress"> · {reason}</span>
+        ) : (
+          <span class="vscode-ai__banner-progress">
+            {' '}
+            · 从 {fromLabel}
+          </span>
+        )}
+        <span class="vscode-ai__banner-progress"> · 剩余 {secondsLeft}s</span>
+      </span>
+      <div class="vscode-ai__banner-actions">
+        <button type="button" class="vscode-ai__plan-bar-btn" onClick={onReject}>
+          保持当前
+        </button>
+        <button
+          type="button"
+          class="vscode-ai__plan-bar-btn vscode-ai__plan-bar-btn--primary"
+          onClick={onApprove}
+        >
+          {label}
+        </button>
       </div>
     </div>
   )
@@ -1572,6 +1645,9 @@ export function VscodeAiPanel({
   const [sendQueueExpanded, setSendQueueExpanded] = useState(false)
   const [internalLiveTimeline, setLiveTimeline] = useState<VscodeAiTimelineItem[]>([])
   const [internalLiveAnswer, setLiveAnswer] = useState('')
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<ModeSwitchPendingUi | null>(
+    null,
+  )
   /** 只读模式下由外部注入的实时数据优先；否则随 busy 内部状态 */
   const liveTimeline = externalLiveTimeline ?? internalLiveTimeline
   const liveAnswer = externalLiveAnswer ?? internalLiveAnswer
@@ -1613,6 +1689,13 @@ export function VscodeAiPanel({
   const lastSentModeRef = useRef<VscodeAiMode | undefined>(undefined)
   const modeRef = useRef(mode)
   modeRef.current = mode
+  const pendingModeSwitchSessionRef = useRef<{
+    resolve: (decision: 'approved' | 'denied') => void
+    timerId: number
+    onAbort: () => void
+    signal: AbortSignal | undefined
+    target: VscodeAiMode
+  } | null>(null)
   const lastSentTerminalRef = useRef<VscodeAiLastSentTerminal | undefined>(lastSentTerminal)
   lastSentTerminalRef.current = lastSentTerminal
   const busyRef = useRef(false)
@@ -1849,6 +1932,84 @@ export function VscodeAiPanel({
     }
   }, [aiTerminalKind, getAiTerminalSnapshot, getContext, sessionId])
 
+  const settleModeSwitch = useCallback((decision: 'approved' | 'denied') => {
+    const session = pendingModeSwitchSessionRef.current
+    if (!session) return
+    pendingModeSwitchSessionRef.current = null
+    window.clearTimeout(session.timerId)
+    if (session.signal) {
+      session.signal.removeEventListener('abort', session.onAbort)
+    }
+    setPendingModeSwitch(null)
+    session.resolve(decision)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      const session = pendingModeSwitchSessionRef.current
+      if (!session) return
+      pendingModeSwitchSessionRef.current = null
+      window.clearTimeout(session.timerId)
+      if (session.signal) {
+        session.signal.removeEventListener('abort', session.onAbort)
+      }
+      session.resolve('denied')
+    }
+  }, [])
+
+  const requestModeSwitch = useCallback(
+    (input: {
+      target: VscodeAiMode
+      explanation?: string
+    }): Promise<'approved' | 'denied'> => {
+      if (pendingModeSwitchSessionRef.current) {
+        settleModeSwitch('denied')
+      }
+      const from = modeRef.current
+      const expiresAt = Date.now() + MODE_SWITCH_TIMEOUT_MS
+      const signal = abortRef.current?.signal
+      return new Promise((resolve) => {
+        const onAbort = () => settleModeSwitch('denied')
+        const timerId = window.setTimeout(() => {
+          settleModeSwitch('denied')
+        }, MODE_SWITCH_TIMEOUT_MS)
+        pendingModeSwitchSessionRef.current = {
+          resolve,
+          timerId,
+          onAbort,
+          signal,
+          target: input.target,
+        }
+        setPendingModeSwitch({
+          target: input.target,
+          from,
+          explanation: input.explanation?.trim() || undefined,
+          expiresAt,
+        })
+        if (signal) {
+          if (signal.aborted) {
+            settleModeSwitch('denied')
+            return
+          }
+          signal.addEventListener('abort', onAbort, { once: true })
+        }
+      })
+    },
+    [settleModeSwitch],
+  )
+
+  const approvePendingModeSwitch = useCallback(() => {
+    const session = pendingModeSwitchSessionRef.current
+    if (!session) return
+    onModeChange(session.target)
+    modeRef.current = session.target
+    settleModeSwitch('approved')
+  }, [onModeChange, settleModeSwitch])
+
+  const rejectPendingModeSwitch = useCallback(() => {
+    settleModeSwitch('denied')
+  }, [settleModeSwitch])
+
   const toolsHost = useMemo<VscodeAiToolsHost>(
     () => ({
       getContext: contextWithTerminal,
@@ -1859,24 +2020,7 @@ export function VscodeAiPanel({
       getAiTerminalHandle,
       getAiTerminalSnapshot,
       closeAiTerminal,
-      requestModeSwitch: async ({ target, explanation }) => {
-        const fromLabel = VSCODE_AI_MODE_LABELS[modeRef.current]
-        const toLabel = VSCODE_AI_MODE_LABELS[target]
-        const reason = explanation?.trim()
-        const ok = await modal.confirm({
-          title: '切换 AI 模式？',
-          message: reason
-            ? `从 ${fromLabel} 切换到 ${toLabel}。\n\n${reason}`
-            : `从 ${fromLabel} 切换到 ${toLabel}。同意后将以新模式继续当前任务。`,
-          confirmLabel: `切换到 ${toLabel}`,
-          cancelLabel: '保持当前',
-          themeColor: VSCODE_AI_MODAL_THEME,
-        })
-        if (!ok) return 'denied'
-        onModeChange(target)
-        modeRef.current = target
-        return 'approved'
-      },
+      requestModeSwitch,
     }),
     [
       closeAiTerminal,
@@ -1884,9 +2028,8 @@ export function VscodeAiPanel({
       ensureAiTerminal,
       getAiTerminalHandle,
       getAiTerminalSnapshot,
-      modal,
-      onModeChange,
       openPlanFile,
+      requestModeSwitch,
       runCommandHost,
       sessionId,
     ],
@@ -1918,7 +2061,7 @@ export function VscodeAiPanel({
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages, liveTimeline, liveAnswer, scrollToBottom])
+  }, [messages, liveTimeline, liveAnswer, pendingModeSwitch, scrollToBottom])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -2231,13 +2374,14 @@ export function VscodeAiPanel({
   }, [])
 
   const clearLiveTurnState = useCallback(() => {
+    settleModeSwitch('denied')
     setLiveTimeline([])
     setLiveAnswer('')
     liveTimelineRef.current = []
     liveAnswerRef.current = ''
     liveToolCallCountRef.current = 0
     liveDraftAssistantIdRef.current = undefined
-  }, [])
+  }, [settleModeSwitch])
 
   const releaseBusyTurn = useCallback(() => {
     setBusy(false)
@@ -3273,10 +3417,13 @@ export function VscodeAiPanel({
                 const showLivePlanBanner = Boolean(
                   livePlanMeta.planPath && liveAssistantId,
                 )
+                const showModeSwitchBanner = Boolean(pendingModeSwitch)
                 return (
                   <div
                     class={`help-app__message help-app__message--assistant${
-                      showLivePlanBanner ? ' help-app__message--with-banner' : ''
+                      showLivePlanBanner || showModeSwitchBanner
+                        ? ' help-app__message--with-banner'
+                        : ''
                     }`}
                   >
                     <div class="vscode-ai__message-main">
@@ -3304,6 +3451,13 @@ export function VscodeAiPanel({
                         </div>
                       </div>
                     </div>
+                    {pendingModeSwitch ? (
+                      <ModeSwitchBar
+                        pending={pendingModeSwitch}
+                        onApprove={approvePendingModeSwitch}
+                        onReject={rejectPendingModeSwitch}
+                      />
+                    ) : undefined}
                     {showLivePlanBanner && livePlanMeta.planPath && liveAssistantId ? (
                       <PlanReadyBar
                         planPath={livePlanMeta.planPath}
