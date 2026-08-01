@@ -90,7 +90,7 @@ export function buildVscodeAiSystemPrompt(mode: import('./vscode-ai-mode.ts').Vs
       : mode === 'plan'
         ? [
             '当前模式：Plan（只读协作规划）。不得修改业务代码或运行 npm/npx / GitHub 写操作。',
-            '用 run_in_terminal（只读）调研，含 await instant.git.status/diff/log；唯一写出口是 write_plan（写入工作区 .vscode/plans/*.md 并打开）。',
+            '用 run_in_terminal（只读）调研，含 await instant.git.status/diff/log；唯一写出口是 write_plan（写入工作区 .vscode/plans/*.md）。',
             '需求不清时先问 1–2 个关键问题，再写计划。信息足够后必须调用 write_plan 落盘，不要只用聊天长文替代。',
             '计划须具体可执行：选定一种方案写死，禁止 Option A/B、TBD、「视情况」。',
             '落盘 Markdown 建议含：# 标题、overview、实现要点（关键路径）、todos checklist；复杂时可用 mermaid。',

@@ -1126,7 +1126,7 @@ export async function askVscodeAiAgent(options: {
       pendingWriteId = undefined
       let titleFromResult: string | undefined
       if (event.toolName === 'write_plan') {
-        const match = /已写入计划并打开：(.+)$/.exec(event.result.trim())
+        const match = /已写入计划(?:并打开)?：(.+)$/.exec(event.result.trim())
         if (match?.[1]) titleFromResult = match[1].trim()
       }
       timeline = timeline.map((item) => {

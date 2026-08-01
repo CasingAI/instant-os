@@ -72,6 +72,15 @@ export type VscodeAiChatMessage = {
   sentModelKey?: string
   /** 用户附加的图片（仅路径元数据，不含 blob） */
   attachments?: VscodeAiImageAttachment[]
+  /** Plan 模式本轮 write_plan 落盘路径（供消息下计划气泡） */
+  planPath?: string
+  /** 计划 Markdown 首个一级标题（气泡左侧展示） */
+  planTitle?: string
+  /**
+   * 由「用 Agent 实施」创建的 user 消息：指向带 plan 的 assistant.id。
+   * UI 用「其后是否存在该链接」推导计划条是否已实施。
+   */
+  implementsPlanMessageId?: string
 }
 
 export type VscodeAiChatSession = {
@@ -422,6 +431,11 @@ function normalizeMessages(raw: unknown): VscodeAiChatMessage[] {
         ),
         attachments: normalizeVscodeAiImageAttachments(
           (message as { attachments?: unknown }).attachments,
+        ),
+        planPath: normalizeOptionalString((message as { planPath?: unknown }).planPath),
+        planTitle: normalizeOptionalString((message as { planTitle?: unknown }).planTitle),
+        implementsPlanMessageId: normalizeOptionalString(
+          (message as { implementsPlanMessageId?: unknown }).implementsPlanMessageId,
         ),
       }
     })
@@ -804,6 +818,9 @@ export function createVscodeAiChatMessage(
     | 'sentModelSource'
     | 'sentModelKey'
     | 'attachments'
+    | 'planPath'
+    | 'planTitle'
+    | 'implementsPlanMessageId'
   >>,
 ): VscodeAiChatMessage {
   return {
@@ -823,6 +840,9 @@ export function createVscodeAiChatMessage(
     sentModelSource: extras?.sentModelSource,
     sentModelKey: extras?.sentModelKey,
     attachments: extras?.attachments,
+    planPath: extras?.planPath,
+    planTitle: extras?.planTitle,
+    implementsPlanMessageId: extras?.implementsPlanMessageId,
   }
 }
 

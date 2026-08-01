@@ -1942,6 +1942,61 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setEditorLayout((layout) => openMarkdownPreviewToSide(layout, tab.path, groupId))
   }, [])
 
+  /** 计划气泡「查看计划」：只分屏打开 Markdown 预览，不额外打开源文件编辑 Tab */
+  const openPlanFilePreview = useCallback(async (documentRef: string) => {
+    setLoading(true)
+    try {
+      const result = await readTextFile(documentRef)
+      const path = await resolveFilesAbsolutePath(result.node)
+      if (!mountedRef.current) return
+
+      const existing = tabsRef.current.find((tab) => tab.path === path)
+      let nextTabs: typeof tabsRef.current
+      if (existing) {
+        // 刷新磁盘内容供预览；若用户有未保存草稿则不覆盖
+        nextTabs = isVscodeTabDirty(existing)
+          ? tabsRef.current
+          : tabsRef.current.map((tab) =>
+              tab.id === existing.id
+                ? {
+                    ...tab,
+                    text: result.text,
+                    savedText: result.text,
+                    node: result.node,
+                    writable: isFilesNodeWritable(result.node),
+                    deleted: false,
+                    conflict: undefined,
+                    binaryPrompt: undefined,
+                  }
+                : tab,
+            )
+      } else {
+        const tab = buildVscodeTab({
+          path,
+          text: result.text,
+          node: result.node,
+          writable: isFilesNodeWritable(result.node),
+        })
+        nextTabs = [...tabsRef.current, tab]
+      }
+      tabsRef.current = nextTabs
+      flushSync(() => {
+        setTabs(nextTabs)
+      })
+      setEditorLayout((layout) =>
+        openMarkdownPreviewToSide(layout, path, layout.focusedGroupId),
+      )
+    } catch (err) {
+      await modal.alert({
+        title: '无法打开计划',
+        message: formatError(err),
+        themeColor: THEME,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [modal])
+
   const closePreviewItem = useCallback((itemId: string) => {
     setEditorLayout((layout) => {
       const next = removeEditorItem(layout, itemId)
@@ -3316,9 +3371,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
               getAiTerminalSnapshot={getAiTerminalSnapshot}
               closeAiTerminal={closeAiTerminal}
               closeAiTerminalsBoundToChat={closeAiTerminalsBoundToChat}
-              openPlanFile={async (path) => {
-                await openDocument(path)
-              }}
+              openPlanFile={openPlanFilePreview}
               pickAndOpenFolder={pickAndOpenFolder}
               pickAndOpen={pickAndOpen}
               onCloseWelcome={closeWelcomeTab}

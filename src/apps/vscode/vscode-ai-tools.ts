@@ -129,7 +129,7 @@ export function createVscodeAiTools(
           defineTool({
             name: 'write_plan',
             description:
-              '将完整计划 Markdown 写入工作区 .vscode/plans/ 并打开该文件。这是 Plan 模式唯一允许的写出口；不要用终端写文件。正文须含 # 标题、overview、实现要点、todos checklist；选定一种方案写死。',
+              '将完整计划 Markdown 写入工作区 .vscode/plans/。这是 Plan 模式唯一允许的写出口；不要用终端写文件。正文须含 # 标题、overview、实现要点、todos checklist；选定一种方案写死。',
             parameters: {
               type: 'object',
               additionalProperties: false,
@@ -168,10 +168,7 @@ export function createVscodeAiTools(
               } else {
                 await filesCreateText(path, markdown)
               }
-              if (host.openPlanFile) {
-                await host.openPlanFile(path)
-              }
-              return `已写入计划并打开：${path}`
+              return `已写入计划：${path}`
             },
           }),
         ]

@@ -11,7 +11,7 @@ import { playSystemSound } from '../../os/system-sounds.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { SubagentIcon, VscodeIcon, ForwardIcon } from '../../icons/app-icons.tsx'
+import { SubagentIcon, VscodeIcon, ForwardIcon, PlusIcon } from '../../icons/app-icons.tsx'
 import type { MonacoProblem } from '../../monaco/monaco-markers.ts'
 import type {
   VscodeAgentTerminalEnsureResult,
@@ -69,6 +69,7 @@ import {
 } from './vscode-ai-attachments.ts'
 import { VscodeAiAttachmentImages } from './vscode-ai-attachment-images.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+import { filesReadText } from '../files/files-api.ts'
 import {
   buildVscodeAiSystemReminder,
   collectVscodeAiReminderEvents,
@@ -154,6 +155,99 @@ type SendOptions = {
   sendModelSource?: VscodeModelSource
   sendModelKey?: string | undefined
   attachments?: readonly VscodeAiImageAttachment[]
+  /** 「用 Agent 实施」：关联带 plan 的 assistant 消息 id */
+  implementsPlanMessageId?: string
+}
+
+const WRITE_PLAN_RESULT_PATH_RE = /已写入计划(?:并打开)?：(.+)$/
+
+/** 取 Markdown 第一个一级标题（`# Title`，忽略 ##） */
+function extractMarkdownH1(markdown: string): string | undefined {
+  const match = /(?:^|\n)[ \t]*#[ \t]+([^\n#][^\n]*)/.exec(markdown)
+  const title = match?.[1]?.trim().replace(/[ \t]+#*[ \t]*$/, '').trim()
+  return title || undefined
+}
+
+function extractPlanMetaFromTimeline(
+  timeline: readonly VscodeAiTimelineItem[],
+): { planPath?: string; planTitle?: string } {
+  let planPath: string | undefined
+  let planTitle: string | undefined
+  for (const item of timeline) {
+    if (item.kind !== 'write' || item.toolName !== 'write_plan' || !item.done) continue
+    const fromResult = item.result
+      ? WRITE_PLAN_RESULT_PATH_RE.exec(item.result.trim())?.[1]?.trim()
+      : undefined
+    if (fromResult) {
+      planPath = fromResult
+    } else {
+      const title = item.title.trim()
+      if (title.includes('/') && title.endsWith('.md')) {
+        planPath = title
+      }
+    }
+    const h1 = extractMarkdownH1(item.preview)
+    if (h1) planTitle = h1
+  }
+  return { planPath, planTitle }
+}
+
+function resolveMessagePlanMeta(
+  message: VscodeAiChatMessage,
+): { planPath?: string; planTitle?: string } {
+  const storedPath = message.planPath?.trim()
+  const storedTitle = message.planTitle?.trim()
+  if (storedPath) {
+    if (storedTitle) return { planPath: storedPath, planTitle: storedTitle }
+    if (message.investigation) {
+      const fromTimeline = extractPlanMetaFromTimeline(message.investigation.timeline)
+      return {
+        planPath: storedPath,
+        planTitle: fromTimeline.planTitle,
+      }
+    }
+    return { planPath: storedPath }
+  }
+  if (!message.investigation) return {}
+  return extractPlanMetaFromTimeline(message.investigation.timeline)
+}
+
+function planFileLabel(planPath: string): string {
+  const parts = planPath.split('/').filter(Boolean)
+  return parts[parts.length - 1] || '计划已就绪'
+}
+
+function planMetaExtras(meta: {
+  planPath?: string
+  planTitle?: string
+}): { planPath?: string; planTitle?: string } {
+  if (!meta.planPath) return {}
+  return {
+    planPath: meta.planPath,
+    ...(meta.planTitle ? { planTitle: meta.planTitle } : {}),
+  }
+}
+
+/** 其后是否存在指向该 assistant 的「用 Agent 实施」user 消息（含发送队列） */
+function isPlanImplemented(
+  messages: readonly VscodeAiChatMessage[],
+  assistantMessageId: string,
+  queued?: readonly { implementsPlanMessageId?: string }[],
+): boolean {
+  for (const message of messages) {
+    if (
+      message.role === 'user' &&
+      message.implementsPlanMessageId === assistantMessageId
+    ) {
+      return true
+    }
+  }
+  if (queued) {
+    for (const item of queued) {
+      if (item.implementsPlanMessageId === assistantMessageId) return true
+    }
+  }
+  return false
 }
 
 function syncComposerTextareaHeight(
@@ -195,6 +289,7 @@ type QueuedSend = {
   id: string
   text: string
   attachments?: VscodeAiImageAttachment[]
+  implementsPlanMessageId?: string
 }
 
 function createQueuedSendId(): string {
@@ -557,13 +652,13 @@ function VscodeAiComposerBlock({
           {onAttachmentsChange ? (
             <button
               type="button"
-              class="vscode-ai__attach-btn"
+              class="vscode-ai__context-usage-trigger"
               aria-label="附加图片"
               title="附加图片"
               disabled={inputDisabled}
               onClick={() => void pickVfsImage()}
             >
-              +
+              <PlusIcon />
             </button>
           ) : undefined}
           <VscodeAiContextUsageView usage={contextUsage} dark={dark} />
@@ -817,6 +912,84 @@ function WriteFileCard({
           {preview || (streaming ? '…' : '（无预览）')}
         </pre>
       ) : undefined}
+    </div>
+  )
+}
+
+/** 全宽横幅气泡变体；后续可加 review / tip 等 */
+type VscodeAiBannerKind = 'plan'
+
+function PlanReadyBar({
+  planPath,
+  planTitle,
+  onViewPlan,
+  onImplement,
+  showImplement,
+  implemented,
+}: {
+  planPath: string
+  planTitle?: string
+  onViewPlan: (path: string) => void
+  onImplement?: (path: string) => void
+  showImplement?: boolean
+  implemented?: boolean
+}) {
+  const [displayTitle, setDisplayTitle] = useState(
+    () => planTitle?.trim() || planFileLabel(planPath),
+  )
+
+  useEffect(() => {
+    const known = planTitle?.trim()
+    if (known) {
+      setDisplayTitle(known)
+      return
+    }
+    let cancelled = false
+    void filesReadText(planPath)
+      .then((text) => {
+        if (cancelled) return
+        setDisplayTitle(extractMarkdownH1(text) || planFileLabel(planPath))
+      })
+      .catch(() => {
+        if (!cancelled) setDisplayTitle(planFileLabel(planPath))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [planPath, planTitle])
+
+  const bannerKind: VscodeAiBannerKind = 'plan'
+
+  return (
+    <div
+      class={`vscode-ai__banner vscode-ai__banner--${bannerKind}`}
+      role="status"
+    >
+      <span class="vscode-ai__banner-label" title={planPath}>
+        {displayTitle}
+      </span>
+      <div class="vscode-ai__banner-actions">
+        <button
+          type="button"
+          class="vscode-ai__plan-bar-btn"
+          onClick={() => onViewPlan(planPath)}
+        >
+          查看计划
+        </button>
+        {showImplement && onImplement ? (
+          <button
+            type="button"
+            class="vscode-ai__plan-bar-btn"
+            disabled={implemented}
+            onClick={() => {
+              if (implemented) return
+              onImplement(planPath)
+            }}
+          >
+            {implemented ? '已实施' : '用 Agent 实施'}
+          </button>
+        ) : undefined}
+      </div>
     </div>
   )
 }
@@ -1322,6 +1495,8 @@ export function VscodeAiPanel({
   const liveAnswerRef = useRef('')
   const liveToolCallCountRef = useRef(0)
   const liveStartedAtRef = useRef(0)
+  /** 当前 live 回合的 assistant 草稿 id（供计划条「实施」关联） */
+  const liveDraftAssistantIdRef = useRef<string | undefined>(undefined)
   const sessionIdRef = useRef(sessionId)
   const messagesRef = useRef(messages)
   const sendQueueRef = useRef<QueuedSend[]>([])
@@ -1855,11 +2030,16 @@ export function VscodeAiPanel({
   )
 
   const enqueueSend = useCallback(
-    (text: string, attachments?: readonly VscodeAiImageAttachment[]) => {
+    (
+      text: string,
+      attachments?: readonly VscodeAiImageAttachment[],
+      implementsPlanMessageId?: string,
+    ) => {
       const item: QueuedSend = {
         id: createQueuedSendId(),
         text,
         attachments: attachments && attachments.length > 0 ? [...attachments] : undefined,
+        implementsPlanMessageId,
       }
       const next = [...sendQueueRef.current, item]
       sendQueueRef.current = next
@@ -1900,6 +2080,7 @@ export function VscodeAiPanel({
     liveTimelineRef.current = []
     liveAnswerRef.current = ''
     liveToolCallCountRef.current = 0
+    liveDraftAssistantIdRef.current = undefined
   }, [])
 
   const releaseBusyTurn = useCallback(() => {
@@ -1967,7 +2148,7 @@ export function VscodeAiPanel({
 
       // 普通发送在 busy / 回滚中入队；编辑重发在 handoff 后继续（busy 仍为 true）
       if (!options?.replaceFromUserId && (busyRef.current || reviewBusyRef.current)) {
-        enqueueSend(text, turnAttachments)
+        enqueueSend(text, turnAttachments, options?.implementsPlanMessageId)
         if (!textOverride) {
           setDraft('')
           setDraftAttachments([])
@@ -2061,6 +2242,9 @@ export function VscodeAiPanel({
           sentModelKey: sentModelKeyForMessage,
           attachments:
             turnAttachments.length > 0 ? [...turnAttachments] : undefined,
+          ...(options?.implementsPlanMessageId
+            ? { implementsPlanMessageId: options.implementsPlanMessageId }
+            : {}),
         })
         withUser = [...currentMessages, userMessage]
         applyMessages(withUser)
@@ -2080,6 +2264,7 @@ export function VscodeAiPanel({
 
       const draftAssistantId = `vscode-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const draftCreatedAt = Date.now()
+      liveDraftAssistantIdRef.current = draftAssistantId
       let lastCheckpointToolCount = -1
       let lastCheckpointAt = 0
       let checkpointTimer: number | undefined
@@ -2114,6 +2299,7 @@ export function VscodeAiPanel({
               })
             : undefined
         const changeExtras = turnChangeExtras()
+        const planMeta = extractPlanMetaFromTimeline(timeline)
         applyMessages([
           ...withUser,
           createVscodeAiChatMessage('assistant', answer, {
@@ -2121,6 +2307,7 @@ export function VscodeAiPanel({
             createdAt: draftCreatedAt,
             incomplete: true,
             investigation,
+            ...planMetaExtras(planMeta),
             ...changeExtras,
           }),
         ])
@@ -2206,6 +2393,7 @@ export function VscodeAiPanel({
                 })
               : undefined
           const changeExtras = turnChangeExtras()
+          const planMeta = extractPlanMetaFromTimeline(snapshotTimeline)
           const assistantMessage = createVscodeAiChatMessage(
             'assistant',
             liveAnswerRef.current.trim() || '已停止生成',
@@ -2213,6 +2401,7 @@ export function VscodeAiPanel({
               id: draftAssistantId,
               createdAt: draftCreatedAt,
               investigation,
+              ...planMetaExtras(planMeta),
               ...changeExtras,
             },
           )
@@ -2243,6 +2432,9 @@ export function VscodeAiPanel({
                 : undefined
 
           const changeExtras = turnChangeExtras()
+          const planMeta = extractPlanMetaFromTimeline(
+            investigation?.timeline ?? liveTimelineRef.current,
+          )
           const assistantMessage = createVscodeAiChatMessage(
             'assistant',
             result.text || liveAnswerRef.current,
@@ -2251,6 +2443,7 @@ export function VscodeAiPanel({
               createdAt: draftCreatedAt,
               incomplete: result.incomplete,
               investigation,
+              ...planMetaExtras(planMeta),
               ...changeExtras,
             },
           )
@@ -2275,11 +2468,13 @@ export function VscodeAiPanel({
           ? liveAnswerRef.current.trim() || formatError(error)
           : formatError(error)
         const changeExtras = turnChangeExtras()
+        const planMeta = extractPlanMetaFromTimeline(snapshotTimeline)
         const assistantMessage = createVscodeAiChatMessage('assistant', content, {
           id: draftAssistantId,
           createdAt: draftCreatedAt,
           isError: !aborted,
           investigation,
+          ...planMetaExtras(planMeta),
           ...changeExtras,
         })
         const nextMessages = [...withUser, assistantMessage]
@@ -2338,6 +2533,9 @@ export function VscodeAiPanel({
           queueMicrotask(() => {
             void sendRef.current(next.text, {
               attachments: next.attachments,
+              ...(next.implementsPlanMessageId
+                ? { implementsPlanMessageId: next.implementsPlanMessageId }
+                : {}),
             })
           })
         } else if (aiPlayCompletionSound && !controller.signal.aborted) {
@@ -2432,6 +2630,25 @@ export function VscodeAiPanel({
       setReviewBusy(false)
     }
   }, [messages, onMessagesChange, pendingReview.sessionIds, reviewBusy, runCommandHost])
+
+  const viewPlan = useCallback(
+    (planPath: string) => {
+      void openPlanFile(planPath)
+    },
+    [openPlanFile],
+  )
+
+  const implementPlan = useCallback(
+    (planPath: string, assistantMessageId: string) => {
+      if (readOnly) return
+      onModeChange('agent')
+      void send(
+        `请严格按照计划文件 \`${planPath}\` 实施。先读取该计划，再按其中的实现要点与 todos 执行。`,
+        { sendMode: 'agent', implementsPlanMessageId: assistantMessageId },
+      )
+    },
+    [onModeChange, readOnly, send],
+  )
 
   const beginEditUserMessage = useCallback(
     (message: VscodeAiChatMessage, bubbleEl?: HTMLElement | null) => {
@@ -2789,58 +3006,111 @@ export function VscodeAiPanel({
                 )
               }
 
+              const planMeta =
+                message.role === 'assistant' && !message.isError
+                  ? resolveMessagePlanMeta(message)
+                  : undefined
+              const showPlanBanner = Boolean(planMeta?.planPath)
+
               return (
                 <div
                   key={message.id}
-                  class={`help-app__message help-app__message--${message.role}${message.isError ? ' help-app__message--error' : ''}`}
+                  class={`help-app__message help-app__message--${message.role}${message.isError ? ' help-app__message--error' : ''}${
+                    showPlanBanner ? ' help-app__message--with-banner' : ''
+                  }`}
                 >
-                  <span class="help-app__avatar" aria-hidden="true">
-                    {message.isError ? '!' : readOnly ? <SubagentIcon size={30} /> : <VscodeIcon size={30} />}
-                  </span>
-                  <div
-                    class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
-                  >
-                    {message.investigation ? (
-                      <InvestigationPanel investigation={message.investigation} onOpenSubagentDetail={onOpenSubagentDetail} />
-                    ) : undefined}
-                    {message.role === 'assistant' && !message.isError ? (
-                      <div class="help-app__answer">
-                        <HelpMarkdown text={message.content} />
+                  <div class="vscode-ai__message-main">
+                    <span class="help-app__avatar" aria-hidden="true">
+                      {message.isError ? '!' : readOnly ? <SubagentIcon size={30} /> : <VscodeIcon size={30} />}
+                    </span>
+                    <div class="vscode-ai__message-stack">
+                      <div
+                        class={`help-app__bubble${message.isError ? ' help-app__bubble--error' : ''}${message.investigation ? ' help-app__bubble--with-investigation' : ''}`}
+                      >
+                        {message.investigation ? (
+                          <InvestigationPanel investigation={message.investigation} onOpenSubagentDetail={onOpenSubagentDetail} />
+                        ) : undefined}
+                        {message.role === 'assistant' && !message.isError ? (
+                          <div class="help-app__answer">
+                            <HelpMarkdown text={message.content} />
+                          </div>
+                        ) : (
+                          <div class="help-app__answer help-app__answer--plain">
+                            {message.content}
+                          </div>
+                        )}
+                        {message.incomplete ? (
+                          <p class="vscode-ai__incomplete-note" role="status">
+                            本轮未完整结束，已保存的进度如下。可继续提问。
+                          </p>
+                        ) : undefined}
                       </div>
-                    ) : (
-                      <div class="help-app__answer help-app__answer--plain">
-                        {message.content}
-                      </div>
-                    )}
-                    {message.incomplete ? (
-                      <p class="vscode-ai__incomplete-note" role="status">
-                        本轮未完整结束，已保存的进度如下。可继续提问。
-                      </p>
-                    ) : undefined}
+                    </div>
                   </div>
+                  {showPlanBanner && planMeta?.planPath ? (
+                    <PlanReadyBar
+                      planPath={planMeta.planPath}
+                      planTitle={planMeta.planTitle}
+                      onViewPlan={viewPlan}
+                      onImplement={(path) => implementPlan(path, message.id)}
+                      showImplement={!readOnly}
+                      implemented={isPlanImplemented(messages, message.id, sendQueue)}
+                    />
+                  ) : undefined}
                 </div>
               )
             })}
 
             {showLive ? (
-              <div class="help-app__message help-app__message--assistant">
-                <span class="help-app__avatar" aria-hidden="true">
-                  {readOnly ? <SubagentIcon size={30} /> : <VscodeIcon size={30} />}
-                </span>
-                <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
-                  <LiveTimeline items={liveTimeline} onOpenSubagentDetail={onOpenSubagentDetail} />
-                  {liveAnswer && !liveTimeline.some((item) => item.kind === 'text') ? (
-                    <div
-                      class={buildLiveAnswerClassName({
-                        streaming: true,
-                        separated: liveTimeline.length > 0,
-                      })}
-                    >
-                      <HelpMarkdown text={liveAnswer} streaming />
+              (() => {
+                const livePlanMeta = extractPlanMetaFromTimeline(liveTimeline)
+                const liveAssistantId = liveDraftAssistantIdRef.current
+                const showLivePlanBanner = Boolean(
+                  livePlanMeta.planPath && liveAssistantId,
+                )
+                return (
+                  <div
+                    class={`help-app__message help-app__message--assistant${
+                      showLivePlanBanner ? ' help-app__message--with-banner' : ''
+                    }`}
+                  >
+                    <div class="vscode-ai__message-main">
+                      <span class="help-app__avatar" aria-hidden="true">
+                        {readOnly ? <SubagentIcon size={30} /> : <VscodeIcon size={30} />}
+                      </span>
+                      <div class="vscode-ai__message-stack">
+                        <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
+                          <LiveTimeline items={liveTimeline} onOpenSubagentDetail={onOpenSubagentDetail} />
+                          {liveAnswer && !liveTimeline.some((item) => item.kind === 'text') ? (
+                            <div
+                              class={buildLiveAnswerClassName({
+                                streaming: true,
+                                separated: liveTimeline.length > 0,
+                              })}
+                            >
+                              <HelpMarkdown text={liveAnswer} streaming />
+                            </div>
+                          ) : undefined}
+                        </div>
+                      </div>
                     </div>
-                  ) : undefined}
-                </div>
-              </div>
+                    {showLivePlanBanner && livePlanMeta.planPath && liveAssistantId ? (
+                      <PlanReadyBar
+                        planPath={livePlanMeta.planPath}
+                        planTitle={livePlanMeta.planTitle}
+                        onViewPlan={viewPlan}
+                        onImplement={(path) => implementPlan(path, liveAssistantId)}
+                        showImplement={!readOnly}
+                        implemented={isPlanImplemented(
+                          messages,
+                          liveAssistantId,
+                          sendQueue,
+                        )}
+                      />
+                    ) : undefined}
+                  </div>
+                )
+              })()
             ) : undefined}
           </div>
         )}
