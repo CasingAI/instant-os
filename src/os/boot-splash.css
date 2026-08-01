@@ -25,10 +25,10 @@ html.instant-boot-hide-cursor .instant-boot-splash {
   top: 50%;
   left: 50%;
   z-index: 1;
-  width: 52px;
-  height: 108px;
-  margin-top: -54px;
-  margin-left: -26px;
+  width: 200px;
+  height: 148px;
+  margin-top: -74px;
+  margin-left: -100px;
 }
 
 .instant-boot-splash__logo {
@@ -67,15 +67,30 @@ html.instant-boot-hide-cursor .instant-boot-splash {
   stroke: #ffffff;
   stroke-width: 2;
   stroke-linecap: round;
-  stroke-dasharray: 20 56;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  transform: rotate(-90deg);
   transform-origin: 14px 14px;
-  animation: instant-boot-splash-spin 0.85s linear infinite;
+  transition: stroke-dashoffset 0.2s ease-out;
 }
 
-@keyframes instant-boot-splash-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.instant-boot-splash__status {
+  position: absolute;
+  top: 120px;
+  inset-inline: 0;
+  margin: 0;
+  color: #a3a3a3;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
 }
 
 @keyframes instant-boot-splash-exit {

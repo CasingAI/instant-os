@@ -42,6 +42,13 @@
   var BOOT_WATCHDOG_MS = 60000
   var MAIN_MODULE_SRC = '/src/entry.tsx'
   var MAIN_MODULE_ID = 'instant-os-main-module'
+  var BOOT_SPLASH_STATUS_ID = 'instant-boot-splash-status'
+  var BOOT_SPLASH_ARC_ID = 'instant-boot-splash-arc'
+  var BOOT_PROGRESS_CIRCUMFERENCE = 100
+  var BOOT_PROGRESS_RESOURCE_CAP = 0.9
+  var BOOT_PROGRESS_MODULE_MIN = 0.95
+  var BOOT_STATUS_LOADING = '正在加载系统…'
+  var BOOT_STATUS_STARTING = '正在启动…'
 
   var state = {
     activated: false,
@@ -49,6 +56,14 @@
     consoleLogs: [],
     moduleExecuted: false,
     bootComplete: false,
+  }
+
+  var bootProgressState = {
+    expected: {},
+    completed: {},
+    ratio: 0,
+    manualFloor: 0,
+    finalized: false,
   }
 
   var bootWatchdogTimer
@@ -100,8 +115,270 @@
     }
   }
 
+  function normalizeBootResourceUrl(url) {
+    if (!url) {
+      return ''
+    }
+    try {
+      return new URL(url, location.href).href
+    } catch (_e) {
+      return String(url)
+    }
+  }
+
+  function isBootTrackableUrl(url) {
+    if (!url) {
+      return false
+    }
+    try {
+      var parsed = new URL(url, location.href)
+      if (parsed.origin !== location.origin) {
+        return false
+      }
+      var path = parsed.pathname
+      if (path.indexOf('/assets/') === 0) {
+        return /\.(js|mjs|css)($|\?)/.test(path)
+      }
+      if (path.indexOf('/src/') === 0) {
+        return /\.(js|mjs|ts|tsx|css)($|\?)/.test(path)
+      }
+      return false
+    } catch (_e2) {
+      return false
+    }
+  }
+
+  function applyBootProgress(ratio) {
+    var next = Number(ratio)
+    if (isNaN(next)) {
+      return
+    }
+    next = Math.max(0, Math.min(1, next))
+    if (next < bootProgressState.ratio) {
+      return
+    }
+    bootProgressState.ratio = next
+    var arc = document.getElementById(BOOT_SPLASH_ARC_ID)
+    if (arc) {
+      arc.style.strokeDashoffset = String(
+        BOOT_PROGRESS_CIRCUMFERENCE * (1 - bootProgressState.ratio),
+      )
+    }
+  }
+
+  function recomputeBootProgress() {
+    if (bootProgressState.finalized) {
+      return
+    }
+
+    var expectedCount = 0
+    var completedCount = 0
+    for (var url in bootProgressState.expected) {
+      if (!Object.prototype.hasOwnProperty.call(bootProgressState.expected, url)) {
+        continue
+      }
+      expectedCount += 1
+      if (bootProgressState.completed[url]) {
+        completedCount += 1
+      }
+    }
+
+    var raw = expectedCount === 0 ? 0 : completedCount / expectedCount
+    var capped = Math.min(BOOT_PROGRESS_RESOURCE_CAP, raw)
+    var next = Math.max(bootProgressState.manualFloor, capped)
+    if (state.moduleExecuted) {
+      next = Math.max(next, BOOT_PROGRESS_MODULE_MIN)
+    }
+    applyBootProgress(next)
+  }
+
+  function setBootStatus(message) {
+    if (message == null) {
+      return
+    }
+    var text = String(message)
+    var status = document.getElementById(BOOT_SPLASH_STATUS_ID)
+    if (status) {
+      status.textContent = text
+    }
+  }
+
+  function setBootProgress(ratio) {
+    var next = Number(ratio)
+    if (isNaN(next)) {
+      return
+    }
+    next = Math.max(0, Math.min(1, next))
+    bootProgressState.manualFloor = Math.max(bootProgressState.manualFloor, next)
+    if (next >= 1) {
+      bootProgressState.finalized = true
+      applyBootProgress(1)
+      return
+    }
+    recomputeBootProgress()
+  }
+
+  function markBootResourceComplete(url) {
+    var href = normalizeBootResourceUrl(url)
+    if (!href) {
+      return
+    }
+    if (!bootProgressState.expected[href]) {
+      if (!isBootTrackableUrl(href)) {
+        return
+      }
+      bootProgressState.expected[href] = true
+    }
+    if (bootProgressState.completed[href]) {
+      return
+    }
+    bootProgressState.completed[href] = true
+    recomputeBootProgress()
+  }
+
+  function trackBootResourceUrl(url) {
+    var href = normalizeBootResourceUrl(url)
+    if (!isBootTrackableUrl(href)) {
+      return
+    }
+    if (!bootProgressState.expected[href]) {
+      bootProgressState.expected[href] = true
+    }
+
+    try {
+      if (typeof performance !== 'undefined' && performance.getEntriesByName) {
+        var entries = performance.getEntriesByName(href)
+        if (entries && entries.length > 0) {
+          markBootResourceComplete(href)
+          return
+        }
+      }
+    } catch (_e) {}
+
+    recomputeBootProgress()
+  }
+
+  function trackBootResourceNode(node) {
+    if (!node || node.nodeType !== 1) {
+      return
+    }
+    var tag = node.tagName
+    if (tag === 'LINK') {
+      var rel = (node.rel || '').toLowerCase()
+      if (rel === 'modulepreload' || rel === 'stylesheet' || rel === 'preload') {
+        var href = node.href || node.getAttribute('href')
+        trackBootResourceUrl(href)
+        if (!node.getAttribute('data-instant-boot-progress')) {
+          node.setAttribute('data-instant-boot-progress', '1')
+          node.addEventListener(
+            'load',
+            function () {
+              markBootResourceComplete(href)
+            },
+            { once: true },
+          )
+          node.addEventListener(
+            'error',
+            function () {
+              markBootResourceComplete(href)
+            },
+            { once: true },
+          )
+        }
+      }
+      return
+    }
+
+    if (tag === 'SCRIPT') {
+      var type = (node.getAttribute('type') || '').toLowerCase()
+      var src = node.src || node.getAttribute('src')
+      if ((type === 'module' || node.id === MAIN_MODULE_ID) && src) {
+        trackBootResourceUrl(src)
+        if (!node.getAttribute('data-instant-boot-progress')) {
+          node.setAttribute('data-instant-boot-progress', '1')
+          node.addEventListener(
+            'load',
+            function () {
+              markBootResourceComplete(src)
+            },
+            { once: true },
+          )
+          node.addEventListener(
+            'error',
+            function () {
+              markBootResourceComplete(src)
+            },
+            { once: true },
+          )
+        }
+      }
+    }
+  }
+
+  function scanExistingBootResources() {
+    var nodes = document.querySelectorAll(
+      'link[rel="modulepreload"], link[rel="stylesheet"], link[rel="preload"], script[type="module"][src], #' +
+        MAIN_MODULE_ID,
+    )
+    for (var i = 0; i < nodes.length; i++) {
+      trackBootResourceNode(nodes[i])
+    }
+  }
+
+  function installBootProgressTracker() {
+    scanExistingBootResources()
+
+    if (typeof MutationObserver === 'function') {
+      var observer = new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var mutation = mutations[i]
+          if (mutation.type !== 'childList') {
+            continue
+          }
+          for (var j = 0; j < mutation.addedNodes.length; j++) {
+            trackBootResourceNode(mutation.addedNodes[j])
+          }
+        }
+      })
+      observer.observe(document.documentElement, { childList: true, subtree: true })
+    }
+
+    if (typeof PerformanceObserver === 'function') {
+      try {
+        var perfObserver = new PerformanceObserver(function (list) {
+          var entries = list.getEntries()
+          for (var i = 0; i < entries.length; i++) {
+            markBootResourceComplete(entries[i].name)
+          }
+        })
+        if (perfObserver.observe) {
+          perfObserver.observe({ type: 'resource', buffered: true })
+        }
+      } catch (_e) {
+        try {
+          var legacyObserver = new PerformanceObserver(function (list) {
+            var entries = list.getEntries()
+            for (var i = 0; i < entries.length; i++) {
+              markBootResourceComplete(entries[i].name)
+            }
+          })
+          legacyObserver.observe({ entryTypes: ['resource'] })
+        } catch (_e2) {}
+      }
+    }
+
+    setBootStatus(BOOT_STATUS_LOADING)
+    recomputeBootProgress()
+  }
+
   function markModuleExecuted() {
     state.moduleExecuted = true
+    setBootStatus(BOOT_STATUS_STARTING)
+    bootProgressState.manualFloor = Math.max(
+      bootProgressState.manualFloor,
+      BOOT_PROGRESS_MODULE_MIN,
+    )
+    recomputeBootProgress()
   }
 
   function markBootComplete() {
@@ -744,6 +1021,7 @@
   }
 
   installConsoleCapture()
+  installBootProgressTracker()
   window.addEventListener('error', onWindowError)
   window.addEventListener('vite:preloadError', onVitePreloadError)
   if (typeof window.Promise !== 'undefined') {
@@ -762,6 +1040,8 @@
     markModuleExecuted: markModuleExecuted,
     markBootComplete: markBootComplete,
     loadMainModule: loadMainModule,
+    setBootStatus: setBootStatus,
+    setBootProgress: setBootProgress,
   }
 
   var crashTestMode = readCrashTestMode()

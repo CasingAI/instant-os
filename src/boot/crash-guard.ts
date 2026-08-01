@@ -29,6 +29,8 @@ type CrashGuardGlobal = {
   markModuleExecuted: () => void
   markBootComplete: () => void
   loadMainModule: () => void
+  setBootStatus?: (message: string) => void
+  setBootProgress?: (ratio: number) => void
 }
 
 const CRASH_DISMISS_EVENT = 'instant-os-crash-dismiss'
