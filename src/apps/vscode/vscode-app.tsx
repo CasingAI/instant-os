@@ -72,6 +72,7 @@ import {
   focusEditorGroup,
   focusEditorItem,
   focusEditorTab,
+  findGroupIdForTab,
   getFocusedCloseTarget,
   getGroupActiveItem,
   countOtherItemsInGroup,
@@ -1942,60 +1943,33 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
     setEditorLayout((layout) => openMarkdownPreviewToSide(layout, tab.path, groupId))
   }, [])
 
-  /** 计划气泡「查看计划」：只分屏打开 Markdown 预览，不额外打开源文件编辑 Tab */
-  const openPlanFilePreview = useCallback(async (documentRef: string) => {
-    setLoading(true)
-    try {
-      const result = await readTextFile(documentRef)
-      const path = await resolveFilesAbsolutePath(result.node)
-      if (!mountedRef.current) return
+  /** 计划气泡「查看计划」：正常打开 md，分屏展示，并默认切到内联预览（可切回编辑） */
+  const openPlanFilePreview = useCallback(
+    async (documentRef: string) => {
+      const opened = await openDocument(documentRef)
+      if (!opened) return
+      const tab =
+        tabsRef.current.find((item) => item.path === documentRef) ??
+        (activeTabIdRef.current
+          ? tabsRef.current.find((item) => item.id === activeTabIdRef.current)
+          : undefined)
+      if (!tab || tab.language !== 'markdown') return
 
-      const existing = tabsRef.current.find((tab) => tab.path === path)
-      let nextTabs: typeof tabsRef.current
-      if (existing) {
-        // 刷新磁盘内容供预览；若用户有未保存草稿则不覆盖
-        nextTabs = isVscodeTabDirty(existing)
-          ? tabsRef.current
-          : tabsRef.current.map((tab) =>
-              tab.id === existing.id
-                ? {
-                    ...tab,
-                    text: result.text,
-                    savedText: result.text,
-                    node: result.node,
-                    writable: isFilesNodeWritable(result.node),
-                    deleted: false,
-                    conflict: undefined,
-                    binaryPrompt: undefined,
-                  }
-                : tab,
-            )
-      } else {
-        const tab = buildVscodeTab({
-          path,
-          text: result.text,
-          node: result.node,
-          writable: isFilesNodeWritable(result.node),
-        })
-        nextTabs = [...tabsRef.current, tab]
-      }
-      tabsRef.current = nextTabs
-      flushSync(() => {
-        setTabs(nextTabs)
+      toggleInlinePreview(tab.id, true)
+
+      setEditorLayout((layout) => {
+        const groupId = findGroupIdForTab(layout, tab.id)
+        if (!groupId) return layout
+        const group = layout.groups[groupId]
+        // 与 AI 聊天等同组时拆到右侧，避免挤在同一组里
+        if (group && group.items.length > 1) {
+          return splitEditorWithItem(layout, tab.id, groupId, 'right')
+        }
+        return focusEditorTab(layout, tab.id)
       })
-      setEditorLayout((layout) =>
-        openMarkdownPreviewToSide(layout, path, layout.focusedGroupId),
-      )
-    } catch (err) {
-      await modal.alert({
-        title: '无法打开计划',
-        message: formatError(err),
-        themeColor: THEME,
-      })
-    } finally {
-      setLoading(false)
-    }
-  }, [modal])
+    },
+    [openDocument, toggleInlinePreview],
+  )
 
   const closePreviewItem = useCallback((itemId: string) => {
     setEditorLayout((layout) => {
