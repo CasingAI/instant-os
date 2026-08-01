@@ -8,6 +8,7 @@ import {
   getTotalLocalStorageBytes,
   STORAGE_CHANGED_EVENT,
 } from './device-storage.ts'
+import { osOpenApp } from './os-open-app-bridge.ts'
 
 export { STORAGE_CHANGED_EVENT, DATA_STORAGE_CHANGED_EVENT }
 export const OPEN_SETTINGS_USAGE_EVENT = 'instant-os:open-settings-usage'
@@ -60,8 +61,24 @@ export async function areAllStorageWarningsRecovered(): Promise<boolean> {
   return getAvailableSystemStoragePercent() >= 20 && dataPercent >= 20
 }
 
+let pendingOpenSettingsUsageView = false
+
 export function openSettingsUsageView() {
+  try {
+    osOpenApp('settings')
+  } catch {
+    // 系统尚未挂载 openApp（极少见）；仍保留 pending，设置打开后会 consume
+  }
+  pendingOpenSettingsUsageView = true
   window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_USAGE_EVENT))
+}
+
+export function consumePendingOpenSettingsUsageView(): boolean {
+  if (!pendingOpenSettingsUsageView) {
+    return false
+  }
+  pendingOpenSettingsUsageView = false
+  return true
 }
 
 function canSendNotification(scope: StorageWarningScope): boolean {

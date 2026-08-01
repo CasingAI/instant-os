@@ -75,7 +75,10 @@ import {
   consumePendingOpenProxyServerView,
   OPEN_SETTINGS_PROXY_SERVER_EVENT,
 } from '../../os/proxy-server-settings-storage.ts'
-import { OPEN_SETTINGS_USAGE_EVENT } from '../../os/storage-warning.ts'
+import {
+  consumePendingOpenSettingsUsageView,
+  OPEN_SETTINGS_USAGE_EVENT,
+} from '../../os/storage-warning.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
@@ -183,12 +186,18 @@ export function SettingsApp() {
 
   useEffect(() => {
     const handleOpenUsage = () => {
+      consumePendingOpenSettingsUsageView()
       setCacheRevision((value) => value + 1)
       setRoute({ view: 'usage' })
     }
     const handleOpenProxyServer = () => {
       consumePendingOpenProxyServerView()
       setRoute({ view: 'proxy-server' })
+    }
+
+    if (consumePendingOpenSettingsUsageView()) {
+      setCacheRevision((value) => value + 1)
+      setRoute({ view: 'usage' })
     }
 
     if (consumePendingOpenProxyServerView()) {

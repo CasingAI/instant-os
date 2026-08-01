@@ -1,4 +1,5 @@
 import { hasGithubCredentials } from '../../os/github-credentials-storage.ts'
+import { osOpenApp } from '../../os/os-open-app-bridge.ts'
 import { loadGithubCachedAccount } from './github-account-cache.ts'
 import { loadGithubDesktopPrefs } from './github-desktop-prefs.ts'
 
@@ -54,6 +55,22 @@ export function showGithubDesktopMissingEmailNotification(): void {
   window.dispatchEvent(new CustomEvent(SHOW_GITHUB_DESKTOP_MISSING_EMAIL_NOTIFICATION_EVENT))
 }
 
+let pendingOpenGithubDesktopGitPrefs = false
+
 export function openGithubDesktopGitPrefs(): void {
+  try {
+    osOpenApp('github-desktop')
+  } catch {
+    // 系统尚未挂载 openApp（极少见）；仍保留 pending，应用打开后会 consume
+  }
+  pendingOpenGithubDesktopGitPrefs = true
   window.dispatchEvent(new CustomEvent(OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT))
+}
+
+export function consumePendingOpenGithubDesktopGitPrefs(): boolean {
+  if (!pendingOpenGithubDesktopGitPrefs) {
+    return false
+  }
+  pendingOpenGithubDesktopGitPrefs = false
+  return true
 }

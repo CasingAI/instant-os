@@ -87,6 +87,7 @@ import {
   type GithubExternalEditor,
 } from './github-desktop-prefs.ts'
 import {
+  consumePendingOpenGithubDesktopGitPrefs,
   OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT,
   shouldWarnGithubDesktopMissingEmail,
   showGithubDesktopMissingEmailNotification,
@@ -708,8 +709,14 @@ export function GithubDesktopApp() {
 
   useEffect(() => {
     const handleOpenGitPrefs = () => {
+      consumePendingOpenGithubDesktopGitPrefs()
       openPreferences('git')
     }
+
+    if (consumePendingOpenGithubDesktopGitPrefs()) {
+      openPreferences('git')
+    }
+
     window.addEventListener(OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT, handleOpenGitPrefs)
     return () => window.removeEventListener(OPEN_GITHUB_DESKTOP_GIT_PREFS_EVENT, handleOpenGitPrefs)
   }, [openPreferences])
