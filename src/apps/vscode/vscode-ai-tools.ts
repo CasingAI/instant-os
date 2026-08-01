@@ -10,6 +10,13 @@ import { osNowMs } from '../../os/os-clock.ts'
 import type { TerminalReplHandle } from '../terminal/terminal-repl-panel.tsx'
 import type { VscodeAiMode } from './vscode-ai-mode.ts'
 import type { VscodeAiContextInput } from './vscode-ai-context.ts'
+import {
+  assertVscodePlanPath,
+  resolveVscodePlansDir,
+  validatePlanMarkdown,
+  VSCODE_AI_PLAN_FORMAT_HINT,
+  VSCODE_AI_PLAN_MARKDOWN_SKELETON,
+} from './vscode-ai-plan.ts'
 import type {
   VscodeAiRunCommandHost,
   VscodeAgentTerminalEnsureResult,
@@ -177,7 +184,10 @@ export function createVscodeAiTools(
           defineTool({
             name: 'write_plan',
             description:
-              '将完整计划 Markdown 写入工作区临时容器 /tmp/Workspace/{hash}/vscode/plans/ 并打开该文件（不在工作区 Git 内，不污染 git status）。这是 Plan 模式唯一允许的写出口；不要用终端写文件。正文须含 # 标题、overview、实现要点、todos checklist；选定一种方案写死。',
+              '将完整计划 Markdown 写入工作区临时容器 /tmp/Workspace/{hash}/vscode/plans/ 并打开该文件（不在工作区 Git 内，不污染 git status）。这是 Plan 模式唯一允许的写出口；不要用终端写文件。' +
+              VSCODE_AI_PLAN_FORMAT_HINT +
+              '选定一种方案写死。骨架示例：\n' +
+              VSCODE_AI_PLAN_MARKDOWN_SKELETON,
             parameters: {
               type: 'object',
               additionalProperties: false,
@@ -189,7 +199,11 @@ export function createVscodeAiTools(
                 },
                 markdown: {
                   type: 'string',
-                  description: '完整 Markdown 计划正文',
+                  description:
+                    '完整 Markdown 计划正文。' +
+                    VSCODE_AI_PLAN_FORMAT_HINT +
+                    '示例：\n' +
+                    VSCODE_AI_PLAN_MARKDOWN_SKELETON,
                 },
               },
             },
@@ -199,17 +213,13 @@ export function createVscodeAiTools(
                 throw new Error('未打开工作区文件夹，无法写入计划。请先打开文件夹。')
               }
               const appRoot = workspaceAppTmpDir(workspace, 'vscode')
-              const plansRoot = `${appRoot}/plans`
+              const plansRoot = resolveVscodePlansDir(workspace)
               const slug = slugifyPlanName(asString(args.name))
               const shortId = Math.random().toString(36).slice(2, 8)
               const path = `${plansRoot}/${slug}-${shortId}.md`
-              if (!path.startsWith('/tmp/Workspace/')) {
-                throw new Error('计划路径不合法')
-              }
+              assertVscodePlanPath(path, workspace)
               const markdown = asString(args.markdown)
-              if (!markdown.trim()) {
-                throw new Error('计划内容为空')
-              }
+              validatePlanMarkdown(markdown)
               await ensureParentDirs(path)
               await ensureWorkspaceMeta(appRoot, workspace)
               const existing = await filesStat(path)
@@ -218,7 +228,59 @@ export function createVscodeAiTools(
               } else {
                 await filesCreateText(path, markdown)
               }
-              return `已写入计划：${path}`
+              try {
+                await host.openPlanFile?.(path)
+              } catch {
+                // 打开失败不影响落盘成功
+              }
+              return `已写入计划并打开：${path}`
+            },
+          }),
+        ]
+      : []
+
+  const planUpdateTools: AgentTool[] =
+    mode === 'agent'
+      ? [
+          defineTool({
+            name: 'update_plan',
+            description:
+              '覆盖更新已有计划 Markdown（/tmp/Workspace/{hash}/vscode/plans/*.md）。' +
+              '实施计划时每完成一项 Todo，调用本工具将对应 `- [ ]` 改为 `- [x]`，并传入完整文件内容；保持其余正文稳定。' +
+              VSCODE_AI_PLAN_FORMAT_HINT +
+              '不要用终端写计划文件。',
+            parameters: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['path', 'markdown'],
+              properties: {
+                path: {
+                  type: 'string',
+                  description: '计划绝对路径（须为当前工作区 vscode/plans 下的 .md）',
+                },
+                markdown: {
+                  type: 'string',
+                  description:
+                    '完整 Markdown 计划正文（含已勾选进度）。' + VSCODE_AI_PLAN_FORMAT_HINT,
+                },
+              },
+            },
+            execute: async (args) => {
+              const workspace = host.getContext().workspaceFolder?.trim()
+              if (!workspace) {
+                throw new Error('未打开工作区文件夹，无法更新计划。请先打开文件夹。')
+              }
+              const path = assertVscodePlanPath(asString(args.path), workspace)
+              const markdown = asString(args.markdown)
+              validatePlanMarkdown(markdown)
+              const existing = await filesStat(path)
+              if (!existing || existing.kind !== 'file') {
+                throw new Error(
+                  `计划文件不存在：${path}。请先用 Plan 模式 write_plan 生成计划。`,
+                )
+              }
+              await filesWriteText(path, markdown)
+              return `已更新计划：${path}`
             },
           }),
         ]
@@ -492,11 +554,12 @@ export function createVscodeAiTools(
 
   if (mode === 'ask') return [...askRunTools, ...githubReadTools]
   if (mode === 'plan') return [...askRunTools, ...planWriteTools, ...githubReadTools]
-  return [...agentRunTools, ...githubReadTools, ...githubWriteTools]
+  return [...agentRunTools, ...planUpdateTools, ...githubReadTools, ...githubWriteTools]
 }
 
 export const VSCODE_AI_TOOL_LABELS: Record<string, string> = {
   write_plan: '写入计划',
+  update_plan: '更新计划',
   run_in_terminal: '使用终端',
   npm_run: '运行 npm script',
   npx: '运行 npx',

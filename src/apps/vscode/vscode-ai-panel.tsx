@@ -71,6 +71,8 @@ import {
 import { VscodeAiAttachmentImages } from './vscode-ai-attachment-images.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { filesReadText } from '../files/files-api.ts'
+import { parsePlanTodoProgress } from './vscode-ai-plan.ts'
+import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import {
   buildVscodeAiSystemReminder,
   collectVscodeAiReminderEvents,
@@ -897,14 +899,16 @@ function WriteFileCard({
   live?: boolean
 }) {
   const [expanded, setExpanded] = useState(!item.done)
-  const previewRef = useRef<HTMLPreElement>(null)
+  const previewScrollRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const streaming = Boolean(live) && !item.done
   const preview = item.preview.trim()
   const heading = formatVscodeAiWriteCardHeading(item.toolName, item.phase)
+  const markdownPreview =
+    item.toolName === 'write_plan' || item.toolName === 'update_plan'
 
   useLayoutEffect(() => {
     if (!streaming || !expanded) return
-    const el = previewRef.current
+    const el = previewScrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
   }, [streaming, expanded, item.preview])
@@ -937,9 +941,31 @@ function WriteFileCard({
         </span>
       </button>
       {expanded ? (
-        <pre ref={previewRef} class="vscode-ai__write-card-preview">
-          {preview || (streaming ? '…' : '（无预览）')}
-        </pre>
+        markdownPreview ? (
+          <div
+            ref={(node) => {
+              previewScrollRef.current = node
+            }}
+            class="vscode-ai__write-card-preview vscode-ai__write-card-preview--md"
+          >
+            {preview ? (
+              <VscodeMarkdownPreview text={preview} />
+            ) : (
+              <span class="vscode-ai__write-card-preview-empty">
+                {streaming ? '…' : '（无预览）'}
+              </span>
+            )}
+          </div>
+        ) : (
+          <pre
+            ref={(node) => {
+              previewScrollRef.current = node
+            }}
+            class="vscode-ai__write-card-preview"
+          >
+            {preview || (streaming ? '…' : '（无预览）')}
+          </pre>
+        )
       ) : undefined}
     </div>
   )
@@ -966,21 +992,29 @@ function PlanReadyBar({
   const [displayTitle, setDisplayTitle] = useState(
     () => planTitle?.trim() || planFileLabel(planPath),
   )
+  const [todoProgress, setTodoProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  )
 
   useEffect(() => {
     const known = planTitle?.trim()
     if (known) {
       setDisplayTitle(known)
-      return
     }
     let cancelled = false
     void filesReadText(planPath)
       .then((text) => {
         if (cancelled) return
-        setDisplayTitle(extractMarkdownH1(text) || planFileLabel(planPath))
+        if (!known) {
+          setDisplayTitle(extractMarkdownH1(text) || planFileLabel(planPath))
+        }
+        const progress = parsePlanTodoProgress(text)
+        setTodoProgress(progress.total > 0 ? progress : null)
       })
       .catch(() => {
-        if (!cancelled) setDisplayTitle(planFileLabel(planPath))
+        if (cancelled) return
+        if (!known) setDisplayTitle(planFileLabel(planPath))
+        setTodoProgress(null)
       })
     return () => {
       cancelled = true
@@ -996,6 +1030,12 @@ function PlanReadyBar({
     >
       <span class="vscode-ai__banner-label" title={planPath}>
         {displayTitle}
+        {todoProgress ? (
+          <span class="vscode-ai__banner-progress">
+            {' '}
+            · 待办 {todoProgress.done}/{todoProgress.total}
+          </span>
+        ) : undefined}
       </span>
       <div class="vscode-ai__banner-actions">
         <button
@@ -2762,7 +2802,7 @@ export function VscodeAiPanel({
       if (readOnly) return
       onModeChange('agent')
       void send(
-        `请严格按照计划文件 \`${planPath}\` 实施。先读取该计划，再按其中的实现要点与 todos 执行。`,
+        `请严格按照计划文件 \`${planPath}\` 实施。先读取该计划，再按其中的实现要点与 Todos 执行。每完成一项 Todo，调用 update_plan 将对应 \`- [ ]\` 改为 \`- [x]\` 并写入完整计划内容；不要只改代码不更新计划。`,
         { sendMode: 'agent', implementsPlanMessageId: assistantMessageId },
       )
     },

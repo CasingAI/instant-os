@@ -468,6 +468,11 @@ function writeCardTitle(
     if (phase === 'writing') return '正在写入计划'
     return '已写入计划'
   }
+  if (toolName === 'update_plan') {
+    if (phase === 'streaming') return '正在生成计划更新'
+    if (phase === 'writing') return '正在更新计划'
+    return '已更新计划'
+  }
   const label = VSCODE_AI_TOOL_LABELS[toolName] ?? toolName
   if (phase === 'done') return label
   return `正在${label}`
@@ -504,7 +509,11 @@ function parseWriteToolArgsRaw(
   const previewKey = writeToolPreviewField(toolName)
   const title =
     (titleKey ? extractPartialJsonStringField(argumentsRaw, titleKey)?.trim() : undefined) ||
-    (toolName === 'write_plan' ? '计划' : toolName)
+    (toolName === 'write_plan'
+      ? '计划'
+      : toolName === 'update_plan'
+        ? '更新计划'
+        : toolName)
   const preview =
     (previewKey ? extractPartialJsonStringField(argumentsRaw, previewKey) : undefined) ?? ''
   return { title, preview }
@@ -1179,6 +1188,9 @@ export async function askVscodeAiAgent(options: {
       let titleFromResult: string | undefined
       if (event.toolName === 'write_plan') {
         const match = /已写入计划(?:并打开)?：(.+)$/.exec(event.result.trim())
+        if (match?.[1]) titleFromResult = match[1].trim()
+      } else if (event.toolName === 'update_plan') {
+        const match = /已更新计划：(.+)$/.exec(event.result.trim())
         if (match?.[1]) titleFromResult = match[1].trim()
       }
       timeline = timeline.map((item) => {

@@ -162,6 +162,29 @@
   word-break: break-word;
 }
 
+.vscode-ai__write-card-preview--md {
+  font-family: inherit;
+  white-space: normal;
+}
+
+.vscode-ai__write-card-preview--md .vscode__markdown-preview {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.vscode-ai__write-card-preview--md .vscode__markdown-preview h1,
+.vscode-ai__write-card-preview--md .vscode__markdown-preview h2,
+.vscode-ai__write-card-preview--md .vscode__markdown-preview h3 {
+  font-size: 13px;
+  margin: 0.6em 0 0.35em;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.vscode-ai__write-card-preview-empty {
+  color: var(--help-ink-muted);
+}
+
 .vscode-ai__edit-card-title {
   font-size: 11px;
   font-weight: 700;
@@ -543,6 +566,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+}
+
+.vscode-ai__banner-progress {
+  font-weight: 500;
+  opacity: 0.82;
 }
 
 .vscode-ai__banner-actions {

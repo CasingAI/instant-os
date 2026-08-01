@@ -3222,6 +3222,17 @@ button.vscode-ai__compression-row.help-app__reasoning-status {
   margin-top: 0.25em;
 }
 
+.vscode__markdown-preview li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.2em;
+}
+
+.vscode__markdown-preview li > input[type='checkbox'] {
+  margin: 0 0.45em 0 0;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
 .vscode__markdown-preview blockquote {
   margin: 0 0 1em;
   padding: 0 1em;
