@@ -31,6 +31,7 @@ export type VscodeSubagentPanelProps = {
   aiModelKey?: string
   dark?: boolean
   workspaceFolder?: string
+  onOpenCompressionDetail?: (sessionId: string, compressionId: string) => void
 }
 
 /** 空上下文：子 Agent 详情只读展示，不参与实际运行 */
@@ -304,6 +305,7 @@ export function VscodeSubagentPanel({
   aiModelKey,
   dark,
   workspaceFolder,
+  onOpenCompressionDetail,
 }: VscodeSubagentPanelProps) {
   // 订阅 store：用版本号触发重渲染
   const [, setVersion] = useState(0)
@@ -383,6 +385,7 @@ export function VscodeSubagentPanel({
         externalLiveAnswer={externalLiveAnswer}
         externalContextUsage={externalContextUsage}
         externalToolCallCount={externalToolCallCount}
+        onOpenCompressionDetail={onOpenCompressionDetail}
       />
     </div>
   )

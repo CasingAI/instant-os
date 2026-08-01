@@ -508,6 +508,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
       spill: compression.spill,
     })
     if (budgeted.changed) {
+      const preview =
+        budgeted.content.length > 2_000
+          ? `${budgeted.content.slice(0, 2_000)}…`
+          : budgeted.content
       emitCompression({
         id: nextCompressionId('tool'),
         kind: 'tool_budget',
@@ -519,6 +523,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
         summaryPreview: budgeted.content.slice(0, 200),
         spilled: budgeted.spilled,
         note: budgeted.duplicate ? 'duplicate' : undefined,
+        detail: {
+          kind: 'tool_budget',
+          trigger: 'soft',
+          spilled: budgeted.spilled,
+          preview,
+        },
       })
     }
     const message: OpenAI.Chat.ChatCompletionMessageParam = {

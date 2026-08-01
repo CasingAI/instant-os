@@ -1039,6 +1039,7 @@ function VscodeEditorGroupView({
               aiModelKey={aiModelKey}
               dark={aiDark}
               workspaceFolder={workspaceFolder}
+              onOpenCompressionDetail={onOpenCompressionDetail}
             />
           </div>
         ) : activeItem?.kind === 'compressionDetail' ? (

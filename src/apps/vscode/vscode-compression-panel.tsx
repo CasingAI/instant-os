@@ -106,16 +106,18 @@ export function VscodeCompressionPanel({
           </div>
         </section>
 
-        {detail?.kind === 'structure_fold' ? (
+        {detail?.kind === 'structure_fold' ? (() => {
+          const foldedRows = parseFoldedToolRows(detail.foldedToolsText)
+          return (
           <section class="vscode-compression__section">
             <h2 class="vscode-compression__section-title">
               折叠的工具（{detail.toolCallCount}）
             </h2>
-            {parseFoldedToolRows(detail.foldedToolsText).length === 0 ? (
+            {foldedRows.length === 0 ? (
               <pre class="vscode-compression__pre">{detail.foldedToolsText}</pre>
             ) : (
               <ul class="vscode-compression__tool-list">
-                {parseFoldedToolRows(detail.foldedToolsText).map((row, index) => (
+                {foldedRows.map((row, index) => (
                   <li key={`${row.name}-${index}`} class="vscode-compression__tool-item">
                     <div class="vscode-compression__tool-name">{row.name}</div>
                     {row.args ? (
@@ -129,7 +131,8 @@ export function VscodeCompressionPanel({
               </ul>
             )}
           </section>
-        ) : undefined}
+          )
+        })() : undefined}
 
         {detail?.kind === 'reasoning_prune' ? (
           <section class="vscode-compression__section">

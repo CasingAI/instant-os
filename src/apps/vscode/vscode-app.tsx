@@ -150,6 +150,10 @@ import {
   type PersistedSubagentRun,
 } from './vscode-subagent-persistence.ts'
 import { clearSubagentStore, subscribe as subscribeSubagentStore } from './vscode-subagent-store.ts'
+import {
+  clearLiveCompressionCacheForSession,
+  clearLiveCompressionCacheForSubagentRuns,
+} from './vscode-compression-lookup.ts'
 import { stopVscodeTypescriptResolveService } from './vscode-typescript-resolve-client.ts'
 import { abortLiveAiEventLogSessionsForActor } from '../../ai/ai-event-log.ts'
 import { resolveVscodeCompletionModelKey } from './vscode-ai-models.ts'
@@ -975,6 +979,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       }
 
       void persistAfter.finally(() => {
+        clearLiveCompressionCacheForSubagentRuns()
         clearSubagentStore()
         if (releaseVscodeServices) {
           stopVscodeTypescriptResolveService()
@@ -2209,6 +2214,7 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         return next
       })
       if (!sessionId) return
+      clearLiveCompressionCacheForSession(sessionId)
       // 终端随对话走：关闭对话时批量销毁绑定的 AI 终端。
       // 不写入 closedAiChatIdsRef，使重开后快照为 none（session_reset），而非 user_closed。
       const sessions = terminalSessionsRef.current
