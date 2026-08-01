@@ -1751,6 +1751,36 @@ export default {
     throw new Error(`unexpected zlib smoke: ${JSON.stringify(zlibVal)}`)
   }
 
+  const fetchOff = await timerInstance.eval(`typeof globalThis.fetch === 'undefined'`)
+  if (!fetchOff.ok || fetchOff.value !== true) {
+    throw new Error(`expected fetch absent without network: ${JSON.stringify(fetchOff)}`)
+  }
+
+  const fetchInstance = await createQuickJsInstance({
+    workspaceRoot: '/user/project',
+    permissions: { network: true },
+  })
+  const fetchSmoke = await fetchInstance.eval(
+    `(async function () {
+      var res = await fetch('https://example.com/')
+      var text = await res.text()
+      return {
+        hasFetch: typeof fetch === 'function',
+        ok: res.ok === true,
+        hasHtml: text.toLowerCase().indexOf('html') >= 0,
+      }
+    })()`,
+    { waitUntilIdle: true },
+  )
+  fetchInstance.destroy()
+  if (!fetchSmoke.ok) {
+    throw new Error(`fetch smoke failed: ${JSON.stringify(fetchSmoke)}`)
+  }
+  const fetchVal = fetchSmoke.value as Record<string, unknown>
+  if (fetchVal.hasFetch !== true || fetchVal.ok !== true || fetchVal.hasHtml !== true) {
+    throw new Error(`unexpected fetch smoke: ${JSON.stringify(fetchVal)}`)
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)

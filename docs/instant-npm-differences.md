@@ -64,7 +64,7 @@ Instant OS 的 `npm` / `npx` 是 **宿主 PackageService 的兼容面**，不是
 | 仅含可选 native、默认走 JS 路径 | 尽力；装上后若入口要 `.node` 则运行失败 |
 | 强制 node-gyp / prebuild / binding.gyp | 安装期拒绝 |
 | `postinstall` 编译原生 | 拒绝原生包；若仍落到可跑 JS 脚本且启用 scripts，失败则中止 install |
-| 需联网的 postinstall | Guest 无网络权限时会失败（默认仍 ignoreScripts，多数情况碰不到） |
+| 需联网的 postinstall | Guest 无网络权限时会失败（默认仍 ignoreScripts，多数情况碰不到）；终端 REPL 的 \`fetch\` 经代理服务器 relay（须已配置并连接），可下载到 VFS（受 maxFileBytes） |
 | 含 shell / 系统二进制的 lifecycle | 跳过并 warn（无真实 shell） |
 
 ## 终端与 App

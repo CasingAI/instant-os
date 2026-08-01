@@ -40,6 +40,7 @@ import { injectWebView } from '../apps/webview/inject-webview.ts'
 import { createQuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { resolveEvalModuleFilename } from './quickjs-module-loader.ts'
 import { injectNodeBuiltins } from './quickjs-node-builtins.ts'
+import { injectFetch } from './quickjs-fetch.ts'
 import { injectTextEncoding } from './quickjs-text-encoding.ts'
 import {
   createProcessState,
@@ -105,6 +106,7 @@ function resolveHostPermissions(
   permissions: QuickJsInstanceOptions['permissions'],
   fsMode: TerminalFsMode,
   sessionTmpDir: string | undefined,
+  terminalSessionId: string | undefined,
 ): QuickJsHostPermissions {
   const workspaceTmp = workspaceRoot ? workspaceTmpRoot(workspaceRoot) : undefined
   const defaultWriteRoots = [
@@ -144,7 +146,10 @@ function resolveHostPermissions(
     fsWriteRoots,
     fsWriteDenyRoots:
       permissions?.fsWriteDenyRoots !== undefined ? [...permissions.fsWriteDenyRoots] : [],
-    network: false,
+    network:
+      permissions?.network !== undefined
+        ? permissions.network
+        : Boolean(terminalSessionId?.trim()),
   }
 }
 
@@ -182,6 +187,7 @@ function resolveHostConfig(options: QuickJsInstanceOptions): QuickJsHostConfig {
       options.permissions,
       fsMode,
       sessionTmpDir,
+      options.terminalSessionId,
     ),
     quotas: resolveHostQuotas(options),
   }
@@ -196,7 +202,7 @@ function freezeHostConfig(config: QuickJsHostConfig): QuickJsHostConfig {
       fsReadRoots: Object.freeze([...config.permissions.fsReadRoots]) as string[],
       fsWriteRoots: Object.freeze([...config.permissions.fsWriteRoots]) as string[],
       fsWriteDenyRoots: Object.freeze([...config.permissions.fsWriteDenyRoots]) as string[],
-      network: false as const,
+      network: config.permissions.network,
     }),
     quotas: Object.freeze({ ...config.quotas }),
   }
@@ -464,6 +470,16 @@ export async function createQuickJsInstance(
 
   asyncBridge.injectGlobals()
 
+  let disposeFetch: (() => void) | undefined
+  if (hostConfig.permissions.network) {
+    disposeFetch = injectFetch({
+      context,
+      asyncBridge,
+      maxResponseBytes: hostConfig.quotas.maxFileBytes,
+      isDestroyed: () => state.destroyed,
+    })
+  }
+
   if (options.instantShellHost !== undefined) {
     injectInstantShell({
       context,
@@ -514,7 +530,7 @@ export async function createQuickJsInstance(
       fsReadRoots: [...hostConfig.permissions.fsReadRoots],
       fsWriteRoots: [...hostConfig.permissions.fsWriteRoots],
       fsWriteDenyRoots: [...hostConfig.permissions.fsWriteDenyRoots],
-      network: false,
+      network: hostConfig.permissions.network,
     },
     quotas: { ...hostConfig.quotas },
   })
@@ -553,6 +569,8 @@ export async function createQuickJsInstance(
     asyncBridge.clearAll()
     disposeWebView?.()
     disposeWebView = undefined
+    disposeFetch?.()
+    disposeFetch = undefined
     nodeBuiltins.dispose?.()
     listeners.clear()
     // Asyncify：只 dispose context（runtime 随 context 释放；再 dispose runtime 会踩 HostRef）

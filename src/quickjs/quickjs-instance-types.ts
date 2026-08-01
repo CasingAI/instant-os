@@ -20,8 +20,8 @@ export type QuickJsHostPermissions = {
   fsWriteRoots: string[]
   /** 写操作拒绝前缀（须在 write root 内才生效）；用于 npm 场景禁改 node_modules。 */
   fsWriteDenyRoots: string[]
-  /** L1 默认拒绝；真正开通属 L2。 */
-  network: false
+  /** L1 默认拒绝；终端会话（有 terminalSessionId）默认 true；可用 permissions.network 覆盖。 */
+  network: boolean
 }
 
 /** 实例资源配额（含已有 runtime 限额）。 */
@@ -91,13 +91,15 @@ export type QuickJsInstanceOptions = {
   npmRunId?: string
   /**
    * 权限覆盖。未传时：无 workspaceRoot → 读写根为空（有 session tmp 时写根含 tmpdir）；
-   * 有 workspaceRoot → 读根为 `/`，写根为工作区 + session tmpdir；network 始终 false。
+   * 有 workspaceRoot → 读根为 `/`，写根为工作区 + session tmpdir；
+   * 有 terminalSessionId → network 默认 true（宿主 fetch 桥）；npm run 等默认 false。
    * `readonly`：写根仅为 session tmpdir（若有）。
    */
   permissions?: {
     fsReadRoots?: string[]
     fsWriteRoots?: string[]
     fsWriteDenyRoots?: string[]
+    network?: boolean
   }
   /**
    * 单次 eval 默认墙钟上限（毫秒）。属配额。

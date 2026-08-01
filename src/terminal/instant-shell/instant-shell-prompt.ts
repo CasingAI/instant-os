@@ -8,6 +8,8 @@ export const INSTANT_SHELL_RUNTIME_SECTION = `【Instant 壳层 API · globalThi
 真终端（InstantREPL / QuickJS）在注入宿主绑定后提供全局 \`instant\`（不是 Node 的 require('os')，也不是微应用的 InstantOS.*）。
 全部方法返回 Promise，须 await。相对路径相对当前 process.cwd。
 
+Guest 联网：终端会话默认注入全局 \`fetch\`（经 Instant 代理服务器 relay，与 WebView 同源；未配置/未连接代理时报错）；\`await fetch(url)\` 后 \`arrayBuffer\`/\`text\` + \`fs.writeFile\` 可下载到 VFS。响应体不超过实例 maxFileBytes。npm run / 无 terminalSessionId 的实例默认无 fetch。
+
 打开：
 - instant.openApp(appId, opts?) — 打开内置 / 已安装生成应用（gen:…）/ 外链应用（ext:…）
   - opts.documentId?：VFS 绝对路径，交给文档类应用
