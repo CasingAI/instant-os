@@ -10,7 +10,6 @@ import {
   createLocalCommitSha,
   currentBranchPushedSha,
   currentBranchSnapshot,
-  currentFileIndex,
   currentHeadSha,
   listUnpushedLocalCommits,
   removeGithubLocalCommit,

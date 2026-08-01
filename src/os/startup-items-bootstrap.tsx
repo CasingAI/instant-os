@@ -89,6 +89,9 @@ export function StartupItemsBootstrap() {
         toggleMaximizeRef.current(windowId)
       },
       getCwd: () => '/user',
+      getFsMode: () => 'normal',
+      getTerminalSessionId: () => 'startup-items',
+      noteExternalChangeSet: () => undefined,
       isBusy: () => false,
       confirmClose: async () => true,
     })
