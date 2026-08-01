@@ -214,9 +214,17 @@ function createWriteStream(
  */
 export const INSTANT_NODE_COMPAT_VERSION = '20.18.0'
 
-/** `process.versions` 最小假对象：保证 `.electron` 等探测不崩；不伪造 electron。 */
+/**
+ * `process.versions` 假矩阵：过 engines / 常见嗅探；非真机版本。
+ * 不伪造 `electron`（yargs 等据此分支）。
+ */
 export const INSTANT_PROCESS_VERSIONS = {
   node: INSTANT_NODE_COMPAT_VERSION,
+  // 与 Node 20 标签同量级的静态假值；非 Instant 真实引擎信息
+  v8: '11.3.244.8-instant',
+  uv: '1.46.0-instant',
+  openssl: '3.0.13-instant',
+  modules: '115',
 } as const
 
 /**

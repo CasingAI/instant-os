@@ -135,11 +135,92 @@ const QUICKJS_UTIL_GUEST_SOURCE = `(function () {
     },
   };
 
+  function format(fmt) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    if (typeof fmt !== 'string') {
+      var parts = [inspect(fmt)];
+      for (var a = 0; a < args.length; a++) {
+        parts.push(inspect(args[a]));
+      }
+      return parts.join(' ');
+    }
+    var i = 0;
+    var out = fmt.replace(/%[sdj%]/g, function (match) {
+      if (match === '%%') {
+        return '%';
+      }
+      if (i >= args.length) {
+        return match;
+      }
+      var arg = args[i++];
+      if (match === '%s') {
+        return String(arg);
+      }
+      if (match === '%d') {
+        return String(Number(arg));
+      }
+      if (match === '%j') {
+        try {
+          return JSON.stringify(arg);
+        } catch (e) {
+          return '[Circular]';
+        }
+      }
+      return match;
+    });
+    for (; i < args.length; i++) {
+      out += ' ' + inspect(args[i]);
+    }
+    return out;
+  }
+
+  function deprecate(fn, msg) {
+    if (typeof fn !== 'function') {
+      throw new TypeError('The "fn" argument must be of type function');
+    }
+    var warned = false;
+    function deprecated() {
+      if (!warned) {
+        warned = true;
+        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+          console.warn(msg == null ? 'Deprecated' : String(msg));
+        }
+      }
+      return fn.apply(this, arguments);
+    }
+    return deprecated;
+  }
+
+  function debuglog(section) {
+    var name = String(section == null ? '' : section);
+    var env =
+      typeof process !== 'undefined' && process && process.env ? process.env.NODE_DEBUG : undefined;
+    var enabled =
+      typeof env === 'string' &&
+      env.length > 0 &&
+      env.split(/[\\s,]+/).some(function (part) {
+        return part && (part === '*' || part.toLowerCase() === name.toLowerCase());
+      });
+    if (!enabled) {
+      return function noopDebug() {};
+    }
+    return function debug() {
+      var args = Array.prototype.slice.call(arguments);
+      args.unshift(name);
+      if (typeof console !== 'undefined' && typeof console.error === 'function') {
+        console.error.apply(console, args);
+      }
+    };
+  }
+
   var util = {
     inspect: inspect,
     inherits: inherits,
     promisify: promisify,
     types: types,
+    format: format,
+    deprecate: deprecate,
+    debuglog: debuglog,
   };
 
   globalThis.${UTIL_BUNDLE_GLOBAL_KEY} = util;
@@ -175,7 +256,15 @@ export function injectUtil(context: QuickJSContext): QuickJSHandle {
   return utilHandle
 }
 
-const UTIL_EXPORT_KEYS = ['inspect', 'inherits', 'promisify', 'types'] as const
+const UTIL_EXPORT_KEYS = [
+  'inspect',
+  'inherits',
+  'promisify',
+  'types',
+  'format',
+  'deprecate',
+  'debuglog',
+] as const
 
 export function buildUtilModuleSource(builtinsGlobalKey: string): string {
   const named = UTIL_EXPORT_KEYS.map((key) => `export const ${key} = __m.${key};`).join('\n')

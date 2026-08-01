@@ -9,9 +9,9 @@ import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten'
  * - User Timing：`mark` / `measure` / `clearMarks` / `clearMeasures`
  * - Timeline 读：`getEntries` / `getEntriesByName` / `getEntriesByType`
  *   （条目以 plain `{ name, entryType, startTime, duration }` 回灌 guest）
+ * - `PerformanceObserver`：宿主 Observer 桥；条目仍为 plain 对象
  *
  * ## 明确不做（本层）
- * - `PerformanceObserver` / `PerformanceObserverEntryList`
  * - Node 专有：`eventLoopUtilization`、`monitorEventLoopDelay`、`nodeTiming` 真值、
  *   `timerify`、`createHistogram`、GC/http/net/dns 等 entryType
  * - 不把 `performance` 挂到 guest `globalThis`（仅 `require` / `import` 模块面）
@@ -30,6 +30,12 @@ const HOST_CLEAR_MEASURES_KEY = '__instantPerfClearMeasures'
 const HOST_GET_ENTRIES_KEY = '__instantPerfGetEntries'
 const HOST_GET_ENTRIES_BY_NAME_KEY = '__instantPerfGetEntriesByName'
 const HOST_GET_ENTRIES_BY_TYPE_KEY = '__instantPerfGetEntriesByType'
+const HOST_OBSERVER_CREATE_KEY = '__instantPerfObserverCreate'
+const HOST_OBSERVER_OBSERVE_KEY = '__instantPerfObserverObserve'
+const HOST_OBSERVER_DISCONNECT_KEY = '__instantPerfObserverDisconnect'
+const HOST_OBSERVER_DISPATCH_KEY = '__instantPerfObserverDispatch'
+
+const MAX_OBSERVER_CALLBACKS = 256
 
 type PlainPerfEntry = {
   name: string
@@ -106,8 +112,11 @@ function isAbsentHandle(
   return handle === undefined || context.typeof(handle) === 'undefined'
 }
 
-function installHostBridges(context: QuickJSContext): void {
+function installHostBridges(context: QuickJSContext): () => void {
   const hostPerf = requireHostPerformance()
+  const HostPerformanceObserver = (
+    globalThis as unknown as { PerformanceObserver?: typeof PerformanceObserver }
+  ).PerformanceObserver
 
   // —— 真桥：单调时钟 / 原点 ——
   const nowFn = context.newFunction(HOST_NOW_KEY, () => context.newNumber(hostPerf.now()))
@@ -210,6 +219,114 @@ function installHostBridges(context: QuickJSContext): void {
   )
   context.setProp(context.global, HOST_GET_ENTRIES_BY_TYPE_KEY, getEntriesByTypeFn)
   getEntriesByTypeFn.dispose()
+
+  // —— PerformanceObserver 桥 ——
+  let nextObserverId = 1
+  let observerCallbackCount = 0
+  let disposed = false
+  const observers = new Map<number, PerformanceObserver>()
+
+  const createObserverFn = context.newFunction(HOST_OBSERVER_CREATE_KEY, () => {
+    if (disposed) {
+      throw new Error('QuickJS instance destroyed')
+    }
+    if (typeof HostPerformanceObserver !== 'function') {
+      throw new Error(
+        'Host PerformanceObserver is unavailable; Instant perf_hooks observer requires a host PerformanceObserver',
+      )
+    }
+    const id = nextObserverId
+    nextObserverId += 1
+    const observer = new HostPerformanceObserver((list) => {
+      if (disposed) {
+        return
+      }
+      if (observerCallbackCount >= MAX_OBSERVER_CALLBACKS) {
+        return
+      }
+      observerCallbackCount += 1
+      const entries = [...list.getEntries()].map(plainEntry)
+      let dispatch: QuickJSHandle | undefined
+      let idHandle: QuickJSHandle | undefined
+      let jsonHandle: QuickJSHandle | undefined
+      try {
+        dispatch = context.getProp(context.global, HOST_OBSERVER_DISPATCH_KEY)
+        if (context.typeof(dispatch) !== 'function') {
+          return
+        }
+        idHandle = context.newNumber(id)
+        jsonHandle = context.newString(JSON.stringify(entries))
+        const result = context.callFunction(dispatch, context.undefined, idHandle, jsonHandle)
+        if (result.error) {
+          result.error.dispose()
+        } else {
+          result.value.dispose()
+        }
+        context.runtime.executePendingJobs()
+      } catch {
+        // 实例销毁或 guest 出错时忽略
+      } finally {
+        jsonHandle?.dispose()
+        idHandle?.dispose()
+        dispatch?.dispose()
+      }
+    })
+    observers.set(id, observer)
+    return context.newNumber(id)
+  })
+  context.setProp(context.global, HOST_OBSERVER_CREATE_KEY, createObserverFn)
+  createObserverFn.dispose()
+
+  const observeFn = context.newFunction(
+    HOST_OBSERVER_OBSERVE_KEY,
+    (idHandle, optionsHandle) => {
+      if (disposed) {
+        return context.undefined
+      }
+      const id = context.getNumber(idHandle)
+      const observer = observers.get(id)
+      if (!observer) {
+        throw new Error(`Unknown PerformanceObserver id ${id}`)
+      }
+      const options = (
+        isAbsentHandle(context, optionsHandle)
+          ? {}
+          : (context.dump(optionsHandle) as PerformanceObserverInit)
+      ) as PerformanceObserverInit
+      observer.observe(options)
+      return context.undefined
+    },
+  )
+  context.setProp(context.global, HOST_OBSERVER_OBSERVE_KEY, observeFn)
+  observeFn.dispose()
+
+  const disconnectFn = context.newFunction(HOST_OBSERVER_DISCONNECT_KEY, (idHandle) => {
+    const id = context.getNumber(idHandle)
+    const observer = observers.get(id)
+    if (observer) {
+      try {
+        observer.disconnect()
+      } catch {
+        // ignore
+      }
+      observers.delete(id)
+    }
+    return context.undefined
+  })
+  context.setProp(context.global, HOST_OBSERVER_DISCONNECT_KEY, disconnectFn)
+  disconnectFn.dispose()
+
+  return () => {
+    disposed = true
+    for (const observer of observers.values()) {
+      try {
+        observer.disconnect()
+      } catch {
+        // ignore
+      }
+    }
+    observers.clear()
+  }
 }
 
 /**
@@ -267,21 +384,81 @@ const QUICKJS_PERF_HOOKS_GUEST_SOURCE = `(function () {
     },
   };
 
-  // 模块导出面（与 Node 常用路径对齐）；不含 Observer / Node 专有 API。
+  var observerCallbacks = Object.create(null);
+
+  globalThis.${HOST_OBSERVER_DISPATCH_KEY} = function (id, entriesJson) {
+    var cb = observerCallbacks[id];
+    if (typeof cb !== 'function') {
+      return;
+    }
+    var entries = JSON.parse(entriesJson);
+    var list = {
+      getEntries: function getEntries() {
+        return entries.slice();
+      },
+      getEntriesByType: function getEntriesByType(type) {
+        return entries.filter(function (e) {
+          return e.entryType === type;
+        });
+      },
+      getEntriesByName: function getEntriesByName(name, type) {
+        return entries.filter(function (e) {
+          if (e.name !== name) {
+            return false;
+          }
+          if (type !== undefined && e.entryType !== type) {
+            return false;
+          }
+          return true;
+        });
+      },
+    };
+    cb(list);
+  };
+
+  function PerformanceObserver(callback) {
+    if (typeof callback !== 'function') {
+      throw new TypeError('The "callback" argument must be of type function');
+    }
+    var id = globalThis.${HOST_OBSERVER_CREATE_KEY}();
+    observerCallbacks[id] = callback;
+    this._id = id;
+  }
+
+  PerformanceObserver.prototype.observe = function observe(options) {
+    globalThis.${HOST_OBSERVER_OBSERVE_KEY}(this._id, options || {});
+  };
+
+  PerformanceObserver.prototype.disconnect = function disconnect() {
+    globalThis.${HOST_OBSERVER_DISCONNECT_KEY}(this._id);
+    delete observerCallbacks[this._id];
+  };
+
+  PerformanceObserver.prototype.takeRecords = function takeRecords() {
+    return [];
+  };
+
   globalThis.${PERF_BUNDLE_GLOBAL_KEY} = {
     performance: performance,
+    PerformanceObserver: PerformanceObserver,
   };
 })();
 `
 
+export type InjectPerfHooksResult = {
+  handle: QuickJSHandle
+  dispose: () => void
+}
+
 /**
- * Eval 薄 perf_hooks 进 guest；返回模块 handle（含 `performance`）。
+ * Eval 薄 perf_hooks 进 guest；返回模块 handle（含 `performance` / `PerformanceObserver`）。
  */
-export function injectPerfHooks(context: QuickJSContext): QuickJSHandle {
-  installHostBridges(context)
+export function injectPerfHooks(context: QuickJSContext): InjectPerfHooksResult {
+  const disposeObservers = installHostBridges(context)
 
   const evalResult = context.evalCode(QUICKJS_PERF_HOOKS_GUEST_SOURCE, 'instant-perf-hooks.js')
   if (evalResult.error) {
+    disposeObservers()
     const message = (() => {
       try {
         return String(context.dump(evalResult.error))
@@ -297,18 +474,20 @@ export function injectPerfHooks(context: QuickJSContext): QuickJSHandle {
 
   const moduleHandle = context.getProp(context.global, PERF_BUNDLE_GLOBAL_KEY)
   if (context.typeof(moduleHandle) !== 'object') {
+    disposeObservers()
     moduleHandle.dispose()
     throw new Error('Failed to inject perf_hooks: module object missing')
   }
 
   context.setProp(context.global, PERF_BUNDLE_GLOBAL_KEY, context.undefined)
-  return moduleHandle
+  return { handle: moduleHandle, dispose: disposeObservers }
 }
 
 export function buildPerfHooksModuleSource(builtinsGlobalKey: string): string {
   return (
     `const __m = globalThis.${builtinsGlobalKey}['perf_hooks'];\n` +
     `export const performance = __m.performance;\n` +
+    `export const PerformanceObserver = __m.PerformanceObserver;\n` +
     `export default __m;\n`
   )
 }

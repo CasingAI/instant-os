@@ -1,4 +1,5 @@
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten'
+import { INSTANT_OS_CONSTANTS } from './quickjs-constants.ts'
 
 /** Temporary globalThis key set by the guest IIFE (cleared after inject). */
 const OS_BUNDLE_GLOBAL_KEY = '__instantOsBundle'
@@ -10,6 +11,7 @@ const OS_BUNDLE_GLOBAL_KEY = '__instantOsBundle'
  */
 function buildOsGuestSource(tmpDir: string): string {
   const tmpDirLiteral = JSON.stringify(tmpDir)
+  const constantsLiteral = JSON.stringify(INSTANT_OS_CONSTANTS)
   return `(function () {
   'use strict';
 
@@ -24,13 +26,7 @@ function buildOsGuestSource(tmpDir: string): string {
   var endianness = 'LE';
 
   function constantsObject() {
-    return {
-      UV_UDP_REUSEADDR: 4,
-      dlopen: {},
-      errno: {},
-      signals: {},
-      priority: {},
-    };
+    return ${constantsLiteral};
   }
 
   var os = {
@@ -83,6 +79,18 @@ function buildOsGuestSource(tmpDir: string): string {
     networkInterfaces: function networkInterfacesFn() {
       return {};
     },
+    version: function versionFn() {
+      return release;
+    },
+    userInfo: function userInfoFn() {
+      return {
+        uid: 1000,
+        gid: 1000,
+        username: 'instant',
+        homedir: homeDir,
+        shell: '/bin/sh',
+      };
+    },
     get constants() {
       return constantsObject();
     },
@@ -128,6 +136,7 @@ const OS_EXPORT_KEYS = [
   'arch',
   'type',
   'release',
+  'version',
   'tmpdir',
   'homedir',
   'hostname',
@@ -138,6 +147,7 @@ const OS_EXPORT_KEYS = [
   'uptime',
   'loadavg',
   'networkInterfaces',
+  'userInfo',
   'constants',
 ] as const
 

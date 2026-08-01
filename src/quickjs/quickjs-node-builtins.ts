@@ -7,6 +7,14 @@ import type {
 import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { buildAssertModuleSource, injectAssert } from './quickjs-assert.ts'
 import { buildBufferModuleSource, injectBuffer } from './quickjs-buffer.ts'
+import {
+  buildConsoleModuleSource,
+  injectConsoleModule,
+} from './quickjs-console-module.ts'
+import {
+  buildConstantsModuleSource,
+  injectConstants,
+} from './quickjs-constants.ts'
 import { buildEventsModuleSource, injectEvents } from './quickjs-events.ts'
 import {
   buildFsModuleSource,
@@ -22,6 +30,16 @@ import {
   buildPerfHooksModuleSource,
   injectPerfHooks,
 } from './quickjs-perf-hooks.ts'
+import {
+  buildQuerystringModuleSource,
+  injectQuerystring,
+} from './quickjs-querystring.ts'
+import {
+  buildTimersModuleSource,
+  injectTimers,
+} from './quickjs-timers.ts'
+import { buildTtyModuleSource, injectTty } from './quickjs-tty.ts'
+import { buildUrlModuleSource, injectUrl } from './quickjs-url.ts'
 import { buildUtilModuleSource, injectUtil } from './quickjs-util.ts'
 import type { QuickJsFsHostOps } from './quickjs-fs-vfs.ts'
 import {
@@ -178,6 +196,24 @@ function builtinModuleSource(canonical: string): string | undefined {
   if (canonical === 'module') {
     return MODULE_MODULE_SOURCE
   }
+  if (canonical === 'querystring') {
+    return QUERYSTRING_MODULE_SOURCE
+  }
+  if (canonical === 'tty') {
+    return TTY_MODULE_SOURCE
+  }
+  if (canonical === 'console') {
+    return CONSOLE_MODULE_SOURCE
+  }
+  if (canonical === 'timers') {
+    return TIMERS_MODULE_SOURCE
+  }
+  if (canonical === 'constants') {
+    return CONSTANTS_MODULE_SOURCE
+  }
+  if (canonical === 'url') {
+    return URL_MODULE_SOURCE
+  }
   return undefined
 }
 
@@ -300,6 +336,12 @@ const PERF_HOOKS_MODULE_SOURCE = buildPerfHooksModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_MODULE_SOURCE = buildFsModuleSource(BUILTINS_GLOBAL_KEY)
 const FS_PROMISES_MODULE_SOURCE = buildFsPromisesModuleSource(BUILTINS_GLOBAL_KEY)
 const MODULE_MODULE_SOURCE = buildModuleModuleSource(BUILTINS_GLOBAL_KEY)
+const QUERYSTRING_MODULE_SOURCE = buildQuerystringModuleSource(BUILTINS_GLOBAL_KEY)
+const TTY_MODULE_SOURCE = buildTtyModuleSource(BUILTINS_GLOBAL_KEY)
+const CONSOLE_MODULE_SOURCE = buildConsoleModuleSource(BUILTINS_GLOBAL_KEY)
+const TIMERS_MODULE_SOURCE = buildTimersModuleSource(BUILTINS_GLOBAL_KEY)
+const CONSTANTS_MODULE_SOURCE = buildConstantsModuleSource(BUILTINS_GLOBAL_KEY)
+const URL_MODULE_SOURCE = buildUrlModuleSource(BUILTINS_GLOBAL_KEY)
 
 function lookupBuiltinHandle(
   context: QuickJSContext,
@@ -323,11 +365,11 @@ function lookupBuiltinHandle(
 
 /**
  * 注入 Node 内建注册表：setModuleLoader（ESM）+ 全局 require（内建 + 文件级 CJS）。
- * 已实现内建：path、buffer、events、assert、util、os、perf_hooks、fs、fs/promises、module
- * （及 node: / path/posix 别名）。
+ * 已实现内建：path、buffer、events、assert、util、os、perf_hooks、fs、fs/promises、module、
+ * querystring、tty、console、timers、constants、url（及 node: / path/posix 别名）。
  *
- * `perf_hooks`：W3C 计时面桥接宿主真实 Performance；Node 专有 API 不做——见 quickjs-perf-hooks.ts。
- * `module`：薄 stub（enableCompileCache / flushCompileCache 等）；createRequire 未接——见 quickjs-module.ts。
+ * `perf_hooks`：W3C 计时面 + 薄 PerformanceObserver；Node 专有 API 不做——见 quickjs-perf-hooks.ts。
+ * `module`：createRequire 接 CJS makeRequire；Module 类仍未接——见 quickjs-module.ts。
  */
 export function injectNodeBuiltins(
   runtime: QuickJSAsyncRuntime,
@@ -353,6 +395,12 @@ export function injectNodeBuiltins(
     'fs',
     'fs/promises',
     'module',
+    'querystring',
+    'tty',
+    'console',
+    'timers',
+    'constants',
+    'url',
   ])
   const listImplemented = () => [...implemented]
 
@@ -363,12 +411,18 @@ export function injectNodeBuiltins(
   const assertHandle = injectAssert(context)
   const utilHandle = injectUtil(context)
   const osHandle = injectOs(context, { tmpDir: options.tmpDir })
-  const perfHooksHandle = injectPerfHooks(context)
+  const { handle: perfHooksHandle, dispose: disposePerfObservers } = injectPerfHooks(context)
   const { fsHandle, promisesHandle, disposeFsWatchers } = injectFs({
     context,
     asyncBridge: options.asyncBridge,
     ops: options.fsOps,
   })
+  const querystringHandle = injectQuerystring(context)
+  const ttyHandle = injectTty(context)
+  const consoleHandle = injectConsoleModule(context)
+  const timersHandle = injectTimers(context)
+  const constantsHandle = injectConstants(context)
+  const urlHandle = injectUrl(context)
 
   const namespace = context.newObject()
   context.setProp(namespace, 'path', pathHandle)
@@ -389,9 +443,19 @@ export function injectNodeBuiltins(
   context.setProp(namespace, 'fs/promises', promisesHandle)
   fsHandle.dispose()
   promisesHandle.dispose()
-  const moduleHandle = injectModule(context)
-  context.setProp(namespace, 'module', moduleHandle)
-  moduleHandle.dispose()
+  context.setProp(namespace, 'querystring', querystringHandle)
+  querystringHandle.dispose()
+  context.setProp(namespace, 'tty', ttyHandle)
+  ttyHandle.dispose()
+  context.setProp(namespace, 'console', consoleHandle)
+  consoleHandle.dispose()
+  context.setProp(namespace, 'timers', timersHandle)
+  timersHandle.dispose()
+  context.setProp(namespace, 'constants', constantsHandle)
+  constantsHandle.dispose()
+  context.setProp(namespace, 'url', urlHandle)
+  urlHandle.dispose()
+  // module 在 CJS guest 安装后再注入（createRequire 依赖 __instantCjsMakeRequire）
   context.setProp(context.global, BUILTINS_GLOBAL_KEY, namespace)
   namespace.dispose()
 
@@ -548,5 +612,20 @@ export function injectNodeBuiltins(
   }
   guestRequireResult.value.dispose()
 
-  return { listImplemented, dispose: disposeFsWatchers }
+  // module 依赖 CJS makeRequire；挂到已存在的 builtins namespace
+  const moduleHandle = injectModule(context, {
+    implementedBuiltinIds: listImplemented(),
+  })
+  const nsForModule = context.getProp(context.global, BUILTINS_GLOBAL_KEY)
+  context.setProp(nsForModule, 'module', moduleHandle)
+  moduleHandle.dispose()
+  nsForModule.dispose()
+
+  return {
+    listImplemented,
+    dispose: () => {
+      disposeFsWatchers()
+      disposePerfObservers()
+    },
+  }
 }

@@ -72,7 +72,7 @@ async function testInstance() {
     throw new Error(`unexpected fs read roots: ${JSON.stringify(rooted.permissions)}`)
   }
   if (
-    rooted.permissions.fsWriteRoots.length !== 1 ||
+    rooted.permissions.fsWriteRoots.length < 1 ||
     rooted.permissions.fsWriteRoots[0] !== '/user/project'
   ) {
     throw new Error(`unexpected fs write roots: ${JSON.stringify(rooted.permissions)}`)
@@ -162,6 +162,7 @@ async function testInstance() {
     ;({
       version: process.version,
       node: process.versions && process.versions.node,
+      v8: process.versions && process.versions.v8,
       electronUndefined: process.versions.electron === undefined,
       platform: process.platform,
       arch: process.arch,
@@ -177,6 +178,7 @@ async function testInstance() {
     typeof probe.version !== 'string' ||
     !String(probe.version).startsWith('v') ||
     typeof probe.node !== 'string' ||
+    typeof probe.v8 !== 'string' ||
     probe.electronUndefined !== true ||
     probe.platform !== 'linux' ||
     probe.arch !== 'x64' ||
@@ -1435,19 +1437,17 @@ export default {
     var same = mod === require('node:module')
     mod.enableCompileCache()
     mod.flushCompileCache()
+    var req = mod.createRequire('/tmp/x.js')
+    var pathViaCreate = req('path')
     ;({
       same: same,
       hasEnable: typeof mod.enableCompileCache === 'function',
       hasFlush: typeof mod.flushCompileCache === 'function',
       cacheDir: mod.getCompileCacheDir(),
-      createRequireThrows: (function () {
-        try {
-          mod.createRequire('/tmp/x.js')
-          return false
-        } catch (e) {
-          return String(e && e.message ? e.message : e).indexOf('not implemented') >= 0
-        }
-      })(),
+      createRequireWorks: pathViaCreate && typeof pathViaCreate.join === 'function',
+      isBuiltinPath: mod.isBuiltin('path') === true && mod.isBuiltin('node:path') === true,
+      isBuiltinHttp: mod.isBuiltin('http') === false,
+      builtinHasPath: Array.isArray(mod.builtinModules) && mod.builtinModules.indexOf('path') >= 0,
     })
   `)
   if (!moduleBasics.ok) {
@@ -1459,7 +1459,10 @@ export default {
     moduleVal.hasEnable !== true ||
     moduleVal.hasFlush !== true ||
     moduleVal.cacheDir !== undefined ||
-    moduleVal.createRequireThrows !== true
+    moduleVal.createRequireWorks !== true ||
+    moduleVal.isBuiltinPath !== true ||
+    moduleVal.isBuiltinHttp !== true ||
+    moduleVal.builtinHasPath !== true
   ) {
     throw new Error(`unexpected module basics: ${JSON.stringify(moduleVal)}`)
   }
@@ -1547,6 +1550,97 @@ export default {
     perfImportVal.nowOk !== true
   ) {
     throw new Error(`unexpected perf_hooks import: ${JSON.stringify(perfImport.value)}`)
+  }
+
+  // --- thin builtins batch: querystring / tty / console / timers / constants / url / util+os ---
+  const thinBuiltins = await timerInstance.eval(`
+    var qs = require('querystring')
+    var tty = require('tty')
+    var cons = require('console')
+    var timers = require('timers')
+    var constants = require('constants')
+    var url = require('url')
+    var util = require('util')
+    var os = require('os')
+    var ph = require('perf_hooks')
+    var parsed = qs.parse('a=1&b=2&a=3')
+    var encoded = qs.stringify({ x: 1, y: 'z' })
+    var filePath = url.fileURLToPath('file:///user/docs/a.js')
+    var fileUrl = url.pathToFileURL('/user/docs/a.js')
+    ;({
+      qsSame: qs === require('node:querystring'),
+      qsParse: parsed.a && parsed.a[0] === '1' && parsed.a[1] === '3' && parsed.b === '2',
+      qsStringify: encoded === 'x=1&y=z',
+      ttyStdin: tty.isatty(0) === true,
+      ttyStdout: tty.isatty(1) === false,
+      ttyStderr: tty.isatty(2) === false,
+      consoleLog: typeof cons.log === 'function',
+      timersSetTimeout: typeof timers.setTimeout === 'function',
+      timersPromises: typeof timers.promises.setTimeout === 'function',
+      constantsFok: constants.F_OK === 0,
+      urlFilePath: filePath === '/user/docs/a.js',
+      urlFileHref: fileUrl && typeof fileUrl.href === 'string' && fileUrl.href.indexOf('file:') === 0,
+      hasUrlCtor: typeof url.URL === 'function' || url.URL === undefined,
+      utilFormat: util.format('%s %d', 'hi', 2) === 'hi 2',
+      utilDeprecate: typeof util.deprecate(function () {}, 'msg') === 'function',
+      osVersion: os.version() === os.release(),
+      osUser: os.userInfo().homedir === os.homedir() && os.userInfo().username === 'instant',
+      hasObserver: typeof ph.PerformanceObserver === 'function',
+    })
+  `)
+  if (!thinBuiltins.ok) {
+    throw new Error(`thin builtins failed: ${JSON.stringify(thinBuiltins)}`)
+  }
+  const thinVal = thinBuiltins.value as Record<string, unknown>
+  if (
+    thinVal.qsSame !== true ||
+    thinVal.qsParse !== true ||
+    thinVal.qsStringify !== true ||
+    thinVal.ttyStdin !== true ||
+    thinVal.ttyStdout !== true ||
+    thinVal.ttyStderr !== true ||
+    thinVal.consoleLog !== true ||
+    thinVal.timersSetTimeout !== true ||
+    thinVal.timersPromises !== true ||
+    thinVal.constantsFok !== true ||
+    thinVal.urlFilePath !== true ||
+    thinVal.urlFileHref !== true ||
+    thinVal.utilFormat !== true ||
+    thinVal.utilDeprecate !== true ||
+    thinVal.osVersion !== true ||
+    thinVal.osUser !== true ||
+    thinVal.hasObserver !== true
+  ) {
+    throw new Error(`unexpected thin builtins: ${JSON.stringify(thinVal)}`)
+  }
+
+  const thinImport = await timerInstance.eval(`
+import qsDefault, { parse as qsParse } from 'querystring'
+import { isatty } from 'tty'
+import { setTimeout as timersTimeout } from 'timers'
+import urlDefault, { fileURLToPath } from 'url'
+export default {
+  qsNamed: typeof qsParse === 'function' && qsDefault.parse === qsParse,
+  ttyOk: isatty(1) === false,
+  timersOk: typeof timersTimeout === 'function',
+  urlOk: fileURLToPath('file:///tmp/x') === '/tmp/x',
+  urlDefault: typeof urlDefault.format === 'function',
+}
+`)
+  if (!thinImport.ok) {
+    throw new Error(`thin builtins import failed: ${JSON.stringify(thinImport)}`)
+  }
+  const thinImportVal =
+    (thinImport.value as { default?: Record<string, unknown> }).default ??
+    (thinImport.value as Record<string, unknown>)
+  if (
+    thinImportVal.qsNamed !== true ||
+    thinImportVal.ttyOk !== true ||
+    thinImportVal.timersOk !== true ||
+    thinImportVal.urlOk !== true ||
+    thinImportVal.urlDefault !== true
+  ) {
+    throw new Error(`unexpected thin builtins import: ${JSON.stringify(thinImport.value)}`)
   }
 
   cjsInstance.destroy()

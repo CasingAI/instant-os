@@ -7,6 +7,8 @@
 export const CJS_FETCH_GLOBAL_KEY = '__instantCjsFetch'
 export const CJS_RESOLVE_GLOBAL_KEY = '__instantCjsResolve'
 export const CJS_EVAL_PARENT_GLOBAL_KEY = '__instantCjsEvalParent'
+/** Private factory for `module.createRequire` (same cache as global require). */
+export const CJS_MAKE_REQUIRE_GLOBAL_KEY = '__instantCjsMakeRequire'
 
 const QUICKJS_CJS_GUEST_REQUIRE_SOURCE = `(function () {
   'use strict';
@@ -129,6 +131,7 @@ const QUICKJS_CJS_GUEST_REQUIRE_SOURCE = `(function () {
   topRequire.cache = moduleCache;
 
   globalThis.require = topRequire;
+  globalThis.${CJS_MAKE_REQUIRE_GLOBAL_KEY} = makeRequire;
 })();`
 
 /**
