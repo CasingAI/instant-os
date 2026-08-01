@@ -276,6 +276,143 @@ export function isEmptyConvertibleBlock(node: ProseMirrorNode): boolean {
   return false
 }
 
+const GAP_MIN_PX = 4
+
+/**
+ * 点击落在顶层块之间的空隙（或首块之上 / 末块之下的可点空白）时，
+ * 返回应插入空段落的文档位置；点在块上则返回 null。
+ */
+export function findGapInsertPos(
+  editor: Editor,
+  clientX: number,
+  clientY: number,
+): number | null {
+  if (findTopLevelBlockAtPoint(editor, clientX, clientY)) return null
+
+  const { doc } = editor.state
+  const view = editor.view
+  let pos = 0
+  let prevBottom = -Infinity
+  /** 内容列水平范围（用第一块估算，缺省则放宽） */
+  let contentLeft = -Infinity
+  let contentRight = Infinity
+
+  for (let i = 0; i < doc.childCount; i++) {
+    const node = doc.child(i)
+    const dom = view.nodeDOM(pos)
+    if (dom instanceof HTMLElement) {
+      const rect = dom.getBoundingClientRect()
+      if (i === 0) {
+        contentLeft = rect.left - BLOCK_ROW_GUTTER_PX
+        contentRight = rect.right + 24
+      }
+      if (clientX < contentLeft || clientX > contentRight) {
+        return null
+      }
+      if (
+        Number.isFinite(prevBottom) &&
+        clientY >= prevBottom + GAP_MIN_PX &&
+        clientY < rect.top - GAP_MIN_PX
+      ) {
+        return pos
+      }
+      prevBottom = rect.bottom
+    }
+    pos += node.nodeSize
+  }
+
+  // 末块下方（含编辑区底部大块空白）
+  if (doc.childCount > 0 && Number.isFinite(prevBottom) && clientY >= prevBottom + GAP_MIN_PX) {
+    const prose = view.dom.getBoundingClientRect()
+    if (clientY <= prose.bottom && clientX >= contentLeft && clientX <= contentRight) {
+      return pos
+    }
+  }
+
+  // 文档为空：点在 prose 内任意处
+  if (doc.childCount === 0) {
+    const prose = view.dom.getBoundingClientRect()
+    if (
+      clientX >= prose.left &&
+      clientX <= prose.right &&
+      clientY >= prose.top &&
+      clientY <= prose.bottom
+    ) {
+      return 0
+    }
+  }
+
+  return null
+}
+
+/** 在指定位置插入空段落并聚焦；若该处已有空段落则只聚焦。返回空段落起点 pos。 */
+export function insertOrFocusEmptyParagraphAt(editor: Editor, insertPos: number): number | null {
+  const { state } = editor
+  const { doc, schema } = state
+  const paragraph = schema.nodes.paragraph
+  if (!paragraph) return null
+
+  // 插入点后已是空段落 → 聚焦
+  const after = doc.nodeAt(insertPos)
+  if (after && isEmptyConvertibleBlock(after) && after.type.name === 'paragraph') {
+    selectInsideBlock(editor, insertPos, after)
+    editor.view.focus()
+    return insertPos
+  }
+
+  // 插入点前一块是空段落 → 聚焦（点在其下方空隙时）
+  if (insertPos > 0) {
+    const $pos = doc.resolve(insertPos)
+    const index = $pos.index(0)
+    if (index > 0) {
+      const prev = doc.child(index - 1)
+      let prevPos = 0
+      for (let i = 0; i < index - 1; i++) prevPos += doc.child(i).nodeSize
+      if (isEmptyConvertibleBlock(prev) && prev.type.name === 'paragraph') {
+        selectInsideBlock(editor, prevPos, prev)
+        editor.view.focus()
+        return prevPos
+      }
+    }
+  }
+
+  const node = paragraph.create()
+  const tr = state.tr.insert(insertPos, node)
+  const sel = TextSelection.create(tr.doc, insertPos + 1)
+  editor.view.dispatch(tr.setSelection(sel).scrollIntoView())
+  editor.view.focus()
+  return insertPos
+}
+
+/** 若空段落仍为空且选区已不在其中，则删除（文档至少保留一块）。force 时忽略选区。 */
+export function removeEmptyParagraphIfAbandoned(
+  editor: Editor,
+  blockPos: number,
+  opts?: { force?: boolean },
+): boolean {
+  if (editor.isDestroyed) return false
+  const { state } = editor
+  const node = state.doc.nodeAt(blockPos)
+  if (!node || node.type.name !== 'paragraph' || !isEmptyConvertibleBlock(node)) {
+    return false
+  }
+
+  if (!opts?.force) {
+    const { from, to } = state.selection
+    const end = blockPos + node.nodeSize
+    if (from >= blockPos && to <= end) {
+      return false
+    }
+  }
+
+  if (state.doc.childCount <= 1) {
+    return false
+  }
+
+  editor.view.dispatch(state.tr.delete(blockPos, blockPos + node.nodeSize))
+  return true
+}
+
 function selectInsideBlock(editor: Editor, blockPos: number, node: ProseMirrorNode) {
   if (node.isTextblock) {
     const sel = TextSelection.create(editor.state.doc, blockPos + 1)

@@ -9,9 +9,12 @@ import {
   BLOCK_ROW_GUTTER_PX,
   buildBlockInsertCatalog,
   deleteTopLevelBlock,
+  findGapInsertPos,
   findTopLevelBlock,
   findTopLevelBlockAtPoint,
+  insertOrFocusEmptyParagraphAt,
   isEmptyConvertibleBlock,
+  removeEmptyParagraphIfAbandoned,
   selectBlockNode,
   type BlockInsertItem,
 } from './pages-block-insert.ts'
@@ -271,6 +274,8 @@ export function PagesEditor({
   const pendingDragRef = useRef<PendingDrag | null>(null)
   const dragSessionRef = useRef<BlockDragSession | null>(null)
   const insertFilteredRef = useRef<BlockInsertItem[] | null>(null)
+  /** 点击块间隙自动插入的空段落；失焦且仍空则删除 */
+  const transientEmptyPosRef = useRef<number | null>(null)
   const [sheetTableJSON, setSheetTableJSON] = useState<JSONContent | null>(null)
 
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null)
@@ -627,6 +632,48 @@ export function PagesEditor({
         },
         transformPastedHTML: (html) => promotePastedTableHeaderHtml(html),
         handleDOMEvents: {
+          click: (_view, event) => {
+            if (!editableRef.current || viewModeRef.current !== 'edit') return false
+            if (event.button !== 0) return false
+            const target = event.target as HTMLElement | null
+            if (
+              target?.closest('.pages-block-controls') ||
+              target?.closest('.pages-context-menu') ||
+              target?.closest('.pages-insert') ||
+              target?.closest('.pages-bubble')
+            ) {
+              return false
+            }
+
+            const editorInstance = editorRef.current
+            if (!editorInstance || editorInstance.isDestroyed) return false
+
+            const gapPosRaw = findGapInsertPos(editorInstance, event.clientX, event.clientY)
+            if (gapPosRaw == null) return false
+
+            event.preventDefault()
+            let gapPos = gapPosRaw
+            const prev = transientEmptyPosRef.current
+            if (prev != null) {
+              const prevNode = editorInstance.state.doc.nodeAt(prev)
+              const prevSize = prevNode?.nodeSize ?? 0
+              if (removeEmptyParagraphIfAbandoned(editorInstance, prev, { force: true })) {
+                if (gapPos > prev) gapPos -= prevSize
+              }
+              transientEmptyPosRef.current = null
+            }
+
+            const insertedAt = insertOrFocusEmptyParagraphAt(editorInstance, gapPos)
+            if (insertedAt != null) {
+              const node = editorInstance.state.doc.nodeAt(insertedAt)
+              if (node && isEmptyConvertibleBlock(node) && node.type.name === 'paragraph') {
+                transientEmptyPosRef.current = insertedAt
+              } else {
+                transientEmptyPosRef.current = null
+              }
+            }
+            return true
+          },
           contextmenu: (view, event) => {
             if (!editableRef.current || viewModeRef.current !== 'edit') return false
             event.preventDefault()
@@ -751,11 +798,17 @@ export function PagesEditor({
             if (!editableRef.current || viewModeRef.current !== 'edit') return false
             const ed = editorRef.current
             if (!ed || ed.isDestroyed) return false
-            // 失焦后把单元格里以 = 开头的文本提升为公式并重算
+            // 失焦后把单元格里以 = 开头的文本提升为公式并重算；并清掉间隙临时空行
             window.setTimeout(() => {
               const current = editorRef.current
               if (!current || current.isDestroyed || viewModeRef.current !== 'edit') return
               if (current.view.hasFocus()) return
+              const transientPos = transientEmptyPosRef.current
+              if (transientPos != null) {
+                if (removeEmptyParagraphIfAbandoned(current, transientPos, { force: true })) {
+                  transientEmptyPosRef.current = null
+                }
+              }
               suppressFormulaRecalcRef.current = true
               try {
                 promoteEqualsTextToFormulas(current)
@@ -772,6 +825,7 @@ export function PagesEditor({
         },
       },
       onCreate: ({ editor: created }) => {
+        transientEmptyPosRef.current = null
         const hostEditor = created as PagesEditorHost
         hostEditor.__pagesInsertImage = () => {
           fileInputRef.current?.click()
@@ -786,9 +840,23 @@ export function PagesEditor({
         onDocumentChangeRef.current(created.getJSON())
         onEditorReadyRef.current?.(created)
       },
-      onUpdate: ({ editor: current }) => {
+      onUpdate: ({ editor: current, transaction }) => {
         setUiEpoch((value) => value + 1)
         refreshBubble(current)
+
+        if (transientEmptyPosRef.current != null && transaction.docChanged) {
+          const mapped = transaction.mapping.map(transientEmptyPosRef.current)
+          const node = current.state.doc.nodeAt(mapped)
+          if (!node || node.type.name !== 'paragraph') {
+            transientEmptyPosRef.current = null
+          } else if (!isEmptyConvertibleBlock(node)) {
+            // 用户已输入内容，转为普通空行占位取消
+            transientEmptyPosRef.current = null
+          } else {
+            transientEmptyPosRef.current = mapped
+          }
+        }
+
         if (suppressNextUpdateRef.current) {
           suppressNextUpdateRef.current = false
           return
@@ -831,6 +899,12 @@ export function PagesEditor({
       onSelectionUpdate: ({ editor: current }) => {
         setUiEpoch((value) => value + 1)
         refreshBubble(current)
+        const transientPos = transientEmptyPosRef.current
+        if (transientPos != null) {
+          if (removeEmptyParagraphIfAbandoned(current, transientPos)) {
+            transientEmptyPosRef.current = null
+          }
+        }
       },
     })
 
