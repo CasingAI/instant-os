@@ -551,6 +551,26 @@ export async function finalizePushedLocalCommits(
   await waitForTransaction(tx)
 }
 
+/** 变基后按 sha 写回未推送本地 commit（保留其它历史） */
+export async function replaceUnpushedLocalCommits(
+  owner: string,
+  repo: string,
+  rewritten: ReadonlyArray<GithubLocalCommit>,
+): Promise<void> {
+  if (rewritten.length === 0) return
+  const db = await openDb()
+  const id = githubRepoId(owner, repo)
+  const tx = beginIdbTransaction(db, COMMITS_STORE, 'readwrite')
+  const store = tx.objectStore(COMMITS_STORE)
+  const existing = await requestToPromise(
+    store.get(id) as IDBRequest<CommitsRecord | undefined>,
+  )
+  const bySha = new Map(rewritten.map((item) => [item.sha, item]))
+  const commits = (existing?.commits ?? []).map((item) => bySha.get(item.sha) ?? item)
+  store.put({ id, commits } satisfies CommitsRecord)
+  await waitForTransaction(tx)
+}
+
 export async function getCachedGithubCommitDetail(
   owner: string,
   repo: string,

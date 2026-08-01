@@ -1,158 +1,28 @@
 import { osNowMs } from '../../os/os-clock.ts'
-import {
-  githubCompare,
-  githubDownloadZipball,
-  githubGetBranchTip,
-  githubGetFileContent,
-} from './github-api.ts'
-import { joinFilesAbsolutePath } from '../files/files-path.ts'
-import { githubRepoRootPath } from './github-repo-paths.ts'
-import { persistBaselineFromFiles, baselineBlobsAbsentForIndex } from './github-baseline.ts'
-import {
-  detectGithubChanges,
-  persistBaselineFromWorkingTree,
-  stampFileIndexRevisionIdsFromWorkingTree,
-} from './github-changes.ts'
+import { githubGetBranchTip } from './github-api.ts'
+import { baselineBlobsAbsentForIndex } from './github-baseline.ts'
+import { detectGithubChanges, stampFileIndexRevisionIdsFromWorkingTree } from './github-changes.ts'
 import type { GithubProgress } from './github-progress.ts'
+import {
+  rebaseUnpushedOntoRemoteTip,
+  rematerializeBranchFromZip,
+} from './github-rebase.ts'
 import {
   branchBaselineTrusted,
   currentFileIndex,
-  currentHeadSha,
   saveGithubRepoMeta,
   touchRecentBranch,
   withBranchSnapshot,
   withRemoteBranchTip,
   type GithubRepoSyncMeta,
 } from './github-sync-meta.ts'
-import {
-  syncWorkingTreeToFileIndex,
-  unzipGithubZipball,
-  writeWorkingTreeFile,
-} from './github-working-tree.ts'
-import { filesRemoveBatch } from '../files/files-api.ts'
-
-/** 变更文件数超过此阈值时回退整包 zip */
-const INCREMENTAL_FILE_LIMIT = 80
+import { syncWorkingTreeToFileIndex } from './github-working-tree.ts'
 
 export async function pullGithubRepository(params: {
   meta: GithubRepoSyncMeta
   onProgress?: GithubProgress
 }): Promise<GithubRepoSyncMeta> {
-  const { meta, onProgress } = params
-  onProgress?.('检查本地是否有未 commit 变更…')
-  const localChanges = await detectGithubChanges(meta)
-  if (localChanges.length > 0) {
-    throw new Error('本地有未 commit 变更，请先 commit 或丢弃后再拉取')
-  }
-
-  const localSha = currentHeadSha(meta)
-  onProgress?.('检查远端分支…')
-  const remoteSha = await githubGetBranchTip(meta.owner, meta.repo, meta.currentBranch)
-  if (remoteSha === localSha) {
-    onProgress?.('已是最新')
-    return meta
-  }
-
-  onProgress?.('比较本地与远端差异…')
-  const compare = await githubCompare(meta.owner, meta.repo, localSha, remoteSha)
-
-  if (compare.files.length > INCREMENTAL_FILE_LIMIT) {
-    onProgress?.(`变更文件较多（${compare.files.length}），改用完整压缩包…`)
-    return rematerializeFromZip({
-      meta,
-      ref: meta.currentBranch,
-      headSha: remoteSha,
-      onProgress,
-    })
-  }
-
-  const root = githubRepoRootPath(meta.owner, meta.repo)
-  const removedPaths: string[] = []
-  const writeFiles: typeof compare.files = []
-
-  for (const file of compare.files) {
-    if (file.status === 'removed') {
-      removedPaths.push(joinFilesAbsolutePath(root, ...file.filename.split('/')))
-    } else {
-      writeFiles.push(file)
-    }
-  }
-
-  if (removedPaths.length > 0) {
-    await filesRemoveBatch(removedPaths, { skipMissing: true })
-  }
-
-  let applied = removedPaths.length
-  for (const file of writeFiles) {
-    const absolute = joinFilesAbsolutePath(root, ...file.filename.split('/'))
-    // 增量拉取写工作区：同样必须是 raw 正文，否则工作区会被 Contents JSON 污染
-    const bytes = await githubGetFileContent(
-      meta.owner,
-      meta.repo,
-      file.filename,
-      remoteSha,
-    )
-    await writeWorkingTreeFile(absolute, bytes)
-    applied += 1
-    if (applied % 10 === 0) {
-      onProgress?.(`应用变更 ${applied}/${compare.files.length}…`)
-    }
-  }
-
-  onProgress?.('更新同步快照…')
-  const fileIndex = await persistBaselineFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    currentFileIndex(meta),
-  )
-  const next = withBranchSnapshot(
-    meta,
-    meta.currentBranch,
-    { tipSha: remoteSha, fileIndex, baselineComplete: true, pushedTipSha: remoteSha },
-  )
-  next.updatedAt = osNowMs()
-  await saveGithubRepoMeta(next)
-  return next
-}
-
-async function rematerializeFromZip(params: {
-  meta: GithubRepoSyncMeta
-  ref: string
-  headSha: string
-  branch?: string
-  onProgress?: GithubProgress
-}): Promise<GithubRepoSyncMeta> {
-  const { meta, onProgress } = params
-  const branch = params.branch ?? meta.currentBranch
-  onProgress?.('下载压缩包…')
-  const zip = await githubDownloadZipball(meta.owner, meta.repo, params.ref, onProgress)
-  const files = await unzipGithubZipball(zip)
-  onProgress?.('写入基线快照…')
-  let fileIndex = await persistBaselineFromFiles(files)
-  const fromIndex = currentFileIndex(meta)
-  onProgress?.('增量同步工作区…')
-  await syncWorkingTreeToFileIndex(
-    meta.owner,
-    meta.repo,
-    fromIndex,
-    fileIndex,
-    onProgress,
-  )
-  // 工作区写入后节点有了新 revisionId，需对齐到 fileIndex
-  fileIndex = await stampFileIndexRevisionIdsFromWorkingTree(
-    meta.owner,
-    meta.repo,
-    fileIndex,
-  )
-  const next = withBranchSnapshot(
-    meta,
-    branch,
-    { tipSha: params.headSha, fileIndex, baselineComplete: true, pushedTipSha: params.headSha },
-    { currentBranch: branch },
-  )
-  next.updatedAt = osNowMs()
-  await saveGithubRepoMeta(next)
-  return next
+  return rebaseUnpushedOntoRemoteTip(params)
 }
 
 export type SwitchGithubBranchResult = {
@@ -220,7 +90,7 @@ export async function switchGithubBranch(params: {
 
   const headSha = await githubGetBranchTip(params.meta.owner, params.meta.repo, branch)
   const next = withRemoteBranchTip(
-    await rematerializeFromZip({
+    await rematerializeBranchFromZip({
       meta: params.meta,
       ref: branch,
       branch,

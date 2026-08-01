@@ -8,6 +8,7 @@ import {
   type GithubRepoSummary,
 } from './github-api.ts'
 import {
+  currentBranchPushedSha,
   currentHeadSha,
   putCachedGithubCommitList,
   saveGithubRepoMeta,
@@ -39,6 +40,7 @@ export async function fetchGithubRemote(params: {
 }): Promise<GithubFetchResult> {
   const { meta, onProgress } = params
   const localSha = currentHeadSha(meta)
+  const pushedSha = currentBranchPushedSha(meta)
 
   onProgress?.('读取仓库信息…')
   const remote = await githubGetRepo(meta.owner, meta.repo)
@@ -61,7 +63,8 @@ export async function fetchGithubRemote(params: {
   return {
     localSha,
     remoteSha,
-    upToDate: Boolean(localSha) && localSha === remoteSha,
+    // 相对已推送基点，避免 local-… tip 导致永远显示过期
+    upToDate: Boolean(pushedSha) && pushedSha === remoteSha,
     branches,
     commits,
     remote,

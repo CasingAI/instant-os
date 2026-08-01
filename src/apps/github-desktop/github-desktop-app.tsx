@@ -472,8 +472,7 @@ export function GithubDesktopApp() {
     view.kind === 'repo' &&
     Boolean(branchRemoteSha) &&
     Boolean(branchPushedSha) &&
-    branchRemoteSha !== branchPushedSha &&
-    !canPush
+    branchRemoteSha !== branchPushedSha
 
   useEffect(() => {
     if (view.kind !== 'repo' || !canPush) {
@@ -1780,6 +1779,16 @@ export function GithubDesktopApp() {
             disabled: view.kind !== 'repo' || busy,
             onClick: () => handleSyncPrimary(),
           },
+          ...(canPush && canPull
+            ? [
+                {
+                  type: 'action' as const,
+                  label: '拉取',
+                  disabled: view.kind !== 'repo' || busy,
+                  onClick: () => handlePull(),
+                },
+              ]
+            : []),
           ...(canPush || canPull
             ? [
                 {
@@ -2882,6 +2891,20 @@ export function GithubDesktopApp() {
 
                 {syncMenuOpen ? (
                   <div class="github-desktop__toolbar-foldout github-desktop__toolbar-foldout--sync">
+                    {canPush && canPull ? (
+                      <button
+                        type="button"
+                        class="github-desktop__foldout-item github-desktop__foldout-item--action"
+                        disabled={busy}
+                        onClick={() => {
+                          closeToolbarMenus()
+                          handlePull()
+                        }}
+                      >
+                        <strong>拉取 origin</strong>
+                        <span>将远端新提交变基并入本地（保留未推送 commit）</span>
+                      </button>
+                    ) : undefined}
                     <button
                       type="button"
                       class="github-desktop__foldout-item github-desktop__foldout-item--action"

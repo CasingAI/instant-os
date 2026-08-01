@@ -34,6 +34,7 @@ import {
   persistBaselineFromWorkingTree,
   type GithubChange,
 } from './github-changes.ts'
+import { rebaseUnpushedOntoRemoteTip } from './github-rebase.ts'
 
 /** 仅本地 commit：更新 fileIndex / tip，不调用 GitHub API */
 export async function commitGithubChanges(params: {
@@ -148,36 +149,43 @@ async function pushLocalCommitToRemote(
 
 /** 将尚未推送的本地 commit 链推送到远端分支 */
 export async function pushGithubBranch(meta: GithubRepoSyncMeta): Promise<GithubRepoSyncMeta> {
-  const unpushed = await listUnpushedLocalCommits(meta.owner, meta.repo, meta.currentBranch)
+  // 远端若已超前：先把未推送链接到 live tip，避免非快进 422
+  const synced = await rebaseUnpushedOntoRemoteTip({ meta })
+
+  const unpushed = await listUnpushedLocalCommits(
+    synced.owner,
+    synced.repo,
+    synced.currentBranch,
+  )
   if (unpushed.length === 0) {
     throw new Error('没有可推送的 commit')
   }
 
-  let parentSha = currentBranchPushedSha(meta)
+  let parentSha = currentBranchPushedSha(synced)
   if (!parentSha || isLocalCommitSha(parentSha)) {
     throw new Error('无法推送：缺少已同步到远端的基点，请先获取或拉取')
   }
 
   const mappings: Array<{ localSha: string; remoteSha: string }> = []
   for (const commit of unpushed) {
-    const remoteSha = await pushLocalCommitToRemote(meta, commit, parentSha)
+    const remoteSha = await pushLocalCommitToRemote(synced, commit, parentSha)
     mappings.push({ localSha: commit.sha, remoteSha })
     parentSha = remoteSha
   }
 
   const remoteTipSha = parentSha
-  await githubUpdateBranchRef(meta.owner, meta.repo, meta.currentBranch, remoteTipSha)
-  await finalizePushedLocalCommits(meta.owner, meta.repo, mappings)
+  await githubUpdateBranchRef(synced.owner, synced.repo, synced.currentBranch, remoteTipSha)
+  await finalizePushedLocalCommits(synced.owner, synced.repo, mappings)
 
-  const snap = meta.branches[meta.currentBranch]
+  const snap = synced.branches[synced.currentBranch]
   const next = withRemoteBranchTip(
-    withBranchSnapshot(meta, meta.currentBranch, {
+    withBranchSnapshot(synced, synced.currentBranch, {
       tipSha: remoteTipSha,
       fileIndex: snap?.fileIndex ?? {},
       baselineComplete: snap?.baselineComplete,
       pushedTipSha: remoteTipSha,
     }),
-    meta.currentBranch,
+    synced.currentBranch,
     remoteTipSha,
   )
   next.updatedAt = osNowMs()
