@@ -70,10 +70,10 @@
         top: 50%;
         left: 50%;
         z-index: 1;
-        width: 200px;
-        height: 148px;
-        margin-top: -74px;
-        margin-left: -100px;
+        width: 52px;
+        height: 108px;
+        margin-top: -54px;
+        margin-left: -26px;
       }
 
       .instant-boot-splash__logo {
@@ -112,30 +112,15 @@
         stroke: #ffffff;
         stroke-width: 2;
         stroke-linecap: round;
-        stroke-dasharray: 100;
-        stroke-dashoffset: 100;
-        transform: rotate(-90deg);
+        stroke-dasharray: 20 56;
         transform-origin: 14px 14px;
-        transition: stroke-dashoffset 0.2s ease-out;
+        animation: instant-boot-splash-spin 0.85s linear infinite;
       }
 
-      .instant-boot-splash__status {
-        position: absolute;
-        top: 120px;
-        inset-inline: 0;
-        margin: 0;
-        color: #d4d4d4;
-        font-family:
-          -apple-system,
-          BlinkMacSystemFont,
-          'Segoe UI',
-          sans-serif;
-        font-size: 13px;
-        font-weight: 500;
-        letter-spacing: 0.02em;
-        line-height: 1.4;
-        text-align: center;
-        white-space: nowrap;
+      @keyframes instant-boot-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
     </style>
     <meta name="mobile-web-app-capable" content="yes" />
@@ -163,21 +148,13 @@
         <div class="instant-boot-splash__spinner-slot" aria-hidden="true">
           <svg class="instant-boot-splash__spinner" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
             <circle class="instant-boot-splash__spinner-ring" cx="14" cy="14" r="12" />
-            <circle
-              id="instant-boot-splash-arc"
-              class="instant-boot-splash__spinner-arc"
-              cx="14"
-              cy="14"
-              r="12"
-              pathLength="100"
-            />
+            <circle class="instant-boot-splash__spinner-arc" cx="14" cy="14" r="12" />
           </svg>
         </div>
-        <p id="instant-boot-splash-status" class="instant-boot-splash__status">正在加载系统…</p>
       </div>
     </div>
     <div id="app"></div>
-    <script defer src="/boot-crash-guard.js"></script>
+    <script src="/boot-crash-guard.js"></script>
     <script type="module" id="instant-os-main-module" src="/src/entry.tsx"></script>
   </body>
 </html>

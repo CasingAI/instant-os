@@ -27,11 +27,8 @@ type CrashGuardGlobal = {
   renderCrashScreen: (primaryMessage?: string) => void
   safeString: (value: unknown) => string
   markModuleExecuted: () => void
-  markBootMainLoaded?: () => void
   markBootComplete: () => void
   loadMainModule: () => void
-  setBootStatus?: (message: string) => void
-  setBootProgress?: (ratio: number) => void
 }
 
 const CRASH_DISMISS_EVENT = 'instant-os-crash-dismiss'
@@ -94,10 +91,6 @@ export function dismissCrashScreen(): void {
 
 export function markBootModuleExecuted(): void {
   getCrashGuard()?.markModuleExecuted()
-}
-
-export function markBootMainLoaded(): void {
-  getCrashGuard()?.markBootMainLoaded?.()
 }
 
 export function markBootComplete(): void {

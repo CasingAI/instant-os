@@ -3,7 +3,6 @@ import {
   BootErrorBoundary,
   getCrashTestMode,
   markBootComplete,
-  markBootMainLoaded,
   reportCrash,
 } from './boot/crash-guard.ts'
 import { scheduleEmojiOffsetAutoCalibration } from './fonts/auto-calibrate-emoji-offset.ts'
@@ -16,8 +15,6 @@ import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
 import { preloadSystemSounds, unlockSystemSounds } from './os/system-sounds.ts'
 import { App } from './app.tsx'
 
-// dynamic import 已 resolve：首屏 chunk 已下载，主模块开始执行
-markBootMainLoaded()
 blockBrowserZoom()
 blockDocumentOverscroll()
 unlockSystemSounds()
