@@ -308,6 +308,77 @@ async function testInjectGrep(): Promise<void> {
   console.log('ok: inject instant.grep')
 }
 
+async function testApiAndInjectWish(): Promise<void> {
+  await resetRoot()
+  const host = createMockHost({
+    getFsMode: () => 'readonly',
+    getTerminalSessionId: () => 'smoke-wish-session',
+  })
+  const api = createInstantShellApi(host)
+  const written = await api.wish({
+    summary: '缺少原生 child_process.spawn',
+    category: 'capability',
+    blockedStep: '启动外部编译器',
+    attempted: ['改用可用的 npm 脚本'],
+  })
+  assert.equal(written.duplicated, false)
+  assert.equal(written.path, '/dev/terminal/wishlist.jsonl')
+
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    cwd: ROOT,
+    fsMode: 'readonly',
+    timeoutMs: 10_000,
+    instantShellHost: host,
+  })
+  try {
+    const started = await instance.eval(`
+      var __wishDone = false
+      var __wishResult = null
+      var __wishError = null
+      ;(async function () {
+        try {
+          var r = await instant.wish({
+            summary: '缺少原生 child_process.spawn',
+            category: 'capability',
+            blockedStep: '再次启动编译器',
+          })
+          __wishResult = {
+            duplicated: r.duplicated,
+            wishId: r.wishId,
+            path: r.path,
+          }
+        } catch (e) {
+          __wishError = String(e && e.message ? e.message : e)
+        } finally {
+          __wishDone = true
+        }
+      })()
+      'started'
+    `)
+    assert.equal(started.ok, true)
+    for (let i = 0; i < 50; i += 1) {
+      await sleep(20)
+      const done = await instance.eval('__wishDone')
+      if (done.ok && done.value === true) {
+        break
+      }
+    }
+    const result = await instance.eval('__wishError ? { error: __wishError } : __wishResult')
+    assert.equal(result.ok, true)
+    if (result.ok) {
+      assert.deepEqual(result.value, {
+        duplicated: true,
+        wishId: written.wishId,
+        path: '/dev/terminal/wishlist.jsonl',
+      })
+    }
+  } finally {
+    instance.destroy()
+  }
+  console.log('ok: createInstantShellApi wish + inject instant.wish')
+}
+
 async function main(): Promise<void> {
   await testApiOpenAppAndUrl()
   await testApiOpenPathFileAndFolder()
@@ -316,6 +387,7 @@ async function main(): Promise<void> {
   await testInjectAbsentByDefault()
   await testApiGrep()
   await testInjectGrep()
+  await testApiAndInjectWish()
 }
 
 main().catch((error) => {

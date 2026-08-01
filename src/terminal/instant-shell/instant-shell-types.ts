@@ -239,6 +239,36 @@ export type InstantShellGitApi = {
   stashList: () => Promise<InstantShellGitStashListResult>
 }
 
+/** 客侧 `instant.wish` 的能力缺口类别。 */
+export type InstantShellWishCategory =
+  | 'capability'
+  | 'policy'
+  | 'network'
+  | 'data'
+  | 'tooling'
+  | 'other'
+
+/** 客侧 `instant.wish` 选项。 */
+export type InstantShellWishOptions = {
+  /** 缺口一句话（名词化 backlog 标题） */
+  summary: string
+  category: InstantShellWishCategory
+  /** 当时正要做什么 */
+  blockedStep: string
+  /** 已尝试变通，最多 5 条 */
+  attempted?: string[]
+  /** 可选短补充 */
+  detail?: string
+}
+
+export type InstantShellWishResult = {
+  wishId: string
+  summary: string
+  duplicated: boolean
+  /** 恒为 `/dev/terminal/wishlist.jsonl` */
+  path: string
+}
+
 /** 客侧 `globalThis.instant` 表面（均为 Promise，便于 async 宿主桥）。 */
 export type InstantShellApi = {
   openApp: (appId: string, options?: InstantShellOpenAppOptions) => Promise<void>
@@ -254,6 +284,11 @@ export type InstantShellApi = {
   toggleMaximize: (target: string) => Promise<void>
   /** 在 VFS 中搜索文本（grep 等价） */
   grep: (query: string, options?: InstantShellGrepOptions) => Promise<InstantShellGrepResult>
+  /**
+   * 向平台愿望单登记能力缺口（落盘 `/dev/terminal/wishlist.jsonl`）。
+   * Ask/Plan 只读终端也允许；不期待即时兑现。
+   */
+  wish: (options: InstantShellWishOptions) => Promise<InstantShellWishResult>
   /** GitHub 工作树（非真实 git） */
   git: InstantShellGitApi
 }

@@ -9,7 +9,10 @@ import type {
   InstantShellGrepOptions,
   InstantShellHost,
   InstantShellOpenAppOptions,
+  InstantShellWishCategory,
+  InstantShellWishOptions,
 } from './instant-shell-types.ts'
+import { isWishCategory } from './wishlist-store.ts'
 
 export type InjectInstantShellOptions = {
   context: QuickJSAsyncContext
@@ -261,6 +264,52 @@ function readGitCreateBranchOptions(
   return options
 }
 
+function readWishOptions(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): InstantShellWishOptions {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    throw new Error('wish 选项必须是对象')
+  }
+  const dumped = context.dump(handle)
+  if (dumped === null || typeof dumped !== 'object' || Array.isArray(dumped)) {
+    throw new Error('wish 选项必须是对象')
+  }
+  const record = dumped as Record<string, unknown>
+  if (typeof record.summary !== 'string') {
+    throw new Error('summary 必须是字符串')
+  }
+  if (!isWishCategory(record.category)) {
+    throw new Error(
+      'category 必须是 capability | policy | network | data | tooling | other',
+    )
+  }
+  if (typeof record.blockedStep !== 'string') {
+    throw new Error('blockedStep 必须是字符串')
+  }
+  const options: InstantShellWishOptions = {
+    summary: record.summary,
+    category: record.category as InstantShellWishCategory,
+    blockedStep: record.blockedStep,
+  }
+  if (record.attempted !== undefined) {
+    if (
+      !Array.isArray(record.attempted) ||
+      !record.attempted.every((item) => typeof item === 'string')
+    ) {
+      throw new Error('attempted 必须是字符串数组')
+    }
+    options.attempted = record.attempted as string[]
+  }
+  if (record.detail !== undefined) {
+    if (typeof record.detail !== 'string') {
+      throw new Error('detail 必须是字符串')
+    }
+    options.detail = record.detail
+  }
+  return options
+}
+
 /**
  * 将 `globalThis.instant` 注入 QuickJS（终端专用壳层 API）。
  * 须在 asyncBridge.injectGlobals() 之后调用。
@@ -381,6 +430,10 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
       const grepOptions = readGrepOptions(context, optionsHandle)
       return await api.grep(query, grepOptions)
     }),
+  )
+
+  bind(instant, 'wish', (optionsHandle) =>
+    runAsync(async () => api.wish(readWishOptions(context, optionsHandle))),
   )
 
   const git = context.newObject()

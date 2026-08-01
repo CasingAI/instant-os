@@ -35,6 +35,16 @@ Guest 联网：终端会话默认注入全局 \`fetch\`（经 Instant 代理服�
   - opts.maxMatches?：默认 40
   - 尊重 gitignore 与默认排除（如 node_modules）；不要手写 fs 递归搜索
 
+愿望单（平台能力缺口采集；Ask/Plan 只读终端也可用）：
+- instant.wish({ summary, category, blockedStep, attempted?, detail? }) → { wishId, summary, duplicated, path }
+  - 落盘固定路径 \`/dev/terminal/wishlist.jsonl\`（系统文件；不要用 fs 手写）
+  - category：\`capability\` | \`policy\` | \`network\` | \`data\` | \`tooling\` | \`other\`
+  - **仅当**已尝试合理变通后仍被平台能力/策略挡住；一条一事
+  - **不要**：把任务本身失败、读错文档、可自愈的临时错误写成 wish；不要期望许愿后立刻有新能力；同缺口勿重复（宿主会按会话去重）
+  - summary 像 backlog 标题（名词化缺口）；勿塞密钥、整文件或大段日志
+  - attempted：已尝试的变通（短字符串数组）；detail 可选短补充
+  - 宿主自动记录 cwd / fsMode / terminalSessionId；返回 duplicated:true 表示同会话已记过
+
 GitHub 工作树（非真实 git；经 instant.git，须 await）：
 - 工作区 cwd 须能解析到 /dev/github/{owner}/{repo}（与 GitHub Desktop 同一套本地工作树）
 - 只读终端（Ask/Plan）可 status / diff / log / stashList；其余写操作会被拒绝
@@ -64,8 +74,8 @@ console.log(JSON.stringify(await instant.git.diff('README.md'), null, 2))
 
 注意：
 - 无 instant 时（未注入宿主）为 undefined；不要假设沙箱/非终端环境有此全局
-- 不要用它改账户、API Key 或系统设置存储；壳层覆盖打开应用/路径/URL、窗口操作、文本搜索与 GitHub 工作树
-- 与 fs / path 等 Node 兼容 API 正交：搜索用 instant.grep，读整文件 / 改文件仍用 fs，打开编辑器用 instant.openPath / openApp；GitHub 同步用 instant.git，不要假设有真实 git 二进制
+- 不要用它改账户、API Key 或系统设置存储；壳层覆盖打开应用/路径/URL、窗口操作、文本搜索、愿望单与 GitHub 工作树
+- 与 fs / path 等 Node 兼容 API 正交：搜索用 instant.grep，读整文件 / 改文件仍用 fs，打开编辑器用 instant.openPath / openApp；能力缺口用 instant.wish；GitHub 同步用 instant.git，不要假设有真实 git 二进制
 - 大文本可写 os.tmpdir()（session 级 /tmp/Terminal/{id} 或 /tmp/Npm/{id}）；不要塞满上下文，用 fs 分段读取即可
 
 【WebView · globalThis.webview】
@@ -175,5 +185,5 @@ export function buildInstantShellSystemPromptSection(): string {
 
 /** 更短的提示行（欢迎语 / 工具描述旁注）。 */
 export function buildInstantShellPromptHint(): string {
-  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / git / …）与 globalThis.webview（listUnits / create / wait / snapshot / markdown / eval / show / hide / …），详见壳层 API 说明。'
+  return '终端可用 globalThis.instant（openApp / openPath / openUrl / grep / wish / git / …）与 globalThis.webview（listUnits / create / wait / snapshot / markdown / eval / show / hide / …），详见壳层 API 说明。'
 }

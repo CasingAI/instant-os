@@ -36,8 +36,17 @@ import type {
   InstantShellGrepResult,
   InstantShellHost,
   InstantShellOpenAppOptions,
+  InstantShellWishOptions,
+  InstantShellWishResult,
 } from './instant-shell-types.ts'
 import { normalizeInstantShellUrl } from './instant-shell-url.ts'
+import { osNowMs } from '../../os/os-clock.ts'
+import {
+  WISHLIST_PATH,
+  appendWish,
+  findDuplicateWish,
+  normalizeWishOptions,
+} from './wishlist-store.ts'
 
 function assertOpenAppOptions(options?: InstantShellOpenAppOptions): InstantShellOpenAppOptions | undefined {
   if (options === undefined) {
@@ -374,6 +383,44 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     }
   }
 
+  const wish = async (options: InstantShellWishOptions): Promise<InstantShellWishResult> => {
+    const normalized = normalizeWishOptions(options)
+    const terminalSessionId = host.getTerminalSessionId()
+    const duplicate = await findDuplicateWish({
+      terminalSessionId,
+      category: normalized.category,
+      summary: normalized.summary,
+    })
+    if (duplicate) {
+      return {
+        wishId: duplicate.id,
+        summary: duplicate.summary,
+        duplicated: true,
+        path: WISHLIST_PATH,
+      }
+    }
+
+    const wishId = crypto.randomUUID()
+    await appendWish({
+      id: wishId,
+      createdAt: osNowMs(),
+      summary: normalized.summary,
+      category: normalized.category,
+      blockedStep: normalized.blockedStep,
+      attempted: normalized.attempted,
+      detail: normalized.detail,
+      cwd: host.getCwd(),
+      fsMode: host.getFsMode(),
+      terminalSessionId,
+    })
+    return {
+      wishId,
+      summary: normalized.summary,
+      duplicated: false,
+      path: WISHLIST_PATH,
+    }
+  }
+
   return {
     openApp,
     openPath,
@@ -387,6 +434,7 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
     toggleFullscreen,
     toggleMaximize,
     grep,
+    wish,
     git: createInstantShellGitApi(host),
   }
 }
