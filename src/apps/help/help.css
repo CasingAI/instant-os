@@ -338,6 +338,7 @@
 }
 
 .help-app__reasoning-status--live {
+  align-items: center;
   overflow: hidden;
 }
 
