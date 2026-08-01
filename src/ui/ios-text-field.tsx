@@ -86,6 +86,7 @@ export function IosTextField({
         <i />
         <i />
       </span>
+      <span class="ios-text-field__spinner" aria-hidden="true" />
     </span>
   )
 }

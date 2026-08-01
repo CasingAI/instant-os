@@ -76,16 +76,13 @@
   font-size: 12px;
 }
 
+/* 流式气泡占满可用行宽，避免「模型正在思考」snippet 把宽度撑来撑去 */
 .vscode-ai .help-app__message--assistant .help-app__bubble--live {
-  flex: 0 1 auto;
-  align-self: flex-start;
-  width: fit-content;
-  max-width: min(var(--help-bubble-max), calc(100% - 40px));
-}
-
-.vscode-ai .help-app__bubble--live .help-app__reasoning-toggle,
-.vscode-ai .help-app__bubble--live .vscode-ai__write-card-toggle {
+  flex: 1 1 auto;
+  align-self: stretch;
   width: auto;
+  min-width: 0;
+  max-width: min(var(--help-bubble-max), calc(100% - 40px));
 }
 
 .vscode-ai__edit-card {
@@ -670,7 +667,15 @@
   border-radius: 8px;
 }
 
-.vscode-ai__composer .help-app__input {
+.vscode-ai__composer-input-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.vscode-ai__composer .help-app__input,
+.vscode-ai__composer-input-wrap .help-app__input {
   flex: none;
   width: 100%;
   min-height: 18px;
@@ -682,6 +687,120 @@
   overflow-y: hidden;
   transition: height 0.18s ease;
   box-sizing: content-box;
+}
+
+.vscode-ai__composer-input--dictating {
+  padding-right: 26px;
+}
+
+.vscode-ai__composer--dictating.vscode-ai__composer,
+.vscode-ai__composer--dictating.vscode-ai__bubble-edit {
+  box-shadow:
+    0 0 0 1px rgba(224, 122, 58, 0.45),
+    0 0 0 3px rgba(224, 122, 58, 0.16);
+}
+
+.vscode-ai__composer-input-wave,
+.vscode-ai__composer-input-spinner {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.vscode-ai__composer-input-wave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 18px;
+  height: 14px;
+}
+
+.vscode-ai__composer-input-spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(224, 122, 58, 0.22);
+  border-top-color: #e07a3a;
+  border-radius: 50%;
+}
+
+.vscode-ai__composer-input-wrap--recording .vscode-ai__composer-input-wave,
+.vscode-ai__composer-input-wrap--recognizing .vscode-ai__composer-input-spinner {
+  opacity: 1;
+  visibility: visible;
+}
+
+.vscode-ai__composer-input-wrap--recognizing .vscode-ai__composer-input-spinner {
+  animation: vscode-ai-dictation-spin 0.7s linear infinite;
+}
+
+.vscode-ai__composer-input-wave i {
+  display: block;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: #e07a3a;
+  transform-origin: center center;
+  transform: scaleY(0.35);
+}
+
+.vscode-ai__composer-input-wrap--recording .vscode-ai__composer-input-wave i {
+  animation: vscode-ai-dictation-bar 0.45s ease-in-out infinite;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(3) {
+  animation-delay: 0.16s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(4) {
+  animation-delay: 0.24s;
+}
+
+.vscode-ai__composer-input-wave i:nth-child(5) {
+  animation-delay: 0.12s;
+}
+
+@keyframes vscode-ai-dictation-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes vscode-ai-dictation-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vscode-ai__composer-input-wrap--recording .vscode-ai__composer-input-wave i {
+    animation: none;
+    transform: scaleY(0.45);
+  }
+
+  .vscode-ai__composer-input-wrap--recognizing .vscode-ai__composer-input-spinner {
+    animation: none;
+  }
 }
 
 .vscode-ai__composer-footer {

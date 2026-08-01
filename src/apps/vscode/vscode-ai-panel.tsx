@@ -5,6 +5,7 @@ import {
   formatHumanDurationMs,
   formatThinkingDurationMs,
 } from '../../ai/format-human-duration.ts'
+import { useSpeechDictation } from '../../ai/use-speech-dictation.ts'
 import { isStreamAbortError } from '../../ai/stream-abort.ts'
 import { buildLiveAnswerClassName, HelpMarkdown } from '../help/help-markdown.tsx'
 import { SettingsChoiceField } from '../../ui/settings-choice-field.tsx'
@@ -243,6 +244,16 @@ type VscodeAiComposerBlockProps = {
   surface?: 'composer' | 'bubble'
 }
 
+function dictationWrapPhaseClass(phase: string): string {
+  if (phase === 'arming' || phase === 'recording') {
+    return 'vscode-ai__composer-input-wrap--recording'
+  }
+  if (phase === 'recognizing') {
+    return 'vscode-ai__composer-input-wrap--recognizing'
+  }
+  return ''
+}
+
 function VscodeAiComposerBlock({
   value,
   onChange,
@@ -265,12 +276,30 @@ function VscodeAiComposerBlock({
   dark,
   surface = 'composer',
 }: VscodeAiComposerBlockProps) {
-  const rootClass =
+  const dictation = useSpeechDictation({
+    as: 'textarea',
+    disabled: inputDisabled,
+  })
+  const rootClass = [
     surface === 'bubble'
       ? 'vscode-ai__bubble-edit'
-      : 'help-app__composer vscode-ai__composer'
-  const inputClass =
-    surface === 'bubble' ? 'vscode-ai__bubble-edit-input' : 'help-app__input'
+      : 'help-app__composer vscode-ai__composer',
+    dictation.isDictating ? 'vscode-ai__composer--dictating' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const inputWrapClass = [
+    'vscode-ai__composer-input-wrap',
+    dictationWrapPhaseClass(dictation.phase),
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const inputClass = [
+    surface === 'bubble' ? 'vscode-ai__bubble-edit-input' : 'help-app__input',
+    dictation.isDictating ? 'vscode-ai__composer-input--dictating' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
   const selectClass =
     surface === 'bubble'
       ? 'vscode-ai__bubble-edit-select'
@@ -278,21 +307,40 @@ function VscodeAiComposerBlock({
 
   return (
     <div class={rootClass}>
-      <textarea
-        ref={inputRef}
-        class={inputClass}
-        rows={1}
-        placeholder={placeholder}
-        value={value}
-        disabled={inputDisabled}
-        onInput={(event) => onChange((event.target as HTMLTextAreaElement).value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            onSend()
-          }
-        }}
-      />
+      <div class={inputWrapClass}>
+        <textarea
+          ref={inputRef}
+          class={inputClass}
+          rows={1}
+          placeholder={placeholder}
+          value={value}
+          disabled={inputDisabled}
+          onInput={(event) => onChange((event.target as HTMLTextAreaElement).value)}
+          onKeyDown={(event) => {
+            dictation.onKeyDown(event)
+            if (dictation.phase !== 'idle') {
+              if (event.key === 'Enter') event.preventDefault()
+              return
+            }
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              onSend()
+            }
+          }}
+          onKeyUp={dictation.onKeyUp}
+          onBlur={dictation.onBlur}
+          onCompositionStart={dictation.onCompositionStart}
+          onCompositionEnd={dictation.onCompositionEnd}
+        />
+        <span class="vscode-ai__composer-input-wave" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+        <span class="vscode-ai__composer-input-spinner" aria-hidden="true" />
+      </div>
       <div
         class={
           surface === 'bubble'

@@ -22,9 +22,13 @@ export type SpeechDictationPhase =
   | 'recording'
   | 'recognizing'
 
+export type SpeechDictationElement = HTMLInputElement | HTMLTextAreaElement
+
 export type UseSpeechDictationOptions = {
   /** undefined = 跟随 speechApp；false = 强制关闭；true = 在 speechApp 开启时启用 */
   voiceDictation?: boolean
+  /** 默认 input；textarea 不校验 type 白名单 */
+  as?: 'input' | 'textarea'
   type?: string
   disabled?: boolean
   readOnly?: boolean
@@ -34,11 +38,11 @@ export type SpeechDictationBind = {
   phase: SpeechDictationPhase
   /** recording / arming / recognizing 时为 true，用于样式 */
   isDictating: boolean
-  onKeyDown: JSX.GenericEventHandler<HTMLInputElement>
-  onKeyUp: JSX.GenericEventHandler<HTMLInputElement>
-  onBlur: JSX.GenericEventHandler<HTMLInputElement>
-  onCompositionStart: JSX.GenericEventHandler<HTMLInputElement>
-  onCompositionEnd: JSX.GenericEventHandler<HTMLInputElement>
+  onKeyDown: JSX.GenericEventHandler<SpeechDictationElement>
+  onKeyUp: JSX.GenericEventHandler<SpeechDictationElement>
+  onBlur: JSX.GenericEventHandler<SpeechDictationElement>
+  onCompositionStart: JSX.GenericEventHandler<SpeechDictationElement>
+  onCompositionEnd: JSX.GenericEventHandler<SpeechDictationElement>
 }
 
 function isAllowedInputType(type: string | undefined): boolean {
@@ -56,7 +60,7 @@ function isSpaceKey(event: KeyboardEvent): boolean {
 export function useSpeechDictation(
   options: UseSpeechDictationOptions = {},
 ): SpeechDictationBind {
-  const { voiceDictation, type = 'text', disabled, readOnly } = options
+  const { voiceDictation, as = 'input', type = 'text', disabled, readOnly } = options
 
   const [speechApp, setSpeechApp] = useState(
     () => loadExperimentalSettings().speechApp === true,
@@ -80,7 +84,11 @@ export function useSpeechDictation(
   }, [])
 
   const featureEnabled =
-    voiceDictation !== false && speechApp && isAllowedInputType(type) && !disabled && !readOnly
+    voiceDictation !== false &&
+    speechApp &&
+    (as === 'textarea' || isAllowedInputType(type)) &&
+    !disabled &&
+    !readOnly
 
   const featureEnabledRef = useRef(featureEnabled)
   featureEnabledRef.current = featureEnabled
@@ -131,7 +139,7 @@ export function useSpeechDictation(
     }
   }, [])
 
-  const finishRecording = useCallback(async (el: HTMLInputElement) => {
+  const finishRecording = useCallback(async (el: SpeechDictationElement) => {
     const recorder = recorderRef.current
     recorderRef.current = undefined
     if (!recorder) {
@@ -170,7 +178,7 @@ export function useSpeechDictation(
   }, [])
 
   const onKeyDown = useCallback(
-    (event: JSX.TargetedKeyboardEvent<HTMLInputElement>) => {
+    (event: JSX.TargetedKeyboardEvent<SpeechDictationElement>) => {
       if (!featureEnabledRef.current) return
       if (composingRef.current) return
       if (!isSpaceKey(event as unknown as KeyboardEvent)) return
@@ -204,7 +212,7 @@ export function useSpeechDictation(
   )
 
   const onKeyUp = useCallback(
-    (event: JSX.TargetedKeyboardEvent<HTMLInputElement>) => {
+    (event: JSX.TargetedKeyboardEvent<SpeechDictationElement>) => {
       if (!isSpaceKey(event as unknown as KeyboardEvent)) return
 
       const current = phaseRef.current

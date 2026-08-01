@@ -64,17 +64,13 @@
     0 0 0 2px rgba(224, 122, 58, 0.22);
 }
 
-/* 声波条：默认隐藏，听写态显示 */
-.ios-text-field__wave {
+/* 收听：声波条；识别中：旋转圆环 */
+.ios-text-field__wave,
+.ios-text-field__spinner {
   position: absolute;
   top: 50%;
   right: 8px;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 18px;
-  height: 14px;
   margin: 0;
   padding: 0;
   pointer-events: none;
@@ -84,10 +80,31 @@
   transition: opacity 0.12s ease;
 }
 
+.ios-text-field__wave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 18px;
+  height: 14px;
+}
+
+.ios-text-field__spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(224, 122, 58, 0.22);
+  border-top-color: #e07a3a;
+  border-radius: 50%;
+}
+
 .ios-text-field-wrap--recording .ios-text-field__wave,
-.ios-text-field-wrap--recognizing .ios-text-field__wave {
+.ios-text-field-wrap--recognizing .ios-text-field__spinner {
   opacity: 1;
   visibility: visible;
+}
+
+.ios-text-field-wrap--recognizing .ios-text-field__spinner {
+  animation: ios-dictation-spin 0.7s linear infinite;
 }
 
 .ios-text-field__wave i {
@@ -102,10 +119,6 @@
 
 .ios-text-field-wrap--recording .ios-text-field__wave i {
   animation: ios-dictation-bar 0.45s ease-in-out infinite;
-}
-
-.ios-text-field-wrap--recognizing .ios-text-field__wave i {
-  animation: ios-dictation-bar-soft 0.9s ease-in-out infinite;
 }
 
 .ios-text-field__wave i:nth-child(1) {
@@ -138,13 +151,9 @@
   }
 }
 
-@keyframes ios-dictation-bar-soft {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(0.65);
+@keyframes ios-dictation-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
   }
 }
 
@@ -170,9 +179,12 @@
     animation: none;
   }
 
-  .ios-text-field-wrap--recording .ios-text-field__wave i,
-  .ios-text-field-wrap--recognizing .ios-text-field__wave i {
+  .ios-text-field-wrap--recording .ios-text-field__wave i {
     animation: none;
     transform: scaleY(0.45);
+  }
+
+  .ios-text-field-wrap--recognizing .ios-text-field__spinner {
+    animation: none;
   }
 }
