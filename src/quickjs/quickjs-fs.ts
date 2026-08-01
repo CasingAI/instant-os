@@ -361,7 +361,7 @@ const HOST_FS_WRITE_CHUNK_KEY = '__instantFsWriteChunk'
 const HOST_FS_CLOSE_WRITE_KEY = '__instantFsCloseWrite'
 
 type FsReadStreamState = { bytes: Uint8Array; offset: number; path: string }
-type FsWriteStreamState = { path: string; written: number }
+type FsWriteStreamState = { path: string; written: number; chunks: Uint8Array[] }
 
 function injectFsStreams(params: {
   context: QuickJSAsyncContext
@@ -457,7 +457,7 @@ function injectFsStreams(params: {
       await fsHostWriteFile(ops, raw, new Uint8Array(0))
       const absolute = resolveGuestFsPath(raw, ops.getCwd)
       const id = nextId++
-      writes.set(id, { path: absolute, written: 0 })
+      writes.set(id, { path: absolute, written: 0, chunks: [] })
       return context.newNumber(id)
     }),
   )
@@ -467,35 +467,47 @@ function injectFsStreams(params: {
   const writeChunk = context.newFunction(HOST_FS_WRITE_CHUNK_KEY, (idHandle, dataHandle) => {
     const id = context.getNumber(idHandle)
     const bytes = readGuestBytes(context, dataHandle)
-    return runHostPromise(async () => {
-      const state = writes.get(id)
-      if (!state) {
-        throw new QuickJsFsError('EBADF', 'WriteStream closed')
-      }
-      const next = state.written + bytes.byteLength
-      if (next > ops.maxFileBytes) {
-        throw new QuickJsFsError(
-          'ERR_FS_FILE_TOO_LARGE',
-          `WriteStream exceeds maxFileBytes (${ops.maxFileBytes})`,
-          { path: state.path, syscall: 'write' },
-        )
-      }
-      if (state.written === 0 && bytes.byteLength > 0) {
-        await fsHostWriteFile(ops, state.path, bytes)
-      } else if (bytes.byteLength > 0) {
-        await fsHostAppendFile(ops, state.path, bytes)
-      }
+    const state = writes.get(id)
+    if (!state) {
+      throw new QuickJsFsError('EBADF', 'WriteStream closed')
+    }
+    const next = state.written + bytes.byteLength
+    if (next > ops.maxFileBytes) {
+      throw new QuickJsFsError(
+        'ERR_FS_FILE_TOO_LARGE',
+        `WriteStream exceeds maxFileBytes (${ops.maxFileBytes})`,
+        { path: state.path, syscall: 'write' },
+      )
+    }
+    if (bytes.byteLength > 0) {
+      state.chunks.push(bytes.slice())
       state.written = next
-      return context.undefined
-    })
+    }
+    return context.undefined
   })
   context.setProp(context.global, HOST_FS_WRITE_CHUNK_KEY, writeChunk)
   writeChunk.dispose()
 
-  const closeWrite = context.newFunction(HOST_FS_CLOSE_WRITE_KEY, (idHandle) => {
-    writes.delete(context.getNumber(idHandle))
-    return context.undefined
-  })
+  const closeWrite = context.newFunction(HOST_FS_CLOSE_WRITE_KEY, (idHandle) =>
+    runHostPromise(async () => {
+      const id = context.getNumber(idHandle)
+      const state = writes.get(id)
+      if (!state) {
+        return context.undefined
+      }
+      writes.delete(id)
+      if (state.written > 0) {
+        const merged = new Uint8Array(state.written)
+        let offset = 0
+        for (const chunk of state.chunks) {
+          merged.set(chunk, offset)
+          offset += chunk.byteLength
+        }
+        await fsHostWriteFile(ops, state.path, merged)
+      }
+      return context.undefined
+    }),
+  )
   context.setProp(context.global, HOST_FS_CLOSE_WRITE_KEY, closeWrite)
   closeWrite.dispose()
 
@@ -581,34 +593,86 @@ function injectFsStreams(params: {
   inherits(WriteStream, Writable);
   WriteStream.prototype._write = function _write(chunk, encoding, cb) {
     var self = this;
-    Promise.resolve(this._ready)
-      .then(function () {
-        return globalThis.${HOST_FS_WRITE_CHUNK_KEY}(self._sid, chunk);
-      })
-      .then(function () {
+    var data = chunk;
+    if (typeof chunk === 'string') {
+      data = Buffer.from(chunk, encoding || 'utf8');
+    }
+    function run() {
+      try {
+        globalThis.${HOST_FS_WRITE_CHUNK_KEY}(self._sid, data);
         cb();
-      }, function (err) {
+      } catch (err) {
         cb(err);
-      });
+      }
+    }
+    if (self._sid != null) {
+      run();
+      return;
+    }
+    Promise.resolve(this._ready).then(function () {
+      run();
+    }, cb);
   };
   WriteStream.prototype.end = function end(chunk, encoding, cb) {
     var self = this;
-    var origCb =
+    var userCb =
       typeof chunk === 'function' ? chunk : typeof encoding === 'function' ? encoding : cb;
-    function wrapped(err) {
-      if (self._sid != null) {
-        globalThis.${HOST_FS_CLOSE_WRITE_KEY}(self._sid);
-        self._sid = null;
-      }
-      if (typeof origCb === 'function') origCb(err);
-    }
     if (typeof chunk === 'function') {
-      return Writable.prototype.end.call(this, wrapped);
+      chunk = null;
+      encoding = null;
+    } else if (typeof encoding === 'function') {
+      encoding = null;
     }
-    if (typeof encoding === 'function') {
-      return Writable.prototype.end.call(this, chunk, wrapped);
+    var state = this._writableState;
+    state.ending = true;
+
+    function afterDiskFlush(err) {
+      if (err) {
+        self.emit('error', err);
+        if (typeof userCb === 'function') userCb(err);
+        return;
+      }
+      self.writable = false;
+      self.writableEnded = true;
+      state.ended = true;
+      self.emit('finish');
+      self.emit('end');
+      if (typeof userCb === 'function') userCb();
     }
-    return Writable.prototype.end.call(this, chunk, encoding, wrapped);
+
+    function flushToDisk() {
+      if (self._sid != null) {
+        var sid = self._sid;
+        self._sid = null;
+        Promise.resolve(globalThis.${HOST_FS_CLOSE_WRITE_KEY}(sid)).then(function () {
+          afterDiskFlush();
+        }, afterDiskFlush);
+        return;
+      }
+      afterDiskFlush();
+    }
+
+    function whenQueueDrained() {
+      if (state.writing || state.queue.length > 0) {
+        self.once('__writeIdle', whenQueueDrained);
+        return;
+      }
+      flushToDisk();
+    }
+
+    if (chunk != null && chunk !== '') {
+      this.write(chunk, encoding, function (err) {
+        if (err) {
+          if (typeof userCb === 'function') userCb(err);
+          return;
+        }
+        whenQueueDrained();
+      });
+    } else {
+      this._writeNext();
+      whenQueueDrained();
+    }
+    return this;
   };
 
   function createReadStream(path, options) {

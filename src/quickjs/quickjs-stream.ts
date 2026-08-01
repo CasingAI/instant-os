@@ -393,7 +393,17 @@ const QUICKJS_STREAM_GUEST_SOURCE = `(function () {
 
   Transform.prototype.end = function end(chunk, encoding, cb) {
     var self = this;
-    var orig = Writable.prototype.end;
+    var state = this._writableState;
+    if (typeof chunk === 'function') {
+      cb = chunk;
+      chunk = null;
+      encoding = null;
+    } else if (typeof encoding === 'function') {
+      cb = encoding;
+      encoding = null;
+    }
+    state.ending = true;
+
     function afterFlush(err) {
       if (err) {
         self.emit('error', err);
@@ -401,28 +411,33 @@ const QUICKJS_STREAM_GUEST_SOURCE = `(function () {
         return;
       }
       self.push(null);
+      self.writable = false;
+      self.writableEnded = true;
+      state.ended = true;
+      self.emit('finish');
+      self.emit('end');
       if (typeof cb === 'function') cb();
     }
-    if (typeof chunk === 'function') {
-      cb = chunk;
-      chunk = null;
-    } else if (typeof encoding === 'function') {
-      cb = encoding;
-      encoding = null;
-    }
-    function doFlush() {
+
+    function whenQueueDrained() {
+      if (state.writing || state.queue.length > 0) {
+        self.once('__writeIdle', whenQueueDrained);
+        return;
+      }
       self._flush(afterFlush);
     }
+
     if (chunk != null && chunk !== '') {
       this.write(chunk, encoding, function (err) {
         if (err) {
           if (typeof cb === 'function') cb(err);
           return;
         }
-        doFlush();
+        whenQueueDrained();
       });
     } else {
-      doFlush();
+      this._writeNext();
+      whenQueueDrained();
     }
     return this;
   };

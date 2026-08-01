@@ -1755,10 +1755,19 @@ export default {
     var crypto = require('crypto')
     var h = crypto.createHash('sha256').update('abc').digest('hex')
     var mac = crypto.createHmac('sha256', 'key').update('msg').digest('hex')
+    var latin = crypto.createHash('sha256').update('abc').digest('latin1')
+    var badEnc = false
+    try {
+      crypto.createHash('sha256').update('x').digest('bogus')
+    } catch (e) {
+      badEnc = true
+    }
     ;({
       hashLen: h.length === 64,
       hmacLen: mac.length === 64,
       hashDiff: h !== mac,
+      latinLen: typeof latin === 'string' && latin.length === 32,
+      badEnc,
     })
   `)
   if (!cryptoHashSmoke.ok) {
@@ -1767,6 +1776,9 @@ export default {
   const hashVal = cryptoHashSmoke.value as Record<string, unknown>
   if (hashVal.hashLen !== true || hashVal.hmacLen !== true || hashVal.hashDiff !== true) {
     throw new Error(`unexpected crypto hash: ${JSON.stringify(hashVal)}`)
+  }
+  if (hashVal.latinLen !== true || hashVal.badEnc !== true) {
+    throw new Error(`unexpected crypto digest encoding: ${JSON.stringify(hashVal)}`)
   }
 
   const parseArgsSmoke = await timerInstance.eval(`
@@ -1858,6 +1870,8 @@ export default {
         var r = new stream.Readable({ read: function () {} })
         var gz = zlib.createGzip()
         var gun = zlib.createGunzip()
+        var gzFinished = false
+        gz.on('finish', function () { gzFinished = true })
         gun.on('data', function (c) { chunks.push(Buffer.from(c)) })
         gun.on('end', function () {
           try {
@@ -1882,12 +1896,6 @@ export default {
     })()`,
     { waitUntilIdle: true },
   )
-  streamFsInstance.destroy()
-  try {
-    await filesRemove(streamFsRoot)
-  } catch {
-    // ok
-  }
   if (!streamFsSmoke.ok) {
     throw new Error(`stream/fs/zlib smoke failed: ${JSON.stringify(streamFsSmoke)}`)
   }
@@ -1898,6 +1906,35 @@ export default {
     sfsVal.hasCreateRead !== true
   ) {
     throw new Error(`unexpected stream/fs/zlib smoke: ${JSON.stringify(sfsVal)}`)
+  }
+
+  const streamFsMultiChunk = await streamFsInstance.eval(
+    `(async function () {
+      var fs = require('fs')
+      return await new Promise(function (resolve, reject) {
+        var ws = fs.createWriteStream('chunks.bin')
+        ws.on('error', reject)
+        ws.on('finish', function () {
+          try {
+            resolve(fs.readFileSync('chunks.bin').length)
+          } catch (e) { reject(e) }
+        })
+        for (var i = 0; i < 64; i++) {
+          ws.write(Buffer.from('xy'))
+        }
+        ws.end()
+      })
+    })()`,
+    { waitUntilIdle: true },
+  )
+  streamFsInstance.destroy()
+  try {
+    await filesRemove(streamFsRoot)
+  } catch {
+    // ok
+  }
+  if (!streamFsMultiChunk.ok || streamFsMultiChunk.value !== 128) {
+    throw new Error(`unexpected multi-chunk write: ${JSON.stringify(streamFsMultiChunk)}`)
   }
 
   const fetchOff = await timerInstance.eval(`typeof globalThis.fetch === 'undefined'`)

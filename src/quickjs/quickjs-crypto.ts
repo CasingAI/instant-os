@@ -164,6 +164,34 @@ function isAbsentHandle(context: QuickJSContext, handle: QuickJSHandle | undefin
   return context.typeof(handle) === 'undefined' || context.typeof(handle) === 'null'
 }
 
+function formatDigest(
+  context: QuickJSContext,
+  digest: Uint8Array,
+  encHandle: QuickJSHandle | undefined,
+): QuickJSHandle {
+  if (isAbsentHandle(context, encHandle)) {
+    return hostBytesToGuestBuffer(context, digest)
+  }
+  const enc = dumpArgString(context, encHandle!).toLowerCase()
+  if (enc === 'hex') {
+    return context.newString(
+      [...digest].map((b) => b.toString(16).padStart(2, '0')).join(''),
+    )
+  }
+  if (enc === 'base64') {
+    let binary = ''
+    for (const b of digest) binary += String.fromCharCode(b)
+    return context.newString(btoa(binary))
+  }
+  if (enc === 'latin1' || enc === 'binary') {
+    return hostBytesToGuestBuffer(context, digest)
+  }
+  if (enc === 'utf8' || enc === 'utf-8') {
+    return context.newString(new TextDecoder('utf8').decode(digest))
+  }
+  throw new Error(`Unknown encoding: ${enc}`)
+}
+
 function installHostBridges(context: QuickJSContext): () => void {
   let nextId = 1
   const hashes = new Map<number, HashLike>()
@@ -219,20 +247,7 @@ function installHostBridges(context: QuickJSContext): () => void {
     if (!h) throw new Error('Hash instance disposed or unknown')
     hashes.delete(id)
     const digest = h.digest()
-    if (!isAbsentHandle(context, encHandle)) {
-      const enc = dumpArgString(context, encHandle!).toLowerCase()
-      if (enc === 'hex') {
-        return context.newString(
-          [...digest].map((b) => b.toString(16).padStart(2, '0')).join(''),
-        )
-      }
-      if (enc === 'base64') {
-        let binary = ''
-        for (const b of digest) binary += String.fromCharCode(b)
-        return context.newString(btoa(binary))
-      }
-    }
-    return hostBytesToGuestBuffer(context, digest)
+    return formatDigest(context, digest, encHandle)
   })
   context.setProp(context.global, HOST_HASH_DIGEST_KEY, hashDigestFn)
   hashDigestFn.dispose()
@@ -272,20 +287,7 @@ function installHostBridges(context: QuickJSContext): () => void {
     if (!h) throw new Error('Hmac instance disposed or unknown')
     hmacs.delete(id)
     const digest = h.digest()
-    if (!isAbsentHandle(context, encHandle)) {
-      const enc = dumpArgString(context, encHandle!).toLowerCase()
-      if (enc === 'hex') {
-        return context.newString(
-          [...digest].map((b) => b.toString(16).padStart(2, '0')).join(''),
-        )
-      }
-      if (enc === 'base64') {
-        let binary = ''
-        for (const b of digest) binary += String.fromCharCode(b)
-        return context.newString(btoa(binary))
-      }
-    }
-    return hostBytesToGuestBuffer(context, digest)
+    return formatDigest(context, digest, encHandle)
   })
   context.setProp(context.global, HOST_HMAC_DIGEST_KEY, hmacDigestFn)
   hmacDigestFn.dispose()
@@ -347,7 +349,11 @@ const QUICKJS_CRYPTO_GUEST_SOURCE = `(function () {
       throw new Error('Digest already called');
     }
     this._done = true;
-    return globalThis.${HOST_HASH_DIGEST_KEY}(this._id, encoding);
+    var out = globalThis.${HOST_HASH_DIGEST_KEY}(this._id, encoding);
+    if (encoding === 'latin1' || encoding === 'binary') {
+      return Buffer.isBuffer(out) ? out.toString('latin1') : out;
+    }
+    return out;
   };
 
   function Hmac(id) {
@@ -370,7 +376,11 @@ const QUICKJS_CRYPTO_GUEST_SOURCE = `(function () {
       throw new Error('Digest already called');
     }
     this._done = true;
-    return globalThis.${HOST_HMAC_DIGEST_KEY}(this._id, encoding);
+    var out = globalThis.${HOST_HMAC_DIGEST_KEY}(this._id, encoding);
+    if (encoding === 'latin1' || encoding === 'binary') {
+      return Buffer.isBuffer(out) ? out.toString('latin1') : out;
+    }
+    return out;
   };
 
   function createHash(algorithm) {
