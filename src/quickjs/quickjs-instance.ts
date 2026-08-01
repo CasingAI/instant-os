@@ -346,6 +346,8 @@ export async function createQuickJsInstance(
   let activeSliceTimeoutMs = defaultTimeoutMs
   let activeJournal: TerminalFsJournal | undefined
   let lastChanges: TerminalChangeSet | undefined
+  /** 本轮 eval 期间宿主侧（如 instant.git）产生、待 seal 时合并进 lastChanges 的变更。 */
+  let pendingExternalChangeSets: TerminalChangeSet[] | undefined
   const processState = createProcessState(
     hostConfig.workspaceRoot,
     hostConfig.env,
@@ -850,6 +852,7 @@ while (promiseState.type === 'pending') {
       if (result && changes) {
         result = { ...result, changes }
       }
+      mergePendingExternalChangeSets()
       if (!state.destroyed) {
         asyncBridge.flushHostTasks()
       }
@@ -859,6 +862,33 @@ while (promiseState.type === 'pending') {
   }
 
   const getLastChanges = (): TerminalChangeSet | undefined => lastChanges
+
+  /**
+   * 记录本轮 eval 期间宿主侧（如 instant.git）产生的工作树变更；
+   * 在 seal 时与 FS journal 合并进 lastChanges。
+   */
+  const noteExternalChangeSet = (changeSet: TerminalChangeSet): void => {
+    if (changeSet.changes.length === 0) return
+    pendingExternalChangeSets ??= []
+    pendingExternalChangeSets.push(changeSet)
+  }
+
+  /** seal 后把宿主侧外部变更并入 lastChanges（无 journal 时以外部变更兜底成集）。 */
+  const mergePendingExternalChangeSets = (): void => {
+    if (!pendingExternalChangeSets || pendingExternalChangeSets.length === 0) return
+    const pending = pendingExternalChangeSets
+    pendingExternalChangeSets = undefined
+    const externalChanges = pending.flatMap((changeSet) => changeSet.changes)
+    if (externalChanges.length === 0) return
+    const first = pending[0]
+    lastChanges = lastChanges
+      ? { ...lastChanges, changes: [...lastChanges.changes, ...externalChanges] }
+      : {
+          sessionId: first.sessionId,
+          createdAt: first.createdAt,
+          changes: externalChanges,
+        }
+  }
 
   const clearLastChanges = (): void => {
     lastChanges = undefined
@@ -878,6 +908,7 @@ while (promiseState.type === 'pending') {
     getHostConfig,
     eval: evalCode,
     getLastChanges,
+    noteExternalChangeSet,
     clearLastChanges,
     revertLastChanges,
     abort,

@@ -31,7 +31,7 @@ async function hostFetch(url: string, init?: RequestInit): Promise<Response> {
   throw new ProxyServerApiError(PROXY_SERVER_NOT_CONFIGURED_MESSAGE)
 }
 
-function readGuestBytes(context: QuickJSAsyncContext, handle: QuickJSHandle): Uint8Array {
+function readGuestBytes(context: QuickJSAsyncContext, handle: QuickJSHandle): Uint8Array<ArrayBuffer> {
   try {
     const lifetime = context.getArrayBuffer(handle)
     try {

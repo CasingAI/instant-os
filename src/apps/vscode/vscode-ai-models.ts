@@ -23,6 +23,7 @@ import {
   type VscodeAiContextWindowPref,
   type VscodeAiModelOptionPrefs,
   type VscodeAiThinkingEffortPref,
+  type VscodeModelSource,
   type VscodePrefs,
   type VscodeSubAgentModelSource,
 } from './vscode-prefs.ts'

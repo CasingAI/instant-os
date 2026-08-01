@@ -2,6 +2,7 @@ import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha1, md5 } from '@noble/hashes/legacy.js'
 import { sha256, sha384, sha512 } from '@noble/hashes/sha2.js'
+import type { CHash } from '@noble/hashes/utils.js'
 
 const CRYPTO_BUNDLE_GLOBAL_KEY = '__instantCryptoBundle'
 const HOST_RANDOM_BYTES_KEY = '__instantCryptoRandomBytes'
@@ -29,7 +30,7 @@ const ALGO_FACTORIES: Record<string, AlgoFactory> = {
   md5: () => md5.create(),
 }
 
-const HMAC_ALGOS: Record<string, typeof sha256> = {
+const HMAC_ALGOS: Record<string, CHash> = {
   sha1,
   sha256,
   sha384,

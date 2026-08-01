@@ -10,6 +10,7 @@ export type QuickJsFsErrorCode =
   | 'EINVAL'
   | 'EPERM'
   | 'ELOOP'
+  | 'EBADF'
   | 'ERR_FS_FILE_TOO_LARGE'
   | 'ERR_INVALID_ARG_TYPE'
   | 'ERR_INVALID_ARG_VALUE'

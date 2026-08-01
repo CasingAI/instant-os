@@ -95,7 +95,7 @@ export async function ensureUserSpecialFolders(): Promise<FilesNode[]> {
       )
       const created = nodes.some((node) => !beforeIds.has(node.id))
       if (created) {
-        emitSystemVfsChange(USER_ROOT)
+        emitSystemVfsChange(USER_ROOT, 'modified')
       }
       return nodes
     })().finally(() => {

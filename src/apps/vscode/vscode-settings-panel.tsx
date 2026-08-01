@@ -315,6 +315,7 @@ export function VscodeSettingsPanel({
       const decoded = decodeVscodeModelPickerValue(encoded)
       const { target } = modelPickerSession
       if (target.kind === 'completion') {
+        if (decoded.source === 'vision') return
         onChange({
           completionModelSource: decoded.source,
           completionModelKey:
@@ -325,6 +326,7 @@ export function VscodeSettingsPanel({
         return
       }
       if (target.kind === 'custom') {
+        if (decoded.source === 'vision') return
         setDraftModelSource(decoded.source)
         if (decoded.source === 'custom') {
           setDraftModelKey(decoded.modelKey)
