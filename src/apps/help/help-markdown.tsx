@@ -13,8 +13,9 @@ function normalizeHelpMarkdownSource(text: string): string {
     // 字面量 \n / \n\n（常见于把 JSON/转义习惯带进正文）
     .replace(/\\n/g, '\n')
 
-  // 「……。1. 下一步」或「…… 2. 下一步」挤在同一行时，在序号前断开
-  next = next.replace(/([^\n])(?=\d{1,2}\.\s+\S)/g, '$1\n')
+  // 「……。1. 下一步」或「…… 2. 下一步」挤在同一行时，在序号前断开。
+  // 勿在 * / _ 后断开，否则会拆坏 **1. 标题** / __1. 标题__ 的加粗。
+  next = next.replace(/([^\n*_])(?=\d{1,2}\.\s+\S)/g, '$1\n')
 
   const newlineCount = (next.match(/\n/g) ?? []).length
   const sentenceEnds = (next.match(/[。！？；]/g) ?? []).length
