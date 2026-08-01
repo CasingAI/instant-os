@@ -35,7 +35,7 @@ export const INSTANT_SHELL_RUNTIME_SECTION = `【Instant 壳层 API · globalThi
 
 GitHub 工作树（非真实 git；经 instant.git，须 await）：
 - 工作区 cwd 须能解析到 /dev/github/{owner}/{repo}（与 GitHub Desktop 同一套本地工作树）
-- 只读终端（Ask/Plan）可 status / diff / log；clone / commit / push / pull / fetch / switchBranch / discard 会被拒绝
+- 只读终端（Ask/Plan）可 status / diff / log / stashList；其余写操作会被拒绝
 - instant.git.status() → { summary, owner, repo, branch, head, clean, hasUnpushedCommits, changes[] }
 - instant.git.diff(path?) → { summary, files[], truncated }；可传仓库内相对路径
 - instant.git.log(limit?) → { summary, localCommits[], remoteCommits[], branches[] }；limit 默认 20、最大 50
@@ -43,6 +43,10 @@ GitHub 工作树（非真实 git；经 instant.git，须 await）：
 - instant.git.commit({ message, paths?, all? }) → { summary, message, head, changes[] }（须 all:true 或 paths；无 git add）
 - instant.git.push() / pull() / fetch() → 结构化对象（含 summary、head / tip 等）
 - instant.git.switchBranch(branch) / discard(paths) → 结构化对象
+- instant.git.undo() → { summary, head }（仅未推送本地 commit）
+- instant.git.amend(message) → { summary, head }（仅未推送本地 commit）
+- instant.git.createBranch({ name, checkout?, publish? }) → { summary, branch, currentBranch, head, … }
+- instant.git.stashSave(message?) / stashPop() / stashList() → 结构化对象
 - 返回值为带 summary 的结构化对象；受控模式下工作树改动计入终端 ChangeSet，可撤销
 
 示例（经 run_in_terminal 下发）：

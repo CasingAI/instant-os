@@ -75,6 +75,28 @@ function createMockHost(overrides?: Partial<InstantShellHost>): InstantShellHost
     (error: unknown) => error instanceof Error && error.message === 'branch 必须是非空字符串',
   )
 
+  assert.throws(
+    () => {
+      void api.git.amend('')
+    },
+    (error: unknown) => error instanceof Error && error.message === 'message 必须是非空字符串',
+  )
+
+  assert.throws(
+    () => {
+      void api.git.createBranch({ name: '' })
+    },
+    (error: unknown) => error instanceof Error && error.message === 'name 必须是非空字符串',
+  )
+
+  assert.throws(
+    () => {
+      void api.git.createBranch(null as unknown as { name: string })
+    },
+    (error: unknown) =>
+      error instanceof Error && error.message === 'createBranch 选项必须是对象',
+  )
+
   console.log('ok: instant.git argument validation')
 }
 
@@ -99,6 +121,31 @@ function createMockHost(overrides?: Partial<InstantShellHost>): InstantShellHost
   )
   await assert.rejects(
     () => api.git.clone({ owner: 'acme', repo: 'demo' }),
+    (error: unknown) =>
+      error instanceof Error && error.message === GITHUB_GIT_READONLY_MUTATION_MESSAGE,
+  )
+  await assert.rejects(
+    () => api.git.undo(),
+    (error: unknown) =>
+      error instanceof Error && error.message === GITHUB_GIT_READONLY_MUTATION_MESSAGE,
+  )
+  await assert.rejects(
+    () => api.git.amend('fix'),
+    (error: unknown) =>
+      error instanceof Error && error.message === GITHUB_GIT_READONLY_MUTATION_MESSAGE,
+  )
+  await assert.rejects(
+    () => api.git.createBranch({ name: 'feature' }),
+    (error: unknown) =>
+      error instanceof Error && error.message === GITHUB_GIT_READONLY_MUTATION_MESSAGE,
+  )
+  await assert.rejects(
+    () => api.git.stashSave('wip'),
+    (error: unknown) =>
+      error instanceof Error && error.message === GITHUB_GIT_READONLY_MUTATION_MESSAGE,
+  )
+  await assert.rejects(
+    () => api.git.stashPop(),
     (error: unknown) =>
       error instanceof Error && error.message === GITHUB_GIT_READONLY_MUTATION_MESSAGE,
   )

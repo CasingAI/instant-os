@@ -160,6 +160,55 @@ export type InstantShellGitDiscardResult = InstantShellGitRepoRef & {
   discarded: InstantShellGitChange[]
 }
 
+export type InstantShellGitUndoResult = {
+  summary: string
+  head: string | null
+}
+
+export type InstantShellGitAmendResult = {
+  summary: string
+  head: string | null
+}
+
+export type InstantShellGitCreateBranchOptions = {
+  name: string
+  checkout?: boolean
+  publish?: boolean
+}
+
+export type InstantShellGitCreateBranchResult = {
+  summary: string
+  branch: string
+  currentBranch: string
+  head: string | null
+  published: boolean
+  checkedOut: boolean
+}
+
+export type InstantShellGitStashSaveResult = {
+  summary: string
+  stashedCount: number
+  message?: string
+}
+
+export type InstantShellGitStashPopResult = {
+  summary: string
+  remainingStashCount: number
+}
+
+export type InstantShellGitStashEntry = {
+  id: string
+  branch: string
+  createdAt: number
+  message?: string
+  changeCount: number
+}
+
+export type InstantShellGitStashListResult = {
+  summary: string
+  stashes: InstantShellGitStashEntry[]
+}
+
 /**
  * 客侧 `instant.git`：GitHub 工作树门面（非真实 git）。
  * 路径须能解析到 `/dev/github/{owner}/{repo}`；返回值为带 summary 的结构化对象。
@@ -175,6 +224,14 @@ export type InstantShellGitApi = {
   fetch: () => Promise<InstantShellGitFetchResult>
   switchBranch: (branch: string) => Promise<InstantShellGitSwitchBranchResult>
   discard: (paths: string[]) => Promise<InstantShellGitDiscardResult>
+  undo: () => Promise<InstantShellGitUndoResult>
+  amend: (message: string) => Promise<InstantShellGitAmendResult>
+  createBranch: (
+    options: InstantShellGitCreateBranchOptions,
+  ) => Promise<InstantShellGitCreateBranchResult>
+  stashSave: (message?: string) => Promise<InstantShellGitStashSaveResult>
+  stashPop: () => Promise<InstantShellGitStashPopResult>
+  stashList: () => Promise<InstantShellGitStashListResult>
 }
 
 /** 客侧 `globalThis.instant` 表面（均为 Promise，便于 async 宿主桥）。 */

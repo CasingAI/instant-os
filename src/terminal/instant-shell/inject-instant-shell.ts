@@ -5,6 +5,7 @@ import { createInstantShellApi } from './instant-shell-host.ts'
 import type {
   InstantShellGitCloneOptions,
   InstantShellGitCommitOptions,
+  InstantShellGitCreateBranchOptions,
   InstantShellGrepOptions,
   InstantShellHost,
   InstantShellOpenAppOptions,
@@ -227,6 +228,33 @@ function readStringArrayArg(
   return dumped as string[]
 }
 
+function readGitCreateBranchOptions(
+  context: QuickJSAsyncContext,
+  handle: QuickJSHandle | undefined,
+): InstantShellGitCreateBranchOptions {
+  if (handle === undefined || context.typeof(handle) === 'undefined') {
+    throw new Error('createBranch 选项必须是对象')
+  }
+  const dumped = context.dump(handle)
+  if (dumped === null || typeof dumped !== 'object' || Array.isArray(dumped)) {
+    throw new Error('createBranch 选项必须是对象')
+  }
+  const record = dumped as Record<string, unknown>
+  if (typeof record.name !== 'string') {
+    throw new Error('name 必须是字符串')
+  }
+  const options: InstantShellGitCreateBranchOptions = { name: record.name }
+  if (record.checkout !== undefined) {
+    if (typeof record.checkout !== 'boolean') throw new Error('checkout 必须是布尔值')
+    options.checkout = record.checkout
+  }
+  if (record.publish !== undefined) {
+    if (typeof record.publish !== 'boolean') throw new Error('publish 必须是布尔值')
+    options.publish = record.publish
+  }
+  return options
+}
+
 /**
  * 将 `globalThis.instant` 注入 QuickJS（终端专用壳层 API）。
  * 须在 asyncBridge.injectGlobals() 之后调用。
@@ -376,6 +404,20 @@ export function injectInstantShell(options: InjectInstantShellOptions): void {
       api.git.discard(readStringArrayArg(context, pathsHandle, 'paths')),
     ),
   )
+  bind(git, 'undo', () => runAsync(async () => api.git.undo()))
+  bind(git, 'amend', (messageHandle) =>
+    runAsync(async () => api.git.amend(readStringArg(context, messageHandle, 'message'))),
+  )
+  bind(git, 'createBranch', (optionsHandle) =>
+    runAsync(async () =>
+      api.git.createBranch(readGitCreateBranchOptions(context, optionsHandle)),
+    ),
+  )
+  bind(git, 'stashSave', (messageHandle) =>
+    runAsync(async () => api.git.stashSave(readOptionalStringArg(context, messageHandle))),
+  )
+  bind(git, 'stashPop', () => runAsync(async () => api.git.stashPop()))
+  bind(git, 'stashList', () => runAsync(async () => api.git.stashList()))
   context.setProp(instant, 'git', git)
   git.dispose()
 

@@ -1,15 +1,21 @@
 import {
   flattenGithubGitResultForGuest,
+  githubGitAmend,
   githubGitClone,
   githubGitCommit,
+  githubGitCreateBranch,
   githubGitDiff,
   githubGitDiscard,
   githubGitFetch,
   githubGitLog,
   githubGitPull,
   githubGitPush,
+  githubGitStashList,
+  githubGitStashPop,
+  githubGitStashSave,
   githubGitStatus,
   githubGitSwitchBranch,
+  githubGitUndo,
   type GithubGitContext,
   type GithubGitResult,
 } from '../../apps/github-desktop/github-git.ts'
@@ -24,6 +30,7 @@ import type {
   InstantShellGitApi,
   InstantShellGitCloneOptions,
   InstantShellGitCommitOptions,
+  InstantShellGitCreateBranchOptions,
   InstantShellGrepOptions,
   InstantShellGrepResult,
   InstantShellHost,
@@ -125,6 +132,27 @@ function assertGitDiscardPaths(paths: string[]): string[] {
   return paths
 }
 
+function assertGitCreateBranchOptions(
+  options: InstantShellGitCreateBranchOptions,
+): InstantShellGitCreateBranchOptions {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('createBranch 选项必须是对象')
+  }
+  if (typeof options.name !== 'string' || !options.name.trim()) {
+    throw new Error('name 必须是非空字符串')
+  }
+  const out: InstantShellGitCreateBranchOptions = { name: options.name.trim() }
+  if (options.checkout !== undefined) {
+    if (typeof options.checkout !== 'boolean') throw new Error('checkout 必须是布尔值')
+    out.checkout = options.checkout
+  }
+  if (options.publish !== undefined) {
+    if (typeof options.publish !== 'boolean') throw new Error('publish 必须是布尔值')
+    out.publish = options.publish
+  }
+  return out
+}
+
 function createInstantShellGitApi(host: InstantShellHost): InstantShellGitApi {
   return {
     status: () => runGithubGit(host, (ctx) => githubGitStatus(ctx)),
@@ -166,6 +194,33 @@ function createInstantShellGitApi(host: InstantShellHost): InstantShellGitApi {
       const list = assertGitDiscardPaths(paths)
       return runGithubGit(host, (ctx) => githubGitDiscard(ctx, list))
     },
+    undo: () => runGithubGit(host, (ctx) => githubGitUndo(ctx)),
+    amend: (message) => {
+      if (typeof message !== 'string' || !message.trim()) {
+        throw new Error('message 必须是非空字符串')
+      }
+      return runGithubGit(host, (ctx) => githubGitAmend(ctx, message.trim()))
+    },
+    createBranch: (options) => {
+      const opts = assertGitCreateBranchOptions(options)
+      return runGithubGit(host, (ctx) =>
+        githubGitCreateBranch(ctx, opts.name, {
+          checkout: opts.checkout,
+          publish: opts.publish,
+        }),
+      )
+    },
+    stashSave: (message) => {
+      if (message !== undefined && typeof message !== 'string') {
+        throw new Error('message 必须是字符串')
+      }
+      const trimmed = typeof message === 'string' ? message.trim() : undefined
+      return runGithubGit(host, (ctx) =>
+        githubGitStashSave(ctx, trimmed ? trimmed : undefined),
+      )
+    },
+    stashPop: () => runGithubGit(host, (ctx) => githubGitStashPop(ctx)),
+    stashList: () => runGithubGit(host, (ctx) => githubGitStashList(ctx)),
   }
 }
 

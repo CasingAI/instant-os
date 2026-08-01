@@ -788,3 +788,39 @@ export async function githubGitStashPop(ctx: GithubGitContext): Promise<
     changeSet,
   }
 }
+
+export async function githubGitStashList(ctx: GithubGitContext): Promise<
+  GithubGitResult<{
+    stashes: Array<{
+      id: string
+      branch: string
+      createdAt: number
+      message?: string
+      changeCount: number
+    }>
+  }>
+> {
+  const meta = await resolveMeta(ctx)
+  const list = await stashListGithub(meta)
+  const stashes = list.map((entry) => ({
+    id: entry.id,
+    branch: entry.branch,
+    createdAt: entry.createdAt,
+    ...(entry.message ? { message: entry.message } : {}),
+    changeCount: entry.changes.length,
+  }))
+  const lines = [
+    `仓库 ${meta.owner}/${meta.repo} · 贮藏 ${stashes.length} 条`,
+    ...stashes.slice(0, 30).map((entry) => {
+      const note = entry.message ? `  ${entry.message}` : ''
+      return `  ${entry.id.slice(0, 8)}  ${entry.branch}  ${entry.changeCount} 项${note}`
+    }),
+  ]
+  if (stashes.length > 30) {
+    lines.push(`  …另有 ${stashes.length - 30} 条`)
+  }
+  return {
+    summary: lines.join('\n'),
+    data: { stashes },
+  }
+}
