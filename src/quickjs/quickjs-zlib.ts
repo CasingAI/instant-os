@@ -1,5 +1,11 @@
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten'
 import {
+  Deflate,
+  Gzip,
+  Gunzip,
+  Inflate,
+  Unzlib,
+  Zlib,
   deflateSync,
   gzipSync,
   gunzipSync,
@@ -12,6 +18,9 @@ import {
 
 const ZLIB_BUNDLE_GLOBAL_KEY = '__instantZlibBundle'
 const HOST_ZLIB_SYNC_KEY = '__instantZlibSync'
+const HOST_ZLIB_STREAM_CREATE_KEY = '__instantZlibStreamCreate'
+const HOST_ZLIB_STREAM_PUSH_KEY = '__instantZlibStreamPush'
+const HOST_ZLIB_STREAM_END_KEY = '__instantZlibStreamEnd'
 const ZLIB_TRANSFORM_GLOBAL_KEY = '__instantZlibTransform'
 const TMP_AB_KEY = '__instantTmpArrayBuffer'
 
@@ -24,6 +33,10 @@ const ZLIB_OPS = new Set([
   'inflateRaw',
   'unzip',
 ])
+
+type FlateStream = {
+  push: (data: Uint8Array, final?: boolean) => void
+}
 
 function copyHostBytes(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength)
@@ -89,7 +102,7 @@ function parseCompressOptions(
   try {
     const opts = context.dump(optionsHandle) as { level?: number }
     if (opts && typeof opts.level === 'number' && Number.isFinite(opts.level)) {
-      return { level: opts.level }
+      return { level: opts.level as GzipOptions['level'] }
     }
   } catch {
     // ignore
@@ -135,7 +148,51 @@ function hostBytesToGuestBuffer(context: QuickJSContext, bytes: Uint8Array): Qui
   }
 }
 
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array(0)
+  if (chunks.length === 1) return chunks[0]!
+  let total = 0
+  for (const c of chunks) total += c.byteLength
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out
+}
+
+function createFlateStream(
+  op: string,
+  options: GzipOptions | DeflateOptions | undefined,
+  onData: (chunk: Uint8Array) => void,
+): FlateStream {
+  const handler = (chunk: Uint8Array, _final?: boolean) => {
+    if (chunk && chunk.byteLength > 0) onData(chunk)
+  }
+  switch (op) {
+    case 'gzip':
+      return new Gzip(options as GzipOptions, handler)
+    case 'gunzip':
+    case 'unzip':
+      return new Gunzip(handler)
+    case 'deflate':
+      return new Zlib(options as DeflateOptions, handler)
+    case 'inflate':
+      return new Unzlib(handler)
+    case 'deflateRaw':
+      return new Deflate(options as DeflateOptions, handler)
+    case 'inflateRaw':
+      return new Inflate(handler)
+    default:
+      throw new Error(`Instant zlib: unknown stream op ${op}`)
+  }
+}
+
 function installHostBridges(context: QuickJSContext): () => void {
+  let nextId = 1
+  const streams = new Map<number, { stream: FlateStream; pending: Uint8Array[] }>()
+
   const syncFn = context.newFunction(
     HOST_ZLIB_SYNC_KEY,
     (opHandle, inputHandle, optionsHandle) => {
@@ -169,8 +226,70 @@ function installHostBridges(context: QuickJSContext): () => void {
   context.setProp(context.global, HOST_ZLIB_SYNC_KEY, syncFn)
   syncFn.dispose()
 
+  const createFn = context.newFunction(
+    HOST_ZLIB_STREAM_CREATE_KEY,
+    (opHandle, optionsHandle) => {
+      const op = String(context.dump(opHandle))
+      if (!ZLIB_OPS.has(op)) {
+        throw new Error(`Instant zlib: invalid stream op '${op}'`)
+      }
+      const options = parseCompressOptions(context, optionsHandle)
+      const id = nextId++
+      const pending: Uint8Array[] = []
+      const stream = createFlateStream(op, options, (chunk) => {
+        pending.push(chunk)
+      })
+      streams.set(id, { stream, pending })
+      return context.newNumber(id)
+    },
+  )
+  context.setProp(context.global, HOST_ZLIB_STREAM_CREATE_KEY, createFn)
+  createFn.dispose()
+
+  const pushFn = context.newFunction(
+    HOST_ZLIB_STREAM_PUSH_KEY,
+    (idHandle, dataHandle) => {
+      const id = context.getNumber(idHandle)
+      const entry = streams.get(id)
+      if (!entry) {
+        throw new Error('zlib stream closed')
+      }
+      const input = readGuestBytes(context, dataHandle)
+      entry.stream.push(input, false)
+      const out = concatChunks(entry.pending)
+      entry.pending.length = 0
+      if (out.byteLength === 0) {
+        return context.null
+      }
+      return hostBytesToGuestBuffer(context, out)
+    },
+  )
+  context.setProp(context.global, HOST_ZLIB_STREAM_PUSH_KEY, pushFn)
+  pushFn.dispose()
+
+  const endFn = context.newFunction(HOST_ZLIB_STREAM_END_KEY, (idHandle) => {
+    const id = context.getNumber(idHandle)
+    const entry = streams.get(id)
+    if (!entry) {
+      return context.null
+    }
+    entry.stream.push(new Uint8Array(0), true)
+    const out = concatChunks(entry.pending)
+    streams.delete(id)
+    if (out.byteLength === 0) {
+      return context.null
+    }
+    return hostBytesToGuestBuffer(context, out)
+  })
+  context.setProp(context.global, HOST_ZLIB_STREAM_END_KEY, endFn)
+  endFn.dispose()
+
   return () => {
+    streams.clear()
     context.setProp(context.global, HOST_ZLIB_SYNC_KEY, context.undefined)
+    context.setProp(context.global, HOST_ZLIB_STREAM_CREATE_KEY, context.undefined)
+    context.setProp(context.global, HOST_ZLIB_STREAM_PUSH_KEY, context.undefined)
+    context.setProp(context.global, HOST_ZLIB_STREAM_END_KEY, context.undefined)
   }
 }
 
@@ -231,44 +350,31 @@ const QUICKJS_ZLIB_GUEST_SOURCE = `(function () {
   var inflateRawPair = makeSyncPair('inflateRaw');
   var unzipPair = makeSyncPair('unzip');
 
-  function createTransform(op, options) {
-    var chunks = [];
+  function createStreamingTransform(op, options) {
+    var sid = globalThis.${HOST_ZLIB_STREAM_CREATE_KEY}(op, options);
     return new Transform({
       transform: function transform(chunk, encoding, callback) {
-        if (chunk != null && chunk.length !== 0) {
-          chunks.push(chunk);
-        }
-        callback();
-      },
-      flush: function flush(callback) {
-        var self = this;
         try {
-          var buf = chunks.length === 0 ? Buffer.alloc(0) : Buffer.concat(chunks);
-          var out = zlibSync(op, buf, options);
-          self.push(out);
+          if (chunk == null || chunk.length === 0) {
+            callback();
+            return;
+          }
+          var buf = typeof chunk === 'string' ? Buffer.from(chunk, encoding || 'utf8') : chunk;
+          var out = globalThis.${HOST_ZLIB_STREAM_PUSH_KEY}(sid, buf);
+          if (out != null) {
+            this.push(out);
+          }
           callback();
         } catch (err) {
           callback(err);
         }
       },
-    });
-  }
-
-  function createGunzipTransform(op, options) {
-    var chunks = [];
-    return new Transform({
-      transform: function transform(chunk, encoding, callback) {
-        if (chunk != null && chunk.length !== 0) {
-          chunks.push(chunk);
-        }
-        callback();
-      },
       flush: function flush(callback) {
-        var self = this;
         try {
-          var buf = chunks.length === 0 ? Buffer.alloc(0) : Buffer.concat(chunks);
-          var out = zlibSync(op, buf, options);
-          self.push(out);
+          var out = globalThis.${HOST_ZLIB_STREAM_END_KEY}(sid);
+          if (out != null) {
+            this.push(out);
+          }
           callback();
         } catch (err) {
           callback(err);
@@ -311,25 +417,25 @@ const QUICKJS_ZLIB_GUEST_SOURCE = `(function () {
     unzip: unzipPair.async,
     unzipSync: unzipPair.sync,
     createGzip: function createGzip(options) {
-      return createTransform('gzip', options);
+      return createStreamingTransform('gzip', options);
     },
     createGunzip: function createGunzip(options) {
-      return createGunzipTransform('gunzip', options);
+      return createStreamingTransform('gunzip', options);
     },
     createDeflate: function createDeflate(options) {
-      return createTransform('deflate', options);
+      return createStreamingTransform('deflate', options);
     },
     createInflate: function createInflate(options) {
-      return createGunzipTransform('inflate', options);
+      return createStreamingTransform('inflate', options);
     },
     createDeflateRaw: function createDeflateRaw(options) {
-      return createTransform('deflateRaw', options);
+      return createStreamingTransform('deflateRaw', options);
     },
     createInflateRaw: function createInflateRaw(options) {
-      return createGunzipTransform('inflateRaw', options);
+      return createStreamingTransform('inflateRaw', options);
     },
     createUnzip: function createUnzip(options) {
-      return createGunzipTransform('unzip', options);
+      return createStreamingTransform('unzip', options);
     },
     constants: constants,
   };

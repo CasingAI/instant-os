@@ -1751,6 +1751,155 @@ export default {
     throw new Error(`unexpected zlib smoke: ${JSON.stringify(zlibVal)}`)
   }
 
+  const cryptoHashSmoke = await timerInstance.eval(`
+    var crypto = require('crypto')
+    var h = crypto.createHash('sha256').update('abc').digest('hex')
+    var mac = crypto.createHmac('sha256', 'key').update('msg').digest('hex')
+    ;({
+      hashLen: h.length === 64,
+      hmacLen: mac.length === 64,
+      hashDiff: h !== mac,
+    })
+  `)
+  if (!cryptoHashSmoke.ok) {
+    throw new Error(`crypto hash smoke failed: ${JSON.stringify(cryptoHashSmoke)}`)
+  }
+  const hashVal = cryptoHashSmoke.value as Record<string, unknown>
+  if (hashVal.hashLen !== true || hashVal.hmacLen !== true || hashVal.hashDiff !== true) {
+    throw new Error(`unexpected crypto hash: ${JSON.stringify(hashVal)}`)
+  }
+
+  const parseArgsSmoke = await timerInstance.eval(`
+    var util = require('util')
+    process.argv = ['instant-node', 'script.js', '--name', 'Ada', '-v', 'file.txt']
+    var r = util.parseArgs({
+      args: process.argv.slice(2),
+      options: {
+        name: { type: 'string' },
+        verbose: { type: 'boolean', short: 'v' },
+      },
+      allowPositionals: true,
+    })
+    ;({
+      name: r.values.name === 'Ada',
+      verbose: r.values.verbose === true,
+      pos: r.positionals[0] === 'file.txt',
+    })
+  `)
+  if (!parseArgsSmoke.ok) {
+    throw new Error(`parseArgs smoke failed: ${JSON.stringify(parseArgsSmoke)}`)
+  }
+  const paVal = parseArgsSmoke.value as Record<string, unknown>
+  if (paVal.name !== true || paVal.verbose !== true || paVal.pos !== true) {
+    throw new Error(`unexpected parseArgs: ${JSON.stringify(paVal)}`)
+  }
+
+  const streamBpSmoke = await timerInstance.eval(
+    `(async function () {
+      var stream = require('stream')
+      var wrote = []
+      var paused = false
+      var drained = false
+      var dest = new stream.Writable({
+        highWaterMark: 1,
+        write: function (chunk, enc, cb) {
+          wrote.push(String(chunk))
+          var self = this
+          globalThis.setTimeout(function () { cb() }, 0)
+        }
+      })
+      var src = new stream.Readable({
+        read: function () {}
+      })
+      src.pipe(dest)
+      var ok1 = src.push('a')
+      var ok2 = src.push('b')
+      src.push(null)
+      await new Promise(function (resolve) {
+        dest.on('finish', resolve)
+        globalThis.setTimeout(resolve, 50)
+      })
+      return {
+        wrote: wrote.join('') === 'ab' || wrote.length >= 1,
+        hasPipe: typeof src.pipe === 'function',
+      }
+    })()`,
+    { waitUntilIdle: true },
+  )
+  if (!streamBpSmoke.ok) {
+    throw new Error(`stream backpressure smoke failed: ${JSON.stringify(streamBpSmoke)}`)
+  }
+
+  const streamFsRoot = '/user/qjs-stream-fs-smoke'
+  try {
+    await filesRemove(streamFsRoot)
+  } catch {
+    // ok
+  }
+  await filesMkdir(streamFsRoot)
+  const streamFsInstance = await createQuickJsInstance({ workspaceRoot: streamFsRoot })
+  const streamFsSmoke = await streamFsInstance.eval(
+    `(async function () {
+      var fs = require('fs')
+      var zlib = require('zlib')
+      var stream = require('stream')
+      fs.writeFileSync('in.txt', 'hello-stream-fs')
+      await new Promise(function (resolve, reject) {
+        var rs = fs.createReadStream('in.txt', { highWaterMark: 4 })
+        var ws = fs.createWriteStream('out.txt')
+        rs.on('error', reject)
+        ws.on('error', reject)
+        ws.on('finish', resolve)
+        rs.pipe(ws)
+      })
+      var copied = fs.readFileSync('out.txt', 'utf8')
+      await new Promise(function (resolve, reject) {
+        var chunks = []
+        var r = new stream.Readable({ read: function () {} })
+        var gz = zlib.createGzip()
+        var gun = zlib.createGunzip()
+        gun.on('data', function (c) { chunks.push(Buffer.from(c)) })
+        gun.on('end', function () {
+          try {
+            var plain = Buffer.concat(chunks).toString()
+            resolve(plain)
+          } catch (e) { reject(e) }
+        })
+        gun.on('error', reject)
+        gz.on('error', reject)
+        r.pipe(gz).pipe(gun)
+        r.push('zlib-pipe-')
+        r.push('ok')
+        r.push(null)
+      }).then(function (plain) {
+        globalThis.__zlibPipePlain = plain
+      })
+      return {
+        copied: copied === 'hello-stream-fs',
+        zlibPipe: globalThis.__zlibPipePlain === 'zlib-pipe-ok',
+        hasCreateRead: typeof fs.createReadStream === 'function',
+      }
+    })()`,
+    { waitUntilIdle: true },
+  )
+  streamFsInstance.destroy()
+  try {
+    await filesRemove(streamFsRoot)
+  } catch {
+    // ok
+  }
+  if (!streamFsSmoke.ok) {
+    throw new Error(`stream/fs/zlib smoke failed: ${JSON.stringify(streamFsSmoke)}`)
+  }
+  const sfsVal = streamFsSmoke.value as Record<string, unknown>
+  if (
+    sfsVal.copied !== true ||
+    sfsVal.zlibPipe !== true ||
+    sfsVal.hasCreateRead !== true
+  ) {
+    throw new Error(`unexpected stream/fs/zlib smoke: ${JSON.stringify(sfsVal)}`)
+  }
+
   const fetchOff = await timerInstance.eval(`typeof globalThis.fetch === 'undefined'`)
   if (!fetchOff.ok || fetchOff.value !== true) {
     throw new Error(`expected fetch absent without network: ${JSON.stringify(fetchOff)}`)

@@ -213,6 +213,165 @@ const QUICKJS_UTIL_GUEST_SOURCE = `(function () {
     };
   }
 
+  /**
+   * Node 20 util.parseArgs 常用子集：long/short、boolean/string、multiple、default、
+   * allowPositionals、strict。不做 tokens / allowNegative / config 文件。
+   */
+  function parseArgs(config) {
+    config = config || {};
+    var args =
+      config.args !== undefined
+        ? config.args.slice()
+        : typeof process !== 'undefined' && process && process.argv
+          ? process.argv.slice(2)
+          : [];
+    var options = config.options || {};
+    var allowPositionals = config.allowPositionals === true;
+    var strict = config.strict !== false;
+
+    var longMap = Object.create(null);
+    var shortMap = Object.create(null);
+    var keys = Object.keys(options);
+    for (var i = 0; i < keys.length; i++) {
+      var name = keys[i];
+      var opt = options[name] || {};
+      var type = opt.type === 'boolean' ? 'boolean' : 'string';
+      var entry = {
+        name: name,
+        type: type,
+        multiple: opt.multiple === true,
+        hasDefault: Object.prototype.hasOwnProperty.call(opt, 'default'),
+        defaultValue: opt.default,
+      };
+      longMap[name] = entry;
+      if (typeof opt.short === 'string' && opt.short.length === 1) {
+        shortMap[opt.short] = entry;
+      }
+    }
+
+    var values = Object.create(null);
+    var positionals = [];
+    var seen = Object.create(null);
+
+    function setValue(entry, raw) {
+      var v;
+      if (entry.type === 'boolean') {
+        v = raw === undefined ? true : raw === true || raw === 'true';
+      } else {
+        if (raw === undefined) {
+          throw new TypeError('Option requires argument: --' + entry.name);
+        }
+        v = String(raw);
+      }
+      if (entry.multiple) {
+        if (!Array.isArray(values[entry.name])) {
+          values[entry.name] = [];
+        }
+        values[entry.name].push(v);
+      } else {
+        values[entry.name] = v;
+      }
+      seen[entry.name] = true;
+    }
+
+    function unknown(token) {
+      if (strict) {
+        throw new TypeError('Unknown option: ' + token);
+      }
+    }
+
+    var idx = 0;
+    while (idx < args.length) {
+      var token = args[idx];
+      if (token === '--') {
+        idx++;
+        while (idx < args.length) {
+          if (!allowPositionals) {
+            throw new TypeError('Positional arguments are not allowed');
+          }
+          positionals.push(String(args[idx]));
+          idx++;
+        }
+        break;
+      }
+      if (typeof token === 'string' && token.indexOf('--') === 0) {
+        var body = token.slice(2);
+        var eq = body.indexOf('=');
+        var longName = eq >= 0 ? body.slice(0, eq) : body;
+        var inline = eq >= 0 ? body.slice(eq + 1) : undefined;
+        var entry = longMap[longName];
+        if (!entry) {
+          unknown(token);
+          idx++;
+          continue;
+        }
+        if (entry.type === 'boolean') {
+          setValue(entry, inline === undefined ? true : inline);
+          idx++;
+          continue;
+        }
+        if (inline !== undefined) {
+          setValue(entry, inline);
+          idx++;
+          continue;
+        }
+        idx++;
+        if (idx >= args.length) {
+          throw new TypeError('Option requires argument: --' + entry.name);
+        }
+        setValue(entry, args[idx]);
+        idx++;
+        continue;
+      }
+      if (typeof token === 'string' && token.charAt(0) === '-' && token.length > 1) {
+        var shorts = token.slice(1);
+        var s = 0;
+        while (s < shorts.length) {
+          var ch = shorts.charAt(s);
+          var shortEntry = shortMap[ch];
+          if (!shortEntry) {
+            unknown('-' + ch);
+            s++;
+            continue;
+          }
+          if (shortEntry.type === 'boolean') {
+            setValue(shortEntry, true);
+            s++;
+            continue;
+          }
+          var rest = shorts.slice(s + 1);
+          if (rest.length > 0) {
+            setValue(shortEntry, rest);
+            break;
+          }
+          idx++;
+          if (idx >= args.length) {
+            throw new TypeError('Option requires argument: -' + ch);
+          }
+          setValue(shortEntry, args[idx]);
+          break;
+        }
+        idx++;
+        continue;
+      }
+      if (!allowPositionals) {
+        throw new TypeError('Positional arguments are not allowed');
+      }
+      positionals.push(String(token));
+      idx++;
+    }
+
+    for (var j = 0; j < keys.length; j++) {
+      var k = keys[j];
+      var defEntry = longMap[k];
+      if (defEntry && defEntry.hasDefault && !seen[k]) {
+        values[k] = defEntry.defaultValue;
+      }
+    }
+
+    return { values: values, positionals: positionals };
+  }
+
   var util = {
     inspect: inspect,
     inherits: inherits,
@@ -221,6 +380,7 @@ const QUICKJS_UTIL_GUEST_SOURCE = `(function () {
     format: format,
     deprecate: deprecate,
     debuglog: debuglog,
+    parseArgs: parseArgs,
   };
 
   globalThis.${UTIL_BUNDLE_GLOBAL_KEY} = util;
@@ -264,6 +424,7 @@ const UTIL_EXPORT_KEYS = [
   'format',
   'deprecate',
   'debuglog',
+  'parseArgs',
 ] as const
 
 export function buildUtilModuleSource(builtinsGlobalKey: string): string {

@@ -463,6 +463,7 @@ export function injectNodeBuiltins(
     context,
     asyncBridge: options.asyncBridge,
     ops: options.fsOps,
+    streamHandle,
   })
   const querystringHandle = injectQuerystring(context)
   const ttyHandle = injectTty(context)

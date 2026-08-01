@@ -20,6 +20,7 @@ import {
   fsHostMkdir,
   fsHostMkdtemp,
   fsHostReadFile,
+  fsHostReadFileForStream,
   fsHostReaddir,
   fsHostReadlink,
   fsHostRealpath,
@@ -55,6 +56,8 @@ export type InjectFsOptions = {
   context: QuickJSAsyncContext
   asyncBridge: QuickJsAsyncBridge
   ops: QuickJsFsHostOps
+  /** stream 模块 handle（含 Readable / Writable），用于 createReadStream / createWriteStream */
+  streamHandle?: QuickJSHandle
 }
 
 function copyHostBytes(bytes: Uint8Array): ArrayBuffer {
@@ -345,6 +348,309 @@ function isGuestFunction(context: QuickJSAsyncContext, handle: QuickJSHandle | u
     return false
   }
   return context.typeof(handle) === 'function'
+}
+
+const FS_STREAM_BUNDLE_KEY = '__instantFsStreamBundle'
+const FS_STREAM_READABLE_KEY = '__instantFsReadable'
+const FS_STREAM_WRITABLE_KEY = '__instantFsWritable'
+const HOST_FS_OPEN_READ_KEY = '__instantFsOpenRead'
+const HOST_FS_READ_CHUNK_KEY = '__instantFsReadChunk'
+const HOST_FS_CLOSE_READ_KEY = '__instantFsCloseRead'
+const HOST_FS_OPEN_WRITE_KEY = '__instantFsOpenWrite'
+const HOST_FS_WRITE_CHUNK_KEY = '__instantFsWriteChunk'
+const HOST_FS_CLOSE_WRITE_KEY = '__instantFsCloseWrite'
+
+type FsReadStreamState = { bytes: Uint8Array; offset: number; path: string }
+type FsWriteStreamState = { path: string; written: number }
+
+function injectFsStreams(params: {
+  context: QuickJSAsyncContext
+  asyncBridge: QuickJsAsyncBridge
+  ops: QuickJsFsHostOps
+  fsObject: QuickJSHandle
+  streamHandle: QuickJSHandle
+}): void {
+  const { context, asyncBridge, ops, fsObject, streamHandle } = params
+  let nextId = 1
+  const reads = new Map<number, FsReadStreamState>()
+  const writes = new Map<number, FsWriteStreamState>()
+
+  const runHostPromise = (work: () => Promise<QuickJSHandle>): QuickJSHandle => {
+    const deferred = asyncBridge.createDeferredPromise()
+    void (async () => {
+      try {
+        if (ops.isDestroyed()) {
+          throw new QuickJsFsError('EPERM', 'QuickJS instance destroyed')
+        }
+        const value = await work()
+        if (ops.isDestroyed()) {
+          asyncBridge.abandonDeferred(deferred)
+          if (value !== context.undefined && value.alive) {
+            value.dispose()
+          }
+          return
+        }
+        asyncBridge.settleGuestPromise(deferred, { ok: true, value })
+        if (value !== context.undefined && value.alive) {
+          value.dispose()
+        }
+      } catch (error) {
+        if (ops.isDestroyed()) {
+          asyncBridge.abandonDeferred(deferred)
+          return
+        }
+        asyncBridge.settleGuestPromise(deferred, {
+          ok: false,
+          error: createGuestFsError(context, error),
+        })
+      }
+    })()
+    return deferred.handle
+  }
+
+  const openRead = context.newFunction(HOST_FS_OPEN_READ_KEY, (pathHandle) =>
+    runHostPromise(async () => {
+      const raw = dumpPrimitive(context, pathHandle)
+      const { absolute, bytes } = await fsHostReadFileForStream(ops, raw)
+      const id = nextId++
+      reads.set(id, { bytes, offset: 0, path: absolute })
+      return context.newNumber(id)
+    }),
+  )
+  context.setProp(context.global, HOST_FS_OPEN_READ_KEY, openRead)
+  openRead.dispose()
+
+  const readChunk = context.newFunction(
+    HOST_FS_READ_CHUNK_KEY,
+    (idHandle, sizeHandle) => {
+      const id = context.getNumber(idHandle)
+      const state = reads.get(id)
+      if (!state) {
+        return context.null
+      }
+      const size =
+        context.typeof(sizeHandle) === 'number'
+          ? Math.max(1, Math.floor(context.getNumber(sizeHandle)))
+          : 16 * 1024
+      if (state.offset >= state.bytes.byteLength) {
+        return context.null
+      }
+      const end = Math.min(state.bytes.byteLength, state.offset + size)
+      const chunk = state.bytes.subarray(state.offset, end)
+      state.offset = end
+      return hostBytesToGuestBuffer(context, chunk)
+    },
+  )
+  context.setProp(context.global, HOST_FS_READ_CHUNK_KEY, readChunk)
+  readChunk.dispose()
+
+  const closeRead = context.newFunction(HOST_FS_CLOSE_READ_KEY, (idHandle) => {
+    reads.delete(context.getNumber(idHandle))
+    return context.undefined
+  })
+  context.setProp(context.global, HOST_FS_CLOSE_READ_KEY, closeRead)
+  closeRead.dispose()
+
+  const openWrite = context.newFunction(HOST_FS_OPEN_WRITE_KEY, (pathHandle) =>
+    runHostPromise(async () => {
+      const raw = dumpPrimitive(context, pathHandle)
+      await fsHostWriteFile(ops, raw, new Uint8Array(0))
+      const absolute = resolveGuestFsPath(raw, ops.getCwd)
+      const id = nextId++
+      writes.set(id, { path: absolute, written: 0 })
+      return context.newNumber(id)
+    }),
+  )
+  context.setProp(context.global, HOST_FS_OPEN_WRITE_KEY, openWrite)
+  openWrite.dispose()
+
+  const writeChunk = context.newFunction(HOST_FS_WRITE_CHUNK_KEY, (idHandle, dataHandle) => {
+    const id = context.getNumber(idHandle)
+    const bytes = readGuestBytes(context, dataHandle)
+    return runHostPromise(async () => {
+      const state = writes.get(id)
+      if (!state) {
+        throw new QuickJsFsError('EBADF', 'WriteStream closed')
+      }
+      const next = state.written + bytes.byteLength
+      if (next > ops.maxFileBytes) {
+        throw new QuickJsFsError(
+          'ERR_FS_FILE_TOO_LARGE',
+          `WriteStream exceeds maxFileBytes (${ops.maxFileBytes})`,
+          { path: state.path, syscall: 'write' },
+        )
+      }
+      if (state.written === 0 && bytes.byteLength > 0) {
+        await fsHostWriteFile(ops, state.path, bytes)
+      } else if (bytes.byteLength > 0) {
+        await fsHostAppendFile(ops, state.path, bytes)
+      }
+      state.written = next
+      return context.undefined
+    })
+  })
+  context.setProp(context.global, HOST_FS_WRITE_CHUNK_KEY, writeChunk)
+  writeChunk.dispose()
+
+  const closeWrite = context.newFunction(HOST_FS_CLOSE_WRITE_KEY, (idHandle) => {
+    writes.delete(context.getNumber(idHandle))
+    return context.undefined
+  })
+  context.setProp(context.global, HOST_FS_CLOSE_WRITE_KEY, closeWrite)
+  closeWrite.dispose()
+
+  const readableCtor = context.getProp(streamHandle, 'Readable')
+  const writableCtor = context.getProp(streamHandle, 'Writable')
+  context.setProp(context.global, FS_STREAM_READABLE_KEY, readableCtor)
+  context.setProp(context.global, FS_STREAM_WRITABLE_KEY, writableCtor)
+  readableCtor.dispose()
+  writableCtor.dispose()
+
+  const guestSource = `(function () {
+  'use strict';
+  var Readable = globalThis.${FS_STREAM_READABLE_KEY};
+  var Writable = globalThis.${FS_STREAM_WRITABLE_KEY};
+
+  function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor;
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: { value: ctor, enumerable: false, writable: true, configurable: true },
+    });
+  }
+
+  function ReadStream(path, options) {
+    options = options || {};
+    Readable.call(this, options);
+    this.path = path;
+    this._sid = null;
+    this._opening = true;
+    this._pending = false;
+    var self = this;
+    Promise.resolve(globalThis.${HOST_FS_OPEN_READ_KEY}(path)).then(function (id) {
+      self._sid = id;
+      self._opening = false;
+      self._read(self._readableState.highWaterMark);
+    }, function (err) {
+      self._opening = false;
+      self.destroy(err);
+    });
+  }
+  inherits(ReadStream, Readable);
+  ReadStream.prototype._read = function _read(size) {
+    if (this._opening || this._pending || this._sid == null) return;
+    this._pending = true;
+    try {
+      var chunk = globalThis.${HOST_FS_READ_CHUNK_KEY}(this._sid, size || 16384);
+      this._pending = false;
+      if (chunk == null) {
+        globalThis.${HOST_FS_CLOSE_READ_KEY}(this._sid);
+        this._sid = null;
+        this.push(null);
+        return;
+      }
+      var ok = this.push(chunk);
+      if (ok !== false && !this._readableState.ended) {
+        var t = this;
+        globalThis.setTimeout(function () {
+          t._read(size);
+        }, 0);
+      }
+    } catch (err) {
+      this._pending = false;
+      this.destroy(err);
+    }
+  };
+  ReadStream.prototype.destroy = function destroy(err) {
+    if (this._sid != null) {
+      globalThis.${HOST_FS_CLOSE_READ_KEY}(this._sid);
+      this._sid = null;
+    }
+    return Readable.prototype.destroy.call(this, err);
+  };
+
+  function WriteStream(path, options) {
+    options = options || {};
+    Writable.call(this, options);
+    this.path = path;
+    this._sid = null;
+    var self = this;
+    this._ready = Promise.resolve(globalThis.${HOST_FS_OPEN_WRITE_KEY}(path)).then(function (id) {
+      self._sid = id;
+    });
+  }
+  inherits(WriteStream, Writable);
+  WriteStream.prototype._write = function _write(chunk, encoding, cb) {
+    var self = this;
+    Promise.resolve(this._ready)
+      .then(function () {
+        return globalThis.${HOST_FS_WRITE_CHUNK_KEY}(self._sid, chunk);
+      })
+      .then(function () {
+        cb();
+      }, function (err) {
+        cb(err);
+      });
+  };
+  WriteStream.prototype.end = function end(chunk, encoding, cb) {
+    var self = this;
+    var origCb =
+      typeof chunk === 'function' ? chunk : typeof encoding === 'function' ? encoding : cb;
+    function wrapped(err) {
+      if (self._sid != null) {
+        globalThis.${HOST_FS_CLOSE_WRITE_KEY}(self._sid);
+        self._sid = null;
+      }
+      if (typeof origCb === 'function') origCb(err);
+    }
+    if (typeof chunk === 'function') {
+      return Writable.prototype.end.call(this, wrapped);
+    }
+    if (typeof encoding === 'function') {
+      return Writable.prototype.end.call(this, chunk, wrapped);
+    }
+    return Writable.prototype.end.call(this, chunk, encoding, wrapped);
+  };
+
+  function createReadStream(path, options) {
+    return new ReadStream(path, options);
+  }
+  function createWriteStream(path, options) {
+    return new WriteStream(path, options);
+  }
+
+  globalThis.${FS_STREAM_BUNDLE_KEY} = {
+    createReadStream: createReadStream,
+    createWriteStream: createWriteStream,
+    ReadStream: ReadStream,
+    WriteStream: WriteStream,
+  };
+})();`
+
+  const boot = context.evalCode(guestSource, 'instant-fs-streams.js')
+  context.setProp(context.global, FS_STREAM_READABLE_KEY, context.undefined)
+  context.setProp(context.global, FS_STREAM_WRITABLE_KEY, context.undefined)
+  if (boot.error) {
+    const message = (() => {
+      try {
+        return String(context.dump(boot.error))
+      } catch {
+        return 'fs streams guest eval failed'
+      } finally {
+        boot.error.dispose()
+      }
+    })()
+    throw new Error(`Failed to inject fs streams: ${message}`)
+  }
+  boot.value.dispose()
+
+  const bundle = context.getProp(context.global, FS_STREAM_BUNDLE_KEY)
+  for (const key of ['createReadStream', 'createWriteStream', 'ReadStream', 'WriteStream'] as const) {
+    const h = context.getProp(bundle, key)
+    context.setProp(fsObject, key, h)
+    h.dispose()
+  }
+  context.setProp(context.global, FS_STREAM_BUNDLE_KEY, context.undefined)
+  bundle.dispose()
 }
 
 /**
@@ -1295,6 +1601,17 @@ export function injectFs(options: InjectFsOptions): {
   context.setProp(fsObject, 'existsSync', existsSync)
   existsSync.dispose()
 
+  // ---- streaming createReadStream / createWriteStream ----
+  if (options.streamHandle !== undefined) {
+    injectFsStreams({
+      context,
+      asyncBridge,
+      ops,
+      fsObject,
+      streamHandle: options.streamHandle,
+    })
+  }
+
   context.setProp(fsObject, 'promises', promises)
 
   return { fsHandle: fsObject, promisesHandle: promises, disposeFsWatchers }
@@ -1348,6 +1665,10 @@ export function buildFsModuleSource(builtinsGlobalKey: string): string {
     'constants',
     'exists',
     'existsSync',
+    'createReadStream',
+    'createWriteStream',
+    'ReadStream',
+    'WriteStream',
     'promises',
   ]
   const named = keys.map((key) => `export const ${key} = __m.${key};`).join('\n')

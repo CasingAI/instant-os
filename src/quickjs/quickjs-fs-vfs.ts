@@ -325,6 +325,18 @@ export async function fsHostReadFile(
   })
 }
 
+/**
+ * 为流式读准备：整文件读入（仍受 maxFileBytes），由调用方按 offset 切片推送。
+ */
+export async function fsHostReadFileForStream(
+  ops: QuickJsFsHostOps,
+  rawPath: unknown,
+): Promise<{ absolute: string; bytes: Uint8Array }> {
+  const bytes = (await fsHostReadFile(ops, rawPath, 'buffer')) as Uint8Array
+  const absolute = resolveGuestFsPath(rawPath, ops.getCwd)
+  return { absolute, bytes }
+}
+
 export async function fsHostWriteFile(
   ops: QuickJsFsHostOps,
   rawPath: unknown,
