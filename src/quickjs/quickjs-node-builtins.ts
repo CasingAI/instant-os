@@ -7,6 +7,7 @@ import type {
 import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 import { buildAssertModuleSource, injectAssert } from './quickjs-assert.ts'
 import { buildBufferModuleSource, injectBuffer } from './quickjs-buffer.ts'
+import { buildCryptoModuleSource, injectCrypto } from './quickjs-crypto.ts'
 import {
   buildConsoleModuleSource,
   injectConsoleModule,
@@ -31,9 +32,19 @@ import {
   injectPerfHooks,
 } from './quickjs-perf-hooks.ts'
 import {
+  buildReadlineModuleSource,
+  buildReadlinePromisesModuleSource,
+  injectReadline,
+} from './quickjs-readline.ts'
+import {
   buildQuerystringModuleSource,
   injectQuerystring,
 } from './quickjs-querystring.ts'
+import {
+  buildStringDecoderModuleSource,
+  injectStringDecoder,
+} from './quickjs-string-decoder.ts'
+import { buildStreamModuleSource, injectStream } from './quickjs-stream.ts'
 import {
   buildTimersModuleSource,
   injectTimers,
@@ -97,6 +108,7 @@ const KNOWN_NODE_BUILTIN_IDS = new Set([
   'punycode',
   'querystring',
   'readline',
+  'readline/promises',
   'repl',
   'stream',
   'string_decoder',
@@ -213,6 +225,21 @@ function builtinModuleSource(canonical: string): string | undefined {
   }
   if (canonical === 'url') {
     return URL_MODULE_SOURCE
+  }
+  if (canonical === 'crypto') {
+    return CRYPTO_MODULE_SOURCE
+  }
+  if (canonical === 'stream') {
+    return STREAM_MODULE_SOURCE
+  }
+  if (canonical === 'string_decoder') {
+    return STRING_DECODER_MODULE_SOURCE
+  }
+  if (canonical === 'readline') {
+    return READLINE_MODULE_SOURCE
+  }
+  if (canonical === 'readline/promises') {
+    return READLINE_PROMISES_MODULE_SOURCE
   }
   return undefined
 }
@@ -342,6 +369,11 @@ const CONSOLE_MODULE_SOURCE = buildConsoleModuleSource(BUILTINS_GLOBAL_KEY)
 const TIMERS_MODULE_SOURCE = buildTimersModuleSource(BUILTINS_GLOBAL_KEY)
 const CONSTANTS_MODULE_SOURCE = buildConstantsModuleSource(BUILTINS_GLOBAL_KEY)
 const URL_MODULE_SOURCE = buildUrlModuleSource(BUILTINS_GLOBAL_KEY)
+const CRYPTO_MODULE_SOURCE = buildCryptoModuleSource(BUILTINS_GLOBAL_KEY)
+const STREAM_MODULE_SOURCE = buildStreamModuleSource(BUILTINS_GLOBAL_KEY)
+const STRING_DECODER_MODULE_SOURCE = buildStringDecoderModuleSource(BUILTINS_GLOBAL_KEY)
+const READLINE_MODULE_SOURCE = buildReadlineModuleSource(BUILTINS_GLOBAL_KEY)
+const READLINE_PROMISES_MODULE_SOURCE = buildReadlinePromisesModuleSource(BUILTINS_GLOBAL_KEY)
 
 function lookupBuiltinHandle(
   context: QuickJSContext,
@@ -366,7 +398,8 @@ function lookupBuiltinHandle(
 /**
  * 注入 Node 内建注册表：setModuleLoader（ESM）+ 全局 require（内建 + 文件级 CJS）。
  * 已实现内建：path、buffer、events、assert、util、os、perf_hooks、fs、fs/promises、module、
- * querystring、tty、console、timers、constants、url（及 node: / path/posix 别名）。
+ * querystring、tty、console、timers、constants、url、crypto、stream、string_decoder、readline
+ * （及 node: / path/posix 别名）。
  *
  * `perf_hooks`：W3C 计时面 + 薄 PerformanceObserver；Node 专有 API 不做——见 quickjs-perf-hooks.ts。
  * `module`：createRequire 接 CJS makeRequire；Module 类仍未接——见 quickjs-module.ts。
@@ -401,6 +434,11 @@ export function injectNodeBuiltins(
     'timers',
     'constants',
     'url',
+    'crypto',
+    'stream',
+    'string_decoder',
+    'readline',
+    'readline/promises',
   ])
   const listImplemented = () => [...implemented]
 
@@ -408,6 +446,8 @@ export function injectNodeBuiltins(
   const pathHandle = createPathModuleHandle(context, pathApi)
   const bufferHandle = injectBuffer(context)
   const eventsHandle = injectEvents(context)
+  const streamHandle = injectStream(context, eventsHandle)
+  const readlineHandle = injectReadline(context, eventsHandle)
   const assertHandle = injectAssert(context)
   const utilHandle = injectUtil(context)
   const osHandle = injectOs(context, { tmpDir: options.tmpDir })
@@ -423,6 +463,8 @@ export function injectNodeBuiltins(
   const timersHandle = injectTimers(context)
   const constantsHandle = injectConstants(context)
   const urlHandle = injectUrl(context)
+  const { handle: cryptoHandle, dispose: disposeCrypto } = injectCrypto(context)
+  const stringDecoderHandle = injectStringDecoder(context)
 
   const namespace = context.newObject()
   context.setProp(namespace, 'path', pathHandle)
@@ -431,6 +473,13 @@ export function injectNodeBuiltins(
   bufferHandle.dispose()
   context.setProp(namespace, 'events', eventsHandle)
   eventsHandle.dispose()
+  context.setProp(namespace, 'stream', streamHandle)
+  streamHandle.dispose()
+  context.setProp(namespace, 'readline', readlineHandle)
+  const readlinePromisesHandle = context.getProp(readlineHandle, 'promises')
+  context.setProp(namespace, 'readline/promises', readlinePromisesHandle)
+  readlinePromisesHandle.dispose()
+  readlineHandle.dispose()
   context.setProp(namespace, 'assert', assertHandle)
   assertHandle.dispose()
   context.setProp(namespace, 'util', utilHandle)
@@ -455,6 +504,10 @@ export function injectNodeBuiltins(
   constantsHandle.dispose()
   context.setProp(namespace, 'url', urlHandle)
   urlHandle.dispose()
+  context.setProp(namespace, 'crypto', cryptoHandle)
+  cryptoHandle.dispose()
+  context.setProp(namespace, 'string_decoder', stringDecoderHandle)
+  stringDecoderHandle.dispose()
   // module 在 CJS guest 安装后再注入（createRequire 依赖 __instantCjsMakeRequire）
   context.setProp(context.global, BUILTINS_GLOBAL_KEY, namespace)
   namespace.dispose()
@@ -626,6 +679,7 @@ export function injectNodeBuiltins(
     dispose: () => {
       disposeFsWatchers()
       disposePerfObservers()
+      disposeCrypto()
     },
   }
 }

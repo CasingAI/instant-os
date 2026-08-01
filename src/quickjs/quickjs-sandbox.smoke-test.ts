@@ -1643,6 +1643,82 @@ export default {
     throw new Error(`unexpected thin builtins import: ${JSON.stringify(thinImport.value)}`)
   }
 
+  const streamCryptoReadline = await timerInstance.eval(`
+    var crypto = require('crypto')
+    var stream = require('stream')
+    var sd = require('string_decoder')
+    var rl = require('readline')
+    var rlp = require('readline/promises')
+    var bytes = crypto.randomBytes(8)
+    var uuid = crypto.randomUUID()
+    var r = new stream.Readable()
+    var w = new stream.Writable()
+    r.push('hi')
+    r.push(null)
+    var dec = new sd.StringDecoder('utf8')
+    var iface = rl.createInterface({ input: process.stdin, output: process.stdout })
+    var prl = rlp.createInterface({ input: process.stdin, output: process.stdout })
+    ;({
+      cryptoSame: crypto === require('node:crypto'),
+      bytesLen: bytes && bytes.length === 8,
+      uuidLen: typeof uuid === 'string' && uuid.length === 36,
+      readable: r.readable === true,
+      writable: w.writable === true,
+      passThrough: typeof stream.PassThrough === 'function',
+      decode: dec.write(Buffer.from('ab')) === 'ab',
+      rlQuestion: typeof iface.question === 'function',
+      rlpCreate: typeof rlp.createInterface === 'function',
+      streamSame: stream === require('node:stream'),
+    })
+  `)
+  if (!streamCryptoReadline.ok) {
+    throw new Error(`stream/crypto/readline failed: ${JSON.stringify(streamCryptoReadline)}`)
+  }
+  const scrVal = streamCryptoReadline.value as Record<string, unknown>
+  if (
+    scrVal.cryptoSame !== true ||
+    scrVal.bytesLen !== true ||
+    scrVal.uuidLen !== true ||
+    scrVal.readable !== true ||
+    scrVal.writable !== true ||
+    scrVal.passThrough !== true ||
+    scrVal.decode !== true ||
+    scrVal.rlQuestion !== true ||
+    scrVal.rlpCreate !== true ||
+    scrVal.streamSame !== true
+  ) {
+    throw new Error(`unexpected stream/crypto/readline: ${JSON.stringify(scrVal)}`)
+  }
+
+  const streamImport = await timerInstance.eval(`
+import { Readable, PassThrough } from 'stream'
+import { StringDecoder } from 'string_decoder'
+import { randomBytes } from 'crypto'
+import { createInterface } from 'readline'
+export default {
+  readable: new Readable().readable === true,
+  pt: typeof PassThrough === 'function',
+  dec: new StringDecoder('utf8').write(Buffer.from('x')) === 'x',
+  rnd: randomBytes(4).length === 4,
+  rl: typeof createInterface === 'function',
+}
+`)
+  if (!streamImport.ok) {
+    throw new Error(`stream batch import failed: ${JSON.stringify(streamImport)}`)
+  }
+  const streamImportVal =
+    (streamImport.value as { default?: Record<string, unknown> }).default ??
+    (streamImport.value as Record<string, unknown>)
+  if (
+    streamImportVal.readable !== true ||
+    streamImportVal.pt !== true ||
+    streamImportVal.dec !== true ||
+    streamImportVal.rnd !== true ||
+    streamImportVal.rl !== true
+  ) {
+    throw new Error(`unexpected stream batch import: ${JSON.stringify(streamImport.value)}`)
+  }
+
   cjsInstance.destroy()
   try {
     await filesRemove(cjsRoot)
