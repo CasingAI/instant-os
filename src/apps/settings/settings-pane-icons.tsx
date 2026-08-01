@@ -128,6 +128,37 @@ export function SpeechPaneIcon() {
   )
 }
 
+export function SoundsPaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#e08a2c" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <path
+          d="M4 8.2h2.6L10.2 5v12L6.6 13.8H4V8.2Z"
+          fill="#fff"
+          opacity="0.95"
+        />
+        <path
+          d="M12.4 7.2c1.05.85 1.7 2.1 1.7 3.55s-.65 2.7-1.7 3.55"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          opacity="0.9"
+        />
+        <path
+          d="M14.8 5.2c1.75 1.35 2.85 3.4 2.85 5.7s-1.1 4.35-2.85 5.7"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          opacity="0.7"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function SafariUsagePaneIcon() {
   return <BrowserIcon size={PANE_ICON_SIZE} />
 }

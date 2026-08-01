@@ -15,6 +15,7 @@ import {
   NotificationCenterPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
+  SoundsPaneIcon,
   SpeechPaneIcon,
   StoragePaneIcon,
   SystemEnvPaneIcon,
@@ -29,6 +30,7 @@ export type SettingsPaneId =
   | 'ai-usage'
   | 'account'
   | 'speech'
+  | 'sounds'
   | 'external-bridge-consent'
   | 'display'
   | 'date-time'
@@ -51,6 +53,7 @@ export type SettingsRoute =
   | { view: 'ai-usage' }
   | { view: 'account' }
   | { view: 'speech' }
+  | { view: 'sounds' }
   | { view: 'external-bridge-consent' }
   | { view: 'display' }
   | { view: 'date-time' }
@@ -124,6 +127,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     route: { view: 'notification-center' },
     group: 'system',
   },
+  { id: 'sounds', label: '声音', Icon: SoundsPaneIcon, route: { view: 'sounds' }, group: 'system' },
   {
     id: 'startup-items',
     label: '启动项',
@@ -231,6 +235,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'account'
     case 'speech':
       return 'speech'
+    case 'sounds':
+      return 'sounds'
     case 'external-bridge-consent':
       return 'external-bridge-consent'
     case 'display':
@@ -276,6 +282,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'ai-usage':
     case 'account':
     case 'speech':
+    case 'sounds':
     case 'external-bridge-consent':
     case 'display':
     case 'date-time':

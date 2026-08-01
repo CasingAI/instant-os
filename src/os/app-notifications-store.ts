@@ -1,3 +1,5 @@
+import { playSystemErrorSound } from './system-sounds.ts'
+
 export type AppNotification = {
   id: string
   appName: string
@@ -35,6 +37,7 @@ export function addAppNotification(notification: AppNotification) {
   } else {
     notifications = [...notifications, notification]
   }
+  playSystemErrorSound()
   notifySubscribers()
 }
 

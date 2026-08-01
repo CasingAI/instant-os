@@ -3861,3 +3861,36 @@
   color: var(--settings-input-ink);
   border-color: var(--settings-input-border);
 }
+
+/* —— 声音（仿 iOS 6 音量条） —— */
+.settings__sound-volume-box {
+  padding: 14px 14px 10px;
+}
+
+.settings__sound-volume-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 22px;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings__sound-volume-row[aria-disabled='true'] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.settings__sound-volume-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #5a5a5a;
+}
+
+.settings__sound-volume-slider {
+  width: 100%;
+}
+
+.settings__sound-volume-footnote {
+  margin: 8px 2px 0;
+  text-align: center;
+}

@@ -30,6 +30,7 @@ import { FilesStorageView } from './files-storage-view.tsx'
 import { DisplayView } from './display-view.tsx'
 import { DateTimeSettingsView } from './date-time-settings-view.tsx'
 import { NotificationCenterSettingsView } from './notification-center-settings-view.tsx'
+import { SoundSettingsView } from './sound-settings-view.tsx'
 import { SpeechSettingsView } from './speech-settings-view.tsx'
 import { EmojiCalibrationView } from './emoji-calibration-view.tsx'
 import { EmojiSettingsView } from './emoji-settings-view.tsx'
@@ -249,6 +250,7 @@ export function SettingsApp() {
   const showDisplay = view === 'display'
   const showDateTime = view === 'date-time'
   const showSpeech = view === 'speech'
+  const showSounds = view === 'sounds'
   const showNotificationCenter = view === 'notification-center'
   const keepDisplay =
     showDisplay || view === 'display-emoji' || view === 'display-emoji-calibration'
@@ -453,6 +455,10 @@ export function SettingsApp() {
           onBack={() => setRoute({ view: 'root' })}
           onOpenKeychain={() => openApp('keychain')}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showSounds} keep={showSounds}>
+        <SoundSettingsView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showNotificationCenter} keep={showNotificationCenter}>
