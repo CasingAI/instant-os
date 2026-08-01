@@ -819,6 +819,10 @@
   pointer-events: auto;
 }
 
+.pages-block-controls--with-plus {
+  width: 40px;
+}
+
 .pages-block-controls__btn {
   display: inline-flex;
   align-items: center;

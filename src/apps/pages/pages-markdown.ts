@@ -282,7 +282,7 @@ export function createPagesExtensions(slash?: PagesSlashHandlers): Extensions {
       },
     }),
     Placeholder.configure({
-      placeholder: '输入「/」插入块，或点左侧手柄打开操作菜单…',
+      placeholder: '输入「/」或点左侧「+」插入块…',
     }),
     TaskList.configure({
       HTMLAttributes: { class: 'pages-editor__task-list' },

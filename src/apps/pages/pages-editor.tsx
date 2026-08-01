@@ -11,6 +11,7 @@ import {
   deleteTopLevelBlock,
   findTopLevelBlock,
   findTopLevelBlockAtPoint,
+  isEmptyConvertibleBlock,
   selectBlockNode,
   type BlockInsertItem,
 } from './pages-block-insert.ts'
@@ -1050,11 +1051,12 @@ export function PagesEditor({
           const menuW = 180
           const menuH = 220
           const rootRect = root.getBoundingClientRect()
-          const rawLeft = controls.left + 22
+          const hasPlus = !!block && isEmptyConvertibleBlock(block)
+          const menuLeft = controls.left + (hasPlus ? 40 : 22)
           const rawTop = controls.top
           setContextMenu({
             top: Math.min(Math.max(4, rawTop), Math.max(4, rootRect.height - menuH)),
-            left: Math.min(Math.max(4, rawLeft), Math.max(4, rootRect.width - menuW)),
+            left: Math.min(Math.max(4, menuLeft), Math.max(4, rootRect.width - menuW)),
             blockPos: pending.blockPos,
             items: buildBlockOpsMenuItems({ isTable: !!isTable }),
             source: 'block-ops',
@@ -1431,6 +1433,12 @@ export function PagesEditor({
       }
     : hoverBlock
 
+  const showPlusOnControls = (() => {
+    if (!activeControls || !editor || editor.isDestroyed) return false
+    const node = editor.state.doc.nodeAt(activeControls.blockPos)
+    return !!node && isEmptyConvertibleBlock(node)
+  })()
+
   const slashIsFullCatalog =
     !!slashMenu &&
     slashMenu.items.length === buildBlockInsertCatalog().length &&
@@ -1519,6 +1527,19 @@ export function PagesEditor({
             top={activeControls.top}
             left={activeControls.left}
             height={activeControls.height}
+            showPlus={showPlusOnControls}
+            plusActive={!!insertPanel}
+            onPlus={() => {
+              if (insertPanel) {
+                updateInsertPanel(null)
+                return
+              }
+              openInsertPanel(activeControls.blockPos, 'replace-or-below', {
+                top: activeControls.top,
+                left: activeControls.left,
+                height: activeControls.height,
+              })
+            }}
             onHandleMouseDown={(event) => {
               if (!editable || viewMode !== 'edit') return
               pendingDragRef.current = {

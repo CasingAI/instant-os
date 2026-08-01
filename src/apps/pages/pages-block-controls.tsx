@@ -4,6 +4,10 @@ export type BlockControlsProps = {
   left: number
   /** 与目标块同高，整行左侧 gutter 都可悬停 */
   height: number
+  /** 仅空段落/空标题显示加号 */
+  showPlus?: boolean
+  plusActive?: boolean
+  onPlus: () => void
   /** 手柄按下：拖拽超过阈值后重排，否则松手打开操作菜单 */
   onHandleMouseDown: (event: MouseEvent) => void
 }
@@ -12,11 +16,14 @@ export function PagesBlockControls({
   top,
   left,
   height,
+  showPlus = false,
+  plusActive,
+  onPlus,
   onHandleMouseDown,
 }: BlockControlsProps) {
   return (
     <div
-      class="pages-block-controls"
+      class={`pages-block-controls${showPlus ? ' pages-block-controls--with-plus' : ''}`}
       style={{
         top: `${top}px`,
         left: `${left}px`,
@@ -24,6 +31,22 @@ export function PagesBlockControls({
       }}
       contentEditable={false}
     >
+      {showPlus ? (
+        <button
+          type="button"
+          class={`pages-block-controls__btn pages-block-controls__btn--plus${plusActive ? ' pages-block-controls__btn--active' : ''}`}
+          title="插入块"
+          aria-label="插入块"
+          aria-expanded={plusActive ? 'true' : 'false'}
+          onMouseDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onPlus()
+          }}
+        >
+          +
+        </button>
+      ) : null}
       <button
         type="button"
         class="pages-block-controls__btn pages-block-controls__btn--handle"
