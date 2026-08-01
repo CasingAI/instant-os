@@ -6,9 +6,12 @@ import assert from 'node:assert/strict'
 import { fnv1a32Hex } from '../files/files-tmp.ts'
 import {
   assertVscodePlanPath,
+  isVscodePlanWriteToolName,
   parsePlanTodoProgress,
+  resolvePlanPathFromWriteTool,
   resolveVscodePlansDir,
   validatePlanMarkdown,
+  WRITE_PLAN_RESULT_PATH_RE,
 } from './vscode-ai-plan.ts'
 
 const workspace = '/user/projects/demo'
@@ -61,5 +64,24 @@ assert.throws(
   () => assertVscodePlanPath(`/tmp/Workspace/${hash}/vscode/plans/a.txt`, workspace),
   /\.md/,
 )
+
+assert.equal(
+  WRITE_PLAN_RESULT_PATH_RE.exec('已写入计划并打开：/tmp/Workspace/abc/vscode/plans/x.md')?.[1],
+  '/tmp/Workspace/abc/vscode/plans/x.md',
+)
+assert.equal(
+  resolvePlanPathFromWriteTool('update_plan', {
+    result: '已更新计划：/tmp/Workspace/abc/vscode/plans/x.md',
+  }),
+  '/tmp/Workspace/abc/vscode/plans/x.md',
+)
+assert.equal(
+  resolvePlanPathFromWriteTool('update_plan', {
+    title: '/tmp/Workspace/abc/vscode/plans/x.md',
+  }),
+  '/tmp/Workspace/abc/vscode/plans/x.md',
+)
+assert.equal(isVscodePlanWriteToolName('write_plan'), true)
+assert.equal(isVscodePlanWriteToolName('run_in_terminal'), false)
 
 console.log('vscode-ai-plan.test.ts: ok')

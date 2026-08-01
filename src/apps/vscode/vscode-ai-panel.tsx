@@ -70,8 +70,12 @@ import {
 } from './vscode-ai-attachments.ts'
 import { VscodeAiAttachmentImages } from './vscode-ai-attachment-images.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
-import { filesReadText } from '../files/files-api.ts'
-import { parsePlanTodoProgress } from './vscode-ai-plan.ts'
+import { filesReadText, filesWatch } from '../files/files-api.ts'
+import {
+  isVscodePlanWriteToolName,
+  parsePlanTodoProgress,
+  resolvePlanPathFromWriteTool,
+} from './vscode-ai-plan.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import {
   buildVscodeAiSystemReminder,
@@ -164,8 +168,6 @@ type SendOptions = {
   implementsPlanMessageId?: string
 }
 
-const WRITE_PLAN_RESULT_PATH_RE = /已写入计划(?:并打开)?：(.+)$/
-
 /** 取 Markdown 第一个一级标题（`# Title`，忽略 ##） */
 function extractMarkdownH1(markdown: string): string | undefined {
   const match = /(?:^|\n)[ \t]*#[ \t]+([^\n#][^\n]*)/.exec(markdown)
@@ -179,18 +181,13 @@ function extractPlanMetaFromTimeline(
   let planPath: string | undefined
   let planTitle: string | undefined
   for (const item of timeline) {
-    if (item.kind !== 'write' || item.toolName !== 'write_plan' || !item.done) continue
-    const fromResult = item.result
-      ? WRITE_PLAN_RESULT_PATH_RE.exec(item.result.trim())?.[1]?.trim()
-      : undefined
-    if (fromResult) {
-      planPath = fromResult
-    } else {
-      const title = item.title.trim()
-      if (title.includes('/') && title.endsWith('.md')) {
-        planPath = title
-      }
-    }
+    if (item.kind !== 'write' || !item.done) continue
+    if (!isVscodePlanWriteToolName(item.toolName)) continue
+    const path = resolvePlanPathFromWriteTool(item.toolName, {
+      result: item.result,
+      title: item.title,
+    })
+    if (path) planPath = path
     const h1 = extractMarkdownH1(item.preview)
     if (h1) planTitle = h1
   }
@@ -899,7 +896,7 @@ function WriteFileCard({
   live?: boolean
 }) {
   const [expanded, setExpanded] = useState(!item.done)
-  const previewScrollRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+  const previewScrollRef = useRef<HTMLElement | null>(null)
   const streaming = Boolean(live) && !item.done
   const preview = item.preview.trim()
   const heading = formatVscodeAiWriteCardHeading(item.toolName, item.phase)
@@ -1002,22 +999,32 @@ function PlanReadyBar({
       setDisplayTitle(known)
     }
     let cancelled = false
-    void filesReadText(planPath)
-      .then((text) => {
-        if (cancelled) return
-        if (!known) {
-          setDisplayTitle(extractMarkdownH1(text) || planFileLabel(planPath))
-        }
-        const progress = parsePlanTodoProgress(text)
-        setTodoProgress(progress.total > 0 ? progress : null)
-      })
-      .catch(() => {
-        if (cancelled) return
-        if (!known) setDisplayTitle(planFileLabel(planPath))
-        setTodoProgress(null)
-      })
+
+    const loadPlanFile = () => {
+      void filesReadText(planPath)
+        .then((text) => {
+          if (cancelled) return
+          if (!known) {
+            setDisplayTitle(extractMarkdownH1(text) || planFileLabel(planPath))
+          }
+          const progress = parsePlanTodoProgress(text)
+          setTodoProgress(progress.total > 0 ? progress : null)
+        })
+        .catch(() => {
+          if (cancelled) return
+          if (!known) setDisplayTitle(planFileLabel(planPath))
+          setTodoProgress(null)
+        })
+    }
+
+    loadPlanFile()
+    const unwatch = filesWatch(planPath, () => {
+      if (!cancelled) loadPlanFile()
+    })
+
     return () => {
       cancelled = true
+      unwatch()
     }
   }, [planPath, planTitle])
 

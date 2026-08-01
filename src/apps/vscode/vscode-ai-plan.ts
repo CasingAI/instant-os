@@ -6,6 +6,35 @@ import { workspaceAppTmpDir } from '../files/files-tmp.ts'
 /** GFM 任务行：`- [ ]` / `- [x]` / `- [X]`（允许行首空白） */
 const PLAN_TODO_LINE_RE = /^[ \t]*-[ \t]+\[([ xX])\][ \t]+.+/
 
+export const WRITE_PLAN_RESULT_PATH_RE = /已写入计划(?:并打开)?：(.+)$/
+export const UPDATE_PLAN_RESULT_PATH_RE = /已更新计划：(.+)$/
+
+export function isVscodePlanWriteToolName(toolName: string): boolean {
+  return toolName === 'write_plan' || toolName === 'update_plan'
+}
+
+/** 从 write_plan / update_plan 工具结果或卡片 title 解析计划路径 */
+export function resolvePlanPathFromWriteTool(
+  toolName: string,
+  options: { result?: string; title?: string },
+): string | undefined {
+  const result = options.result?.trim() ?? ''
+  const title = options.title?.trim() ?? ''
+  if (toolName === 'write_plan') {
+    const fromResult = WRITE_PLAN_RESULT_PATH_RE.exec(result)?.[1]?.trim()
+    if (fromResult) return fromResult
+    if (title.includes('/') && title.endsWith('.md')) return title
+    return undefined
+  }
+  if (toolName === 'update_plan') {
+    const fromResult = UPDATE_PLAN_RESULT_PATH_RE.exec(result)?.[1]?.trim()
+    if (fromResult) return fromResult
+    if (title.includes('/') && title.endsWith('.md')) return title
+    return undefined
+  }
+  return undefined
+}
+
 export type PlanTodoProgress = {
   done: number
   total: number
