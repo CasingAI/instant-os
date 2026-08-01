@@ -33,7 +33,6 @@ export function claimBootSplash(): void {
   splash.classList.remove('instant-boot-splash--dismissed', 'instant-boot-splash--cold-exit')
   splash.setAttribute('aria-busy', 'true')
   setBootSplashStatus(BOOT_STATUS_ENTERING)
-  setBootSplashProgress(1)
   setBootCursorHidden(true)
 }
 
@@ -43,6 +42,7 @@ export function startBootSplashColdExit(): void {
     return
   }
 
+  setBootSplashProgress(1)
   splash.classList.add('instant-boot-splash--cold-exit')
   splash.setAttribute('aria-busy', 'false')
 }

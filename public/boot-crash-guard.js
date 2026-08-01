@@ -46,7 +46,7 @@
   var BOOT_SPLASH_ARC_ID = 'instant-boot-splash-arc'
   var BOOT_PROGRESS_CIRCUMFERENCE = 100
   var BOOT_PROGRESS_RESOURCE_CAP = 0.9
-  var BOOT_PROGRESS_MODULE_MIN = 0.95
+  var BOOT_PROGRESS_MAIN_LOADED_CAP = 0.98
   var BOOT_STATUS_LOADING = '正在加载系统…'
   var BOOT_STATUS_STARTING = '正在启动…'
 
@@ -61,8 +61,9 @@
   var bootProgressState = {
     expected: {},
     completed: {},
+    weightByUrl: {},
     ratio: 0,
-    manualFloor: 0,
+    mainLoaded: false,
     finalized: false,
   }
 
@@ -154,21 +155,28 @@
       return
     }
     next = Math.max(0, Math.min(1, next))
-    if (next < bootProgressState.ratio) {
-      return
-    }
     bootProgressState.ratio = next
     paintBootProgress()
   }
 
-  function paintBootProgress() {
-    var arc = document.getElementById(BOOT_SPLASH_ARC_ID)
-    if (!arc) {
-      return
+  function resourceWeight(href) {
+    if (bootProgressState.weightByUrl[href]) {
+      return bootProgressState.weightByUrl[href]
     }
-    arc.style.strokeDashoffset = String(
-      BOOT_PROGRESS_CIRCUMFERENCE * (1 - bootProgressState.ratio),
-    )
+    try {
+      if (typeof performance !== 'undefined' && performance.getEntriesByName) {
+        var entries = performance.getEntriesByName(href)
+        if (entries && entries.length > 0) {
+          var entry = entries[entries.length - 1]
+          var weight = entry.encodedBodySize || entry.transferSize || 0
+          if (weight > 0) {
+            bootProgressState.weightByUrl[href] = weight
+            return weight
+          }
+        }
+      }
+    } catch (_e) {}
+    return 1
   }
 
   function refreshBootSplashUi() {
@@ -184,25 +192,24 @@
       return
     }
 
-    var expectedCount = 0
-    var completedCount = 0
+    var totalWeight = 0
+    var doneWeight = 0
     for (var url in bootProgressState.expected) {
       if (!Object.prototype.hasOwnProperty.call(bootProgressState.expected, url)) {
         continue
       }
-      expectedCount += 1
+      var weight = resourceWeight(url)
+      totalWeight += weight
       if (bootProgressState.completed[url]) {
-        completedCount += 1
+        doneWeight += weight
       }
     }
 
-    var raw = expectedCount === 0 ? 0 : completedCount / expectedCount
-    var capped = Math.min(BOOT_PROGRESS_RESOURCE_CAP, raw)
-    var next = Math.max(bootProgressState.manualFloor, capped)
-    if (state.moduleExecuted) {
-      next = Math.max(next, BOOT_PROGRESS_MODULE_MIN)
-    }
-    applyBootProgress(next)
+    var raw = totalWeight === 0 ? 0 : doneWeight / totalWeight
+    var cap = bootProgressState.mainLoaded
+      ? BOOT_PROGRESS_MAIN_LOADED_CAP
+      : BOOT_PROGRESS_RESOURCE_CAP
+    applyBootProgress(Math.min(cap, raw))
   }
 
   function setBootStatus(message) {
@@ -221,14 +228,27 @@
     if (isNaN(next)) {
       return
     }
-    next = Math.max(0, Math.min(1, next))
-    bootProgressState.manualFloor = Math.max(bootProgressState.manualFloor, next)
     if (next >= 1) {
       bootProgressState.finalized = true
       applyBootProgress(1)
       return
     }
+  }
+
+  function markBootMainLoaded() {
+    bootProgressState.mainLoaded = true
+    setBootStatus(BOOT_STATUS_STARTING)
     recomputeBootProgress()
+  }
+
+  function paintBootProgress() {
+    var arc = document.getElementById(BOOT_SPLASH_ARC_ID)
+    if (!arc) {
+      return
+    }
+    arc.style.strokeDashoffset = String(
+      BOOT_PROGRESS_CIRCUMFERENCE * (1 - bootProgressState.ratio),
+    )
   }
 
   function markBootResourceComplete(url) {
@@ -246,6 +266,7 @@
       return
     }
     bootProgressState.completed[href] = true
+    resourceWeight(href)
     recomputeBootProgress()
   }
 
@@ -366,7 +387,41 @@
     }
   }
 
+  function installBootFetchTracker() {
+    if (typeof window.fetch !== 'function' || window.fetch.__instantBootTracked) {
+      return
+    }
+    var originalFetch = window.fetch
+    window.fetch = function (input, init) {
+      var url =
+        typeof input === 'string'
+          ? input
+          : input && typeof input === 'object' && input.url
+            ? input.url
+            : ''
+      if (!bootProgressState.finalized && url) {
+        trackBootResourceUrl(url)
+      }
+      return originalFetch.apply(this, arguments).then(
+        function (response) {
+          if (!bootProgressState.finalized && url) {
+            markBootResourceComplete(url)
+          }
+          return response
+        },
+        function (error) {
+          if (url) {
+            markBootResourceComplete(url)
+          }
+          throw error
+        },
+      )
+    }
+    window.fetch.__instantBootTracked = true
+  }
+
   function installBootProgressTracker() {
+    installBootFetchTracker()
     scanExistingBootResources()
 
     if (typeof MutationObserver === 'function') {
@@ -409,8 +464,7 @@
     }
 
     refreshBootSplashUi()
-    // 留一点可见弧，避免 0% 时看起来像空环卡住
-    bootProgressState.manualFloor = Math.max(bootProgressState.manualFloor, 0.04)
+    setBootStatus(BOOT_STATUS_LOADING)
     recomputeBootProgress()
   }
 
@@ -1075,6 +1129,7 @@
     renderCrashScreen: renderCrashScreen,
     safeString: safeString,
     markModuleExecuted: markModuleExecuted,
+    markBootMainLoaded: markBootMainLoaded,
     markBootComplete: markBootComplete,
     loadMainModule: loadMainModule,
     setBootStatus: setBootStatus,
