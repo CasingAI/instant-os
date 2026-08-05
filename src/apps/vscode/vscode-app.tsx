@@ -63,6 +63,7 @@ import {
   writeTextFile,
 } from '../files/files-vfs.ts'
 import { VscodeEditorArea } from './vscode-editor-area.tsx'
+import { JSONL_AUTO_PREVIEW_MAX_BYTES } from '../../jsonl/jsonl-perf.ts'
 import {
   addFileTabToFocusedGroup,
   createEditorLayoutWithTabs,
@@ -1074,11 +1075,13 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
       tabsRef.current = restored
       activeTabIdRef.current = nextActiveId
       setTabs(restored)
-      // 恢复的 jsonl 标签同样默认进入内联预览
+      // 恢复的 jsonl 标签：小/中文件默认内联预览；超大文件留在编辑模式
       setInlinePreviewTabIds((prev) => {
         const next = new Set(prev)
         for (const tab of restored) {
-          if (tab.language === 'jsonl') next.add(tab.id)
+          if (tab.language === 'jsonl' && tab.text.length <= JSONL_AUTO_PREVIEW_MAX_BYTES) {
+            next.add(tab.id)
+          }
         }
         return next
       })
@@ -1330,8 +1333,8 @@ export function VscodeApp({ windowId }: VscodeAppProps) {
         flushSync(() => {
           setTabs(nextTabs)
           setEditorLayout((current) => addFileTabToFocusedGroup(current, tab.id))
-          // jsonl 打开默认进入内联预览（同帧提交，避免编辑模式闪一帧）
-          if (tab.language === 'jsonl') {
+          // jsonl 打开默认进入内联预览（同帧提交，避免编辑模式闪一帧）；超大文件除外
+          if (tab.language === 'jsonl' && tab.text.length <= JSONL_AUTO_PREVIEW_MAX_BYTES) {
             setInlinePreviewTabIds((prev) => new Set(prev).add(tab.id))
           }
         })

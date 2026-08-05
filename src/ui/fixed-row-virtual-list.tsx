@@ -30,6 +30,7 @@ export function FixedRowVirtualList<T>({
   scrollToIndex,
 }: FixedRowVirtualListProps<T>) {
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const rafRef = useRef<number | undefined>(undefined)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
 
@@ -49,7 +50,22 @@ export function FixedRowVirtualList<T>({
   const onScroll = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
-    setScrollTop(el.scrollTop)
+    if (rafRef.current !== undefined) return
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = undefined
+      const scroller = scrollerRef.current
+      if (!scroller) return
+      setScrollTop(scroller.scrollTop)
+    })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== undefined) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = undefined
+      }
+    }
   }, [])
 
   // 当前行变化时就近滚入视口（行在视口内则不动）

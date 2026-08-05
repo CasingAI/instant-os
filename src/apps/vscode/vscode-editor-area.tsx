@@ -11,6 +11,7 @@ import type {
 } from './vscode-prefs.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
 import { VscodeJsonlPreview } from '../../jsonl/vscode-jsonl-preview.tsx'
+import { JSONL_AUTO_PREVIEW_MAX_BYTES, JSONL_SIDE_PREVIEW_DEBOUNCE_MS } from '../../jsonl/jsonl-perf.ts'
 import {
   type VscodeEditorDragPayload,
   type VscodeEditorGroupState,
@@ -1008,7 +1009,9 @@ function VscodeEditorGroupView({
         })()}
 
         {activeItem?.kind === 'aiChat' ? undefined : activeItem?.kind === 'preview' ? (
-          <div class="vscode__preview-body">
+          <div
+            class={`vscode__preview-body${previewSourceTab?.language === 'jsonl' ? ' vscode__preview-body--fill' : ''}`}
+          >
             {previewSourceTab?.language === 'jsonl' ? (
               <VscodeJsonlPreview
                 text={previewSourceTab?.text ?? ''}
@@ -1020,6 +1023,7 @@ function VscodeEditorGroupView({
                   wordWrap: prefs.wordWrap,
                 }}
                 active={isActiveWindow && focused}
+                debounceMs={JSONL_SIDE_PREVIEW_DEBOUNCE_MS}
               />
             ) : (
               <VscodeMarkdownPreview text={previewSourceTab?.text ?? ''} />
@@ -1150,38 +1154,44 @@ function VscodeEditorGroupView({
                 此文件已从磁盘删除，保存将重新创建。
               </div>
             ) : undefined}
-            <div
-              class={`vscode__monaco-wrap${inlinePreviewOpen ? ' vscode__monaco-wrap--hidden' : ''}`}
-              hidden={inlinePreviewOpen}
-            >
-              <MonacoEditor
-                className="vscode__monaco"
-                value={activeFileTab.text}
-                onChange={(text) => onTabTextChange(activeFileTab.id, text)}
-                language={activeFileTab.language}
-                modelPath={activeFileTab.path}
-                theme={prefs.theme}
-                readOnly={!activeFileTab.writable}
-                fontSize={prefs.fontSize}
-                minimap={prefs.minimap}
-                wordWrap={prefs.wordWrap ? 'on' : 'off'}
-                active={isActiveWindow && focused && !inlinePreviewOpen}
-                onCursorChange={onCursorChange}
-                onSelectionChange={onSelectionChange}
-                onOpenPath={onOpenPath}
-                revealPosition={
-                  revealPosition && revealPosition.path === activeFileTab.path
-                    ? { line: revealPosition.line, column: revealPosition.column }
-                    : undefined
-                }
-                onRevealPositionApplied={onRevealPositionApplied}
-                completionEnabled={prefs.completionEnabled === true}
-                completionDebounceMs={prefs.completionDebounceMs}
-                completionModelKey={prefs.completionModelKey}
-              />
-            </div>
-            {inlinePreviewOpen ? (
-              <div class="vscode__preview-body">
+            {activeFileTab.language === 'jsonl' &&
+            activeFileTab.text.length > JSONL_AUTO_PREVIEW_MAX_BYTES ? (
+              <div class="vscode__deleted-banner" role="status">
+                文件较大，预览将后台索引；默认不自动进入预览模式。
+              </div>
+            ) : undefined}
+            {!inlinePreviewOpen ? (
+              <div class="vscode__monaco-wrap">
+                <MonacoEditor
+                  className="vscode__monaco"
+                  value={activeFileTab.text}
+                  onChange={(text) => onTabTextChange(activeFileTab.id, text)}
+                  language={activeFileTab.language}
+                  modelPath={activeFileTab.path}
+                  theme={prefs.theme}
+                  readOnly={!activeFileTab.writable}
+                  fontSize={prefs.fontSize}
+                  minimap={prefs.minimap}
+                  wordWrap={prefs.wordWrap ? 'on' : 'off'}
+                  active={isActiveWindow && focused}
+                  onCursorChange={onCursorChange}
+                  onSelectionChange={onSelectionChange}
+                  onOpenPath={onOpenPath}
+                  revealPosition={
+                    revealPosition && revealPosition.path === activeFileTab.path
+                      ? { line: revealPosition.line, column: revealPosition.column }
+                      : undefined
+                  }
+                  onRevealPositionApplied={onRevealPositionApplied}
+                  completionEnabled={prefs.completionEnabled === true}
+                  completionDebounceMs={prefs.completionDebounceMs}
+                  completionModelKey={prefs.completionModelKey}
+                />
+              </div>
+            ) : (
+              <div
+                class={`vscode__preview-body${activeFileTab.language === 'jsonl' ? ' vscode__preview-body--fill' : ''}`}
+              >
                 {activeFileTab.language === 'jsonl' ? (
                   <VscodeJsonlPreview
                     text={activeFileTab.text}
@@ -1198,7 +1208,7 @@ function VscodeEditorGroupView({
                   <VscodeMarkdownPreview text={activeFileTab.text} />
                 )}
               </div>
-            ) : undefined}
+            )}
             {isPreviewableTab(activeFileTab) ? (
               <div class="vscode__preview-footer" role="toolbar" aria-label="文档预览">
                 <button

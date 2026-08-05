@@ -77,18 +77,174 @@
   display: flex;
 }
 
-.jsonl-line-viewer__nav {
-  width: 68px;
+.jsonl-line-viewer__nav-pane {
   flex-shrink: 0;
-  border-right: 1px solid var(--vscode-border-light, #e2e2e2);
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--vscode-surface, #f7f7f7);
+}
+
+.jsonl-line-viewer__nav-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--vscode-border-light, #e2e2e2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--vscode-muted, #6e6e6e);
+  position: relative;
+  z-index: 3;
+}
+
+.jsonl-line-viewer__nav-index {
+  flex-shrink: 0;
+  width: 28px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jsonl-line-viewer__nav-key-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.jsonl-line-viewer__nav-key-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 2px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-ink, #333);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jsonl-line-viewer__nav-key-btn:hover {
+  background: color-mix(in srgb, var(--vscode-ink, #333) 6%, transparent);
+}
+
+.jsonl-line-viewer__nav-key-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jsonl-line-viewer__nav-key-caret {
+  flex-shrink: 0;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.jsonl-line-viewer__nav-key-static {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--vscode-ink, #333);
+}
+
+.jsonl-line-viewer__nav-key-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  min-width: 100%;
+  max-height: 220px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow: auto;
+  border: 1px solid var(--vscode-border-light, #dcdcdc);
+  border-radius: 4px;
+  background: var(--vscode-surface, #fff);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 4;
+}
+
+.jsonl-line-viewer__nav-key-option {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-ink, #333);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jsonl-line-viewer__nav-key-option:hover {
+  background: color-mix(in srgb, var(--vscode-ink, #333) 6%, transparent);
+}
+
+.jsonl-line-viewer__nav-key-option--active {
+  background: color-mix(in srgb, var(--vscode-accent, #2f87e2) 18%, transparent);
+  font-weight: 600;
+}
+
+.jsonl-line-viewer__nav {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+}
+
+.jsonl-line-viewer__sash {
+  flex-shrink: 0;
+  width: 4px;
+  margin: 0;
+  cursor: col-resize;
+  border: none;
+  background: transparent;
+  touch-action: none;
+  position: relative;
+  z-index: 2;
+}
+
+.jsonl-line-viewer__sash::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--vscode-border-light, #e2e2e2);
+  transition: background 0.12s ease;
+}
+
+.jsonl-line-viewer__sash:hover::after,
+.jsonl-line-viewer__sash:active::after {
+  background: color-mix(in srgb, var(--vscode-accent, #2f87e2) 70%, transparent);
 }
 
 .jsonl-line-viewer__nav-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  gap: 6px;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -119,12 +275,13 @@
   color: #c42b1c;
 }
 
-.jsonl-line-viewer__nav-line {
+.jsonl-line-viewer__nav-preview {
   flex: 1;
   min-width: 0;
-  text-align: right;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .jsonl-line-viewer__nav-dot {
@@ -138,8 +295,10 @@
 .jsonl-line-viewer__main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .jsonl-line-viewer__error-banner {
@@ -152,6 +311,8 @@
 }
 
 .jsonl-line-viewer__monaco {
+  width: 100%;
+  height: 100%;
   flex: 1;
   min-height: 0;
 }

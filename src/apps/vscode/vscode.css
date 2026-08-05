@@ -3141,8 +3141,15 @@ button.vscode-ai__compression-row.help-app__reasoning-status {
 .vscode__preview-body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   background: var(--vscode-editor-bg, #fff);
+}
+
+/* JSONL 等需内部撑满的预览：由子级吃满高度、内部滚动，避免 Monaco 只包住内容 */
+.vscode__preview-body--fill {
+  overflow: hidden;
 }
 
 .vscode__ai-chat-body {
@@ -3308,8 +3315,10 @@ button.vscode-ai__compression-row.help-app__reasoning-status {
 .vscode__jsonl-preview {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   color: var(--vscode-ink);
   font-size: var(--vscode-font-size, 13px);
 }
@@ -3667,6 +3676,17 @@ button.vscode-ai__compression-row.help-app__reasoning-status {
 
 .vscode--chrome-dark .jsonl-line-viewer__nav-row:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.vscode--chrome-dark .jsonl-line-viewer__nav-key-btn:hover,
+.vscode--chrome-dark .jsonl-line-viewer__nav-key-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vscode--chrome-dark .jsonl-line-viewer__nav-key-menu {
+  background: #2d2d33;
+  border-color: #484850;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 .vscode--chrome-dark .jsonl-line-viewer__error-banner {
