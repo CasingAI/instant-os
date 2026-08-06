@@ -49,6 +49,7 @@ const APP_ID = 'pages' as const
 const THEME = '#2f6fed'
 const DEFAULT_TITLE = '文稿'
 const OPEN_TITLE = '打开文稿'
+const AUTOSAVE_DELAY_MS = 1500
 
 registerFileOpenHandler({
   appId: APP_ID,
@@ -153,6 +154,9 @@ export function PagesApp({ windowId }: PagesAppProps) {
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | undefined>(undefined)
+  const [findOpenSignal, setFindOpenSignal] = useState(0)
+  const [findReplaceSignal, setFindReplaceSignal] = useState(0)
+  const [saveHint, setSaveHint] = useState<'idle' | 'saving' | 'saved'>('idle')
   const bootstrappedRef = useRef(false)
   const loadingPathRef = useRef<string | undefined>(undefined)
   const tabsRef = useRef(tabs)
@@ -162,9 +166,21 @@ export function PagesApp({ windowId }: PagesAppProps) {
   const blobUrlMapsRef = useRef(new Map<string, PagesBlobUrlMap>())
   /** 每个标签编辑器挂载后的首次 onDocumentChange 对齐基线（消化 TipTap 规范化） */
   const lastBaselineTabIdRef = useRef<string | undefined>(undefined)
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savingTabIdsRef = useRef(new Set<string>())
+  const dirtyPromptRef = useRef(dirtyPrompt)
+  const saveHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
+  dirtyPromptRef.current = dirtyPrompt
+
+  const clearAutosaveTimer = useCallback(() => {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
+    }
+  }, [])
 
   const getBlobMap = useCallback((tabId: string): PagesBlobUrlMap => {
     let map = blobUrlMapsRef.current.get(tabId)
@@ -344,11 +360,20 @@ export function PagesApp({ windowId }: PagesAppProps) {
   )
 
   const saveTab = useCallback(
-    async (tabId: string): Promise<boolean> => {
+    async (tabId: string, opts?: { quiet?: boolean }): Promise<boolean> => {
       if (!windowId) return false
+      const quiet = opts?.quiet === true
       const tab = tabsRef.current.find((item) => item.id === tabId)
       if (!tab || !isFilesNodeWritable(tab.node)) return false
-      setLoading(true)
+      if (savingTabIdsRef.current.has(tabId)) return false
+      if (!isTabDirty(tab, getBlobMap(tabId))) return true
+
+      savingTabIdsRef.current.add(tabId)
+      if (!quiet) setLoading(true)
+      if (quiet) {
+        setSaveHint('saving')
+        if (saveHintTimerRef.current) clearTimeout(saveHintTimerRef.current)
+      }
       try {
         if (tab.format === 'pages') {
           const blobMap = getBlobMap(tabId)
@@ -384,6 +409,10 @@ export function PagesApp({ windowId }: PagesAppProps) {
                 : item,
             ),
           )
+          if (quiet) {
+            setSaveHint('saved')
+            saveHintTimerRef.current = setTimeout(() => setSaveHint('idle'), 1200)
+          }
           return true
         }
 
@@ -402,16 +431,22 @@ export function PagesApp({ windowId }: PagesAppProps) {
               : item,
           ),
         )
+        if (quiet) {
+          setSaveHint('saved')
+          saveHintTimerRef.current = setTimeout(() => setSaveHint('idle'), 1200)
+        }
         return true
       } catch (err) {
+        if (quiet) setSaveHint('idle')
         await modal.alert({
-          title: '无法保存',
+          title: quiet ? '自动保存失败' : '无法保存',
           message: formatError(err),
           themeColor: THEME,
         })
         return false
       } finally {
-        setLoading(false)
+        savingTabIdsRef.current.delete(tabId)
+        if (!quiet) setLoading(false)
       }
     },
     [getBlobMap, modal, windowId],
@@ -420,8 +455,9 @@ export function PagesApp({ windowId }: PagesAppProps) {
   const handleSave = useCallback(async (): Promise<boolean> => {
     const tabId = activeTabIdRef.current
     if (!tabId) return false
+    clearAutosaveTimer()
     return saveTab(tabId)
-  }, [saveTab])
+  }, [clearAutosaveTimer, saveTab])
 
   const askDirtyChoice = useCallback((tab: PagesTab): Promise<DirtyChoice> => {
     if (!isTabDirty(tab, getBlobMap(tab.id))) return Promise.resolve('discard')
@@ -636,6 +672,43 @@ export function PagesApp({ windowId }: PagesAppProps) {
   ])
 
   useWindowCloseGuard(windowId, requestClose)
+
+  // 脏文档防抖自动保存
+  useEffect(() => {
+    clearAutosaveTimer()
+    if (!ready || !activeTab || !writable || !dirty) return
+    if (loading || dirtyPrompt || openDialogOpen) return
+    const tabId = activeTab.id
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null
+      if (dirtyPromptRef.current) return
+      void saveTab(tabId, { quiet: true })
+    }, AUTOSAVE_DELAY_MS)
+    return () => clearAutosaveTimer()
+  }, [
+    activeTab,
+    clearAutosaveTimer,
+    dirty,
+    dirtyPrompt,
+    loading,
+    openDialogOpen,
+    ready,
+    saveTab,
+    writable,
+  ])
+
+  // 切换标签时取消挂起的自动保存
+  useEffect(() => {
+    clearAutosaveTimer()
+    setSaveHint('idle')
+  }, [activeTabId, clearAutosaveTimer])
+
+  useEffect(() => {
+    return () => {
+      clearAutosaveTimer()
+      if (saveHintTimerRef.current) clearTimeout(saveHintTimerRef.current)
+    }
+  }, [clearAutosaveTimer])
 
   const updateActiveDocument = useCallback(
     (nextDocument: JSONContent) => {
@@ -864,6 +937,21 @@ export function PagesApp({ windowId }: PagesAppProps) {
             shortcut: '⇧⌘Z',
             disabled: formatDisabled,
             onClick: () => runEditorCommand((editor) => editor.chain().focus().redo().run()),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '查找…',
+            shortcut: '⌘F',
+            disabled: !ready || loading || activeTab?.viewMode === 'sheet',
+            onClick: () => setFindOpenSignal((value) => value + 1),
+          },
+          {
+            type: 'action',
+            label: '查找和替换…',
+            shortcut: '⌥⌘F',
+            disabled: !ready || loading || !writable || activeTab?.viewMode === 'sheet',
+            onClick: () => setFindReplaceSignal((value) => value + 1),
           },
         ],
       },
@@ -1102,10 +1190,18 @@ export function PagesApp({ windowId }: PagesAppProps) {
         onEnterSheet={enterSheetView}
         registerImage={registerImage}
         onPromptLink={handlePromptLink}
+        findOpenSignal={findOpenSignal}
+        findReplaceSignal={findReplaceSignal}
         onEditorReady={(editor) => {
           editorRef.current = editor
         }}
       />
+
+      {saveHint !== 'idle' ? (
+        <div class="pages__save-hint" aria-live="polite">
+          {saveHint === 'saving' ? '自动保存中…' : '已自动保存'}
+        </div>
+      ) : null}
 
       {openDialog}
 

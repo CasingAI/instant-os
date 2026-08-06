@@ -948,6 +948,8 @@ function builtinDocumentsLabel(appId: BuiltinAppId): string {
       return '股票数据'
     case 'catgpt':
       return '对话记录'
+    case 'produde':
+      return '对话记录'
     case 'help':
       return '帮助对话'
     case 'gomoku':

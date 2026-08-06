@@ -31,6 +31,7 @@ import { getAiEventLogBytes } from '../../ai/ai-event-log-storage.ts'
 import { getVscodeAiChatBytes } from '../vscode/vscode-ai-chat-storage.ts'
 import { getNewsStorageBytes } from '../news/news-storage.ts'
 import { getCatGptStorageBytes } from '../catgpt/catgpt-storage.ts'
+import { getProdudeStorageBytes } from '../produde/produde-storage.ts'
 import { getBooksStorageBytes } from '../books/books-storage.ts'
 import { getBrowserSystemStorageBytes } from '../browser/browser-system-storage.ts'
 
@@ -89,6 +90,9 @@ function getBuiltinDocumentsBytes(appId: BuiltinAppId): number {
   }
   if (appId === 'catgpt') {
     return getCatGptStorageBytes()
+  }
+  if (appId === 'produde') {
+    return getProdudeStorageBytes()
   }
   if (appId === 'books') {
     return getBooksStorageBytes()

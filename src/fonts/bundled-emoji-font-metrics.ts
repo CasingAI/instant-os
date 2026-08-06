@@ -3,6 +3,7 @@ export const EMOJI_OFFSET_SELECTORS = [
   '.app-icon-tile__emoji',
   '.settings__emoji-preview-glyph',
   '.catgpt-app__session-emoji',
+  '.produde-app__session-emoji',
   '.weather-app__hero-emoji',
   '.weather-app__hourly-emoji',
   '.weather-app__city-chip-emoji',

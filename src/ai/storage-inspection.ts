@@ -50,6 +50,7 @@ const KEY_LABELS: Record<string, string> = {
   [DEVICE_STORAGE_KEYS.calendar]: '月历数据',
   [DEVICE_STORAGE_KEYS.stocks]: '股票数据',
   [DEVICE_STORAGE_KEYS.catgpt]: 'CatGPT 对话',
+  [DEVICE_STORAGE_KEYS.produde]: 'ProDude 对话',
   [DEVICE_STORAGE_KEYS.gomoku]: '五子棋数据',
   [DEVICE_STORAGE_KEYS.launcherLayout]: '桌面布局',
   [DEVICE_STORAGE_KEYS.books]: '书架索引',

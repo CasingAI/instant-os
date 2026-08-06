@@ -13,10 +13,32 @@ import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 import Image from '@tiptap/extension-image'
-import Underline from '@tiptap/extension-underline'
+import Details, { DetailsContent, DetailsSummary } from '@tiptap/extension-details'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { common, createLowlight } from 'lowlight'
 import { Markdown } from 'tiptap-markdown'
+import { Callout, Column, Columns } from './pages-block-nodes.ts'
+import { PagesFindExtension } from './pages-find.ts'
 import { createSlashCommandsExtension, type SlashCommandItem } from './pages-slash-commands.ts'
 import { PAGES_FILE_EXTENSION } from './pages-package.ts'
+
+const lowlight = createLowlight(common)
+
+/** 气泡语言选择（id 对齐 lowlight） */
+export const PAGES_CODE_LANGUAGES = [
+  { id: 'plaintext', label: 'Plain' },
+  { id: 'javascript', label: 'JavaScript' },
+  { id: 'typescript', label: 'TypeScript' },
+  { id: 'python', label: 'Python' },
+  { id: 'json', label: 'JSON' },
+  { id: 'bash', label: 'Bash' },
+  { id: 'css', label: 'CSS' },
+  { id: 'xml', label: 'HTML/XML' },
+  { id: 'markdown', label: 'Markdown' },
+  { id: 'sql', label: 'SQL' },
+  { id: 'go', label: 'Go' },
+  { id: 'rust', label: 'Rust' },
+] as const
 
 const PagesTable = Table.extend({
   addAttributes() {
@@ -259,16 +281,33 @@ export function createPagesExtensions(slash?: PagesSlashHandlers): Extensions {
   const extensions: Extensions = [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
-      codeBlock: {
-        HTMLAttributes: { class: 'pages-editor__code-block' },
-      },
+      codeBlock: false,
       link: {
         openOnClick: false,
         autolink: true,
         HTMLAttributes: { class: 'pages-editor__link' },
       },
     }),
-    Underline,
+    CodeBlockLowlight.configure({
+      lowlight,
+      defaultLanguage: 'plaintext',
+      HTMLAttributes: { class: 'pages-editor__code-block' },
+    }),
+    Callout,
+    Columns,
+    Column,
+    Details.configure({
+      persist: true,
+      openClassName: 'is-open',
+      HTMLAttributes: { class: 'pages-editor__details' },
+    }),
+    DetailsSummary.configure({
+      HTMLAttributes: { class: 'pages-editor__details-summary' },
+    }),
+    DetailsContent.configure({
+      HTMLAttributes: { class: 'pages-editor__details-content' },
+    }),
+    PagesFindExtension,
     PagesImage.configure({
       inline: false,
       allowBase64: false,

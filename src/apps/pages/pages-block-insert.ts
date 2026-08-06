@@ -136,6 +136,56 @@ export function buildBlockInsertCatalog(): BlockInsertItem[] {
       },
     },
     {
+      id: 'callout',
+      title: '高亮块',
+      description: '强调提示信息',
+      keywords: ['callout', 'aside', '高亮', '提示', '注意'],
+      icon: '!',
+      section: 'common',
+      apply: (editor) => {
+        editor.chain().focus().setCallout({ variant: 'info' }).run()
+      },
+    },
+    {
+      id: 'details',
+      title: '折叠',
+      description: '可展开收起的内容',
+      keywords: ['details', 'toggle', 'fold', '折叠', '展开'],
+      icon: '▸',
+      section: 'common',
+      apply: (editor) => {
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: 'details',
+            attrs: { open: true },
+            content: [
+              {
+                type: 'detailsSummary',
+                content: [{ type: 'text', text: '折叠标题' }],
+              },
+              {
+                type: 'detailsContent',
+                content: [{ type: 'paragraph' }],
+              },
+            ],
+          })
+          .run()
+      },
+    },
+    {
+      id: 'columns',
+      title: '分栏',
+      description: '两栏并排布局',
+      keywords: ['columns', 'column', '分栏', '两栏', '布局'],
+      icon: '▥',
+      section: 'common',
+      apply: (editor) => {
+        editor.chain().focus().setColumns(2).run()
+      },
+    },
+    {
       id: 'image',
       title: '图片',
       description: '插入图片',
@@ -506,13 +556,14 @@ export function applyBlockInsert(
   }
 
   // replace-or-below
-  if (isEmptyConvertibleBlock(node) && item.id !== 'hr' && item.id !== 'table') {
+  const structuralIds = new Set(['hr', 'table', 'callout', 'details', 'columns', 'image'])
+  if (isEmptyConvertibleBlock(node) && !structuralIds.has(item.id)) {
     selectInsideBlock(editor, pos, node)
     item.apply(editor)
     return
   }
 
-  if (isEmptyConvertibleBlock(node) && (item.id === 'hr' || item.id === 'table')) {
+  if (isEmptyConvertibleBlock(node) && structuralIds.has(item.id)) {
     selectInsideBlock(editor, pos, node)
     item.apply(editor)
     return

@@ -53,6 +53,7 @@ const MODULE_LABELS: Record<string, string> = {
   stocks: '股票',
   translate: '翻译',
   catgpt: 'CatGPT',
+  produde: 'ProDude',
   gomoku: '五子棋',
   speech: '语音实验室',
   icode: 'iCode',

@@ -16,6 +16,7 @@ import { CalendarApp } from '../apps/calendar/calendar-app.tsx'
 import { StocksApp } from '../apps/stocks/stocks-app.tsx'
 import { TranslateApp } from '../apps/translate/translate-app.tsx'
 import { CatGptApp } from '../apps/catgpt/catgpt-app.tsx'
+import { ProdudeApp } from '../apps/produde/produde-app.tsx'
 import { GomokuApp } from '../apps/gomoku/gomoku-app.tsx'
 import { HelpApp } from '../apps/help/help-app.tsx'
 import { TerminalApp } from '../apps/terminal/terminal-app.tsx'
@@ -43,7 +44,7 @@ import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
@@ -145,6 +146,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'catgpt',
     name: BUILTIN_APP_DISPLAY_NAMES['catgpt'],
     icon: CatGptIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'produde',
+    name: BUILTIN_APP_DISPLAY_NAMES['produde'],
+    icon: ProdudeIcon,
     dock: true,
     desktop: true,
   }),
@@ -355,6 +363,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   stocks: StocksApp,
   translate: TranslateApp,
   catgpt: CatGptApp,
+  produde: ProdudeApp,
   gomoku: GomokuApp,
   speech: SpeechApp,
   photos: PlaceholderApp('photos', '照片'),

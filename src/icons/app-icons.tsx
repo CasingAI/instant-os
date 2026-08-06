@@ -943,6 +943,16 @@ export function CatGptIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function ProdudeIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#2f6fed" size={size}>
+      <span class="app-icon-tile__emoji" style={{ fontSize: `${size * (50 / 72)}px` }}>
+        🛠️
+      </span>
+    </AppIconTile>
+  )
+}
+
 export function GomokuIcon({ size = 64 }: IconProps) {
   const gridLines = [16, 32, 48]
   const cornerRadius = 14

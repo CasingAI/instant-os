@@ -1,5 +1,7 @@
 import type OpenAI from 'openai'
 import { createAgent } from '../../ai/create-agent.ts'
+import type { AgentTool } from '../../ai/agent-tool.ts'
+import type { AiUsageContext } from '../../ai/ai-usage-context.ts'
 import type {
   AgentCompressionDetail,
   AgentCompressionEvent,
@@ -645,6 +647,15 @@ export async function askVscodeAiAgent(options: {
    * 不替换 `buildVscodeAiSystemPrompt`；子调用勿传 `subAgentConfig`，以免再挂委派工具。
    */
   systemPromptAppendix?: string
+  /**
+   * 覆盖默认 `createVscodeAiTools`；未传时仍用 VS Code 工具集。
+   * ProDude 等宿主可只注册 run_in_terminal。
+   */
+  createTools?: (mode: VscodeAiMode, toolsHost: VscodeAiToolsHost) => AgentTool[]
+  /** 覆盖默认 `buildVscodeAiSystemPrompt`；未传则用 VS Code 系统提示 */
+  buildSystemPrompt?: (mode: VscodeAiMode) => string
+  /** 覆盖默认 AI 用量上下文（默认 actor=vscode） */
+  usageContext?: AiUsageContext
   /** 子 Agent 运行时：覆盖默认 maxSteps */
   maxStepsOverride?: number
   /** 单轮流空闲超时毫秒；默认 60_000 */
@@ -696,8 +707,13 @@ export async function askVscodeAiAgent(options: {
   const appendix = options.systemPromptAppendix?.trim()
 
   const buildSystemAndTools = (mode: VscodeAiMode, context: VscodeAiContextInput) => {
-    const nextTools = visionOnly ? [] : createVscodeAiTools(mode, toolsHost)
-    let nextSystem = `${buildVscodeAiSystemPrompt(mode)}\n\n【当前工作区快照】\n${buildVscodeAiContextSection(context)}`
+    const nextTools = visionOnly
+      ? []
+      : options.createTools
+        ? options.createTools(mode, toolsHost)
+        : createVscodeAiTools(mode, toolsHost)
+    const promptBase = options.buildSystemPrompt?.(mode) ?? buildVscodeAiSystemPrompt(mode)
+    let nextSystem = `${promptBase}\n\n【当前工作区快照】\n${buildVscodeAiContextSection(context)}`
     if (appendix) {
       nextSystem = `${nextSystem}\n\n${appendix}`
     }
@@ -1347,7 +1363,7 @@ export async function askVscodeAiAgent(options: {
       model,
       idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
       idleRetryCount: options.idleRetryCount ?? 10,
-      usageContext: {
+      usageContext: options.usageContext ?? {
         actor: 'vscode',
         behavior: currentMode,
         actorLabel: 'Virtual Studio Code',

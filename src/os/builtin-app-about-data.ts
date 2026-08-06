@@ -69,8 +69,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   pages: {
     version: 'Markdown 文稿编辑器',
     paragraphs: [
-      '文稿是面向 Markdown 的飞书式块编辑器：纸面排版、工具栏与「/」斜杠插入，内容以 .md / .markdown 文本保存在本机文件卷。',
-      '可在可视化编辑与 Markdown 源码之间切换；默认作为上述后缀的打开程序。只读卷可查看但不可保存。',
+      '文稿是面向 Markdown 的飞书式块编辑器：纸面排版、工具栏与「/」斜杠插入，原生格式为 .pages 包（含内嵌图片），也可打开与保存 .md / .markdown。',
+      '支持高亮块、折叠、分栏等结构块，代码块语法高亮，查找替换（⌘F），以及脏文档防抖自动保存。可在可视化编辑与 Markdown 源码之间切换；默认作为上述后缀的打开程序。只读卷可查看但不可保存。',
     ],
   },
   preview: {
@@ -163,6 +163,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
     paragraphs: [
       'CatGPT 是与猫咪之神沟通的圣殿。你写下心声，神以喵喵喵回应。',
       '喵与喵之间或有符号与 emoji。对话记录保存在本地，随时续上与神的交流。',
+    ],
+  },
+  produde: {
+    version: '编程对话助手',
+    paragraphs: [
+      'ProDude 是以对话为中心的编程助手：默认在用户目录（/user）工作，可直接让 AI 调查或修改文件，不做读写权限切换。',
+      '界面类似聊天；终端等能力在后台调用，不做变更撤销。对话记录保存在本地。',
     ],
   },
   gomoku: {

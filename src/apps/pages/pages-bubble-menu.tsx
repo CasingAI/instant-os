@@ -1,12 +1,14 @@
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { CellSelection } from '@tiptap/pm/tables'
+import { CALLOUT_VARIANTS, type CalloutVariant } from './pages-block-nodes.ts'
 import {
+  PAGES_CODE_LANGUAGES,
   PAGES_IMAGE_WIDTH_PRESETS,
   type PagesImageAlign,
 } from './pages-markdown.ts'
 
-export type BubbleMode = 'text' | 'block' | 'image' | 'table'
+export type BubbleMode = 'text' | 'block' | 'image' | 'table' | 'code' | 'callout'
 export type TableCellAlign = 'left' | 'center' | 'right'
 
 export type PagesBubbleMenuProps = {
@@ -287,6 +289,68 @@ export function PagesBubbleMenu({
         <span class="pages-bubble__divider" />
         <BubbleBtn label="复制" title="复制图片" onClick={onCopyBlock} />
         <BubbleBtn label="删除" title="删除图片" onClick={onDeleteBlock} />
+      </div>
+    )
+  }
+
+  if (mode === 'code') {
+    const language = String(editor.getAttributes('codeBlock').language || 'plaintext')
+    return (
+      <div ref={menuRef} class="pages-bubble" style={style} role="toolbar" aria-label="代码块">
+        <label class="pages-bubble__select-wrap">
+          <span class="pages-bubble__select-label">语言</span>
+          <select
+            class="pages-bubble__select"
+            value={PAGES_CODE_LANGUAGES.some((item) => item.id === language) ? language : 'plaintext'}
+            aria-label="代码语言"
+            onMouseDown={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              const next = (event.target as HTMLSelectElement).value
+              editor.chain().focus().updateAttributes('codeBlock', { language: next }).run()
+            }}
+          >
+            {PAGES_CODE_LANGUAGES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span class="pages-bubble__divider" />
+        <BubbleBtn label="复制" title="复制块" onClick={onCopyBlock} />
+        <BubbleBtn label="删除" title="删除块" onClick={onDeleteBlock} />
+        <span class="pages-bubble__divider" />
+        <BubbleBtn label="转成…" title="转换块类型" onClick={onConvertBlock} />
+      </div>
+    )
+  }
+
+  if (mode === 'callout') {
+    const variant = (editor.getAttributes('callout').variant as CalloutVariant | undefined) ?? 'info'
+    const deleteCallout = () => {
+      const { $from } = editor.state.selection
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name !== 'callout') continue
+        const pos = $from.before(d)
+        editor.chain().focus().deleteRange({ from: pos, to: pos + $from.node(d).nodeSize }).run()
+        return
+      }
+      onDeleteBlock()
+    }
+    return (
+      <div ref={menuRef} class="pages-bubble" style={style} role="toolbar" aria-label="高亮块">
+        {CALLOUT_VARIANTS.map((item) => (
+          <BubbleBtn
+            key={item.id}
+            label={item.label}
+            title={item.label}
+            active={variant === item.id}
+            onClick={() => editor.chain().focus().updateAttributes('callout', { variant: item.id }).run()}
+          />
+        ))}
+        <span class="pages-bubble__divider" />
+        <BubbleBtn label="复制" title="复制块" onClick={onCopyBlock} />
+        <BubbleBtn label="删除" title="删除高亮块" onClick={deleteCallout} />
       </div>
     )
   }

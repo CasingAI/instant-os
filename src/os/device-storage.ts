@@ -42,6 +42,7 @@ export const DEVICE_STORAGE_KEYS = {
   calendar: 'instant-os-calendar',
   stocks: 'instant-os-stocks',
   catgpt: 'instant-os-catgpt',
+  produde: 'instant-os-produde',
   gomoku: 'instant-os-gomoku',
   launcherLayout: 'instant-os-launcher-layout',
   books: 'instant-os-books',

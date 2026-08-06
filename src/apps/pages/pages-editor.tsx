@@ -42,6 +42,17 @@ import {
 } from './pages-context-menu.tsx'
 import { collectOutlineItems, PagesOutline } from './pages-outline.tsx'
 import { PagesSheetView } from './pages-sheet-view.tsx'
+import { PagesFindBar } from './pages-find-bar.tsx'
+import {
+  clearEditorFindHighlight,
+  collectFindMatches,
+  collectTextFindMatches,
+  replaceAllFindMatches,
+  replaceFindMatch,
+  selectFindMatch,
+  setEditorFindHighlight,
+  type FindMatch,
+} from './pages-find.ts'
 import {
   createTableId,
   findTablePosById,
@@ -76,6 +87,10 @@ export type PagesEditorProps = {
   registerImage?: (file: File) => Promise<string>
   onPromptLink: () => Promise<string | undefined>
   onEditorReady?: (editor: Editor | null) => void
+  /** 递增时打开查找栏 */
+  findOpenSignal?: number
+  /** 为 true 时打开查找并展开替换 */
+  findReplaceSignal?: number
 }
 
 type SlashMenuState = {
@@ -241,6 +256,8 @@ export function PagesEditor({
   registerImage,
   onPromptLink,
   onEditorReady,
+  findOpenSignal = 0,
+  findReplaceSignal = 0,
 }: PagesEditorProps) {
   void _format
 
@@ -249,6 +266,7 @@ export function PagesEditor({
   const stageRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sourceTextareaRef = useRef<HTMLTextAreaElement>(null)
   const editorRef = useRef<Editor | null>(null)
   const slashMenuRef = useRef<SlashMenuState | null>(null)
   const insertPanelRef = useRef<InsertPanelState | null>(null)
@@ -289,6 +307,26 @@ export function PagesEditor({
   const [dragSession, setDragSession] = useState<BlockDragSession | null>(null)
   const [uiEpoch, setUiEpoch] = useState(0)
   const [sourceText, setSourceText] = useState(() => jsonContentToMarkdown(initialDocument))
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findReplacement, setFindReplacement] = useState('')
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false)
+  const [findShowReplace, setFindShowReplace] = useState(false)
+  const [findMatches, setFindMatches] = useState<FindMatch[]>([])
+  const [findIndex, setFindIndex] = useState(0)
+  const findOpenRef = useRef(false)
+  const findQueryRef = useRef('')
+  const findCaseRef = useRef(false)
+  const findMatchesRef = useRef<FindMatch[]>([])
+  const findIndexRef = useRef(0)
+  const sourceTextRef = useRef(sourceText)
+
+  findOpenRef.current = findOpen
+  findQueryRef.current = findQuery
+  findCaseRef.current = findCaseSensitive
+  findMatchesRef.current = findMatches
+  findIndexRef.current = findIndex
+  sourceTextRef.current = sourceText
 
   onDocumentChangeRef.current = onDocumentChange
   onEditorReadyRef.current = onEditorReady
@@ -298,6 +336,165 @@ export function PagesEditor({
   editableRef.current = editable
   hoverBlockRef.current = hoverBlock
   dragSessionRef.current = dragSession
+
+  const applySourceFindSelection = useCallback((match: FindMatch | undefined) => {
+    const textarea = sourceTextareaRef.current
+    if (!textarea || !match) return
+    textarea.focus()
+    textarea.setSelectionRange(match.from, match.to)
+    const lineHeight = 20
+    const before = textarea.value.slice(0, match.from)
+    const line = before.split('\n').length - 1
+    textarea.scrollTop = Math.max(0, line * lineHeight - textarea.clientHeight / 3)
+  }, [])
+
+  const recomputeFindMatches = useCallback(
+    (opts?: { keepIndex?: boolean; select?: boolean }) => {
+      const query = findQueryRef.current
+      const caseSensitive = findCaseRef.current
+      const keepIndex = opts?.keepIndex ?? true
+      const shouldSelect = opts?.select ?? true
+      let matches: FindMatch[] = []
+
+      if (viewModeRef.current === 'source') {
+        matches = collectTextFindMatches(sourceTextRef.current, query, caseSensitive)
+      } else {
+        const editor = editorRef.current
+        if (editor && !editor.isDestroyed) {
+          matches = collectFindMatches(editor.state.doc, query, caseSensitive)
+        }
+      }
+
+      const prevIndex = keepIndex ? findIndexRef.current : 0
+      const nextIndex =
+        matches.length === 0
+          ? 0
+          : Math.min(Math.max(0, prevIndex), matches.length - 1)
+
+      findMatchesRef.current = matches
+      findIndexRef.current = nextIndex
+      setFindMatches(matches)
+      setFindIndex(nextIndex)
+
+      const editor = editorRef.current
+      if (viewModeRef.current === 'edit' && editor && !editor.isDestroyed) {
+        setEditorFindHighlight(editor, matches, nextIndex)
+        if (shouldSelect && matches[nextIndex]) {
+          selectFindMatch(editor, matches[nextIndex]!)
+        }
+      } else if (viewModeRef.current === 'source' && shouldSelect) {
+        applySourceFindSelection(matches[nextIndex])
+      }
+    },
+    [applySourceFindSelection],
+  )
+
+  const openFindBar = useCallback(
+    (withReplace = false) => {
+      setFindOpen(true)
+      findOpenRef.current = true
+      if (withReplace) setFindShowReplace(true)
+      // 下一帧再聚焦选择，确保栏已挂载
+      requestAnimationFrame(() => recomputeFindMatches({ keepIndex: true, select: false }))
+    },
+    [recomputeFindMatches],
+  )
+
+  const closeFindBar = useCallback(() => {
+    setFindOpen(false)
+    findOpenRef.current = false
+    const editor = editorRef.current
+    if (editor && !editor.isDestroyed) clearEditorFindHighlight(editor)
+  }, [])
+
+  const goFind = useCallback(
+    (delta: number) => {
+      const matches = findMatchesRef.current
+      if (matches.length === 0) {
+        recomputeFindMatches({ keepIndex: false, select: true })
+        return
+      }
+      const nextIndex = (findIndexRef.current + delta + matches.length) % matches.length
+      findIndexRef.current = nextIndex
+      setFindIndex(nextIndex)
+      if (viewModeRef.current === 'source') {
+        applySourceFindSelection(matches[nextIndex])
+        return
+      }
+      const editor = editorRef.current
+      if (!editor || editor.isDestroyed) return
+      setEditorFindHighlight(editor, matches, nextIndex)
+      selectFindMatch(editor, matches[nextIndex]!)
+    },
+    [applySourceFindSelection, recomputeFindMatches],
+  )
+
+  const replaceCurrentFind = useCallback(() => {
+    if (!editableRef.current) return
+    const matches = findMatchesRef.current
+    const index = findIndexRef.current
+    const match = matches[index]
+    if (!match) return
+    const replacement = findReplacement
+
+    if (viewModeRef.current === 'source') {
+      const text = sourceTextRef.current
+      const next =
+        text.slice(0, match.from) + replacement + text.slice(match.to)
+      setSourceText(next)
+      sourceDraftRef.current = next
+      sourceTextRef.current = next
+      onDocumentChangeRef.current(markdownToJSONContent(next))
+      // 替换后从当前位置继续搜索
+      const nextMatches = collectTextFindMatches(next, findQueryRef.current, findCaseRef.current)
+      const nextIndex = Math.min(index, Math.max(0, nextMatches.length - 1))
+      findMatchesRef.current = nextMatches
+      findIndexRef.current = nextIndex
+      setFindMatches(nextMatches)
+      setFindIndex(nextIndex)
+      applySourceFindSelection(nextMatches[nextIndex])
+      return
+    }
+
+    const editor = editorRef.current
+    if (!editor || editor.isDestroyed) return
+    replaceFindMatch(editor, match, replacement)
+    // onUpdate 会触发文档变更；下一帧重算
+    requestAnimationFrame(() => recomputeFindMatches({ keepIndex: true, select: true }))
+  }, [applySourceFindSelection, findReplacement, recomputeFindMatches])
+
+  const replaceAllFind = useCallback(() => {
+    if (!editableRef.current) return
+    const query = findQueryRef.current
+    if (!query) return
+    const replacement = findReplacement
+
+    if (viewModeRef.current === 'source') {
+      const text = sourceTextRef.current
+      const matches = collectTextFindMatches(text, query, findCaseRef.current)
+      if (matches.length === 0) return
+      let next = text
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const match = matches[i]!
+        next = next.slice(0, match.from) + replacement + next.slice(match.to)
+      }
+      setSourceText(next)
+      sourceDraftRef.current = next
+      sourceTextRef.current = next
+      onDocumentChangeRef.current(markdownToJSONContent(next))
+      findMatchesRef.current = []
+      findIndexRef.current = 0
+      setFindMatches([])
+      setFindIndex(0)
+      return
+    }
+
+    const editor = editorRef.current
+    if (!editor || editor.isDestroyed) return
+    const matches = collectFindMatches(editor.state.doc, query, findCaseRef.current)
+    replaceAllFindMatches(editor, matches, replacement)
+    requestAnimationFrame(() => recomputeFindMatches({ keepIndex: false, select: false }))
+  }, [findReplacement, recomputeFindMatches])
 
   const setHoverBlockSafe = (next: HoverBlockState | null) => {
     hoverBlockRef.current = next
@@ -372,12 +569,19 @@ export function PagesEditor({
     const isCellSel = selection instanceof CellSelection
     const inTable = editor.isActive('table') || isCellSel
     const isTableNode = isNode && selection.node.type.name === 'table'
-    // 表内空光标 / 多单元格选区显示表格气泡；其它空选区不显示
-    if (selection.empty && !isNode && !inTable) {
+    const isImage = isNode && selection.node.type.name === 'image'
+    const inCode = editor.isActive('codeBlock')
+    const inCallout =
+      editor.isActive('callout') || (isNode && selection.node.type.name === 'callout')
+    // 表内空光标 / 多单元格选区显示表格气泡；代码块空光标也可改语言；其它空选区不显示
+    if (selection.empty && !isNode && !inTable && !inCode && !inCallout) {
       setBubble(null)
       return
     }
-    const rect = selectionCoords(editor, inTable && selection.empty && !isCellSel)
+    const rect = selectionCoords(
+      editor,
+      (inTable || inCode || inCallout) && selection.empty && !isCellSel,
+    )
     if (!rect) {
       setBubble(null)
       return
@@ -395,22 +599,36 @@ export function PagesEditor({
       setBubble(null)
       return
     }
-    const isImage = isNode && selection.node.type.name === 'image'
     const mode: BubbleMode = isImage
       ? 'image'
       : isCellSel || isTableNode || (inTable && selection.empty)
         ? 'table'
-        : isNode
-          ? 'block'
-          : 'text'
+        : inCode
+          ? 'code'
+          : inCallout && (isNode || selection.empty)
+            ? 'callout'
+            : isNode
+              ? 'block'
+              : 'text'
     const pad = 8
     // 预估全宽（实测校正见下方 effect）；文字条含「正文/H1…」远宽于旧 halfW=140
-    const estW = mode === 'image' ? 340 : mode === 'table' ? 380 : mode === 'block' ? 200 : 420
+    const estW =
+      mode === 'image'
+        ? 340
+        : mode === 'table'
+          ? 380
+          : mode === 'code'
+            ? 320
+            : mode === 'callout'
+              ? 340
+              : mode === 'block'
+                ? 200
+                : 420
     const rawTop = rect.top - rootRect.top - 40
     const top = Math.min(Math.max(pad, rawTop), Math.max(pad, rootRect.height - 40))
     let left: number
     let align: BubbleState['align']
-    if (isNode || isCellSel || mode === 'table') {
+    if (isNode || isCellSel || mode === 'table' || mode === 'code' || mode === 'callout') {
       align = 'start'
       left = rect.left - rootRect.left + 12
     } else {
@@ -949,6 +1167,35 @@ export function PagesEditor({
   }, [editable, closeFloatingExcept])
 
   useEffect(() => {
+    if (findOpenSignal > 0) openFindBar(false)
+  }, [findOpenSignal, openFindBar])
+
+  useEffect(() => {
+    if (findReplaceSignal > 0) openFindBar(true)
+  }, [findReplaceSignal, openFindBar])
+
+  useEffect(() => {
+    if (!findOpen) return
+    recomputeFindMatches({ keepIndex: true, select: false })
+  }, [findOpen, findQuery, findCaseSensitive, viewMode, sourceText, uiEpoch, recomputeFindMatches])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey
+      if (!meta) return
+      const key = event.key.toLowerCase()
+      // ⌘F 查找；⌘⌥F 查找并替换
+      if (key === 'f' && !event.shiftKey) {
+        if (viewModeRef.current === 'sheet') return
+        event.preventDefault()
+        openFindBar(event.altKey)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [openFindBar])
+
+  useEffect(() => {
     const editor = editorRef.current
     if (!editor || editor.isDestroyed) return
     const prev = prevViewModeRef.current
@@ -964,6 +1211,7 @@ export function PagesEditor({
       updateDragSession(null)
       pendingDragRef.current = null
       setSheetTableJSON(null)
+      if (editor && !editor.isDestroyed) clearEditorFindHighlight(editor)
       return
     }
 
@@ -1157,6 +1405,11 @@ export function PagesEditor({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      if (findOpenRef.current) {
+        event.preventDefault()
+        closeFindBar()
+        return
+      }
       if (dragSessionRef.current || pendingDragRef.current?.started) {
         event.preventDefault()
         pendingDragRef.current = null
@@ -1193,7 +1446,7 @@ export function PagesEditor({
       window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('mousedown', onPointerDown, true)
     }
-  }, [contextMenu])
+  }, [closeFindBar, contextMenu])
 
   // 插入面板键盘导航
   useEffect(() => {
@@ -1531,6 +1784,25 @@ export function PagesEditor({
         ) : null}
       </div>
       <div class="pages-editor__main" ref={mainRef}>
+        {findOpen && viewMode !== 'sheet' ? (
+          <PagesFindBar
+            query={findQuery}
+            replacement={findReplacement}
+            caseSensitive={findCaseSensitive}
+            showReplace={findShowReplace}
+            matchCount={findMatches.length}
+            currentIndex={findIndex}
+            onQueryChange={setFindQuery}
+            onReplacementChange={setFindReplacement}
+            onCaseSensitiveChange={setFindCaseSensitive}
+            onShowReplaceChange={setFindShowReplace}
+            onFindNext={() => goFind(1)}
+            onFindPrev={() => goFind(-1)}
+            onReplace={replaceCurrentFind}
+            onReplaceAll={replaceAllFind}
+            onClose={closeFindBar}
+          />
+        ) : null}
         <div
           ref={stageRef}
           class={`pages-editor__stage${viewMode === 'source' ? ' pages-editor__stage--source' : ''}${
@@ -1548,6 +1820,7 @@ export function PagesEditor({
 
           {viewMode === 'source' ? (
             <textarea
+              ref={sourceTextareaRef}
               class="pages-editor__source"
               value={sourceText}
               readOnly={!editable}

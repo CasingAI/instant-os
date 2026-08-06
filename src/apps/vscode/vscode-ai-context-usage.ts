@@ -233,6 +233,8 @@ export async function measureVscodeAiContextUsage(options: {
   /** 传入则跳过 createVscodeAiTools（避免无 host 时无法计量） */
   tools?: AgentTool[]
   toolsHost?: VscodeAiToolsHost
+  /** 本地上下文窗口覆盖（如 ProDude）；缺省读 VS Code prefs */
+  aiModelOptions?: Record<string, { contextWindow?: VscodeAiContextWindowPref }>
 }): Promise<VscodeAiContextUsage> {
   const model = options.model
   const tokenizerFamily = options.tokenizerFamily
@@ -301,6 +303,7 @@ export async function measureVscodeAiContextUsage(options: {
       providerEntryId: options.providerEntryId,
       providerId: options.providerId,
       modelKey: options.modelKey,
+      aiModelOptions: options.aiModelOptions,
     }),
     estimated: resolveUsageEstimated(false, model, tokenizerFamily),
     breakdown,

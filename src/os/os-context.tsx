@@ -116,6 +116,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   stocks: { title: '股票', width: 410, height: 680 },
   translate: { title: '翻译', width: 680, height: 520 },
   catgpt: { title: 'CatGPT', width: 860, height: 640 },
+  produde: { title: 'ProDude', width: 860, height: 640 },
   appstore: { title: '应用集市', width: 820, height: 720 },
   'scene3d-lab': { title: '3D 实验室', width: 1180, height: 760 },
   'model-vision': { title: '模型识图', width: 1100, height: 740 },
