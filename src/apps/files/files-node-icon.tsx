@@ -7,6 +7,7 @@ import {
 } from '../../os/file-open-registry.ts'
 import { isApplicationsBundleRootNode } from './files-location-applications.ts'
 import { FilesAppBundleIcon } from './files-app-bundle-icon.tsx'
+import { MUSIC_AUDIO_EXTENSIONS, MUSIC_LYRICS_EXTENSIONS } from '../music/music-storage.ts'
 import { VSCODE_OPEN_EXTENSIONS } from '../vscode/vscode-tabs.ts'
 import type { FilesNode } from './files-types.ts'
 import {
@@ -54,6 +55,8 @@ const BROWSER_OPEN_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'svg'])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'])
 const MODEL3D_EXTENSIONS = new Set(['gltf', 'glb'])
 const DOCX_EXTENSIONS = new Set(['docx'])
+const MUSIC_EXTENSIONS = new Set<string>(MUSIC_AUDIO_EXTENSIONS)
+const LYRIC_EXTENSIONS = new Set<string>(MUSIC_LYRICS_EXTENSIONS)
 const VSCODE_OPEN_EXTENSION_SET = new Set<string>(VSCODE_OPEN_EXTENSIONS)
 
 /** 无常规后缀、但应显示 Code 卡片的特殊文件名 → 卡片标签与色调键 */
@@ -82,6 +85,14 @@ export function isModel3dFileExtension(extension: string | undefined): boolean {
 
 export function isDocxFileExtension(extension: string | undefined): boolean {
   return extension !== undefined && DOCX_EXTENSIONS.has(extension)
+}
+
+export function isMusicFileExtension(extension: string | undefined): boolean {
+  return extension !== undefined && MUSIC_EXTENSIONS.has(extension)
+}
+
+export function isLyricFileExtension(extension: string | undefined): boolean {
+  return extension !== undefined && LYRIC_EXTENSIONS.has(extension)
 }
 
 export function browserFileBadgeLabel(extension: string): string {
@@ -1031,6 +1042,144 @@ function Model3dFileIcon({ size }: { size: FilesNodeIconSize }) {
   )
 }
 
+/** 音乐文件：折角页上叠双八分音符 + 谱线（不读文件内容） */
+function MusicFileGlyph({ className }: { className: string }) {
+  return (
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#faf5fd"
+        stroke="#b08cc0"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#f6eef9"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#e6d3ee"
+        stroke="#b08cc0"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+      {/* 双八分音符：两枚斜置符头 + 符干 + 顶部连梁 */}
+      <g fill="#7a3fa0">
+        <ellipse cx="18" cy="39.5" rx="3" ry="2.3" transform="rotate(-18 18 39.5)" />
+        <ellipse cx="30" cy="37.8" rx="3" ry="2.3" transform="rotate(-18 30 37.8)" />
+      </g>
+      <path
+        fill="none"
+        stroke="#7a3fa0"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        d="M20.2 38.3V25"
+      />
+      <path
+        fill="none"
+        stroke="#7a3fa0"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        d="M32.2 36.6V23.3"
+      />
+      <path fill="#7a3fa0" d="M20.2 25.4L32.2 23.7v-1.8L20.2 23.6z" />
+      {/* 谱线 */}
+      <g stroke="#b07ac8" stroke-width="1" opacity="0.75">
+        <line x1="13.5" y1="45.5" x2="34.5" y2="45.5" />
+        <line x1="13.5" y1="49" x2="34.5" y2="49" />
+      </g>
+    </svg>
+  )
+}
+
+function MusicFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--music`}
+      aria-hidden="true"
+    >
+      <MusicFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
+/** 歌词文件：折角页上叠小音符 + 时间戳歌词行（不读文件内容） */
+function LyricFileGlyph({ className }: { className: string }) {
+  return (
+    <svg
+      class={className}
+      viewBox="4 2 38 58"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <ellipse cx="24" cy="56.5" rx="14" ry="2.2" fill="rgba(40, 25, 8, 0.18)" />
+      <path
+        fill="#fffaf0"
+        stroke="#c9b48a"
+        stroke-width="1.2"
+        d="M9 4h18l13 13v35c0 2.2-1.8 4-4 4H9c-2.2 0-4-1.8-4-4V8c0-2.2 1.8-4 4-4z"
+      />
+      <path
+        fill="#fffdf6"
+        d="M9.8 5.3H26l11.5 11.5V51c0 1.3-1.1 2.4-2.4 2.4H9.8c-1.3 0-2.4-1.1-2.4-2.4V7.7c0-1.3 1.1-2.4 2.4-2.4z"
+      />
+      <path
+        fill="#ecdfc2"
+        stroke="#c9b48a"
+        stroke-width="1"
+        d="M27 4.2v11.2c0 1.1.9 2 2 2H40L27 4.2z"
+      />
+      {/* 顶部小音符（双八分） */}
+      <g fill="#d9537f">
+        <ellipse cx="19.5" cy="26.5" rx="2.2" ry="1.7" transform="rotate(-18 19.5 26.5)" />
+        <ellipse cx="28.5" cy="25.5" rx="2.2" ry="1.7" transform="rotate(-18 28.5 25.5)" />
+      </g>
+      <path
+        fill="none"
+        stroke="#d9537f"
+        stroke-width="1.2"
+        stroke-linecap="round"
+        d="M21.3 25.5V19.5"
+      />
+      <path
+        fill="none"
+        stroke="#d9537f"
+        stroke-width="1.2"
+        stroke-linecap="round"
+        d="M30.3 24.5V18.5"
+      />
+      <path fill="#d9537f" d="M21.3 19.8L30.3 18.8v-1.2L21.3 18.6z" />
+      {/* 歌词行：时间戳胶囊 + 正文条 */}
+      <g fill="#d9537f">
+        <rect x="12" y="32.3" width="7" height="4" rx="1.3" />
+        <rect x="12" y="38.3" width="7" height="4" rx="1.3" />
+        <rect x="12" y="44.3" width="7" height="4" rx="1.3" />
+      </g>
+      <g fill="#c9b48a">
+        <rect x="21" y="33.5" width="14" height="1.6" rx="0.8" />
+        <rect x="21" y="39.5" width="12" height="1.6" rx="0.8" />
+        <rect x="21" y="45.5" width="9.5" height="1.6" rx="0.8" />
+      </g>
+    </svg>
+  )
+}
+
+function LyricFileIcon({ size }: { size: FilesNodeIconSize }) {
+  return (
+    <span
+      class={`files-node-icon files-node-icon--${size} files-node-icon--lyric`}
+      aria-hidden="true"
+    >
+      <LyricFileGlyph className="files-node-icon__glyph files-node-icon__glyph--file" />
+    </span>
+  )
+}
+
 /** Word 文档：折角纸页 + 釉面 W 徽章 + 右侧正文条（参考微软识别性，拟物加厚） */
 function DocxFileGlyph({ className }: { className: string }) {
   const rawId = useId()
@@ -1281,6 +1430,14 @@ export function FilesNodeIcon({
 
   if (isImageFileExtension(extension)) {
     return <ImageFileIcon size={size} />
+  }
+
+  if (isLyricFileExtension(extension)) {
+    return <LyricFileIcon size={size} />
+  }
+
+  if (isMusicFileExtension(extension)) {
+    return <MusicFileIcon size={size} />
   }
 
   if (isModel3dFileExtension(extension)) {
