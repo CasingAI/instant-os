@@ -37,6 +37,7 @@ import {
   createMountBinaryFile,
   readMountBlob,
   readMountText,
+  readMountTextIfSmall,
   removeMountNode,
   renameMountNode,
   resolveMountPath,
@@ -65,7 +66,7 @@ import {
   readApplicationsText,
   resolveApplicationsPath,
 } from './files-location-applications.ts'
-import { getCachedMount, listMounts } from './files-mount-store.ts'
+import { getCachedMount, listMounts, FILES_MOUNTS_CHANGED_EVENT } from './files-mount-store.ts'
 import {
   filesLocationPathRoot,
   isFilesAbsolutePath,
@@ -125,6 +126,14 @@ function resolveNodeCacheKey(absolutePath: string, follow: boolean): string {
 export function invalidateFilesVfsPathCaches(): void {
   listDirectoryCache.clear()
   resolveNodeCache.clear()
+}
+
+// 挂载增删/重挂载/权限吊销后目录与节点缓存会指向陈旧内容，订阅变更事件统一失效。
+// worker / Node 环境无 window，事件不会派发，跳过订阅（这些环境也不发生挂载变更）。
+if (typeof window !== 'undefined') {
+  window.addEventListener(FILES_MOUNTS_CHANGED_EVENT, () => {
+    invalidateFilesVfsPathCaches()
+  })
 }
 
 /** 读取 listDirectory 内存缓存（不触发 ensure / IndexedDB） */
@@ -914,6 +923,47 @@ async function readTextFileByNodeIdUnmetered(
   }
   const text = await readBlobText(id)
   return { node, text }
+}
+
+/**
+ * 读取文本，但仅当文件大小不超过 maxBytes；超出或不可读时返回 undefined。
+ * 挂载卷先探测 getFile().size 再决定是否读内容，避免大文件整读进内存；
+ * 本地卷用节点已有 byteSize 预筛。
+ */
+export async function readTextFileIfSmall(
+  ref: string,
+  maxBytes: number,
+): Promise<string | undefined> {
+  let node: FilesNode | undefined
+  if (isFilesAbsolutePath(ref)) {
+    try {
+      node = await resolveFileRef(ref)
+    } catch {
+      return undefined
+    }
+  } else {
+    node = await getNode(ref)
+  }
+  if (!node) return undefined
+
+  if (isMountNodeId(node.id)) {
+    return readMountTextIfSmall(node.id, maxBytes)
+  }
+  if (
+    node.id.startsWith('models3d:') ||
+    node.id.startsWith('source:') ||
+    node.id.startsWith('applications:')
+  ) {
+    // 小体积精选卷：无大小顾虑，整读
+    return (await readTextFileByNodeIdUnmetered(node.id)).text
+  }
+  if (node.kind !== 'file' || node.byteSize > maxBytes) {
+    return undefined
+  }
+  const startedAt = performance.now()
+  const text = await readBlobText(node.id)
+  recordFilesIoRead(node, estimateTextBytes(text), 'readText', performance.now() - startedAt)
+  return text
 }
 
 /** 读取文件二进制内容（挂载卷 File，或本地卷已存的 bytes） */

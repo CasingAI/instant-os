@@ -365,9 +365,17 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
       query: q,
       rootPath,
       filesToInclude: options?.filesToInclude,
+      filesToExclude: options?.filesToExclude,
+      useExcludeSettingsAndIgnoreFiles: options?.useExcludeSettingsAndIgnoreFiles,
       isCaseSensitive: options?.caseSensitive === true,
       isRegex: options?.regex === true,
       maxMatches: options?.maxMatches,
+      contextLines: options?.contextLines,
+      maxFiles: options?.maxFiles,
+      maxDepth: options?.maxDepth,
+      maxFileBytes: options?.maxFileBytes,
+      timeoutMs: options?.timeoutMs,
+      includeTotalCount: options?.includeTotalCount,
     })
     return {
       matches: result.matches.map((match) => ({
@@ -376,9 +384,13 @@ export function createInstantShellApi(host: InstantShellHost): InstantShellApi {
         column: match.column,
         preview: match.preview,
         matchedText: match.matchedText,
+        ...(match.context ? { context: match.context } : {}),
       })),
       truncated: result.truncated,
+      truncatedReason: result.truncatedReason,
       scannedFiles: result.scannedFiles,
+      filesToScan: result.filesToScan,
+      totalFiles: result.totalFiles,
       patternError: result.patternError,
     }
   }

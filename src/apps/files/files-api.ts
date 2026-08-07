@@ -38,6 +38,7 @@ import {
   renameNode,
   resolveFilesAbsolutePath,
   resolveNodeByAbsolutePath,
+  readTextFileIfSmall,
   upsertFilesBatch,
   writeBinaryFile,
   writeTextFile,
@@ -305,6 +306,21 @@ export async function filesReadText(path: string): Promise<string> {
   }
   const { text } = await readTextFile(absolutePath)
   return text
+}
+
+/**
+ * 读取文本，但仅当文件大小不超过 maxBytes；超出（或不可读）返回 undefined。
+ * 供搜索等场景先探大小再读，避免大文件整读进内存。
+ */
+export async function filesReadTextIfSmall(
+  path: string,
+  maxBytes: number,
+): Promise<string | undefined> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能读取命名空间根')
+  }
+  return readTextFileIfSmall(absolutePath, maxBytes)
 }
 
 /** 读取文件二进制内容 */

@@ -2,7 +2,13 @@
  * VFS 文本搜索（grep 等价能力）。
  * 供 instant.grep、VS Code 工作区搜索等复用。
  */
-import { filesList, filesReadText, filesStat } from './files-api.ts'
+import {
+  filesList,
+  filesListSubtreeFiles,
+  filesReadText,
+  filesReadTextIfSmall,
+  filesStat,
+} from './files-api.ts'
 import { isBinaryContent } from './is-binary-file.ts'
 import {
   compileSearchGlobs,
@@ -27,12 +33,11 @@ const MAX_FILES = 400
 const MAX_FILE_BYTES = 512 * 1024
 const DEFAULT_MAX_MATCHES = 40
 const PREVIEW_MAX = 120
-/** 每处理这么多文件就向调用方推一次结果，并让出事件循环 */
-const REPORT_EVERY_FILES = 8
+/** 并发读取文件的窗口大小（有界并发，避免内存与 FSA 争抢）；每窗向调用方推一次结果并让出事件循环 */
+const SCAN_READ_CONCURRENCY = 8
 
 /** 始终跳过：版本库元数据（通常不写进 .gitignore） */
 const ALWAYS_SKIP_DIR_NAMES = new Set(['.git'])
-
 export type VfsTextSearchContextLine = {
   line: number
   text: string
@@ -56,8 +61,15 @@ export type VfsTextSearchMatch = {
 
 export type VfsTextSearchResult = {
   matches: VfsTextSearchMatch[]
+  /** 结果可能不完整（命中/文件数/深度/超时任一上限触发） */
   truncated: boolean
+  /** 截断原因 */
+  truncatedReason?: 'maxMatches' | 'maxFiles' | 'maxDepth' | 'timeout'
   scannedFiles: number
+  /** 本次收集到的文件总数（用于判断 maxFiles 是否被触达） */
+  filesToScan: number
+  /** 目录下文件总数（仅 includeTotalCount 时；仅本地卷原生可计数，挂载卷为 undefined） */
+  totalFiles?: number
   patternError?: string
 }
 
@@ -78,6 +90,16 @@ export type VfsTextSearchParams = VscodeSearchMatchOptions & {
   onlyPaths?: ReadonlySet<string> | string[]
   /** 命中上限，默认 40 */
   maxMatches?: number
+  /** 最多扫描文件数，默认 400；0 表示不限制（配合 timeoutMs 做纯时间兜底） */
+  maxFiles?: number
+  /** 目录递归最大深度，默认 8 */
+  maxDepth?: number
+  /** 单文件大小上限（超出跳过），默认 512 * 1024 */
+  maxFileBytes?: number
+  /** 是否返回目录文件总数（仅本地卷原生可计数，挂载卷返回 undefined） */
+  includeTotalCount?: boolean
+  /** 软截止（毫秒），覆盖枚举+扫描；超时返回部分结果并标记 truncatedReason='timeout'。undefined 表示不限制 */
+  timeoutMs?: number
   /** 命中上下文字行数（前后各 N 行） */
   contextLines?: number
 }
@@ -148,6 +170,13 @@ function matchLinesInText(
   }
 }
 
+/** 收集阶段因预算停止的原因 */
+type CollectFilesCap = 'maxFiles' | 'maxDepth' | 'timeout'
+
+function isPastDeadline(deadline: number | undefined): boolean {
+  return deadline !== undefined && performance.now() >= deadline
+}
+
 async function collectFiles(
   rootPath: string,
   skipPaths: ReadonlySet<string>,
@@ -157,10 +186,15 @@ async function collectFiles(
     includeGlobs: readonly RegExp[]
     excludeGlobs: readonly RegExp[]
     onlyPaths: ReadonlySet<string> | undefined
+    maxFiles: number
+    maxDepth: number
+    maxFileBytes: number
+    deadline: number | undefined
   },
-): Promise<Array<{ path: string; name: string }>> {
+): Promise<{ files: Array<{ path: string; name: string }>; capped: CollectFilesCap | undefined }> {
   const root = rootPath.replace(/\/+$/, '') || '/'
   const files: Array<{ path: string; name: string }> = []
+  let capped: CollectFilesCap | undefined
 
   async function walk(
     dirPath: string,
@@ -168,7 +202,14 @@ async function collectFiles(
     ignoreStack: GitIgnoreSet[],
   ): Promise<void> {
     if (signal?.aborted) return
-    if (depth > MAX_WALK_DEPTH || files.length >= MAX_FILES) return
+    if (isPastDeadline(options.deadline)) {
+      capped ??= 'timeout'
+      return
+    }
+    if (files.length >= options.maxFiles) {
+      capped ??= 'maxFiles'
+      return
+    }
 
     const dirRel = relativeToWorkspace(root, dirPath)
     let nextStack = ignoreStack
@@ -185,30 +226,82 @@ async function collectFiles(
     }
 
     for (const entry of entries) {
-      if (signal?.aborted || files.length >= MAX_FILES) return
+      if (signal?.aborted) return
+      if (isPastDeadline(options.deadline)) {
+        capped ??= 'timeout'
+        return
+      }
+      if (files.length >= options.maxFiles) {
+        capped ??= 'maxFiles'
+        return
+      }
 
       const entryRel = relativeToWorkspace(root, entry.path)
 
       if (entry.kind === 'folder') {
         if (ALWAYS_SKIP_DIR_NAMES.has(entry.name)) continue
+        // 隐藏目录（点开头）默认跳过，与 ripgrep 一致；useExcludeSettingsAndIgnoreFiles:false 时可扫
+        if (options.useIgnore && entry.name.startsWith('.')) continue
         if (options.useIgnore && isIgnoredBySets(nextStack, entryRel, true)) continue
+        if (depth >= options.maxDepth) {
+          // 目录已达深度上限，其子孙不会被扫描
+          capped ??= 'maxDepth'
+          continue
+        }
         await walk(entry.path, depth + 1, nextStack)
         continue
       }
 
       if (skipPaths.has(entry.path)) continue
       if (options.onlyPaths && !options.onlyPaths.has(entry.path)) continue
+      // 隐藏文件（点开头）默认跳过，与 ripgrep 一致；useExcludeSettingsAndIgnoreFiles:false 时可扫
+      if (options.useIgnore && entry.name.startsWith('.')) continue
       if (options.useIgnore && isIgnoredBySets(nextStack, entryRel, false)) continue
       if (!pathPassesIncludeExclude(entryRel, options.includeGlobs, options.excludeGlobs)) continue
-      if (entry.byteSize > MAX_FILE_BYTES) continue
+      if (entry.byteSize > options.maxFileBytes) continue
 
+      if (files.length >= options.maxFiles) {
+        capped ??= 'maxFiles'
+        return
+      }
       files.push({ path: entry.path, name: entry.name })
     }
   }
 
   await walk(root, 0, [])
-  return files
+  return { files, capped }
 }
+
+/** 有界并发映射，结果按下标回填保持顺序；worker 内部需自行吞错 */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const runners = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= items.length) return
+        results[index] = await worker(items[index]!, index)
+      }
+    },
+  )
+  await Promise.all(runners)
+  return results
+}
+
+type ScanFileResult =
+  | { kind: 'ok'; text: string }
+  | { kind: 'skip' }
+  | { kind: 'error' }
+  | { kind: 'tooLarge' }
+  | { kind: 'binary' }
 
 /**
  * 在 VFS 指定根路径下搜索文本（目录递归；单文件只搜该文件）。
@@ -216,12 +309,12 @@ async function collectFiles(
 export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTextSearchResult> {
   const query = params.query.trim()
   if (!query) {
-    return { matches: [], truncated: false, scannedFiles: 0 }
+    return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
   }
 
   const rootPath = params.rootPath.trim()
   if (!rootPath) {
-    return { matches: [], truncated: false, scannedFiles: 0 }
+    return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
   }
 
   const pattern = buildSearchRegExp(query, params)
@@ -230,6 +323,7 @@ export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTex
       matches: [],
       truncated: false,
       scannedFiles: 0,
+      filesToScan: 0,
       patternError: '无效的正则表达式',
     }
   }
@@ -237,10 +331,21 @@ export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTex
   const skipPaths = toPathSet(params.skipPaths) ?? new Set<string>()
   const onlyPaths = toPathSet(params.onlyPaths)
   if (onlyPaths && onlyPaths.size === 0) {
-    return { matches: [], truncated: false, scannedFiles: 0 }
+    return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
   }
 
   const maxMatches = params.maxMatches ?? DEFAULT_MAX_MATCHES
+  /** 0 表示不限制文件数（配合 timeoutMs 做纯时间兜底） */
+  const maxFiles =
+    params.maxFiles === 0
+      ? Number.POSITIVE_INFINITY
+      : (params.maxFiles ?? MAX_FILES)
+  const maxDepth = params.maxDepth ?? MAX_WALK_DEPTH
+  const maxFileBytes = params.maxFileBytes ?? MAX_FILE_BYTES
+  const deadline =
+    params.timeoutMs !== undefined && params.timeoutMs > 0
+      ? performance.now() + params.timeoutMs
+      : undefined
   const useExclude = params.useExcludeSettingsAndIgnoreFiles !== false
   const includeGlobs = compileSearchGlobs(parseSearchGlobList(params.filesToInclude))
   const excludeUser = parseSearchGlobList(params.filesToExclude)
@@ -253,91 +358,127 @@ export async function searchVfsText(params: VfsTextSearchParams): Promise<VfsTex
   const root = rootPath.replace(/\/+$/, '') || '/'
   const rootEntry = await filesStat(root)
   if (!rootEntry) {
-    return { matches: [], truncated: false, scannedFiles: 0 }
+    return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
   }
 
   let filesToScan: Array<{ path: string; name: string }>
+  let capped: CollectFilesCap | undefined
   if (rootEntry.kind === 'file' || rootEntry.kind === 'symlink') {
     if (skipPaths.has(root)) {
-      return { matches: [], truncated: false, scannedFiles: 0 }
+      return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
     }
     if (onlyPaths && !onlyPaths.has(root)) {
-      return { matches: [], truncated: false, scannedFiles: 0 }
+      return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
     }
-    if (rootEntry.byteSize > MAX_FILE_BYTES) {
-      return { matches: [], truncated: false, scannedFiles: 0 }
+    if (rootEntry.byteSize > maxFileBytes) {
+      return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
     }
     const rel = relativeToWorkspace(root, root)
     if (!pathPassesIncludeExclude(rel, includeGlobs, excludeGlobs)) {
-      return { matches: [], truncated: false, scannedFiles: 0 }
+      return { matches: [], truncated: false, scannedFiles: 0, filesToScan: 0 }
     }
     filesToScan = [{ path: root, name: rootEntry.name || fileNameFromPath(root) }]
   } else {
-    filesToScan = await collectFiles(root, skipPaths, params.signal, {
+    const collected = await collectFiles(root, skipPaths, params.signal, {
       useIgnore: useExclude,
       includeGlobs,
       excludeGlobs,
       onlyPaths,
+      maxFiles,
+      maxDepth,
+      maxFileBytes,
+      deadline,
     })
+    filesToScan = collected.files
+    capped = collected.capped
   }
 
   const matches: VfsTextSearchMatch[] = []
   let scannedFiles = 0
-  let truncated = false
+  let truncatedReason: 'maxMatches' | 'maxFiles' | 'maxDepth' | 'timeout' | undefined
 
-  for (const file of filesToScan) {
+  for (let start = 0; start < filesToScan.length; start += SCAN_READ_CONCURRENCY) {
     if (params.signal?.aborted) break
+    if (isPastDeadline(deadline)) {
+      truncatedReason ??= 'timeout'
+      break
+    }
     if (matches.length >= maxMatches) {
-      truncated = true
+      truncatedReason ??= 'maxMatches'
       break
     }
 
-    let text: string
-    try {
-      text = await filesReadText(file.path)
-    } catch {
-      scannedFiles += 1
-      continue
-    }
+    const window = filesToScan.slice(start, start + SCAN_READ_CONCURRENCY)
+    const results = await mapWithConcurrency<
+      { path: string; name: string },
+      ScanFileResult
+    >(window, SCAN_READ_CONCURRENCY, async (file) => {
+      if (params.signal?.aborted) return { kind: 'skip' }
+      let text: string | undefined
+      try {
+        text = await filesReadTextIfSmall(file.path, maxFileBytes)
+      } catch {
+        return { kind: 'error' }
+      }
+      if (text === undefined) return { kind: 'tooLarge' }
+      if (isBinaryContent(text)) return { kind: 'binary' }
+      return { kind: 'ok', text }
+    })
 
-    if (text.length > MAX_FILE_BYTES || isBinaryContent(text)) {
-      scannedFiles += 1
-      continue
-    }
-
-    const before = matches.length
-    matchLinesInText(
-      text,
-      pattern,
-      {
-        path: file.path,
-        name: file.name || fileNameFromPath(file.path),
-      },
-      matches,
-      maxMatches,
-      contextLines,
-    )
-    scannedFiles += 1
-
-    if (matches.length >= maxMatches && matches.length > before) {
-      truncated = true
-    }
-
-    if (matches.length > before || scannedFiles % REPORT_EVERY_FILES === 0) {
-      params.onProgress?.(matches.slice())
-      await yieldEventLoop()
+    for (let i = 0; i < results.length; i += 1) {
       if (params.signal?.aborted) break
+      if (matches.length >= maxMatches) {
+        truncatedReason ??= 'maxMatches'
+        break
+      }
+      const file = window[i]!
+      const fileResult = results[i]!
+      scannedFiles += 1
+      if (fileResult.kind !== 'ok') continue
+
+      const before = matches.length
+      matchLinesInText(
+        fileResult.text,
+        pattern,
+        {
+          path: file.path,
+          name: file.name || fileNameFromPath(file.path),
+        },
+        matches,
+        maxMatches,
+        contextLines,
+      )
+      if (matches.length >= maxMatches && matches.length > before) {
+        truncatedReason ??= 'maxMatches'
+      }
+    }
+
+    params.onProgress?.(matches.slice())
+    await yieldEventLoop()
+  }
+
+  let totalFiles: number | undefined
+  if (params.includeTotalCount === true) {
+    // 仅本地卷（IndexedDB）原生可计数；挂载卷无原生计数，保持 undefined
+    try {
+      const subtree = await filesListSubtreeFiles(rootPath)
+      totalFiles = subtree.length
+    } catch {
+      totalFiles = undefined
     }
   }
 
-  if (!truncated && filesToScan.length >= MAX_FILES && matches.length >= maxMatches) {
-    truncated = true
+  if (truncatedReason === undefined && capped !== undefined) {
+    truncatedReason = capped
   }
 
   return {
     matches,
-    truncated,
+    truncated: truncatedReason !== undefined,
+    truncatedReason,
     scannedFiles,
+    filesToScan: filesToScan.length,
+    totalFiles,
     patternError: undefined,
   }
 }

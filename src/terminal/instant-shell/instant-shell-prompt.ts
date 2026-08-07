@@ -27,13 +27,16 @@ Guest 联网：终端会话默认注入全局 \`fetch\`（经 Instant 代理服�
   - close：若终端已长时间执行中可能弹出确认；用户取消则抛「用户取消」
 
 搜索：
-- instant.grep(query, opts?) → { matches: [{ path, line, column, preview, matchedText }], truncated, scannedFiles, patternError? }
+- instant.grep(query, opts?) → { matches: [{ path, line, column, preview, matchedText, context? }], truncated, truncatedReason?, scannedFiles, filesToScan, totalFiles?, patternError? }
   - opts.path?：相对 cwd 或绝对 VFS 路径，默认 cwd；可为目录或单文件
-  - opts.filesToInclude?：glob（逗号分隔）
-  - opts.caseSensitive?：默认 false
-  - opts.regex?：将 query 当作正则，默认 false
-  - opts.maxMatches?：默认 40
-  - 尊重 gitignore 与默认排除（如 node_modules）；不要手写 fs 递归搜索
+  - opts.filesToInclude?：glob（逗号分隔）；opts.filesToExclude?：glob（逗号分隔），叠加在默认排除之上
+  - opts.caseSensitive?：默认 false；opts.regex?：将 query 当作正则，默认 false
+  - opts.maxMatches?：默认 40；opts.contextLines?：命中行上下文行数，默认 0
+  - opts.maxFiles?：扫描文件数上限，默认 400，传 0 表示不限制（配合 timeoutMs 做纯时间兜底）；opts.maxDepth?：目录递归深度上限，默认 8；opts.maxFileBytes?：单文件大小上限，默认 512*1024
+  - opts.timeoutMs?：软截止（毫秒），超时返回部分结果（truncatedReason='timeout'）；不传则不限制
+  - opts.includeTotalCount?：置 true 返回 totalFiles（目录文件总数；仅本地卷可计数，挂载卷为 undefined）
+  - 默认跳过各层 gitignore、默认排除（node_modules 等）与隐藏文件/目录；要扫被排除内容传 opts.useExcludeSettingsAndIgnoreFiles: false（.git 仍恒跳过）
+  - truncated 表示结果可能不完整（truncatedReason 为 maxMatches/maxFiles/maxDepth/timeout）；不要手写 fs 递归搜索
 
 愿望单（平台能力缺口采集；Ask/Plan 只读终端也可用）：
 - instant.wish({ summary, category, blockedStep, attempted?, detail? }) → { wishId, summary, duplicated, path }

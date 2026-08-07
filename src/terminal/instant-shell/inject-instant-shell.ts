@@ -131,6 +131,18 @@ function readGrepOptions(
     }
     options.filesToInclude = record.filesToInclude
   }
+  if (record.filesToExclude !== undefined) {
+    if (typeof record.filesToExclude !== 'string') {
+      throw new Error('filesToExclude 必须是字符串')
+    }
+    options.filesToExclude = record.filesToExclude
+  }
+  if (record.useExcludeSettingsAndIgnoreFiles !== undefined) {
+    if (typeof record.useExcludeSettingsAndIgnoreFiles !== 'boolean') {
+      throw new Error('useExcludeSettingsAndIgnoreFiles 必须是布尔值')
+    }
+    options.useExcludeSettingsAndIgnoreFiles = record.useExcludeSettingsAndIgnoreFiles
+  }
   if (record.caseSensitive !== undefined) {
     if (typeof record.caseSensitive !== 'boolean') {
       throw new Error('caseSensitive 必须是布尔值')
@@ -148,6 +160,43 @@ function readGrepOptions(
       throw new Error('maxMatches 必须是数字')
     }
     options.maxMatches = Math.floor(record.maxMatches)
+  }
+  if (record.contextLines !== undefined) {
+    if (typeof record.contextLines !== 'number' || !Number.isFinite(record.contextLines)) {
+      throw new Error('contextLines 必须是数字')
+    }
+    options.contextLines = Math.max(0, Math.floor(record.contextLines))
+  }
+  if (record.maxFiles !== undefined) {
+    if (typeof record.maxFiles !== 'number' || !Number.isFinite(record.maxFiles)) {
+      throw new Error('maxFiles 必须是数字')
+    }
+    // 0 表示不限制文件数
+    options.maxFiles = Math.max(0, Math.floor(record.maxFiles))
+  }
+  if (record.maxDepth !== undefined) {
+    if (typeof record.maxDepth !== 'number' || !Number.isFinite(record.maxDepth)) {
+      throw new Error('maxDepth 必须是数字')
+    }
+    options.maxDepth = Math.max(0, Math.floor(record.maxDepth))
+  }
+  if (record.maxFileBytes !== undefined) {
+    if (typeof record.maxFileBytes !== 'number' || !Number.isFinite(record.maxFileBytes)) {
+      throw new Error('maxFileBytes 必须是数字')
+    }
+    options.maxFileBytes = Math.max(1, Math.floor(record.maxFileBytes))
+  }
+  if (record.timeoutMs !== undefined) {
+    if (typeof record.timeoutMs !== 'number' || !Number.isFinite(record.timeoutMs)) {
+      throw new Error('timeoutMs 必须是数字')
+    }
+    options.timeoutMs = Math.max(1, Math.floor(record.timeoutMs))
+  }
+  if (record.includeTotalCount !== undefined) {
+    if (typeof record.includeTotalCount !== 'boolean') {
+      throw new Error('includeTotalCount 必须是布尔值')
+    }
+    options.includeTotalCount = record.includeTotalCount
   }
   return options
 }

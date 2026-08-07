@@ -244,6 +244,11 @@ async function testApiGrep(): Promise<void> {
   assert.equal(scoped.matches.length, 1)
   assert.equal(scoped.matches[0]?.path, `${ROOT}/src/needle.ts`)
 
+  const counted = await api.grep('findMeNeedleHere', { includeTotalCount: true })
+  assert.equal(counted.totalFiles, 2)
+  const notCounted = await api.grep('findMeNeedleHere')
+  assert.equal(notCounted.totalFiles, undefined)
+
   console.log('ok: createInstantShellApi grep')
 }
 
@@ -306,6 +311,84 @@ async function testInjectGrep(): Promise<void> {
     instance.destroy()
   }
   console.log('ok: inject instant.grep')
+}
+
+async function testInjectGrepOptions(): Promise<void> {
+  await resetRoot()
+  await filesCreateText(`${ROOT}/.gitignore`, 'ignored/\n')
+  await filesMkdir(`${ROOT}/ignored`)
+  await filesCreateText(`${ROOT}/ignored/secret.ts`, 'const OPTIONS_NEEDLE = 1\n')
+  await filesCreateText(`${ROOT}/visible.ts`, 'const OPTIONS_NEEDLE = 2')
+  await filesCreateText(`${ROOT}/more.ts`, 'const UNRELATED = 3\n')
+
+  const host = createMockHost()
+  const instance = await createQuickJsInstance({
+    workspaceRoot: ROOT,
+    cwd: ROOT,
+    fsMode: 'normal',
+    timeoutMs: 10_000,
+    instantShellHost: host,
+  })
+  try {
+    const started = await instance.eval(`
+      var __grepOptsDone = false
+      var __grepOptsError = null
+      var __grepOptsResult = null
+      ;(async function () {
+        try {
+          var all = await instant.grep('OPTIONS_NEEDLE', { useExcludeSettingsAndIgnoreFiles: false })
+          var ctx = await instant.grep('OPTIONS_NEEDLE', { contextLines: 1 })
+          var capped = await instant.grep('OPTIONS_NEEDLE', { maxFiles: 1 })
+          var timed = await instant.grep('OPTIONS_NEEDLE', { timeoutMs: 5000 })
+          var zero = await instant.grep('OPTIONS_NEEDLE', { maxFiles: 0 })
+          __grepOptsResult = {
+            allCount: all.matches.length,
+            ctxContext: ctx.matches[0] && ctx.matches[0].context,
+            cappedTruncated: capped.truncated,
+            cappedReason: capped.truncatedReason,
+            cappedFilesToScan: capped.filesToScan,
+            timedCount: timed.matches.length,
+            timedTruncated: timed.truncated,
+            zeroCount: zero.matches.length,
+            zeroTruncated: zero.truncated,
+          }
+        } catch (e) {
+          __grepOptsError = String(e && e.message ? e.message : e)
+        } finally {
+          __grepOptsDone = true
+        }
+      })()
+      'started'
+    `)
+    assert.equal(started.ok, true)
+    for (let i = 0; i < 50; i += 1) {
+      await sleep(20)
+      const done = await instance.eval('__grepOptsDone')
+      if (done.ok && done.value === true) {
+        break
+      }
+    }
+    const result = await instance.eval(
+      '__grepOptsError ? { error: __grepOptsError } : __grepOptsResult',
+    )
+    assert.equal(result.ok, true)
+    if (result.ok) {
+      assert.deepEqual(result.value, {
+        allCount: 2,
+        ctxContext: [{ line: 1, text: 'const OPTIONS_NEEDLE = 2', isMatch: true }],
+        cappedTruncated: true,
+        cappedReason: 'maxFiles',
+        cappedFilesToScan: 1,
+        timedCount: 1,
+        timedTruncated: false,
+        zeroCount: 1,
+        zeroTruncated: false,
+      })
+    }
+  } finally {
+    instance.destroy()
+  }
+  console.log('ok: inject instant.grep options')
 }
 
 async function testApiAndInjectWish(): Promise<void> {
@@ -387,6 +470,7 @@ async function main(): Promise<void> {
   await testInjectAbsentByDefault()
   await testApiGrep()
   await testInjectGrep()
+  await testInjectGrepOptions()
   await testApiAndInjectWish()
 }
 

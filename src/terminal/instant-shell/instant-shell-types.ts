@@ -33,11 +33,38 @@ export type InstantShellGrepOptions = {
   path?: string
   /** glob 过滤（`,` 分隔） */
   filesToInclude?: string
+  /** 排除这些文件（glob，`,` 分隔），叠加在默认排除之上 */
+  filesToExclude?: string
+  /**
+   * 默认 true：遵守各层 .gitignore（含子目录嵌套）+ 默认 search.exclude
+   * （node_modules/dist/build/coverage/.git）。
+   * 置 false 则忽略以上全部，连 node_modules 一起扫（.git 仍恒跳过）。
+   */
+  useExcludeSettingsAndIgnoreFiles?: boolean
   caseSensitive?: boolean
   /** 将 query 当作正则 */
   regex?: boolean
   /** 最多返回命中数，默认 40 */
   maxMatches?: number
+  /** 每命中行附带的上下文行数（前后各 N 行），默认 0 */
+  contextLines?: number
+  /** 最多扫描文件数，默认 400；0 表示不限制（配合 timeoutMs 做纯时间兜底） */
+  maxFiles?: number
+  /** 目录递归最大深度，默认 8 */
+  maxDepth?: number
+  /** 单文件最大字节数（超出跳过），默认 512 * 1024 */
+  maxFileBytes?: number
+  /** 软截止（毫秒），覆盖枚举+扫描；超时返回部分结果并标记 truncatedReason='timeout'。不传则不限制 */
+  timeoutMs?: number
+  /** 是否返回目录文件总数（仅本地卷原生可计数，挂载卷返回 undefined） */
+  includeTotalCount?: boolean
+}
+
+export type InstantShellGrepContextLine = {
+  line: number
+  text: string
+  /** 是否为命中行 */
+  isMatch: boolean
 }
 
 export type InstantShellGrepMatch = {
@@ -46,12 +73,21 @@ export type InstantShellGrepMatch = {
   column: number
   preview: string
   matchedText: string
+  /** contextLines > 0 时的上下文行 */
+  context?: InstantShellGrepContextLine[]
 }
 
 export type InstantShellGrepResult = {
   matches: InstantShellGrepMatch[]
+  /** 结果可能不完整（命中/文件数/深度/超时任一上限触发） */
   truncated: boolean
+  /** 截断原因 */
+  truncatedReason?: 'maxMatches' | 'maxFiles' | 'maxDepth' | 'timeout'
   scannedFiles: number
+  /** 本次收集到的文件总数（用于判断 maxFiles 是否被触达） */
+  filesToScan: number
+  /** 目录下文件总数（仅 includeTotalCount 时；仅本地卷原生可计数，挂载卷为 undefined） */
+  totalFiles?: number
   patternError?: string
 }
 

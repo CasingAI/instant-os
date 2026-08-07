@@ -357,6 +357,28 @@ export async function readMountText(
   }
 }
 
+/**
+ * 读取挂载文本，但仅当文件大小不超过 maxBytes。
+ * 先取 getFile().size 探测（元数据，不读内容），超出直接返回 undefined，避免大文件整读进内存。
+ * 同一 handle 只做一次 getFile()，探测与读取合并。
+ */
+export async function readMountTextIfSmall(
+  id: string,
+  maxBytes: number,
+): Promise<string | undefined> {
+  const parsed = parseFilePath(id)
+  if (!parsed) {
+    return undefined
+  }
+  const { parent, name } = await resolveParentAndName(parsed.locationId, parsed.path)
+  const handle = await parent.getFileHandle(name)
+  const blob = await handle.getFile()
+  if (blob.size > maxBytes) {
+    return undefined
+  }
+  return blob.text()
+}
+
 export async function readMountBlob(
   id: string,
 ): Promise<{ node: FilesNode; blob: Blob }> {
