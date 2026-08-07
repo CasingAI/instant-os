@@ -28,6 +28,7 @@ import {
 } from '../files/files-vfs.ts'
 import { looksLikeLrc, parseLrc } from './music-lyrics.ts'
 import { MusicLyricsView } from './music-lyrics-view.tsx'
+import { MusicVisualizationView } from './music-visualization-view.tsx'
 import {
   getMusicPlayerState,
   playDocument,
@@ -132,6 +133,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const [transient, setTransient] = useState<TransientTrack | undefined>()
   const [playerState, setPlayerState] = useState(() => getMusicPlayerState())
   const [lyricsOpen, setLyricsOpen] = useState(false)
+  const [visualizerOpen, setVisualizerOpen] = useState(false)
   const [transientLyrics, setTransientLyrics] = useState<string | undefined>()
 
   const handledDocumentRef = useRef<string | undefined>(undefined)
@@ -570,6 +572,24 @@ export function MusicApp({ windowId }: { windowId?: string }) {
 
           <MusicPlayerBar />
         </>
+      ) : visualizerOpen ? (
+        <>
+          <header class="music__toolbar">
+            <IosNavBackButton iconSize={14} label="曲库" onClick={() => setVisualizerOpen(false)} />
+            <span class="music__toolbar-title music__toolbar-title--center">可视化</span>
+            <span class="music__toolbar-spacer" />
+          </header>
+
+          <div class="music__main">
+            <MusicVisualizationView
+              lines={parsedLyrics?.lines}
+              currentTimeMs={playerState.currentTime * 1000}
+              onSeek={seekTo}
+            />
+          </div>
+
+          <MusicPlayerBar />
+        </>
       ) : (
         <>
           <header class="music__toolbar">
@@ -583,10 +603,25 @@ export function MusicApp({ windowId }: { windowId?: string }) {
             <span class="music__toolbar-title music__toolbar-title--center">我的音乐</span>
             <div class="music__toolbar-actions">
               {currentLibraryTrack ? (
-                <IosButton size="compact" onClick={() => setLyricsOpen(true)}>
+                <IosButton
+                  size="compact"
+                  onClick={() => {
+                    setVisualizerOpen(false)
+                    setLyricsOpen(true)
+                  }}
+                >
                   歌词
                 </IosButton>
               ) : null}
+              <IosButton
+                size="compact"
+                onClick={() => {
+                  setLyricsOpen(false)
+                  setVisualizerOpen(true)
+                }}
+              >
+                可视化
+              </IosButton>
               <IosButton size="compact" onClick={handleOpenMusicsFolder}>
                 音乐文件夹
               </IosButton>

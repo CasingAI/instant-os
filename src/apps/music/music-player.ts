@@ -46,6 +46,42 @@ let audio: HTMLAudioElement | undefined
 let currentObjectUrl: string | undefined
 const listeners = new Set<() => void>()
 
+// 可视化用 Web Audio 图：audio → analyser → destination（惰性单例，失败静默回退）
+let audioContext: AudioContext | undefined
+let analyserNode: AnalyserNode | undefined
+
+function connectAudioGraph(el: HTMLAudioElement): void {
+  if (analyserNode) {
+    return
+  }
+  try {
+    const Ctx =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctx) {
+      return
+    }
+    const ctx = new Ctx()
+    const source = ctx.createMediaElementSource(el)
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.8
+    source.connect(analyser)
+    analyser.connect(ctx.destination)
+    audioContext = ctx
+    analyserNode = analyser
+  } catch {
+    // createMediaElementSource 失败（不支持/已占用）时可视化回退为静止基线
+    analyserNode = undefined
+  }
+}
+
+function resumeAudioContext(): void {
+  if (audioContext && audioContext.state === 'suspended') {
+    void audioContext.resume().catch(() => undefined)
+  }
+}
+
 function updateState(patch: Partial<MusicPlayerState>): void {
   state = { ...state, ...patch }
   for (const listener of listeners) {
@@ -61,6 +97,7 @@ function getAudio(): HTMLAudioElement | undefined {
     const el = new Audio()
     el.preload = 'auto'
     el.volume = state.volume
+    connectAudioGraph(el)
     el.addEventListener('timeupdate', () => {
       updateState({ currentTime: el.currentTime, duration: el.duration || state.duration })
     })
@@ -125,6 +162,7 @@ async function loadAndPlay(blob?: Blob): Promise<void> {
     currentObjectUrl = url
     el.src = url
     updateState({ loading: false })
+    resumeAudioContext()
     await el.play()
   } catch {
     if (state.current?.id === target.id) {
@@ -166,6 +204,7 @@ export function togglePlay(): void {
     return
   }
   if (el.paused) {
+    resumeAudioContext()
     void el.play().catch(() => updateState({ isPlaying: false }))
   } else {
     el.pause()
@@ -207,6 +246,19 @@ export function setMusicVolume(volume: number): void {
     audio.volume = v
   }
   updateState({ volume: v })
+}
+
+/** 可视化用分析器（不可用时返回 undefined，调用方回退为静止基线）。 */
+export function getMusicAnalyser(): AnalyserNode | undefined {
+  return analyserNode
+}
+
+/** rAF 高分辨率播放进度（毫秒）：优先读 audio 元素，未就绪回退 state。 */
+export function getMusicCurrentTimeMs(): number {
+  if (audio && Number.isFinite(audio.currentTime)) {
+    return audio.currentTime * 1000
+  }
+  return state.currentTime * 1000
 }
 
 /** 窗口关闭时停播并清空（窗口内播放语义）。 */

@@ -10,6 +10,7 @@ import {
   type MusicPlayerState,
 } from './music-player.ts'
 import { formatTrackDuration } from './music-storage.ts'
+import { MusicMiniSpectrum } from './music-mini-spectrum.tsx'
 
 function PlayIcon({ size = 16 }: { size?: number }) {
   return (
@@ -95,9 +96,7 @@ export function MusicPlayerBar() {
       ) : (
         <div class="music__player-controls">
           <div class="music__player-track">
-            <span class="music__player-note" aria-hidden="true">
-              ♪
-            </span>
+            <MusicMiniSpectrum />
             <div class="music__player-track-meta">
               <div class="music__player-title" title={current?.title}>
                 {current?.title ?? '未在播放'}

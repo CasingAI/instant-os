@@ -393,6 +393,33 @@
   font-size: 18px;
 }
 
+.music__player-note--spectrum {
+  position: relative;
+  overflow: hidden;
+}
+
+.music__mini-spectrum {
+  position: absolute;
+  inset: 5px;
+}
+
+.music__spectrum {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* canvas 绝对定位铺满：不参与宿主布局，避免位图尺寸与宿主尺寸正反馈 */
+.music__spectrum-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .music__player-track-meta {
   min-width: 0;
 }
@@ -531,6 +558,184 @@
   font-weight: 700;
   color: var(--music-accent);
   text-shadow: 0 0 14px rgba(250, 45, 85, 0.45);
+}
+
+/* 逐字卡拉OK：已唱到的词高亮，未唱到的词保持基础色 */
+.music__lyrics-line--karaoke {
+  color: var(--music-ink-muted);
+  font-size: 16px;
+  font-weight: 700;
+  text-shadow: none;
+}
+
+.music__lyrics-word {
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.music__lyrics-word--on {
+  color: var(--music-accent);
+  text-shadow: 0 0 12px rgba(250, 45, 85, 0.5);
+}
+
+/* 歌词 + 背景融合（根节点在可视化舞台内绝对铺满） */
+.music__lyrics-ambient {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.music__ambient-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.music__ambient-backdrop-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.music__lyrics-ambient .music__lyrics-scroller {
+  position: absolute;
+  inset: 0;
+  /* 上下渐隐遮罩，融入背景 */
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 14%, #000 86%, transparent);
+}
+
+/* 全屏可视化视图 */
+.music__visualizer-controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--music-border);
+}
+
+.music__visualizer-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.music__visualizer-stage > .music__spectrum {
+  position: absolute;
+  inset: 0;
+}
+
+/* 歌词舞台（逐字 / 动画） */
+.music__stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+.music__stage-lines {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: 12px 0;
+  transition: transform 0.5s cubic-bezier(0.22, 0.9, 0.28, 1);
+  will-change: transform;
+}
+
+.music__stage-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  padding: 9px 28px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  color: rgba(242, 241, 247, 0.36);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color 0.4s ease,
+    opacity 0.4s ease;
+}
+
+.music__stage-line--near {
+  color: rgba(242, 241, 247, 0.6);
+}
+
+.music__stage-line--far {
+  opacity: 0.55;
+}
+
+.music__stage-line--sung {
+  color: rgba(242, 241, 247, 0.45);
+}
+
+.music__stage-line--active {
+  padding: 16px 28px;
+  font-size: clamp(22px, 5.2vw, 38px);
+  font-size: clamp(22px, 5.2cqw, 38px);
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: var(--music-ink);
+  text-shadow: 0 2px 26px rgba(0, 0, 0, 0.4);
+}
+
+/* 逐字渐变填充：--fill 由 rAF 按词进度驱动 */
+.music__stage-word {
+  --fill: 0%;
+  display: inline-block;
+  white-space: pre-wrap;
+  background: linear-gradient(90deg, #fff var(--fill), rgba(242, 241, 247, 0.38) var(--fill));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.music__stage-word--on {
+  --fill: 100%;
+}
+
+/* 动画变体：行入场 + 词唱到弹跳 */
+.music__stage--motion .music__stage-line--active {
+  animation: music-stage-line-in 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+
+.music__stage--motion .music__stage-word--on {
+  animation: music-stage-word-pop 0.34s ease-out;
+}
+
+@keyframes music-stage-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes music-stage-word-pop {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-4px) scale(1.18);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* 窄屏布局 */
