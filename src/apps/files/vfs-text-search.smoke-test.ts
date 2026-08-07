@@ -279,8 +279,8 @@ async function testMaxFilesZeroUnlimited(): Promise<void> {
   }
   await filesCreateText(`${ROOT}/zzNeedle.ts`, 'export const unlimitedNeedle = 1\n')
 
-  // 默认 maxFiles=400：前 400 个文件里没有 needle，zzNeedle 排在第 451 位未被扫描
-  const capped = await searchVfsText({ query: 'unlimitedNeedle', rootPath: ROOT })
+  // 显式 maxFiles=400：前 400 个文件里没有 needle，zzNeedle 排在第 451 位未被扫描
+  const capped = await searchVfsText({ query: 'unlimitedNeedle', rootPath: ROOT, maxFiles: 400 })
   assert.equal(capped.matches.length, 0)
   assert.equal(capped.truncated, true)
   assert.equal(capped.truncatedReason, 'maxFiles')

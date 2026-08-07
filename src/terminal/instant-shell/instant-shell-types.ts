@@ -44,13 +44,13 @@ export type InstantShellGrepOptions = {
   caseSensitive?: boolean
   /** 将 query 当作正则 */
   regex?: boolean
-  /** 最多返回命中数，默认 40 */
+  /** 最多返回命中数，默认 100 */
   maxMatches?: number
   /** 每命中行附带的上下文行数（前后各 N 行），默认 0 */
   contextLines?: number
-  /** 最多扫描文件数，默认 400；0 表示不限制（配合 timeoutMs 做纯时间兜底） */
+  /** 最多扫描文件数，默认 10000；0 表示不限制（配合 timeoutMs 做纯时间兜底） */
   maxFiles?: number
-  /** 目录递归最大深度，默认 8 */
+  /** 目录递归最大深度，默认 64 */
   maxDepth?: number
   /** 单文件最大字节数（超出跳过），默认 512 * 1024 */
   maxFileBytes?: number

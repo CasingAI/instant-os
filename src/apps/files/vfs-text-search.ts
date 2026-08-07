@@ -28,10 +28,10 @@ import {
   type VscodeSearchMatchOptions,
 } from '../vscode/vscode-workspace-search-match.ts'
 
-const MAX_WALK_DEPTH = 8
-const MAX_FILES = 400
+const MAX_WALK_DEPTH = 64
+const MAX_FILES = 10000
 const MAX_FILE_BYTES = 512 * 1024
-const DEFAULT_MAX_MATCHES = 40
+const DEFAULT_MAX_MATCHES = 100
 const PREVIEW_MAX = 120
 /** 并发读取文件的窗口大小（有界并发，避免内存与 FSA 争抢）；每窗向调用方推一次结果并让出事件循环 */
 const SCAN_READ_CONCURRENCY = 8
@@ -88,11 +88,11 @@ export type VfsTextSearchParams = VscodeSearchMatchOptions & {
   useExcludeSettingsAndIgnoreFiles?: boolean
   /** 仅搜这些路径；空 Set 则视为无命中 */
   onlyPaths?: ReadonlySet<string> | string[]
-  /** 命中上限，默认 40 */
+  /** 命中上限，默认 100 */
   maxMatches?: number
-  /** 最多扫描文件数，默认 400；0 表示不限制（配合 timeoutMs 做纯时间兜底） */
+  /** 最多扫描文件数，默认 10000；0 表示不限制（配合 timeoutMs 做纯时间兜底） */
   maxFiles?: number
-  /** 目录递归最大深度，默认 8 */
+  /** 目录递归最大深度，默认 64 */
   maxDepth?: number
   /** 单文件大小上限（超出跳过），默认 512 * 1024 */
   maxFileBytes?: number
