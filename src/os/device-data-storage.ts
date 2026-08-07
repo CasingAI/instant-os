@@ -7,7 +7,7 @@ export const DATA_CAPACITY_BYTES = 1024 * 1024 * 1024
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
 export const DATA_DB_NAME = 'instant-os-data'
-export const DATA_DB_VERSION = 9
+export const DATA_DB_VERSION = 10
 export const BOOK_CHAPTERS_STORE = 'book-chapters'
 export const BOOK_DETAILS_STORE = 'book-details'
 export const SAFARI_PAGE_CACHE_STORE = 'safari-page-cache'
@@ -17,6 +17,7 @@ export const VSCODE_AI_CHAT_STORE = 'vscode-ai-chat'
 export const FOLDER_ICON_SNAPSHOTS_STORE = 'folder-icon-snapshots'
 export const MODEL_VISION_RESULTS_STORE = 'model-vision-results'
 export const MODEL_VISION_MEDIA_STORE = 'model-vision-media'
+export const MUSIC_TRACKS_STORE = 'music-tracks'
 export const DATA_META_STORE = 'data-meta'
 
 export type BookChapterRecord = {
@@ -45,6 +46,13 @@ export type SafariPageCacheRecord = {
   html: string
   pageTokens: number | undefined
   cachedAt: number
+  byteSize: number
+}
+
+/** 音乐 App 导入曲库的音频文件体（blob 直接存 IDB，按 byteSize 记账到数据空间） */
+export type MusicTrackRecord = {
+  id: string
+  blob: Blob
   byteSize: number
 }
 
@@ -150,6 +158,9 @@ function openDataDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(VSCODE_AI_CHAT_STORE)) {
         db.createObjectStore(VSCODE_AI_CHAT_STORE, { keyPath: 'workspaceKey' })
+      }
+      if (!db.objectStoreNames.contains(MUSIC_TRACKS_STORE)) {
+        db.createObjectStore(MUSIC_TRACKS_STORE, { keyPath: 'id' })
       }
     }
 
@@ -339,6 +350,60 @@ export async function deleteBookDetailRecord(slug: string): Promise<void> {
     }
 
     await runDataStoreTransaction(BOOK_DETAILS_STORE, 'readwrite', (store) => store.delete(slug))
+    const currentTotal = await readByteTotal()
+    await writeByteTotal(Math.max(0, currentTotal - existing.byteSize))
+    emitDataStorageChanged()
+  } catch {
+    // ignore
+  }
+}
+
+export async function getMusicTracksBytes(): Promise<number> {
+  try {
+    return sumStoreBytes(MUSIC_TRACKS_STORE)
+  } catch {
+    return 0
+  }
+}
+
+export async function getMusicTrack(id: string): Promise<MusicTrackRecord | undefined> {
+  try {
+    return await runDataStoreTransaction<MusicTrackRecord | undefined>(
+      MUSIC_TRACKS_STORE,
+      'readonly',
+      (store) => store.get(id),
+    )
+  } catch {
+    return undefined
+  }
+}
+
+/** 写入音乐曲目音频体；超数据空间配额返回 false。 */
+export async function putMusicTrack(id: string, blob: Blob): Promise<boolean> {
+  const byteSize = blob.size
+  const existing = await getMusicTrack(id)
+  const currentTotal = await readByteTotal()
+  const projectedTotal = currentTotal - (existing?.byteSize ?? 0) + byteSize
+
+  if (await wouldExceedDataCapacity(projectedTotal)) {
+    return false
+  }
+
+  const record: MusicTrackRecord = { id, blob, byteSize }
+  await runDataStoreTransaction(MUSIC_TRACKS_STORE, 'readwrite', (store) => store.put(record))
+  await writeByteTotal(projectedTotal)
+  emitDataStorageChanged()
+  return true
+}
+
+export async function deleteMusicTrack(id: string): Promise<void> {
+  try {
+    const existing = await getMusicTrack(id)
+    if (!existing) {
+      return
+    }
+
+    await runDataStoreTransaction(MUSIC_TRACKS_STORE, 'readwrite', (store) => store.delete(id))
     const currentTotal = await readByteTotal()
     await writeByteTotal(Math.max(0, currentTotal - existing.byteSize))
     emitDataStorageChanged()
@@ -625,6 +690,7 @@ export async function rebuildDataByteTotal(): Promise<number> {
       vscodeAiChatBytes,
       folderIconSnapshotBytes,
       modelVisionBytes,
+      musicTrackBytes,
     ] = await Promise.all([
       sumStoreBytes(BOOK_CHAPTERS_STORE),
       sumStoreBytes(BOOK_DETAILS_STORE),
@@ -637,6 +703,7 @@ export async function rebuildDataByteTotal(): Promise<number> {
         const mediaBytes = await sumStoreBytes(MODEL_VISION_MEDIA_STORE)
         return resultsBytes + mediaBytes
       }),
+      sumStoreBytes(MUSIC_TRACKS_STORE),
     ])
     const total =
       bookChapterBytes +
@@ -646,7 +713,8 @@ export async function rebuildDataByteTotal(): Promise<number> {
       aiEventLogBytes +
       vscodeAiChatBytes +
       folderIconSnapshotBytes +
-      modelVisionBytes
+      modelVisionBytes +
+      musicTrackBytes
     await writeByteTotal(total)
     emitDataStorageChanged()
     return total

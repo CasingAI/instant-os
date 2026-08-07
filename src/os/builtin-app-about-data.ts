@@ -130,6 +130,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '书籍索引保存在系统空间，章节正文保存在数据空间（IndexedDB）。加入书架后 AI 流式撰写章节，全部章节下载完成后方可阅读。',
     ],
   },
+  music: {
+    version: '本地音乐播放器',
+    paragraphs: [
+      '音乐应用提供深色 iPod 风格的曲库与播放器。点击「导入音乐」可从本机选择音频文件加入曲库，音频体保存在数据空间（IndexedDB），元数据保存在系统空间。',
+      '也默认作为 mp3、wav、flac、m4a 等音频文件的打开程序：在「文件」中双击音频即在此播放，可一键添加到曲库。播放跟随音乐窗口，关闭窗口即停止。',
+    ],
+  },
   weather: {
     version: 'AI 天气预报',
     paragraphs: [

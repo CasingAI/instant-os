@@ -39,12 +39,13 @@ import { PagesApp } from '../apps/pages/pages-app.tsx'
 import { PreviewApp } from '../apps/preview/preview-app.tsx'
 import { VscodeApp } from '../apps/vscode/vscode-app.tsx'
 import { UiKitApp } from '../apps/ui-kit/ui-kit-app.tsx'
+import { MusicApp } from '../apps/music/music-app.tsx'
 import { useAboutApp } from './about-app-context.tsx'
 import { aboutAppMenuPrefix } from './about-app-menu.ts'
 import { useAppMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition } from './menu-bar-types.ts'
 import { useOs } from './os-context.tsx'
-import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
+import { BrowserIcon, ChromoIcon, MarketplaceIcon, MailIcon, NewsIcon, BooksIcon, MusicIcon, PhotosIcon, FilesIcon, TextEditIcon, PagesIcon, PreviewIcon, VscodeIcon, Scene3dLabIcon, ModelVisionIcon, ICodeIcon, SettingsIcon, StocksIcon, TranslateIcon, WeatherIcon, CalendarIcon, CatGptIcon, ProdudeIcon, GomokuIcon, SpeechIcon, InstantLogoIcon, TaskManagerIcon, ServicesIcon, EventLogIcon, PackagesIcon, ArchiveUtilityIcon, SpaceSnifferIcon, KeychainIcon, GithubDesktopIcon, HelpIcon, TerminalIcon, SimulatedTerminalIcon, VirtualJsIcon, UiKitIcon } from '../icons/app-icons.tsx'
 import { BUILTIN_APP_ABOUT } from './builtin-app-about-data.ts'
 import { BUILTIN_APP_DISPLAY_NAMES } from './builtin-app-display-names.ts'
 import type { AppDefinition, BuiltinAppId } from './types.ts'
@@ -111,6 +112,13 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'books',
     name: BUILTIN_APP_DISPLAY_NAMES['books'],
     icon: BooksIcon,
+    dock: true,
+    desktop: true,
+  }),
+  withAbout({
+    id: 'music',
+    name: BUILTIN_APP_DISPLAY_NAMES['music'],
+    icon: MusicIcon,
     dock: true,
     desktop: true,
   }),
@@ -358,6 +366,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   mail: MailApp,
   news: NewsApp,
   books: BooksApp,
+  music: MusicApp,
   weather: WeatherApp,
   calendar: CalendarApp,
   stocks: StocksApp,

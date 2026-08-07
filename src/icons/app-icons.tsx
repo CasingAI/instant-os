@@ -923,6 +923,28 @@ export function BooksIcon({ size = 64 }: IconProps) {
   )
 }
 
+export function MusicIcon({ size = 64 }: IconProps) {
+  const noteSize = Math.round(size * 0.56)
+  return (
+    <AppIconTile color="#fa2d55" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="music-icon-note" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fff3f5" />
+            <stop offset="100%" stop-color="#ffc9d3" />
+          </linearGradient>
+        </defs>
+        <g transform={`translate(${(size - noteSize) / 2} ${(size - noteSize) / 2}) scale(${noteSize / 64})`}>
+          <circle cx="20" cy="48" r="9" fill="url(#music-icon-note)" />
+          <circle cx="46" cy="42" r="9" fill="url(#music-icon-note)" />
+          <path d="M29 48 L29 16 L56 10 L56 42" fill="none" stroke="url(#music-icon-note)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M29 16 L56 10" fill="none" stroke="url(#music-icon-note)" stroke-width="7" stroke-linecap="round" />
+        </g>
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function WeatherIcon({ size = 64 }: IconProps) {
   return (
     <AppIconTile color="#147efb" size={size}>

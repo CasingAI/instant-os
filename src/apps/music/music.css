@@ -1,0 +1,479 @@
+/* 音乐 App — 深色 iPod 风格 */
+.music {
+  --music-bg: #16151a;
+  --music-bg-raised: #1e1d24;
+  --music-surface: #232229;
+  --music-surface-raised: #2a2931;
+  --music-ink: #f2f1f7;
+  --music-ink-muted: #9a97a6;
+  --music-accent: #fa2d55;
+  --music-accent-soft: rgba(250, 45, 85, 0.22);
+  --music-border: #34333d;
+  --music-toolbar: linear-gradient(180deg, #24232b 0%, #1a1920 100%);
+  --music-player-bar: linear-gradient(180deg, #26252e 0%, #1b1a21 100%);
+  --music-radius: 8px;
+  --music-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+
+  --ios-button-color: var(--music-accent);
+  --ios-button-color-active: #c91e40;
+  --ios-button-bg: linear-gradient(180deg, #fff 0%, #e3e1e8 100%);
+  --ios-button-bg-active: linear-gradient(180deg, #e3e1e8 0%, #cdcbd4 100%);
+  --ios-button-border: 1px solid #aaa7b4;
+  --ios-button-radius: 6px;
+  --ios-button-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  --ios-button-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+  --ios-button-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  --ios-button-min-width: 64px;
+  --ios-button-compact-min-width: 64px;
+  --ios-button-compact-height: 28px;
+  --ios-button-compact-padding: 0 10px;
+  --ios-button-compact-font-size: 12px;
+  --ios-button-disabled-color: var(--music-accent);
+  --ios-button-disabled-bg: linear-gradient(180deg, #fff 0%, #e3e1e8 100%);
+  --ios-button-disabled-border: 1px solid #aaa7b4;
+  --ios-button-disabled-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  --ios-button-disabled-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  --ios-button-disabled-opacity: 0.5;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--music-bg);
+  color: var(--music-ink);
+  font-family: var(--app-text-font-family);
+  font-size: 13px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 工具栏 */
+.music__toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--music-toolbar);
+  border-bottom: 1px solid var(--music-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+.music__toolbar > :first-child {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.music__toolbar > :last-child {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.music__toolbar-spacer {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.music__toolbar-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--music-ink);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.music__toolbar-title--center {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: center;
+  pointer-events: none;
+}
+
+/* 导入错误提示 */
+.music__import-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #ffd7dd;
+  background: rgba(250, 45, 85, 0.16);
+  border-bottom: 1px solid var(--music-border);
+}
+
+.music__import-error-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--music-ink-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.music__import-error-close:hover {
+  color: var(--music-ink);
+  background: var(--music-surface-raised);
+}
+
+/* 主区 */
+.music__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 曲库列表（虚拟列表滚动容器） */
+.music__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--music-bg);
+}
+
+.music__list .fixed-row-virtual-list__row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.music__row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 150px) 44px;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.music__row:hover {
+  background: var(--music-surface);
+}
+
+.music__row--current {
+  background: var(--music-surface-raised);
+}
+
+.music__row-index {
+  font-size: 12px;
+  color: var(--music-ink-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.music__row--current .music__row-index {
+  color: var(--music-accent);
+  font-weight: 700;
+}
+
+.music__row-title {
+  font-size: 13px;
+  color: var(--music-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music__row--current .music__row-title {
+  color: var(--music-accent);
+}
+
+.music__row-artist {
+  font-size: 12px;
+  color: var(--music-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music__row-duration {
+  font-size: 12px;
+  color: var(--music-ink-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.music__row-delete {
+  grid-column: 4;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: rgba(250, 45, 85, 0.18);
+  color: #ff8aa0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.music__row-delete:hover {
+  background: var(--music-accent);
+  color: #fff;
+}
+
+/* 空态 */
+.music__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.music__empty-note {
+  font-size: 52px;
+  line-height: 1;
+  color: var(--music-accent);
+  opacity: 0.7;
+  filter: drop-shadow(0 2px 6px rgba(250, 45, 85, 0.35));
+}
+
+.music__empty-title {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--music-ink);
+}
+
+.music__empty-hint {
+  margin: 0 0 8px;
+  max-width: 300px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--music-ink-muted);
+}
+
+/* 「文件」打开的单曲提示条 */
+.music__transient {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: var(--music-surface);
+  border-top: 1px solid var(--music-border);
+  border-bottom: 1px solid var(--music-border);
+}
+
+.music__transient-text {
+  font-size: 12px;
+  color: var(--music-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 底部播放器 */
+.music__player-bar {
+  flex-shrink: 0;
+  background: var(--music-player-bar);
+  border-top: 1px solid var(--music-border);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.04) inset;
+  padding: 8px 14px 10px;
+}
+
+.music__player-progress {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.music__player-time {
+  font-size: 11px;
+  color: var(--music-ink-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.music__player-slider {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--music-accent);
+  cursor: pointer;
+}
+
+.music__player-progress-slider {
+  min-width: 0;
+}
+
+.music__player-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.music__player-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.music__player-note {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--music-accent-soft);
+  color: var(--music-accent);
+  font-size: 18px;
+}
+
+.music__player-track-meta {
+  min-width: 0;
+}
+
+.music__player-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--music-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music__player-artist {
+  font-size: 11px;
+  color: var(--music-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music__player-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.music__player-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--music-ink);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.music__player-btn:hover:not(:disabled) {
+  background: var(--music-surface-raised);
+}
+
+.music__player-btn:disabled {
+  color: var(--music-ink-muted);
+  opacity: 0.4;
+  cursor: default;
+}
+
+.music__player-btn--play {
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(180deg, #ff4d70 0%, var(--music-accent) 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 2px 5px rgba(250, 45, 85, 0.45);
+}
+
+.music__player-btn--play:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ff6a88 0%, #ff3a60 100%);
+}
+
+.music__player-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: music-player-spin 0.8s linear infinite;
+}
+
+@keyframes music-player-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.music__player-volume {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--music-ink-muted);
+}
+
+.music__player-volume-slider {
+  max-width: 90px;
+}
+
+.music__player-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 12px;
+  color: #ff8aa0;
+}
+
+/* 窄屏布局 */
+.music--narrow .music__row {
+  grid-template-columns: 28px minmax(0, 1fr) 44px;
+}
+
+.music--narrow .music__row-artist {
+  display: none;
+}
+
+.music--narrow .music__player-volume {
+  display: none;
+}
+
+.music--narrow .music__player-controls {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.music--narrow .music__player-track {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.music--narrow .music__player-buttons {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.music--narrow .music__player-progress {
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+}
