@@ -441,6 +441,26 @@
   cursor: default;
 }
 
+.help-app__reasoning-content-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--help-accent-dark);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.help-app__reasoning-content-toggle:hover {
+  color: var(--help-accent);
+}
+
 .help-app__reasoning-summary {
   flex: 1;
   min-width: 0;
@@ -473,6 +493,10 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
   font-size: 11px;
+}
+
+.help-app__reasoning-body--full {
+  max-height: 460px;
 }
 
 .help-app__reasoning-body--stack {

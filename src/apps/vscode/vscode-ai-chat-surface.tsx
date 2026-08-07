@@ -24,6 +24,8 @@ import {
 const INVESTIGATION_STEP_STAGGER_MS = 55
 const INVESTIGATION_STEP_ANIM_MS = 320
 const INVESTIGATION_COLLAPSE_MS = 280
+/** 模型输入（工具参数）在显示层的本地预览上限；超出时提供「查看完整输入」就地展开 */
+const ACTIVITY_CONTENT_PREVIEW_LIMIT = 4_000
 
 export function formatInvestigationSummary(investigation: VscodeAiInvestigation): string {
   const parts = ['已完成调查']
@@ -236,9 +238,14 @@ export function ActivityStatus({
   onOpenSubagentDetail?: (runId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [showFullInput, setShowFullInput] = useState(false)
   const current = Boolean(live) && Boolean(isCurrent) && !activity.done
   const content = activity.content?.trim() ?? ''
   const result = activity.result?.trim() ?? ''
+  const inputTruncated = content.length > ACTIVITY_CONTENT_PREVIEW_LIMIT
+  const shownInput = showFullInput || !inputTruncated
+    ? content
+    : content.slice(0, ACTIVITY_CONTENT_PREVIEW_LIMIT)
   const expandable = Boolean(content || result)
   const canOpenDetail = Boolean(activity.subagentRunId && onOpenSubagentDetail)
   const subagentRun = useSubagentRun(activity.subagentRunId)
@@ -329,7 +336,28 @@ export function ActivityStatus({
       {expanded ? (
         <div class="help-app__reasoning-body help-app__reasoning-body--stack">
           {content ? (
-            <pre class="help-app__reasoning-body help-app__reasoning-body--code">{content}</pre>
+            <>
+              <pre
+                class={`help-app__reasoning-body help-app__reasoning-body--code${showFullInput ? ' help-app__reasoning-body--full' : ''}`}
+              >
+                {shownInput}
+                {inputTruncated && !showFullInput ? '\n…（已截断）' : ''}
+              </pre>
+              {inputTruncated ? (
+                <button
+                  type="button"
+                  class="help-app__reasoning-content-toggle"
+                  aria-expanded={showFullInput}
+                  onClick={() => setShowFullInput((value) => !value)}
+                >
+                  <span
+                    class={`help-app__investigation-chevron${showFullInput ? ' help-app__investigation-chevron--expanded' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span>{showFullInput ? '收起' : '查看完整输入'}</span>
+                </button>
+              ) : undefined}
+            </>
           ) : undefined}
           {result ? (
             <>

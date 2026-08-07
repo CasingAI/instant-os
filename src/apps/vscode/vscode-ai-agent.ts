@@ -85,7 +85,12 @@ const VSCODE_AI_MAX_STEPS = 30
 const WRITE_PREVIEW_STORE_LIMIT = 8_000
 /** 工具结果 / 命令输出落盘与内存上限；对齐 spill preview（16K + header/hint 余量） */
 const TOOL_RESULT_STORE_LIMIT = TERMINAL_OUTPUT_SPILL_UI_RESULT_LIMIT
-const ACTIVITY_CONTENT_STORE_LIMIT = 4_000
+/**
+ * 模型输入（工具参数，如 run_in_terminal 的 command）的落盘上限。
+ * 与工具结果上限对齐：截断只发生在持久化防御层，创建时不再截断，
+ * 全量输入在会话内始终可看；超过该上限的输入持久化后保留本上限（不落文件）。
+ */
+const ACTIVITY_CONTENT_STORE_LIMIT = TOOL_RESULT_STORE_LIMIT
 const REASONING_STORE_LIMIT = 12_000
 /** 压缩详情落盘上限（L1 foldedToolsText / L4 summary） */
 const COMPRESSION_DETAIL_TEXT_STORE_LIMIT = 12_000
@@ -1232,7 +1237,8 @@ export async function askVscodeAiAgent(options: {
     const id = `vscode-ai-act-${osNowMs()}-${toolCallCount}${event.synthetic ? '-syn' : ''}`
     pendingActivityId = id
     const label = event.synthetic ? `${desc.label} · 自动` : desc.label
-    const content = truncateActivityContent(desc.content)
+    // 输入（工具参数）不在此截断：全量保留在内存 timeline，显示层做本地预览截断
+    const content = desc.content
     activities.push({
       id,
       label,
