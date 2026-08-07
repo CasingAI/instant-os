@@ -23,6 +23,8 @@ export type PersistedSubagentRun = {
   modelLabel: string
   status: 'running' | 'done' | 'error'
   startedAt: number
+  /** 结束时间（刷新后用于恢复总耗时展示） */
+  endedAt?: number
   text?: string
   toolCallCount?: number
   incomplete?: boolean
@@ -122,6 +124,10 @@ export function normalizePersistedSubagentRuns(raw: unknown): PersistedSubagentR
         typeof entry.startedAt === 'number' && Number.isFinite(entry.startedAt)
           ? entry.startedAt
           : Date.now(),
+      endedAt:
+        typeof entry.endedAt === 'number' && Number.isFinite(entry.endedAt)
+          ? entry.endedAt
+          : undefined,
       text: typeof entry.text === 'string' ? entry.text : undefined,
       toolCallCount:
         typeof entry.toolCallCount === 'number' && Number.isFinite(entry.toolCallCount)
@@ -204,6 +210,7 @@ export function serializeSubagentRunsForPersist(
       modelLabel: run.modelLabel,
       status: run.status,
       startedAt: run.startedAt,
+      ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
       text: result?.text ? truncateToolResultForStore(result.text) : result?.text,
       toolCallCount: result?.toolCallCount,
       incomplete: result?.incomplete,
@@ -253,6 +260,7 @@ export function persistedRunsToStoreStates(
       modelLabel: item.modelLabel,
       status: item.status,
       startedAt: item.startedAt,
+      endedAt: item.endedAt,
       liveProgress: undefined,
       result,
       contextUsage: undefined,

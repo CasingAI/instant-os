@@ -15,6 +15,11 @@ import {
 } from './vscode-ai-agent.ts'
 import { rememberLiveCompressionDetail } from './vscode-compression-lookup.ts'
 import { VscodeMarkdownPreview } from './vscode-markdown-preview.tsx'
+import {
+  getRun,
+  subscribe,
+  type SubagentRunState,
+} from './vscode-subagent-store.ts'
 
 const INVESTIGATION_STEP_STAGGER_MS = 55
 const INVESTIGATION_STEP_ANIM_MS = 320
@@ -178,6 +183,47 @@ export function WriteFileCard({
   )
 }
 
+/** 订阅 Sub Agent store，实时拿到该 run 的最新状态（运行中/结束时间） */
+function useSubagentRun(runId: string | undefined): SubagentRunState | undefined {
+  const [, setVersion] = useState(0)
+  useEffect(() => {
+    if (!runId) return
+    return subscribe(() => setVersion((v) => v + 1))
+  }, [runId])
+  return runId ? getRun(runId) : undefined
+}
+
+/**
+ * 返回 Sub Agent 的耗时（毫秒）：
+ * 运行中 → 每秒刷新的已运行时长；结束 → 结束时刻减开始时刻的总耗时。
+ */
+function useSubagentElapsedMs(run: SubagentRunState | undefined): number | undefined {
+  const [, setTick] = useState(0)
+  const running = Boolean(run && run.status === 'running' && run.startedAt > 0)
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [running])
+  if (!run) return undefined
+  if (run.status === 'running') {
+    return Math.max(0, Date.now() - run.startedAt)
+  }
+  return run.endedAt !== undefined ? Math.max(0, run.endedAt - run.startedAt) : undefined
+}
+
+export function SubagentDuration({ run }: { run: SubagentRunState | undefined }) {
+  const elapsed = useSubagentElapsedMs(run)
+  if (!run || elapsed === undefined) return undefined
+  return (
+    <span class="vscode-ai__subagent-duration">
+      {run.status === 'running'
+        ? `运行中 · ${formatHumanDurationMs(elapsed)}`
+        : `用时 ${formatHumanDurationMs(elapsed)}`}
+    </span>
+  )
+}
+
 export function ActivityStatus({
   activity,
   live,
@@ -195,6 +241,7 @@ export function ActivityStatus({
   const result = activity.result?.trim() ?? ''
   const expandable = Boolean(content || result)
   const canOpenDetail = Boolean(activity.subagentRunId && onOpenSubagentDetail)
+  const subagentRun = useSubagentRun(activity.subagentRunId)
   const openDetail = () => {
     if (activity.subagentRunId && onOpenSubagentDetail) {
       onOpenSubagentDetail(activity.subagentRunId)
@@ -206,6 +253,7 @@ export function ActivityStatus({
       {activity.detail ? (
         <span class="help-app__reasoning-summary-detail"> · {activity.detail}</span>
       ) : undefined}
+      {subagentRun ? <SubagentDuration run={subagentRun} /> : undefined}
     </>
   )
 

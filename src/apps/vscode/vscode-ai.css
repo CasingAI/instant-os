@@ -15,6 +15,37 @@
   min-height: 0;
   padding: 12px 10px calc(var(--vscode-ai-composer-inset, 96px) + 8px);
   overflow-x: hidden;
+  /* scrollIntoView 会忽略容器 padding，把内容对齐到可视区底缘；
+     这里用 scroll-padding 兜住悬浮输入框占位，避免内容滚到输入框后面 */
+  scroll-padding-bottom: calc(var(--vscode-ai-composer-inset, 96px) + 8px);
+}
+
+/* 主对话右上角悬浮「复制对话」：sticky 保证滚动时不漂走 */
+.vscode-ai__chat-copy {
+  position: sticky;
+  top: 8px;
+  float: right;
+  z-index: 6;
+  margin-top: 2px;
+  border: 1px solid rgba(120, 120, 130, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #555;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.vscode-ai__chat-copy:hover {
+  color: #1e1e1e;
+  border-color: rgba(80, 80, 90, 0.5);
+}
+
+.vscode-ai__chat-copy--copied {
+  color: #2e7d32;
+  border-color: #2e7d32;
 }
 
 /* 头像占位后，气泡不得超过行宽，避免表格等内容把消息撑出面板（滚动条被隐藏时像裁切） */
@@ -1796,4 +1827,21 @@
 
 .vscode--chrome-dark .vscode-ai__incomplete-note {
   color: rgba(255, 255, 255, 0.5);
+}
+
+/* 悬浮「复制对话」深色 */
+.vscode--chrome-dark .vscode-ai__chat-copy {
+  background: rgba(42, 42, 50, 0.92);
+  border-color: rgba(140, 140, 150, 0.35);
+  color: #c8c8c8;
+}
+
+.vscode--chrome-dark .vscode-ai__chat-copy:hover {
+  color: #fff;
+  border-color: rgba(170, 170, 180, 0.5);
+}
+
+.vscode--chrome-dark .vscode-ai__chat-copy--copied {
+  color: #7ecb8e;
+  border-color: #7ecb8e;
 }

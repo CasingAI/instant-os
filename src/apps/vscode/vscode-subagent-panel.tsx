@@ -313,6 +313,25 @@ export function VscodeSubagentPanel({
 
   const run = getRun(runId)
 
+  // 运行中每秒刷新一次，驱动「已运行 X」实时显示
+  const [, setElapsedTick] = useState(0)
+  useEffect(() => {
+    if (!run || run.status !== 'running') return
+    const id = window.setInterval(() => setElapsedTick((v) => v + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [run?.status])
+
+  // 运行中的实时耗时（随 tick 刷新）；完成后为总耗时
+  const externalElapsedMs =
+    run && run.status === 'running' && run.startedAt > 0
+      ? Math.max(0, Date.now() - run.startedAt)
+      : undefined
+  const externalDurationMs = useMemo(() => {
+    if (!run || run.status === 'running') return undefined
+    if (run.endedAt !== undefined) return Math.max(0, run.endedAt - run.startedAt)
+    return run.result?.investigation?.durationMs
+  }, [run?.status, run?.endedAt, run?.startedAt, run?.result])
+
   // 运行中：从 liveProgress 提取 timeline / answerText
   const externalLiveTimeline: VscodeAiTimelineItem[] | undefined = useMemo(() => {
     if (!run || run.status !== 'running') return undefined
@@ -385,6 +404,8 @@ export function VscodeSubagentPanel({
         externalLiveAnswer={externalLiveAnswer}
         externalContextUsage={externalContextUsage}
         externalToolCallCount={externalToolCallCount}
+        externalElapsedMs={externalElapsedMs}
+        externalDurationMs={externalDurationMs}
         onOpenCompressionDetail={onOpenCompressionDetail}
       />
     </div>

@@ -102,6 +102,11 @@ import {
   LiveTimeline,
 } from './vscode-ai-chat-surface.tsx'
 import { osNowMs } from '../../os/os-clock.ts'
+import { formatHumanDurationMs } from '../../ai/format-human-duration.ts'
+import {
+  buildVscodeAiConversationDump,
+  copyTextToClipboard,
+} from './vscode-ai-conversation-dump.ts'
 import '../help/help.css'
 import './vscode-ai.css'
 
@@ -797,6 +802,10 @@ export type VscodeAiPanelProps = {
   externalContextUsage?: VscodeAiContextUsage
   /** 外部注入的工具调用次数（只读详情 Footer） */
   externalToolCallCount?: number
+  /** 只读详情：运行中的实时耗时（毫秒），随 ticker 刷新 */
+  externalElapsedMs?: number
+  /** 只读详情：完成后的总耗时（毫秒） */
+  externalDurationMs?: number
 }
 
 function formatError(err: unknown): string {
@@ -1036,6 +1045,8 @@ export function VscodeAiPanel({
   externalLiveAnswer,
   externalContextUsage,
   externalToolCallCount,
+  externalElapsedMs,
+  externalDurationMs,
 }: VscodeAiPanelProps) {
   const modal = useWindowModal()
   const textModels = useVscodeAiTextModels()
@@ -1110,6 +1121,15 @@ export function VscodeAiPanel({
   const liveStartedAtRef = useRef(0)
   /** 当前 live 回合的 assistant 草稿 id（供计划条「实施」关联） */
   const liveDraftAssistantIdRef = useRef<string | undefined>(undefined)
+  const [copyCopied, setCopyCopied] = useState(false)
+  const copyConversation = useCallback(() => {
+    const dump = buildVscodeAiConversationDump(messages, { sessionId })
+    void copyTextToClipboard(dump).then((ok) => {
+      if (!ok) return
+      setCopyCopied(true)
+      window.setTimeout(() => setCopyCopied(false), 1600)
+    })
+  }, [messages, sessionId])
   const sessionIdRef = useRef(sessionId)
   const messagesRef = useRef(messages)
   const sendQueueRef = useRef<QueuedSend[]>([])
@@ -1490,7 +1510,15 @@ export function VscodeAiPanel({
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages, liveTimeline, liveAnswer, pendingModeSwitch, scrollToBottom])
+  }, [
+    messages,
+    liveTimeline,
+    liveAnswer,
+    pendingModeSwitch,
+    // 悬浮输入框高度变化（多行输入 / 附伴条展开）时若正贴底，重新贴底避免内容被盖住
+    composerInset,
+    scrollToBottom,
+  ])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -2184,7 +2212,8 @@ export function VscodeAiPanel({
               ? result.investigation
               : liveTimelineRef.current.length > 0
                 ? buildVscodeAiInvestigationFromTimeline(liveTimelineRef.current, {
-                    toolCallCount: liveToolCallCountRef.current,
+                    // 完成时用累加后的最终计数（含委派 Sub Agent 的工具调用）
+                    toolCallCount: result.toolCallCount,
                     startedAt: liveStartedAtRef.current,
                   })
                 : undefined
@@ -2571,6 +2600,24 @@ export function VscodeAiPanel({
     [beginEditUserMessage],
   )
 
+  /** 只读详情：运行中显示外部注入的实时耗时；完成后显示总耗时 */
+  const readonlyDurationMs =
+    headerInfo?.status === 'running' ? externalElapsedMs : externalDurationMs
+  const readonlyDurationText =
+    readonlyDurationMs !== undefined
+      ? headerInfo?.status === 'running'
+        ? formatHumanDurationMs(readonlyDurationMs)
+        : `用时 ${formatHumanDurationMs(readonlyDurationMs)}`
+      : undefined
+  const readonlyStatusText =
+    headerInfo?.status === 'running'
+      ? `运行中${readonlyDurationText ? ` · ${readonlyDurationText}` : ''}`
+      : headerInfo?.status === 'done'
+        ? `已完成${readonlyDurationText ? ` · ${readonlyDurationText}` : ''}`
+        : headerInfo?.status === 'error'
+          ? '出错'
+          : headerInfo?.status ?? ''
+
   return (
     <div
       class="help-app vscode-ai help-app--width-full"
@@ -2588,8 +2635,15 @@ export function VscodeAiPanel({
           <span
             class={`vscode-ai__readonly-header-status vscode-ai__readonly-header-status--${headerInfo.status}`}
           >
-            {headerInfo.status === 'running' ? '运行中' : headerInfo.status === 'done' ? '已完成' : headerInfo.status === 'error' ? '出错' : headerInfo.status}
+            {readonlyStatusText}
           </span>
+          <button
+            type="button"
+            class={`vscode-ai__readonly-header-copy${copyCopied ? ' vscode-ai__readonly-header-copy--copied' : ''}`}
+            onClick={copyConversation}
+          >
+            {copyCopied ? '已复制' : '复制对话'}
+          </button>
         </div>
       ) : undefined}
       <div
@@ -2907,6 +2961,15 @@ export function VscodeAiPanel({
             ) : undefined}
           </div>
         )}
+        {!readOnly && messages.length > 0 ? (
+          <button
+            type="button"
+            class={`vscode-ai__chat-copy${copyCopied ? ' vscode-ai__chat-copy--copied' : ''}`}
+            onClick={copyConversation}
+          >
+            {copyCopied ? '已复制' : '复制对话'}
+          </button>
+        ) : undefined}
       </div>
 
       {readOnly ? (
@@ -2914,6 +2977,11 @@ export function VscodeAiPanel({
           <div class="vscode-ai__readonly-footer-meta">
             {typeof externalToolCallCount === 'number' && externalToolCallCount > 0 ? (
               <span class="vscode-ai__readonly-footer-stat">工具 {externalToolCallCount}</span>
+            ) : undefined}
+            {readonlyDurationMs !== undefined ? (
+              <span class="vscode-ai__readonly-footer-stat">
+                用时 {formatHumanDurationMs(readonlyDurationMs)}
+              </span>
             ) : undefined}
           </div>
           <div class="vscode-ai__readonly-footer-trailing">

@@ -28,6 +28,8 @@ export type SubagentRunState = {
   modelLabel: string
   status: 'running' | 'done' | 'error'
   startedAt: number
+  /** 结束时间（completeRun/failRun 写入；resumeRun 重置）。用于耗时展示与持久化恢复 */
+  endedAt: number | undefined
   /** 运行中的实时进度（timeline/activities/answerText 等） */
   liveProgress: VscodeAiAgentProgress | undefined
   /** 完成后的完整结果（messages + investigation）；resume 期间保留上一轮直至 complete */
@@ -92,6 +94,7 @@ export function startRun(
     modelLabel,
     status: 'running',
     startedAt: Date.now(),
+    endedAt: undefined,
     liveProgress: undefined,
     result: undefined,
     contextUsage: undefined,
@@ -124,6 +127,7 @@ export function resumeRun(
   run.error = undefined
   run.liveProgress = undefined
   run.startedAt = Date.now()
+  run.endedAt = undefined
   notify()
   return true
 }
@@ -147,6 +151,7 @@ export function completeRun(runId: string, result: VscodeAiAgentResult): void {
   run.status = 'done'
   run.result = result
   run.liveProgress = undefined
+  run.endedAt = Date.now()
   notify()
 }
 
@@ -155,6 +160,7 @@ export function failRun(runId: string, error: string): void {
   if (!run) return
   run.status = 'error'
   run.error = error
+  run.endedAt = Date.now()
   notify()
 }
 

@@ -920,6 +920,7 @@ export async function askVscodeAiAgent(options: {
       }
       if (event.phase === 'done') {
         const fromHost = event.finalResult as VscodeAiAgentResult | undefined
+        subagentToolCalls += fromHost?.toolCallCount ?? event.toolCallCount ?? 0
         if (fromHost) {
           completeRun(event.runId, fromHost)
         } else if (event.incomplete) {
@@ -1054,6 +1055,8 @@ export async function askVscodeAiAgent(options: {
 
   const startedAt = osNowMs()
   let toolCallCount = 0
+  /** 本轮委派的所有 Sub Agent 内部工具调用数（完成时累加进最终计数） */
+  let subagentToolCalls = 0
   const activities: VscodeAiActivity[] = []
   let timeline: VscodeAiTimelineItem[] = []
   let answerText = ''
@@ -1457,14 +1460,16 @@ export async function askVscodeAiAgent(options: {
   timeline = markTimelineDone(timeline)
   emit({ immediate: true })
 
+  // 完成时把委派 Sub Agent 内部调用的工具数累加进最终计数（运行中仍只显示父 Agent 自身）
+  const totalToolCallCount = toolCallCount + subagentToolCalls
   const investigation = buildVscodeAiInvestigationFromTimeline(timeline, {
-    toolCallCount,
+    toolCallCount: totalToolCallCount,
     startedAt,
   })
 
   return {
     text: result.text.trim() || answerText.trim(),
-    toolCallCount,
+    toolCallCount: totalToolCallCount,
     investigation,
     incomplete: result.incomplete,
     messages: result.messages,
