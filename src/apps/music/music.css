@@ -39,6 +39,19 @@
   --ios-button-disabled-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
   --ios-button-disabled-opacity: 0.5;
 
+  --ios-nav-back-color: var(--music-accent);
+  --ios-nav-back-color-active: #c91e40;
+  --ios-nav-back-bg: linear-gradient(180deg, #3a3942 0%, #2a2931 100%);
+  --ios-nav-back-bg-hover: linear-gradient(180deg, #41404a 0%, #2e2d36 100%);
+  --ios-nav-back-bg-active: linear-gradient(180deg, #2a2931 0%, #242329 100%);
+  --ios-nav-back-border: 1px solid var(--music-border);
+  --ios-nav-back-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  --ios-nav-back-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+  --ios-nav-back-shadow-active: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  --ios-nav-back-radius: 6px;
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -93,6 +106,12 @@
   grid-row: 1;
   justify-self: center;
   pointer-events: none;
+}
+
+.music__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* 导入错误提示 */
@@ -152,7 +171,7 @@
 
 .music__row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 150px) 44px;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 150px) auto;
   align-items: center;
   gap: 8px;
   height: 100%;
@@ -206,10 +225,18 @@
   color: var(--music-ink-muted);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  white-space: nowrap;
 }
 
+.music__row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.music__row-action,
 .music__row-delete {
-  grid-column: 4;
   width: 24px;
   height: 24px;
   display: inline-flex;
@@ -217,10 +244,23 @@
   justify-content: center;
   border: none;
   border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.music__row-action {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--music-ink-muted);
+}
+
+.music__row-action:hover {
+  background: var(--music-accent-soft);
+  color: var(--music-accent);
+}
+
+.music__row-delete {
   background: rgba(250, 45, 85, 0.18);
   color: #ff8aa0;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .music__row-delete:hover {
@@ -261,6 +301,13 @@
   font-size: 12px;
   line-height: 1.6;
   color: var(--music-ink-muted);
+}
+
+.music__empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 /* 「文件」打开的单曲提示条 */
@@ -447,9 +494,48 @@
   color: #ff8aa0;
 }
 
+/* 整屏歌词视图 */
+.music__lyrics-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+}
+
+.music__lyrics-line {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  font-size: 14px;
+  color: var(--music-ink-muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color 0.25s ease,
+    transform 0.25s ease;
+}
+
+.music__lyrics-line:hover {
+  color: var(--music-ink);
+}
+
+.music__lyrics-line--active {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--music-accent);
+  text-shadow: 0 0 14px rgba(250, 45, 85, 0.45);
+}
+
 /* 窄屏布局 */
 .music--narrow .music__row {
-  grid-template-columns: 28px minmax(0, 1fr) 44px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
 }
 
 .music--narrow .music__row-artist {

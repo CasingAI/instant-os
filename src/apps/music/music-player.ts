@@ -1,3 +1,4 @@
+import { readFileBlob } from '../files/files-vfs.ts'
 import { getMusicTrackBlob } from './music-audio-storage.ts'
 import type { MusicTrack } from './music-types.ts'
 
@@ -90,6 +91,18 @@ function revokeCurrentUrl(): void {
   }
 }
 
+/** 曲目音频体：优先从 VFS 引用读取，其次回退到数据空间（旧导入数据）。 */
+async function resolveTrackBlob(track: MusicTrack): Promise<Blob | undefined> {
+  if (track.vfsRef) {
+    try {
+      return (await readFileBlob(track.vfsRef)).blob
+    } catch {
+      return undefined
+    }
+  }
+  return getMusicTrackBlob(track.id)
+}
+
 async function loadAndPlay(blob?: Blob): Promise<void> {
   const el = getAudio()
   const target = state.current
@@ -99,7 +112,7 @@ async function loadAndPlay(blob?: Blob): Promise<void> {
   try {
     revokeCurrentUrl()
     updateState({ loading: true, error: null, currentTime: 0, duration: 0 })
-    const resolved = blob ?? (await getMusicTrackBlob(target.id))
+    const resolved = blob ?? (await resolveTrackBlob(target))
     // 等待读取期间用户可能已切换曲目，丢弃过期结果
     if (state.current?.id !== target.id) {
       return
@@ -141,8 +154,8 @@ export function playFromLibrary(tracks: MusicTrack[], index: number): void {
   void loadAndPlay()
 }
 
-/** 播放「文件」App 打开的单曲音频（blob 由外部读取）。 */
-export function playDocument(track: MusicTrack, blob: Blob): void {
+/** 播放「文件」App 打开的单曲音频（blob 可缺省，缺省时按 vfsRef 读取）。 */
+export function playDocument(track: MusicTrack, blob?: Blob): void {
   updateState({ queue: [track], index: 0, current: track, sourceKind: 'document' })
   void loadAndPlay(blob)
 }

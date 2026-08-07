@@ -1,32 +1,14 @@
 /**
- * 音乐曲库元数据纯函数单测（文件名解析 / 增删 / 时长格式化）。
+ * 音乐 App 工具纯函数单测（文件名解析 / 后缀判断 / 时长格式化）。
  * 运行：node --experimental-strip-types src/apps/music/music-storage.test.ts
  */
 import assert from 'node:assert/strict'
 import {
-  addTrackToStore,
   formatTrackDuration,
-  findTrackInStore,
   isAudioExtension,
+  isLyricsExtension,
   parseMusicFileName,
-  removeTrackFromStore,
 } from './music-storage.ts'
-import type { MusicTrack } from './music-types.ts'
-
-function sampleTrack(overrides: Partial<MusicTrack> = {}): MusicTrack {
-  return {
-    id: 'music-test-1',
-    title: '夜航星',
-    artist: '不才',
-    fileName: '不才 - 夜航星.mp3',
-    extension: 'mp3',
-    mimeType: 'audio/mpeg',
-    byteSize: 1024,
-    durationSec: 214,
-    addedAt: 1,
-    ...overrides,
-  }
-}
 
 function testParseMusicFileName(): void {
   assert.deepEqual(parseMusicFileName('不才 - 夜航星.mp3'), {
@@ -65,21 +47,11 @@ function testAudioExtension(): void {
   console.log('ok: isAudioExtension')
 }
 
-function testStoreAddRemove(): void {
-  const empty = { tracks: [] as MusicTrack[] }
-  const one = addTrackToStore(empty, sampleTrack())
-  assert.equal(one.tracks.length, 1)
-  assert.equal(findTrackInStore(one, 'music-test-1')?.title, '夜航星')
-  assert.equal(findTrackInStore(one, 'missing'), undefined)
-
-  // 新歌排在最前
-  const two = addTrackToStore(one, sampleTrack({ id: 'music-test-2', title: '第二首' }))
-  assert.equal(two.tracks[0].id, 'music-test-2')
-
-  const removed = removeTrackFromStore(two, 'music-test-1')
-  assert.equal(removed.tracks.length, 1)
-  assert.equal(removed.tracks[0].id, 'music-test-2')
-  console.log('ok: store add/remove')
+function testLyricsExtension(): void {
+  assert.equal(isLyricsExtension('lrc'), true)
+  assert.equal(isLyricsExtension('LRC'), false)
+  assert.equal(isLyricsExtension('txt'), false)
+  console.log('ok: isLyricsExtension')
 }
 
 function testFormatDuration(): void {
@@ -92,5 +64,5 @@ function testFormatDuration(): void {
 
 testParseMusicFileName()
 testAudioExtension()
-testStoreAddRemove()
+testLyricsExtension()
 testFormatDuration()

@@ -46,7 +46,6 @@ export const DEVICE_STORAGE_KEYS = {
   gomoku: 'instant-os-gomoku',
   launcherLayout: 'instant-os-launcher-layout',
   books: 'instant-os-books',
-  music: 'instant-os-music',
   icodeInternalProjects: 'instant-os-icode-internal-projects',
   icodeProjects: 'instant-os-icode-projects',
   vscodePrefs: 'instant-os-vscode-prefs',

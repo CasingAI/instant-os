@@ -12,9 +12,11 @@ export type MusicTrack = {
   /** 导入时尽力读取的时长（秒），读取失败为 0，播放时再校准 */
   durationSec: number
   addedAt: number
-}
-
-export type MusicLibraryStore = {
-  /** 按加入时间倒序 */
-  tracks: MusicTrack[]
+  /** LRC 歌词原文（由「音乐」文件夹内同名 .lrc 读出） */
+  lyricsLrc?: string
+  /**
+   * VFS 引用（节点 id 或绝对路径）：曲库歌曲与「文件」打开的单曲都有。
+   * 播放器据此直接从虚拟文件系统读取音频，不再复制进数据空间。
+   */
+  vfsRef?: string
 }

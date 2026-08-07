@@ -1,13 +1,3 @@
-import { osNowMs } from '../../os/os-clock.ts'
-import {
-  DEVICE_STORAGE_KEYS,
-  getLocalStorageKeyBytes,
-  writeLocalStorageItem,
-} from '../../os/device-storage.ts'
-import type { MusicLibraryStore, MusicTrack } from './music-types.ts'
-
-export const MUSIC_STORE_CHANGED_EVENT = 'instant-os:music-store-changed'
-
 /** 音乐 App 可播放 / 可导入的音频后缀 */
 export const MUSIC_AUDIO_EXTENSIONS = [
   'mp3',
@@ -25,49 +15,13 @@ export function isAudioExtension(extension: string | undefined): boolean {
   return extension !== undefined && (MUSIC_AUDIO_EXTENSIONS as readonly string[]).includes(extension)
 }
 
-const STORAGE_KEY = DEVICE_STORAGE_KEYS.music
+/** 歌词文件后缀（目前仅 LRC） */
+export const MUSIC_LYRICS_EXTENSIONS = ['lrc'] as const
 
-function emptyStore(): MusicLibraryStore {
-  return { tracks: [] }
-}
-
-function loadStore(): MusicLibraryStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return emptyStore()
-    }
-    const parsed = JSON.parse(raw) as Partial<MusicLibraryStore>
-    return {
-      tracks: Array.isArray(parsed.tracks) ? (parsed.tracks as MusicTrack[]) : [],
-    }
-  } catch {
-    return emptyStore()
-  }
-}
-
-function saveStore(store: MusicLibraryStore): boolean {
-  const ok = writeLocalStorageItem(STORAGE_KEY, JSON.stringify(store))
-  if (ok && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(MUSIC_STORE_CHANGED_EVENT))
-  }
-  return ok
-}
-
-export function readMusicStore(): MusicLibraryStore {
-  return loadStore()
-}
-
-export function writeMusicStore(store: MusicLibraryStore): boolean {
-  return saveStore(store)
-}
-
-export function getMusicStorageBytes(): number {
-  return getLocalStorageKeyBytes(STORAGE_KEY)
-}
-
-export function createMusicTrackId(): string {
-  return `music-${osNowMs()}-${Math.random().toString(36).slice(2, 10)}`
+export function isLyricsExtension(extension: string | undefined): boolean {
+  return (
+    extension !== undefined && (MUSIC_LYRICS_EXTENSIONS as readonly string[]).includes(extension)
+  )
 }
 
 /**
@@ -92,24 +46,6 @@ export function parseMusicFileName(
     return { title: parts.slice(1).join(' - '), artist: parts[0], extension }
   }
   return { title: trimmed, extension }
-}
-
-export function addTrackToStore(store: MusicLibraryStore, track: MusicTrack): MusicLibraryStore {
-  return {
-    ...store,
-    tracks: [track, ...store.tracks],
-  }
-}
-
-export function removeTrackFromStore(store: MusicLibraryStore, trackId: string): MusicLibraryStore {
-  return {
-    ...store,
-    tracks: store.tracks.filter((track) => track.id !== trackId),
-  }
-}
-
-export function findTrackInStore(store: MusicLibraryStore, trackId: string): MusicTrack | undefined {
-  return store.tracks.find((track) => track.id === trackId)
 }
 
 export function formatTrackDuration(seconds: number): string {

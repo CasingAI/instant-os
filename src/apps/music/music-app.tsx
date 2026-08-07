@@ -7,105 +7,170 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { FixedRowVirtualList } from '../../ui/fixed-row-virtual-list.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { readFileBlob, resolveNodeByAbsolutePath } from '../files/files-vfs.ts'
-import { deleteMusicTrack, saveMusicTrackBlob } from './music-audio-storage.ts'
+import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+import { joinFilesAbsolutePath } from '../files/files-path.ts'
+import { ensureUserSpecialFolders, userSpecialFolderPath } from '../files/files-user-special.ts'
+import type { FilesNode } from '../files/files-types.ts'
+import {
+  copyNodeTo,
+  createTextFile,
+  FILES_VFS_CHANGED_EVENT,
+  listDirectory,
+  readFileBlob,
+  readTextFile,
+  removeNode,
+  resolveNodeByAbsolutePath,
+  writeBinaryFile,
+} from '../files/files-vfs.ts'
+import { looksLikeLrc, parseLrc } from './music-lyrics.ts'
+import { MusicLyricsView } from './music-lyrics-view.tsx'
 import {
   getMusicPlayerState,
   playDocument,
   playFromLibrary,
+  seekTo,
   stopMusicPlayback,
   subscribeMusicPlayer,
 } from './music-player.ts'
 import { MusicPlayerBar } from './music-player-bar.tsx'
 import {
-  addTrackToStore,
-  createMusicTrackId,
   formatTrackDuration,
   isAudioExtension,
+  isLyricsExtension,
   MUSIC_AUDIO_EXTENSIONS,
-  MUSIC_STORE_CHANGED_EVENT,
+  MUSIC_LYRICS_EXTENSIONS,
   parseMusicFileName,
-  readMusicStore,
-  removeTrackFromStore,
-  writeMusicStore,
 } from './music-storage.ts'
-import type { MusicLibraryStore, MusicTrack } from './music-types.ts'
+import type { MusicTrack } from './music-types.ts'
 import './music.css'
 
 const APP_ID = 'music' as const
 const DEFAULT_TITLE = '音乐'
-const AUDIO_ACCEPT = ['audio/*', ...MUSIC_AUDIO_EXTENSIONS.map((ext) => `.${ext}`)].join(',')
+/** 曲库 = 用户目录下的「音乐」特殊文件夹，放进的文件自动识别 */
+const MUSIC_FOLDER = userSpecialFolderPath('Musics')
 
 registerFileOpenHandler({
   appId: APP_ID,
-  extensions: MUSIC_AUDIO_EXTENSIONS,
+  extensions: [...MUSIC_AUDIO_EXTENSIONS, ...MUSIC_LYRICS_EXTENSIONS],
   rank: 10,
 })
 
-/** 尽力读取音频时长（秒）；解码失败或超时返回 0，播放时再校准。 */
-function readAudioDuration(blob: Blob): Promise<number> {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(blob)
-    const audio = new Audio()
-    const cleanup = () => {
-      URL.revokeObjectURL(url)
-      audio.removeAttribute('src')
+function fileExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  return dot > 0 ? fileName.slice(dot + 1).toLowerCase() : ''
+}
+
+function fileBaseName(fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  return (dot > 0 ? fileName.slice(0, dot) : fileName).toLowerCase()
+}
+
+/** 播放后回写的时长缓存（曲库枚举不解码音频，避免大列表卡顿） */
+const trackDurationCache = new Map<string, number>()
+
+/** 读取 VFS 歌词文件，校验为有效 LRC 后返回原文；否则 undefined。 */
+async function readTrackLyricsText(lrcNode: FilesNode): Promise<string | undefined> {
+  try {
+    const { text } = await readTextFile(lrcNode.id)
+    return looksLikeLrc(text) ? text : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** 由 VFS 音频节点构建曲目；同名 .lrc 自动作为歌词。 */
+async function buildTrackFromNode(
+  audioNode: FilesNode,
+  lrcNode: FilesNode | undefined,
+): Promise<MusicTrack> {
+  const parsed = parseMusicFileName(audioNode.name)
+  const track: MusicTrack = {
+    id: audioNode.id,
+    title: parsed.title,
+    artist: parsed.artist,
+    fileName: audioNode.name,
+    extension: parsed.extension,
+    mimeType: audioNode.mimeType ?? 'audio/mpeg',
+    byteSize: audioNode.byteSize,
+    durationSec: trackDurationCache.get(audioNode.id) ?? 0,
+    addedAt: audioNode.createdAt,
+    vfsRef: audioNode.id,
+  }
+  if (lrcNode) {
+    try {
+      const { text } = await readTextFile(lrcNode.id)
+      if (looksLikeLrc(text)) {
+        track.lyricsLrc = text
+      }
+    } catch {
+      // 忽略歌词读取失败
     }
-    const timer = window.setTimeout(() => {
-      cleanup()
-      resolve(0)
-    }, 8000)
-    audio.addEventListener(
-      'loadedmetadata',
-      () => {
-        window.clearTimeout(timer)
-        const duration = audio.duration
-        cleanup()
-        resolve(Number.isFinite(duration) ? duration : 0)
-      },
-      { once: true },
-    )
-    audio.addEventListener(
-      'error',
-      () => {
-        window.clearTimeout(timer)
-        cleanup()
-        resolve(0)
-      },
-      { once: true },
-    )
-    audio.src = url
-  })
+  }
+  return track
 }
 
 type TransientTrack = {
   track: MusicTrack
-  blob: Blob
+  node: FilesNode
 }
 
 export function MusicApp({ windowId }: { windowId?: string }) {
-  const { windows, setAppWindowTitle, closeWindowsForApp, minimizeWindow } = useOs()
+  const { windows, setAppWindowTitle, closeWindowsForApp, minimizeWindow, openApp } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
+  const { showSystemOpenDialog, dialog: systemDialog } = useSystemOpenDialog()
 
-  const [store, setStore] = useState<MusicLibraryStore>(() => readMusicStore())
+  const [tracks, setTracks] = useState<MusicTrack[]>([])
+  const [musicsFolderId, setMusicsFolderId] = useState<string | undefined>(undefined)
   const [editing, setEditing] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importError, setImportError] = useState<string | undefined>()
+  const [refreshing, setRefreshing] = useState(false)
   const [transient, setTransient] = useState<TransientTrack | undefined>()
   const [playerState, setPlayerState] = useState(() => getMusicPlayerState())
+  const [lyricsOpen, setLyricsOpen] = useState(false)
+  const [transientLyrics, setTransientLyrics] = useState<string | undefined>()
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const handledDocumentRef = useRef<string | undefined>(undefined)
+  const refreshTimerRef = useRef<number | undefined>(undefined)
 
   const appWindow = windowId
     ? windows.find((window) => window.id === windowId && !window.closing)
     : undefined
   const pendingDocumentId = appWindow?.documentId
+
+  // 枚举「音乐」文件夹作为曲库（同名 .lrc 自动配对歌词）
+  const refreshLibrary = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const folder = await resolveNodeByAbsolutePath(MUSIC_FOLDER)
+      if (!folder || folder.kind !== 'folder') {
+        setMusicsFolderId(undefined)
+        setTracks([])
+        return
+      }
+      setMusicsFolderId(folder.id)
+      const children = await listDirectory('local', folder.id)
+      const lrcByBase = new Map<string, FilesNode>()
+      for (const child of children) {
+        if (child.kind === 'file' && isLyricsExtension(fileExtension(child.name))) {
+          lrcByBase.set(fileBaseName(child.name), child)
+        }
+      }
+      const audioNodes = children.filter(
+        (child) => child.kind === 'file' && isAudioExtension(fileExtension(child.name)),
+      )
+      const built = await Promise.all(
+        audioNodes.map((node) => buildTrackFromNode(node, lrcByBase.get(fileBaseName(node.name)))),
+      )
+      setTracks(built)
+    } finally {
+      setRefreshing(false)
+    }
+  }, [])
 
   useEffect(() => {
     setAppWindowTitle(APP_ID, DEFAULT_TITLE)
@@ -115,12 +180,6 @@ export function MusicApp({ windowId }: { windowId?: string }) {
     return subscribeMusicPlayer(() => setPlayerState(getMusicPlayerState()))
   }, [])
 
-  useEffect(() => {
-    const onStoreChanged = () => setStore(readMusicStore())
-    window.addEventListener(MUSIC_STORE_CHANGED_EVENT, onStoreChanged)
-    return () => window.removeEventListener(MUSIC_STORE_CHANGED_EVENT, onStoreChanged)
-  }, [])
-
   // 窗口内播放：窗口关闭（组件卸载）即停播
   useEffect(() => {
     return () => {
@@ -128,7 +187,41 @@ export function MusicApp({ windowId }: { windowId?: string }) {
     }
   }, [])
 
-  // 从「文件」App 打开音频：解析 documentId 读取文件并播放（不进入曲库）
+  // 首次挂载：确保特殊文件夹存在并加载曲库
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      await ensureUserSpecialFolders()
+      if (!cancelled) {
+        await refreshLibrary()
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshLibrary])
+
+  // VFS 变更 → 防抖刷新（放进「音乐」文件夹的文件自动识别）
+  useEffect(() => {
+    const onChange = () => {
+      if (refreshTimerRef.current !== undefined) {
+        window.clearTimeout(refreshTimerRef.current)
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = undefined
+        void refreshLibrary()
+      }, 120)
+    }
+    window.addEventListener(FILES_VFS_CHANGED_EVENT, onChange)
+    return () => {
+      window.removeEventListener(FILES_VFS_CHANGED_EVENT, onChange)
+      if (refreshTimerRef.current !== undefined) {
+        window.clearTimeout(refreshTimerRef.current)
+      }
+    }
+  }, [refreshLibrary])
+
+  // 从「文件」App 打开：音频 → 读取并播放（不进入曲库）；.lrc → 解析为歌词
   useEffect(() => {
     if (!pendingDocumentId || handledDocumentRef.current === pendingDocumentId) {
       return
@@ -141,7 +234,39 @@ export function MusicApp({ windowId }: { windowId?: string }) {
         if (!node || node.kind !== 'file' || cancelled) {
           return
         }
+        if (isLyricsExtension(fileExtension(node.name))) {
+          const { text } = await readTextFile(node.id)
+          if (cancelled) {
+            return
+          }
+          if (!looksLikeLrc(text)) {
+            void modal.alert({ title: '无法识别歌词', message: '这不是有效的 LRC 歌词文件。' })
+            return
+          }
+          setTransientLyrics(text)
+          setLyricsOpen(true)
+          return
+        }
         const { blob } = await readFileBlob(node.id)
+        if (cancelled) {
+          return
+        }
+        // 自动配对同目录同名 .lrc 作为临时歌词
+        let documentLyrics: string | undefined
+        try {
+          const siblings = await listDirectory(node.locationId, node.parentId)
+          const lrc = siblings.find(
+            (sibling) =>
+              sibling.kind === 'file' &&
+              isLyricsExtension(fileExtension(sibling.name)) &&
+              fileBaseName(sibling.name) === fileBaseName(node.name),
+          )
+          if (lrc) {
+            documentLyrics = await readTrackLyricsText(lrc)
+          }
+        } catch {
+          // 忽略歌词配对失败
+        }
         if (cancelled) {
           return
         }
@@ -156,9 +281,13 @@ export function MusicApp({ windowId }: { windowId?: string }) {
           byteSize: blob.size,
           durationSec: 0,
           addedAt: osNowMs(),
+          vfsRef: node.id,
+        }
+        if (documentLyrics) {
+          track.lyricsLrc = documentLyrics
         }
         playDocument(track, blob)
-        setTransient({ track, blob })
+        setTransient({ track, node })
       } catch {
         // 读取失败时保持空播放器，不打断用户
       }
@@ -166,106 +295,150 @@ export function MusicApp({ windowId }: { windowId?: string }) {
     return () => {
       cancelled = true
     }
-  }, [pendingDocumentId])
+  }, [modal, pendingDocumentId])
 
-  const handleFilesPicked = useCallback(
-    async (files: FileList) => {
-      const picked = Array.from(files).filter((file) => isAudioExtension(file.name.split('.').pop()))
-      if (picked.length === 0) {
-        return
-      }
-      setImporting(true)
-      setImportError(undefined)
-      const imported: MusicTrack[] = []
-      let quotaExceeded = false
-      let failed = 0
-      for (const file of picked) {
-        try {
-          const id = createMusicTrackId()
-          const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'audio/mpeg' })
-          const saved = await saveMusicTrackBlob(id, blob)
-          if (!saved) {
-            quotaExceeded = true
-            failed += 1
-            continue
-          }
-          const parsed = parseMusicFileName(file.name)
-          const track: MusicTrack = {
-            id,
-            title: parsed.title,
-            artist: parsed.artist,
-            fileName: file.name,
-            extension: parsed.extension,
-            mimeType: blob.type,
-            byteSize: blob.size,
-            durationSec: await readAudioDuration(blob),
-            addedAt: osNowMs(),
-          }
-          const next = addTrackToStore(readMusicStore(), track)
-          writeMusicStore(next)
-          imported.push(track)
-        } catch {
-          failed += 1
-        }
-      }
-      setStore(readMusicStore())
-      setImporting(false)
-      if (quotaExceeded) {
-        setImportError('数据空间不足，部分文件未能导入')
-      } else if (failed > 0) {
-        setImportError(`有 ${failed} 个文件导入失败`)
-      }
-      if (imported.length > 0) {
-        playFromLibrary(imported, 0)
-      }
-    },
-    [],
-  )
+  const currentId = playerState.current?.id
+  /** 当前曲目在曲库中的记录（「文件」打开的单曲不在曲库时为 undefined） */
+  const currentLibraryTrack = currentId ? tracks.find((track) => track.id === currentId) : undefined
 
-  const handleImportClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
+  // 播放后把真实时长回写曲库列表（时长缓存，避免重复刷新）
+  const playerDuration = playerState.duration
+  const playerTrackId = playerState.current?.id
+  useEffect(() => {
+    if (!playerTrackId || playerDuration <= 0) {
+      return
+    }
+    if (trackDurationCache.get(playerTrackId) === playerDuration) {
+      return
+    }
+    trackDurationCache.set(playerTrackId, playerDuration)
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === playerTrackId ? { ...track, durationSec: playerDuration } : track,
+      ),
+    )
+  }, [playerDuration, playerTrackId])
 
-  const handleAddTransientToLibrary = useCallback(async () => {
+  // 把「文件」打开的单曲复制进「音乐」文件夹（即加入曲库）
+  const handleCopyTransientToMusics = useCallback(async () => {
     if (!transient) {
       return
     }
-    const id = createMusicTrackId()
-    const saved = await saveMusicTrackBlob(id, transient.blob)
-    if (!saved) {
-      setImportError('数据空间不足，无法添加到曲库')
+    if (!musicsFolderId) {
+      void modal.alert({ title: '无法复制', message: '找不到「音乐」文件夹。' })
       return
     }
-    const track: MusicTrack = { ...transient.track, id, addedAt: osNowMs() }
-    const next = addTrackToStore(readMusicStore(), track)
-    writeMusicStore(next)
-    setStore(next)
-    setTransient(undefined)
-    setImportError(undefined)
-    playFromLibrary([track], 0)
-  }, [transient])
+    try {
+      await copyNodeTo({
+        sourceId: transient.node.id,
+        destLocationId: 'local',
+        destParentId: musicsFolderId,
+      })
+      setTransient(undefined)
+      await refreshLibrary()
+    } catch {
+      void modal.alert({ title: '复制失败', message: '无法把文件复制到「音乐」文件夹。' })
+    }
+  }, [modal, musicsFolderId, refreshLibrary, transient])
 
   const handleDeleteTrack = useCallback(
     async (track: MusicTrack) => {
       const confirmed = await modal.confirm({
         title: '删除歌曲',
-        message: `确定从曲库删除「${track.title}」吗？`,
+        message: `确定从「音乐」文件夹删除「${track.title}」吗？`,
         confirmLabel: '删除',
         confirmTone: 'danger',
       })
       if (!confirmed) {
         return
       }
-      await deleteMusicTrack(track.id)
-      const next = removeTrackFromStore(readMusicStore(), track.id)
-      writeMusicStore(next)
-      setStore(next)
-      if (getMusicPlayerState().current?.id === track.id) {
-        stopMusicPlayback()
+      try {
+        await removeNode(track.vfsRef ?? track.id)
+        if (getMusicPlayerState().current?.id === track.id) {
+          stopMusicPlayback()
+        }
+        await refreshLibrary()
+      } catch {
+        void modal.alert({ title: '删除失败', message: '无法删除该文件。' })
       }
     },
-    [modal],
+    [modal, refreshLibrary],
   )
+
+  // 把歌词文本写入「音乐」文件夹内与歌曲同名的 .lrc
+  const saveLyricsForTrack = useCallback(
+    async (track: MusicTrack, lyricsText: string): Promise<boolean> => {
+      const lyricsName = `${fileBaseName(track.fileName)}.lrc`
+      try {
+        const existing = await resolveNodeByAbsolutePath(
+          joinFilesAbsolutePath(MUSIC_FOLDER, lyricsName),
+        )
+        if (existing && existing.kind === 'file') {
+          await writeBinaryFile(existing.id, new TextEncoder().encode(lyricsText).buffer)
+        } else if (musicsFolderId) {
+          await createTextFile({
+            locationId: 'local',
+            parentId: musicsFolderId,
+            name: lyricsName,
+            text: lyricsText,
+          })
+        } else {
+          return false
+        }
+        return true
+      } catch {
+        return false
+      }
+    },
+    [musicsFolderId],
+  )
+
+  // 手动为曲目添加/替换歌词（从系统打开对话框选 .lrc，写入同名 .lrc）
+  const handleLyricsPick = useCallback(
+    async (track: MusicTrack) => {
+      const path = await showSystemOpenDialog({
+        title: '选择歌词文件',
+        acceptExtensions: MUSIC_LYRICS_EXTENSIONS,
+      })
+      if (!path) {
+        return
+      }
+      const node = await resolveNodeByAbsolutePath(path)
+      if (!node || node.kind !== 'file') {
+        return
+      }
+      const { text } = await readTextFile(node.id)
+      if (!looksLikeLrc(text)) {
+        void modal.alert({ title: '无法识别歌词', message: '这不是有效的 LRC 歌词文件。' })
+        return
+      }
+      const saved = await saveLyricsForTrack(track, text)
+      if (!saved) {
+        void modal.alert({ title: '保存失败', message: '无法把歌词写入「音乐」文件夹。' })
+        return
+      }
+      await refreshLibrary()
+    },
+    [modal, refreshLibrary, saveLyricsForTrack, showSystemOpenDialog],
+  )
+
+  // 把从「文件」打开的临时歌词写入当前歌曲的同名 .lrc
+  const handleBindTransientLyrics = useCallback(async () => {
+    if (!currentLibraryTrack || !transientLyrics) {
+      return
+    }
+    const saved = await saveLyricsForTrack(currentLibraryTrack, transientLyrics)
+    if (!saved) {
+      void modal.alert({ title: '保存失败', message: '无法把歌词写入「音乐」文件夹。' })
+      return
+    }
+    setTransientLyrics(undefined)
+    await refreshLibrary()
+  }, [currentLibraryTrack, refreshLibrary, saveLyricsForTrack, transientLyrics])
+
+  const handleOpenMusicsFolder = useCallback(() => {
+    openApp('files', { documentId: MUSIC_FOLDER })
+  }, [openApp])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const appWindow = windows.find((window) => window.appId === APP_ID && !window.minimized)
@@ -283,6 +456,12 @@ export function MusicApp({ windowId }: { windowId?: string }) {
           { type: 'separator' },
           {
             type: 'action',
+            label: '打开音乐文件夹',
+            onClick: handleOpenMusicsFolder,
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
             label: '退出音乐',
             shortcut: '⌘Q',
             onClick: () => closeWindowsForApp(APP_ID),
@@ -290,13 +469,17 @@ export function MusicApp({ windowId }: { windowId?: string }) {
         ],
       },
     ]
-  }, [closeWindowsForApp, minimizeWindow, showBuiltinAbout, windows])
+  }, [closeWindowsForApp, handleOpenMusicsFolder, minimizeWindow, showBuiltinAbout, windows])
 
   useAppMenuBar(APP_ID, menuBar)
 
-  const tracks = store.tracks
-  const currentId = playerState.current?.id
   const currentIndex = tracks.findIndex((track) => track.id === currentId)
+
+  // 歌词：曲库歌曲同名 .lrc 优先，其次是从「文件」打开的临时歌词
+  const lyricsText = currentLibraryTrack?.lyricsLrc ?? transientLyrics
+  const parsedLyrics = useMemo(() => (lyricsText ? parseLrc(lyricsText) : undefined), [lyricsText])
+  const showLyricsScreen =
+    lyricsOpen && (currentLibraryTrack !== undefined || transientLyrics !== undefined)
 
   const trackRow = useCallback(
     (track: MusicTrack, index: number) => (
@@ -311,109 +494,148 @@ export function MusicApp({ windowId }: { windowId?: string }) {
           {track.title}
         </span>
         <span class="music__row-artist">{track.artist ?? '未知艺人'}</span>
-        <span class="music__row-duration">{formatTrackDuration(track.durationSec)}</span>
         {editing ? (
-          <button
-            type="button"
-            class="music__row-delete"
-            aria-label={`删除 ${track.title}`}
-            onClick={(event) => {
-              event.stopPropagation()
-              void handleDeleteTrack(track)
-            }}
-          >
-            ✕
-          </button>
-        ) : null}
+          <span class="music__row-actions">
+            <button
+              type="button"
+              class="music__row-action"
+              title={track.lyricsLrc ? '替换歌词' : '添加歌词'}
+              aria-label={`${track.lyricsLrc ? '替换' : '添加'}歌词 ${track.title}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleLyricsPick(track)
+              }}
+            >
+              ♪
+            </button>
+            <button
+              type="button"
+              class="music__row-delete"
+              aria-label={`删除 ${track.title}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleDeleteTrack(track)
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        ) : (
+          <span class="music__row-duration">{formatTrackDuration(track.durationSec)}</span>
+        )}
       </div>
     ),
-    [currentId, editing, handleDeleteTrack, tracks],
+    [currentId, editing, handleDeleteTrack, handleLyricsPick, tracks],
   )
 
   return (
     <div ref={hostRef} class={`music${narrowLayout && layoutReady ? ' music--narrow' : ''}`}>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={AUDIO_ACCEPT}
-        multiple
-        hidden
-        onChange={(event) => {
-          const input = event.target as HTMLInputElement
-          const files = input.files
-          if (files) {
-            void handleFilesPicked(files)
-          }
-          input.value = ''
-        }}
-      />
+      {systemDialog}
 
-      <header class="music__toolbar">
-        {tracks.length > 0 ? (
-          <IosButton size="compact" disabled={importing} onClick={() => setEditing((value) => !value)}>
-            {editing ? '完成' : '编辑'}
-          </IosButton>
-        ) : (
-          <span class="music__toolbar-spacer" />
-        )}
-        <span class="music__toolbar-title music__toolbar-title--center">我的音乐</span>
-        <IosButton size="compact" disabled={importing} onClick={handleImportClick}>
-          {importing ? '导入中…' : '导入音乐'}
-        </IosButton>
-      </header>
-
-      {importError ? (
-        <div class="music__import-error" role="alert">
-          {importError}
-          <button
-            type="button"
-            class="music__import-error-close"
-            aria-label="关闭提示"
-            onClick={() => setImportError(undefined)}
-          >
-            ✕
-          </button>
-        </div>
-      ) : null}
-
-      <div class="music__main">
-        {tracks.length === 0 ? (
-          <div class="music__empty">
-            <span class="music__empty-note" aria-hidden="true">
-              ♪
+      {showLyricsScreen ? (
+        <>
+          <header class="music__toolbar">
+            <IosNavBackButton iconSize={14} label="曲库" onClick={() => setLyricsOpen(false)} />
+            <span class="music__toolbar-title music__toolbar-title--center">
+              {currentLibraryTrack?.title ?? '歌词文件'}
             </span>
-            <p class="music__empty-title">还没有音乐</p>
-            <p class="music__empty-hint">
-              点击右上角「导入音乐」，从本机选择音频文件加入曲库；也可以直接在「文件」中打开音频。
-            </p>
-            <IosButton size="compact" disabled={importing} onClick={handleImportClick}>
-              {importing ? '导入中…' : '导入音乐'}
-            </IosButton>
+            {transientLyrics && currentLibraryTrack ? (
+              <IosButton size="compact" onClick={() => void handleBindTransientLyrics()}>
+                绑定到当前歌曲
+              </IosButton>
+            ) : (
+              <span class="music__toolbar-spacer" />
+            )}
+          </header>
+
+          <div class="music__main">
+            {parsedLyrics && parsedLyrics.lines.length > 0 ? (
+              <MusicLyricsView
+                lines={parsedLyrics.lines}
+                currentTimeMs={playerState.currentTime * 1000}
+                onSeek={seekTo}
+              />
+            ) : (
+              <div class="music__empty">
+                <span class="music__empty-note" aria-hidden="true">
+                  ♪
+                </span>
+                <p class="music__empty-title">没有歌词</p>
+                <p class="music__empty-hint">
+                  在「音乐」文件夹里放一个与歌曲同名的 .lrc 文件，即可自动识别为歌词。
+                </p>
+              </div>
+            )}
           </div>
-        ) : (
-          <FixedRowVirtualList
-            items={tracks}
-            itemKey={(track) => track.id}
-            renderItem={(track, index) => trackRow(track, index)}
-            rowHeight={52}
-            className="music__list"
-            scrollToIndex={currentIndex >= 0 ? currentIndex : undefined}
-          />
-        )}
-      </div>
 
-      {transient ? (
-        <div class="music__transient">
-          <span class="music__transient-text" title={transient.track.fileName}>
-            正在播放「{transient.track.title}」
-          </span>
-          <IosButton size="compact" onClick={() => void handleAddTransientToLibrary()}>
-            添加到曲库
-          </IosButton>
-        </div>
-      ) : null}
+          <MusicPlayerBar />
+        </>
+      ) : (
+        <>
+          <header class="music__toolbar">
+            {tracks.length > 0 ? (
+              <IosButton size="compact" disabled={refreshing} onClick={() => setEditing((value) => !value)}>
+                {editing ? '完成' : '编辑'}
+              </IosButton>
+            ) : (
+              <span class="music__toolbar-spacer" />
+            )}
+            <span class="music__toolbar-title music__toolbar-title--center">我的音乐</span>
+            <div class="music__toolbar-actions">
+              {currentLibraryTrack ? (
+                <IosButton size="compact" onClick={() => setLyricsOpen(true)}>
+                  歌词
+                </IosButton>
+              ) : null}
+              <IosButton size="compact" onClick={handleOpenMusicsFolder}>
+                音乐文件夹
+              </IosButton>
+            </div>
+          </header>
 
-      <MusicPlayerBar />
+          <div class="music__main">
+            {tracks.length === 0 ? (
+              <div class="music__empty">
+                <span class="music__empty-note" aria-hidden="true">
+                  ♪
+                </span>
+                <p class="music__empty-title">{refreshing ? '正在扫描音乐文件夹…' : '音乐文件夹还是空的'}</p>
+                <p class="music__empty-hint">
+                  把音频文件放进用户目录的「音乐」文件夹，就会自动出现在这里；
+                  同名 .lrc 自动作为歌词。
+                </p>
+                <div class="music__empty-actions">
+                  <IosButton size="compact" onClick={handleOpenMusicsFolder}>
+                    打开音乐文件夹
+                  </IosButton>
+                </div>
+              </div>
+            ) : (
+              <FixedRowVirtualList
+                items={tracks}
+                itemKey={(track) => track.id}
+                renderItem={(track, index) => trackRow(track, index)}
+                rowHeight={52}
+                className="music__list"
+                scrollToIndex={currentIndex >= 0 ? currentIndex : undefined}
+              />
+            )}
+          </div>
+
+          {transient ? (
+            <div class="music__transient">
+              <span class="music__transient-text" title={transient.track.fileName}>
+                正在播放「{transient.track.title}」
+              </span>
+              <IosButton size="compact" onClick={() => void handleCopyTransientToMusics()}>
+                复制到音乐文件夹
+              </IosButton>
+            </div>
+          ) : null}
+
+          <MusicPlayerBar />
+        </>
+      )}
     </div>
   )
 }
