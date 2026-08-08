@@ -7,6 +7,9 @@ import {
   DEMUCS_MODEL_URL,
   getModelCacheBytes,
   isModelCached,
+  PHONEME_MODEL_BYTES,
+  PHONEME_MODEL_LABEL,
+  PHONEME_MODEL_URL,
 } from '../../os/model-cache.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
@@ -14,7 +17,22 @@ type ModelCacheViewProps = {
   onBack?: () => void
 }
 
-export function ModelCacheView({ onBack }: ModelCacheViewProps) {
+type ModelEntry = {
+  url: string
+  label: string
+  totalBytes: number
+}
+
+const MODELS: ModelEntry[] = [
+  { url: DEMUCS_MODEL_URL, label: DEMUCS_MODEL_LABEL, totalBytes: DEMUCS_MODEL_BYTES },
+  { url: PHONEME_MODEL_URL, label: PHONEME_MODEL_LABEL, totalBytes: PHONEME_MODEL_BYTES },
+]
+
+function ModelCard({
+  model,
+}: {
+  model: ModelEntry
+}) {
   const [cached, setCached] = useState(false)
   const [bytes, setBytes] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -22,12 +40,12 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
 
   const refresh = useCallback(async () => {
     const [isCached, cachedBytes] = await Promise.all([
-      isModelCached(DEMUCS_MODEL_URL),
-      getModelCacheBytes(DEMUCS_MODEL_URL),
+      isModelCached(model.url),
+      getModelCacheBytes(model.url),
     ])
     setCached(isCached)
     setBytes(cachedBytes)
-  }, [])
+  }, [model.url])
 
   useEffect(() => {
     void refresh()
@@ -37,7 +55,7 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
     setBusy(true)
     setError(null)
     try {
-      await cacheModelUrl(DEMUCS_MODEL_URL)
+      await cacheModelUrl(model.url)
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -50,7 +68,7 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
     setBusy(true)
     setError(null)
     try {
-      await clearModelCache(DEMUCS_MODEL_URL)
+      await clearModelCache(model.url)
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -60,51 +78,63 @@ export function ModelCacheView({ onBack }: ModelCacheViewProps) {
   }
 
   return (
+    <div class="settings__box">
+      <dl class="settings__form-row">
+        <dt>模型</dt>
+        <dd>{model.label}</dd>
+      </dl>
+      <dl class="settings__form-row">
+        <dt>权重大小</dt>
+        <dd>{formatStorageSize(model.totalBytes)}</dd>
+      </dl>
+      <dl class="settings__form-row">
+        <dt>缓存状态</dt>
+        <dd>{cached ? `已缓存（${formatStorageSize(bytes)}）` : '未缓存'}</dd>
+      </dl>
+
+      {error && <p class="settings__hint" style={{ color: '#ff6b6b' }}>{error}</p>}
+
+      <div class="settings__actions settings__actions--inline">
+        {cached ? (
+          <button
+            type="button"
+            class="settings__btn settings__btn--danger"
+            disabled={busy}
+            onClick={() => void handleClear()}
+          >
+            {busy ? '处理中…' : '清除缓存'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            class="settings__btn"
+            disabled={busy}
+            onClick={() => void handleCache()}
+          >
+            {busy ? '缓存中…' : '缓存模型'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function ModelCacheView({ onBack }: ModelCacheViewProps) {
+  return (
     <>
       <section class="settings__section">
         <h2 class="settings__section-title">模型缓存</h2>
-        <div class="settings__box">
-          <p class="settings__hint">
-            模型权重缓存在浏览器的 Cache API 中，与系统的存储空间（虚拟文件系统 /
-            IndexedDB）完全独立，不计入「存储空间」统计。缓存后按同一 URL 请求可瞬间完成，
-            无需重复下载。
-          </p>
-          <dl class="settings__form-row">
-            <dt>模型</dt>
-            <dd>{DEMUCS_MODEL_LABEL}</dd>
-          </dl>
-          <dl class="settings__form-row">
-            <dt>权重大小</dt>
-            <dd>{formatStorageSize(DEMUCS_MODEL_BYTES)}</dd>
-          </dl>
-          <dl class="settings__form-row">
-            <dt>缓存状态</dt>
-            <dd>{cached ? `已缓存（${formatStorageSize(bytes)}）` : '未缓存'}</dd>
-          </dl>
-        </div>
+        <p class="settings__hint">
+          模型权重缓存在浏览器的 Cache API 中，与系统的存储空间（虚拟文件系统 /
+          IndexedDB）完全独立，不计入「存储空间」统计。缓存后按同一 URL 请求可瞬间完成，
+          无需重复下载。
+        </p>
 
-        {error && <p class="settings__hint" style={{ color: '#ff6b6b' }}>{error}</p>}
+        {MODELS.map((model) => (
+          <ModelCard key={model.url} model={model} />
+        ))}
 
         <div class="settings__actions settings__actions--inline">
-          {cached ? (
-            <button
-              type="button"
-              class="settings__btn settings__btn--danger"
-              disabled={busy}
-              onClick={() => void handleClear()}
-            >
-              {busy ? '处理中…' : '清除缓存'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              class="settings__btn"
-              disabled={busy}
-              onClick={() => void handleCache()}
-            >
-              {busy ? '缓存中…' : '缓存模型'}
-            </button>
-          )}
           {onBack && (
             <button type="button" class="settings__btn settings__btn--plain" onClick={onBack}>
               返回

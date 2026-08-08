@@ -18,6 +18,7 @@ import {
 import {
   isFilesLocationWritable,
   isFilesNodeWritable,
+  isTrashLocationId,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
@@ -244,7 +245,9 @@ function SystemOpenDialogBrowser({
 
   const refreshLocations = useCallback(async () => {
     try {
-      setLocations(await listFilesLocations())
+      const all = await listFilesLocations()
+      // 废纸篓不是合法选择/保存目标，不出现在对话框侧栏
+      setLocations(all.filter((location) => !isTrashLocationId(location.id)))
     } catch {
       setLocations([])
     }

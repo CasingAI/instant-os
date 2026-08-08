@@ -358,6 +358,17 @@ async function siblingNames(
   return names
 }
 
+/** 计算目标目录下不冲突的节点名（同名自动加「 2」「 3」后缀） */
+export async function uniqueNodeName(
+  locationId: FilesLocationId,
+  parentId: string | undefined,
+  desired: string,
+  excludeId?: string,
+): Promise<string> {
+  const names = await siblingNames(locationId, parentId, excludeId)
+  return uniqueName(names, desired)
+}
+
 export async function listDirectory(
   locationId: FilesLocationId,
   folderId: string | undefined,

@@ -8,6 +8,8 @@ import { isProxyServerConnected } from '../os/proxy-server-settings-storage.ts'
 import type { QuickJsAsyncBridge } from './quickjs-async-bridge.ts'
 
 const HOST_FETCH_KEY = '__instantHostFetch'
+const HOST_FETCH_STREAM_READ_KEY = '__instantFetchStreamRead'
+const HOST_FETCH_STREAM_CANCEL_KEY = '__instantFetchStreamCancel'
 const TMP_AB_KEY = '__instantTmpArrayBuffer'
 
 function copyHostBytes(bytes: Uint8Array): ArrayBuffer {
@@ -208,16 +210,6 @@ function parseFetchArgs(
   }
 }
 
-async function readResponseBodyLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
-  const buffer = await response.arrayBuffer()
-  if (buffer.byteLength > maxBytes) {
-    throw new Error(
-      `Fetch response body exceeds maxFileBytes (${maxBytes}): received ${buffer.byteLength} bytes`,
-    )
-  }
-  return new Uint8Array(buffer)
-}
-
 function hostBytesToGuestBuffer(context: QuickJSAsyncContext, bytes: Uint8Array): QuickJSHandle {
   const abHandle = context.newArrayBuffer(copyHostBytes(bytes))
   context.setProp(context.global, TMP_AB_KEY, abHandle)
@@ -242,6 +234,11 @@ function headersToGuest(
     v.dispose()
   })
   return obj
+}
+
+type FetchStreamEntry = {
+  reader: ReadableStreamDefaultReader<Uint8Array>
+  accumulated: number
 }
 
 const QUICKJS_FETCH_GUEST_SOURCE = `(function () {
@@ -269,9 +266,97 @@ const QUICKJS_FETCH_GUEST_SOURCE = `(function () {
     this._map[String(name).toLowerCase()] = String(value);
   };
 
+  // ---- Minimal Web ReadableStream (getReader / read / cancel) + Node pipe bridge ----
+
+  function ReadableStream(source) {
+    this.locked = false;
+    this._pull = source.pull;   // async () => chunk | null
+    this._cancel = source.cancel; // (reason?) => void | Promise<void>
+  }
+
+  ReadableStream.prototype.getReader = function getReader() {
+    if (this.locked) throw new TypeError('ReadableStream is locked');
+    this.locked = true;
+    return new ReadableStreamDefaultReader(this._pull, this._cancel);
+  };
+
+  // Node.js stream .pipe() 桥接：让 pipeline(fetch().body, createWriteStream(...)) 可用
+  ReadableStream.prototype.pipe = function pipe(dest, options) {
+    var self = this;
+    var reader = this.getReader();
+    var ended = false;
+
+    function pump() {
+      if (ended) return;
+      return reader.read().then(function (result) {
+        if (ended) return;
+        if (result.done) {
+          ended = true;
+          if (dest && typeof dest.end === 'function') {
+            dest.end();
+          }
+          return;
+        }
+        var ok = true;
+        if (dest && dest.writable !== false && typeof dest.write === 'function') {
+          ok = dest.write(result.value);
+        }
+        if (ok === false) {
+          // 背压：等 drain
+          if (dest && typeof dest.once === 'function') {
+            dest.once('drain', pump);
+          }
+          return;
+        }
+        return pump();
+      }).catch(function (err) {
+        if (ended) return;
+        ended = true;
+        if (dest && typeof dest.destroy === 'function') {
+          dest.destroy(err);
+        }
+      });
+    }
+
+    pump();
+    return dest;
+  };
+
+  function ReadableStreamDefaultReader(pull, cancel) {
+    this._pull = pull;
+    this._cancel = cancel;
+    this._closed = false;
+  }
+
+  ReadableStreamDefaultReader.prototype.read = function read() {
+    if (this._closed) return Promise.resolve({ value: undefined, done: true });
+    var self = this;
+    return Promise.resolve(this._pull()).then(function (chunk) {
+      if (chunk === null || chunk === undefined) {
+        self._closed = true;
+        return { value: undefined, done: true };
+      }
+      return { value: chunk, done: false };
+    });
+  };
+
+  ReadableStreamDefaultReader.prototype.cancel = function cancel(reason) {
+    if (this._closed) return Promise.resolve();
+    this._closed = true;
+    try {
+      var r = this._cancel(reason);
+      return r instanceof Promise ? r : Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+
+  // ---- Response ----
+
   function Response(body, options) {
     options = options || {};
-    this._body = body;
+    this._body = body;           // legacy: ArrayBuffer / Uint8Array / Buffer
+    this._streamId = options.streamId; // number: streaming fetch body
     this.status = options.status === undefined ? 200 : options.status;
     this.statusText = options.statusText === undefined ? '' : String(options.statusText);
     this.ok = this.status >= 200 && this.status < 300;
@@ -280,11 +365,58 @@ const QUICKJS_FETCH_GUEST_SOURCE = `(function () {
     this.bodyUsed = false;
   }
 
+  Object.defineProperty(Response.prototype, 'body', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      if (this.bodyUsed) throw new TypeError('Body already used');
+      if (this._streamId == null) return null;
+      var sid = this._streamId;
+      return new ReadableStream({
+        pull: function () {
+          return globalThis.${HOST_FETCH_STREAM_READ_KEY}(sid);
+        },
+        cancel: function () {
+          globalThis.${HOST_FETCH_STREAM_CANCEL_KEY}(sid);
+        },
+      });
+    },
+  });
+
+  function consumeStreamToArrayBuffer(sid) {
+    var chunks = [];
+    function readNext() {
+      return globalThis.${HOST_FETCH_STREAM_READ_KEY}(sid).then(function (chunk) {
+        if (chunk === null) {
+          var total = 0;
+          for (var i = 0; i < chunks.length; i++) total += chunks[i].byteLength;
+          var result = new Uint8Array(total);
+          var offset = 0;
+          for (var i = 0; i < chunks.length; i++) {
+            result.set(chunks[i], offset);
+            offset += chunks[i].byteLength;
+          }
+          return result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength);
+        }
+        chunks.push(chunk);
+        return readNext();
+      });
+    }
+    return readNext();
+  }
+
   Response.prototype.arrayBuffer = function arrayBuffer() {
     if (this.bodyUsed) {
       return Promise.reject(new TypeError('Body already used'));
     }
     this.bodyUsed = true;
+
+    // Streaming body
+    if (this._streamId != null) {
+      return consumeStreamToArrayBuffer(this._streamId);
+    }
+
+    // Legacy: non-streaming body
     var body = this._body;
     if (body == null) {
       return Promise.resolve(new ArrayBuffer(0));
@@ -321,21 +453,28 @@ const QUICKJS_FETCH_GUEST_SOURCE = `(function () {
     });
   };
 
+  // ---- fetch ----
+
   function fetch(input, init) {
     return globalThis.${HOST_FETCH_KEY}(input, init).then(function (packet) {
       var headers = new Headers(packet.headers);
-      return new Response(packet.body, {
-        status: packet.status,
-        statusText: packet.statusText,
-        headers: headers,
-        url: packet.url,
-      });
+      return new Response(
+        packet.streamId != null ? undefined : packet.body,
+        {
+          status: packet.status,
+          statusText: packet.statusText,
+          headers: headers,
+          url: packet.url,
+          streamId: packet.streamId,
+        },
+      );
     });
   }
 
   globalThis.fetch = fetch;
   globalThis.Headers = Headers;
   globalThis.Response = Response;
+  globalThis.ReadableStream = ReadableStream;
 })();
 `
 
@@ -359,6 +498,42 @@ function guestError(context: QuickJSAsyncContext, error: unknown): QuickJSHandle
 export function injectFetch(options: InjectFetchOptions): () => void {
   const { context, asyncBridge, maxResponseBytes, isDestroyed } = options
 
+  let nextStreamId = 1
+  const streams = new Map<number, FetchStreamEntry>()
+
+  const runHostPromise = (work: () => Promise<QuickJSHandle>): QuickJSHandle => {
+    const deferred = asyncBridge.createDeferredPromise()
+    void (async () => {
+      try {
+        if (isDestroyed()) {
+          throw new Error('QuickJS instance destroyed')
+        }
+        const value = await work()
+        if (isDestroyed()) {
+          asyncBridge.abandonDeferred(deferred)
+          if (value !== context.undefined && value.alive) {
+            value.dispose()
+          }
+          return
+        }
+        asyncBridge.settleGuestPromise(deferred, { ok: true, value })
+        if (value !== context.undefined && value.alive) {
+          value.dispose()
+        }
+      } catch (error) {
+        if (isDestroyed()) {
+          asyncBridge.abandonDeferred(deferred)
+          return
+        }
+        asyncBridge.settleGuestPromise(deferred, {
+          ok: false,
+          error: guestError(context, error),
+        })
+      }
+    })()
+    return deferred.handle
+  }
+
   const fetchFn = context.newFunction(HOST_FETCH_KEY, (inputHandle, initHandle) => {
     const deferred = asyncBridge.createDeferredPromise()
     void (async () => {
@@ -368,7 +543,11 @@ export function injectFetch(options: InjectFetchOptions): () => void {
         }
         const { url, init } = parseFetchArgs(context, inputHandle, initHandle)
         const response = await hostFetch(url, init)
-        const bytes = await readResponseBodyLimited(response, maxResponseBytes)
+
+        if (isDestroyed()) {
+          asyncBridge.abandonDeferred(deferred)
+          return
+        }
 
         const packet = context.newObject()
 
@@ -392,13 +571,20 @@ export function injectFetch(options: InjectFetchOptions): () => void {
         context.setProp(packet, 'headers', headersHandle)
         headersHandle.dispose()
 
-        const bodyHandle = hostBytesToGuestBuffer(context, bytes)
-        context.setProp(packet, 'body', bodyHandle)
-        bodyHandle.dispose()
+        // Streaming: store reader, return streamId (no body bytes)
+        const reader = response.body!.getReader()
+        const streamId = nextStreamId++
+        streams.set(streamId, { reader, accumulated: 0 })
+
+        const sidHandle = context.newNumber(streamId)
+        context.setProp(packet, 'streamId', sidHandle)
+        sidHandle.dispose()
 
         if (isDestroyed()) {
           asyncBridge.abandonDeferred(deferred)
           packet.dispose()
+          streams.delete(streamId)
+          void reader.cancel()
           return
         }
         asyncBridge.settleGuestPromise(deferred, { ok: true, value: packet })
@@ -419,9 +605,60 @@ export function injectFetch(options: InjectFetchOptions): () => void {
   context.setProp(context.global, HOST_FETCH_KEY, fetchFn)
   fetchFn.dispose()
 
+  // ---- fetch stream read ----
+  const readStream = context.newFunction(HOST_FETCH_STREAM_READ_KEY, (streamIdHandle) =>
+    runHostPromise(async () => {
+      const streamId = context.getNumber(streamIdHandle)
+      const entry = streams.get(streamId)
+      if (!entry) {
+        return context.null
+      }
+      const { reader } = entry
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          streams.delete(streamId)
+          return context.null
+        }
+        const chunk = result.value
+        const next = entry.accumulated + chunk.byteLength
+        if (next > maxResponseBytes) {
+          streams.delete(streamId)
+          void reader.cancel()
+          throw new Error(
+            `Fetch response body exceeds maxFileBytes (${maxResponseBytes}): received ${next} bytes`,
+          )
+        }
+        entry.accumulated = next
+        return hostBytesToGuestBuffer(context, chunk)
+      } catch (error) {
+        streams.delete(streamId)
+        void reader.cancel().catch(() => {})
+        throw error
+      }
+    }),
+  )
+  context.setProp(context.global, HOST_FETCH_STREAM_READ_KEY, readStream)
+  readStream.dispose()
+
+  // ---- fetch stream cancel ----
+  const cancelStream = context.newFunction(HOST_FETCH_STREAM_CANCEL_KEY, (streamIdHandle) => {
+    const streamId = context.getNumber(streamIdHandle)
+    const entry = streams.get(streamId)
+    if (entry) {
+      streams.delete(streamId)
+      void entry.reader.cancel()
+    }
+    return context.undefined
+  })
+  context.setProp(context.global, HOST_FETCH_STREAM_CANCEL_KEY, cancelStream)
+  cancelStream.dispose()
+
   const boot = context.evalCode(QUICKJS_FETCH_GUEST_SOURCE, 'instant-fetch-guest.js')
   if (boot.error) {
     context.setProp(context.global, HOST_FETCH_KEY, context.undefined)
+    context.setProp(context.global, HOST_FETCH_STREAM_READ_KEY, context.undefined)
+    context.setProp(context.global, HOST_FETCH_STREAM_CANCEL_KEY, context.undefined)
     const message = (() => {
       try {
         return String(context.dump(boot.error))
@@ -437,8 +674,16 @@ export function injectFetch(options: InjectFetchOptions): () => void {
 
   return () => {
     context.setProp(context.global, HOST_FETCH_KEY, context.undefined)
+    context.setProp(context.global, HOST_FETCH_STREAM_READ_KEY, context.undefined)
+    context.setProp(context.global, HOST_FETCH_STREAM_CANCEL_KEY, context.undefined)
     context.setProp(context.global, 'fetch', context.undefined)
     context.setProp(context.global, 'Headers', context.undefined)
     context.setProp(context.global, 'Response', context.undefined)
+    context.setProp(context.global, 'ReadableStream', context.undefined)
+    // Clean up any remaining stream readers
+    for (const [, entry] of streams) {
+      void entry.reader.cancel()
+    }
+    streams.clear()
   }
 }

@@ -19,6 +19,7 @@ import {
   fsHostLstat,
   fsHostMkdir,
   fsHostMkdtemp,
+  fsHostOpenStreamWrite,
   fsHostReadFile,
   fsHostReadFileForStream,
   fsHostReaddir,
@@ -32,6 +33,7 @@ import {
   fsHostTruncate,
   fsHostUnlink,
   fsHostWriteFile,
+  type QuickJsFsStreamWriter,
 } from './quickjs-fs-vfs.ts'
 
 /** Node `fs.constants` 子集（access / open 标志）。 */
@@ -359,9 +361,10 @@ const HOST_FS_CLOSE_READ_KEY = '__instantFsCloseRead'
 const HOST_FS_OPEN_WRITE_KEY = '__instantFsOpenWrite'
 const HOST_FS_WRITE_CHUNK_KEY = '__instantFsWriteChunk'
 const HOST_FS_CLOSE_WRITE_KEY = '__instantFsCloseWrite'
+const HOST_FS_ABORT_WRITE_KEY = '__instantFsAbortWrite'
 
 type FsReadStreamState = { bytes: Uint8Array; offset: number; path: string }
-type FsWriteStreamState = { path: string; written: number; chunks: Uint8Array[] }
+type FsWriteStreamState = { writer: QuickJsFsStreamWriter; written: number; path: string }
 
 function injectFsStreams(params: {
   context: QuickJSAsyncContext
@@ -454,37 +457,37 @@ function injectFsStreams(params: {
   const openWrite = context.newFunction(HOST_FS_OPEN_WRITE_KEY, (pathHandle) =>
     runHostPromise(async () => {
       const raw = dumpPrimitive(context, pathHandle)
-      await fsHostWriteFile(ops, raw, new Uint8Array(0))
-      const absolute = resolveGuestFsPath(raw, ops.getCwd)
+      const stream = await fsHostOpenStreamWrite(ops, raw)
       const id = nextId++
-      writes.set(id, { path: absolute, written: 0, chunks: [] })
+      writes.set(id, { writer: stream, written: 0, path: stream.absolutePath })
       return context.newNumber(id)
     }),
   )
   context.setProp(context.global, HOST_FS_OPEN_WRITE_KEY, openWrite)
   openWrite.dispose()
 
-  const writeChunk = context.newFunction(HOST_FS_WRITE_CHUNK_KEY, (idHandle, dataHandle) => {
-    const id = context.getNumber(idHandle)
-    const bytes = readGuestBytes(context, dataHandle)
-    const state = writes.get(id)
-    if (!state) {
-      throw new QuickJsFsError('EBADF', 'WriteStream closed')
-    }
-    const next = state.written + bytes.byteLength
-    if (next > ops.maxFileBytes) {
-      throw new QuickJsFsError(
-        'ERR_FS_FILE_TOO_LARGE',
-        `WriteStream exceeds maxFileBytes (${ops.maxFileBytes})`,
-        { path: state.path, syscall: 'write' },
-      )
-    }
-    if (bytes.byteLength > 0) {
-      state.chunks.push(bytes.slice())
-      state.written = next
-    }
-    return context.undefined
-  })
+  const writeChunk = context.newFunction(HOST_FS_WRITE_CHUNK_KEY, (idHandle, dataHandle) =>
+    runHostPromise(async () => {
+      const id = context.getNumber(idHandle)
+      const state = writes.get(id)
+      if (!state) {
+        throw new QuickJsFsError('EBADF', 'WriteStream closed')
+      }
+      const bytes = readGuestBytes(context, dataHandle)
+      const next = state.written + bytes.byteLength
+      if (next > ops.maxFileBytes) {
+        throw new QuickJsFsError(
+          'ERR_FS_FILE_TOO_LARGE',
+          `WriteStream exceeds maxFileBytes (${ops.maxFileBytes})`,
+          { path: state.path, syscall: 'write' },
+        )
+      }
+      if (bytes.byteLength > 0) {
+        await state.writer.write(bytes)
+        state.written = next
+      }
+    }),
+  )
   context.setProp(context.global, HOST_FS_WRITE_CHUNK_KEY, writeChunk)
   writeChunk.dispose()
 
@@ -496,20 +499,25 @@ function injectFsStreams(params: {
         return context.undefined
       }
       writes.delete(id)
-      if (state.written > 0) {
-        const merged = new Uint8Array(state.written)
-        let offset = 0
-        for (const chunk of state.chunks) {
-          merged.set(chunk, offset)
-          offset += chunk.byteLength
-        }
-        await fsHostWriteFile(ops, state.path, merged)
-      }
+      await state.writer.close()
       return context.undefined
     }),
   )
   context.setProp(context.global, HOST_FS_CLOSE_WRITE_KEY, closeWrite)
   closeWrite.dispose()
+
+  const abortWrite = context.newFunction(HOST_FS_ABORT_WRITE_KEY, (idHandle) => {
+    const id = context.getNumber(idHandle)
+    const state = writes.get(id)
+    if (!state) {
+      return context.undefined
+    }
+    writes.delete(id)
+    void state.writer.abort()
+    return context.undefined
+  })
+  context.setProp(context.global, HOST_FS_ABORT_WRITE_KEY, abortWrite)
+  abortWrite.dispose()
 
   const readableCtor = context.getProp(streamHandle, 'Readable')
   const writableCtor = context.getProp(streamHandle, 'Writable')
@@ -598,12 +606,10 @@ function injectFsStreams(params: {
       data = Buffer.from(chunk, encoding || 'utf8');
     }
     function run() {
-      try {
-        globalThis.${HOST_FS_WRITE_CHUNK_KEY}(self._sid, data);
+      // writeChunk 是宿主异步（增量落盘）；完成后再放行下一个 _write
+      Promise.resolve(globalThis.${HOST_FS_WRITE_CHUNK_KEY}(self._sid, data)).then(function () {
         cb();
-      } catch (err) {
-        cb(err);
-      }
+      }, cb);
     }
     if (self._sid != null) {
       run();
@@ -612,6 +618,26 @@ function injectFsStreams(params: {
     Promise.resolve(this._ready).then(function () {
       run();
     }, cb);
+  };
+  WriteStream.prototype.destroy = function destroy(err) {
+    var self = this;
+    if (this._aborted) {
+      return Writable.prototype.destroy.call(this, err);
+    }
+    this._aborted = true;
+    function abortNow() {
+      if (self._sid != null) {
+        globalThis.${HOST_FS_ABORT_WRITE_KEY}(self._sid);
+        self._sid = null;
+      }
+    }
+    if (this._sid != null) {
+      abortNow();
+    } else {
+      // open 尚未完成（宿主异步打开）；等 _ready 后再 abort
+      Promise.resolve(this._ready).then(abortNow, function () {});
+    }
+    return Writable.prototype.destroy.call(this, err);
   };
   WriteStream.prototype.end = function end(chunk, encoding, cb) {
     var self = this;
@@ -803,9 +829,9 @@ export function injectFs(options: InjectFsOptions): {
         const encoded = encode(context, value)
         callCallback(callback, undefined, encoded)
         encoded?.dispose()
-        asyncBridge.enqueueHostTask(() => {
+        asyncBridge.enqueueHostTask(async () => {
           if (!ops.isDestroyed()) {
-            asyncBridge.drainAfterSync()
+            await asyncBridge.drainAfterSync()
           }
         })
       } catch (error) {
@@ -815,9 +841,9 @@ export function injectFs(options: InjectFsOptions): {
         const errHandle = createGuestFsError(context, error)
         callCallback(callback, errHandle, undefined)
         errHandle.dispose()
-        asyncBridge.enqueueHostTask(() => {
+        asyncBridge.enqueueHostTask(async () => {
           if (!ops.isDestroyed()) {
-            asyncBridge.drainAfterSync()
+            await asyncBridge.drainAfterSync()
           }
         })
       }

@@ -22,7 +22,13 @@ import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
-import { FilesStorageFullError } from './files-storage.ts'
+import { FilesStorageFullError, assertAdditionalBytesAvailable } from './files-storage.ts'
+import {
+  collectDataTransferEntries,
+  planExternalImport,
+  type ExternalImportNode,
+} from './files-import-external.ts'
+import { filesOpenStreamWrite } from './files-api.ts'
 import {
   FILES_MOUNTS_CHANGED_EVENT,
   addMount,
@@ -40,12 +46,15 @@ import {
   formatFilesNodePermissionLabel,
   filesVolumeRootAttributes,
   isMountLocationId,
+  isMountNodeId,
+  isTrashLocationId,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
   type MountFilesLocationId,
 } from './files-types.ts'
 import { isUserSpecialFolderNode } from './files-user-special.ts'
+import { marqueeSelection, rangeSelection, toggleInSet } from './files-selection.ts'
 import { FilesOpProgressDialog } from './files-op-progress-dialog.tsx'
 import { estimateFilesOpDurationMs } from './files-op-progress-policy.ts'
 import {
@@ -69,6 +78,7 @@ import {
   FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
   createTextFile,
+  emptyTrash,
   enrichFilesNodeMeta,
   estimateCopyWorkload,
   estimateDeleteWorkload,
@@ -76,14 +86,19 @@ import {
   getFilesLocationLabel,
   getNodeOrThrow,
   getCachedListDirectory,
+  invalidateFilesVfsPathCaches,
   listDirectory,
   listFilesLocations,
   mkdir,
+  moveNodeTo,
   removeNode,
   renameNode,
   resolveFilesAbsolutePath,
   resolveNodeByAbsolutePath,
   resolvePathNodes,
+  restoreNode,
+  trashNode,
+  uniqueNodeName,
 } from './files-vfs.ts'
 import {
   filesLocationPathRoot,
@@ -216,6 +231,14 @@ type ActionSheetState =
   | { kind: 'item'; node: FilesNode }
   | { kind: 'background' }
 
+/** 框选矩形（相对 .files__browser 内容区坐标） */
+type FilesMarqueeRect = {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
 type NewFileMenuState = {
   x: number
   y: number
@@ -305,7 +328,24 @@ function MountGlyph() {
   )
 }
 
+function TrashGlyph() {
+  return (
+    <svg class="files__location-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#c9a66a"
+        stroke="#8a6a38"
+        stroke-width="1"
+        d="M5.5 7.5h13l-.9 12.2a1.8 1.8 0 0 1-1.8 1.6H8.2a1.8 1.8 0 0 1-1.8-1.6L5.5 7.5z"
+      />
+      <path stroke="#5a4328" stroke-width="1.1" stroke-linecap="round" d="M4 7.5h16" />
+      <path stroke="#5a4328" stroke-width="1.1" stroke-linecap="round" d="M9.5 5.5h5" />
+      <path stroke="#5a4328" stroke-width="0.9" stroke-linecap="round" d="M10 11v4.5M14 11v4.5" />
+    </svg>
+  )
+}
+
 function LocationGlyph({ id }: { id: FilesLocationId }) {
+  if (isTrashLocationId(id)) return <TrashGlyph />
   if (isMountLocationId(id)) return <MountGlyph />
   if (id === 'applications') return <ApplicationsGlyph />
   if (id === 'models3d') return <ModelsGlyph />
@@ -318,7 +358,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 export function FilesApp({ windowId }: { windowId?: string }) {
-  const { closeWindowsForApp, minimizeWindow, windows, openApp, openGeneratedApp } = useOs()
+  const { closeWindowsForApp, minimizeWindow, windows, openApp, openGeneratedApp, activeWindowId } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
@@ -357,9 +397,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     readFilesNameDisplayMode(),
   )
   const [metaResolvedIds, setMetaResolvedIds] = useState<ReadonlySet<string>>(() => new Set())
-  const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [selectNonce, setSelectNonce] = useState(0)
   const [pendingSelectName, setPendingSelectName] = useState<string | undefined>(undefined)
+  /** Shift 区间选择的锚点 id */
+  const selectionAnchorRef = useRef<string | undefined>(undefined)
+  /** 框选进行中的矩形（相对 .files__browser 视口） */
+  const [marqueeRect, setMarqueeRect] = useState<FilesMarqueeRect | undefined>(undefined)
+  const marqueeStartRef = useRef<{ x: number; y: number } | undefined>(undefined)
+  /** 拖放落点高亮：文件夹节点 id / 侧栏卷 id / 路径栏段 key */
+  const [dropTarget, setDropTarget] = useState<{ kind: 'node'; id: string } | { kind: 'location'; id: FilesLocationId } | { kind: 'pathbar'; key: string } | undefined>(undefined)
+  /** 外部导入完成后待高亮的第一个文件名 */
+  const firstImportedNameRef = useRef<string | undefined>(undefined)
   const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const browserRef = useRef<HTMLDivElement>(null)
@@ -390,15 +439,59 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const pendingRevealLayoutRef = useRef(false)
 
   const clearSelection = useCallback(() => {
-    setSelectedId(undefined)
+    setSelectedIds(new Set())
+    selectionAnchorRef.current = undefined
     setPendingSelectName(undefined)
   }, [])
 
+  /** 单选（清空后选中），并记录 Shift 区间锚点 */
   const activateSelection = useCallback((nodeId: string) => {
     setPendingSelectName(undefined)
-    setSelectedId(nodeId)
+    setSelectedIds(new Set([nodeId]))
+    selectionAnchorRef.current = nodeId
     setSelectNonce((value) => value + 1)
   }, [])
+
+  /** 切换选中（⌘/Ctrl 点击） */
+  const toggleSelection = useCallback((nodeId: string) => {
+    setPendingSelectName(undefined)
+    setSelectedIds((current) => {
+      const next = toggleInSet(current, nodeId)
+      selectionAnchorRef.current = nodeId
+      return next
+    })
+  }, [])
+
+  /** Shift 区间选择：锚点（或最后操作项）到目标项之间的全部项 */
+  const rangeSelectTo = useCallback((nodeId: string) => {
+    setPendingSelectName(undefined)
+    setSelectedIds((current) => {
+      const anchor = selectionAnchorRef.current
+      selectionAnchorRef.current = nodeId
+      if (anchor === undefined || current.size === 0) {
+        return new Set([nodeId])
+      }
+      const ordered = itemsRef.current.map((item) => item.id)
+      return rangeSelection(ordered, anchor, nodeId)
+    })
+  }, [])
+
+  const selectAll = useCallback(() => {
+    const ids = itemsRef.current.map((item) => item.id)
+    if (ids.length === 0) return
+    selectionAnchorRef.current = ids[0]
+    setPendingSelectName(undefined)
+    setSelectedIds(new Set(ids))
+  }, [])
+
+  /** 选中项（按 items 顺序），供批量操作使用 */
+  const selectedNodes = useMemo(
+    () => items.filter((node) => selectedIds.has(node.id)),
+    [items, selectedIds],
+  )
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set())
+  selectedIdsRef.current = selectedIds
+  const firstSelectedId = selectedIds.size === 1 ? [...selectedIds][0] : undefined
 
   const scrollSelectedIntoView = useCallback((nodeId: string) => {
     const root = browserRef.current
@@ -414,6 +507,43 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     })
   }, [])
 
+  /** 按当前显示顺序在选中项间移动（方向键）；extend 时做区间扩展 */
+  const moveSelectionBy = useCallback(
+    (delta: number, extend: boolean) => {
+      const ordered = itemsRef.current
+      if (ordered.length === 0) return
+      const current = [...selectedIdsRef.current]
+      const lastId = current[current.length - 1]
+      const currentIndex =
+        lastId === undefined ? -1 : ordered.findIndex((item) => item.id === lastId)
+      const nextIndex = Math.max(0, Math.min(ordered.length - 1, currentIndex + delta))
+      const next = ordered[nextIndex]
+      if (!next) return
+      if (extend) {
+        setPendingSelectName(undefined)
+        setSelectedIds((prev) => {
+          const anchor = selectionAnchorRef.current
+          if (anchor === undefined) {
+            selectionAnchorRef.current = lastId
+          }
+          const start = selectionAnchorRef.current ?? lastId
+          const result = rangeSelection(
+            ordered.map((item) => item.id),
+            start,
+            next.id,
+          )
+          // 区间外原选中项保留（与 Finder 方向键扩展一致）
+          for (const id of prev) result.add(id)
+          return result
+        })
+        return
+      }
+      activateSelection(next.id)
+      scrollSelectedIntoView(next.id)
+    },
+    [activateSelection, scrollSelectedIntoView],
+  )
+
   const locationLabel = getFilesLocationLabel(locationId)
   const locationWritable = isFilesLocationWritable(locationId)
   /** 整卷只读（如 3D 模型、系统）；与单个文件夹只读不同 */
@@ -426,6 +556,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [locationId, pathNodes])
   const canCreateHere =
     locationWritable &&
+    !isTrashLocationId(locationId) &&
     (locationId !== 'dev' || currentFolder !== undefined) &&
     (currentFolder === undefined || isFilesNodeWritable(currentFolder))
   const currentTitle = pathNodes.length > 0 ? pathNodes[pathNodes.length - 1].name : locationLabel
@@ -707,7 +838,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
 
     const armSelectByName = (name: string | undefined) => {
-      setSelectedId(undefined)
+      clearSelection()
       setPendingSelectName(name)
       if (name) setSelectNonce((value) => value + 1)
     }
@@ -801,14 +932,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     const match = items.find((node) => node.name === pendingSelectName)
     if (!match) return
     setPendingSelectName(undefined)
-    setSelectedId(match.id)
-    setSelectNonce((value) => value + 1)
-  }, [items, pendingSelectName, refreshing])
+    activateSelection(match.id)
+  }, [activateSelection, items, pendingSelectName, refreshing])
 
   // 等目录切换动画 / 窄屏滑入结束后再滚入，避免 transform 过程中 scrollIntoView 无效
   useEffect(() => {
-    if (!selectedId || refreshing) return
-    if (!items.some((node) => node.id === selectedId)) return
+    if (!firstSelectedId || refreshing) return
+    if (!items.some((node) => node.id === firstSelectedId)) return
 
     let cancelled = false
     const timers: number[] = []
@@ -820,7 +950,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           frames.push(
             window.requestAnimationFrame(() => {
               if (cancelled) return
-              scrollSelectedIntoView(selectedId)
+              scrollSelectedIntoView(firstSelectedId)
               if (clearLayoutWait) pendingRevealLayoutRef.current = false
             }),
           )
@@ -845,16 +975,22 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       for (const timer of timers) window.clearTimeout(timer)
       for (const frame of frames) window.cancelAnimationFrame(frame)
     }
-  }, [folderMotion, items, refreshing, scrollSelectedIntoView, selectNonce, selectedId])
+  }, [folderMotion, items, refreshing, scrollSelectedIntoView, selectNonce, firstSelectedId])
 
-  // 选中高亮约 2.5s 后淡出清除
+  // 「在文件中显示」选中高亮约 2.5s 后淡出清除（手动多选不清除）
   useEffect(() => {
-    if (!selectedId) return
+    if (!firstSelectedId) return
+    const id = firstSelectedId
     const timer = window.setTimeout(() => {
-      setSelectedId((current) => (current === selectedId ? undefined : current))
+      setSelectedIds((current) => {
+        if (!current.has(id)) return current
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
     }, 2500)
     return () => window.clearTimeout(timer)
-  }, [selectNonce, selectedId])
+  }, [selectNonce, firstSelectedId])
 
   useEffect(() => {
     let trailingTimer: number | undefined
@@ -912,7 +1048,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (!previous && narrowLayout) {
       // 宽 → 窄：保持当前浏览内容，侧栏收起由 CSS 过渡
       // 若正从「在文件中显示」进入，标记等待滑入后再滚入选中项
-      if (lastOpenedDocumentIdRef.current || selectedId) {
+      if (lastOpenedDocumentIdRef.current || selectedIds.size > 0) {
         pendingRevealLayoutRef.current = true
       }
       setStackedBrowserOpen(true)
@@ -923,7 +1059,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       // 窄 → 宽：恢复并排，侧栏展开由 CSS 过渡
       setStackedBrowserOpen(false)
     }
-  }, [layoutReady, narrowLayout, selectedId])
+  }, [layoutReady, narrowLayout, selectedIds])
 
   useEffect(() => {
     if (!contextMenu && !locationContextMenu && !backgroundContextMenu) return
@@ -1243,13 +1379,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [closeTransientMenus, modal, openApp, showOpenWithChooser],
   )
 
-  const handleItemClick = useCallback(
+  /** 打开/进入单个节点（不处理选择逻辑；Enter 与单击共用） */
+  const openNode = useCallback(
     (node: FilesNode) => {
-      if (suppressItemClickRef.current) {
-        suppressItemClickRef.current = false
-        return
-      }
-      closeTransientMenus()
       if (node.kind === 'folder') {
         if (isApplicationsBundleRootNode(node)) {
           openAppBundle(node)
@@ -1295,7 +1427,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     },
     [
       clearSelection,
-      closeTransientMenus,
       enterFolder,
       locationId,
       modal,
@@ -1304,34 +1435,114 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ],
   )
 
-  const handleCopy = useCallback((node: FilesNode) => {
-    closeTransientMenus()
-    setFilesClipboard({
-      nodeId: node.id,
-      name: node.name,
-      kind: node.kind,
-    })
-    setClipboardRevision((value) => value + 1)
-  }, [closeTransientMenus])
+  const handleItemClick = useCallback(
+    (node: FilesNode, event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+      if (suppressItemClickRef.current) {
+        suppressItemClickRef.current = false
+        return
+      }
+      closeTransientMenus()
+
+      const meta = event.metaKey || event.ctrlKey
+      const shift = event.shiftKey
+      const multiSelection = selectedIdsRef.current.size > 0
+
+      if (meta) {
+        toggleSelection(node.id)
+        return
+      }
+      if (shift) {
+        rangeSelectTo(node.id)
+        return
+      }
+      // 点击未选中项时先单选（右键/双击场景由各自处理）
+      if (multiSelection && !selectedIdsRef.current.has(node.id)) {
+        activateSelection(node.id)
+        return
+      }
+
+      openNode(node)
+    },
+    [activateSelection, closeTransientMenus, openNode, rangeSelectTo, toggleSelection],
+  )
+
+  /** 复制选中项（多选批量；mode=copy） */
+  const handleCopy = useCallback(
+    (nodes: readonly FilesNode[]) => {
+      if (nodes.length === 0) return
+      closeTransientMenus()
+      setFilesClipboard({
+        entries: nodes.map((node) => ({ nodeId: node.id, name: node.name, kind: node.kind })),
+        mode: 'copy',
+      })
+      setClipboardRevision((value) => value + 1)
+    },
+    [closeTransientMenus],
+  )
+
+  /** 剪切选中项（mode=cut；粘贴成功后删除源） */
+  const handleCut = useCallback(
+    (nodes: readonly FilesNode[]) => {
+      if (nodes.length === 0) return
+      closeTransientMenus()
+      setFilesClipboard({
+        entries: nodes.map((node) => ({ nodeId: node.id, name: node.name, kind: node.kind })),
+        mode: 'cut',
+      })
+      setClipboardRevision((value) => value + 1)
+    },
+    [closeTransientMenus],
+  )
 
   const handlePaste = useCallback(async () => {
     const entry = getFilesClipboard()
-    if (!entry || !canCreateHere) return
+    if (!entry) {
+      // 无内部剪贴板：系统剪贴板中的外部文件浏览器无法读取（Chromium 限制，实测 types=[]），
+      // 引导用户走拖放 / 导入
+      if (canCreateHere) {
+        await modal.alert({
+          title: '没有可粘贴的内容',
+          message:
+            '系统剪贴板中的文件无法直接粘贴（浏览器限制）。请从 Finder 把文件拖入窗口，或使用工具栏「导入」。',
+          themeColor: THEME,
+        })
+      }
+      return
+    }
+    if (!canCreateHere) return
     closeTransientMenus()
     try {
-      const workload = await estimateCopyWorkload(entry.nodeId)
+      const workloads = await Promise.all(
+        entry.entries.map((item) => estimateCopyWorkload(item.nodeId).catch(() => undefined)),
+      )
+      const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
       await runFilesOpWithProgress({
         kind: 'paste',
-        totalWork: workload.totalUnits,
-        estimatedTotalMs: estimateFilesOpDurationMs(workload.totalUnits),
+        totalWork: totalUnits,
+        estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
         onUiChange: setOpProgressUi,
         task: async (report) => {
-          await copyNodeTo({
-            sourceId: entry.nodeId,
-            destLocationId: locationId,
-            destParentId: folderId,
-            onProgress: report,
-          })
+          let done = 0
+          for (let index = 0; index < entry.entries.length; index += 1) {
+            const item = entry.entries[index]!
+            const itemWorkload = workloads[index]?.totalUnits ?? 1
+            await copyNodeTo({
+              sourceId: item.nodeId,
+              destLocationId: locationId,
+              destParentId: folderId,
+              onProgress: (progress) => {
+                report({
+                  done: done + Math.round(progress.done * (itemWorkload / totalUnits)),
+                  total: totalUnits,
+                })
+              },
+            })
+            done += itemWorkload
+            if (entry.mode === 'cut') {
+              // 剪切语义：粘贴成功后删除源；源已不存在（重复粘贴）时跳过
+              await removeNode(item.nodeId).catch(() => undefined)
+            }
+          }
         },
       })
       await refresh()
@@ -1339,6 +1550,157 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       await modal.alert({ title: '无法粘贴', message: formatError(err), themeColor: THEME })
     }
   }, [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh])
+
+  /** 删除选中项：默认移入废纸篓；permanent（按住 ⌥）时永久删除 */
+  const handleTrash = useCallback(
+    async (nodes: readonly FilesNode[], permanent: boolean) => {
+      if (nodes.length === 0) return
+      closeTransientMenus()
+      const single = nodes.length === 1 ? nodes[0]! : undefined
+      if (permanent) {
+        const ok = await modal.confirm({
+          title: single ? `永久删除「${single.name}」？` : `永久删除选中的 ${nodes.length} 项？`,
+          message:
+            '永久删除后将无法恢复，且会释放占用的数据空间。',
+          confirmLabel: '永久删除',
+          cancelLabel: '取消',
+          confirmTone: 'danger',
+          themeColor: THEME,
+        })
+        if (!ok) return
+        try {
+          const workloads = await Promise.all(
+            nodes.map((node) => estimateDeleteWorkload(node.id).catch(() => undefined)),
+          )
+          const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+          await runFilesOpWithProgress({
+            kind: 'delete',
+            totalWork: totalUnits,
+            estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
+            onUiChange: setOpProgressUi,
+            task: async (report) => {
+              let done = 0
+              for (let index = 0; index < nodes.length; index += 1) {
+                const node = nodes[index]!
+                const units = workloads[index]?.totalUnits ?? 1
+                await removeNode(node.id, {
+                  onProgress: (progress) => {
+                    report({ done: done + progress.done, total: totalUnits })
+                  },
+                })
+                done += units
+              }
+            },
+          })
+        } catch (err) {
+          await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
+        }
+        clearSelection()
+        await refresh()
+        return
+      }
+
+      const ok = await modal.confirm({
+        title: single ? `将「${single.name}」移入废纸篓？` : `将选中的 ${nodes.length} 项移入废纸篓？`,
+        message:
+          '移入废纸篓后可以恢复；按住 ⌥ 键删除可永久删除并释放空间。',
+        confirmLabel: '移入废纸篓',
+        cancelLabel: '取消',
+        themeColor: THEME,
+      })
+      if (!ok) return
+      try {
+        // 内部卷移入废纸篓为元数据级移动（成本≈删除）；挂载卷按复制估算
+        const workloads = await Promise.all(
+          nodes.map((node) =>
+            isMountNodeId(node.id)
+              ? estimateCopyWorkload(node.id).catch(() => undefined)
+              : estimateDeleteWorkload(node.id).catch(() => undefined),
+          ),
+        )
+        const totalUnits = workloads.reduce((sum, item) => sum + (item?.totalUnits ?? 1), 0)
+        await runFilesOpWithProgress({
+          kind: 'delete',
+          totalWork: totalUnits,
+          estimatedTotalMs: estimateFilesOpDurationMs(totalUnits),
+          onUiChange: setOpProgressUi,
+          task: async (report) => {
+            let done = 0
+            for (let index = 0; index < nodes.length; index += 1) {
+              const node = nodes[index]!
+              const units = workloads[index]?.totalUnits ?? 1
+              await trashNode(node.id, {
+                onProgress: (progress) => {
+                  report({ done: done + progress.done, total: totalUnits })
+                },
+              })
+              done += units
+            }
+          },
+        })
+      } catch (err) {
+        await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
+      }
+      clearSelection()
+      await refresh()
+    },
+    [clearSelection, closeTransientMenus, modal, refresh],
+  )
+
+  /** 从废纸篓恢复选中项 */
+  const handleRestore = useCallback(
+    async (nodes: readonly FilesNode[]) => {
+      if (nodes.length === 0) return
+      closeTransientMenus()
+      try {
+        for (const node of nodes) {
+          await restoreNode(node.id)
+        }
+      } catch (err) {
+        await modal.alert({ title: '无法恢复', message: formatError(err), themeColor: THEME })
+      }
+      clearSelection()
+      await refresh()
+    },
+    [clearSelection, closeTransientMenus, modal, refresh],
+  )
+
+  /** 刷新当前目录：失效 VFS 路径缓存后重读（挂载卷外部变更也能刷到） */
+  const handleRefresh = useCallback(() => {
+    closeTransientMenus()
+    invalidateFilesVfsPathCaches()
+    void refresh()
+  }, [closeTransientMenus, refresh])
+
+  /** 清空废纸篓（永久删除全部内容） */
+  const handleEmptyTrash = useCallback(async () => {
+    if (!isTrashLocationId(locationId)) return
+    closeTransientMenus()
+    const ok = await modal.confirm({
+      title: '清空废纸篓？',
+      message: '废纸篓中的全部内容将被永久删除，无法恢复。',
+      confirmLabel: '清空',
+      cancelLabel: '取消',
+      confirmTone: 'danger',
+      themeColor: THEME,
+    })
+    if (!ok) return
+    try {
+      await runFilesOpWithProgress({
+        kind: 'delete',
+        totalWork: Math.max(1, itemsRef.current.length),
+        estimatedTotalMs: estimateFilesOpDurationMs(Math.max(1, itemsRef.current.length)),
+        onUiChange: setOpProgressUi,
+        task: async (report) => {
+          await emptyTrash({ onProgress: report })
+        },
+      })
+    } catch (err) {
+      await modal.alert({ title: '无法清空', message: formatError(err), themeColor: THEME })
+    }
+    clearSelection()
+    await refresh()
+  }, [clearSelection, closeTransientMenus, locationId, modal, refresh])
 
   const handleNewFolder = useCallback(async () => {
     if (!canCreateHere) return
@@ -1435,41 +1797,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [closeTransientMenus, modal, refresh],
   )
 
-  const handleDelete = useCallback(
-    async (node: FilesNode) => {
-      if (!canRenameOrDeleteFilesNode(node)) return
-      closeTransientMenus()
-      const ok = await modal.confirm({
-        title: node.kind === 'folder' ? '删除文件夹？' : '删除文件？',
-        message:
-          node.kind === 'folder'
-            ? `「${node.name}」及其包含的所有内容将被永久删除。`
-            : `「${node.name}」将被永久删除。`,
-        confirmLabel: '删除',
-        cancelLabel: '取消',
-        confirmTone: 'danger',
-        themeColor: THEME,
-      })
-      if (!ok) return
-      try {
-        const workload = await estimateDeleteWorkload(node.id)
-        await runFilesOpWithProgress({
-          kind: 'delete',
-          totalWork: workload.totalUnits,
-          estimatedTotalMs: estimateFilesOpDurationMs(workload.totalUnits),
-          onUiChange: setOpProgressUi,
-          task: async (report) => {
-            await removeNode(node.id, { onProgress: report })
-          },
-        })
-        await refresh()
-      } catch (err) {
-        await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
-      }
-    },
-    [closeTransientMenus, modal, refresh],
-  )
-
   const handleShowInfo = useCallback(
     async (node: FilesNode) => {
       closeTransientMenus()
@@ -1532,6 +1859,75 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     pathBarAbsolutePath,
   ])
 
+  // ── 框选（鼠标/触控笔在空白处拖拽）─────────────────────────────────────
+  const marqueeRectRef = useRef<FilesMarqueeRect | undefined>(undefined)
+
+  const beginMarquee = useCallback((event: PointerEvent) => {
+    if (event.pointerType === 'touch') return
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
+      return
+    clearLongPress()
+    // 指针捕获：鼠标移出容器后仍能收到 move/up，保证框选完整
+    try {
+      ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+    } catch {
+      // 部分环境不支持捕获，忽略
+    }
+    const rect = {
+      left: event.clientX,
+      top: event.clientY,
+      right: event.clientX,
+      bottom: event.clientY,
+    }
+    marqueeStartRef.current = { x: event.clientX, y: event.clientY }
+    marqueeRectRef.current = rect
+    setMarqueeRect(rect)
+  }, [clearLongPress])
+
+  const updateMarquee = useCallback((event: PointerEvent) => {
+    const start = marqueeStartRef.current
+    if (!start) return
+    const rect = {
+      left: start.x,
+      top: start.y,
+      right: event.clientX,
+      bottom: event.clientY,
+    }
+    marqueeRectRef.current = rect
+    setMarqueeRect(rect)
+  }, [])
+
+  const endMarquee = useCallback(() => {
+    const start = marqueeStartRef.current
+    const rect = marqueeRectRef.current
+    marqueeStartRef.current = undefined
+    marqueeRectRef.current = undefined
+    setMarqueeRect(undefined)
+    if (!start || !rect) return
+
+    const root = browserRef.current
+    if (!root) return
+    const entries = itemsRef.current.flatMap((node) => {
+      const el = root.querySelector<HTMLElement>(
+        `[data-files-node-id="${CSS.escape(node.id)}"]`,
+      )
+      if (!el) return []
+      const r = el.getBoundingClientRect()
+      return [
+        {
+          id: node.id,
+          rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+        },
+      ]
+    })
+    const selected = marqueeSelection(entries, rect)
+    if (selected.length === 0) return
+    selectionAnchorRef.current = selected[0]
+    setPendingSelectName(undefined)
+    setSelectedIds(new Set(selected))
+  }, [])
+
   const beginItemLongPress = useCallback(
     (event: PointerEvent, node: FilesNode) => {
       lastPointerTypeRef.current = event.pointerType
@@ -1557,6 +1953,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
         return
 
+      // 鼠标 / 触控笔：空白处按下进入框选；触屏保留长按 ActionSheet
+      if (event.pointerType !== 'touch') {
+        beginMarquee(event)
+        return
+      }
+
       clearLongPress()
       actionSheetOpenedByLongPressRef.current = false
       longPressStartRef.current = { x: event.clientX, y: event.clientY }
@@ -1566,7 +1968,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         openBackgroundActionSheet()
       }, LONG_PRESS_MS)
     },
-    [clearLongPress, openBackgroundActionSheet],
+    [beginMarquee, clearLongPress, openBackgroundActionSheet],
   )
 
   const handleLongPressMove = useCallback(
@@ -1582,9 +1984,504 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [clearLongPress],
   )
 
+  // ── 拖放（HTML5 DnD）─────────────────────────────────────────────────
+  const DRAG_MIME = 'application/x-instant-files'
+
+  const handleDragStart = useCallback(
+    (event: DragEvent, node: FilesNode) => {
+      // 拖起未选中项时先单选（同步更新 ref，dataTransfer 需立即拿到最新选择集）
+      if (!selectedIdsRef.current.has(node.id)) {
+        const next = new Set<string>([node.id])
+        selectedIdsRef.current = next
+        selectionAnchorRef.current = node.id
+        setPendingSelectName(undefined)
+        setSelectedIds(next)
+      }
+      const ids = [...selectedIdsRef.current]
+      if (ids.length === 0) ids.push(node.id)
+      event.dataTransfer?.setData(DRAG_MIME, JSON.stringify(ids))
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'copyMove'
+      }
+    },
+    [],
+  )
+
+  /** 执行拖放：默认同卷移动、跨卷复制；按住 ⌥ 反转 */
+  const dropFilesOnto = useCallback(
+    async (
+      event: DragEvent,
+      dest: { destLocationId: FilesLocationId; destParentId: string | undefined },
+    ) => {
+      const raw = event.dataTransfer?.getData(DRAG_MIME)
+      if (!raw) return
+      let ids: string[]
+      try {
+        ids = JSON.parse(raw) as string[]
+      } catch {
+        return
+      }
+      if (ids.length === 0) return
+      const copyMode = event.altKey
+      try {
+        await runFilesOpWithProgress({
+          kind: 'paste',
+          totalWork: ids.length,
+          estimatedTotalMs: estimateFilesOpDurationMs(ids.length),
+          onUiChange: setOpProgressUi,
+          task: async (report) => {
+            let done = 0
+            for (const id of ids) {
+              const node = await getNodeOrThrow(id).catch(() => undefined)
+              if (!node) {
+                done += 1
+                report({ done, total: ids.length })
+                continue
+              }
+              const shouldMove = !copyMode && node.locationId === dest.destLocationId
+              if (shouldMove) {
+                await moveNodeTo(id, dest.destLocationId, dest.destParentId)
+              } else {
+                await copyNodeTo({
+                  sourceId: id,
+                  destLocationId: dest.destLocationId,
+                  destParentId: dest.destParentId,
+                })
+              }
+              done += 1
+              report({ done, total: ids.length })
+            }
+          },
+        })
+      } catch (err) {
+        await modal.alert({ title: '无法移动', message: formatError(err), themeColor: THEME })
+      }
+      clearSelection()
+      await refresh()
+    },
+    [clearSelection, modal, refresh],
+  )
+
+  /** 导入系统外部文件（拖放 / 选择器）：深度优先建目录 + 流式写入，带进度 */
+  const handleExternalImport = useCallback(
+    async (
+      nodes: readonly ExternalImportNode[],
+      dest: { destLocationId: FilesLocationId; destParentId: string | undefined },
+    ) => {
+      if (nodes.length === 0) return
+      const steps = planExternalImport(nodes)
+      if (steps.length === 0) return
+      const totalBytes = steps.reduce(
+        (sum, step) => sum + (step.op === 'write' ? step.byteSize : 0),
+        0,
+      )
+      const isLocalTarget = !isMountLocationId(dest.destLocationId)
+      try {
+        if (isLocalTarget) {
+          await assertAdditionalBytesAvailable(totalBytes)
+        }
+        firstImportedNameRef.current = undefined
+        await runFilesOpWithProgress({
+          kind: 'paste',
+          totalWork: Math.max(1, totalBytes),
+          estimatedTotalMs: estimateFilesOpDurationMs(Math.max(1, totalBytes)),
+          onUiChange: setOpProgressUi,
+          task: async (report) => {
+            let written = 0
+            // 目标目录绝对路径（文件夹 id → 路径；卷根 → 卷前缀）
+            let dirPath = filesLocationPathRoot(dest.destLocationId)
+            if (dest.destParentId !== undefined) {
+              const parentNode = await getNodeOrThrow(dest.destParentId)
+              dirPath = await resolveFilesAbsolutePath(parentNode)
+            }
+            // plan 已按深度优先拍平；用路径栈跟踪当前目录
+            const dirStack: string[] = [dirPath]
+            const createdNames: string[] = []
+            for (const step of steps) {
+              const parentPath = dirStack[dirStack.length - 1]!
+              if (step.op === 'mkdir') {
+                const folderPath = joinFilesAbsolutePath(parentPath, step.name)
+                let parentId = dest.destParentId
+                if (dirStack.length > 1) {
+                  const parentNode = await resolveNodeByAbsolutePath(parentPath)
+                  parentId = parentNode?.id ?? dest.destParentId
+                }
+                await mkdir({
+                  locationId: dest.destLocationId,
+                  parentId,
+                  name: step.name,
+                })
+                dirStack.push(folderPath)
+                continue
+              }
+              const name = await uniqueNodeName(dest.destLocationId, dest.destParentId, step.name)
+              const filePath = joinFilesAbsolutePath(parentPath, name)
+              const writer = await filesOpenStreamWrite(filePath)
+              const reader = step.file.stream().getReader()
+              try {
+                while (true) {
+                  const { done, value } = await reader.read()
+                  if (done) break
+                  await writer.write(value)
+                  written += value.byteLength
+                  report({ done: written, total: Math.max(1, totalBytes) })
+                }
+              } finally {
+                reader.releaseLock()
+              }
+              await writer.close()
+              createdNames.push(step.name)
+            }
+            firstImportedNameRef.current = createdNames[0]
+          },
+        })
+        clearSelection()
+        await refresh()
+        // 仅当导入到当前正在查看的目录时才高亮第一个导入项。
+        // 导入到子文件夹/其他卷时不高亮：避免进入目标目录后自动选中导入项，
+        // 导致单击文件夹被多选逻辑拦截而"点不进去"。
+        const firstTop =
+          dest.destParentId === folderId ? firstImportedNameRef.current : undefined
+        firstImportedNameRef.current = undefined
+        if (firstTop) {
+          setPendingSelectName(firstTop)
+          setSelectNonce((value) => value + 1)
+        }
+      } catch (err) {
+        await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [clearSelection, folderId, modal, refresh],
+  )
+
+  /** 外部文件是否进入导入流程（有文件但无内部拖拽数据） */
+  const externalDropTargets = useCallback(
+    (event: DragEvent, dest: { destLocationId: FilesLocationId; destParentId: string | undefined }) => {
+      const internal = event.dataTransfer?.getData(DRAG_MIME)
+      if (internal) {
+        void dropFilesOnto(event, dest)
+        return
+      }
+      if (event.dataTransfer?.files.length) {
+        event.preventDefault()
+        void collectDataTransferEntries(event.dataTransfer).then(
+          (nodes) => {
+            if (nodes.length > 0) {
+              void handleExternalImport(nodes, dest)
+            }
+          },
+          (err) => {
+            void modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+          },
+        )
+      }
+    },
+    [dropFilesOnto, handleExternalImport, modal],
+  )
+
+  const [backgroundDropActive, setBackgroundDropActive] = useState(false)
+
+  const handleBackgroundDragOver = useCallback((event: DragEvent) => {
+    const hasFiles = (event.dataTransfer?.types ?? []).includes('Files')
+    if (!hasFiles) return
+    event.preventDefault()
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    setBackgroundDropActive(true)
+    // 指针离开列表项进入空白：熄灭残留的落点高亮，让高亮严格跟随指针
+    setDropTarget(undefined)
+  }, [])
+
+  const handleBackgroundDragLeave = useCallback((event: DragEvent) => {
+    // 子元素间移动触发的 dragleave 冒泡：relatedTarget 仍在容器内则忽略
+    const related = event.relatedTarget
+    if (related instanceof Node && browserRef.current?.contains(related)) return
+    setBackgroundDropActive(false)
+  }, [])
+
+  const handleBackgroundDrop = useCallback(
+    (event: DragEvent) => {
+      setBackgroundDropActive(false)
+      // 无论是否外部文件都阻止默认行为，避免浏览器打开/导航被 drop 的文件
+      event.preventDefault()
+      if (!event.dataTransfer?.files.length) return
+      void collectDataTransferEntries(event.dataTransfer).then(
+        (nodes) => {
+          if (nodes.length > 0) {
+            void handleExternalImport(nodes, {
+              destLocationId: locationId,
+              destParentId: folderId,
+            })
+          }
+        },
+        (err) => {
+          void modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+        },
+      )
+    },
+    [folderId, handleExternalImport, locationId, modal],
+  )
+
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  /** 打开系统文件选择器（input[type=file] multiple，全浏览器可用） */
+  const openSystemFilePicker = useCallback(() => {
+    importInputRef.current?.click()
+  }, [])
+
+  const handleImportInputChange = useCallback(
+    (event: JSX.TargetedEvent<HTMLInputElement>) => {
+      const files = [...(event.currentTarget.files ?? [])]
+      event.currentTarget.value = ''
+      if (files.length === 0) return
+      void handleExternalImport(
+        files.map((file) => ({ name: file.name, kind: 'file' as const, file })),
+        { destLocationId: locationId, destParentId: folderId },
+      )
+    },
+    [folderId, handleExternalImport, locationId],
+  )
+
+  const handleFolderDragOver = useCallback(
+    (event: DragEvent, node: FilesNode) => {
+      event.preventDefault()
+      if (node.kind !== 'folder') {
+        // 文件项不是有效落点；preventDefault 仍阻止外部拖放触发浏览器默认打开/导航
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'none'
+        }
+        return
+      }
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+      }
+      setDropTarget({ kind: 'node', id: node.id })
+    },
+    [],
+  )
+
+  const handleFolderDragLeave = useCallback(
+    (event: DragEvent, node: FilesNode) => {
+      // 指针仍在 item 子元素间移动时触发的 dragleave：忽略，避免高亮闪烁
+      const related = event.relatedTarget
+      const current = event.currentTarget as HTMLElement | null
+      if (related instanceof Node && current?.contains(related)) return
+      setDropTarget((state) =>
+        state?.kind === 'node' && state.id === node.id ? undefined : state,
+      )
+    },
+    [],
+  )
+
+  const handleFolderDrop = useCallback(
+    (event: DragEvent, node: FilesNode) => {
+      event.preventDefault()
+      setDropTarget(undefined)
+      if (node.kind === 'folder') {
+        externalDropTargets(event, { destLocationId: node.locationId, destParentId: node.id })
+        return
+      }
+      // 文件项：内部拖拽忽略；外部文件导入到该文件所在目录
+      if (event.dataTransfer?.getData(DRAG_MIME)) return
+      if (event.dataTransfer?.files.length) {
+        void collectDataTransferEntries(event.dataTransfer).then(
+          (nodes) => {
+            if (nodes.length > 0) {
+              void handleExternalImport(nodes, {
+                destLocationId: node.locationId,
+                destParentId: node.parentId,
+              })
+            }
+          },
+          (err) => {
+            void modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+          },
+        )
+      }
+    },
+    [externalDropTargets, handleExternalImport, modal],
+  )
+
+  const handleLocationDragOver = useCallback(
+    (event: DragEvent, location: FilesLocation) => {
+      event.preventDefault()
+      if (!location.writable || isTrashLocationId(location.id)) {
+        // 只读/废纸篓卷不是有效落点：禁止光标，同时避免浏览器默认打开文件
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'none'
+        }
+        return
+      }
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+      }
+      setDropTarget({ kind: 'location', id: location.id })
+    },
+    [],
+  )
+
+  const handleLocationDragLeave = useCallback(
+    (event: DragEvent, location: FilesLocation) => {
+      const related = event.relatedTarget
+      const current = event.currentTarget as HTMLElement | null
+      if (related instanceof Node && current?.contains(related)) return
+      setDropTarget((state) =>
+        state?.kind === 'location' && state.id === location.id ? undefined : state,
+      )
+    },
+    [],
+  )
+
+  const handleLocationDrop = useCallback(
+    (event: DragEvent, location: FilesLocation) => {
+      event.preventDefault()
+      setDropTarget(undefined)
+      if (!location.writable || isTrashLocationId(location.id)) return
+      externalDropTargets(event, { destLocationId: location.id, destParentId: undefined })
+    },
+    [externalDropTargets],
+  )
+
+  // ── 键盘快捷键（仅当前窗口激活时生效）─────────────────────────────────
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (windowId && activeWindowId !== appWindow?.id) return
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      const meta = event.metaKey || event.ctrlKey
+      const alt = event.altKey
+      const key = event.key
+
+      if (meta && key.toLowerCase() === 'a') {
+        event.preventDefault()
+        selectAll()
+        return
+      }
+      if (meta && key.toLowerCase() === 'c') {
+        event.preventDefault()
+        if (selectedNodes.length > 0) handleCopy(selectedNodes)
+        return
+      }
+      if (meta && key.toLowerCase() === 'x') {
+        event.preventDefault()
+        if (selectedNodes.length > 0) handleCut(selectedNodes)
+        return
+      }
+      if (meta && key.toLowerCase() === 'v') {
+        event.preventDefault()
+        void handlePaste()
+        return
+      }
+      if (meta && key === 'ArrowUp') {
+        event.preventDefault()
+        goBackInPath()
+        return
+      }
+      if (meta && key.toLowerCase() === 'r') {
+        event.preventDefault()
+        handleRefresh()
+        return
+      }
+      if (key === 'Delete' || (meta && key === 'Backspace')) {
+        event.preventDefault()
+        const nodes = selectedNodes
+        if (nodes.length > 0) void handleTrash(nodes, alt)
+        return
+      }
+      if (key === 'Enter') {
+        // 焦点在文件项按钮上时，原生 click 已处理打开，避免双重触发
+        const active = document.activeElement as HTMLElement | null
+        if (active?.closest?.('[data-files-node-id]')) return
+        event.preventDefault()
+        const first = itemsRef.current.find((node) => selectedIdsRef.current.has(node.id))
+        if (first) openNode(first)
+        return
+      }
+      if (key === 'F2') {
+        event.preventDefault()
+        const first = selectedNodes[0]
+        if (first && selectedNodes.length === 1) void handleRename(first)
+        return
+      }
+      if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+        const delta = key === 'ArrowDown' || key === 'ArrowRight' ? 1 : -1
+        moveSelectionBy(delta, event.shiftKey)
+        event.preventDefault()
+        return
+      }
+      if (key === 'Escape' && selectedIdsRef.current.size > 0) {
+        clearSelection()
+        return
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [
+    activeWindowId,
+    appWindow?.id,
+    clearSelection,
+    goBackInPath,
+    handleCopy,
+    handleCut,
+    handlePaste,
+    handleRefresh,
+    handleRename,
+    handleTrash,
+    moveSelectionBy,
+    openNode,
+    selectAll,
+    selectedNodes,
+    windowId,
+  ])
+
+  /** 选中项失效清理：目录刷新后剔除不存在的 id */
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    const valid = new Set(items.map((node) => node.id))
+    const stale = [...selectedIds].filter((id) => !valid.has(id))
+    if (stale.length === 0) return
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      for (const id of stale) next.delete(id)
+      return next
+    })
+    if (selectionAnchorRef.current !== undefined && !valid.has(selectionAnchorRef.current)) {
+      selectionAnchorRef.current = undefined
+    }
+  }, [items, selectedIds])
+
   const buildItemMenuActions = useCallback(
     (node: FilesNode): AdaptiveActionMenuItem[] => {
       const items: AdaptiveActionMenuItem[] = []
+      const isTrashVolume = isTrashLocationId(locationId)
+      // 右键目标若不在选中集，则操作范围退化为该节点
+      const targetNodes = selectedIdsRef.current.has(node.id) ? selectedNodes : [node]
+      const multi = targetNodes.length > 1
+      const countLabel = (action: string) => (multi ? `${action} ${targetNodes.length} 项` : action)
+
+      if (isTrashVolume) {
+        items.push({
+          type: 'action',
+          label: '恢复',
+          onClick: () => void handleRestore(targetNodes),
+        })
+        items.push({ type: 'separator' })
+        items.push({
+          type: 'action',
+          label: '显示信息',
+          onClick: () => void handleShowInfo(node),
+        })
+        return items
+      }
+
       if (isApplicationsBundleRootNode(node)) {
         items.push({
           type: 'action',
@@ -1597,7 +2494,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onClick: () => showAppBundleContents(node),
         })
         items.push({ type: 'separator' })
-      } else if (node.kind === 'file') {
+      } else if (node.kind === 'file' && !multi) {
         items.push({
           type: 'action',
           label: '打开方式…',
@@ -1606,9 +2503,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       items.push({
         type: 'action',
-        label: '复制',
-        onClick: () => handleCopy(node),
+        label: countLabel('复制'),
+        onClick: () => handleCopy(targetNodes),
       })
+      if (canRenameOrDeleteFilesNode(node)) {
+        items.push({
+          type: 'action',
+          label: countLabel('剪切'),
+          onClick: () => handleCut(targetNodes),
+        })
+      }
       if (canPasteHere) {
         items.push({
           type: 'action',
@@ -1618,15 +2522,22 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       if (canRenameOrDeleteFilesNode(node)) {
         items.push({ type: 'separator' })
+        if (!multi) {
+          items.push({
+            type: 'action',
+            label: '重新命名',
+            onClick: () => void handleRename(node),
+          })
+        }
         items.push({
           type: 'action',
-          label: '重新命名',
-          onClick: () => void handleRename(node),
+          label: countLabel('移入废纸篓'),
+          onClick: () => void handleTrash(targetNodes, false),
         })
         items.push({
           type: 'action',
-          label: '删除',
-          onClick: () => void handleDelete(node),
+          label: countLabel('永久删除'),
+          onClick: () => void handleTrash(targetNodes, true),
         })
       }
       items.push({ type: 'separator' })
@@ -1637,18 +2548,61 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       })
       return items
     },
-    [canPasteHere, handleCopy, handleDelete, handlePaste, handleRename, handleShowInfo, openAppBundle, showAppBundleContents, showOpenWithChooser],
+    [
+      canPasteHere,
+      handleCopy,
+      handleCut,
+      handlePaste,
+      handleRename,
+      handleRestore,
+      handleShowInfo,
+      handleTrash,
+      locationId,
+      openAppBundle,
+      selectedNodes,
+      showAppBundleContents,
+      showOpenWithChooser,
+    ],
   )
 
   const backgroundMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
     const items: AdaptiveActionMenuItem[] = []
+    if (isTrashLocationId(locationId)) {
+      items.push({
+        type: 'action',
+        label: '刷新',
+        onClick: () => void handleRefresh(),
+      })
+      items.push({ type: 'separator' })
+      items.push({
+        type: 'action',
+        label: '清空废纸篓',
+        onClick: () => void handleEmptyTrash(),
+      })
+      items.push({
+        type: 'action',
+        label: '显示信息',
+        onClick: () => void handleShowCurrentFolderInfo(),
+      })
+      return items
+    }
     if (canCreateHere) {
       items.push({
         type: 'action',
         label: '新建文件夹',
         onClick: () => void handleNewFolder(),
       })
+      items.push({
+        type: 'action',
+        label: '从本机导入…',
+        onClick: openSystemFilePicker,
+      })
     }
+    items.push({
+      type: 'action',
+      label: '刷新',
+      onClick: () => void handleRefresh(),
+    })
     items.push({
       type: 'action',
       label: '显示信息',
@@ -1665,9 +2619,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [
     canCreateHere,
     canPasteHere,
+    handleEmptyTrash,
     handleNewFolder,
     handlePaste,
+    handleRefresh,
     handleShowCurrentFolderInfo,
+    locationId,
+    openSystemFilePicker,
   ])
 
   const actionSheetItems = useMemo((): AdaptiveActionMenuItem[] => {
@@ -1715,10 +2673,46 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           { type: 'separator' },
           {
             type: 'action',
+            label: '全选',
+            shortcut: '⌘A',
+            onClick: () => selectAll(),
+          },
+          {
+            type: 'action',
+            label: '复制',
+            shortcut: '⌘C',
+            disabled: selectedNodes.length === 0,
+            onClick: () => handleCopy(selectedNodes),
+          },
+          {
+            type: 'action',
+            label: '剪切',
+            shortcut: '⌘X',
+            disabled: selectedNodes.length === 0 || !canMutate,
+            onClick: () => handleCut(selectedNodes),
+          },
+          {
+            type: 'action',
             label: '粘贴',
             shortcut: '⌘V',
             disabled: !canPasteHere,
             onClick: () => void handlePaste(),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: isTrashLocationId(locationId) ? '清空废纸篓' : '移入废纸篓',
+            shortcut: '⌘⌫',
+            disabled: isTrashLocationId(locationId)
+              ? itemsRef.current.length === 0
+              : selectedNodes.length === 0 || !canMutate,
+            onClick: () => {
+              if (isTrashLocationId(locationId)) {
+                void handleEmptyTrash()
+              } else {
+                void handleTrash(selectedNodes, false)
+              }
+            },
           },
           { type: 'separator' },
           {
@@ -1743,6 +2737,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       {
         label: '前往',
         items: [
+          {
+            type: 'action',
+            label: '刷新',
+            shortcut: '⌘R',
+            onClick: () => void handleRefresh(),
+          },
           {
             type: 'action',
             label: '返回上级',
@@ -1770,15 +2770,23 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     canPasteHere,
     closeWindowsForApp,
     goBackInPath,
+    handleCut,
+    handleCopy,
+    handleEmptyTrash,
     handleNewFolder,
     handlePaste,
+    handleRefresh,
+    handleTrash,
+    locationId,
     locations,
     minimizeWindow,
     nameDisplayMode,
     navigatePathBar,
     openNewFileMenu,
     pathNodes.length,
+    selectAll,
     selectLocation,
+    selectedNodes,
     showBuiltinAbout,
     windows,
   ])
@@ -1820,7 +2828,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             {locations.map((location) => {
               const active = location.id === locationId
               const mountId = isMountLocationId(location.id) ? location.id : undefined
-              const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}`
+              const isDropTarget = dropTarget?.kind === 'location' && dropTarget.id === location.id
+              const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}${isDropTarget ? ' files__sidebar-item--drop-target' : ''}`
               const locationContent = (
                 <>
                   <span class="files__sidebar-icon">
@@ -1829,6 +2838,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                   <span class="files__sidebar-label">{location.label}</span>
                 </>
               )
+              const locationDragHandlers = {
+                onDragOver: (event: DragEvent) => handleLocationDragOver(event, location),
+                onDragLeave: (event: DragEvent) => handleLocationDragLeave(event, location),
+                onDrop: (event: DragEvent) => handleLocationDrop(event, location),
+              }
               const handleLocationContextMenu = (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
                 if (!mountId) return
                 event.preventDefault()
@@ -1850,6 +2864,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         class="files__sidebar-item-select"
                         onClick={() => selectLocation(location.id)}
                         onContextMenu={handleLocationContextMenu}
+                        {...locationDragHandlers}
                       >
                         {locationContent}
                       </button>
@@ -1872,6 +2887,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                       class={itemClass}
                       onClick={() => selectLocation(location.id)}
                       onContextMenu={handleLocationContextMenu}
+                      {...locationDragHandlers}
                     >
                       {locationContent}
                     </button>
@@ -1898,6 +2914,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             )}
           </div>
           <h1 class="files__toolbar-title">{currentTitle}</h1>
+          {selectedIds.size > 0 ? (
+            <button
+              type="button"
+              class="files__selection-count"
+              title="清除选择 (Esc)"
+              onClick={clearSelection}
+            >
+              已选 {selectedIds.size} 项 ✕
+            </button>
+          ) : undefined}
           <div class="files__toolbar-right">
             <button
               type="button"
@@ -1936,6 +2962,40 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 </button>
               </>
             ) : undefined}
+            <button
+              type="button"
+              class="files__toolbar-btn files__toolbar-btn--icon"
+              aria-label="从本机导入…"
+              title="从本机导入…（也可从 Finder 拖入窗口）"
+              onClick={openSystemFilePicker}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M8 2.5v7M5 6.5l3-3 3 3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M2.5 9.5v2.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V9.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              multiple
+              class="files__import-input"
+              onChange={handleImportInputChange}
+              aria-hidden="true"
+              tabIndex={-1}
+            />
           </div>
         </header>
 
@@ -1956,6 +3016,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             'files__browser',
             folderMotion === 'push' ? 'files__browser--push' : '',
             folderMotion === 'pop' ? 'files__browser--pop' : '',
+            backgroundDropActive ? 'files__browser--drop-active' : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -1964,9 +3025,21 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             setFolderMotion('idle')
           }}
           onPointerDown={beginBackgroundLongPress}
-          onPointerMove={handleLongPressMove}
-          onPointerUp={clearLongPress}
-          onPointerCancel={clearLongPress}
+          onPointerMove={(event) => {
+            handleLongPressMove(event)
+            updateMarquee(event)
+          }}
+          onPointerUp={() => {
+            clearLongPress()
+            endMarquee()
+          }}
+          onPointerCancel={() => {
+            clearLongPress()
+            endMarquee()
+          }}
+          onDragOver={handleBackgroundDragOver}
+          onDragLeave={handleBackgroundDragLeave}
+          onDrop={handleBackgroundDrop}
           onContextMenu={(event) => {
             if ((event.target as HTMLElement | undefined)?.closest?.('.files__item, .files__list-item'))
               return
@@ -1993,21 +3066,26 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             <div class="files__empty">正在加载…</div>
           ) : items.length === 0 ? (
             <div class="files__empty">
-              <p class="files__empty-title">此文件夹为空</p>
+              <p class="files__empty-title">
+                {isTrashLocationId(locationId) ? '废纸篓为空' : '此文件夹为空'}
+              </p>
               <p class="files__empty-text">
-                {canCreateHere
-                  ? '可新建文件夹，或新建文本文件。'
-                  : '此位置为系统资源，仅供浏览。'}
+                {isTrashLocationId(locationId)
+                  ? '删除的文件会移入这里，可恢复或清空。'
+                  : canCreateHere
+                    ? '可新建文件夹，或新建文本文件。'
+                    : '此位置为系统资源，仅供浏览。'}
               </p>
             </div>
           ) : (
             <ul class={viewMode === 'list' ? 'files__list' : 'files__grid'}>
               {items.map((node) => {
-                const selected = node.id === selectedId
+                const selected = selectedIds.has(node.id)
+                const isDropTarget = dropTarget?.kind === 'node' && dropTarget.id === node.id
                 const itemClass =
                   viewMode === 'list'
-                    ? `files__list-item${selected ? ' files__list-item--selected' : ''}`
-                    : `files__item${selected ? ' files__item--selected' : ''}`
+                    ? `files__list-item${selected ? ' files__list-item--selected' : ''}${isDropTarget ? ' files__list-item--drop-target' : ''}`
+                    : `files__item${selected ? ' files__item--selected' : ''}${isDropTarget ? ' files__item--drop-target' : ''}`
                 return (
                   <li key={node.id}>
                     <button
@@ -2015,7 +3093,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                       class={itemClass}
                       data-files-node-id={node.id}
                       aria-selected={selected}
-                      onClick={() => handleItemClick(node)}
+                      draggable={!isTrashLocationId(locationId)}
+                      onClick={(event) => handleItemClick(node, event)}
+                      onDragStart={(event) => handleDragStart(event, node)}
+                      onDragOver={(event) => handleFolderDragOver(event, node)}
+                      onDragLeave={(event) => handleFolderDragLeave(event, node)}
+                      onDrop={(event) => handleFolderDrop(event, node)}
                       onPointerDown={(event) => beginItemLongPress(event, node)}
                       onPointerMove={handleLongPressMove}
                       onPointerUp={clearLongPress}
@@ -2027,7 +3110,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         setNewFileMenu(undefined)
                         setLocationContextMenu(undefined)
                         setBackgroundContextMenu(undefined)
-                        activateSelection(node.id)
+                        // 右键未选中项时先单选（保持多选时右键全集操作）
+                        if (!selectedIdsRef.current.has(node.id)) {
+                          activateSelection(node.id)
+                        }
                         if (actionSheetOpenedByLongPressRef.current) {
                           actionSheetOpenedByLongPressRef.current = false
                           suppressItemClickRef.current = true
@@ -2082,6 +3168,17 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               })}
             </ul>
           )}
+          {marqueeRect ? (
+            <div
+              class="files__marquee"
+              style={{
+                left: `${Math.min(marqueeRect.left, marqueeRect.right)}px`,
+                top: `${Math.min(marqueeRect.top, marqueeRect.bottom)}px`,
+                width: `${Math.abs(marqueeRect.right - marqueeRect.left)}px`,
+                height: `${Math.abs(marqueeRect.bottom - marqueeRect.top)}px`,
+              }}
+            />
+          ) : undefined}
         </div>
 
         <FilesPathBar
@@ -2097,73 +3194,23 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
           onClick={(event) => event.stopPropagation()}
         >
-          {isApplicationsBundleRootNode(contextMenu.node) ? (
-            <>
+          {buildItemMenuActions(contextMenu.node).map((item, index) => {
+            if (item.type === 'separator') return undefined
+            return (
               <button
+                key={`${item.label}-${index}`}
                 type="button"
                 class="files__context-item"
-                onClick={() => openAppBundle(contextMenu.node)}
+                disabled={item.disabled}
+                onClick={() => {
+                  item.onClick()
+                  setContextMenu(undefined)
+                }}
               >
-                打开
+                {item.label}
               </button>
-              <button
-                type="button"
-                class="files__context-item"
-                onClick={() => showAppBundleContents(contextMenu.node)}
-              >
-                显示包内容
-              </button>
-            </>
-          ) : contextMenu.node.kind === 'file' ? (
-            <button
-              type="button"
-              class="files__context-item"
-              onClick={() => void showOpenWithChooser(contextMenu.node)}
-            >
-              打开方式…
-            </button>
-          ) : undefined}
-          <button
-            type="button"
-            class="files__context-item"
-            onClick={() => handleCopy(contextMenu.node)}
-          >
-            复制
-          </button>
-          {canPasteHere ? (
-            <button
-              type="button"
-              class="files__context-item"
-              onClick={() => void handlePaste()}
-            >
-              粘贴
-            </button>
-          ) : undefined}
-          {canRenameOrDeleteFilesNode(contextMenu.node) ? (
-            <>
-              <button
-                type="button"
-                class="files__context-item"
-                onClick={() => void handleRename(contextMenu.node)}
-              >
-                重新命名
-              </button>
-              <button
-                type="button"
-                class="files__context-item files__context-item--danger"
-                onClick={() => void handleDelete(contextMenu.node)}
-              >
-                删除
-              </button>
-            </>
-          ) : undefined}
-          <button
-            type="button"
-            class="files__context-item"
-            onClick={() => void handleShowInfo(contextMenu.node)}
-          >
-            显示信息
-          </button>
+            )
+          })}
         </div>
       ) : undefined}
 

@@ -55,12 +55,13 @@ export type QuickJsAsyncBridge = {
   /**
    * 当前同步切片结束后调用：微任务 ↔ nextTick ↔ Promise jobs 同相轮转排空
    *（均先于定时器；不保证相对 Promise 的 Node 严格序）。
+   * 异步：job 内 `*Sync`（asyncified）挂起时会等待 rewind 完成，避免重入破坏 asyncify 状态。
    */
-  drainAfterSync: () => void
-  /** 在非 busy 时执行；若 busy 则排队。 */
-  enqueueHostTask: (task: () => void) => void
+  drainAfterSync: () => Promise<void>
+  /** 在非 busy 时执行；若 busy 则排队。任务可为异步（挂起感知的 drain / 回调）。 */
+  enqueueHostTask: (task: () => void | Promise<void>) => void
   /** 冲刷排队的宿主任务（eval/切片结束时调用）。 */
-  flushHostTasks: () => void
+  flushHostTasks: () => Promise<void>
   clearAll: () => void
   /** 结算 guest Promise 并调度 pendingJobs（供后续 fs/promises 等使用）。 */
   settleGuestPromise: (
@@ -77,6 +78,43 @@ export type QuickJsAsyncBridge = {
   hasPendingAsyncWork: () => boolean
   /** 当前挂起的 setTimeout/setInterval 数量。 */
   getPendingTimerCount: () => number
+}
+
+/**
+ * quickjs-emscripten Asyncify 内部状态的最小视图（release 构建压缩名为 Qa/Wa）。
+ * `Qa`（currData）非 null 表示有挂起中的 asyncify 操作；`Wa`（whenDone handlers）
+ * 由 ccall async 路径注册，挂起结算（rewind）时以最终返回值 resolve。
+ */
+type QuickJsAsyncifyState = {
+  Qa: unknown
+  Wa: { resolve: (value: unknown) => void; reject: (error: unknown) => void } | null
+}
+
+/**
+ * 宿主侧直连的 quickjs-emscripten 内部对象（raw export 绕过 ccall 的 number 参数捷径，
+ * 无法享受 ccall 的 async 路径；本模块需自行复刻挂起检测与 whenDone 等待）。
+ */
+type QuickJsRuntimeInternals = {
+  /** QuickJSRuntime 本身无 .value；rt 指针在其 rt（Lifetime）上。 */
+  rt: { value: number }
+  ffi: {
+    QTS_FreeValuePointerRuntime: (rt: number, value: number) => void
+    QTS_ResolveException: (ctx: number, value: number) => number
+    QTS_FreeValuePointer: (ctx: number, value: number) => void
+  }
+  module: {
+    _QTS_ExecutePendingJob: (rt: number, maxJobs: number, ctxPtrOut: number) => number
+    _QTS_Call: (ctx: number, fn: number, thisVal: number, argc: number, argv: number) => number
+    Asyncify: QuickJsAsyncifyState
+  }
+  memory: {
+    newMutablePointerArray: (
+      length: number,
+    ) => { value: { ptr: number; typedArray: Int32Array }; dispose: () => void }
+    toPointerArray: (
+      handles: QuickJSHandle[],
+    ) => { value: { ptr: number }; dispose: () => void }
+  }
 }
 
 function formatCallError(context: QuickJSContext, errorHandle: QuickJSHandle): string {
@@ -125,6 +163,11 @@ function readDelayMs(context: QuickJSContext, handle: QuickJSHandle | undefined)
 /**
  * 宿主侧异步桥：定时器、queueMicrotask、process.nextTick、pendingJobs 与 Promise 续体回灌。
  * nextTick 与 Promise 同相（先于定时器），不保证 Node「严格先于 then」序。
+ *
+ * 挂起感知：raw export（QTS_ExecutePendingJob / QTS_Call）全 number 参数，cwrap 捷径下
+ * 不走 ccall，job / 回调里 `*Sync`（asyncified）挂起时无法等 rewind；drain 循环重入会
+ * 破坏 asyncify 状态（memory access out of bounds，见 docs/quickjs-stream-double-free-bug.md）。
+ * 本桥复刻 ccall async 路径：调用后比对 `Asyncify.Qa`，变化即注册 whenDone 等 rewind。
  */
 export function createQuickJsAsyncBridge(
   options: QuickJsAsyncBridgeOptions,
@@ -135,11 +178,15 @@ export function createQuickJsAsyncBridge(
   const timers = new Map<number, HostTimerEntry>()
   const microtasks: QuickJSHandle[] = []
   const nextTicks: NextTickEntry[] = []
-  const hostTasks: Array<() => void> = []
+  const hostTasks: Array<() => void | Promise<void>> = []
   let drainingHostTasks = false
+  let hostTaskDrain: Promise<void> = Promise.resolve()
   let cleared = false
   /** createDeferredPromise 尚未 settle/abandon 的数量（含 in-flight host 异步）。 */
   let unsettledDeferredCount = 0
+
+  const internals = (): QuickJsRuntimeInternals =>
+    runtime as unknown as QuickJsRuntimeInternals
 
   const releaseUnsettledDeferred = () => {
     if (unsettledDeferredCount > 0) {
@@ -228,16 +275,85 @@ export function createQuickJsAsyncBridge(
     hostTasks.length = 0
   }
 
-  const runGuestCallback = (fnHandle: QuickJSHandle, argHandles: QuickJSHandle[] = []) => {
+  const heapValueHandle = (ptr: number): QuickJSHandle =>
+    (context as unknown as { memory: { heapValueHandle: (p: number) => QuickJSHandle } }).memory
+      .heapValueHandle(ptr)
+
+  const createHostErrorHandle = (error: unknown): QuickJSHandle => {
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      return context.newError(message)
+    } catch {
+      // wasm 已损坏时 newError 也可能崩；退回纯字符串句柄
+      return context.newString(`[QuickJS host error] ${message}`)
+    }
+  }
+
+  /**
+   * 复刻 vendor `callFunction`（QTS_Call），但走挂起感知路径：
+   * 调用后 `Asyncify.Qa` 变化说明回调内发生了 asyncified（`*Sync`）挂起，
+   * 注册 whenDone 等 rewind 完成再结算，避免 raw export 重入破坏 asyncify 状态。
+   */
+  const callFunctionSuspensionAware = async (
+    fnHandle: QuickJSHandle,
+    thisHandle: QuickJSHandle,
+    ...argHandles: QuickJSHandle[]
+  ): Promise<{ error: QuickJSHandle } | { value: QuickJSHandle }> => {
+    const rt = internals()
+    const args = argHandles
+    const argvLifetime = rt.memory.toPointerArray(args)
+    try {
+      const prevData = rt.module.Asyncify.Qa
+      let resultPtr: number
+      try {
+        resultPtr = rt.module._QTS_Call(
+          context.value,
+          fnHandle.value,
+          thisHandle.value,
+          args.length,
+          argvLifetime.value.ptr,
+        )
+      } catch (error) {
+        return {
+          error: createHostErrorHandle(error),
+        }
+      }
+      if (rt.module.Asyncify.Qa !== prevData) {
+        resultPtr = await new Promise<number>((resolve, reject) => {
+          rt.module.Asyncify.Wa = {
+            resolve: (rewound) => resolve(rewound as number),
+            reject: (error) => reject(error),
+          }
+        })
+      }
+      const errorPtr = rt.ffi.QTS_ResolveException(context.value, resultPtr)
+      if (errorPtr) {
+        rt.ffi.QTS_FreeValuePointer(context.value, resultPtr)
+        return { error: heapValueHandle(errorPtr) }
+      }
+      return { value: heapValueHandle(resultPtr) }
+    } finally {
+      argvLifetime.dispose()
+    }
+  }
+
+  const runGuestCallback = async (
+    fnHandle: QuickJSHandle,
+    argHandles: QuickJSHandle[] = [],
+  ) => {
     if (options.isDestroyed() || !fnHandle.alive) {
       return
     }
-    const result = context.callFunction(fnHandle, context.undefined, ...argHandles)
-    if (result.error) {
-      options.reportError(formatCallError(context, result.error))
-      return
+    try {
+      const result = context.callFunction(fnHandle, context.undefined, ...argHandles)
+      if (result.error) {
+        options.reportError(formatCallError(context, result.error))
+        return
+      }
+      result.value.dispose()
+    } catch (error) {
+      options.reportError(`callback failed: ${String(error)}`)
     }
-    result.value.dispose()
   }
 
   const enqueueNextTick = (callbackHandle: QuickJSHandle, argHandles: QuickJSHandle[]) => {
@@ -262,7 +378,84 @@ export function createQuickJsAsyncBridge(
     })
   }
 
-  const drainAfterSync = () => {
+  /**
+   * 复刻 vendor `executePendingJobs` 的结果结算（ctxPtrOut / 异常包装），
+   * 但 raw export 调用本身走挂起感知路径（见 {@link executePendingJobsSuspensionAware}）。
+   */
+  const finishPendingJob = (valuePtr: number, ctxPtrOut: { dispose: () => void }): void => {
+    const rt = internals()
+    const ctxPtr = (ctxPtrOut as { value: { typedArray: Int32Array } }).value.typedArray[0]
+    ctxPtrOut.dispose()
+    if (ctxPtr === 0) {
+      rt.ffi.QTS_FreeValuePointerRuntime(rt.rt.value, valuePtr)
+      return
+    }
+    const jobContext = (
+      runtime as unknown as { contextMap: Map<number, unknown> }
+    ).contextMap.get(ctxPtr)
+    if (jobContext === undefined) {
+      // 未知 context（多实例共享 runtime 时兜底）：只释放，不结算
+      rt.ffi.QTS_FreeValuePointerRuntime(rt.rt.value, valuePtr)
+      return
+    }
+    const resultValue = (
+      jobContext as unknown as { memory: { heapValueHandle: (p: number) => QuickJSHandle } }
+    ).memory.heapValueHandle(valuePtr)
+    if (context.typeof(resultValue) === 'number') {
+      resultValue.dispose()
+      return
+    }
+    // job 抛出异常：包装成 error 结果（后续 reportError 展示）
+    const errorHandle = resultValue
+    options.reportError(formatCallError(context, errorHandle))
+  }
+
+  /**
+   * 挂起感知的 pending-job 泵。job 内 `*Sync`（asyncified）挂起时，
+   * raw `QTS_ExecutePendingJob` 直接返回 suspend 标记（绕过 ccall），
+   * 这里比对 `Asyncify.Qa` 检测挂起，并注册 whenDone 等待 rewind 完成
+   *（rewind 会跑完剩余 jobs，包括被挂起 eval 的续体）。
+   */
+  const executePendingJobsSuspensionAware = async (): Promise<void> => {
+    const rt = internals()
+    const ctxPtrOut = rt.memory.newMutablePointerArray(1)
+    const prevData = rt.module.Asyncify.Qa
+    let valuePtr: number
+    try {
+      valuePtr = rt.module._QTS_ExecutePendingJob(rt.rt.value, -1, ctxPtrOut.value.ptr)
+    } catch (error) {
+      ctxPtrOut.dispose()
+      options.reportError(`executePendingJobs failed: ${String(error)}`)
+      return
+    }
+    if (rt.module.Asyncify.Qa !== prevData) {
+      await new Promise<void>((resolve, reject) => {
+        rt.module.Asyncify.Wa = {
+          resolve: (rewound) => {
+            finishPendingJob(rewound as number, ctxPtrOut)
+            resolve()
+          },
+          reject: (error) => {
+            ctxPtrOut.dispose()
+            options.reportError(`asyncify rewind failed: ${String(error)}`)
+            resolve()
+          },
+        }
+      })
+      return
+    }
+    finishPendingJob(valuePtr, ctxPtrOut)
+  }
+
+  /** drain 串行链：避免多个调用方（eval 泵 / 定时器 / deferred）并发重入 wasm。 */
+  let drainChain: Promise<void> = Promise.resolve()
+
+  const drainAfterSync = (): Promise<void> => {
+    drainChain = drainChain.then(() => drainOnce())
+    return drainChain
+  }
+
+  const drainOnce = async (): Promise<void> => {
     if (options.isDestroyed()) {
       return
     }
@@ -280,7 +473,7 @@ export function createQuickJsAsyncBridge(
           break
         }
         try {
-          runGuestCallback(fnHandle)
+          await runGuestCallback(fnHandle)
         } finally {
           if (fnHandle.alive) {
             fnHandle.dispose()
@@ -298,7 +491,7 @@ export function createQuickJsAsyncBridge(
           break
         }
         try {
-          runGuestCallback(entry.callback, entry.args)
+          await runGuestCallback(entry.callback, entry.args)
         } finally {
           disposeNextTickEntry(entry)
         }
@@ -326,49 +519,49 @@ export function createQuickJsAsyncBridge(
         continue
       }
 
-      const jobsResult = runtime.executePendingJobs()
-      if (jobsResult.error) {
-        const errorHandle = jobsResult.error
-        const errorContext = errorHandle.context ?? context
-        options.reportError(formatCallError(errorContext, errorHandle))
-        break
-      }
+      await executePendingJobsSuspensionAware()
     }
   }
 
-  const flushHostTasks = () => {
-    if (drainingHostTasks || options.isDestroyed()) {
-      return
+  const flushHostTasks = (): Promise<void> => {
+    if (options.isDestroyed()) {
+      return Promise.resolve()
+    }
+    if (drainingHostTasks) {
+      return hostTaskDrain
     }
     drainingHostTasks = true
-    try {
-      while (hostTasks.length > 0 && !options.isDestroyed()) {
-        if (options.isBusy()) {
-          break
+    hostTaskDrain = (async () => {
+      try {
+        while (hostTasks.length > 0 && !options.isDestroyed()) {
+          if (options.isBusy()) {
+            break
+          }
+          const task = hostTasks.shift()
+          if (task === undefined) {
+            break
+          }
+          await task()
         }
-        const task = hostTasks.shift()
-        if (task === undefined) {
-          break
-        }
-        task()
+      } finally {
+        drainingHostTasks = false
       }
-    } finally {
-      drainingHostTasks = false
-    }
+    })()
+    return hostTaskDrain
   }
 
-  const enqueueHostTask = (task: () => void) => {
+  const enqueueHostTask = (task: () => void | Promise<void>) => {
     if (options.isDestroyed() || cleared) {
       return
     }
     hostTasks.push(task)
     if (!options.isBusy()) {
-      flushHostTasks()
+      void flushHostTasks()
     }
   }
 
   const runTimerCallback = (timerId: number) => {
-    enqueueHostTask(() => {
+    enqueueHostTask(async () => {
       if (options.isDestroyed()) {
         return
       }
@@ -384,9 +577,9 @@ export function createQuickJsAsyncBridge(
 
       entry.invoking = true
       try {
-        runGuestCallback(entry.callback, entry.args)
+        await runGuestCallback(entry.callback, entry.args)
         if (!options.isDestroyed() && !entry.cancelled) {
-          drainAfterSync()
+          await drainAfterSync()
         }
       } finally {
         entry.invoking = false
@@ -402,7 +595,7 @@ export function createQuickJsAsyncBridge(
         }
 
         options.endSlice()
-        flushHostTasks()
+        void flushHostTasks()
       }
     })
   }
@@ -598,13 +791,13 @@ export function createQuickJsAsyncBridge(
     }
 
     void deferred.settled.then(() => {
-      enqueueHostTask(() => {
+      enqueueHostTask(async () => {
         if (options.isDestroyed()) {
           return
         }
         const started = options.tryBeginSlice(options.getSliceTimeoutMs())
         if (!started) {
-          enqueueHostTask(() => {
+          enqueueHostTask(async () => {
             if (options.isDestroyed()) {
               return
             }
@@ -612,19 +805,19 @@ export function createQuickJsAsyncBridge(
               return
             }
             try {
-              drainAfterSync()
+              await drainAfterSync()
             } finally {
               options.endSlice()
-              flushHostTasks()
+              void flushHostTasks()
             }
           })
           return
         }
         try {
-          drainAfterSync()
+          await drainAfterSync()
         } finally {
           options.endSlice()
-          flushHostTasks()
+          void flushHostTasks()
         }
       })
     })

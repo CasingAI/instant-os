@@ -2,7 +2,7 @@
 
 > 目标：让 AI 在终端里能把网上的大文件**边下边存**到虚拟文件系统，内存占用与文件大小解耦，并在下载过程中按大小上限提前拦截、保留撤销能力。
 >
-> 状态：**设计方案（待审）**。本文只做设计与决策，不涉及实现。
+> 状态：**Phase 1-2 已完成，Phase 3 待实施**。本文记录设计与决策，实现已落地。
 >
 > 已定决策：**不加新壳层命令**，走客侧流式 API（`fetch` 带 `body` 流 + `fs.createWriteStream` 真增量写），与 Node 生态习惯一致、可组合。
 
@@ -208,17 +208,23 @@ export async function filesOpenStreamWrite(path: string): Promise<FilesStreamWri
   - `/user` 与 `/mount` 均通过。
 
 ### Phase 2 · 客侧流式 API（主路径）
-> **状态：受阻（2026-08-08 勘察结论）**
-> 已实现并验证：宿主侧 `fsHostOpenStreamWrite`（`quickjs-fs-vfs.ts`，含 journal 单条）、WriteStream 宿主侧改真增量落盘（`openWrite/writeChunk/closeWrite/abort`）、客侧 `_write` 异步化 + `destroy`→abort。
-> **阻塞**：改完后 `quickjs-sandbox.smoke-test.ts` 的 multi-chunk 用例 2/3 概率触发 QuickJS 原生崩溃（"memory access out of bounds" / `js_free_shape0`）。**该崩溃在原始代码上同样可复现**（同一实例连续多次 `createReadStream→pipe→createWriteStream` eval，stash 验证）：是 asyncify 集成的既有潜在 bug，我的改动改变了宿主异步时序、放大了触发窗口。已回退 quickjs-fs / quickjs-fs-vfs 改动保持代码树可靠。
-> **建议排查方向**：异步桥（`quickjs-async-bridge.ts`）与 QuickJSAsyncContext 的交互；`hostBytesToGuestBuffer` 的同步 `evalCode`（fs/crypto/zlib 三处共用）在挂起态下的安全性（bisect 已排除其为唯一因素）；或 stream polyfill 的 queue/drain 时序。
-- QuickJS 客侧 ReadableStream 最小实现（`getReader/read/cancel`）。
-- `injectFetch` 改为"响应壳 + 拉取式 body 流"；`Response.body` 暴露。
-- WriteStream 宿主侧 `openWrite/writeChunk/closeWrite` 改为调 Phase 1 基元增量落盘。
-- **验收**：
-  - `await pipeline(fetch(url).body, fs.createWriteStream(dest))` 全链路边下边存，内存峰值与 Phase 1 持平。
-  - 客侧 `arrayBuffer()/text()` 行为回归不破。
-  - 中断（cancel/destroy）清理无残留；撤销可回滚。
+> **状态：已完成（2026-08-08 更新）**
+> 阻塞项已解除：`docs/quickjs-stream-double-free-bug.md` 的根因（asyncify 构建中 `*Sync`
+> 在 job/宿主回调里挂起穿越 raw export，drain 重入破坏 asyncify 状态）已在
+> `quickjs-async-bridge.ts` 修复（挂起感知 job 泵 + 挂起感知 callFunction + drain/宿主任务
+> 异步化串行化），回归全绿。
+>
+> **已落地：**
+> - 宿主侧 `fsHostOpenStreamWrite`（`quickjs-fs-vfs.ts`，含 journal 单条）、WriteStream
+>   宿主侧改真增量落盘（`openWrite/writeChunk/closeWrite/abort`，abort 覆盖 open 未完成窗口）、
+>   客侧 `_write` 异步化 + `destroy`→abort。
+> - QuickJS 客侧 ReadableStream 最小实现（`getReader/read/cancel`）+ `.pipe()` 桥接
+>   （兼容 Node stream `pipeline`）。
+> - `injectFetch` 改为"响应壳 + 拉取式 body 流"：`Response.body` 返回 ReadableStream，
+>   宿主侧按 chunk 增量读取并逐块递入客侧，`maxFileBytes` 按累计字节实时拦截。
+> - `arrayBuffer()/text()/json()/bytes()` 流式消费回归不破；`bodyUsed` 语义正确。
+> - 验收通过：`pipeline(fetch(url).body, fs.createWriteStream(dest))` 全链路冒烟
+>   （`quickjs-fetch-stream.smoke-test.ts`），reader.read() 逐块正确，cancel 清理无残留。
 
 ### Phase 3 · 体验与指标
 - 终端内下载进度展示（写流进度 → upsert_output_block 进度条，复用现有 live block 机制）。
@@ -234,7 +240,7 @@ export async function filesOpenStreamWrite(path: string): Promise<FilesStreamWri
 | 1 | 代理服务器（Cloudflare Worker）若整段缓冲（`await arrayBuffer()` 后返回）：其自身内存 O(file)，超大文件可能直接 OOM 失败；首字节延迟到整段下载完，失去"下载与写盘重叠"收益 | 超大文件可能整体失败（代理侧约束，非我们读取侧）；重叠收益打折 | 我们的读取侧**恒走 `response.body` 流式、不做分支**；代理服务器行为只影响文档化说明与超大文件成功率 |
 | 2 | `FILES_CHUNKS_STORE` 改造波及面广：创建/读/COW/删除/子树删除/复制/批量 upsert/配额都要过一遍 | 回归风险 | 分批改 + 现有 `files-storage-cow.test.ts`、`files-system-vfs.test.ts` 全量跑；每步独立提交 |
 | 3 | QuickJS 客侧 ReadableStream 实现成本（在**主路径**上，不可绕开） | 阶段 2 是硬骨头 | 只做最小语义（getReader/read/cancel），先满足 pipeline；复杂流操作后续迭代 |
-| 4 | 流式中断可能残留孤儿 chunk | 数据不一致、占配额 | `abort()` 必须清理 + 启动时孤儿回收（扫描无 blob 引用的 chunk） |
+| 4 | 流式中断可能残留孤儿 chunk | 数据不一致、占配额 | `abort()` 清理 + 启动时孤儿回收 **已实现**（`files-storage.ts: sweepOrphanChunksOnce`，首次打开 DB 后扫无 blob 记录的 chunk 并删除；有单测） |
 | 5 | 大文件 `before` blob 是整文件副本 | 覆盖已有大文件时撤销代价高 | 维持现状（原文件已存在，不新增内存峰值）；文档化 |
 | 6 | 无 Content-Length 的响应（chunked）无法预估总大小 | 进度无 total、配额只能按需扣 | 进度 total 可缺省；配额按实际累计 |
 

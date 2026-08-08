@@ -193,7 +193,7 @@ async function resolveParentForCreate(absolutePath: string): Promise<{
   )
   const parent = await resolveNodeByAbsolutePath(parentPath, { follow: true })
   if (!parent || parent.kind !== 'folder') {
-    throw new Error('父文件夹不存在')
+    throw new Error(`父文件夹不存在：${parentPath}`)
   }
   return { locationId: parsed.locationId, parentId: parent.id, name }
 }

@@ -297,9 +297,13 @@ function describeToolCall(event: AgentToolCallEvent): {
         ? args.source
         : undefined
   const query = typeof args.query === 'string' ? args.query.trim() : undefined
+  // 通用约定：带 description 参数的工具（如 phoneme 分块对齐）用它作为意图摘要
+  const description =
+    typeof args.description === 'string' ? args.description.trim() : undefined
   return {
     label,
-    detail: query ? query.slice(0, 48) : path ? path.slice(-48) : undefined,
+    detail:
+      description || (query ? query.slice(0, 48) : path ? path.slice(-48) : undefined),
   }
 }
 

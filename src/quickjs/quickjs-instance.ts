@@ -635,7 +635,7 @@ export async function createQuickJsInstance(
     const awaitGuestPromiseValue = async (
       valueHandle: QuickJSHandle,
     ): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
-      asyncBridge.drainAfterSync()
+      await asyncBridge.drainAfterSync()
       let promiseState = context.getPromiseState(valueHandle)
       if (promiseState.type === 'fulfilled' && promiseState.notAPromise) {
         return { ok: true, value: dumpEvalValue(context, valueHandle) }
@@ -656,11 +656,11 @@ while (promiseState.type === 'pending') {
 	        const savedExit = processState.exitRequested
 	        state.busy = false
 	        notify()
-	        try {
-	          asyncBridge.flushHostTasks()
-	          asyncBridge.drainAfterSync()
-	          await yieldToHostEventLoop()
-	        } finally {
+        try {
+          await asyncBridge.flushHostTasks()
+          await asyncBridge.drainAfterSync()
+          await yieldToHostEventLoop()
+        } finally {
 	          state.busy = true
 	          if (savedAbort) abortRequested = true
 	          if (savedExit) processState.exitRequested = true
@@ -702,8 +702,8 @@ while (promiseState.type === 'pending') {
           const timers = asyncBridge.getPendingTimerCount()
           return `timeout after ${timeoutMs}ms with pending async work (timers=${timers})`
         }
-        asyncBridge.flushHostTasks()
-        asyncBridge.drainAfterSync()
+        await asyncBridge.flushHostTasks()
+        await asyncBridge.drainAfterSync()
         await yieldToHostEventLoop()
       }
       return undefined
@@ -754,7 +754,7 @@ while (promiseState.type === 'pending') {
         }
       } else {
         try {
-          asyncBridge.drainAfterSync()
+          await asyncBridge.drainAfterSync()
           syncExitCodeFromGuest(context, processState)
           if (processState.exitRequested) {
             appendSystemDebugLog({
@@ -853,7 +853,7 @@ while (promiseState.type === 'pending') {
       }
       mergePendingExternalChangeSets()
       if (!state.destroyed) {
-        asyncBridge.flushHostTasks()
+        await asyncBridge.flushHostTasks()
       }
     }
 

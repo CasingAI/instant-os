@@ -1,0 +1,511 @@
+/* 歌词对齐 App（Phoneme）— 与系统一致的 iOS 6 拟物风（同 ProDude / 帮助） */
+.phoneme {
+  --phoneme-bg: #e8e3da;
+  --phoneme-bg-raised: #f1ece2;
+  --phoneme-surface: #faf6ee;
+  --phoneme-surface-raised: #fffdf8;
+  --phoneme-paper: #f7f1e6;
+  --phoneme-ink: #2a241f;
+  --phoneme-ink-muted: #6a5f54;
+  --phoneme-accent: #2f6fed;
+  --phoneme-accent-dark: #1e4fc4;
+  --phoneme-border: #c4b5a0;
+  --phoneme-border-light: #ddd2c2;
+  --phoneme-radius: 7px;
+  --phoneme-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset, 0 1px 3px rgba(0, 0, 0, 0.14);
+  --phoneme-shadow-deep:
+    0 2px 6px rgba(0, 0, 0, 0.16), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -30%, #fff8ef 0%, transparent 55%),
+    linear-gradient(180deg, #efe9df 0%, var(--phoneme-bg) 100%);
+  color: var(--phoneme-ink);
+  font-family: var(--app-text-font-family);
+  font-size: 13px;
+  overflow: hidden;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* —— 工具栏（同 help-app__toolbar） —— */
+
+.phoneme__toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #f5efe4 0%, #e7dfd1 100%);
+  border-bottom: 1px solid var(--phoneme-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+}
+
+.phoneme__toolbar-title {
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--phoneme-accent-dark);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.phoneme__toolbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.phoneme__source {
+  color: var(--phoneme-ink-muted);
+  font-size: 12px;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phoneme__hint {
+  color: var(--phoneme-ink-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.phoneme__error {
+  color: #c0392b;
+  font-size: 12px;
+  padding: 8px 14px;
+  background: rgba(192, 57, 43, 0.08);
+  border-bottom: 1px solid var(--phoneme-border);
+}
+.phoneme__engine {
+  flex: none;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--phoneme-border);
+  background: var(--phoneme-surface);
+  box-shadow: var(--phoneme-shadow);
+  white-space: nowrap;
+}
+.phoneme__engine--webgpu {
+  color: #1e7a44;
+  border-color: rgba(30, 122, 68, 0.4);
+}
+.phoneme__engine--wasm {
+  color: #8a6410;
+  border-color: rgba(138, 100, 16, 0.4);
+}
+
+/* —— 双栏布局 —— */
+
+.phoneme__layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* 左侧：音素识别 */
+.phoneme__left {
+  flex: none;
+  width: 300px;
+  min-width: 240px;
+  overflow-y: auto;
+  padding: 12px;
+  border-right: 1px solid var(--phoneme-border);
+  background: var(--phoneme-bg-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.phoneme__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--phoneme-ink-muted);
+  padding: 24px 12px;
+  text-align: center;
+}
+.phoneme__empty-icon {
+  font-size: 48px;
+  opacity: 0.8;
+}
+.phoneme__empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.phoneme__empty-hint {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.phoneme__section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--phoneme-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+/* 音频信息卡片 */
+.phoneme__audio-info {
+  padding: 8px 10px;
+  background: var(--phoneme-surface);
+  border: 1px solid var(--phoneme-border);
+  border-radius: var(--phoneme-radius);
+  box-shadow: var(--phoneme-shadow);
+}
+.phoneme__audio-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--phoneme-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 音素 + 歌词复制按钮行 */
+.phoneme__copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 可折叠音素详情 */
+.phoneme__details {
+  border: 1px solid var(--phoneme-border);
+  border-radius: var(--phoneme-radius);
+  background: var(--phoneme-surface);
+  box-shadow: var(--phoneme-shadow);
+}
+.phoneme__details[open] {
+  padding-bottom: 8px;
+}
+.phoneme__details-summary {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--phoneme-ink-muted);
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--phoneme-radius);
+}
+.phoneme__details-summary:hover {
+  color: var(--phoneme-accent-dark);
+}
+.phoneme__details-body {
+  padding: 0 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 音素序列 chips */
+.phoneme__phones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  background: var(--phoneme-paper);
+  border: 1px solid var(--phoneme-border);
+  border-radius: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.phoneme__phone {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 6px;
+  background: var(--phoneme-surface-raised);
+  border: 1px solid var(--phoneme-border);
+  border-radius: 4px;
+  box-shadow: var(--phoneme-shadow);
+  font-size: 12px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  cursor: default;
+}
+.phoneme__phone:hover {
+  border-color: var(--phoneme-accent);
+}
+.phoneme__phone-time {
+  font-size: 9px;
+  color: var(--phoneme-ink-muted);
+  font-family: inherit;
+}
+
+/* 逐帧表格 */
+.phoneme__table {
+  overflow: auto;
+  max-height: 300px;
+  background: var(--phoneme-paper);
+  border: 1px solid var(--phoneme-border);
+  border-radius: 6px;
+}
+.phoneme__table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.phoneme__table th,
+.phoneme__table td {
+  padding: 3px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--phoneme-border-light);
+  white-space: nowrap;
+}
+.phoneme__table th {
+  position: sticky;
+  top: 0;
+  background: var(--phoneme-surface-raised);
+  color: var(--phoneme-ink-muted);
+  font-weight: 600;
+}
+.phoneme__time {
+  font-variant-numeric: tabular-nums;
+  color: var(--phoneme-ink-muted);
+}
+.phoneme__argmax {
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-weight: 600;
+}
+.phoneme__top {
+  display: flex;
+  gap: 6px;
+}
+.phoneme__top-item {
+  font-family: 'Menlo', 'Monaco', monospace;
+  color: var(--phoneme-ink-muted);
+  font-size: 10px;
+}
+
+/* —— 右侧：歌词对齐 —— */
+
+.phoneme__right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.phoneme__align-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--phoneme-border);
+  background: linear-gradient(180deg, #f3eddf 0%, #eae3d3 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+.phoneme__align-header .phoneme__section-title {
+  margin-bottom: 0;
+}
+
+.phoneme__align-badge {
+  flex: none;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--phoneme-border);
+  background: var(--phoneme-surface);
+  color: var(--phoneme-ink-muted);
+  white-space: nowrap;
+}
+.phoneme__align-badge--running {
+  color: #1c6d9e;
+  border-color: rgba(28, 109, 158, 0.4);
+}
+.phoneme__align-badge--done {
+  color: #1e7a44;
+  border-color: rgba(30, 122, 68, 0.4);
+}
+.phoneme__align-badge--error {
+  color: #c0392b;
+  border-color: rgba(192, 57, 43, 0.4);
+}
+
+/* —— 共享 Agent 聊天壳（help-app / vscode-ai，浅色拟物由 help-app 变量提供）—— */
+
+.phoneme__chat-shell {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+/* 用户消息：多行原样（对齐轮消息 = 歌词摘要 + 歌词原文） */
+.phoneme__user-msg {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 对齐结果：LRC + 操作行 */
+.phoneme__align-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.phoneme__align-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.phoneme__lyrics-source {
+  font-size: 11px;
+  color: var(--phoneme-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+/* —— 歌词输入卡片 —— */
+
+.phoneme__lyrics-card {
+  padding: 10px 12px;
+  background: var(--phoneme-surface);
+  border: 1px solid var(--phoneme-border);
+  border-radius: var(--phoneme-radius);
+  box-shadow: var(--phoneme-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.phoneme__lyrics-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.phoneme__lyrics-card-head .phoneme__section-title {
+  margin-bottom: 0;
+}
+.phoneme__lyrics-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--phoneme-ink-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.phoneme__lyrics-input {
+  appearance: none;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 96px;
+  padding: 8px 10px;
+  border: 1px solid var(--phoneme-border);
+  border-radius: 6px;
+  background: var(--phoneme-paper);
+  color: var(--phoneme-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+.phoneme__lyrics-input:focus {
+  outline: none;
+  border-color: var(--phoneme-accent);
+  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.18);
+}
+.phoneme__lyrics-input:disabled {
+  opacity: 0.6;
+}
+
+/* —— 识别结果旁存提示 —— */
+
+.phoneme__sidecar-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--phoneme-surface);
+  border: 1px solid var(--phoneme-border);
+  border-radius: var(--phoneme-radius);
+  font-size: 11px;
+  color: var(--phoneme-ink-muted);
+  overflow: hidden;
+}
+.phoneme__sidecar-hint > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phoneme__sidecar-hint--error {
+  border-color: rgba(192, 57, 43, 0.45);
+  color: #c0392b;
+}
+.phoneme__sidecar-hint--warn {
+  border-color: rgba(180, 130, 20, 0.45);
+  color: #8a6d1a;
+}
+
+/* —— 识别进度 —— */
+
+.phoneme__progress-card {
+  padding: 10px 12px;
+  background: var(--phoneme-surface);
+  border: 1px solid var(--phoneme-border);
+  border-radius: var(--phoneme-radius);
+  box-shadow: var(--phoneme-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.phoneme__progress-phase {
+  font-size: 12px;
+  color: var(--phoneme-ink-muted);
+}
+.phoneme__progress-bar-wrap {
+  height: 4px;
+  background: var(--phoneme-bg);
+  border: 1px solid var(--phoneme-border-light);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.phoneme__progress-bar {
+  height: 100%;
+  background: linear-gradient(180deg, #5b8fff 0%, #2a5fd4 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.phoneme__progress-label {
+  font-size: 11px;
+  color: var(--phoneme-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— 隐藏挂载的 Agent 终端（InstantREPL，供对齐 Agent 读写工作区） —— */
+
+.phoneme__terminal-host {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.phoneme__terminal-slot,
+.phoneme__terminal-panel {
+  width: 1px;
+  height: 1px;
+}

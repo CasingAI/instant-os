@@ -29,3 +29,13 @@ dist-ssr
 # Music source separation weights (HTDemucs 6-stem ONNX, ~285 MB) — not committed to git.
 # Fetch via: bash scripts/vendor-demucs.sh
 public/assets/demucs/models/
+
+# Phoneme recognition weights (wav2vec2 ONNX, ~230 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-phoneme.sh
+public/assets/phoneme/models/
+
+# ZCode agent session artifacts
+.zcode/
+
+# 临时测试残留
+dummy-non-existing-folder/

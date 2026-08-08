@@ -1566,3 +1566,23 @@ export function StemsIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function PhonemeIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#3a9e8a" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 波形 + 音素标签（歌词对齐） */}
+        <path
+          d="M10 32 Q 18 20 26 32 T 42 32 T 58 32"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+        <rect x="12" y="40" width="12" height="4" rx="2" fill="#e0b34e" />
+        <rect x="28" y="40" width="12" height="4" rx="2" fill="#4ed0a1" />
+        <rect x="44" y="40" width="12" height="4" rx="2" fill="#a17ee0" />
+      </svg>
+    </AppIconTile>
+  )
+}

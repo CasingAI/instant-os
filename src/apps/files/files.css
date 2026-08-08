@@ -465,6 +465,11 @@
   height: 20px;
 }
 
+/* 「从本机导入…」的系统文件选择器：不可见，仅通过 .click() 触发 */
+.files__import-input {
+  display: none;
+}
+
 .files__protected-banner {
   position: relative;
   z-index: 1;
@@ -1405,4 +1410,56 @@ button.files__path-bar-segment:active {
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* ── 多选 / 框选 / 拖放落点 ─────────────────────────────────────── */
+
+.files__selection-count {
+  appearance: none;
+  margin: 0 4px;
+  padding: 4px 10px;
+  border: 1px solid rgba(90, 60, 25, 0.35);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.5) 0%, rgba(201, 160, 70, 0.35) 100%);
+  color: #4a3520;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.files__selection-count:hover {
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.7) 0%, rgba(201, 160, 70, 0.5) 100%);
+}
+
+/* 框选拖拽层：视口坐标 + fixed，避免受滚动/边距影响 */
+.files__marquee {
+  position: fixed;
+  z-index: 40;
+  border: 1px solid rgba(138, 106, 56, 0.75);
+  border-radius: 3px;
+  background: rgba(232, 197, 106, 0.18);
+  pointer-events: none;
+}
+
+/* 拖放落点高亮 */
+.files__item--drop-target,
+.files__item--drop-target:hover {
+  border-color: #8a6a38;
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.42) 0%, rgba(201, 160, 70, 0.3) 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(138, 106, 56, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.files__list-item--drop-target,
+.files__list-item--drop-target:hover {
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.4) 0%, rgba(201, 160, 70, 0.28) 100%);
+  box-shadow: inset 0 0 0 2px rgba(138, 106, 56, 0.5);
+}
+
+.files__sidebar-item--drop-target .files__sidebar-item-select,
+.files__sidebar-item--drop-target {
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.45) 0%, rgba(201, 160, 70, 0.3) 100%);
+  box-shadow: inset 0 0 0 2px rgba(138, 106, 56, 0.5);
 }

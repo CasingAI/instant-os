@@ -15,6 +15,11 @@ export const DEMUCS_MODEL_URL = '/assets/demucs/models/htdemucs_6s.onnx'
 export const DEMUCS_MODEL_LABEL = 'HTDemucs 6-stem（分轨模型）'
 export const DEMUCS_MODEL_BYTES = 284_797_240
 
+/** wav2vec2 音素识别模型（用于歌词强制对齐）。 */
+export const PHONEME_MODEL_URL = '/assets/phoneme/models/model_q4.onnx'
+export const PHONEME_MODEL_LABEL = 'wav2vec2 音素识别（歌词对齐）'
+export const PHONEME_MODEL_BYTES = 241_691_639
+
 function cacheHandle(): Promise<Cache> {
   if (typeof caches === 'undefined') {
     return Promise.reject(new Error('CacheStorage 不可用（非安全上下文或浏览器不支持）'))

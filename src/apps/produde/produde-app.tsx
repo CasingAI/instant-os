@@ -37,7 +37,12 @@ import {
   useVscodeAiTextModels,
 } from '../vscode/vscode-ai-models.ts'
 import { VscodeAiComposerBlock } from '../vscode/vscode-ai-panel.tsx'
-import type { VscodeAiModelOptionPrefs, VscodeModelSource } from '../vscode/vscode-prefs.ts'
+import {
+  loadVscodePrefs,
+  saveVscodePrefs,
+  type VscodeAiModelOptionPrefs,
+  type VscodeModelSource,
+} from '../vscode/vscode-prefs.ts'
 import {
   buildProdudeChatHistory,
   buildProdudeContext,
@@ -272,6 +277,15 @@ export function ProdudeApp() {
       })
     },
     [patchActiveSession],
+  )
+
+  /** 模型选项（思考开关等）改动 → 持久化，运行时经 openAiConfig 生效 */
+  const handleAiModelOptionsChange = useCallback(
+    (next: Record<string, VscodeAiModelOptionPrefs>) => {
+      setAiModelOptions(next)
+      saveVscodePrefs({ ...loadVscodePrefs(), aiModelOptions: next })
+    },
+    [],
   )
 
   const handleStop = useCallback(() => {
@@ -913,7 +927,7 @@ export function ProdudeApp() {
               textModels={textModels}
               capabilityTags={capabilityTags}
               aiModelOptions={aiModelOptions}
-              onAiModelOptionsChange={setAiModelOptions}
+              onAiModelOptionsChange={handleAiModelOptionsChange}
               contextUsage={composerContextUsage}
               attachments={attachments}
               onAttachmentsChange={setAttachments}

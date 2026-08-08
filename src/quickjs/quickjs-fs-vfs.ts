@@ -4,6 +4,7 @@ import {
   filesList,
   filesLstat,
   filesMkdir,
+  filesOpenStreamWrite,
   filesReadBlob,
   filesReadText,
   filesReadlink,
@@ -381,6 +382,72 @@ export async function fsHostWriteFile(
       assertAlive(ops)
     } catch (error) {
       throw toQuickJsFsError(error, 'writeFile')
+    }
+  })
+}
+
+/**
+ * 宿主侧流式写句柄：`fs.createWriteStream` 的增量落盘接口。
+ * close 后不可再 write；abort 丢弃已写 chunk 并清理节点（新建时）。
+ */
+export type QuickJsFsStreamWriter = {
+  readonly absolutePath: string
+  write(chunk: Uint8Array): Promise<void>
+  close(): Promise<void>
+  abort(): Promise<void>
+}
+
+/** 流式打开写目标：目录报 EISDIR，受控模式记 journal 单条，随后每 chunk 增量落盘。 */
+export async function fsHostOpenStreamWrite(
+  ops: QuickJsFsHostOps,
+  rawPath: unknown,
+): Promise<QuickJsFsStreamWriter> {
+  return withFsHostTrace('openStreamWrite', async (trackPath) => {
+    const absolute = await resolvePath(ops, rawPath, 'write', 'open')
+    trackPath(absolute)
+    assertAlive(ops)
+
+    try {
+      const existing = await filesStat(absolute)
+      assertAlive(ops)
+      if (existing?.kind === 'folder') {
+        throw new QuickJsFsError('EISDIR', `EISDIR: illegal operation on a directory, open '${absolute}'`, {
+          path: absolute,
+          syscall: 'open',
+        })
+      }
+
+      await noteJournal(ops, absolute, (j) => j.noteWrite(absolute))
+      assertAlive(ops)
+
+      const writer = await filesOpenStreamWrite(absolute)
+      assertAlive(ops)
+      let closed = false
+      return {
+        absolutePath: absolute,
+        async write(chunk) {
+          assertAlive(ops)
+          if (closed) {
+            throw new QuickJsFsError('EPIPE', `EPIPE: stream closed, write '${absolute}'`, {
+              path: absolute,
+              syscall: 'write',
+            })
+          }
+          await writer.write(chunk)
+        },
+        async close() {
+          if (closed) return
+          closed = true
+          await writer.close()
+        },
+        async abort() {
+          if (closed) return
+          closed = true
+          await writer.abort()
+        },
+      }
+    } catch (error) {
+      throw toQuickJsFsError(error, 'open')
     }
   })
 }

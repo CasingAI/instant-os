@@ -2,7 +2,7 @@ import type { ComponentType } from 'preact'
 import type { BuiltinAppAbout } from './builtin-app-about-data.ts'
 import type { TerminalPrivilegeRequest } from '../terminal/terminal-privilege-types.ts'
 
-export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'photos' | 'files' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'packages' | 'archive-utility' | 'space-sniffer' | 'ui-kit' | 'stems'
+export type BuiltinAppId = 'browser' | 'chromo' | 'page-devtools' | 'webview' | 'settings' | 'photos' | 'files' | 'textedit' | 'pages' | 'preview' | 'vscode' | 'mail' | 'appstore' | 'scene3d-lab' | 'model-vision' | 'icode' | 'news' | 'weather' | 'stocks' | 'translate' | 'catgpt' | 'produde' | 'gomoku' | 'books' | 'music' | 'calendar' | 'speech' | 'system-info' | 'task-manager' | 'services' | 'event-log' | 'keychain' | 'github-desktop' | 'help' | 'terminal' | 'simulated-terminal' | 'virtual-js' | 'packages' | 'archive-utility' | 'space-sniffer' | 'ui-kit' | 'stems' | 'phoneme'
 
 export type OpenAppOptions = {
   /** 全局绝对路径（如 `/user/笔记.txt`），用于文档类应用打开指定文件 */
