@@ -68,14 +68,24 @@ export function extractLrcFromAnswer(text: string): string {
 // 识别结果旁存：{音频同名}.phones.tsv 放在音频同目录，避免每次测试重新识别
 // ---------------------------------------------------------------------------
 
-/** 音频绝对路径 → 旁存文件绝对路径（同目录 + 同名 + .phones.tsv） */
-export function phonemeSidecarPath(audioPath: string): string {
+/** 音频绝对路径 → 无扩展名基路径（同目录 + 同名去扩展名） */
+function audioBasePath(audioPath: string): string {
   const slash = audioPath.lastIndexOf('/')
   const dir = slash > 0 ? audioPath.slice(0, slash) : '/'
   const name = audioPath.slice(slash + 1)
   const dot = name.lastIndexOf('.')
   const base = dot > 0 ? name.slice(0, dot) : name
-  return `${dir}/${base}.phones.tsv`
+  return `${dir}/${base}`
+}
+
+/** 音频绝对路径 → 旁存文件绝对路径（同目录 + 同名 + .phones.tsv） */
+export function phonemeSidecarPath(audioPath: string): string {
+  return `${audioBasePath(audioPath)}.phones.tsv`
+}
+
+/** 音频绝对路径 → 对齐结果旁存路径（同目录 + 同名 + .aligned.lrc），重开同音频时恢复上次对齐 */
+export function phonemeAlignedLrcPath(audioPath: string): string {
+  return `${audioBasePath(audioPath)}.aligned.lrc`
 }
 
 export type PhonemeSidecarMeta = {

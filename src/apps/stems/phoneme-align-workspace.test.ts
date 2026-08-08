@@ -9,6 +9,7 @@ import {
   countAlignedLrcLines,
   extractLrcFromAnswer,
   parsePhonemeSidecarText,
+  phonemeAlignedLrcPath,
   phonemeSidecarPath,
 } from './phoneme-align-workspace.ts'
 import type { AlignedPhone } from './phoneme-types.ts'
@@ -87,6 +88,19 @@ function testSidecarPath(): void {
   )
 }
 
+function testAlignedLrcSidecarPath(): void {
+  // 对齐结果旁存：同目录同名 .aligned.lrc（与识别旁存同基准）
+  assert.equal(
+    phonemeAlignedLrcPath('/user/音乐/晴天.mp3'),
+    '/user/音乐/晴天.aligned.lrc',
+  )
+  assert.equal(phonemeAlignedLrcPath('/user/abc'), '/user/abc.aligned.lrc')
+  assert.equal(
+    phonemeAlignedLrcPath('/mount/我的歌单/子目录/夜曲.flac'),
+    '/mount/我的歌单/子目录/夜曲.aligned.lrc',
+  )
+}
+
 function testSidecarRoundTrip(): void {
   const phones: AlignedPhone[] = [
     { symbol: 'tɕ', start: 0, end: 0.1234 },
@@ -155,6 +169,7 @@ async function runAll(): Promise<void> {
   testPhonesTsv()
   testCountAlignedLines()
   testSidecarPath()
+  testAlignedLrcSidecarPath()
   testSidecarRoundTrip()
   testSidecarParseBadRows()
   testExtractLrc()
