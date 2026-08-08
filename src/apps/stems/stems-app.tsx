@@ -224,6 +224,49 @@ export function StemsApp() {
     peaksRef.current = peaks
   }, [])
 
+  /**
+   * 把分轨结果打包为 `<源文件名>.stems.zip` 写入源文件同目录。
+   * 手动保存（handleSaveArchive）与分轨/MDX 增强完成后的自动保存共用。
+   * 返回是否成功写入（无源绝对路径时返回 false，拖入的文件不自动保存）。
+   */
+  const saveCurrentStems = useCallback(
+    async (stems: StemAudio[]): Promise<boolean> => {
+      const sourcePath = sourceAbsolutePathRef.current
+      if (!sourcePath) return false
+      try {
+        const writer = await filesOpenStreamWrite(stemsArchivePathFor(sourcePath))
+        await saveStemsArchive({
+          stems,
+          sourcePath,
+          sourceName,
+          durationSec: duration,
+          sampleRate: stemSampleRate,
+          sink: {
+            write: (chunk) => writer.write(chunk),
+            close: () => writer.close(),
+          },
+          onProgress: (saved) => setSaveProgress(saved),
+        })
+        setLoadedFromArchive(Date.now())
+        return true
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+        return false
+      } finally {
+        setSaveProgress(null)
+      }
+    },
+    [sourceName, duration, stemSampleRate],
+  )
+
+  /** 手动保存分轨结果（菜单/按钮）。 */
+  const handleSaveArchive = useCallback(async () => {
+    if (!tracks) return
+    setError(null)
+    setSaveProgress(0)
+    await saveCurrentStems(tracks.map((t) => t.audio))
+  }, [saveCurrentStems, tracks])
+
   /** 启动 worker 分轨（打开文件与拖放文件共用）。 */
   const startSeparation = useCallback(
     (interleaved: Float32Array, sourceRate: number) => {
@@ -251,6 +294,8 @@ export function StemsApp() {
           )
           setPlaying(false)
           setCurrentTime(0)
+          // 自动保存：分轨完成即落盘（有源路径时），下次打开直接载入
+          void saveCurrentStems(msg.stems)
         } else if (msg.kind === 'model-loaded') {
           setProvider(msg.provider)
         } else if (msg.kind === 'error') {
@@ -259,7 +304,7 @@ export function StemsApp() {
       }
       worker.postMessage({ type: 'separate', audio: interleaved, sampleRate: sourceRate })
     },
-    [cacheStemBuffers],
+    [cacheStemBuffers, saveCurrentStems],
   )
 
   /**
@@ -329,6 +374,8 @@ export function StemsApp() {
         setMdxProgress(null)
         setPlaying(false)
         setCurrentTime(0)
+        // 自动保存：把 MDX 增强后的人声轨写进 .stems.zip，下次打开直接是增强结果
+        void saveCurrentStems(newStems)
       } else if (msg.kind === 'error') {
         setMdxBusy(false)
         setMdxProgress(null)
@@ -336,7 +383,7 @@ export function StemsApp() {
       }
     }
     worker.postMessage({ type: 'separate', audio: source.audio, sampleRate: source.sampleRate })
-  }, [cacheStemBuffers, stopPlayback, tracks])
+  }, [cacheStemBuffers, saveCurrentStems, stopPlayback, tracks])
 
   useEffect(() => {
     runMdxVocalEnhanceRef.current = () => void runMdxVocalEnhance()
@@ -674,37 +721,6 @@ export function StemsApp() {
       setExporting(false)
     }
   }, [tracks, stemSampleRate, sourceName])
-
-  /**
-   * 保存分轨结果：打包为单个 `<源文件名>.stems.zip` 写入源文件同目录，
-   * 之后打开同一首歌时自动检测并载入，无需重新推理。
-   */
-  const handleSaveArchive = useCallback(async () => {
-    const sourcePath = sourceAbsolutePathRef.current
-    if (!sourcePath || !tracks) return
-    setError(null)
-    setSaveProgress(0)
-    try {
-      const writer = await filesOpenStreamWrite(stemsArchivePathFor(sourcePath))
-      await saveStemsArchive({
-        stems: tracks.map((t) => t.audio),
-        sourcePath,
-        sourceName,
-        durationSec: duration,
-        sampleRate: stemSampleRate,
-        sink: {
-          write: (chunk) => writer.write(chunk),
-          close: () => writer.close(),
-        },
-        onProgress: (saved) => setSaveProgress(saved),
-      })
-      setLoadedFromArchive(Date.now())
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setSaveProgress(null)
-    }
-  }, [tracks, sourceName, duration, stemSampleRate])
 
   // 拖放文件支持：把拖入的文件写入虚拟文件系统临时位置后分轨
   const handleDropFile = useCallback(
