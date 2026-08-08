@@ -110,7 +110,7 @@ export type QuickJsInstanceOptions = {
   memoryLimitBytes?: number
   /** 栈大小上限（字节），默认 512 KiB。属配额。 */
   maxStackSizeBytes?: number
-  /** 单文件读写上限（字节），默认与数据空间上限对齐（1 GiB）。属配额。 */
+  /** 单文件读写上限（字节），默认与数据空间上限对齐（4 GiB）。属配额。 */
   maxFileBytes?: number
   /** 注入到隔离上下文 globalThis 的可序列化全局变量（仅创建时一次）。 */
   globals?: Record<string, unknown>

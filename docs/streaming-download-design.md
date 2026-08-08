@@ -21,7 +21,7 @@ fs.writeFile(path, buf)    → 整块回传宿主
 
 **问题**
 
-1. **内存 O(文件大小)**，且同一时刻存在 2~3 份完整副本（`quickjs-fetch.ts:211-232` 的 arrayBuffer + 拷贝 + 客侧 Buffer）。1 GiB 上限的文件峰值内存可达数 GiB。
+1. **内存 O(文件大小)**，且同一时刻存在 2~3 份完整副本（`quickjs-fetch.ts:211-232` 的 arrayBuffer + 拷贝 + 客侧 Buffer）。4 GiB 上限的文件峰值内存可达数 GiB。
 2. **大小上限下载完才校验**：`readResponseBodyLimited`（`quickjs-fetch.ts:211-219`）先 `arrayBuffer()` 再比对 `maxFileBytes`，超限会整段白下载。
 3. **无进度、无中断**：下载期间用户看不到任何进度，无法提前取消。
 4. **`fs.createWriteStream` 是假流**：客侧 chunk 全攒在宿主内存，`close()` 才合并整块写盘（`quickjs-fs.ts:467-509`）；`fs.appendFile` 也是读-合并-全写（`quickjs-fs-vfs.ts:393-447`）。
@@ -34,7 +34,7 @@ fs.writeFile(path, buf)    → 整块回传宿主
 | 网络层是否已可流式 | **恒可流式**：浏览器 `fetch().body` 按到达顺序增量投递，与服务器/代理是否缓冲无关。对端缓冲只影响首字节时机与对端自身内存（§7），不影响我们分块读 | 浏览器 Fetch 规范保证 |
 | 内部卷（`/user` `/dev` `/tmp`）存储 | IDB 单条整块 blob 记录 `{ id, bytes, refCount }`，无部分写 | `src/apps/files/files-storage.ts:55,467-726` |
 | COW 语义 | 写 = 整块新 blob；shared（refCount>1）时换新 id 并递减旧引用，否则原地替换 | `files-storage.ts:660-726` |
-| 配额 | 写前按整文件 `assertCapacity`，全局 `byte-total` 上限 1 GiB | `files-storage.ts:390`、`src/os/device-data-storage.ts:5` |
+| 配额 | 写前按整文件 `assertCapacity`，全局 `byte-total` 上限 4 GiB | `files-storage.ts:390`、`src/os/device-data-storage.ts:5` |
 | 挂载卷（`/mount`） | 走 File System Access API，`createWritable()` 的 `writable.write(chunk)` **原生支持分块写** | `src/apps/files/files-location-mount.ts:412-425` |
 | 客侧 fetch Response | 只有 `arrayBuffer()/text()/json()/bytes()`，**无 `body` 流** | `src/quickjs/quickjs-fetch.ts:272-339` |
 | 客侧 fs | 已有 `createReadStream / createWriteStream` API 面，但宿主侧是假流（攒块合并写） | `src/quickjs/quickjs-fs.ts:454-509,583-690` |

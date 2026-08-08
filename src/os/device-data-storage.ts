@@ -1,8 +1,8 @@
 import { formatStorageSize } from './format-storage-size.ts'
 import { beginIdbTransaction } from './idb-transaction.ts'
 import { osNowMs } from './os-clock.ts'
-/** IndexedDB 数据空间硬上限 1 GB */
-export const DATA_CAPACITY_BYTES = 1024 * 1024 * 1024
+/** IndexedDB 数据空间硬上限 4 GB */
+export const DATA_CAPACITY_BYTES = 4 * 1024 * 1024 * 1024
 
 export const DATA_STORAGE_CHANGED_EVENT = 'instant-os:data-storage-changed'
 
