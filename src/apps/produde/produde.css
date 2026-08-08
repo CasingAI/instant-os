@@ -337,7 +337,8 @@
   }
 
   .produde-app__chat-shell .help-app__chat {
-    padding: 14px 12px 10px;
+    /* 窄窗也保留输入框高度占位，否则内容会滚到悬浮输入框后面 */
+    padding: 14px 12px calc(var(--vscode-ai-composer-inset, 96px) + 8px);
   }
 }
 

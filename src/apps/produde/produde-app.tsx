@@ -79,6 +79,7 @@ const SAMPLE_PROMPTS = [
 ] as const
 
 const CONTEXT_USAGE_DEBOUNCE_MS = 280
+const STICK_TO_BOTTOM_THRESHOLD_PX = 64
 
 function menuCheckPrefix(active: boolean): string {
   return active ? '✓ ' : ''
@@ -126,7 +127,8 @@ export function ProdudeApp() {
   const abortRef = useRef<AbortController | null>(null)
   const liveProgressRef = useRef<ProdudeLiveProgress | null>(null)
   const streamingRef = useRef(false)
-  const chatEndRef = useRef<HTMLDivElement | null>(null)
+  const chatScrollRef = useRef<HTMLDivElement | null>(null)
+  const stickToBottomRef = useRef(true)
   const composerWrapRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -204,8 +206,21 @@ export function ProdudeApp() {
     [persistStore, store],
   )
 
-  const scrollToBottom = useCallback(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  const scrollToBottom = useCallback((force = false) => {
+    const node = chatScrollRef.current
+    if (!node) return
+    if (!force && !stickToBottomRef.current) return
+    stickToBottomRef.current = true
+    // 直接滚到最大位置：容器 padding-bottom 会留出悬浮输入框的高度
+    node.scrollTop = node.scrollHeight
+  }, [])
+
+  const onChatScroll = useCallback(() => {
+    const node = chatScrollRef.current
+    if (!node) return
+    const distanceFromBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight
+    stickToBottomRef.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX
   }, [])
 
   const handlePickWorkspace = useCallback(async () => {
@@ -317,6 +332,8 @@ export function ProdudeApp() {
       persistStore(upsertSession(store, { ...pendingSession, id: session.id }))
       setStreaming(true)
       streamingRef.current = true
+      // 用户主动发送：强制贴底并恢复跟滚
+      scrollToBottom(true)
       const emptyLive: ProdudeLiveProgress = { timeline: [], answerText: '' }
       setLiveProgress(emptyLive)
       liveProgressRef.current = emptyLive
@@ -469,11 +486,18 @@ export function ProdudeApp() {
   }, [setAppWindowTitle])
 
   useEffect(() => {
+    stickToBottomRef.current = true
+  }, [activeSession?.id])
+
+  useEffect(() => {
     scrollToBottom()
   }, [
+    activeSession?.id,
     activeSession?.messages.length,
     liveProgress?.answerText,
     liveProgress?.timeline.length,
+    // 悬浮输入框高度变化（多行输入 / 附件条展开）时若正贴底，重新贴底避免内容被盖住
+    composerInset,
     scrollToBottom,
   ])
 
@@ -734,7 +758,11 @@ export function ProdudeApp() {
           class={`help-app vscode-ai produde-app__chat-shell help-app--width-full ${widthClass}`.trim()}
           style={{ '--vscode-ai-composer-inset': `${composerInset}px` }}
         >
-          <div class="help-app__chat vscode-ai__chat">
+          <div
+            class="help-app__chat vscode-ai__chat"
+            ref={chatScrollRef}
+            onScroll={onChatScroll}
+          >
             {showWelcome ? (
               <div class="help-app__welcome vscode-ai__welcome">
                 <div class="help-app__welcome-icon" aria-hidden="true">
@@ -854,8 +882,6 @@ export function ProdudeApp() {
                     </div>
                   </div>
                 ) : undefined}
-
-                <div ref={chatEndRef} />
               </div>
             )}
           </div>
