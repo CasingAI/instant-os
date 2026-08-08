@@ -7,6 +7,9 @@ import {
   DEMUCS_MODEL_URL,
   getModelCacheBytes,
   isModelCached,
+  MDX_MODEL_BYTES,
+  MDX_MODEL_LABEL,
+  MDX_MODEL_URL,
   PHONEME_MODEL_BYTES,
   PHONEME_MODEL_LABEL,
   PHONEME_MODEL_URL,
@@ -26,6 +29,7 @@ type ModelEntry = {
 const MODELS: ModelEntry[] = [
   { url: DEMUCS_MODEL_URL, label: DEMUCS_MODEL_LABEL, totalBytes: DEMUCS_MODEL_BYTES },
   { url: PHONEME_MODEL_URL, label: PHONEME_MODEL_LABEL, totalBytes: PHONEME_MODEL_BYTES },
+  { url: MDX_MODEL_URL, label: MDX_MODEL_LABEL, totalBytes: MDX_MODEL_BYTES },
 ]
 
 function ModelCard({

@@ -34,6 +34,10 @@ public/assets/demucs/models/
 # Fetch via: bash scripts/vendor-phoneme.sh
 public/assets/phoneme/models/
 
+# MDX-NET vocal/instrumental 2-stem weights (ONNX, ~67 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-mdx.sh
+public/assets/mdx/models/
+
 # ZCode agent session artifacts
 .zcode/
 
