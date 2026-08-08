@@ -157,9 +157,31 @@ function testEncodeWav(): void {
   console.log('ok: encodeWav')
 }
 
+function testWaveformPeaksRange(): void {
+  const data = new Float32Array(400 * STEM_CHANNELS)
+  data[50 * STEM_CHANNELS] = 0.8
+  data[150 * STEM_CHANNELS] = 0.9
+  data[151 * STEM_CHANNELS] = -0.6
+
+  // 窗口 [100,300)：桶 2 = [140,160)，应只捕捉到 frame 150 的峰值
+  const peaks = computeWaveformPeaks(data, 10, 100, 300)
+  assert.ok(Math.abs(peaks[2].max - 0.9) < 1e-6, '窗口内峰值应被捕捉')
+  // min 是最大幅度的镜像（对称渲染用），负采样不会超过它
+  assert.ok(Math.abs(peaks[2].min + 0.9) < 1e-6, '窗口内 min 应为最大幅度的镜像')
+  // 窗口外的 frame 50 不应出现
+  assert.ok(peaks.every((p, i) => i === 2 || (p.min === 0 && p.max === 0)), '窗口外不应有能量')
+
+  // 空窗口 / 越界窗口 → 全零，不崩
+  const empty = computeWaveformPeaks(data, 10, 300, 100)
+  assert.ok(empty.every((p) => p.min === 0 && p.max === 0))
+  assert.equal(computeWaveformPeaks(data, 10, -50, 999).length, 10)
+  console.log('ok: computeWaveformPeaks 窗口范围')
+}
+
 testChunkSlicing()
 testOverlapAddEnergy()
 testWaveformPeaks()
+testWaveformPeaksRange()
 testConstants()
 testResample()
 testEncodeWav()

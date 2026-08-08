@@ -20,6 +20,8 @@ type StemTrackState = {
 }
 
 const WAVEFORM_BUCKETS = 200
+/** 波形横向缩放下可见窗口的最短时长（秒） */
+const MIN_VIEW_SEC = 0.5
 
 /**
  * 按当前 mute/solo/volume 把每轨增益即时写到已连接的 GainNode。
@@ -64,6 +66,8 @@ export function StemsApp() {
   /** 正在载入分轨压缩包 */
   const [loadingArchive, setLoadingArchive] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  /** 波形横向缩放：level=0 显示全曲，每 +1 可见窗口减半；start 为窗口起点（秒） */
+  const [view, setView] = useState({ start: 0, level: 0 })
   const workerRef = useRef<Worker | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   /** 分轨结果一次性转换并缓存的 AudioBuffer，播放时零拷贝复用（不再每次全量复制 PCM） */
@@ -79,6 +83,21 @@ export function StemsApp() {
   const sourceAbsolutePathRef = useRef<string | null>(null)
   /** 进度条/波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
+  /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
+  const suppressFollowUntilRef = useRef(0)
+  /** 迷你滚动条拖拽状态 */
+  const minimapDragRef = useRef<{ startX: number; startViewStart: number; onThumb: boolean } | null>(
+    null,
+  )
+
+  /** 最长缩放级别（可见窗口 ≥ MIN_VIEW_SEC；过短的歌不可缩放） */
+  const maxZoomLevel =
+    duration > 0 ? Math.max(0, Math.floor(Math.log2(duration / MIN_VIEW_SEC))) : 0
+  /** 当前可见窗口长度（秒） */
+  const viewLen =
+    duration > 0
+      ? Math.max(MIN_VIEW_SEC, Math.min(duration, duration / Math.pow(2, view.level)))
+      : 0
 
   // 启动时探测 WebGPU 与模型缓存（用于提示；实际后端以 worker 汇报为准）
   useEffect(() => {
@@ -230,6 +249,7 @@ export function StemsApp() {
         gainNodesRef.current.clear()
         audioContextRef.current = new AudioContext()
         setDuration(manifest.durationSec)
+        setView({ start: 0, level: 0 })
         setStemSampleRate(manifest.sampleRate)
         cacheStemBuffers(stems, manifest.sampleRate)
         setTracks(
@@ -284,6 +304,7 @@ export function StemsApp() {
       const { blob } = await readFileBlob(nodeId)
       const { interleaved, sampleRate, duration } = await prepareAudio(await blob.arrayBuffer())
       setDuration(duration)
+      setView({ start: 0, level: 0 })
       setTracks(null)
       startSeparation(interleaved, sampleRate)
     } catch (cause) {
@@ -343,15 +364,80 @@ export function StemsApp() {
     [duration],
   )
 
+  const clampViewStart = useCallback(
+    (start: number, len: number) => Math.max(0, Math.min(start, Math.max(0, duration - len))),
+    [duration],
+  )
+
+  /** 设置缩放级别；anchorSec 处的时间在缩放前后保持不动（缩放锚点）。
+   *  锚点不在当前窗口内时改为以窗口中心为锚（等价于先把窗口中心移到锚点）。 */
+  const zoomTo = useCallback(
+    (level: number, anchorSec: number) => {
+      setView((prev) => {
+        const clampedLevel = Math.max(0, Math.min(level, maxZoomLevel))
+        const lenAt = (l: number) =>
+          duration > 0
+            ? Math.max(MIN_VIEW_SEC, Math.min(duration, duration / Math.pow(2, l)))
+            : 0
+        const prevLen = lenAt(prev.level)
+        const inWindow =
+          prevLen > 0 && anchorSec >= prev.start && anchorSec <= prev.start + prevLen
+        const anchorRatio = inWindow ? (anchorSec - prev.start) / prevLen : 0.5
+        const len = lenAt(clampedLevel)
+        return { start: clampViewStart(anchorSec - anchorRatio * len, len), level: clampedLevel }
+      })
+    },
+    [duration, maxZoomLevel, clampViewStart],
+  )
+
+  /** 平移可见窗口（秒） */
+  const panBy = useCallback(
+    (deltaSec: number) => {
+      setView((prev) => {
+        const len = duration > 0
+          ? Math.max(MIN_VIEW_SEC, Math.min(duration, duration / Math.pow(2, prev.level)))
+          : 0
+        return { ...prev, start: clampViewStart(prev.start + deltaSec, len) }
+      })
+    },
+    [duration, clampViewStart],
+  )
+
+  /** 波形区滚轮：滚轮=以指针为锚缩放，Shift+滚轮/横向滑动=平移。
+   * 必须 native + passive:false 才能 preventDefault（Preact 的 onWheel 是 passive 的）。 */
+  const handleWheelZoom = useCallback(
+    (event: WheelEvent, ratio: number) => {
+      event.preventDefault()
+      if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+        const dx = event.shiftKey ? event.deltaY : event.deltaX
+        panBy((dx * viewLen) / 8)
+        suppressFollowUntilRef.current = Date.now() + 1500
+      } else if (duration > 0) {
+        // 触控板捏合在 Chrome 中表现为 ctrl+wheel；以指针位置为锚
+        const factor = event.ctrlKey ? Math.exp(-event.deltaY * 0.002) : event.deltaY < 0 ? 1.25 : 0.8
+        const newLen = Math.max(MIN_VIEW_SEC, Math.min(duration, viewLen * factor))
+        zoomTo(Math.log2(duration / newLen), view.start + ratio * viewLen)
+      }
+    },
+    [duration, viewLen, view.start, panBy, zoomTo],
+  )
+
   /** 松手/键盘确认：播放中从目标位置重新播，暂停中仅保留位置。 */
   const finalizeSeek = useCallback(
     (offsetSec: number) => {
       isSeekingRef.current = false
       const clamped = Math.max(0, Math.min(offsetSec, duration))
       setCurrentTime(clamped)
+      // 放大状态下，总进度条 seek 到可见窗口外 → 窗口跟随到目标位置
+      if (view.level > 0 && (clamped < view.start || clamped > view.start + viewLen)) {
+        setView((prev) => ({
+          ...prev,
+          start: clampViewStart(clamped - viewLen * 0.15, viewLen),
+        }))
+      }
       if (playing) startPlayback(clamped)
     },
-    [duration, playing, startPlayback],
+    [duration, playing, startPlayback, view, viewLen, clampViewStart],
   )
 
   useEffect(() => {
@@ -363,12 +449,23 @@ export function StemsApp() {
         : 0
       const next = Math.min(startOffsetRef.current + elapsed, duration)
       setCurrentTime(next)
+      // 放大状态下播放头走出窗口右缘 → 窗口跟随（手动平移后 1.5s 内不打扰），播放头保持在左侧 15%
+      if (
+        view.level > 0 &&
+        next > view.start + viewLen &&
+        Date.now() > suppressFollowUntilRef.current
+      ) {
+        setView((prev) => ({
+          ...prev,
+          start: clampViewStart(next - viewLen * 0.15, viewLen),
+        }))
+      }
       if (next >= duration) {
         stopPlayback()
       }
     }, 100)
     return () => window.clearInterval(timer)
-  }, [playing, duration, stopPlayback])
+  }, [playing, duration, stopPlayback, view, viewLen, clampViewStart])
 
   useEffect(
     () => () => {
@@ -450,6 +547,7 @@ export function StemsApp() {
         sourceAbsolutePathRef.current = null
         setSourceName(file.name)
         setDuration(duration)
+        setView({ start: 0, level: 0 })
         setTracks(null)
         setCurrentTime(0)
         setLoadedFromArchive(null)
@@ -574,6 +672,52 @@ export function StemsApp() {
             </button>
           </div>
 
+          {maxZoomLevel > 0 && (
+            <div class="stems__zoombar">
+              <button
+                type="button"
+                class="stems__zoom-btn"
+                disabled={view.level <= 0.01}
+                onClick={() => zoomTo(view.level - 1, currentTime)}
+                title="缩小一倍（以当前播放位置为锚）"
+              >
+                −
+              </button>
+              <input
+                type="range"
+                class="stems__zoom-slider"
+                min={0}
+                max={maxZoomLevel}
+                step={0.1}
+                value={view.level}
+                onChange={(event) => zoomTo(Number(event.currentTarget.value), currentTime)}
+                title="波形缩放：可见窗口时长（以当前播放位置为锚）"
+              />
+              <button
+                type="button"
+                class="stems__zoom-btn"
+                disabled={view.level >= maxZoomLevel - 0.01}
+                onClick={() => zoomTo(view.level + 1, currentTime)}
+                title="放大一倍（以当前播放位置为锚）"
+              >
+                +
+              </button>
+              <span class="stems__zoom-label">{Math.round(Math.pow(2, view.level) * 100)}%</span>
+              <span class="stems__zoom-range">
+                {formatTime(view.start)} – {formatTime(Math.min(duration, view.start + viewLen))}
+              </span>
+              {view.level > 0.01 && (
+                <button
+                  type="button"
+                  class="stems__btn stems__zoom-reset"
+                  onClick={() => setView({ start: 0, level: 0 })}
+                >
+                  适配全曲
+                </button>
+              )}
+            </div>
+          )}
+
           <div class="stems__tracks">
             {STEM_IDS.map((stemId) => {
               const track = tracks.find((t) => t.audio.stemId === stemId)
@@ -585,14 +729,17 @@ export function StemsApp() {
                   track={track}
                   playing={playing}
                   playheadSec={currentTime}
-                  durationSec={duration}
+                  viewStart={view.start}
+                  viewLen={viewLen}
+                  sampleRate={stemSampleRate}
+                  onWheelZoom={handleWheelZoom}
                   onToggleMute={() => toggleTrack(setTracks, gainNodesRef.current, stemId, 'mute')}
                   onToggleSolo={() => toggleTrack(setTracks, gainNodesRef.current, stemId, 'solo')}
                   onSeek={(ratio) => {
                     isSeekingRef.current = true
-                    handleSeekInput(ratio * duration)
+                    handleSeekInput(view.start + ratio * viewLen)
                   }}
-                  onSeekEnd={(ratio) => finalizeSeek(ratio * duration)}
+                  onSeekEnd={(ratio) => finalizeSeek(view.start + ratio * viewLen)}
                   onVolume={(volume) => {
                     setTracks((prev) => {
                       if (!prev) return null
@@ -608,6 +755,54 @@ export function StemsApp() {
               )
             })}
           </div>
+
+          {view.level > 0 && (
+            <div
+              class="stems__minimap"
+              onPointerDown={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                const ratio = (event.clientX - rect.left) / Math.max(1, rect.width)
+                const onThumb =
+                  (event.target as HTMLElement).closest('.stems__minimap-thumb') !== null
+                minimapDragRef.current = { startX: event.clientX, startViewStart: view.start, onThumb }
+                event.currentTarget.setPointerCapture(event.pointerId)
+                if (!onThumb) {
+                  // 空白处点击：窗口中心跳到该位置
+                  setView((prev) => ({
+                    ...prev,
+                    start: clampViewStart(ratio * duration - viewLen / 2, viewLen),
+                  }))
+                }
+                suppressFollowUntilRef.current = Date.now() + 1500
+              }}
+              onPointerMove={(event) => {
+                const drag = minimapDragRef.current
+                if (!drag) return
+                const rect = event.currentTarget.getBoundingClientRect()
+                const dxRatio = (event.clientX - drag.startX) / Math.max(1, rect.width)
+                setView((prev) => ({
+                  ...prev,
+                  start: drag.onThumb
+                    ? clampViewStart(drag.startViewStart + dxRatio * duration, viewLen)
+                    : clampViewStart(prev.start + dxRatio * duration, viewLen),
+                }))
+              }}
+              onPointerUp={() => {
+                minimapDragRef.current = null
+              }}
+              onPointerCancel={() => {
+                minimapDragRef.current = null
+              }}
+            >
+              <div
+                class="stems__minimap-thumb"
+                style={{
+                  left: `${(view.start / duration) * 100}%`,
+                  width: `${(viewLen / duration) * 100}%`,
+                }}
+              />
+            </div>
+          )}
         </div>
       ) : (
         <div class="stems__empty">
@@ -675,11 +870,16 @@ type StemTrackRowProps = {
   playing: boolean
   /** 播放进度（秒），用于播放头位置 */
   playheadSec: number
-  /** 总时长（秒），用于播放头比例 */
-  durationSec: number
+  /** 可见窗口起点（秒）与长度（秒）：全曲时为 0 与总时长 */
+  viewStart: number
+  viewLen: number
+  /** 波形数据采样率（分轨结果固定 44.1kHz） */
+  sampleRate: number
+  /** 波形区滚轮缩放/平移（ratio 为指针在波形内的横向比例） */
+  onWheelZoom: (event: WheelEvent, ratio: number) => void
   onToggleMute: () => void
   onToggleSolo: () => void
-  /** 波形上拖拽/点击 seek：ratio ∈ [0,1]，播放中不立即重启，松手由 onSeekEnd 定位 */
+  /** 波形上拖拽/点击 seek：ratio ∈ [0,1] 是窗口内比例，播放中不立即重启，松手由 onSeekEnd 定位 */
   onSeek: (ratio: number) => void
   onSeekEnd: (ratio: number) => void
   onVolume: (volume: number) => void
@@ -691,7 +891,10 @@ function StemTrackRow({
   track,
   playing,
   playheadSec,
-  durationSec,
+  viewStart,
+  viewLen,
+  sampleRate,
+  onWheelZoom,
   onToggleMute,
   onToggleSolo,
   onSeek,
@@ -700,12 +903,9 @@ function StemTrackRow({
   onExport,
 }: StemTrackRowProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const peaks = useMemo(
-    () => computeWaveformPeaks(track.audio.data, WAVEFORM_BUCKETS),
-    [track.audio.data],
-  )
+  const waveWrapRef = useRef<HTMLDivElement | null>(null)
 
-  // 波形只画一次；播放头用 overlay div 单独定位，不再随播放进度每 100ms 重画 canvas
+  // 波形只在数据/可见窗口/尺寸变化时重画；播放头用 overlay div 单独定位，不随播放进度重画
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -718,6 +918,11 @@ function StemTrackRow({
       if (canvas.width !== width) canvas.width = width
       if (canvas.height !== height) canvas.height = height
       ctx.clearRect(0, 0, width, height)
+      // 可见窗口的峰值：放大时按窗口切帧并提高桶数，才能看清细节
+      const startFrame = Math.floor(viewStart * sampleRate)
+      const endFrame = Math.floor((viewStart + viewLen) * sampleRate)
+      const buckets = Math.max(WAVEFORM_BUCKETS, Math.ceil(canvas.clientWidth / 2))
+      const peaks = computeWaveformPeaks(track.audio.data, buckets, startFrame, endFrame)
       const color = STEM_COLORS[stemId]
       const barWidth = Math.max(1, Math.floor(width / peaks.length))
       ctx.fillStyle = color
@@ -735,10 +940,27 @@ function StemTrackRow({
     const observer = new ResizeObserver(draw)
     observer.observe(canvas)
     return () => observer.disconnect()
-  }, [peaks, stemId])
+  }, [track.audio.data, viewStart, viewLen, sampleRate, stemId])
 
   const playheadRatio =
-    playing && durationSec > 0 ? Math.min(1, Math.max(0, playheadSec / durationSec)) : -1
+    playing && viewLen > 0 ? (playheadSec - viewStart) / viewLen : -1
+  const playheadVisible = playheadRatio >= 0 && playheadRatio <= 1
+
+  // 滚轮缩放/平移：必须 native + passive:false 才能 preventDefault
+  useEffect(() => {
+    const node = waveWrapRef.current
+    if (!node) return
+    const handler = (event: WheelEvent) => {
+      const rect = node.getBoundingClientRect()
+      const ratio = Math.max(
+        0,
+        Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)),
+      )
+      onWheelZoom(event, ratio)
+    }
+    node.addEventListener('wheel', handler, { passive: false })
+    return () => node.removeEventListener('wheel', handler)
+  }, [onWheelZoom])
 
   // 波形点击/拖拽 seek：按下即定位显示，松手（或取消）才真正定位
   const seekDraggingRef = useRef(false)
@@ -771,6 +993,7 @@ function StemTrackRow({
         {STEM_LABELS[stemId]}
       </div>
       <div
+        ref={waveWrapRef}
         class="stems__track-wave-wrap"
         onPointerDown={handleSeekPointerDown}
         onPointerMove={handleSeekPointerMove}
@@ -778,7 +1001,7 @@ function StemTrackRow({
         onPointerCancel={handleSeekPointerEnd}
       >
         <canvas ref={canvasRef} class="stems__track-wave" />
-        {playheadRatio >= 0 && (
+        {playheadVisible && (
           <div class="stems__track-playhead" style={{ left: `${playheadRatio * 100}%` }} />
         )}
       </div>

@@ -152,6 +152,89 @@
   accent-color: var(--stems-accent);
 }
 
+/* 缩放控制条（transport 下方） */
+.stems__zoombar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--stems-border);
+  background: var(--stems-surface);
+  flex: none;
+}
+.stems__zoom-btn {
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  border: 1px solid var(--stems-border);
+  background: var(--stems-surface-raised);
+  color: var(--stems-ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+.stems__zoom-btn:hover:not(:disabled) {
+  background: var(--stems-surface-raised);
+  filter: brightness(1.15);
+}
+.stems__zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.stems__zoom-slider {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--stems-accent);
+}
+.stems__zoom-label {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--stems-ink-muted);
+  width: 52px;
+  text-align: right;
+  flex: none;
+}
+.stems__zoom-range {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--stems-ink-muted);
+  flex: none;
+  white-space: nowrap;
+}
+.stems__zoom-reset {
+  padding: 4px 10px;
+  font-size: 12px;
+  flex: none;
+}
+
+/* 迷你滚动条（放大时显示）：拖动/点击平移可见窗口 */
+.stems__minimap {
+  position: relative;
+  height: 14px;
+  margin: 0 14px 12px;
+  border-radius: 7px;
+  background: var(--stems-surface);
+  border: 1px solid var(--stems-border);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  flex: none;
+}
+.stems__minimap-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  border-radius: 5px;
+  background: var(--stems-accent);
+  opacity: 0.85;
+  cursor: grab;
+}
+.stems__minimap-thumb:active {
+  cursor: grabbing;
+}
+
 /* 轨道列表 */
 .stems__tracks {
   flex: 1;

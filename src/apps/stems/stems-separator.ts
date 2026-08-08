@@ -188,19 +188,29 @@ export function encodeWav(data: Float32Array, sampleRate: number): ArrayBuffer {
   return buffer
 }
 
-/** 计算 interleaved stereo PCM 的每桶峰值（min/max），用于波形渲染。 */
+/** 计算 interleaved stereo PCM 的每桶峰值（min/max），用于波形渲染。
+ *  可指定采样帧区间 [startFrame, endFrame) 只统计窗口内数据（横向缩放查看细节时用）。 */
 export function computeWaveformPeaks(
   data: Float32Array,
   bucketCount: number,
+  startFrame = 0,
+  endFrame = Math.floor(data.length / STEM_CHANNELS),
 ): WaveformPeak[] {
-  const peaks: WaveformPeak[] = []
   const totalFrames = Math.floor(data.length / STEM_CHANNELS)
-  const framesPerBucket = Math.max(1, Math.ceil(totalFrames / bucketCount))
+  const from = Math.max(0, Math.min(totalFrames, startFrame))
+  const to = Math.max(from, Math.min(totalFrames, endFrame))
+  const windowFrames = to - from
+  const peaks: WaveformPeak[] = []
+  if (windowFrames <= 0) {
+    for (let b = 0; b < bucketCount; b++) peaks.push({ min: 0, max: 0 })
+    return peaks
+  }
+  const framesPerBucket = Math.max(1, Math.ceil(windowFrames / bucketCount))
   for (let b = 0; b < bucketCount; b++) {
     let min = 0
     let max = 0
-    const start = b * framesPerBucket
-    const end = Math.min(totalFrames, start + framesPerBucket)
+    const start = from + b * framesPerBucket
+    const end = Math.min(to, start + framesPerBucket)
     for (let i = start; i < end; i++) {
       // 取左右声道最大幅度
       const l = data[i * STEM_CHANNELS]
