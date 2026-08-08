@@ -291,7 +291,7 @@
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.03);
 }
-/* 播放头 overlay：随 currentTime 平移，避免每 100ms 重画波形 canvas */
+/* 播放头 overlay：播放中由 rAF 直写 left/opacity 逐帧平移（不重渲染 React），避免重画波形 canvas */
 .stems__track-playhead {
   position: absolute;
   top: 0;

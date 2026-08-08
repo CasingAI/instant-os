@@ -223,3 +223,84 @@ export function computeWaveformPeaks(
   }
   return peaks
 }
+
+/** 波形峰值金字塔：基础桶存整轨 min/max（左右声道取大幅值，与 computeWaveformPeaks 语义一致）。 */
+export type WaveformPyramid = {
+  /** 每个基础桶的帧数（采样点） */
+  bucketSamples: number
+  /** 基础桶总数 */
+  bucketCount: number
+  min: Float32Array
+  max: Float32Array
+}
+
+/** 金字塔基准分辨率：~1ms/桶（44.1kHz 下 44 帧）。 */
+const PYRAMID_BUCKETS_PER_SEC = 1000
+/** 封顶桶数：超长歌曲自动放大基础桶，控制内存。 */
+const PYRAMID_MAX_BUCKETS = 400_000
+
+/**
+ * 一次遍历构建整轨峰值金字塔。之后任意窗口的波形绘制只需按桶聚合，
+ * 复杂度 O(窗口毫秒数) 而非 O(窗口采样数)——全曲视图下捏合缩放不再每次
+ * 逐采样遍历整段 PCM（这是缩放卡顿的根因）。
+ */
+export function buildWaveformPyramid(
+  data: Float32Array,
+  sampleRate: number,
+): WaveformPyramid {
+  const totalFrames = Math.floor(data.length / STEM_CHANNELS)
+  let bucketSamples = Math.max(1, Math.round(sampleRate / PYRAMID_BUCKETS_PER_SEC))
+  if (Math.ceil(totalFrames / bucketSamples) > PYRAMID_MAX_BUCKETS) {
+    bucketSamples = Math.ceil(totalFrames / PYRAMID_MAX_BUCKETS)
+  }
+  const bucketCount = Math.max(1, Math.ceil(totalFrames / bucketSamples))
+  const min = new Float32Array(bucketCount)
+  const max = new Float32Array(bucketCount)
+  for (let f = 0; f < totalFrames; f++) {
+    const l = data[f * STEM_CHANNELS]
+    const r = data[f * STEM_CHANNELS + 1]
+    const amp = Math.max(Math.abs(l), Math.abs(r))
+    const b = Math.floor(f / bucketSamples)
+    if (amp > max[b]) max[b] = amp
+    const neg = -amp
+    if (neg < min[b]) min[b] = neg
+  }
+  return { bucketSamples, bucketCount, min, max }
+}
+
+/**
+ * 从峰值金字塔聚合任意窗口的每桶峰值（返回形状与 computeWaveformPeaks 相同）。
+ * 窗口边界上的基础桶会被整体计入（±1 个桶 ≈ 1ms 的误差，2px 柱不可见）。
+ */
+export function computeWaveformPeaksFromPyramid(
+  pyramid: WaveformPyramid,
+  bucketCount: number,
+  startFrame: number,
+  endFrame: number,
+): WaveformPeak[] {
+  const totalFrames = pyramid.bucketCount * pyramid.bucketSamples
+  const from = Math.max(0, Math.min(totalFrames, startFrame))
+  const to = Math.max(from, Math.min(totalFrames, endFrame))
+  const windowFrames = to - from
+  const peaks: WaveformPeak[] = []
+  if (windowFrames <= 0) {
+    for (let b = 0; b < bucketCount; b++) peaks.push({ min: 0, max: 0 })
+    return peaks
+  }
+  const framesPerBucket = Math.max(1, Math.ceil(windowFrames / bucketCount))
+  const B = pyramid.bucketSamples
+  for (let b = 0; b < bucketCount; b++) {
+    let min = 0
+    let max = 0
+    const start = from + b * framesPerBucket
+    const end = Math.min(to, start + framesPerBucket)
+    const first = Math.floor(start / B)
+    const last = Math.min(pyramid.bucketCount - 1, Math.ceil(end / B) - 1)
+    for (let p = first; p <= last; p++) {
+      if (pyramid.min[p] < min) min = pyramid.min[p]
+      if (pyramid.max[p] > max) max = pyramid.max[p]
+    }
+    peaks.push({ min, max })
+  }
+  return peaks
+}

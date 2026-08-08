@@ -4,7 +4,9 @@
  */
 import assert from 'node:assert/strict'
 import {
+  buildWaveformPyramid,
   computeWaveformPeaks,
+  computeWaveformPeaksFromPyramid,
   encodeWav,
   resampleInterleaved,
   sliceStemChunks,
@@ -178,10 +180,60 @@ function testWaveformPeaksRange(): void {
   console.log('ok: computeWaveformPeaks 窗口范围')
 }
 
+function testWaveformPyramid(): void {
+  const rate = 44100
+  const frames = 50000
+  const data = new Float32Array(frames * STEM_CHANNELS)
+  // 伪随机幅度，让各桶有真实差异
+  let seed = 42
+  for (let i = 0; i < frames; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    const v = ((seed / 0x7fffffff) - 0.5) * 2
+    data[i * STEM_CHANNELS] = v
+    data[i * STEM_CHANNELS + 1] = -v * 0.5
+  }
+  const pyramid = buildWaveformPyramid(data, rate)
+  assert.equal(pyramid.bucketSamples, 44, '44.1kHz 下 ~1ms/桶')
+  assert.equal(pyramid.bucketCount, Math.ceil(frames / 44))
+
+  // 全曲窗口：金字塔聚合是「保守覆盖」（含窗口边缘的整桶），误差 ≤ 1 个基础桶
+  const exact = computeWaveformPeaks(data, 40)
+  const approx = computeWaveformPeaksFromPyramid(pyramid, 40, 0, frames)
+  assert.equal(approx.length, 40)
+  for (let b = 0; b < 40; b++) {
+    assert.ok(approx[b].max >= exact[b].max - 1e-6, `桶 ${b} max 不应小于精确值`)
+    assert.ok(approx[b].min <= exact[b].min + 1e-6, `桶 ${b} min 不应大于精确值`)
+    assert.ok(Math.abs(approx[b].max - exact[b].max) < 0.1, `桶 ${b} max 误差应在 1 桶覆盖内`)
+  }
+
+  // 子窗口（放大视图）同样只有 1 桶级误差
+  const subExact = computeWaveformPeaks(data, 20, 1000, 5000)
+  const subApprox = computeWaveformPeaksFromPyramid(pyramid, 20, 1000, 5000)
+  assert.equal(subApprox.length, 20)
+  for (let b = 0; b < 20; b++) {
+    assert.ok(Math.abs(subApprox[b].max - subExact[b].max) < 0.1, `子窗口桶 ${b} max 误差过大`)
+    assert.ok(Math.abs(subApprox[b].min - subExact[b].min) < 0.1, `子窗口桶 ${b} min 误差过大`)
+  }
+
+  // bucketSamples=1（sampleRate=1000）时逐帧精确：与直接计算完全一致
+  const fine = buildWaveformPyramid(data, 1000)
+  assert.equal(fine.bucketSamples, 1)
+  assert.deepEqual(
+    computeWaveformPeaksFromPyramid(fine, 10, 100, 300),
+    computeWaveformPeaks(data, 10, 100, 300),
+  )
+
+  // 空窗口 → 全零，不崩
+  const empty = computeWaveformPeaksFromPyramid(pyramid, 10, 5000, 1000)
+  assert.ok(empty.every((p) => p.min === 0 && p.max === 0))
+  console.log('ok: computeWaveformPeaksFromPyramid')
+}
+
 testChunkSlicing()
 testOverlapAddEnergy()
 testWaveformPeaks()
 testWaveformPeaksRange()
+testWaveformPyramid()
 testConstants()
 testResample()
 testEncodeWav()
