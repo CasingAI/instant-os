@@ -13,6 +13,7 @@ export const FILES_PATH_ROOT = {
   tmp: '/tmp',
   models3d: '/models',
   source: '/system',
+  trash: '/trash',
 } as const
 
 export type ParsedFilesAbsolutePath = {
@@ -29,6 +30,7 @@ export type ParsedFilesAbsolutePath = {
  * - 临时文件 `/tmp`
  * - 3D 模型 `/models`
  * - 系统文件 `/system`
+ * - 废纸篓 `/trash`
  * - 外部挂载 `/mount/{文件夹名}`
  *
  * 另有命名空间根 `/`（见 `isFilesNamespaceRoot`）：不对应任何 location，仅用于列举各卷。
@@ -152,6 +154,7 @@ export function filesLocationDisplayName(locationId: FilesLocationId): string {
   if (locationId === 'dev') return '开发者数据'
   if (locationId === 'tmp') return '临时文件'
   if (locationId === 'models3d') return '3D 模型'
+  if (locationId === 'trash') return '废纸篓'
   return '系统'
 }
 

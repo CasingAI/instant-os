@@ -1,12 +1,5 @@
-import { gunzipSync } from 'fflate'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import {
-  decodeGzipTar,
-  extractGzipTarToDirectory,
-  extractZipToDirectory,
-} from '../../archive/archive-extract.ts'
 import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
-import { unzipBytes } from '../../archive/archive-unzip.ts'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { registerFileOpenHandler } from '../../os/file-open-registry.ts'
@@ -14,7 +7,7 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
-import { filesReadBlob, filesStat } from '../files/files-api.ts'
+import { filesDecodeArchive, filesExtractArchive, filesReadBlob, filesStat } from '../files/files-api.ts'
 import { assertAdditionalBytesAvailable, FilesStorageFullError } from '../files/files-storage.ts'
 import {
   ARCHIVE_UTILITY_OPEN_EXTENSIONS,
@@ -93,15 +86,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
-}
-
-/** ZIP 本地头 / 空归档中央目录 / 分卷等均以 PK 开头 */
-function looksLikeZip(bytes: Uint8Array): boolean {
-  return bytes.byteLength >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b
-}
-
-function looksLikeGzip(bytes: Uint8Array): boolean {
-  return bytes.byteLength >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b
 }
 
 function isAbortError(error: unknown): boolean {
@@ -287,13 +271,7 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           throw new Error('压缩包所在目录不可写')
         }
 
-        const blob = await filesReadBlob(archivePath)
-        const bytes = new Uint8Array(await blob.arrayBuffer())
         abort.signal.throwIfAborted()
-
-        if (bytes.byteLength === 0) {
-          throw new Error('文件是空的，不是有效的压缩包')
-        }
 
         const onProgress = (p: {
           done: number
@@ -313,80 +291,21 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           tickProgressUi()
         }
 
-        if (format === 'zip') {
-          if (!looksLikeZip(bytes)) {
-            throw new Error(
-              '这不是有效的 ZIP 文件（文件头不匹配，可能已损坏或未按二进制保存）',
-            )
+        if (format === 'gzip-file') {
+          // 单文件 .gz：读字节 → Worker 解压 → 以去掉后缀的名字落盘
+          const blob = await filesReadBlob(archivePath)
+          const bytes = new Uint8Array(await blob.arrayBuffer())
+          abort.signal.throwIfAborted()
+          if (bytes.byteLength === 0) {
+            throw new Error('文件是空的，不是有效的压缩包')
           }
-          let entries: Map<string, Uint8Array>
-          try {
-            entries = unzipBytes(bytes, { stripRoot: false })
-          } catch {
-            throw new Error('无法解析 ZIP（文件可能已损坏）')
-          }
-          if (entries.size === 0) {
-            if (bytes.byteLength > 64) {
-              throw new Error(
-                '无法从 ZIP 中读出文件（可能已损坏或未按二进制保存）',
-              )
-            }
-          } else {
-            entries = await remapEntriesAwayFromExisting(destRoot, entries)
-            await extractZipToDirectory({
-              destRoot,
-              zip: bytes,
-              entries,
-              stripRoot: false,
-              signal: abort.signal,
-              onProgress,
-            })
-          }
-        } else if (format === 'gzip-tar') {
-          if (!looksLikeGzip(bytes)) {
-            throw new Error(
-              '这不是有效的 gzip 压缩包（文件头不匹配，可能已损坏或未按二进制保存）',
-            )
-          }
-          try {
-            let entries = decodeGzipTar(bytes)
-            entries = await remapEntriesAwayFromExisting(destRoot, entries)
-            await extractGzipTarToDirectory({
-              destRoot,
-              tarball: bytes,
-              entries,
-              signal: abort.signal,
-              onProgress,
-            })
-          } catch (error) {
-            if (isAbortError(error)) throw error
-            throw new Error('无法解析该 tar.gz 压缩包（文件可能已损坏）')
-          }
-        } else if (format === 'tar') {
-          try {
-            let entries = decodeGzipTar(bytes)
-            entries = await remapEntriesAwayFromExisting(destRoot, entries)
-            await extractGzipTarToDirectory({
-              destRoot,
-              tarball: bytes,
-              entries,
-              signal: abort.signal,
-              onProgress,
-            })
-          } catch (error) {
-            if (isAbortError(error)) throw error
-            throw new Error('无法解析该 tar 归档（文件可能已损坏）')
-          }
-        } else {
-          if (!looksLikeGzip(bytes)) {
-            throw new Error(
-              '这不是有效的 gzip 文件（文件头不匹配，可能已损坏或未按二进制保存）',
-            )
-          }
-          let inflated: Uint8Array
-          try {
-            inflated = gunzipSync(bytes)
-          } catch {
+          const decoded = await filesDecodeArchive({
+            bytes,
+            format: 'gzip-file',
+            signal: abort.signal,
+          })
+          const inflated = decoded.get('data')
+          if (!inflated) {
             throw new Error('无法解压该 gzip 文件（文件可能已损坏）')
           }
           const desiredName = stripArchiveExtension(fileBaseName(archivePath)) || 'archive'
@@ -395,6 +314,18 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           await materializeArchiveEntries({
             destRoot,
             entries: [{ relativePath: outName, bytes: inflated }],
+            signal: abort.signal,
+            onProgress,
+          })
+        } else {
+          // zip / tar / tar.gz：主线程读归档，Worker 解码，分批落盘（进度回调）。
+          // 冲突重命名通过 transformEntries 在落盘前改写条目。
+          await filesExtractArchive({
+            archivePath,
+            destDirPath: destRoot,
+            format,
+            stripRoot: format === 'zip' ? false : undefined,
+            transformEntries: (entries) => remapEntriesAwayFromExisting(destRoot, entries),
             signal: abort.signal,
             onProgress,
           })

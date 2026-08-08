@@ -1,5 +1,6 @@
 import {
   filesCreateText,
+  filesDecodeArchive,
   filesList,
   filesListSubtreeFiles,
   filesLstat,
@@ -10,7 +11,6 @@ import {
   filesSymlink,
   filesWriteText,
 } from '../apps/files/files-api.ts'
-import { decodeGzipTar } from '../archive/archive-extract.ts'
 import { materializeArchiveEntries } from '../archive/archive-materialize.ts'
 import {
   DEFAULT_PACKAGE_STORE_ROOT,
@@ -221,7 +221,11 @@ export async function extractTarballToStore(params: {
       throw new Error('aborted')
     }
 
-    const decoded = decodeGzipTar(tarball)
+    const decoded = await filesDecodeArchive({
+      bytes: tarball,
+      format: 'gzip-tar',
+      signal,
+    })
     const rootDir = detectTarballRootDir(decoded.keys())
     const writeMap = new Map<string, Uint8Array>()
     for (const [rawPath, data] of decoded) {

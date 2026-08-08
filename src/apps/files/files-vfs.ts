@@ -26,6 +26,8 @@ import {
   readBlobBytes,
   readBlobText,
   renameNodeRecord,
+  moveNodeRecord,
+  FilesStorageFullError,
   writeBlobBytes,
   writeBlobText,
   type FilesStorageBatchOp,
@@ -89,6 +91,7 @@ import {
   isFilesNodeWritable,
   isMountLocationId,
   isMountNodeId,
+  isTrashLocationId,
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
@@ -313,6 +316,8 @@ async function assertCanCreateIn(
   if (parentId === undefined && locationId === 'dev') {
     throw new Error('此位置受保护，无法在此新建或粘贴')
   }
+  // 废纸篓不接受面向用户的新建/粘贴（copyNodeTo / moveNodeTo / files-api 层另行拒绝）；
+  // 移入废纸篓的内部复制路径需经本检查创建节点，故不在此拦截。
   if (parentId === undefined) return
   const parent = await getNodeOrThrow(parentId)
   if (parent.kind !== 'folder') {
@@ -1289,6 +1294,218 @@ export async function removeNodeForced(
   await removeNodeInner(node, options)
 }
 
+/**
+ * 元数据级移动是否可行：源与目标均为 IndexedDB 本地卷（不涉及挂载）。
+ */
+function canMoveNodeMetadataOnly(source: FilesNode, destLocationId: FilesLocationId): boolean {
+  if (isMountNodeId(source.id)) return false
+  if (isMountLocationId(destLocationId)) return false
+  return source.locationId === destLocationId
+}
+
+export type FilesMoveNodeToOptions = {
+  onProgress?: (progress: FilesVfsOpProgress) => void
+}
+
+/**
+ * 移动节点到目标目录（同名自动加后缀）。
+ * 同卷（IndexedDB 本地卷）走元数据级移动（零拷贝零容量）；
+ * 涉及挂载卷时为复制 + 删除（带进度，与 filesMove 语义一致）。
+ * 废纸篓卷为非法目标（请使用 trashNode / 删除操作）。
+ */
+export async function moveNodeTo(
+  sourceId: string,
+  destLocationId: FilesLocationId,
+  destParentId: string | undefined,
+  options?: FilesMoveNodeToOptions,
+): Promise<FilesNode> {
+  const source = await getNodeOrThrow(sourceId)
+  if (isTrashLocationId(destLocationId)) {
+    throw new Error('不能移动到废纸篓，请使用删除操作')
+  }
+  await assertCanCreateIn(destLocationId, destParentId)
+  assertNodeWritable(source)
+
+  if (source.kind === 'folder') {
+    const inside = await isFolderAncestorOf(source.id, destParentId, source.locationId)
+    if (inside) {
+      throw new Error('不能将文件夹移动到自身或其子文件夹中')
+    }
+  }
+
+  if (source.locationId === destLocationId && source.parentId === destParentId) {
+    return source
+  }
+
+  if (canMoveNodeMetadataOnly(source, destLocationId)) {
+    const previousPath = await resolveFilesAbsolutePath(source)
+    const names = await siblingNames(destLocationId, destParentId, source.id)
+    const name = uniqueName(names, source.name)
+    const moved = await moveNodeRecord({
+      id: source.id,
+      locationId: destLocationId,
+      parentId: destParentId,
+      name,
+    })
+    const path = await resolveFilesAbsolutePath(moved)
+    emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
+    return moved
+  }
+
+  const copied = await copyNodeTo({
+    sourceId,
+    destLocationId,
+    destParentId,
+    onProgress: options?.onProgress,
+  })
+  await removeNode(sourceId)
+  return copied
+}
+
+/**
+ * 将节点移入废纸篓（可恢复，记录原位置）。
+ * 内部卷为元数据级移动（零拷贝零容量）；挂载卷复制进废纸篓后删除原文件
+ * （占 IDB 配额，容量不足时抛错并建议用永久删除）。
+ */
+export async function trashNode(
+  id: string,
+  options?: FilesMoveNodeToOptions,
+): Promise<FilesNode> {
+  const node = await getNodeOrThrow(id)
+  if (isTrashLocationId(node.locationId)) {
+    throw new Error('该节点已在废纸篓中')
+  }
+  if (isUserSpecialFolderNode(node)) {
+    throw new Error(USER_SPECIAL_FOLDER_PROTECTED_MESSAGE)
+  }
+  assertNodeWritable(node)
+
+  const trashOrigin = {
+    locationId: node.locationId,
+    parentId: node.parentId,
+    name: node.name,
+  }
+
+  if (isMountNodeId(id)) {
+    // 跨存储：复制进废纸篓（预检配额），成功后删除挂载原件
+    const previousPath = await resolveFilesAbsolutePath(node)
+    const needed = await estimateCopyBytesForNode(node, 'trash')
+    await assertAdditionalBytesAvailable(needed)
+    const workload = await estimateCopyWorkloadForNode(node)
+    const total = filesWorkloadUnits(workload.nodeCount, workload.byteSize)
+    const progressState = { done: 0 }
+    options?.onProgress?.({ done: 0, total })
+    let copied: FilesNode
+    try {
+      copied = await copyNodeTree(node, 'trash', undefined, (copyNode) => {
+        progressState.done = Math.min(total, progressState.done + nodeWorkloadUnits(copyNode))
+        options?.onProgress?.({ done: progressState.done, total })
+      })
+    } catch (err) {
+      if (err instanceof FilesStorageFullError) {
+        throw new Error('数据空间不足，无法移入废纸篓。按住 ⌥ 键删除可直接永久删除')
+      }
+      throw err
+    }
+    const withOrigin = await moveNodeRecord({
+      id: copied.id,
+      locationId: 'trash',
+      parentId: undefined,
+      name: copied.name,
+      trashOrigin,
+    })
+    await removeMountNode(id)
+    options?.onProgress?.({ done: total, total })
+    emitFilesVfsChanged([
+      { kind: 'deleted', path: previousPath },
+      { kind: 'created', path: await resolveFilesAbsolutePath(withOrigin) },
+    ])
+    return withOrigin
+  }
+
+  const previousPath = await resolveFilesAbsolutePath(node)
+  const names = await siblingNames('trash', undefined)
+  const name = uniqueName(names, node.name)
+  const moved = await moveNodeRecord({
+    id,
+    locationId: 'trash',
+    parentId: undefined,
+    name,
+    trashOrigin,
+  })
+  const path = await resolveFilesAbsolutePath(moved)
+  emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
+  return moved
+}
+
+/**
+ * 将废纸篓中的节点恢复到原位置。
+ * 原父目录已不存在时恢复到原卷根；原挂载卷已卸载时报错。
+ */
+export async function restoreNode(id: string): Promise<FilesNode> {
+  const node = await getNodeOrThrow(id)
+  if (!isTrashLocationId(node.locationId) || !node.trashOrigin) {
+    throw new Error('该节点不在废纸篓中，无法恢复')
+  }
+  const origin = node.trashOrigin
+
+  let destParentId = origin.parentId
+  if (destParentId !== undefined) {
+    const parent = await getNode(destParentId).catch(() => undefined)
+    // 父目录需仍位于原卷（移入废纸篓等换卷后视为缺失）
+    if (!parent || parent.kind !== 'folder' || parent.locationId !== origin.locationId) {
+      destParentId = undefined
+    }
+  }
+
+  if (isMountLocationId(origin.locationId)) {
+    if (!getCachedMount(origin.locationId)) {
+      throw new Error('原位置所在挂载已被移除，无法恢复')
+    }
+  }
+
+  const names = await siblingNames(origin.locationId, destParentId, id)
+  const name = uniqueName(names, origin.name)
+
+  if (isMountLocationId(origin.locationId)) {
+    // 目标为挂载卷：复制到挂载卷后删除废纸篓原件
+    const copied = await copyNodeTree(node, origin.locationId, destParentId, () => undefined)
+    await removeNode(id)
+    emitFilesVfsChanged([
+      { kind: 'created', path: await resolveFilesAbsolutePath(copied) },
+      { kind: 'deleted', path: await resolveFilesAbsolutePath(node) },
+    ])
+    return copied
+  }
+
+  const previousPath = await resolveFilesAbsolutePath(node)
+  const restored = await moveNodeRecord({
+    id,
+    locationId: origin.locationId,
+    parentId: destParentId,
+    name,
+  })
+  const path = await resolveFilesAbsolutePath(restored)
+  emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
+  return restored
+}
+
+/** 清空废纸篓：永久删除其中全部内容（释放容量，带进度） */
+export async function emptyTrash(
+  options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
+): Promise<void> {
+  const roots = await listDirectory('trash', undefined)
+  let done = 0
+  const total = roots.length
+  options?.onProgress?.({ done: 0, total })
+  for (const root of roots) {
+    await removeNodeForced(root.id)
+    done += 1
+    options?.onProgress?.({ done, total })
+  }
+  options?.onProgress?.({ done: total, total })
+}
+
 async function removeNodeInner(
   node: FilesNode,
   options?: { onProgress?: (progress: FilesVfsOpProgress) => void },
@@ -1485,6 +1702,9 @@ export async function copyNodeTo(params: {
   onProgress?: (progress: FilesVfsOpProgress) => void
 }): Promise<FilesNode> {
   const source = await getNodeOrThrow(params.sourceId)
+  if (isTrashLocationId(params.destLocationId)) {
+    throw new Error('不能复制或粘贴到废纸篓，请使用删除操作')
+  }
   await assertCanCreateIn(params.destLocationId, params.destParentId)
 
   if (

@@ -1,9 +1,9 @@
 import { materializeArchiveEntries } from '../../archive/archive-materialize.ts'
-import { unzipBytes } from '../../archive/archive-unzip.ts'
 import { osNowMs } from '../../os/os-clock.ts'
 import { assertAdditionalBytesAvailable, listChildNodes } from '../files/files-storage.ts'
 import {
   filesCreateBinary,
+  filesDecodeArchive,
   filesList,
   filesListSubtreeFiles,
   filesMkdir,
@@ -376,7 +376,10 @@ export async function materializeFilesToRepo(
 }
 
 export async function unzipGithubZipball(buffer: ArrayBuffer): Promise<Map<string, Uint8Array>> {
-  return unzipBytes(new Uint8Array(buffer))
+  return filesDecodeArchive({
+    bytes: new Uint8Array(buffer),
+    format: 'zip',
+  })
 }
 
 export async function cloneGithubRepository(params: {

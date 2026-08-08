@@ -39,6 +39,11 @@ export default defineConfig({
   optimizeDeps: {
     include: ['monaco-editor', 'frimousse', 'quickjs-emscripten'],
   },
+  // rolldown-vite 的 iife worker 不支持与主包共享模块（code-splitting）；
+  // worker 文件均使用 ES import，改 es 格式可正常打包共享 chunk。
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 6173,
   },

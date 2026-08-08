@@ -1,4 +1,11 @@
-export type BuiltinFilesLocationId = 'local' | 'applications' | 'models3d' | 'source' | 'dev' | 'tmp'
+export type BuiltinFilesLocationId =
+  | 'local'
+  | 'applications'
+  | 'models3d'
+  | 'source'
+  | 'dev'
+  | 'tmp'
+  | 'trash'
 
 /** 动态挂载卷：`mount:{文件夹名键}`，键由本机文件夹名派生，便于稳定路径 */
 export type MountFilesLocationId = `mount:${string}`
@@ -36,6 +43,17 @@ export type FilesNode = {
    * 仅 `kind === 'symlink'` 有意义；无独立 blob。
    */
   target?: string
+  /**
+   * 废纸篓来源记录：被删除（移入废纸篓）前的原位置，供恢复。
+   * 仅位于废纸篓卷的节点有意义；普通节点缺失。
+   */
+  trashOrigin?: {
+    locationId: FilesLocationId
+    /** 原父目录 id（卷根为 undefined） */
+    parentId: string | undefined
+    /** 原名（移入废纸篓时可能因冲突被改名） */
+    name: string
+  }
   attributes: FilesNodeAttributes
 }
 
@@ -67,6 +85,7 @@ export const FILES_LOCATIONS: readonly FilesLocation[] = [
   { id: 'tmp', label: '临时文件', writable: true },
   { id: 'models3d', label: '3D 模型', writable: false },
   { id: 'source', label: '系统', writable: false },
+  { id: 'trash', label: '废纸篓', writable: true },
 ]
 
 export const FILES_TEXT_MIME = 'text/plain'
@@ -74,6 +93,11 @@ export const FILES_GLTF_MIME = 'model/gltf+json'
 
 export function isMountLocationId(id: string): id is MountFilesLocationId {
   return /^mount:[^:]+$/.test(id)
+}
+
+/** 是否为废纸篓卷（删除后暂存、可恢复的独立容器） */
+export function isTrashLocationId(id: string): boolean {
+  return id === 'trash'
 }
 
 export function isMountNodeId(id: string): boolean {

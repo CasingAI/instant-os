@@ -18,6 +18,7 @@ import {
   filesVolumeRootAttributes,
   isFilesNodeWritable,
   defaultFilesNodeAttributes,
+  isTrashLocationId,
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
@@ -26,6 +27,7 @@ import {
   copyNodeTo,
   createBinaryFile,
   createTextFile,
+  emptyTrash,
   getFilesLocationLabel,
   listDirectory,
   listFilesLocations,
@@ -40,9 +42,11 @@ import {
   removeNode,
   removeNodesByPathsBatch,
   renameNode,
+  restoreNode,
   resolveFilesAbsolutePath,
   resolveNodeByAbsolutePath,
   readTextFileIfSmall,
+  trashNode,
   upsertFilesBatch,
   writeBinaryFile,
   writeTextFile,
@@ -63,6 +67,8 @@ import {
 } from './files-watch.ts'
 
 export type { FilesWatchChange, FilesWatchListener, FilesWatchOptions }
+import type { ArchiveCodecFormat } from '../../archive/archive-codec.ts'
+import type { ArchiveMaterializeProgress } from '../../archive/archive-materialize.ts'
 
 export type FilesApiEntry = {
   path: string
@@ -170,6 +176,9 @@ async function resolveParentForCreate(absolutePath: string): Promise<{
   }
   if (parsed.segments.length === 0) {
     throw new Error('不能在卷根路径上直接创建')
+  }
+  if (isTrashLocationId(parsed.locationId)) {
+    throw new Error('废纸篓不接受新建或写入，请使用删除操作')
   }
 
   const name = normalizeFilesNodeName(parsed.segments[parsed.segments.length - 1] ?? '')
@@ -653,4 +662,248 @@ export function filesWatch(
   options?: FilesWatchOptions,
 ): () => void {
   return subscribeFilesWatch(assertAbsolutePath(path), listener, options)
+}
+
+/**
+ * 将节点移入废纸篓（可恢复）。
+ * 返回废纸篓中的新节点；内部卷为零拷贝移动，挂载卷为复制进废纸篓。
+ */
+export async function filesTrash(sourcePath: string): Promise<FilesApiEntry> {
+  const sourceAbs = assertAbsolutePath(sourcePath)
+  const node = await resolveNodeByAbsolutePath(sourceAbs)
+  if (!node) {
+    throw new Error('源路径不存在')
+  }
+  if (isFilesNamespaceRoot(sourceAbs)) {
+    throw new Error('不能将命名空间根移入废纸篓')
+  }
+  if (parseFilesAbsolutePath(sourceAbs)?.segments.length === 0) {
+    throw new Error('不能将卷根移入废纸篓')
+  }
+  const trashed = await trashNode(node.id)
+  return toEntry(trashed)
+}
+
+/** 将废纸篓中的节点恢复到原位置（原位置缺失时恢复至原卷根） */
+export async function filesRestore(path: string): Promise<FilesApiEntry> {
+  const absolutePath = assertAbsolutePath(path)
+  const node = await resolveNodeByAbsolutePath(absolutePath)
+  if (!node) {
+    throw new Error('路径不存在')
+  }
+  const restored = await restoreNode(node.id)
+  return toEntry(restored)
+}
+
+/** 清空废纸篓：永久删除其中全部内容（释放容量） */
+export async function filesEmptyTrash(): Promise<void> {
+  await emptyTrash()
+}
+
+// ---- 压缩包解压 / 创建（编解码在独立 Archive Worker 线程，主线程只做 VFS 读写） ----
+
+export type FilesArchiveFormat = 'auto' | ArchiveCodecFormat
+
+export type FilesExtractArchiveProgress = ArchiveMaterializeProgress
+
+export type FilesCreateArchiveProgress = {
+  /** 已读取的文件数（主线程读 VFS 阶段） */
+  readCount: number
+  totalCount: number
+  currentPath?: string
+}
+
+function parentAbsolutePathOf(path: string): string {
+  const trimmed = path.replace(/\/+$/, '') || '/'
+  const slash = trimmed.lastIndexOf('/')
+  return slash <= 0 ? '/' : trimmed.slice(0, slash)
+}
+
+/** 把 Worker 侧的解码错误映射为与解压工具一致的友好文案；abort 原样透传。 */
+function toFriendlyArchiveError(format: FilesArchiveFormat, error: unknown): Error {
+  if (error instanceof Error && error.message === 'aborted') return error
+  switch (format) {
+    case 'zip':
+      return new Error('无法解析 ZIP（文件可能已损坏）')
+    case 'gzip-tar':
+      return new Error('无法解析该 tar.gz 压缩包（文件可能已损坏）')
+    case 'tar':
+      return new Error('无法解析该 tar 归档（文件可能已损坏）')
+    case 'gzip-file':
+      return new Error('无法解压该 gzip 文件（文件可能已损坏）')
+    default:
+      return error instanceof Error ? error : new Error('无法解析压缩包（文件可能已损坏或格式不受支持）')
+  }
+}
+
+/**
+ * 在独立 Worker 线程中解码压缩包字节（zip / tar / gzip-tar / 单文件 gzip）。
+ * 返回相对路径 → 字节；zip 默认剥公共根（stripRoot: false 保留归档内路径）。
+ * 入参 bytes 会被复制后转移给 Worker，调用方持有的视图不受影响。
+ */
+export async function filesDecodeArchive(params: {
+  bytes: Uint8Array
+  format?: FilesArchiveFormat
+  stripRoot?: boolean
+  signal?: AbortSignal
+}): Promise<Map<string, Uint8Array>> {
+  const format = params.format ?? 'auto'
+  // 动态 import：worker 客户端含 Vite 专用 `?worker` 静态导入，node 测试
+  // 加载本模块时不可解析；浏览器调用时才执行到这里
+  const { decodeArchiveInWorker } = await import('../../archive/archive-worker-client.ts')
+  try {
+    return await decodeArchiveInWorker({
+      bytes: params.bytes,
+      format,
+      stripRoot: params.stripRoot,
+      signal: params.signal,
+    })
+  } catch (error) {
+    throw toFriendlyArchiveError(format, error)
+  }
+}
+
+/**
+ * 解压压缩包到目录：主线程读归档 + Worker 解码 + 分批落盘（进度回调）。
+ * 目标目录须已存在；`transformEntries` 可在落盘前改写条目（如冲突重命名）。
+ */
+export async function filesExtractArchive(params: {
+  archivePath: string
+  destDirPath: string
+  format?: FilesArchiveFormat
+  stripRoot?: boolean
+  transformEntries?: (
+    entries: Map<string, Uint8Array>,
+  ) => Map<string, Uint8Array> | Promise<Map<string, Uint8Array>>
+  signal?: AbortSignal
+  onProgress?: (progress: FilesExtractArchiveProgress) => void
+}): Promise<{ fileCount: number; bytesWritten: number }> {
+  const absolutePath = assertAbsolutePath(params.archivePath)
+  const destRoot = assertAbsolutePath(params.destDirPath)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能读取命名空间根')
+  }
+
+  const node = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
+  if (!node || node.kind !== 'file') {
+    throw new Error('找不到压缩包')
+  }
+  if (node.byteSize === 0) {
+    throw new Error('文件是空的，不是有效的压缩包')
+  }
+  const dest = await resolveNodeByAbsolutePath(destRoot, { follow: true })
+  if (!dest || dest.kind !== 'folder') {
+    throw new Error('目标文件夹不存在')
+  }
+
+  const format = params.format ?? 'auto'
+  const { blob } = await readFileBlob(absolutePath)
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  params.signal?.throwIfAborted?.()
+  if (params.signal?.aborted) throw new Error('aborted')
+
+  let entries: Map<string, Uint8Array>
+  try {
+    const { decodeArchiveInWorker } = await import('../../archive/archive-worker-client.ts')
+    entries = await decodeArchiveInWorker({
+      bytes,
+      format,
+      stripRoot: params.stripRoot,
+      signal: params.signal,
+    })
+  } catch (error) {
+    throw toFriendlyArchiveError(format, error)
+  }
+
+  // 与解压工具原行为一致：显式 zip 解出 0 个文件且大于空包 → 判损坏
+  if (format === 'zip' && entries.size === 0 && bytes.byteLength > 64) {
+    throw new Error('无法从 ZIP 中读出文件（可能已损坏或未按二进制保存）')
+  }
+
+  if (params.transformEntries) {
+    entries = await params.transformEntries(entries)
+  }
+
+  // 动态 import：archive-materialize 静态依赖本模块，静态引入会成环
+  const { materializeArchiveEntries } = await import('../../archive/archive-materialize.ts')
+  return materializeArchiveEntries({
+    destRoot,
+    entries: [...entries.entries()].map(([relativePath, bytes]) => ({
+      relativePath,
+      bytes,
+    })),
+    signal: params.signal,
+    onProgress: params.onProgress,
+  })
+}
+
+/**
+ * 打包目录为压缩包（zip / tar.gz）：主线程遍历读文件 + Worker 压缩 + 流式写。
+ * 仅支持 IndexedDB 本地卷（local / repo）目录（同 filesListSubtreeFiles 限制）。
+ */
+export async function filesCreateArchive(params: {
+  sourceDirPath: string
+  archivePath: string
+  format?: 'zip' | 'gzip-tar'
+  signal?: AbortSignal
+  onProgress?: (progress: FilesCreateArchiveProgress) => void
+}): Promise<FilesApiEntry> {
+  const sourceAbs = assertAbsolutePath(params.sourceDirPath)
+  const archiveAbs = assertAbsolutePath(params.archivePath)
+  const format = params.format ?? 'zip'
+
+  const source = await resolveNodeByAbsolutePath(sourceAbs, { follow: true })
+  if (!source || source.kind !== 'folder') {
+    throw new Error('源目录不存在')
+  }
+  if (isFilesNamespaceRoot(archiveAbs)) {
+    throw new Error('不能在命名空间根创建压缩包')
+  }
+  const parent = await resolveNodeByAbsolutePath(parentAbsolutePathOf(archiveAbs), {
+    follow: true,
+  })
+  if (!parent || parent.kind !== 'folder') {
+    throw new Error('无法写入压缩包所在目录')
+  }
+  if (!isFilesNodeWritable(parent)) {
+    throw new Error('压缩包所在目录不可写')
+  }
+
+  const subtree = await listSubtreeFiles(sourceAbs)
+  const entries: { path: string; bytes: ArrayBuffer }[] = []
+  let readCount = 0
+  for (const file of subtree) {
+    params.signal?.throwIfAborted?.()
+    if (params.signal?.aborted) throw new Error('aborted')
+    const { blob } = await readFileBlob(file.absolutePath)
+    entries.push({ path: file.path, bytes: await blob.arrayBuffer() })
+    readCount += 1
+    params.onProgress?.({ readCount, totalCount: subtree.length, currentPath: file.path })
+  }
+
+  const { encodeArchiveInWorker } = await import('../../archive/archive-worker-client.ts')
+  const outBytes = await encodeArchiveInWorker({
+    entries,
+    format,
+    signal: params.signal,
+  })
+
+  // 流式写，避免单次 IndexedDB 事务过大
+  const writer = await filesOpenStreamWrite(archiveAbs)
+  const CHUNK_BYTES = 256 * 1024
+  try {
+    for (let offset = 0; offset < outBytes.byteLength; offset += CHUNK_BYTES) {
+      await writer.write(outBytes.subarray(offset, offset + CHUNK_BYTES))
+    }
+    await writer.close()
+  } catch (error) {
+    await writer.abort().catch(() => {})
+    throw error
+  }
+
+  const entry = await filesStat(archiveAbs)
+  if (!entry) {
+    throw new Error('压缩包写入失败')
+  }
+  return entry
 }

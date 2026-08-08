@@ -19,6 +19,7 @@ import {
   readBlobBytes,
   readBlobText,
   resetFilesDbForTests,
+  sweepOrphanChunksOnce,
   writeBlobText,
 } from './files-storage.ts'
 import {
@@ -308,6 +309,54 @@ async function testEmptyStream(): Promise<void> {
   console.log('ok: empty stream creates zero-byte file')
 }
 
+/** 存储层：孤儿 chunk（无 blob 记录）被清理，正常 chunk 保留 */
+async function testSweepOrphanChunks(): Promise<void> {
+  await resetState()
+  const node = makeFileNode('sweep.bin')
+  const writer = await openStreamWriteBlob({
+    node,
+    isNew: true,
+    metaBytes: estimateNodeMetaBytes(node),
+    previousByteSize: 0,
+  })
+  await writer.write(utf8('keep'))
+  const closed = await writer.close()
+  const ref = await getFileBlobRefForTests(closed.id)
+  assert.ok(ref)
+
+  // 手动插入孤儿 chunk（模拟崩溃残留：有 chunk、无 blob 记录）
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(FILES_DB_NAME)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('open failed'))
+  })
+  const orphanBlobId = 'blob:orphan-sweep-test'
+  const tx = db.transaction(FILES_CHUNKS_STORE, 'readwrite')
+  const chunkStore = tx.objectStore(FILES_CHUNKS_STORE)
+  chunkStore.put({ blobId: orphanBlobId, chunkIndex: 0, bytes: copyBytes('junk-a') })
+  chunkStore.put({ blobId: orphanBlobId, chunkIndex: 1, bytes: copyBytes('junk-b') })
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('seed failed'))
+  })
+  assert.equal(await countChunks(orphanBlobId), 2)
+
+  await sweepOrphanChunksOnce(db)
+  db.close()
+
+  assert.equal(await countChunks(orphanBlobId), 0, '孤儿 chunk 应被清理')
+  assert.equal(await countChunks(ref.blobId), 1, '正常 chunk 应保留')
+  assert.equal(await readBlobText(closed.id), 'keep')
+  console.log('ok: orphan chunk sweep removes dangling chunks')
+}
+
+function copyBytes(text: string): ArrayBuffer {
+  const bytes = new TextEncoder().encode(text)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy.buffer
+}
+
 async function run(): Promise<void> {
   await testStreamCreateAndReadBack()
   await testAbortNewFile()
@@ -318,6 +367,7 @@ async function run(): Promise<void> {
   await testCloneAndDeleteChunked()
   await testStreamOverwriteSharedForks()
   await testEmptyStream()
+  await testSweepOrphanChunks()
   console.log('files-stream-write: all passed')
 }
 

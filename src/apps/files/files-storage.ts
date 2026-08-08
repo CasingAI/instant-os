@@ -49,6 +49,12 @@ type FilesNodeRecord = {
   blobId?: string
   /** 符号链接目标；仅 kind=symlink */
   target?: string
+  /** 废纸篓来源记录（原位置），仅位于废纸篓卷的节点有意义 */
+  trashOrigin?: {
+    locationId: FilesLocationId
+    parentId: string
+    name: string
+  }
   /** 旧数据可能缺失；读取时按位置默认补齐 */
   attributes?: FilesNodeAttributes
 }
@@ -168,7 +174,11 @@ function openFilesDb(): Promise<IDBDatabase> {
       }
     }
 
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      // 首次打开后异步清理孤儿 chunk（崩溃 / 流式中断残留；不影响业务，失败静默）
+      void sweepOrphanChunksOnce(request.result)
+      resolve(request.result)
+    }
     request.onerror = () => {
       dbPromise = undefined
       reject(request.error ?? new Error('无法打开文件 IndexedDB'))
@@ -176,6 +186,74 @@ function openFilesDb(): Promise<IDBDatabase> {
   })
 
   return dbPromise
+}
+
+/**
+ * 清理孤儿 chunk：内容在 FILES_CHUNKS_STORE、但对应 blob 记录已不存在。
+ * 正常路径（close / abort / 删除）都会同步删 chunk；孤儿仅在进程崩溃等
+ * 中断场景残留，是不可读的纯空间浪费。每进程仅首次打开 DB 时跑一次。
+ */
+export async function sweepOrphanChunksOnce(db: IDBDatabase): Promise<void> {
+  try {
+    if (!db.objectStoreNames.contains(FILES_CHUNKS_STORE)) {
+      return
+    }
+    const tx = beginIdbTransaction(
+      db,
+      [FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
+      'readwrite',
+    )
+    const blobs = tx.objectStore(FILES_BLOBS_STORE)
+    const chunks = tx.objectStore(FILES_CHUNKS_STORE)
+
+    // 收集现存 blob id
+    const existingBlobIds = new Set<string>()
+    await new Promise<void>((resolve, reject) => {
+      const req = blobs.openKeyCursor()
+      req.onsuccess = () => {
+        const cursor = req.result
+        if (!cursor) {
+          resolve()
+          return
+        }
+        existingBlobIds.add(String(cursor.key))
+        cursor.continue()
+      }
+      req.onerror = () => reject(req.error ?? new Error('blob 游标失败'))
+    })
+
+    // 收集无 blob 记录的孤儿 chunk 主键；游标结束后再删（避免迭代中改 store）
+    const orphanBlobIds = new Set<string>()
+    await new Promise<void>((resolve, reject) => {
+      const req = chunks.openKeyCursor()
+      req.onsuccess = () => {
+        const cursor = req.result
+        if (!cursor) {
+          resolve()
+          return
+        }
+        const key = cursor.key as unknown as [string, number]
+        const blobId = key[0]
+        if (!existingBlobIds.has(blobId)) {
+          orphanBlobIds.add(blobId)
+        }
+        cursor.continue()
+      }
+      req.onerror = () => reject(req.error ?? new Error('chunk 游标失败'))
+    })
+
+    for (const blobId of orphanBlobIds) {
+      await requestToPromise(
+        chunks.delete(
+          IDBKeyRange.bound([blobId, 0], [blobId, Number.MAX_SAFE_INTEGER]),
+        ) as IDBRequest<undefined>,
+      )
+    }
+    await waitForTransaction(tx)
+  } catch (error) {
+    // 清理失败不影响业务
+    console.warn('files: orphan chunk sweep failed', error)
+  }
 }
 
 /** 测试用：关闭并删除文件 DB，重置单例 */
@@ -280,6 +358,15 @@ export function recordToNode(record: FilesNodeRecord): FilesNode {
   if (record.target !== undefined) {
     node.target = record.target
   }
+  if (record.trashOrigin !== undefined) {
+    node.trashOrigin = {
+      locationId: record.trashOrigin.locationId,
+      parentId: record.trashOrigin.parentId === FILES_ROOT_PARENT_KEY
+        ? undefined
+        : record.trashOrigin.parentId,
+      name: record.trashOrigin.name,
+    }
+  }
   return node
 }
 
@@ -303,6 +390,13 @@ function nodeToRecord(node: FilesNode, blobId?: string): FilesNodeRecord {
   }
   if (node.target !== undefined) {
     record.target = node.target
+  }
+  if (node.trashOrigin !== undefined) {
+    record.trashOrigin = {
+      locationId: node.trashOrigin.locationId,
+      parentId: parentKey(node.trashOrigin.parentId),
+      name: node.trashOrigin.name,
+    }
   }
   if (node.kind === 'file') {
     record.blobId = blobId ?? node.id
@@ -1103,6 +1197,60 @@ export async function renameNodeRecord(params: {
   await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
   return recordToNode(updated)
+}
+
+/**
+ * 元数据级移动节点（改所在卷 / 父目录 / 名），不复制 blob、不消耗内容容量。
+ * 递归更新整棵子树的所在卷（by-parent 索引按卷查，子树必须一致）。
+ * 供同卷移动、移入 / 恢复废纸篓使用；仅限 IndexedDB 本地卷节点。
+ */
+export async function moveNodeRecord(params: {
+  id: string
+  locationId: FilesLocationId
+  parentId: string | undefined
+  name: string
+  trashOrigin?: FilesNode['trashOrigin']
+}): Promise<FilesNode> {
+  const subtree = await collectSubtreeIds(params.id)
+
+  const db = await openFilesDb()
+  const writeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
+  const store = writeTx.objectStore(FILES_NODES_STORE)
+
+  let rootNode: FilesNode | undefined
+  for (const nodeId of subtree.nodeIds) {
+    const existing = await requestToPromise(
+      store.get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+    )
+    if (!existing) continue
+    const updated: FilesNodeRecord = {
+      ...existing,
+      locationId: params.locationId,
+      attributes: normalizeFilesNodeAttributes(params.locationId, existing.attributes),
+    }
+    if (nodeId === params.id) {
+      updated.parentId = parentKey(params.parentId)
+      updated.name = params.name
+      updated.updatedAt = osNowMs()
+      if (params.trashOrigin !== undefined) {
+        updated.trashOrigin = {
+          locationId: params.trashOrigin.locationId,
+          parentId: parentKey(params.trashOrigin.parentId),
+          name: params.trashOrigin.name,
+        }
+      } else {
+        delete updated.trashOrigin
+      }
+      rootNode = recordToNode(updated)
+    }
+    store.put(updated)
+  }
+  await waitForTransaction(writeTx)
+  emitFilesDataStorageChanged()
+  if (!rootNode) {
+    throw new Error('项目不存在')
+  }
+  return rootNode
 }
 
 /** 系统层更新节点属性（不检查 writable） */
