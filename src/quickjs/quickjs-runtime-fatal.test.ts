@@ -4,6 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import {
+  formatFatalErrorMessage,
   isQuickJsRuntimeFatalError,
   isQuickJsWasmBoundaryFatalError,
   QuickJsRuntimeFatalError,
@@ -75,6 +76,56 @@ assert.equal(
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
   128 * 1024 * 1024,
   'default memory limit should be 128MiB',
+)
+
+// formatFatalErrorMessage
+assert.equal(
+  formatFatalErrorMessage('memory access out of bounds'),
+  'QuickJS 引擎内部崩溃（WASM 内存访问越界）',
+  'oob string → friendly',
+)
+assert.equal(
+  formatFatalErrorMessage(new Error('RuntimeError: memory access out of bounds')),
+  'QuickJS 引擎内部崩溃（WASM 内存访问越界）',
+  'oob error → friendly',
+)
+assert.equal(
+  formatFatalErrorMessage(
+    new Error('Aborted(Assertion failed: p->ref_count == 0, at: ../../vendor/quickjs/quickjs.c,6009,free_zero_refcount)'),
+  ),
+  'QuickJS 引擎内部断言失败',
+  'aborted assert → friendly',
+)
+assert.equal(
+  formatFatalErrorMessage('table index is out of bounds'),
+  'QuickJS WASM 表索引越界',
+  'table oob → friendly',
+)
+assert.equal(
+  formatFatalErrorMessage('null function or function signature mismatch'),
+  'QuickJS WASM 函数签名不匹配',
+  'signature mismatch → friendly',
+)
+assert.ok(
+  formatFatalErrorMessage(new QuickJsRuntimeFatalError('something broken')).startsWith(
+    'QuickJS 致命错误: something broken',
+  ),
+  'typed fatal without known pattern → raw',
+)
+assert.equal(
+  formatFatalErrorMessage(undefined),
+  'QuickJS 致命错误: undefined',
+  'undefined → raw',
+)
+assert.equal(
+  formatFatalErrorMessage(''),
+  '未知 QuickJS 致命错误',
+  'empty string → unknown',
+)
+assert.equal(
+  formatFatalErrorMessage('some random error'),
+  'QuickJS 致命错误: some random error',
+  'unknown pattern → raw',
 )
 
 console.log('quickjs-runtime-fatal: ok')

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import type { Ref } from 'preact'
 import {
   createQuickJsInstance,
+  formatFatalErrorMessage,
   isQuickJsWasmBoundaryFatalError,
   QUICKJS_MAX_CONSOLE_LINE_CHARS,
   QUICKJS_MAX_CONSOLE_LINES,
@@ -600,7 +601,7 @@ export function TerminalReplPanel({
       } catch (error) {
         const raw = error instanceof Error ? error.message : String(error)
         if (isQuickJsWasmBoundaryFatalError(error)) {
-          const message = formatRuntimeFatalMessage(raw)
+          const message = formatRuntimeFatalMessage(formatFatalErrorMessage(error))
           appendLine({ kind: 'error', text: message })
           unsubRef.current?.()
           unsubRef.current = undefined

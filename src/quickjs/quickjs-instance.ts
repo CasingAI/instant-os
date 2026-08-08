@@ -47,7 +47,7 @@ import {
   injectProcess,
   syncExitCodeFromGuest,
 } from './quickjs-process.ts'
-import { isQuickJsWasmBoundaryFatalError } from './quickjs-runtime-fatal.ts'
+import { formatFatalErrorMessage, isQuickJsWasmBoundaryFatalError } from './quickjs-runtime-fatal.ts'
 import {
   QUICKJS_DEFAULT_MAX_FILE_BYTES,
   QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES,
@@ -832,11 +832,10 @@ while (promiseState.type === 'pending') {
       if (state.destroyed) {
         result = makeFailure('QuickJS instance destroyed during evaluation')
       } else if (isQuickJsWasmBoundaryFatalError(error)) {
-        const message = error instanceof Error ? error.message : String(error)
         destroy()
         result = {
           ok: false,
-          error: message,
+          error: formatFatalErrorMessage(error),
           fatal: true,
           exited: false,
           exitCode: processState.exitCode,

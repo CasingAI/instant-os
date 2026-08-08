@@ -10,6 +10,7 @@ export {
   QUICKJS_MAX_CONSOLE_LINES,
 } from './quickjs-quotas.ts'
 export {
+  formatFatalErrorMessage,
   isQuickJsRuntimeFatalError,
   isQuickJsWasmBoundaryFatalError,
   QuickJsRuntimeFatalError,
