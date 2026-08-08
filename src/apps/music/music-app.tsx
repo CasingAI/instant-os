@@ -556,6 +556,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                 lines={parsedLyrics.lines}
                 currentTimeMs={playerState.currentTime * 1000}
                 onSeek={seekTo}
+                karaoke
               />
             ) : (
               <div class="music__empty">
