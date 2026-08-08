@@ -46,7 +46,7 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   'simulated-terminal': '模拟终端',
   'virtual-js': 'Virtual JS',
   'ui-kit': 'UI 组件库',
-  stems: '分轨',
+  stems: '音乐实验室',
 }
 
 /** 目录枚举顺序（与历史 APP_REGISTRY 顺序一致，便于对照；catalog 最终仍会按 bundleName 排序）。 */

@@ -112,7 +112,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   news: { title: '新闻', width: 920, height: 620 },
   books: { title: '书架', width: 920, height: 620 },
   music: { title: '音乐', width: 820, height: 600 },
-  stems: { title: '分轨', width: 860, height: 640 },
+  stems: { title: '音乐实验室', width: 860, height: 640 },
   weather: { title: '天气', width: 410, height: 680 },
   calendar: { title: '月历', width: 780, height: 540 },
   stocks: { title: '股票', width: 410, height: 680 },
