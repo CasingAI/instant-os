@@ -25,3 +25,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Music source separation weights (HTDemucs 6-stem ONNX, ~285 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-demucs.sh
+public/assets/demucs/models/

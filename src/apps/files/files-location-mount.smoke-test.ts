@@ -8,8 +8,33 @@ import 'fake-indexeddb/auto'
 import './files-mount-test-window.ts'
 import assert from 'node:assert/strict'
 import { addMount, removeMount } from './files-mount-store.ts'
-import { filesList } from './files-api.ts'
+import { filesList, filesOpenStreamWrite, filesReadText, filesStat } from './files-api.ts'
 import { createQuickJsInstance } from '../../quickjs/quickjs-instance.ts'
+
+/** FSA FileSystemWritableFileStream 简化 mock：close 落盘、abort 丢弃（含 truncate） */
+class MockWritableFileStream {
+  file: MockFileHandle
+  chunks: string[] = []
+  closed = false
+  constructor(file: MockFileHandle) {
+    this.file = file
+    // FSA createWritable() 立即清空既有文件
+    this.file.text = ''
+  }
+  async write(data: string | Uint8Array): Promise<void> {
+    if (this.closed) throw new Error('stream closed')
+    this.chunks.push(typeof data === 'string' ? data : new TextDecoder().decode(data))
+  }
+  async close(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
+    this.file.text = this.chunks.join('')
+  }
+  async abort(): Promise<void> {
+    // 已 truncate；abort 不恢复旧内容（与真实 FSA 一致）
+    this.closed = true
+  }
+}
 
 class MockFileHandle {
   kind = 'file' as const
@@ -21,6 +46,9 @@ class MockFileHandle {
   }
   async getFile(): Promise<Blob> {
     return new Blob([this.text])
+  }
+  async createWritable(): Promise<MockWritableFileStream> {
+    return new MockWritableFileStream(this)
   }
 }
 
@@ -40,10 +68,18 @@ class MockDirHandle {
     if (child?.kind === 'directory') return child
     throw new Error(`not a directory: ${name}`)
   }
-  async getFileHandle(name: string): Promise<MockFileHandle> {
+  async getFileHandle(name: string, options?: { create?: boolean }): Promise<MockFileHandle> {
     const child = this.children.get(name)
     if (child?.kind === 'file') return child
+    if (options?.create) {
+      const created = new MockFileHandle(name, '')
+      this.children.set(name, created)
+      return created
+    }
     throw new Error(`not a file: ${name}`)
+  }
+  async removeEntry(name: string): Promise<void> {
+    this.children.delete(name)
   }
   async *entries(): AsyncGenerator<[string, MockDirHandle | MockFileHandle]> {
     for (const [name, handle] of this.children) yield [name, handle]
@@ -129,9 +165,42 @@ async function testCacheInvalidatedAfterRemoveMount(): Promise<void> {
   console.log('ok: cache invalidated after removeMount')
 }
 
+async function testStreamWriteOnMount(): Promise<void> {
+  const record = await addMount(mockRoot)
+  const rootPath = `/mount/${record.id.slice('mount:'.length)}`
+  try {
+    // 新建 + 分块写 + close
+    const dest = `${rootPath}/download.bin`
+    const writer = await filesOpenStreamWrite(dest)
+    await writer.write(new TextEncoder().encode('hel'))
+    await writer.write(new TextEncoder().encode('lo'))
+    const node = await writer.close()
+    assert.equal(node.byteSize, 'hello'.length)
+    assert.equal(await filesReadText(dest), 'hello')
+
+    // abort 新建 → 文件移除
+    const abortDest = `${rootPath}/abort.bin`
+    const w2 = await filesOpenStreamWrite(abortDest)
+    await w2.write(new TextEncoder().encode('partial'))
+    await w2.abort()
+    assert.equal(await filesStat(abortDest), undefined)
+
+    // 覆盖既有文件（FSA createWritable 清空语义；close 后为新内容）
+    const overwritten = await filesOpenStreamWrite(`${rootPath}/package.json`)
+    await overwritten.write(new TextEncoder().encode('{"name":"y"}\n'))
+    const closed = await overwritten.close()
+    assert.equal(closed.byteSize, '{"name":"y"}\n'.length)
+    assert.equal(await filesReadText(`${rootPath}/package.json`), '{"name":"y"}\n')
+  } finally {
+    await removeMount(record.id)
+  }
+  console.log('ok: stream write on mount (create/abort/overwrite)')
+}
+
 async function main(): Promise<void> {
   await testReaddirOnMount()
   await testCacheInvalidatedAfterRemoveMount()
+  await testStreamWriteOnMount()
 }
 
 main().catch((error) => {

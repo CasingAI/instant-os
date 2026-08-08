@@ -1552,3 +1552,17 @@ export function UiKitIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function StemsIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#8a6fd6" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        {/* 四条独立音轨（DAW 风格） */}
+        <rect x="14" y="16" width="36" height="6" rx="3" fill="#e05a4e" />
+        <rect x="14" y="27" width="36" height="6" rx="3" fill="#e0b34e" />
+        <rect x="14" y="38" width="36" height="6" rx="3" fill="#4ed0a1" />
+        <rect x="14" y="49" width="36" height="6" rx="3" fill="#a17ee0" />
+      </svg>
+    </AppIconTile>
+  )
+}

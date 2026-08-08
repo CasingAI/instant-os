@@ -15,6 +15,7 @@ import {
   NotificationCenterPaneIcon,
   ResourcesPaneIcon,
   SafariUsagePaneIcon,
+  ModelCachePaneIcon,
   SoundsPaneIcon,
   SpeechPaneIcon,
   StoragePaneIcon,
@@ -44,6 +45,7 @@ export type SettingsPaneId =
   | 'startup-items'
   | 'resources'
   | 'safari'
+  | 'model-cache'
   | 'news'
   | 'experimental'
 
@@ -77,6 +79,7 @@ export type SettingsRoute =
   | { view: 'event-log-storage' }
   | { view: 'files-storage' }
   | { view: 'safari-usage' }
+  | { view: 'model-cache' }
   | { view: 'news' }
   | { view: 'experimental' }
 
@@ -146,6 +149,7 @@ export const SETTINGS_PANES: SettingsPaneDef[] = [
     route: { view: 'safari-usage' },
     group: 'network',
   },
+  { id: 'model-cache', label: '模型缓存', Icon: ModelCachePaneIcon, route: { view: 'model-cache' }, group: 'storage' },
   { id: 'news', label: '新闻', Icon: NewsPaneIcon, route: { view: 'news' }, group: 'network' },
   { id: 'proxy-server', label: '代理服务器', Icon: ProxyServerPaneIcon, route: { view: 'proxy-server' }, group: 'network' },
   {
@@ -268,6 +272,8 @@ export function paneIdForRoute(route: SettingsRoute): SettingsPaneId | undefined
       return 'resources'
     case 'safari-usage':
       return 'safari'
+    case 'model-cache':
+      return 'model-cache'
     case 'news':
       return 'news'
     case 'experimental':
@@ -296,6 +302,7 @@ export function isNestedSettingsRoute(route: SettingsRoute): boolean {
     case 'startup-items':
     case 'resources':
     case 'safari-usage':
+    case 'model-cache':
     case 'news':
     case 'experimental':
       return false

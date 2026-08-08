@@ -23,6 +23,7 @@ import { formatStorageSize } from './format-storage-size.ts'
 import { initBrowserPageCache } from '../browser/browser-page-cache.ts'
 import { AiUsageView } from './ai-usage-view.tsx'
 import { SafariUsageView } from './safari-usage-view.tsx'
+import { ModelCacheView } from './model-cache-view.tsx'
 import { AppsStorageView } from './apps-storage-view.tsx'
 import { OtherStorageView } from './other-storage-view.tsx'
 import { EventLogStorageView } from './event-log-storage-view.tsx'
@@ -276,6 +277,7 @@ export function SettingsApp() {
   const showEmoji = view === 'display-emoji' || view === 'display-emoji-calibration'
   const showEmojiCalibration = view === 'display-emoji-calibration'
   const showSafari = view === 'safari-usage'
+  const showModelCache = view === 'model-cache'
   const showResources = view === 'resources'
   const keepResources =
     showResources || view === 'resources-3d' || view === 'resources-3d-detail'
@@ -531,6 +533,10 @@ export function SettingsApp() {
           onCacheChange={() => setCacheRevision((value) => value + 1)}
           onHistoryChange={() => setCacheRevision((value) => value + 1)}
         />
+      </SettingsKeepLayer>
+
+      <SettingsKeepLayer show={showModelCache} keep={showModelCache}>
+        <ModelCacheView onBack={() => setRoute({ view: 'root' })} />
       </SettingsKeepLayer>
 
       <SettingsKeepLayer show={showResources} keep={keepResources}>

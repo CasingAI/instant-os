@@ -340,6 +340,7 @@ extAppTemplate/      # 外链应用开发模板（实验性 · 未完成）
 | `pnpm vendor:rapier` | 将 Rapier 复制到 `public/vendor/` |
 | `pnpm vendor:runtime` | 同时执行上述两项 |
 | `pnpm assets:3d` | 下载 CC0 3D 素材包 |
+| `pnpm vendor:demucs` | 下载 HTDemucs 6-stem 分轨权重到 `public/assets/demucs/`（约 285 MB，不进 git） |
 | `pnpm catalog:3d` | 根据素材生成模型目录 |
 
 - 构建时执行 `tsc -b` 类型检查（见 `vite.config.ts`）

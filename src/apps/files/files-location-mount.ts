@@ -1,6 +1,7 @@
 import { osNowMs } from '../../os/os-clock.ts'
 import { ensureMountPermission } from './files-mount-permission-gate.ts'
 import { getMount } from './files-mount-store.ts'
+import type { FilesStreamWriter } from './files-storage.ts'
 import {
   FILES_TEXT_MIME,
   isMountNodeId,
@@ -421,6 +422,60 @@ export async function writeMountBlob(id: string, bytes: ArrayBuffer): Promise<Fi
   await writable.close()
   const blob = await handle.getFile()
   return makeFileNode(parsed.locationId, parsed.path, blob.size, blob.lastModified)
+}
+
+/**
+ * 挂载卷流式写：复用 FileSystemWritableFileStream 原生增量写（逐 chunk 落盘）。
+ * `createWritable()` 默认清空既有文件，与 writeMountBlob 语义一致；
+ * 因此 abort 无法恢复被覆盖文件的旧内容（与真实 curl 覆盖行为类似）。
+ * isNew 时 abort 会移除刚创建的空文件。
+ */
+export async function openMountStreamWrite(params: {
+  locationId: MountFilesLocationId
+  parentId: string | undefined
+  name: string
+  isNew: boolean
+}): Promise<FilesStreamWriter> {
+  const { locationId, parentId, name, isNew } = params
+  const root = await getRootHandle(locationId)
+  const parentPath = parentId === undefined ? undefined : parseDirPath(parentId)?.path
+  if (parentId !== undefined && parentPath === undefined) {
+    throw new Error('父级不是文件夹')
+  }
+  const parent = await resolveDirectoryHandle(locationId, root, parentPath)
+  const handle = await parent.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  const path = joinPath(parentPath, name)
+
+  return {
+    async write(chunk) {
+      // FSA write 要求 ArrayBuffer 背板；拷贝后写入（写路径本就拷贝）
+      const copy = new Uint8Array(chunk.byteLength)
+      copy.set(chunk)
+      await writable.write(copy)
+    },
+    async close() {
+      await writable.close()
+      const blob = await handle.getFile()
+      invalidateMountDirHandleCache(locationId, parentPath)
+      return makeFileNode(locationId, path, blob.size, blob.lastModified)
+    },
+    async abort() {
+      try {
+        await writable.abort()
+      } catch {
+        // 已关闭 / 未写入等：忽略
+      }
+      if (isNew) {
+        try {
+          await parent.removeEntry(name)
+        } catch {
+          // 文件可能已被外部改动 / 删除
+        }
+      }
+      invalidateMountDirHandleCache(locationId, parentPath)
+    },
+  }
 }
 
 export async function mkdirMount(params: {

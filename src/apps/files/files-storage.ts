@@ -21,9 +21,10 @@ import {
 } from './files-types.ts'
 
 export const FILES_DB_NAME = 'instant-os-files'
-export const FILES_DB_VERSION = 3
+export const FILES_DB_VERSION = 4
 export const FILES_NODES_STORE = 'nodes'
 export const FILES_BLOBS_STORE = 'blobs'
+export const FILES_CHUNKS_STORE = 'chunks'
 export const FILES_META_STORE = 'meta'
 
 /** IndexedDB 复合索引用空字符串表示根目录父级 */
@@ -63,6 +64,22 @@ type FilesBlobRecord = {
   bytes?: ArrayBuffer
   /** 引用计数；缺省兼容旧数据：按 1 */
   refCount?: number
+  /**
+   * 分块 blob 标记：内容存在 FILES_CHUNKS_STORE（按 chunkIndex 排序拼接）。
+   * 与 bytes / text 互斥；流式写入使用。
+   */
+  chunked?: boolean
+  /** 分块 blob 的内容字节数（chunked 时维护，配额 / 预览免读 chunks） */
+  byteSize?: number
+  /** 分块数 */
+  chunkCount?: number
+}
+
+/** 分块 blob 内容单元；主键 [blobId, chunkIndex] */
+type FilesChunkRecord = {
+  blobId: string
+  chunkIndex: number
+  bytes: ArrayBuffer
 }
 
 type FilesMetaRecord = {
@@ -95,6 +112,9 @@ function openFilesDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(FILES_BLOBS_STORE)) {
         db.createObjectStore(FILES_BLOBS_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(FILES_CHUNKS_STORE)) {
+        db.createObjectStore(FILES_CHUNKS_STORE, { keyPath: ['blobId', 'chunkIndex'] })
       }
       if (!db.objectStoreNames.contains(FILES_META_STORE)) {
         db.createObjectStore(FILES_META_STORE, { keyPath: 'key' })
@@ -186,6 +206,7 @@ function resolveBlobRefCount(record: FilesBlobRecord): number {
 }
 
 function blobPayloadBytes(record: FilesBlobRecord): number {
+  if (record.chunked === true) return record.byteSize ?? 0
   if (record.bytes !== undefined) return record.bytes.byteLength
   if (record.text !== undefined) return estimateTextBytes(record.text)
   return 0
@@ -436,6 +457,10 @@ export async function readBlobText(nodeId: string): Promise<string> {
   )
   await waitForTransaction(tx)
   if (!record) return ''
+  if (record.chunked === true) {
+    const bytes = await readChunkedBlobBytes(blobId)
+    return bytes === undefined ? '' : decodeBytesToText(bytes)
+  }
   if (record.bytes !== undefined) {
     return decodeBytesToText(record.bytes)
   }
@@ -459,9 +484,56 @@ export async function readBlobBytes(nodeId: string): Promise<ArrayBuffer | undef
   )
   await waitForTransaction(tx)
   if (!record) return undefined
+  if (record.chunked === true) {
+    return readChunkedBlobBytes(blobId)
+  }
   if (record.bytes !== undefined) return record.bytes
   if (record.text !== undefined) return encodeTextToArrayBuffer(record.text)
   return undefined
+}
+
+/** 按 chunkIndex 顺序拼接分块 blob 的全部内容 */
+async function readChunkedBlobBytes(blobId: string): Promise<ArrayBuffer | undefined> {
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, FILES_CHUNKS_STORE, 'readonly')
+  const store = tx.objectStore(FILES_CHUNKS_STORE)
+  const range = IDBKeyRange.bound([blobId, 0], [blobId, Number.MAX_SAFE_INTEGER])
+  const records = await requestToPromise(
+    store.getAll(range) as IDBRequest<FilesChunkRecord[]>,
+  )
+  await waitForTransaction(tx)
+  if (!records || records.length === 0) return undefined
+  const sorted = [...records].sort((a, b) => a.chunkIndex - b.chunkIndex)
+  const total = sorted.reduce((sum, record) => sum + record.bytes.byteLength, 0)
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const record of sorted) {
+    out.set(new Uint8Array(record.bytes), offset)
+    offset += record.bytes.byteLength
+  }
+  return out.buffer
+}
+
+/** 在既有事务内删除某 blob 的全部分块记录（主键范围删除，O(chunkCount) 由 IDB 承担） */
+async function deleteBlobChunksInTx(tx: IDBTransaction, blobId: string): Promise<void> {
+  const store = tx.objectStore(FILES_CHUNKS_STORE)
+  await requestToPromise(
+    store.delete(IDBKeyRange.bound([blobId, 0], [blobId, Number.MAX_SAFE_INTEGER])) as IDBRequest<
+      undefined
+    >,
+  )
+}
+
+/** 在既有事务内对 byte-total 做增量修正（避免外部并发写覆盖） */
+async function adjustByteTotal(tx: IDBTransaction, delta: number): Promise<void> {
+  const meta = tx.objectStore(FILES_META_STORE)
+  const current = await requestToPromise(
+    meta.get('byte-total') as IDBRequest<FilesMetaRecord | undefined>,
+  )
+  meta.put({
+    key: 'byte-total',
+    totalBytes: Math.max(0, (current?.totalBytes ?? 0) + delta),
+  } satisfies FilesMetaRecord)
 }
 
 export async function createFileWithBlob(params: {
@@ -684,7 +756,7 @@ async function writeFileContentCow(params: {
   }
 
   const writeTx = beginIdbTransaction(db, 
-    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
     'readwrite',
   )
   const blobs = writeTx.objectStore(FILES_BLOBS_STORE)
@@ -712,6 +784,11 @@ async function writeFileContentCow(params: {
       bytes: params.bytes,
       refCount: 1,
     } satisfies FilesBlobRecord)
+    // 原分块 blob 被整块内容原地替换：删除遗留 chunk 记录（其字节已随
+    // needed = contentByteSize - previousByteSize 的配额修正释放）
+    if (oldBlob?.chunked === true) {
+      await deleteBlobChunksInTx(writeTx, oldBlobId)
+    }
   }
 
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
@@ -722,6 +799,273 @@ async function writeFileContentCow(params: {
   await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
   return recordToNode(updated)
+}
+
+// ---------------------------------------------------------------------------
+// 流式写（分块 blob）
+//
+// 语义：
+// - 新建：open 即创建节点（byteSize 0）+ 空分块 blob，文件立刻可见、逐步长大；
+//   close 定稿；abort 删除节点与全部 chunk 并回退配额。
+// - 覆盖：open 只创建草稿分块 blob，节点仍指向旧内容；close 时切换节点 blobId
+//   并按 COW 释放旧 blob 引用；abort 只删草稿，旧内容保持原样。
+// - 每个 chunk 独立事务，内存 O(chunk)；配额随 chunk 增量预占/回退。
+// - 写操作在同一 writer 内串行化，避免并发事务交错。
+// ---------------------------------------------------------------------------
+
+export type FilesStreamWriter = {
+  write(chunk: Uint8Array): Promise<void>
+  close(): Promise<FilesNode>
+  abort(): Promise<void>
+}
+
+type FilesStreamWriteState = {
+  id: string
+  nodeId: string
+  blobId: string
+  isNew: boolean
+  nodeRecord: FilesNodeRecord
+  oldBlobId?: string
+  oldRefCount: number
+  previousByteSize: number
+  chunkIndex: number
+  writtenBytes: number
+  /** open 后累计计入 byte-total 的字节（abort 时回退；含新建节点元数据） */
+  quotaCommitted: number
+  terminal: 'open' | 'closed' | 'aborted'
+  /** write/close/abort 串行化链 */
+  queue: Promise<unknown>
+}
+
+const streamWrites = new Map<string, FilesStreamWriteState>()
+
+function emptyChunkedBlobRecord(blobId: string): FilesBlobRecord {
+  return { id: blobId, refCount: 1, chunked: true, byteSize: 0, chunkCount: 0 }
+}
+
+function copyUint8ToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy.buffer
+}
+
+function enqueueStreamOp<T>(state: FilesStreamWriteState, op: () => Promise<T>): Promise<T> {
+  const next = state.queue.then(op, op)
+  state.queue = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
+
+function assertStreamOpen(state: FilesStreamWriteState): void {
+  if (state.terminal !== 'open') {
+    throw new Error(state.terminal === 'closed' ? '写入流已关闭' : '写入流已中止')
+  }
+}
+
+/**
+ * 打开分块 blob 流式写。
+ * @param node 新建时为待创建节点（须含 id/locationId/parentId/name/attributes）；
+ *             覆盖时为既有文件节点。
+ * @param isNew 是否新建文件
+ * @param metaBytes 新建时节点元数据字节（计入配额）；覆盖时传 0
+ * @param previousByteSize 覆盖时原内容字节（close 释放配额用）；新建传 0
+ */
+export async function openStreamWriteBlob(params: {
+  node: FilesNode
+  isNew: boolean
+  metaBytes: number
+  previousByteSize: number
+}): Promise<FilesStreamWriter> {
+  const { node, isNew, metaBytes, previousByteSize } = params
+  const id = crypto.randomUUID()
+  const blobId = newFilesBlobId()
+  const db = await openFilesDb()
+
+  let nodeRecord: FilesNodeRecord
+  let oldBlobId: string | undefined
+  let oldRefCount = 1
+  let quotaCommitted: number
+
+  if (isNew) {
+    const total = await assertCapacity(metaBytes)
+    nodeRecord = nodeToRecord(
+      {
+        ...node,
+        byteSize: 0,
+        contentRevisionId: newContentRevisionId(),
+      },
+      blobId,
+    )
+    const tx = beginIdbTransaction(
+      db,
+      [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+      'readwrite',
+    )
+    tx.objectStore(FILES_NODES_STORE).put(nodeRecord)
+    tx.objectStore(FILES_BLOBS_STORE).put(emptyChunkedBlobRecord(blobId))
+    tx.objectStore(FILES_META_STORE).put({
+      key: 'byte-total',
+      totalBytes: total + metaBytes,
+    } satisfies FilesMetaRecord)
+    await waitForTransaction(tx)
+    quotaCommitted = metaBytes
+  } else {
+    const readTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+    const existing = await requestToPromise(
+      readTx
+        .objectStore(FILES_NODES_STORE)
+        .get(node.id) as IDBRequest<FilesNodeRecord | undefined>,
+    )
+    if (!existing || existing.kind !== 'file') {
+      await waitForTransaction(readTx)
+      throw new Error('文件不存在')
+    }
+    oldBlobId = resolveNodeBlobId(existing)
+    const oldBlob = await requestToPromise(
+      readTx.objectStore(FILES_BLOBS_STORE).get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    await waitForTransaction(readTx)
+    oldRefCount = oldBlob ? resolveBlobRefCount(oldBlob) : 1
+    nodeRecord = existing
+    const tx = beginIdbTransaction(db, FILES_BLOBS_STORE, 'readwrite')
+    tx.objectStore(FILES_BLOBS_STORE).put(emptyChunkedBlobRecord(blobId))
+    await waitForTransaction(tx)
+    quotaCommitted = 0
+  }
+
+  const state: FilesStreamWriteState = {
+    id,
+    nodeId: node.id,
+    blobId,
+    isNew,
+    nodeRecord,
+    oldBlobId,
+    oldRefCount,
+    previousByteSize,
+    chunkIndex: 0,
+    writtenBytes: 0,
+    quotaCommitted,
+    terminal: 'open',
+    queue: Promise.resolve(),
+  }
+  streamWrites.set(id, state)
+
+  return {
+    write: (chunk) => enqueueStreamOp(state, () => writeStreamChunk(state, chunk)),
+    close: () => enqueueStreamOp(state, () => closeStreamWrite(state)),
+    abort: () => enqueueStreamOp(state, () => abortStreamWrite(state)),
+  }
+}
+
+async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array): Promise<void> {
+  assertStreamOpen(state)
+  if (chunk.byteLength === 0) return
+  const n = chunk.byteLength
+  await assertCapacity(n)
+
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(
+    db,
+    [FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_NODES_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  tx.objectStore(FILES_CHUNKS_STORE).put({
+    blobId: state.blobId,
+    chunkIndex: state.chunkIndex,
+    bytes: copyUint8ToArrayBuffer(chunk),
+  } satisfies FilesChunkRecord)
+
+  const blob = await requestToPromise(
+    tx.objectStore(FILES_BLOBS_STORE).get(state.blobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  if (blob) {
+    tx.objectStore(FILES_BLOBS_STORE).put({
+      ...blob,
+      byteSize: state.writtenBytes + n,
+      chunkCount: state.chunkIndex + 1,
+    } satisfies FilesBlobRecord)
+  }
+  if (state.isNew) {
+    tx.objectStore(FILES_NODES_STORE).put({
+      ...state.nodeRecord,
+      byteSize: state.writtenBytes + n,
+    } satisfies FilesNodeRecord)
+  }
+  await adjustByteTotal(tx, n)
+  await waitForTransaction(tx)
+
+  state.chunkIndex += 1
+  state.writtenBytes += n
+  state.quotaCommitted += n
+}
+
+async function closeStreamWrite(state: FilesStreamWriteState): Promise<FilesNode> {
+  assertStreamOpen(state)
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  const nodes = tx.objectStore(FILES_NODES_STORE)
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
+
+  const updated: FilesNodeRecord = {
+    ...state.nodeRecord,
+    byteSize: state.writtenBytes,
+    updatedAt: osNowMs(),
+    ...(state.nodeRecord.kind === 'file'
+      ? { blobId: state.blobId, contentRevisionId: newContentRevisionId() }
+      : {}),
+  }
+  nodes.put(updated)
+
+  if (!state.isNew && state.oldBlobId !== undefined) {
+    const oldBlob = await requestToPromise(
+      blobs.get(state.oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+    )
+    if (oldBlob) {
+      const nextRef = resolveBlobRefCount(oldBlob) - 1
+      if (nextRef <= 0) {
+        blobs.delete(state.oldBlobId)
+        await adjustByteTotal(tx, -state.previousByteSize)
+        if (oldBlob.chunked === true) {
+          await deleteBlobChunksInTx(tx, state.oldBlobId)
+        }
+      } else {
+        blobs.put({ ...oldBlob, refCount: nextRef } satisfies FilesBlobRecord)
+      }
+    }
+  }
+
+  state.terminal = 'closed'
+  streamWrites.delete(state.id)
+  await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
+  return recordToNode(updated)
+}
+
+async function abortStreamWrite(state: FilesStreamWriteState): Promise<void> {
+  assertStreamOpen(state)
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(
+    db,
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
+    'readwrite',
+  )
+  await deleteBlobChunksInTx(tx, state.blobId)
+  tx.objectStore(FILES_BLOBS_STORE).delete(state.blobId)
+  if (state.isNew) {
+    tx.objectStore(FILES_NODES_STORE).delete(state.nodeId)
+  }
+  await adjustByteTotal(tx, -state.quotaCommitted)
+
+  state.terminal = 'aborted'
+  streamWrites.delete(state.id)
+  await waitForTransaction(tx)
+  emitFilesDataStorageChanged()
 }
 
 export async function renameNodeRecord(params: {
@@ -961,7 +1305,7 @@ export async function deleteSubtree(params: {
 }): Promise<void> {
   const total = await getFilesTotalBytes()
   const db = await openFilesDb()
-  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
   const nodes = tx.objectStore(FILES_NODES_STORE)
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
   const meta = tx.objectStore(FILES_META_STORE)
@@ -984,6 +1328,9 @@ export async function deleteSubtree(params: {
     if (nextRef <= 0) {
       reclaimBytes += blobPayloadBytes(blob)
       blobs.delete(blobId)
+      if (blob.chunked === true) {
+        await deleteBlobChunksInTx(tx, blobId)
+      }
     } else {
       blobs.put({ ...blob, refCount: nextRef } satisfies FilesBlobRecord)
     }
@@ -1127,7 +1474,7 @@ export async function commitFilesBatch(
   const total = await assertCapacity(needed)
 
   const tx = beginIdbTransaction(db, 
-    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE],
     'readwrite',
   )
   const nodes = tx.objectStore(FILES_NODES_STORE)
@@ -1238,6 +1585,12 @@ export async function commitFilesBatch(
       } else {
         updated.blobId = oldBlobId
         blobs.put({ id: oldBlobId, bytes, refCount: 1 } satisfies FilesBlobRecord)
+        const oldBlob = await requestToPromise(
+          blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+        )
+        if (oldBlob?.chunked === true) {
+          await deleteBlobChunksInTx(tx, oldBlobId)
+        }
       }
       nodes.put(updated)
       results.push(recordToNode(updated))
@@ -1277,6 +1630,12 @@ export async function commitFilesBatch(
     } else {
       updated.blobId = oldBlobId
       blobs.put({ id: oldBlobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+      const oldBlob = await requestToPromise(
+        blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
+      )
+      if (oldBlob?.chunked === true) {
+        await deleteBlobChunksInTx(tx, oldBlobId)
+      }
     }
     nodes.put(updated)
     results.push(recordToNode(updated))

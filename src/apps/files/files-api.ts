@@ -6,6 +6,7 @@
  * - `/` — 命名空间根（虚拟）：下列出各卷，不可写入
  * - `/user` · `/dev` · `/tmp` · `/models` · `/system` · `/mount/{文件夹名}` — 各卷根
  */
+import { osNowMs } from '../../os/os-clock.ts'
 import {
   filesLocationPathRoot,
   isFilesNamespaceRoot,
@@ -16,9 +17,11 @@ import {
 import {
   filesVolumeRootAttributes,
   isFilesNodeWritable,
+  defaultFilesNodeAttributes,
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
+import { estimateNodeMetaBytes, newFilesNodeId } from './files-storage.ts'
 import {
   copyNodeTo,
   createBinaryFile,
@@ -29,6 +32,7 @@ import {
   listSubtreeFiles,
   backfillSubtreeContentRevisionIds,
   mkdir,
+  openStreamWrite,
   readFileBlob,
   readTextFile,
   readlinkAtAbsolutePath,
@@ -45,7 +49,10 @@ import {
   type FilesSubtreeFileEntry,
   type FilesUpsertBatchItem,
   type FilesRemoveBatchOptions,
+  type FilesStreamWriter,
 } from './files-vfs.ts'
+
+export type { FilesStreamWriter }
 
 export type { FilesUpsertBatchItem, FilesSubtreeFileEntry, FilesRemoveBatchOptions }
 import {
@@ -396,6 +403,58 @@ export async function filesCreateBinary(
     mimeType,
   })
   return toEntry(node)
+}
+
+/**
+ * 打开流式写（新建 / 覆盖）：`write(chunk)` 逐块落盘（内存 O(chunk)），
+ * `close()` 定稿、`abort()` 回滚。新建时文件立刻可见（byteSize 0）并逐步长大。
+ */
+export async function filesOpenStreamWrite(path: string): Promise<FilesStreamWriter> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能写入命名空间根')
+  }
+  const parsed = parseFilesAbsolutePath(absolutePath)
+  if (!parsed || parsed.segments.length === 0) {
+    throw new Error('不能写入卷根')
+  }
+
+  const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: true })
+  if (existing) {
+    if (existing.kind !== 'file') {
+      throw new Error(existing.kind === 'folder' ? '不能写入文件夹' : '不能写入符号链接')
+    }
+    if (!isFilesNodeWritable(existing)) {
+      throw new Error('此文件为只读，无法修改')
+    }
+    return openStreamWrite({
+      node: existing,
+      isNew: false,
+      metaBytes: 0,
+      previousByteSize: existing.byteSize,
+    })
+  }
+
+  const target = await resolveParentForCreate(absolutePath)
+  const now = osNowMs()
+  const node: FilesNode = {
+    id: newFilesNodeId(),
+    locationId: target.locationId,
+    parentId: target.parentId,
+    name: target.name,
+    kind: 'file',
+    mimeType: undefined,
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attributes: defaultFilesNodeAttributes(target.locationId),
+  }
+  return openStreamWrite({
+    node,
+    isNew: true,
+    metaBytes: estimateNodeMetaBytes(node),
+    previousByteSize: 0,
+  })
 }
 
 /** 覆写已存在的二进制文件 */

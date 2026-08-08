@@ -22,19 +22,24 @@ import {
   listChildNodes,
   listLocalVolumeSubtreeNodes,
   newFilesNodeId,
+  openStreamWriteBlob,
   readBlobBytes,
   readBlobText,
   renameNodeRecord,
   writeBlobBytes,
   writeBlobText,
   type FilesStorageBatchOp,
+  type FilesStreamWriter,
 } from './files-storage.ts'
+
+export type { FilesStreamWriter }
 import {
   createMountTextFile,
   getMountNode,
   listMountDirectory,
   mkdirMount,
   createMountBinaryFile,
+  openMountStreamWrite,
   readMountBlob,
   readMountText,
   readMountTextIfSmall,
@@ -87,6 +92,7 @@ import {
   type FilesLocation,
   type FilesLocationId,
   type FilesNode,
+  type MountFilesLocationId,
 } from './files-types.ts'
 import { filesWorkloadUnits } from './files-op-progress-policy.ts'
 import { isBinaryFile } from './is-binary-file.ts'
@@ -1070,6 +1076,60 @@ export async function writeBinaryFile(ref: string, bytes: ArrayBuffer): Promise<
   await emitNodeModified(written)
   recordFilesIoWrite(written, bytes.byteLength, 'writeBinary', performance.now() - startedAt)
   return written
+}
+
+/**
+ * 打开流式写（新建 / 覆盖）。挂载卷走 FSA 原生增量写；内部卷走分块 blob。
+ * 新建时 open 即创建节点（byteSize 0），close 定稿、abort 回滚删除。
+ * 覆盖时 abort 不影响旧内容，close 按 COW 切换。
+ */
+export async function openStreamWrite(params: {
+  node: FilesNode
+  isNew: boolean
+  metaBytes: number
+  previousByteSize: number
+}): Promise<FilesStreamWriter> {
+  const { node, isNew, metaBytes, previousByteSize } = params
+  let writer: FilesStreamWriter
+  // 按卷类型分发（新建占位节点 id 非 mount 前缀，须看 locationId）
+  if (isMountLocationId(node.locationId)) {
+    writer = await openMountStreamWrite({
+      locationId: node.locationId as MountFilesLocationId,
+      parentId: node.parentId,
+      name: node.name,
+      isNew,
+    })
+  } else {
+    writer = await openStreamWriteBlob({ node, isNew, metaBytes, previousByteSize })
+  }
+  if (isNew) {
+    // 新建文件立刻可见（byteSize 0），随 chunk 逐步长大；同时失效路径缓存，
+    // 避免 open 前的「不存在」缓存残留导致流中/流后解析失败
+    await emitNodeCreated(node)
+  }
+  return {
+    write: (chunk) => writer.write(chunk),
+    close: async () => {
+      const startedAt = performance.now()
+      const written = await writer.close()
+      await emitNodeModified(written)
+      recordFilesIoWrite(
+        written,
+        written.byteSize,
+        'streamWrite',
+        performance.now() - startedAt,
+      )
+      return written
+    },
+    abort: async () => {
+      await writer.abort()
+      if (isNew) {
+        // 新建文件回滚删除：通知 watch / 清路径缓存
+        const path = await resolveFilesAbsolutePath(node)
+        emitFilesVfsChanged({ kind: 'deleted', path })
+      }
+    },
+  }
 }
 
 export async function renameNode(id: string, nextName: string): Promise<FilesNode> {

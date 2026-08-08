@@ -1,0 +1,285 @@
+/* 分轨 App（Stems）— 深色 DAW / GarageBand 风格 */
+.stems {
+  --stems-bg: #16151a;
+  --stems-bg-raised: #1e1d24;
+  --stems-surface: #232229;
+  --stems-surface-raised: #2a2931;
+  --stems-ink: #f2f1f7;
+  --stems-ink-muted: #9a97a6;
+  --stems-accent: #8a6fd6;
+  --stems-border: #34333d;
+  --stems-radius: 8px;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--stems-bg);
+  color: var(--stems-ink);
+  font-size: 14px;
+}
+
+/* 拖放文件时的覆盖提示 */
+.stems--drag-over::after {
+  content: '松开以分轨此文件';
+  position: absolute;
+  inset: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--stems-accent);
+  border-radius: 12px;
+  background: rgba(138, 111, 214, 0.15);
+  color: var(--stems-ink);
+  font-size: 18px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.stems__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--stems-border);
+  background: var(--stems-bg-raised);
+  flex: none;
+}
+
+.stems__btn {
+  appearance: none;
+  border: 1px solid var(--stems-border);
+  background: var(--stems-surface);
+  color: var(--stems-ink);
+  padding: 6px 14px;
+  border-radius: var(--stems-radius);
+  font-size: 13px;
+  cursor: pointer;
+}
+.stems__btn:hover:not(:disabled) {
+  background: var(--stems-surface-raised);
+}
+.stems__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.stems__btn--primary {
+  background: var(--stems-accent);
+  border-color: var(--stems-accent);
+  color: #fff;
+}
+.stems__btn--primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* 工具栏右侧：引擎徽标 / 文件名 / 错误信息 */
+.stems__toolbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.stems__source {
+  color: var(--stems-ink-muted);
+  font-size: 12px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stems__error {
+  color: #ff6b6b;
+  font-size: 12px;
+}
+.stems__engine {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--stems-border);
+  white-space: nowrap;
+}
+.stems__engine--webgpu {
+  color: #7ee2a8;
+  border-color: rgba(126, 226, 168, 0.45);
+}
+.stems__engine--wasm {
+  color: #e8c07a;
+  border-color: rgba(232, 192, 122, 0.45);
+}
+
+.stems__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 传输控制 */
+.stems__transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--stems-border);
+  background: var(--stems-surface);
+  flex: none;
+}
+.stems__transport-btn {
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--stems-border);
+  background: var(--stems-accent);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  flex: none;
+}
+.stems__time {
+  font-variant-numeric: tabular-nums;
+  color: var(--stems-ink-muted);
+  font-size: 12px;
+  flex: none;
+}
+.stems__seek {
+  flex: 1;
+}
+.stems__seek input[type='range'] {
+  width: 100%;
+  accent-color: var(--stems-accent);
+}
+
+/* 轨道列表 */
+.stems__tracks {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stems__track {
+  display: grid;
+  grid-template-columns: 96px 1fr 168px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--stems-surface);
+  border: 1px solid var(--stems-border);
+  border-left: 3px solid var(--stem-color);
+  border-radius: var(--stems-radius);
+}
+.stems__track--muted {
+  opacity: 0.45;
+}
+.stems__track--solo {
+  border-color: var(--stem-color);
+}
+.stems__track-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.stems__track-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.stems__track-wave-wrap {
+  position: relative;
+  min-width: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.stems__track-wave-wrap:active {
+  cursor: grabbing;
+}
+.stems__track-wave {
+  height: 44px;
+  width: 100%;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+/* 播放头 overlay：随 currentTime 平移，避免每 100ms 重画波形 canvas */
+.stems__track-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  z-index: 1;
+}
+/* 已载入保存的分轨标记 */
+.stems__loaded {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(126, 196, 226, 0.45);
+  color: #7ec4e2;
+  white-space: nowrap;
+}
+.stems__track-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.stems__chip {
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  border: 1px solid var(--stems-border);
+  background: var(--stems-surface-raised);
+  color: var(--stems-ink-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.stems__chip--active {
+  background: var(--stems-accent);
+  border-color: var(--stems-accent);
+  color: #fff;
+}
+.stems__chip--export {
+  font-size: 13px;
+  line-height: 1;
+}
+.stems__chip--export:hover {
+  color: var(--stems-ink);
+}
+.stems__volume {
+  width: 72px;
+  accent-color: var(--stems-accent);
+}
+
+/* 空态 */
+.stems__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--stems-ink-muted);
+  padding: 32px;
+  text-align: center;
+}
+.stems__empty-icon {
+  font-size: 48px;
+  opacity: 0.8;
+}
+.stems__empty-hint {
+  font-size: 12px;
+  opacity: 0.7;
+}

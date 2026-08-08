@@ -163,6 +163,27 @@ export function SafariUsagePaneIcon() {
   return <BrowserIcon size={PANE_ICON_SIZE} />
 }
 
+export function ModelCachePaneIcon() {
+  const svgSize = paneSvg(22)
+  return (
+    <AppIconTile color="#8a6fd6" size={PANE_ICON_SIZE}>
+      <svg width={svgSize} height={svgSize} viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="3" y="3" width="16" height="16" rx="3" fill="#fff" opacity="0.95" />
+        <circle cx="8.5" cy="8.5" r="2" fill="#8a6fd6" opacity="0.85" />
+        <circle cx="14.5" cy="14.5" r="2" fill="#8a6fd6" opacity="0.7" />
+        <path
+          d="M8.5 10.5 C8.5 13 11 15 14.5 12.5"
+          fill="none"
+          stroke="#8a6fd6"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          opacity="0.6"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
+
 export function ResourcesPaneIcon() {
   const svgSize = paneSvg(22)
   return (

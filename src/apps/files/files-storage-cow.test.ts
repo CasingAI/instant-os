@@ -216,7 +216,7 @@ async function seedLegacyV2Database(): Promise<void> {
 
 {
   await seedLegacyV2Database()
-  assert.equal(FILES_DB_VERSION, 3)
+  assert.equal(FILES_DB_VERSION, 4)
   // 首次业务打开触发 v2→v3 迁移
   const text = await readBlobText('file:legacy-cow')
   assert.equal(text, 'legacy-body')
