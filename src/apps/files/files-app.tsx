@@ -407,8 +407,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const marqueeStartRef = useRef<{ x: number; y: number } | undefined>(undefined)
   /** 拖放落点高亮：文件夹节点 id / 侧栏卷 id / 路径栏段 key */
   const [dropTarget, setDropTarget] = useState<{ kind: 'node'; id: string } | { kind: 'location'; id: FilesLocationId } | { kind: 'pathbar'; key: string } | undefined>(undefined)
-  /** 外部导入完成后待高亮的第一个文件名 */
-  const firstImportedNameRef = useRef<string | undefined>(undefined)
   const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const browserRef = useRef<HTMLDivElement>(null)
@@ -2057,9 +2055,16 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         await modal.alert({ title: '无法移动', message: formatError(err), themeColor: THEME })
       }
       clearSelection()
-      await refresh()
+      // 目标目录仍是当前目录（refresh 闭包 folderId 与目标一致）时才直接刷新；
+      // 否则由 VFS 事件驱动用最新目录刷新，避免旧目录结果覆盖当前列表
+      if (folderId === dest.destParentId) {
+        await refresh()
+      } else {
+        invalidateFilesVfsPathCaches()
+        window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
+      }
     },
-    [clearSelection, modal, refresh],
+    [clearSelection, folderId, modal, refresh],
   )
 
   /** 导入系统外部文件（拖放 / 选择器）：深度优先建目录 + 流式写入，带进度 */
@@ -2080,7 +2085,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         if (isLocalTarget) {
           await assertAdditionalBytesAvailable(totalBytes)
         }
-        firstImportedNameRef.current = undefined
         await runFilesOpWithProgress({
           kind: 'paste',
           totalWork: Math.max(1, totalBytes),
@@ -2096,7 +2100,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             }
             // plan 已按深度优先拍平；用路径栈跟踪当前目录
             const dirStack: string[] = [dirPath]
-            const createdNames: string[] = []
             for (const step of steps) {
               const parentPath = dirStack[dirStack.length - 1]!
               if (step.op === 'mkdir') {
@@ -2130,22 +2133,19 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 reader.releaseLock()
               }
               await writer.close()
-              createdNames.push(step.name)
             }
-            firstImportedNameRef.current = createdNames[0]
           },
         })
         clearSelection()
-        await refresh()
-        // 仅当导入到当前正在查看的目录时才高亮第一个导入项。
-        // 导入到子文件夹/其他卷时不高亮：避免进入目标目录后自动选中导入项，
-        // 导致单击文件夹被多选逻辑拦截而"点不进去"。
-        const firstTop =
-          dest.destParentId === folderId ? firstImportedNameRef.current : undefined
-        firstImportedNameRef.current = undefined
-        if (firstTop) {
-          setPendingSelectName(firstTop)
-          setSelectNonce((value) => value + 1)
+        // 仅当导入目标仍是当前目录（refresh 闭包中的 folderId 与目标一致）时才直接刷新。
+        // 若导入期间用户已导航到其他目录：直接刷新会用旧目录结果覆盖当前列表
+        // （"点击文件夹后立刻跳回前一个目录"），此时改为触发 VFS 事件，
+        // 由事件驱动的 debounce 用最新目录刷新。
+        if (folderId === dest.destParentId) {
+          await refresh()
+        } else {
+          invalidateFilesVfsPathCaches()
+          window.dispatchEvent(new Event(FILES_VFS_CHANGED_EVENT))
         }
       } catch (err) {
         await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
@@ -2223,6 +2223,44 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [folderId, handleExternalImport, locationId, modal],
   )
 
+  // 全局兜底：外部文件拖到未绑定拖放处理的区域（窗口边框/侧栏空白/菜单栏等）时，
+  // 仍接受 dragover 并导入到当前目录。否则该区域的 drop 会被浏览器取消
+  // ——"拖入后立刻松开"时如果指针停在未处理区域，文件就会悄悄丢在窗口外。
+  useEffect(() => {
+    const onDocumentDragOver = (event: DragEvent) => {
+      if (event.defaultPrevented) return
+      if (!(event.dataTransfer?.types ?? []).includes('Files')) return
+      event.preventDefault()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy'
+      }
+    }
+    const onDocumentDrop = (event: DragEvent) => {
+      if (event.defaultPrevented) return
+      if (!event.dataTransfer?.files.length) return
+      event.preventDefault()
+      void collectDataTransferEntries(event.dataTransfer).then(
+        (nodes) => {
+          if (nodes.length > 0) {
+            void handleExternalImport(nodes, {
+              destLocationId: locationId,
+              destParentId: folderId,
+            })
+          }
+        },
+        (err) => {
+          void modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+        },
+      )
+    }
+    document.addEventListener('dragover', onDocumentDragOver)
+    document.addEventListener('drop', onDocumentDrop)
+    return () => {
+      document.removeEventListener('dragover', onDocumentDragOver)
+      document.removeEventListener('drop', onDocumentDrop)
+    }
+  }, [folderId, handleExternalImport, locationId, modal])
+
   const importInputRef = useRef<HTMLInputElement>(null)
 
   /** 打开系统文件选择器（input[type=file] multiple，全浏览器可用） */
@@ -2256,7 +2294,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move'
       }
-      setDropTarget({ kind: 'node', id: node.id })
+      // 函数式更新：dropTarget 未变化时返回原引用，避免 dragover 高频触发渲染风暴
+      setDropTarget((prev) =>
+        prev?.kind === 'node' && prev.id === node.id ? prev : { kind: 'node', id: node.id },
+      )
     },
     [],
   )
@@ -2316,7 +2357,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move'
       }
-      setDropTarget({ kind: 'location', id: location.id })
+      // 函数式更新：dropTarget 未变化时返回原引用，避免 dragover 高频触发渲染风暴
+      setDropTarget((prev) =>
+        prev?.kind === 'location' && prev.id === location.id
+          ? prev
+          : { kind: 'location', id: location.id },
+      )
     },
     [],
   )
@@ -2747,7 +2793,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             type: 'action',
             label: '返回上级',
             disabled: !canGoBackInPath,
-            onClick: goBackInPath,
+            onClick: () => goBackInPath(),
           },
           {
             type: 'action',

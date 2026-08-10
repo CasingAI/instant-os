@@ -116,7 +116,13 @@ function matchesAccept(node: FilesNode, accept: ReadonlySet<string> | undefined)
   if (node.kind === 'folder') return true
   if (!accept || accept.size === 0) return true
   const extension = fileNameExtension(node.name)
-  return extension !== undefined && accept.has(extension)
+  if (extension !== undefined && accept.has(extension)) return true
+  // 多段后缀（如 .stems.zip）：accept 里带点的条目按完整后缀匹配文件名末尾
+  const lower = node.name.toLowerCase()
+  for (const entry of accept) {
+    if (entry.includes('.') && lower.endsWith(`.${entry}`)) return true
+  }
+  return false
 }
 
 function toCreateFileName(baseName: string, extension: string): string {
