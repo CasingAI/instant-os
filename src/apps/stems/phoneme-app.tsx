@@ -14,10 +14,20 @@ import { VscodeAiComposerBlock } from '../vscode/vscode-ai-panel.tsx'
 import {
   decodeVscodeModelPickerValue,
   encodeVscodeModelPickerValue,
+  openAiConfigForVscodeAiModelKey,
+  parseVscodeAiModelRefKey,
+  resolveVscodeAiModelKey,
+  tokenizerFamilyForVscodeAiModelKey,
   useVscodeAiCapabilityTags,
   useVscodeAiTextModels,
   type VscodeModelPickerDecoded,
 } from '../vscode/vscode-ai-models.ts'
+import {
+  measureVscodeAiContextUsage,
+  prepareVscodeAiContextUsage,
+  type VscodeAiContextUsage,
+} from '../vscode/vscode-ai-context-usage.ts'
+import type { VscodeAiToolsHost } from '../vscode/vscode-ai-tools.ts'
 import type {
   VscodeAiAgentProgress,
   VscodeAiAgentResult,
@@ -27,18 +37,26 @@ import {
   loadVscodePrefs,
   saveVscodePrefs,
   type VscodeAiModelOptionPrefs,
+  type VscodeModelSource,
 } from '../vscode/vscode-prefs.ts'
 import { createVscodeTerminalSessionId } from '../vscode/vscode-terminal-sessions.ts'
 import type OpenAI from 'openai'
 import type { AlignedPhone, PhonemeEngineProvider, PhonemeProgress } from './phoneme-types.ts'
 import PhonemeWorker from './phoneme-worker.ts?worker'
-import { runPhonemeAlignAgent, runPhonemeChatAgent } from './phoneme-align-agent.ts'
+import {
+  buildPhonemeAlignContext,
+  createPhonemeAlignTools,
+  createPhonemeRunCommandHost,
+  runPhonemeAlignAgent,
+  runPhonemeChatAgent,
+} from './phoneme-align-agent.ts'
 import {
   buildPhonemeSidecarText,
   buildPhonemeWorkspaceFiles,
   countAlignedLrcLines,
   extractLrcFromAnswer,
   parsePhonemeSidecarText,
+  phonemeAlignedLrcPath,
   phonemeSidecarPath,
   PHONEME_ALIGN_LRC_FILE,
   PHONEME_ALIGN_LYRICS_FILE,
@@ -50,7 +68,9 @@ import {
   PHONEME_DEFAULT_WORKSPACE,
   type PhonemeTerminalHostApi,
 } from './phoneme-terminal-host.tsx'
+import { PhonemeAlignView } from './phoneme-align-view.tsx'
 import { ipaToPinyin } from './phoneme-ipa-mapping.ts'
+import { loadStemsArchive, STEMS_ARCHIVE_EXTENSION } from './stems-persistence.ts'
 import '../help/help.css'
 import '../vscode/vscode-ai.css'
 import './phoneme.css'
@@ -61,6 +81,8 @@ const TOP_K = 3
 const MAX_ROWS = 200
 /** 模型选择记忆存储键 */
 const ALIGN_MODEL_STORAGE_KEY = 'phoneme:align-model'
+/** composer 上下文占用估算的防抖时长（与 ProDude 一致） */
+const CONTEXT_USAGE_DEBOUNCE_MS = 280
 
 /** CTC 特殊标记（非真实音素）：空白 / 句界 / 未知 */
 const PHONEME_SPECIAL_SYMBOLS = new Set(['<pad>', '<s>', '</s>', '<unk>'])
@@ -130,6 +152,8 @@ async function writeTextOrCreate(path: string, text: string): Promise<void> {
 export function PhonemeApp() {
   const { showSystemOpenDialog, dialog: systemDialog } = useSystemOpenDialog()
   const [sourceName, setSourceName] = useState('')
+  /** 从 .stems.zip 载入时记录原始源文件名（manifest.sourceName），用于「人声轨」徽章 */
+  const [archiveSource, setArchiveSource] = useState<string | null>(null)
   const [provider, setProvider] = useState<PhonemeEngineProvider | null>(null)
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
   const [modelCached, setModelCached] = useState<boolean | null>(null)
@@ -142,7 +166,7 @@ export function PhonemeApp() {
   const pendingAudioRef = useRef<{ audio: Float32Array; sampleRate: number } | null>(null)
 
   // —— 识别进度 ——
-  type RecogPhase = 'idle' | 'loading' | 'running' | 'done'
+  type RecogPhase = 'idle' | 'unpacking' | 'loading' | 'running' | 'done'
   const [recogPhase, setRecogPhase] = useState<RecogPhase>('idle')
   const [recogProgress, setRecogProgress] = useState<{ chunk: number; total: number } | null>(null)
 
@@ -161,6 +185,8 @@ export function PhonemeApp() {
   )
   /** 复制音素+歌词后的瞬时提示 */
   const [copiedHint, setCopiedHint] = useState<string | null>(null)
+  /** 双轨对齐视图（整窗全屏）开关 */
+  const [alignViewOpen, setAlignViewOpen] = useState(false)
   const alignAbortRef = useRef<AbortController | null>(null)
   /** 隐藏挂载的 Agent 终端 API（PhonemeTerminalHost 就绪后提供） */
   const terminalApiRef = useRef<PhonemeTerminalHostApi | null>(null)
@@ -177,6 +203,10 @@ export function PhonemeApp() {
   const [chatRunning, setChatRunning] = useState(false)
   /** composer 聊天输入 */
   const [draft, setDraft] = useState('')
+  /** composer 上下文占用环（估算 + Agent 返回后校准；ProDude 同款接线） */
+  const [composerContextUsage, setComposerContextUsage] = useState<
+    VscodeAiContextUsage | undefined
+  >(undefined)
   /** 当前展示的 alignResult，供聊天轮检测 Agent 是否改动了 aligned.lrc */
   const alignResultRef = useRef('')
 
@@ -190,6 +220,15 @@ export function PhonemeApp() {
   const [recogSaveError, setRecogSaveError] = useState<string | null>(null)
   /** 旁存载入兜底原因（非空时提示「未找到旁存，正在重新识别」；成功后清空） */
   const [recogLoadFallback, setRecogLoadFallback] = useState<string | null>(null)
+
+  // —— 对齐结果旁存（{同名}.aligned.lrc，重开同音频恢复，免重新对齐）——
+  /** 上次对齐结果自动保存到的路径（非空时提示） */
+  const [alignSavedTo, setAlignSavedTo] = useState<string | null>(null)
+  /** 对齐结果旁存保存失败原因（非空时红字提示；成功后清空） */
+  const [alignSidecarError, setAlignSidecarError] = useState<string | null>(null)
+  /** 本次打开从旁存恢复了对齐结果的路径（非空时提示「已恢复上次对齐」） */
+  const [alignRestoredFrom, setAlignRestoredFrom] = useState<string | null>(null)
+
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const chatScrollRef = useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = useRef(true)
@@ -300,10 +339,14 @@ export function PhonemeApp() {
     setAlignError(null)
     setSavedTo(null)
     setAlignProgress(null)
+    setAlignSavedTo(null)
+    setAlignSidecarError(null)
+    setAlignRestoredFrom(null)
     setChatRunning(false)
     setChatMessages([])
     chatMessagesRef.current = []
     chatHistoryRef.current = null
+    setComposerContextUsage(undefined)
   }, [closeAlignTerminal, stopAlignPoll])
 
   /** 追加一条对话消息（ref + state 同步） */
@@ -368,6 +411,21 @@ export function PhonemeApp() {
     [],
   )
 
+  /** 对齐结果旁存到音频同目录（{同名}.aligned.lrc）：重开同音频恢复，免重新对齐 */
+  const persistAlignedLrc = useCallback(async (audioPath: string, lrcText: string) => {
+    try {
+      const lrcPath = phonemeAlignedLrcPath(audioPath)
+      await writeTextOrCreate(lrcPath, lrcText)
+      setAlignSavedTo(lrcPath)
+      setAlignSidecarError(null)
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause)
+      console.error('对齐结果旁存保存失败', cause)
+      setAlignSavedTo(null)
+      setAlignSidecarError(`对齐结果旁存写入失败：${reason}`)
+    }
+  }, [])
+
   /** 对齐轮：写素材 → Agent 用终端逐行写 aligned.lrc → 展示结果并加入对话 */
   const runAlign = useCallback(
     async (phoneList: AlignedPhone[], lyricsText: string, modelKey: string | undefined) => {
@@ -425,6 +483,9 @@ export function PhonemeApp() {
           onProgress: (progress) => {
             if (controller.signal.aborted) return
             setLiveProgress(progress)
+            if (progress.contextUsage) {
+              setComposerContextUsage(progress.contextUsage)
+            }
           },
         })
         if (controller.signal.aborted) return
@@ -440,6 +501,10 @@ export function PhonemeApp() {
         alignResultRef.current = aligned
         setAlignProgress({ lines: countAlignedLrcLines(aligned), total: totalLines })
         setAlignState('done')
+        // 旁存到音频同目录：重开同音频时恢复，免重新对齐
+        if (audioPathRef.current) {
+          void persistAlignedLrc(audioPathRef.current, aligned)
+        }
         updateChatHistory(result)
         appendChatMessage('assistant', result.text.trim() || `全部 ${totalLines} 行已写入 aligned.lrc`, {
           investigation: nonEmptyInvestigation(result.investigation),
@@ -459,7 +524,7 @@ export function PhonemeApp() {
         if (alignAbortRef.current === controller) alignAbortRef.current = null
       }
     },
-    [appendChatMessage, ensureAlignSession, stopAlignPoll, updateChatHistory, writeAlignMaterials],
+    [appendChatMessage, ensureAlignSession, stopAlignPoll, updateChatHistory, writeAlignMaterials, persistAlignedLrc],
   )
 
   /** 聊天轮：自由对话（Agent 可改 aligned.lrc，改完刷新结果展示） */
@@ -490,6 +555,9 @@ export function PhonemeApp() {
           onProgress: (progress) => {
             if (controller.signal.aborted) return
             setLiveProgress(progress)
+            if (progress.contextUsage) {
+              setComposerContextUsage(progress.contextUsage)
+            }
           },
         })
         if (controller.signal.aborted) return
@@ -503,6 +571,10 @@ export function PhonemeApp() {
           alignResultRef.current = lrc
           setAlignResult(lrc)
           setAlignState('done')
+          // Agent 改过的对齐结果同样旁存，保持恢复的是最新版
+          if (audioPathRef.current) {
+            void persistAlignedLrc(audioPathRef.current, lrc)
+          }
         }
       } catch (cause) {
         if (controller.signal.aborted) {
@@ -518,7 +590,7 @@ export function PhonemeApp() {
         setLiveProgress(null)
       }
     },
-    [alignModel, appendChatMessage, ensureAlignSession, updateChatHistory],
+    [alignModel, appendChatMessage, ensureAlignSession, updateChatHistory, persistAlignedLrc],
   )
 
   /** 识别完成 / 手动点击共用入口：有歌词才真正启动 */
@@ -647,7 +719,9 @@ export function PhonemeApp() {
           setRows(rows)
           setPhones(phoneList)
           // 先落盘再放行：否则用户识别完立刻重开同一文件时旁存还没写完，会再次触发识别
-          await savePhonemeSidecar(audioPath, phoneList, providerRef.current, duration, sampleRate)
+          if (audioPath) {
+            await savePhonemeSidecar(audioPath, phoneList, providerRef.current, duration, sampleRate)
+          }
           setBusy(false)
           startAlignIfReady(phoneList)
         } else if (msg.kind === 'error') {
@@ -677,8 +751,20 @@ export function PhonemeApp() {
       setPhones(null)
       setRecogSavedTo(null)
       setRecogLoaded(false)
+      setArchiveSource(null)
       try {
         const { blob } = await readFileBlob(node.id)
+        // 已分轨压缩包（.stems.zip）：解包直接取 vocals 人声轨，跳过原始混音解码
+        if (path.endsWith(STEMS_ARCHIVE_EXTENSION)) {
+          setBusy(true)
+          setRecogPhase('unpacking')
+          const { manifest, stems } = await loadStemsArchive(blob)
+          const vocals = stems.find((stem) => stem.stemId === 'vocals')
+          if (!vocals) throw new Error('分轨压缩包中没有 vocals 人声轨，无法识别')
+          setArchiveSource(manifest.sourceName)
+          await startRecognition(vocals.data, manifest.sampleRate, manifest.durationSec)
+          return
+        }
         const arrayBuffer = await blob.arrayBuffer()
         const audioContext = new AudioContext()
         try {
@@ -705,8 +791,8 @@ export function PhonemeApp() {
   /** 打开文件 → 有旁存识别结果直接载入（跳过模型），否则重新识别 */
   const handlePickFile = useCallback(async () => {
     const path = await showSystemOpenDialog({
-      title: '选择要识别的音频文件',
-      acceptExtensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'],
+      title: '选择要识别的音频或分轨文件',
+      acceptExtensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'stems.zip'],
     })
     if (!path) return
     audioPathRef.current = path
@@ -714,6 +800,7 @@ export function PhonemeApp() {
     setRecogLoaded(false)
     setRecogSaveError(null)
     setRecogLoadFallback(null)
+    setArchiveSource(null)
     resetAlign() // 换歌：清空上一首的对话与终端会话
     // 优先载入旁存的识别结果（{同名}.phones.tsv），避免每次测试重新识别
     const sidecarPath = phonemeSidecarPath(path)
@@ -745,7 +832,29 @@ export function PhonemeApp() {
           setRecogPhase('done')
           setRecogSavedTo(sidecarPath)
           setRecogLoaded(true)
-          startAlignIfReady(parsed.phones)
+          // 恢复上次对齐结果（{同名}.aligned.lrc）：有则直接可用，免重新对齐
+          let restoredAlign = false
+          try {
+            const alignedLrcPath = phonemeAlignedLrcPath(path)
+            const alignedExisting = await filesStat(alignedLrcPath)
+            if (alignedExisting && alignedExisting.kind === 'file') {
+              const restored = (await filesReadText(alignedLrcPath)).trim()
+              if (restored) {
+                alignResultRef.current = restored
+                setAlignResult(restored)
+                setAlignState('done')
+                setAlignRestoredFrom(alignedLrcPath)
+                restoredAlign = true
+              }
+            }
+          } catch (cause) {
+            // 对齐结果旁存损坏/不可读：不阻塞，重新对齐即可
+            console.warn('对齐结果旁存载入失败，已忽略', cause)
+          }
+          // 有恢复的对齐结果时不再自动重跑对齐（避免覆盖），要重跑点「开始对齐」
+          if (!restoredAlign) {
+            startAlignIfReady(parsed.phones)
+          }
           return
         }
         fallback('旁存文件内没有可用的音素行')
@@ -812,7 +921,8 @@ export function PhonemeApp() {
   /** 保存对齐结果为同名 .lrc 到「音乐」文件夹 */
   const handleSaveResult = useCallback(async () => {
     if (!alignResult) return
-    const base = sourceName.replace(/\.[^.]+$/, '') || '歌词'
+    const base =
+      sourceName.replace(/\.stems\.zip$/i, '').replace(/\.[^.]+$/, '') || '歌词'
     const path = joinFilesAbsolutePath(userSpecialFolderPath('Musics'), `${base}.lrc`)
     try {
       await ensureUserSpecialFolders()
@@ -870,13 +980,114 @@ export function PhonemeApp() {
     [],
   )
 
+  // —— composer 上下文占用环（与 ProDude 同款：空闲估算 + Agent 返回校准）——
+  const alignResolvedModelKey = useMemo(
+    () =>
+      resolveVscodeAiModelKey({
+        aiModelSource: alignModel.source as VscodeModelSource,
+        aiModelKey: alignModel.modelKey,
+      }),
+    [alignModel],
+  )
+  const alignResolvedModelId = useMemo(
+    () => openAiConfigForVscodeAiModelKey(alignResolvedModelKey).defaultModel,
+    [alignResolvedModelKey],
+  )
+  const alignResolvedProviderEntryId = useMemo(
+    () => parseVscodeAiModelRefKey(alignResolvedModelKey ?? '')?.providerEntryId,
+    [alignResolvedModelKey],
+  )
+  const alignResolvedTokenizerFamily = useMemo(
+    () => tokenizerFamilyForVscodeAiModelKey(alignResolvedModelKey),
+    [alignResolvedModelKey],
+  )
+
+  useEffect(() => {
+    void prepareVscodeAiContextUsage(alignResolvedModelId, alignResolvedTokenizerFamily)
+  }, [alignResolvedModelId, alignResolvedTokenizerFamily])
+
+  useEffect(() => {
+    if (busy || turnRunning) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        await prepareVscodeAiContextUsage(alignResolvedModelId, alignResolvedTokenizerFamily)
+        if (cancelled || busy || turnRunning) return
+        const api = terminalApiRef.current
+        const sessionId = alignSessionRef.current ?? 'phoneme-draft'
+        const context = buildPhonemeAlignContext(PHONEME_DEFAULT_WORKSPACE, api, sessionId)
+        const toolsHost: VscodeAiToolsHost | undefined = api
+          ? {
+              getContext: () => context,
+              runCommandHost: createPhonemeRunCommandHost({
+                workspaceFolder: PHONEME_DEFAULT_WORKSPACE,
+                chatSessionId: sessionId,
+                chatTitle: '歌词对齐',
+                terminalApi: api,
+                npmLastChanges: { current: undefined },
+                lastChangeSource: { current: undefined },
+                turnChangeSessions: { current: [] },
+              }),
+              chatSessionId: sessionId,
+              ensureAiTerminal: (kind, ownerId, title) =>
+                api.ensureAiTerminal(kind, ownerId, title),
+              getAiTerminalHandle: (kind, ownerId) =>
+                api.getAiTerminalHandle(kind, ownerId),
+              getAiTerminalSnapshot: (kind, ownerId) =>
+                api.getAiTerminalSnapshot(kind, ownerId),
+              closeAiTerminal: (kind, ownerId) => api.closeAiTerminal(kind, ownerId),
+            }
+          : undefined
+        const usage = await measureVscodeAiContextUsage({
+          mode: 'agent',
+          context,
+          history: chatHistoryRef.current ?? [],
+          userMessage: draft,
+          model: alignResolvedModelId,
+          providerEntryId: alignResolvedProviderEntryId,
+          modelKey: alignResolvedModelKey,
+          tokenizerFamily: alignResolvedTokenizerFamily,
+          tools: toolsHost ? createPhonemeAlignTools(toolsHost) : undefined,
+          aiModelOptions,
+        })
+        if (cancelled || busy || turnRunning) return
+        setComposerContextUsage(usage)
+      })()
+    }, CONTEXT_USAGE_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    aiModelOptions,
+    alignResolvedModelId,
+    alignResolvedModelKey,
+    alignResolvedProviderEntryId,
+    alignResolvedTokenizerFamily,
+    busy,
+    chatMessages,
+    draft,
+    turnRunning,
+  ])
+
   return (
     <div class="phoneme">
+      {alignViewOpen && phones && alignResult ? (
+        /* 整窗全屏：双轨对齐视图（音素 ↔ 歌词逐字对应） */
+        <PhonemeAlignView
+          phones={phones}
+          lrcText={alignResult}
+          duration={audioInfo?.duration ?? null}
+          sourceName={sourceName}
+          onClose={() => setAlignViewOpen(false)}
+        />
+      ) : (
+        <>
       {/* 工具栏 */}
       <div class="phoneme__toolbar">
         <span class="phoneme__toolbar-title">歌词对齐</span>
         <IosButton tone="primary" disabled={busy} onClick={() => void handlePickFile()}>
-          打开音频文件…
+          打开音频 / 分轨…
         </IosButton>
         <IosButton disabled={busy} onClick={() => void handleLoadLyricsFile()}>
           从文件读取歌词
@@ -888,6 +1099,13 @@ export function PhonemeApp() {
         >
           开始对齐
         </IosButton>
+        <IosButton
+          disabled={!recognitionReady || !alignResult}
+          onClick={() => setAlignViewOpen(true)}
+          title="双轨视图：查看每个音素对应的歌词字"
+        >
+          对齐视图
+        </IosButton>
         {lyricsSourceName && (
           <span class="phoneme__lyrics-source" title={lyricsSourceName}>
             {lyricsSourceName}
@@ -895,6 +1113,7 @@ export function PhonemeApp() {
         )}
         {busy && (
             <span class="phoneme__hint">
+              {recogPhase === 'unpacking' && '正在解包分轨压缩包…'}
               {recogPhase === 'loading' && '加载模型中…'}
               {recogPhase === 'running' && (recogProgress
                 ? `推断中 ${recogProgress.chunk}/${recogProgress.total} 块…`
@@ -902,6 +1121,14 @@ export function PhonemeApp() {
             </span>
           )}
         {sourceName && <span class="phoneme__source">{sourceName}</span>}
+        {archiveSource && (
+          <span
+            class="phoneme__lyrics-source phoneme__source-badge"
+            title={`人声轨来自「${archiveSource}」的分轨结果`}
+          >
+            🎤 人声轨
+          </span>
+        )}
 
         <div class="phoneme__toolbar-right">
           {provider && (
@@ -929,7 +1156,7 @@ export function PhonemeApp() {
           {!rows && !phones && !busy ? (
             <div class="phoneme__empty">
               <div class="phoneme__empty-icon">🎤</div>
-              <p>选择一段音频（或 Demucs 人声输出），运行音素识别</p>
+              <p>选择一段音频（或直接打开 .stems.zip 分轨压缩包用里面的人声），运行音素识别</p>
               <p class="phoneme__empty-hint">
                 模型：{PHONEME_MODEL_LABEL}（{Math.round(241691639 / 1024 / 1024)} MB）
               </p>
@@ -940,6 +1167,7 @@ export function PhonemeApp() {
                 <div class="phoneme__progress-card">
                   <div class="phoneme__section-title">识别进度</div>
                   <div class="phoneme__progress-phase">
+                    {recogPhase === 'unpacking' && '正在解包分轨压缩包，提取人声轨…'}
                     {recogPhase === 'loading' && '正在加载 wav2vec2 模型…'}
                     {recogPhase === 'running' && '正在运行音素识别…'}
                   </div>
@@ -1072,6 +1300,23 @@ export function PhonemeApp() {
                 </div>
               )}
 
+              {/* 对齐结果旁存提示：恢复 / 自动保存 / 保存失败 */}
+              {alignRestoredFrom && (
+                <div class="phoneme__sidecar-hint phoneme__sidecar-hint--restored" title={alignRestoredFrom}>
+                  已恢复上次对齐结果（{alignRestoredFrom.split('/').pop() ?? ''}），可直接查看对齐视图
+                </div>
+              )}
+              {alignSavedTo && !alignRestoredFrom && (
+                <div class="phoneme__sidecar-hint" title={alignSavedTo}>
+                  对齐结果已保存：{alignSavedTo}
+                </div>
+              )}
+              {alignSidecarError && (
+                <div class="phoneme__sidecar-hint phoneme__sidecar-hint--error" title={alignSidecarError}>
+                  {alignSidecarError}
+                </div>
+              )}
+
               {/* 歌词输入 */}
               <div class="phoneme__lyrics-card">
                 <div class="phoneme__lyrics-card-head">
@@ -1102,7 +1347,7 @@ export function PhonemeApp() {
         <div class="phoneme__right">
           <div class="phoneme__align-header">
             <span class="phoneme__section-title">歌词对齐</span>
-            {!hasChat && (
+            {!hasChat && alignState !== 'done' && (
               <span class="phoneme__align-badge phoneme__align-badge--idle">
                 {!recognitionReady ? '等待识别' : lyrics.trim() ? '待对齐' : '等待歌词'}
               </span>
@@ -1138,11 +1383,11 @@ export function PhonemeApp() {
                   </div>
                   <h2 class="help-app__welcome-title">歌词对齐</h2>
                   <p class="help-app__welcome-sub">
-                    打开音频完成音素识别（结果自动保存，下次秒载入），
+                    打开音频或 .stems.zip 分轨压缩包完成音素识别
                     <br />
-                    左侧输入歌词后点「开始对齐」生成逐字 LRC，
+                    （压缩包直接用里面的人声轨，结果自动保存、下次秒载入），
                     <br />
-                    之后可以继续和 Agent 自由对话、修改结果。
+                    左侧输入歌词后点「开始对齐」生成逐字 LRC，之后可以继续和 Agent 自由对话。
                   </p>
                 </div>
               ) : (
@@ -1309,12 +1554,14 @@ export function PhonemeApp() {
                 capabilityTags={capabilityTags}
                 aiModelOptions={aiModelOptions}
                 onAiModelOptionsChange={handleAiModelOptionsChange}
-                contextUsage={undefined}
+                contextUsage={composerContextUsage}
               />
             </div>
           </div>
         </div>
       </div>
+        </>
+      )}
 
       {/* 隐藏挂载的 Agent 终端（InstantREPL），供对齐 Agent 读写工作区 */}
       <PhonemeTerminalHost

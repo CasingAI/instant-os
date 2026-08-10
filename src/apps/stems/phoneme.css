@@ -375,6 +375,16 @@
   max-width: 240px;
 }
 
+/* 人声轨徽章（从 .stems.zip 载入时显示） */
+.phoneme__source-badge {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--phoneme-accent, #8a6a38) 14%, transparent);
+  color: var(--phoneme-accent, #8a6a38);
+  max-width: none;
+  flex-shrink: 0;
+}
+
 /* —— 歌词输入卡片 —— */
 
 .phoneme__lyrics-card {

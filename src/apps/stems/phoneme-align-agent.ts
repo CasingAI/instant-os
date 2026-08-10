@@ -307,7 +307,7 @@ async function runPhonemeAgentTurn(options: {
 // 对齐轮 / 聊天轮
 // ---------------------------------------------------------------------------
 
-export type RunPhonemeAlignAgentOptions = PhonemeAgentTurnOptions & {
+export type RunPhonemeAlignAgentOptions = Omit<PhonemeAgentTurnOptions, 'userMessage'> & {
   /** 歌词原文（多行，可能有错别字/缺行） */
   lyrics: string
   /** 音素识别结果（含时间戳） */
