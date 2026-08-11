@@ -764,7 +764,7 @@ export function PhonemeApp() {
     [decodeLogits, resetAlign, savePhonemeSidecar, startAlignIfReady],
   )
 
-  /** 从音频路径读文件 → 解码 → 识别（「打开文件」与「重新识别」共用） */
+  /** 从分轨结果文件读 vocals 人声轨 → 识别（「打开文件」与「重新识别」共用） */
   const recognizeAudioPath = useCallback(
     async (path: string) => {
       const node = await resolveNodeByAbsolutePath(path)
@@ -777,33 +777,17 @@ export function PhonemeApp() {
       setRecogLoaded(false)
       setArchiveSource(null)
       try {
+        if (!path.endsWith(STEMS_ARCHIVE_EXTENSION)) {
+          throw new Error('请选择分轨结果文件（.stems.zip）')
+        }
         const { blob } = await readFileBlob(node.id)
-        // 已分轨压缩包（.stems.zip）：解包直接取 vocals 人声轨，跳过原始混音解码
-        if (path.endsWith(STEMS_ARCHIVE_EXTENSION)) {
-          setBusy(true)
-          setRecogPhase('unpacking')
-          const { manifest, stems } = await loadStemsArchive(blob)
-          const vocals = stems.find((stem) => stem.stemId === 'vocals')
-          if (!vocals) throw new Error('分轨压缩包中没有 vocals 人声轨，无法识别')
-          setArchiveSource(manifest.sourceName)
-          await startRecognition(vocals.data, manifest.sampleRate, manifest.durationSec)
-          return
-        }
-        const arrayBuffer = await blob.arrayBuffer()
-        const audioContext = new AudioContext()
-        try {
-          const decoded = await audioContext.decodeAudioData(arrayBuffer)
-          const channelData = decoded.getChannelData(0)
-          const interleaved = new Float32Array(decoded.length * 2)
-          for (let i = 0; i < decoded.length; i++) {
-            const v = channelData[i]
-            interleaved[i * 2] = v
-            interleaved[i * 2 + 1] = v
-          }
-          await startRecognition(interleaved, decoded.sampleRate, decoded.duration)
-        } finally {
-          void audioContext.close()
-        }
+        setBusy(true)
+        setRecogPhase('unpacking')
+        const { manifest, stems } = await loadStemsArchive(blob)
+        const vocals = stems.find((stem) => stem.stemId === 'vocals')
+        if (!vocals) throw new Error('分轨压缩包中没有 vocals 人声轨，无法识别')
+        setArchiveSource(manifest.sourceName)
+        await startRecognition(vocals.data, manifest.sampleRate, manifest.durationSec)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
         setBusy(false)
@@ -815,8 +799,8 @@ export function PhonemeApp() {
   /** 打开文件 → 有旁存识别结果直接载入（跳过模型），否则重新识别 */
   const handlePickFile = useCallback(async () => {
     const path = await showSystemOpenDialog({
-      title: '选择要识别的音频或分轨文件',
-      acceptExtensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'stems.zip'],
+      title: '选择分轨结果（.stems.zip）',
+      acceptExtensions: ['stems.zip'],
     })
     if (!path) return
     audioPathRef.current = path
@@ -987,7 +971,7 @@ export function PhonemeApp() {
     recognitionReady && lyrics.trim().length > 0 && !busy && !turnRunning && textModels.length > 0
   const canSend = !busy && !turnRunning && draft.trim().length > 0 && textModels.length > 0
   const composerPlaceholder = !recognitionReady
-    ? '先打开音频文件完成音素识别…'
+    ? '先打开分轨结果（.stems.zip）完成音素识别…'
     : alignResult
       ? '继续和 Agent 对话（可让它修改对齐结果）…'
       : '和 Agent 对话，或点「开始对齐」生成逐字 LRC…'
@@ -1112,7 +1096,7 @@ export function PhonemeApp() {
       <div class="phoneme__toolbar">
         <span class="phoneme__toolbar-title">歌词对齐</span>
         <IosButton tone="primary" disabled={busy} onClick={() => void handlePickFile()}>
-          打开音频 / 分轨…
+          打开分轨结果…
         </IosButton>
         <IosButton disabled={busy} onClick={() => void handleLoadLyricsFile()}>
           从文件读取歌词
@@ -1181,7 +1165,7 @@ export function PhonemeApp() {
           {!rows && !phones && !busy ? (
             <div class="phoneme__empty">
               <div class="phoneme__empty-icon">🎤</div>
-              <p>选择一段音频（或直接打开 .stems.zip 分轨压缩包用里面的人声），运行音素识别</p>
+              <p>打开分轨结果（.stems.zip），直接用里面的人声轨做音素识别</p>
               <p class="phoneme__empty-hint">
                 模型：{PHONEME_MODEL_LABEL}（{Math.round(241691639 / 1024 / 1024)} MB）
               </p>
@@ -1408,9 +1392,9 @@ export function PhonemeApp() {
                   </div>
                   <h2 class="help-app__welcome-title">歌词对齐</h2>
                   <p class="help-app__welcome-sub">
-                    打开音频或 .stems.zip 分轨压缩包完成音素识别
+                    打开分轨结果（.stems.zip）完成音素识别
                     <br />
-                    （压缩包直接用里面的人声轨，结果自动保存、下次秒载入），
+                    （直接用里面的人声轨，结果自动保存、下次秒载入），
                     <br />
                     左侧输入歌词后点「开始对齐」生成逐字 LRC，之后可以继续和 Agent 自由对话。
                   </p>
