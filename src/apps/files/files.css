@@ -404,6 +404,27 @@
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
+.files__toolbar-title-btn {
+  appearance: none;
+  align-self: center;
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid rgba(90, 60, 25, 0.35);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.5) 0%, rgba(201, 160, 70, 0.35) 100%);
+  font: inherit;
+  cursor: pointer;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3), 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.files__toolbar-title-btn:hover {
+  background: linear-gradient(180deg, rgba(232, 197, 106, 0.7) 0%, rgba(201, 160, 70, 0.5) 100%);
+}
+
+.files__toolbar-title-btn:active {
+  background: linear-gradient(180deg, rgba(180, 150, 100, 0.55) 0%, rgba(160, 120, 70, 0.4) 100%);
+}
+
 .files__toolbar-btn {
   appearance: none;
   margin: 0;
@@ -1413,24 +1434,6 @@ button.files__path-bar-segment:active {
 }
 
 /* ── 多选 / 框选 / 拖放落点 ─────────────────────────────────────── */
-
-.files__selection-count {
-  appearance: none;
-  margin: 0 4px;
-  padding: 4px 10px;
-  border: 1px solid rgba(90, 60, 25, 0.35);
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(232, 197, 106, 0.5) 0%, rgba(201, 160, 70, 0.35) 100%);
-  color: #4a3520;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.files__selection-count:hover {
-  background: linear-gradient(180deg, rgba(232, 197, 106, 0.7) 0%, rgba(201, 160, 70, 0.5) 100%);
-}
 
 /* 框选拖拽层：视口坐标 + fixed，避免受滚动/边距影响 */
 .files__marquee {

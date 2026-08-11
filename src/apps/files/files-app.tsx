@@ -1118,6 +1118,21 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [clearLongPress])
 
   useEffect(() => {
+    // 长按/触屏右键置位的点击抑制标记，可能在 ActionSheet 遮罩上落空而永远消费不掉
+    // （松手时的 pointerup/click 命中遮罩，handleItemClick 不执行）。每次新指针手势
+    // 开始前强制复位，避免吞掉后续的正常点击。长按自身在定时器回调里重新置位，不受影响。
+    const resetSuppressItemClick = () => {
+      suppressItemClickRef.current = false
+    }
+    window.addEventListener('pointerdown', resetSuppressItemClick, true)
+    window.addEventListener('pointercancel', resetSuppressItemClick, true)
+    return () => {
+      window.removeEventListener('pointerdown', resetSuppressItemClick, true)
+      window.removeEventListener('pointercancel', resetSuppressItemClick, true)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!newFileMenu) return
     const close = () => setNewFileMenu(undefined)
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1443,7 +1458,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
       const meta = event.metaKey || event.ctrlKey
       const shift = event.shiftKey
-      const multiSelection = selectedIdsRef.current.size > 0
 
       if (meta) {
         toggleSelection(node.id)
@@ -1453,15 +1467,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         rangeSelectTo(node.id)
         return
       }
-      // 点击未选中项时先单选（右键/双击场景由各自处理）
-      if (multiSelection && !selectedIdsRef.current.has(node.id)) {
-        activateSelection(node.id)
-        return
-      }
 
       openNode(node)
     },
-    [activateSelection, closeTransientMenus, openNode, rangeSelectTo, toggleSelection],
+    [closeTransientMenus, openNode, rangeSelectTo, toggleSelection],
   )
 
   /** 复制选中项（多选批量；mode=copy） */
@@ -1920,11 +1929,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       ]
     })
     const selected = marqueeSelection(entries, rect)
-    if (selected.length === 0) return
+    // 空白处单击 / 框选落空：清空现有选择（与 Finder 一致，避免只能按 Esc 退出选择）
+    if (selected.length === 0) {
+      clearSelection()
+      return
+    }
     selectionAnchorRef.current = selected[0]
     setPendingSelectName(undefined)
     setSelectedIds(new Set(selected))
-  }, [])
+  }, [clearSelection])
 
   const beginItemLongPress = useCallback(
     (event: PointerEvent, node: FilesNode) => {
@@ -1938,10 +1951,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         longPressTimerRef.current = undefined
         longPressStartRef.current = undefined
         suppressItemClickRef.current = true
+        // 长按进入选择态：未选中该项时先点亮（与 iOS Files 一致），菜单操作范围随之覆盖该项
+        if (!selectedIdsRef.current.has(node.id)) {
+          activateSelection(node.id)
+        }
         openItemActionSheet(node)
       }, LONG_PRESS_MS)
     },
-    [clearLongPress, openItemActionSheet],
+    [activateSelection, clearLongPress, openItemActionSheet],
   )
 
   const beginBackgroundLongPress = useCallback(
@@ -2959,17 +2976,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               <span class="files__toolbar-spacer" />
             )}
           </div>
-          <h1 class="files__toolbar-title">{currentTitle}</h1>
           {selectedIds.size > 0 ? (
             <button
               type="button"
-              class="files__selection-count"
+              class="files__toolbar-title files__toolbar-title-btn"
               title="清除选择 (Esc)"
               onClick={clearSelection}
             >
               已选 {selectedIds.size} 项 ✕
             </button>
-          ) : undefined}
+          ) : (
+            <h1 class="files__toolbar-title">{currentTitle}</h1>
+          )}
           <div class="files__toolbar-right">
             <button
               type="button"
