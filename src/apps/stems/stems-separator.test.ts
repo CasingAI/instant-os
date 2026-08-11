@@ -16,7 +16,7 @@ import {
   stemStep,
   stitchStemOutputs,
 } from './stems-separator.ts'
-import { STEM_IDS } from './stems-types.ts'
+import { HTDEMUCS_STEM_IDS } from './stems-types.ts'
 
 function testChunkSlicing(): void {
   // 一个窗口以内的音频 → 恰好一块
@@ -55,7 +55,7 @@ function testOverlapAddEnergy(): void {
   const chunkStartFrames = [0, step]
 
   const chunkOutputs = chunkStartFrames.map(() => {
-    const out = new Float32Array(STEM_IDS.length * STEM_WINDOW * STEM_CHANNELS)
+    const out = new Float32Array(HTDEMUCS_STEM_IDS.length * STEM_WINDOW * STEM_CHANNELS)
     // 仅 vocals（index 3）有内容，全部为 1
     for (let i = 0; i < STEM_WINDOW * STEM_CHANNELS; i++) {
       out[3 * STEM_WINDOW * STEM_CHANNELS + i] = 1
@@ -64,7 +64,7 @@ function testOverlapAddEnergy(): void {
   })
 
   const stems = stitchStemOutputs(chunkOutputs, chunkStartFrames, totalFrames)
-  assert.equal(stems.length, STEM_IDS.length)
+  assert.equal(stems.length, HTDEMUCS_STEM_IDS.length)
 
   // 只有 vocals 有能量
   const vocals = stems.find((s) => s.stemId === 'vocals')!

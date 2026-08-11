@@ -1,5 +1,5 @@
 /**
- * 分轨结果持久化：把 6 条分轨打包成单个压缩包（`<源文件名>.stems.zip`），
+ * 分轨结果持久化：把 7 条分轨打包成单个压缩包（`<源文件名>.stems.zip`），
  * 放在源文件同目录（侧车文件，同歌词 `.lrc` 的模式），下次打开同一首歌时自动载入。
  *
  * 打包用 fflate 的流式 Zip：Float32 → 16-bit PCM 按块转换，压缩输出分块写
@@ -15,14 +15,15 @@ import type { TempoInfo } from './stems-tempo.ts'
 
 export const STEMS_ARCHIVE_EXTENSION = '.stems.zip'
 export const STEMS_MANIFEST_ENTRY = 'stems.json'
-export const STEMS_MANIFEST_VERSION = 1
+/** v2：分轨产物从 6 轨扩展为 7 轨（新增 other2「其他二」）。 */
+export const STEMS_MANIFEST_VERSION = 2
 
 /** 分轨压缩包内单条 WAV 的文件名（用稳定 id，与显示标签解耦）。 */
 export function stemWavEntryName(stemId: StemId): string {
   return `${stemId}.wav`
 }
 
-/** 压缩包内全部条目的文件名（manifest + 6 条 WAV）。 */
+/** 压缩包内全部条目的文件名（manifest + 7 条 WAV）。 */
 export function stemsArchiveEntryNames(): string[] {
   return [STEMS_MANIFEST_ENTRY, ...STEM_IDS.map((id) => stemWavEntryName(id))]
 }
@@ -201,7 +202,7 @@ export type SaveStemsOptions = {
 const EMPTY_CHUNK = new Uint8Array(0)
 
 /**
- * 流式打包 6 轨 + manifest 为 zip，写入 sink。
+ * 流式打包 7 轨 + manifest 为 zip，写入 sink。
  * 每 push 一块输入后立即排空压缩输出（串行 await 写入），峰值内存 ≈ 单块大小。
  */
 export async function saveStemsArchive(options: SaveStemsOptions): Promise<void> {
@@ -277,7 +278,7 @@ export type LoadedStems = {
 const READ_CHUNK_BYTES = 4 << 20
 
 /**
- * 流式解包：逐条目解压（单条暂存内存），返回 manifest + 6 轨 Float32。
+ * 流式解包：逐条目解压（单条暂存内存），返回 manifest + 7 轨 Float32。
  * manifest 缺失/损坏、缺轨或条目与 manifest 不一致时抛错。
  */
 export async function loadStemsArchive(

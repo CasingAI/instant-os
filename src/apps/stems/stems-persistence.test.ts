@@ -24,7 +24,7 @@ import {
   stemWavEntryName,
 } from './stems-persistence.ts'
 
-/** 造 6 轨测试数据：每轨不同常数/斜坡/正弦，长度超过一个转换块以覆盖分块边界。 */
+/** 造 7 轨测试数据：每轨不同常数/斜坡/正弦，长度超过一个转换块以覆盖分块边界。 */
 function makeFakeStems(frames: number = 600_000): StemAudio[] {
   return STEM_IDS.map((stemId, stem) => {
     const data = new Float32Array(frames * STEM_CHANNELS)
@@ -64,7 +64,7 @@ async function roundTrip(stems: StemAudio[], sourcePath: string): Promise<void> 
   })
   assert.equal(progressEvents, STEM_IDS.length, '每轨应上报一次进度')
 
-  // 压缩包结构：6 条 WAV + manifest，且可被标准 unzipSync 解析
+  // 压缩包结构：7 条 WAV + manifest，且可被标准 unzipSync 解析
   const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
   let offset = 0
   for (const c of chunks) {
@@ -137,7 +137,7 @@ function testPcm16Chunking(): void {
 
 function testManifestValidation(): void {
   const good = {
-    version: 1,
+    version: 2,
     sourcePath: '/user/Musics/song.mp3',
     sourceName: 'song.mp3',
     durationSec: 10,
@@ -146,7 +146,7 @@ function testManifestValidation(): void {
     stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
   }
   assert.ok(parseStemsManifest(JSON.stringify(good)), '合法 manifest 应通过')
-  assert.equal(parseStemsManifest(JSON.stringify({ ...good, version: 2 })), null, '版本不符')
+  assert.equal(parseStemsManifest(JSON.stringify({ ...good, version: 3 })), null, '版本不符')
   assert.equal(parseStemsManifest(JSON.stringify({ ...good, stems: good.stems.slice(0, 5) })), null, '缺轨')
   assert.equal(
     parseStemsManifest(JSON.stringify({ ...good, stems: [{ id: 'bogus', file: 'bogus.wav' }] })),

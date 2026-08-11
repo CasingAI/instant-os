@@ -1,14 +1,24 @@
 /** 分轨 App（Stems）的类型定义。 */
 
-export type StemId = 'drums' | 'bass' | 'other' | 'vocals' | 'guitar' | 'piano'
+export type StemId = 'drums' | 'bass' | 'other' | 'other2' | 'vocals' | 'guitar' | 'piano'
 
-/** 与 htdemucs_6s 输出顺序一致（索引即模型输出 channel 顺序）。 */
-export const STEM_IDS: StemId[] = ['drums', 'bass', 'other', 'vocals', 'guitar', 'piano']
+/**
+ * htdemucs_6s 模型的输出通道顺序（索引即模型输出 channel 顺序），
+ * 仅用于拼接模型输出的纯逻辑（stems-separator），不参与 UI/持久化。
+ */
+export const HTDEMUCS_STEM_IDS: StemId[] = ['drums', 'bass', 'other', 'vocals', 'guitar', 'piano']
+
+/**
+ * 分轨产品展示/持久化顺序：7 轨。
+ * other2 为 htdemucs 在人声通道里提取的伴奏残余（第二轮分轨不再丢弃任何通道）。
+ */
+export const STEM_IDS: StemId[] = ['drums', 'bass', 'other', 'other2', 'vocals', 'guitar', 'piano']
 
 export const STEM_LABELS: Record<StemId, string> = {
   drums: '鼓',
   bass: '贝斯',
-  other: '其他',
+  other: '其他一',
+  other2: '其他二',
   vocals: '人声',
   guitar: '吉他',
   piano: '钢琴',
@@ -18,6 +28,7 @@ export const STEM_COLORS: Record<StemId, string> = {
   drums: '#e05a4e',
   bass: '#4e8fe0',
   other: '#9a97a6',
+  other2: '#d4a373',
   vocals: '#e0b34e',
   guitar: '#4ed0a1',
   piano: '#a17ee0',

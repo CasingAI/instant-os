@@ -3,7 +3,7 @@
  * 与模型推理解耦，可独立单测。
  */
 
-import { STEM_IDS, type StemAudio } from './stems-types.ts'
+import { HTDEMUCS_STEM_IDS, type StemAudio } from './stems-types.ts'
 
 /** htdemucs_6s 的固定输入窗口长度（采样点，单声道）。 */
 export const STEM_WINDOW = 343980
@@ -85,19 +85,19 @@ function windowValue(i: number): number {
 /**
  * 把每块输出（stems，shape [6, 2, STEM_WINDOW]）用重叠相加拼回整首。
  * 归一化权重为「每帧的窗函数值和」，任意重叠比例下常数输入都能精确还原。
- * 返回 6 轨 interleaved stereo PCM。
+ * 返回 6 轨 interleaved stereo PCM（与 htdemucs 输出通道顺序一一对应）。
  */
 export function stitchStemOutputs(
   chunkOutputs: Float32Array[],
   chunkStartFrames: number[],
   totalFrames: number,
 ): StemAudio[] {
-  const accum: Float32Array[] = STEM_IDS.map(() => new Float32Array(totalFrames * STEM_CHANNELS))
+  const accum: Float32Array[] = HTDEMUCS_STEM_IDS.map(() => new Float32Array(totalFrames * STEM_CHANNELS))
   const weight = new Float32Array(totalFrames)
 
   chunkOutputs.forEach((output, chunkIndex) => {
     const start = chunkStartFrames[chunkIndex]
-    for (let stem = 0; stem < STEM_IDS.length; stem++) {
+    for (let stem = 0; stem < HTDEMUCS_STEM_IDS.length; stem++) {
       const stemBase = stem * STEM_WINDOW * STEM_CHANNELS
       const target = accum[stem]
       // 单块：模型输出 [2, STEM_WINDOW] interleaved 化
@@ -123,7 +123,7 @@ export function stitchStemOutputs(
     }
   })
 
-  return STEM_IDS.map((stemId, stem) => {
+  return HTDEMUCS_STEM_IDS.map((stemId, stem) => {
     const data = new Float32Array(totalFrames * STEM_CHANNELS)
     for (let i = 0; i < totalFrames; i++) {
       // 窗和接近 0 的端点不归一化（避免放大噪声），保持原值

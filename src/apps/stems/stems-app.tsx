@@ -208,7 +208,7 @@ export function StemsApp() {
     [stopPlayback],
   )
 
-  /** 把 6 轨分轨结果一次性转成 AudioBuffer 缓存（含 L/R 去交错），播放时直接复用。 */
+  /** 把 7 轨分轨结果一次性转成 AudioBuffer 缓存（含 L/R 去交错），播放时直接复用。 */
   const cacheStemBuffers = useCallback((stems: StemAudio[], rate: number) => {
     const ctx = audioContextRef.current
     const buffers = new Map<StemId, AudioBuffer>()
@@ -317,9 +317,9 @@ export function StemsApp() {
   /**
    * 级联分轨（默认流程），经由系统 AI 推理调度服务串行执行：
    *  阶段 1：MDX-NET 提人声 —— 人声 = 原曲 − 伴奏（专项模型，人声质量高于 htdemucs 6 轨拆分）
-   *  阶段 2：把 MDX 输出的伴奏喂给 htdemucs_6s 拆成 5 轨（鼓/贝斯/其他/吉他/钢琴），
-   *          丢弃 htdemucs 拆出的 vocals 轨（伴奏里已无人声，该轨≈静音）。
-   *  最终：人声用阶段 1 的结果，其余 5 轨用阶段 2 的结果。
+   *  阶段 2：把 MDX 输出的伴奏喂给 htdemucs_6s 拆成 6 轨（鼓/贝斯/其他/人声/吉他/钢琴）。
+   *  最终：人声用阶段 1 的结果；htdemucs 在伴奏中提取到 vocals 通道的残余不丢弃，
+   *        单独作为「其他二」轨保留 —— 全曲播放 = MDX 人声 + htdemucs 全部 6 通道，无任何频率丢失。
    *  调度器保证任意时刻只驻留一个模型：阶段 1 完成后 MDX worker 即被释放，再加载 htdemucs。
    */
   const startSeparation = useCallback(
@@ -376,7 +376,7 @@ export function StemsApp() {
         )
         if (abort.signal.aborted) return
 
-        // —— 阶段 2：伴奏 → htdemucs 6 轨（两模型输入采样率均为 44.1kHz，无需重采样）——
+        // —— 阶段 2：伴奏 → htdemucs 6 通道（两模型输入采样率均为 44.1kHz，无需重采样）——
         setMdxBusy(false)
         setMdxProgress(null)
         setProgress({ kind: 'model-loading' })
@@ -407,9 +407,16 @@ export function StemsApp() {
         )
         if (abort.signal.aborted) return
 
-        // 用 MDX 人声替换 htdemucs 拆出的 vocals 轨（伴奏里已无人声）
-        const stems = done.stems.map((s) =>
-          s.stemId === 'vocals' ? { ...s, data: mdx.vocals } : s,
+        // 人声用 MDX 结果；htdemucs 的 vocals 通道（伴奏残余）保留为「其他二」，不丢弃任何频率
+        const htdemucsVocals = done.stems.find((s) => s.stemId === 'vocals')
+        if (!htdemucsVocals) throw new Error('htdemucs 输出缺少 vocals 轨')
+        const stems: StemAudio[] = done.stems.flatMap((s) =>
+          s.stemId === 'vocals'
+            ? [
+                { stemId: 'vocals', data: mdx.vocals },
+                { stemId: 'other2', data: htdemucsVocals.data },
+              ]
+            : [s],
         )
         setStemSampleRate(done.sampleRate)
         cacheStemBuffers(stems, done.sampleRate)
@@ -539,7 +546,7 @@ export function StemsApp() {
     handleSeparateRef.current = () => void handleSeparate()
   }, [handleSeparate])
 
-  /** 从 offset 秒开始播放全部 6 轨；mute/solo/音量由各轨 GainNode 即时控制。 */
+  /** 从 offset 秒开始播放全部 7 轨；mute/solo/音量由各轨 GainNode 即时控制。 */
   const startPlayback = useCallback(
     (startOffset: number) => {
       if (!tracks || !audioContextRef.current) return
@@ -786,7 +793,7 @@ export function StemsApp() {
     [tracks, stemSampleRate, sourceName],
   )
 
-  // 导出全部 6 轨（逐个下载，轨间让出主线程避免界面冻结）
+  // 导出全部 7 轨（逐个下载，轨间让出主线程避免界面冻结）
   const handleExportAll = useCallback(async () => {
     if (!tracks) return
     setExporting(true)
@@ -946,7 +953,7 @@ export function StemsApp() {
               class="stems__btn"
               disabled={exporting}
               onClick={() => void handleExportAll()}
-              title="导出全部 6 轨为 WAV"
+              title="导出全部 7 轨为 WAV"
             >
               {exporting ? '导出中…' : '导出全部'}
             </button>
@@ -1136,7 +1143,7 @@ export function StemsApp() {
           <div class="stems__empty-icon">🎛️</div>
           <p>打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
           <p class="stems__empty-hint">
-            分轨会把人声、鼓、贝斯、其他、吉他、钢琴分离为 6 条独立音轨，可逐轨试听与调节。
+            分轨会把人声、鼓、贝斯、其他一、其他二、吉他、钢琴分离为 7 条独立音轨，可逐轨试听与调节。
           </p>
           {loadingArchive && (
             <p class="stems__empty-hint">检测到已保存的分轨结果，正在载入…</p>
