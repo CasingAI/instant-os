@@ -1607,15 +1607,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         return
       }
 
-      const ok = await modal.confirm({
-        title: single ? `将「${single.name}」移入废纸篓？` : `将选中的 ${nodes.length} 项移入废纸篓？`,
-        message:
-          '移入废纸篓后可以恢复；按住 ⌥ 键删除可永久删除并释放空间。',
-        confirmLabel: '移入废纸篓',
-        cancelLabel: '取消',
-        themeColor: THEME,
-      })
-      if (!ok) return
       try {
         // 内部卷移入废纸篓为元数据级移动（成本≈删除）；挂载卷按复制估算
         const workloads = await Promise.all(
@@ -2596,11 +2587,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           type: 'action',
           label: countLabel('移入废纸篓'),
           onClick: () => void handleTrash(targetNodes, false),
-        })
-        items.push({
-          type: 'action',
-          label: countLabel('永久删除'),
-          onClick: () => void handleTrash(targetNodes, true),
         })
       }
       items.push({ type: 'separator' })
