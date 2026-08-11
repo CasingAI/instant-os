@@ -8,6 +8,8 @@ export type MusicLyricsStageVariant = 'karaoke' | 'motion'
 type MusicLyricsStageProps = {
   lines: LyricsLine[]
   onSeek: (seconds: number) => void
+  /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示；显示时间 = 播放时间 - offsetMs */
+  offsetMs?: number
   /** karaoke：纯净逐字渐变；motion：额外带词弹跳与行入场动画 */
   variant?: MusicLyricsStageVariant
 }
@@ -53,7 +55,12 @@ function nextTimedLineMs(lines: readonly LyricsLine[], index: number): number | 
  * 上下文行小字淡出，行切换平滑滑动。rAF 读播放器高分辨率进度，
  * 行切换走 state、词填充走 DOM CSS 变量，避免每帧重渲整列。
  */
-export function MusicLyricsStage({ lines, onSeek, variant = 'karaoke' }: MusicLyricsStageProps) {
+export function MusicLyricsStage({
+  lines,
+  onSeek,
+  offsetMs = 0,
+  variant = 'karaoke',
+}: MusicLyricsStageProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const lineElsRef = useRef<(HTMLDivElement | null)[]>([])
@@ -66,7 +73,7 @@ export function MusicLyricsStage({ lines, onSeek, variant = 'karaoke' }: MusicLy
     let rafId = 0
     const tick = () => {
       rafId = requestAnimationFrame(tick)
-      const timeMs = getMusicCurrentTimeMs()
+      const timeMs = getMusicCurrentTimeMs() - offsetMs
       const lineIndex = lineIndexForTime(lines, timeMs)
       if (lineIndex !== activeIndexRef.current) {
         activeIndexRef.current = lineIndex
@@ -102,7 +109,7 @@ export function MusicLyricsStage({ lines, onSeek, variant = 'karaoke' }: MusicLy
     }
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
-  }, [lines])
+  }, [lines, offsetMs])
 
   // 行切换后重建词缓存（等渲染完成后查询 DOM）
   useEffect(() => {

@@ -12,6 +12,8 @@ type MusicLyricsViewProps = {
   /** 当前播放时间（毫秒），驱动高亮与滚动 */
   currentTimeMs: number
   onSeek: (seconds: number) => void
+  /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示；显示时间 = 播放时间 - offsetMs */
+  offsetMs?: number
   /** 逐字卡拉OK高亮：当前行按 words 时间戳逐字变色；无 words 的行退化为整行高亮 */
   karaoke?: boolean
 }
@@ -47,6 +49,7 @@ export function MusicLyricsView({
   lines,
   currentTimeMs,
   onSeek,
+  offsetMs = 0,
   karaoke = false,
 }: MusicLyricsViewProps) {
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -66,7 +69,10 @@ export function MusicLyricsView({
     return () => observer.disconnect()
   }, [])
 
-  const propCurrentIndex = useMemo(() => lineIndexForTime(lines, currentTimeMs), [lines, currentTimeMs])
+  const propCurrentIndex = useMemo(
+    () => lineIndexForTime(lines, currentTimeMs - offsetMs),
+    [lines, currentTimeMs, offsetMs],
+  )
   const currentIndex = karaoke ? (karaokeState?.lineIndex ?? propCurrentIndex) : propCurrentIndex
   const activeWordIndex = karaoke ? (karaokeState?.wordIndex ?? -1) : -1
 
@@ -81,7 +87,7 @@ export function MusicLyricsView({
     let lastWord = -1
     const tick = () => {
       rafId = requestAnimationFrame(tick)
-      const timeMs = getMusicCurrentTimeMs()
+      const timeMs = getMusicCurrentTimeMs() - offsetMs
       const lineIndex = lineIndexForTime(lines, timeMs)
       const words = lineIndex >= 0 ? lines[lineIndex]?.words : undefined
       const wordIndex = words && words.length > 0 ? computeActiveWordIndex(words, timeMs) : -1
@@ -93,7 +99,7 @@ export function MusicLyricsView({
     }
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
-  }, [karaoke, lines])
+  }, [karaoke, lines, offsetMs])
 
   const padY =
     viewportHeight > 0

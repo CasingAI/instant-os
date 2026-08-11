@@ -3,6 +3,7 @@ import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import type { LyricsLine } from './music-lyrics.ts'
 import { MusicAmbientBackdrop } from './music-ambient-backdrop.tsx'
 import { MusicLyricsAmbient } from './music-lyrics-ambient.tsx'
+import { MusicLyricsOffsetBar } from './music-lyrics-offset-bar.tsx'
 import { MusicLyricsStage } from './music-lyrics-stage.tsx'
 import { MusicSpectrumCanvas, type MusicSpectrumMode } from './music-spectrum-canvas.tsx'
 
@@ -14,6 +15,10 @@ type MusicVisualizationViewProps = {
   lines: LyricsLine[] | undefined
   currentTimeMs: number
   onSeek: (seconds: number) => void
+  /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示 */
+  offsetMs?: number
+  /** 歌词偏移变化（由「歌词可视化」内的调节条触发） */
+  onLyricOffsetChange?: (ms: number) => void
 }
 
 /**
@@ -24,6 +29,8 @@ export function MusicVisualizationView({
   lines,
   currentTimeMs,
   onSeek,
+  offsetMs = 0,
+  onLyricOffsetChange,
 }: MusicVisualizationViewProps) {
   const [category, setCategory] = useState<VisualizerCategory>('music')
   const [musicEffect, setMusicEffect] = useState<MusicSpectrumMode>('bars')
@@ -55,16 +62,21 @@ export function MusicVisualizationView({
             ariaLabel="音乐效果"
           />
         ) : (
-          <SegmentedControl
-            value={lyricsEffect}
-            items={[
-              { id: 'karaoke', label: '逐字' },
-              { id: 'ambient', label: '融合' },
-              { id: 'motion', label: '动画' },
-            ]}
-            onChange={setLyricsEffect}
-            ariaLabel="歌词效果"
-          />
+          <>
+            <SegmentedControl
+              value={lyricsEffect}
+              items={[
+                { id: 'karaoke', label: '逐字' },
+                { id: 'ambient', label: '融合' },
+                { id: 'motion', label: '动画' },
+              ]}
+              onChange={setLyricsEffect}
+              ariaLabel="歌词效果"
+            />
+            {hasLyrics && onLyricOffsetChange ? (
+              <MusicLyricsOffsetBar offsetMs={offsetMs} onChange={onLyricOffsetChange} />
+            ) : null}
+          </>
         )}
       </div>
 
@@ -82,13 +94,19 @@ export function MusicVisualizationView({
             </p>
           </div>
         ) : lyricsEffect === 'ambient' ? (
-          <MusicLyricsAmbient lines={lines} currentTimeMs={currentTimeMs} onSeek={onSeek} />
+          <MusicLyricsAmbient
+            lines={lines}
+            currentTimeMs={currentTimeMs}
+            onSeek={onSeek}
+            offsetMs={offsetMs}
+          />
         ) : (
           <>
             {lyricsEffect === 'motion' ? <MusicAmbientBackdrop /> : null}
             <MusicLyricsStage
               lines={lines}
               onSeek={onSeek}
+              offsetMs={offsetMs}
               variant={lyricsEffect === 'motion' ? 'motion' : 'karaoke'}
             />
           </>

@@ -27,6 +27,8 @@ import {
   writeBinaryFile,
 } from '../files/files-vfs.ts'
 import { looksLikeLrc, parseLrc } from './music-lyrics.ts'
+import { loadLyricOffsetMs, saveLyricOffsetMs } from './music-lyric-offsets.ts'
+import { MusicLyricsOffsetBar } from './music-lyrics-offset-bar.tsx'
 import { MusicLyricsView } from './music-lyrics-view.tsx'
 import { MusicVisualizationView } from './music-visualization-view.tsx'
 import {
@@ -135,6 +137,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const [lyricsOpen, setLyricsOpen] = useState(false)
   const [visualizerOpen, setVisualizerOpen] = useState(false)
   const [transientLyrics, setTransientLyrics] = useState<string | undefined>()
+  const [lyricOffsetMs, setLyricOffsetMs] = useState(0)
 
   const handledDocumentRef = useRef<string | undefined>(undefined)
   const refreshTimerRef = useRef<number | undefined>(undefined)
@@ -302,6 +305,22 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const currentId = playerState.current?.id
   /** 当前曲目在曲库中的记录（「文件」打开的单曲不在曲库时为 undefined） */
   const currentLibraryTrack = currentId ? tracks.find((track) => track.id === currentId) : undefined
+
+  // 歌词偏移：切曲目时载入该曲目的记忆值（无播放曲目归 0）
+  useEffect(() => {
+    setLyricOffsetMs(currentId ? loadLyricOffsetMs(currentId) : 0)
+  }, [currentId])
+
+  // 歌词偏移变化：更新状态并持久化
+  const handleLyricOffsetChange = useCallback(
+    (ms: number) => {
+      setLyricOffsetMs(ms)
+      if (currentId) {
+        saveLyricOffsetMs(currentId, ms)
+      }
+    },
+    [currentId],
+  )
 
   // 播放后把真实时长回写曲库列表（时长缓存，避免重复刷新）
   const playerDuration = playerState.duration
@@ -550,6 +569,10 @@ export function MusicApp({ windowId }: { windowId?: string }) {
             )}
           </header>
 
+          {parsedLyrics && parsedLyrics.lines.length > 0 ? (
+            <MusicLyricsOffsetBar offsetMs={lyricOffsetMs} onChange={handleLyricOffsetChange} />
+          ) : null}
+
           <div class="music__main">
             {parsedLyrics && parsedLyrics.lines.length > 0 ? (
               <MusicLyricsView
@@ -557,6 +580,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                 currentTimeMs={playerState.currentTime * 1000}
                 onSeek={seekTo}
                 karaoke
+                offsetMs={lyricOffsetMs}
               />
             ) : (
               <div class="music__empty">
@@ -586,6 +610,8 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               lines={parsedLyrics?.lines}
               currentTimeMs={playerState.currentTime * 1000}
               onSeek={seekTo}
+              offsetMs={lyricOffsetMs}
+              onLyricOffsetChange={handleLyricOffsetChange}
             />
           </div>
 
