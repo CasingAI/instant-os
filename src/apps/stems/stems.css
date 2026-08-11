@@ -209,6 +209,78 @@
   flex: none;
 }
 
+/* 速度条：与各轨波形列对齐的行（复用轨道行网格），点击段可跳转 */
+.stems__tempo-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 168px;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 14px;
+  background: var(--stems-surface);
+  border-bottom: 1px solid var(--stems-border);
+  flex: none;
+}
+.stems__track-dot--tempo {
+  background: var(--stems-accent);
+}
+.stems__tempo-lane {
+  position: relative;
+  height: 20px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+}
+.stems__tempo-seg {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  border-left: 1px solid rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.stems__tempo-seg--active {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: -2px;
+  z-index: 1;
+}
+.stems__tempo-seg--slow {
+  background: rgba(78, 143, 224, 0.75);
+}
+.stems__tempo-seg--mid {
+  background: rgba(78, 208, 161, 0.75);
+}
+.stems__tempo-seg--fast {
+  background: rgba(232, 176, 106, 0.8);
+}
+.stems__tempo-seg--very-fast {
+  background: rgba(224, 90, 78, 0.8);
+}
+.stems__tempo-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  z-index: 2;
+}
+.stems__tempo-readout {
+  display: flex;
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--stems-ink-muted);
+  white-space: nowrap;
+}
+
 /* 迷你滚动条（放大时显示）：拖动/点击平移可见窗口 */
 .stems__minimap {
   position: relative;

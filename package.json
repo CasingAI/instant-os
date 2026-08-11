@@ -22,6 +22,7 @@
     "test:quickjs-cowsay": "node --experimental-strip-types src/quickjs/quickjs-cowsay.smoke-test.ts",
     "test:files-cow": "node --experimental-strip-types src/apps/files/files-storage-cow.test.ts",
     "test:mdx-vocal": "node --experimental-strip-types src/apps/stems/mdx-vocal.test.ts",
+    "test:stems-tempo": "node --experimental-strip-types src/apps/stems/stems-tempo.test.ts",
     "test:archive": "node --experimental-strip-types src/archive/archive-codec.test.ts",
     "test:model-tokenizer": "node --experimental-strip-types src/ai/model-tokenizer.test.ts",
     "test:files-tmp": "node --experimental-strip-types src/apps/files/files-tmp.test.ts",

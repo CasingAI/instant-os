@@ -11,6 +11,7 @@ import { Unzip, UnzipInflate, Zip, ZipDeflate } from 'fflate'
 import { STEM_CHANNELS, encodeWavHeader } from './stems-separator.ts'
 import { STEM_IDS } from './stems-types.ts'
 import type { StemAudio, StemId } from './stems-types.ts'
+import type { TempoInfo } from './stems-tempo.ts'
 
 export const STEMS_ARCHIVE_EXTENSION = '.stems.zip'
 export const STEMS_MANIFEST_ENTRY = 'stems.json'
@@ -36,6 +37,33 @@ export type StemsManifest = {
   sampleRate: number
   createdAt: number
   stems: { id: StemId; file: string }[]
+  /** 分段节拍检测结果（可选；老归档无此字段） */
+  tempo?: TempoInfo
+}
+
+/** 校验 tempo 字段形状；不合法返回 undefined（按缺失处理）。 */
+function normalizeTempo(raw: unknown): TempoInfo | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const obj = raw as { bpm?: unknown; segments?: unknown }
+  if (typeof obj.bpm !== 'number' || !Number.isFinite(obj.bpm)) return undefined
+  if (!Array.isArray(obj.segments)) return undefined
+  const segments: TempoInfo['segments'] = []
+  for (const item of obj.segments) {
+    if (typeof item !== 'object' || item === null) return undefined
+    const seg = item as { startSec?: unknown; endSec?: unknown; bpm?: unknown }
+    if (
+      typeof seg.startSec !== 'number' ||
+      typeof seg.endSec !== 'number' ||
+      typeof seg.bpm !== 'number' ||
+      !Number.isFinite(seg.startSec) ||
+      !Number.isFinite(seg.endSec) ||
+      !Number.isFinite(seg.bpm)
+    ) {
+      return undefined
+    }
+    segments.push({ startSec: seg.startSec, endSec: seg.endSec, bpm: seg.bpm })
+  }
+  return { bpm: obj.bpm, segments }
 }
 
 /**
@@ -55,8 +83,9 @@ export function buildStemsManifest(meta: {
   durationSec: number
   sampleRate: number
   createdAt?: number
+  tempo?: TempoInfo
 }): StemsManifest {
-  return {
+  const manifest: StemsManifest = {
     version: STEMS_MANIFEST_VERSION,
     sourcePath: meta.sourcePath,
     sourceName: meta.sourceName,
@@ -65,6 +94,8 @@ export function buildStemsManifest(meta: {
     createdAt: meta.createdAt ?? Date.now(),
     stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
   }
+  if (meta.tempo) manifest.tempo = meta.tempo
+  return manifest
 }
 
 /** 解析并校验 stems.json 内容；不合法返回 null。 */
@@ -79,7 +110,13 @@ export function parseStemsManifest(json: string): StemsManifest | null {
       if (!STEM_IDS.includes(item.id)) return null
       if (item.file !== stemWavEntryName(item.id)) return null
     }
-    return raw as StemsManifest
+    const manifest = raw as StemsManifest
+    if (raw.tempo !== undefined) {
+      const tempo = normalizeTempo(raw.tempo)
+      if (!tempo) return null
+      manifest.tempo = tempo
+    }
+    return manifest
   } catch {
     return null
   }
@@ -155,6 +192,8 @@ export type SaveStemsOptions = {
   durationSec: number
   sampleRate: number
   sink: ArchiveSink
+  /** 分段节拍检测结果（可选；检测完成/载入时带上） */
+  tempo?: TempoInfo
   /** 完成进度（已存轨数 / 总轨数） */
   onProgress?: (saved: number, total: number) => void
 }
@@ -166,8 +205,8 @@ const EMPTY_CHUNK = new Uint8Array(0)
  * 每 push 一块输入后立即排空压缩输出（串行 await 写入），峰值内存 ≈ 单块大小。
  */
 export async function saveStemsArchive(options: SaveStemsOptions): Promise<void> {
-  const { stems, sourcePath, sourceName, durationSec, sampleRate, sink, onProgress } = options
-  const manifest = buildStemsManifest({ sourcePath, sourceName, durationSec, sampleRate })
+  const { stems, sourcePath, sourceName, durationSec, sampleRate, sink, tempo, onProgress } = options
+  const manifest = buildStemsManifest({ sourcePath, sourceName, durationSec, sampleRate, tempo })
 
   const zipOutput: Uint8Array[] = []
   let zipError: unknown = null

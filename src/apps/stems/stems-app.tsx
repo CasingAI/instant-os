@@ -18,6 +18,9 @@ import type { StemAudio, StemEngineProvider, StemId, StemProgress } from './stem
 import { loadStemsArchive, saveStemsArchive, stemsArchivePathFor } from './stems-persistence.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import type { MdxVocalProgress } from './mdx-vocal-worker.ts'
+import TempoWorker from './tempo-worker.ts?worker'
+import type { TempoWorkerResponse } from './tempo-worker.ts'
+import type { TempoInfo } from './stems-tempo.ts'
 import './stems.css'
 
 type StemTrackState = {
@@ -97,6 +100,19 @@ export function StemsApp() {
   const [mdxBusy, setMdxBusy] = useState(false)
   const [mdxProgress, setMdxProgress] = useState<{ done: number; total: number } | null>(null)
   const [mdxProvider, setMdxProvider] = useState<StemEngineProvider | null>(null)
+  /** 分段节拍检测结果与状态 */
+  const [tempo, setTempo] = useState<TempoInfo | null>(null)
+  const [tempoDetecting, setTempoDetecting] = useState(false)
+  /** 供 saveCurrentStems 无依赖读取的最新 tempo（持久化时用） */
+  const tempoRef = useRef<TempoInfo | null>(null)
+  /** 节拍检测 worker（懒创建、复用、卸载时 terminate） */
+  const tempoWorkerRef = useRef<Worker | null>(null)
+  /** 检测请求序号：陈旧响应不覆盖新结果 */
+  const tempoReqSeqRef = useRef(0)
+  /** 速度条当前段高亮/读数/播放头直写 DOM 用（仿 playheadRefsRef） */
+  const tempoSegRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
+  const tempoReadoutRef = useRef<HTMLSpanElement | null>(null)
+  const tempoPlayheadRef = useRef<HTMLDivElement | null>(null)
   /** 进度条/波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
   /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
@@ -233,6 +249,7 @@ export function StemsApp() {
           sourceName,
           durationSec: duration,
           sampleRate: stemSampleRate,
+          tempo: tempoRef.current ?? undefined,
           sink: {
             write: (chunk) => writer.write(chunk),
             close: () => writer.close(),
@@ -260,6 +277,44 @@ export function StemsApp() {
   }, [saveCurrentStems, tracks])
 
   /**
+   * 在轻量 Worker 里对鼓轨做分段节拍检测，结果写状态与 tempoRef。
+   * 陈旧响应（检测期间又重新分轨）不覆盖新结果；失败返回 null、不影响主流程。
+   */
+  const detectTempoAsync = useCallback(
+    async (drums: Float32Array, sampleRate: number): Promise<TempoInfo | null> => {
+      const reqId = (tempoReqSeqRef.current += 1)
+      if (!tempoWorkerRef.current) {
+        tempoWorkerRef.current = new TempoWorker()
+      }
+      const worker = tempoWorkerRef.current
+      setTempoDetecting(true)
+      return new Promise<TempoInfo | null>((resolve) => {
+        const onMessage = (event: MessageEvent<TempoWorkerResponse>): void => {
+          const msg = event.data
+          if (msg.type !== 'done' && msg.type !== 'error') return
+          worker.removeEventListener('message', onMessage)
+          const isCurrent = tempoReqSeqRef.current === reqId
+          if (msg.type === 'done') {
+            if (isCurrent) {
+              setTempo(msg.tempo)
+              tempoRef.current = msg.tempo
+            }
+          } else if (isCurrent) {
+            console.warn('节拍检测失败', msg.message)
+            setTempo(null)
+            tempoRef.current = null
+          }
+          if (isCurrent) setTempoDetecting(false)
+          resolve(msg.type === 'done' ? msg.tempo : null)
+        }
+        worker.addEventListener('message', onMessage)
+        worker.postMessage({ type: 'detect', audio: drums, sampleRate })
+      })
+    },
+    [],
+  )
+
+  /**
    * 级联分轨（默认流程），经由系统 AI 推理调度服务串行执行：
    *  阶段 1：MDX-NET 提人声 —— 人声 = 原曲 − 伴奏（专项模型，人声质量高于 htdemucs 6 轨拆分）
    *  阶段 2：把 MDX 输出的伴奏喂给 htdemucs_6s 拆成 5 轨（鼓/贝斯/其他/吉他/钢琴），
@@ -279,6 +334,9 @@ export function StemsApp() {
       setLoadedFromArchive(null)
       setMdxBusy(true)
       setMdxProgress(null)
+      // 重新分轨：清空旧节拍结果，等新鼓轨检测
+      setTempo(null)
+      tempoRef.current = null
 
       try {
         // —— 阶段 1：MDX 提人声 ——
@@ -365,6 +423,10 @@ export function StemsApp() {
         )
         setPlaying(false)
         setCurrentTime(0)
+        // 分段节拍检测（鼓轨，轻量）：完成后带 tempo 自动保存，下次打开直接读 manifest
+        const drums = stems.find((s) => s.stemId === 'drums')
+        if (drums) await detectTempoAsync(drums.data, done.sampleRate)
+        if (abort.signal.aborted) return
         // 自动保存：分轨完成即落盘（有源路径时），下次打开直接载入
         void saveCurrentStems(stems)
       } catch (error) {
@@ -375,7 +437,7 @@ export function StemsApp() {
         setError(error instanceof Error ? error.message : String(error))
       }
     },
-    [cacheStemBuffers, saveCurrentStems],
+    [cacheStemBuffers, detectTempoAsync, saveCurrentStems],
   )
 
   /**
@@ -415,6 +477,14 @@ export function StemsApp() {
         setPlaying(false)
         setCurrentTime(0)
         setLoadedFromArchive(manifest.createdAt)
+        // 已有 tempo 直接载入；老压缩包缺失时从鼓轨补测（不自动保存，与现状一致）
+        if (manifest.tempo) {
+          setTempo(manifest.tempo)
+          tempoRef.current = manifest.tempo
+        } else {
+          const drums = stems.find((s) => s.stemId === 'drums')
+          if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
+        }
         return true
       } catch (cause) {
         console.warn('载入已保存分轨失败，走正常分轨流程', cause)
@@ -423,7 +493,7 @@ export function StemsApp() {
         setLoadingArchive(false)
       }
     },
-    [cacheStemBuffers, stopPlayback],
+    [cacheStemBuffers, detectTempoAsync, stopPlayback],
   )
 
   const handlePickFile = useCallback(async () => {
@@ -511,6 +581,7 @@ export function StemsApp() {
   /**
    * 把播放位置直接写进 DOM（各轨播放头、时间文本、进度条），不触发 React 重渲染。
    * 播放时钟（rAF 每帧）与 seek 拖拽共用，保证 60fps 丝滑且拖拽时不打架。
+   * 同步驱动速度条：当前段高亮、右格 BPM 读数、lane 播放头。
    */
   const writePlaybackDom = useCallback(
     (timeSec: number) => {
@@ -525,6 +596,23 @@ export function StemsApp() {
       }
       const input = seekInputRef.current
       if (input) input.value = String(Math.round(timeSec * 100))
+
+      // 速度条：当前段高亮 + 读数 + lane 播放头
+      const tempoInfo = tempoRef.current
+      if (tempoInfo) {
+        const seg = tempoInfo.segments.find((s) => timeSec >= s.startSec && timeSec < s.endSec)
+        for (const [startSec, el] of tempoSegRefsRef.current) {
+          el.classList.toggle('stems__tempo-seg--active', !!seg && startSec === seg.startSec)
+        }
+        if (tempoReadoutRef.current) {
+          tempoReadoutRef.current.textContent =
+            seg !== undefined ? `${Math.round(seg.bpm)} BPM` : `${Math.round(tempoInfo.bpm)} BPM`
+        }
+      }
+      if (tempoPlayheadRef.current) {
+        tempoPlayheadRef.current.style.left = `${ratio * 100}%`
+        tempoPlayheadRef.current.style.opacity = visible ? '1' : '0'
+      }
     },
     [duration, viewLen, view.start],
   )
@@ -680,6 +768,7 @@ export function StemsApp() {
       stopPlayback()
       // 取消在途分轨：调度器负责 terminate worker 并释放模型内存
       separateAbortRef.current?.abort()
+      tempoWorkerRef.current?.terminate()
       void audioContextRef.current?.close()
     },
     [stopPlayback],
@@ -908,6 +997,51 @@ export function StemsApp() {
               )}
             </div>
           )}
+
+          {/* 速度条：分段色块 = 段长、颜色 = BPM 快慢、段内数字；点击跳段 */}
+          <div class="stems__tempo-row">
+            <div class="stems__track-name">
+              <span class="stems__track-dot stems__track-dot--tempo" />
+              速度
+            </div>
+            <div class="stems__tempo-lane">
+              {tempo?.segments.map((seg) => {
+                const left = viewLen > 0 ? ((seg.startSec - view.start) / viewLen) * 100 : 0
+                const width = viewLen > 0 ? ((seg.endSec - seg.startSec) / viewLen) * 100 : 0
+                return (
+                  <div
+                    key={seg.startSec}
+                    ref={(el) => {
+                      if (el) tempoSegRefsRef.current.set(seg.startSec, el)
+                      else tempoSegRefsRef.current.delete(seg.startSec)
+                    }}
+                    class={`stems__tempo-seg ${tempoBucketClass(seg.bpm)}`}
+                    style={{ left: `${left}%`, width: `${width}%` }}
+                    title={`${formatTime(seg.startSec)} – ${formatTime(seg.endSec)} · ${Math.round(seg.bpm)} BPM`}
+                    onClick={() => finalizeSeek(seg.startSec)}
+                  >
+                    {width > 6 && Math.round(seg.bpm)}
+                  </div>
+                )
+              })}
+              {tempo && (
+                <div
+                  ref={tempoPlayheadRef}
+                  class="stems__tempo-playhead"
+                  style={{ left: `${(viewLen > 0 ? (currentTime - view.start) / viewLen : 0) * 100}%`, opacity: 0 }}
+                />
+              )}
+            </div>
+            <div class="stems__tempo-readout">
+              <span ref={tempoReadoutRef}>
+                {tempoDetecting
+                  ? '检测中…'
+                  : tempo
+                    ? `${Math.round(tempo.bpm)} BPM`
+                    : '—'}
+              </span>
+            </div>
+          </div>
 
           <div class="stems__tracks">
             {STEM_IDS.map((stemId) => {
@@ -1257,6 +1391,14 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+/** BPM 分桶 → 速度条色块 class（颜色编码快慢）。 */
+function tempoBucketClass(bpm: number): string {
+  if (bpm < 95) return 'stems__tempo-seg--slow'
+  if (bpm <= 120) return 'stems__tempo-seg--mid'
+  if (bpm <= 150) return 'stems__tempo-seg--fast'
+  return 'stems__tempo-seg--very-fast'
 }
 
 function downloadWav(buffer: ArrayBuffer, fileName: string): void {
