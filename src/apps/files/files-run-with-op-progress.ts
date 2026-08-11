@@ -9,7 +9,7 @@ import {
 } from './files-op-progress-policy.ts'
 import type { FilesVfsOpProgress } from './files-vfs.ts'
 
-export type FilesOpProgressKind = 'paste' | 'delete'
+export type FilesOpProgressKind = 'paste' | 'delete' | 'compress' | 'extract'
 
 export type FilesOpProgressUiState = {
   title: string
@@ -19,6 +19,8 @@ export type FilesOpProgressUiState = {
 
 function titleForKind(kind: FilesOpProgressKind): string {
   if (kind === 'paste') return '正在粘贴…'
+  if (kind === 'compress') return '正在压缩…'
+  if (kind === 'extract') return '正在解压…'
   return '正在删除…'
 }
 

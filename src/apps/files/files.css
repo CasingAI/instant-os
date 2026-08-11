@@ -553,6 +553,11 @@
   box-sizing: border-box;
 }
 
+.files__browser:focus-visible {
+  outline: 2px solid rgba(90, 60, 25, 0.4);
+  outline-offset: -2px;
+}
+
 .files__path-bar {
   position: relative;
   z-index: 2;
@@ -883,6 +888,52 @@ button.files__path-bar-segment:active {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.files__list-header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 72px 132px;
+  align-items: center;
+  gap: 8px 10px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 2px 10px 6px;
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(90, 60, 25, 0.18);
+  color: rgba(60, 42, 20, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.files__list-header-btn {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.files__list-header-btn--size,
+.files__list-header-btn--date {
+  text-align: right;
+}
+
+.files__list-header-btn:hover {
+  color: var(--files-ink);
+  text-shadow: 0 1px 0 rgba(255, 240, 210, 0.4);
+}
+
+.files__list-header-btn:active {
+  color: var(--files-accent-dark);
 }
 
 .files__list-item {
@@ -1323,11 +1374,13 @@ button.files__path-bar-segment:active {
 }
 
 /* 宽屏并排 / 窄屏堆叠共用同一套绝对定位，靠 left/width/transform 过渡，避免临界点硬切 */
-.files--narrow .files__list-item {
+.files--narrow .files__list-item,
+.files--narrow .files__list-header {
   grid-template-columns: 28px minmax(0, 1fr) 64px;
 }
 
-.files--narrow .files__list-date--col {
+.files--narrow .files__list-date--col,
+.files--narrow .files__list-header-btn--date {
   display: none;
 }
 
@@ -1427,7 +1480,8 @@ button.files__path-bar-segment:active {
   .files__protected-banner,
   .files__popover,
   .files__context,
-  .files__item {
+  .files__item,
+  .files__toast {
     transition: none !important;
     animation: none !important;
   }
@@ -1465,4 +1519,38 @@ button.files__path-bar-segment:active {
 .files__sidebar-item--drop-target {
   background: linear-gradient(180deg, rgba(232, 197, 106, 0.45) 0%, rgba(201, 160, 70, 0.3) 100%);
   box-shadow: inset 0 0 0 2px rgba(138, 106, 56, 0.5);
+}
+
+/* 轻量 toast：底边悬浮胶囊，不参与布局 */
+.files__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  z-index: 30;
+  padding: 8px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(58, 44, 26, 0.94) 0%, rgba(38, 28, 16, 0.94) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 6px 16px rgba(20, 12, 4, 0.35);
+  color: #fffaf0;
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: files-toast-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes files-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }

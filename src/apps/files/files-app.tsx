@@ -61,6 +61,12 @@ import {
   runFilesOpWithProgress,
   type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
+import {
+  compressNodesToArchive,
+  extractArchiveToDirectory,
+  isArchiveFileName,
+  type FilesArchiveFormat,
+} from './files-archive.ts'
 import { preloadAppBundleIcons } from './files-app-bundle-icon.tsx'
 import {
   FILES_NAME_DISPLAY_OPTIONS,
@@ -77,6 +83,7 @@ import { resolveAppCatalogEntryByBundlePath } from '../../os/app-catalog.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
+  createBinaryFile,
   createTextFile,
   emptyTrash,
   enrichFilesNodeMeta,
@@ -123,6 +130,7 @@ const THEME = '#8a6a38'
 const LONG_PRESS_MS = 380
 const LONG_PRESS_MOVE_PX = 8
 const VIEW_MODE_STORAGE_KEY = 'files.viewMode'
+const SORT_STORAGE_KEY = 'files.sort'
 const VIEWPORT_META_DEBOUNCE_MS = 100
 const VIEWPORT_META_CONCURRENCY = 8
 const VIEWPORT_META_ROOT_MARGIN = '96px'
@@ -132,6 +140,9 @@ const LOADING_SHOW_DELAY_MS = 200
 const LOADING_MIN_VISIBLE_MS = 300
 
 type FilesViewMode = 'grid' | 'list'
+
+type FilesSortKey = 'name' | 'date' | 'size'
+type FilesSort = { key: FilesSortKey; direction: 'asc' | 'desc' }
 
 function menuCheckPrefix(active: boolean): string {
   return active ? '✓ ' : ''
@@ -153,6 +164,53 @@ function writeFilesViewMode(mode: FilesViewMode): void {
   } catch {
     // ignore
   }
+}
+
+function readFilesSort(): FilesSort {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<FilesSort>
+      if (
+        (parsed.key === 'name' || parsed.key === 'date' || parsed.key === 'size') &&
+        (parsed.direction === 'asc' || parsed.direction === 'desc')
+      ) {
+        return { key: parsed.key, direction: parsed.direction }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { key: 'name', direction: 'asc' }
+}
+
+function writeFilesSort(sort: FilesSort): void {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort))
+  } catch {
+    // ignore
+  }
+}
+
+/** 列表排序：文件夹恒排前，组内按 key 排序；direction=desc 组内反转 */
+function sortNodeList(nodes: readonly FilesNode[], sort: FilesSort): FilesNode[] {
+  const compare = (a: FilesNode, b: FilesNode): number => {
+    if (sort.key === 'name') {
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    }
+    if (sort.key === 'date') {
+      return a.updatedAt - b.updatedAt
+    }
+    return a.byteSize - b.byteSize
+  }
+  const applyDirection = (list: FilesNode[]): FilesNode[] => {
+    list.sort(compare)
+    if (sort.direction === 'desc') list.reverse()
+    return list
+  }
+  const folders = nodes.filter((node) => node.kind === 'folder')
+  const rest = nodes.filter((node) => node.kind !== 'folder')
+  return [...applyDirection(folders), ...applyDirection(rest)]
 }
 
 function formatListByteSize(node: FilesNode, metaResolved: ReadonlySet<string>): string {
@@ -393,6 +451,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [infoNode, setInfoNode] = useState<FilesNode | undefined>(undefined)
   const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
   const [viewMode, setViewMode] = useState<FilesViewMode>(() => readFilesViewMode())
+  const [sort, setSort] = useState<FilesSort>(() => readFilesSort())
   const [nameDisplayMode, setNameDisplayMode] = useState<FilesNameDisplayMode>(() =>
     readFilesNameDisplayMode(),
   )
@@ -400,6 +459,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [selectNonce, setSelectNonce] = useState(0)
   const [pendingSelectName, setPendingSelectName] = useState<string | undefined>(undefined)
+  /** 窄屏触屏多选模式：点按复选、工具栏「完成」退出 */
+  const [selectionMode, setSelectionMode] = useState(false)
+  /** 轻量提示（移入废纸篓等瞬时反馈） */
+  const [toast, setToast] = useState<string | undefined>(undefined)
+  const toastTimerRef = useRef<number | undefined>(undefined)
   /** Shift 区间选择的锚点 id */
   const selectionAnchorRef = useRef<string | undefined>(undefined)
   /** 框选进行中的矩形（相对 .files__browser 视口） */
@@ -433,6 +497,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const lastRevealNonceRef = useRef(0)
   const narrowLayoutRef = useRef(narrowLayout)
   narrowLayoutRef.current = narrowLayout
+  /** 触屏多选模式（供 window 级 keydown 同步读取） */
+  const selectionModeRef = useRef(false)
+  selectionModeRef.current = selectionMode
   /** 窄屏首次滑入内容层时，等布局 transition 后再滚入选中项 */
   const pendingRevealLayoutRef = useRef(false)
 
@@ -490,6 +557,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set())
   selectedIdsRef.current = selectedIds
   const firstSelectedId = selectedIds.size === 1 ? [...selectedIds][0] : undefined
+
+  /** 进入触屏多选模式：清空现有选择，点按即复选 */
+  const enterSelectionMode = useCallback(() => {
+    setSelectedIds(new Set())
+    selectionAnchorRef.current = undefined
+    setPendingSelectName(undefined)
+    setSelectionMode(true)
+  }, [])
+
+  /** 退出触屏多选模式并清空选择 */
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false)
+    clearSelection()
+  }, [clearSelection])
 
   const scrollSelectedIntoView = useCallback((nodeId: string) => {
     const root = browserRef.current
@@ -724,7 +805,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
     resetViewportMeta()
     if (cachedListing !== undefined) {
-      setItems(cachedListing)
+      setItems(sortNodeList(cachedListing, sort))
     }
     if (!options?.quiet) {
       if (showLoadingUi) {
@@ -749,7 +830,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         resolvePathNodes(locationId, folderId),
       ])
       if (gen !== refreshGenRef.current) return
-      setItems(listed)
+      setItems(sortNodeList(listed, sort))
       setPathNodes(path)
     } catch (err) {
       if (gen !== refreshGenRef.current) return
@@ -759,7 +840,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     } finally {
       if (gen === refreshGenRef.current && showLoadingUi) endRefreshingUi(gen)
     }
-  }, [beginRefreshingUi, clearLoadingTimers, endRefreshingUi, folderId, locationId, resetViewportMeta])
+  }, [beginRefreshingUi, clearLoadingTimers, endRefreshingUi, folderId, locationId, resetViewportMeta, sort])
 
   useEffect(() => () => clearLoadingTimers(), [clearLoadingTimers])
 
@@ -774,6 +855,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   useEffect(() => {
     void refreshLocations()
   }, [refreshLocations])
+
+  useEffect(() => {
+    setItems((prev) => sortNodeList(prev, sort))
+  }, [sort])
 
   useEffect(() => {
     if (locations.length === 0) return
@@ -1082,6 +1167,28 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     longPressStartRef.current = undefined
   }, [])
 
+  /** 轻量 toast：重置旧定时器，2.2s 后自动消失 */
+  const showToast = useCallback((message: string) => {
+    if (toastTimerRef.current !== undefined) {
+      window.clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = undefined
+    }
+    setToast(message)
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = undefined
+      setToast(undefined)
+    }, 2200)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== undefined) {
+        window.clearTimeout(toastTimerRef.current)
+        toastTimerRef.current = undefined
+      }
+    }
+  }, [])
+
   const closeTransientMenus = useCallback(() => {
     setContextMenu(undefined)
     setBackgroundContextMenu(undefined)
@@ -1155,6 +1262,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     (next: FilesLocationId) => {
       closeTransientMenus()
       clearSelection()
+      setSelectionMode(false)
       setLocationId(next)
       setFolderId(undefined)
       if (narrowLayout) {
@@ -1234,6 +1342,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (node.kind !== 'folder') return
       closeTransientMenus()
       clearSelection()
+      setSelectionMode(false)
       setFolderMotion('push')
       setFolderId(node.id)
     },
@@ -1274,6 +1383,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     if (pathNodes.length === 0) return
     setNewFileMenu(undefined)
     clearSelection()
+    setSelectionMode(false)
     setFolderMotion('pop')
     const parent = pathNodes[pathNodes.length - 1]?.parentId
     setFolderId(parent)
@@ -1284,6 +1394,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       closeTransientMenus()
       if (nextFolderId === folderId) return
       clearSelection()
+      setSelectionMode(false)
       const currentDepth = pathNodes.length
       const targetDepth =
         nextFolderId === undefined
@@ -1456,6 +1567,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
       closeTransientMenus()
 
+      // 触屏多选模式：点按复选，不打开
+      if (selectionMode) {
+        toggleSelection(node.id)
+        return
+      }
+
       const meta = event.metaKey || event.ctrlKey
       const shift = event.shiftKey
 
@@ -1470,7 +1587,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
       openNode(node)
     },
-    [closeTransientMenus, openNode, rangeSelectTo, toggleSelection],
+    [closeTransientMenus, openNode, rangeSelectTo, selectionMode, toggleSelection],
   )
 
   /** 复制选中项（多选批量；mode=copy） */
@@ -1639,10 +1756,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       } catch (err) {
         await modal.alert({ title: '无法删除', message: formatError(err), themeColor: THEME })
       }
+      showToast(nodes.length > 1 ? `已将 ${nodes.length} 项移入废纸篓` : '已移入废纸篓')
       clearSelection()
       await refresh()
     },
-    [clearSelection, closeTransientMenus, modal, refresh],
+    [clearSelection, closeTransientMenus, modal, refresh, showToast],
   )
 
   /** 从废纸篓恢复选中项 */
@@ -1669,6 +1787,72 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     invalidateFilesVfsPathCaches()
     void refresh()
   }, [closeTransientMenus, refresh])
+
+  /** 压缩选中项为 zip / tar.gz，写入当前目录 */
+  const handleCompress = useCallback(
+    async (nodes: readonly FilesNode[], format: FilesArchiveFormat) => {
+      if (nodes.length === 0 || !canCreateHere) return
+      closeTransientMenus()
+      try {
+        let done = 0
+        const result = await runFilesOpWithProgress({
+          kind: 'compress',
+          totalWork: Math.max(1, nodes.length),
+          estimatedTotalMs: estimateFilesOpDurationMs(nodes.length),
+          onUiChange: setOpProgressUi,
+          task: async (report) => {
+            const collected = await compressNodesToArchive(nodes, format, () => {
+              done += 1
+              report({ done: Math.min(done, nodes.length), total: Math.max(1, nodes.length) })
+            })
+            report({ done: nodes.length, total: Math.max(1, nodes.length) })
+            return collected
+          },
+        })
+        const baseName = nodes.length === 1 ? nodes[0]!.name : '归档'
+        const name = format === 'zip' ? `${baseName}.zip` : `${baseName}.tar.gz`
+        await createBinaryFile({
+          locationId,
+          parentId: folderId,
+          name,
+          bytes: result.bytes.buffer.slice(result.bytes.byteOffset, result.bytes.byteOffset + result.bytes.byteLength),
+          mimeType: format === 'zip' ? 'application/zip' : 'application/gzip',
+        })
+        showToast(`已压缩 ${result.entryCount} 个文件`)
+        await refresh()
+      } catch (err) {
+        await modal.alert({ title: '无法压缩', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, showToast],
+  )
+
+  /** 解压归档到当前目录 */
+  const handleExtract = useCallback(
+    async (node: FilesNode) => {
+      if (!canCreateHere || !isArchiveFileName(node.name)) return
+      closeTransientMenus()
+      try {
+        const result = await runFilesOpWithProgress({
+          kind: 'extract',
+          totalWork: 1,
+          estimatedTotalMs: estimateFilesOpDurationMs(1),
+          onUiChange: setOpProgressUi,
+          task: async (report) =>
+            extractArchiveToDirectory({
+              node,
+              destRoot: pathBarAbsolutePath,
+              onProgress: (done, total) => report({ done, total }),
+            }),
+        })
+        showToast(result.fileCount > 0 ? `已解压 ${result.fileCount} 个文件` : '归档为空')
+        await refresh()
+      } catch (err) {
+        await modal.alert({ title: '无法解压', message: formatError(err), themeColor: THEME })
+      }
+    },
+    [canCreateHere, closeTransientMenus, modal, pathBarAbsolutePath, refresh, showToast],
+  )
 
   /** 清空废纸篓（永久删除全部内容） */
   const handleEmptyTrash = useCallback(async () => {
@@ -1820,6 +2004,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     setViewMode((prev) => {
       const next: FilesViewMode = prev === 'grid' ? 'list' : 'grid'
       writeFilesViewMode(next)
+      return next
+    })
+  }, [])
+
+  /** 列表列头排序：同列切换方向，跨列默认升序 */
+  const handleSortColumn = useCallback((key: FilesSortKey) => {
+    setSort((prev) => {
+      const next: FilesSort =
+        prev.key === key
+          ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+          : { key, direction: 'asc' }
+      writeFilesSort(next)
       return next
     })
   }, [])
@@ -2471,7 +2667,40 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         event.preventDefault()
         return
       }
-      if (key === 'Escape' && selectedIdsRef.current.size > 0) {
+      if (key === 'Home') {
+        event.preventDefault()
+        const first = itemsRef.current[0]
+        if (first) {
+          activateSelection(first.id)
+          scrollSelectedIntoView(first.id)
+        }
+        return
+      }
+      if (key === 'End') {
+        event.preventDefault()
+        const last = itemsRef.current[itemsRef.current.length - 1]
+        if (last) {
+          activateSelection(last.id)
+          scrollSelectedIntoView(last.id)
+        }
+        return
+      }
+      if (key === ' ') {
+        event.preventDefault()
+        const ordered = itemsRef.current
+        const current = [...selectedIdsRef.current]
+        const lastId = current[current.length - 1]
+        const target =
+          lastId ??
+          selectionAnchorRef.current ??
+          ordered[0]?.id
+        if (target !== undefined) toggleSelection(target)
+        return
+      }
+      if (key === 'Escape' && (selectedIdsRef.current.size > 0 || selectionModeRef.current)) {
+        if (selectionModeRef.current) {
+          setSelectionMode(false)
+        }
         clearSelection()
         return
       }
@@ -2481,6 +2710,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [
     activeWindowId,
     appWindow?.id,
+    activateSelection,
     clearSelection,
     goBackInPath,
     handleCopy,
@@ -2491,8 +2721,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     handleTrash,
     moveSelectionBy,
     openNode,
+    scrollSelectedIntoView,
     selectAll,
     selectedNodes,
+    toggleSelection,
     windowId,
   ])
 
@@ -2589,6 +2821,26 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onClick: () => void handleTrash(targetNodes, false),
         })
       }
+      if (canCreateHere) {
+        items.push({ type: 'separator' })
+        items.push({
+          type: 'action',
+          label: countLabel('压缩为 ZIP'),
+          onClick: () => void handleCompress(targetNodes, 'zip'),
+        })
+        items.push({
+          type: 'action',
+          label: countLabel('压缩为 tar.gz'),
+          onClick: () => void handleCompress(targetNodes, 'gzip-tar'),
+        })
+        if (!multi && node.kind === 'file' && isArchiveFileName(node.name)) {
+          items.push({
+            type: 'action',
+            label: '解压到当前文件夹',
+            onClick: () => void handleExtract(node),
+          })
+        }
+      }
       items.push({ type: 'separator' })
       items.push({
         type: 'action',
@@ -2598,9 +2850,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       return items
     },
     [
+      canCreateHere,
       canPasteHere,
+      handleCompress,
       handleCopy,
       handleCut,
+      handleExtract,
       handlePaste,
       handleRename,
       handleRestore,
@@ -2975,6 +3230,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             <h1 class="files__toolbar-title">{currentTitle}</h1>
           )}
           <div class="files__toolbar-right">
+            {narrowLayout ? (
+              <button
+                type="button"
+                class="files__toolbar-btn"
+                onClick={selectionMode ? exitSelectionMode : enterSelectionMode}
+              >
+                {selectionMode ? '完成' : '选择'}
+              </button>
+            ) : undefined}
             <button
               type="button"
               class="files__toolbar-btn files__toolbar-btn--icon"
@@ -3070,6 +3334,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           ]
             .filter(Boolean)
             .join(' ')}
+          tabIndex={0}
           onAnimationEnd={(event) => {
             if (event.currentTarget !== event.target) return
             setFolderMotion('idle')
@@ -3128,22 +3393,52 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               </p>
             </div>
           ) : (
-            <ul class={viewMode === 'list' ? 'files__list' : 'files__grid'}>
-              {items.map((node) => {
-                const selected = selectedIds.has(node.id)
-                const isDropTarget = dropTarget?.kind === 'node' && dropTarget.id === node.id
-                const itemClass =
-                  viewMode === 'list'
-                    ? `files__list-item${selected ? ' files__list-item--selected' : ''}${isDropTarget ? ' files__list-item--drop-target' : ''}`
-                    : `files__item${selected ? ' files__item--selected' : ''}${isDropTarget ? ' files__item--drop-target' : ''}`
-                return (
-                  <li key={node.id}>
+            <>
+              {viewMode === 'list' ? (
+                <div class="files__list-header" role="row">
+                  <span class="files__list-header-icon" aria-hidden="true" />
+                  <button
+                    type="button"
+                    class="files__list-header-btn"
+                    aria-sort={sort.key === 'name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    onClick={() => handleSortColumn('name')}
+                  >
+                    名称{sort.key === 'name' ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ''}
+                  </button>
+                  <button
+                    type="button"
+                    class="files__list-header-btn files__list-header-btn--size"
+                    aria-sort={sort.key === 'size' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    onClick={() => handleSortColumn('size')}
+                  >
+                    大小{sort.key === 'size' ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ''}
+                  </button>
+                  <button
+                    type="button"
+                    class="files__list-header-btn files__list-header-btn--date"
+                    aria-sort={sort.key === 'date' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    onClick={() => handleSortColumn('date')}
+                  >
+                    修改日期{sort.key === 'date' ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ''}
+                  </button>
+                </div>
+              ) : undefined}
+              <ul class={viewMode === 'list' ? 'files__list' : 'files__grid'}>
+                {items.map((node) => {
+                  const selected = selectedIds.has(node.id)
+                  const isDropTarget = dropTarget?.kind === 'node' && dropTarget.id === node.id
+                  const itemClass =
+                    viewMode === 'list'
+                      ? `files__list-item${selected ? ' files__list-item--selected' : ''}${isDropTarget ? ' files__list-item--drop-target' : ''}`
+                      : `files__item${selected ? ' files__item--selected' : ''}${isDropTarget ? ' files__item--drop-target' : ''}`
+                  return (
+                    <li key={node.id}>
                     <button
                       type="button"
                       class={itemClass}
                       data-files-node-id={node.id}
                       aria-selected={selected}
-                      draggable={!isTrashLocationId(locationId)}
+                      draggable={!isTrashLocationId(locationId) && !selectionMode}
                       onClick={(event) => handleItemClick(node, event)}
                       onDragStart={(event) => handleDragStart(event, node)}
                       onDragOver={(event) => handleFolderDragOver(event, node)}
@@ -3214,9 +3509,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                       )}
                     </button>
                   </li>
-                )
-              })}
-            </ul>
+                  )
+                })}
+              </ul>
+            </>
           )}
           {marqueeRect ? (
             <div
@@ -3236,6 +3532,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           absolutePath={pathBarAbsolutePath}
           onNavigate={navigatePathBar}
         />
+
+        {toast ? (
+          <div class="files__toast" role="status">
+            {toast}
+          </div>
+        ) : undefined}
       </section>
 
       {contextMenu ? (
