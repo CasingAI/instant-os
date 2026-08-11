@@ -16,6 +16,7 @@ import {
   startWorkerService,
   stopWorkerService,
 } from '../../os/service-supervisor.ts'
+import { restartAiInference, stopAiInference } from '../../ai/ai-inference-service.ts'
 import {
   listWorkerHeapReports,
   WORKER_HEAP_REPORTS_CHANGED_EVENT,
@@ -386,25 +387,34 @@ export function ServicesApp() {
                   : '—'}
               </span>
             </div>
-            <SettingsChoiceField
-              label="启动类型"
-              value={selectedStartupType ?? 'manual'}
-              options={STARTUP_TYPE_OPTIONS}
-              onChange={(value) => {
-                if (STARTUP_TYPE_OPTIONS.some((option) => option.id === value)) {
-                  changeStartupType(selected.id, value as ServiceStartupType)
+            {selected.id !== 'ai-inference' && (
+              <SettingsChoiceField
+                label="启动类型"
+                value={selectedStartupType ?? 'manual'}
+                options={STARTUP_TYPE_OPTIONS}
+                onChange={(value) => {
+                  if (STARTUP_TYPE_OPTIONS.some((option) => option.id === value)) {
+                    changeStartupType(selected.id, value as ServiceStartupType)
+                  }
+                }}
+                wideLayout={!narrowLayout}
+                onNavigate={
+                  narrowLayout ? () => navigateTo('startup-type', 'push') : undefined
                 }
-              }}
-              wideLayout={!narrowLayout}
-              onNavigate={
-                narrowLayout ? () => navigateTo('startup-type', 'push') : undefined
-              }
-            />
+              />
+            )}
           </div>
 
           <div class="services__detail-actions">
             {canStart && (
-              <IosButton size="compact" onClick={() => startWorkerService(selected.id)}>
+              <IosButton
+                size="compact"
+                onClick={() =>
+                  selected.id === 'ai-inference'
+                    ? restartAiInference()
+                    : startWorkerService(selected.id)
+                }
+              >
                 开始
               </IosButton>
             )}
@@ -412,13 +422,24 @@ export function ServicesApp() {
               <IosButton
                 size="compact"
                 tone="danger"
-                onClick={() => stopWorkerService(selected.id)}
+                onClick={() =>
+                  selected.id === 'ai-inference'
+                    ? stopAiInference()
+                    : stopWorkerService(selected.id)
+                }
               >
                 停止
               </IosButton>
             )}
             {canRestart && (
-              <IosButton size="compact" onClick={() => restartWorkerService(selected.id)}>
+              <IosButton
+                size="compact"
+                onClick={() =>
+                  selected.id === 'ai-inference'
+                    ? restartAiInference()
+                    : restartWorkerService(selected.id)
+                }
+              >
                 重启
               </IosButton>
             )}

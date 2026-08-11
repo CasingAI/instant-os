@@ -35,7 +35,14 @@ export type MdxVocalProgress =
   | { kind: 'model-loading' }
   | { kind: 'model-loaded'; provider: StemEngineProvider }
   | { kind: 'chunk'; done: number; total: number }
-  | { kind: 'done'; vocals: Float32Array; sampleRate: number }
+  | {
+      kind: 'done'
+      /** 人声 = 原曲 − 伴奏（interleaved stereo float32，44.1kHz） */
+      vocals: Float32Array
+      /** 伴奏（interleaved stereo float32，44.1kHz），供级联分轨阶段 2 喂给 htdemucs */
+      instrumental: Float32Array
+      sampleRate: number
+    }
   | { kind: 'error'; message: string }
 
 let session: ort.InferenceSession | undefined
@@ -92,7 +99,7 @@ async function separate(request: MdxVocalRequest): Promise<void> {
   })
   const vocals = mixMinus(resampled, instrumental)
 
-  postProgress({ kind: 'done', vocals, sampleRate: MDX_TARGET_SAMPLE_RATE })
+  postProgress({ kind: 'done', vocals, instrumental, sampleRate: MDX_TARGET_SAMPLE_RATE })
 }
 
 self.onmessage = (event: MessageEvent<MdxVocalRequest>) => {

@@ -4,6 +4,7 @@ export const WORKER_HEAP_SERVICE_IDS = [
   'tokenizer',
   'vscode-workspace-search',
   'vscode-typescript-resolve',
+  'ai-inference',
 ] as const
 
 export type WorkerHeapServiceId = (typeof WORKER_HEAP_SERVICE_IDS)[number]
@@ -12,6 +13,7 @@ export const WORKER_HEAP_SERVICE_LABELS: Record<WorkerHeapServiceId, string> = {
   tokenizer: 'Tokenizer',
   'vscode-workspace-search': 'Workspace Search',
   'vscode-typescript-resolve': 'TypeScript Resolve',
+  'ai-inference': 'AI 推理服务',
 }
 
 /** 服务启动类型（Windows 服务语义） */

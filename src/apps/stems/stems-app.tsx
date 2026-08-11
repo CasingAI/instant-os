@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
-import { isModelCached } from '../../os/model-cache.ts'
+import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
 import { filesOpenStreamWrite, filesReadBlob } from '../files/files-api.ts'
 import {
@@ -16,8 +16,7 @@ import type { WaveformPyramid } from './stems-separator.ts'
 import { STEM_COLORS, STEM_IDS, STEM_LABELS } from './stems-types.ts'
 import type { StemAudio, StemEngineProvider, StemId, StemProgress } from './stems-types.ts'
 import { loadStemsArchive, saveStemsArchive, stemsArchivePathFor } from './stems-persistence.ts'
-import StemsWorker from './stems-worker.ts?worker'
-import MdxVocalWorker from './mdx-vocal-worker.ts?worker'
+import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import type { MdxVocalProgress } from './mdx-vocal-worker.ts'
 import './stems.css'
 
@@ -67,6 +66,7 @@ export function StemsApp() {
   const [provider, setProvider] = useState<StemEngineProvider | null>(null)
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
   const [modelCached, setModelCached] = useState<boolean | null>(null)
+  const [mdxCached, setMdxCached] = useState<boolean | null>(null)
   const [exporting, setExporting] = useState(false)
   /** 正在保存分轨压缩包（当前已存轨数，null = 未在保存） */
   const [saveProgress, setSaveProgress] = useState<number | null>(null)
@@ -77,7 +77,8 @@ export function StemsApp() {
   const [dragOver, setDragOver] = useState(false)
   /** 波形横向缩放：level=0 显示全曲，每 +1 可见窗口减半；start 为窗口起点（秒） */
   const [view, setView] = useState({ start: 0, level: 0 })
-  const workerRef = useRef<Worker | null>(null)
+  /** 级联分轨流程的取消控制器：重新分轨 / 卸载时 abort 在途任务（调度器负责释放模型） */
+  const separateAbortRef = useRef<AbortController | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   /** 分轨结果一次性转换并缓存的 AudioBuffer，播放时零拷贝复用（不再每次全量复制 PCM） */
   const buffersRef = useRef<Map<StemId, AudioBuffer> | null>(null)
@@ -92,13 +93,10 @@ export function StemsApp() {
   const sourcePathRef = useRef<string | null>(null)
   /** 源文件绝对路径（保存/检测分轨压缩包用；拖入的文件为 null） */
   const sourceAbsolutePathRef = useRef<string | null>(null)
-  /** 源音频 PCM（打开/拖入时记录，供 MDX 人声增强复用；44.1kHz 由 worker 内部重采样） */
-  const sourceAudioRef = useRef<{ audio: Float32Array; sampleRate: number } | null>(null)
-  /** MDX 人声增强状态 */
+  /** 级联分轨阶段 1（MDX-NET 提人声）状态：busy / 块进度 / 实际执行后端 */
   const [mdxBusy, setMdxBusy] = useState(false)
   const [mdxProgress, setMdxProgress] = useState<{ done: number; total: number } | null>(null)
   const [mdxProvider, setMdxProvider] = useState<StemEngineProvider | null>(null)
-  const mdxWorkerRef = useRef<Worker | null>(null)
   /** 进度条/波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
   /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
@@ -121,12 +119,13 @@ export function StemsApp() {
       ? Math.max(MIN_VIEW_SEC, Math.min(duration, duration / Math.pow(2, view.level)))
       : 0
 
-  // 启动时探测 WebGPU 与模型缓存（用于提示；实际后端以 worker 汇报为准）
+  // 启动时探测 WebGPU 与两个模型的缓存状态（用于提示；实际后端以 worker 汇报为准）
   useEffect(() => {
     setGpuAvailable('gpu' in navigator)
   }, [])
   useEffect(() => {
     void isModelCached().then((cached) => setModelCached(cached))
+    void isModelCached(MDX_MODEL_URL).then((cached) => setMdxCached(cached))
   }, [])
 
   const menuBar = useMemo<MenuDefinition[]>(() => {
@@ -142,21 +141,14 @@ export function StemsApp() {
             disabled: !sourceName,
             onClick: () => void handleSeparateRef.current(),
           },
-          {
-            type: 'action',
-            label: 'MDX 人声增强',
-            disabled: !tracks || mdxBusy,
-            onClick: () => runMdxVocalEnhanceRef.current(),
-          },
         ],
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceName, tracks, mdxBusy])
+  }, [sourceName])
   useAppMenuBar('stems', menuBar)
 
   const handleSeparateRef = useRef<() => void>(() => {})
-  const runMdxVocalEnhanceRef = useRef<() => void>(() => {})
 
   const stopPlayback = useCallback(() => {
     bufferSourcesRef.current.forEach((source) => {
@@ -267,127 +259,124 @@ export function StemsApp() {
     await saveCurrentStems(tracks.map((t) => t.audio))
   }, [saveCurrentStems, tracks])
 
-  /** 启动 worker 分轨（打开文件与拖放文件共用）。 */
+  /**
+   * 级联分轨（默认流程），经由系统 AI 推理调度服务串行执行：
+   *  阶段 1：MDX-NET 提人声 —— 人声 = 原曲 − 伴奏（专项模型，人声质量高于 htdemucs 6 轨拆分）
+   *  阶段 2：把 MDX 输出的伴奏喂给 htdemucs_6s 拆成 5 轨（鼓/贝斯/其他/吉他/钢琴），
+   *          丢弃 htdemucs 拆出的 vocals 轨（伴奏里已无人声，该轨≈静音）。
+   *  最终：人声用阶段 1 的结果，其余 5 轨用阶段 2 的结果。
+   *  调度器保证任意时刻只驻留一个模型：阶段 1 完成后 MDX worker 即被释放，再加载 htdemucs。
+   */
   const startSeparation = useCallback(
-    (interleaved: Float32Array, sourceRate: number) => {
+    async (interleaved: Float32Array, sourceRate: number) => {
+      separateAbortRef.current?.abort()
+      const abort = new AbortController()
+      separateAbortRef.current = abort
       setError(null)
-      setProgress({ kind: 'model-loading' })
+      setProgress(null)
       setProvider(null)
+      setMdxProvider(null)
       setLoadedFromArchive(null)
-      sourceAudioRef.current = { audio: interleaved, sampleRate: sourceRate }
-      workerRef.current?.terminate()
-      const worker = new StemsWorker()
-      workerRef.current = worker
-      worker.onmessage = (event: MessageEvent<StemProgress>) => {
-        const msg = event.data
-        setProgress(msg)
-        if (msg.kind === 'done') {
-          setStemSampleRate(msg.sampleRate)
-          cacheStemBuffers(msg.stems, msg.sampleRate)
-          setTracks(
-            msg.stems.map((audio) => ({
-              audio,
-              mute: false,
-              solo: false,
-              volume: 1,
-            })),
-          )
-          setPlaying(false)
-          setCurrentTime(0)
-          // 自动保存：分轨完成即落盘（有源路径时），下次打开直接载入
-          void saveCurrentStems(msg.stems)
-        } else if (msg.kind === 'model-loaded') {
-          setProvider(msg.provider)
-        } else if (msg.kind === 'error') {
-          setError(msg.message)
-        }
+      setMdxBusy(true)
+      setMdxProgress(null)
+
+      try {
+        // —— 阶段 1：MDX 提人声 ——
+        const mdx = await enqueueAiTask<
+          MdxVocalProgress,
+          { vocals: Float32Array; instrumental: Float32Array; sampleRate: number }
+        >(
+          'stems-mdx',
+          { type: 'separate', audio: interleaved, sampleRate: sourceRate },
+          {
+            signal: abort.signal,
+            route: (msg) => {
+              if (msg.kind === 'model-loaded') {
+                setMdxProvider(msg.provider)
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'chunk') {
+                setMdxProgress({ done: msg.done, total: msg.total })
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'done') {
+                return {
+                  action: 'resolve',
+                  value: {
+                    vocals: msg.vocals,
+                    instrumental: msg.instrumental,
+                    sampleRate: msg.sampleRate,
+                  },
+                }
+              }
+              if (msg.kind === 'error') {
+                return { action: 'reject', error: new Error(msg.message) }
+              }
+              return { action: 'continue' }
+            },
+          },
+        )
+        if (abort.signal.aborted) return
+
+        // —— 阶段 2：伴奏 → htdemucs 6 轨（两模型输入采样率均为 44.1kHz，无需重采样）——
+        setMdxBusy(false)
+        setMdxProgress(null)
+        setProgress({ kind: 'model-loading' })
+        setProvider(null)
+        const done = await enqueueAiTask<StemProgress, { stems: StemAudio[]; sampleRate: number }>(
+          'stems-htdemucs',
+          { type: 'separate', audio: mdx.instrumental, sampleRate: mdx.sampleRate },
+          {
+            signal: abort.signal,
+            route: (msg) => {
+              if (msg.kind === 'done') {
+                return {
+                  action: 'resolve',
+                  value: { stems: msg.stems, sampleRate: msg.sampleRate },
+                }
+              }
+              if (msg.kind === 'model-loaded') {
+                setProvider(msg.provider)
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'error') {
+                return { action: 'reject', error: new Error(msg.message) }
+              }
+              setProgress(msg)
+              return { action: 'continue' }
+            },
+          },
+        )
+        if (abort.signal.aborted) return
+
+        // 用 MDX 人声替换 htdemucs 拆出的 vocals 轨（伴奏里已无人声）
+        const stems = done.stems.map((s) =>
+          s.stemId === 'vocals' ? { ...s, data: mdx.vocals } : s,
+        )
+        setStemSampleRate(done.sampleRate)
+        cacheStemBuffers(stems, done.sampleRate)
+        setTracks(
+          stems.map((audio) => ({
+            audio,
+            mute: false,
+            solo: false,
+            volume: 1,
+          })),
+        )
+        setPlaying(false)
+        setCurrentTime(0)
+        // 自动保存：分轨完成即落盘（有源路径时），下次打开直接载入
+        void saveCurrentStems(stems)
+      } catch (error) {
+        if (abort.signal.aborted) return
+        setMdxBusy(false)
+        setMdxProgress(null)
+        setProgress(null)
+        setError(error instanceof Error ? error.message : String(error))
       }
-      worker.postMessage({ type: 'separate', audio: interleaved, sampleRate: sourceRate })
     },
     [cacheStemBuffers, saveCurrentStems],
   )
-
-  /**
-   * MDX 人声增强：用 MDX-NET（伴奏 2-stem 模型）重新分离人声轨，
-   * 人声 = 原曲 − 伴奏，替换 htdemucs_6s 拆出的人声轨（质量更高，但只输出人声）。
-   */
-  const runMdxVocalEnhance = useCallback(async () => {
-    if (!tracks) return
-    // 源 PCM 优先用内存里现成的（本次会话分轨过）；从 .stems.zip 载入的分轨
-    // 没有保留源 PCM，源文件还在磁盘上时按需解码（不动当前播放状态）。
-    let source = sourceAudioRef.current
-    if (!source && sourcePathRef.current) {
-      try {
-        const { blob } = await readFileBlob(sourcePathRef.current)
-        const arrayBuffer = await blob.arrayBuffer()
-        const ctx = new AudioContext()
-        try {
-          const decoded = await ctx.decodeAudioData(arrayBuffer)
-          const interleaved = new Float32Array(decoded.length * 2)
-          const mono = decoded.getChannelData(0)
-          for (let i = 0; i < decoded.length; i++) {
-            interleaved[i * 2] = mono[i]
-            interleaved[i * 2 + 1] = mono[i]
-          }
-          source = { audio: interleaved, sampleRate: decoded.sampleRate }
-          sourceAudioRef.current = source
-        } finally {
-          void ctx.close()
-        }
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
-        return
-      }
-    }
-    if (!source) return
-    stopPlayback()
-    setError(null)
-    setMdxBusy(true)
-    setMdxProgress(null)
-    setMdxProvider(null)
-    mdxWorkerRef.current?.terminate()
-    const worker = new MdxVocalWorker()
-    mdxWorkerRef.current = worker
-    worker.onmessage = (event: MessageEvent<MdxVocalProgress>) => {
-      const msg = event.data
-      if (msg.kind === 'model-loading') {
-        setMdxProgress(null)
-      } else if (msg.kind === 'model-loaded') {
-        setMdxProvider(msg.provider)
-      } else if (msg.kind === 'chunk') {
-        setMdxProgress({ done: msg.done, total: msg.total })
-      } else if (msg.kind === 'done') {
-        const { vocals, sampleRate } = msg
-        // 替换 vocals 轨：保留该轨的 mute/solo/音量，其余轨不动
-        const newStems = tracks.map((t) =>
-          t.audio.stemId === 'vocals' ? { ...t.audio, data: vocals } : t.audio,
-        )
-        cacheStemBuffers(newStems, sampleRate)
-        setTracks((prev) =>
-          prev
-            ? prev.map((t) =>
-                t.audio.stemId === 'vocals' ? { ...t, audio: { ...t.audio, data: vocals } } : t,
-              )
-            : null,
-        )
-        setMdxBusy(false)
-        setMdxProgress(null)
-        setPlaying(false)
-        setCurrentTime(0)
-        // 自动保存：把 MDX 增强后的人声轨写进 .stems.zip，下次打开直接是增强结果
-        void saveCurrentStems(newStems)
-      } else if (msg.kind === 'error') {
-        setMdxBusy(false)
-        setMdxProgress(null)
-        setError(msg.message)
-      }
-    }
-    worker.postMessage({ type: 'separate', audio: source.audio, sampleRate: source.sampleRate })
-  }, [cacheStemBuffers, saveCurrentStems, stopPlayback, tracks])
-
-  useEffect(() => {
-    runMdxVocalEnhanceRef.current = () => void runMdxVocalEnhance()
-  }, [runMdxVocalEnhance])
 
   /**
    * 打开文件时探测同目录的 `<源文件名>.stems.zip`，命中则直接载入已保存的分轨。
@@ -689,7 +678,8 @@ export function StemsApp() {
   useEffect(
     () => () => {
       stopPlayback()
-      workerRef.current?.terminate()
+      // 取消在途分轨：调度器负责 terminate worker 并释放模型内存
+      separateAbortRef.current?.abort()
       void audioContextRef.current?.close()
     },
     [stopPlayback],
@@ -767,42 +757,31 @@ export function StemsApp() {
         <button type="button" class="stems__btn" onClick={() => void handlePickFile()}>
           打开音乐文件…
         </button>
-          {sourceName && (
-            <button
-              type="button"
-              class="stems__btn stems__btn--primary"
-              disabled={progress?.kind === 'model-loading' || progress?.kind === 'chunk'}
-              onClick={() => void handleSeparate()}
-            >
-              {progress?.kind === 'chunk'
-                ? `分轨中 ${progress.index}/${progress.total}`
-                : progress?.kind === 'model-loading'
-                  ? '加载模型…'
-                  : tracks
-                    ? '重新分轨'
-                    : '开始分轨'}
-            </button>
-          )}
-          {tracks && (
-            <button
-              type="button"
-              class="stems__btn"
-              disabled={mdxBusy || (!sourceAudioRef.current && !sourcePathRef.current)}
-              onClick={() => void runMdxVocalEnhance()}
-              title="用 MDX-NET 重新分离人声轨（人声 = 原曲 − 伴奏），人声质量高于 htdemucs 6 轨拆分；仅替换人声轨，其余轨不变"
-            >
-              {mdxBusy
-                ? mdxProgress
-                  ? `人声增强 ${mdxProgress.done}/${mdxProgress.total}`
-                  : '加载 MDX 模型…'
-                : '🎤 MDX 人声增强'}
-            </button>
-          )}
+        {sourceName && (
+          <button
+            type="button"
+            class="stems__btn stems__btn--primary"
+            disabled={mdxBusy || progress?.kind === 'model-loading' || progress?.kind === 'chunk'}
+            onClick={() => void handleSeparate()}
+          >
+            {mdxBusy && mdxProgress
+              ? `人声分离 ${mdxProgress.done}/${mdxProgress.total}`
+              : mdxBusy
+                ? '加载人声模型…'
+                : progress?.kind === 'chunk'
+                  ? `伴奏分轨 ${progress.index}/${progress.total}`
+                  : progress?.kind === 'model-loading'
+                    ? '加载分轨模型…'
+                    : tracks
+                      ? '重新分轨'
+                      : '开始分轨'}
+          </button>
+        )}
         <div class="stems__toolbar-right">
           {provider && (
             <span
               class={`stems__engine stems__engine--${provider}`}
-              title={provider === 'webgpu' ? '分轨推理运行在 WebGPU 上' : '分轨推理回退到 WASM（多线程），速度较慢'}
+              title={provider === 'webgpu' ? '伴奏分轨推理运行在 WebGPU 上' : '伴奏分轨推理回退到 WASM（多线程），速度较慢'}
             >
               {provider === 'webgpu' ? '⚡ WebGPU 加速' : '🐢 WASM 回退'}
             </span>
@@ -810,7 +789,7 @@ export function StemsApp() {
           {mdxProvider && (
             <span
               class={`stems__engine stems__engine--${mdxProvider}`}
-              title={mdxProvider === 'webgpu' ? 'MDX 人声增强运行在 WebGPU 上' : 'MDX 人声增强回退到 WASM（多线程），速度较慢'}
+              title={mdxProvider === 'webgpu' ? 'MDX 人声分离运行在 WebGPU 上' : 'MDX 人声分离回退到 WASM（多线程），速度较慢'}
             >
               {mdxProvider === 'webgpu' ? '🎤 MDX ⚡' : '🎤 MDX 🐢'}
             </span>
@@ -1028,29 +1007,38 @@ export function StemsApp() {
           {loadingArchive && (
             <p class="stems__empty-hint">检测到已保存的分轨结果，正在载入…</p>
           )}
-          {progress?.kind === 'model-loading' && (
+          {mdxBusy && (
+            <p class="stems__empty-hint">
+              {mdxProgress
+                ? `正在分离人声… ${Math.round((mdxProgress.done / mdxProgress.total) * 100)}%（第 ${mdxProgress.done}/${mdxProgress.total} 块）`
+                : mdxCached === false
+                  ? '正在下载人声分离模型（首次约 67MB，可在 设置 → 存储 → 模型缓存 预缓存，之后秒开）…'
+                  : '正在加载人声分离模型…'}
+            </p>
+          )}
+          {!mdxBusy && progress?.kind === 'model-loading' && (
             <p class="stems__empty-hint">
               {modelCached === false
                 ? '正在下载分轨模型（首次约 285MB，可在 设置 → 存储 → 模型缓存 预缓存，之后秒开）…'
                 : '正在加载分轨模型…'}
             </p>
           )}
-          {progress?.kind === 'chunk' && (
+          {!mdxBusy && progress?.kind === 'chunk' && (
             <p class="stems__empty-hint">
-              正在推理… {Math.round((progress.index / progress.total) * 100)}%（第 {progress.index}/{progress.total} 块）
+              正在拆分伴奏… {Math.round((progress.index / progress.total) * 100)}%（第 {progress.index}/{progress.total} 块）
             </p>
           )}
-          {!progress && gpuAvailable === true && (
+          {!progress && !mdxBusy && gpuAvailable === true && (
             <p class="stems__empty-hint">已检测到 WebGPU，分轨将优先使用 GPU 加速。</p>
           )}
-          {!progress && gpuAvailable === false && (
+          {!progress && !mdxBusy && gpuAvailable === false && (
             <p class="stems__empty-hint">
               未检测到 WebGPU，分轨将使用 WASM 模式（较慢）；建议在 Chrome 中开启硬件加速。
             </p>
           )}
-          {!progress && modelCached === false && (
+          {!progress && !mdxBusy && (mdxCached === false || modelCached === false) && (
             <p class="stems__empty-hint">
-              提示：模型尚未缓存，首次分轨需下载约 285MB；可在 设置 → 存储 → 模型缓存 中提前缓存。
+              提示：分轨所需模型尚未完全缓存（人声分离模型约 67MB，分轨模型约 285MB），首次分轨需下载；可在 设置 → 存储 → 模型缓存 中提前缓存。
             </p>
           )}
         </div>

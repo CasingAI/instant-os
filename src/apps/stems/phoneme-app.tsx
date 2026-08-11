@@ -42,7 +42,7 @@ import {
 import { createVscodeTerminalSessionId } from '../vscode/vscode-terminal-sessions.ts'
 import type OpenAI from 'openai'
 import type { AlignedPhone, PhonemeEngineProvider, PhonemeProgress } from './phoneme-types.ts'
-import PhonemeWorker from './phoneme-worker.ts?worker'
+import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import {
   buildPhonemeAlignContext,
   createPhonemeAlignTools,
@@ -162,8 +162,9 @@ export function PhonemeApp() {
   const [audioInfo, setAudioInfo] = useState<{ duration: number; sampleRate: number } | null>(null)
   const [rows, setRows] = useState<FrameRow[] | null>(null)
   const [phones, setPhones] = useState<AlignedPhone[] | null>(null)
-  const workerRef = useRef<Worker | null>(null)
   const pendingAudioRef = useRef<{ audio: Float32Array; sampleRate: number } | null>(null)
+  /** 识别任务的取消控制器：重新识别 / 卸载时 abort 在途任务（调度器负责释放模型） */
+  const recogAbortRef = useRef<AbortController | null>(null)
 
   // —— 识别进度 ——
   type RecogPhase = 'idle' | 'unpacking' | 'loading' | 'running' | 'done'
@@ -680,7 +681,7 @@ export function PhonemeApp() {
     [],
   )
 
-  /** 启动识别（打开文件与拖放文件共用） */
+  /** 启动识别（打开文件与拖放文件共用），经由 AI 推理调度服务执行 */
   const startRecognition = useCallback(
     async (audio: Float32Array, sampleRate: number, duration: number) => {
       setError(null)
@@ -695,47 +696,70 @@ export function PhonemeApp() {
       setRecogLoaded(false)
       resetAlign()
 
-      // 本次识别对应的音频路径：worker 消息到达时再读 ref 可能已指向别的文件
+      recogAbortRef.current?.abort()
+      const abort = new AbortController()
+      recogAbortRef.current = abort
+
+      // 本次识别对应的音频路径：任务完成时再读 ref 可能已指向别的文件
       const audioPath = audioPathRef.current
 
-      workerRef.current?.terminate()
-      const worker = new PhonemeWorker()
-      workerRef.current = worker
-
-      worker.onmessage = async (event: MessageEvent<PhonemeProgress>) => {
-        const msg = event.data
-        if (msg.kind === 'model-loading') {
-          setRecogPhase('loading')
-        } else if (msg.kind === 'model-loaded') {
-          setProvider(msg.provider)
-          providerRef.current = msg.provider
-          setRecogPhase('running')
-        } else if (msg.kind === 'progress') {
-          setRecogProgress({ chunk: msg.chunk, total: msg.total })
-        } else if (msg.kind === 'done') {
-          setRecogPhase('done')
-          const { logits, numFrames, numPhonemes } = msg
-          const { rows, phones: phoneList } = await decodeLogits(logits, numFrames, numPhonemes)
-          setRows(rows)
-          setPhones(phoneList)
-          // 先落盘再放行：否则用户识别完立刻重开同一文件时旁存还没写完，会再次触发识别
-          if (audioPath) {
-            await savePhonemeSidecar(audioPath, phoneList, providerRef.current, duration, sampleRate)
-          }
-          setBusy(false)
-          startAlignIfReady(phoneList)
-        } else if (msg.kind === 'error') {
-          setRecogLoadFallback(null)
-          setError(msg.message)
-          setBusy(false)
+      try {
+        const { logits, numFrames, numPhonemes } = await enqueueAiTask<
+          PhonemeProgress,
+          { logits: Float32Array; numFrames: number; numPhonemes: number }
+        >(
+          'phoneme-wav2vec2',
+          { type: 'recognize', audio, sampleRate },
+          {
+            signal: abort.signal,
+            route: (msg) => {
+              if (msg.kind === 'model-loading') {
+                setRecogPhase('loading')
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'model-loaded') {
+                setProvider(msg.provider)
+                providerRef.current = msg.provider
+                setRecogPhase('running')
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'progress') {
+                setRecogProgress({ chunk: msg.chunk, total: msg.total })
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'done') {
+                return {
+                  action: 'resolve',
+                  value: {
+                    logits: msg.logits,
+                    numFrames: msg.numFrames,
+                    numPhonemes: msg.numPhonemes,
+                  },
+                }
+              }
+              return { action: 'reject', error: new Error(msg.message) }
+            },
+          },
+        )
+        if (abort.signal.aborted) return
+        setRecogPhase('done')
+        const { rows, phones: phoneList } = await decodeLogits(logits, numFrames, numPhonemes)
+        if (abort.signal.aborted) return
+        setRows(rows)
+        setPhones(phoneList)
+        // 先落盘再放行：否则用户识别完立刻重开同一文件时旁存还没写完，会再次触发识别
+        if (audioPath) {
+          await savePhonemeSidecar(audioPath, phoneList, providerRef.current, duration, sampleRate)
         }
-      }
-      worker.onerror = (err) => {
+        if (abort.signal.aborted) return
+        setBusy(false)
+        startAlignIfReady(phoneList)
+      } catch (error) {
+        if (abort.signal.aborted) return
         setRecogLoadFallback(null)
-        setError(`Worker 错误: ${err.message}`)
+        setError(error instanceof Error ? error.message : String(error))
         setBusy(false)
       }
-      worker.postMessage({ type: 'recognize', audio, sampleRate })
     },
     [decodeLogits, resetAlign, savePhonemeSidecar, startAlignIfReady],
   )
@@ -936,7 +960,8 @@ export function PhonemeApp() {
 
   useEffect(() => {
     return () => {
-      workerRef.current?.terminate()
+      // 取消在途识别：调度器负责 terminate worker 并释放模型内存
+      recogAbortRef.current?.abort()
       alignAbortRef.current?.abort()
       stopAlignPoll()
       closeAlignTerminal()
