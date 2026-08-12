@@ -11,7 +11,7 @@ import {
   buildWaveformPyramid,
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
-  encodeWav,
+  STEM_CHANNELS,
   STEM_TARGET_SAMPLE_RATE,
 } from './stems-separator.ts'
 import type { WaveformPyramid } from './stems-separator.ts'
@@ -73,11 +73,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
   const [modelCached, setModelCached] = useState<boolean | null>(null)
   const [mdxCached, setMdxCached] = useState<boolean | null>(null)
-  const [exporting, setExporting] = useState(false)
   /** 正在保存分轨压缩包（当前已存轨数，null = 未在保存） */
   const [saveProgress, setSaveProgress] = useState<number | null>(null)
-  /** 已载入保存的分轨压缩包的保存时间（null = 未载入） */
-  const [loadedFromArchive, setLoadedFromArchive] = useState<number | null>(null)
   /** 正在载入分轨压缩包 */
   const [loadingArchive, setLoadingArchive] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -250,12 +247,21 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const sourcePath = sourceAbsolutePathRef.current
       if (!sourcePath) return false
       try {
+        // 分轨结果各轨均被裁剪到源文件精确长度（htdemucs 拼接 / MDX 截回原长），
+        // 因此用分轨数据推导时长最可靠；state 中的 duration 是异步闭包，可能仍是旧值
+        // （分轨完成自动保存发生在 setDuration 之后、新渲染之前的同一次异步流程里）。
+        let derivedDurationSec = 0
+        for (const stem of stems) {
+          const sec = stem.data.length / STEM_CHANNELS / stemSampleRate
+          if (sec > derivedDurationSec) derivedDurationSec = sec
+        }
+        const durationSec = derivedDurationSec > 0 ? derivedDurationSec : duration
         const writer = await filesOpenStreamWrite(stemsArchivePathFor(sourcePath))
         await saveStemsArchive({
           stems,
           sourcePath,
           sourceName,
-          durationSec: duration,
+          durationSec,
           sampleRate: stemSampleRate,
           tempo: tempoRef.current ?? undefined,
           sink: {
@@ -264,7 +270,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           },
           onProgress: (saved) => setSaveProgress(saved),
         })
-        setLoadedFromArchive(Date.now())
         return true
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
@@ -370,7 +375,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setProgress(null)
       setProvider(null)
       setMdxProvider(null)
-      setLoadedFromArchive(null)
       setMdxBusy(true)
       setMdxProgress(undefined)
       resetChunkEtaClock()
@@ -531,7 +535,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )
         setPlaying(false)
         setCurrentTime(0)
-        setLoadedFromArchive(manifest.createdAt)
         // 已有 tempo 直接载入；老压缩包缺失时从鼓轨补测（不自动保存，与现状一致）
         if (manifest.tempo) {
           setTempo(manifest.tempo)
@@ -566,7 +569,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     setProgress(null)
     setError(null)
     setCurrentTime(0)
-    setLoadedFromArchive(null)
     // 同目录有已保存的分轨压缩包 → 直接载入，不再推理
     const loaded = await tryLoadSavedStems(path)
     if (!loaded) handleSeparateRef.current()
@@ -859,33 +861,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [stopPlayback],
   )
 
-  // 导出单轨为 WAV 下载（WAV 头必须写分轨结果的实际采样率）
-  const handleExportStem = useCallback(
-    (stemId: StemId) => {
-      const track = tracks?.find((t) => t.audio.stemId === stemId)
-      if (!track) return
-      const stemLabel = STEM_LABELS[stemId]
-      const wav = encodeWav(track.audio.data, stemSampleRate)
-      downloadWav(wav, `${sourceName || 'track'}-${stemLabel}.wav`)
-    },
-    [tracks, stemSampleRate, sourceName],
-  )
-
-  // 导出全部 7 轨（逐个下载，轨间让出主线程避免界面冻结）
-  const handleExportAll = useCallback(async () => {
-    if (!tracks) return
-    setExporting(true)
-    try {
-      for (const track of tracks) {
-        const wav = encodeWav(track.audio.data, stemSampleRate)
-        downloadWav(wav, `${sourceName || 'track'}-${STEM_LABELS[track.audio.stemId]}.wav`)
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
-    } finally {
-      setExporting(false)
-    }
-  }, [tracks, stemSampleRate, sourceName])
-
   // 拖放文件支持：把拖入的文件写入虚拟文件系统临时位置后分轨
   const handleDropFile = useCallback(
     async (file: File) => {
@@ -902,7 +877,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setView({ start: 0, level: 0 })
         setTracks(null)
         setCurrentTime(0)
-        setLoadedFromArchive(null)
         startSeparation(interleaved, sampleRate)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
@@ -1013,15 +987,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
             <div class="stems__transport-right">
-              {loadedFromArchive !== null && (
-                <span
-                  class="stems__loaded"
-                  title={`已载入 ${new Date(loadedFromArchive).toLocaleString()} 保存的分轨结果`}
-                >
-                  <span class="stems__loaded-lamp" />
-                  已载入分轨
-                </span>
-              )}
               <IosButton
                 size="compact"
                 disabled={saveProgress !== null || !sourceAbsolutePathRef.current}
@@ -1034,14 +999,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               >
                 {saveProgress !== null ? `保存中 ${saveProgress}/${STEM_IDS.length}` : '保存分轨'}
               </IosButton>
-              <IosButton
-                size="compact"
-                disabled={exporting}
-                onClick={() => void handleExportAll()}
-                title="导出全部 7 轨为 WAV"
-              >
-                {exporting ? '导出中…' : '导出全部'}
-              </IosButton>
             </div>
           </div>
 
@@ -1052,32 +1009,45 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               速度
             </div>
             <div class="stems__tempo-lane">
-              {tempo?.segments.map((seg) => {
-                const left = viewLen > 0 ? ((seg.startSec - view.start) / viewLen) * 100 : 0
-                const width = viewLen > 0 ? ((seg.endSec - seg.startSec) / viewLen) * 100 : 0
-                return (
-                  <div
-                    key={seg.startSec}
-                    ref={(el) => {
-                      if (el) tempoSegRefsRef.current.set(seg.startSec, el)
-                      else tempoSegRefsRef.current.delete(seg.startSec)
-                    }}
-                    class={`stems__tempo-seg ${tempoBucketClass(seg.bpm)}`}
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                    title={`${formatTime(seg.startSec)} – ${formatTime(seg.endSec)} · ${Math.round(seg.bpm)} BPM`}
-                    onClick={() => finalizeSeek(seg.startSec)}
-                  >
-                    {width > 6 && Math.round(seg.bpm)}
-                  </div>
-                )
-              })}
-              {tempo && (
-                <div
-                  ref={tempoPlayheadRef}
-                  class="stems__tempo-playhead"
-                  style={{ left: `${(viewLen > 0 ? (currentTime - view.start) / viewLen : 0) * 100}%`, opacity: 0 }}
-                />
-              )}
+              <div class="stems__tempo-segs">
+                {tempo?.segments.map((seg, index) => {
+                  const left = viewLen > 0 ? ((seg.startSec - view.start) / viewLen) * 100 : 0
+                  const width = viewLen > 0 ? ((seg.endSec - seg.startSec) / viewLen) * 100 : 0
+                  const segCount = tempo?.segments.length ?? 0
+                  const edgeClass =
+                    index === 0
+                      ? ' stems__tempo-seg--first'
+                      : index === segCount - 1
+                        ? ' stems__tempo-seg--last'
+                        : ''
+                  return (
+                    <div
+                      key={seg.startSec}
+                      ref={(el) => {
+                        if (el) tempoSegRefsRef.current.set(seg.startSec, el)
+                        else tempoSegRefsRef.current.delete(seg.startSec)
+                      }}
+                      class={`stems__tempo-seg ${tempoBucketClass(seg.bpm)}${edgeClass}`}
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                      title={`${formatTime(seg.startSec)} – ${formatTime(seg.endSec)} · ${Math.round(seg.bpm)} BPM`}
+                      onClick={() => finalizeSeek(seg.startSec)}
+                    >
+                      {width > 6 && Math.round(seg.bpm)}
+                    </div>
+                  )
+                })}
+                {tempo && (() => {
+                  const ratio = viewLen > 0 ? (currentTime - view.start) / viewLen : 0
+                  const visible = ratio >= 0 && ratio <= 1
+                  return (
+                    <div
+                      ref={tempoPlayheadRef}
+                      class="stems__tempo-playhead"
+                      style={{ left: `${ratio * 100}%`, opacity: visible ? 1 : 0 }}
+                    />
+                  )
+                })()}
+              </div>
             </div>
             <div class="stems__tempo-readout">
               <span ref={tempoReadoutRef}>
@@ -1099,7 +1069,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   key={stemId}
                   stemId={stemId}
                   track={track}
-                  playing={playing}
                   playheadSec={currentTime}
                   viewStart={view.start}
                   viewLen={viewLen}
@@ -1124,7 +1093,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                       return next
                     })
                   }}
-                  onExport={() => handleExportStem(stemId)}
                 />
               )
             })}
@@ -1322,8 +1290,6 @@ function toggleTrack(
 type StemTrackRowProps = {
   stemId: StemId
   track: StemTrackState
-  /** 播放中为 true（控制播放头 overlay 显示） */
-  playing: boolean
   /** 播放进度（秒），用于播放头位置 */
   playheadSec: number
   /** 可见窗口起点（秒）与长度（秒）：全曲时为 0 与总时长 */
@@ -1343,13 +1309,11 @@ type StemTrackRowProps = {
   onSeek: (ratio: number) => void
   onSeekEnd: (ratio: number) => void
   onVolume: (volume: number) => void
-  onExport: () => void
 }
 
 function StemTrackRow({
   stemId,
   track,
-  playing,
   playheadSec,
   viewStart,
   viewLen,
@@ -1362,7 +1326,6 @@ function StemTrackRow({
   onSeek,
   onSeekEnd,
   onVolume,
-  onExport,
 }: StemTrackRowProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const waveWrapRef = useRef<HTMLDivElement | null>(null)
@@ -1410,8 +1373,8 @@ function StemTrackRow({
     return () => observer.disconnect()
   }, [track.audio.data, peakPyramid, viewStart, viewLen, sampleRate, stemId])
 
-  const playheadRatio =
-    playing && viewLen > 0 ? (playheadSec - viewStart) / viewLen : -1
+  // 播放头始终跟随 currentTime：暂停时点击/拖拽也能在波形上看到定位
+  const playheadRatio = viewLen > 0 ? (playheadSec - viewStart) / viewLen : -1
   const playheadVisible = playheadRatio >= 0 && playheadRatio <= 1
 
   // 滚轮缩放/平移：必须 native + passive:false 才能 preventDefault
@@ -1496,9 +1459,6 @@ function StemTrackRow({
           aria-label="独奏"
         >
           S
-        </IosButton>
-        <IosButton icon size="compact" class="stems__chip" onClick={onExport} title="导出 WAV" aria-label="导出">
-          ↓
         </IosButton>
         <input
           type="range"
@@ -1623,14 +1583,3 @@ function tempoBucketClass(bpm: number): string {
   return 'stems__tempo-seg--very-fast'
 }
 
-function downloadWav(buffer: ArrayBuffer, fileName: string): void {
-  const blob = new Blob([buffer], { type: 'audio/wav' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileName
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}

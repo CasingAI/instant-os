@@ -150,8 +150,7 @@
   font-weight: 600;
 }
 
-.stems__engine,
-.stems__loaded {
+.stems__engine {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -167,8 +166,7 @@
   white-space: nowrap;
 }
 
-.stems__engine-lamp,
-.stems__loaded-lamp {
+.stems__engine-lamp {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -194,16 +192,6 @@
   box-shadow:
     0 0 0 2px rgba(224, 165, 58, 0.28),
     0 0 5px rgba(224, 165, 58, 0.55);
-}
-
-.stems__loaded {
-  color: #1f6a8a;
-}
-.stems__loaded-lamp {
-  background: #3aa6d0;
-  box-shadow:
-    0 0 0 2px rgba(58, 166, 208, 0.28),
-    0 0 5px rgba(58, 166, 208, 0.55);
 }
 
 .stems__body {
@@ -429,6 +417,7 @@
 .stems__tempo-lane {
   position: relative;
   height: 22px;
+  padding: 2px;
   border-radius: 5px;
   background: var(--stems-well);
   border: 1px solid var(--stems-well-edge);
@@ -438,10 +427,17 @@
   touch-action: none;
 }
 
+/* 段容器：在文档流中 height:100% 解析为 lane 内容区高度（绝对定位会包含 padding），
+   作为色块与播放头的定位参照，内缩由 lane 的 padding 承担 */
+.stems__tempo-segs {
+  position: relative;
+  height: 100%;
+}
+
 .stems__tempo-seg {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 0;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -452,6 +448,19 @@
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* 首尾块的外侧圆角（与 lane 圆角一致），中间块直角相接；
+   第一个块没有左邻居，去掉分隔线 */
+.stems__tempo-seg--first {
+  border-left: none;
+  border-radius: 3px 0 0 3px;
+}
+.stems__tempo-seg--last {
+  border-radius: 0 3px 3px 0;
+}
+.stems__tempo-seg--first.stems__tempo-seg--last {
+  border-radius: 3px;
 }
 
 .stems__tempo-seg--active {
@@ -476,7 +485,7 @@
 .stems__tempo-playhead {
   position: absolute;
   top: 0;
-  bottom: 0;
+  height: 100%;
   width: 2px;
   background: #fff;
   box-shadow: 0 0 4px rgba(255, 255, 255, 0.7);
