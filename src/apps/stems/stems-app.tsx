@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import { useOs } from '../../os/os-context.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
@@ -56,7 +57,8 @@ function applyGains(gainNodes: Map<StemId, GainNode>, tracks: StemTrackState[] |
   }
 }
 
-export function StemsApp() {
+export function StemsApp({ windowId }: { windowId?: string }) {
+  const { activeWindowId } = useOs()
   const { showSystemOpenDialog, dialog: systemDialog } = useSystemOpenDialog()
   const [sourceName, setSourceName] = useState('')
   const [progress, setProgress] = useState<StemProgress | null>(null)
@@ -685,8 +687,37 @@ export function StemsApp() {
       stopPlayback()
       return
     }
+    // 已播到末尾再按播放：跳回开头重播（避免卡在 duration-0.01 立刻又停）
+    const atEnd = duration > 0 && currentTime >= duration
+    if (atEnd) {
+      setCurrentTime(0)
+      setView((prev) => ({ ...prev, start: 0 }))
+      startPlayback(0)
+      return
+    }
     startPlayback(currentTime)
-  }, [tracks, playing, currentTime, getPlaybackTime, stopPlayback, startPlayback])
+  }, [tracks, playing, currentTime, duration, getPlaybackTime, stopPlayback, startPlayback])
+
+  // 空格：暂停/继续（输入框与可编辑区除外；仅当前窗口为前台时响应）
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (windowId && activeWindowId !== windowId) return
+      if (event.key !== ' ' && event.code !== 'Space') return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+          return
+        }
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      handlePlayPause()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [activeWindowId, windowId, handlePlayPause])
 
   /** 拖拽进度条/波形过程中：只更新显示位置（状态 + DOM 直写），不碰音频（防止时钟与拖拽互相打架）。 */
   const handleSeekInput = useCallback(
