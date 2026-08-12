@@ -9,6 +9,7 @@ import {
   zipBytes,
   type ArchiveCodecFormat,
 } from './archive-codec.ts'
+import { listArchiveEntries, type ArchiveEntryMeta } from './archive-list.ts'
 import { untarBytes } from './archive-untar.ts'
 import { unzipBytes } from './archive-unzip.ts'
 
@@ -29,15 +30,26 @@ export type ArchiveWorkerDecodeRequest = {
 export type ArchiveWorkerEncodeRequest = {
   type: 'encode'
   id: number
-  format: 'zip' | 'gzip-tar'
+  format: 'zip' | 'gzip-tar' | 'tar'
   entries: { path: string; bytes: ArrayBuffer }[]
 }
 
-export type ArchiveWorkerRequest = ArchiveWorkerDecodeRequest | ArchiveWorkerEncodeRequest
+export type ArchiveWorkerListRequest = {
+  type: 'list'
+  id: number
+  format: 'auto' | ArchiveCodecFormat
+  bytes: ArrayBuffer
+}
+
+export type ArchiveWorkerRequest =
+  | ArchiveWorkerDecodeRequest
+  | ArchiveWorkerEncodeRequest
+  | ArchiveWorkerListRequest
 
 export type ArchiveWorkerResponse =
   | { type: 'decode-done'; id: number; entries: { path: string; bytes: ArrayBuffer }[] }
   | { type: 'encode-done'; id: number; bytes: ArrayBuffer }
+  | { type: 'list-done'; id: number; format: ArchiveCodecFormat; entries: ArchiveEntryMeta[] }
   | { type: 'error'; id: number; message: string }
 
 function post(payload: ArchiveWorkerResponse): void {
@@ -109,8 +121,25 @@ function handleEncode(request: ArchiveWorkerEncodeRequest): void {
       files[entry.path] = new Uint8Array(entry.bytes)
     }
     const out =
-      request.format === 'gzip-tar' ? gzipBytes(tarBytes(files)) : zipBytes(files)
+      request.format === 'zip'
+        ? zipBytes(files)
+        : request.format === 'tar'
+          ? tarBytes(files)
+          : gzipBytes(tarBytes(files))
     post({ type: 'encode-done', id: request.id, bytes: toExactArrayBuffer(out) })
+  } catch (error) {
+    post({
+      type: 'error',
+      id: request.id,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function handleList(request: ArchiveWorkerListRequest): void {
+  try {
+    const listing = listArchiveEntries(new Uint8Array(request.bytes), request.format)
+    post({ type: 'list-done', id: request.id, format: listing.format, entries: listing.entries })
   } catch (error) {
     post({
       type: 'error',
@@ -124,6 +153,8 @@ self.onmessage = (event: MessageEvent<ArchiveWorkerRequest>) => {
   const request = event.data
   if (request.type === 'decode') {
     handleDecode(request)
+  } else if (request.type === 'list') {
+    handleList(request)
   } else {
     handleEncode(request)
   }

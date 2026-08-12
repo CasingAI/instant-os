@@ -2,6 +2,7 @@ import ArchiveWorkerCtor from './archive-worker.ts?worker'
 import type {
   ArchiveWorkerDecodeRequest,
   ArchiveWorkerEncodeRequest,
+  ArchiveWorkerListRequest,
   ArchiveWorkerRequest,
   ArchiveWorkerResponse,
 } from './archive-worker.ts'
@@ -9,6 +10,7 @@ import {
   toExactArrayBuffer,
   type ArchiveCodecFormat,
 } from './archive-codec.ts'
+import type { ArchiveEntryMeta } from './archive-list.ts'
 
 /**
  * Archive Worker 惰性单例客户端。
@@ -33,6 +35,11 @@ type Pending =
   | {
       kind: 'encode'
       resolve: (value: Uint8Array) => void
+      reject: (error: Error) => void
+    }
+  | {
+      kind: 'list'
+      resolve: (value: { format: ArchiveCodecFormat; entries: ArchiveEntryMeta[] }) => void
       reject: (error: Error) => void
     }
 
@@ -60,6 +67,11 @@ function getWorker(): Worker {
         map.set(item.path, new Uint8Array(item.bytes))
       }
       entry.resolve(map)
+      return
+    }
+    if (response.type === 'list-done') {
+      if (entry.kind !== 'list') return
+      entry.resolve({ format: response.format, entries: response.entries })
       return
     }
     if (entry.kind !== 'encode') return
@@ -140,7 +152,7 @@ export async function decodeArchiveInWorker(params: {
  */
 export async function encodeArchiveInWorker(params: {
   entries: { path: string; bytes: ArrayBuffer }[]
-  format: 'zip' | 'gzip-tar'
+  format: 'zip' | 'gzip-tar' | 'tar'
   signal?: AbortSignal
 }): Promise<Uint8Array> {
   const request: ArchiveWorkerEncodeRequest = {
@@ -174,6 +186,50 @@ export async function encodeArchiveInWorker(params: {
       reject(error instanceof Error ? error : new Error(String(error)))
     }
   })
+  try {
+    return await promise
+  } finally {
+    if (onAbort) params.signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * 在 Worker 中列目录：只读条目元数据（不解压内容）。
+ */
+export async function listArchiveInWorker(params: {
+  bytes: Uint8Array
+  format?: 'auto' | ArchiveCodecFormat
+  signal?: AbortSignal
+}): Promise<{ format: ArchiveCodecFormat; entries: ArchiveEntryMeta[] }> {
+  const request: ArchiveWorkerListRequest = {
+    type: 'list',
+    id: nextId++,
+    format: params.format ?? 'auto',
+    bytes: toExactArrayBuffer(params.bytes),
+  }
+  let onAbort: (() => void) | undefined
+  const promise = new Promise<{ format: ArchiveCodecFormat; entries: ArchiveEntryMeta[] }>(
+    (resolve, reject) => {
+      if (params.signal?.aborted) {
+        reject(new Error('aborted'))
+        return
+      }
+      pending.set(request.id, { kind: 'list', resolve, reject })
+      onAbort = () => {
+        if (pending.delete(request.id)) {
+          reject(new Error('aborted'))
+        }
+      }
+      params.signal?.addEventListener('abort', onAbort, { once: true })
+      try {
+        postRequest(request, [request.bytes], params.signal)
+      } catch (error) {
+        pending.delete(request.id)
+        if (onAbort) params.signal?.removeEventListener('abort', onAbort)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    },
+  )
   try {
     return await promise
   } finally {

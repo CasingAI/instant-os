@@ -315,11 +315,10 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: 'archive-utility',
     name: BUILTIN_APP_DISPLAY_NAMES['archive-utility'],
     icon: ArchiveUtilityIcon,
-    dock: false,
+    dock: true,
     dockWhenRunning: true,
     desktop: false,
     multiWindow: true,
-    windowless: true,
   }),
   withAbout({
     id: 'space-sniffer',

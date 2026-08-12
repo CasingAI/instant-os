@@ -239,8 +239,8 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
   'archive-utility': {
     version: '解压缩',
     paragraphs: [
-      '压缩包实用工具用于打开 .zip、.tar、.tar.gz / .tgz、.gz 等归档：内容解压到压缩包所在目录，行为类似 macOS「归档实用工具」。',
-      '无窗口应用：不提供预览或编辑。解压较快时不显示界面；耗时较长时展开为可拖动的系统进度窗口（统一标题栏），显示进度与时间信息。可在「文件」中设为默认打开程序。',
+      '压缩包实用工具用于打开 .zip、.tar、.tar.gz / .tgz、.gz 等归档：以表格浏览归档内部结构与文件元数据（大小、压缩率、修改时间），可双击进入子目录、选中条目后全部或部分解压到指定文件夹。',
+      '支持把文件夹压缩为 zip / tar.gz 新归档；打开归档后可在文件菜单中解压。双击压缩包会直接在本工具中打开浏览。',
     ],
   },
   'space-sniffer': {
