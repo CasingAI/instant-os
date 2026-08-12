@@ -58,6 +58,7 @@ export const DEVICE_STORAGE_KEYS = {
   modelPricingCache: 'instant-os-model-pricing-cache',
   openRouterPricingCache: 'instant-os-openrouter-pricing-cache',
   musicLyricOffsets: 'instant-os-music-lyric-offsets',
+  musicVolume: 'instant-os-music-volume',
 } as const
 
 /** Frimousse 表情选择器缓存的 localStorage 键前缀 */

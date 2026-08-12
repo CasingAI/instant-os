@@ -1,3 +1,4 @@
+import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import { readFileBlob } from '../files/files-vfs.ts'
 import { getMusicTrackBlob } from './music-audio-storage.ts'
 import type { MusicTrack } from './music-types.ts'
@@ -28,6 +29,34 @@ export type MusicPlayerState = {
 }
 
 const DEFAULT_VOLUME = 0.8
+const VOLUME_STORAGE_KEY = DEVICE_STORAGE_KEYS.musicVolume
+
+function clampVolume(volume: number): number {
+  if (!Number.isFinite(volume)) {
+    return DEFAULT_VOLUME
+  }
+  return Math.min(1, Math.max(0, volume))
+}
+
+/** 从设备存储读取上次音量；无效或不可用时回退默认值。 */
+function loadPersistedVolume(): number {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return DEFAULT_VOLUME
+    }
+    const raw = localStorage.getItem(VOLUME_STORAGE_KEY)
+    if (raw === null || raw === undefined || raw === '') {
+      return DEFAULT_VOLUME
+    }
+    return clampVolume(JSON.parse(raw) as number)
+  } catch {
+    return DEFAULT_VOLUME
+  }
+}
+
+function persistVolume(volume: number): void {
+  writeLocalStorageItem(VOLUME_STORAGE_KEY, JSON.stringify(clampVolume(volume)))
+}
 
 let state: MusicPlayerState = {
   current: null,
@@ -37,7 +66,7 @@ let state: MusicPlayerState = {
   loading: false,
   currentTime: 0,
   duration: 0,
-  volume: DEFAULT_VOLUME,
+  volume: loadPersistedVolume(),
   sourceKind: 'library',
   error: null,
 }
@@ -241,11 +270,12 @@ export function seekTo(seconds: number): void {
 }
 
 export function setMusicVolume(volume: number): void {
-  const v = Math.min(1, Math.max(0, volume))
+  const v = clampVolume(volume)
   if (audio) {
     audio.volume = v
   }
   updateState({ volume: v })
+  persistVolume(v)
 }
 
 /** 可视化用分析器（不可用时返回 undefined，调用方回退为静止基线）。 */

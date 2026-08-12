@@ -56,6 +56,8 @@ const KEY_LABELS: Record<string, string> = {
   [DEVICE_STORAGE_KEYS.books]: '书架索引',
   [DEVICE_STORAGE_KEYS.icodeInternalProjects]: 'iCode 工程',
   [DEVICE_STORAGE_KEYS.icodeProjects]: 'iCode 工程（旧键）',
+  [DEVICE_STORAGE_KEYS.musicLyricOffsets]: '音乐歌词同步偏移',
+  [DEVICE_STORAGE_KEYS.musicVolume]: '音乐音量',
   'instant-os-external-bridge-consents': '外链 AI 授权记录',
 }
 

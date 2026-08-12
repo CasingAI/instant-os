@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'preact/hooks'
-import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import type { LyricsLine } from './music-lyrics.ts'
 import { MusicAmbientBackdrop } from './music-ambient-backdrop.tsx'
 import { MusicLyricsAmbient } from './music-lyrics-ambient.tsx'
@@ -21,6 +20,8 @@ import {
 type VisualizerCategory = 'music' | 'stems' | 'lyrics'
 type LyricsEffect = 'karaoke' | 'ambient' | 'motion'
 
+type SidebarItem<T extends string> = { id: T; label: string }
+
 type MusicVisualizationViewProps = {
   /** 已解析歌词（无歌词时为 undefined，歌词可视化显示空态） */
   lines: LyricsLine[] | undefined
@@ -36,8 +37,46 @@ type MusicVisualizationViewProps = {
   vfsRef?: string
 }
 
+function VisualizerSidebarList<T extends string>({
+  ariaLabel,
+  heading,
+  items,
+  value,
+  onChange,
+}: {
+  ariaLabel: string
+  heading: string
+  items: readonly SidebarItem<T>[]
+  value: T
+  onChange: (id: T) => void
+}) {
+  return (
+    <nav class="music__visualizer-sidebar-group" aria-label={ariaLabel}>
+      <div class="music__visualizer-sidebar-heading">{heading}</div>
+      <ul class="music__visualizer-sidebar-list" role="listbox" aria-label={ariaLabel}>
+        {items.map((item) => {
+          const active = item.id === value
+          return (
+            <li key={item.id}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={active}
+                class={`music__visualizer-sidebar-item${active ? ' music__visualizer-sidebar-item--active' : ''}`}
+                onClick={() => onChange(item.id)}
+              >
+                {item.label}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  )
+}
+
 /**
- * 全屏可视化视图：SegmentedControl 切换「音乐 / 分轨 / 歌词」；
+ * 全屏可视化视图：左侧栏切换「音乐 / 分轨 / 歌词」及对应效果；
  * 分轨分类仅在探测到侧车时出现。
  */
 export function MusicVisualizationView({
@@ -119,10 +158,34 @@ export function MusicVisualizationView({
     }
   }, [category, trackId, vfsRef, hasStems])
 
-  const categoryItems: { id: VisualizerCategory; label: string }[] = [
-    { id: 'music', label: '音乐可视化' },
-    ...(hasStems ? [{ id: 'stems' as const, label: '分轨可视化' }] : []),
-    { id: 'lyrics', label: '歌词可视化' },
+  const categoryItems: SidebarItem<VisualizerCategory>[] = [
+    { id: 'music', label: '音乐' },
+    ...(hasStems ? [{ id: 'stems' as const, label: '分轨' }] : []),
+    { id: 'lyrics', label: '歌词' },
+  ]
+
+  const musicEffectItems: SidebarItem<MusicSpectrumMode>[] = [
+    { id: 'bars', label: '柱状' },
+    { id: 'wave', label: '波形' },
+    { id: 'ring', label: '环形' },
+  ]
+
+  const stemsEffectItems: SidebarItem<MusicStemsVizMode>[] = [
+    { id: 'impact', label: '冲击' },
+    { id: 'tunnel', label: '隧道' },
+    { id: 'kaleido', label: '万花筒' },
+    { id: 'fluid', label: '流体' },
+    { id: 'plasma', label: '伪3D' },
+    { id: 'hyperspace', label: '穿梭' },
+    { id: 'aurora', label: '极光' },
+    { id: 'glass', label: '玻璃' },
+    { id: 'orbit', label: '真3D' },
+  ]
+
+  const lyricsEffectItems: SidebarItem<LyricsEffect>[] = [
+    { id: 'karaoke', label: '逐字' },
+    { id: 'ambient', label: '融合' },
+    { id: 'motion', label: '动画' },
   ]
 
   const stemsStatusText = (() => {
@@ -143,60 +206,48 @@ export function MusicVisualizationView({
   })()
 
   return (
-    <>
-      <div class="music__visualizer-controls">
-        <SegmentedControl
-          value={category}
-          items={categoryItems}
-          onChange={setCategory}
+    <div class="music__visualizer">
+      <aside class="music__visualizer-sidebar">
+        <VisualizerSidebarList
           ariaLabel="可视化类型"
+          heading="类型"
+          items={categoryItems}
+          value={category}
+          onChange={setCategory}
         />
         {category === 'music' ? (
-          <SegmentedControl
-            value={musicEffect}
-            items={[
-              { id: 'bars', label: '柱状' },
-              { id: 'wave', label: '波形' },
-              { id: 'ring', label: '环形' },
-            ]}
-            onChange={setMusicEffect}
+          <VisualizerSidebarList
             ariaLabel="音乐效果"
+            heading="效果"
+            items={musicEffectItems}
+            value={musicEffect}
+            onChange={setMusicEffect}
           />
         ) : category === 'stems' ? (
-          <SegmentedControl
-            value={stemsEffect}
-            items={[
-              { id: 'impact', label: '冲击' },
-              { id: 'tunnel', label: '隧道' },
-              { id: 'kaleido', label: '万花筒' },
-              { id: 'fluid', label: '流体' },
-              { id: 'plasma', label: '伪3D' },
-              { id: 'hyperspace', label: '穿梭' },
-              { id: 'aurora', label: '极光' },
-              { id: 'glass', label: '玻璃' },
-              { id: 'orbit', label: '真3D' },
-            ]}
-            onChange={setStemsEffect}
+          <VisualizerSidebarList
             ariaLabel="分轨效果"
+            heading="效果"
+            items={stemsEffectItems}
+            value={stemsEffect}
+            onChange={setStemsEffect}
           />
         ) : (
           <>
-            <SegmentedControl
-              value={lyricsEffect}
-              items={[
-                { id: 'karaoke', label: '逐字' },
-                { id: 'ambient', label: '融合' },
-                { id: 'motion', label: '动画' },
-              ]}
-              onChange={setLyricsEffect}
+            <VisualizerSidebarList
               ariaLabel="歌词效果"
+              heading="效果"
+              items={lyricsEffectItems}
+              value={lyricsEffect}
+              onChange={setLyricsEffect}
             />
             {hasLyrics && onLyricOffsetChange ? (
-              <MusicLyricsOffsetBar offsetMs={offsetMs} onChange={onLyricOffsetChange} />
+              <div class="music__visualizer-sidebar-offset">
+                <MusicLyricsOffsetBar offsetMs={offsetMs} onChange={onLyricOffsetChange} />
+              </div>
             ) : null}
           </>
         )}
-      </div>
+      </aside>
 
       <div class="music__visualizer-stage">
         {category === 'music' ? (
@@ -246,6 +297,6 @@ export function MusicVisualizationView({
           </>
         )}
       </div>
-    </>
+    </div>
   )
 }

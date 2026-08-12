@@ -38,6 +38,7 @@ import {
   seekTo,
   stopMusicPlayback,
   subscribeMusicPlayer,
+  togglePlay,
 } from './music-player.ts'
 import { MusicPlayerBar } from './music-player-bar.tsx'
 import {
@@ -122,7 +123,7 @@ type TransientTrack = {
 }
 
 export function MusicApp({ windowId }: { windowId?: string }) {
-  const { windows, setAppWindowTitle, closeWindowsForApp, minimizeWindow, openApp } = useOs()
+  const { windows, activeWindowId, setAppWindowTitle, closeWindowsForApp, minimizeWindow, openApp } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const modal = useWindowModal()
   const { hostRef, narrowLayout, layoutReady } = useAppNarrowLayout()
@@ -146,6 +147,38 @@ export function MusicApp({ windowId }: { windowId?: string }) {
     ? windows.find((window) => window.id === windowId && !window.closing)
     : undefined
   const pendingDocumentId = appWindow?.documentId
+
+  // 空格：曲库 / 歌词 / 可视化界面切换播放（输入框与可编辑区除外）
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (windowId && activeWindowId !== appWindow?.id) {
+        return
+      }
+      if (event.key !== ' ' && event.code !== 'Space') {
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return
+      }
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          target.isContentEditable
+        ) {
+          return
+        }
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      togglePlay()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [activeWindowId, appWindow?.id, windowId])
 
   // 枚举「音乐」文件夹作为曲库（同名 .lrc 自动配对歌词）
   const refreshLibrary = useCallback(async () => {

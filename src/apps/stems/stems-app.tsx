@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
+import { IosButton } from '../../ui/ios-button.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
@@ -921,13 +922,11 @@ export function StemsApp() {
       }}
     >
       <header class="stems__toolbar">
-        <button type="button" class="stems__btn" onClick={() => void handlePickFile()}>
-          打开音乐文件…
-        </button>
+        <span class="stems__brand">音乐实验室</span>
+        <IosButton onClick={() => void handlePickFile()}>打开音乐文件…</IosButton>
         {sourceName && (
-          <button
-            type="button"
-            class="stems__btn stems__btn--primary"
+          <IosButton
+            tone="primary"
             disabled={mdxBusy || progress?.kind === 'model-loading' || progress?.kind === 'chunk'}
             onClick={() => void handleSeparate()}
           >
@@ -942,7 +941,7 @@ export function StemsApp() {
                     : tracks
                       ? '重新分轨'
                       : '开始分轨'}
-          </button>
+          </IosButton>
         )}
         <div class="stems__toolbar-right">
           {provider && (
@@ -950,7 +949,8 @@ export function StemsApp() {
               class={`stems__engine stems__engine--${provider}`}
               title={provider === 'webgpu' ? '伴奏分轨推理运行在 WebGPU 上' : '伴奏分轨推理回退到 WASM（多线程），速度较慢'}
             >
-              {provider === 'webgpu' ? '⚡ WebGPU 加速' : '🐢 WASM 回退'}
+              <span class="stems__engine-lamp" />
+              {provider === 'webgpu' ? 'WebGPU' : 'WASM'}
             </span>
           )}
           {mdxProvider && (
@@ -958,7 +958,8 @@ export function StemsApp() {
               class={`stems__engine stems__engine--${mdxProvider}`}
               title={mdxProvider === 'webgpu' ? 'MDX 人声分离运行在 WebGPU 上' : 'MDX 人声分离回退到 WASM（多线程），速度较慢'}
             >
-              {mdxProvider === 'webgpu' ? '🎤 MDX ⚡' : '🎤 MDX 🐢'}
+              <span class="stems__engine-lamp" />
+              MDX
             </span>
           )}
           {sourceName && <span class="stems__source">{sourceName}</span>}
@@ -969,8 +970,13 @@ export function StemsApp() {
       {tracks ? (
         <div class="stems__body">
           <div class="stems__transport">
-            <button type="button" class="stems__transport-btn" onClick={() => void handlePlayPause()}>
-              {playing ? '⏸' : '▶'}
+            <button
+              type="button"
+              class={`stems__transport-btn${playing ? ' stems__transport-btn--playing' : ''}`}
+              onClick={() => void handlePlayPause()}
+              aria-label={playing ? '暂停' : '播放'}
+            >
+              {playing ? '❚❚' : '▶'}
             </button>
             <span ref={timeLabelRef} class="stems__time">
               {formatTime(currentTime)} / {formatTime(duration)}
@@ -1003,12 +1009,12 @@ export function StemsApp() {
                 class="stems__loaded"
                 title={`已载入 ${new Date(loadedFromArchive).toLocaleString()} 保存的分轨结果`}
               >
-                📂 已载入保存的分轨
+                <span class="stems__loaded-lamp" />
+                已载入分轨
               </span>
             )}
-            <button
-              type="button"
-              class="stems__btn"
+            <IosButton
+              size="compact"
               disabled={saveProgress !== null || !sourceAbsolutePathRef.current}
               title={
                 sourceAbsolutePathRef.current
@@ -1017,64 +1023,17 @@ export function StemsApp() {
               }
               onClick={() => void handleSaveArchive()}
             >
-              {saveProgress !== null ? `保存中 ${saveProgress}/${STEM_IDS.length}` : '💾 保存分轨'}
-            </button>
-            <button
-              type="button"
-              class="stems__btn"
+              {saveProgress !== null ? `保存中 ${saveProgress}/${STEM_IDS.length}` : '保存分轨'}
+            </IosButton>
+            <IosButton
+              size="compact"
               disabled={exporting}
               onClick={() => void handleExportAll()}
               title="导出全部 7 轨为 WAV"
             >
               {exporting ? '导出中…' : '导出全部'}
-            </button>
+            </IosButton>
           </div>
-
-          {maxZoomLevel > 0 && (
-            <div class="stems__zoombar">
-              <button
-                type="button"
-                class="stems__zoom-btn"
-                disabled={view.level <= 0.01}
-                onClick={() => zoomTo(view.level - 1, getPlaybackTime())}
-                title="缩小一倍（以当前播放位置为锚）"
-              >
-                −
-              </button>
-              <input
-                type="range"
-                class="stems__zoom-slider"
-                min={0}
-                max={maxZoomLevel}
-                step={0.1}
-                value={view.level}
-                onChange={(event) => zoomTo(Number(event.currentTarget.value), getPlaybackTime())}
-                title="波形缩放：可见窗口时长（以当前播放位置为锚）"
-              />
-              <button
-                type="button"
-                class="stems__zoom-btn"
-                disabled={view.level >= maxZoomLevel - 0.01}
-                onClick={() => zoomTo(view.level + 1, getPlaybackTime())}
-                title="放大一倍（以当前播放位置为锚）"
-              >
-                +
-              </button>
-              <span class="stems__zoom-label">{Math.round(Math.pow(2, view.level) * 100)}%</span>
-              <span class="stems__zoom-range">
-                {formatTime(view.start)} – {formatTime(Math.min(duration, view.start + viewLen))}
-              </span>
-              {view.level > 0.01 && (
-                <button
-                  type="button"
-                  class="stems__btn stems__zoom-reset"
-                  onClick={() => setView({ start: 0, level: 0 })}
-                >
-                  适配全曲
-                </button>
-              )}
-            </div>
-          )}
 
           {/* 速度条：分段色块 = 段长、颜色 = BPM 快慢、段内数字；点击跳段 */}
           <div class="stems__tempo-row">
@@ -1161,58 +1120,116 @@ export function StemsApp() {
             })}
           </div>
 
-          {view.level > 0 && (
-            <div
-              class="stems__minimap"
-              onPointerDown={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect()
-                const ratio = (event.clientX - rect.left) / Math.max(1, rect.width)
-                const onThumb =
-                  (event.target as HTMLElement).closest('.stems__minimap-thumb') !== null
-                minimapDragRef.current = { startX: event.clientX, startViewStart: view.start, onThumb }
-                event.currentTarget.setPointerCapture(event.pointerId)
-                if (!onThumb) {
-                  // 空白处点击：窗口中心跳到该位置
-                  setView((prev) => ({
-                    ...prev,
-                    start: clampViewStart(ratio * duration - viewLen / 2, viewLen),
-                  }))
-                }
-                suppressFollowUntilRef.current = Date.now() + 1500
-              }}
-              onPointerMove={(event) => {
-                const drag = minimapDragRef.current
-                if (!drag) return
-                const rect = event.currentTarget.getBoundingClientRect()
-                const dxRatio = (event.clientX - drag.startX) / Math.max(1, rect.width)
-                setView((prev) => ({
-                  ...prev,
-                  start: drag.onThumb
-                    ? clampViewStart(drag.startViewStart + dxRatio * duration, viewLen)
-                    : clampViewStart(prev.start + dxRatio * duration, viewLen),
-                }))
-              }}
-              onPointerUp={() => {
-                minimapDragRef.current = null
-              }}
-              onPointerCancel={() => {
-                minimapDragRef.current = null
-              }}
-            >
-              <div
-                class="stems__minimap-thumb"
-                style={{
-                  left: `${(view.start / duration) * 100}%`,
-                  width: `${(viewLen / duration) * 100}%`,
-                }}
-              />
-            </div>
+          {maxZoomLevel > 0 && (
+            <footer class="stems__footer">
+              <div class="stems__zoom">
+                <IosButton
+                  icon
+                  size="compact"
+                  class="stems__zoom-btn"
+                  disabled={view.level <= 0.01}
+                  onClick={() => zoomTo(view.level - 1, getPlaybackTime())}
+                  title="缩小一倍（以当前播放位置为锚）"
+                  aria-label="缩小"
+                >
+                  −
+                </IosButton>
+                <input
+                  type="range"
+                  class="stems__zoom-slider"
+                  min={0}
+                  max={maxZoomLevel}
+                  step={0.1}
+                  value={view.level}
+                  onChange={(event) => zoomTo(Number(event.currentTarget.value), getPlaybackTime())}
+                  title="波形缩放：可见窗口时长（以当前播放位置为锚）"
+                />
+                <IosButton
+                  icon
+                  size="compact"
+                  class="stems__zoom-btn"
+                  disabled={view.level >= maxZoomLevel - 0.01}
+                  onClick={() => zoomTo(view.level + 1, getPlaybackTime())}
+                  title="放大一倍（以当前播放位置为锚）"
+                  aria-label="放大"
+                >
+                  +
+                </IosButton>
+                <span class="stems__zoom-label">{formatZoomLabel(view.level)}</span>
+                {view.level > 0.01 && (
+                  <IosButton
+                    size="compact"
+                    class="stems__zoom-fit"
+                    onClick={() => setView({ start: 0, level: 0 })}
+                  >
+                    全曲
+                  </IosButton>
+                )}
+              </div>
+              {view.level > 0 && (
+                <div
+                  class="stems__minimap"
+                  onPointerDown={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const ratio = (event.clientX - rect.left) / Math.max(1, rect.width)
+                    const onThumb =
+                      (event.target as HTMLElement).closest('.stems__minimap-thumb') !== null
+                    minimapDragRef.current = {
+                      startX: event.clientX,
+                      startViewStart: view.start,
+                      onThumb,
+                    }
+                    event.currentTarget.setPointerCapture(event.pointerId)
+                    if (!onThumb) {
+                      // 空白处点击：窗口中心跳到该位置
+                      setView((prev) => ({
+                        ...prev,
+                        start: clampViewStart(ratio * duration - viewLen / 2, viewLen),
+                      }))
+                    }
+                    suppressFollowUntilRef.current = Date.now() + 1500
+                  }}
+                  onPointerMove={(event) => {
+                    const drag = minimapDragRef.current
+                    if (!drag) return
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const dxRatio = (event.clientX - drag.startX) / Math.max(1, rect.width)
+                    setView((prev) => ({
+                      ...prev,
+                      start: drag.onThumb
+                        ? clampViewStart(drag.startViewStart + dxRatio * duration, viewLen)
+                        : clampViewStart(prev.start + dxRatio * duration, viewLen),
+                    }))
+                  }}
+                  onPointerUp={() => {
+                    minimapDragRef.current = null
+                  }}
+                  onPointerCancel={() => {
+                    minimapDragRef.current = null
+                  }}
+                >
+                  <div
+                    class="stems__minimap-thumb"
+                    style={{
+                      left: `${(view.start / duration) * 100}%`,
+                      width: `${(viewLen / duration) * 100}%`,
+                    }}
+                  />
+                </div>
+              )}
+              <span class="stems__zoom-range">
+                {formatTime(view.start)} – {formatTime(Math.min(duration, view.start + viewLen))}
+              </span>
+            </footer>
           )}
         </div>
       ) : (
         <div class="stems__empty">
-          <div class="stems__empty-icon">🎛️</div>
-          <p>打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
+          <div class="stems__empty-badge" aria-hidden="true">
+            <span class="stems__empty-badge-ring" />
+            <span class="stems__empty-badge-core" />
+          </div>
+          <p class="stems__empty-title">打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
           <p class="stems__empty-hint">
             分轨会把人声、鼓、贝斯、其他一、其他二、吉他、钢琴分离为 7 条独立音轨，可逐轨试听与调节。
           </p>
@@ -1447,25 +1464,29 @@ function StemTrackRow({
         />
       </div>
       <div class="stems__track-controls">
-        <button
-          type="button"
-          class={`stems__chip${track.mute ? ' stems__chip--active' : ''}`}
+        <IosButton
+          icon
+          size="compact"
+          class={`stems__chip${track.mute ? ' stems__chip--mute-on' : ''}`}
           onClick={onToggleMute}
           title="静音"
+          aria-label="静音"
         >
           M
-        </button>
-        <button
-          type="button"
-          class={`stems__chip${track.solo ? ' stems__chip--active' : ''}`}
+        </IosButton>
+        <IosButton
+          icon
+          size="compact"
+          class={`stems__chip${track.solo ? ' stems__chip--solo-on' : ''}`}
           onClick={onToggleSolo}
           title="独奏"
+          aria-label="独奏"
         >
           S
-        </button>
-        <button type="button" class="stems__chip stems__chip--export" onClick={onExport} title="导出 WAV">
-          ⭳
-        </button>
+        </IosButton>
+        <IosButton icon size="compact" class="stems__chip" onClick={onExport} title="导出 WAV" aria-label="导出">
+          ↓
+        </IosButton>
         <input
           type="range"
           class="stems__volume"
@@ -1474,6 +1495,8 @@ function StemTrackRow({
           step={0.01}
           value={track.volume}
           onChange={(event) => onVolume(Number(event.currentTarget.value))}
+          title="音量"
+          aria-label="音量"
         />
       </div>
     </div>
@@ -1484,6 +1507,13 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+/** 缩放读数：低倍率用百分比，≥100× 改写成「256×」以免底部栏撑破 */
+function formatZoomLabel(level: number): string {
+  const factor = Math.pow(2, level)
+  if (factor >= 100) return `${Math.round(factor)}×`
+  return `${Math.round(factor * 100)}%`
 }
 
 function formatDurationMs(ms: number): string {

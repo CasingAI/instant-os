@@ -1555,13 +1555,72 @@ export function UiKitIcon({ size = 64 }: IconProps) {
 
 export function StemsIcon({ size = 64 }: IconProps) {
   return (
-    <AppIconTile color="#8a6fd6" size={size}>
+    <AppIconTile color="#5a6068" size={size}>
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        {/* 四条独立音轨（DAW 风格） */}
-        <rect x="14" y="16" width="36" height="6" rx="3" fill="#e05a4e" />
-        <rect x="14" y="27" width="36" height="6" rx="3" fill="#e0b34e" />
-        <rect x="14" y="38" width="36" height="6" rx="3" fill="#4ed0a1" />
-        <rect x="14" y="49" width="36" height="6" rx="3" fill="#a17ee0" />
+        <defs>
+          <linearGradient id="stems-icon-bezel" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#f2f0ec" />
+            <stop offset="55%" stop-color="#d4d0c8" />
+            <stop offset="100%" stop-color="#a8a39a" />
+          </linearGradient>
+          <linearGradient id="stems-icon-well" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#141312" />
+            <stop offset="100%" stop-color="#2a2826" />
+          </linearGradient>
+          <linearGradient id="stems-icon-play" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#7eb4ef" />
+            <stop offset="55%" stop-color="#2f7fd6" />
+            <stop offset="100%" stop-color="#1f5ea8" />
+          </linearGradient>
+        </defs>
+        {/* 铝框面板 */}
+        <rect
+          x="8"
+          y="10"
+          width="48"
+          height="44"
+          rx="8"
+          fill="url(#stems-icon-bezel)"
+          stroke="rgba(0,0,0,0.28)"
+          stroke-width="1"
+        />
+        {/* 内凹波形井 */}
+        <rect
+          x="12"
+          y="14"
+          width="40"
+          height="28"
+          rx="4"
+          fill="url(#stems-icon-well)"
+          stroke="rgba(0,0,0,0.55)"
+          stroke-width="1"
+        />
+        {/* 四条分轨色带（长短不一，像波形片段） */}
+        <rect x="15" y="17" width="28" height="4.5" rx="2.2" fill="#e05a4e" />
+        <rect x="15" y="24" width="22" height="4.5" rx="2.2" fill="#e0b34e" />
+        <rect x="15" y="31" width="30" height="4.5" rx="2.2" fill="#4ed0a1" />
+        <rect x="15" y="38" width="18" height="4.5" rx="2.2" fill="#6aa6ef" />
+        {/* 播放头 */}
+        <line
+          x1="36"
+          y1="15"
+          x2="36"
+          y2="41"
+          stroke="#fff8e8"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          opacity="0.95"
+        />
+        {/* 底部传输钮 */}
+        <circle
+          cx="32"
+          cy="48.5"
+          r="5.2"
+          fill="url(#stems-icon-play)"
+          stroke="#145da8"
+          stroke-width="0.8"
+        />
+        <path d="M30.4 46.2 L30.4 50.8 L34.8 48.5 Z" fill="#ffffff" opacity="0.95" />
       </svg>
     </AppIconTile>
   )
