@@ -25,13 +25,13 @@ export const STEM_LABELS: Record<StemId, string> = {
 }
 
 export const STEM_COLORS: Record<StemId, string> = {
-  drums: '#e05a4e',
-  bass: '#4e8fe0',
-  other: '#9a97a6',
-  other2: '#d4a373',
-  vocals: '#e0b34e',
-  guitar: '#4ed0a1',
-  piano: '#a17ee0',
+  drums: '#ff4d6d',
+  bass: '#3d7bff',
+  other: '#7d8cff',
+  other2: '#ff9e3d',
+  vocals: '#ffd84d',
+  guitar: '#2bffb3',
+  piano: '#c95bff',
 }
 
 /** 分轨推理实际使用的执行后端（WebGPU 或 WASM 回退）。 */

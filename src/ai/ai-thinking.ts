@@ -119,7 +119,8 @@ export function resolveAppGenerationThinkingEnabled(
     providerId === 'mimo' ||
     providerId === 'mimo-token-plan' ||
     providerId === 'ark-coding-plan' ||
-    providerId === 'ark-agent-plan'
+    providerId === 'ark-agent-plan' ||
+    providerId === 'opencode-go'
   ) {
     return true
   }

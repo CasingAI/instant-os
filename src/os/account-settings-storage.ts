@@ -102,6 +102,7 @@ function normalizeProviderId(value: unknown): AiProviderId {
     value === 'mimo-token-plan' ||
     value === 'ark-coding-plan' ||
     value === 'ark-agent-plan' ||
+    value === 'opencode-go' ||
     value === 'custom'
   ) {
     return value

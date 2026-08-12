@@ -346,7 +346,7 @@ export function AiProviderForm({
         disabled={providerRequiresProxy(entry.providerId)}
         detail={
           providerRequiresProxy(entry.providerId)
-            ? '火山方舟需经代理服务器访问，无法关闭。'
+            ? '该供应商需经代理服务器访问，无法关闭。'
             : undefined
         }
         onChange={(useProxy) => {

@@ -98,8 +98,14 @@ export function StemsApp() {
   const sourceAbsolutePathRef = useRef<string | null>(null)
   /** 级联分轨阶段 1（MDX-NET 提人声）状态：busy / 块进度 / 实际执行后端 */
   const [mdxBusy, setMdxBusy] = useState(false)
-  const [mdxProgress, setMdxProgress] = useState<{ done: number; total: number } | null>(null)
+  const [mdxProgress, setMdxProgress] = useState<{ done: number; total: number } | undefined>(undefined)
   const [mdxProvider, setMdxProvider] = useState<StemEngineProvider | null>(null)
+  /** 当前阶段首个块到达时刻（performance.now() 时间线）：用于按块速率估算结束时刻 */
+  const chunkPhaseStartedAtRef = useRef<number | undefined>(undefined)
+  /** 预计完成时刻（performance.now() 时间线）；块之间按墙钟倒计时递减，不再重算 */
+  const etaAtRef = useRef<number | undefined>(undefined)
+  /** 剩余时间（毫秒）：块之间由 interval 按墙钟递减刷新 */
+  const [etaRemainingMs, setEtaRemainingMs] = useState<number | undefined>(undefined)
   /** 分段节拍检测结果与状态 */
   const [tempo, setTempo] = useState<TempoInfo | null>(null)
   const [tempoDetecting, setTempoDetecting] = useState(false)
@@ -322,6 +328,37 @@ export function StemsApp() {
    *        单独作为「其他二」轨保留 —— 全曲播放 = MDX 人声 + htdemucs 全部 6 通道，无任何频率丢失。
    *  调度器保证任意时刻只驻留一个模型：阶段 1 完成后 MDX worker 即被释放，再加载 htdemucs。
    */
+  const resetChunkEtaClock = useCallback(() => {
+    chunkPhaseStartedAtRef.current = undefined
+    etaAtRef.current = undefined
+    setEtaRemainingMs(undefined)
+  }, [])
+
+  /**
+   * 收到一个进度块时，按当前阶段的完成速率估算一次「预计完成时刻」。
+   * includeNextPhaseEstimate = true（阶段 1）时，额外假定阶段 2 耗时与阶段 1 推理相近并计入。
+   */
+  const noteChunkProgress = useCallback(
+    (done: number, total: number, includeNextPhaseEstimate: boolean) => {
+      if (done <= 0 || total <= 0) return
+      const now = performance.now()
+      if (chunkPhaseStartedAtRef.current === undefined) {
+        chunkPhaseStartedAtRef.current = now
+      }
+      const elapsed = now - chunkPhaseStartedAtRef.current
+      if (elapsed <= 0) return
+      const rate = done / elapsed
+      if (rate <= 0) return
+      const phaseRemainingMs = Math.max(0, (total - done) / rate)
+      const remainingMs = includeNextPhaseEstimate
+        ? phaseRemainingMs + total / rate
+        : phaseRemainingMs
+      etaAtRef.current = now + remainingMs
+      setEtaRemainingMs(remainingMs)
+    },
+    [],
+  )
+
   const startSeparation = useCallback(
     async (interleaved: Float32Array, sourceRate: number) => {
       separateAbortRef.current?.abort()
@@ -333,7 +370,8 @@ export function StemsApp() {
       setMdxProvider(null)
       setLoadedFromArchive(null)
       setMdxBusy(true)
-      setMdxProgress(null)
+      setMdxProgress(undefined)
+      resetChunkEtaClock()
       // 重新分轨：清空旧节拍结果，等新鼓轨检测
       setTempo(null)
       tempoRef.current = null
@@ -354,6 +392,7 @@ export function StemsApp() {
                 return { action: 'continue' }
               }
               if (msg.kind === 'chunk') {
+                noteChunkProgress(msg.done, msg.total, true)
                 setMdxProgress({ done: msg.done, total: msg.total })
                 return { action: 'continue' }
               }
@@ -378,7 +417,8 @@ export function StemsApp() {
 
         // —— 阶段 2：伴奏 → htdemucs 6 通道（两模型输入采样率均为 44.1kHz，无需重采样）——
         setMdxBusy(false)
-        setMdxProgress(null)
+        setMdxProgress(undefined)
+        resetChunkEtaClock()
         setProgress({ kind: 'model-loading' })
         setProvider(null)
         const done = await enqueueAiTask<StemProgress, { stems: StemAudio[]; sampleRate: number }>(
@@ -399,6 +439,9 @@ export function StemsApp() {
               }
               if (msg.kind === 'error') {
                 return { action: 'reject', error: new Error(msg.message) }
+              }
+              if (msg.kind === 'chunk') {
+                noteChunkProgress(msg.index, msg.total, false)
               }
               setProgress(msg)
               return { action: 'continue' }
@@ -430,6 +473,8 @@ export function StemsApp() {
         )
         setPlaying(false)
         setCurrentTime(0)
+        setProgress(null)
+        resetChunkEtaClock()
         // 分段节拍检测（鼓轨，轻量）：完成后带 tempo 自动保存，下次打开直接读 manifest
         const drums = stems.find((s) => s.stemId === 'drums')
         if (drums) await detectTempoAsync(drums.data, done.sampleRate)
@@ -439,12 +484,13 @@ export function StemsApp() {
       } catch (error) {
         if (abort.signal.aborted) return
         setMdxBusy(false)
-        setMdxProgress(null)
+        setMdxProgress(undefined)
         setProgress(null)
+        resetChunkEtaClock()
         setError(error instanceof Error ? error.message : String(error))
       }
     },
-    [cacheStemBuffers, detectTempoAsync, saveCurrentStems],
+    [cacheStemBuffers, detectTempoAsync, noteChunkProgress, resetChunkEtaClock, saveCurrentStems],
   )
 
   /**
@@ -834,6 +880,31 @@ export function StemsApp() {
     [prepareAudio, startSeparation],
   )
 
+  const isSeparating =
+    mdxBusy || progress?.kind === 'model-loading' || progress?.kind === 'chunk'
+  const chunkEtaActive =
+    (mdxBusy && mdxProgress !== undefined) || progress?.kind === 'chunk'
+
+  // 块推理进行中时刷新剩余时间：按墙钟向预计完成时刻递减
+  useEffect(() => {
+    if (!chunkEtaActive || etaAtRef.current === undefined) return
+    const timer = window.setInterval(() => {
+      const etaAt = etaAtRef.current
+      if (etaAt === undefined) return
+      setEtaRemainingMs(Math.max(0, etaAt - performance.now()))
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [chunkEtaActive])
+
+  const separationProgress = deriveSeparationProgress({
+    mdxBusy,
+    mdxProgress,
+    mdxCached,
+    progress,
+    modelCached,
+    remainingMs: etaRemainingMs,
+  })
+
   return (
     <div
       class={`stems${dragOver ? ' stems--drag-over' : ''}`}
@@ -861,11 +932,11 @@ export function StemsApp() {
             onClick={() => void handleSeparate()}
           >
             {mdxBusy && mdxProgress
-              ? `人声分离 ${mdxProgress.done}/${mdxProgress.total}`
+              ? `人声分离 ${separationProgress.phasePercent ?? Math.round((mdxProgress.done / mdxProgress.total) * 100)}%`
               : mdxBusy
                 ? '加载人声模型…'
                 : progress?.kind === 'chunk'
-                  ? `伴奏分轨 ${progress.index}/${progress.total}`
+                  ? `伴奏分轨 ${separationProgress.phasePercent ?? Math.round((progress.index / progress.total) * 100)}%`
                   : progress?.kind === 'model-loading'
                     ? '加载分轨模型…'
                     : tracks
@@ -1148,26 +1219,41 @@ export function StemsApp() {
           {loadingArchive && (
             <p class="stems__empty-hint">检测到已保存的分轨结果，正在载入…</p>
           )}
-          {mdxBusy && (
-            <p class="stems__empty-hint">
-              {mdxProgress
-                ? `正在分离人声… ${Math.round((mdxProgress.done / mdxProgress.total) * 100)}%（第 ${mdxProgress.done}/${mdxProgress.total} 块）`
-                : mdxCached === false
-                  ? '正在下载人声分离模型（首次约 67MB，可在 设置 → 存储 → 模型缓存 预缓存，之后秒开）…'
-                  : '正在加载人声分离模型…'}
-            </p>
-          )}
-          {!mdxBusy && progress?.kind === 'model-loading' && (
-            <p class="stems__empty-hint">
-              {modelCached === false
-                ? '正在下载分轨模型（首次约 285MB，可在 设置 → 存储 → 模型缓存 预缓存，之后秒开）…'
-                : '正在加载分轨模型…'}
-            </p>
-          )}
-          {!mdxBusy && progress?.kind === 'chunk' && (
-            <p class="stems__empty-hint">
-              正在拆分伴奏… {Math.round((progress.index / progress.total) * 100)}%（第 {progress.index}/{progress.total} 块）
-            </p>
+          {isSeparating && (
+            <div class="stems__progress-card">
+              <p class="stems__progress-phase">{separationProgress.phaseLabel}</p>
+              <div
+                class="stems__progress-bar-wrap"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={separationProgress.overallPercent}
+              >
+                <div
+                  class={`stems__progress-bar${separationProgress.overallPercent === undefined ? ' stems__progress-bar--indeterminate' : ''}`}
+                  style={
+                    separationProgress.overallPercent !== undefined
+                      ? { width: `${separationProgress.overallPercent}%` }
+                      : undefined
+                  }
+                />
+              </div>
+              <div class="stems__progress-meta">
+                <span>
+                  {separationProgress.overallPercent !== undefined
+                    ? `总进度 ${separationProgress.overallPercent}%`
+                    : '准备中…'}
+                  {separationProgress.chunkLabel ? ` · ${separationProgress.chunkLabel}` : ''}
+                </span>
+                <span>
+                  {separationProgress.remainingMs !== undefined
+                    ? `约 ${formatDurationMs(separationProgress.remainingMs)} 后 · ${formatEtaClock(separationProgress.remainingMs)} 结束`
+                    : separationProgress.phasePercent !== undefined
+                      ? '正在估算剩余时间…'
+                      : '模型加载中…'}
+                </span>
+              </div>
+            </div>
           )}
           {!progress && !mdxBusy && gpuAvailable === true && (
             <p class="stems__empty-hint">已检测到 WebGPU，分轨将优先使用 GPU 加速。</p>
@@ -1398,6 +1484,92 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatDurationMs(ms: number): string {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000))
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  const seconds = totalSec % 60
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+/** 预估结束时刻（本地时钟，如 15:42）。 */
+function formatEtaClock(remainingMs: number): string {
+  const end = new Date(Date.now() + Math.max(0, remainingMs))
+  return `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`
+}
+
+type SeparationProgressView = {
+  phaseLabel: string
+  chunkLabel?: string
+  phasePercent?: number
+  overallPercent?: number
+  remainingMs?: number
+}
+
+/**
+ * 两阶段级联分轨进度：人声分离与伴奏分轨各占总进度一半。
+ * 剩余时间来自 noteChunkProgress 估算的预计完成时刻（块之间按墙钟递减）。
+ */
+function deriveSeparationProgress(input: {
+  mdxBusy: boolean
+  mdxProgress?: { done: number; total: number }
+  mdxCached: boolean | null
+  progress: StemProgress | null
+  modelCached: boolean | null
+  remainingMs?: number
+}): SeparationProgressView {
+  const { mdxBusy, mdxProgress, mdxCached, progress, modelCached, remainingMs } = input
+
+  if (mdxBusy) {
+    if (!mdxProgress || mdxProgress.total <= 0) {
+      return {
+        phaseLabel:
+          mdxCached === false
+            ? '正在下载人声分离模型（首次约 67MB）…'
+            : '正在加载人声分离模型…',
+      }
+    }
+    const phaseFraction = mdxProgress.done / mdxProgress.total
+    const phasePercent = Math.min(100, Math.round(phaseFraction * 100))
+    const overallPercent = Math.min(99, Math.round(phaseFraction * 50))
+    return {
+      phaseLabel: '正在分离人声…',
+      chunkLabel: `第 ${mdxProgress.done}/${mdxProgress.total} 块 · 本阶段 ${phasePercent}%`,
+      phasePercent,
+      overallPercent,
+      remainingMs,
+    }
+  }
+
+  if (progress?.kind === 'model-loading') {
+    return {
+      phaseLabel:
+        modelCached === false
+          ? '正在下载分轨模型（首次约 285MB）…'
+          : '正在加载分轨模型…',
+      overallPercent: 50,
+    }
+  }
+
+  if (progress?.kind === 'chunk' && progress.total > 0) {
+    const phaseFraction = progress.index / progress.total
+    const phasePercent = Math.min(100, Math.round(phaseFraction * 100))
+    const overallPercent = Math.min(100, Math.round(50 + phaseFraction * 50))
+    return {
+      phaseLabel: '正在拆分伴奏…',
+      chunkLabel: `第 ${progress.index}/${progress.total} 块 · 本阶段 ${phasePercent}%`,
+      phasePercent,
+      overallPercent,
+      remainingMs,
+    }
+  }
+
+  return { phaseLabel: '正在准备分轨…' }
 }
 
 /** BPM 分桶 → 速度条色块 class（颜色编码快慢）。 */

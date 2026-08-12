@@ -51,7 +51,7 @@ export function MusicVisualizationView({
 }: MusicVisualizationViewProps) {
   const [category, setCategory] = useState<VisualizerCategory>('music')
   const [musicEffect, setMusicEffect] = useState<MusicSpectrumMode>('bars')
-  const [stemsEffect, setStemsEffect] = useState<MusicStemsVizMode>('rings')
+  const [stemsEffect, setStemsEffect] = useState<MusicStemsVizMode>('impact')
   const [lyricsEffect, setLyricsEffect] = useState<LyricsEffect>('karaoke')
   const [hasStems, setHasStems] = useState(false)
   const [stemsProgress, setStemsProgress] = useState<StemFeaturesProgress>({ phase: 'idle' })
@@ -166,10 +166,15 @@ export function MusicVisualizationView({
           <SegmentedControl
             value={stemsEffect}
             items={[
-              { id: 'rings', label: '轨环' },
-              { id: 'nebula', label: '星云' },
-              { id: 'lattice', label: '晶格' },
-              { id: 'cascade', label: '轨瀑' },
+              { id: 'impact', label: '冲击' },
+              { id: 'tunnel', label: '隧道' },
+              { id: 'kaleido', label: '万花筒' },
+              { id: 'fluid', label: '流体' },
+              { id: 'plasma', label: '伪3D' },
+              { id: 'hyperspace', label: '穿梭' },
+              { id: 'aurora', label: '极光' },
+              { id: 'glass', label: '玻璃' },
+              { id: 'orbit', label: '真3D' },
             ]}
             onChange={setStemsEffect}
             ariaLabel="分轨效果"

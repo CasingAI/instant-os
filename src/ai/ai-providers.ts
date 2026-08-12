@@ -116,6 +116,7 @@ export type AiProviderId =
   | 'mimo-token-plan'
   | 'ark-coding-plan'
   | 'ark-agent-plan'
+  | 'opencode-go'
   | 'custom'
 
 /**
@@ -683,6 +684,147 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     defaultModel: 'ark-code-latest',
   },
   {
+    id: 'opencode-go',
+    name: 'OpenCode Go',
+    // OpenAI 兼容 chat/completions；Anthropic / Responses 端点模型暂未接入
+    baseURL: 'https://opencode.ai/zen/go/v1',
+    models: [
+      {
+        id: 'grok-4.5',
+        name: 'Grok 4.5',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+        pricing: {
+          inputPricePerMillion: 2,
+          outputPricePerMillion: 6,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'glm-5.2',
+        name: 'GLM 5.2',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_GLM,
+        pricing: {
+          inputPricePerMillion: 1.4,
+          outputPricePerMillion: 4.4,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'glm-5.1',
+        name: 'GLM 5.1',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_GLM,
+        pricing: {
+          inputPricePerMillion: 1.4,
+          outputPricePerMillion: 4.4,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+        pricing: {
+          inputPricePerMillion: 3,
+          outputPricePerMillion: 15,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+        pricing: {
+          inputPricePerMillion: 0.95,
+          outputPricePerMillion: 4,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'kimi-k2.6',
+        name: 'Kimi K2.6',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_LOW_MED_HIGH,
+        pricing: {
+          inputPricePerMillion: 0.95,
+          outputPricePerMillion: 4,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+        pricing: {
+          inputPricePerMillion: 0.435,
+          outputPricePerMillion: 0.87,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_DEEPSEEK_V4,
+        pricing: {
+          inputPricePerMillion: 0.14,
+          outputPricePerMillion: 0.28,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'mimo-v2.5-pro',
+        name: 'MiMo V2.5 Pro',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+        pricing: {
+          inputPricePerMillion: 0.435,
+          outputPricePerMillion: 0.87,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'mimo-v2.5',
+        name: 'MiMo V2.5',
+        capabilities: CAP_TEXT_VISION,
+        contextWindow: CW_1M,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+        pricing: {
+          inputPricePerMillion: 0.14,
+          outputPricePerMillion: 0.28,
+          currency: 'USD',
+        },
+      },
+      {
+        id: 'hy3',
+        name: 'Hy3',
+        capabilities: CAP_TEXT,
+        contextWindow: CW_256K,
+        reasoningEfforts: REASONING_EFFORTS_BINARY,
+        pricing: {
+          inputPricePerMillion: 0.14,
+          outputPricePerMillion: 0.58,
+          currency: 'USD',
+        },
+      },
+    ],
+    defaultModel: 'mimo-v2.5',
+  },
+  {
     id: 'custom',
     name: '自定义',
     baseURL: '',
@@ -733,14 +875,7 @@ export function resolvePricingByModelKey(
   if (!providerId || !modelId) return undefined
   const cached = getModelPricing(providerId, modelId)
   if (cached) return cached
-  if (
-    providerId === 'openai' ||
-    providerId === 'deepseek' ||
-    providerId === 'mimo' ||
-    providerId === 'mimo-token-plan' ||
-    providerId === 'ark-coding-plan' ||
-    providerId === 'ark-agent-plan'
-  ) {
+  if (isBuiltinProviderId(providerId)) {
     return findAiModelPreset(providerId, modelId)?.pricing
   }
   return undefined
@@ -876,15 +1011,9 @@ export function listPricingModelOptions(): PricingModelOption[] {
     const modelId = key.slice(separator + 1)
     if (!providerId || !modelId) continue
 
-    const knownName =
-      providerId === 'openai' ||
-      providerId === 'deepseek' ||
-      providerId === 'mimo' ||
-      providerId === 'mimo-token-plan' ||
-      providerId === 'ark-coding-plan' ||
-      providerId === 'ark-agent-plan'
-        ? findAiModelPreset(providerId, modelId)?.name
-        : undefined
+    const knownName = isBuiltinProviderId(providerId)
+      ? findAiModelPreset(providerId, modelId)?.name
+      : undefined
     const modelName = knownName ?? modelId
     options.push({
       key,
@@ -1347,9 +1476,29 @@ export function isArkPlanProvider(providerId: AiProviderId | undefined): boolean
   return providerId === 'ark-coding-plan' || providerId === 'ark-agent-plan'
 }
 
+/** OpenCode Go 订阅入口（托管 Zen/Go API） */
+export function isOpencodeGoProvider(providerId: AiProviderId | undefined): boolean {
+  return providerId === 'opencode-go'
+}
+
+/** 内置供应商（非 custom）；用于定价键解析等 */
+export function isBuiltinProviderId(
+  providerId: string,
+): providerId is Exclude<AiProviderId, 'custom'> {
+  return (
+    providerId === 'openai' ||
+    providerId === 'deepseek' ||
+    providerId === 'mimo' ||
+    providerId === 'mimo-token-plan' ||
+    providerId === 'ark-coding-plan' ||
+    providerId === 'ark-agent-plan' ||
+    providerId === 'opencode-go'
+  )
+}
+
 /** 必须经代理服务器访问的供应商（浏览器直连会因 CORS / 网络策略失败） */
 export function providerRequiresProxy(providerId: AiProviderId | undefined): boolean {
-  return isArkPlanProvider(providerId)
+  return isArkPlanProvider(providerId) || isOpencodeGoProvider(providerId)
 }
 
 export function normalizeStoredModel(providerId: AiProviderId, model: string): string {

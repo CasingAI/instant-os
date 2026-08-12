@@ -256,3 +256,8 @@ export function accentTriadRgb(
     hslToRgb((h + 38) % 360, s / 100, Math.min(76, l + 14) / 100),
   ]
 }
+
+export function rgbCss(c: [number, number, number] | undefined, alpha = 1): string {
+  if (!c) return `rgba(0,0,0,${alpha})`
+  return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
+}

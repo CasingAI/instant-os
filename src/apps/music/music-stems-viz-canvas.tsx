@@ -1,5 +1,5 @@
 /**
- * 分轨可视化 Canvas 宿主：按 mode 调度四套绘制；特征就绪后按播放进度采样。
+ * 分轨可视化 Canvas 宿主：按 mode 调度九套绘制；特征就绪后按播放进度采样。
  */
 
 import { useEffect, useRef } from 'preact/hooks'
@@ -10,27 +10,61 @@ import {
   type StemVizFeatures,
 } from './music-stems-features.ts'
 import {
-  createCascadeDrawState,
-  drawStemCascade,
-  type CascadeDrawState,
-} from './music-stems-viz-cascade.ts'
+  createAuroraDrawState,
+  drawStemAurora,
+  type AuroraDrawState,
+} from './music-stems-viz-aurora.ts'
 import {
-  createLatticeDrawState,
-  drawStemLattice,
-  type LatticeDrawState,
-} from './music-stems-viz-lattice.ts'
+  createFluidDrawState,
+  drawStemFluid,
+  type FluidDrawState,
+} from './music-stems-viz-fluid.ts'
 import {
-  createNebulaDrawState,
-  drawStemNebula,
-  type NebulaDrawState,
-} from './music-stems-viz-nebula.ts'
+  createGlassDrawState,
+  drawStemGlass,
+  type GlassDrawState,
+} from './music-stems-viz-glass.ts'
 import {
-  createRingsDrawState,
-  drawStemRings,
-  type RingsDrawState,
-} from './music-stems-viz-rings.ts'
+  createHyperspaceDrawState,
+  drawStemHyperspace,
+  type HyperspaceDrawState,
+} from './music-stems-viz-hyperspace.ts'
+import {
+  createImpactDrawState,
+  drawStemImpact,
+  type ImpactDrawState,
+} from './music-stems-viz-impact.ts'
+import {
+  createKaleidoDrawState,
+  drawStemKaleido,
+  type KaleidoDrawState,
+} from './music-stems-viz-kaleido.ts'
+import {
+  createOrbitDrawState,
+  drawStemOrbit,
+  type OrbitDrawState,
+} from './music-stems-viz-orbit.ts'
+import {
+  createPlasmaDrawState,
+  drawStemPlasma,
+  type PlasmaDrawState,
+} from './music-stems-viz-plasma.ts'
+import {
+  createTunnelDrawState,
+  drawStemTunnel,
+  type TunnelDrawState,
+} from './music-stems-viz-tunnel.ts'
 
-export type MusicStemsVizMode = 'rings' | 'nebula' | 'lattice' | 'cascade'
+export type MusicStemsVizMode =
+  | 'impact'
+  | 'tunnel'
+  | 'kaleido'
+  | 'fluid'
+  | 'plasma'
+  | 'hyperspace'
+  | 'aurora'
+  | 'glass'
+  | 'orbit'
 
 type MusicStemsVizCanvasProps = {
   mode: MusicStemsVizMode
@@ -38,15 +72,17 @@ type MusicStemsVizCanvasProps = {
 }
 
 type ModeState = {
-  rings: RingsDrawState
-  nebula: NebulaDrawState
-  lattice: LatticeDrawState
-  cascade: CascadeDrawState
+  impact: ImpactDrawState
+  tunnel: TunnelDrawState
+  kaleido: KaleidoDrawState
+  fluid: FluidDrawState
+  plasma: PlasmaDrawState
+  hyperspace: HyperspaceDrawState
+  aurora: AuroraDrawState
+  glass: GlassDrawState
+  orbit: OrbitDrawState
 }
 
-/**
- * 分轨效果画布。尺寸契约与 MusicSpectrumCanvas 一致：宿主定尺寸，canvas 绝对铺满。
- */
 export function MusicStemsVizCanvas({ mode, features }: MusicStemsVizCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -76,10 +112,15 @@ export function MusicStemsVizCanvas({ mode, features }: MusicStemsVizCanvasProps
     syncSize()
 
     const modeState: ModeState = {
-      rings: createRingsDrawState(),
-      nebula: createNebulaDrawState(),
-      lattice: createLatticeDrawState(),
-      cascade: createCascadeDrawState(),
+      impact: createImpactDrawState(),
+      tunnel: createTunnelDrawState(),
+      kaleido: createKaleidoDrawState(),
+      fluid: createFluidDrawState(),
+      plasma: createPlasmaDrawState(),
+      hyperspace: createHyperspaceDrawState(),
+      aurora: createAuroraDrawState(),
+      glass: createGlassDrawState(),
+      orbit: createOrbitDrawState(),
     }
 
     let lastTs = 0
@@ -98,19 +139,36 @@ export function MusicStemsVizCanvas({ mode, features }: MusicStemsVizCanvasProps
         ? sampleStemFeaturesAt(features, timeSec)
         : idleStemSample(animTime)
 
-      // 星云自带拖影清屏；其它模式先清空
-      if (mode !== 'nebula') {
-        ctx.clearRect(0, 0, cssWidth, cssHeight)
-      }
+      ctx.clearRect(0, 0, cssWidth, cssHeight)
 
-      if (mode === 'rings') {
-        drawStemRings(ctx, cssWidth, cssHeight, sample, dt, modeState.rings)
-      } else if (mode === 'nebula') {
-        drawStemNebula(ctx, cssWidth, cssHeight, sample, dt, modeState.nebula)
-      } else if (mode === 'lattice') {
-        drawStemLattice(ctx, cssWidth, cssHeight, sample, dt, modeState.lattice)
-      } else {
-        drawStemCascade(ctx, cssWidth, cssHeight, sample, dt, modeState.cascade)
+      switch (mode) {
+        case 'impact':
+          drawStemImpact(ctx, cssWidth, cssHeight, sample, dt, modeState.impact)
+          break
+        case 'tunnel':
+          drawStemTunnel(ctx, cssWidth, cssHeight, sample, dt, modeState.tunnel)
+          break
+        case 'kaleido':
+          drawStemKaleido(ctx, cssWidth, cssHeight, sample, dt, modeState.kaleido)
+          break
+        case 'fluid':
+          drawStemFluid(ctx, cssWidth, cssHeight, sample, dt, modeState.fluid)
+          break
+        case 'plasma':
+          drawStemPlasma(ctx, cssWidth, cssHeight, sample, dt, modeState.plasma)
+          break
+        case 'hyperspace':
+          drawStemHyperspace(ctx, cssWidth, cssHeight, sample, dt, modeState.hyperspace)
+          break
+        case 'aurora':
+          drawStemAurora(ctx, cssWidth, cssHeight, sample, dt, modeState.aurora)
+          break
+        case 'glass':
+          drawStemGlass(ctx, cssWidth, cssHeight, sample, dt, modeState.glass)
+          break
+        case 'orbit':
+          drawStemOrbit(ctx, cssWidth, cssHeight, sample, dt, modeState.orbit)
+          break
       }
     }
 
