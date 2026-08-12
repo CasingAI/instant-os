@@ -137,6 +137,13 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '也默认作为 mp3、wav、flac、m4a 等音频文件的打开程序：在「文件」中双击音频即在此播放，可一键添加到曲库。播放跟随音乐窗口，关闭窗口即停止。',
     ],
   },
+  align: {
+    version: '确定性歌词强制对齐',
+    paragraphs: [
+      '歌词对齐 2 打开分轨结果（.stems.zip）中的人声轨做音素识别，再用 LLM 把歌词转成 IPA 音素，最后用 DTW 算法确定性算出逐字时间戳，生成增强 LRC。',
+      '与「歌词对齐」不同：时间戳不再由 Agent 在终端里猜测，而是由程序对齐；对齐完成后仍可与 Agent 对话手动修正结果。',
+    ],
+  },
   weather: {
     version: 'AI 天气预报',
     paragraphs: [

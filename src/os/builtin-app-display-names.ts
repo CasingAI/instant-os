@@ -48,6 +48,7 @@ export const BUILTIN_APP_DISPLAY_NAMES: Record<BuiltinAppId, string> = {
   'ui-kit': 'UI 组件库',
   stems: '音乐实验室',
   phoneme: '歌词对齐',
+  align: '歌词对齐 2',
 }
 
 /** 目录枚举顺序（与历史 APP_REGISTRY 顺序一致，便于对照；catalog 最终仍会按 bundleName 排序）。 */
@@ -95,4 +96,5 @@ export const BUILTIN_APP_CATALOG_ORDER: readonly BuiltinAppId[] = [
   'ui-kit',
   'stems',
   'phoneme',
+  'align',
 ]

@@ -1,129 +1,96 @@
 /**
- * G2P 解析/校验单测。
+ * G2P 解析/分词单测。
  * 运行：node --experimental-strip-types src/apps/align/align-g2p.test.ts
  */
 import assert from 'node:assert/strict'
 import {
-  buildG2pUserMessage,
-  extractJsonFromAnswer,
-  G2pParseError,
+  buildLyricsSkeleton,
+  flattenG2pLines,
   parseG2pResult,
+  pickVocabHint,
+  tokenizeLyricsLine,
 } from './align-g2p.ts'
 
-function testExtractJson(): void {
-  // fence 包裹
-  const fenced = '```json\n[{"units":[]}]\n```\n已转换完成。'
-  assert.equal(extractJsonFromAnswer(fenced), '[{"units":[]}]')
-
-  // 无 fence，前后有说明文字
-  const plain = '好的，结果如下：\n[{"units":[{"text":"你","phones":["n","i"]}]}]\n以上就是全部。'
-  assert.equal(
-    extractJsonFromAnswer(plain),
-    '[{"units":[{"text":"你","phones":["n","i"]}]}]',
-  )
-
-  // 纯 JSON
-  assert.equal(extractJsonFromAnswer('[]'), '[]')
-  console.log('  extract-json ok')
+function testTokenize(): void {
+  assert.deepEqual(tokenizeLyricsLine('你好，世界'), ['你', '好', '，', '世', '界'])
+  assert.deepEqual(tokenizeLyricsLine('Hello world!'), ['Hello', 'world', '!'])
+  assert.deepEqual(tokenizeLyricsLine('春 天'), ['春', '天'])
+  assert.deepEqual(tokenizeLyricsLine("It's OK"), ["It's", 'OK'])
 }
 
-function testParseValid(): void {
-  const lyrics = ['你好', '世界']
-  const answer = JSON.stringify([
-    { units: [{ text: '你', phones: ['n', 'i'] }, { text: '好', phones: ['x', 'ɑu'] }] },
-    { units: [{ text: '世', phones: ['ʂ', 'ə'] }, { text: '界', phones: ['tɕ', 'iɛ'] }] },
-  ])
-  const lines = parseG2pResult(answer, lyrics)
+function testSkeleton(): void {
+  const lines = buildLyricsSkeleton('  你好  \n\n世界\n')
   assert.equal(lines.length, 2)
-  assert.equal(lines[0].length, 2)
-  assert.deepEqual(lines[0][0], { text: '你', phones: ['n', 'i'] })
-  assert.deepEqual(lines[1][1].phones, ['tɕ', 'iɛ'])
-  console.log('  parse-valid ok')
+  assert.equal(lines[0].text, '你好')
+  assert.equal(lines[0].units.length, 2)
+  assert.equal(lines[1].units[0].text, '世')
 }
 
-function testPunctuationAndSpaces(): void {
-  // 标点并入前单元；英文词间空格不输出 —— 拼接（去空白）仍与原文一致
-  const lyrics = ['你好，世界！', 'I love you']
-  const answer = JSON.stringify([
-    { units: [
-      { text: '你好，', phones: ['n', 'i', 'x', 'ɑu'] },
-      { text: '世界！', phones: ['ʂ', 'ə', 'tɕ', 'iɛ'] },
-    ] },
-    { units: [
-      { text: 'I', phones: ['aɪ'] },
-      { text: 'love', phones: ['l', 'ʌ', 'v'] },
-      { text: 'you', phones: ['j', 'u'] },
-    ] },
-  ])
-  const lines = parseG2pResult(answer, lyrics)
-  assert.equal(lines[0].length, 2)
-  assert.equal(lines[1].length, 3)
-  assert.equal(lines[1][0].text, 'I')
-  assert.equal(lines[1][2].text, 'you')
-  console.log('  punctuation-spaces ok')
+function testParseOk(): void {
+  const lyrics = '你好\n世界'
+  const raw = JSON.stringify({
+    lines: [
+      {
+        text: '你好',
+        units: [
+          { text: '你', phones: ['n', 'i5'] },
+          { text: '好', phones: ['x', 'ɑu5'] },
+        ],
+      },
+      {
+        text: '世界',
+        units: [
+          { text: '世', phones: ['ʂ'] },
+          { text: '界', phones: ['tɕ', 'ie'] },
+        ],
+      },
+    ],
+  })
+  const parsed = parseG2pResult(raw, lyrics)
+  assert.equal(parsed.length, 2)
+  assert.deepEqual(parsed[0].units[0].phones, ['n', 'i5'])
+  assert.equal(flattenG2pLines(parsed).length, 4)
 }
 
-function testLineCountMismatch(): void {
-  const lyrics = ['第一行', '第二行']
-  const answer = JSON.stringify([
-    { units: [{ text: '第一行', phones: ['a'] }] },
-  ])
-  assert.throws(
-    () => parseG2pResult(answer, lyrics),
-    (e: unknown) => e instanceof G2pParseError && e.message.includes('行数不匹配'),
-  )
-  console.log('  line-count-mismatch ok')
+function testParseFencedAndRepair(): void {
+  // markdown 包裹 + 单元文字被改写但数量一致 → 按骨架纠正
+  const lyrics = '春天'
+  const raw = '```json\n{"lines":[{"text":"春天","units":[{"text":"春X","phones":["tɕ"]},{"text":"天Y","phones":["t"]}]}]}\n```'
+  const parsed = parseG2pResult(raw, lyrics)
+  assert.equal(parsed[0].units[0].text, '春')
+  assert.equal(parsed[0].units[1].text, '天')
+  assert.deepEqual(parsed[0].units[0].phones, ['tɕ'])
 }
 
-function testTextMismatch(): void {
-  const lyrics = ['你很好']
-  // LLM 改写了歌词（漏字）→ 应报错并给出不一致行
-  const answer = JSON.stringify([
-    { units: [{ text: '你好', phones: ['n', 'i', 'x', 'ɑu'] }] },
-  ])
-  assert.throws(
-    () => parseG2pResult(answer, lyrics),
-    (e: unknown) => e instanceof G2pParseError && e.issues.length === 1,
-  )
-  console.log('  text-mismatch ok')
+function testParseMismatchThrows(): void {
+  const lyrics = '你好'
+  const raw = JSON.stringify({
+    lines: [
+      {
+        text: '你好',
+        units: [{ text: '你', phones: ['n'] }], // 少一个字 → 抛错
+      },
+    ],
+  })
+  assert.throws(() => parseG2pResult(raw, lyrics), /文字不一致|行数不匹配/)
 }
 
-function testPhonesFiltering(): void {
-  const lyrics = ['你']
-  const answer = JSON.stringify([
-    { units: [{ text: '你', phones: ['n', '', 42, 'i'] }] },
-  ])
-  const lines = parseG2pResult(answer, lyrics)
-  assert.deepEqual(lines[0][0].phones, ['n', 'i'])
-  console.log('  phones-filtering ok')
+function testVocabHint(): void {
+  const hint = pickVocabHint(['<pad>', 'n', 'a', 'i5', '??', 'x'], 3)
+  assert.equal(hint, 'n a i5')
 }
 
-function testNotJson(): void {
-  const lyrics = ['你']
-  assert.throws(
-    () => parseG2pResult('我不是 JSON', lyrics),
-    (e: unknown) => e instanceof G2pParseError,
-  )
-  console.log('  not-json ok')
-}
-
-function testBuildUserMessage(): void {
-  const msg = buildG2pUserMessage(['第一行', '第二行'])
-  assert.ok(msg.includes('第 1 行：第一行'))
-  assert.ok(msg.includes('第 2 行：第二行'))
-  console.log('  build-user-message ok')
-}
-
-function runAll(): void {
-  testExtractJson()
-  testParseValid()
-  testPunctuationAndSpaces()
-  testLineCountMismatch()
-  testTextMismatch()
-  testPhonesFiltering()
-  testNotJson()
-  testBuildUserMessage()
+async function runAll(): Promise<void> {
+  testTokenize()
+  testSkeleton()
+  testParseOk()
+  testParseFencedAndRepair()
+  testParseMismatchThrows()
+  testVocabHint()
   console.log('align-g2p: 全部通过')
 }
 
-runAll()
+runAll().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

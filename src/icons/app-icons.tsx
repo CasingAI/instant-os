@@ -1586,3 +1586,31 @@ export function PhonemeIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+/** 歌词对齐 2：波形 + DTW 对齐节点 */
+export function AlignIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#2f6fed" size={size}>
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <path
+          d="M10 28 Q 18 16 26 28 T 42 28 T 58 28"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+        <circle cx="18" cy="44" r="3.5" fill="#e0b34e" />
+        <circle cx="32" cy="44" r="3.5" fill="#4ed0a1" />
+        <circle cx="46" cy="44" r="3.5" fill="#a17ee0" />
+        <path
+          d="M18 44 L32 44 L46 44"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="2"
+          stroke-linecap="round"
+          opacity="0.7"
+        />
+      </svg>
+    </AppIconTile>
+  )
+}
