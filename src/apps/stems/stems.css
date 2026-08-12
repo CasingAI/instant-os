@@ -228,6 +228,15 @@
   min-width: 0;
 }
 
+.stems__transport-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+}
+
 .stems__transport-btn {
   appearance: none;
   width: 40px;
@@ -279,20 +288,6 @@
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
-.stems__seek {
-  flex: 1;
-  min-width: 0;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #b8b2a6 0%, #cdc7bb 100%);
-  border: 1px solid #8e887e;
-  box-shadow: var(--stems-bevel-down);
-}
-
-.stems__seek input[type='range'],
 .stems__zoom-slider,
 .stems__volume {
   -webkit-appearance: none;
@@ -301,11 +296,6 @@
   height: 18px;
 }
 
-.stems__seek input[type='range'] {
-  width: 100%;
-}
-
-.stems__seek input[type='range']::-webkit-slider-runnable-track,
 .stems__volume::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 3px;
@@ -313,7 +303,6 @@
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
-.stems__seek input[type='range']::-webkit-slider-thumb,
 .stems__volume::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -416,16 +405,19 @@
   margin-left: auto;
 }
 
-/* 速度条：与各轨波形列对齐的行（复用轨道行网格），点击段可跳转 */
+/* 速度条：与各轨波形列对齐的行（复用轨道行网格与卡片几何），点击段可跳转 */
 .stems__tempo-row {
   display: grid;
   grid-template-columns: var(--stems-track-cols);
   align-items: center;
   gap: 10px;
-  padding: 6px 12px;
+  margin: 0 10px;
+  padding: 6px 8px;
   min-width: 0;
   background: linear-gradient(180deg, #ddd7cb 0%, #d0caba 100%);
-  border-bottom: 1px solid var(--stems-border);
+  border: 1px solid var(--stems-border);
+  border-left: 4px solid var(--stems-accent);
+  border-radius: var(--stems-radius);
   flex: none;
 }
 

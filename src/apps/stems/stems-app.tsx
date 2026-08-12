@@ -122,7 +122,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const tempoSegRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const tempoReadoutRef = useRef<HTMLSpanElement | null>(null)
   const tempoPlayheadRef = useRef<HTMLDivElement | null>(null)
-  /** 进度条/波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
+  /** 波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
   /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
   const suppressFollowUntilRef = useRef(0)
@@ -130,10 +130,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const minimapDragRef = useRef<{ startX: number; startViewStart: number; onThumb: boolean } | null>(
     null,
   )
-  /** 播放时钟直写 DOM 用：播放中 rAF 逐帧更新各轨播放头/时间文本/进度条，不经过 React 重渲染 */
+  /** 播放时钟直写 DOM 用：播放中 rAF 逐帧更新各轨播放头/时间文本，不经过 React 重渲染 */
   const playheadRefsRef = useRef<Map<StemId, HTMLDivElement>>(new Map())
   const timeLabelRef = useRef<HTMLSpanElement | null>(null)
-  const seekInputRef = useRef<HTMLInputElement | null>(null)
 
   /** 最长缩放级别（可见窗口 ≥ MIN_VIEW_SEC；过短的歌不可缩放） */
   const maxZoomLevel =
@@ -635,7 +634,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [playing, currentTime, duration])
 
   /**
-   * 把播放位置直接写进 DOM（各轨播放头、时间文本、进度条），不触发 React 重渲染。
+   * 把播放位置直接写进 DOM（各轨播放头、时间文本），不触发 React 重渲染。
    * 播放时钟（rAF 每帧）与 seek 拖拽共用，保证 60fps 丝滑且拖拽时不打架。
    * 同步驱动速度条：当前段高亮、右格 BPM 读数、lane 播放头。
    */
@@ -650,8 +649,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       if (timeLabelRef.current) {
         timeLabelRef.current.textContent = `${formatTime(timeSec)} / ${formatTime(duration)}`
       }
-      const input = seekInputRef.current
-      if (input) input.value = String(Math.round(timeSec * 100))
 
       // 速度条：当前段高亮 + 读数 + lane 播放头
       const tempoInfo = tempoRef.current
@@ -719,7 +716,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [activeWindowId, windowId, handlePlayPause])
 
-  /** 拖拽进度条/波形过程中：只更新显示位置（状态 + DOM 直写），不碰音频（防止时钟与拖拽互相打架）。 */
+  /** 拖拽波形过程中：只更新显示位置（状态 + DOM 直写），不碰音频（防止时钟与拖拽互相打架）。 */
   const handleSeekInput = useCallback(
     (offsetSec: number) => {
       const clamped = Math.max(0, Math.min(offsetSec, duration))
@@ -804,7 +801,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       isSeekingRef.current = false
       const clamped = Math.max(0, Math.min(offsetSec, duration))
       setCurrentTime(clamped)
-      // 放大状态下，总进度条 seek 到可见窗口外 → 窗口跟随到目标位置
+      // 放大状态下，seek 到可见窗口外 → 窗口跟随到目标位置
       if (view.level > 0 && (clamped < view.start || clamped > view.start + viewLen)) {
         setView((prev) => ({
           ...prev,
@@ -1015,58 +1012,37 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             <span ref={timeLabelRef} class="stems__time">
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
-            <div class="stems__seek">
-              <input
-                ref={seekInputRef}
-                type="range"
-                min={0}
-                max={Math.max(1, Math.round(duration * 100))}
-                value={Math.round(currentTime * 100)}
-                onPointerDown={() => {
-                  isSeekingRef.current = true
-                }}
-                onChange={(event) => handleSeekInput(Number(event.currentTarget.value) / 100)}
-                onPointerUp={(event) => finalizeSeek(Number(event.currentTarget.value) / 100)}
-                onKeyDown={() => {
-                  // 键盘拖拽（方向键）同样抑制定时器回写，避免与 onChange 打架
-                  isSeekingRef.current = true
-                }}
-                onKeyUp={(event) => finalizeSeek(Number(event.currentTarget.value) / 100)}
-                onBlur={(event) => {
-                  // 键盘拖拽中焦点移走（如 Tab）会丢失 keyup：此时补一次定位
-                  if (isSeekingRef.current) finalizeSeek(Number(event.currentTarget.value) / 100)
-                }}
-              />
-            </div>
-            {loadedFromArchive !== null && (
-              <span
-                class="stems__loaded"
-                title={`已载入 ${new Date(loadedFromArchive).toLocaleString()} 保存的分轨结果`}
+            <div class="stems__transport-right">
+              {loadedFromArchive !== null && (
+                <span
+                  class="stems__loaded"
+                  title={`已载入 ${new Date(loadedFromArchive).toLocaleString()} 保存的分轨结果`}
+                >
+                  <span class="stems__loaded-lamp" />
+                  已载入分轨
+                </span>
+              )}
+              <IosButton
+                size="compact"
+                disabled={saveProgress !== null || !sourceAbsolutePathRef.current}
+                title={
+                  sourceAbsolutePathRef.current
+                    ? '保存分轨结果到源文件同目录（xxx.stems.zip），下次打开自动载入'
+                    : '拖入的文件无法保存，请通过「打开音乐文件…」选择歌曲后再分轨'
+                }
+                onClick={() => void handleSaveArchive()}
               >
-                <span class="stems__loaded-lamp" />
-                已载入分轨
-              </span>
-            )}
-            <IosButton
-              size="compact"
-              disabled={saveProgress !== null || !sourceAbsolutePathRef.current}
-              title={
-                sourceAbsolutePathRef.current
-                  ? '保存分轨结果到源文件同目录（xxx.stems.zip），下次打开自动载入'
-                  : '拖入的文件无法保存，请通过「打开音乐文件…」选择歌曲后再分轨'
-              }
-              onClick={() => void handleSaveArchive()}
-            >
-              {saveProgress !== null ? `保存中 ${saveProgress}/${STEM_IDS.length}` : '保存分轨'}
-            </IosButton>
-            <IosButton
-              size="compact"
-              disabled={exporting}
-              onClick={() => void handleExportAll()}
-              title="导出全部 7 轨为 WAV"
-            >
-              {exporting ? '导出中…' : '导出全部'}
-            </IosButton>
+                {saveProgress !== null ? `保存中 ${saveProgress}/${STEM_IDS.length}` : '保存分轨'}
+              </IosButton>
+              <IosButton
+                size="compact"
+                disabled={exporting}
+                onClick={() => void handleExportAll()}
+                title="导出全部 7 轨为 WAV"
+              >
+                {exporting ? '导出中…' : '导出全部'}
+              </IosButton>
+            </div>
           </div>
 
           {/* 速度条：分段色块 = 段长、颜色 = BPM 快慢、段内数字；点击跳段 */}
