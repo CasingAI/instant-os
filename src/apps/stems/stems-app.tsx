@@ -119,10 +119,16 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const tempoSegRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const tempoReadoutRef = useRef<HTMLSpanElement | null>(null)
   const tempoPlayheadRef = useRef<HTMLDivElement | null>(null)
+  /** 节拍器脉冲目标：速度行「速度」头格 */
+  const tempoNameRef = useRef<HTMLDivElement | null>(null)
+  /** 节拍器脉冲目标：lane 内随拍闪烁线 */
+  const beatFlashRef = useRef<HTMLDivElement | null>(null)
   const tempoLaneRef = useRef<HTMLDivElement | null>(null)
   const tracksBoxRef = useRef<HTMLDivElement | null>(null)
   /** 速度条 lane 实际像素宽度（ResizeObserver 维护）：块文字显示按像素判断，而非百分比 */
   const [tempoLaneWidthPx, setTempoLaneWidthPx] = useState(0)
+  /** 节拍器开关：开启后在速度条显示节拍刻度与随拍脉冲 */
+  const [metronomeOn, setMetronomeOn] = useState(false)
   /** 波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
   /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
@@ -167,26 +173,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     observer.observe(lane)
     return () => observer.disconnect()
   }, [tempo])
-
-  const menuBar = useMemo<MenuDefinition[]>(() => {
-    return [
-      {
-        label: '文件',
-        items: [
-          { type: 'action', label: '打开音乐文件…', onClick: () => void handlePickFile() },
-          { type: 'separator' },
-          {
-            type: 'action',
-            label: '重新分轨',
-            disabled: !sourceName,
-            onClick: () => void handleSeparateRef.current(),
-          },
-        ],
-      },
-    ]
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceName])
-  useAppMenuBar('stems', menuBar)
 
   const handleSeparateRef = useRef<() => void>(() => {})
 
@@ -300,13 +286,61 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [sourceName, duration, stemSampleRate],
   )
 
-  /** 手动保存分轨结果（菜单/按钮）。 */
+  /** 手动保存分轨结果（菜单 / ⌘S）。 */
   const handleSaveArchive = useCallback(async () => {
     if (!tracks) return
     setError(null)
     setSaveProgress(0)
     await saveCurrentStems(tracks.map((t) => t.audio))
   }, [saveCurrentStems, tracks])
+
+  // 顶栏菜单：文件 → 打开 / 重新分轨 / 保存分轨（⌘S）
+  const menuBar = useMemo<MenuDefinition[]>(() => {
+    return [
+      {
+        label: '文件',
+        items: [
+          { type: 'action', label: '打开音乐文件…', onClick: () => void handlePickFile() },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '重新分轨',
+            disabled: !sourceName,
+            onClick: () => void handleSeparateRef.current(),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label:
+              saveProgress !== null
+                ? `保存分轨中 ${saveProgress}/${STEM_IDS.length}…`
+                : '保存分轨',
+            shortcut: '⌘S',
+            disabled:
+              !tracks || saveProgress !== null || !sourceName || !sourceAbsolutePathRef.current,
+            onClick: () => void handleSaveArchive(),
+          },
+        ],
+      },
+    ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceName, tracks, saveProgress, handleSaveArchive])
+  useAppMenuBar('stems', menuBar)
+
+  // ⌘S 保存分轨：菜单 shortcut 仅展示，实际监听与 pages/textedit 一致
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (windowId && activeWindowId !== windowId) return
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (event.key.toLowerCase() !== 's' || event.shiftKey || event.altKey) return
+      if (!tracks || saveProgress !== null || !sourceName || !sourceAbsolutePathRef.current) return
+      event.preventDefault()
+      event.stopPropagation()
+      void handleSaveArchive()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [activeWindowId, windowId, tracks, saveProgress, handleSaveArchive, sourceName])
 
   /**
    * 在轻量 Worker 里对鼓轨做分段节拍检测，结果写状态与 tempoRef。
@@ -892,6 +926,78 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     return () => cancelAnimationFrame(raf)
   }, [playing, duration, stopPlayback, view, viewLen, clampViewStart, writePlaybackDom])
 
+  /**
+   * 节拍器随拍脉冲：播放中 rAF 逐帧找当前段、算当前拍（最近一次落在时间轴上的拍），
+   * 新的一拍到来时在 lane 内触发闪烁线（expand+fade），并让速度行「速度」头格
+   * 闪一次蓝光（脉冲）。直接操作 DOM，不触发 React 重渲染。
+   */
+  useEffect(() => {
+    const flash = beatFlashRef.current
+    if (!metronomeOn || !playing || !tempo) {
+      if (flash) {
+        flash.style.opacity = '0'
+        for (const a of flash.getAnimations()) a.cancel()
+      }
+      return
+    }
+    let raf = 0
+    let lastKey: string | null = null
+    const tick = () => {
+      raf = requestAnimationFrame(tick)
+      const tempoInfo = tempoRef.current
+      const now = getPlaybackTime()
+      const seg = tempoInfo?.segments.find((s) => now >= s.startSec && now < s.endSec)
+      if (!seg) return
+      const interval = 60 / seg.bpm
+      const k = Math.max(0, Math.floor((now - seg.startSec) / interval))
+      const beatTime = seg.startSec + k * interval
+      const ratio = viewLen > 0 ? (beatTime - view.start) / viewLen : -1
+      const inView = ratio >= 0 && ratio <= 1
+      if (flash) {
+        flash.style.left = `${ratio * 100}%`
+        flash.style.opacity = inView ? '1' : '0'
+      }
+      const key = `${seg.startSec}:${k}`
+      if (lastKey !== null && key === lastKey) return
+      lastKey = key
+      // 新的一拍：lane 闪烁线展开淡出
+      if (flash && inView) {
+        flash.animate(
+          [
+            { opacity: 1, transform: 'scaleX(1)' },
+            { opacity: 0, transform: 'scaleX(4)' },
+          ],
+          { duration: 200, easing: 'ease-out', fill: 'forwards' },
+        )
+      }
+      // 速度行「速度」头格脉冲
+      const name = tempoNameRef.current
+      if (name) {
+        name.animate(
+          [
+            {
+              backgroundColor: 'rgba(47, 127, 214, 0.22)',
+              boxShadow: '0 0 0 2px rgba(47, 127, 214, 0.85), 0 0 16px rgba(47, 127, 214, 0.8)',
+            },
+            {
+              backgroundColor: 'rgba(47, 127, 214, 0)',
+              boxShadow: '0 0 0 0 rgba(47, 127, 214, 0), 0 0 0 rgba(47, 127, 214, 0)',
+            },
+          ],
+          { duration: 260, easing: 'ease-out' },
+        )
+      }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      if (flash) {
+        flash.style.opacity = '0'
+        for (const a of flash.getAnimations()) a.cancel()
+      }
+    }
+  }, [metronomeOn, playing, getPlaybackTime, viewLen, view.start, tempo])
+
   useEffect(
     () => () => {
       stopPlayback()
@@ -952,6 +1058,41 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     modelCached,
     remainingMs: etaRemainingMs,
   })
+
+  /** 有独奏轨时，其余非独奏轨被静音：视觉上与 Mute 一样置灰 */
+  const anySolo = tracks?.some((t) => t.solo) ?? false
+
+  /**
+   * 节拍刻度：按各段 BPM 在可见窗口内铺出节拍线（节拍器开启时显示）。
+   * 全曲视图下拍数可能上千，超过上限时按比例抽稀，避免刻度糊成一片。
+   */
+  const beatTicks = useMemo(() => {
+    if (!tempo || viewLen <= 0) return []
+    const viewEnd = view.start + viewLen
+    const MAX_TICKS = 360
+    let total = 0
+    for (const seg of tempo.segments) {
+      const interval = 60 / Math.max(1, seg.bpm)
+      const segStart = Math.max(seg.startSec, view.start)
+      const segEnd = Math.min(seg.endSec, viewEnd)
+      if (segEnd > segStart) total += Math.ceil((segEnd - segStart) / interval) + 1
+    }
+    const step = Math.max(1, Math.ceil(total / MAX_TICKS))
+    const ticks: number[] = []
+    for (const seg of tempo.segments) {
+      const interval = 60 / Math.max(1, seg.bpm)
+      const segStart = Math.max(seg.startSec, view.start)
+      const segEnd = Math.min(seg.endSec, viewEnd)
+      if (segEnd <= segStart) continue
+      const first = Math.max(0, Math.ceil((segStart - seg.startSec) / interval))
+      for (let k = first; ; k += step) {
+        const beatSec = seg.startSec + k * interval
+        if (beatSec >= segEnd) break
+        ticks.push(((beatSec - view.start) / viewLen) * 100)
+      }
+    }
+    return ticks
+  }, [tempo, viewLen, view.start])
 
   return (
     <div
@@ -1028,24 +1169,27 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             <span ref={timeLabelRef} class="stems__time">
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
-            <div class="stems__transport-right">
-              <IosButton
-                size="compact"
-                disabled={saveProgress !== null || !sourceAbsolutePathRef.current}
-                title={
-                  sourceAbsolutePathRef.current
-                    ? '保存分轨结果到源文件同目录（xxx.stems.zip），下次打开自动载入'
-                    : '拖入的文件无法保存，请通过「打开音乐文件…」选择歌曲后再分轨'
-                }
-                onClick={() => void handleSaveArchive()}
-              >
-                {saveProgress !== null ? `保存中 ${saveProgress}/${STEM_IDS.length}` : '保存分轨'}
-              </IosButton>
-            </div>
+            <IosButton
+              icon
+              size="compact"
+              class={`stems__metronome${metronomeOn ? ' stems__metronome--on' : ''}`}
+              disabled={!tempo}
+              title={
+                tempo
+                  ? metronomeOn
+                    ? '关闭节拍器'
+                    : '开启节拍器：按 BPM 在速度条显示节拍刻度与随拍脉冲'
+                  : '节拍器需要先完成速度检测'
+              }
+              aria-label="节拍器"
+              onClick={() => setMetronomeOn((on) => !on)}
+            >
+              ♪
+            </IosButton>
           </div>
 
           <div class="stems__tempo-row">
-            <div class="stems__track-name">
+            <div ref={tempoNameRef} class="stems__track-name stems__track-name--tempo">
               <span class="stems__track-dot stems__track-dot--tempo" />
               速度
             </div>
@@ -1121,6 +1265,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                     />
                   )
                 })()}
+                {metronomeOn &&
+                  beatTicks.map((pct, index) => (
+                    <div key={index} class="stems__beat-tick" style={{ left: `${pct}%` }} />
+                  ))}
+                <div ref={beatFlashRef} class="stems__beat-flash" style={{ opacity: 0 }} />
               </div>
             </div>
             <div class="stems__tempo-readout">
@@ -1151,6 +1300,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   registerPlayhead={registerPlayhead}
                   onToggleMute={() => toggleTrack(setTracks, gainNodesRef.current, stemId, 'mute')}
                   onToggleSolo={() => toggleTrack(setTracks, gainNodesRef.current, stemId, 'solo')}
+                  silenced={track.mute || (anySolo && !track.solo)}
                   onSeek={(ratio) => {
                     isSeekingRef.current = true
                     handleSeekInput(view.start + ratio * viewLen)
@@ -1376,6 +1526,8 @@ type StemTrackRowProps = {
   registerPlayhead: (stemId: StemId, el: HTMLDivElement | null) => void
   onToggleMute: () => void
   onToggleSolo: () => void
+  /** 该轨当前实际被静音（mute 或 solo 下非独奏轨）：视觉上置灰 */
+  silenced: boolean
   /** 波形上拖拽/点击 seek：ratio ∈ [0,1] 是窗口内比例，播放中不立即重启，松手由 onSeekEnd 定位 */
   onSeek: (ratio: number) => void
   onSeekEnd: (ratio: number) => void
@@ -1393,6 +1545,7 @@ function StemTrackRow({
   registerPlayhead,
   onToggleMute,
   onToggleSolo,
+  silenced,
   onSeek,
   onSeekEnd,
   onVolume,
@@ -1470,7 +1623,7 @@ function StemTrackRow({
 
   return (
     <div
-      class={`stems__track${track.mute ? ' stems__track--muted' : ''}${track.solo ? ' stems__track--solo' : ''}`}
+      class={`stems__track${silenced ? ' stems__track--silenced' : ''}${track.solo ? ' stems__track--solo' : ''}`}
       style={{ '--stem-color': STEM_COLORS[stemId] } as preact.JSX.CSSProperties}
     >
       <div class="stems__track-name">
@@ -1531,9 +1684,13 @@ function StemTrackRow({
 }
 
 function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+  const total = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`
 }
 
 /** 缩放读数：低倍率用百分比，≥100× 改写成「256×」以免底部栏撑破 */

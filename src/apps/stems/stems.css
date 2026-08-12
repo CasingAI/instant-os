@@ -216,15 +216,6 @@
   min-width: 0;
 }
 
-.stems__transport-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  min-width: 0;
-}
-
 .stems__transport-btn {
   appearance: none;
   width: 40px;
@@ -262,18 +253,51 @@
   border-color: #2a2824;
 }
 
+/* 节拍器开关：点按后亮蓝 + 呼吸光晕（随拍脉冲在速度条上体现） */
+.stems__metronome.ios-button--icon {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+
+.stems__metronome--on.ios-button {
+  color: #fff;
+  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
+  border-color: #145da8;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3);
+  animation: stems-metronome-breathe 0.6s ease-in-out infinite;
+}
+
+@keyframes stems-metronome-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 6px rgba(47, 127, 214, 0.45);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 14px rgba(47, 127, 214, 0.9);
+  }
+}
+
 .stems__time {
   font-variant-numeric: tabular-nums;
-  color: var(--stems-ink-muted);
-  font-size: 12px;
-  font-weight: 600;
+  color: #f2efe6;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   flex: none;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: linear-gradient(180deg, #f7f4ee 0%, #e6e1d6 100%);
-  border: 1px solid var(--stems-border);
-  box-shadow: var(--stems-bevel-down);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+  padding: 7px 16px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #3a3835 0%, #22201e 60%, #1a1918 100%);
+  border: 1px solid #0e0d0c;
+  box-shadow:
+    var(--stems-bevel-down),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .stems__zoom-slider,
@@ -477,6 +501,37 @@
   border-radius: 3px;
 }
 
+/* 速度行头格（节拍器脉冲目标）：随拍闪烁蓝光 */
+.stems__track-name--tempo {
+  position: relative;
+  border-radius: 4px;
+}
+
+/* 节拍刻度：开启节拍器后按段 BPM 铺在 lane 里的细线 */
+.stems__beat-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 随拍闪烁线：rAF 定位到当前拍，每拍触发展开淡出动画 */
+.stems__beat-flash {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #ffe9a8;
+  box-shadow: 0 0 8px rgba(255, 233, 168, 0.95);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+}
+
 .stems__tempo-seg--active {
   outline: 2px solid rgba(255, 255, 255, 0.9);
   outline-offset: -2px;
@@ -565,7 +620,8 @@
   box-shadow: var(--stems-panel-shadow);
 }
 
-.stems__track--muted {
+/* 实际被静音（mute，或 solo 下非独奏轨）时整轨置灰 */
+.stems__track--silenced {
   opacity: 0.55;
 }
 
