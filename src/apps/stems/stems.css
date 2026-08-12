@@ -261,12 +261,27 @@
   font-size: 13px;
 }
 
-.stems__metronome--on.ios-button {
+.stems__metronome--on.ios-button,
+.stems__sound--on.ios-button {
   color: #fff;
   background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
   border-color: #145da8;
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3);
   animation: stems-metronome-breathe 0.6s ease-in-out infinite;
+}
+
+/* 节拍器声音开关（喇叭图标）：尺寸同 ♪，点亮时复用上方蓝光 */
+.stems__sound.ios-button--icon {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stems__sound-icon {
+  display: block;
 }
 
 @keyframes stems-metronome-breathe {
@@ -738,6 +753,11 @@
   max-width: 56px;
   flex: none;
   height: 16px;
+}
+
+.stems__volume:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* 空态 */

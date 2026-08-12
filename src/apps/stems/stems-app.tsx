@@ -66,6 +66,43 @@ function applyGains(gainNodes: Map<StemId, GainNode>, tracks: StemTrackState[] |
   }
 }
 
+/**
+ * 在 ctx 时间线指定时刻合成一个节拍器 click：square 振荡器 + 40ms 指数衰减。
+ * 每 4 拍一重音（高一个八度、响度更高），模拟强弱拍；实际响度由传入的
+ * 共享 GainNode（metronomeGainRef，已设好节拍器音量）统一控制。
+ * 返回 { stop }：发声前调用可取消该 click（暂停/seek/关闭声音时 flush 用）。
+ */
+function scheduleMetronomeClick(
+  ctx: AudioContext,
+  time: number,
+  accent: boolean,
+  gain: GainNode,
+): { stop: () => void } {
+  const osc = ctx.createOscillator()
+  const node = ctx.createGain()
+  osc.type = 'square'
+  osc.frequency.value = accent ? 1760 : 1320
+  const peak = accent ? 1 : 0.7
+  node.gain.setValueAtTime(0, time)
+  node.gain.linearRampToValueAtTime(peak, time + 0.002)
+  node.gain.exponentialRampToValueAtTime(0.0001, time + 0.04)
+  osc.connect(node)
+  node.connect(gain)
+  osc.start(time)
+  osc.stop(time + 0.05)
+  return {
+    stop: () => {
+      try {
+        osc.stop()
+      } catch {
+        // 已停止（发声结束）或从未 start
+      }
+      osc.disconnect()
+      node.disconnect()
+    },
+  }
+}
+
 export function StemsApp({ windowId }: { windowId?: string }) {
   const { activeWindowId } = useOs()
   const { showSystemOpenDialog, dialog: systemDialog } = useSystemOpenDialog()
@@ -144,6 +181,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [tempoLaneWidthPx, setTempoLaneWidthPx] = useState(0)
   /** 节拍器开关：开启后在速度条显示节拍刻度与随拍脉冲 */
   const [metronomeOn, setMetronomeOn] = useState(false)
+  /** 节拍器哒哒声开关：独立于视觉 ♪，仅播放中生效 */
+  const [metronomeSoundOn, setMetronomeSoundOn] = useState(false)
+  /** 节拍器哒哒声音量（0–1，默认 0.45）：经共享 GainNode 即时生效 */
+  const [metronomeVolume, setMetronomeVolume] = useState(0.45)
+  /** 节拍器音量最新值（lookahead 调度闭包读取用，避免 effect 依赖 volume 重建） */
+  const metronomeVolumeRef = useRef(0.45)
+  /** 共享音量 GainNode：所有 click 统一经过它，拖动音量即时改增益 */
+  const metronomeGainRef = useRef<GainNode | null>(null)
+  /** 已调度未响的 click 停用器：暂停/seek/关闭时逐个取消 */
+  const metronomePendingRef = useRef<{ stop: () => void }[]>([])
+  /** 调度游标（文件时间线秒）：已调度到哪个拍点，interval tick 从它继续 */
+  const metronomeNextSchedRef = useRef(0)
   /** 波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
   /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
@@ -191,6 +240,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
   const handleSeparateRef = useRef<() => void>(() => {})
 
+  /** 取消所有已调度未响的节拍器 click（暂停/seek/关闭声音/重建 AudioContext 时调用） */
+  const flushMetronomePending = useCallback(() => {
+    const pending = metronomePendingRef.current
+    metronomePendingRef.current = []
+    for (const p of pending) {
+      try {
+        p.stop()
+      } catch {
+        // 节点已结束，忽略
+      }
+    }
+  }, [])
+
   const stopPlayback = useCallback(() => {
     bufferSourcesRef.current.forEach((source) => {
       try {
@@ -201,8 +263,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     })
     bufferSourcesRef.current = []
     gainNodesRef.current.clear()
+    flushMetronomePending()
     setPlaying(false)
-  }, [])
+  }, [flushMetronomePending])
 
   /**
    * 解码 PCM 并重建 AudioContext（旧 context 及其上的缓存一并清理，
@@ -1031,8 +1094,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const seg = tempoInfo?.segments.find((s) => now >= s.startSec && now < s.endSec)
       if (!seg) return
       const interval = 60 / seg.bpm
-      const k = Math.max(0, Math.floor((now - seg.startSec) / interval))
-      const beatTime = seg.startSec + k * interval
+      const phase = seg.phaseSec ?? 0
+      const k = Math.max(0, Math.floor((now - seg.startSec - phase) / interval))
+      const beatTime = seg.startSec + phase + k * interval
       const ratio = viewLen > 0 ? (beatTime - view.start) / viewLen : -1
       const inView = ratio >= 0 && ratio <= 1
       if (flash) {
@@ -1079,6 +1143,79 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       }
     }
   }, [metronomeOn, playing, getPlaybackTime, viewLen, view.start, tempo])
+
+  /**
+   * 节拍器哒哒声 lookahead 调度器：播放中每 25ms 查看一次，把落在
+   * [now, now+0.12s] 的拍点逐个调度到 AudioContext 时间线（精确对齐音乐时钟，
+   * 不依赖主线程调度抖动）。tick 内检测 startedAtRef 变化（seek/重启播放）→
+   * flush 已调度节点并重置游标。拍点用 seg.startSec + seg.phaseSec + k*interval，
+   * 与视觉脉冲完全一致。
+   */
+  useEffect(() => {
+    if (!metronomeSoundOn || !playing || !tempo) {
+      flushMetronomePending()
+      return
+    }
+    let lastStartedAt = startedAtRef.current
+    let lastStartOffset = startOffsetRef.current
+    metronomeNextSchedRef.current = Math.max(metronomeNextSchedRef.current, getPlaybackTime())
+    const intervalId = window.setInterval(() => {
+      const ctx = audioContextRef.current
+      if (!ctx) return
+      // seek/重启播放会重置 startedAtRef → 作废此前已调度节点，游标回到当前位置
+      if (startedAtRef.current !== lastStartedAt || startOffsetRef.current !== lastStartOffset) {
+        flushMetronomePending()
+        lastStartedAt = startedAtRef.current
+        lastStartOffset = startOffsetRef.current
+        metronomeNextSchedRef.current = getPlaybackTime()
+      }
+      const now = getPlaybackTime()
+      let cursor = Math.max(metronomeNextSchedRef.current, now)
+      const horizon = now + 0.12
+      const tempoInfo = tempoRef.current
+      if (!tempoInfo) return
+      // 共享音量 GainNode：懒创建，音量 slider 变化时由另一个 effect 即时改增益
+      let gain = metronomeGainRef.current
+      if (!gain || gain.context !== ctx) {
+        gain = ctx.createGain()
+        gain.gain.value = metronomeVolumeRef.current
+        gain.connect(ctx.destination)
+        metronomeGainRef.current = gain
+      }
+      while (cursor < horizon) {
+        const seg = tempoInfo.segments.find((s) => cursor >= s.startSec && cursor < s.endSec)
+        if (!seg) break
+        const interval = 60 / seg.bpm
+        const phase = seg.phaseSec ?? 0
+        const k = Math.max(0, Math.ceil((cursor - seg.startSec - phase) / interval - 1e-6))
+        const beatTime = seg.startSec + phase + k * interval
+        if (beatTime >= seg.endSec) {
+          cursor = seg.endSec
+          continue
+        }
+        if (beatTime >= now) {
+          // 文件内时间 t → ctx 时间 = startedAt + (t - startOffset)，与播放时钟一致
+          const fileToCtx = startedAtRef.current + (beatTime - startOffsetRef.current)
+          metronomePendingRef.current.push(
+            scheduleMetronomeClick(ctx, fileToCtx, k % 4 === 0, gain),
+          )
+        }
+        cursor = beatTime + 0.0001
+      }
+      metronomeNextSchedRef.current = cursor
+    }, 25)
+    return () => {
+      window.clearInterval(intervalId)
+      flushMetronomePending()
+    }
+  }, [metronomeSoundOn, playing, tempo, getPlaybackTime, flushMetronomePending])
+
+  // 节拍器音量：同步到 ref（lookahead 闭包读取）并即时写共享 GainNode
+  useEffect(() => {
+    metronomeVolumeRef.current = metronomeVolume
+    const gain = metronomeGainRef.current
+    if (gain) gain.gain.value = metronomeVolume
+  }, [metronomeVolume])
 
   useEffect(
     () => () => {
@@ -1169,9 +1306,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const segStart = Math.max(seg.startSec, view.start)
       const segEnd = Math.min(seg.endSec, viewEnd)
       if (segEnd <= segStart) continue
-      const first = Math.max(0, Math.ceil((segStart - seg.startSec) / interval))
+      const phase = seg.phaseSec ?? 0
+      const first = Math.max(0, Math.ceil((segStart - seg.startSec - phase) / interval))
       for (let k = first; ; k += step) {
-        const beatSec = seg.startSec + k * interval
+        const beatSec = seg.startSec + phase + k * interval
         if (beatSec >= segEnd) break
         ticks.push(((beatSec - view.start) / viewLen) * 100)
       }
@@ -1271,6 +1409,57 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             >
               ♪
             </IosButton>
+            <IosButton
+              icon
+              size="compact"
+              class={`stems__sound${metronomeSoundOn ? ' stems__sound--on' : ''}`}
+              disabled={!tempo}
+              title={
+                tempo
+                  ? metronomeSoundOn
+                    ? '关闭节拍器声音'
+                    : '开启节拍器声音：随拍播放哒哒声'
+                  : '节拍器需要先完成速度检测'
+              }
+              aria-label="节拍器声音"
+              onClick={() => setMetronomeSoundOn((on) => !on)}
+            >
+              <svg
+                class="stems__sound-icon"
+                viewBox="0 0 16 16"
+                width="14"
+                height="14"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M2 6.2v3.6h2.2l3.4 3V3.2l-3.4 3H2z" />
+                <path
+                  d="M10.8 5.4a3.2 3.2 0 0 1 0 5.2"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M12.6 3.8a5.6 5.6 0 0 1 0 8.4"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </IosButton>
+            <input
+              type="range"
+              class="stems__volume"
+              min={0}
+              max={1}
+              step={0.01}
+              value={metronomeVolume}
+              disabled={!tempo}
+              onChange={(event) => setMetronomeVolume(Number(event.currentTarget.value))}
+              aria-label="节拍器音量"
+            />
           </div>
 
           <div class="stems__tempo-row">

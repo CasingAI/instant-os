@@ -64,7 +64,7 @@ function normalizeTempo(raw: unknown): TempoInfo | undefined {
   const segments: TempoInfo['segments'] = []
   for (const item of obj.segments) {
     if (typeof item !== 'object' || item === null) return undefined
-    const seg = item as { startSec?: unknown; endSec?: unknown; bpm?: unknown }
+    const seg = item as { startSec?: unknown; endSec?: unknown; bpm?: unknown; phaseSec?: unknown }
     if (
       typeof seg.startSec !== 'number' ||
       typeof seg.endSec !== 'number' ||
@@ -75,7 +75,14 @@ function normalizeTempo(raw: unknown): TempoInfo | undefined {
     ) {
       return undefined
     }
-    segments.push({ startSec: seg.startSec, endSec: seg.endSec, bpm: seg.bpm })
+    // 旧存档无 phaseSec 字段：兜底 0（拍点从段起点硬数，行为同旧版本）
+    segments.push({
+      startSec: seg.startSec,
+      endSec: seg.endSec,
+      bpm: seg.bpm,
+      phaseSec:
+        typeof seg.phaseSec === 'number' && Number.isFinite(seg.phaseSec) ? seg.phaseSec : 0,
+    })
   }
   return { bpm: obj.bpm, segments }
 }

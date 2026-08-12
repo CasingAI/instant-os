@@ -12,17 +12,17 @@ import { detectTempo } from './stems-tempo.ts'
 import { TEMPO_SAMPLE_RATE } from './stems-tempo.ts'
 
 /** 合成节拍点击轨：每拍一个短促衰减爆音（正弦 + 噪声），双声道 interleaved。
- *  每段只在自己的 [startSec, endSec) 时间窗内发声。 */
+ *  每段只在自己的 [startSec, endSec) 时间窗内发声；鼓点落在
+ *  startSec + phaseOffsetSec + k*interval（phaseOffsetSec 默认 0 = 段起点即整拍）。 */
 function synthClickTrack(
-  bpms: { startSec: number; endSec: number; bpm: number }[],
+  bpms: { startSec: number; endSec: number; bpm: number; phaseOffsetSec?: number }[],
   durationSec: number,
 ): Float32Array {
   const frames = Math.round(durationSec * TEMPO_SAMPLE_RATE)
   const mono = new Float32Array(frames)
-  for (const { startSec, endSec, bpm } of bpms) {
+  for (const { startSec, endSec, bpm, phaseOffsetSec = 0 } of bpms) {
     const intervalSec = 60 / bpm
-    // 从段落起点对齐到整拍
-    let t = Math.ceil(startSec / intervalSec) * intervalSec
+    let t = startSec + phaseOffsetSec
     while (t < endSec) {
       const center = Math.round(t * TEMPO_SAMPLE_RATE)
       const clickLen = Math.round(0.04 * TEMPO_SAMPLE_RATE)
@@ -86,6 +86,35 @@ function synthClickTrack(
 {
   const silence = new Float32Array(TEMPO_SAMPLE_RATE * 10 * 2)
   assert.equal(detectTempo(silence, TEMPO_SAMPLE_RATE), null, '静音应判定为无节拍')
+}
+
+// —— 5. 倍频消歧：138 BPM 快鼓不被锁成 69 ——
+// 自相关对滞后 P 与 2P 同分（无短周期偏好），旧实现常把 138 锁成 69；
+// 联合精化应对候选 {69, 138} 选出「每拍都踩中 onset」的 138。
+{
+  const audio = synthClickTrack([{ startSec: 0, endSec: 30, bpm: 138 }], 30)
+  const tempo = detectTempo(audio, TEMPO_SAMPLE_RATE)
+  assert.ok(tempo !== null)
+  assert.equal(tempo.segments.length, 1, `应为单段，实际 ${tempo.segments.length} 段`)
+  assert.ok(
+    Math.abs(tempo.segments[0].bpm - 138) <= 2,
+    `BPM ${tempo.segments[0].bpm} 应为 138±2（倍频消歧失败会锁 69）`,
+  )
+}
+
+// —— 6. 相位对齐：鼓点落在 0.13s 相位 → phaseSec 与真实相位差 < 20ms ——
+// 旧实现拍点从段起点硬数（相位恒 0），真实鼓点偏 0.13s 时会整段错位一拍内；
+// 联合精化应在 ≤10ms 网格上把相位对齐到真实鼓点位置。
+{
+  const audio = synthClickTrack([{ startSec: 0, endSec: 30, bpm: 96, phaseOffsetSec: 0.13 }], 30)
+  const tempo = detectTempo(audio, TEMPO_SAMPLE_RATE)
+  assert.ok(tempo !== null)
+  assert.equal(tempo.segments.length, 1, `应为单段，实际 ${tempo.segments.length} 段`)
+  assert.ok(Math.abs(tempo.segments[0].bpm - 96) <= 2, `BPM ${tempo.segments[0].bpm} 应为 96±2`)
+  assert.ok(
+    Math.abs(tempo.segments[0].phaseSec - 0.13) < 0.02,
+    `phaseSec ${tempo.segments[0].phaseSec} 应与真实相位 0.13s 差 <20ms`,
+  )
 }
 
 console.log('stems-tempo tests OK')

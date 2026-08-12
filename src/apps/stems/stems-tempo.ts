@@ -19,6 +19,11 @@ export type TempoSegment = {
   endSec: number
   /** 段内 BPM */
   bpm: number
+  /**
+   * 段内第一拍相对段起点的偏移（秒，∈ [0, 拍间隔)）。
+   * 检测输出必填；旧存档缺失时由载入端兜底 0。
+   */
+  phaseSec: number
 }
 
 export type TempoInfo = {
@@ -147,6 +152,82 @@ function secToIdx(sec: number, onsetLength: number, onsetDurationSec: number): n
 }
 
 /**
+ * 联合精化：对一段做倍频消歧 + 相位对齐。
+ *
+ * 候选 BPM 取 {b/2, b, 2b} ∩ [60, 200]（b 来自整段自相关精化值）。自相关本身
+ * 对滞后 P 与 2P 给同样高分（倍频混叠根因）；若只按「拍点能量均值」打分，半速
+ * 的拍点恰好全落在真实鼓点上（只是漏掉一半鼓点），均值与完整速度持平，消歧无效。
+ * 因此改按「拍点能量 − 反相点能量」的均值判别：完整速度下拍点踩强拍、反相点落
+ * 在两拍之间（弱拍/空隙），差值大；半速下反相点恰好是漏掉的真实鼓点，差值趋零。
+ *
+ * 对每个候选，在 [0, interval) 内以 ≤10ms 网格扫描相位 φ（段内第一拍偏移），
+ * 拍点 = segStart + φ + k*interval，返回得分最高的 { bpm, phaseSec } 组合。
+ */
+function refineBpmPhase(
+  onset: Float32Array,
+  onsetDurationSec: number,
+  segStart: number,
+  segEnd: number,
+  candidateBpm: number,
+): { bpm: number; phaseSec: number; score: number } {
+  const candidates: number[] = []
+  for (const mult of [0.5, 1, 2]) {
+    const bpm = candidateBpm * mult
+    if (bpm >= TEMPO_MIN_BPM && bpm <= TEMPO_MAX_BPM && !candidates.includes(bpm)) {
+      candidates.push(bpm)
+    }
+  }
+  const idxAt = (sec: number): number =>
+    Math.min(onset.length - 1, Math.max(0, Math.floor((sec / onsetDurationSec) * onset.length)))
+  let best: { bpm: number; phaseSec: number; score: number } = {
+    bpm: candidateBpm,
+    phaseSec: 0,
+    score: -Infinity,
+  }
+  const phaseStepSec = 0.01
+  for (const bpm of candidates) {
+    const interval = 60 / bpm
+    const halfInterval = interval / 2
+    const phaseSteps = Math.max(1, Math.ceil(interval / phaseStepSec))
+    for (let p = 0; p < phaseSteps; p++) {
+      const phaseSec = (p / phaseSteps) * interval
+      let acc = 0
+      let antiAcc = 0
+      let beats = 0
+      for (let t = segStart + phaseSec; t < segEnd; t += interval) {
+        acc += onset[idxAt(t)]
+        antiAcc += onset[idxAt(t + halfInterval)]
+        beats += 1
+      }
+      const score = beats > 0 ? (acc - antiAcc) / beats : -Infinity
+      if (score > best.score) {
+        best = { bpm, phaseSec, score }
+      }
+    }
+  }
+  return best
+}
+
+/**
+ * 合并相邻同速段（BPM 相对差 < TEMPO_MERGE_RATIO）：前段终点延伸到后段，
+ * BPM 取两者的 3:7 加权混合（与既有合并逻辑一致）。
+ */
+function mergeAdjacentSegments(segs: TempoSegment[]): void {
+  let j = 1
+  while (j < segs.length) {
+    const prev = segs[j - 1]
+    const cur = segs[j]
+    if (Math.abs(prev.bpm - cur.bpm) / prev.bpm < TEMPO_MERGE_RATIO) {
+      prev.endSec = cur.endSec
+      prev.bpm = Math.round(prev.bpm + (cur.bpm - prev.bpm) * 0.3)
+      segs.splice(j, 1)
+    } else {
+      j += 1
+    }
+  }
+}
+
+/**
  * 检测全曲分段 BPM。data 为 interleaved stereo Float32（44.1kHz，鼓轨）。
  * 输入过短（<2 秒）或无可测节拍时返回 null。
  */
@@ -181,7 +262,7 @@ export function detectTempo(
   if (windows.length === 0) return null
 
   // 2. 相邻窗口 BPM 相近 → 合并成段
-  const segs: { startSec: number; endSec: number; bpm: number }[] = []
+  const segs: TempoSegment[] = []
   for (let i = 0; i < windows.length; i++) {
     const start = windows[i].startSec
     const end = i < windows.length - 1 ? windows[i + 1].startSec : durationSec
@@ -190,7 +271,7 @@ export function detectTempo(
       last.endSec = end
       last.bpm = Math.round(last.bpm + (windows[i].bpm - last.bpm) * 0.3)
     } else {
-      segs.push({ startSec: start, endSec: end, bpm: windows[i].bpm })
+      segs.push({ startSec: start, endSec: end, bpm: windows[i].bpm, phaseSec: 0 })
     }
   }
   segs[0].startSec = 0
@@ -235,23 +316,25 @@ export function detectTempo(
     if (refined > 0) seg.bpm = Math.round(refined)
   }
 
-  // 4b. 精化后再合并相邻同速段：步骤 2 的合并基于窗口原始 BPM（倍频 69↔138 会被 8%
-  //     阈值切开），而步骤 4 整段精化会让相邻段收敛到同一 BPM（如都回到 69）。
-  //     此时若不再合并一次，会出现「相邻同 BPM 却没合并」的碎段。
-  let j = 1
-  while (j < segs.length) {
-    const prev = segs[j - 1]
-    const cur = segs[j]
-    if (Math.abs(prev.bpm - cur.bpm) / prev.bpm < TEMPO_MERGE_RATIO) {
-      prev.endSec = cur.endSec
-      prev.bpm = Math.round(prev.bpm + (cur.bpm - prev.bpm) * 0.3)
-      segs.splice(j, 1)
-    } else {
-      j += 1
-    }
+  // 5. 每段联合精化：倍频消歧（{b/2, b, 2b}）+ 相位对齐（≤10ms 相位网格）。
+  //    同一段内窗口 BPM 一致（步骤 2 已按 8% 阈值合并），消歧结果不会把段再切碎。
+  for (const seg of segs) {
+    const refined = refineBpmPhase(onset, onsetDurationSec, seg.startSec, seg.endSec, seg.bpm)
+    seg.bpm = Math.round(refined.bpm)
+    seg.phaseSec = refined.phaseSec
   }
 
-  // 5. 全曲主速度 = 按时长加权
+  // 6. 联合精化后再合并相邻同速段：步骤 5 的消歧会让相邻段收敛到同一真实 BPM
+  //    （如都消歧回 138，步骤 2 却按窗口原始 69↔138 切成了两段），此时应合并；
+  //    合并后段的 BPM 是加权混合值，重跑一次联合精化补回相位。
+  mergeAdjacentSegments(segs)
+  for (const seg of segs) {
+    const refined = refineBpmPhase(onset, onsetDurationSec, seg.startSec, seg.endSec, seg.bpm)
+    seg.bpm = Math.round(refined.bpm)
+    seg.phaseSec = refined.phaseSec
+  }
+
+  // 7. 全曲主速度 = 按时长加权
   let total = 0
   let weightSum = 0
   for (const seg of segs) {
@@ -263,6 +346,11 @@ export function detectTempo(
 
   return {
     bpm: overall,
-    segments: segs.map((s) => ({ startSec: s.startSec, endSec: s.endSec, bpm: s.bpm })),
+    segments: segs.map((s) => ({
+      startSec: s.startSec,
+      endSec: s.endSec,
+      bpm: s.bpm,
+      phaseSec: s.phaseSec,
+    })),
   }
 }
