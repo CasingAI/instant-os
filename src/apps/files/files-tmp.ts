@@ -99,8 +99,22 @@ export function resolveSessionTmpDir(options: {
   return TMP_ROOT
 }
 
+/** 同路径并发 ensure 去重：共享同一 Promise，避免重复创建同名目录 */
+const ensureTmpFolderInflight = new Map<string, Promise<FilesNode>>()
+
 /** 确保 tmp 卷下文件夹链存在（可写）。 */
 export async function ensureTmpFolder(absolutePath: string): Promise<FilesNode> {
+  const key = absolutePath.trim().replace(/\/+$/, '') || '/'
+  const inflight = ensureTmpFolderInflight.get(key)
+  if (inflight) return inflight
+  const run = ensureTmpFolderInner(key).finally(() => {
+    ensureTmpFolderInflight.delete(key)
+  })
+  ensureTmpFolderInflight.set(key, run)
+  return run
+}
+
+async function ensureTmpFolderInner(absolutePath: string): Promise<FilesNode> {
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed || parsed.locationId !== 'tmp') {
     throw new Error(`无效的临时路径：${absolutePath}`)

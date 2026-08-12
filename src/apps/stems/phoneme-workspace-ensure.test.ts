@@ -6,9 +6,12 @@
 import 'fake-indexeddb/auto'
 import assert from 'node:assert/strict'
 import { filesReadText, filesStat } from '../files/files-api.ts'
-import { resetFilesDbForTests } from '../files/files-storage.ts'
+import { listChildNodes, resetFilesDbForTests } from '../files/files-storage.ts'
 import { ensureTmpFolder } from '../files/files-tmp.ts'
-import { invalidateFilesVfsPathCaches } from '../files/files-vfs.ts'
+import {
+  invalidateFilesVfsPathCaches,
+  resolveNodeByAbsolutePath,
+} from '../files/files-vfs.ts'
 
 /** 与 phoneme-app.tsx writeTextOrCreate 完全一致 */
 async function writeTextOrCreate(path: string, text: string): Promise<void> {
@@ -52,8 +55,44 @@ async function testWorkspaceChain(): Promise<void> {
   assert.equal(await filesReadText(`${workspaceDir}/lyrics.txt`), '新歌词')
 }
 
+/**
+ * 并发 ensure 去重回归：App 的 ensureAlignSession 与 QuickJS boot 的
+ * ensureTmpSessionDir 会并发确保同一 tmpdir 路径。修复前两者各 createFolderNode，
+ * 在 /tmp/Terminal 下产生同名重复目录 → 路径解析随机命中副本 → 写文件报「父文件夹不存在」。
+ */
+async function testConcurrentEnsure(): Promise<void> {
+  await resetFilesDbForTests()
+  invalidateFilesVfsPathCaches()
+
+  const dir = '/tmp/Terminal/vsterm-concurrent-1/phoneme-align'
+
+  // 并发 ensure 同一路径：必须复用同一创建，返回相同节点 id
+  const [first, second] = await Promise.all([ensureTmpFolder(dir), ensureTmpFolder(dir)])
+  assert.equal(first.id, second.id, '并发 ensure 应返回同一节点')
+
+  // 路径可解析且为文件夹
+  const resolved = await resolveNodeByAbsolutePath(dir)
+  assert.ok(resolved, '并发 ensure 后路径应可解析')
+  assert.equal(resolved!.kind, 'folder')
+
+  // 父目录下该名字不得出现重复兄弟（修复前的竞态产物）
+  const terminalDir = await resolveNodeByAbsolutePath('/tmp/Terminal')
+  assert.ok(terminalDir, '终端根目录应可解析')
+  const siblings = await listChildNodes('tmp', terminalDir!.id)
+  assert.equal(
+    siblings.filter((c) => c.name === 'vsterm-concurrent-1').length,
+    1,
+    '同一路径不得有重复目录兄弟',
+  )
+
+  // 并发 ensure 后写入素材文件正常（父目录解析稳定）
+  await writeTextOrCreate(`${dir}/lyrics.txt`, '第一行\n第二行')
+  assert.equal((await filesReadText(`${dir}/lyrics.txt`)).includes('第一行'), true)
+}
+
 async function runAll(): Promise<void> {
   await testWorkspaceChain()
+  await testConcurrentEnsure()
   console.log('phoneme-workspace-ensure: 全部通过')
 }
 
