@@ -612,6 +612,8 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               onSeek={seekTo}
               offsetMs={lyricOffsetMs}
               onLyricOffsetChange={handleLyricOffsetChange}
+              trackId={playerState.current?.id}
+              vfsRef={playerState.current?.vfsRef}
             />
           </div>
 

@@ -705,6 +705,15 @@
   inset: 0;
 }
 
+.music__visualizer-stage > .music__stems-viz {
+  background: #07070c;
+}
+
+.music__stems-status {
+  position: absolute;
+  inset: 0;
+}
+
 /* 歌词舞台（逐字 / 动画） */
 .music__stage {
   position: absolute;

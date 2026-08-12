@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import type { LyricsLine } from './music-lyrics.ts'
 import { MusicAmbientBackdrop } from './music-ambient-backdrop.tsx'
@@ -6,8 +6,19 @@ import { MusicLyricsAmbient } from './music-lyrics-ambient.tsx'
 import { MusicLyricsOffsetBar } from './music-lyrics-offset-bar.tsx'
 import { MusicLyricsStage } from './music-lyrics-stage.tsx'
 import { MusicSpectrumCanvas, type MusicSpectrumMode } from './music-spectrum-canvas.tsx'
+import type { StemVizFeatures } from './music-stems-features.ts'
+import {
+  ensureStemFeatures,
+  getCachedStemFeatures,
+  type StemFeaturesProgress,
+} from './music-stems-session.ts'
+import { probeStemsSidecar } from './music-stems-resolve.ts'
+import {
+  MusicStemsVizCanvas,
+  type MusicStemsVizMode,
+} from './music-stems-viz-canvas.tsx'
 
-type VisualizerCategory = 'music' | 'lyrics'
+type VisualizerCategory = 'music' | 'stems' | 'lyrics'
 type LyricsEffect = 'karaoke' | 'ambient' | 'motion'
 
 type MusicVisualizationViewProps = {
@@ -19,11 +30,15 @@ type MusicVisualizationViewProps = {
   offsetMs?: number
   /** 歌词偏移变化（由「歌词可视化」内的调节条触发） */
   onLyricOffsetChange?: (ms: number) => void
+  /** 当前曲目 id（分轨特征缓存键） */
+  trackId?: string
+  /** 当前曲目 VFS 节点 id，用于解析同名 `.stems.zip` */
+  vfsRef?: string
 }
 
 /**
- * 全屏可视化视图：SegmentedControl 切换「音乐可视化 / 歌词可视化」两大套，
- * 每套内部再切换具体效果。底部播放器由外层保留。
+ * 全屏可视化视图：SegmentedControl 切换「音乐 / 分轨 / 歌词」；
+ * 分轨分类仅在探测到侧车时出现。
  */
 export function MusicVisualizationView({
   lines,
@@ -31,22 +46,108 @@ export function MusicVisualizationView({
   onSeek,
   offsetMs = 0,
   onLyricOffsetChange,
+  trackId,
+  vfsRef,
 }: MusicVisualizationViewProps) {
   const [category, setCategory] = useState<VisualizerCategory>('music')
   const [musicEffect, setMusicEffect] = useState<MusicSpectrumMode>('bars')
+  const [stemsEffect, setStemsEffect] = useState<MusicStemsVizMode>('rings')
   const [lyricsEffect, setLyricsEffect] = useState<LyricsEffect>('karaoke')
+  const [hasStems, setHasStems] = useState(false)
+  const [stemsProgress, setStemsProgress] = useState<StemFeaturesProgress>({ phase: 'idle' })
+  const [stemsFeatures, setStemsFeatures] = useState<StemVizFeatures | undefined>()
 
   const hasLyrics = lines !== undefined && lines.length > 0
+
+  // 切歌 / 打开时探测侧车
+  useEffect(() => {
+    let cancelled = false
+    setHasStems(false)
+    setStemsFeatures(undefined)
+    setStemsProgress({ phase: 'idle' })
+    setCategory((prev) => (prev === 'stems' ? 'music' : prev))
+    if (!vfsRef || !trackId) {
+      return () => {
+        cancelled = true
+      }
+    }
+    const cached = getCachedStemFeatures(trackId)
+    if (cached) {
+      setHasStems(true)
+      setStemsFeatures(cached)
+      setStemsProgress({ phase: 'ready' })
+      return () => {
+        cancelled = true
+      }
+    }
+    void probeStemsSidecar(vfsRef).then((found) => {
+      if (!cancelled) setHasStems(found)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [trackId, vfsRef])
+
+  // 侧车消失时离开分轨分类
+  useEffect(() => {
+    if (!hasStems && category === 'stems') {
+      setCategory('music')
+    }
+  }, [hasStems, category])
+
+  // 进入分轨分类时懒加载特征
+  useEffect(() => {
+    if (category !== 'stems' || !trackId || !vfsRef || !hasStems) return
+    let cancelled = false
+    const cached = getCachedStemFeatures(trackId)
+    if (cached) {
+      setStemsFeatures(cached)
+      setStemsProgress({ phase: 'ready' })
+      return
+    }
+    void ensureStemFeatures({
+      trackId,
+      vfsRef,
+      onProgress: (progress) => {
+        if (!cancelled) setStemsProgress(progress)
+      },
+    }).then((features) => {
+      if (!cancelled) setStemsFeatures(features)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [category, trackId, vfsRef, hasStems])
+
+  const categoryItems: { id: VisualizerCategory; label: string }[] = [
+    { id: 'music', label: '音乐可视化' },
+    ...(hasStems ? [{ id: 'stems' as const, label: '分轨可视化' }] : []),
+    { id: 'lyrics', label: '歌词可视化' },
+  ]
+
+  const stemsStatusText = (() => {
+    switch (stemsProgress.phase) {
+      case 'probing':
+        return '正在查找分轨…'
+      case 'loading':
+        return `正在解压分轨 ${stemsProgress.loaded}/${stemsProgress.total}…`
+      case 'extracting':
+        return '正在提取分轨特征…'
+      case 'error':
+        return stemsProgress.message || '分轨文件损坏或无法读取'
+      case 'missing':
+        return '未找到分轨文件'
+      default:
+        return undefined
+    }
+  })()
 
   return (
     <>
       <div class="music__visualizer-controls">
         <SegmentedControl
           value={category}
-          items={[
-            { id: 'music', label: '音乐可视化' },
-            { id: 'lyrics', label: '歌词可视化' },
-          ]}
+          items={categoryItems}
           onChange={setCategory}
           ariaLabel="可视化类型"
         />
@@ -60,6 +161,18 @@ export function MusicVisualizationView({
             ]}
             onChange={setMusicEffect}
             ariaLabel="音乐效果"
+          />
+        ) : category === 'stems' ? (
+          <SegmentedControl
+            value={stemsEffect}
+            items={[
+              { id: 'rings', label: '轨环' },
+              { id: 'nebula', label: '星云' },
+              { id: 'lattice', label: '晶格' },
+              { id: 'cascade', label: '轨瀑' },
+            ]}
+            onChange={setStemsEffect}
+            ariaLabel="分轨效果"
           />
         ) : (
           <>
@@ -83,6 +196,22 @@ export function MusicVisualizationView({
       <div class="music__visualizer-stage">
         {category === 'music' ? (
           <MusicSpectrumCanvas mode={musicEffect} />
+        ) : category === 'stems' ? (
+          stemsFeatures ? (
+            <MusicStemsVizCanvas mode={stemsEffect} features={stemsFeatures} />
+          ) : (
+            <div class="music__empty music__stems-status">
+              <span class="music__empty-note" aria-hidden="true">
+                ♪
+              </span>
+              <p class="music__empty-title">
+                {stemsProgress.phase === 'error' || stemsProgress.phase === 'missing'
+                  ? '无法加载分轨'
+                  : '加载分轨中'}
+              </p>
+              <p class="music__empty-hint">{stemsStatusText ?? '请稍候…'}</p>
+            </div>
+          )
         ) : !hasLyrics ? (
           <div class="music__empty">
             <span class="music__empty-note" aria-hidden="true">
