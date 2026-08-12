@@ -4,27 +4,40 @@
  *
  * 打包用 fflate 的流式 Zip：Float32 → 16-bit PCM 按块转换，压缩输出分块写
  * 入注入的 sink（VFS 流式写），全程不产生整包大数组。
+ * WAV 与峰值表条目用 STORE（不压缩）：PCM16 几乎压不动，deflate 只浪费 CPU；
+ * 仅 `stems.json`（体积小、可压缩）用 DEFLATE。
  * 解包同样流式：逐条目解压，单条 WAV 暂存内存后直接解码为 Float32。
  */
 
-import { Unzip, UnzipInflate, Zip, ZipDeflate } from 'fflate'
-import { STEM_CHANNELS, encodeWavHeader } from './stems-separator.ts'
+import { Unzip, UnzipInflate, Zip, ZipDeflate, ZipPassThrough, inflateSync } from 'fflate'
+import { buildWaveformPyramid, STEM_CHANNELS, encodeWavHeader } from './stems-separator.ts'
+import type { WaveformPyramid } from './stems-separator.ts'
 import { STEM_IDS } from './stems-types.ts'
 import type { StemAudio, StemId } from './stems-types.ts'
 import type { TempoInfo } from './stems-tempo.ts'
 
 export const STEMS_ARCHIVE_EXTENSION = '.stems.zip'
 export const STEMS_MANIFEST_ENTRY = 'stems.json'
-/** v2：分轨产物从 6 轨扩展为 7 轨（新增 other2「其他二」）。 */
-export const STEMS_MANIFEST_VERSION = 2
+/** 压缩包内波形峰值表条目（7 轨金字塔的二进制拼接；v3 引入）。 */
+export const STEMS_PEAKS_ENTRY = 'peaks.bin'
+/** v2：分轨产物从 6 轨扩展为 7 轨（新增 other2「其他二」）。
+ * v3：WAV 改 STORE 不压缩，新增 peaks.bin 波形峰值表（加载跳过全量扫描）。
+ * 解析兼容 v2（无 peaks.bin 时加载端回退重算）。 */
+export const STEMS_MANIFEST_VERSION = 3
+const STEMS_MANIFEST_VERSION_LEGACY = 2
 
 /** 分轨压缩包内单条 WAV 的文件名（用稳定 id，与显示标签解耦）。 */
 export function stemWavEntryName(stemId: StemId): string {
   return `${stemId}.wav`
 }
 
-/** 压缩包内全部条目的文件名（manifest + 7 条 WAV）。 */
+/** 压缩包内全部条目的文件名（manifest + 7 条 WAV + 峰值表）。 */
 export function stemsArchiveEntryNames(): string[] {
+  return [STEMS_MANIFEST_ENTRY, STEMS_PEAKS_ENTRY, ...STEM_IDS.map((id) => stemWavEntryName(id))]
+}
+
+/** 必需条目（manifest + 7 条 WAV）；peaks.bin 可选（v2 旧包无）。 */
+export function stemsArchiveRequiredEntryNames(): string[] {
   return [STEMS_MANIFEST_ENTRY, ...STEM_IDS.map((id) => stemWavEntryName(id))]
 }
 
@@ -99,11 +112,13 @@ export function buildStemsManifest(meta: {
   return manifest
 }
 
-/** 解析并校验 stems.json 内容；不合法返回 null。 */
+/** 解析并校验 stems.json 内容；不合法返回 null。兼容 v2（无 peaks.bin）与 v3。 */
 export function parseStemsManifest(json: string): StemsManifest | null {
   try {
     const raw = JSON.parse(json) as Partial<StemsManifest>
-    if (raw.version !== STEMS_MANIFEST_VERSION) return null
+    if (raw.version !== STEMS_MANIFEST_VERSION && raw.version !== STEMS_MANIFEST_VERSION_LEGACY) {
+      return null
+    }
     if (typeof raw.sourcePath !== 'string') return null
     if (typeof raw.sampleRate !== 'number' || typeof raw.durationSec !== 'number') return null
     if (!Array.isArray(raw.stems) || raw.stems.length !== STEM_IDS.length) return null
@@ -167,16 +182,74 @@ export function encodeStemWavBytes(data: Float32Array, sampleRate: number): Uint
 
 /** 16-bit 小端 PCM WAV 字节 → interleaved stereo Float32（我们写的标准 44 字节头）。 */
 export function decodeStemWavBytes(bytes: Uint8Array): Float32Array {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const frames = (bytes.byteLength - 44) / (STEM_CHANNELS * 2)
-  const data = new Float32Array(frames * STEM_CHANNELS)
-  let offset = 44
-  for (let i = 0; i < data.length; i++) {
-    const s = view.getInt16(offset, true)
-    data[i] = s < 0 ? s / 0x8000 : s / 0x7fff
-    offset += 2
+  const pcmBytes = bytes.byteLength - 44
+  const sampleCount = pcmBytes / 2
+  const data = new Float32Array(sampleCount)
+  // 对齐时用 Int16Array 视图批量读（比逐采样 DataView.getInt16 快）；
+  // 非对齐（zip STORE 条目 subarray 起点任意）时回退 DataView
+  if ((bytes.byteOffset + 44) % 2 === 0) {
+    const view = new Int16Array(bytes.buffer, bytes.byteOffset + 44, sampleCount)
+    for (let i = 0; i < sampleCount; i++) {
+      const s = view[i]
+      data[i] = s < 0 ? s / 0x8000 : s / 0x7fff
+    }
+  } else {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + 44, pcmBytes)
+    for (let i = 0; i < sampleCount; i++) {
+      const s = view.getInt16(i * 2, true)
+      data[i] = s < 0 ? s / 0x8000 : s / 0x7fff
+    }
   }
   return data
+}
+
+/**
+ * 把 7 轨波形峰值金字塔序列化为 `peaks.bin` 字节（按 STEM_IDS 顺序）：
+ * 每轨 = uint32 bucketSamples + uint32 bucketCount + float32[bucketCount] min + float32[bucketCount] max。
+ * 峰值表相对 PCM 极小（~1ms/桶，4 分钟歌每轨约 1MB），STORE 写入无需压缩。
+ */
+export function serializeWaveformPeaks(
+  stems: StemAudio[],
+  sampleRate: number,
+): Uint8Array {
+  let totalBytes = 0
+  const pyramids: WaveformPyramid[] = stems.map((stem) => buildWaveformPyramid(stem.data, sampleRate))
+  for (const p of pyramids) totalBytes += 8 + p.bucketCount * 4 * 2
+  const out = new Uint8Array(totalBytes)
+  const view = new DataView(out.buffer)
+  let offset = 0
+  for (const p of pyramids) {
+    view.setUint32(offset, p.bucketSamples, true)
+    offset += 4
+    view.setUint32(offset, p.bucketCount, true)
+    offset += 4
+    new Float32Array(out.buffer, out.byteOffset + offset, p.bucketCount).set(p.min)
+    offset += p.bucketCount * 4
+    new Float32Array(out.buffer, out.byteOffset + offset, p.bucketCount).set(p.max)
+    offset += p.bucketCount * 4
+  }
+  return out
+}
+
+/** 反序列化 `peaks.bin` → 各轨金字塔（零拷贝视图）。损坏/不完整时返回空 Map。 */
+export function deserializeWaveformPeaks(bytes: Uint8Array): Map<StemId, WaveformPyramid> {
+  const peaks = new Map<StemId, WaveformPyramid>()
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let offset = 0
+  for (const stemId of STEM_IDS) {
+    if (offset + 8 > bytes.byteLength) break
+    const bucketSamples = view.getUint32(offset, true)
+    offset += 4
+    const bucketCount = view.getUint32(offset, true)
+    offset += 4
+    if (bucketCount === 0 || offset + bucketCount * 8 > bytes.byteLength) break
+    const min = new Float32Array(bytes.buffer, bytes.byteOffset + offset, bucketCount)
+    offset += bucketCount * 4
+    const max = new Float32Array(bytes.buffer, bytes.byteOffset + offset, bucketCount)
+    offset += bucketCount * 4
+    peaks.set(stemId, { bucketSamples, bucketCount, min, max })
+  }
+  return peaks
 }
 
 /** 保存时的输出目标（由调用方注入；浏览器端接 VFS 流式写）。 */
@@ -202,7 +275,7 @@ export type SaveStemsOptions = {
 const EMPTY_CHUNK = new Uint8Array(0)
 
 /**
- * 流式打包 7 轨 + manifest 为 zip，写入 sink。
+ * 流式打包 manifest + 峰值表 + 7 条 WAV 为 zip，写入 sink。
  * 每 push 一块输入后立即排空压缩输出（串行 await 写入），峰值内存 ≈ 单块大小。
  */
 export async function saveStemsArchive(options: SaveStemsOptions): Promise<void> {
@@ -227,7 +300,10 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     if (zipError) throw zipError
   }
 
-  const pushEntry = async (entry: ZipDeflate, chunks: Iterable<Uint8Array>): Promise<void> => {
+  const pushEntry = async (
+    entry: ZipDeflate | ZipPassThrough,
+    chunks: Iterable<Uint8Array>,
+  ): Promise<void> => {
     zip.add(entry)
     for (const chunk of chunks) {
       entry.push(chunk, false)
@@ -241,6 +317,10 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     await pushEntry(new ZipDeflate(STEMS_MANIFEST_ENTRY), [
       new TextEncoder().encode(JSON.stringify(manifest)),
     ])
+    // 峰值表紧跟 manifest：加载端快路径只读这两个条目就先出 UI/波形（见 readStemsArchiveLayout）
+    await pushEntry(new ZipPassThrough(STEMS_PEAKS_ENTRY), [
+      serializeWaveformPeaks(stems, sampleRate),
+    ])
     let saved = 0
     for (const stem of stems) {
       const frames = Math.floor(stem.data.length / STEM_CHANNELS)
@@ -250,7 +330,8 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
           yield convertToPcm16(stem.data, f, Math.min(frames, f + WAV_CHUNK_FRAMES))
         }
       })()
-      await pushEntry(new ZipDeflate(stemWavEntryName(stem.stemId)), chunks)
+      // WAV 用 STORE（不压缩）：PCM16 不可压缩，跳过 deflate 省 CPU
+      await pushEntry(new ZipPassThrough(stemWavEntryName(stem.stemId)), chunks)
       saved += 1
       onProgress?.(saved, stems.length)
     }
@@ -272,21 +353,25 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
 export type LoadedStems = {
   manifest: StemsManifest
   stems: StemAudio[]
+  /** 各轨波形峰值金字塔（v3 包从 peaks.bin 读出；v2 旧包为空 Map） */
+  peaks: Map<StemId, WaveformPyramid>
 }
 
 /** 读 blob 的分块大小（4 MiB）。 */
 const READ_CHUNK_BYTES = 4 << 20
 
 /**
- * 流式解包：逐条目解压（单条暂存内存），返回 manifest + 7 轨 Float32。
+ * 流式解包：逐条目解压（单条暂存内存），返回 manifest + 7 轨 Float32 + 峰值表。
  * manifest 缺失/损坏、缺轨或条目与 manifest 不一致时抛错。
+ * 进度只统计必需条目（manifest + 7 WAV），peaks.bin 不计入（v2 旧包无此条目）。
  */
 export async function loadStemsArchive(
   blob: Blob,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<LoadedStems> {
   const entries = new Map<string, Uint8Array>()
-  const totalEntries = stemsArchiveEntryNames().length
+  const requiredNames = stemsArchiveRequiredEntryNames()
+  const totalEntries = requiredNames.length
   const unzip = new Unzip((file) => {    const chunks: Uint8Array[] = []
     let size = 0
     file.ondata = (err, chunk, final) => {
@@ -303,7 +388,9 @@ export async function loadStemsArchive(
           offset += c.length
         }
         entries.set(file.name, merged)
-        onProgress?.(entries.size, totalEntries)
+        let loaded = 0
+        for (const name of requiredNames) if (entries.has(name)) loaded += 1
+        onProgress?.(loaded, totalEntries)
       }
     }
     // 必须调用 start() 才开始解压该条目（fflate 流式 Unzip 的要求）
@@ -334,5 +421,94 @@ export async function loadStemsArchive(
     if (!bytes) throw new Error(`压缩包缺少 ${item.file}，无法载入`)
     stems.push({ stemId: item.id, data: decodeStemWavBytes(bytes) })
   }
-  return { manifest, stems }
+  const peaksBytes = entries.get(STEMS_PEAKS_ENTRY)
+  const peaks = peaksBytes ? deserializeWaveformPeaks(peaksBytes) : new Map<StemId, WaveformPyramid>()
+  return { manifest, stems, peaks }
+}
+
+/** 压缩包内单条目的定位信息（zip 中央目录记录；STORE 条目数据即原始字节）。 */
+export type ZipEntryLayout = {
+  method: number
+  compressedSize: number
+  uncompressedSize: number
+  dataOffset: number
+}
+
+/**
+ * 从 zip 字节解析中央目录 → 各条目定位。用于「先出 UI」快路径：
+ * STORE 条目（WAV / peaks.bin）可直接 subarray 取字节，无需 fflate 流式解包。
+ */
+export function parseZipEntries(bytes: Uint8Array): Map<string, ZipEntryLayout> {
+  const layout = new Map<string, ZipEntryLayout>()
+  const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  // EOCD 在文件末尾 22+65535 字节内，倒序找签名 0x06054b50
+  let eocdOffset = -1
+  const searchStart = Math.max(0, bytes.byteLength - 22 - 65535)
+  for (let i = bytes.byteLength - 22; i >= searchStart; i--) {
+    if (data.getUint32(i, true) === 0x06054b50) {
+      eocdOffset = i
+      break
+    }
+  }
+  if (eocdOffset < 0) return layout
+  const count = data.getUint16(eocdOffset + 10, true)
+  const cdOffset = data.getUint32(eocdOffset + 16, true)
+  const decoder = new TextDecoder()
+  let offset = cdOffset
+  for (let n = 0; n < count; n++) {
+    if (data.getUint32(offset, true) !== 0x02014b50) break
+    const method = data.getUint16(offset + 10, true)
+    const compressedSize = data.getUint32(offset + 20, true)
+    const uncompressedSize = data.getUint32(offset + 24, true)
+    const nameLength = data.getUint16(offset + 28, true)
+    const extraLength = data.getUint16(offset + 30, true)
+    const commentLength = data.getUint16(offset + 32, true)
+    const localHeaderOffset = data.getUint32(offset + 42, true)
+    const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength))
+    // 本地文件头：30 + 文件名长 + 扩展长 之后才是数据
+    const dataOffset = localHeaderOffset + 30 + nameLength + extraLength
+    layout.set(name, { method, compressedSize, uncompressedSize, dataOffset })
+    offset += 46 + nameLength + extraLength + commentLength
+  }
+  return layout
+}
+
+export type StemsArchiveLayout = {
+  manifest: StemsManifest
+  /** 各轨波形峰值金字塔（v2 旧包为空 Map） */
+  peaks: Map<StemId, WaveformPyramid>
+  /** 全部条目定位（WAV 供后台解码） */
+  entries: Map<string, ZipEntryLayout>
+}
+
+/**
+ * 快路径读取：只取 manifest + peaks.bin（zip 目录定位 + 按需 inflate/取字节），
+ * 不解压 WAV——供「先出 UI、后台逐轨解码」两段式加载的第一段。
+ */
+export function readStemsArchiveLayout(bytes: Uint8Array): StemsArchiveLayout {
+  const entries = parseZipEntries(bytes)
+  const manifestLayout = entries.get(STEMS_MANIFEST_ENTRY)
+  if (!manifestLayout) throw new Error('压缩包缺少 stems.json，无法载入')
+  const manifestData = inflateSync(
+    bytes.subarray(manifestLayout.dataOffset, manifestLayout.dataOffset + manifestLayout.compressedSize),
+  )
+  const manifest = parseStemsManifest(new TextDecoder().decode(manifestData))
+  if (!manifest) throw new Error('stems.json 内容无效')
+  const peaksLayout = entries.get(STEMS_PEAKS_ENTRY)
+  const peaks = peaksLayout
+    ? deserializeWaveformPeaks(
+        // subarray 起点可能非 4 字节对齐（Float32Array 视图要求），复制对齐
+        bytes
+          .subarray(peaksLayout.dataOffset, peaksLayout.dataOffset + peaksLayout.compressedSize)
+          .slice(),
+      )
+    : new Map<StemId, WaveformPyramid>()
+  return { manifest, peaks, entries }
+}
+
+/** 按布局取单条 WAV 数据并解码为 interleaved Float32（STORE 零拷贝；DEFLATE 兼容 v2 旧包）。 */
+export function decodeStemFromLayout(bytes: Uint8Array, layout: ZipEntryLayout): Float32Array {
+  let data = bytes.subarray(layout.dataOffset, layout.dataOffset + layout.compressedSize)
+  if (layout.method === 8) data = inflateSync(data)
+  return decodeStemWavBytes(data)
 }

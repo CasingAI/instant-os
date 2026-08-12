@@ -239,6 +239,18 @@ const PYRAMID_BUCKETS_PER_SEC = 1000
 /** 封顶桶数：超长歌曲自动放大基础桶，控制内存。 */
 const PYRAMID_MAX_BUCKETS = 400_000
 
+/** 计算金字塔桶布局（bucketSamples/bucketCount）；buildWaveformPyramid 与合并遍历共用。 */
+export function waveformPyramidLayout(
+  totalFrames: number,
+  sampleRate: number,
+): { bucketSamples: number; bucketCount: number } {
+  let bucketSamples = Math.max(1, Math.round(sampleRate / PYRAMID_BUCKETS_PER_SEC))
+  if (Math.ceil(totalFrames / bucketSamples) > PYRAMID_MAX_BUCKETS) {
+    bucketSamples = Math.ceil(totalFrames / PYRAMID_MAX_BUCKETS)
+  }
+  return { bucketSamples, bucketCount: Math.max(1, Math.ceil(totalFrames / bucketSamples)) }
+}
+
 /**
  * 一次遍历构建整轨峰值金字塔。之后任意窗口的波形绘制只需按桶聚合，
  * 复杂度 O(窗口毫秒数) 而非 O(窗口采样数)——全曲视图下捏合缩放不再每次
@@ -249,11 +261,7 @@ export function buildWaveformPyramid(
   sampleRate: number,
 ): WaveformPyramid {
   const totalFrames = Math.floor(data.length / STEM_CHANNELS)
-  let bucketSamples = Math.max(1, Math.round(sampleRate / PYRAMID_BUCKETS_PER_SEC))
-  if (Math.ceil(totalFrames / bucketSamples) > PYRAMID_MAX_BUCKETS) {
-    bucketSamples = Math.ceil(totalFrames / PYRAMID_MAX_BUCKETS)
-  }
-  const bucketCount = Math.max(1, Math.ceil(totalFrames / bucketSamples))
+  const { bucketSamples, bucketCount } = waveformPyramidLayout(totalFrames, sampleRate)
   const min = new Float32Array(bucketCount)
   const max = new Float32Array(bucketCount)
   for (let f = 0; f < totalFrames; f++) {

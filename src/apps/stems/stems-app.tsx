@@ -8,20 +8,29 @@ import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
 import { filesOpenStreamWrite, filesReadBlob } from '../files/files-api.ts'
 import {
-  buildWaveformPyramid,
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
   STEM_CHANNELS,
   STEM_TARGET_SAMPLE_RATE,
+  waveformPyramidLayout,
 } from './stems-separator.ts'
 import type { WaveformPyramid } from './stems-separator.ts'
 import { STEM_COLORS, STEM_IDS, STEM_LABELS } from './stems-types.ts'
 import type { StemAudio, StemEngineProvider, StemId, StemProgress } from './stems-types.ts'
-import { loadStemsArchive, saveStemsArchive, stemsArchivePathFor } from './stems-persistence.ts'
+import {
+  readStemsArchiveLayout,
+  saveStemsArchive,
+  stemsArchivePathFor,
+} from './stems-persistence.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import type { MdxVocalProgress } from './mdx-vocal-worker.ts'
 import TempoWorker from './tempo-worker.ts?worker'
 import type { TempoWorkerResponse } from './tempo-worker.ts'
+import StemsArchiveWorker from './stems-archive-worker.ts?worker'
+import type {
+  StemsArchiveWorkerRequest,
+  StemsArchiveWorkerResponse,
+} from './stems-archive-worker.ts'
 import type { TempoInfo } from './stems-tempo.ts'
 import './stems.css'
 
@@ -89,6 +98,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const peaksRef = useRef<Map<StemId, WaveformPyramid> | null>(null)
   /** 播放中的每轨 GainNode（mute/solo/音量即时生效） */
   const gainNodesRef = useRef<Map<StemId, GainNode>>(new Map())
+  /** 后台解码序号：重新分轨/卸载时递增，使在途的后台解码结果作废（防竞态覆盖） */
+  const loadArchiveSeqRef = useRef(0)
+  /** 分轨压缩包解码 worker（懒创建、复用、卸载时 terminate） */
+  const archiveWorkerRef = useRef<Worker | null>(null)
+  /** 会话内解码缓存（仅保留最新一首，控制内存）：二次打开同一首歌跳过 Worker 解码 */
+  const decodeCacheRef = useRef<{ path: string; createdAt: number; stems: StemAudio[] } | null>(null)
   const bufferSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const startedAtRef = useRef(0)
   /** 本次播放从文件内的起始偏移（秒）：定时器回写进度必须加上它，否则 seek/恢复播放后进度条会从 0 重新数 */
@@ -218,29 +233,58 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [stopPlayback],
   )
 
-  /** 把 7 轨分轨结果一次性转成 AudioBuffer 缓存（含 L/R 去交错），播放时直接复用。 */
-  const cacheStemBuffers = useCallback((stems: StemAudio[], rate: number) => {
-    const ctx = audioContextRef.current
-    const buffers = new Map<StemId, AudioBuffer>()
-    if (ctx) {
+  /**
+   * 把 7 轨分轨结果一次性转成 AudioBuffer 缓存（含 L/R 去交错），播放时直接复用。
+   * 峰值金字塔：传入 `peaks`（v3 包从 peaks.bin 读出）时直接复用，跳过全量扫描；
+   * 否则在填 buffer 的同一循环里聚合桶值，避免「先填 buffer 再 buildWaveformPyramid 扫第二遍」。
+   */
+  const cacheStemBuffers = useCallback(
+    (stems: StemAudio[], rate: number, peaks?: Map<StemId, WaveformPyramid>) => {
+      const ctx = audioContextRef.current
+      const buffers = new Map<StemId, AudioBuffer>()
+      const target = peaks ?? new Map<StemId, WaveformPyramid>()
       for (const stem of stems) {
-        const frames = stem.data.length / 2
-        const buffer = ctx.createBuffer(2, frames, rate)
-        const left = buffer.getChannelData(0)
-        const right = buffer.getChannelData(1)
-        for (let i = 0; i < frames; i++) {
-          left[i] = stem.data[i * 2]
-          right[i] = stem.data[i * 2 + 1]
+        const data = stem.data
+        const frames = Math.floor(data.length / STEM_CHANNELS)
+        const { bucketSamples, bucketCount } = waveformPyramidLayout(frames, rate)
+        const buffer = ctx ? ctx.createBuffer(2, frames, rate) : null
+        const left = buffer?.getChannelData(0)
+        const right = buffer?.getChannelData(1)
+        if (peaks) {
+          // 已有峰值表：仅填 buffer（或仅跳过扫描）
+          if (left && right) {
+            for (let i = 0; i < frames; i++) {
+              left[i] = data[i * STEM_CHANNELS]
+              right[i] = data[i * STEM_CHANNELS + 1]
+            }
+          }
+          if (buffer) buffers.set(stem.stemId, buffer)
+        } else {
+          // 合并遍历：填 buffer 同时聚合金字塔桶值
+          const min = new Float32Array(bucketCount)
+          const max = new Float32Array(bucketCount)
+          for (let f = 0; f < frames; f++) {
+            const l = data[f * STEM_CHANNELS]
+            const r = data[f * STEM_CHANNELS + 1]
+            if (left && right) {
+              left[f] = l
+              right[f] = r
+            }
+            const amp = Math.max(Math.abs(l), Math.abs(r))
+            const b = Math.floor(f / bucketSamples)
+            if (amp > max[b]) max[b] = amp
+            const neg = -amp
+            if (neg < min[b]) min[b] = neg
+          }
+          if (buffer) buffers.set(stem.stemId, buffer)
+          target.set(stem.stemId, { bucketSamples, bucketCount, min, max })
         }
-        buffers.set(stem.stemId, buffer)
       }
-    }
-    buffersRef.current = buffers
-    // 同时建好每轨峰值金字塔：一次遍历，之后任意窗口的波形绘制都只按桶聚合
-    const peaks = new Map<StemId, WaveformPyramid>()
-    for (const stem of stems) peaks.set(stem.stemId, buildWaveformPyramid(stem.data, rate))
-    peaksRef.current = peaks
-  }, [])
+      buffersRef.current = buffers
+      peaksRef.current = target
+    },
+    [],
+  )
 
   /**
    * 把分轨结果打包为 `<源文件名>.stems.zip` 写入源文件同目录。
@@ -317,14 +361,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 : '保存分轨',
             shortcut: '⌘S',
             disabled:
-              !tracks || saveProgress !== null || !sourceName || !sourceAbsolutePathRef.current,
+              !tracks ||
+              saveProgress !== null ||
+              loadingArchive ||
+              !sourceName ||
+              !sourceAbsolutePathRef.current,
             onClick: () => void handleSaveArchive(),
           },
         ],
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceName, tracks, saveProgress, handleSaveArchive])
+  }, [sourceName, tracks, saveProgress, loadingArchive, handleSaveArchive])
   useAppMenuBar('stems', menuBar)
 
   // ⌘S 保存分轨：菜单 shortcut 仅展示，实际监听与 pages/textedit 一致
@@ -333,7 +381,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       if (windowId && activeWindowId !== windowId) return
       if (!(event.metaKey || event.ctrlKey)) return
       if (event.key.toLowerCase() !== 's' || event.shiftKey || event.altKey) return
-      if (!tracks || saveProgress !== null || !sourceName || !sourceAbsolutePathRef.current) return
+      if (!tracks || saveProgress !== null || loadingArchive || !sourceName || !sourceAbsolutePathRef.current) return
       event.preventDefault()
       event.stopPropagation()
       void handleSaveArchive()
@@ -422,6 +470,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const startSeparation = useCallback(
     async (interleaved: Float32Array, sourceRate: number) => {
       separateAbortRef.current?.abort()
+      // 作废在途的后台分轨包解码，避免其结果覆盖本次分轨
+      loadArchiveSeqRef.current += 1
       const abort = new AbortController()
       separateAbortRef.current = abort
       setError(null)
@@ -554,6 +604,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
   /**
    * 打开文件时探测同目录的 `<源文件名>.stems.zip`，命中则直接载入已保存的分轨。
+   * 两段式：先读 manifest + 峰值表出 UI（轨道/波形立即可见），后台逐轨解码填播放缓冲。
    * 压缩包缺失/损坏时返回 false，由调用方走正常分轨流程。
    */
   const tryLoadSavedStems = useCallback(
@@ -564,7 +615,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setLoadingArchive(true)
       try {
         const blob = await filesReadBlob(archivePath)
-        const { manifest, stems } = await loadStemsArchive(blob)
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        const { manifest, peaks } = readStemsArchiveLayout(bytes)
+        const seq = ++loadArchiveSeqRef.current
         // 换新 context：旧文件的分轨缓存与播放一并清理
         stopPlayback()
         if (audioContextRef.current) {
@@ -577,10 +630,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setDuration(manifest.durationSec)
         setView({ start: 0, level: 0 })
         setStemSampleRate(manifest.sampleRate)
-        cacheStemBuffers(stems, manifest.sampleRate)
+        // —— 第一段：先出 UI —— 占位 tracks（空 PCM），波形由 peaksRef 直接绘制
+        peaksRef.current = peaks.size > 0 ? peaks : null
         setTracks(
-          stems.map((audio) => ({
-            audio,
+          STEM_IDS.map((stemId) => ({
+            audio: { stemId, data: new Float32Array(0) },
             mute: false,
             solo: false,
             volume: 1,
@@ -588,20 +642,48 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )
         setPlaying(false)
         setCurrentTime(0)
-        // 已有 tempo 直接载入；老压缩包缺失时从鼓轨补测（不自动保存，与现状一致）
-        if (manifest.tempo) {
-          setTempo(manifest.tempo)
-          tempoRef.current = manifest.tempo
-        } else {
-          const drums = stems.find((s) => s.stemId === 'drums')
-          if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
-        }
+        // —— 第二段：Worker 后台解码（会话内缓存命中则跳过）→ 填播放缓冲 → 替换真实数据 ——
+        void (async () => {
+          try {
+            const cached = decodeCacheRef.current
+            let stems: StemAudio[]
+            if (cached && cached.path === archivePath && cached.createdAt === manifest.createdAt) {
+              stems = cached.stems
+            } else {
+              stems = await decodeStemsInWorker(bytes, archiveWorkerRef)
+              decodeCacheRef.current = { path: archivePath, createdAt: manifest.createdAt, stems }
+            }
+            // 期间重新分轨/换歌/卸载 → 丢弃结果
+            if (loadArchiveSeqRef.current !== seq) return
+            cacheStemBuffers(stems, manifest.sampleRate, peaks.size > 0 ? peaks : undefined)
+            setTracks(
+              stems.map((audio) => ({
+                audio,
+                mute: false,
+                solo: false,
+                volume: 1,
+              })),
+            )
+            // 已有 tempo 直接载入；老压缩包缺失时从鼓轨补测（不自动保存，与现状一致）
+            if (manifest.tempo) {
+              setTempo(manifest.tempo)
+              tempoRef.current = manifest.tempo
+            } else {
+              const drums = stems.find((s) => s.stemId === 'drums')
+              if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
+            }
+          } catch (cause) {
+            console.warn('后台解码分轨失败', cause)
+            setError(cause instanceof Error ? cause.message : String(cause))
+          } finally {
+            setLoadingArchive(false)
+          }
+        })()
         return true
       } catch (cause) {
         console.warn('载入已保存分轨失败，走正常分轨流程', cause)
-        return false
-      } finally {
         setLoadingArchive(false)
+        return false
       }
     },
     [cacheStemBuffers, detectTempoAsync, stopPlayback],
@@ -1001,9 +1083,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   useEffect(
     () => () => {
       stopPlayback()
+      // 作废在途的后台分轨包解码
+      loadArchiveSeqRef.current += 1
       // 取消在途分轨：调度器负责 terminate worker 并释放模型内存
       separateAbortRef.current?.abort()
       tempoWorkerRef.current?.terminate()
+      archiveWorkerRef.current?.terminate()
       void audioContextRef.current?.close()
     },
     [stopPlayback],
@@ -1491,6 +1576,33 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       {systemDialog}
     </div>
   )
+}
+
+/** 在 Worker 里解码整个分轨压缩包 → 各轨 Float32（Transferable 传回，不阻塞主线程）。 */
+function decodeStemsInWorker(
+  bytes: Uint8Array,
+  workerRef: { current: Worker | null },
+): Promise<StemAudio[]> {
+  const worker = workerRef.current ?? new StemsArchiveWorker()
+  workerRef.current = worker
+  return new Promise<StemAudio[]>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<StemsArchiveWorkerResponse>): void => {
+      worker.removeEventListener('message', onMessage)
+      const msg = event.data
+      if (msg.type === 'done') {
+        resolve(
+          msg.stems.map((s) => ({ stemId: s.stemId as StemId, data: s.data })),
+        )
+      } else {
+        reject(new Error(msg.message))
+      }
+    }
+    worker.addEventListener('message', onMessage)
+    worker.postMessage(
+      { type: 'decode', bytes: bytes.buffer as ArrayBuffer } satisfies StemsArchiveWorkerRequest,
+      [bytes.buffer],
+    )
+  })
 }
 
 function toggleTrack(
