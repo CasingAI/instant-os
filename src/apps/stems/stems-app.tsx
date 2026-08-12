@@ -119,6 +119,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const tempoSegRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const tempoReadoutRef = useRef<HTMLSpanElement | null>(null)
   const tempoPlayheadRef = useRef<HTMLDivElement | null>(null)
+  const tempoLaneRef = useRef<HTMLDivElement | null>(null)
+  const tracksBoxRef = useRef<HTMLDivElement | null>(null)
+  /** 速度条 lane 实际像素宽度（ResizeObserver 维护）：块文字显示按像素判断，而非百分比 */
+  const [tempoLaneWidthPx, setTempoLaneWidthPx] = useState(0)
   /** 波形拖拽中：暂停播放定时器回写，松手时才真正定位 */
   const isSeekingRef = useRef(false)
   /** 手动平移后暂时不自动跟随播放头（避免与用户「往回看」打架） */
@@ -148,6 +152,21 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     void isModelCached().then((cached) => setModelCached(cached))
     void isModelCached(MDX_MODEL_URL).then((cached) => setMdxCached(cached))
   }, [])
+
+  // 维护速度条 lane 像素宽度：块文字按像素宽度判断是否显示
+  useEffect(() => {
+    const lane = tempoLaneRef.current
+    if (!lane) return
+    const update = (): void => {
+      const w = lane.clientWidth
+      if (w > 0) setTempoLaneWidthPx(w)
+    }
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(lane)
+    return () => observer.disconnect()
+  }, [tempo])
 
   const menuBar = useMemo<MenuDefinition[]>(() => {
     return [
@@ -797,6 +816,29 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [duration, viewLen, view.start, panBy, zoomTo],
   )
 
+  /**
+   * 音轨区域捏合缩放统一由 tracks 容器承接：
+   * wheel 事件不再只绑在波形列（waveWrap）上，而是绑到容器，
+   * 指针漂移到行间间隙 / 轨道名 / 控制按钮等任意区域时捏合依然生效。
+   * ratio 以波形列（第一个 waveWrap）为横向基准，所有轨行网格列宽一致，
+   * 指针 x 落在波形列范围内时锚点精确，落在列外时 clamp 到两端。
+   */
+  useEffect(() => {
+    const node = tracksBoxRef.current
+    if (!node) return
+    const handler = (event: WheelEvent) => {
+      const wave = node.querySelector<HTMLElement>('.stems__track-wave-wrap')
+      const rect = wave ? wave.getBoundingClientRect() : node.getBoundingClientRect()
+      const ratio = Math.max(
+        0,
+        Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)),
+      )
+      handleWheelZoom(event, ratio, rect.width)
+    }
+    node.addEventListener('wheel', handler, { passive: false })
+    return () => node.removeEventListener('wheel', handler)
+  }, [handleWheelZoom])
+
   /** 松手/键盘确认：播放中从目标位置重新播，暂停中仅保留位置。 */
   const finalizeSeek = useCallback(
     (offsetSec: number) => {
@@ -1002,17 +1044,20 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             </div>
           </div>
 
-          {/* 速度条：分段色块 = 段长、颜色 = BPM 快慢、段内数字；点击跳段 */}
           <div class="stems__tempo-row">
             <div class="stems__track-name">
               <span class="stems__track-dot stems__track-dot--tempo" />
               速度
             </div>
-            <div class="stems__tempo-lane">
+            <div
+              ref={tempoLaneRef}
+              class="stems__tempo-lane"
+            >
               <div class="stems__tempo-segs">
                 {tempo?.segments.map((seg, index) => {
                   const left = viewLen > 0 ? ((seg.startSec - view.start) / viewLen) * 100 : 0
-                  const width = viewLen > 0 ? ((seg.endSec - seg.startSec) / viewLen) * 100 : 0
+                  const right = viewLen > 0 ? ((seg.endSec - view.start) / viewLen) * 100 : 0
+                  const width = right - left
                   const segCount = tempo?.segments.length ?? 0
                   const edgeClass =
                     index === 0
@@ -1020,6 +1065,24 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                       : index === segCount - 1
                         ? ' stems__tempo-seg--last'
                         : ''
+                  // 段与视口的可见子区间：文字锚定在此区间中心，保证文字永远
+                  // 落在自己所属块的可见部分内（放大/平移都不离开块）
+                  const visLeft = Math.max(0, left)
+                  const visRight = Math.min(100, right)
+                  const visWidthPx =
+                    tempoLaneWidthPx > 0 && viewLen > 0
+                      ? ((visRight - visLeft) / 100) * tempoLaneWidthPx
+                      : 0
+                  // 块完整在视口内时按像素宽度判断显示（放得下才显示，防窄块文字溢出）；
+                  // 块正在滑出/滑入视口（被裁剪）时只要还有可见部分就跟随显示，
+                  // 避免"块还剩一条边文字就提前消失"
+                  const clipped = left < 0 || right > 100
+                  const showLabel = clipped ? visWidthPx > 0 : visWidthPx >= 22
+                  // 文字锚点 = 块可见区中心，转成相对 seg 的百分比（label 是 seg 子元素，
+                  // 被 seg 的 overflow:hidden 裁剪，文字实体永远无法越出块边界）
+                  const labelLeftInSeg = showLabel && width > 0
+                    ? (((visLeft + visRight) / 2 - left) / width) * 100
+                    : 50
                   return (
                     <div
                       key={seg.startSec}
@@ -1027,12 +1090,23 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                         if (el) tempoSegRefsRef.current.set(seg.startSec, el)
                         else tempoSegRefsRef.current.delete(seg.startSec)
                       }}
-                      class={`stems__tempo-seg ${tempoBucketClass(seg.bpm)}${edgeClass}`}
-                      style={{ left: `${left}%`, width: `${width}%` }}
+                      class={`stems__tempo-seg${edgeClass}`}
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        background: tempoSegGradient(seg.bpm),
+                      }}
                       title={`${formatTime(seg.startSec)} – ${formatTime(seg.endSec)} · ${Math.round(seg.bpm)} BPM`}
                       onClick={() => finalizeSeek(seg.startSec)}
                     >
-                      {width > 6 && Math.round(seg.bpm)}
+                      {showLabel && (
+                        <span
+                          class="stems__tempo-seg-label"
+                          style={{ left: `${labelLeftInSeg}%` }}
+                        >
+                          {Math.round(seg.bpm)}
+                        </span>
+                      )}
                     </div>
                   )
                 })}
@@ -1060,7 +1134,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             </div>
           </div>
 
-          <div class="stems__tracks">
+          <div ref={tracksBoxRef} class="stems__tracks">
             {STEM_IDS.map((stemId) => {
               const track = tracks.find((t) => t.audio.stemId === stemId)
               if (!track) return null
@@ -1074,7 +1148,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   viewLen={viewLen}
                   sampleRate={stemSampleRate}
                   peakPyramid={peaksRef.current?.get(stemId)}
-                  onWheelZoom={handleWheelZoom}
                   registerPlayhead={registerPlayhead}
                   onToggleMute={() => toggleTrack(setTracks, gainNodesRef.current, stemId, 'mute')}
                   onToggleSolo={() => toggleTrack(setTracks, gainNodesRef.current, stemId, 'solo')}
@@ -1299,8 +1372,6 @@ type StemTrackRowProps = {
   sampleRate: number
   /** 本轨峰值金字塔：绘制时按桶聚合，任意缩放级别都只 O(窗口毫秒数)；未提供时回退直接计算 */
   peakPyramid: WaveformPyramid | undefined
-  /** 波形区滚轮缩放/平移（ratio 为指针在波形内的横向比例，width 为波形宽度 px） */
-  onWheelZoom: (event: WheelEvent, ratio: number, width: number) => void
   /** 注册/注销本轨播放头 DOM：播放中由 rAF 直写位置，不经过 React 重渲染 */
   registerPlayhead: (stemId: StemId, el: HTMLDivElement | null) => void
   onToggleMute: () => void
@@ -1319,7 +1390,6 @@ function StemTrackRow({
   viewLen,
   sampleRate,
   peakPyramid,
-  onWheelZoom,
   registerPlayhead,
   onToggleMute,
   onToggleSolo,
@@ -1376,22 +1446,6 @@ function StemTrackRow({
   // 播放头始终跟随 currentTime：暂停时点击/拖拽也能在波形上看到定位
   const playheadRatio = viewLen > 0 ? (playheadSec - viewStart) / viewLen : -1
   const playheadVisible = playheadRatio >= 0 && playheadRatio <= 1
-
-  // 滚轮缩放/平移：必须 native + passive:false 才能 preventDefault
-  useEffect(() => {
-    const node = waveWrapRef.current
-    if (!node) return
-    const handler = (event: WheelEvent) => {
-      const rect = node.getBoundingClientRect()
-      const ratio = Math.max(
-        0,
-        Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)),
-      )
-      onWheelZoom(event, ratio, rect.width)
-    }
-    node.addEventListener('wheel', handler, { passive: false })
-    return () => node.removeEventListener('wheel', handler)
-  }, [onWheelZoom])
 
   // 波形点击/拖拽 seek：按下即定位显示，松手（或取消）才真正定位
   const seekDraggingRef = useRef(false)
@@ -1576,10 +1630,18 @@ function deriveSeparationProgress(input: {
 }
 
 /** BPM 分桶 → 速度条色块 class（颜色编码快慢）。 */
-function tempoBucketClass(bpm: number): string {
-  if (bpm < 95) return 'stems__tempo-seg--slow'
-  if (bpm <= 120) return 'stems__tempo-seg--mid'
-  if (bpm <= 150) return 'stems__tempo-seg--fast'
-  return 'stems__tempo-seg--very-fast'
+/**
+ * BPM → 连续渐变背景色：60→200 BPM 从蓝(210°) 渐变到红(0°) 色相，
+ * 每个 BPM 值都有唯一颜色，相邻不同速度段不会被归入同色。
+ */
+function tempoSegGradient(bpm: number): string {
+  const MIN = 60
+  const MAX = 200
+  const clamped = Math.max(MIN, Math.min(MAX, bpm))
+  // 色相线性映射：210（蓝）→ 0（红）
+  const hue = 210 - ((clamped - MIN) / (MAX - MIN)) * 210
+  const top = `hsl(${hue} 62% 62%)`
+  const bottom = `hsl(${Math.max(0, hue - 18)} 60% 45%)`
+  return `linear-gradient(180deg, ${top} 0%, ${bottom} 100%)`
 }
 

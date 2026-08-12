@@ -235,6 +235,22 @@ export function detectTempo(
     if (refined > 0) seg.bpm = Math.round(refined)
   }
 
+  // 4b. 精化后再合并相邻同速段：步骤 2 的合并基于窗口原始 BPM（倍频 69↔138 会被 8%
+  //     阈值切开），而步骤 4 整段精化会让相邻段收敛到同一 BPM（如都回到 69）。
+  //     此时若不再合并一次，会出现「相邻同 BPM 却没合并」的碎段。
+  let j = 1
+  while (j < segs.length) {
+    const prev = segs[j - 1]
+    const cur = segs[j]
+    if (Math.abs(prev.bpm - cur.bpm) / prev.bpm < TEMPO_MERGE_RATIO) {
+      prev.endSec = cur.endSec
+      prev.bpm = Math.round(prev.bpm + (cur.bpm - prev.bpm) * 0.3)
+      segs.splice(j, 1)
+    } else {
+      j += 1
+    }
+  }
+
   // 5. 全曲主速度 = 按时长加权
   let total = 0
   let weightSum = 0

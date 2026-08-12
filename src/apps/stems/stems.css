@@ -14,7 +14,7 @@
   --stems-well: #1c1b1a;
   --stems-well-edge: #0e0d0c;
   --stems-radius: 7px;
-  --stems-track-cols: 72px minmax(0, 1fr) 168px;
+  --stems-track-cols: 72px minmax(0, 1fr) minmax(110px, max-content);
   --stems-bevel-up:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12);
@@ -393,19 +393,22 @@
   margin-left: auto;
 }
 
-/* 速度条：与各轨波形列对齐的行（复用轨道行网格与卡片几何），点击段可跳转 */
+/* 速度条：位于传输控制（播放按钮）下方，撑满整行，色块网格与各轨波形列对齐 */
 .stems__tempo-row {
   display: grid;
   grid-template-columns: var(--stems-track-cols);
   align-items: center;
   gap: 10px;
-  margin: 0 10px;
-  padding: 6px 8px;
+  margin: 0;
+  /* 左 22 = tracks padding 10 + track padding 8 + 左边框 4；右 18 = 10 + 8，
+     与下方音轨卡片的网格起点/终点精确对齐 */
+  padding: 8px 18px 8px 22px;
   min-width: 0;
-  background: linear-gradient(180deg, #ddd7cb 0%, #d0caba 100%);
-  border: 1px solid var(--stems-border);
-  border-left: 4px solid var(--stems-accent);
-  border-radius: var(--stems-radius);
+  /* 撑满传输控制下的整行（复用其底部边线风格） */
+  background: linear-gradient(180deg, #e8e3d8 0%, #d8d2c6 100%);
+  border-top: 1px solid var(--stems-border);
+  border-bottom: 1px solid var(--stems-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
   flex: none;
 }
 
@@ -438,16 +441,27 @@
   position: absolute;
   top: 0;
   height: 100%;
+  border-left: 1px solid rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+/* 文字是色块的子元素，锚点在块可见区中心（相对块定位），
+   被块的 overflow:hidden 裁剪：块滑出视口时文字随块一起被裁，
+   不会越出块边界显示到相邻块上 */
+.stems__tempo-seg-label {
+  position: absolute;
+  top: 0;
+  height: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
+  transform: translateX(-50%);
   font-size: 10px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.95);
-  border-left: 1px solid rgba(0, 0, 0, 0.35);
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
-  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
 }
 
 /* 首尾块的外侧圆角（与 lane 圆角一致），中间块直角相接；
@@ -467,19 +481,6 @@
   outline: 2px solid rgba(255, 255, 255, 0.9);
   outline-offset: -2px;
   z-index: 1;
-}
-
-.stems__tempo-seg--slow {
-  background: linear-gradient(180deg, #6aa6ef 0%, #3a78c8 100%);
-}
-.stems__tempo-seg--mid {
-  background: linear-gradient(180deg, #5ed0a4 0%, #2f9a72 100%);
-}
-.stems__tempo-seg--fast {
-  background: linear-gradient(180deg, #efc06a 0%, #d08a2e 100%);
-}
-.stems__tempo-seg--very-fast {
-  background: linear-gradient(180deg, #ef7a6a 0%, #c83a2e 100%);
 }
 
 .stems__tempo-playhead {
