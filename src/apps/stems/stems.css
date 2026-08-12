@@ -14,7 +14,7 @@
   --stems-well: #1c1b1a;
   --stems-well-edge: #0e0d0c;
   --stems-radius: 7px;
-  --stems-track-cols: 72px minmax(0, 1fr) 140px;
+  --stems-track-cols: 72px minmax(0, 1fr) 168px;
   --stems-bevel-up:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12);
@@ -218,12 +218,14 @@
 .stems__transport {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--stems-border);
   background: linear-gradient(180deg, #e8e3d8 0%, #d8d2c6 100%);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
   flex: none;
+  min-width: 0;
 }
 
 .stems__transport-btn {
@@ -639,6 +641,7 @@
   justify-content: flex-end;
   flex: none;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* 轨控芯片叠在系统按钮上：压下态 = 亮灯 */
@@ -673,6 +676,8 @@
 
 .stems__volume {
   width: 56px;
+  min-width: 0;
+  max-width: 56px;
   flex: none;
   height: 16px;
 }

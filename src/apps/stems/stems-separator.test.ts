@@ -102,6 +102,14 @@ function testWaveformPeaks(): void {
 
   // 桶数多于帧数 → 不崩
   assert.equal(computeWaveformPeaks(new Float32Array(4 * STEM_CHANNELS), 100).length, 100)
+
+  // 桶数不能整除帧数时，能量应按比例铺满所有桶（旧 ceil 分桶会在右侧留下假静音）
+  const dense = new Float32Array(1000 * STEM_CHANNELS).fill(0.5)
+  const densePeaks = computeWaveformPeaks(dense, 300)
+  assert.ok(
+    densePeaks.every((p) => p.max > 0.4),
+    '每个桶都应覆盖到真实采样',
+  )
   console.log('ok: computeWaveformPeaks')
 }
 

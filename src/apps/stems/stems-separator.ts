@@ -205,12 +205,12 @@ export function computeWaveformPeaks(
     for (let b = 0; b < bucketCount; b++) peaks.push({ min: 0, max: 0 })
     return peaks
   }
-  const framesPerBucket = Math.max(1, Math.ceil(windowFrames / bucketCount))
   for (let b = 0; b < bucketCount; b++) {
     let min = 0
     let max = 0
-    const start = from + b * framesPerBucket
-    const end = Math.min(to, start + framesPerBucket)
+    // 按比例切帧，避免 ceil(frames/buckets) 让末尾若干桶落在窗口外变成假静音
+    const start = from + Math.floor((b * windowFrames) / bucketCount)
+    const end = from + Math.floor(((b + 1) * windowFrames) / bucketCount)
     for (let i = start; i < end; i++) {
       // 取左右声道最大幅度
       const l = data[i * STEM_CHANNELS]
@@ -287,18 +287,20 @@ export function computeWaveformPeaksFromPyramid(
     for (let b = 0; b < bucketCount; b++) peaks.push({ min: 0, max: 0 })
     return peaks
   }
-  const framesPerBucket = Math.max(1, Math.ceil(windowFrames / bucketCount))
   const B = pyramid.bucketSamples
   for (let b = 0; b < bucketCount; b++) {
     let min = 0
     let max = 0
-    const start = from + b * framesPerBucket
-    const end = Math.min(to, start + framesPerBucket)
-    const first = Math.floor(start / B)
-    const last = Math.min(pyramid.bucketCount - 1, Math.ceil(end / B) - 1)
-    for (let p = first; p <= last; p++) {
-      if (pyramid.min[p] < min) min = pyramid.min[p]
-      if (pyramid.max[p] > max) max = pyramid.max[p]
+    // 与 computeWaveformPeaks 相同的比例切窗，保证末尾桶仍覆盖真实音频
+    const start = from + Math.floor((b * windowFrames) / bucketCount)
+    const end = from + Math.floor(((b + 1) * windowFrames) / bucketCount)
+    if (end > start) {
+      const first = Math.floor(start / B)
+      const last = Math.min(pyramid.bucketCount - 1, Math.ceil(end / B) - 1)
+      for (let p = first; p <= last; p++) {
+        if (pyramid.min[p] < min) min = pyramid.min[p]
+        if (pyramid.max[p] > max) max = pyramid.max[p]
+      }
     }
     peaks.push({ min, max })
   }

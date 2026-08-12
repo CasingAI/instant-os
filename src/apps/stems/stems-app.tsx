@@ -737,12 +737,18 @@ export function StemsApp() {
     [duration, clampViewStart],
   )
 
-  /** 波形区滚轮：触控板捏合/滚轮=以指针为锚缩放，Shift+滚轮/横向滑动=平移。
+  /**
+   * 波形区滚轮手势分流：
+   *  - Ctrl+滚轮（macOS 触控板捏合，浏览器自动带 Ctrl）→ 以指针为锚缩放
+   *  - Shift+滚轮 / 横向滑动（|deltaX| > |deltaY|）→ 平移可见窗口
+   *  - 其余纵向滚动 → 不拦截，交给轨列表容器滚动（触控板与鼠标滚轮一视同仁）
+   * 缩放统一走捏合 / 缩放条 / ± 按钮；不按增量大小猜鼠标滚轮，否则触控板
+   * 惯性滚动的增量超过阈值时，双指上下滑会被误判成缩放。
    * 必须 native + passive:false 才能 preventDefault（Preact 的 onWheel 是 passive 的）。 */
   const handleWheelZoom = useCallback(
     (event: WheelEvent, ratio: number, width: number) => {
-      event.preventDefault()
       if (event.ctrlKey) {
+        event.preventDefault()
         // 触控板捏合（Chrome/Safari 在 macOS 上表现为 ctrl+wheel）：
         // 双指张开 deltaY<0 → 放大，双指收拢 deltaY>0 → 缩小；以指针为锚
         // 系数 0.008：一次用力捏合能跨数倍窗口，太小则「滑半天只动一点」
@@ -750,16 +756,13 @@ export function StemsApp() {
         const newLen = Math.max(MIN_VIEW_SEC, Math.min(duration, viewLen * factor))
         zoomTo(Math.log2(duration / newLen), view.start + ratio * viewLen)
       } else if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+        event.preventDefault()
         // 横向滑动/Shift+滚轮：按滑动像素占波形宽度的比例平移（dx / 宽度 × 可见窗口）
         const dx = event.shiftKey ? event.deltaY : event.deltaX
         panBy((dx / Math.max(1, width)) * viewLen)
         suppressFollowUntilRef.current = Date.now() + 1500
-      } else if (duration > 0) {
-        // 普通滚轮：向上=放大，向下=缩小
-        const factor = event.deltaY < 0 ? 1.25 : 0.8
-        const newLen = Math.max(MIN_VIEW_SEC, Math.min(duration, viewLen * factor))
-        zoomTo(Math.log2(duration / newLen), view.start + ratio * viewLen)
       }
+      // 其余纵向滚动：不 preventDefault，默认滚动轨列表
     },
     [duration, viewLen, view.start, panBy, zoomTo],
   )
@@ -1379,16 +1382,19 @@ function StemTrackRow({
         ? computeWaveformPeaksFromPyramid(peakPyramid, buckets, startFrame, endFrame)
         : computeWaveformPeaks(track.audio.data, buckets, startFrame, endFrame)
       const color = STEM_COLORS[stemId]
-      const barWidth = Math.max(1, Math.floor(width / peaks.length))
+      // 按比例映射到画布，避免 floor(width/n)*n 小于 width 时右侧大片留空
+      const gap = Math.max(1, Math.round(dpr))
       ctx.fillStyle = color
       ctx.globalAlpha = 0.9
-      peaks.forEach((peak, i) => {
-        const x = i * barWidth
-        const midY = height / 2
+      const midY = height / 2
+      for (let i = 0; i < peaks.length; i++) {
+        const peak = peaks[i]
+        const x0 = Math.floor((i / peaks.length) * width)
+        const x1 = Math.floor(((i + 1) / peaks.length) * width)
         const amp = Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max)))
         const barHeight = Math.max(1, amp * (height - 4))
-        ctx.fillRect(x, midY - barHeight / 2, barWidth - 1, barHeight)
-      })
+        ctx.fillRect(x0, midY - barHeight / 2, Math.max(1, x1 - x0 - gap), barHeight)
+      }
       ctx.globalAlpha = 1
     }
     draw()
