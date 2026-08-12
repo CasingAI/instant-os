@@ -25,27 +25,6 @@
   flex: none;
 }
 
-.archive-utility-app__tool {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 12.5px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.archive-utility-app__tool:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.07);
-}
-
-.archive-utility-app__tool:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .archive-utility-app__toolbar-sep {
   width: 1px;
   height: 18px;
@@ -206,13 +185,11 @@
 
 .archive-utility-app__cell-icon {
   flex: none;
-  width: 16px;
-  height: 16px;
-  color: #888;
-}
-
-.archive-utility-app__cell-icon--dir {
-  color: #2f87e2;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .archive-utility-app__cell-text {
@@ -274,26 +251,11 @@
   line-height: 1.5;
 }
 
-.archive-utility-app__empty-action {
-  appearance: none;
-  border: none;
-  background: linear-gradient(180deg, #6cb3ff 0%, #2f87e2 55%, #1f6ec7 100%);
-  color: #fff;
-  font-size: 12.5px;
-  padding: 7px 16px;
-  border-radius: 7px;
-  cursor: pointer;
-  margin-top: 8px;
-}
-
-.archive-utility-app__empty-action--ghost {
-  background: transparent;
-  color: #1a1a1a;
-  border: 1px solid rgba(0, 0, 0, 0.25);
-}
-
-.archive-utility-app__empty-action:hover {
-  filter: brightness(1.08);
+.archive-utility-app__empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .archive-utility-app__busy {
@@ -364,13 +326,53 @@
   max-width: 180px;
 }
 
-.archive-utility-app__busy-cancel {
-  appearance: none;
-  border: none;
-  background: transparent;
+.archive-utility-app__busy-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.archive-utility-app__create-card {
+  width: 400px;
+}
+
+.archive-utility-app__create-source {
+  margin: 0 0 14px;
   font-size: 12px;
-  padding: 8px 0 0;
-  cursor: pointer;
-  text-decoration: underline;
-  color: #4a6da8;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-utility-app__create-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.archive-utility-app__create-label {
+  flex: none;
+  width: 44px;
+  font-size: 12.5px;
+  color: #555;
+}
+
+.archive-utility-app__create-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.archive-utility-app__create-extension {
+  flex: none;
+  font-size: 12.5px;
+  color: #777;
+}
+
+.archive-utility-app__create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }

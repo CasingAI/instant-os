@@ -9,15 +9,22 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
+import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
+import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
+import { IosButton } from '../../ui/ios-button.tsx'
+import { IosTextField } from '../../ui/ios-text-field.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
+import { ArchiveUtilityIcon } from '../../icons/app-icons.tsx'
+import { FilesNodeIcon } from '../files/files-node-icon.tsx'
 import {
   filesCreateArchive,
+  filesCreateBinary,
   filesDecodeArchive,
   filesExtractArchive,
   filesList,
   filesReadBlob,
   filesRemoveBatch,
   filesStat,
-  filesWriteBinary,
 } from '../files/files-api.ts'
 import { ensureTmpFolder } from '../files/files-tmp.ts'
 import { FilesStorageFullError } from '../files/files-storage.ts'
@@ -103,29 +110,6 @@ function formatFormatLabel(format: ArchiveSession['format']): string {
   }
 }
 
-function FolderIcon() {
-  return (
-    <svg class="archive-utility-app__icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M1.5 3.5c0-.6.4-1 1-1h3l1.5 2h7c.6 0 1 .4 1 1v7c0 .6-.4 1-1 1h-11.5a1 1 0 0 1-1-1v-9z"
-        fill="currentColor"
-      />
-    </svg>
-  )
-}
-
-function FileIcon() {
-  return (
-    <svg class="archive-utility-app__icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M3 1.5h6l4 4v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1z"
-        fill="currentColor"
-      />
-      <path d="M9 1.5v4h4" fill="none" stroke="var(--archive-utility-app-icon-bg, #fff)" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
 export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   const {
     windows,
@@ -152,6 +136,16 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   const [currentDir, setCurrentDir] = useState<string[]>([])
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState<BusyState | undefined>(undefined)
+  const [contextMenu, setContextMenu] = useState<
+    { item: ArchiveLevelItem; x: number; y: number } | undefined
+  >(undefined)
+  const [createDialog, setCreateDialog] = useState<
+    { sourcePath: string; destDir: string; sourceName: string } | undefined
+  >(undefined)
+  const [createFormat, setCreateFormat] = useState<'zip' | 'gzip-tar'>('zip')
+  const [createName, setCreateName] = useState('')
+
+  const { hostRef: narrowHostRef, narrowLayout } = useAppNarrowLayout()
 
   const busyAbortRef = useRef<AbortController | undefined>(undefined)
   const sessionRef = useRef(session)
@@ -379,87 +373,72 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       selectionMode: 'folder',
     })
     if (!destDir) return
-
+    const destStat = await filesStat(destDir)
+    if (!destStat || destStat.kind !== 'folder') {
+      await modal.alert({ title: '无法新建归档', message: '目标文件夹不存在', themeColor: THEME })
+      return
+    }
     const sourceName = fileBaseName(sourcePath)
-    const format = await (async (): Promise<'zip' | 'gzip-tar' | undefined> => {
-      // 0 = zip, 1 = tar.gz
-      const choice = await modal.confirm({
-        title: '选择压缩格式',
-        message: '确定使用 ZIP 格式吗？\n（取消则使用 tar.gz）',
-        confirmLabel: 'ZIP',
-        cancelLabel: 'TAR.GZ',
-        themeColor: THEME,
-      })
-      return choice ? 'zip' : 'gzip-tar'
-    })()
-
-    const extension = format === 'zip' ? 'zip' : 'tar.gz'
-    const archiveName = await modal.prompt({
-      title: '归档文件名',
-      label: '文件名',
-      initialValue: `${sourceName}.${extension}`,
-      suffix: undefined,
-      requireValue: true,
-      validate: (value) => {
-        const trimmed = value.trim()
-        if (!trimmed) return '请输入文件名'
-        if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('\0')) {
-          return '文件名不能包含 / \\ 或空字符'
-        }
-        return undefined
-      },
-      themeColor: THEME,
-    })
-    if (!archiveName) return
-    const finalName = /\.(zip|tar\.gz|tgz)$/i.test(archiveName.trim())
-      ? archiveName.trim()
-      : `${archiveName.trim()}.${extension}`
-    const archivePath = `${destDir.replace(/\/+$/, '')}/${finalName}`
-
-    const existing = await filesStat(archivePath)
-    if (existing) {
-      const overwrite = await modal.confirm({
-        title: '覆盖已有文件？',
-        message: `「${finalName}」已存在，覆盖它吗？`,
-        confirmLabel: '覆盖',
-        themeColor: THEME,
-      })
-      if (!overwrite) return
-    }
-
-    const abort = new AbortController()
-    busyAbortRef.current = abort
-    setBusy({ kind: 'create', label: '正在压缩…', readCount: 0, totalCount: 0 })
-    try {
-      await filesCreateArchive({
-        sourceDirPath: sourcePath,
-        archivePath,
-        format,
-        signal: abort.signal,
-        onProgress: (progress) => {
-          setBusy({
-            kind: 'create',
-            label: `正在压缩「${sourceName}」…`,
-            readCount: progress.readCount,
-            totalCount: progress.totalCount,
-            currentPath: progress.currentPath,
-          })
-        },
-      })
-      await modal.alert({
-        title: '新建完成',
-        message: `已创建「${finalName}」`,
-        confirmLabel: '好',
-        themeColor: THEME,
-      })
-    } catch (error) {
-      if (abort.signal.aborted) return
-      await modal.alert({ title: '无法新建归档', message: formatError(error), themeColor: THEME })
-    } finally {
-      busyAbortRef.current = undefined
-      if (mountedRef.current) setBusy(undefined)
-    }
+    setCreateFormat('zip')
+    setCreateName(`${sourceName}.zip`)
+    setCreateDialog({ sourcePath, destDir, sourceName })
   }, [modal, showSystemOpenDialog])
+
+  const performCreateArchive = useCallback(
+    async (sourcePath: string, destDir: string, format: 'zip' | 'gzip-tar', fileName: string) => {
+      setCreateDialog(undefined)
+      const extension = format === 'zip' ? 'zip' : 'tar.gz'
+      const finalName = /\.(zip|tar\.gz|tgz)$/i.test(fileName.trim())
+        ? fileName.trim()
+        : `${fileName.trim()}.${extension}`
+      const archivePath = `${destDir.replace(/\/+$/, '')}/${finalName}`
+
+      const existing = await filesStat(archivePath)
+      if (existing) {
+        const overwrite = await modal.confirm({
+          title: '覆盖已有文件？',
+          message: `「${finalName}」已存在，覆盖它吗？`,
+          confirmLabel: '覆盖',
+          themeColor: THEME,
+        })
+        if (!overwrite) return
+      }
+
+      const abort = new AbortController()
+      busyAbortRef.current = abort
+      setBusy({ kind: 'create', label: '正在压缩…', readCount: 0, totalCount: 0 })
+      try {
+        await filesCreateArchive({
+          sourceDirPath: sourcePath,
+          archivePath,
+          format,
+          signal: abort.signal,
+          onProgress: (progress) => {
+            setBusy({
+              kind: 'create',
+              label: `正在压缩「${fileBaseName(sourcePath)}」…`,
+              readCount: progress.readCount,
+              totalCount: progress.totalCount,
+              currentPath: progress.currentPath,
+            })
+          },
+        })
+        await modal.alert({
+          title: '新建完成',
+          message: `已创建「${finalName}」`,
+          confirmLabel: '好',
+          themeColor: THEME,
+        })
+      } catch (error) {
+        if (abort.signal.aborted) return
+        await modal.alert({ title: '无法新建归档', message: formatError(error), themeColor: THEME })
+      } finally {
+        busyAbortRef.current = undefined
+        if (mountedRef.current) setBusy(undefined)
+      }
+    },
+    [modal],
+  )
 
   const cancelBusy = useCallback(() => {
     busyAbortRef.current?.abort()
@@ -642,7 +621,8 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
         const targetPath = `${PREVIEW_ROOT}/${name}`
         const copy = new Uint8Array(data.byteLength)
         copy.set(data)
-        await filesWriteBinary(targetPath, copy.buffer as ArrayBuffer)
+        // filesWriteBinary 只能覆写已存在文件；这里用 filesCreateBinary 新建
+        await filesCreateBinary(targetPath, copy.buffer as ArrayBuffer)
         const appId = getDefaultFileOpenApp(name)
         if (appId) {
           openApp(appId, { documentId: targetPath })
@@ -690,6 +670,20 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     setCurrentDir(currentDir.slice(0, depth))
     setSelection(new Set())
   }, [currentDir])
+
+  const handleContextMenu = useCallback(
+    (item: ArchiveLevelItem, event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!selectionRef.current.has(item.path)) {
+        setSelection(new Set([item.path]))
+      }
+      setContextMenu({ item, x: event.clientX, y: event.clientY })
+    },
+    [],
+  )
+
+  const closeContextMenu = useCallback(() => setContextMenu(undefined), [])
 
   const menuBar = useMemo((): MenuDefinition[] => {
     const items: MenuDefinition[] = [
@@ -774,57 +768,109 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     [session],
   )
 
+  const contextMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    const target = contextMenu?.item
+    if (!target) return []
+    const items: AdaptiveActionMenuItem[] = []
+    if (target.kind === 'dir') {
+      items.push({
+        type: 'action',
+        label: '打开',
+        onClick: () => handleEnterDir(target.path, target.name),
+      })
+    } else {
+      items.push({
+        type: 'action',
+        label: '打开',
+        onClick: () => void handleOpenEntry(target),
+      })
+    }
+    items.push({ type: 'separator' })
+    items.push({
+      type: 'action',
+      label: '全部解压…',
+      disabled: !session,
+      onClick: () => void handleExtract(false),
+    })
+    items.push({
+      type: 'action',
+      label: `解压选中${selectedCount > 0 ? `（${selectedCount}）` : ''}`,
+      disabled: !session || selectedCount === 0,
+      onClick: () => void handleExtract(true),
+    })
+    if (session && session.format !== 'gzip-file') {
+      items.push({ type: 'separator' })
+      items.push({
+        type: 'action',
+        label: '删除选中',
+        disabled: selectedCount === 0,
+        onClick: () => void handleDeleteSelected(),
+      })
+      items.push({
+        type: 'action',
+        label: '重命名',
+        disabled: selectedCount !== 1,
+        onClick: () => void handleRenameSelected(),
+      })
+    }
+    return items
+  }, [
+    contextMenu,
+    handleDeleteSelected,
+    handleEnterDir,
+    handleExtract,
+    handleOpenEntry,
+    handleRenameSelected,
+    selectedCount,
+    session,
+  ])
+
   const renderToolbar = () => (
     <div class="archive-utility-app__toolbar">
-      <button type="button" class="archive-utility-app__tool" onClick={() => void handleOpenArchive()}>
+      <IosButton size="compact" onClick={() => void handleOpenArchive()}>
         打开
-      </button>
-      <button
-        type="button"
-        class="archive-utility-app__tool"
+      </IosButton>
+      <IosButton
+        size="compact"
         onClick={() => void handleExtract(false)}
         disabled={!session || busy !== undefined}
       >
         全部解压
-      </button>
-      <button
-        type="button"
-        class="archive-utility-app__tool"
+      </IosButton>
+      <IosButton
+        size="compact"
         onClick={() => void handleExtract(true)}
         disabled={!session || selectedCount === 0 || busy !== undefined}
       >
         解压选中{selectedCount > 0 ? `（${selectedCount}）` : ''}
-      </button>
+      </IosButton>
       <span class="archive-utility-app__toolbar-sep" aria-hidden="true" />
-      <button
-        type="button"
-        class="archive-utility-app__tool"
+      <IosButton
+        size="compact"
         onClick={() => void handleAddFiles()}
         disabled={!session || session.format === 'gzip-file' || busy !== undefined}
       >
         添加文件
-      </button>
-      <button
-        type="button"
-        class="archive-utility-app__tool"
+      </IosButton>
+      <IosButton
+        size="compact"
         onClick={() => void handleDeleteSelected()}
         disabled={!session || selectedCount === 0 || session.format === 'gzip-file' || busy !== undefined}
       >
         删除选中
-      </button>
+      </IosButton>
       <span class="archive-utility-app__toolbar-sep" aria-hidden="true" />
-      <button
-        type="button"
-        class="archive-utility-app__tool"
+      <IosButton
+        size="compact"
         onClick={() => void handleCreateArchive()}
         disabled={busy !== undefined}
       >
         新建归档
-      </button>
+      </IosButton>
       <span class="archive-utility-app__toolbar-spacer" aria-hidden="true" />
-      <button type="button" class="archive-utility-app__tool" onClick={handleRefresh} disabled={!session || busy !== undefined}>
+      <IosButton size="compact" onClick={handleRefresh} disabled={!session || busy !== undefined}>
         刷新
-      </button>
+      </IosButton>
     </div>
   )
 
@@ -870,13 +916,15 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
   const renderEmpty = () => (
     <div class="archive-utility-app__empty">
       <div class="archive-utility-app__empty-icon" aria-hidden="true">
-        <FolderIcon />
+        <ArchiveUtilityIcon size={44} />
       </div>
       <p class="archive-utility-app__empty-title">未打开压缩包</p>
       <p class="archive-utility-app__empty-hint">打开一个 .zip、.tar、.tar.gz 或 .gz 文件以浏览其内容。</p>
-      <button type="button" class="archive-utility-app__empty-action" onClick={() => void handleOpenArchive()}>
-        打开压缩包…
-      </button>
+      <div class="archive-utility-app__empty-actions">
+        <IosButton tone="primary" onClick={() => void handleOpenArchive()}>
+          打开压缩包…
+        </IosButton>
+      </div>
     </div>
   )
 
@@ -890,14 +938,16 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
     <div class="archive-utility-app__empty">
       <p class="archive-utility-app__empty-title">无法打开压缩包</p>
       <p class="archive-utility-app__empty-hint">{loadError}</p>
-      <button type="button" class="archive-utility-app__empty-action" onClick={() => void handleOpenArchive()}>
-        选择其他文件
-      </button>
-      {documentId ? (
-        <button type="button" class="archive-utility-app__empty-action archive-utility-app__empty-action--ghost" onClick={handleRefresh}>
-          重试
-        </button>
-      ) : undefined}
+      <div class="archive-utility-app__empty-actions">
+        <IosButton tone="primary" onClick={() => void handleOpenArchive()}>
+          选择其他文件
+        </IosButton>
+        {documentId ? (
+          <IosButton size="compact" onClick={handleRefresh}>
+            重试
+          </IosButton>
+        ) : undefined}
+      </div>
     </div>
   )
 
@@ -940,12 +990,27 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
                     void handleOpenEntry(item)
                   }
                 }}
+                onContextMenu={(event) => handleContextMenu(item, event)}
               >
                 <span class="archive-utility-app__col archive-utility-app__col--name archive-utility-app__cell-name">
-                  <span class={isDir ? 'archive-utility-app__cell-icon archive-utility-app__cell-icon--dir' : 'archive-utility-app__cell-icon'}>
-                    {isDir ? <FolderIcon /> : <FileIcon />}
+                  <span class="archive-utility-app__cell-icon">
+                    <FilesNodeIcon
+                      size="list"
+                      node={{
+                        id: `archive-virtual-${item.path}`,
+                        locationId: 'tmp',
+                        parentId: undefined,
+                        name: item.name,
+                        kind: isDir ? 'folder' : 'file',
+                        mimeType: undefined,
+                        byteSize: meta?.originalSize ?? 0,
+                        createdAt: meta?.mtime ?? 0,
+                        updatedAt: meta?.mtime ?? 0,
+                        attributes: { readable: true, writable: false },
+                      }}
+                    />
                   </span>
-                  <span class="archive-utility-app__cell-text">{isDir ? item.name : item.name}</span>
+                  <span class="archive-utility-app__cell-text">{item.name}</span>
                 </span>
                 <span class="archive-utility-app__col archive-utility-app__col--type">
                   {isDir ? '文件夹' : meta ? fileTypeLabel(meta) : ''}
@@ -972,6 +1037,75 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
       </div>
     </div>
   )
+
+  const renderCreateDialog = () => {
+    if (!createDialog) return null
+    const extension = createFormat === 'zip' ? 'zip' : 'tar.gz'
+    return (
+      <div class="archive-utility-app__busy" role="dialog" aria-label="新建归档">
+        <div class="archive-utility-app__busy-card archive-utility-app__create-card">
+          <p class="archive-utility-app__busy-title">新建归档</p>
+          <p class="archive-utility-app__create-source">
+            压缩「{createDialog.sourceName}」到「{createDialog.destDir}」
+          </p>
+          <div class="archive-utility-app__create-row">
+            <span class="archive-utility-app__create-label">格式</span>
+            <SegmentedControl
+              value={createFormat}
+              onChange={setCreateFormat}
+              ariaLabel="压缩格式"
+              items={[
+                { id: 'zip', label: 'ZIP' },
+                { id: 'gzip-tar', label: 'TAR.GZ' },
+              ]}
+            />
+          </div>
+          <div class="archive-utility-app__create-row">
+            <span class="archive-utility-app__create-label">文件名</span>
+            <IosTextField
+              class="archive-utility-app__create-name"
+              value={createName}
+              onInput={(event) => setCreateName((event.target as HTMLInputElement).value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  if (createName.trim()) {
+                    void performCreateArchive(
+                      createDialog.sourcePath,
+                      createDialog.destDir,
+                      createFormat,
+                      createName,
+                    )
+                  }
+                }
+              }}
+            />
+            <span class="archive-utility-app__create-extension">.{extension}</span>
+          </div>
+          <div class="archive-utility-app__create-actions">
+            <IosButton size="compact" onClick={() => setCreateDialog(undefined)}>
+              取消
+            </IosButton>
+            <IosButton
+              size="compact"
+              tone="primary"
+              disabled={!createName.trim()}
+              onClick={() =>
+                void performCreateArchive(
+                  createDialog.sourcePath,
+                  createDialog.destDir,
+                  createFormat,
+                  createName,
+                )
+              }
+            >
+              创建
+            </IosButton>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const renderBusyOverlay = () => {
     if (!busy) return null
@@ -1009,16 +1143,18 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
                 : '正在处理…'}
             {currentPath ? <span class="archive-utility-app__busy-path"> · {currentPath}</span> : undefined}
           </p>
-          <button type="button" class="archive-utility-app__busy-cancel" onClick={cancelBusy}>
-            取消
-          </button>
+          <div class="archive-utility-app__busy-actions">
+            <IosButton size="compact" onClick={cancelBusy}>
+              取消
+            </IosButton>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div class="archive-utility-app">
+    <div class="archive-utility-app" ref={narrowHostRef}>
       {!documentId ? (
         <div class="archive-utility-app__frame">
           {renderToolbar()}
@@ -1042,6 +1178,16 @@ export function ArchiveUtilityApp({ windowId }: ArchiveUtilityAppProps) {
           {renderStatusBar()}
         </div>
       )}
+      <AdaptiveActionMenu
+        open={contextMenu !== undefined}
+        title={contextMenu?.item.name ?? ''}
+        items={contextMenuItems}
+        narrowLayout={narrowLayout}
+        mount="portal"
+        anchor={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : undefined}
+        onClose={closeContextMenu}
+      />
+      {renderCreateDialog()}
       {renderBusyOverlay()}
       {systemOpenDialog}
     </div>

@@ -1,6 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../os/device-storage.ts'
 import type { AppId, WindowState } from '../os/types.ts'
-import { clampFloatingSize } from './window-resize.ts'
+import { clampFloatingSize, MIN_WINDOW_HEIGHT } from './window-resize.ts'
 
 const STORAGE_KEY = DEVICE_STORAGE_KEYS.windowSizes
 
@@ -73,6 +73,14 @@ export function resolveWindowDimensions(
   // 真正的用户缩小操作一般不会正好卡在 300x200 这个阈值附近。
   const isLikelyBogusFloor = saved.width <= 300 && saved.height <= 200
   if (isLikelyBogusFloor) {
+    return clampFloatingSize(defaults.width, defaults.height)
+  }
+
+  // 无头面板等旧存档（高度压在地板、宽度明显小于当前默认，如 windowless 小面板改为 GUI 应用）
+  // 也会被当作陈旧尺寸忽略，避免恢复出无法使用的迷你窗口。
+  const isLikelyStalePanel =
+    saved.height <= MIN_WINDOW_HEIGHT + 40 && saved.width < defaults.width * 0.6
+  if (isLikelyStalePanel) {
     return clampFloatingSize(defaults.width, defaults.height)
   }
 
