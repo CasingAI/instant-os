@@ -43,7 +43,7 @@ import {
   saveVscodePrefs,
   type VscodeAiModelOptionPrefs,
 } from '../vscode/vscode-prefs.ts'
-import { runAlignChatAgent, runG2pAgent } from './align-agent.ts'
+import { runAlignChatAgent, runG2pAgent, type G2pProgress } from './align-agent.ts'
 import { alignUnitsToPhones } from './align-dtw.ts'
 import { buildAlignLrc } from './align-lrc.ts'
 import '../help/help.css'
@@ -134,6 +134,7 @@ export function AlignApp() {
   const [lyricsSourceName, setLyricsSourceName] = useState('')
   const [alignState, setAlignState] = useState<AlignState>('idle')
   const [liveProgress, setLiveProgress] = useState<VscodeAiAgentProgress | undefined>(undefined)
+  const [g2pProgress, setG2pProgress] = useState<G2pProgress | undefined>(undefined)
   const [alignResult, setAlignResult] = useState('')
   const alignResultRef = useRef('')
   const [alignError, setAlignError] = useState<string | undefined>(undefined)
@@ -235,6 +236,7 @@ export function AlignApp() {
     alignAbortRef.current = undefined
     setAlignState('idle')
     setLiveProgress(undefined)
+    setG2pProgress(undefined)
     setAlignResult('')
     alignResultRef.current = ''
     setAlignError(undefined)
@@ -290,6 +292,7 @@ export function AlignApp() {
       alignAbortRef.current = controller
       setAlignState('g2p')
       setLiveProgress(undefined)
+      setG2pProgress(undefined)
       setAlignResult('')
       alignResultRef.current = ''
       setAlignError(undefined)
@@ -309,12 +312,13 @@ export function AlignApp() {
           signal: controller.signal,
           onProgress: (progress) => {
             if (controller.signal.aborted) return
-            setLiveProgress(progress)
+            setG2pProgress(progress)
           },
         })
         if (controller.signal.aborted) return
         setAlignState('dtw')
         setLiveProgress(undefined)
+        setG2pProgress(undefined)
         const alignedUnits = alignUnitsToPhones(g2p.units, phoneList)
         const lrc = buildAlignLrc(alignedUnits, g2p.lines).trim()
         if (!lrc) {
@@ -344,6 +348,7 @@ export function AlignApp() {
       } finally {
         if (alignAbortRef.current === controller) alignAbortRef.current = undefined
         setLiveProgress(undefined)
+        setG2pProgress(undefined)
       }
     },
     [appendChatMessage, persistAlignedLrc, updateChatHistory],
@@ -746,7 +751,7 @@ export function AlignApp() {
     const el = chatScrollRef.current
     if (!el || !stickToBottomRef.current) return
     el.scrollTop = el.scrollHeight
-  }, [alignState, chatMessages.length, chatRunning, liveProgress, alignResult])
+  }, [alignState, chatMessages.length, chatRunning, liveProgress, g2pProgress, alignResult])
 
   const displayedRows = useMemo(() => rows?.slice(0, MAX_ROWS) ?? [], [rows])
   const lyricsLineCount = useMemo(
@@ -1169,18 +1174,33 @@ export function AlignApp() {
                             </span>
                             <div class="vscode-ai__message-stack">
                               <div class="help-app__bubble help-app__bubble--with-investigation help-app__bubble--live">
-                                <LiveTimeline items={liveTimeline} />
-                                {showLiveAnswer &&
-                                  !liveTimeline.some((item) => item.kind === 'text') && (
-                                    <div
-                                      class={buildLiveAnswerClassName({
-                                        streaming: true,
-                                        separated: liveTimeline.length > 0,
-                                      })}
-                                    >
-                                      <HelpMarkdown text={liveAnswer} streaming />
+                                {alignState === 'g2p' && g2pProgress ? (
+                                  <div class="align__g2p-stream">
+                                    <div class="align__g2p-status">
+                                      AI 正在转换音素… {g2pProgress.chars} 字符
                                     </div>
-                                  )}
+                                    {g2pProgress.text && (
+                                      <pre class="align__g2p-preview">{g2pProgress.text}</pre>
+                                    )}
+                                  </div>
+                                ) : alignState === 'dtw' ? (
+                                  <div class="align__g2p-status">DTW 强制对齐中…</div>
+                                ) : (
+                                  <>
+                                    <LiveTimeline items={liveTimeline} />
+                                    {showLiveAnswer &&
+                                      !liveTimeline.some((item) => item.kind === 'text') && (
+                                        <div
+                                          class={buildLiveAnswerClassName({
+                                            streaming: true,
+                                            separated: liveTimeline.length > 0,
+                                          })}
+                                        >
+                                          <HelpMarkdown text={liveAnswer} streaming />
+                                        </div>
+                                      )}
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
