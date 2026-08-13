@@ -725,10 +725,12 @@
   flex: none;
 }
 
-/* 轨控音量条：独占一行撑满第三列（节拍器音量条不受影响，仍为 56px） */
+/* 轨控音量条：独占一行撑满第三列（节拍器音量条不受影响，仍为 56px）；
+   左右各收 8px，让两端处 16px 圆形 thumb 不溢出容器边界 */
 .stems__track-controls .stems__volume {
-  width: 100%;
-  max-width: none;
+  width: auto;
+  min-width: 0;
+  margin: 0 8px;
   flex: none;
 }
 
@@ -923,19 +925,23 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%) translateX(-50%);
-  padding: 1px 6px;
-  font-size: 12px;
-  line-height: 1.3;
+  /* 小号胶囊：紧凑 padding/字号，叠放时减少遮挡 */
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1.6;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.62);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 9px;
+  color: #2a2722;
+  background: #f5f2eb;
+  border: 1px solid #b5aea3;
+  border-radius: 8px;
   cursor: pointer;
+  /* 叠放：胶囊在空间不足时互相覆盖，激活/悬停置顶显示在最上层 */
+  z-index: 10;
 }
 
-/* 唱过的标签：金色点亮（横向卡拉OK 进度） */
+/* 唱过的标签：金色点亮（横向卡拉OK 进度）；置顶于未激活标签之上 */
 .stems__lyrics-tag--on {
+  z-index: 20;
   color: #1c1b1a;
   background: #ffd84d;
   border-color: #e0b83a;
@@ -943,19 +949,9 @@
   text-shadow: none;
 }
 
-/* 全曲视图字太密 → 退化为小圆点；放大后恢复文字（当前唱到的字强制显示） */
-.stems__lyrics-tag--dot {
-  width: 5px;
-  height: 5px;
-  padding: 0;
-  font-size: 0;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.5);
-}
-
-.stems__lyrics-tag--dot.stems__lyrics-tag--on {
-  background: #ffd84d;
+/* 悬停置顶：重叠时露出被盖标签，便于点击跳转 */
+.stems__lyrics-tag:hover {
+  z-index: 30;
 }
 
 /* 空态占位（无对齐结果） */

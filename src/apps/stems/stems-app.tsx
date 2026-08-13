@@ -54,8 +54,6 @@ type StemTrackState = {
 const WAVEFORM_BUCKETS = 200
 /** 波形横向缩放下可见窗口的最短时长（秒） */
 const MIN_VIEW_SEC = 0.5
-/** 歌词标签间距小于该像素宽时退化为小点（全曲视图字太密时防重叠） */
-const LYRICS_TAG_DOT_MIN_GAP_PX = 26
 
 /** 歌词时间轴标签：由对齐结果逐字拍平（无逐字时整行一个标签） */
 type LyricTag = {
@@ -63,8 +61,6 @@ type LyricTag = {
   wordIndex: number
   text: string
   timeSec: number
-  /** 与前一字像素间距不足 → 只显示小圆点，放大后恢复文字 */
-  dot: boolean
 }
 
 /**
@@ -231,12 +227,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const lyricsWordRefsRef = useRef<Map<number, Map<number, HTMLSpanElement>>>(new Map())
   /** 歌词时间轴标签元数据（rAF 找当前行/词用） */
   const lyricTagsRef = useRef<LyricTag[]>([])
-  /** 歌词时间轴标签容器（密度计算与播放头定位用） */
+  /** 歌词时间轴标签容器（播放头定位用） */
   const lyricsTagsRef = useRef<HTMLDivElement | null>(null)
   /** 歌词轨播放头（与波形播放头同款，直写 left） */
   const lyricsPlayheadRef = useRef<HTMLDivElement | null>(null)
-  /** 歌词标签容器实际像素宽度（ResizeObserver 维护）：密度判断用 */
-  const [lyricsLaneWidthPx, setLyricsLaneWidthPx] = useState(0)
   /** 当前 tracks 的最新值（手动补对齐时读取 vocals 轨） */
   const tracksRef = useRef<StemTrackState[] | null>(null)
   /** 速度条当前段高亮/读数/播放头直写 DOM 用（仿 playheadRefsRef） */
@@ -324,47 +318,25 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
   /** 歌词时间轴标签：逐字拍平成一行（无逐字的行回退整行一个标签；无时间戳行跳过） */
   const lyricTags = useMemo<LyricTag[]>(() => {
-    const pxPerSec = lyricsLaneWidthPx > 0 && viewLen > 0 ? lyricsLaneWidthPx / viewLen : 0
     const tags: LyricTag[] = []
-    let prevTimeSec = -Infinity
     for (let lineIndex = 0; lineIndex < karaokeLines.length; lineIndex++) {
       const line = karaokeLines[lineIndex]
       if (line.timeMs === undefined) continue
-      const push = (wordIndex: number, text: string, timeSec: number) => {
-        const gapPx = pxPerSec > 0 ? (timeSec - prevTimeSec) * pxPerSec : Infinity
-        prevTimeSec = timeSec
-        tags.push({ lineIndex, wordIndex, text, timeSec, dot: gapPx < LYRICS_TAG_DOT_MIN_GAP_PX })
-      }
       const words = line.words
       if (words && words.length > 0) {
         for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
           const word = words[wordIndex]
-          push(wordIndex, word.text, word.timeMs / 1000)
+          tags.push({ lineIndex, wordIndex, text: word.text, timeSec: word.timeMs / 1000 })
         }
       } else {
-        push(-1, line.text, line.timeMs / 1000)
+        tags.push({ lineIndex, wordIndex: -1, text: line.text, timeSec: line.timeMs / 1000 })
       }
     }
     return tags
-  }, [karaokeLines, lyricsLaneWidthPx, viewLen])
+  }, [karaokeLines])
   useEffect(() => {
     lyricTagsRef.current = lyricTags
   }, [lyricTags])
-
-  // 歌词标签容器宽度：密度判断（全曲视图字太密退化为小点）
-  useEffect(() => {
-    const node = lyricsTagsRef.current
-    if (!node) return
-    const update = (): void => {
-      const w = node.clientWidth
-      if (w > 0) setLyricsLaneWidthPx(w)
-    }
-    update()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(update)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [lyricTags.length])
 
   const handleSeparateRef = useRef<() => void>(() => {})
   /** 「重新计算节拍」中转 ref：handler 依赖 detectTempoAsync（定义晚于 menuBar），与 handleSeparateRef 同模式 */
@@ -1287,7 +1259,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
   /**
    * 歌词标签 DOM 直写：唱过的行整行点亮、当前行逐字点亮（横向时间轴卡拉OK）。
-   * 只在行/词变化时动 DOM（播放中不重渲染 React）；当前字强制显示文字（移除 dot）。
+   * 只在行/词变化时动 DOM（播放中不重渲染 React）。
    */
   const updateLyricsTagsDom = useCallback((lineIdx: number, wordIdx: number) => {
     const active = lyricsActiveRef.current
@@ -1299,10 +1271,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         // li < lineIdx：已唱完的行全亮；li === lineIdx：按词序点亮当前字及之前
         const on = li < lineIdx || (li === lineIdx && wi <= wordIdx)
         el.classList.toggle('stems__lyrics-tag--on', on)
-        // 当前唱到的字即使全曲视图（dot）也强制显示文字
-        if (li === lineIdx && wi === wordIdx) {
-          el.classList.remove('stems__lyrics-tag--dot')
-        }
       }
     }
   }, [])
@@ -2083,6 +2051,32 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 class="stems__lyrics-tags"
                 onClick={lyricTags.length === 0 ? openLyricsEditor : undefined}
                 title={lyricTags.length === 0 ? '导入或编辑歌词' : undefined}
+                onPointerDown={(event) => {
+                  if (lyricTags.length === 0) return
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)))
+                  isSeekingRef.current = true
+                  handleSeekInput(view.start + ratio * viewLen)
+                  event.currentTarget.setPointerCapture(event.pointerId)
+                }}
+                onPointerMove={(event) => {
+                  if (!isSeekingRef.current) return
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)))
+                  handleSeekInput(view.start + ratio * viewLen)
+                }}
+                onPointerUp={(event) => {
+                  if (!isSeekingRef.current) return
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)))
+                  finalizeSeek(view.start + ratio * viewLen)
+                }}
+                onPointerCancel={(event) => {
+                  if (!isSeekingRef.current) return
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)))
+                  finalizeSeek(view.start + ratio * viewLen)
+                }}
               >
                 {lyricTags.length > 0 ? (
                   <>
@@ -2092,7 +2086,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                         <span
                           key={`${tag.lineIndex}:${tag.wordIndex}:${index}`}
                           ref={(el) => registerLyricsTag(tag.lineIndex, tag.wordIndex, el)}
-                          class={`stems__lyrics-tag${tag.dot ? ' stems__lyrics-tag--dot' : ''}`}
+                          class="stems__lyrics-tag"
                           style={{ left: `${leftPct}%` }}
                           onClick={() => finalizeSeek(tag.timeSec)}
                           title={tag.text}
