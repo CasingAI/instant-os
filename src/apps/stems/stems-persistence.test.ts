@@ -296,6 +296,28 @@ function testManifestValidation(): void {
   const badLrc = parseStemsManifest(JSON.stringify({ ...good, alignedLrc: 42 }))
   assert.ok(badLrc, 'alignedLrc 非字符串不应拒绝整个 manifest')
   assert.equal(badLrc.alignedLrc, undefined, 'alignedLrc 非法按缺失处理')
+
+  // phonemes：合法数组通过，非数组/坏形状按缺失处理（不整体拒绝）
+  const withPhonemes = parseStemsManifest(
+    JSON.stringify({
+      ...good,
+      phonemes: [
+        { symbol: '你', start: 0.1, end: 0.3 },
+        { symbol: '好', start: 0.3, end: 0.5 },
+      ],
+    }),
+  )
+  assert.ok(withPhonemes, '含 phonemes 的 manifest 应通过')
+  assert.equal(withPhonemes.phonemes?.length, 2)
+  assert.deepEqual(withPhonemes.phonemes?.[0], { symbol: '你', start: 0.1, end: 0.3 })
+  const badPhonemes = parseStemsManifest(JSON.stringify({ ...good, phonemes: 'nope' }))
+  assert.ok(badPhonemes, 'phonemes 非数组不应拒绝整个 manifest')
+  assert.equal(badPhonemes.phonemes, undefined, 'phonemes 非法按缺失处理')
+  const partialBad = parseStemsManifest(
+    JSON.stringify({ ...good, phonemes: [{ symbol: '你', start: 'x', end: 0.3 }] }),
+  )
+  assert.ok(partialBad, 'phonemes 坏形状不应拒绝整个 manifest')
+  assert.equal(partialBad.phonemes, undefined, 'phonemes 坏形状按缺失处理')
   console.log('ok: parseStemsManifest 校验')
 }
 
@@ -331,6 +353,67 @@ async function testAlignedLrcRoundTrip(): Promise<void> {
   console.log('ok: alignedLrc 随 .stems.zip 持久化 round-trip')
 }
 
+/** phonemes 持久化 round-trip：保存时带上，载入时还原（完整解包与快路径均可见）。 */
+async function testPhonemesRoundTrip(): Promise<void> {
+  const stems = makeFakeStems(1000)
+  const phonemes = [
+    { symbol: '你', start: 0.1, end: 0.3 },
+    { symbol: '好', start: 0.3, end: 0.5 },
+    { symbol: '世', start: 0.5, end: 0.7 },
+    { symbol: '界', start: 0.7, end: 0.9 },
+  ]
+  const chunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    alignedLrc: '[00:00.00]<00:00.00>你<00:00.30>好<00:00.60>世<00:00.90>界',
+    phonemes,
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let o = 0
+  for (const c of chunks) {
+    zipBytes.set(c, o)
+    o += c.length
+  }
+  const loaded = await loadStemsArchive(new Blob([zipBytes]))
+  assert.deepEqual(loaded.manifest.phonemes, phonemes, 'phonemes 应随包还原')
+  const layout = readStemsArchiveLayout(zipBytes)
+  assert.deepEqual(layout.manifest.phonemes, phonemes, '快路径 manifest 也应含 phonemes')
+  // 不带 phonemes 保存时，载入后字段应为 undefined（不污染旧包语义）
+  const chunks2: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    sink: {
+      write: (c) => {
+        chunks2.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes2 = new Uint8Array(chunks2.reduce((n, c) => n + c.length, 0))
+  let o2 = 0
+  for (const c of chunks2) {
+    zipBytes2.set(c, o2)
+    o2 += c.length
+  }
+  const loaded2 = await loadStemsArchive(new Blob([zipBytes2]))
+  assert.equal(loaded2.manifest.phonemes, undefined, '未提供 phonemes 时不应写入该字段')
+  console.log('ok: phonemes 随 .stems.zip 持久化 round-trip')
+}
+
 function testArchivePath(): void {
   assert.equal(
     stemsArchivePathFor('/user/Musics/song.mp3'),
@@ -361,6 +444,7 @@ await testRoundTrip()
 await testLegacyV2Archive()
 await testLayoutFastPath()
 await testAlignedLrcRoundTrip()
+await testPhonemesRoundTrip()
 testPcm16Chunking()
 testManifestValidation()
 testArchivePath()

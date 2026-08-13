@@ -41,6 +41,13 @@ export function stemsArchiveRequiredEntryNames(): string[] {
   return [STEMS_MANIFEST_ENTRY, ...STEM_IDS.map((id) => stemWavEntryName(id))]
 }
 
+/** 音素识别结果：识别出的一个 token 段（symbol 为解码后的可读文本）。 */
+export type PhonemeSegment = {
+  symbol: string
+  start: number
+  end: number
+}
+
 export type StemsManifest = {
   version: typeof STEMS_MANIFEST_VERSION
   /** 源文件绝对路径（信息用；载入时仅软校验） */
@@ -55,6 +62,8 @@ export type StemsManifest = {
   tempo?: TempoInfo
   /** 歌词对齐结果（增强 LRC，可选；老归档无此字段） */
   alignedLrc?: string
+  /** 人声轨音素识别结果（可选；供换歌词时复用，跳过重新识别） */
+  phonemes?: PhonemeSegment[]
 }
 
 /** 校验 tempo 字段形状；不合法返回 undefined（按缺失处理）。 */
@@ -89,6 +98,27 @@ function normalizeTempo(raw: unknown): TempoInfo | undefined {
   return { bpm: obj.bpm, segments }
 }
 
+/** 校验 phonemes 字段形状；不合法返回 undefined（按缺失处理）。 */
+function normalizePhonemes(raw: unknown): PhonemeSegment[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const phonemes: PhonemeSegment[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) return undefined
+    const seg = item as { symbol?: unknown; start?: unknown; end?: unknown }
+    if (
+      typeof seg.symbol !== 'string' ||
+      typeof seg.start !== 'number' ||
+      typeof seg.end !== 'number' ||
+      !Number.isFinite(seg.start) ||
+      !Number.isFinite(seg.end)
+    ) {
+      return undefined
+    }
+    phonemes.push({ symbol: seg.symbol, start: seg.start, end: seg.end })
+  }
+  return phonemes
+}
+
 /**
  * 分轨压缩包侧车路径：`/user/Musics/song.mp3` → `/user/Musics/song.stems.zip`。
  * 无扩展名时直接追加后缀。
@@ -108,6 +138,7 @@ export function buildStemsManifest(meta: {
   createdAt?: number
   tempo?: TempoInfo
   alignedLrc?: string
+  phonemes?: PhonemeSegment[]
 }): StemsManifest {
   const manifest: StemsManifest = {
     version: STEMS_MANIFEST_VERSION,
@@ -120,6 +151,7 @@ export function buildStemsManifest(meta: {
   }
   if (meta.tempo) manifest.tempo = meta.tempo
   if (meta.alignedLrc) manifest.alignedLrc = meta.alignedLrc
+  if (meta.phonemes?.length) manifest.phonemes = meta.phonemes
   return manifest
 }
 
@@ -146,6 +178,12 @@ export function parseStemsManifest(json: string): StemsManifest | null {
     // alignedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.alignedLrc !== undefined && typeof raw.alignedLrc !== 'string') {
       delete manifest.alignedLrc
+    }
+    // phonemes 非合法数组（老包无此字段）时按缺失处理，不整体拒绝
+    if (raw.phonemes !== undefined) {
+      const phonemes = normalizePhonemes(raw.phonemes)
+      if (!phonemes) delete manifest.phonemes
+      else manifest.phonemes = phonemes
     }
     return manifest
   } catch {
@@ -285,6 +323,8 @@ export type SaveStemsOptions = {
   tempo?: TempoInfo
   /** 歌词对齐结果（增强 LRC，可选） */
   alignedLrc?: string
+  /** 人声轨音素识别结果（可选；供换歌词复用，跳过重新识别） */
+  phonemes?: PhonemeSegment[]
   /** 完成进度（已存轨数 / 总轨数） */
   onProgress?: (saved: number, total: number) => void
 }
@@ -296,7 +336,18 @@ const EMPTY_CHUNK = new Uint8Array(0)
  * 每 push 一块输入后立即排空压缩输出（串行 await 写入），峰值内存 ≈ 单块大小。
  */
 export async function saveStemsArchive(options: SaveStemsOptions): Promise<void> {
-  const { stems, sourcePath, sourceName, durationSec, sampleRate, sink, tempo, alignedLrc, onProgress } = options
+  const {
+    stems,
+    sourcePath,
+    sourceName,
+    durationSec,
+    sampleRate,
+    sink,
+    tempo,
+    alignedLrc,
+    phonemes,
+    onProgress,
+  } = options
   const manifest = buildStemsManifest({
     sourcePath,
     sourceName,
@@ -304,6 +355,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     sampleRate,
     tempo,
     alignedLrc,
+    phonemes,
   })
 
   const zipOutput: Uint8Array[] = []

@@ -21,6 +21,7 @@ import {
   readStemsArchiveLayout,
   saveStemsArchive,
   stemsArchivePathFor,
+  type PhonemeSegment,
 } from './stems-persistence.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
@@ -191,6 +192,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 歌词对齐结果（增强 LRC；随 .stems.zip 持久化，重开恢复） */
   const [alignedLrc, setAlignedLrc] = useState('')
   const alignedLrcRef = useRef('')
+  /** 人声轨音素识别结果（随 .stems.zip 持久化；换歌词时复用，跳过重新识别） */
+  const phonemesRef = useRef<PhonemeSegment[] | null>(null)
   /** 歌词对齐是否进行中 */
   const [alignBusy, setAlignBusy] = useState(false)
   /** 歌词识别块进度 */
@@ -306,6 +309,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [karaokeLines])
 
   const handleSeparateRef = useRef<() => void>(() => {})
+  /** 「重新计算节拍」中转 ref：handler 依赖 detectTempoAsync（定义晚于 menuBar），与 handleSeparateRef 同模式 */
+  const handleRedetectTempoRef = useRef<() => void>(() => {})
 
   /** 取消所有已调度未响的节拍器 click（暂停/seek/关闭声音/重建 AudioContext 时调用） */
   const flushMetronomePending = useCallback(() => {
@@ -444,6 +449,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           sampleRate: stemSampleRate,
           tempo: tempoRef.current ?? undefined,
           alignedLrc: alignedLrcRef.current || undefined,
+          phonemes: phonemesRef.current ?? undefined,
           sink: {
             write: (chunk) => writer.write(chunk),
             close: () => writer.close(),
@@ -469,7 +475,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     await saveCurrentStems(tracks.map((t) => t.audio))
   }, [saveCurrentStems, tracks])
 
-  // 顶栏菜单：文件 → 打开 / 重新分轨 / 保存分轨（⌘S）
+  // 顶栏菜单：文件 → 打开 / 重新分轨 / 保存分轨（⌘S）；编辑 → 重新计算节拍
   const menuBar = useMemo<MenuDefinition[]>(() => {
     return [
       {
@@ -501,9 +507,20 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           },
         ],
       },
+      {
+        label: '编辑',
+        items: [
+          {
+            type: 'action',
+            label: tempoDetecting ? '计算节拍中…' : '重新计算节拍',
+            disabled: !tracks || tempoDetecting || loadingArchive,
+            onClick: () => handleRedetectTempoRef.current(),
+          },
+        ],
+      },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceName, tracks, saveProgress, loadingArchive, handleSaveArchive])
+  }, [sourceName, tracks, saveProgress, loadingArchive, tempoDetecting, handleSaveArchive])
   useAppMenuBar('stems', menuBar)
 
   // ⌘S 保存分轨：菜单 shortcut 仅展示，实际监听与 pages/textedit 一致
@@ -559,12 +576,46 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [],
   )
 
+  /**
+   * 用当前算法对鼓轨重新检测节拍，成功后自动保存存档（新 BPM/相位落盘）。
+   * 手动重算入口：打开旧压缩包会直接读存档 tempo，旧算法结果不重算。
+   */
+  const handleRedetectTempo = useCallback(async () => {
+    if (!tracks) return
+    const drums = tracks.find((t) => t.audio.stemId === 'drums')
+    if (!drums) return
+    setError(null)
+    const result = await detectTempoAsync(drums.audio.data, stemSampleRate)
+    if (result) await saveCurrentStems(tracks.map((t) => t.audio))
+  }, [tracks, stemSampleRate, detectTempoAsync, saveCurrentStems])
+
+  useEffect(() => {
+    handleRedetectTempoRef.current = () => void handleRedetectTempo()
+  }, [handleRedetectTempo])
+
   /** 清除歌词对齐结果（歌词变更 / 重新分轨时调用）；hint 为清除后的提示文案 */
   const clearAlignedResult = useCallback((hint: string | null) => {
     alignedLrcRef.current = ''
     setAlignedLrc('')
     setAlignRestoredFrom(false)
     setLyricsHint(hint)
+  }, [])
+
+  /**
+   * 复用已缓存的音素段把歌词快速对齐（纯函数文本对齐，秒级）：
+   * 换歌词后不必重跑 Zipformer 识别，直接用旧识别段对齐新歌词。
+   * 无音素段或对齐不出结果时返回 false（调用方回退到重新识别）。
+   */
+  const realignFromPhonemes = useCallback((lyricsText: string): boolean => {
+    const phonemes = phonemesRef.current
+    if (!phonemes || phonemes.length === 0) return false
+    const lrc = alignSegmentsToLrc(phonemes, lyricsText)
+    if (!lrc) return false
+    alignedLrcRef.current = lrc
+    setAlignedLrc(lrc)
+    setAlignRestoredFrom(false)
+    setLyricsHint(null)
+    return true
   }, [])
 
   /**
@@ -609,6 +660,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           },
         )
         if (alignReqSeqRef.current !== reqId) return false
+        phonemesRef.current = segments
         const lrc = alignSegmentsToLrc(segments, lyricsText)
         if (alignReqSeqRef.current !== reqId) return false
         if (!lrc) {
@@ -701,6 +753,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       tempoRef.current = null
       // 重新分轨：旧对齐结果作废（人声轨已变），歌词输入保留
       clearAlignedResult(null)
+      phonemesRef.current = null
       alignReqSeqRef.current += 1
 
       try {
@@ -906,6 +959,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               const drums = stems.find((s) => s.stemId === 'drums')
               if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
             }
+            // 音素段（人声轨识别结果）随包恢复：换歌词时复用，跳过重新识别
+            if (manifest.phonemes) phonemesRef.current = manifest.phonemes
             // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
             if (manifest.alignedLrc && !looksLikeBrokenLrc(manifest.alignedLrc)) {
               alignedLrcRef.current = manifest.alignedLrc
@@ -915,9 +970,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             } else if (manifest.alignedLrc) {
               clearAlignedResult('检测到旧版损坏的对齐结果，已跳过恢复；可点击「对齐歌词」重新对齐')
             } else if (lyricsRef.current.trim()) {
-              // 老包无歌词结果但歌词已就绪 → 自动补对齐（vocals 已解码）
-              const vocals = stems.find((s) => s.stemId === 'vocals')
-              if (vocals) void alignVocals(vocals.data, manifest.sampleRate)
+              // 包内无有效歌词结果但歌词已就绪：优先复用音素段快速重对齐（秒级），
+              // 无音素段时退回重跑识别（vocals 已解码）
+              if (!realignFromPhonemes(lyricsRef.current)) {
+                const vocals = stems.find((s) => s.stemId === 'vocals')
+                if (vocals) void alignVocals(vocals.data, manifest.sampleRate)
+              } else {
+                setAlignRestoredFrom(true)
+              }
             }
           } catch (cause) {
             console.warn('后台解码分轨失败', cause)
@@ -933,7 +993,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         return false
       }
     },
-    [cacheStemBuffers, clearAlignedResult, detectTempoAsync, alignVocals, stopPlayback],
+    [cacheStemBuffers, clearAlignedResult, detectTempoAsync, alignVocals, realignFromPhonemes, stopPlayback],
   )
 
   const handlePickFile = useCallback(async () => {
@@ -956,6 +1016,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     setLyrics('')
     setLyricsSourceName('')
     clearAlignedResult(null)
+    phonemesRef.current = null
     alignReqSeqRef.current += 1
     const dot = path.lastIndexOf('.')
     const slash = path.lastIndexOf('/')
@@ -987,9 +1048,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       lyricsRef.current = cleaned
       setLyrics(cleaned)
       setLyricsSourceName(sourceName)
+      // 已有音素段（识别结果）时直接复用快速重对齐，无需重跑 Zipformer
+      if (realignFromPhonemes(cleaned)) return
       if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
     },
-    [clearAlignedResult],
+    [clearAlignedResult, realignFromPhonemes],
   )
 
   /** 载入歌词文件（.lrc/.txt）：剥离 LRC 时间戳后填入歌词区 */
@@ -1615,6 +1678,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setCurrentTime(0)
         // 拖入文件无持久路径：保留已粘贴歌词，但旧对齐结果作废（人声轨已变）
         clearAlignedResult(null)
+        phonemesRef.current = null
         startSeparation(interleaved, sampleRate)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
