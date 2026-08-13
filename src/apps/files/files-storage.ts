@@ -75,6 +75,12 @@ type FilesBlobRecord = {
    * 与 bytes / text 互斥；流式写入使用。
    */
   chunked?: boolean
+  /**
+   * 分块内容单元偏移索引（新格式）。存在 = 新格式：chunkOffsets[i] 为第 i 块
+   * 在文件中的起始字节偏移，块大小可变（中间块等长、尾部可合并）。
+   * 缺失 = 旧格式：块按写入序号等长与否未知，只能整读。
+   */
+  chunkOffsets?: number[]
   /** 分块 blob 的内容字节数（chunked 时维护，配额 / 预览免读 chunks） */
   byteSize?: number
   /** 分块数 */
@@ -86,6 +92,18 @@ type FilesChunkRecord = {
   blobId: string
   chunkIndex: number
   bytes: ArrayBuffer
+}
+
+/**
+ * 流式写入的目标块大小（默认值）。
+ * 中间块恒为 chunkSize，尾部块在 (0, chunkSize + MIN_TAIL] 内；配合 MIN_TAIL 避免微小尾巴块。
+ */
+const DEFAULT_STREAM_CHUNK_SIZE = 4 << 20
+/** 尾部块最小尺寸：小于该值的块在 close 时合并进前一块（避免一次额外读写）。 */
+const MIN_TAIL_CHUNK_BYTES = 1 << 20
+/** 切块下限：pending 达到 chunkSize + MIN_TAIL 才切一块，保证尾部块不小于 MIN_TAIL。 */
+function flushThreshold(chunkSize: number): number {
+  return chunkSize + MIN_TAIL_CHUNK_BYTES
 }
 
 type FilesMetaRecord = {
@@ -608,6 +626,117 @@ async function readChunkedBlobBytes(blobId: string): Promise<ArrayBuffer | undef
   return out.buffer
 }
 
+/**
+ * 按 [offset, offset+length) 读取本地卷内容字节（新格式按偏移索引只取覆盖块，
+ * 旧格式/整块 blob 全读后裁切）。返回的 ArrayBuffer 只含请求区间。
+ * 越界时按实际可用内容返回（offset 超文件末尾 → 空 ArrayBuffer）。
+ */
+export async function readBlobBytesRange(
+  nodeId: string,
+  offset: number,
+  length: number,
+): Promise<ArrayBuffer | undefined> {
+  const start = Math.max(0, offset)
+  const want = Math.max(0, length)
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
+  const nodeRecord = await requestToPromise(
+    tx.objectStore(FILES_NODES_STORE).get(nodeId) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!nodeRecord || nodeRecord.kind !== 'file') {
+    await waitForTransaction(tx)
+    return undefined
+  }
+  const blobId = resolveNodeBlobId(nodeRecord)
+  const record = await requestToPromise(
+    tx.objectStore(FILES_BLOBS_STORE).get(blobId) as IDBRequest<FilesBlobRecord | undefined>,
+  )
+  await waitForTransaction(tx)
+  if (!record) return undefined
+
+  if (record.chunked === true && Array.isArray(record.chunkOffsets) && record.chunkOffsets.length > 0) {
+    return readChunkedBlobBytesRange(blobId, record.chunkOffsets, start, want)
+  }
+  if (record.chunked === true) {
+    // 旧格式（无偏移索引）：整读后裁切（语义正确，仅不省 IO）
+    const all = await readChunkedBlobBytes(blobId)
+    if (all === undefined) return undefined
+    return sliceArrayBufferRange(all, start, want)
+  }
+  if (record.bytes !== undefined) {
+    return sliceArrayBufferRange(record.bytes, start, want)
+  }
+  if (record.text !== undefined) {
+    return sliceArrayBufferRange(encodeTextToArrayBuffer(record.text), start, want)
+  }
+  return undefined
+}
+
+/** 按偏移索引只取覆盖 [start, start+want) 的块，裁剪块内首尾并拼接。 */
+async function readChunkedBlobBytesRange(
+  blobId: string,
+  chunkOffsets: number[],
+  start: number,
+  want: number,
+): Promise<ArrayBuffer | undefined> {
+  const end = start + want
+  // 二分找 startIdx：最后一个 chunkOffsets[i] <= start；endIdx：chunkOffsets[j] < end
+  const firstIndex = upperBound(chunkOffsets, start) - 1
+  if (firstIndex < 0) return new ArrayBuffer(0)
+  const lastIndex = upperBound(chunkOffsets, end) - 1
+  if (lastIndex < firstIndex) return new ArrayBuffer(0)
+
+  const db = await openFilesDb()
+  const tx = beginIdbTransaction(db, FILES_CHUNKS_STORE, 'readonly')
+  const store = tx.objectStore(FILES_CHUNKS_STORE)
+  const range = IDBKeyRange.bound([blobId, firstIndex], [blobId, lastIndex])
+  const records = await requestToPromise(
+    store.getAll(range) as IDBRequest<FilesChunkRecord[]>,
+  )
+  await waitForTransaction(tx)
+  if (!records || records.length === 0) return new ArrayBuffer(0)
+
+  const byIndex = new Map<number, Uint8Array>()
+  for (const record of records) {
+    byIndex.set(record.chunkIndex, new Uint8Array(record.bytes))
+  }
+  const out = new Uint8Array(want)
+  let written = 0
+  for (let i = firstIndex; i <= lastIndex; i++) {
+    const chunk = byIndex.get(i)
+    if (!chunk) continue
+    const chunkStart = chunkOffsets[i]
+    const chunkEnd = chunkStart + chunk.byteLength
+    const from = Math.max(start, chunkStart)
+    const to = Math.min(end, chunkEnd)
+    if (to <= from) continue
+    const src = chunk.subarray(from - chunkStart, to - chunkStart)
+    out.set(src, written)
+    written += src.byteLength
+  }
+  return written === want ? out.buffer : out.buffer.slice(0, written)
+}
+
+/** 二分：返回第一个 arr[i] > target 的索引（arr 升序）。 */
+function upperBound(arr: number[], target: number): number {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (arr[mid] <= target) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/** 从 ArrayBuffer 裁切 [start, start+want)，越界截断。 */
+function sliceArrayBufferRange(bytes: ArrayBuffer, start: number, want: number): ArrayBuffer {
+  const from = Math.max(0, start)
+  const to = Math.min(bytes.byteLength, from + want)
+  if (to <= from) return new ArrayBuffer(0)
+  return bytes.slice(from, to)
+}
+
 /** 在既有事务内删除某 blob 的全部分块记录（主键范围删除，O(chunkCount) 由 IDB 承担） */
 async function deleteBlobChunksInTx(tx: IDBTransaction, blobId: string): Promise<void> {
   const store = tx.objectStore(FILES_CHUNKS_STORE)
@@ -924,6 +1053,12 @@ type FilesStreamWriteState = {
   previousByteSize: number
   chunkIndex: number
   writtenBytes: number
+  /** 目标块大小（默认 DEFAULT_STREAM_CHUNK_SIZE）；写入缓冲达到 flushThreshold 时切块 */
+  chunkSize: number
+  /** 已落库块的起始偏移（新格式；未落库前的 pending 不算） */
+  chunkOffsets: number[]
+  /** 尚未落库的写入缓冲（close 时整体落库为最后一块） */
+  pending: Uint8Array
   /** open 后累计计入 byte-total 的字节（abort 时回退；含新建节点元数据） */
   quotaCommitted: number
   terminal: 'open' | 'closed' | 'aborted'
@@ -965,14 +1100,18 @@ function assertStreamOpen(state: FilesStreamWriteState): void {
  * @param isNew 是否新建文件
  * @param metaBytes 新建时节点元数据字节（计入配额）；覆盖时传 0
  * @param previousByteSize 覆盖时原内容字节（close 释放配额用）；新建传 0
+ * @param chunkSize 目标块大小（默认 4MiB）；中间块恒为 chunkSize，尾部块在
+ *                  (0, chunkSize + MIN_TAIL] 内，close 时合并 < MIN_TAIL 的尾巴
  */
 export async function openStreamWriteBlob(params: {
   node: FilesNode
   isNew: boolean
   metaBytes: number
   previousByteSize: number
+  chunkSize?: number
 }): Promise<FilesStreamWriter> {
   const { node, isNew, metaBytes, previousByteSize } = params
+  const chunkSize = params.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
   const id = crypto.randomUUID()
   const blobId = newFilesBlobId()
   const db = await openFilesDb()
@@ -1040,6 +1179,9 @@ export async function openStreamWriteBlob(params: {
     previousByteSize,
     chunkIndex: 0,
     writtenBytes: 0,
+    chunkSize,
+    chunkOffsets: [],
+    pending: new Uint8Array(0),
     quotaCommitted,
     terminal: 'open',
     queue: Promise.resolve(),
@@ -1053,22 +1195,16 @@ export async function openStreamWriteBlob(params: {
   }
 }
 
-async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array): Promise<void> {
-  assertStreamOpen(state)
-  if (chunk.byteLength === 0) return
-  const n = chunk.byteLength
-  await assertCapacity(n)
-
-  const db = await openFilesDb()
-  const tx = beginIdbTransaction(
-    db,
-    [FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_NODES_STORE, FILES_META_STORE],
-    'readwrite',
-  )
+/** 在既有事务内落库一个分块 + 更新 blob 元数据（chunkOffsets/byteSize/chunkCount）。 */
+async function putChunkInTx(
+  tx: IDBTransaction,
+  state: FilesStreamWriteState,
+  data: Uint8Array,
+): Promise<void> {
   tx.objectStore(FILES_CHUNKS_STORE).put({
     blobId: state.blobId,
     chunkIndex: state.chunkIndex,
-    bytes: copyUint8ToArrayBuffer(chunk),
+    bytes: copyUint8ToArrayBuffer(data),
   } satisfies FilesChunkRecord)
 
   const blob = await requestToPromise(
@@ -1077,22 +1213,58 @@ async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array)
   if (blob) {
     tx.objectStore(FILES_BLOBS_STORE).put({
       ...blob,
-      byteSize: state.writtenBytes + n,
+      chunkOffsets: [...state.chunkOffsets, state.writtenBytes],
+      byteSize: state.writtenBytes + data.byteLength,
       chunkCount: state.chunkIndex + 1,
     } satisfies FilesBlobRecord)
   }
-  if (state.isNew) {
-    tx.objectStore(FILES_NODES_STORE).put({
-      ...state.nodeRecord,
-      byteSize: state.writtenBytes + n,
-    } satisfies FilesNodeRecord)
-  }
-  await adjustByteTotal(tx, n)
-  await waitForTransaction(tx)
-
   state.chunkIndex += 1
-  state.writtenBytes += n
+  state.writtenBytes += data.byteLength
+  state.chunkOffsets.push(state.writtenBytes - data.byteLength)
+}
+
+async function writeStreamChunk(state: FilesStreamWriteState, chunk: Uint8Array): Promise<void> {
+  assertStreamOpen(state)
+  if (chunk.byteLength === 0) return
+  const n = chunk.byteLength
+  await assertCapacity(n)
+
+  // 追加进缓冲；配额写即预占（与原始行为一致），落库只是物理写
+  const next = new Uint8Array(state.pending.byteLength + n)
+  next.set(state.pending)
+  next.set(chunk, state.pending.byteLength)
+  state.pending = next
   state.quotaCommitted += n
+
+  const db = await openFilesDb()
+  const metaTx = beginIdbTransaction(db, FILES_META_STORE, 'readwrite')
+  await adjustByteTotal(metaTx, n)
+  await waitForTransaction(metaTx)
+
+  // 缓冲足够大才切块落库（阈值 = chunkSize + MIN_TAIL，保证尾部块不小于 MIN_TAIL）；
+  // 每次 write 循环切掉所有可切整块，避免单次大 write 造成 pending 内存峰值
+  const threshold = flushThreshold(state.chunkSize)
+  while (state.pending.byteLength >= threshold) {
+    const chunkTx = beginIdbTransaction(
+      db,
+      [FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_NODES_STORE, FILES_META_STORE],
+      'readwrite',
+    )
+    await putChunkInTx(chunkTx, state, state.pending.subarray(0, state.chunkSize))
+    if (state.isNew) {
+      chunkTx.objectStore(FILES_NODES_STORE).put({
+        ...state.nodeRecord,
+        byteSize: state.writtenBytes,
+      } satisfies FilesNodeRecord)
+    }
+    await waitForTransaction(chunkTx)
+
+    // 剩余缓冲移到最前（无拷贝的视图复位 + 拷贝剩余段）
+    const rest = state.pending.subarray(state.chunkSize)
+    const remaining = new Uint8Array(rest.byteLength)
+    remaining.set(rest)
+    state.pending = remaining
+  }
 }
 
 async function closeStreamWrite(state: FilesStreamWriteState): Promise<FilesNode> {
@@ -1105,6 +1277,13 @@ async function closeStreamWrite(state: FilesStreamWriteState): Promise<FilesNode
   )
   const nodes = tx.objectStore(FILES_NODES_STORE)
   const blobs = tx.objectStore(FILES_BLOBS_STORE)
+
+  // 剩余缓冲作为最后一块整体落库（含 < MIN_TAIL 的尾巴：单块文件 = 一次读）。
+  // 配额已在每次 write 时预占，此处只做物理写，不再 adjustByteTotal。
+  if (state.pending.byteLength > 0) {
+    await putChunkInTx(tx, state, state.pending)
+    state.pending = new Uint8Array(0)
+  }
 
   const updated: FilesNodeRecord = {
     ...state.nodeRecord,

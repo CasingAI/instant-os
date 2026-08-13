@@ -10,13 +10,16 @@ import {
   collectSubtreeIds,
   deleteSubtree,
   estimateNodeMetaBytes,
+  FILES_BLOBS_STORE,
   FILES_CHUNKS_STORE,
   FILES_DB_NAME,
+  FILES_NODES_STORE,
   getFileBlobRefForTests,
   getFilesTotalBytes,
   newFilesNodeId,
   openStreamWriteBlob,
   readBlobBytes,
+  readBlobBytesRange,
   readBlobText,
   resetFilesDbForTests,
   sweepOrphanChunksOnce,
@@ -26,6 +29,7 @@ import {
   filesCreateText,
   filesOpenStreamWrite,
   filesReadBlob,
+  filesReadBlobRange,
   filesReadText,
   filesStat,
 } from './files-api.ts'
@@ -357,6 +361,229 @@ function copyBytes(text: string): ArrayBuffer {
   return copy.buffer
 }
 
+/** 读取 blob 记录的 chunkOffsets（新格式偏移索引）。 */
+async function getChunkOffsets(blobId: string): Promise<number[] | undefined> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(FILES_DB_NAME)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('open failed'))
+  })
+  const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
+  const record = await new Promise<{ chunkOffsets?: number[] } | undefined>((resolve, reject) => {
+    const request = tx.objectStore(FILES_BLOBS_STORE).get(blobId)
+    request.onsuccess = () => resolve(request.result as { chunkOffsets?: number[] } | undefined)
+    request.onerror = () => reject(request.error ?? new Error('blob get failed'))
+  })
+  db.close()
+  return record?.chunkOffsets
+}
+
+/** 写 [0, n) 的确定性字节（非 2 的幂模数，便于逐字节校验）。 */
+function patternedBytes(n: number): Uint8Array {
+  const out = new Uint8Array(n)
+  for (let i = 0; i < n; i += 1) {
+    out[i] = (i * 7 + 13) % 251
+  }
+  return out
+}
+
+function bytesToUint8(bytes: ArrayBuffer): Uint8Array {
+  return new Uint8Array(bytes)
+}
+
+/** 存储层：新格式等长块写入 → chunkOffsets/块数/尾部块正确 */
+async function testChunkedWriteSplitsAndOffsets(): Promise<void> {
+  await resetState()
+  const chunkSize = 4 * 1024
+  const node = makeFileNode('splits.bin')
+  const writer = await openStreamWriteBlob({
+    node,
+    isNew: true,
+    metaBytes: estimateNodeMetaBytes(node),
+    previousByteSize: 0,
+    chunkSize,
+  })
+  // 数据 = 1MiB + 128KiB（第一次 write） + 32KiB（第二次 write）
+  const firstSize = (1 << 20) + (128 << 10)
+  const secondSize = 32 << 10
+  const total = firstSize + secondSize
+  const data = patternedBytes(total)
+  await writer.write(data.subarray(0, firstSize))
+  await writer.write(data.subarray(firstSize))
+  const closed = await writer.close()
+
+  const ref = await getFileBlobRefForTests(closed.id)
+  assert.ok(ref)
+  assert.equal(ref.byteLength, total)
+  const offsets = await getChunkOffsets(ref.blobId)
+  assert.ok(Array.isArray(offsets) && offsets.length > 1, '应生成多条 chunk')
+
+  // 中间块恒为 chunkSize；最后一块 = 剩余（>= MIN_TAIL = 1MiB）
+  for (let i = 1; i < offsets.length; i += 1) {
+    assert.equal(offsets[i] - offsets[i - 1], chunkSize, `第 ${i} 块应为等长`)
+  }
+  const tailBytes = total - offsets[offsets.length - 1]
+  assert.ok(tailBytes >= 1 << 20, `尾部块不应微小（实际 ${tailBytes}）`)
+  assert.equal(tailBytes, 1 << 20, '尾部块应正好等于 MIN_TAIL（写入恰被切平）')
+  console.log('ok: chunked write produces equal-size middle chunks + no tiny tail')
+}
+
+/** 存储层：readBlobBytesRange 多区间与整读裁切逐字节一致 */
+async function testRangeReadMatchesFullRead(): Promise<void> {
+  await resetState()
+  const chunkSize = 4 * 1024
+  const node = makeFileNode('range.bin')
+  const writer = await openStreamWriteBlob({
+    node,
+    isNew: true,
+    metaBytes: estimateNodeMetaBytes(node),
+    previousByteSize: 0,
+    chunkSize,
+  })
+  const total = (1 << 20) + (128 << 10) + (32 << 10)
+  const data = patternedBytes(total)
+  // 分成不规整的 write 块，制造多种切块路径
+  for (let offset = 0; offset < total; offset += 97 * 1024) {
+    await writer.write(data.subarray(offset, offset + 97 * 1024))
+  }
+  const closed = await writer.close()
+  const ref = await getFileBlobRefForTests(closed.id)
+  assert.ok(ref)
+
+  const all = await readBlobBytes(closed.id)
+  assert.ok(all)
+  const full = bytesToUint8(all)
+  assert.equal(full.byteLength, total)
+
+  const ranges: [number, number][] = [
+    [0, 1],
+    [0, total],
+    [100, 50],
+    [5000, 8192], // 跨块
+    [chunkSize - 1, 2], // 正好跨块边界
+    [total - 1, 1], // 末字节
+    [total, 1], // 越界
+    [total + 100, 10], // 深越界
+    [-10, 20], // 负偏移 → 从 0 起
+    [4096, 0], // 零长度
+  ]
+  for (const [offset, length] of ranges) {
+    const range = await readBlobBytesRange(closed.id, offset, length)
+    assert.ok(range, `range read 应返回（offset=${offset} length=${length}）`)
+    const got = bytesToUint8(range)
+    const want = full.subarray(Math.max(0, offset), Math.max(0, offset) + Math.max(0, length))
+    assert.equal(
+      got.byteLength,
+      want.byteLength,
+      `长度不一致 offset=${offset} length=${length}`,
+    )
+    for (let i = 0; i < want.byteLength; i += 1) {
+      assert.equal(got[i], want[i], `字节不一致 offset=${offset} length=${length} idx=${i}`)
+    }
+  }
+  console.log('ok: readBlobBytesRange equals full-read slice for all ranges')
+}
+
+/** 存储层：旧格式（无 chunkOffsets）chunk blob 范围读回退整读裁切 */
+async function testOldFormatRangeFallback(): Promise<void> {
+  await resetState()
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(FILES_DB_NAME)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('open failed'))
+  })
+  const node = makeFileNode('old.bin')
+  const blobId = 'blob:old-format-test'
+  const payload = patternedBytes(300)
+  const tx = db.transaction(
+    [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE],
+    'readwrite',
+  )
+  const now = osNowMs()
+  tx.objectStore(FILES_NODES_STORE).put({
+    id: node.id,
+    locationId: 'local',
+    parentId: '',
+    name: 'old.bin',
+    kind: 'file',
+    mimeType: 'application/octet-stream',
+    byteSize: payload.byteLength,
+    createdAt: now,
+    updatedAt: now,
+    blobId,
+    attributes: defaultFilesNodeAttributes('local'),
+  })
+  // 旧格式：chunked 但无 chunkOffsets，且 chunk 不等长
+  tx.objectStore(FILES_BLOBS_STORE).put({
+    id: blobId,
+    refCount: 1,
+    chunked: true,
+    byteSize: payload.byteLength,
+    chunkCount: 2,
+  })
+  tx.objectStore(FILES_CHUNKS_STORE).put({
+    blobId,
+    chunkIndex: 0,
+    bytes: payload.slice(0, 100).buffer,
+  })
+  tx.objectStore(FILES_CHUNKS_STORE).put({
+    blobId,
+    chunkIndex: 1,
+    bytes: payload.slice(100).buffer,
+  })
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('seed failed'))
+  })
+  db.close()
+
+  const full = await readBlobBytes(node.id)
+  assert.ok(full)
+  assert.equal(full.byteLength, payload.byteLength)
+
+  for (const [offset, length] of [
+    [0, payload.byteLength],
+    [50, 200],
+    [250, 100],
+    [299, 1],
+    [1000, 10],
+  ] as [number, number][]) {
+    const range = await readBlobBytesRange(node.id, offset, length)
+    assert.ok(range)
+    const got = bytesToUint8(range)
+    const want = bytesToUint8(full).subarray(
+      Math.max(0, offset),
+      Math.max(0, offset) + Math.max(0, length),
+    )
+    assert.equal(got.byteLength, want.byteLength)
+    for (let i = 0; i < want.byteLength; i += 1) {
+      assert.equal(got[i], want[i])
+    }
+  }
+  console.log('ok: old-format chunk blob range read falls back to full-read slice')
+}
+
+/** API 层：filesReadBlobRange 本地卷范围读（含 chunkSize 透传） */
+async function testApiRangeRead(): Promise<void> {
+  await resetState()
+  const writer = await filesOpenStreamWrite('/user/api-range.bin', { chunkSize: 4 * 1024 })
+  const total = (1 << 20) + (128 << 10)
+  const data = patternedBytes(total)
+  for (let offset = 0; offset < total; offset += 64 * 1024) {
+    await writer.write(data.subarray(offset, offset + 64 * 1024))
+  }
+  await writer.close()
+
+  const blob = await filesReadBlobRange('/user/api-range.bin', 70000, 5000)
+  const got = new Uint8Array(await blob.arrayBuffer())
+  const want = data.subarray(70000, 75000)
+  assert.equal(got.byteLength, 5000)
+  for (let i = 0; i < want.byteLength; i += 1) {
+    assert.equal(got[i], want[i])
+  }
+  console.log('ok: filesReadBlobRange reads range via API layer')
+}
+
 async function run(): Promise<void> {
   await testStreamCreateAndReadBack()
   await testAbortNewFile()
@@ -368,6 +595,10 @@ async function run(): Promise<void> {
   await testStreamOverwriteSharedForks()
   await testEmptyStream()
   await testSweepOrphanChunks()
+  await testChunkedWriteSplitsAndOffsets()
+  await testRangeReadMatchesFullRead()
+  await testOldFormatRangeFallback()
+  await testApiRangeRead()
   console.log('files-stream-write: all passed')
 }
 

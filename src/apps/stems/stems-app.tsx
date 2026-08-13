@@ -6,7 +6,7 @@ import { IosButton } from '../../ui/ios-button.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
-import { filesOpenStreamWrite, filesReadBlob, filesReadText } from '../files/files-api.ts'
+import { filesOpenStreamWrite, filesReadBlobRange, filesReadText } from '../files/files-api.ts'
 import {
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
@@ -18,7 +18,7 @@ import type { WaveformPyramid } from './stems-separator.ts'
 import { STEM_COLORS, STEM_IDS, STEM_LABELS } from './stems-types.ts'
 import type { StemAudio, StemEngineProvider, StemId, StemProgress } from './stems-types.ts'
 import {
-  readStemsArchiveLayout,
+  readStemsArchiveLayoutRanged,
   saveStemsArchive,
   stemsArchivePathFor,
   type PhonemeSegment,
@@ -155,7 +155,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 分轨压缩包解码 worker（懒创建、复用、卸载时 terminate） */
   const archiveWorkerRef = useRef<Worker | null>(null)
   /** 会话内解码缓存（仅保留最新一首，控制内存）：二次打开同一首歌跳过 Worker 解码 */
-  const decodeCacheRef = useRef<{ path: string; createdAt: number; stems: StemAudio[] } | null>(null)
+  const decodeCacheRef = useRef<{
+    path: string
+    createdAt: number
+    byteSize: number
+    stems: StemAudio[]
+  } | null>(null)
   const bufferSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const startedAtRef = useRef(0)
   /** 本次播放从文件内的起始偏移（秒）：定时器回写进度必须加上它，否则 seek/恢复播放后进度条会从 0 重新数 */
@@ -891,7 +896,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
   /**
    * 打开文件时探测同目录的 `<源文件名>.stems.zip`，命中则直接载入已保存的分轨。
-   * 两段式：先读 manifest + 峰值表出 UI（轨道/波形立即可见），后台逐轨解码填播放缓冲。
+   * 两段式：先范围读 manifest + 峰值表出 UI（轨道/波形立即可见），
+   * 后台逐轨范围读 + Worker 单轨解码填播放缓冲（不整包进内存）。
    * 压缩包缺失/损坏时返回 false，由调用方走正常分轨流程。
    */
   const tryLoadSavedStems = useCallback(
@@ -901,9 +907,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       if (!archiveNode || archiveNode.kind !== 'file') return false
       setLoadingArchive(true)
       try {
-        const blob = await filesReadBlob(archivePath)
-        const bytes = new Uint8Array(await blob.arrayBuffer())
-        const { manifest, peaks } = readStemsArchiveLayout(bytes)
+        const archiveSize = archiveNode.byteSize
+        const readRange = async (offset: number, length: number): Promise<Uint8Array> => {
+          const blob = await filesReadBlobRange(archivePath, offset, length)
+          return new Uint8Array(await blob.arrayBuffer())
+        }
+        const layout = await readStemsArchiveLayoutRanged(readRange, archiveSize)
+        const { manifest, peaks } = layout
         const seq = ++loadArchiveSeqRef.current
         // 换新 context：旧文件的分轨缓存与播放一并清理
         stopPlayback()
@@ -929,16 +939,35 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )
         setPlaying(false)
         setCurrentTime(0)
-        // —— 第二段：Worker 后台解码（会话内缓存命中则跳过）→ 填播放缓冲 → 替换真实数据 ——
+        // —— 第二段：后台逐轨范围读 + Worker 单轨解码（会话内缓存命中则跳过）→ 填播放缓冲 → 替换真实数据 ——
         void (async () => {
           try {
             const cached = decodeCacheRef.current
             let stems: StemAudio[]
-            if (cached && cached.path === archivePath && cached.createdAt === manifest.createdAt) {
+            if (
+              cached &&
+              cached.path === archivePath &&
+              cached.createdAt === manifest.createdAt &&
+              cached.byteSize === archiveSize
+            ) {
               stems = cached.stems
             } else {
-              stems = await decodeStemsInWorker(bytes, archiveWorkerRef)
-              decodeCacheRef.current = { path: archivePath, createdAt: manifest.createdAt, stems }
+              const decoded: StemAudio[] = []
+              for (const item of manifest.stems) {
+                const entry = layout.entries.get(item.file)
+                if (!entry) throw new Error(`压缩包缺少 ${item.file}，无法载入`)
+                const blob = await filesReadBlobRange(archivePath, entry.dataOffset, entry.compressedSize)
+                const data = new Uint8Array(await blob.arrayBuffer())
+                const audio = await decodeTrackInWorker(item.id, data, entry.method, archiveWorkerRef)
+                decoded.push({ stemId: item.id, data: audio })
+              }
+              stems = decoded
+              decodeCacheRef.current = {
+                path: archivePath,
+                createdAt: manifest.createdAt,
+                byteSize: archiveSize,
+                stems,
+              }
             }
             // 期间重新分轨/换歌/卸载 → 丢弃结果
             if (loadArchiveSeqRef.current !== seq) return
@@ -2340,29 +2369,33 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   )
 }
 
-/** 在 Worker 里解码整个分轨压缩包 → 各轨 Float32（Transferable 传回，不阻塞主线程）。 */
-function decodeStemsInWorker(
-  bytes: Uint8Array,
+/** 在 Worker 里解码单条 WAV 压缩段 → Float32（Transferable 传回，不阻塞主线程）。 */
+function decodeTrackInWorker(
+  stemId: StemId,
+  data: Uint8Array,
+  method: number,
   workerRef: { current: Worker | null },
-): Promise<StemAudio[]> {
+): Promise<Float32Array> {
   const worker = workerRef.current ?? new StemsArchiveWorker()
   workerRef.current = worker
-  return new Promise<StemAudio[]>((resolve, reject) => {
+  return new Promise<Float32Array>((resolve, reject) => {
     const onMessage = (event: MessageEvent<StemsArchiveWorkerResponse>): void => {
-      worker.removeEventListener('message', onMessage)
       const msg = event.data
-      if (msg.type === 'done') {
-        resolve(
-          msg.stems.map((s) => ({ stemId: s.stemId as StemId, data: s.data })),
-        )
-      } else {
+      if (msg.type === 'track-done' && msg.stemId === stemId) {
+        worker.removeEventListener('message', onMessage)
+        resolve(msg.data)
+        return
+      }
+      if (msg.type === 'error') {
+        worker.removeEventListener('message', onMessage)
         reject(new Error(msg.message))
+        return
       }
     }
     worker.addEventListener('message', onMessage)
     worker.postMessage(
-      { type: 'decode', bytes: bytes.buffer as ArrayBuffer } satisfies StemsArchiveWorkerRequest,
-      [bytes.buffer],
+      { type: 'decode-track', stemId, data: data.buffer as ArrayBuffer, method } satisfies StemsArchiveWorkerRequest,
+      [data.buffer],
     )
   })
 }

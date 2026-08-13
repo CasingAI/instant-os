@@ -19,6 +19,7 @@ import {
   loadStemsArchive,
   parseStemsManifest,
   readStemsArchiveLayout,
+  readStemsArchiveLayoutRanged,
   saveStemsArchive,
   STEMS_ARCHIVE_EXTENSION,
   STEMS_MANIFEST_ENTRY,
@@ -243,6 +244,93 @@ async function testLayoutFastPath(): Promise<void> {
   console.log('ok: 快路径（zip 目录 + STORE 零拷贝）读取与后台解码')
 }
 
+/** 范围读版快路径：只读尾部 + 按需区间（模拟 VFS 范围读），与整包快路径结果一致。 */
+async function testLayoutFastPathRanged(): Promise<void> {
+  const stems = makeFakeStems(2000)
+  const chunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let o = 0
+  for (const c of chunks) {
+    zipBytes.set(c, o)
+    o += c.length
+  }
+
+  // 模拟 VFS 范围读：返回新分配的副本（对齐），等价 Blob.slice().arrayBuffer()
+  const readRange = async (offset: number, length: number): Promise<Uint8Array> => {
+    const start = Math.max(0, offset)
+    const end = Math.min(zipBytes.byteLength, start + Math.max(0, length))
+    return zipBytes.slice(start, end)
+  }
+
+  const ranged = await readStemsArchiveLayoutRanged(readRange, zipBytes.byteLength)
+  assert.equal(ranged.manifest.sourceName, 'song.mp3')
+  assert.equal(ranged.peaks.size, STEM_IDS.length, '范围读应读到全部峰值表')
+  for (const stem of stems) {
+    const decoded = await ranged.readStemBytes(stem.stemId)
+    assert.equal(decoded.length, stem.data.length)
+    for (let i = 0; i < decoded.length; i += 128) {
+      assert.ok(Math.abs(decoded[i] - stem.data[i]) < 2 / 32767, `${stem.stemId} 解码应还原`)
+    }
+  }
+  // 与整包版布局一致（条目定位 / manifest / peaks）
+  const whole = readStemsArchiveLayout(zipBytes)
+  assert.equal(ranged.manifest.sourcePath, whole.manifest.sourcePath)
+  assert.deepEqual(
+    [...ranged.entries.keys()].sort(),
+    [...whole.entries.keys()].sort(),
+    '条目定位应与整包版一致',
+  )
+  console.log('ok: 范围读快路径（尾部定位 + 按需区间）与整包一致')
+}
+
+/** 范围读版对 v2 旧包（全 deflate、无 peaks.bin）兼容：readStemBytes 走 inflate。 */
+async function testLayoutFastPathRangedLegacyV2(): Promise<void> {
+  const stems = makeFakeStems(1000)
+  const manifest = {
+    version: 2,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 1,
+    sampleRate: 44100,
+    createdAt: 123,
+    stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
+  }
+  const files: Record<string, Uint8Array> = {
+    [STEMS_MANIFEST_ENTRY]: new TextEncoder().encode(JSON.stringify(manifest)),
+  }
+  for (const stem of stems) {
+    files[stemWavEntryName(stem.stemId)] = new Uint8Array(encodeWav(stem.data, 44100))
+  }
+  const zipBytes = zipSync(files) // 全条目 deflate，等价 v2 旧包
+  const readRange = async (offset: number, length: number): Promise<Uint8Array> => {
+    const start = Math.max(0, offset)
+    const end = Math.min(zipBytes.byteLength, start + Math.max(0, length))
+    return zipBytes.slice(start, end)
+  }
+  const ranged = await readStemsArchiveLayoutRanged(readRange, zipBytes.byteLength)
+  assert.equal(ranged.manifest.version, 2)
+  assert.equal(ranged.peaks.size, 0, 'v2 包范围读应无峰值表')
+  const decoded = await ranged.readStemBytes(stems[0].stemId)
+  assert.equal(decoded.length, stems[0].data.length)
+  for (let i = 0; i < decoded.length; i += 256) {
+    assert.ok(Math.abs(decoded[i] - stems[0].data[i]) < 2 / 32767, 'v2 DEFLATE 轨应还原')
+  }
+  console.log('ok: 范围读快路径兼容 v2 旧包（DEFLATE）')
+}
+
 function testPcm16Chunking(): void {
   // 分块转换与 encodeWav 的 data 段逐字节一致（含奇偶帧边界）
   const frames = 100_000
@@ -443,6 +531,8 @@ function testArchiveEntryNames(): void {
 await testRoundTrip()
 await testLegacyV2Archive()
 await testLayoutFastPath()
+await testLayoutFastPathRanged()
+await testLayoutFastPathRangedLegacyV2()
 await testAlignedLrcRoundTrip()
 await testPhonemesRoundTrip()
 testPcm16Chunking()

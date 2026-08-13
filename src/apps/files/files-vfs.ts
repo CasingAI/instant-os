@@ -24,6 +24,7 @@ import {
   newFilesNodeId,
   openStreamWriteBlob,
   readBlobBytes,
+  readBlobBytesRange,
   readBlobText,
   renameNodeRecord,
   moveNodeRecord,
@@ -1034,6 +1035,57 @@ async function readFileBlobByNodeIdUnmetered(
   }
 }
 
+/**
+ * 按 [offset, offset+length) 读取文件二进制范围。
+ * 挂载卷 / 精选卷走 Blob 原生 slice（零成本局部读）；本地卷按偏移索引只取覆盖块
+ * （旧格式整读后裁切）。返回的 Blob 只含请求区间，越界按实际可用内容截断。
+ */
+export async function readFileBlobRange(
+  ref: string,
+  offset: number,
+  length: number,
+): Promise<{ node: FilesNode; blob: Blob }> {
+  if (isFilesAbsolutePath(ref)) {
+    const node = await resolveFileRef(ref)
+    return readFileBlobRangeByNodeId(node.id, offset, length)
+  }
+  return readFileBlobRangeByNodeId(ref, offset, length)
+}
+
+async function readFileBlobRangeByNodeId(
+  id: string,
+  offset: number,
+  length: number,
+): Promise<{ node: FilesNode; blob: Blob }> {
+  const startedAt = performance.now()
+  const result = await readFileBlobRangeByNodeIdUnmetered(id, offset, length)
+  recordFilesIoRead(result.node, result.blob.size, 'readBlobRange', performance.now() - startedAt)
+  return result
+}
+
+async function readFileBlobRangeByNodeIdUnmetered(
+  id: string,
+  offset: number,
+  length: number,
+): Promise<{ node: FilesNode; blob: Blob }> {
+  const start = Math.max(0, offset)
+  const want = Math.max(0, length)
+  if (isMountNodeId(id) || id.startsWith('models3d:') || id.startsWith('source:') || id.startsWith('applications:')) {
+    const { node, blob } = await readFileBlobByNodeIdUnmetered(id)
+    return { node, blob: blob.slice(start, start + want) }
+  }
+  const node = await getNode(id)
+  if (!node || node.kind !== 'file') {
+    throw new Error('文件不存在')
+  }
+  const type = node.mimeType ?? 'application/octet-stream'
+  const bytes = await readBlobBytesRange(id, start, want)
+  if (bytes !== undefined) {
+    return { node, blob: new Blob([new Uint8Array(bytes)], { type }) }
+  }
+  return { node, blob: new Blob([], { type }) }
+}
+
 export async function writeTextFile(ref: string, text: string): Promise<FilesNode> {
   const target = isFilesAbsolutePath(ref) ? await resolveFileRef(ref) : await getNodeOrThrow(ref)
   if (target.kind !== 'file') {
@@ -1104,8 +1156,9 @@ export async function openStreamWrite(params: {
   isNew: boolean
   metaBytes: number
   previousByteSize: number
+  chunkSize?: number
 }): Promise<FilesStreamWriter> {
-  const { node, isNew, metaBytes, previousByteSize } = params
+  const { node, isNew, metaBytes, previousByteSize, chunkSize } = params
   let writer: FilesStreamWriter
   // 按卷类型分发（新建占位节点 id 非 mount 前缀，须看 locationId）
   if (isMountLocationId(node.locationId)) {
@@ -1116,7 +1169,7 @@ export async function openStreamWrite(params: {
       isNew,
     })
   } else {
-    writer = await openStreamWriteBlob({ node, isNew, metaBytes, previousByteSize })
+    writer = await openStreamWriteBlob({ node, isNew, metaBytes, previousByteSize, chunkSize })
   }
   if (isNew) {
     // 新建文件立刻可见（byteSize 0），随 chunk 逐步长大；同时失效路径缓存，

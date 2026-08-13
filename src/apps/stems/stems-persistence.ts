@@ -515,20 +515,31 @@ export type ZipEntryLayout = {
  * STORE 条目（WAV / peaks.bin）可直接 subarray 取字节，无需 fflate 流式解包。
  */
 export function parseZipEntries(bytes: Uint8Array): Map<string, ZipEntryLayout> {
-  const layout = new Map<string, ZipEntryLayout>()
+  const eocd = scanZipEocd(bytes)
+  if (!eocd) return new Map<string, ZipEntryLayout>()
+  return readZipEntriesFromDirectory(bytes, eocd.cdOffset, eocd.count)
+}
+
+/** 在 zip 字节内倒序扫描 EOCD（0x06054b50，位于末尾 22+65535 字节内），返回中央目录偏移与条目数。 */
+function scanZipEocd(bytes: Uint8Array): { cdOffset: number; count: number } | undefined {
   const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  // EOCD 在文件末尾 22+65535 字节内，倒序找签名 0x06054b50
-  let eocdOffset = -1
   const searchStart = Math.max(0, bytes.byteLength - 22 - 65535)
   for (let i = bytes.byteLength - 22; i >= searchStart; i--) {
     if (data.getUint32(i, true) === 0x06054b50) {
-      eocdOffset = i
-      break
+      return { cdOffset: data.getUint32(i + 16, true), count: data.getUint16(i + 10, true) }
     }
   }
-  if (eocdOffset < 0) return layout
-  const count = data.getUint16(eocdOffset + 10, true)
-  const cdOffset = data.getUint32(eocdOffset + 16, true)
+  return undefined
+}
+
+/** 从已定位的中央目录起点逐条解析条目（cdOffset 相对 bytes 数组起点）。 */
+function readZipEntriesFromDirectory(
+  bytes: Uint8Array,
+  cdOffset: number,
+  count: number,
+): Map<string, ZipEntryLayout> {
+  const layout = new Map<string, ZipEntryLayout>()
+  const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const decoder = new TextDecoder()
   let offset = cdOffset
   for (let n = 0; n < count; n++) {
@@ -587,4 +598,78 @@ export function decodeStemFromLayout(bytes: Uint8Array, layout: ZipEntryLayout):
   let data = bytes.subarray(layout.dataOffset, layout.dataOffset + layout.compressedSize)
   if (layout.method === 8) data = inflateSync(data)
   return decodeStemWavBytes(data)
+}
+
+/** 按 [offset, length) 范围读文件字节（由调用方接入 VFS 范围读；挂载卷/本地卷均可）。 */
+export type ZipReadRange = (offset: number, length: number) => Promise<Uint8Array>
+
+/**
+ * 范围读版分轨包布局：只读文件尾部（EOCD + 中央目录）定位条目，
+ * 再按需读 manifest / peaks.bin（STORE 条目直接取字节、manifest DEFLATE inflate）。
+ * 返回的 `readStemBytes(stemId)` 闭包按单条 WAV 区间范围读并解码，
+ * 供「先出 UI、后台逐轨范围读解码」两段式加载（不整包进内存）。
+ */
+export type StemsArchiveLayoutRanged = {
+  manifest: StemsManifest
+  /** 各轨波形峰值金字塔（v2 旧包为空 Map） */
+  peaks: Map<StemId, WaveformPyramid>
+  /** 全部条目定位（WAV 供后台逐轨范围读） */
+  entries: Map<string, ZipEntryLayout>
+  /** 按轨范围读压缩段并解码为 interleaved Float32（v2 DEFLATE 条目 inflate 兼容） */
+  readStemBytes: (stemId: StemId) => Promise<Float32Array>
+}
+
+/** 范围读快路径的尾部窗口（EOCD + 中央目录；stems 包条目少，目录 < 2KiB，64KiB 足够）。 */
+const ZIP_TAIL_READ_BYTES = 64 * 1024
+
+export async function readStemsArchiveLayoutRanged(
+  readRange: ZipReadRange,
+  totalBytes: number,
+): Promise<StemsArchiveLayoutRanged> {
+  // 读尾部窗口定位 EOCD / 中央目录
+  let regionOffset = Math.max(0, totalBytes - ZIP_TAIL_READ_BYTES)
+  let regionLen = totalBytes - regionOffset
+  let region = await readRange(regionOffset, regionLen)
+
+  let eocd = scanZipEocd(region)
+  if (!eocd) {
+    // 尾部窗口未命中（极小包 / 结构异常）：整包兜底
+    regionOffset = 0
+    regionLen = totalBytes
+    region = await readRange(0, totalBytes)
+    eocd = scanZipEocd(region)
+  }
+  if (!eocd) throw new Error('压缩包格式无效')
+  if (eocd.cdOffset < regionOffset) {
+    // 中央目录起点在尾部窗口外（罕见超大目录）：按需扩读目录段
+    regionOffset = eocd.cdOffset
+    regionLen = totalBytes - eocd.cdOffset
+    region = await readRange(regionOffset, regionLen)
+    const again = scanZipEocd(region)
+    if (!again) throw new Error('压缩包格式无效')
+    eocd = again
+  }
+  const entries = readZipEntriesFromDirectory(region, eocd.cdOffset - regionOffset, eocd.count)
+
+  const manifestLayout = entries.get(STEMS_MANIFEST_ENTRY)
+  if (!manifestLayout) throw new Error('压缩包缺少 stems.json，无法载入')
+  const manifestBytes = await readRange(manifestLayout.dataOffset, manifestLayout.compressedSize)
+  const manifest = parseStemsManifest(new TextDecoder().decode(inflateSync(manifestBytes)))
+  if (!manifest) throw new Error('stems.json 内容无效')
+
+  const peaksLayout = entries.get(STEMS_PEAKS_ENTRY)
+  const peaks = peaksLayout
+    ? // 复制对齐（readRange 来源的视图 byteOffset 可能非 4 字节，Float32Array 视图要求对齐）
+      deserializeWaveformPeaks((await readRange(peaksLayout.dataOffset, peaksLayout.compressedSize)).slice())
+    : new Map<StemId, WaveformPyramid>()
+
+  const readStemBytes = async (stemId: StemId): Promise<Float32Array> => {
+    const layout = entries.get(stemWavEntryName(stemId))
+    if (!layout) throw new Error(`压缩包缺少 ${stemWavEntryName(stemId)}，无法载入`)
+    const data = await readRange(layout.dataOffset, layout.compressedSize)
+    if (layout.method === 8) return decodeStemWavBytes(inflateSync(data))
+    return decodeStemWavBytes(data)
+  }
+
+  return { manifest, peaks, entries, readStemBytes }
 }

@@ -36,6 +36,7 @@ import {
   mkdir,
   openStreamWrite,
   readFileBlob,
+  readFileBlobRange,
   readTextFile,
   readlinkAtAbsolutePath,
   createSymlink,
@@ -349,6 +350,23 @@ export async function filesReadBlob(path: string): Promise<Blob> {
   return blob
 }
 
+/**
+ * 读取文件二进制范围 [offset, offset+length)。本地卷按偏移索引只取覆盖块
+ * （旧格式整读裁切）；挂载卷 / 精选卷走 Blob 原生 slice。
+ */
+export async function filesReadBlobRange(
+  path: string,
+  offset: number,
+  length: number,
+): Promise<Blob> {
+  const absolutePath = assertAbsolutePath(path)
+  if (isFilesNamespaceRoot(absolutePath)) {
+    throw new Error('不能读取命名空间根')
+  }
+  const { blob } = await readFileBlobRange(absolutePath, offset, length)
+  return blob
+}
+
 /** 覆写已存在的文本文件 */
 export async function filesWriteText(path: string, text: string): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
@@ -417,8 +435,13 @@ export async function filesCreateBinary(
 /**
  * 打开流式写（新建 / 覆盖）：`write(chunk)` 逐块落盘（内存 O(chunk)），
  * `close()` 定稿、`abort()` 回滚。新建时文件立刻可见（byteSize 0）并逐步长大。
+ * `chunkSize` 为本地卷目标块大小（默认 4MiB）；中间块恒为 chunkSize，尾部块
+ * 不小于 1MiB（小于阈值时并入前一块）。挂载卷忽略该参数。
  */
-export async function filesOpenStreamWrite(path: string): Promise<FilesStreamWriter> {
+export async function filesOpenStreamWrite(
+  path: string,
+  options?: { chunkSize?: number },
+): Promise<FilesStreamWriter> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
     throw new Error('不能写入命名空间根')
@@ -441,6 +464,7 @@ export async function filesOpenStreamWrite(path: string): Promise<FilesStreamWri
       isNew: false,
       metaBytes: 0,
       previousByteSize: existing.byteSize,
+      chunkSize: options?.chunkSize,
     })
   }
 
@@ -463,6 +487,7 @@ export async function filesOpenStreamWrite(path: string): Promise<FilesStreamWri
     isNew: true,
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
+    chunkSize: options?.chunkSize,
   })
 }
 
