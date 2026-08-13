@@ -3,6 +3,7 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
@@ -30,6 +31,7 @@ import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
 import { looksLikeBrokenLrc } from '../align/align-lrc.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
 import type { ZipformerProgress } from '../align/zipformer-worker.ts'
+import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import { parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine } from '../music/music-lyrics.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
@@ -48,12 +50,17 @@ type StemTrackState = {
   audio: StemAudio
   mute: boolean
   solo: boolean
+
   volume: number
 }
 
 const WAVEFORM_BUCKETS = 200
 /** 波形横向缩放下可见窗口的最短时长（秒） */
 const MIN_VIEW_SEC = 0.5
+
+/** 歌词对齐模型：zipformer（中文）/ sense-voice（五语） */
+type AlignModel = 'zipformer' | 'sense-voice'
+const ALIGN_MODEL_STORAGE_KEY = 'stems-align-model'
 
 /** 歌词时间轴标签：由对齐结果逐字拍平（无逐字时整行一个标签） */
 type LyricTag = {
@@ -204,6 +211,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const phonemesRef = useRef<PhonemeSegment[] | null>(null)
   /** 歌词对齐是否进行中 */
   const [alignBusy, setAlignBusy] = useState(false)
+  /** 歌词识别模型选择：zipformer（中文）/ sense-voice（五语），localStorage 记忆 */
+  const [alignModel, setAlignModel] = useState<AlignModel>(() => {
+    const raw = localStorage.getItem(ALIGN_MODEL_STORAGE_KEY)
+    return raw === 'sense-voice' ? 'sense-voice' : 'zipformer'
+  })
+  const changeAlignModel = useCallback((model: AlignModel) => {
+    setAlignModel(model)
+    try {
+      localStorage.setItem(ALIGN_MODEL_STORAGE_KEY, model)
+    } catch {
+      // localStorage 不可用时仅会话内生效
+    }
+  }, [])
   /** 歌词识别块进度 */
   const [alignProgress, setAlignProgress] = useState<{ chunk: number; total: number } | null>(null)
   /** 歌词对齐错误信息 */
@@ -651,8 +671,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [])
 
   /**
-   * 歌词对齐：对人声轨跑 Zipformer-CTC 识别（耗时）→ 纯函数文本对齐（快速）
-   * 生成增强 LRC，写入 alignedLrcRef/state（随 .stems.zip 持久化）与卡拉OK行。
+   * 歌词对齐：对人声轨跑 CTC 识别（zipformer 中文 / SenseVoice 五语，耗时）→
+   * 纯函数文本对齐（快速）生成增强 LRC，写入 alignedLrcRef/state（随 .stems.zip 持久化）。
    * 陈旧响应（重新分轨/换歌）不覆盖新结果；失败提示、不影响主流程。
    * 返回是否成功产出 LRC。
    */
@@ -669,11 +689,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setAlignError(null)
       setLyricsHint(null)
       try {
+        const modelId = alignModel === 'sense-voice' ? 'align-sense-voice' : 'align-zipformer'
         const { segments } = await enqueueAiTask<
-          ZipformerProgress,
+          ZipformerProgress | SenseVoiceProgress,
           { segments: HypSegment[]; text: string }
         >(
-          'align-zipformer',
+          modelId,
           { type: 'recognize', audio, sampleRate },
           {
             route: (msg) => {
@@ -711,7 +732,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         if (alignReqSeqRef.current === reqId) setAlignBusy(false)
       }
     },
-    [],
+    [alignModel],
   )
 
   /**
@@ -2117,11 +2138,27 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 )}
               </div>
               <div class="stems__lyrics-controls">
+                <SegmentedControl
+                  value={alignModel}
+                  onChange={changeAlignModel}
+                  ariaLabel="歌词识别模型"
+                  items={[
+                    { id: 'zipformer', label: 'Zipformer 中文' },
+                    { id: 'sense-voice', label: 'SenseVoice 五语' },
+                  ]}
+                  className="stems__lyrics-model-picker"
+                />
                 <IosButton
                   size="compact"
                   tone={alignedLrc ? undefined : 'primary'}
                   disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
-                  title={tracks ? '用 Zipformer 识别 vocals 并逐字对齐歌词' : '分轨完成后即可对齐歌词'}
+                  title={
+                    tracks
+                      ? alignModel === 'sense-voice'
+                        ? '用 SenseVoice 识别 vocals（中英日韩粤）并逐字对齐歌词'
+                        : '用 Zipformer 识别 vocals 并逐字对齐歌词'
+                      : '分轨完成后即可对齐歌词'
+                  }
                   onClick={() => void handleAlignLyrics()}
                 >
                   {alignedLrc ? '重新对齐歌词' : '对齐歌词'}

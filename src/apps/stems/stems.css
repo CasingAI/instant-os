@@ -967,7 +967,7 @@
   pointer-events: none;
 }
 
-/* 歌词轨控制列：对齐按钮 + 状态小字（纵向） */
+/* 歌词轨控制列：模型选择器 + 对齐按钮 + 状态小字（纵向） */
 .stems__lyrics-controls {
   display: flex;
   flex-direction: column;
@@ -976,6 +976,16 @@
   gap: 3px;
   flex: none;
   min-width: 0;
+}
+
+/* 歌词识别模型选择器：窄列适配（通用组件默认 11px 字号/4px 内边距） */
+.stems__lyrics-model-picker {
+  padding: 1px;
+}
+
+.stems__lyrics-model-picker .segmented-control__item {
+  padding: 3px 2px;
+  font-size: 9px;
 }
 
 .stems__lyrics-status {

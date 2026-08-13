@@ -26,6 +26,8 @@ export type KaldiFbankOptions = {
   highFreq: number
   preemphCoeff: number
   snipEdges: boolean
+  /** 窗函数：povey（zipformer）或 hamming（SenseVoice） */
+  windowType: 'povey' | 'hamming'
 }
 
 const DEFAULT_OPTS: KaldiFbankOptions = {
@@ -37,6 +39,7 @@ const DEFAULT_OPTS: KaldiFbankOptions = {
   highFreq: -400,
   preemphCoeff: 0.97,
   snipEdges: false,
+  windowType: 'povey',
 }
 
 function roundUpPow2(n: number): number {
@@ -161,12 +164,18 @@ export function computeKaldiFbank(
 
   const banks = buildMelBank(o, padded)
 
-  // povey 窗：pow(0.5 - 0.5*cos(2π*i/(N-1)), 0.85)
+  // 窗函数：povey（zipformer）/ hamming（SenseVoice），kaldi-native-fbank 同款
   const win = new Float64Array(frameLen)
   {
     const a = (2 * Math.PI) / (frameLen - 1)
-    for (let i = 0; i < frameLen; i++) {
-      win[i] = Math.pow(0.5 - 0.5 * Math.cos(a * i), 0.85)
+    if (o.windowType === 'hamming') {
+      for (let i = 0; i < frameLen; i++) {
+        win[i] = 0.54 - 0.46 * Math.cos(a * i)
+      }
+    } else {
+      for (let i = 0; i < frameLen; i++) {
+        win[i] = Math.pow(0.5 - 0.5 * Math.cos(a * i), 0.85)
+      }
     }
   }
 

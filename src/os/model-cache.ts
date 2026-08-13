@@ -20,6 +20,11 @@ export const ZIPFORMER_MODEL_URL = '/assets/zipformer-ctc/models/model.int8.onnx
 export const ZIPFORMER_MODEL_LABEL = 'Zipformer-CTC 中文识别（歌词对齐）'
 export const ZIPFORMER_MODEL_BYTES = 367_074_356
 
+/** SenseVoice 五语识别模型（sherpa-onnx，中英日韩粤，逐 token 时间戳，用于歌词对齐）。 */
+export const SENSE_VOICE_MODEL_URL = '/assets/sense-voice/models/model.int8.onnx'
+export const SENSE_VOICE_MODEL_LABEL = 'SenseVoice 五语识别（歌词对齐）'
+export const SENSE_VOICE_MODEL_BYTES = 237_115_547
+
 /** MDX-NET 人声/伴奏 2-stem 模型（用于人声增强分离，仅输出伴奏，人声=原曲−伴奏）。 */
 export const MDX_MODEL_URL = '/assets/mdx/models/UVR-MDX-NET-Inst_full_292.onnx'
 export const MDX_MODEL_LABEL = 'MDX-NET 人声增强（伴奏模型）'
