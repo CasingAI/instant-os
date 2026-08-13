@@ -13,6 +13,12 @@ import {
   updateSystemSoundVolumePreview,
   type SystemSoundCue,
 } from '../../os/system-sounds.ts'
+import {
+  getSystemVolumeState,
+  setSystemMuted,
+  setSystemVolume,
+  subscribeSystemVolume,
+} from '../../os/system-volume.ts'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
 import { IosSwitch } from '../../ui/ios-switch.tsx'
 import { SettingsNavRow } from '../../ui/settings-nav-row.tsx'
@@ -53,6 +59,11 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
   const [pack, setPack] = useState<SystemSoundPack>(initial.pack)
   const [volume, setVolume] = useState(initial.volume)
 
+  const systemVolumeInitial = getSystemVolumeState()
+  const [systemVolume, setSystemVolumeState] = useState(systemVolumeInitial.volume)
+  const [systemMuted, setSystemMutedState] = useState(systemVolumeInitial.muted)
+  const systemVolumePreviewingRef = useRef(false)
+
   const packOptions = useMemo(
     () => SYSTEM_SOUND_PACKS.map((id) => ({ id, label: systemSoundPackLabel(id) })),
     [],
@@ -73,8 +84,17 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
   useEffect(() => {
     return () => {
       volumePreviewingRef.current = false
+      systemVolumePreviewingRef.current = false
       endSystemSoundVolumePreview()
     }
+  }, [])
+
+  useEffect(() => {
+    return subscribeSystemVolume(() => {
+      const next = getSystemVolumeState()
+      setSystemVolumeState(next.volume)
+      setSystemMutedState(next.muted)
+    })
   }, [])
 
   const commit = (patch: {
@@ -159,6 +179,54 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
     finishVolumeGesture(event.currentTarget as HTMLInputElement)
   }
 
+  // —— 系统音量（总闸）滑杆 ——
+  // 试听基准为提示音分轨音量；preview 增益内部会乘当前系统主音量
+
+  const handleSystemVolumePointerDown = (event: PointerEvent) => {
+    const el = event.currentTarget as HTMLInputElement
+    try {
+      el.setPointerCapture(event.pointerId)
+    } catch {
+      // ignore
+    }
+    systemVolumePreviewingRef.current = true
+    beginSystemSoundVolumePreview(volume)
+  }
+
+  const handleSystemVolumeInput = (event: Event) => {
+    const el = event.currentTarget as HTMLInputElement
+    const next = Number(el.value) / 100
+    setSystemVolume(next)
+    if (!systemVolumePreviewingRef.current) {
+      systemVolumePreviewingRef.current = true
+      beginSystemSoundVolumePreview(volume)
+      return
+    }
+    updateSystemSoundVolumePreview(volume)
+  }
+
+  const finishSystemVolumeGesture = () => {
+    if (!systemVolumePreviewingRef.current) return
+    systemVolumePreviewingRef.current = false
+    endSystemSoundVolumePreview()
+  }
+
+  const handleSystemVolumePointerUp = (event: PointerEvent) => {
+    const el = event.currentTarget as HTMLInputElement
+    try {
+      if (el.hasPointerCapture?.(event.pointerId)) {
+        el.releasePointerCapture(event.pointerId)
+      }
+    } catch {
+      // ignore
+    }
+    finishSystemVolumeGesture()
+  }
+
+  const handleSystemVolumeBlur = () => {
+    finishSystemVolumeGesture()
+  }
+
   const commitPack = (value: string) => {
     const next = value as SystemSoundPack
     if (next !== pack) {
@@ -197,6 +265,54 @@ export function SoundSettingsView({ onBack }: SoundSettingsViewProps) {
         <IosNavBackButton label="显示全部" onClick={onBack} />
       </div>
       <div class="settings__content settings__content--compact">
+        <section class="settings__section">
+          <h2 class="settings__section-title">系统音量</h2>
+          <p class="settings__section-subtitle">
+            总闸：统一控制音乐、提示音与语音朗读等全部系统声音。
+          </p>
+
+          <div class="settings__box settings__sound-volume-box">
+            <div class="settings__sound-volume-row">
+              <span class="settings__sound-volume-icon" aria-hidden="true">
+                <VolumeQuietIcon />
+              </span>
+              <input
+                type="range"
+                class="settings__emoji-offset-slider settings__sound-volume-slider"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round(systemVolume * 100)}
+                aria-label="系统音量"
+                onPointerDown={handleSystemVolumePointerDown}
+                onInput={handleSystemVolumeInput}
+                onPointerUp={handleSystemVolumePointerUp}
+                onPointerCancel={handleSystemVolumePointerUp}
+                onBlur={handleSystemVolumeBlur}
+              />
+              <span class="settings__sound-volume-icon" aria-hidden="true">
+                <VolumeLoudIcon />
+              </span>
+            </div>
+            {wideLayout ? (
+              <p class="settings__section-footnote settings__sound-volume-footnote">
+                当前 {Math.round(systemVolume * 100)}%
+              </p>
+            ) : null}
+          </div>
+
+          <div class="settings__list">
+            <div class="settings__toggle-row">
+              <span class="settings__toggle-row-label">静音</span>
+              <IosSwitch
+                checked={systemMuted}
+                onChange={(checked) => setSystemMuted(checked)}
+                label="静音"
+              />
+            </div>
+          </div>
+        </section>
+
         <section class="settings__section">
           <h2 class="settings__section-title">声音</h2>
           <p class="settings__section-subtitle">

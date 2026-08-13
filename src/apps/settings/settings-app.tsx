@@ -80,6 +80,10 @@ import {
   consumePendingOpenSettingsUsageView,
   OPEN_SETTINGS_USAGE_EVENT,
 } from '../../os/storage-warning.ts'
+import {
+  consumePendingOpenSoundsView,
+  OPEN_SETTINGS_SOUNDS_EVENT,
+} from '../../os/system-volume.ts'
 import '../../icons/app-icon-tile.css'
 import './settings.css'
 
@@ -195,6 +199,10 @@ export function SettingsApp() {
       consumePendingOpenProxyServerView()
       setRoute({ view: 'proxy-server' })
     }
+    const handleOpenSounds = () => {
+      consumePendingOpenSoundsView()
+      setRoute({ view: 'sounds' })
+    }
 
     if (consumePendingOpenSettingsUsageView()) {
       setCacheRevision((value) => value + 1)
@@ -205,11 +213,17 @@ export function SettingsApp() {
       setRoute({ view: 'proxy-server' })
     }
 
+    if (consumePendingOpenSoundsView()) {
+      setRoute({ view: 'sounds' })
+    }
+
     window.addEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
     window.addEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
+    window.addEventListener(OPEN_SETTINGS_SOUNDS_EVENT, handleOpenSounds)
     return () => {
       window.removeEventListener(OPEN_SETTINGS_USAGE_EVENT, handleOpenUsage)
       window.removeEventListener(OPEN_SETTINGS_PROXY_SERVER_EVENT, handleOpenProxyServer)
+      window.removeEventListener(OPEN_SETTINGS_SOUNDS_EVENT, handleOpenSounds)
     }
   }, [])
 

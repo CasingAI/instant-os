@@ -1,3 +1,5 @@
+import { getEffectiveSystemVolume } from '../../os/system-volume.ts'
+
 let audioContext: AudioContext | undefined
 
 function getAudioContext(): AudioContext | undefined {
@@ -26,13 +28,16 @@ function playTone(
   const ctx = getAudioContext()
   if (!ctx) return
 
+  const effectiveGain = gain * getEffectiveSystemVolume()
+  if (effectiveGain <= 0) return
+
   void resumeContext(ctx).then(() => {
     const oscillator = ctx.createOscillator()
     const gainNode = ctx.createGain()
     oscillator.type = type
     oscillator.frequency.value = frequency
     gainNode.gain.setValueAtTime(0, ctx.currentTime + startOffset)
-    gainNode.gain.linearRampToValueAtTime(gain, ctx.currentTime + startOffset + 0.008)
+    gainNode.gain.linearRampToValueAtTime(effectiveGain, ctx.currentTime + startOffset + 0.008)
     gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + startOffset + duration)
     oscillator.connect(gainNode)
     gainNode.connect(ctx.destination)

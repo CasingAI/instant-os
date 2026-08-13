@@ -1,4 +1,5 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
+import { getEffectiveSystemVolume, subscribeSystemVolume } from '../../os/system-volume.ts'
 import { readFileBlob } from '../files/files-vfs.ts'
 import { getMusicTrackBlob } from './music-audio-storage.ts'
 import type { MusicTrack } from './music-types.ts'
@@ -118,6 +119,17 @@ function updateState(patch: Partial<MusicPlayerState>): void {
   }
 }
 
+/** 分轨音量 × 系统主音量；主音量变化时实时同步到 audio 元素。 */
+function applyVolumeToAudio(): void {
+  if (!audio) {
+    return
+  }
+  audio.volume = state.volume * getEffectiveSystemVolume()
+}
+
+// 系统主音量变化（菜单栏/设置页）时，正在播放的音乐立即跟随
+subscribeSystemVolume(() => applyVolumeToAudio())
+
 function getAudio(): HTMLAudioElement | undefined {
   if (typeof window === 'undefined') {
     return undefined
@@ -125,7 +137,7 @@ function getAudio(): HTMLAudioElement | undefined {
   if (!audio) {
     const el = new Audio()
     el.preload = 'auto'
-    el.volume = state.volume
+    el.volume = state.volume * getEffectiveSystemVolume()
     connectAudioGraph(el)
     el.addEventListener('timeupdate', () => {
       updateState({ currentTime: el.currentTime, duration: el.duration || state.duration })
@@ -272,7 +284,7 @@ export function seekTo(seconds: number): void {
 export function setMusicVolume(volume: number): void {
   const v = clampVolume(volume)
   if (audio) {
-    audio.volume = v
+    audio.volume = v * getEffectiveSystemVolume()
   }
   updateState({ volume: v })
   persistVolume(v)

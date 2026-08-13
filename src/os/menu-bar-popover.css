@@ -78,6 +78,38 @@
   text-align: right;
 }
 
+.menu-bar__popover-row--button {
+  width: 100%;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.menu-bar__volume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  color: #1d1d1f;
+}
+
+.menu-bar__volume-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: #007aff;
+}
+
+.menu-bar__volume-percent {
+  min-width: 36px;
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #666;
+}
+
 .menu-bar__popover-app {
   display: flex;
   align-items: center;

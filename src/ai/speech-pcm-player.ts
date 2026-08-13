@@ -3,6 +3,8 @@
  * 系统媒体控件通过 Media Session + AudioContext.suspend/resume 同步。
  */
 
+import { getEffectiveSystemVolume, subscribeSystemVolume } from '../os/system-volume.ts'
+
 export type StreamingPcmPlayerOptions = {
   sampleRate: number
   signal: AbortSignal
@@ -43,10 +45,37 @@ function clearMediaSessionHandlers(): void {
   }
 }
 
+// 各活跃播放器的主增益节点：TTS 采样率固定必须使用独立 AudioContext，
+// 因此通过模块级 Set + 订阅把系统主音量同步到每个 context 内的 gain。
+const activeGains = new Set<GainNode>()
+
+let systemVolumeSubscribed = false
+
+function ensureSystemVolumeSync(): void {
+  if (systemVolumeSubscribed) {
+    return
+  }
+  systemVolumeSubscribed = true
+  subscribeSystemVolume(() => {
+    const volume = getEffectiveSystemVolume()
+    for (const gain of activeGains) {
+      try {
+        // 平滑过渡避免爆音
+        gain.gain.setTargetAtTime(volume, gain.context.currentTime, 0.01)
+      } catch {
+        // 节点已断开等情况直接忽略
+      }
+    }
+  })
+}
+
 export function createStreamingPcmPlayer(
   options: StreamingPcmPlayerOptions,
 ): StreamingPcmPlayer {
   const context = new AudioContext({ sampleRate: options.sampleRate })
+  const masterGain = context.createGain()
+  masterGain.gain.value = getEffectiveSystemVolume()
+  masterGain.connect(context.destination)
   const sources = new Set<AudioBufferSourceNode>()
   let nextStartTime = 0
   let pendingSources = 0
@@ -68,6 +97,7 @@ export function createStreamingPcmPlayer(
     }
     settled = true
     clearMediaSessionHandlers()
+    activeGains.delete(masterGain)
     endedResolve?.()
   }
 
@@ -77,6 +107,7 @@ export function createStreamingPcmPlayer(
     }
     settled = true
     clearMediaSessionHandlers()
+    activeGains.delete(masterGain)
     endedReject?.(err)
   }
 
@@ -111,9 +142,13 @@ export function createStreamingPcmPlayer(
     ignoreStateChange = true
     stopAllSources()
     clearMediaSessionHandlers()
+    activeGains.delete(masterGain)
     void context.close().catch(() => undefined)
     settleOk()
   }
+
+  ensureSystemVolumeSync()
+  activeGains.add(masterGain)
 
   if (options.signal.aborted) {
     onAbort()
@@ -195,7 +230,7 @@ export function createStreamingPcmPlayer(
       buffer.copyToChannel(new Float32Array(floats), 0)
       const source = context.createBufferSource()
       source.buffer = buffer
-      source.connect(context.destination)
+      source.connect(masterGain)
 
       const startAt = Math.max(nextStartTime, context.currentTime)
       nextStartTime = startAt + buffer.duration

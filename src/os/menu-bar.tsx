@@ -10,6 +10,7 @@ import { useMenuBar } from './menu-bar-context.tsx'
 import type { MenuDefinition, MenuItem, MenuItemLeaf } from './menu-bar-types.ts'
 import { MenuOverflowModal } from './menu-bar-overflow-modal.tsx'
 import { BatteryStatusPanel, ProxyServerStatusPanel } from './menu-bar-status-panels.tsx'
+import { MenuBarVolumeIcon, MenuBarVolumePanel } from './menu-bar-volume-panel.tsx'
 import { useGeneratedApps } from './generated-apps-context.tsx'
 import { formatOsDateTime } from './format-os-datetime.ts'
 import { isOsUsing24HourTime } from './os-clock.ts'
@@ -22,6 +23,12 @@ import { useMountDisconnectedNotification } from './use-mount-disconnected-notif
 import { useGithubDesktopMissingEmailNotification } from '../apps/github-desktop/use-github-desktop-missing-email-notification.ts'
 import { reloadInstantOs } from './reload-instant-os.ts'
 import { useOs } from './os-context.tsx'
+import {
+  getSystemVolumeState,
+  setSystemVolume,
+  subscribeSystemVolume,
+  toggleSystemMute,
+} from './system-volume.ts'
 import { useFullscreenChromeReveal } from './fullscreen-chrome-reveal-context.tsx'
 import { useDeviceBattery } from './use-device-battery.ts'
 import { useProxyServerConnection } from './use-proxy-server-connection.ts'
@@ -36,6 +43,7 @@ const APPLE_MENU_LABEL = '__apple__'
 const MORE_MENU_LABEL = '__more__'
 const STATUS_PROXY_SERVER_LABEL = '__status_proxy_server__'
 const STATUS_BATTERY_LABEL = '__status_battery__'
+const STATUS_VOLUME_LABEL = '__status_volume__'
 const MENU_GAP_PX = 2
 const MORE_MENU_BTN_SPACE_PX = 50
 
@@ -351,7 +359,12 @@ function MenuBarRightSection({
   const battery = useDeviceBattery()
   const proxyServer = useProxyServerConnection()
   const now = useOsNowDate()
+  const [volumeState, setVolumeState] = useState(() => getSystemVolumeState())
   const { calendar, weekday, time } = formatOsDateTime(now, isOsUsing24HourTime())
+
+  useEffect(() => {
+    return subscribeSystemVolume(() => setVolumeState(getSystemVolumeState()))
+  }, [])
 
   useEffect(() => {
     if (!proxyServer.connected && openMenuLabel === STATUS_PROXY_SERVER_LABEL) {
@@ -411,6 +424,23 @@ function MenuBarRightSection({
             onOpenTaskManager={onOpenTaskManager}
           />
         )}
+      </div>
+      <div class="menu-bar__menu">
+        <button
+          type="button"
+          class={`menu-bar__status-trigger${openMenuLabel === STATUS_VOLUME_LABEL ? ' menu-bar__status-trigger--open' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={openMenuLabel === STATUS_VOLUME_LABEL}
+          aria-label={
+            volumeState.muted || volumeState.volume === 0
+              ? '音量，已静音'
+              : `音量 ${Math.round(volumeState.volume * 100)}%`
+          }
+          onClick={() => onToggleMenu(STATUS_VOLUME_LABEL)}
+        >
+          <MenuBarVolumeIcon muted={volumeState.muted || volumeState.volume === 0} />
+        </button>
+        {openMenuLabel === STATUS_VOLUME_LABEL && <MenuBarVolumePanel />}
       </div>
       <button
         type="button"
@@ -547,6 +577,33 @@ export function MenuBar() {
   useEffect(() => {
     setChromePinSource('menu-bar', !!openMenuLabel || notificationCenterOpen)
   }, [notificationCenterOpen, openMenuLabel, setChromePinSource])
+
+  // 部分环境（如桌面壳、无系统快捷键的浏览器）会把音量键派发给页面；可用时作为增强
+  useEffect(() => {
+    const handleVolumeKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) {
+        return
+      }
+      switch (event.code) {
+        case 'VolumeUp':
+          event.preventDefault()
+          setSystemVolume(Math.min(1, getSystemVolumeState().volume + 0.05))
+          break
+        case 'VolumeDown':
+          event.preventDefault()
+          setSystemVolume(Math.max(0, getSystemVolumeState().volume - 0.05))
+          break
+        case 'VolumeMute':
+          event.preventDefault()
+          toggleSystemMute()
+          break
+      }
+    }
+    window.addEventListener('keydown', handleVolumeKeyDown)
+    return () => window.removeEventListener('keydown', handleVolumeKeyDown)
+  }, [])
 
   const prevActiveWindowIdRef = useRef(activeWindowId)
 
