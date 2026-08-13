@@ -16,6 +16,7 @@ import {
   MusicStemsVizCanvas,
   type MusicStemsVizMode,
 } from './music-stems-viz-canvas.tsx'
+import type { Impact2VocalStyle } from './music-stems-viz-impact2.ts'
 
 type VisualizerCategory = 'music' | 'stems' | 'lyrics'
 type LyricsEffect = 'karaoke' | 'ambient' | 'motion'
@@ -43,15 +44,20 @@ function VisualizerSidebarList<T extends string>({
   items,
   value,
   onChange,
+  nested = false,
 }: {
   ariaLabel: string
   heading: string
   items: readonly SidebarItem<T>[]
   value: T
   onChange: (id: T) => void
+  nested?: boolean
 }) {
   return (
-    <nav class="music__visualizer-sidebar-group" aria-label={ariaLabel}>
+    <nav
+      class={`music__visualizer-sidebar-group${nested ? ' music__visualizer-sidebar-group--nested' : ''}`}
+      aria-label={ariaLabel}
+    >
       <div class="music__visualizer-sidebar-heading">{heading}</div>
       <ul class="music__visualizer-sidebar-list" role="listbox" aria-label={ariaLabel}>
         {items.map((item) => {
@@ -91,6 +97,7 @@ export function MusicVisualizationView({
   const [category, setCategory] = useState<VisualizerCategory>('music')
   const [musicEffect, setMusicEffect] = useState<MusicSpectrumMode>('bars')
   const [stemsEffect, setStemsEffect] = useState<MusicStemsVizMode>('impact')
+  const [vocalStyle, setVocalStyle] = useState<Impact2VocalStyle>('beam')
   const [lyricsEffect, setLyricsEffect] = useState<LyricsEffect>('karaoke')
   const [hasStems, setHasStems] = useState(false)
   const [stemsProgress, setStemsProgress] = useState<StemFeaturesProgress>({ phase: 'idle' })
@@ -172,6 +179,7 @@ export function MusicVisualizationView({
 
   const stemsEffectItems: SidebarItem<MusicStemsVizMode>[] = [
     { id: 'impact', label: '冲击' },
+    { id: 'impact2', label: '冲击2' },
     { id: 'tunnel', label: '隧道' },
     { id: 'kaleido', label: '万花筒' },
     { id: 'fluid', label: '流体' },
@@ -180,6 +188,13 @@ export function MusicVisualizationView({
     { id: 'aurora', label: '极光' },
     { id: 'glass', label: '玻璃' },
     { id: 'orbit', label: '真3D' },
+  ]
+
+  const vocalStyleItems: SidebarItem<Impact2VocalStyle>[] = [
+    { id: 'beam', label: '声柱' },
+    { id: 'ribbon', label: '平滑飘带' },
+    { id: 'ripple', label: '环形涟漪' },
+    { id: 'fountain', label: '粒子喷泉' },
   ]
 
   const lyricsEffectItems: SidebarItem<LyricsEffect>[] = [
@@ -224,13 +239,25 @@ export function MusicVisualizationView({
             onChange={setMusicEffect}
           />
         ) : category === 'stems' ? (
-          <VisualizerSidebarList
-            ariaLabel="分轨效果"
-            heading="效果"
-            items={stemsEffectItems}
-            value={stemsEffect}
-            onChange={setStemsEffect}
-          />
+          <>
+            <VisualizerSidebarList
+              ariaLabel="分轨效果"
+              heading="效果"
+              items={stemsEffectItems}
+              value={stemsEffect}
+              onChange={setStemsEffect}
+            />
+            {stemsEffect === 'impact2' ? (
+              <VisualizerSidebarList
+                ariaLabel="人声风格"
+                heading="人声"
+                items={vocalStyleItems}
+                value={vocalStyle}
+                onChange={setVocalStyle}
+                nested
+              />
+            ) : null}
+          </>
         ) : (
           <>
             <VisualizerSidebarList
@@ -254,7 +281,7 @@ export function MusicVisualizationView({
           <MusicSpectrumCanvas mode={musicEffect} />
         ) : category === 'stems' ? (
           stemsFeatures ? (
-            <MusicStemsVizCanvas mode={stemsEffect} features={stemsFeatures} />
+            <MusicStemsVizCanvas mode={stemsEffect} features={stemsFeatures} vocalStyle={vocalStyle} />
           ) : (
             <div class="music__empty music__stems-status">
               <span class="music__empty-note" aria-hidden="true">

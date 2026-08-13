@@ -35,6 +35,12 @@ import {
   type ImpactDrawState,
 } from './music-stems-viz-impact.ts'
 import {
+  createImpact2DrawState,
+  drawStemImpact2,
+  type Impact2DrawState,
+  type Impact2VocalStyle,
+} from './music-stems-viz-impact2.ts'
+import {
   createKaleidoDrawState,
   drawStemKaleido,
   type KaleidoDrawState,
@@ -57,6 +63,7 @@ import {
 
 export type MusicStemsVizMode =
   | 'impact'
+  | 'impact2'
   | 'tunnel'
   | 'kaleido'
   | 'fluid'
@@ -69,10 +76,13 @@ export type MusicStemsVizMode =
 type MusicStemsVizCanvasProps = {
   mode: MusicStemsVizMode
   features: StemVizFeatures | undefined
+  /** 冲击2 人声表达风格（经 ref 读取，切换不重建渲染循环） */
+  vocalStyle?: Impact2VocalStyle
 }
 
 type ModeState = {
   impact: ImpactDrawState
+  impact2: Impact2DrawState
   tunnel: TunnelDrawState
   kaleido: KaleidoDrawState
   fluid: FluidDrawState
@@ -83,9 +93,11 @@ type ModeState = {
   orbit: OrbitDrawState
 }
 
-export function MusicStemsVizCanvas({ mode, features }: MusicStemsVizCanvasProps) {
+export function MusicStemsVizCanvas({ mode, features, vocalStyle }: MusicStemsVizCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const vocalStyleRef = useRef<Impact2VocalStyle | undefined>(undefined)
+  vocalStyleRef.current = vocalStyle
 
   useEffect(() => {
     const host = hostRef.current
@@ -113,6 +125,7 @@ export function MusicStemsVizCanvas({ mode, features }: MusicStemsVizCanvasProps
 
     const modeState: ModeState = {
       impact: createImpactDrawState(),
+      impact2: createImpact2DrawState(),
       tunnel: createTunnelDrawState(),
       kaleido: createKaleidoDrawState(),
       fluid: createFluidDrawState(),
@@ -144,6 +157,9 @@ export function MusicStemsVizCanvas({ mode, features }: MusicStemsVizCanvasProps
       switch (mode) {
         case 'impact':
           drawStemImpact(ctx, cssWidth, cssHeight, sample, dt, modeState.impact)
+          break
+        case 'impact2':
+          drawStemImpact2(ctx, cssWidth, cssHeight, sample, dt, modeState.impact2, vocalStyleRef.current)
           break
         case 'tunnel':
           drawStemTunnel(ctx, cssWidth, cssHeight, sample, dt, modeState.tunnel)

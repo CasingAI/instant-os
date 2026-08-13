@@ -706,6 +706,10 @@
   padding: 10px 0 6px;
 }
 
+.music__visualizer-sidebar-group--nested {
+  padding-left: 12px;
+}
+
 .music__visualizer-sidebar-group + .music__visualizer-sidebar-group {
   border-top: 1px solid var(--music-border);
 }
