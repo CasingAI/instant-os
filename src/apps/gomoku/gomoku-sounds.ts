@@ -1,4 +1,5 @@
 import { getEffectiveSystemVolume } from '../../os/system-volume.ts'
+import { isSystemVolumeBusActive } from '../../os/audio-bus.ts'
 
 let audioContext: AudioContext | undefined
 
@@ -28,7 +29,7 @@ function playTone(
   const ctx = getAudioContext()
   if (!ctx) return
 
-  const effectiveGain = gain * getEffectiveSystemVolume()
+  const effectiveGain = gain * (isSystemVolumeBusActive() ? 1 : getEffectiveSystemVolume())
   if (effectiveGain <= 0) return
 
   void resumeContext(ctx).then(() => {

@@ -4,6 +4,7 @@
  */
 
 import { getEffectiveSystemVolume, subscribeSystemVolume } from '../os/system-volume.ts'
+import { isSystemVolumeBusActive } from '../os/audio-bus.ts'
 
 export type StreamingPcmPlayerOptions = {
   sampleRate: number
@@ -52,7 +53,8 @@ const activeGains = new Set<GainNode>()
 let systemVolumeSubscribed = false
 
 function ensureSystemVolumeSync(): void {
-  if (systemVolumeSubscribed) {
+  // 音频总线激活时 destination 即 masterGain，本模块无需再订阅同步
+  if (systemVolumeSubscribed || isSystemVolumeBusActive()) {
     return
   }
   systemVolumeSubscribed = true
@@ -74,7 +76,8 @@ export function createStreamingPcmPlayer(
 ): StreamingPcmPlayer {
   const context = new AudioContext({ sampleRate: options.sampleRate })
   const masterGain = context.createGain()
-  masterGain.gain.value = getEffectiveSystemVolume()
+  // bus 激活时本层恒 1（主音量在 destination 处的 masterGain），未激活时自行承担
+  masterGain.gain.value = isSystemVolumeBusActive() ? 1 : getEffectiveSystemVolume()
   masterGain.connect(context.destination)
   const sources = new Set<AudioBufferSourceNode>()
   let nextStartTime = 0
@@ -147,8 +150,10 @@ export function createStreamingPcmPlayer(
     settleOk()
   }
 
-  ensureSystemVolumeSync()
-  activeGains.add(masterGain)
+  if (!isSystemVolumeBusActive()) {
+    ensureSystemVolumeSync()
+    activeGains.add(masterGain)
+  }
 
   if (options.signal.aborted) {
     onAbort()

@@ -12,9 +12,12 @@ import { initBrowserPageCache } from './apps/browser/browser-page-cache.ts'
 import { initializeDockAppearance } from './dock/apply-dock-settings.ts'
 import { blockBrowserZoom } from './os/block-browser-zoom.ts'
 import { blockDocumentOverscroll } from './os/block-document-overscroll.ts'
+import { patchSystemVolumeBus } from './os/audio-bus.ts'
 import { preloadSystemSounds, unlockSystemSounds } from './os/system-sounds.ts'
 import { App } from './app.tsx'
 
+// 早于任何音频模块初始化：让全部 Web Audio 发声源自动经过系统主音量
+patchSystemVolumeBus()
 blockBrowserZoom()
 blockDocumentOverscroll()
 unlockSystemSounds()

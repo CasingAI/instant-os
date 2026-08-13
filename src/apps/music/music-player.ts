@@ -1,5 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from '../../os/device-storage.ts'
 import { getEffectiveSystemVolume, subscribeSystemVolume } from '../../os/system-volume.ts'
+import { isSystemVolumeBusActive } from '../../os/audio-bus.ts'
 import { readFileBlob } from '../files/files-vfs.ts'
 import { getMusicTrackBlob } from './music-audio-storage.ts'
 import type { MusicTrack } from './music-types.ts'
@@ -79,6 +80,8 @@ const listeners = new Set<() => void>()
 // 可视化用 Web Audio 图：audio → analyser → destination（惰性单例，失败静默回退）
 let audioContext: AudioContext | undefined
 let analyserNode: AnalyserNode | undefined
+/** analyser 图是否建立成功：决定主音量由总线承担还是由 el.volume 承担 */
+let graphActive = false
 
 function connectAudioGraph(el: HTMLAudioElement): void {
   if (analyserNode) {
@@ -100,9 +103,11 @@ function connectAudioGraph(el: HTMLAudioElement): void {
     analyser.connect(ctx.destination)
     audioContext = ctx
     analyserNode = analyser
+    graphActive = true
   } catch {
     // createMediaElementSource 失败（不支持/已占用）时可视化回退为静止基线
     analyserNode = undefined
+    graphActive = false
   }
 }
 
@@ -119,12 +124,13 @@ function updateState(patch: Partial<MusicPlayerState>): void {
   }
 }
 
-/** 分轨音量 × 系统主音量；主音量变化时实时同步到 audio 元素。 */
+/** 分轨音量 × 系统主音量；analyser 图 + 总线激活时主音量由 masterGain 承担。 */
 function applyVolumeToAudio(): void {
   if (!audio) {
     return
   }
-  audio.volume = state.volume * getEffectiveSystemVolume()
+  audio.volume =
+    graphActive && isSystemVolumeBusActive() ? state.volume : state.volume * getEffectiveSystemVolume()
 }
 
 // 系统主音量变化（菜单栏/设置页）时，正在播放的音乐立即跟随
@@ -137,8 +143,11 @@ function getAudio(): HTMLAudioElement | undefined {
   if (!audio) {
     const el = new Audio()
     el.preload = 'auto'
-    el.volume = state.volume * getEffectiveSystemVolume()
     connectAudioGraph(el)
+    el.volume =
+      graphActive && isSystemVolumeBusActive()
+        ? state.volume
+        : state.volume * getEffectiveSystemVolume()
     el.addEventListener('timeupdate', () => {
       updateState({ currentTime: el.currentTime, duration: el.duration || state.duration })
     })
@@ -284,7 +293,8 @@ export function seekTo(seconds: number): void {
 export function setMusicVolume(volume: number): void {
   const v = clampVolume(volume)
   if (audio) {
-    audio.volume = v * getEffectiveSystemVolume()
+    audio.volume =
+      graphActive && isSystemVolumeBusActive() ? v : v * getEffectiveSystemVolume()
   }
   updateState({ volume: v })
   persistVolume(v)

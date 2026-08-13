@@ -3,6 +3,7 @@ import {
   type SystemSoundPack,
 } from './system-sound-settings-storage.ts'
 import { getEffectiveSystemVolume } from './system-volume.ts'
+import { isSystemVolumeBusActive } from './audio-bus.ts'
 
 /**
  * UI SFX 语义 cue（与 public/assets/sounds/uisfx/{pack}/{cue}.mp3 文件名一致）。
@@ -177,7 +178,10 @@ export function playSystemSound(cue: SystemSoundCue, options: PlayOptions = {}):
   if (!ctx) return
 
   const pack = options.pack ?? settings.pack
-  const volume = Math.min(1, Math.max(0, options.volume ?? settings.volume)) * getEffectiveSystemVolume()
+  // 音频总线激活时主音量由 masterGain 承担，这里只乘分轨，避免双重缩放
+  const volume =
+    Math.min(1, Math.max(0, options.volume ?? settings.volume)) *
+    (isSystemVolumeBusActive() ? 1 : getEffectiveSystemVolume())
   if (volume <= 0) return
 
   void (async () => {
@@ -214,9 +218,9 @@ function clampVolume(value: number): number {
   return Math.min(1, Math.max(0, value))
 }
 
-/** 滑杆 0–1 → 实际试听增益；压低峰值避免破音，并乘系统主音量。 */
+/** 滑杆 0–1 → 实际试听增益；压低峰值避免破音，主音量由总线或此处承担。 */
 function previewGainFromVolume(volume: number): number {
-  return clampVolume(volume) * 0.12 * getEffectiveSystemVolume()
+  return clampVolume(volume) * 0.12 * (isSystemVolumeBusActive() ? 1 : getEffectiveSystemVolume())
 }
 
 function setPreviewGainNow(gain: AudioParam, volume: number, ctx: AudioContext): void {

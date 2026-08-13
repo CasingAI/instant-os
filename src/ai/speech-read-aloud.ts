@@ -1,5 +1,6 @@
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { isStreamAbortError } from './stream-abort.ts'
+import { getEffectiveSystemVolume, subscribeSystemVolume } from '../os/system-volume.ts'
 import {
   MIMO_TTS_PCM_SAMPLE_RATE,
   synthesizeSpeechStream,
@@ -54,10 +55,18 @@ export function playObjectUrl(
       return
     }
 
-    const audio = new Audio(url)
     let settled = false
     /** 本端 abort / 正常结束触发的 pause，不算外部暂停 */
     let ignorePause = false
+
+    const audio = new Audio(url)
+    // HTMLMediaElement 不走 Web Audio 总线，需自行承担系统主音量（实时跟随）
+    audio.volume = getEffectiveSystemVolume()
+    const unsubscribeVolume = subscribeSystemVolume(() => {
+      if (!settled) {
+        audio.volume = getEffectiveSystemVolume()
+      }
+    })
 
     const settle = (fn: () => void) => {
       if (settled) {
@@ -94,6 +103,7 @@ export function playObjectUrl(
       signal.removeEventListener('abort', onAbort)
       audio.removeEventListener('pause', onPause)
       audio.removeEventListener('play', onPlay)
+      unsubscribeVolume()
       audio.onended = null
       audio.onerror = null
     }
