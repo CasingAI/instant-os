@@ -910,7 +910,7 @@
   position: relative;
   min-width: 0;
   width: 100%;
-  height: 40px;
+  height: 68px;
   border-radius: 5px;
   background: var(--stems-well);
   border: 1px solid var(--stems-well-edge);
@@ -921,10 +921,29 @@
   cursor: pointer;
 }
 
-.stems__lyrics-tag {
+/* 歌词行色带：同一行的词落在同一块交替浅色背景带上，一眼看出行分组。
+ * 仅视觉（pointer-events:none），不拦截词标签点击与容器 seek。 */
+.stems__lyrics-row-band {
   position: absolute;
   top: 50%;
-  transform: translateY(-50%) translateX(-50%);
+  transform: translateY(-50%);
+  height: 60px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.stems__lyrics-row-band--a {
+  background: rgba(96, 148, 214, 0.22);
+}
+
+.stems__lyrics-row-band--b {
+  background: rgba(196, 140, 96, 0.18);
+}
+
+.stems__lyrics-tag {
+  position: absolute;
+  transform: translateX(-50%);
   /* 小号胶囊：紧凑 padding/字号，叠放时减少遮挡 */
   padding: 0 4px;
   font-size: 11px;

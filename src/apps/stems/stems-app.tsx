@@ -67,9 +67,16 @@ const ALIGN_MODEL_STORAGE_KEY = 'stems-align-model'
 type LyricTag = {
   lineIndex: number
   wordIndex: number
+  /** 该行标签总数（行内阶梯步长 = 轨道高 / 词数，自适应） */
+  wordCount: number
   text: string
   timeSec: number
 }
+
+/** 歌词轨垂直布局：轨道高度、词标签高度、上下边距（阶梯整体居中不溢出） */
+const LYRICS_TRACK_H = 68
+const LYRICS_TAG_H = 20
+const LYRICS_TRACK_PAD = 3
 
 /**
  * 按当前 mute/solo/volume 把每轨增益即时写到已连接的 GainNode。
@@ -351,16 +358,40 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       if (words && words.length > 0) {
         for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
           const word = words[wordIndex]
-          tags.push({ lineIndex, wordIndex, text: word.text, timeSec: word.timeMs / 1000 })
+          tags.push({
+            lineIndex,
+            wordIndex,
+            wordCount: words.length,
+            text: word.text,
+            timeSec: word.timeMs / 1000,
+          })
         }
       } else {
-        tags.push({ lineIndex, wordIndex: -1, text: line.text, timeSec: line.timeMs / 1000 })
+        tags.push({ lineIndex, wordIndex: -1, wordCount: 1, text: line.text, timeSec: line.timeMs / 1000 })
       }
     }
     return tags
   }, [karaokeLines])
   useEffect(() => {
     lyricTagsRef.current = lyricTags
+  }, [lyricTags])
+
+  /**
+   * 歌词行色带：按行聚合每个 lineIndex 的时间范围（行内首词起点 → 末词+词宽），
+   * 供歌词轨渲染交替浅色背景带，一眼看出哪几个词属于同一行。
+   * 无逐字的整行词也计入；色带仅视觉，pointer-events:none 不拦截点击/seek。
+   */
+  const lyricRowBands = useMemo<{ lineIndex: number; startSec: number; endSec: number }[]>(() => {
+    const bands: { lineIndex: number; startSec: number; endSec: number }[] = []
+    for (const tag of lyricTags) {
+      const last = bands[bands.length - 1]
+      if (last && last.lineIndex === tag.lineIndex) {
+        last.endSec = Math.max(last.endSec, tag.timeSec + 0.6)
+      } else {
+        bands.push({ lineIndex: tag.lineIndex, startSec: tag.timeSec, endSec: tag.timeSec + 0.6 })
+      }
+    }
+    return bands
   }, [lyricTags])
 
   const handleSeparateRef = useRef<() => void>(() => {})
@@ -2126,14 +2157,45 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               >
                 {lyricTags.length > 0 ? (
                   <>
+                    {lyricRowBands.map((band, bandIndex) => {
+                      const leftPct = viewLen > 0 ? ((band.startSec - view.start) / viewLen) * 100 : 0
+                      const widthPct = viewLen > 0 ? ((band.endSec - band.startSec) / viewLen) * 100 : 0
+                      return (
+                        <div
+                          key={band.lineIndex}
+                          class={`stems__lyrics-row-band ${
+                            bandIndex % 2 === 0
+                              ? 'stems__lyrics-row-band--a'
+                              : 'stems__lyrics-row-band--b'
+                          }`}
+                          style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1.5)}%` }}
+                        />
+                      )
+                    })}
                     {lyricTags.map((tag, index) => {
                       const leftPct = viewLen > 0 ? ((tag.timeSec - view.start) / viewLen) * 100 : 0
+                      // 行内阶梯：同一行的词从高到低垂直堆叠。阶梯整体在轨道内垂直居中，
+                      // step 按 (轨道高 - 标签高 - 上下边距)/(词数-1) 自适应，
+                      // 保证最后一个词也落在轨道内、不会溢出被裁。
+                      const span = LYRICS_TRACK_H - LYRICS_TAG_H - LYRICS_TRACK_PAD * 2
+                      const step =
+                        tag.wordIndex >= 0 && tag.wordCount > 1
+                          ? Math.min(9, span / (tag.wordCount - 1))
+                          : 0
+                      const firstTop =
+                        tag.wordIndex >= 0
+                          ? LYRICS_TRACK_PAD + (span - (tag.wordCount - 1) * step) / 2
+                          : (LYRICS_TRACK_H - LYRICS_TAG_H) / 2
+                      const topPx =
+                        tag.wordIndex >= 0
+                          ? firstTop + tag.wordIndex * step
+                          : (LYRICS_TRACK_H - LYRICS_TAG_H) / 2
                       return (
                         <span
                           key={`${tag.lineIndex}:${tag.wordIndex}:${index}`}
                           ref={(el) => registerLyricsTag(tag.lineIndex, tag.wordIndex, el)}
                           class="stems__lyrics-tag"
-                          style={{ left: `${leftPct}%` }}
+                          style={{ left: `${leftPct}%`, top: `${topPx}px` }}
                           onClick={() => finalizeSeek(tag.timeSec)}
                           title={tag.text}
                         >
