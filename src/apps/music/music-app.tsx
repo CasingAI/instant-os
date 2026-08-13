@@ -31,6 +31,7 @@ import { loadLyricOffsetMs, saveLyricOffsetMs } from './music-lyric-offsets.ts'
 import { MusicLyricsOffsetBar } from './music-lyrics-offset-bar.tsx'
 import { MusicLyricsView } from './music-lyrics-view.tsx'
 import { MusicVisualizationView } from './music-visualization-view.tsx'
+import { ensureStemLyrics } from './music-stems-session.ts'
 import {
   getMusicPlayerState,
   playDocument,
@@ -139,6 +140,8 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const [visualizerOpen, setVisualizerOpen] = useState(false)
   const [transientLyrics, setTransientLyrics] = useState<string | undefined>()
   const [lyricOffsetMs, setLyricOffsetMs] = useState(0)
+  /** 当前曲目的分轨包内歌词（实验室对齐结果，优先于同名 .lrc） */
+  const [stemLyricsText, setStemLyricsText] = useState<string | undefined>()
 
   const handledDocumentRef = useRef<string | undefined>(undefined)
   const refreshTimerRef = useRef<number | undefined>(undefined)
@@ -339,6 +342,25 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   /** 当前曲目在曲库中的记录（「文件」打开的单曲不在曲库时为 undefined） */
   const currentLibraryTrack = currentId ? tracks.find((track) => track.id === currentId) : undefined
 
+  // 当前曲目的分轨包内歌词：实验室对齐结果优先于同名 .lrc（stems-first）
+  const stemLyricsTrackId = playerState.current?.id
+  const stemLyricsVfsRef = playerState.current?.vfsRef
+  useEffect(() => {
+    let cancelled = false
+    setStemLyricsText(undefined)
+    if (!stemLyricsTrackId || !stemLyricsVfsRef) {
+      return () => {
+        cancelled = true
+      }
+    }
+    void ensureStemLyrics({ trackId: stemLyricsTrackId, vfsRef: stemLyricsVfsRef }).then((lyrics) => {
+      if (!cancelled) setStemLyricsText(lyrics)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [stemLyricsTrackId, stemLyricsVfsRef])
+
   // 歌词偏移：切曲目时载入该曲目的记忆值（无播放曲目归 0）
   useEffect(() => {
     setLyricOffsetMs(currentId ? loadLyricOffsetMs(currentId) : 0)
@@ -529,8 +551,9 @@ export function MusicApp({ windowId }: { windowId?: string }) {
 
   const currentIndex = tracks.findIndex((track) => track.id === currentId)
 
-  // 歌词：曲库歌曲同名 .lrc 优先，其次是从「文件」打开的临时歌词
-  const lyricsText = currentLibraryTrack?.lyricsLrc ?? transientLyrics
+  // 歌词：分轨包内实验室对齐结果优先（stems-first），其次同名 .lrc，
+  // 最后是从「文件」打开的临时歌词
+  const lyricsText = stemLyricsText ?? currentLibraryTrack?.lyricsLrc ?? transientLyrics
   const parsedLyrics = useMemo(() => (lyricsText ? parseLrc(lyricsText) : undefined), [lyricsText])
   const showLyricsScreen =
     lyricsOpen && (currentLibraryTrack !== undefined || transientLyrics !== undefined)
@@ -622,7 +645,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                 </span>
                 <p class="music__empty-title">没有歌词</p>
                 <p class="music__empty-hint">
-                  在「音乐」文件夹里放一个与歌曲同名的 .lrc 文件，即可自动识别为歌词。
+                  在「音乐」文件夹里放一个与歌曲同名的 .lrc 文件，或在音乐实验室里对齐过歌词（.stems.zip），即可自动识别为歌词。
                 </p>
               </div>
             )}

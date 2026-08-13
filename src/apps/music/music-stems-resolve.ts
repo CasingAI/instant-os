@@ -2,9 +2,15 @@
  * 解析当前曲目同目录侧车 `.stems.zip`：探测是否存在、读取 blob。
  */
 
-import { STEMS_ARCHIVE_EXTENSION } from '../stems/stems-persistence.ts'
+import { readStemsArchiveLayoutRanged, STEMS_ARCHIVE_EXTENSION } from '../stems/stems-persistence.ts'
+import type { StemsManifest } from '../stems/stems-persistence.ts'
 import type { FilesNode } from '../files/files-types.ts'
-import { getNodeOrThrow, listDirectory, readFileBlob } from '../files/files-vfs.ts'
+import {
+  getNodeOrThrow,
+  listDirectory,
+  readFileBlob,
+  readFileBlobRange,
+} from '../files/files-vfs.ts'
 
 /** 音频文件名 → 同名分轨侧车文件名（`song.mp3` → `song.stems.zip`）。 */
 export function stemsSidecarNameForAudio(audioFileName: string): string {
@@ -55,4 +61,34 @@ export async function readStemsSidecarBlob(
   if (!sidecar) return undefined
   const { blob } = await readFileBlob(sidecar.id)
   return { blob, archiveName: sidecar.name }
+}
+
+/**
+ * 只读侧车 manifest（范围读尾部 + 中央目录，不解 WAV），供快速取歌词等元信息。
+ * 无侧车 / 读取失败返回 undefined。
+ */
+export async function readStemsSidecarManifest(
+  vfsRef: string | undefined,
+): Promise<StemsManifest | undefined> {
+  if (!vfsRef) return undefined
+  let sidecar: FilesNode
+  try {
+    const audioNode = await getNodeOrThrow(vfsRef)
+    if (audioNode.kind !== 'file') return undefined
+    const found = await findStemsSidecarNode(audioNode)
+    if (!found) return undefined
+    sidecar = found
+  } catch {
+    return undefined
+  }
+  try {
+    const readRange = async (offset: number, length: number): Promise<Uint8Array> => {
+      const { blob } = await readFileBlobRange(sidecar.id, offset, length)
+      return new Uint8Array(await blob.arrayBuffer())
+    }
+    const layout = await readStemsArchiveLayoutRanged(readRange, sidecar.byteSize)
+    return layout.manifest
+  } catch {
+    return undefined
+  }
 }

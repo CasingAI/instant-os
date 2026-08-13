@@ -9,7 +9,7 @@ import {
   type StemVizFeatures,
   type StemVizSample,
 } from './music-stems-features.ts'
-import { readStemsSidecarBlob } from './music-stems-resolve.ts'
+import { readStemsSidecarBlob, readStemsSidecarManifest } from './music-stems-resolve.ts'
 
 export type StemFeaturesProgress =
   | { phase: 'idle' }
@@ -123,4 +123,43 @@ export function sampleCachedStemFeatures(
   const features = getCachedStemFeatures(trackId)
   if (!features) return undefined
   return sampleStemFeaturesAt(features, timeSec)
+}
+
+// —— 歌词（实验室对齐结果）读取 ——
+
+/** 按 trackId 缓存的分轨包内歌词（优先 alignedLrc，缺失回退 lyrics） */
+const lyricsCache = new Map<string, string | undefined>()
+
+/** 命中缓存的歌词；未加载 / 无歌词返回 undefined。 */
+export function getCachedStemLyrics(trackId: string | undefined): string | undefined {
+  if (!trackId) return undefined
+  return lyricsCache.get(trackId)
+}
+
+/** 清空歌词缓存（重新分轨 / 换歌时调用）。 */
+export function clearStemLyricsCache(trackId?: string): void {
+  if (trackId) {
+    lyricsCache.delete(trackId)
+    return
+  }
+  lyricsCache.clear()
+}
+
+/**
+ * 确保指定曲目的分轨包内歌词已就绪（轻量读 manifest，不解 PCM）。
+ * 优先实验室对齐结果 alignedLrc（逐字时间戳），缺失时回退原始 lyrics。
+ * 无侧车 / 包内无歌词 → undefined（调用方可回退 .lrc 等其它来源）。
+ * 结果按 trackId 缓存。
+ */
+export async function ensureStemLyrics(input: {
+  trackId: string
+  vfsRef: string | undefined
+}): Promise<string | undefined> {
+  const cached = lyricsCache.get(input.trackId)
+  if (cached !== undefined) return cached
+
+  const manifest = await readStemsSidecarManifest(input.vfsRef)
+  const lyrics = manifest?.alignedLrc ?? manifest?.lyrics
+  lyricsCache.set(input.trackId, lyrics)
+  return lyrics
 }
