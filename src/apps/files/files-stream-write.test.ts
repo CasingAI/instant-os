@@ -23,15 +23,19 @@ import {
   readBlobText,
   resetFilesDbForTests,
   sweepOrphanChunksOnce,
+  writeBlobBytes,
   writeBlobText,
 } from './files-storage.ts'
 import {
+  filesCreateBinary,
   filesCreateText,
   filesOpenStreamWrite,
   filesReadBlob,
   filesReadBlobRange,
   filesReadText,
   filesStat,
+  filesUpsertBatch,
+  filesWriteBinary,
 } from './files-api.ts'
 import { invalidateFilesVfsPathCaches, resolveNodeByAbsolutePath } from './files-vfs.ts'
 import { osNowMs } from '../../os/os-clock.ts'
@@ -378,6 +382,30 @@ async function getChunkOffsets(blobId: string): Promise<number[] | undefined> {
   return record?.chunkOffsets
 }
 
+/** 读取完整 blob 记录（检查 chunked / bytes / chunkOffsets）。 */
+async function getBlobRecord(
+  blobId: string,
+): Promise<{ chunked?: boolean; bytes?: ArrayBuffer; chunkOffsets?: number[] } | undefined> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(FILES_DB_NAME)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('open failed'))
+  })
+  const tx = db.transaction(FILES_BLOBS_STORE, 'readonly')
+  const record = await new Promise<
+    { chunked?: boolean; bytes?: ArrayBuffer; chunkOffsets?: number[] } | undefined
+  >((resolve, reject) => {
+    const request = tx.objectStore(FILES_BLOBS_STORE).get(blobId)
+    request.onsuccess = () =>
+      resolve(
+        request.result as { chunked?: boolean; bytes?: ArrayBuffer; chunkOffsets?: number[] } | undefined,
+      )
+    request.onerror = () => reject(request.error ?? new Error('blob get failed'))
+  })
+  db.close()
+  return record
+}
+
 /** 写 [0, n) 的确定性字节（非 2 的幂模数，便于逐字节校验）。 */
 function patternedBytes(n: number): Uint8Array {
   const out = new Uint8Array(n)
@@ -584,6 +612,195 @@ async function testApiRangeRead(): Promise<void> {
   console.log('ok: filesReadBlobRange reads range via API layer')
 }
 
+const MIB = 1 << 20
+
+/** API 层：整块写超过 16MiB → 自动分块（新建 + 覆写两条路径），范围读一致 */
+async function testWholeWriteLargeChunks(): Promise<void> {
+  await resetState()
+  const total = 20 * MIB
+  const data = patternedBytes(total)
+
+  // 新建路径（createFileWithBytes）
+  const created = await filesCreateBinary('/user/big-new.bin', data.buffer)
+  const createdNode = await resolveNodeByAbsolutePath('/user/big-new.bin')
+  assert.ok(createdNode)
+  const createdRef = await getFileBlobRefForTests(createdNode.id)
+  assert.ok(createdRef)
+  assert.equal(createdRef.byteLength, total)
+  assert.deepEqual(
+    await getChunkOffsets(createdRef.blobId),
+    [0, 4 * MIB, 8 * MIB, 12 * MIB, 16 * MIB],
+    '新建大文件应切成 5 块 4MiB',
+  )
+
+  // 覆写路径（writeFileContentCow）
+  await filesCreateText('/user/big-over.bin', 'placeholder')
+  await filesWriteBinary('/user/big-over.bin', data.buffer)
+  const overNode = await resolveNodeByAbsolutePath('/user/big-over.bin')
+  assert.ok(overNode)
+  const ref = await getFileBlobRefForTests(overNode.id)
+  assert.ok(ref)
+  assert.equal(ref.byteLength, total)
+  assert.deepEqual(
+    await getChunkOffsets(ref.blobId),
+    [0, 4 * MIB, 8 * MIB, 12 * MIB, 16 * MIB],
+    '覆写大文件应切成 5 块 4MiB',
+  )
+
+  const blob = await filesReadBlobRange('/user/big-over.bin', 7 * MIB + 1000, 5000)
+  const got = new Uint8Array(await blob.arrayBuffer())
+  const want = data.subarray(7 * MIB + 1000, 7 * MIB + 6000)
+  assert.equal(got.byteLength, 5000)
+  for (let i = 0; i < want.byteLength; i += 1) {
+    assert.equal(got[i], want[i])
+  }
+  assert.equal((await filesReadBlob('/user/big-over.bin')).size, total)
+  console.log('ok: whole write > 16MiB auto-chunks with equal-size blocks')
+}
+
+/** API 层：整块写 ≤ 16MiB → 维持单条 bytes 记录，范围读仍正确 */
+async function testWholeWriteSmallStaysWhole(): Promise<void> {
+  await resetState()
+  const total = 1 * MIB
+  const data = patternedBytes(total)
+  await filesCreateText('/user/small.bin', 'placeholder')
+  await filesWriteBinary('/user/small.bin', data.buffer)
+  const node = await resolveNodeByAbsolutePath('/user/small.bin')
+  assert.ok(node)
+  const ref = await getFileBlobRefForTests(node.id)
+  assert.ok(ref)
+  const rec = await getBlobRecord(ref.blobId)
+  assert.ok(rec, 'blob 记录应存在')
+  assert.equal(rec.chunked, undefined, '小文件不应分块')
+  assert.equal(rec.chunkOffsets, undefined, '小文件不应有偏移索引')
+  assert.ok(rec.bytes && rec.bytes.byteLength === total, '应存单条 bytes')
+
+  const blob = await filesReadBlobRange('/user/small.bin', 100, 50)
+  const got = new Uint8Array(await blob.arrayBuffer())
+  const want = data.subarray(100, 150)
+  assert.equal(got.byteLength, 50)
+  for (let i = 0; i < 50; i += 1) {
+    assert.equal(got[i], want[i])
+  }
+  console.log('ok: whole write <= 16MiB stays single bytes record')
+}
+
+/** API 层：阈值边界 —— 恰好 16MiB 不分块，16MiB+1 分块 */
+async function testWholeWriteBoundary(): Promise<void> {
+  await resetState()
+  const at = 16 * MIB
+  await filesCreateText('/user/at.bin', 'placeholder')
+  await filesWriteBinary('/user/at.bin', patternedBytes(at).buffer)
+  const atNode = await resolveNodeByAbsolutePath('/user/at.bin')
+  assert.ok(atNode)
+  const atRef = await getFileBlobRefForTests(atNode.id)
+  assert.ok(atRef)
+  assert.equal(await getChunkOffsets(atRef.blobId), undefined, '恰好 16MiB 不分块')
+
+  const over = 16 * MIB + 1
+  await filesCreateText('/user/over.bin', 'placeholder')
+  await filesWriteBinary('/user/over.bin', patternedBytes(over).buffer)
+  const overNode = await resolveNodeByAbsolutePath('/user/over.bin')
+  assert.ok(overNode)
+  const overRef = await getFileBlobRefForTests(overNode.id)
+  assert.ok(overRef)
+  const offsets = await getChunkOffsets(overRef.blobId)
+  assert.deepEqual(offsets, [0, 4 * MIB, 8 * MIB, 12 * MIB, 16 * MIB], '16MiB+1 应分 5 块')
+  console.log('ok: threshold boundary at 16MiB splits only above')
+}
+
+/** 存储层：整块覆写已克隆（shared）的分块文件 → COW fork 新分块，克隆仍读旧内容 */
+async function testWholeWriteSharedCowForksChunked(): Promise<void> {
+  await resetState()
+  const original = 20 * MIB + 100 * 1024
+  const origData = patternedBytes(original)
+  const srcNode = makeFileNode('cow-src.bin')
+  const w1 = await openStreamWriteBlob({
+    node: srcNode,
+    isNew: true,
+    metaBytes: estimateNodeMetaBytes(srcNode),
+    previousByteSize: 0,
+  })
+  await w1.write(origData)
+  const src = await w1.close()
+  const srcRef = await getFileBlobRefForTests(src.id)
+  assert.ok(srcRef)
+  assert.ok((await getChunkOffsets(srcRef.blobId))?.length > 1, '源应为分块')
+
+  const dstNode = makeFileNode('cow-dst.bin')
+  const cloned = await cloneFileNodeWithSharedBlob({
+    sourceNodeId: src.id,
+    node: dstNode,
+    metaBytes: estimateNodeMetaBytes(dstNode),
+  })
+  const clonedRef = await getFileBlobRefForTests(cloned.id)
+  assert.ok(clonedRef)
+  assert.equal(clonedRef.blobId, srcRef.blobId, '克隆应共享源 blob')
+  assert.equal(clonedRef.refCount, 2)
+
+  const newData = patternedBytes(17 * MIB + 3)
+  const updated = await writeBlobBytes({
+    id: src.id,
+    bytes: newData.buffer,
+    previousByteSize: original,
+    nameMetaDelta: 0,
+  })
+  const updatedRef = await getFileBlobRefForTests(updated.id)
+  assert.ok(updatedRef)
+  assert.notEqual(updatedRef.blobId, srcRef.blobId, '覆写 shared 应 fork 新 blob')
+  assert.deepEqual(
+    await getChunkOffsets(updatedRef.blobId),
+    [0, 4 * MIB, 8 * MIB, 12 * MIB, 16 * MIB],
+    '新 blob 应分块',
+  )
+
+  // 克隆仍读旧内容（区间抽样逐字节比对）
+  const dstRefAfter = await getFileBlobRefForTests(cloned.id)
+  assert.equal(dstRefAfter?.blobId, srcRef.blobId, '克隆仍共享旧 blob')
+  assert.equal(dstRefAfter?.refCount, 1, '旧 blob 引用降为 1')
+  for (const [off, len] of [
+    [0, 4096],
+    [10 * MIB, 8192],
+    [original - 100, 100],
+  ] as [number, number][]) {
+    const got = bytesToUint8((await readBlobBytesRange(cloned.id, off, len))!)
+    const want = origData.subarray(off, off + len)
+    assert.equal(got.byteLength, want.byteLength, `区间 ${off} 长度`)
+    for (let i = 0; i < want.byteLength; i += 1) {
+      assert.equal(got[i], want[i], `区间 ${off} idx=${i}`)
+    }
+  }
+  console.log('ok: whole COW overwrite of shared chunked blob forks chunked')
+}
+
+/** API 层：upsertBatch 大文件自动分块、小文件维持整块，整读一致 */
+async function testWholeWriteUpsertBatchChunks(): Promise<void> {
+  await resetState()
+  const total = 17 * MIB
+  const data = patternedBytes(total)
+  const entries = await filesUpsertBatch([
+    { path: '/user/batch-big.bin', bytes: data.buffer },
+    { path: '/user/batch-small.bin', bytes: patternedBytes(100).buffer },
+  ])
+  assert.equal(entries.length, 2)
+  const big = await resolveNodeByAbsolutePath('/user/batch-big.bin')
+  const small = await resolveNodeByAbsolutePath('/user/batch-small.bin')
+  assert.ok(big && small)
+  const bigRef = await getFileBlobRefForTests(big.id)
+  assert.ok(bigRef)
+  assert.deepEqual(
+    await getChunkOffsets(bigRef.blobId),
+    [0, 4 * MIB, 8 * MIB, 12 * MIB, 16 * MIB],
+    'batch 大文件应分块',
+  )
+  assert.equal((await filesReadBlob('/user/batch-big.bin')).size, total)
+  const smallRef = await getFileBlobRefForTests(small.id)
+  assert.ok(smallRef)
+  const smallRec = await getBlobRecord(smallRef.blobId)
+  assert.equal(smallRec?.chunked, undefined, 'batch 小文件应整块')
+  console.log('ok: upsert batch auto-chunks large item, keeps small whole')
+}
+
 async function run(): Promise<void> {
   await testStreamCreateAndReadBack()
   await testAbortNewFile()
@@ -599,6 +816,11 @@ async function run(): Promise<void> {
   await testRangeReadMatchesFullRead()
   await testOldFormatRangeFallback()
   await testApiRangeRead()
+  await testWholeWriteLargeChunks()
+  await testWholeWriteSmallStaysWhole()
+  await testWholeWriteBoundary()
+  await testWholeWriteSharedCowForksChunked()
+  await testWholeWriteUpsertBatchChunks()
   console.log('files-stream-write: all passed')
 }
 

@@ -99,6 +99,8 @@ type FilesChunkRecord = {
  * 中间块恒为 chunkSize，尾部块在 (0, chunkSize + MIN_TAIL] 内；配合 MIN_TAIL 避免微小尾巴块。
  */
 const DEFAULT_STREAM_CHUNK_SIZE = 4 << 20
+/** 整块写内容超过该阈值时自动落成 chunkOffsets 分块记录（与流式写同格式）。 */
+const BYTES_TO_CHUNK_THRESHOLD = 16 << 20
 /** 尾部块最小尺寸：小于该值的块在 close 时合并进前一块（避免一次额外读写）。 */
 const MIN_TAIL_CHUNK_BYTES = 1 << 20
 /** 切块下限：pending 达到 chunkSize + MIN_TAIL 才切一块，保证尾部块不小于 MIN_TAIL。 */
@@ -759,6 +761,45 @@ async function adjustByteTotal(tx: IDBTransaction, delta: number): Promise<void>
   } satisfies FilesMetaRecord)
 }
 
+/**
+ * 在既有事务内落库一个 blob 的内容：超阈值时切成 chunkOffsets 分块记录
+ * （与流式写同格式，范围读路径共用），否则维持单条 bytes 整块记录。
+ * 仅做 put（不 get），可在 commitFilesBatch 单事务内复用。
+ */
+function putBlobContentInTx(
+  tx: IDBTransaction,
+  blobId: string,
+  bytes: ArrayBuffer,
+  refCount = 1,
+): void {
+  const blobs = tx.objectStore(FILES_BLOBS_STORE)
+  const chunks = tx.objectStore(FILES_CHUNKS_STORE)
+  if (bytes.byteLength > BYTES_TO_CHUNK_THRESHOLD) {
+    const chunkOffsets: number[] = []
+    let offset = 0
+    while (offset < bytes.byteLength) {
+      const size = Math.min(DEFAULT_STREAM_CHUNK_SIZE, bytes.byteLength - offset)
+      chunks.put({
+        blobId,
+        chunkIndex: chunkOffsets.length,
+        bytes: bytes.slice(offset, offset + size),
+      } satisfies FilesChunkRecord)
+      chunkOffsets.push(offset)
+      offset += size
+    }
+    blobs.put({
+      id: blobId,
+      refCount,
+      chunked: true,
+      byteSize: bytes.byteLength,
+      chunkCount: chunkOffsets.length,
+      chunkOffsets,
+    } satisfies FilesBlobRecord)
+  } else {
+    blobs.put({ id: blobId, bytes, refCount } satisfies FilesBlobRecord)
+  }
+}
+
 export async function createFileWithBlob(params: {
   node: FilesNode
   text: string
@@ -775,13 +816,9 @@ export async function createFileWithBlob(params: {
   const blobId = node.id
 
   const db = await openFilesDb()
-  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
   tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
-  tx.objectStore(FILES_BLOBS_STORE).put({
-    id: blobId,
-    bytes: encodeTextToArrayBuffer(params.text),
-    refCount: 1,
-  } satisfies FilesBlobRecord)
+  putBlobContentInTx(tx, blobId, encodeTextToArrayBuffer(params.text))
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: total + needed,
@@ -807,13 +844,9 @@ export async function createFileWithBytes(params: {
   const blobId = node.id
 
   const db = await openFilesDb()
-  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE], 'readwrite')
+  const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
   tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
-  tx.objectStore(FILES_BLOBS_STORE).put({
-    id: blobId,
-    bytes: params.bytes,
-    refCount: 1,
-  } satisfies FilesBlobRecord)
+  putBlobContentInTx(tx, blobId, params.bytes)
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
     totalBytes: total + needed,
@@ -987,11 +1020,7 @@ async function writeFileContentCow(params: {
   if (shared) {
     const newBlobId = newFilesBlobId()
     updated.blobId = newBlobId
-    blobs.put({
-      id: newBlobId,
-      bytes: params.bytes,
-      refCount: 1,
-    } satisfies FilesBlobRecord)
+    putBlobContentInTx(writeTx, newBlobId, params.bytes)
     if (oldBlob) {
       const nextRef = refCount - 1
       if (nextRef <= 0) {
@@ -1002,11 +1031,7 @@ async function writeFileContentCow(params: {
     }
   } else {
     updated.blobId = oldBlobId
-    blobs.put({
-      id: oldBlobId,
-      bytes: params.bytes,
-      refCount: 1,
-    } satisfies FilesBlobRecord)
+    putBlobContentInTx(writeTx, oldBlobId, params.bytes)
     // 原分块 blob 被整块内容原地替换：删除遗留 chunk 记录（其字节已随
     // needed = contentByteSize - previousByteSize 的配额修正释放）
     if (oldBlob?.chunked === true) {
@@ -1829,11 +1854,7 @@ export async function commitFilesBatch(
       }
       const blobId = node.id
       nodes.put(nodeToRecord(node, blobId))
-      blobs.put({
-        id: blobId,
-        bytes: encodeTextToArrayBuffer(op.text),
-        refCount: 1,
-      } satisfies FilesBlobRecord)
+      putBlobContentInTx(tx, blobId, encodeTextToArrayBuffer(op.text))
       results.push(node)
       continue
     }
@@ -1846,7 +1867,7 @@ export async function commitFilesBatch(
       }
       const blobId = node.id
       nodes.put(nodeToRecord(node, blobId))
-      blobs.put({ id: blobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+      putBlobContentInTx(tx, blobId, op.bytes)
       results.push(node)
       continue
     }
@@ -1899,7 +1920,7 @@ export async function commitFilesBatch(
       if (refCount > 1) {
         const newBlobId = newFilesBlobId()
         updated.blobId = newBlobId
-        blobs.put({ id: newBlobId, bytes, refCount: 1 } satisfies FilesBlobRecord)
+        putBlobContentInTx(tx, newBlobId, bytes)
         const oldBlob = await requestToPromise(
           blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
         )
@@ -1911,7 +1932,7 @@ export async function commitFilesBatch(
         }
       } else {
         updated.blobId = oldBlobId
-        blobs.put({ id: oldBlobId, bytes, refCount: 1 } satisfies FilesBlobRecord)
+        putBlobContentInTx(tx, oldBlobId, bytes)
         const oldBlob = await requestToPromise(
           blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
         )
@@ -1944,7 +1965,7 @@ export async function commitFilesBatch(
     if (refCount > 1) {
       const newBlobId = newFilesBlobId()
       updated.blobId = newBlobId
-      blobs.put({ id: newBlobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+      putBlobContentInTx(tx, newBlobId, op.bytes)
       const oldBlob = await requestToPromise(
         blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
       )
@@ -1956,7 +1977,7 @@ export async function commitFilesBatch(
       }
     } else {
       updated.blobId = oldBlobId
-      blobs.put({ id: oldBlobId, bytes: op.bytes, refCount: 1 } satisfies FilesBlobRecord)
+      putBlobContentInTx(tx, oldBlobId, op.bytes)
       const oldBlob = await requestToPromise(
         blobs.get(oldBlobId) as IDBRequest<FilesBlobRecord | undefined>,
       )
