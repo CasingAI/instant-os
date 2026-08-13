@@ -3,20 +3,40 @@
  * 频段能量、逐字高亮进度与可视化配色。
  */
 
+/** computeBarHeights 的可选归一化参数（均用于水平/垂直有效范围裁剪）。 */
+export type BarHeightsOptions = {
+  /** 有效频段起点（含）；缺省为 0。 */
+  lowBin?: number
+  /** 有效频段终点（含）；缺省为 n-1。 */
+  highBin?: number
+  /** 垂直归一化基准（实际峰值，代替 255）；缺省或非正时回退 255。 */
+  peak?: number
+}
+
 /**
  * 频域数据（0-255）→ barCount 个柱高（0-1）。
  * 对数分桶：低频桶窄、高频桶宽，避免能量集中在低频几个桶；
  * 再做 0.8 次幂提升，让中低能量也有可见高度。
+ * 支持裁剪：只在 [lowBin, highBin] 区间内分桶（水平裁剪掉全零频段），
+ * 并以 peak 代替 255 做垂直归一化（低响度歌曲柱子更饱满）。
  */
-export function computeBarHeights(freqData: Uint8Array, barCount: number): number[] {
+export function computeBarHeights(
+  freqData: Uint8Array,
+  barCount: number,
+  options?: BarHeightsOptions,
+): number[] {
   const heights: number[] = []
   const n = freqData.length
   if (n === 0 || barCount <= 0) {
     return heights
   }
+  const lowBin = Math.max(0, Math.min(n - 1, options?.lowBin ?? 0))
+  const highBin = Math.max(lowBin, Math.min(n - 1, options?.highBin ?? n - 1))
+  const span = highBin - lowBin + 1
+  const peak = options?.peak !== undefined && options.peak > 0 ? options.peak : 255
   for (let i = 0; i < barCount; i += 1) {
-    const lo = Math.floor((i / barCount) ** 2 * n)
-    let hi = Math.min(n, Math.floor(((i + 1) / barCount) ** 2 * n))
+    const lo = lowBin + Math.floor((i / barCount) ** 2 * span)
+    let hi = Math.min(n, lowBin + Math.floor(((i + 1) / barCount) ** 2 * span))
     // 保证桶区间非空（首桶/浮点下溢时）
     if (hi <= lo) {
       hi = Math.min(n, lo + 1)
@@ -26,9 +46,30 @@ export function computeBarHeights(freqData: Uint8Array, barCount: number): numbe
     for (let j = lo; j < hi; j += 1) {
       sum += freqData[j]
     }
-    heights.push(Math.min(1, Math.pow(sum / count / 255, 0.8)))
+    heights.push(Math.min(1, Math.pow(sum / count / peak, 0.8)))
   }
   return heights
+}
+
+/**
+ * 由运行峰值数组求有效频率区间：[low, high] 为第一个/最后一个
+ * 超过阈值的下标。全静音（无任何频段达标）返回 undefined，调用方回退全范围。
+ */
+export function computeActiveRange(
+  runningMax: readonly number[],
+  threshold = 2,
+): { low: number; high: number } | undefined {
+  let low = -1
+  let high = -1
+  for (let i = 0; i < runningMax.length; i += 1) {
+    if (runningMax[i] >= threshold) {
+      if (low === -1) {
+        low = i
+      }
+      high = i
+    }
+  }
+  return low === -1 ? undefined : { low, high }
 }
 
 /**

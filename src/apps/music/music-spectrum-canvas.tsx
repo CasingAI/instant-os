@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import { getMusicAnalyser, getMusicCurrentTimeMs, getMusicPlayerState } from './music-player.ts'
 import {
   bandEnergy,
+  computeActiveRange,
   computeBarHeights,
   computeIdleLevels,
   computeIdleWave,
@@ -34,13 +35,15 @@ function resolveAccentColor(el: HTMLElement): string {
   }
 }
 
-/** 跨帧绘制状态（平滑电平 / 峰值 / 波形 / 低频能量 / 时间轴） */
+/** 跨帧绘制状态（平滑电平 / 峰值 / 波形 / 低频能量 / 时间轴 / 频谱运行峰值） */
 type DrawState = {
   levels: number[]
   peaks: number[]
   wave: number[]
   bass: number
   time: number
+  /** 各频段运行峰值（跨帧取 max），用于有效频率范围裁剪 */
+  freqMax: number[]
 }
 
 function smoothBass(prev: number, next: number): number {
@@ -76,10 +79,14 @@ function drawBars(
   accent: string,
   barCountProp: number | undefined,
   st: DrawState,
+  range?: { low: number; high: number },
+  peak?: number,
 ): void {
   const count =
     barCountProp ?? Math.max(16, Math.min(120, Math.round(w / 14)))
-  const targets = freq ? computeBarHeights(freq, count) : computeIdleLevels(count, st.time)
+  const targets = freq
+    ? computeBarHeights(freq, count, { lowBin: range?.low, highBin: range?.high, peak })
+    : computeIdleLevels(count, st.time)
   st.levels = smoothLevels(st.levels, targets, 0.62, 0.86)
   st.peaks = computePeaks(st.peaks, st.levels, 0.007)
   st.bass = smoothBass(st.bass, freq ? bandEnergy(freq, 0.01, 0.1) : 0.12)
@@ -213,6 +220,8 @@ function drawRing(
   accent: string,
   barCountProp: number | undefined,
   st: DrawState,
+  range?: { low: number; high: number },
+  peak?: number,
 ): void {
   const cx = w / 2
   const cy = h / 2
@@ -222,7 +231,9 @@ function drawRing(
   const count =
     barCountProp ?? Math.max(48, Math.min(128, Math.round((Math.PI * 2 * baseRadius) / 9)))
 
-  const targets = freq ? computeBarHeights(freq, count) : computeIdleLevels(count, st.time)
+  const targets = freq
+    ? computeBarHeights(freq, count, { lowBin: range?.low, highBin: range?.high, peak })
+    : computeIdleLevels(count, st.time)
   st.levels = smoothLevels(st.levels, targets, 0.55, 0.87)
   st.bass = smoothBass(st.bass, freq ? bandEnergy(freq, 0.01, 0.1) : 0.12)
 
@@ -361,9 +372,10 @@ export function MusicSpectrumCanvas({
 
     const freq = new Uint8Array(FREQ_BIN_COUNT)
     const timeData = new Uint8Array(TIME_SAMPLE_COUNT)
-    const st: DrawState = { levels: [], peaks: [], wave: [], bass: 0, time: 0 }
+    const st: DrawState = { levels: [], peaks: [], wave: [], bass: 0, time: 0, freqMax: [] }
     let lastTs = 0
     let rafId = 0
+    let trackId: string | undefined
     const tick = (ts: number) => {
       rafId = requestAnimationFrame(tick)
       const dt = lastTs > 0 ? Math.min(0.05, (ts - lastTs) / 1000) : 0.016
@@ -373,22 +385,51 @@ export function MusicSpectrumCanvas({
         return
       }
       const analyser = getMusicAnalyser()
-      const live = Boolean(analyser && getMusicPlayerState().isPlaying)
+      const state = getMusicPlayerState()
+      const live = Boolean(analyser && state.isPlaying)
+      // 有效频率范围（水平裁剪全零频段）与垂直归一化峰值；待机/波形模式不参与
+      let range: { low: number; high: number } | undefined
+      let peak: number | undefined
+      if (mode !== 'wave') {
+        // 切歌时重置运行峰值，重新统计新歌的有效频率范围
+        const currentId = state.current?.id
+        if (currentId !== trackId) {
+          trackId = currentId
+          st.freqMax = new Array<number>(FREQ_BIN_COUNT).fill(0)
+        }
+        if (live && analyser) {
+          analyser.getByteFrequencyData(freq)
+          if (st.freqMax.length !== freq.length) {
+            st.freqMax = new Array<number>(freq.length).fill(0)
+          }
+          for (let i = 0; i < freq.length; i += 1) {
+            if (freq[i] > st.freqMax[i]) {
+              st.freqMax[i] = freq[i]
+            }
+          }
+          const active = computeActiveRange(st.freqMax)
+          if (active) {
+            range = active
+            let max = 0
+            for (let i = active.low; i <= active.high; i += 1) {
+              if (st.freqMax[i] > max) {
+                max = st.freqMax[i]
+              }
+            }
+            peak = max
+          }
+        }
+      }
       ctx.clearRect(0, 0, cssWidth, cssHeight)
       if (mode === 'wave') {
         if (live && analyser) {
           analyser.getByteTimeDomainData(timeData)
         }
         drawWave(ctx, cssWidth, cssHeight, live ? timeData : undefined, accent, st)
+      } else if (mode === 'bars') {
+        drawBars(ctx, cssWidth, cssHeight, live ? freq : undefined, accent, barCount, st, range, peak)
       } else {
-        if (live && analyser) {
-          analyser.getByteFrequencyData(freq)
-        }
-        if (mode === 'bars') {
-          drawBars(ctx, cssWidth, cssHeight, live ? freq : undefined, accent, barCount, st)
-        } else {
-          drawRing(ctx, cssWidth, cssHeight, live ? freq : undefined, accent, barCount, st)
-        }
+        drawRing(ctx, cssWidth, cssHeight, live ? freq : undefined, accent, barCount, st, range, peak)
       }
     }
     rafId = requestAnimationFrame(tick)

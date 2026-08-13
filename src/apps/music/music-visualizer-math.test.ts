@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   accentTriadRgb,
   bandEnergy,
+  computeActiveRange,
   computeActiveWordIndex,
   computeBarHeights,
   computeIdleLevels,
@@ -49,6 +50,62 @@ function testBarHeights(): void {
   assert.ok(lifted[0] > 64 / 255, '中能量应被幂次抬高')
   assert.ok(lifted[0] < 1, '中能量不应顶满')
   console.log('ok: computeBarHeights')
+}
+
+function testBarHeightsWithRange(): void {
+  // 水平裁剪：区间外能量不影响柱高
+  const band = new Uint8Array(64)
+  for (let i = 16; i < 48; i += 1) band[i] = 255
+  // 未裁剪（对数分桶）：低频桶覆盖全零 bin，应整体为 0
+  const uncut = computeBarHeights(band, 4)
+  assert.equal(uncut[0], 0, '未裁剪时低频桶应为 0')
+  assert.equal(uncut[1], 0, '未裁剪时次低频桶应为 0')
+  assert.ok(uncut[2] > 0.99, '能量所在桶应顶满')
+  // 裁剪到 [16,47]：整个区间能量均匀，所有桶应接近满
+  const cut = computeBarHeights(band, 4, { lowBin: 16, highBin: 47 })
+  for (const h of cut) {
+    assert.ok(h > 0.99, '裁剪后区间内各桶能量应接近满')
+  }
+  // 裁剪到无能量区间 → 全 0（空白区域不显示）
+  const quiet = new Uint8Array(64)
+  quiet[40] = 255
+  for (const h of computeBarHeights(quiet, 8, { lowBin: 0, highBin: 10 })) {
+    assert.equal(h, 0, '区间外能量不应显示')
+  }
+
+  // 垂直归一化：peak 代替 255
+  const mid = new Uint8Array(32).fill(64)
+  // 64/255≈0.251，0.251^0.8≈0.331
+  const base = computeBarHeights(mid, 1)
+  const boosted = computeBarHeights(mid, 1, { peak: 64 })
+  assert.ok(Math.abs(base[0] - Math.pow(64 / 255, 0.8)) < 1e-9)
+  assert.ok(Math.abs(boosted[0] - 1) < 1e-9, 'peak=64 时 64 能量应顶满')
+  // 非正 peak 回退 255
+  assert.deepEqual(computeBarHeights(mid, 1, { peak: 0 }), base)
+  // 区间越界回退到合法范围
+  assert.deepEqual(computeBarHeights(band, 4, { lowBin: -5, highBin: 999 }), uncut)
+  console.log('ok: computeBarHeights 裁剪/归一化')
+}
+
+function testActiveRange(): void {
+  const quiet = new Uint8Array(16)
+  assert.equal(computeActiveRange(quiet), undefined, '全静音返回 undefined')
+
+  const active = new Uint8Array(16)
+  active[3] = 100
+  active[9] = 50
+  assert.deepEqual(computeActiveRange(active), { low: 3, high: 9 })
+
+  // 阈值过滤：低于阈值的频段视为无效
+  const sparse = new Uint8Array(16)
+  sparse[0] = 1
+  sparse[5] = 5
+  assert.deepEqual(computeActiveRange(sparse, 2), { low: 5, high: 5 })
+  assert.deepEqual(computeActiveRange(sparse, 1), { low: 0, high: 5 })
+
+  // 空数组
+  assert.equal(computeActiveRange(new Uint8Array(0)), undefined)
+  console.log('ok: computeActiveRange')
 }
 
 function testWavePoints(): void {
@@ -189,6 +246,8 @@ function testColors(): void {
 }
 
 testBarHeights()
+testBarHeightsWithRange()
+testActiveRange()
 testWavePoints()
 testActiveWordIndex()
 testSmoothLevels()
