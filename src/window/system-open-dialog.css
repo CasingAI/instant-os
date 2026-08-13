@@ -428,6 +428,19 @@
     );
 }
 
+/* 拖入外部文件时的高亮（与文件 APP 的落点高亮同款金色） */
+.system-open-dialog--drop-active .system-open-dialog__browser {
+  background:
+    linear-gradient(180deg, rgba(232, 197, 106, 0.32) 0%, rgba(201, 160, 70, 0.2) 100%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 27px,
+      rgba(140, 110, 70, 0.06) 28px
+    );
+  box-shadow: inset 0 0 0 2px rgba(138, 106, 56, 0.6);
+}
+
 .system-open-dialog__empty {
   display: grid;
   place-items: center;

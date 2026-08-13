@@ -25,6 +25,13 @@ import {
 } from '../apps/files/files-types.ts'
 import { filesLocationPathRoot } from '../apps/files/files-path.ts'
 import {
+  collectDataTransferEntries,
+  importExternalNodes,
+  type ExternalImportNode,
+} from '../apps/files/files-import-external.ts'
+import { FilesOpProgressDialog } from '../apps/files/files-op-progress-dialog.tsx'
+import type { FilesOpProgressUiState } from '../apps/files/files-run-with-op-progress.ts'
+import {
   createBinaryFile,
   createTextFile,
   getFilesLocationLabel,
@@ -125,6 +132,34 @@ function matchesAccept(node: FilesNode, accept: ReadonlySet<string> | undefined)
   return false
 }
 
+/**
+ * 统计导入树中文件总数，以及不在当前格式过滤内的文件数。
+ * accept 为空（显示所有格式）时视为无不兼容。
+ */
+function countImportedIncompatibleNodes(
+  nodes: readonly ExternalImportNode[],
+  accept: ReadonlySet<string> | undefined,
+): { total: number; incompatible: number } {
+  let total = 0
+  let incompatible = 0
+  const walk = (node: ExternalImportNode) => {
+    if (node.kind === 'folder') {
+      for (const child of node.children ?? []) walk(child)
+      return
+    }
+    total += 1
+    if (
+      accept &&
+      accept.size > 0 &&
+      !matchesAccept({ id: '', kind: 'file', name: node.name } as FilesNode, accept)
+    ) {
+      incompatible += 1
+    }
+  }
+  for (const node of nodes) walk(node)
+  return { total, incompatible }
+}
+
 function toCreateFileName(baseName: string, extension: string): string {
   const ext = normalizeFileExtension(extension) || 'txt'
   const trimmed = baseName.trim().replace(new RegExp(`\\.${ext}$`, 'i'), '')
@@ -204,6 +239,8 @@ function SystemOpenDialogBrowser({
   const [formatFilter, setFormatFilter] = useState<FormatFilterMode>('accepted')
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [optionsDraft, setOptionsDraft] = useState<FormatFilterMode>('accepted')
+  const [dragActive, setDragActive] = useState(false)
+  const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
 
   historyIndexRef.current = historyIndex
 
@@ -463,6 +500,69 @@ function SystemOpenDialogBrowser({
     void pickNodePath(selected)
   }, [currentFolder, folderMode, locationId, onPick, pickNodePath, selected])
 
+  const handleDragOver = useCallback(
+    (event: DragEvent) => {
+      if (!(event.dataTransfer?.types ?? []).includes('Files')) return
+      event.preventDefault()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = locationWritable ? 'copy' : 'none'
+      }
+      if (locationWritable) {
+        setDragActive(true)
+      }
+    },
+    [locationWritable],
+  )
+
+  const handleDragLeave = useCallback((event: DragEvent) => {
+    // 子元素间移动触发的 dragleave 冒泡：relatedTarget 仍在容器内则忽略
+    const related = event.relatedTarget
+    if (related instanceof Node && rootRef.current?.contains(related)) return
+    setDragActive(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (event: DragEvent) => {
+      setDragActive(false)
+      // 阻止浏览器打开/导航被 drop 的文件，也让文件 APP 的 document 兜底
+      // （其监听依赖 defaultPrevented 判断）不会抢走这次导入到别的目录
+      event.preventDefault()
+      if (!event.dataTransfer?.files.length) return
+      if (!locationWritable || busy) return
+      setBusy(true)
+      void collectDataTransferEntries(event.dataTransfer).then(
+        async (nodes) => {
+          try {
+            if (nodes.length === 0) return
+            await importExternalNodes({
+              nodes,
+              dest: { destLocationId: locationId, destParentId: folderId },
+              onUiChange: setOpProgressUi,
+            })
+            await refresh()
+            const { total, incompatible } = countImportedIncompatibleNodes(nodes, accept)
+            if (incompatible > 0) {
+              await modal.alert({
+                title: '已导入',
+                message: `已导入 ${total} 个文件，其中 ${incompatible} 个不在当前支持格式列表中，可切换到「所有格式」查看。`,
+                themeColor: THEME,
+              })
+            }
+          } catch (err) {
+            await modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+          } finally {
+            setBusy(false)
+          }
+        },
+        (err) => {
+          setBusy(false)
+          void modal.alert({ title: '无法导入', message: formatError(err), themeColor: THEME })
+        },
+      )
+    },
+    [accept, busy, folderId, locationId, locationWritable, modal, refresh],
+  )
+
   const handleCreate = useCallback(async () => {
     if (!allowCreate || !canCreateHere || busy) return
     if (!canCreateExtension) {
@@ -548,12 +648,19 @@ function SystemOpenDialogBrowser({
     'system-open-dialog',
     narrowLayout ? 'system-open-dialog--narrow' : '',
     narrowLayout && stackedBrowserOpen ? 'system-open-dialog--browser-open' : '',
+    dragActive ? 'system-open-dialog--drop-active' : '',
   ]
     .filter(Boolean)
     .join(' ')
 
   return (
-    <div ref={rootRef} class={rootClass}>
+    <div
+      ref={rootRef}
+      class={rootClass}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <aside class="system-open-dialog__sidebar">
         <div class="system-open-dialog__sidebar-heading">位置</div>
         <ul class="system-open-dialog__sidebar-list">
@@ -747,6 +854,14 @@ function SystemOpenDialogBrowser({
           </div>
         </div>
       ) : undefined}
+
+      <FilesOpProgressDialog
+        open={opProgressUi !== undefined}
+        title={opProgressUi?.title ?? ''}
+        remainingLabel={opProgressUi?.remainingLabel ?? ''}
+        fraction={opProgressUi?.fraction ?? 0}
+        themeColor={THEME}
+      />
     </div>
   )
 }

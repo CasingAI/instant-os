@@ -22,13 +22,12 @@ import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
-import { FilesStorageFullError, assertAdditionalBytesAvailable } from './files-storage.ts'
+import { FilesStorageFullError } from './files-storage.ts'
 import {
   collectDataTransferEntries,
-  planExternalImport,
+  importExternalNodes,
   type ExternalImportNode,
 } from './files-import-external.ts'
-import { filesOpenStreamWrite } from './files-api.ts'
 import {
   FILES_MOUNTS_CHANGED_EVENT,
   addMount,
@@ -105,7 +104,6 @@ import {
   resolvePathNodes,
   restoreNode,
   trashNode,
-  uniqueNodeName,
 } from './files-vfs.ts'
 import {
   filesLocationPathRoot,
@@ -2271,75 +2269,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [clearSelection, folderId, modal, refresh],
   )
 
-  /** 导入系统外部文件（拖放 / 选择器）：深度优先建目录 + 流式写入，带进度 */
+  /** 导入系统外部文件（拖放 / 选择器）：写入由公共 importExternalNodes 完成 */
   const handleExternalImport = useCallback(
     async (
       nodes: readonly ExternalImportNode[],
       dest: { destLocationId: FilesLocationId; destParentId: string | undefined },
     ) => {
       if (nodes.length === 0) return
-      const steps = planExternalImport(nodes)
-      if (steps.length === 0) return
-      const totalBytes = steps.reduce(
-        (sum, step) => sum + (step.op === 'write' ? step.byteSize : 0),
-        0,
-      )
-      const isLocalTarget = !isMountLocationId(dest.destLocationId)
       try {
-        if (isLocalTarget) {
-          await assertAdditionalBytesAvailable(totalBytes)
-        }
-        await runFilesOpWithProgress({
-          kind: 'paste',
-          totalWork: Math.max(1, totalBytes),
-          estimatedTotalMs: estimateFilesOpDurationMs(Math.max(1, totalBytes)),
-          onUiChange: setOpProgressUi,
-          task: async (report) => {
-            let written = 0
-            // 目标目录绝对路径（文件夹 id → 路径；卷根 → 卷前缀）
-            let dirPath = filesLocationPathRoot(dest.destLocationId)
-            if (dest.destParentId !== undefined) {
-              const parentNode = await getNodeOrThrow(dest.destParentId)
-              dirPath = await resolveFilesAbsolutePath(parentNode)
-            }
-            // plan 已按深度优先拍平；用路径栈跟踪当前目录
-            const dirStack: string[] = [dirPath]
-            for (const step of steps) {
-              const parentPath = dirStack[dirStack.length - 1]!
-              if (step.op === 'mkdir') {
-                const folderPath = joinFilesAbsolutePath(parentPath, step.name)
-                let parentId = dest.destParentId
-                if (dirStack.length > 1) {
-                  const parentNode = await resolveNodeByAbsolutePath(parentPath)
-                  parentId = parentNode?.id ?? dest.destParentId
-                }
-                await mkdir({
-                  locationId: dest.destLocationId,
-                  parentId,
-                  name: step.name,
-                })
-                dirStack.push(folderPath)
-                continue
-              }
-              const name = await uniqueNodeName(dest.destLocationId, dest.destParentId, step.name)
-              const filePath = joinFilesAbsolutePath(parentPath, name)
-              const writer = await filesOpenStreamWrite(filePath)
-              const reader = step.file.stream().getReader()
-              try {
-                while (true) {
-                  const { done, value } = await reader.read()
-                  if (done) break
-                  await writer.write(value)
-                  written += value.byteLength
-                  report({ done: written, total: Math.max(1, totalBytes) })
-                }
-              } finally {
-                reader.releaseLock()
-              }
-              await writer.close()
-            }
-          },
-        })
+        await importExternalNodes({ nodes, dest, onUiChange: setOpProgressUi })
         clearSelection()
         // 仅当导入目标仍是当前目录（refresh 闭包中的 folderId 与目标一致）时才直接刷新。
         // 若导入期间用户已导航到其他目录：直接刷新会用旧目录结果覆盖当前列表
