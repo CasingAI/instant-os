@@ -1,6 +1,6 @@
 /**
  * LLM G2P：歌词 → 逐字/词 IPA 音素序列。
- * 纯解析/提示词逻辑可单测；实际 LLM 调用见 align-agent.ts。
+ * 纯解析/提示词逻辑可单测；实际 LLM 调用已在歌词对齐 App 移除时一并删除。
  */
 
 import type { G2pLine, G2pUnit } from './align-types.ts'

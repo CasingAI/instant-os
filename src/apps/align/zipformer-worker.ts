@@ -7,7 +7,6 @@
  *   ONNX 一次前向（zipformer encoder）→ CTC greedy 解码 →
  *   tokens.txt 查表 → 每 token 时间戳（subsampling 4 × 10ms = 0.04s/帧）。
  *
- * 与 phoneme-worker 共享同架构（onnxruntime-web + worker + Cache API），
  * 被 ai-inference-service 统一调度（换模型自动卸载旧 worker）。
  */
 
@@ -18,9 +17,10 @@ import {
   PHONEME_TARGET_SAMPLE_RATE,
 } from '../stems/phoneme-types.ts'
 import { computeKaldiFbank } from './kaldi-fbank.ts'
+import { sliceAudioOverlapped } from './align-chunking.ts'
 import { decodeByteBpe } from './bbpe-decode.ts'
 
-// 复用 onnxruntime-web 的 wasm 路径配置（与 phoneme-worker 一致）。
+// 复用 onnxruntime-web 的 wasm 路径配置（音乐实验室分轨 worker 同款）。
 import ortWasmSimdThreadedJsepMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs?url'
 import ortWasmSimdThreadedJsepWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm?url'
 
@@ -125,31 +125,24 @@ async function loadSession(): Promise<{ session: ort.InferenceSession; provider:
   return { session, provider: sessionProvider }
 }
 
-/** 长音频切块：zipformer 动态下采样，60s 一块（fbank 帧数 ~6000，内存可控） */
+/** 长音频切块：zipformer 动态下采样，60s 一块（fbank 帧数 ~6000，内存可控）；
+ *  相邻块重叠 2s 消除边界上下文缺失（= 50 输出帧，恰好整除 0.04s/帧）。 */
 const MAX_SAMPLES = PHONEME_TARGET_SAMPLE_RATE * 60
+const OVERLAP_SAMPLES = PHONEME_TARGET_SAMPLE_RATE * 2
 
-function sliceAudio(audio: Float32Array): Float32Array[] {
-  if (audio.length <= MAX_SAMPLES) return [audio]
-  const chunks: Float32Array[] = []
-  let offset = 0
-  while (offset < audio.length) {
-    const end = Math.min(offset + MAX_SAMPLES, audio.length)
-    chunks.push(audio.slice(offset, end))
-    offset = end
-  }
-  return chunks
-}
-
-/** CTC greedy 解码：逐帧 argmax，非 blank 且不等于前一 token 才输出 */
+/** CTC greedy 解码：逐帧 argmax，非 blank 且不等于前一 token 才输出；
+ *  只解码 [startFrame, endFrame)（保留区，丢弃边界帧）；prev 为前一帧 best token，
+ *  跨块透传避免边界处重复输出同一 token。 */
 function greedyDecode(
   logits: Float32Array,
-  frames: number,
   vocabSize: number,
   blank: number,
-): { token: number; frame: number }[] {
-  const out: { token: number; frame: number }[] = []
-  let prev = -1
-  for (let t = 0; t < frames; t++) {
+  startFrame: number,
+  endFrame: number,
+  prev: number,
+): { tokens: { token: number; frame: number }[]; lastBest: number } {
+  const tokens: { token: number; frame: number }[] = []
+  for (let t = startFrame; t < endFrame; t++) {
     const base = t * vocabSize
     let best = 0
     let bestV = logits[base]
@@ -161,11 +154,11 @@ function greedyDecode(
       }
     }
     if (best !== blank && best !== prev) {
-      out.push({ token: best, frame: t })
+      tokens.push({ token: best, frame: t })
     }
     prev = best
   }
-  return out
+  return { tokens, lastBest: prev }
 }
 
 async function recognize(request: ZipformerRequest): Promise<void> {
@@ -174,8 +167,8 @@ async function recognize(request: ZipformerRequest): Promise<void> {
   // 1. 重采样到 16kHz mono
   const mono16k = resampleToMono16k(audio, sampleRate)
 
-  // 2. 切块（如过长）
-  const chunks = sliceAudio(mono16k)
+  // 2. 切块（如过长）：相邻块重叠 2s，只保留各区输出帧
+  const chunks = sliceAudioOverlapped(mono16k, MAX_SAMPLES, OVERLAP_SAMPLES)
 
   const { session: sessionInstance } = await loadSession()
   await loadTokens()
@@ -189,13 +182,14 @@ async function recognize(request: ZipformerRequest): Promise<void> {
 
   const segments: ZipformerSegment[] = []
   let fullText = ''
+  let prevToken = -1
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]
-    const chunkStartSec = (i * MAX_SAMPLES) / PHONEME_TARGET_SAMPLE_RATE
+    const chunkStartSec = chunk.startSample / PHONEME_TARGET_SAMPLE_RATE
 
     // 3. Kaldi fbank
-    const feats = computeKaldiFbank(chunk)
+    const feats = computeKaldiFbank(chunk.data)
     const frames = feats.length / 80
     if (frames === 0) continue
 
@@ -212,9 +206,21 @@ async function recognize(request: ZipformerRequest): Promise<void> {
     const outFrames = logitsTensor.dims[1]
     const vocabSize = logitsTensor.dims[2]
 
-    // 5. CTC greedy 解码 + 时间戳（token 用字节 BPE 解码为可读文本）
-    const decoded = greedyDecode(logits, outFrames, vocabSize, blankId)
-    for (const { token, frame } of decoded) {
+    // 5. 保留区帧范围：丢弃块内受边界影响的帧（含前文 overlap 区域）
+    const trimStart = Math.ceil(
+      (chunk.outStartSample - chunk.startSample) / (PHONEME_TARGET_SAMPLE_RATE * frameSec),
+    )
+    const trimEnd = Math.min(
+      Math.ceil(
+        (chunk.outEndSample - chunk.startSample) / (PHONEME_TARGET_SAMPLE_RATE * frameSec),
+      ),
+      outFrames,
+    )
+
+    // 6. CTC greedy 解码 + 时间戳（token 用字节 BPE 解码为可读文本）
+    const decoded = greedyDecode(logits, vocabSize, blankId, trimStart, trimEnd, prevToken)
+    prevToken = decoded.lastBest
+    for (const { token, frame } of decoded.tokens) {
       const symbol = tokens![token]
       if (!symbol) continue
       const start = chunkStartSec + frame * frameSec

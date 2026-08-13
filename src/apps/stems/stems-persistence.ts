@@ -60,6 +60,10 @@ export type StemsManifest = {
   stems: { id: StemId; file: string }[]
   /** 分段节拍检测结果（可选；老归档无此字段） */
   tempo?: TempoInfo
+  /** 原始歌词（清洗后文本，可选；供重开包/换设备时恢复，不再依赖同目录 .lrc） */
+  lyrics?: string
+  /** 歌词来源名（可选；自动载入/手动粘贴来源，仅供展示） */
+  lyricsSourceName?: string
   /** 歌词对齐结果（增强 LRC，可选；老归档无此字段） */
   alignedLrc?: string
   /** 人声轨音素识别结果（可选；供换歌词时复用，跳过重新识别） */
@@ -137,6 +141,8 @@ export function buildStemsManifest(meta: {
   sampleRate: number
   createdAt?: number
   tempo?: TempoInfo
+  lyrics?: string
+  lyricsSourceName?: string
   alignedLrc?: string
   phonemes?: PhonemeSegment[]
 }): StemsManifest {
@@ -150,6 +156,10 @@ export function buildStemsManifest(meta: {
     stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
   }
   if (meta.tempo) manifest.tempo = meta.tempo
+  if (meta.lyrics?.trim()) {
+    manifest.lyrics = meta.lyrics
+    if (meta.lyricsSourceName) manifest.lyricsSourceName = meta.lyricsSourceName
+  }
   if (meta.alignedLrc) manifest.alignedLrc = meta.alignedLrc
   if (meta.phonemes?.length) manifest.phonemes = meta.phonemes
   return manifest
@@ -174,6 +184,13 @@ export function parseStemsManifest(json: string): StemsManifest | null {
       const tempo = normalizeTempo(raw.tempo)
       if (!tempo) return null
       manifest.tempo = tempo
+    }
+    // lyrics / lyricsSourceName 非字符串（老包无此字段）时按缺失处理，不整体拒绝
+    if (raw.lyrics !== undefined && typeof raw.lyrics !== 'string') {
+      delete manifest.lyrics
+    }
+    if (raw.lyricsSourceName !== undefined && typeof raw.lyricsSourceName !== 'string') {
+      delete manifest.lyricsSourceName
     }
     // alignedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.alignedLrc !== undefined && typeof raw.alignedLrc !== 'string') {
@@ -321,6 +338,10 @@ export type SaveStemsOptions = {
   sink: ArchiveSink
   /** 分段节拍检测结果（可选；检测完成/载入时带上） */
   tempo?: TempoInfo
+  /** 原始歌词（清洗后文本，可选；随包保存供重开恢复） */
+  lyrics?: string
+  /** 歌词来源名（可选，仅供展示） */
+  lyricsSourceName?: string
   /** 歌词对齐结果（增强 LRC，可选） */
   alignedLrc?: string
   /** 人声轨音素识别结果（可选；供换歌词复用，跳过重新识别） */
@@ -344,6 +365,8 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     sampleRate,
     sink,
     tempo,
+    lyrics,
+    lyricsSourceName,
     alignedLrc,
     phonemes,
     onProgress,
@@ -354,6 +377,8 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     durationSec,
     sampleRate,
     tempo,
+    lyrics,
+    lyricsSourceName,
     alignedLrc,
     phonemes,
   })

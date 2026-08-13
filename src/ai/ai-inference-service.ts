@@ -18,7 +18,6 @@ import { upsertWorkerHeapReport } from '../os/worker-heap-reports.ts'
 import type { ServiceRoute } from '../os/service-supervisor.ts'
 import StemsWorker from '../apps/stems/stems-worker.ts?worker'
 import MdxVocalWorker from '../apps/stems/mdx-vocal-worker.ts?worker'
-import PhonemeWorker from '../apps/stems/phoneme-worker.ts?worker'
 import ZipformerWorker from '../apps/align/zipformer-worker.ts?worker'
 
 /** 「服务」面板中本服务的固定 ID。 */
@@ -27,7 +26,7 @@ export const AI_INFERENCE_SERVICE_ID = 'ai-inference'
 /** 任务完成且队列为空后，空闲多少毫秒自动卸载模型（terminate worker）。 */
 export const AI_IDLE_UNLOAD_MS = 60_000
 
-export type AiModelId = 'stems-htdemucs' | 'stems-mdx' | 'phoneme-wav2vec2' | 'align-zipformer'
+export type AiModelId = 'stems-htdemucs' | 'stems-mdx' | 'align-zipformer'
 
 const AI_MODELS: Record<AiModelId, { label: string; createWorker: () => Worker }> = {
   'stems-htdemucs': {
@@ -37,10 +36,6 @@ const AI_MODELS: Record<AiModelId, { label: string; createWorker: () => Worker }
   'stems-mdx': {
     label: 'MDX-NET 人声分离（伴奏模型）',
     createWorker: () => new MdxVocalWorker(),
-  },
-  'phoneme-wav2vec2': {
-    label: 'wav2vec2 音素识别（歌词对齐）',
-    createWorker: () => new PhonemeWorker(),
   },
   'align-zipformer': {
     label: 'Zipformer-CTC 中文识别（歌词对齐）',

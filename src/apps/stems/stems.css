@@ -14,7 +14,7 @@
   --stems-well: #1c1b1a;
   --stems-well-edge: #0e0d0c;
   --stems-radius: 7px;
-  --stems-track-cols: 72px minmax(0, 1fr) minmax(110px, max-content);
+  --stems-track-cols: 72px minmax(0, 1fr) 110px;
   --stems-bevel-up:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12);

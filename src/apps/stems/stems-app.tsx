@@ -478,6 +478,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           durationSec,
           sampleRate: stemSampleRate,
           tempo: tempoRef.current ?? undefined,
+          lyrics: lyricsRef.current.trim() ? lyricsRef.current : undefined,
+          lyricsSourceName: lyricsRef.current.trim() ? lyricsSourceName || undefined : undefined,
           alignedLrc: alignedLrcRef.current || undefined,
           phonemes: phonemesRef.current ?? undefined,
           sink: {
@@ -494,7 +496,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setSaveProgress(null)
       }
     },
-    [sourceName, duration, stemSampleRate],
+    [sourceName, lyricsSourceName, duration, stemSampleRate],
   )
 
   /** 手动保存分轨结果（菜单 / ⌘S）。 */
@@ -1012,6 +1014,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             } else {
               const drums = stems.find((s) => s.stemId === 'drums')
               if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
+            }
+            // 包内原始歌词兜底：同目录 .lrc 缺失时恢复（手动粘贴歌词也能重开回来），
+            // 让「对齐歌词」保持可用、编辑模态显示原文
+            if (!lyricsRef.current.trim() && manifest.lyrics?.trim()) {
+              lyricsRef.current = manifest.lyrics
+              setLyrics(manifest.lyrics)
+              setLyricsSourceName(manifest.lyricsSourceName || '来自分轨包')
             }
             // 音素段（人声轨识别结果）随包恢复：换歌词时复用，跳过重新识别
             if (manifest.phonemes) phonemesRef.current = manifest.phonemes

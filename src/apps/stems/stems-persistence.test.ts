@@ -375,6 +375,20 @@ function testManifestValidation(): void {
   )
   assert.equal(parseStemsManifest('not json'), null, '非法 JSON')
 
+  // lyrics / lyricsSourceName：字符串通过，非字符串按缺失处理（不整体拒绝）
+  const withLyrics = parseStemsManifest(
+    JSON.stringify({ ...good, lyrics: '你\n好', lyricsSourceName: '手动粘贴' }),
+  )
+  assert.ok(withLyrics, '含 lyrics 的 manifest 应通过')
+  assert.equal(withLyrics.lyrics, '你\n好')
+  assert.equal(withLyrics.lyricsSourceName, '手动粘贴')
+  const badLyrics = parseStemsManifest(JSON.stringify({ ...good, lyrics: 42 }))
+  assert.ok(badLyrics, 'lyrics 非字符串不应拒绝整个 manifest')
+  assert.equal(badLyrics.lyrics, undefined, 'lyrics 非法按缺失处理')
+  const badSrc = parseStemsManifest(JSON.stringify({ ...good, lyrics: '你', lyricsSourceName: 42 }))
+  assert.ok(badSrc, 'lyricsSourceName 非字符串不应拒绝整个 manifest')
+  assert.equal(badSrc.lyricsSourceName, undefined, 'lyricsSourceName 非法按缺失处理')
+
   // alignedLrc：字符串通过，非字符串按缺失处理（不整体拒绝）
   const withLrc = parseStemsManifest(
     JSON.stringify({ ...good, alignedLrc: '[00:00.00]<00:00.00>你<00:00.30>好' }),
@@ -502,6 +516,63 @@ async function testPhonemesRoundTrip(): Promise<void> {
   console.log('ok: phonemes 随 .stems.zip 持久化 round-trip')
 }
 
+/** 原始歌词持久化 round-trip：保存时带上，载入时还原（完整解包与快路径均可见）。 */
+async function testLyricsRoundTrip(): Promise<void> {
+  const stems = makeFakeStems(1000)
+  const lyrics = '这是\n一首歌\n测试歌词'
+  const chunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    lyrics,
+    lyricsSourceName: '手动粘贴',
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let o = 0
+  for (const c of chunks) {
+    zipBytes.set(c, o)
+    o += c.length
+  }
+  const loaded = await loadStemsArchive(new Blob([zipBytes]))
+  assert.equal(loaded.manifest.lyrics, lyrics, 'lyrics 应随包还原')
+  assert.equal(loaded.manifest.lyricsSourceName, '手动粘贴', 'lyricsSourceName 应随包还原')
+  const layout = readStemsArchiveLayout(zipBytes)
+  assert.equal(layout.manifest.lyrics, lyrics, '快路径 manifest 也应含 lyrics')
+  // 不带 lyrics 保存时，载入后字段应为 undefined（不污染旧包语义）
+  const chunks2: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    sink: {
+      write: (c) => {
+        chunks2.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes2 = new Uint8Array(chunks2.reduce((n, c) => n + c.length, 0))
+  let o2 = 0
+  for (const c of chunks2) {
+    zipBytes2.set(c, o2)
+    o2 += c.length
+  }
+  const loaded2 = await loadStemsArchive(new Blob([zipBytes2]))
+  assert.equal(loaded2.manifest.lyrics, undefined, '未提供 lyrics 时不应写入该字段')
+  console.log('ok: 原始歌词随 .stems.zip 持久化 round-trip')
+}
+
 function testArchivePath(): void {
   assert.equal(
     stemsArchivePathFor('/user/Musics/song.mp3'),
@@ -535,6 +606,7 @@ await testLayoutFastPathRanged()
 await testLayoutFastPathRangedLegacyV2()
 await testAlignedLrcRoundTrip()
 await testPhonemesRoundTrip()
+await testLyricsRoundTrip()
 testPcm16Chunking()
 testManifestValidation()
 testArchivePath()
