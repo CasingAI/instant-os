@@ -13,6 +13,9 @@ import {
   PHONEME_MODEL_BYTES,
   PHONEME_MODEL_LABEL,
   PHONEME_MODEL_URL,
+  ZIPFORMER_MODEL_BYTES,
+  ZIPFORMER_MODEL_LABEL,
+  ZIPFORMER_MODEL_URL,
 } from '../../os/model-cache.ts'
 import { formatStorageSize } from './format-storage-size.ts'
 
@@ -30,6 +33,7 @@ const MODELS: ModelEntry[] = [
   { url: DEMUCS_MODEL_URL, label: DEMUCS_MODEL_LABEL, totalBytes: DEMUCS_MODEL_BYTES },
   { url: PHONEME_MODEL_URL, label: PHONEME_MODEL_LABEL, totalBytes: PHONEME_MODEL_BYTES },
   { url: MDX_MODEL_URL, label: MDX_MODEL_LABEL, totalBytes: MDX_MODEL_BYTES },
+  { url: ZIPFORMER_MODEL_URL, label: ZIPFORMER_MODEL_LABEL, totalBytes: ZIPFORMER_MODEL_BYTES },
 ]
 
 function ModelCard({

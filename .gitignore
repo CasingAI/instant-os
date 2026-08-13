@@ -38,6 +38,10 @@ public/assets/phoneme/models/
 # Fetch via: bash scripts/vendor-mdx.sh
 public/assets/mdx/models/
 
+# Zipformer-CTC Chinese ASR weights (ONNX, ~350 MB) — not committed to git.
+# Fetch via: bash scripts/vendor-zipformer-ctc.sh
+public/assets/zipformer-ctc/models/
+
 # ZCode agent session artifacts
 .zcode/
 

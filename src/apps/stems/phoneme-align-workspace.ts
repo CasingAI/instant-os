@@ -92,6 +92,8 @@ export type PhonemeSidecarMeta = {
   duration?: number
   sampleRate?: number
   provider?: string
+  /** 识别引擎标识（wav2vec2 / zipformer），重开时按引擎解读旁存 */
+  engine?: string
 }
 
 /** 旁存文件文本：`# ` 头注释 + 音素 TSV（与工作区 phones.tsv 同列格式） */
@@ -100,6 +102,7 @@ export function buildPhonemeSidecarText(input: PhonemeSidecarMeta & { phoneList:
   if (input.duration !== undefined) header.push(`# duration=${input.duration}`)
   if (input.sampleRate !== undefined) header.push(`# sampleRate=${input.sampleRate}`)
   if (input.provider) header.push(`# provider=${input.provider}`)
+  if (input.engine) header.push(`# engine=${input.engine}`)
   const body = buildPhonemeWorkspaceFiles({ lyrics: '', phoneList: input.phoneList }).phonesTsv
   return body ? `${header.join('\n')}\n${body}` : header.join('\n')
 }
@@ -119,6 +122,7 @@ export function parsePhonemeSidecarText(text: string): { phones: AlignedPhone[] 
       if (key === 'duration') meta.duration = Number(value)
       else if (key === 'sampleRate') meta.sampleRate = Number(value)
       else if (key === 'provider') meta.provider = value
+      else if (key === 'engine') meta.engine = value
       continue
     }
     const parts = trimmed.split('\t')

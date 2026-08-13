@@ -149,7 +149,7 @@ function isCtcSpecial(symbol: string): boolean {
  * 把已知时间戳填回单元，未覆盖的按前后邻居线性插值。
  * known 按 unitIndex 升序；obs 用于兜底总时长。
  */
-function interpolateUnits(
+export function interpolateUnits(
   units: G2pUnit[],
   known: { unitIndex: number; start: number; end: number }[],
   obs: AlignedPhone[],

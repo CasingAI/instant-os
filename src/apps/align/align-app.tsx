@@ -6,7 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type OpenAI from 'openai'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import { AlignIcon } from '../../icons/app-icons.tsx'
-import { isModelCached, PHONEME_MODEL_LABEL, PHONEME_MODEL_URL } from '../../os/model-cache.ts'
+import {
+  isModelCached,
+  PHONEME_MODEL_BYTES,
+  PHONEME_MODEL_LABEL,
+  PHONEME_MODEL_URL,
+  ZIPFORMER_MODEL_BYTES,
+  ZIPFORMER_MODEL_LABEL,
+  ZIPFORMER_MODEL_URL,
+} from '../../os/model-cache.ts'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { filesCreateText, filesReadText, filesStat, filesWriteText } from '../files/files-api.ts'
@@ -44,8 +52,14 @@ import {
   type VscodeAiModelOptionPrefs,
 } from '../vscode/vscode-prefs.ts'
 import { runAlignChatAgent, runG2pAgent, type G2pProgress } from './align-agent.ts'
-import { alignUnitsToPhones } from './align-dtw.ts'
-import { buildAlignLrc } from './align-lrc.ts'
+import { alignUnitsToPhones, interpolateUnits } from './align-dtw.ts'
+import { ctcViterbiAlign, type CtcTarget } from './align-ctc.ts'
+import { buildPinyinReverseIndex, lyricsToPinyinLines, stripLrcMarkup, toG2pLines } from './pinyin-g2p.ts'
+import { alignTextToUnits, expandHypSegments, type HypSegment } from './align-text-dtw.ts'
+import { buildLyricsSkeleton } from './align-g2p.ts'
+import { buildAlignLrc, looksLikeBrokenLrc } from './align-lrc.ts'
+import type { AlignedUnit, G2pLine, G2pUnit } from './align-types.ts'
+import type { ZipformerProgress } from './zipformer-worker.ts'
 import '../help/help.css'
 import '../vscode/vscode-ai.css'
 import './align.css'
@@ -53,6 +67,17 @@ import './align.css'
 const TOP_K = 3
 const MAX_ROWS = 200
 const ALIGN_MODEL_STORAGE_KEY = 'align:model'
+/** 引擎切换顺序 */
+const ENGINE_OPTIONS: AlignEngine[] = ['zipformer', 'wav2vec2', 'legacy']
+
+/** zipformer 识别段 → 双轨视图/旁存用的 AlignedPhone（逐字） */
+function zipSegmentsToPhones(segments: HypSegment[]): AlignedPhone[] {
+  return expandHypSegments(segments).map((u) => ({
+    symbol: u.text,
+    start: u.start,
+    end: u.end,
+  }))
+}
 
 const PHONEME_SPECIAL_SYMBOLS = new Set(['<pad>', '<s>', '</s>', '<unk>'])
 function isPhonemeSpecialSymbol(symbol: string): boolean {
@@ -60,6 +85,7 @@ function isPhonemeSpecialSymbol(symbol: string): boolean {
 }
 
 let phonemeVocab: string[] | undefined
+let phonemeVocabById: Record<string, number> | undefined
 async function loadVocab(): Promise<string[]> {
   if (phonemeVocab) return phonemeVocab
   const response = await fetch('/assets/phoneme/vocab.json')
@@ -69,6 +95,7 @@ async function loadVocab(): Promise<string[]> {
     byId[id] = symbol
   }
   phonemeVocab = byId
+  phonemeVocabById = json
   return byId
 }
 
@@ -79,6 +106,23 @@ type FrameRow = {
 }
 
 type AlignState = 'idle' | 'g2p' | 'dtw' | 'done' | 'error'
+
+/** 对齐引擎：zipformer=CTC 识别+文本对齐 / wav2vec2=歌词约束 CTC / legacy=LLM G2P + 音素 DTW */
+type AlignEngine = 'zipformer' | 'wav2vec2' | 'legacy'
+
+/** 引擎名 → 展示文案 */
+const ENGINE_LABEL: Record<AlignEngine, string> = {
+  zipformer: 'Zipformer',
+  wav2vec2: '歌词约束',
+  legacy: '旧方案',
+}
+
+/** 引擎名 → 说明文案 */
+const ENGINE_TITLES: Record<AlignEngine, string> = {
+  zipformer: 'Zipformer-CTC 中文识别 + 识别文本对齐（确定性，无 LLM）',
+  wav2vec2: '歌词约束 CTC 对齐：确定性 G2P + Viterbi（无 LLM）',
+  legacy: '旧方案：LLM G2P + 音素 DTW',
+}
 
 type ChatMessage = {
   role: 'user' | 'assistant'
@@ -122,6 +166,10 @@ export function AlignApp() {
   const [rows, setRows] = useState<FrameRow[] | undefined>(undefined)
   const [phones, setPhones] = useState<AlignedPhone[] | undefined>(undefined)
   const recogAbortRef = useRef<AbortController | undefined>(undefined)
+  /** 识别阶段保留的 logits（供 wav2vec2 约束对齐；旁存载入时无此数据） */
+  const logitsRef = useRef<
+    { logits: Float32Array; numFrames: number; numPhonemes: number } | undefined
+  >(undefined)
 
   type RecogPhase = 'idle' | 'unpacking' | 'loading' | 'running' | 'done'
   const [recogPhase, setRecogPhase] = useState<RecogPhase>('idle')
@@ -174,14 +222,23 @@ export function AlignApp() {
     }
     return { source: 'text' }
   })
+  const [engine, setEngine] = useState<AlignEngine>('zipformer')
+  /** Zipformer 识别的 token 段（引擎切换/重新识别时清空） */
+  const [zipSegments, setZipSegments] = useState<HypSegment[] | undefined>(undefined)
+  /** 当前识别结果对应的引擎（旁存重载时判断如何解读） */
+  const [recogEngine, setRecogEngine] = useState<AlignEngine | undefined>(undefined)
   const [aiModelOptions, setAiModelOptions] = useState<Record<string, VscodeAiModelOptionPrefs>>(
     {},
   )
 
   useEffect(() => {
     setGpuAvailable('gpu' in navigator)
-    void isModelCached(PHONEME_MODEL_URL).then((cached) => setModelCached(cached))
   }, [])
+
+  useEffect(() => {
+    const url = engine === 'zipformer' ? ZIPFORMER_MODEL_URL : PHONEME_MODEL_URL
+    void isModelCached(url).then((cached) => setModelCached(cached))
+  }, [engine])
 
   const decodeLogits = useCallback(
     async (logits: Float32Array, numFrames: number, numPhonemes: number) => {
@@ -284,9 +341,13 @@ export function AlignApp() {
     }
   }, [])
 
-  /** G2P → DTW → LRC */
+  /** 对齐：按引擎分派 → 增强 LRC */
   const runAlign = useCallback(
-    async (phoneList: AlignedPhone[], lyricsText: string, modelKey: string | undefined) => {
+    async (
+      recogInput: AlignedPhone[] | HypSegment[],
+      lyricsText: string,
+      modelKey: string | undefined,
+    ) => {
       if (alignAbortRef.current) return
       const controller = new AbortController()
       alignAbortRef.current = controller
@@ -297,30 +358,133 @@ export function AlignApp() {
       alignResultRef.current = ''
       setAlignError(undefined)
       setSavedTo(undefined)
-      const totalLines = lyricsText
+      const cleanedLyrics = stripLrcMarkup(lyricsText).trim()
+      if (!cleanedLyrics) {
+        setAlignError('歌词中没有可用的文本内容（已自动剥离 LRC 时间戳）')
+        setAlignState('error')
+        return
+      }
+      const totalLines = cleanedLyrics
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean).length
       appendChatMessage(
         'user',
-        `歌词 ${totalLines} 行 · ${phoneList.length} 音素\n\n${lyricsText.trim()}`,
+        `歌词 ${totalLines} 行 · 引擎「${ENGINE_LABEL[engine]}」\n\n${cleanedLyrics}`,
       )
       try {
-        const g2p = await runG2pAgent({
-          lyrics: lyricsText,
-          modelKey,
-          signal: controller.signal,
-          onProgress: (progress) => {
-            if (controller.signal.aborted) return
-            setG2pProgress(progress)
-          },
-        })
-        if (controller.signal.aborted) return
-        setAlignState('dtw')
-        setLiveProgress(undefined)
-        setG2pProgress(undefined)
-        const alignedUnits = alignUnitsToPhones(g2p.units, phoneList)
-        const lrc = buildAlignLrc(alignedUnits, g2p.lines).trim()
+        let alignedUnits: AlignedUnit[]
+        let g2pLines: G2pLine[]
+        let chatNote: string
+
+        if (engine === 'zipformer') {
+          // 引擎 3：Zipformer 识别 + 识别文本↔歌词对齐（确定性、无 LLM）
+          setAlignState('dtw')
+          const segments = recogInput as HypSegment[]
+          if (segments.length === 0) {
+            throw new Error('识别结果为空，请重新识别')
+          }
+          const refLines = buildLyricsSkeleton(cleanedLyrics)
+          const refUnits = refLines.flatMap((line) => line.units)
+          if (refUnits.length === 0) throw new Error('没有可对齐的歌词单元')
+          const spans = alignTextToUnits(segments, refUnits)
+          const known: { unitIndex: number; start: number; end: number }[] = []
+          spans.forEach((span, u) => {
+            if (span.start >= 0) known.push({ unitIndex: u, start: span.start, end: span.end })
+          })
+          const obs = zipSegmentsToPhones(segments)
+          alignedUnits = interpolateUnits(refUnits, known, obs)
+          g2pLines = refLines
+          chatNote = `Zipformer 识别 ${segments.length} 段 · 文本对齐完成`
+        } else if (engine === 'wav2vec2') {
+          // 引擎 2：确定性 G2P + CTC 歌词约束对齐（无 LLM、无终端）
+          setAlignState('dtw')
+          setG2pProgress(undefined)
+          const data = logitsRef.current
+          if (!data) {
+            throw new Error(
+              '「歌词约束」引擎需要识别时保留的声学特征，请先重新识别（旁存载入不含 logits）',
+            )
+          }
+          const vocab = await loadVocab()
+          if (!phonemeVocabById) throw new Error('词表加载失败')
+          const blankId = phonemeVocabById['<pad>']
+          if (blankId === undefined) throw new Error('词表缺少 <pad>')
+
+          const index = buildPinyinReverseIndex(vocab)
+          const pinyinLines = lyricsToPinyinLines(cleanedLyrics, index)
+
+          const targets: CtcTarget[] = []
+          let ui = 0
+          for (const line of pinyinLines) {
+            for (const unit of line.units) {
+              for (const group of unit.symbolGroups) {
+                const ids: number[] = []
+                for (const symbol of group) {
+                  const id = phonemeVocabById[symbol]
+                  if (id !== undefined) ids.push(id)
+                }
+                if (ids.length > 0) targets.push({ unitIndex: ui, ids })
+              }
+              ui += 1
+            }
+          }
+          if (targets.length === 0) {
+            throw new Error('歌词未能映射出任何音素，无法做约束对齐')
+          }
+          if (controller.signal.aborted) return
+
+          const frameSec = 0.02 // wav2vec2 帧移 20ms
+          const result = ctcViterbiAlign(
+            data.logits,
+            data.numFrames,
+            data.numPhonemes,
+            targets,
+            blankId,
+            frameSec,
+          )
+
+          const rawUnits: G2pUnit[] = []
+          const known: { unitIndex: number; start: number; end: number }[] = []
+          ui = 0
+          for (const line of pinyinLines) {
+            for (const unit of line.units) {
+              rawUnits.push({
+                text: unit.text,
+                phones: unit.symbolGroups.map((g) => g[0] ?? ''),
+              })
+              const span = result.unitSpans[ui]
+              if (span && span.start >= 0) {
+                known.push({ unitIndex: ui, start: span.start, end: span.end })
+              }
+              ui += 1
+            }
+          }
+          alignedUnits = interpolateUnits(rawUnits, known, recogInput as AlignedPhone[])
+          g2pLines = toG2pLines(pinyinLines)
+          chatNote = `确定性 G2P · CTC 约束对齐完成（${targets.length} 个音素）`
+        } else {
+          // 旧引擎：LLM G2P → DTW
+          const g2p = await runG2pAgent({
+            lyrics: cleanedLyrics,
+            modelKey,
+            signal: controller.signal,
+            onProgress: (progress) => {
+              if (controller.signal.aborted) return
+              setG2pProgress(progress)
+            },
+          })
+          if (controller.signal.aborted) return
+          setAlignState('dtw')
+          setLiveProgress(undefined)
+          setG2pProgress(undefined)
+          alignedUnits = alignUnitsToPhones(g2p.units, recogInput as AlignedPhone[])
+          g2pLines = g2p.lines
+          updateChatHistory(g2p.agent)
+          chatNote = `G2P ${g2p.units.length} 单元 · DTW 对齐完成`
+        }
+
+        const lrc = buildAlignLrc(alignedUnits, g2pLines).trim()
         if (!lrc) {
           setAlignError('对齐未产出可用的 LRC，请重试')
           setAlignState('error')
@@ -332,12 +496,7 @@ export function AlignApp() {
         if (audioPathRef.current) {
           void persistAlignedLrc(audioPathRef.current, lrc)
         }
-        updateChatHistory(g2p.agent)
-        appendChatMessage(
-          'assistant',
-          `G2P ${g2p.units.length} 单元 · DTW 对齐完成，已生成 ${totalLines} 行增强 LRC`,
-          { investigation: nonEmptyInvestigation(g2p.agent.investigation) },
-        )
+        appendChatMessage('assistant', chatNote)
       } catch (cause) {
         if (controller.signal.aborted) {
           setAlignState('idle')
@@ -351,7 +510,7 @@ export function AlignApp() {
         setG2pProgress(undefined)
       }
     },
-    [appendChatMessage, persistAlignedLrc, updateChatHistory],
+    [appendChatMessage, engine, persistAlignedLrc, updateChatHistory],
   )
 
   const sendChat = useCallback(
@@ -409,24 +568,33 @@ export function AlignApp() {
   )
 
   const startAlignIfReady = useCallback(
-    (phoneList: AlignedPhone[] | undefined) => {
-      const targets = phoneList ?? phones
-      if (!targets || targets.length === 0) {
-        setAlignError('请先完成音素识别')
-        return
-      }
+    (phoneList?: AlignedPhone[], segments?: HypSegment[]) => {
       const text = lyricsRef.current.trim()
       if (!text) {
         setAlignError('请先粘贴或载入歌词文本')
         return
       }
-      void runAlign(
-        targets,
-        text,
-        alignModel.source === 'custom' ? alignModel.modelKey : undefined,
-      )
+      if (engine === 'zipformer') {
+        const segs = segments ?? zipSegments
+        if (!segs || segs.length === 0) {
+          setAlignError('请先完成 Zipformer 识别')
+          return
+        }
+        void runAlign(segs, text, undefined)
+      } else {
+        const targets = phoneList ?? phones
+        if (!targets || targets.length === 0) {
+          setAlignError('请先完成音素识别')
+          return
+        }
+        void runAlign(
+          targets,
+          text,
+          alignModel.source === 'custom' ? alignModel.modelKey : undefined,
+        )
+      }
     },
-    [phones, runAlign, alignModel],
+    [phones, zipSegments, runAlign, alignModel, engine],
   )
 
   const handleSend = useCallback(() => {
@@ -437,6 +605,19 @@ export function AlignApp() {
   const handleStop = useCallback(() => {
     alignAbortRef.current?.abort()
   }, [])
+
+  /** 切换引擎：清空旧引擎的识别结果（识别模型不同），等待重新识别 */
+  const handleEngineChange = useCallback(
+    (next: AlignEngine) => {
+      if (next === engine) return
+      setEngine(next)
+      setPhones(undefined)
+      setZipSegments(undefined)
+      setRows(undefined)
+      resetAlign()
+    },
+    [engine, resetAlign],
+  )
 
   const handleLyricsChange = useCallback((value: string) => {
     setLyrics(value)
@@ -465,6 +646,7 @@ export function AlignApp() {
       providerLabel: PhonemeEngineProvider | undefined,
       duration: number,
       sampleRate: number,
+      engineLabel?: AlignEngine,
     ) => {
       try {
         const sidecarPath = phonemeSidecarPath(audioPath)
@@ -474,6 +656,7 @@ export function AlignApp() {
             duration,
             sampleRate,
             provider: providerLabel,
+            engine: engineLabel,
             phoneList,
           }),
         )
@@ -495,6 +678,7 @@ export function AlignApp() {
       setError(undefined)
       setRows(undefined)
       setPhones(undefined)
+      setZipSegments(undefined)
       setBusy(true)
       setRecogPhase('loading')
       setRecogProgress(undefined)
@@ -509,59 +693,122 @@ export function AlignApp() {
       const audioPath = audioPathRef.current
 
       try {
-        const { logits, numFrames, numPhonemes } = await enqueueAiTask<
-          PhonemeProgress,
-          { logits: Float32Array; numFrames: number; numPhonemes: number }
-        >(
-          'phoneme-wav2vec2',
-          { type: 'recognize', audio, sampleRate },
-          {
-            signal: abort.signal,
-            route: (msg) => {
-              if (msg.kind === 'model-loading') {
-                setRecogPhase('loading')
-                return { action: 'continue' }
-              }
-              if (msg.kind === 'model-loaded') {
-                setProvider(msg.provider)
-                providerRef.current = msg.provider
-                setRecogPhase('running')
-                return { action: 'continue' }
-              }
-              if (msg.kind === 'progress') {
-                setRecogProgress({ chunk: msg.chunk, total: msg.total })
-                return { action: 'continue' }
-              }
-              if (msg.kind === 'done') {
-                return {
-                  action: 'resolve',
-                  value: {
-                    logits: msg.logits,
-                    numFrames: msg.numFrames,
-                    numPhonemes: msg.numPhonemes,
-                  },
+        if (engine === 'zipformer') {
+          // Zipformer 识别：输出 token 段 + 时间戳
+          const { segments } = await enqueueAiTask<
+            ZipformerProgress,
+            { segments: HypSegment[]; text: string }
+          >(
+            'align-zipformer',
+            { type: 'recognize', audio, sampleRate },
+            {
+              signal: abort.signal,
+              route: (msg) => {
+                if (msg.kind === 'model-loading') {
+                  setRecogPhase('loading')
+                  return { action: 'continue' }
                 }
-              }
-              return { action: 'reject', error: new Error(msg.message) }
+                if (msg.kind === 'model-loaded') {
+                  setProvider(msg.provider)
+                  providerRef.current = msg.provider
+                  setRecogPhase('running')
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'progress') {
+                  setRecogProgress({ chunk: msg.chunk, total: msg.total })
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'done') {
+                  return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                }
+                return { action: 'reject', error: new Error(msg.message) }
+              },
             },
-          },
-        )
-        if (abort.signal.aborted) return
-        setRecogPhase('done')
-        const { rows: frameRows, phones: phoneList } = await decodeLogits(
-          logits,
-          numFrames,
-          numPhonemes,
-        )
-        if (abort.signal.aborted) return
-        setRows(frameRows)
-        setPhones(phoneList)
-        if (audioPath) {
-          await savePhonemeSidecar(audioPath, phoneList, providerRef.current, duration, sampleRate)
+          )
+          if (abort.signal.aborted) return
+          setRecogPhase('done')
+          setZipSegments(segments)
+          const phonesFromSegs = zipSegmentsToPhones(segments)
+          setPhones(phonesFromSegs)
+          setRecogEngine('zipformer')
+          if (audioPath) {
+            await savePhonemeSidecar(
+              audioPath,
+              phonesFromSegs,
+              providerRef.current,
+              duration,
+              sampleRate,
+              'zipformer',
+            )
+          }
+          if (abort.signal.aborted) return
+          setBusy(false)
+          void startAlignIfReady(undefined, segments)
+        } else {
+          // wav2vec2 识别（歌词约束 / 旧方案引擎共用）
+          const { logits, numFrames, numPhonemes } = await enqueueAiTask<
+            PhonemeProgress,
+            { logits: Float32Array; numFrames: number; numPhonemes: number }
+          >(
+            'phoneme-wav2vec2',
+            { type: 'recognize', audio, sampleRate },
+            {
+              signal: abort.signal,
+              route: (msg) => {
+                if (msg.kind === 'model-loading') {
+                  setRecogPhase('loading')
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'model-loaded') {
+                  setProvider(msg.provider)
+                  providerRef.current = msg.provider
+                  setRecogPhase('running')
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'progress') {
+                  setRecogProgress({ chunk: msg.chunk, total: msg.total })
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'done') {
+                  return {
+                    action: 'resolve',
+                    value: {
+                      logits: msg.logits,
+                      numFrames: msg.numFrames,
+                      numPhonemes: msg.numPhonemes,
+                    },
+                  }
+                }
+                return { action: 'reject', error: new Error(msg.message) }
+              },
+            },
+          )
+          if (abort.signal.aborted) return
+          setRecogPhase('done')
+          logitsRef.current = { logits, numFrames, numPhonemes }
+          const { rows: frameRows, phones: phoneList } = await decodeLogits(
+            logits,
+            numFrames,
+            numPhonemes,
+          )
+          if (abort.signal.aborted) return
+          setRows(frameRows)
+          setPhones(phoneList)
+          setRecogEngine('wav2vec2')
+          if (audioPath) {
+            await savePhonemeSidecar(
+              audioPath,
+              phoneList,
+              providerRef.current,
+              duration,
+              sampleRate,
+              'wav2vec2',
+            )
+          }
+          if (abort.signal.aborted) return
+          setBusy(false)
+          startAlignIfReady(phoneList)
         }
-        if (abort.signal.aborted) return
-        setBusy(false)
-        startAlignIfReady(phoneList)
       } catch (cause) {
         if (abort.signal.aborted) return
         setRecogLoadFallback(undefined)
@@ -569,7 +816,7 @@ export function AlignApp() {
         setBusy(false)
       }
     },
-    [decodeLogits, resetAlign, savePhonemeSidecar, startAlignIfReady],
+    [decodeLogits, engine, resetAlign, savePhonemeSidecar, startAlignIfReady],
   )
 
   const recognizeAudioPath = useCallback(
@@ -642,6 +889,15 @@ export function AlignApp() {
             : undefined
           setProvider(loadedProvider)
           providerRef.current = loadedProvider
+          // 按旁存引擎解读：zipformer 旁存 → 恢复 token 段
+          const sidecarEngine = parsed.engine as AlignEngine | undefined
+          const restoredSegments =
+            sidecarEngine === 'zipformer'
+              ? parsed.phones.map((p) => ({ symbol: p.symbol, start: p.start, end: p.end }))
+              : undefined
+          if (restoredSegments) setZipSegments(restoredSegments)
+          else setZipSegments(undefined)
+          setRecogEngine(sidecarEngine ?? 'wav2vec2')
           setRecogPhase('done')
           setRecogSavedTo(sidecarPath)
           setRecogLoaded(true)
@@ -652,18 +908,31 @@ export function AlignApp() {
             if (alignedExisting && alignedExisting.kind === 'file') {
               const restored = (await filesReadText(alignedLrcPath)).trim()
               if (restored) {
-                alignResultRef.current = restored
-                setAlignResult(restored)
-                setAlignState('done')
-                setAlignRestoredFrom(alignedLrcPath)
-                restoredAlign = true
+                // 旧版本可能把 LRC 时间戳当歌词逐字对齐（坏 LRC）：跳过恢复，提示重新对齐
+                if (looksLikeBrokenLrc(restored)) {
+                  console.warn(
+                    '对齐结果旁存疑似歌词时间戳未剥离（坏 LRC），已跳过恢复，请重新对齐',
+                    alignedLrcPath,
+                  )
+                  setAlignRestoredFrom(undefined)
+                } else {
+                  alignResultRef.current = restored
+                  setAlignResult(restored)
+                  setAlignState('done')
+                  setAlignRestoredFrom(alignedLrcPath)
+                  restoredAlign = true
+                }
               }
             }
           } catch (cause) {
             console.warn('对齐结果旁存载入失败，已忽略', cause)
           }
           if (!restoredAlign) {
-            startAlignIfReady(parsed.phones)
+            if (restoredSegments) {
+              startAlignIfReady(undefined, restoredSegments)
+            } else {
+              startAlignIfReady(parsed.phones)
+            }
           }
           return
         }
@@ -683,8 +952,13 @@ export function AlignApp() {
     if (!path) return
     try {
       const text = await filesReadText(path)
-      setLyrics(text)
-      lyricsRef.current = text
+      const cleaned = stripLrcMarkup(text).trim()
+      if (!cleaned) {
+        setAlignError('歌词文件中没有可用的文本内容（已自动剥离 LRC 时间戳）')
+        return
+      }
+      setLyrics(cleaned)
+      lyricsRef.current = cleaned
       setLyricsSourceName(path.split('/').pop() ?? '')
       setAlignError(undefined)
     } catch (cause) {
@@ -823,6 +1097,20 @@ export function AlignApp() {
             >
               对齐视图
             </IosButton>
+            <div class="align__engine-switch" role="group" aria-label="对齐引擎">
+              {ENGINE_OPTIONS.map((e) => (
+                <button
+                  type="button"
+                  key={e}
+                  class={`align__engine-switch-btn${engine === e ? ' align__engine-switch-btn--active' : ''}`}
+                  disabled={busy || turnRunning}
+                  onClick={() => handleEngineChange(e)}
+                  title={ENGINE_TITLES[e]}
+                >
+                  {ENGINE_LABEL[e]}
+                </button>
+              ))}
+            </div>
             {lyricsSourceName && (
               <span class="align__lyrics-source" title={lyricsSourceName}>
                 {lyricsSourceName}
@@ -849,6 +1137,11 @@ export function AlignApp() {
             )}
 
             <div class="align__toolbar-right">
+              {recogEngine && (
+                <span class="align__engine" title={`识别结果来自引擎「${ENGINE_LABEL[recogEngine]}」`}>
+                  识别·{ENGINE_LABEL[recogEngine]}
+                </span>
+              )}
               {provider && (
                 <span
                   class={`align__engine align__engine--${provider}`}
@@ -877,9 +1170,28 @@ export function AlignApp() {
                   </div>
                   <p>打开分轨结果（.stems.zip），用里面的人声轨做音素识别</p>
                   <p class="align__empty-hint">
-                    对齐方式：LLM 转音素 + DTW 强制对齐（无终端）
-                    <br />
-                    模型：{PHONEME_MODEL_LABEL}（{Math.round(241691639 / 1024 / 1024)} MB）
+                    {engine === 'zipformer' ? (
+                      <>
+                        引擎：Zipformer-CTC 中文识别（字级时间戳），确定性、无 LLM
+                        <br />
+                        模型：{ZIPFORMER_MODEL_LABEL}（
+                        {Math.round(ZIPFORMER_MODEL_BYTES / 1024 / 1024)} MB）
+                      </>
+                    ) : engine === 'wav2vec2' ? (
+                      <>
+                        引擎：歌词约束 CTC 对齐（确定性 G2P + Viterbi）
+                        <br />
+                        模型：{PHONEME_MODEL_LABEL}（
+                        {Math.round(PHONEME_MODEL_BYTES / 1024 / 1024)} MB）
+                      </>
+                    ) : (
+                      <>
+                        引擎：LLM 转音素 + 音素 DTW（旧方案）
+                        <br />
+                        模型：{PHONEME_MODEL_LABEL}（
+                        {Math.round(PHONEME_MODEL_BYTES / 1024 / 1024)} MB）
+                      </>
+                    )}
                   </p>
                 </div>
               ) : (
@@ -889,8 +1201,11 @@ export function AlignApp() {
                       <div class="align__section-title">识别进度</div>
                       <div class="align__progress-phase">
                         {recogPhase === 'unpacking' && '正在解包分轨压缩包，提取人声轨…'}
-                        {recogPhase === 'loading' && '正在加载 wav2vec2 模型…'}
-                        {recogPhase === 'running' && '正在运行音素识别…'}
+                        {recogPhase === 'loading' &&
+                          (engine === 'zipformer'
+                            ? '正在加载 Zipformer 模型…'
+                            : '正在加载 wav2vec2 模型…')}
+                        {recogPhase === 'running' && '正在运行语音识别…'}
                       </div>
                       {recogProgress && (
                         <div class="align__progress-bar-wrap">
@@ -1058,7 +1373,7 @@ export function AlignApp() {
                       value={lyrics}
                       onInput={(e) => handleLyricsChange(e.currentTarget.value)}
                       rows={8}
-                      placeholder="粘贴歌词（任意语言，可多行）…"
+                      placeholder="粘贴歌词（可直接粘贴 .lrc 内容，时间戳会自动剥离）…"
                       disabled={turnRunning}
                     />
                   </div>

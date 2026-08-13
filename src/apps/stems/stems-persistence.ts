@@ -53,6 +53,8 @@ export type StemsManifest = {
   stems: { id: StemId; file: string }[]
   /** 分段节拍检测结果（可选；老归档无此字段） */
   tempo?: TempoInfo
+  /** 歌词对齐结果（增强 LRC，可选；老归档无此字段） */
+  alignedLrc?: string
 }
 
 /** 校验 tempo 字段形状；不合法返回 undefined（按缺失处理）。 */
@@ -105,6 +107,7 @@ export function buildStemsManifest(meta: {
   sampleRate: number
   createdAt?: number
   tempo?: TempoInfo
+  alignedLrc?: string
 }): StemsManifest {
   const manifest: StemsManifest = {
     version: STEMS_MANIFEST_VERSION,
@@ -116,6 +119,7 @@ export function buildStemsManifest(meta: {
     stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
   }
   if (meta.tempo) manifest.tempo = meta.tempo
+  if (meta.alignedLrc) manifest.alignedLrc = meta.alignedLrc
   return manifest
 }
 
@@ -138,6 +142,10 @@ export function parseStemsManifest(json: string): StemsManifest | null {
       const tempo = normalizeTempo(raw.tempo)
       if (!tempo) return null
       manifest.tempo = tempo
+    }
+    // alignedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
+    if (raw.alignedLrc !== undefined && typeof raw.alignedLrc !== 'string') {
+      delete manifest.alignedLrc
     }
     return manifest
   } catch {
@@ -275,6 +283,8 @@ export type SaveStemsOptions = {
   sink: ArchiveSink
   /** 分段节拍检测结果（可选；检测完成/载入时带上） */
   tempo?: TempoInfo
+  /** 歌词对齐结果（增强 LRC，可选） */
+  alignedLrc?: string
   /** 完成进度（已存轨数 / 总轨数） */
   onProgress?: (saved: number, total: number) => void
 }
@@ -286,8 +296,15 @@ const EMPTY_CHUNK = new Uint8Array(0)
  * 每 push 一块输入后立即排空压缩输出（串行 await 写入），峰值内存 ≈ 单块大小。
  */
 export async function saveStemsArchive(options: SaveStemsOptions): Promise<void> {
-  const { stems, sourcePath, sourceName, durationSec, sampleRate, sink, tempo, onProgress } = options
-  const manifest = buildStemsManifest({ sourcePath, sourceName, durationSec, sampleRate, tempo })
+  const { stems, sourcePath, sourceName, durationSec, sampleRate, sink, tempo, alignedLrc, onProgress } = options
+  const manifest = buildStemsManifest({
+    sourcePath,
+    sourceName,
+    durationSec,
+    sampleRate,
+    tempo,
+    alignedLrc,
+  })
 
   const zipOutput: Uint8Array[] = []
   let zipError: unknown = null

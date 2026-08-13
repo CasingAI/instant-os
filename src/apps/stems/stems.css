@@ -459,7 +459,6 @@
 .stems__tempo-lane {
   position: relative;
   height: 22px;
-  padding: 2px;
   border-radius: 5px;
   background: var(--stems-well);
   border: 1px solid var(--stems-well-edge);
@@ -881,4 +880,172 @@
   font-size: 12px;
   color: var(--stems-ink-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* 歌词输入条：位于工具栏下方，粘贴/载入歌词 + 对齐歌词入口 */
+.stems__lyrics-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, #e3ded2 0%, #d4cec1 100%);
+  border-bottom: 1px solid var(--stems-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
+  flex: none;
+}
+
+.stems__lyrics-input-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stems__lyrics-input-title {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--stems-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  flex: none;
+}
+
+.stems__lyrics-source {
+  font-size: 11px;
+  color: var(--stems-accent-dark);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: none;
+}
+
+.stems__lyrics-textarea,
+.stems__lyrics-preview,
+.stems__lyrics-placeholder,
+.stems__clipboard-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--stems-ink);
+  background: linear-gradient(180deg, #f7f5f1 0%, #e9e4da 100%);
+  border: 1px solid #9a948a;
+  border-radius: 5px;
+  box-shadow: var(--stems-bevel-down);
+}
+
+/* 歌词预览（只读，多行滚动，限高避免挤压音轨区） */
+.stems__lyrics-preview {
+  max-height: 72px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 无歌词时的占位提示 */
+.stems__lyrics-placeholder {
+  border-style: dashed;
+  color: var(--stems-ink-muted);
+  opacity: 0.85;
+}
+
+/* 剪贴板导入模态：多行歌词输入 */
+.stems__clipboard-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(560px, 80vw);
+}
+
+.stems__clipboard-field label {
+  font-size: 12px;
+  color: var(--stems-ink-muted);
+}
+
+.stems__clipboard-textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.stems__lyrics-status {
+  font-size: 11px;
+  color: var(--stems-ink-muted);
+}
+
+.stems__lyrics-status--error {
+  color: #b42318;
+  font-weight: 600;
+}
+
+/* 卡拉OK歌词行：与速度条同宽的条带，当前行居中 + 逐字金色高亮 */
+.stems__lyrics-row {
+  display: grid;
+  grid-template-columns: var(--stems-track-cols);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px 8px 22px;
+  min-width: 0;
+  background: linear-gradient(180deg, #e8e3d8 0%, #d8d2c6 100%);
+  border-bottom: 1px solid var(--stems-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
+  flex: none;
+}
+
+.stems__track-dot--lyrics {
+  background: #ffd84d;
+  box-shadow: 0 0 0 2px rgba(255, 216, 77, 0.3);
+}
+
+.stems__lyrics-lane {
+  position: relative;
+  height: 46px;
+  border-radius: 5px;
+  background: var(--stems-well);
+  border: 1px solid var(--stems-well-edge);
+  box-shadow: var(--stems-bevel-down);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.stems__lyrics-scroller {
+  will-change: transform;
+  transition: transform 0.18s ease-out;
+}
+
+.stems__lyrics-line {
+  height: 30px;
+  line-height: 30px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.stems__lyrics-line--active {
+  color: #fff;
+  font-weight: 700;
+}
+
+.stems__lyrics-word--on {
+  color: #ffd84d;
+  text-shadow:
+    0 0 6px rgba(255, 216, 77, 0.7),
+    0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+.stems__lyrics-readout {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stems-ink-muted);
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
 }

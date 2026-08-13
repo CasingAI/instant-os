@@ -20,6 +20,11 @@ export const PHONEME_MODEL_URL = '/assets/phoneme/models/model_q4.onnx'
 export const PHONEME_MODEL_LABEL = 'wav2vec2 音素识别（歌词对齐）'
 export const PHONEME_MODEL_BYTES = 241_691_639
 
+/** Zipformer-CTC 中文识别模型（sherpa-onnx，字级时间戳，用于歌词对齐）。 */
+export const ZIPFORMER_MODEL_URL = '/assets/zipformer-ctc/models/model.int8.onnx'
+export const ZIPFORMER_MODEL_LABEL = 'Zipformer-CTC 中文识别（歌词对齐）'
+export const ZIPFORMER_MODEL_BYTES = 367_074_356
+
 /** MDX-NET 人声/伴奏 2-stem 模型（用于人声增强分离，仅输出伴奏，人声=原曲−伴奏）。 */
 export const MDX_MODEL_URL = '/assets/mdx/models/UVR-MDX-NET-Inst_full_292.onnx'
 export const MDX_MODEL_LABEL = 'MDX-NET 人声增强（伴奏模型）'

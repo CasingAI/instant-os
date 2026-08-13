@@ -3,7 +3,12 @@
  * 运行：node --experimental-strip-types src/apps/align/align-lrc.test.ts
  */
 import assert from 'node:assert/strict'
-import { buildAlignLrc, formatLrcTimestamp, isPunctuationOnly } from './align-lrc.ts'
+import {
+  buildAlignLrc,
+  formatLrcTimestamp,
+  isPunctuationOnly,
+  looksLikeBrokenLrc,
+} from './align-lrc.ts'
 import type { AlignedUnit, G2pLine } from './align-types.ts'
 
 function testFormatTimestamp(): void {
@@ -55,12 +60,35 @@ function testEmpty(): void {
   assert.equal(buildAlignLrc([]), '')
 }
 
+function testLooksLikeBrokenLrc(): void {
+  // 用户反馈的坏形态：歌词时间戳字符被逐字对齐（嵌套标签）
+  const broken =
+    '[00:21.28]<00:21.28>[<00:21.28>00:<00:21.28>00.<00:21.28>00]<00:21.28>新<00:21.28>的<00:21.28>千<00:21.28>禧<00:21.28>年\n' +
+    '[00:21.38]<00:21.38>[<00:21.43>00:<00:21.46>21.<00:21.53>50]<00:21.60>已<00:21.92>经'
+  assert.equal(looksLikeBrokenLrc(broken), true)
+
+  // 正常增强 LRC：合法行首时间戳 + 逐字标签，不判坏
+  const goodEnhanced =
+    '[00:21.28]<00:21.28>新<00:21.28>的<00:21.28>千<00:21.28>禧<00:21.28>年\n' +
+    '[00:21.60]<00:21.60>已<00:21.92>经'
+  assert.equal(looksLikeBrokenLrc(goodEnhanced), false)
+
+  // 普通 LRC（仅行级时间戳）
+  assert.equal(looksLikeBrokenLrc('[00:00.00]新的千禧年\n[00:21.50]已经到了'), false)
+  // 多时间戳行 / 元数据行
+  assert.equal(looksLikeBrokenLrc('[00:00.00][00:04.45]词：自由页\n[ti:新的千年]'), false)
+  // 空 / 纯文本
+  assert.equal(looksLikeBrokenLrc(''), false)
+  assert.equal(looksLikeBrokenLrc('新的千禧年'), false)
+}
+
 async function runAll(): Promise<void> {
   testFormatTimestamp()
   testPunctuation()
   testChineseLine()
   testEnglishWords()
   testEmpty()
+  testLooksLikeBrokenLrc()
   console.log('align-lrc: 全部通过')
 }
 

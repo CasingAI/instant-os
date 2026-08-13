@@ -31,6 +31,7 @@
     "test:terminal-controlled": "node --experimental-strip-types src/terminal/terminal-controlled.smoke-test.ts",
     "test:terminal-program-eval": "node --experimental-strip-types src/apps/terminal/terminal-repl-program-eval.smoke-test.ts",
     "test:stems": "node --experimental-strip-types src/apps/stems/stems-separator.test.ts",
+    "test:align": "node --experimental-strip-types src/apps/align/align-ctc.test.ts && node --experimental-strip-types src/apps/align/pinyin-g2p.test.ts && node --experimental-strip-types src/apps/align/kaldi-fbank.test.ts && node --experimental-strip-types src/apps/align/align-text-dtw.test.ts && node --experimental-strip-types src/apps/align/bbpe-decode.test.ts && node --experimental-strip-types src/apps/align/align-lrc.test.ts && node --experimental-strip-types src/apps/align/align-pipeline.test.ts",
     "vendor:quickjs-guest": "node scripts/vendor-quickjs-guest-builtins.mjs"
   },
   "dependencies": {

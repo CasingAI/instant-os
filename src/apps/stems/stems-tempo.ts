@@ -160,7 +160,7 @@ function secToIdx(sec: number, onsetLength: number, onsetDurationSec: number): n
  * 因此改按「拍点能量 − 反相点能量」的均值判别：完整速度下拍点踩强拍、反相点落
  * 在两拍之间（弱拍/空隙），差值大；半速下反相点恰好是漏掉的真实鼓点，差值趋零。
  *
- * 对每个候选，在 [0, interval) 内以 ≤10ms 网格扫描相位 φ（段内第一拍偏移），
+ * 对每个候选，在 [0, interval) 内以 ≤2ms 网格扫描相位 φ（段内第一拍偏移），
  * 拍点 = segStart + φ + k*interval，返回得分最高的 { bpm, phaseSec } 组合。
  */
 function refineBpmPhase(
@@ -184,7 +184,7 @@ function refineBpmPhase(
     phaseSec: 0,
     score: -Infinity,
   }
-  const phaseStepSec = 0.01
+  const phaseStepSec = 0.002
   for (const bpm of candidates) {
     const interval = 60 / bpm
     const halfInterval = interval / 2
@@ -204,6 +204,41 @@ function refineBpmPhase(
         best = { bpm, phaseSec, score }
       }
     }
+  }
+
+  // 亚帧精化：最优相位处对段内前若干拍，在拍点帧 ±2 帧窗口内找 onset 局部峰，
+  // 抛物线插值求峰的真实亚帧位置，平均偏差修正相位（把 RMS 帧量化/形状偏差
+  // 从 ~11.6ms 收窄到 ~2ms）。
+  const framesPerSec = onsetDurationSec / onset.length
+  const beatInterval = 60 / best.bpm
+  const clampIdx = (idx: number): number =>
+    Math.min(onset.length - 1, Math.max(0, idx))
+  let phaseShiftSum = 0
+  let phaseShiftN = 0
+  for (let t = segStart + best.phaseSec; t < segEnd && phaseShiftN < 8; t += beatInterval) {
+    const i = idxAt(t)
+    let bi = i
+    for (let d = -2; d <= 2; d++) {
+      const j = clampIdx(i + d)
+      if (onset[j] > onset[bi]) bi = j
+    }
+    const y1 = onset[clampIdx(bi - 1)]
+    const y2 = onset[bi]
+    const y3 = onset[clampIdx(bi + 1)]
+    const denom = y1 - 2 * y2 + y3
+    let refine = 0
+    if (Math.abs(denom) > 1e-12) {
+      refine = Math.max(-0.5, Math.min(0.5, 0.5 * (y1 - y3) / denom))
+    }
+    const peakFrame = bi + refine
+    const beatFrame = t / framesPerSec
+    phaseShiftSum += (peakFrame - beatFrame) * framesPerSec
+    phaseShiftN += 1
+  }
+  if (phaseShiftN > 0) {
+    best.phaseSec += phaseShiftSum / phaseShiftN
+    const interval = 60 / best.bpm
+    best.phaseSec = ((best.phaseSec % interval) + interval) % interval
   }
   return best
 }

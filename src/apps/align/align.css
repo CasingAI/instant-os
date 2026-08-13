@@ -99,6 +99,44 @@
   border-color: rgba(138, 100, 16, 0.4);
 }
 
+/* 引擎切换分段控件 */
+.align__engine-switch {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--align-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--align-surface);
+  box-shadow: var(--align-shadow);
+}
+.align__engine-switch-btn {
+  appearance: none;
+  border: none;
+  border-right: 1px solid var(--align-border-light);
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--align-ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.align__engine-switch-btn:last-child {
+  border-right: none;
+}
+.align__engine-switch-btn:hover {
+  color: var(--align-accent-dark);
+}
+.align__engine-switch-btn--active {
+  background: linear-gradient(180deg, #5b8fff 0%, #2a5fd4 100%);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+.align__engine-switch-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* —— 双栏布局 —— */
 
 .align__layout {

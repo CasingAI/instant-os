@@ -6,7 +6,7 @@ import { IosButton } from '../../ui/ios-button.tsx'
 import { useSystemOpenDialog } from '../../window/system-open-dialog.tsx'
 import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
-import { filesOpenStreamWrite, filesReadBlob } from '../files/files-api.ts'
+import { filesOpenStreamWrite, filesReadBlob, filesReadText } from '../files/files-api.ts'
 import {
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
@@ -23,6 +23,16 @@ import {
   stemsArchivePathFor,
 } from './stems-persistence.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
+import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
+import { WindowModal } from '../../window/window-modal.tsx'
+import { alignSegmentsToLrc } from '../align/align-pipeline.ts'
+import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
+import { looksLikeBrokenLrc } from '../align/align-lrc.ts'
+import type { HypSegment } from '../align/align-text-dtw.ts'
+import type { ZipformerProgress } from '../align/zipformer-worker.ts'
+import { parseLrc } from '../music/music-lyrics.ts'
+import type { LyricsLine } from '../music/music-lyrics.ts'
+import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import type { MdxVocalProgress } from './mdx-vocal-worker.ts'
 import TempoWorker from './tempo-worker.ts?worker'
 import type { TempoWorkerResponse } from './tempo-worker.ts'
@@ -44,6 +54,10 @@ type StemTrackState = {
 const WAVEFORM_BUCKETS = 200
 /** 波形横向缩放下可见窗口的最短时长（秒） */
 const MIN_VIEW_SEC = 0.5
+/** 歌词卡拉OK行高（px）：DOM 滚动居中计算用，与 stems.css 的 .stems__lyrics-line 一致 */
+const LYRICS_ROW_HEIGHT = 30
+/** 歌词视口中心偏移（px）：viewport 高 46、行高 30 → 46/2 − 30/2 */
+const LYRICS_VIEWPORT_CENTER = 8
 
 /**
  * 按当前 mute/solo/volume 把每轨增益即时写到已连接的 GainNode。
@@ -167,6 +181,47 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const tempoWorkerRef = useRef<Worker | null>(null)
   /** 检测请求序号：陈旧响应不覆盖新结果 */
   const tempoReqSeqRef = useRef(0)
+
+  // —— 歌词对齐 ——
+  /** 歌词原文（用户粘贴/载入；随对齐流程被 stripLrcMarkup 清洗后使用） */
+  const [lyrics, setLyrics] = useState('')
+  const lyricsRef = useRef('')
+  /** 歌词来源名（自动载入 / 手动载入的文件名，非空时展示） */
+  const [lyricsSourceName, setLyricsSourceName] = useState('')
+  /** 歌词对齐结果（增强 LRC；随 .stems.zip 持久化，重开恢复） */
+  const [alignedLrc, setAlignedLrc] = useState('')
+  const alignedLrcRef = useRef('')
+  /** 歌词对齐是否进行中 */
+  const [alignBusy, setAlignBusy] = useState(false)
+  /** 歌词识别块进度 */
+  const [alignProgress, setAlignProgress] = useState<{ chunk: number; total: number } | null>(null)
+  /** 歌词对齐错误信息 */
+  const [alignError, setAlignError] = useState<string | null>(null)
+  /** 本次对齐结果是否从 .stems.zip 恢复（展示「已恢复」徽章） */
+  const [alignRestoredFrom, setAlignRestoredFrom] = useState(false)
+  /** 歌词提示（无歌词 / 歌词已修改需重新对齐等） */
+  const [lyricsHint, setLyricsHint] = useState<string | null>(null)
+  /** 歌词对齐请求序号：重新分轨/换歌时作废在途识别，防竞态覆盖 */
+  const alignReqSeqRef = useRef(0)
+  /** 「导入歌词」下拉菜单锚点（undefined = 关闭） */
+  const [lyricsMenuAnchor, setLyricsMenuAnchor] = useState<{ x: number; y: number } | null>(null)
+  /** 「导入歌词」按钮包裹元素（计算下拉菜单锚点用） */
+  const lyricsImportBtnRef = useRef<HTMLSpanElement | null>(null)
+  /** 剪贴板导入模态窗口开关与草稿 */
+  const [clipboardOpen, setClipboardOpen] = useState(false)
+  const [clipboardDraft, setClipboardDraft] = useState('')
+  /** 播放中当前高亮的歌词行/词（避免每帧重复写 DOM） */
+  const lyricsActiveRef = useRef({ line: -1, word: -1 })
+  /** 卡拉OK歌词行（由 alignedLrc 解析；播放中 rAF 直写 DOM 高亮） */
+  const lyricsLinesRef = useRef<LyricsLine[]>([])
+  /** 歌词行 DOM（滚动居中/高亮用） */
+  const lyricsLineRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
+  /** 歌词行 → 词 span DOM（逐字高亮用） */
+  const lyricsWordRefsRef = useRef<Map<number, Map<number, HTMLSpanElement>>>(new Map())
+  /** 卡拉OK滚动容器 */
+  const lyricsScrollerRef = useRef<HTMLDivElement | null>(null)
+  /** 当前 tracks 的最新值（手动补对齐时读取 vocals 轨） */
+  const tracksRef = useRef<StemTrackState[] | null>(null)
   /** 速度条当前段高亮/读数/播放头直写 DOM 用（仿 playheadRefsRef） */
   const tempoSegRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const tempoReadoutRef = useRef<HTMLSpanElement | null>(null)
@@ -237,6 +292,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     observer.observe(lane)
     return () => observer.disconnect()
   }, [tempo])
+
+  // tracks 同步到 ref（手动补对齐时读取 vocals 轨；state 在异步流程里可能是闭包旧值）
+  useEffect(() => {
+    tracksRef.current = tracks
+  }, [tracks])
+
+  /** 卡拉OK歌词行：由 alignedLrc 解析（含逐字 words）；随对齐结果变化 */
+  const karaokeLines = useMemo(() => (alignedLrc ? parseLrc(alignedLrc).lines : []), [alignedLrc])
+  useEffect(() => {
+    lyricsLinesRef.current = karaokeLines
+    lyricsActiveRef.current = { line: -1, word: -1 }
+  }, [karaokeLines])
 
   const handleSeparateRef = useRef<() => void>(() => {})
 
@@ -376,6 +443,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           durationSec,
           sampleRate: stemSampleRate,
           tempo: tempoRef.current ?? undefined,
+          alignedLrc: alignedLrcRef.current || undefined,
           sink: {
             write: (chunk) => writer.write(chunk),
             close: () => writer.close(),
@@ -491,6 +559,90 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [],
   )
 
+  /** 清除歌词对齐结果（歌词变更 / 重新分轨时调用）；hint 为清除后的提示文案 */
+  const clearAlignedResult = useCallback((hint: string | null) => {
+    alignedLrcRef.current = ''
+    setAlignedLrc('')
+    setAlignRestoredFrom(false)
+    setLyricsHint(hint)
+  }, [])
+
+  /**
+   * 歌词对齐：对人声轨跑 Zipformer-CTC 识别（耗时）→ 纯函数文本对齐（快速）
+   * 生成增强 LRC，写入 alignedLrcRef/state（随 .stems.zip 持久化）与卡拉OK行。
+   * 陈旧响应（重新分轨/换歌）不覆盖新结果；失败提示、不影响主流程。
+   * 返回是否成功产出 LRC。
+   */
+  const alignVocals = useCallback(
+    async (audio: Float32Array, sampleRate: number): Promise<boolean> => {
+      const reqId = (alignReqSeqRef.current += 1)
+      const lyricsText = lyricsRef.current
+      if (!lyricsText.trim()) {
+        setLyricsHint('请先提供歌词（粘贴或载入 .lrc 歌词文件）再对齐')
+        return false
+      }
+      setAlignBusy(true)
+      setAlignProgress(null)
+      setAlignError(null)
+      setLyricsHint(null)
+      try {
+        const { segments } = await enqueueAiTask<
+          ZipformerProgress,
+          { segments: HypSegment[]; text: string }
+        >(
+          'align-zipformer',
+          { type: 'recognize', audio, sampleRate },
+          {
+            route: (msg) => {
+              if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'progress') {
+                setAlignProgress({ chunk: msg.chunk, total: msg.total })
+                return { action: 'continue' }
+              }
+              if (msg.kind === 'done') {
+                return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+              }
+              return { action: 'reject', error: new Error(msg.message) }
+            },
+          },
+        )
+        if (alignReqSeqRef.current !== reqId) return false
+        const lrc = alignSegmentsToLrc(segments, lyricsText)
+        if (alignReqSeqRef.current !== reqId) return false
+        if (!lrc) {
+          setAlignError('识别结果为空或歌词无可对齐内容，请重试')
+          return false
+        }
+        alignedLrcRef.current = lrc
+        setAlignedLrc(lrc)
+        setAlignRestoredFrom(false)
+        return true
+      } catch (cause) {
+        if (alignReqSeqRef.current !== reqId) return false
+        setAlignError(cause instanceof Error ? cause.message : String(cause))
+        return false
+      } finally {
+        if (alignReqSeqRef.current === reqId) setAlignBusy(false)
+      }
+    },
+    [],
+  )
+
+  /**
+   * 手动补对齐：从当前 tracks 取 vocals 轨对齐，成功后落盘。
+   * 供「无歌词分轨完成 → 提供歌词 → 点击对齐歌词」流程使用。
+   */
+  const handleAlignLyrics = useCallback(async () => {
+    const tracksNow = tracksRef.current
+    if (!tracksNow) return
+    const vocals = tracksNow.find((t) => t.audio.stemId === 'vocals')
+    if (!vocals || vocals.audio.data.length === 0) return
+    const ok = await alignVocals(vocals.audio.data, stemSampleRate)
+    if (ok) void saveCurrentStems(tracksNow.map((t) => t.audio))
+  }, [alignVocals, saveCurrentStems, stemSampleRate])
+
   /**
    * 级联分轨（默认流程），经由系统 AI 推理调度服务串行执行：
    *  阶段 1：MDX-NET 提人声 —— 人声 = 原曲 − 伴奏（专项模型，人声质量高于 htdemucs 6 轨拆分）
@@ -547,6 +699,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       // 重新分轨：清空旧节拍结果，等新鼓轨检测
       setTempo(null)
       tempoRef.current = null
+      // 重新分轨：旧对齐结果作废（人声轨已变），歌词输入保留
+      clearAlignedResult(null)
+      alignReqSeqRef.current += 1
 
       try {
         // —— 阶段 1：MDX 提人声 ——
@@ -651,6 +806,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         const drums = stems.find((s) => s.stemId === 'drums')
         if (drums) await detectTempoAsync(drums.data, done.sampleRate)
         if (abort.signal.aborted) return
+        // 歌词对齐（人声轨）：识别耗时、文本对齐极快，有歌词时随分轨一起做
+        const vocals = stems.find((s) => s.stemId === 'vocals')
+        if (vocals && lyricsRef.current.trim()) {
+          await alignVocals(vocals.data, done.sampleRate)
+        } else {
+          setLyricsHint('分轨完成，未提供歌词。粘贴或载入歌词后点击「对齐歌词」')
+        }
+        if (abort.signal.aborted) return
         // 自动保存：分轨完成即落盘（有源路径时），下次打开直接载入
         void saveCurrentStems(stems)
       } catch (error) {
@@ -662,7 +825,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setError(error instanceof Error ? error.message : String(error))
       }
     },
-    [cacheStemBuffers, detectTempoAsync, noteChunkProgress, resetChunkEtaClock, saveCurrentStems],
+    [
+      cacheStemBuffers,
+      clearAlignedResult,
+      detectTempoAsync,
+      noteChunkProgress,
+      alignVocals,
+      resetChunkEtaClock,
+      saveCurrentStems,
+    ],
   )
 
   /**
@@ -735,6 +906,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               const drums = stems.find((s) => s.stemId === 'drums')
               if (drums) void detectTempoAsync(drums.data, manifest.sampleRate)
             }
+            // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
+            if (manifest.alignedLrc && !looksLikeBrokenLrc(manifest.alignedLrc)) {
+              alignedLrcRef.current = manifest.alignedLrc
+              setAlignedLrc(manifest.alignedLrc)
+              setAlignRestoredFrom(true)
+              setLyricsHint(null)
+            } else if (manifest.alignedLrc) {
+              clearAlignedResult('检测到旧版损坏的对齐结果，已跳过恢复；可点击「对齐歌词」重新对齐')
+            } else if (lyricsRef.current.trim()) {
+              // 老包无歌词结果但歌词已就绪 → 自动补对齐（vocals 已解码）
+              const vocals = stems.find((s) => s.stemId === 'vocals')
+              if (vocals) void alignVocals(vocals.data, manifest.sampleRate)
+            }
           } catch (cause) {
             console.warn('后台解码分轨失败', cause)
             setError(cause instanceof Error ? cause.message : String(cause))
@@ -749,7 +933,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         return false
       }
     },
-    [cacheStemBuffers, detectTempoAsync, stopPlayback],
+    [cacheStemBuffers, clearAlignedResult, detectTempoAsync, alignVocals, stopPlayback],
   )
 
   const handlePickFile = useCallback(async () => {
@@ -767,10 +951,112 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     setProgress(null)
     setError(null)
     setCurrentTime(0)
+    // 换歌：清空歌词与旧对齐结果，随后自动探测同名 .lrc
+    lyricsRef.current = ''
+    setLyrics('')
+    setLyricsSourceName('')
+    clearAlignedResult(null)
+    alignReqSeqRef.current += 1
+    const dot = path.lastIndexOf('.')
+    const slash = path.lastIndexOf('/')
+    const base = dot > slash ? path.slice(0, dot) : path
+    const lrcPath = `${base}.lrc`
+    const lrcNode = await resolveNodeByAbsolutePath(lrcPath)
+    if (lrcNode && lrcNode.kind === 'file') {
+      try {
+        const text = await filesReadText(lrcPath)
+        const cleaned = stripLrcMarkup(text).trim()
+        if (cleaned) {
+          lyricsRef.current = cleaned
+          setLyrics(cleaned)
+          const lrcName = lrcPath.slice(lrcPath.lastIndexOf('/') + 1)
+          setLyricsSourceName(`自动载入：${lrcName}`)
+        }
+      } catch (cause) {
+        console.warn('自动载入歌词失败', cause)
+      }
+    }
     // 同目录有已保存的分轨压缩包 → 直接载入，不再推理
     const loaded = await tryLoadSavedStems(path)
     if (!loaded) handleSeparateRef.current()
-  }, [showSystemOpenDialog, tryLoadSavedStems])
+  }, [showSystemOpenDialog, tryLoadSavedStems, clearAlignedResult])
+
+  /** 把清洗后的歌词写入 state/ref（剪贴板与文件导入共用收尾） */
+  const applyLyrics = useCallback(
+    (cleaned: string, sourceName: string) => {
+      lyricsRef.current = cleaned
+      setLyrics(cleaned)
+      setLyricsSourceName(sourceName)
+      if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
+    },
+    [clearAlignedResult],
+  )
+
+  /** 载入歌词文件（.lrc/.txt）：剥离 LRC 时间戳后填入歌词区 */
+  const handleLoadLyricsFile = useCallback(async () => {
+    const path = await showSystemOpenDialog({
+      title: '选择歌词文件',
+      acceptExtensions: ['lrc', 'txt'],
+    })
+    if (!path) return
+    try {
+      const text = await filesReadText(path)
+      const cleaned = stripLrcMarkup(text).trim()
+      if (!cleaned) {
+        setLyricsHint('歌词文件中没有可用的文本内容（已自动剥离 LRC 时间戳）')
+        return
+      }
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      applyLyrics(cleaned, `载入：${name}`)
+    } catch (cause) {
+      setAlignError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [showSystemOpenDialog, applyLyrics])
+
+  /** 打开「导入歌词」下拉菜单：锚点取按钮 rect */
+  const openLyricsImportMenu = useCallback(() => {
+    const el = lyricsImportBtnRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setLyricsMenuAnchor((prev) => (prev ? null : { x: rect.left, y: rect.bottom + 4 }))
+  }, [])
+
+  /** 确认剪贴板导入：清洗 → 填入歌词 → 关闭模态 */
+  const confirmClipboardLyrics = useCallback(() => {
+    const cleaned = stripLrcMarkup(clipboardDraft).trim()
+    if (!cleaned) {
+      setLyricsHint('剪贴板中没有可用的歌词文本（已自动剥离 LRC 时间戳）')
+      setClipboardOpen(false)
+      return
+    }
+    applyLyrics(cleaned, '从剪贴板导入')
+    setClipboardOpen(false)
+  }, [clipboardDraft, applyLyrics])
+
+  /** 打开剪贴板模态：尝试读取系统剪贴板预填（失败留空，用户可手动粘贴） */
+  const openClipboardLyrics = useCallback(() => {
+    setClipboardDraft('')
+    setClipboardOpen(true)
+    if (navigator.clipboard?.readText) {
+      void navigator.clipboard.readText().then(
+        (text) => {
+          if (text) setClipboardDraft(text)
+        },
+        () => {
+          // 剪贴板读取被拒/失败：留空，用户手动粘贴
+        },
+      )
+    }
+  }, [])
+
+  /** 导入歌词下拉菜单项 */
+  const lyricsImportMenuItems = useMemo(
+    (): AdaptiveActionMenuItem[] => [
+      { type: 'action', label: '从文件导入…', onClick: () => void handleLoadLyricsFile() },
+      { type: 'action', label: '从剪贴板导入…', onClick: openClipboardLyrics },
+    ],
+    [handleLoadLyricsFile, openClipboardLyrics],
+  )
 
   const handleSeparate = useCallback(async () => {
     const nodeId = sourcePathRef.current
@@ -833,6 +1119,70 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     return Math.min(startOffsetRef.current + elapsed, duration)
   }, [playing, currentTime, duration])
 
+  /** 注册/注销歌词行 DOM（卡拉OK滚动居中与高亮用） */
+  const registerLyricsLine = useCallback((index: number, el: HTMLDivElement | null) => {
+    if (el) lyricsLineRefsRef.current.set(index, el)
+    else lyricsLineRefsRef.current.delete(index)
+  }, [])
+
+  /** 注册/注销歌词词 span DOM（逐字高亮用） */
+  const registerLyricsWord = useCallback(
+    (line: number, word: number, el: HTMLSpanElement | null) => {
+      if (el) {
+        let map = lyricsWordRefsRef.current.get(line)
+        if (!map) {
+          map = new Map()
+          lyricsWordRefsRef.current.set(line, map)
+        }
+        map.set(word, el)
+      } else {
+        const map = lyricsWordRefsRef.current.get(line)
+        if (map) map.delete(word)
+      }
+    },
+    [],
+  )
+
+  /**
+   * 歌词卡拉OK DOM 直写：行变化时滚动居中 + 切换高亮行，词变化时逐字点亮。
+   * 只在行/词变化时动 DOM（播放中不重渲染 React）。
+   */
+  const updateLyricsKaraokeDom = useCallback(
+    (lines: LyricsLine[], lineIdx: number, timeMs: number) => {
+      const active = lyricsActiveRef.current
+      let wordIdx = -1
+      if (lineIdx >= 0 && lineIdx < lines.length) {
+        const words = lines[lineIdx].words
+        if (words && words.length > 0) wordIdx = computeActiveWordIndex(words, timeMs)
+      }
+      if (lineIdx === active.line && wordIdx === active.word) return
+      active.line = lineIdx
+      active.word = wordIdx
+      for (const map of lyricsWordRefsRef.current.values()) {
+        for (const el of map.values()) el.classList.remove('stems__lyrics-word--on')
+      }
+      const scroller = lyricsScrollerRef.current
+      if (scroller) {
+        scroller.style.transform =
+          lineIdx >= 0
+            ? `translateY(${LYRICS_VIEWPORT_CENTER - lineIdx * LYRICS_ROW_HEIGHT}px)`
+            : 'translateY(0px)'
+      }
+      for (const [idx, el] of lyricsLineRefsRef.current) {
+        el.classList.toggle('stems__lyrics-line--active', idx === lineIdx)
+      }
+      if (lineIdx >= 0 && wordIdx >= 0) {
+        const wordMap = lyricsWordRefsRef.current.get(lineIdx)
+        if (wordMap) {
+          for (const [wi, el] of wordMap) {
+            el.classList.toggle('stems__lyrics-word--on', wi <= wordIdx)
+          }
+        }
+      }
+    },
+    [],
+  )
+
   /**
    * 把播放位置直接写进 DOM（各轨播放头、时间文本），不触发 React 重渲染。
    * 播放时钟（rAF 每帧）与 seek 拖拽共用，保证 60fps 丝滑且拖拽时不打架。
@@ -866,8 +1216,22 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         tempoPlayheadRef.current.style.left = `${ratio * 100}%`
         tempoPlayheadRef.current.style.opacity = visible ? '1' : '0'
       }
+
+      // 歌词卡拉OK：当前行居中高亮 + 当前词逐字点亮（DOM 直写）
+      const karaokeLines = lyricsLinesRef.current
+      if (karaokeLines.length > 0) {
+        const timeMs = timeSec * 1000
+        let lineIdx = -1
+        for (let i = 0; i < karaokeLines.length; i++) {
+          const lineTime = karaokeLines[i].timeMs
+          if (lineTime === undefined) continue
+          if (lineTime <= timeMs) lineIdx = i
+          else break
+        }
+        updateLyricsKaraokeDom(karaokeLines, lineIdx, timeMs)
+      }
     },
-    [duration, viewLen, view.start],
+    [duration, viewLen, view.start, updateLyricsKaraokeDom],
   )
 
   /** 注册/注销某轨播放头 DOM：播放中由 rAF 直写位置 */
@@ -1222,6 +1586,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       stopPlayback()
       // 作废在途的后台分轨包解码
       loadArchiveSeqRef.current += 1
+      // 作废在途歌词识别（结果不覆盖已卸载视图）
+      alignReqSeqRef.current += 1
       // 取消在途分轨：调度器负责 terminate worker 并释放模型内存
       separateAbortRef.current?.abort()
       tempoWorkerRef.current?.terminate()
@@ -1247,13 +1613,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setView({ start: 0, level: 0 })
         setTracks(null)
         setCurrentTime(0)
+        // 拖入文件无持久路径：保留已粘贴歌词，但旧对齐结果作废（人声轨已变）
+        clearAlignedResult(null)
         startSeparation(interleaved, sampleRate)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
         setProgress(null)
       }
     },
-    [prepareAudio, startSeparation],
+    [prepareAudio, startSeparation, clearAlignedResult],
   )
 
   const isSeparating =
@@ -1377,6 +1745,64 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           {error && <span class="stems__error">{error}</span>}
         </div>
       </header>
+
+      {sourceName && (
+        <div class="stems__lyrics-input">
+          <div class="stems__lyrics-input-head">
+            <span class="stems__lyrics-input-title">歌词</span>
+            {lyricsSourceName && <span class="stems__lyrics-source">{lyricsSourceName}</span>}
+            <span ref={lyricsImportBtnRef}>
+              <IosButton size="compact" onClick={openLyricsImportMenu}>
+                导入歌词
+              </IosButton>
+            </span>
+            {lyrics.trim() && (
+              <IosButton
+                size="compact"
+                onClick={() => {
+                  lyricsRef.current = ''
+                  setLyrics('')
+                  setLyricsSourceName('')
+                  clearAlignedResult(null)
+                }}
+              >
+                清空
+              </IosButton>
+            )}
+            <IosButton
+              size="compact"
+              tone={alignedLrc ? undefined : 'primary'}
+              disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
+              title={tracks ? '用 Zipformer 识别 vocals 并逐字对齐歌词' : '分轨完成后即可对齐歌词'}
+              onClick={() => void handleAlignLyrics()}
+            >
+              {alignedLrc ? '重新对齐歌词' : '对齐歌词'}
+            </IosButton>
+          </div>
+          {lyrics.trim() ? (
+            <div class="stems__lyrics-preview" title={lyrics}>
+              {lyrics}
+            </div>
+          ) : (
+            <div class="stems__lyrics-placeholder">
+              尚未导入歌词。点击「导入歌词」，可从文件或剪贴板导入。
+            </div>
+          )}
+          {alignBusy && (
+            <div class="stems__lyrics-status">
+              <span class="stems__lyrics-status-label">
+                {alignProgress
+                  ? `歌词识别 ${alignProgress.chunk}/${alignProgress.total} 块…`
+                  : '正在加载歌词识别模型…'}
+              </span>
+            </div>
+          )}
+          {alignError && (
+            <div class="stems__lyrics-status stems__lyrics-status--error">{alignError}</div>
+          )}
+          {lyricsHint && <div class="stems__lyrics-status">{lyricsHint}</div>}
+        </div>
+      )}
 
       {tracks ? (
         <div class="stems__body">
@@ -1556,6 +1982,44 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               </span>
             </div>
           </div>
+
+          {karaokeLines.length > 0 && (
+            <div class="stems__lyrics-row">
+              <div class="stems__track-name stems__track-name--lyrics">
+                <span class="stems__track-dot stems__track-dot--lyrics" />
+                歌词
+              </div>
+              <div class="stems__lyrics-lane">
+                <div ref={lyricsScrollerRef} class="stems__lyrics-scroller">
+                  {karaokeLines.map((line, index) => (
+                    <div
+                      key={index}
+                      ref={(el) => registerLyricsLine(index, el)}
+                      class="stems__lyrics-line"
+                      onClick={() => {
+                        if (line.timeMs !== undefined) finalizeSeek(line.timeMs / 1000)
+                      }}
+                    >
+                      {line.words && line.words.length > 0
+                        ? line.words.map((word, wordIndex) => (
+                            <span
+                              key={wordIndex}
+                              ref={(el) => registerLyricsWord(index, wordIndex, el)}
+                              class="stems__lyrics-word"
+                            >
+                              {word.text}
+                            </span>
+                          ))
+                        : line.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div class="stems__lyrics-readout">
+                {alignBusy ? '对齐中…' : alignRestoredFrom ? '已恢复' : '卡拉OK'}
+              </div>
+            </div>
+          )}
 
           <div ref={tracksBoxRef} class="stems__tracks">
             {STEM_IDS.map((stemId) => {
@@ -1763,6 +2227,51 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         </div>
       )}
       {systemDialog}
+      <AdaptiveActionMenu
+        open={lyricsMenuAnchor !== null}
+        title="导入歌词"
+        items={lyricsImportMenuItems}
+        narrowLayout={false}
+        anchor={lyricsMenuAnchor ?? undefined}
+        mount="portal"
+        onClose={() => setLyricsMenuAnchor(null)}
+      />
+      <WindowModal
+        open={clipboardOpen}
+        title="从剪贴板导入歌词"
+        onClose={() => setClipboardOpen(false)}
+        actions={[
+          {
+            key: 'cancel',
+            label: '取消',
+            tone: 'secondary',
+            onClick: () => setClipboardOpen(false),
+          },
+          {
+            key: 'confirm',
+            label: '导入',
+            tone: 'primary',
+            disabled: !clipboardDraft.trim(),
+            onClick: () => {
+              confirmClipboardLyrics()
+              return false
+            },
+          },
+        ]}
+      >
+        <div class="stems__clipboard-field">
+          <label for="stems-clipboard-textarea">粘贴歌词文本（自动剥离 LRC 时间戳）</label>
+          <textarea
+            id="stems-clipboard-textarea"
+            class="stems__clipboard-textarea"
+            rows={8}
+            value={clipboardDraft}
+            placeholder="在这里粘贴歌词…"
+            autoFocus
+            onInput={(event) => setClipboardDraft(event.currentTarget.value)}
+          />
+        </div>
+      </WindowModal>
     </div>
   )
 }

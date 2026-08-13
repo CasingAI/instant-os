@@ -70,6 +70,8 @@ import {
 } from './phoneme-terminal-host.tsx'
 import { PhonemeAlignView } from './phoneme-align-view.tsx'
 import { ipaToPinyin } from './phoneme-ipa-mapping.ts'
+import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
+import { looksLikeBrokenLrc } from '../align/align-lrc.ts'
 import { loadStemsArchive, STEMS_ARCHIVE_EXTENSION } from './stems-persistence.ts'
 import '../help/help.css'
 import '../vscode/vscode-ai.css'
@@ -848,11 +850,19 @@ export function PhonemeApp() {
             if (alignedExisting && alignedExisting.kind === 'file') {
               const restored = (await filesReadText(alignedLrcPath)).trim()
               if (restored) {
-                alignResultRef.current = restored
-                setAlignResult(restored)
-                setAlignState('done')
-                setAlignRestoredFrom(alignedLrcPath)
-                restoredAlign = true
+                // 旧版本可能把 LRC 时间戳当歌词逐字对齐（坏 LRC）：跳过恢复，提示重新对齐
+                if (looksLikeBrokenLrc(restored)) {
+                  console.warn(
+                    '对齐结果旁存疑似歌词时间戳未剥离（坏 LRC），已跳过恢复，请重新对齐',
+                    alignedLrcPath,
+                  )
+                } else {
+                  alignResultRef.current = restored
+                  setAlignResult(restored)
+                  setAlignState('done')
+                  setAlignRestoredFrom(alignedLrcPath)
+                  restoredAlign = true
+                }
               }
             }
           } catch (cause) {
@@ -873,7 +883,7 @@ export function PhonemeApp() {
     await recognizeAudioPath(path)
   }, [recognizeAudioPath, resetAlign, showSystemOpenDialog, startAlignIfReady])
 
-  /** 从 .lrc / .txt 文件读取歌词 */
+  /** 从 .lrc / .txt 文件读取歌词（自动剥离 LRC 时间戳/元数据标签） */
   const handleLoadLyricsFile = useCallback(async () => {
     const path = await showSystemOpenDialog({
       title: '选择歌词文件',
@@ -882,8 +892,13 @@ export function PhonemeApp() {
     if (!path) return
     try {
       const text = await filesReadText(path)
-      setLyrics(text)
-      lyricsRef.current = text
+      const cleaned = stripLrcMarkup(text).trim()
+      if (!cleaned) {
+        setAlignError('歌词文件中没有可用的文本内容（已自动剥离 LRC 时间戳）')
+        return
+      }
+      setLyrics(cleaned)
+      lyricsRef.current = cleaned
       setLyricsSourceName(path.split('/').pop() ?? '')
       setAlignError(null)
     } catch (cause) {

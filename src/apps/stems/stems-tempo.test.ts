@@ -11,7 +11,8 @@ import assert from 'node:assert/strict'
 import { detectTempo } from './stems-tempo.ts'
 import { TEMPO_SAMPLE_RATE } from './stems-tempo.ts'
 
-/** 合成节拍点击轨：每拍一个短促衰减爆音（正弦 + 噪声），双声道 interleaved。
+/** 合成节拍鼓点轨：每拍一个短促的「短攻击 + 指数衰减」鼓点（低频正弦 + 噪声），
+ *  双声道 interleaved。攻击约 2ms、衰减约 120ms，onset 峰值接近真实鼓点。
  *  每段只在自己的 [startSec, endSec) 时间窗内发声；鼓点落在
  *  startSec + phaseOffsetSec + k*interval（phaseOffsetSec 默认 0 = 段起点即整拍）。 */
 function synthClickTrack(
@@ -20,18 +21,24 @@ function synthClickTrack(
 ): Float32Array {
   const frames = Math.round(durationSec * TEMPO_SAMPLE_RATE)
   const mono = new Float32Array(frames)
+  const attackSamples = Math.round(0.002 * TEMPO_SAMPLE_RATE)
+  const decaySamples = Math.round(0.12 * TEMPO_SAMPLE_RATE)
   for (const { startSec, endSec, bpm, phaseOffsetSec = 0 } of bpms) {
     const intervalSec = 60 / bpm
     let t = startSec + phaseOffsetSec
     while (t < endSec) {
       const center = Math.round(t * TEMPO_SAMPLE_RATE)
-      const clickLen = Math.round(0.04 * TEMPO_SAMPLE_RATE)
-      for (let i = -clickLen / 2; i < clickLen / 2; i++) {
+      for (let i = 0; i < decaySamples; i++) {
         const idx = center + i
         if (idx < 0 || idx >= frames) continue
-        const env = Math.exp(-Math.abs(i) / (clickLen / 6))
-        // 约 800Hz 短音 + 少量噪声，保证包络能量突增
-        mono[idx] += env * (0.8 * Math.sin((2 * Math.PI * 800 * idx) / TEMPO_SAMPLE_RATE) + 0.2 * Math.random())
+        const attack = i < attackSamples ? i / attackSamples : 1
+        const env = attack * Math.exp(-i / (decaySamples / 6))
+        // 约 90Hz 底鼓 + 200Hz 泛音 + 少量噪声，保证包络能量突增
+        mono[idx] +=
+          env *
+          (0.85 * Math.sin((2 * Math.PI * 90 * idx) / TEMPO_SAMPLE_RATE) +
+            0.35 * Math.sin((2 * Math.PI * 200 * idx) / TEMPO_SAMPLE_RATE) +
+            0.15 * Math.random())
       }
       t += intervalSec
     }
@@ -102,9 +109,9 @@ function synthClickTrack(
   )
 }
 
-// —— 6. 相位对齐：鼓点落在 0.13s 相位 → phaseSec 与真实相位差 < 20ms ——
+// —— 6. 相位对齐：鼓点落在 0.13s 相位 → phaseSec 与真实相位差 < 10ms ——
 // 旧实现拍点从段起点硬数（相位恒 0），真实鼓点偏 0.13s 时会整段错位一拍内；
-// 联合精化应在 ≤10ms 网格上把相位对齐到真实鼓点位置。
+// 联合精化（2ms 相位网格 + 亚帧抛物线插值）把相位对齐到真实鼓点位置。
 {
   const audio = synthClickTrack([{ startSec: 0, endSec: 30, bpm: 96, phaseOffsetSec: 0.13 }], 30)
   const tempo = detectTempo(audio, TEMPO_SAMPLE_RATE)
@@ -112,8 +119,21 @@ function synthClickTrack(
   assert.equal(tempo.segments.length, 1, `应为单段，实际 ${tempo.segments.length} 段`)
   assert.ok(Math.abs(tempo.segments[0].bpm - 96) <= 2, `BPM ${tempo.segments[0].bpm} 应为 96±2`)
   assert.ok(
-    Math.abs(tempo.segments[0].phaseSec - 0.13) < 0.02,
-    `phaseSec ${tempo.segments[0].phaseSec} 应与真实相位 0.13s 差 <20ms`,
+    Math.abs(tempo.segments[0].phaseSec - 0.13) < 0.01,
+    `phaseSec ${tempo.segments[0].phaseSec} 应与真实相位 0.13s 差 <10ms`,
+  )
+}
+
+// —— 7. 相位对齐在段尾相位（0.31s）也成立：段起点非拍点时的相位估计 ——
+{
+  const audio = synthClickTrack([{ startSec: 0, endSec: 30, bpm: 96, phaseOffsetSec: 0.31 }], 30)
+  const tempo = detectTempo(audio, TEMPO_SAMPLE_RATE)
+  assert.ok(tempo !== null)
+  assert.equal(tempo.segments.length, 1, `应为单段，实际 ${tempo.segments.length} 段`)
+  assert.ok(Math.abs(tempo.segments[0].bpm - 96) <= 2, `BPM ${tempo.segments[0].bpm} 应为 96±2`)
+  assert.ok(
+    Math.abs(tempo.segments[0].phaseSec - 0.31) < 0.01,
+    `phaseSec ${tempo.segments[0].phaseSec} 应与真实相位 0.31s 差 <10ms`,
   )
 }
 

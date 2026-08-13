@@ -22,6 +22,28 @@ export function isPunctuationOnly(text: string): boolean {
   return /^[\s\p{P}\p{S}]*$/u.test(text)
 }
 
+const BROKEN_LINE_TS_RE = /^(\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+/
+const BROKEN_WORD_RE = /<\d{1,2}:\d{1,2}(?:[.:]\d{1,3})>/g
+const BROKEN_META_RE = /^\[[a-z]{1,8}:[^\]]*\]/i
+
+/**
+ * 判断 LRC 是否为「歌词时间戳未剥离」生成的坏结果。
+ * 坏形态：原歌词的 `[mm:ss.xx]` 被当作歌词字符逐字对齐，产出
+ * `[00:21.28]<00:21.28>[<00:21.28>00:<00:21.28>00.<00:21.28>00]<00:21.28>新…`
+ * 这类嵌套行（剥掉合法行首时间戳与逐字标签后仍残留 `[`/`]`/`<`/`>`）。
+ * 用于旁存恢复时跳过损坏的旧对齐结果，避免把坏 LRC 重新显示/保存。
+ */
+export function looksLikeBrokenLrc(text: string): boolean {
+  for (const rawLine of text.split(/\r?\n/)) {
+    let rest = rawLine.trim()
+    if (!rest) continue
+    rest = rest.replace(BROKEN_LINE_TS_RE, '').replace(BROKEN_WORD_RE, '')
+    rest = rest.replace(BROKEN_META_RE, '')
+    if (/[\[\]<>]/.test(rest)) return true
+  }
+  return false
+}
+
 /**
  * 把已对齐的扁平单元序列，按原始歌词行切分后生成增强 LRC。
  * `lines` 提供行边界（每行的 units 与扁平 units 顺序一致）；
