@@ -24,7 +24,6 @@ import {
   type PhonemeSegment,
 } from './stems-persistence.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
-import { AdaptiveActionMenu, type AdaptiveActionMenuItem } from '../../ui/adaptive-action-menu.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { alignSegmentsToLrc } from '../align/align-pipeline.ts'
 import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
@@ -57,8 +56,8 @@ const WAVEFORM_BUCKETS = 200
 const MIN_VIEW_SEC = 0.5
 /** 歌词卡拉OK行高（px）：DOM 滚动居中计算用，与 stems.css 的 .stems__lyrics-line 一致 */
 const LYRICS_ROW_HEIGHT = 30
-/** 歌词视口中心偏移（px）：viewport 高 46、行高 30 → 46/2 − 30/2 */
-const LYRICS_VIEWPORT_CENTER = 8
+/** 歌词视口中心偏移（px）：viewport 高 90（3 行）、行高 30 → 90/2 − 30/2 */
+const LYRICS_VIEWPORT_CENTER = 30
 
 /**
  * 按当前 mute/solo/volume 把每轨增益即时写到已连接的 GainNode。
@@ -211,13 +210,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [lyricsHint, setLyricsHint] = useState<string | null>(null)
   /** 歌词对齐请求序号：重新分轨/换歌时作废在途识别，防竞态覆盖 */
   const alignReqSeqRef = useRef(0)
-  /** 「导入歌词」下拉菜单锚点（undefined = 关闭） */
-  const [lyricsMenuAnchor, setLyricsMenuAnchor] = useState<{ x: number; y: number } | null>(null)
-  /** 「导入歌词」按钮包裹元素（计算下拉菜单锚点用） */
-  const lyricsImportBtnRef = useRef<HTMLSpanElement | null>(null)
-  /** 剪贴板导入模态窗口开关与草稿 */
-  const [clipboardOpen, setClipboardOpen] = useState(false)
-  const [clipboardDraft, setClipboardDraft] = useState('')
+  /** 编辑歌词模态窗口开关与草稿（保存时应用） */
+  const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false)
+  const [lyricsDraft, setLyricsDraft] = useState('')
+  /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
+  const [lyricsDraftSource, setLyricsDraftSource] = useState('')
   /** 播放中当前高亮的歌词行/词（避免每帧重复写 DOM） */
   const lyricsActiveRef = useRef({ line: -1, word: -1 })
   /** 卡拉OK歌词行（由 alignedLrc 解析；播放中 rAF 直写 DOM 高亮） */
@@ -869,7 +866,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         if (vocals && lyricsRef.current.trim()) {
           await alignVocals(vocals.data, done.sampleRate)
         } else {
-          setLyricsHint('分轨完成，未提供歌词。粘贴或载入歌词后点击「对齐歌词」')
+          setLyricsHint('分轨完成，未提供歌词。点击顶部「歌词」按钮粘贴或导入歌词')
         }
         if (abort.signal.aborted) return
         // 自动保存：分轨完成即落盘（有源路径时），下次打开直接载入
@@ -1084,7 +1081,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [clearAlignedResult, realignFromPhonemes],
   )
 
-  /** 载入歌词文件（.lrc/.txt）：剥离 LRC 时间戳后填入歌词区 */
+  /** 载入歌词文件（.lrc/.txt）到编辑草稿：剥离 LRC 时间戳后填入 textarea（保存时才应用） */
   const handleLoadLyricsFile = useCallback(async () => {
     const path = await showSystemOpenDialog({
       title: '选择歌词文件',
@@ -1099,56 +1096,59 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         return
       }
       const name = path.slice(path.lastIndexOf('/') + 1)
-      applyLyrics(cleaned, `载入：${name}`)
+      setLyricsDraft(cleaned)
+      setLyricsDraftSource(`载入：${name}`)
     } catch (cause) {
       setAlignError(cause instanceof Error ? cause.message : String(cause))
     }
-  }, [showSystemOpenDialog, applyLyrics])
+  }, [showSystemOpenDialog])
 
-  /** 打开「导入歌词」下拉菜单：锚点取按钮 rect */
-  const openLyricsImportMenu = useCallback(() => {
-    const el = lyricsImportBtnRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    setLyricsMenuAnchor((prev) => (prev ? null : { x: rect.left, y: rect.bottom + 4 }))
+  /** 打开编辑歌词模态：草稿取当前歌词，来源名继承（新导入会覆盖） */
+  const openLyricsEditor = useCallback(() => {
+    setLyricsDraft(lyricsRef.current)
+    setLyricsDraftSource(lyricsSourceName)
+    setLyricsEditorOpen(true)
+  }, [lyricsSourceName])
+
+  /** 从系统剪贴板导入到编辑草稿（保存时才应用） */
+  const importClipboardToDraft = useCallback(async () => {
+    if (navigator.clipboard?.readText) {
+      try {
+        const text = await navigator.clipboard.readText()
+        if (text) {
+          setLyricsDraft(text)
+          setLyricsDraftSource('从剪贴板导入')
+          return
+        }
+      } catch {
+        // 剪贴板读取被拒/失败：留给用户手动粘贴
+      }
+    }
+    setLyricsHint('无法读取系统剪贴板，请手动粘贴歌词')
   }, [])
 
-  /** 确认剪贴板导入：清洗 → 填入歌词 → 关闭模态 */
-  const confirmClipboardLyrics = useCallback(() => {
-    const cleaned = stripLrcMarkup(clipboardDraft).trim()
+  /** 保存编辑草稿：清洗后应用（有音素段则秒级重对齐，否则自动跑识别），并对齐结果落盘 */
+  const saveLyricsFromEditor = useCallback(() => {
+    setLyricsEditorOpen(false)
+    const cleaned = stripLrcMarkup(lyricsDraft).trim()
     if (!cleaned) {
-      setLyricsHint('剪贴板中没有可用的歌词文本（已自动剥离 LRC 时间戳）')
-      setClipboardOpen(false)
+      lyricsRef.current = ''
+      setLyrics('')
+      setLyricsSourceName('')
+      clearAlignedResult(null)
       return
     }
-    applyLyrics(cleaned, '从剪贴板导入')
-    setClipboardOpen(false)
-  }, [clipboardDraft, applyLyrics])
-
-  /** 打开剪贴板模态：尝试读取系统剪贴板预填（失败留空，用户可手动粘贴） */
-  const openClipboardLyrics = useCallback(() => {
-    setClipboardDraft('')
-    setClipboardOpen(true)
-    if (navigator.clipboard?.readText) {
-      void navigator.clipboard.readText().then(
-        (text) => {
-          if (text) setClipboardDraft(text)
-        },
-        () => {
-          // 剪贴板读取被拒/失败：留空，用户手动粘贴
-        },
-      )
+    applyLyrics(cleaned, lyricsDraftSource || '手动编辑')
+    const tracksNow = tracksRef.current
+    if (!tracksNow) return
+    if (alignedLrcRef.current) {
+      // 已有对齐结果（含音素段快速重对齐）：直接落盘
+      void saveCurrentStems(tracksNow.map((t) => t.audio))
+    } else {
+      // 无对齐结果：完整识别后自动落盘
+      void handleAlignLyrics()
     }
-  }, [])
-
-  /** 导入歌词下拉菜单项 */
-  const lyricsImportMenuItems = useMemo(
-    (): AdaptiveActionMenuItem[] => [
-      { type: 'action', label: '从文件导入…', onClick: () => void handleLoadLyricsFile() },
-      { type: 'action', label: '从剪贴板导入…', onClick: openClipboardLyrics },
-    ],
-    [handleLoadLyricsFile, openClipboardLyrics],
-  )
+  }, [lyricsDraft, lyricsDraftSource, applyLyrics, clearAlignedResult, saveCurrentStems, handleAlignLyrics])
 
   const handleSeparate = useCallback(async () => {
     const nodeId = sourcePathRef.current
@@ -1815,6 +1815,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                       : '开始分轨'}
           </IosButton>
         )}
+        {sourceName && (
+          <IosButton
+            size="compact"
+            onClick={openLyricsEditor}
+            title="编辑歌词（文件或剪贴板导入）"
+          >
+            歌词
+          </IosButton>
+        )}
         <div class="stems__toolbar-right">
           {provider && (
             <span
@@ -1839,66 +1848,72 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         </div>
       </header>
 
-      {sourceName && (
-        <div class="stems__lyrics-input">
-          <div class="stems__lyrics-input-head">
-            <span class="stems__lyrics-input-title">歌词</span>
-            {lyricsSourceName && <span class="stems__lyrics-source">{lyricsSourceName}</span>}
-            <span ref={lyricsImportBtnRef}>
-              <IosButton size="compact" onClick={openLyricsImportMenu}>
-                导入歌词
-              </IosButton>
-            </span>
-            {lyrics.trim() && (
-              <IosButton
-                size="compact"
-                onClick={() => {
-                  lyricsRef.current = ''
-                  setLyrics('')
-                  setLyricsSourceName('')
-                  clearAlignedResult(null)
-                }}
-              >
-                清空
-              </IosButton>
-            )}
-            <IosButton
-              size="compact"
-              tone={alignedLrc ? undefined : 'primary'}
-              disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
-              title={tracks ? '用 Zipformer 识别 vocals 并逐字对齐歌词' : '分轨完成后即可对齐歌词'}
-              onClick={() => void handleAlignLyrics()}
-            >
-              {alignedLrc ? '重新对齐歌词' : '对齐歌词'}
-            </IosButton>
-          </div>
-          {lyrics.trim() ? (
-            <div class="stems__lyrics-preview" title={lyrics}>
-              {lyrics}
-            </div>
-          ) : (
-            <div class="stems__lyrics-placeholder">
-              尚未导入歌词。点击「导入歌词」，可从文件或剪贴板导入。
-            </div>
-          )}
-          {alignBusy && (
-            <div class="stems__lyrics-status">
-              <span class="stems__lyrics-status-label">
-                {alignProgress
-                  ? `歌词识别 ${alignProgress.chunk}/${alignProgress.total} 块…`
-                  : '正在加载歌词识别模型…'}
-              </span>
-            </div>
-          )}
-          {alignError && (
-            <div class="stems__lyrics-status stems__lyrics-status--error">{alignError}</div>
-          )}
-          {lyricsHint && <div class="stems__lyrics-status">{lyricsHint}</div>}
-        </div>
-      )}
-
       {tracks ? (
         <div class="stems__body">
+          <div class="stems__lyrics-panel">
+            <div class="stems__lyrics-panel-tools">
+              <IosButton
+                size="compact"
+                tone={alignedLrc ? undefined : 'primary'}
+                disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
+                title={tracks ? '用 Zipformer 识别 vocals 并逐字对齐歌词' : '分轨完成后即可对齐歌词'}
+                onClick={() => void handleAlignLyrics()}
+              >
+                {alignedLrc ? '重新对齐歌词' : '对齐歌词'}
+              </IosButton>
+              {lyricsSourceName && <span class="stems__lyrics-source">{lyricsSourceName}</span>}
+              <span class={`stems__lyrics-status${alignError ? ' stems__lyrics-status--error' : ''}`}>
+                {alignBusy
+                  ? alignProgress
+                    ? `歌词识别 ${alignProgress.chunk}/${alignProgress.total} 块…`
+                    : '正在加载歌词识别模型…'
+                  : alignError
+                    ? alignError
+                    : lyricsHint
+                      ? lyricsHint
+                      : alignRestoredFrom
+                        ? '已恢复对齐结果'
+                        : ''}
+              </span>
+            </div>
+            {karaokeLines.length > 0 ? (
+              <div class="stems__lyrics-lane">
+                <div ref={lyricsScrollerRef} class="stems__lyrics-scroller">
+                  {karaokeLines.map((line, index) => (
+                    <div
+                      key={index}
+                      ref={(el) => registerLyricsLine(index, el)}
+                      class="stems__lyrics-line"
+                      onClick={() => {
+                        if (line.timeMs !== undefined) finalizeSeek(line.timeMs / 1000)
+                      }}
+                    >
+                      {line.words && line.words.length > 0
+                        ? line.words.map((word, wordIndex) => (
+                            <span
+                              key={wordIndex}
+                              ref={(el) => registerLyricsWord(index, wordIndex, el)}
+                              class="stems__lyrics-word"
+                            >
+                              {word.text}
+                            </span>
+                          ))
+                        : line.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div
+                class="stems__lyrics-lane stems__lyrics-lane--empty"
+                onClick={openLyricsEditor}
+                title="导入或编辑歌词"
+              >
+                {lyrics.trim() ? '歌词已就绪，点击「对齐歌词」生成卡拉OK' : '尚未导入歌词，点击此处导入'}
+              </div>
+            )}
+          </div>
+
           <div class="stems__transport">
             <button
               type="button"
@@ -2075,44 +2090,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               </span>
             </div>
           </div>
-
-          {karaokeLines.length > 0 && (
-            <div class="stems__lyrics-row">
-              <div class="stems__track-name stems__track-name--lyrics">
-                <span class="stems__track-dot stems__track-dot--lyrics" />
-                歌词
-              </div>
-              <div class="stems__lyrics-lane">
-                <div ref={lyricsScrollerRef} class="stems__lyrics-scroller">
-                  {karaokeLines.map((line, index) => (
-                    <div
-                      key={index}
-                      ref={(el) => registerLyricsLine(index, el)}
-                      class="stems__lyrics-line"
-                      onClick={() => {
-                        if (line.timeMs !== undefined) finalizeSeek(line.timeMs / 1000)
-                      }}
-                    >
-                      {line.words && line.words.length > 0
-                        ? line.words.map((word, wordIndex) => (
-                            <span
-                              key={wordIndex}
-                              ref={(el) => registerLyricsWord(index, wordIndex, el)}
-                              class="stems__lyrics-word"
-                            >
-                              {word.text}
-                            </span>
-                          ))
-                        : line.text}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div class="stems__lyrics-readout">
-                {alignBusy ? '对齐中…' : alignRestoredFrom ? '已恢复' : '卡拉OK'}
-              </div>
-            </div>
-          )}
 
           <div ref={tracksBoxRef} class="stems__tracks">
             {STEM_IDS.map((stemId) => {
@@ -2320,48 +2297,58 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         </div>
       )}
       {systemDialog}
-      <AdaptiveActionMenu
-        open={lyricsMenuAnchor !== null}
-        title="导入歌词"
-        items={lyricsImportMenuItems}
-        narrowLayout={false}
-        anchor={lyricsMenuAnchor ?? undefined}
-        mount="portal"
-        onClose={() => setLyricsMenuAnchor(null)}
-      />
       <WindowModal
-        open={clipboardOpen}
-        title="从剪贴板导入歌词"
-        onClose={() => setClipboardOpen(false)}
+        open={lyricsEditorOpen}
+        title="编辑歌词"
+        onClose={() => setLyricsEditorOpen(false)}
         actions={[
           {
             key: 'cancel',
             label: '取消',
             tone: 'secondary',
-            onClick: () => setClipboardOpen(false),
+            onClick: () => setLyricsEditorOpen(false),
           },
           {
             key: 'confirm',
-            label: '导入',
+            label: '保存歌词',
             tone: 'primary',
-            disabled: !clipboardDraft.trim(),
             onClick: () => {
-              confirmClipboardLyrics()
-              return false
+              saveLyricsFromEditor()
             },
           },
         ]}
       >
         <div class="stems__clipboard-field">
-          <label for="stems-clipboard-textarea">粘贴歌词文本（自动剥离 LRC 时间戳）</label>
+          <div class="stems__lyrics-editor-tools">
+            <IosButton size="compact" onClick={() => void handleLoadLyricsFile()}>
+              从文件导入…
+            </IosButton>
+            <IosButton size="compact" onClick={() => void importClipboardToDraft()}>
+              从剪贴板导入…
+            </IosButton>
+            {lyricsDraft.trim() && (
+              <IosButton
+                size="compact"
+                onClick={() => {
+                  setLyricsDraft('')
+                  setLyricsDraftSource('')
+                }}
+              >
+                清空
+              </IosButton>
+            )}
+          </div>
+          <label for="stems-lyrics-editor-textarea">
+            粘贴或编辑歌词文本（保存时自动剥离 LRC 时间戳）
+          </label>
           <textarea
-            id="stems-clipboard-textarea"
+            id="stems-lyrics-editor-textarea"
             class="stems__clipboard-textarea"
-            rows={8}
-            value={clipboardDraft}
-            placeholder="在这里粘贴歌词…"
+            rows={10}
+            value={lyricsDraft}
+            placeholder="在这里粘贴或编辑歌词…"
             autoFocus
-            onInput={(event) => setClipboardDraft(event.currentTarget.value)}
+            onInput={(event) => setLyricsDraft(event.currentTarget.value)}
           />
         </div>
       </WindowModal>
@@ -2554,26 +2541,28 @@ function StemTrackRow({
         />
       </div>
       <div class="stems__track-controls">
-        <IosButton
-          icon
-          size="compact"
-          class={`stems__chip${track.mute ? ' stems__chip--mute-on' : ''}`}
-          onClick={onToggleMute}
-          title="静音"
-          aria-label="静音"
-        >
-          M
-        </IosButton>
-        <IosButton
-          icon
-          size="compact"
-          class={`stems__chip${track.solo ? ' stems__chip--solo-on' : ''}`}
-          onClick={onToggleSolo}
-          title="独奏"
-          aria-label="独奏"
-        >
-          S
-        </IosButton>
+        <div class="stems__track-chips">
+          <IosButton
+            icon
+            size="compact"
+            class={`stems__chip${track.mute ? ' stems__chip--mute-on' : ''}`}
+            onClick={onToggleMute}
+            title="静音"
+            aria-label="静音"
+          >
+            M
+          </IosButton>
+          <IosButton
+            icon
+            size="compact"
+            class={`stems__chip${track.solo ? ' stems__chip--solo-on' : ''}`}
+            onClick={onToggleSolo}
+            title="独奏"
+            aria-label="独奏"
+          >
+            S
+          </IosButton>
+        </div>
         <input
           type="range"
           class="stems__volume"
