@@ -9,7 +9,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { alignTextToUnits, expandHypSegments } from './align-text-dtw.ts'
+import { alignTextToUnits, expandHypSegments, normalizeForMatch } from './align-text-dtw.ts'
 import type { G2pUnit, HypSegment } from './align-text-dtw.ts'
 
 const ref = (text: string): G2pUnit[] =>
@@ -86,4 +86,28 @@ const ref = (text: string): G2pUnit[] =>
     { start: Number.NaN, end: Number.NaN },
   ])
   assert.deepEqual(alignTextToUnits([{ symbol: '你', start: 0, end: 0.1 }], []), [])
+}
+
+// —— 6. 模糊匹配：大小写/缩写差异不再计为替换 ——
+{
+  const segments: HypSegment[] = [
+    { symbol: "don't", start: 0.0, end: 0.3 },
+    { symbol: 'stop', start: 0.3, end: 0.6 },
+    { symbol: 'now', start: 0.6, end: 0.9 },
+  ]
+  // 歌词是词级单元（大小写 + 撇号与识别不同），归一化后应全部匹配
+  const refWords = ["DON'T", 'stop', 'now'].map((text) => ({ text, phones: [] as string[] }))
+  const r = alignTextToUnits(segments, refWords)
+  assert.equal(r[0].start, 0.0)
+  assert.equal(r[1].start, 0.3)
+  assert.equal(r[2].start, 0.6)
+}
+
+// —— 7. normalizeForMatch 纯函数 ——
+{
+  assert.equal(normalizeForMatch("Don't"), 'dont')
+  assert.equal(normalizeForMatch("I'm"), 'im')
+  assert.equal(normalizeForMatch('The'), 'the')
+  assert.equal(normalizeForMatch('你'), '你')
+  assert.equal(normalizeForMatch('あ'), 'あ')
 }

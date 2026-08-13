@@ -26,9 +26,17 @@ export type HypUnit = {
   end: number
 }
 
-/** 匹配代价：字/词完全一致 0，否则 1 */
+/**
+ * 匹配用归一化：小写 + 去撇号/连字符（含弯引号）。中文/假名逐字不受影响。
+ * 例："Don't" → "dont"、"I'm" → "im"、"The" → "the"，让英文缩写/大小写不再产生替换代价。
+ */
+export function normalizeForMatch(text: string): string {
+  return text.replace(/[''’-]/g, '').toLowerCase()
+}
+
+/** 匹配代价：归一化后完全一致 0，否则 1（大小写/缩写差异不再计为替换） */
 function matchCost(a: string, b: string): number {
-  return a === b ? 0 : 1
+  return normalizeForMatch(a) === normalizeForMatch(b) ? 0 : 1
 }
 
 /**

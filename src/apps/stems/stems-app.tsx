@@ -27,6 +27,7 @@ import {
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { alignSegmentsToLrc } from '../align/align-pipeline.ts'
+import { mapLrcLineTimes } from '../align/align-line-times.ts'
 import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
 import { looksLikeBrokenLrc } from '../align/align-lrc.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
@@ -209,6 +210,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const alignedLrcRef = useRef('')
   /** 人声轨音素识别结果（随 .stems.zip 持久化；换歌词时复用，跳过重新识别） */
   const phonemesRef = useRef<PhonemeSegment[] | null>(null)
+  /** 当前歌词的 .lrc 行时间戳（毫秒，与歌词行一一对应）；仅会话内，随歌词导入重建 */
+  const lyricsLineTimesRef = useRef<(number | undefined)[] | null>(null)
+  /** 最后一次导入歌词的原始文本（含时间戳，未清洗）；编辑器保存时用于重算行时间戳 */
+  const lyricsRawRef = useRef<string | null>(null)
   /** 歌词对齐是否进行中 */
   const [alignBusy, setAlignBusy] = useState(false)
   /** 歌词识别模型选择：zipformer（中文）/ sense-voice（五语），localStorage 记忆 */
@@ -661,7 +666,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const realignFromPhonemes = useCallback((lyricsText: string): boolean => {
     const phonemes = phonemesRef.current
     if (!phonemes || phonemes.length === 0) return false
-    const lrc = alignSegmentsToLrc(phonemes, lyricsText)
+    const lrc = alignSegmentsToLrc(phonemes, lyricsText, lyricsLineTimesRef.current ?? undefined)
     if (!lrc) return false
     alignedLrcRef.current = lrc
     setAlignedLrc(lrc)
@@ -714,7 +719,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )
         if (alignReqSeqRef.current !== reqId) return false
         phonemesRef.current = segments
-        const lrc = alignSegmentsToLrc(segments, lyricsText)
+        const lrc = alignSegmentsToLrc(segments, lyricsText, lyricsLineTimesRef.current ?? undefined)
         if (alignReqSeqRef.current !== reqId) return false
         if (!lrc) {
           setAlignError('识别结果为空或歌词无可对齐内容，请重试')
@@ -1099,6 +1104,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     lyricsRef.current = ''
     setLyrics('')
     setLyricsSourceName('')
+    lyricsLineTimesRef.current = null
+    lyricsRawRef.current = null
     clearAlignedResult(null)
     phonemesRef.current = null
     alignReqSeqRef.current += 1
@@ -1114,6 +1121,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         if (cleaned) {
           lyricsRef.current = cleaned
           setLyrics(cleaned)
+          lyricsLineTimesRef.current = mapLrcLineTimes(text, cleaned.split('\n'))
+          lyricsRawRef.current = text
           const lrcName = lrcPath.slice(lrcPath.lastIndexOf('/') + 1)
           setLyricsSourceName(`自动载入：${lrcName}`)
         }
@@ -1126,12 +1135,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     if (!loaded) handleSeparateRef.current()
   }, [showSystemOpenDialog, tryLoadSavedStems, clearAlignedResult])
 
-  /** 把清洗后的歌词写入 state/ref（剪贴板与文件导入共用收尾） */
+  /** 把清洗后的歌词写入 state/ref（剪贴板与文件导入共用收尾）；lineTimes 为 .lrc 行时间戳 */
   const applyLyrics = useCallback(
-    (cleaned: string, sourceName: string) => {
+    (cleaned: string, sourceName: string, lineTimes?: (number | undefined)[]) => {
       lyricsRef.current = cleaned
       setLyrics(cleaned)
       setLyricsSourceName(sourceName)
+      lyricsLineTimesRef.current = lineTimes ?? null
       // 已有音素段（识别结果）时直接复用快速重对齐，无需重跑 Zipformer
       if (realignFromPhonemes(cleaned)) return
       if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
@@ -1156,6 +1166,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const name = path.slice(path.lastIndexOf('/') + 1)
       setLyricsDraft(cleaned)
       setLyricsDraftSource(`载入：${name}`)
+      lyricsRawRef.current = text
     } catch (cause) {
       setAlignError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -1176,6 +1187,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         if (text) {
           setLyricsDraft(text)
           setLyricsDraftSource('从剪贴板导入')
+          lyricsRawRef.current = text
           return
         }
       } catch {
@@ -1193,10 +1205,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       lyricsRef.current = ''
       setLyrics('')
       setLyricsSourceName('')
+      lyricsLineTimesRef.current = null
       clearAlignedResult(null)
       return
     }
-    applyLyrics(cleaned, lyricsDraftSource || '手动编辑')
+    // 从草稿原始文本（含时间戳）重算行时间戳；无原始文本（手动编辑）则清空
+    const rawForTimes = lyricsRawRef.current ?? lyricsDraft
+    const lineTimes = mapLrcLineTimes(rawForTimes, cleaned.split('\n'))
+    applyLyrics(cleaned, lyricsDraftSource || '手动编辑', lineTimes)
     const tracksNow = tracksRef.current
     if (!tracksNow) return
     if (alignedLrcRef.current) {
