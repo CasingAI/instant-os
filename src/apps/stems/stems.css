@@ -838,6 +838,117 @@
   opacity: 0.9;
 }
 
+/* 最近打开：空态内独立区块，铝板浮起列表 */
+.stems__recents {
+  width: min(420px, 100%);
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--stems-border-light);
+  text-align: left;
+}
+
+.stems__recents-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--stems-ink-muted);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.stems__recents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.stems__recents-item {
+  display: flex;
+  align-items: stretch;
+  background: linear-gradient(180deg, var(--stems-surface-raised) 0%, var(--stems-surface) 100%);
+  border: 1px solid var(--stems-border);
+  border-radius: var(--stems-radius);
+  box-shadow: var(--stems-panel-shadow);
+  overflow: hidden;
+}
+
+.stems__recents-item:hover {
+  border-color: #7d766c;
+}
+
+.stems__recents-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stems__recents-open:hover {
+  background: linear-gradient(180deg, #f7f5ef 0%, #e6e1d8 100%);
+}
+
+.stems__recents-open:active {
+  background: linear-gradient(180deg, #cfcac0 0%, #e6e1d8 100%);
+}
+
+.stems__recents-open:focus-visible {
+  outline: 2px solid var(--stems-accent);
+  outline-offset: -2px;
+}
+
+.stems__recents-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--stems-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stems__recents-meta {
+  font-size: 11px;
+  color: var(--stems-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stems__recents-remove {
+  width: 32px;
+  flex: none;
+  align-self: center;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--stems-ink-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.stems__recents-remove:hover {
+  color: #c0392b;
+}
+
+.stems__recents-remove:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--stems-accent);
+  outline-offset: -2px;
+}
+
+.stems__recents-item:hover .stems__recents-remove {
+  opacity: 1;
+}
+
 .stems__progress-card {
   margin-top: 12px;
   width: min(420px, 100%);

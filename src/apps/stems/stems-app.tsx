@@ -36,6 +36,14 @@ import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import { parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine } from '../music/music-lyrics.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
+import {
+  formatRecentTime,
+  loadRecentProjects,
+  pushRecentProject,
+  removeRecentProject,
+  saveRecentProjects,
+} from './stems-recents.ts'
+import type { RecentStemsProject } from './stems-recents.ts'
 import type { MdxVocalProgress } from './mdx-vocal-worker.ts'
 import TempoWorker from './tempo-worker.ts?worker'
 import type { TempoWorkerResponse } from './tempo-worker.ts'
@@ -143,6 +151,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [progress, setProgress] = useState<StemProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tracks, setTracks] = useState<StemTrackState[] | null>(null)
+  /** 最近打开的项目历史（空态「最近打开」直接重开；localStorage 持久化） */
+  const [recentProjects, setRecentProjects] = useState<RecentStemsProject[]>(() => loadRecentProjects())
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -1116,55 +1126,103 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [cacheStemBuffers, clearAlignedResult, detectTempoAsync, alignVocals, realignFromPhonemes, stopPlayback],
   )
 
+  /**
+   * 按绝对路径打开源文件（对话框选文件 / 最近打开历史共用）：
+   * 设置源路径、清空旧状态、自动探测同名 .lrc 歌词，同目录有 .stems.zip 则直接载入分轨，
+   * 否则自动开始分轨。打开成功后写入「最近打开」历史。
+   */
+  const openSourceByPath = useCallback(
+    async (path: string, name?: string) => {
+      const node = await resolveNodeByAbsolutePath(path)
+      if (!node || node.kind !== 'file') return false
+      const displayName = name ?? node.name
+      sourcePathRef.current = node.id
+      sourceAbsolutePathRef.current = path
+      setSourceName(displayName)
+      setTracks(null)
+      setProgress(null)
+      setError(null)
+      setCurrentTime(0)
+      // 换歌：清空歌词与旧对齐结果，随后自动探测同名 .lrc
+      lyricsRef.current = ''
+      setLyrics('')
+      setLyricsSourceName('')
+      lyricsLineTimesRef.current = null
+      lyricsRawRef.current = null
+      clearAlignedResult(null)
+      phonemesRef.current = null
+      alignReqSeqRef.current += 1
+      const dot = path.lastIndexOf('.')
+      const slash = path.lastIndexOf('/')
+      const base = dot > slash ? path.slice(0, dot) : path
+      const lrcPath = `${base}.lrc`
+      const lrcNode = await resolveNodeByAbsolutePath(lrcPath)
+      if (lrcNode && lrcNode.kind === 'file') {
+        try {
+          const text = await filesReadText(lrcPath)
+          const cleaned = stripLrcMarkup(text).trim()
+          if (cleaned) {
+            lyricsRef.current = cleaned
+            setLyrics(cleaned)
+            lyricsLineTimesRef.current = mapLrcLineTimes(text, cleaned.split('\n'))
+            lyricsRawRef.current = text
+            const lrcName = lrcPath.slice(lrcPath.lastIndexOf('/') + 1)
+            setLyricsSourceName(`自动载入：${lrcName}`)
+          }
+        } catch (cause) {
+          console.warn('自动载入歌词失败', cause)
+        }
+      }
+      // 记录「最近打开」历史
+      const project = { path, name: displayName, openedAt: Date.now() }
+      setRecentProjects((prev) => {
+        const next = pushRecentProject(prev, project)
+        saveRecentProjects(next)
+        return next
+      })
+      // 同目录有已保存的分轨压缩包 → 直接载入，不再推理
+      const loaded = await tryLoadSavedStems(path)
+      if (!loaded) handleSeparateRef.current()
+      return true
+    },
+    [tryLoadSavedStems, clearAlignedResult],
+  )
+
   const handlePickFile = useCallback(async () => {
     const path = await showSystemOpenDialog({
       title: '选择要分轨的音乐文件',
       acceptExtensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'],
     })
     if (!path) return
-    const node = await resolveNodeByAbsolutePath(path)
-    if (!node || node.kind !== 'file') return
-    sourcePathRef.current = node.id
-    sourceAbsolutePathRef.current = path
-    setSourceName(node.name)
-    setTracks(null)
-    setProgress(null)
-    setError(null)
-    setCurrentTime(0)
-    // 换歌：清空歌词与旧对齐结果，随后自动探测同名 .lrc
-    lyricsRef.current = ''
-    setLyrics('')
-    setLyricsSourceName('')
-    lyricsLineTimesRef.current = null
-    lyricsRawRef.current = null
-    clearAlignedResult(null)
-    phonemesRef.current = null
-    alignReqSeqRef.current += 1
-    const dot = path.lastIndexOf('.')
-    const slash = path.lastIndexOf('/')
-    const base = dot > slash ? path.slice(0, dot) : path
-    const lrcPath = `${base}.lrc`
-    const lrcNode = await resolveNodeByAbsolutePath(lrcPath)
-    if (lrcNode && lrcNode.kind === 'file') {
-      try {
-        const text = await filesReadText(lrcPath)
-        const cleaned = stripLrcMarkup(text).trim()
-        if (cleaned) {
-          lyricsRef.current = cleaned
-          setLyrics(cleaned)
-          lyricsLineTimesRef.current = mapLrcLineTimes(text, cleaned.split('\n'))
-          lyricsRawRef.current = text
-          const lrcName = lrcPath.slice(lrcPath.lastIndexOf('/') + 1)
-          setLyricsSourceName(`自动载入：${lrcName}`)
-        }
-      } catch (cause) {
-        console.warn('自动载入歌词失败', cause)
+    await openSourceByPath(path)
+  }, [showSystemOpenDialog, openSourceByPath])
+
+  /** 从「最近打开」直接重开：源文件仍存在则打开，否则从历史移除并提示。 */
+  const handleOpenRecent = useCallback(
+    async (path: string) => {
+      const node = await resolveNodeByAbsolutePath(path)
+      if (!node || node.kind !== 'file') {
+        setRecentProjects((prev) => {
+          const next = removeRecentProject(prev, path)
+          saveRecentProjects(next)
+          return next
+        })
+        setError('文件已不存在，已从最近打开移除')
+        return
       }
-    }
-    // 同目录有已保存的分轨压缩包 → 直接载入，不再推理
-    const loaded = await tryLoadSavedStems(path)
-    if (!loaded) handleSeparateRef.current()
-  }, [showSystemOpenDialog, tryLoadSavedStems, clearAlignedResult])
+      await openSourceByPath(path, node.name)
+    },
+    [openSourceByPath],
+  )
+
+  /** 从「最近打开」移除单条（不打开文件）。 */
+  const handleRemoveRecent = useCallback((path: string) => {
+    setRecentProjects((prev) => {
+      const next = removeRecentProject(prev, path)
+      saveRecentProjects(next)
+      return next
+    })
+  }, [])
 
   /** 把清洗后的歌词写入 state/ref（剪贴板与文件导入共用收尾）；lineTimes 为 .lrc 行时间戳 */
   const applyLyrics = useCallback(
@@ -2457,6 +2515,38 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             <p class="stems__empty-hint">
               提示：分轨所需模型尚未完全缓存（人声分离模型约 67MB，分轨模型约 285MB），首次分轨需下载；可在 设置 → 存储 → 模型缓存 中提前缓存。
             </p>
+          )}
+          {recentProjects.length > 0 && (
+            <div class="stems__recents">
+              <p class="stems__recents-title">最近打开</p>
+              <div class="stems__recents-list">
+                {recentProjects.map((item) => (
+                  <div class="stems__recents-item" key={item.path}>
+                    <button
+                      type="button"
+                      class="stems__recents-open"
+                      onClick={() => void handleOpenRecent(item.path)}
+                      title={item.path}
+                    >
+                      <span class="stems__recents-name">{item.name}</span>
+                      <span class="stems__recents-meta">
+                        {item.path.slice(0, item.path.lastIndexOf('/'))} ·{' '}
+                        {formatRecentTime(item.openedAt)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="stems__recents-remove"
+                      aria-label="从最近打开移除"
+                      title="从最近打开移除"
+                      onClick={() => handleRemoveRecent(item.path)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
