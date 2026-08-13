@@ -54,10 +54,18 @@ type StemTrackState = {
 const WAVEFORM_BUCKETS = 200
 /** 波形横向缩放下可见窗口的最短时长（秒） */
 const MIN_VIEW_SEC = 0.5
-/** 歌词卡拉OK行高（px）：DOM 滚动居中计算用，与 stems.css 的 .stems__lyrics-line 一致 */
-const LYRICS_ROW_HEIGHT = 30
-/** 歌词视口中心偏移（px）：viewport 高 90（3 行）、行高 30 → 90/2 − 30/2 */
-const LYRICS_VIEWPORT_CENTER = 30
+/** 歌词标签间距小于该像素宽时退化为小点（全曲视图字太密时防重叠） */
+const LYRICS_TAG_DOT_MIN_GAP_PX = 26
+
+/** 歌词时间轴标签：由对齐结果逐字拍平（无逐字时整行一个标签） */
+type LyricTag = {
+  lineIndex: number
+  wordIndex: number
+  text: string
+  timeSec: number
+  /** 与前一字像素间距不足 → 只显示小圆点，放大后恢复文字 */
+  dot: boolean
+}
 
 /**
  * 按当前 mute/solo/volume 把每轨增益即时写到已连接的 GainNode。
@@ -219,12 +227,16 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const lyricsActiveRef = useRef({ line: -1, word: -1 })
   /** 卡拉OK歌词行（由 alignedLrc 解析；播放中 rAF 直写 DOM 高亮） */
   const lyricsLinesRef = useRef<LyricsLine[]>([])
-  /** 歌词行 DOM（滚动居中/高亮用） */
-  const lyricsLineRefsRef = useRef<Map<number, HTMLDivElement>>(new Map())
-  /** 歌词行 → 词 span DOM（逐字高亮用） */
+  /** 歌词行 → 词 span DOM（逐字标签高亮用） */
   const lyricsWordRefsRef = useRef<Map<number, Map<number, HTMLSpanElement>>>(new Map())
-  /** 卡拉OK滚动容器 */
-  const lyricsScrollerRef = useRef<HTMLDivElement | null>(null)
+  /** 歌词时间轴标签元数据（rAF 找当前行/词用） */
+  const lyricTagsRef = useRef<LyricTag[]>([])
+  /** 歌词时间轴标签容器（密度计算与播放头定位用） */
+  const lyricsTagsRef = useRef<HTMLDivElement | null>(null)
+  /** 歌词轨播放头（与波形播放头同款，直写 left） */
+  const lyricsPlayheadRef = useRef<HTMLDivElement | null>(null)
+  /** 歌词标签容器实际像素宽度（ResizeObserver 维护）：密度判断用 */
+  const [lyricsLaneWidthPx, setLyricsLaneWidthPx] = useState(0)
   /** 当前 tracks 的最新值（手动补对齐时读取 vocals 轨） */
   const tracksRef = useRef<StemTrackState[] | null>(null)
   /** 速度条当前段高亮/读数/播放头直写 DOM 用（仿 playheadRefsRef） */
@@ -309,6 +321,50 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     lyricsLinesRef.current = karaokeLines
     lyricsActiveRef.current = { line: -1, word: -1 }
   }, [karaokeLines])
+
+  /** 歌词时间轴标签：逐字拍平成一行（无逐字的行回退整行一个标签；无时间戳行跳过） */
+  const lyricTags = useMemo<LyricTag[]>(() => {
+    const pxPerSec = lyricsLaneWidthPx > 0 && viewLen > 0 ? lyricsLaneWidthPx / viewLen : 0
+    const tags: LyricTag[] = []
+    let prevTimeSec = -Infinity
+    for (let lineIndex = 0; lineIndex < karaokeLines.length; lineIndex++) {
+      const line = karaokeLines[lineIndex]
+      if (line.timeMs === undefined) continue
+      const push = (wordIndex: number, text: string, timeSec: number) => {
+        const gapPx = pxPerSec > 0 ? (timeSec - prevTimeSec) * pxPerSec : Infinity
+        prevTimeSec = timeSec
+        tags.push({ lineIndex, wordIndex, text, timeSec, dot: gapPx < LYRICS_TAG_DOT_MIN_GAP_PX })
+      }
+      const words = line.words
+      if (words && words.length > 0) {
+        for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
+          const word = words[wordIndex]
+          push(wordIndex, word.text, word.timeMs / 1000)
+        }
+      } else {
+        push(-1, line.text, line.timeMs / 1000)
+      }
+    }
+    return tags
+  }, [karaokeLines, lyricsLaneWidthPx, viewLen])
+  useEffect(() => {
+    lyricTagsRef.current = lyricTags
+  }, [lyricTags])
+
+  // 歌词标签容器宽度：密度判断（全曲视图字太密退化为小点）
+  useEffect(() => {
+    const node = lyricsTagsRef.current
+    if (!node) return
+    const update = (): void => {
+      const w = node.clientWidth
+      if (w > 0) setLyricsLaneWidthPx(w)
+    }
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [lyricTags.length])
 
   const handleSeparateRef = useRef<() => void>(() => {})
   /** 「重新计算节拍」中转 ref：handler 依赖 detectTempoAsync（定义晚于 menuBar），与 handleSeparateRef 同模式 */
@@ -1211,14 +1267,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     return Math.min(startOffsetRef.current + elapsed, duration)
   }, [playing, currentTime, duration])
 
-  /** 注册/注销歌词行 DOM（卡拉OK滚动居中与高亮用） */
-  const registerLyricsLine = useCallback((index: number, el: HTMLDivElement | null) => {
-    if (el) lyricsLineRefsRef.current.set(index, el)
-    else lyricsLineRefsRef.current.delete(index)
-  }, [])
-
-  /** 注册/注销歌词词 span DOM（逐字高亮用） */
-  const registerLyricsWord = useCallback(
+  /** 注册/注销歌词标签 span DOM（横向标签流逐字高亮用） */
+  const registerLyricsTag = useCallback(
     (line: number, word: number, el: HTMLSpanElement | null) => {
       if (el) {
         let map = lyricsWordRefsRef.current.get(line)
@@ -1236,44 +1286,26 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   )
 
   /**
-   * 歌词卡拉OK DOM 直写：行变化时滚动居中 + 切换高亮行，词变化时逐字点亮。
-   * 只在行/词变化时动 DOM（播放中不重渲染 React）。
+   * 歌词标签 DOM 直写：唱过的行整行点亮、当前行逐字点亮（横向时间轴卡拉OK）。
+   * 只在行/词变化时动 DOM（播放中不重渲染 React）；当前字强制显示文字（移除 dot）。
    */
-  const updateLyricsKaraokeDom = useCallback(
-    (lines: LyricsLine[], lineIdx: number, timeMs: number) => {
-      const active = lyricsActiveRef.current
-      let wordIdx = -1
-      if (lineIdx >= 0 && lineIdx < lines.length) {
-        const words = lines[lineIdx].words
-        if (words && words.length > 0) wordIdx = computeActiveWordIndex(words, timeMs)
-      }
-      if (lineIdx === active.line && wordIdx === active.word) return
-      active.line = lineIdx
-      active.word = wordIdx
-      for (const map of lyricsWordRefsRef.current.values()) {
-        for (const el of map.values()) el.classList.remove('stems__lyrics-word--on')
-      }
-      const scroller = lyricsScrollerRef.current
-      if (scroller) {
-        scroller.style.transform =
-          lineIdx >= 0
-            ? `translateY(${LYRICS_VIEWPORT_CENTER - lineIdx * LYRICS_ROW_HEIGHT}px)`
-            : 'translateY(0px)'
-      }
-      for (const [idx, el] of lyricsLineRefsRef.current) {
-        el.classList.toggle('stems__lyrics-line--active', idx === lineIdx)
-      }
-      if (lineIdx >= 0 && wordIdx >= 0) {
-        const wordMap = lyricsWordRefsRef.current.get(lineIdx)
-        if (wordMap) {
-          for (const [wi, el] of wordMap) {
-            el.classList.toggle('stems__lyrics-word--on', wi <= wordIdx)
-          }
+  const updateLyricsTagsDom = useCallback((lineIdx: number, wordIdx: number) => {
+    const active = lyricsActiveRef.current
+    if (lineIdx === active.line && wordIdx === active.word) return
+    active.line = lineIdx
+    active.word = wordIdx
+    for (const [li, map] of lyricsWordRefsRef.current) {
+      for (const [wi, el] of map) {
+        // li < lineIdx：已唱完的行全亮；li === lineIdx：按词序点亮当前字及之前
+        const on = li < lineIdx || (li === lineIdx && wi <= wordIdx)
+        el.classList.toggle('stems__lyrics-tag--on', on)
+        // 当前唱到的字即使全曲视图（dot）也强制显示文字
+        if (li === lineIdx && wi === wordIdx) {
+          el.classList.remove('stems__lyrics-tag--dot')
         }
       }
-    },
-    [],
-  )
+    }
+  }, [])
 
   /**
    * 把播放位置直接写进 DOM（各轨播放头、时间文本），不触发 React 重渲染。
@@ -1309,21 +1341,33 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         tempoPlayheadRef.current.style.opacity = visible ? '1' : '0'
       }
 
-      // 歌词卡拉OK：当前行居中高亮 + 当前词逐字点亮（DOM 直写）
-      const karaokeLines = lyricsLinesRef.current
-      if (karaokeLines.length > 0) {
+      // 歌词标签流播放头：与波形/速度播放头同位
+      if (lyricsPlayheadRef.current) {
+        lyricsPlayheadRef.current.style.left = `${ratio * 100}%`
+        lyricsPlayheadRef.current.style.opacity = visible ? '1' : '0'
+      }
+
+      // 歌词标签流高亮：唱过的行整行点亮、当前行逐字点亮（DOM 直写）
+      const lines = lyricsLinesRef.current
+      const tags = lyricTagsRef.current
+      if (lines.length > 0 && tags.length > 0) {
         const timeMs = timeSec * 1000
         let lineIdx = -1
-        for (let i = 0; i < karaokeLines.length; i++) {
-          const lineTime = karaokeLines[i].timeMs
+        for (let i = 0; i < lines.length; i++) {
+          const lineTime = lines[i].timeMs
           if (lineTime === undefined) continue
           if (lineTime <= timeMs) lineIdx = i
           else break
         }
-        updateLyricsKaraokeDom(karaokeLines, lineIdx, timeMs)
+        let wordIdx = -1
+        if (lineIdx >= 0) {
+          const words = lines[lineIdx].words
+          if (words && words.length > 0) wordIdx = computeActiveWordIndex(words, timeMs)
+        }
+        updateLyricsTagsDom(lineIdx, wordIdx)
       }
     },
-    [duration, viewLen, view.start, updateLyricsKaraokeDom],
+    [duration, viewLen, view.start, updateLyricsTagsDom],
   )
 
   /** 注册/注销某轨播放头 DOM：播放中由 rAF 直写位置 */
@@ -1850,70 +1894,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
       {tracks ? (
         <div class="stems__body">
-          <div class="stems__lyrics-panel">
-            <div class="stems__lyrics-panel-tools">
-              <IosButton
-                size="compact"
-                tone={alignedLrc ? undefined : 'primary'}
-                disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
-                title={tracks ? '用 Zipformer 识别 vocals 并逐字对齐歌词' : '分轨完成后即可对齐歌词'}
-                onClick={() => void handleAlignLyrics()}
-              >
-                {alignedLrc ? '重新对齐歌词' : '对齐歌词'}
-              </IosButton>
-              {lyricsSourceName && <span class="stems__lyrics-source">{lyricsSourceName}</span>}
-              <span class={`stems__lyrics-status${alignError ? ' stems__lyrics-status--error' : ''}`}>
-                {alignBusy
-                  ? alignProgress
-                    ? `歌词识别 ${alignProgress.chunk}/${alignProgress.total} 块…`
-                    : '正在加载歌词识别模型…'
-                  : alignError
-                    ? alignError
-                    : lyricsHint
-                      ? lyricsHint
-                      : alignRestoredFrom
-                        ? '已恢复对齐结果'
-                        : ''}
-              </span>
-            </div>
-            {karaokeLines.length > 0 ? (
-              <div class="stems__lyrics-lane">
-                <div ref={lyricsScrollerRef} class="stems__lyrics-scroller">
-                  {karaokeLines.map((line, index) => (
-                    <div
-                      key={index}
-                      ref={(el) => registerLyricsLine(index, el)}
-                      class="stems__lyrics-line"
-                      onClick={() => {
-                        if (line.timeMs !== undefined) finalizeSeek(line.timeMs / 1000)
-                      }}
-                    >
-                      {line.words && line.words.length > 0
-                        ? line.words.map((word, wordIndex) => (
-                            <span
-                              key={wordIndex}
-                              ref={(el) => registerLyricsWord(index, wordIndex, el)}
-                              class="stems__lyrics-word"
-                            >
-                              {word.text}
-                            </span>
-                          ))
-                        : line.text}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div
-                class="stems__lyrics-lane stems__lyrics-lane--empty"
-                onClick={openLyricsEditor}
-                title="导入或编辑歌词"
-              >
-                {lyrics.trim() ? '歌词已就绪，点击「对齐歌词」生成卡拉OK' : '尚未导入歌词，点击此处导入'}
-              </div>
-            )}
-          </div>
-
           <div class="stems__transport">
             <button
               type="button"
@@ -2092,6 +2072,72 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           </div>
 
           <div ref={tracksBoxRef} class="stems__tracks">
+            {/* 歌词轨：整首歌逐字标签按时间戳横向排成一行，与波形共用缩放/平移/播放头 */}
+            <div class="stems__track stems__track--lyrics">
+              <div class="stems__track-name">
+                <span class="stems__track-dot stems__track-dot--lyrics" />
+                歌词
+              </div>
+              <div
+                ref={lyricsTagsRef}
+                class="stems__lyrics-tags"
+                onClick={lyricTags.length === 0 ? openLyricsEditor : undefined}
+                title={lyricTags.length === 0 ? '导入或编辑歌词' : undefined}
+              >
+                {lyricTags.length > 0 ? (
+                  <>
+                    {lyricTags.map((tag, index) => {
+                      const leftPct = viewLen > 0 ? ((tag.timeSec - view.start) / viewLen) * 100 : 0
+                      return (
+                        <span
+                          key={`${tag.lineIndex}:${tag.wordIndex}:${index}`}
+                          ref={(el) => registerLyricsTag(tag.lineIndex, tag.wordIndex, el)}
+                          class={`stems__lyrics-tag${tag.dot ? ' stems__lyrics-tag--dot' : ''}`}
+                          style={{ left: `${leftPct}%` }}
+                          onClick={() => finalizeSeek(tag.timeSec)}
+                          title={tag.text}
+                        >
+                          {tag.text}
+                        </span>
+                      )
+                    })}
+                    <div
+                      ref={lyricsPlayheadRef}
+                      class="stems__track-playhead"
+                      style={{ left: 0, opacity: 0 }}
+                    />
+                  </>
+                ) : (
+                  <span class="stems__lyrics-tags-placeholder">
+                    {lyrics.trim() ? '歌词已就绪，点击「对齐歌词」' : '点击此处导入歌词'}
+                  </span>
+                )}
+              </div>
+              <div class="stems__lyrics-controls">
+                <IosButton
+                  size="compact"
+                  tone={alignedLrc ? undefined : 'primary'}
+                  disabled={!tracks || alignBusy || isSeparating || !lyrics.trim()}
+                  title={tracks ? '用 Zipformer 识别 vocals 并逐字对齐歌词' : '分轨完成后即可对齐歌词'}
+                  onClick={() => void handleAlignLyrics()}
+                >
+                  {alignedLrc ? '重新对齐歌词' : '对齐歌词'}
+                </IosButton>
+                <span class={`stems__lyrics-status${alignError ? ' stems__lyrics-status--error' : ''}`}>
+                  {alignBusy
+                    ? alignProgress
+                      ? `识别 ${alignProgress.chunk}/${alignProgress.total}`
+                      : '加载模型…'
+                    : alignError
+                      ? alignError
+                      : lyricsHint
+                        ? lyricsHint
+                        : alignRestoredFrom
+                          ? '已恢复'
+                          : ''}
+                </span>
+              </div>
+            </div>
             {STEM_IDS.map((stemId) => {
               const track = tracks.find((t) => t.audio.stemId === stemId)
               if (!track) return null

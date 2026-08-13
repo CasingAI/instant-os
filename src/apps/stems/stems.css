@@ -898,99 +898,104 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 卡拉OK歌词面板：主区顶部独立面板，3 行视口，当前行居中 + 逐字高亮 */
-.stems__lyrics-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px 10px;
-  background: linear-gradient(180deg, #e8e3d8 0%, #d8d2c6 100%);
-  border-bottom: 1px solid var(--stems-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
-  flex: none;
+/* 歌词轨：整首歌逐字标签按时间戳横向排成一行，与波形列共用时间轴 */
+.stems__track-dot--lyrics {
+  background: #ffd84d;
+  box-shadow: 0 0 0 2px rgba(255, 216, 77, 0.3);
 }
 
-.stems__lyrics-panel-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.stems__lyrics-source {
-  font-size: 11px;
-  color: var(--stems-accent-dark);
-  max-width: 30%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: none;
-}
-
-.stems__lyrics-status {
-  margin-left: auto;
-  min-width: 0;
-  font-size: 11px;
-  color: var(--stems-ink-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stems__lyrics-status--error {
-  color: #b42318;
-  font-weight: 600;
-}
-
-.stems__lyrics-lane {
+.stems__lyrics-tags {
   position: relative;
-  height: 90px;
+  min-width: 0;
+  width: 100%;
+  height: 40px;
   border-radius: 5px;
   background: var(--stems-well);
   border: 1px solid var(--stems-well-edge);
   box-shadow: var(--stems-bevel-down);
   overflow: hidden;
   touch-action: none;
+  user-select: none;
+  cursor: pointer;
 }
 
-.stems__lyrics-lane--empty {
+.stems__lyrics-tag {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%) translateX(-50%);
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+/* 唱过的标签：金色点亮（横向卡拉OK 进度） */
+.stems__lyrics-tag--on {
+  color: #1c1b1a;
+  background: #ffd84d;
+  border-color: #e0b83a;
+  font-weight: 700;
+  text-shadow: none;
+}
+
+/* 全曲视图字太密 → 退化为小圆点；放大后恢复文字（当前唱到的字强制显示） */
+.stems__lyrics-tag--dot {
+  width: 5px;
+  height: 5px;
+  padding: 0;
+  font-size: 0;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.stems__lyrics-tag--dot.stems__lyrics-tag--on {
+  background: #ffd84d;
+}
+
+/* 空态占位（无对齐结果） */
+.stems__lyrics-tags-placeholder {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.45);
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
+  pointer-events: none;
 }
 
-.stems__lyrics-scroller {
-  will-change: transform;
-  transition: transform 0.18s ease-out;
+/* 歌词轨控制列：对齐按钮 + 状态小字（纵向） */
+.stems__lyrics-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 3px;
+  flex: none;
+  min-width: 0;
 }
 
-.stems__lyrics-line {
-  height: 30px;
-  line-height: 30px;
-  padding: 0 12px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.55);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+.stems__lyrics-status {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--stems-ink-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
+  text-align: right;
 }
 
-.stems__lyrics-line--active {
-  color: #fff;
-  font-weight: 700;
-}
-
-.stems__lyrics-word--on {
-  color: #ffd84d;
-  text-shadow:
-    0 0 6px rgba(255, 216, 77, 0.7),
-    0 1px 1px rgba(0, 0, 0, 0.4);
+.stems__lyrics-status--error {
+  color: #b42318;
+  font-weight: 600;
 }
 
 /* 编辑歌词模态 */
