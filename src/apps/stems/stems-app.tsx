@@ -46,6 +46,7 @@ import type { ZipformerAlignLine, ZipformerProgress } from '../align/zipformer-w
 import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine } from '../music/music-lyrics.ts'
+import { LyricsAnalysisDrawer } from './lyrics-analysis-drawer.tsx'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
   formatRecentTime,
@@ -282,6 +283,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 编辑歌词模态窗口开关与草稿（保存时应用） */
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false)
   const [lyricsDraft, setLyricsDraft] = useState('')
+  /** 歌词分析抽屉开关与双击定位到的行 */
+  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [analysisFocusLine, setAnalysisFocusLine] = useState<number | null>(null)
   /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
   const [lyricsDraftSource, setLyricsDraftSource] = useState('')
   /** 播放中当前高亮的歌词行/词（避免每帧重复写 DOM） */
@@ -2366,6 +2370,21 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 class="stems__lyrics-tags"
                 onClick={lyricTags.length === 0 ? openLyricsEditor : undefined}
                 title={lyricTags.length === 0 ? '导入或编辑歌词' : undefined}
+                onDblClick={(event) => {
+                  // 双击歌词轨 → 定位所在行 → 打开歌词分析抽屉
+                  if (lyricTags.length === 0 || karaokeLines.length === 0) return
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)))
+                  const sec = view.start + ratio * viewLen
+                  let lineIndex = -1
+                  for (let i = 0; i < karaokeLines.length; i++) {
+                    const t = karaokeLines[i].timeMs
+                    if (t !== undefined && t / 1000 <= sec) lineIndex = i
+                  }
+                  if (lineIndex < 0) lineIndex = 0
+                  setAnalysisFocusLine(lineIndex)
+                  setAnalysisOpen(true)
+                }}
                 onPointerDown={(event) => {
                   if (lyricTags.length === 0) return
                   const rect = event.currentTarget.getBoundingClientRect()
@@ -2829,6 +2848,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           />
         </div>
       </WindowModal>
+      <LyricsAnalysisDrawer
+        open={analysisOpen}
+        onClose={() => setAnalysisOpen(false)}
+        focusLine={analysisFocusLine}
+        karaokeLines={karaokeLines}
+        lyrics={lyrics}
+        lyricsLrc={lyricsLrcRef.current}
+        phonemes={phonemesRef.current}
+        vocalsAudio={tracks?.find((t) => t.audio.stemId === 'vocals')?.audio.data ?? null}
+        sampleRate={stemSampleRate}
+        hasLineTimes={lyricsLineTimesRef.current !== null && lyricsLineTimesRef.current.some((t) => t !== undefined)}
+      />
     </div>
   )
 }
