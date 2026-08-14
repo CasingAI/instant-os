@@ -2046,6 +2046,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const chunkEtaActive =
     (mdxBusy && mdxProgress !== undefined) || progress?.kind === 'chunk'
 
+  /** 分轨进行中（含载入已保存结果）：空态只显示进度，不显示装饰与引导 */
+  const emptyBusy = isSeparating || loadingArchive
+
   // 块推理进行中时刷新剩余时间：按墙钟向预计完成时刻递减
   useEffect(() => {
     if (!chunkEtaActive || etaAtRef.current === undefined) return
@@ -2672,14 +2675,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         </div>
       ) : (
         <div class="stems__empty">
-          <div class="stems__empty-badge" aria-hidden="true">
-            <span class="stems__empty-badge-ring" />
-            <span class="stems__empty-badge-core" />
-          </div>
-          <p class="stems__empty-title">打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
-          <p class="stems__empty-hint">
-            分轨会把人声、鼓、贝斯、吉他、钢琴、其他声部分离为独立音轨，可逐轨试听与调节。
-          </p>
+          {!emptyBusy && (
+            <>
+              <div class="stems__empty-badge" aria-hidden="true">
+                <span class="stems__empty-badge-ring" />
+                <span class="stems__empty-badge-core" />
+              </div>
+              <p class="stems__empty-title">打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
+              <p class="stems__empty-hint">
+                分轨会把人声、鼓、贝斯、吉他、钢琴、其他声部分离为独立音轨，可逐轨试听与调节。
+              </p>
+            </>
+          )}
           {loadingArchive && (
             <p class="stems__empty-hint">检测到已保存的分轨结果，正在载入…</p>
           )}
@@ -2719,20 +2726,20 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               </div>
             </div>
           )}
-          {!progress && !mdxBusy && gpuAvailable === true && (
+          {!progress && !mdxBusy && !emptyBusy && gpuAvailable === true && (
             <p class="stems__empty-hint">已检测到 WebGPU，分轨将优先使用 GPU 加速。</p>
           )}
-          {!progress && !mdxBusy && gpuAvailable === false && (
+          {!progress && !mdxBusy && !emptyBusy && gpuAvailable === false && (
             <p class="stems__empty-hint">
               未检测到 WebGPU，分轨将使用 WASM 模式（较慢）；建议在 Chrome 中开启硬件加速。
             </p>
           )}
-          {!progress && !mdxBusy && (mdxCached === false || modelCached === false) && (
+          {!progress && !mdxBusy && !emptyBusy && (mdxCached === false || modelCached === false) && (
             <p class="stems__empty-hint">
               提示：分轨所需模型尚未完全缓存（人声分离模型约 67MB，分轨模型约 285MB），首次分轨需下载；可在 设置 → 存储 → 模型缓存 中提前缓存。
             </p>
           )}
-          {recentProjects.length > 0 && (
+          {recentProjects.length > 0 && !emptyBusy && (
             <div class="stems__recents">
               <p class="stems__recents-title">最近打开</p>
               <div class="stems__recents-list">
