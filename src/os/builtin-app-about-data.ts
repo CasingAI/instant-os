@@ -310,4 +310,12 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '当前是最简版（不含 tool call），重点验证标签 DSL 的格式遵循率与流式实时解析。',
     ],
   },
+  'llm-playground': {
+    version: 'LLM 调试实验台',
+    paragraphs: [
+      'LLM Playground 是面向开发者的请求调试台：以消息列表形式自由编辑、插入、删除与重排 System / User / Assistant 消息，选择模型后一键发送，流式查看思考链与正文输出。',
+      '右侧面板可调整采样参数（Temperature、Top P、频率/出现惩罚、最大输出 Tokens、停止序列）与深度思考档位；请求会计入 AI 用量与事件日志。输出可一键追加回消息列表继续调试。',
+      '配置与消息保存在本机；打开「系统设置 → 账户」可管理模型供应商与 API Key。',
+    ],
+  },
 }

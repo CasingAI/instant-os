@@ -1659,3 +1659,55 @@ export function SrmlDemoIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function LlmPlaygroundIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#7c5cf0" size={size}>
+      <svg
+        viewBox="0 0 64 64"
+        width={size}
+        height={size}
+        fill="none"
+        aria-hidden="true"
+      >
+        {/* 可编辑消息气泡：白底圆角矩形 + 三条彩色消息行 */}
+        <g transform="translate(8 9)">
+          <path
+            d="M4 0 h40 a4 4 0 0 1 4 4 v22 a4 4 0 0 1 -4 4 H30 l-6 7 v-7 h-6 a4 4 0 0 1 -4 -4 V4 a4 4 0 0 1 4 -4 z"
+            fill="#ffffff"
+            stroke="#4a3e80"
+            stroke-width="1.6"
+          />
+          <circle cx="10" cy="11" r="3.2" fill="#9333ea" />
+          <rect x="17" y="8.5" width="27" height="5" rx="2.5" fill="#d8d0f2" />
+          <circle cx="10" cy="21" r="3.2" fill="#2563eb" />
+          <rect x="17" y="18.5" width="19" height="5" rx="2.5" fill="#c6d6f6" />
+          <circle cx="10" cy="31" r="3.2" fill="#0d9488" />
+          <rect x="17" y="28.5" width="23" height="5" rx="2.5" fill="#b8e2dc" />
+        </g>
+        {/* 发送 / 参数角标：右下角圆形发送钮 */}
+        <circle
+          cx="47"
+          cy="48"
+          r="10"
+          fill="url(#llm-playground-send)"
+          stroke="#ffffff"
+          stroke-width="1.4"
+        />
+        <path
+          d="M42 48 h10 M47 43.5 l4.5 4.5 -4.5 4.5"
+          stroke="#ffffff"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <defs>
+          <linearGradient id="llm-playground-send" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#a48bf7" />
+            <stop offset="100%" stop-color="#5b3fd8" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </AppIconTile>
+  )
+}

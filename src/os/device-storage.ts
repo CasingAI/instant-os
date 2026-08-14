@@ -60,6 +60,7 @@ export const DEVICE_STORAGE_KEYS = {
   musicLyricOffsets: 'instant-os-music-lyric-offsets',
   musicVolume: 'instant-os-music-volume',
   systemVolume: 'instant-os-system-volume',
+  llmPlayground: 'instant-os-llm-playground',
 } as const
 
 /** Frimousse 表情选择器缓存的 localStorage 键前缀 */

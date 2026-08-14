@@ -1,7 +1,8 @@
+import type OpenAI from 'openai'
 import { formatStreamEventResponse } from './ai-event-log-serialize.ts'
 import { buildThinkingRequestExtras, readStreamDelta } from './ai-thinking.ts'
 import { finishAiEventLogSession, startAiEventLogSession } from './ai-event-log.ts'
-import type { AiEventLogMessage } from './ai-event-log-types.ts'
+import type { AiEventLogMessage, AiEventLogMessageRole } from './ai-event-log-types.ts'
 import type { AiUsageContext } from './ai-usage-context.ts'
 import { snapshotFromOpenAiUsage } from './openai-usage.ts'
 import { recordAiTokenUsage } from './ai-token-usage.ts'
@@ -30,6 +31,21 @@ export type StreamChatOptions = {
   user: string
   /** 首条 user 之后的对话轮次（assistant / user 交替） */
   followUp?: StreamChatTurn[]
+  /**
+   * 直接指定完整消息数组（system / user / assistant 任意穿插）。
+   * 提供时忽略 system / user / followUp。
+   */
+  messages?: OpenAI.Chat.ChatCompletionMessageParam[]
+  /** 采样温度（0~2），缺省使用模型默认 */
+  temperature?: number
+  /** 核采样 top_p（0~1），缺省使用模型默认 */
+  topP?: number
+  /** 频率惩罚（-2~2），缺省使用模型默认 */
+  frequencyPenalty?: number
+  /** 出现惩罚（-2~2），缺省使用模型默认 */
+  presencePenalty?: number
+  /** 停止序列，缺省使用模型默认 */
+  stop?: string | string[]
   onChunk: (delta: string, accumulated: string) => void
   /** 思考链增量（若模型返回 reasoning_content） */
   onReasoningChunk?: (delta: string, accumulated: string) => void
@@ -60,6 +76,22 @@ function createAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
 }
 
+function toEventLogMessages(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+): AiEventLogMessage[] {
+  const result: AiEventLogMessage[] = []
+  for (const message of messages) {
+    if (typeof message.content !== 'string') {
+      continue
+    }
+    const role = message.role
+    const mappedRole: AiEventLogMessageRole =
+      role === 'function' ? 'tool' : role === 'developer' ? 'system' : role
+    result.push({ role: mappedRole, content: message.content })
+  }
+  return result
+}
+
 export async function streamChatCompletion(options: StreamChatOptions): Promise<string> {
   const config = mergeOpenAiConfig(options.config)
   const client = getOpenAiClient(config)
@@ -78,12 +110,20 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
 
   const system = appendOsDateTimeSystemSection(options.system)
 
+  const requestMessages: OpenAI.Chat.ChatCompletionMessageParam[] = options.messages ?? [
+    { role: 'system', content: system },
+    { role: 'user', content: options.user },
+    ...(options.followUp ?? []),
+  ]
+
   const eventMessages: AiEventLogMessage[] | undefined = options.usageContext
-    ? [
-        { role: 'system', content: system },
-        { role: 'user', content: options.user },
-        ...(options.followUp ?? []),
-      ]
+    ? options.messages
+      ? toEventLogMessages(options.messages)
+      : [
+          { role: 'system', content: system },
+          { role: 'user', content: options.user },
+          ...(options.followUp ?? []),
+        ]
     : undefined
   const logSession = options.usageContext && eventMessages
     ? startAiEventLogSession(options.usageContext, {
@@ -104,11 +144,16 @@ export async function streamChatCompletion(options: StreamChatOptions): Promise<
         ...(options.maxCompletionTokens !== undefined
           ? { max_tokens: options.maxCompletionTokens }
           : {}),
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: options.user },
-          ...(options.followUp ?? []),
-        ],
+        messages: requestMessages,
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+        ...(options.frequencyPenalty !== undefined
+          ? { frequency_penalty: options.frequencyPenalty }
+          : {}),
+        ...(options.presencePenalty !== undefined
+          ? { presence_penalty: options.presencePenalty }
+          : {}),
+        ...(options.stop !== undefined ? { stop: options.stop } : {}),
         ...buildThinkingRequestExtras(
           config.providerId,
           thinkingEnabled,
