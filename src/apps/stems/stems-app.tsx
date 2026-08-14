@@ -2109,7 +2109,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               title={mdxProvider === 'webgpu' ? 'MDX 人声分离运行在 WebGPU 上' : 'MDX 人声分离回退到 WASM（多线程），速度较慢'}
             >
               <span class="stems__engine-lamp" />
-              MDX
+              {mdxProvider === 'webgpu' ? 'WebGPU · MDX' : 'WASM · MDX'}
             </span>
           )}
           {sourceName && <span class="stems__source">{sourceName}</span>}
