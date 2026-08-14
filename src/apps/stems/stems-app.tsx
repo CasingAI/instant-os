@@ -1240,6 +1240,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             }
             // 普通歌词的原始 .lrc 文本（含行时间戳）随包恢复
             if (manifest.lyricsLrc) lyricsLrcRef.current = manifest.lyricsLrc
+            // 恢复 .lrc 行时间戳：对齐依赖行窗口主导；缺失时重新对齐退化为
+            // 全局文本对齐，识别断层段（如副歌和声）的词会被插值压到前一锚点附近堆叠。
+            // 会话内已由同名 .lrc 自动载入建立的 lineTimes 不覆盖。
+            if (lyricsLineTimesRef.current === null && manifest.lyricsLrc && lyricsRef.current.trim()) {
+              lyricsLineTimesRef.current = mapLrcLineTimes(manifest.lyricsLrc, lyricsRef.current.split('\n'))
+            }
             // 音素段（人声轨识别结果）随包恢复：换歌词时复用，跳过重新识别
             if (manifest.phonemes) phonemesRef.current = manifest.phonemes
             // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
