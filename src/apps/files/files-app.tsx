@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { ComponentType, JSX } from 'preact'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren, ComponentType, JSX } from 'preact'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { getAppDefinition } from '../../os/app-registry.tsx'
@@ -27,6 +27,7 @@ import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
+import { readAppliedDockReservePx } from '../../dock/dock-css-vars.ts'
 import { FilesStorageFullError } from './files-storage.ts'
 import {
   collectDataTransferEntries,
@@ -397,6 +398,53 @@ function FilesContextSubmenu({
   )
 }
 
+/**
+ * 右键菜单 / 弹出层定位容器：渲染后按实际尺寸 clamp 进视口，
+ * 避免靠近屏幕边缘时溢出（子菜单 FilesContextSubmenu 有同样的边界修正）。
+ */
+function FilesContextMenu({
+  x,
+  y,
+  className = 'files__context',
+  style,
+  role,
+  children,
+}: {
+  x: number
+  y: number
+  className?: string
+  style?: JSX.CSSProperties
+  role?: JSX.HTMLAttributes<HTMLDivElement>['role']
+  children: ComponentChildren
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    if (!menu) {
+      return
+    }
+    const menuRect = menu.getBoundingClientRect()
+    const dockReserve = readAppliedDockReservePx()
+    const maxX = window.innerWidth - menuRect.width - 8
+    const maxY = window.innerHeight - dockReserve - menuRect.height - 8
+    menu.style.left = `${Math.max(8, Math.min(x, maxX))}px`
+    menu.style.top = `${Math.max(8, Math.min(y, maxY))}px`
+  }, [x, y])
+
+  return (
+    <div
+      ref={menuRef}
+      class={className}
+      role={role}
+      style={{ left: `${x}px`, top: `${y}px`, ...style }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  )
+}
+
 function toTextFileName(baseName: string): string {
   const trimmed = baseName.trim().replace(/\.txt$/i, '')
   if (!trimmed) return '未命名.txt'
@@ -589,6 +637,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   selectionModeRef.current = selectionMode
   /** 窄屏首次滑入内容层时，等布局 transition 后再滚入选中项 */
   const pendingRevealLayoutRef = useRef(false)
+  /** 右键菜单/触屏长按等操作手势触发的选区变化，跳过自动滚入（浮层已定位在鼠标处） */
+  const suppressAutoScrollRef = useRef(false)
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set())
@@ -1107,6 +1157,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   // 等目录切换动画 / 窄屏滑入结束后再滚入，避免 transform 过程中 scrollIntoView 无效
   useEffect(() => {
+    // 右键菜单/触屏长按等操作手势触发的选区变化不自动滚入（浮层已定位在鼠标处，滚动会把目标 Item 移走）
+    const suppressAutoScroll = suppressAutoScrollRef.current
+    suppressAutoScrollRef.current = false
+    if (suppressAutoScroll) return
     if (!firstSelectedId || refreshing) return
     if (!items.some((node) => node.id === firstSelectedId)) return
 
@@ -3464,6 +3518,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                         setBackgroundContextMenu(undefined)
                         // 右键未选中项时先单选（保持多选时右键全集操作）
                         if (!selectedIdsRef.current.has(node.id)) {
+                          // 操作手势触发的选区变化不自动滚入，避免菜单弹出瞬间列表滚动导致被 scroll-close 关闭
+                          suppressAutoScrollRef.current = true
                           activateSelection(node.id)
                         }
                         if (actionSheetOpenedByLongPressRef.current) {
@@ -3548,11 +3604,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       </section>
 
       {contextMenu ? (
-        <div
-          class="files__context"
-          style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
-          onClick={(event) => event.stopPropagation()}
-        >
+        <FilesContextMenu x={contextMenu.x} y={contextMenu.y}>
           {buildItemMenuActions(contextMenu.node).map((item, index) => {
             if (item.type === 'separator') return undefined
             if (item.type === 'submenu') {
@@ -3579,15 +3631,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               </button>
             )
           })}
-        </div>
+        </FilesContextMenu>
       ) : undefined}
 
       {backgroundContextMenu ? (
-        <div
-          class="files__context"
-          style={{ left: `${backgroundContextMenu.x}px`, top: `${backgroundContextMenu.y}px` }}
-          onClick={(event) => event.stopPropagation()}
-        >
+        <FilesContextMenu x={backgroundContextMenu.x} y={backgroundContextMenu.y}>
           {backgroundMenuItems.map((item, index) => {
             if (item.type === 'separator') return undefined
             return (
@@ -3605,15 +3653,11 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               </button>
             )
           })}
-        </div>
+        </FilesContextMenu>
       ) : undefined}
 
       {locationContextMenu ? (
-        <div
-          class="files__context"
-          style={{ left: `${locationContextMenu.x}px`, top: `${locationContextMenu.y}px` }}
-          onClick={(event) => event.stopPropagation()}
-        >
+        <FilesContextMenu x={locationContextMenu.x} y={locationContextMenu.y}>
           <button
             type="button"
             class="files__context-item"
@@ -3623,7 +3667,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           >
             推出
           </button>
-        </div>
+        </FilesContextMenu>
       ) : undefined}
 
       <AdaptiveActionMenu
@@ -3639,15 +3683,12 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       />
 
       {newFileMenu ? (
-        <div
-          class="files__popover"
+        <FilesContextMenu
+          x={newFileMenu.x}
+          y={newFileMenu.y}
+          className="files__popover"
           role="menu"
-          style={{
-            left: `${newFileMenu.x}px`,
-            top: `${newFileMenu.y}px`,
-            ['--files-popover-arrow-x' as string]: `${newFileMenu.arrowX}px`,
-          }}
-          onClick={(event) => event.stopPropagation()}
+          style={{ ['--files-popover-arrow-x' as string]: `${newFileMenu.arrowX}px` }}
         >
           <div class="files__popover-label">新建文件</div>
           <button
@@ -3664,7 +3705,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               <span class="files__popover-item-meta">.txt</span>
             </span>
           </button>
-        </div>
+        </FilesContextMenu>
       ) : undefined}
 
       <WindowModal

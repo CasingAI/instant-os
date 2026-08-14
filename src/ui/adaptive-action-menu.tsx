@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import { ActionMenuSheet } from './action-menu-sheet.tsx'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
+import { readAppliedDockReservePx } from '../dock/dock-css-vars.ts'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './adaptive-action-menu.css'
 
@@ -172,8 +173,9 @@ function AdaptiveActionMenuDropdown({
     const menuRect = menu.getBoundingClientRect()
 
     if (mount === 'portal') {
+      const dockReserve = readAppliedDockReservePx()
       const maxX = window.innerWidth - menuRect.width - 4
-      const maxY = window.innerHeight - menuRect.height - 4
+      const maxY = window.innerHeight - dockReserve - menuRect.height - 4
       menu.style.left = `${Math.max(4, Math.min(anchor.x, maxX))}px`
       menu.style.top = `${Math.max(4, Math.min(anchor.y, maxY))}px`
       return

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { readAppliedDockReservePx } from '../dock/dock-css-vars.ts'
 import './icon-context-menu.css'
 
 export type IconContextMenuActionItem = {
@@ -191,8 +192,9 @@ export function IconContextMenu({ x, y, items, onClose }: IconContextMenuProps) 
     }
 
     const menuRect = menu.getBoundingClientRect()
+    const dockReserve = readAppliedDockReservePx()
     const maxX = window.innerWidth - menuRect.width - 8
-    const maxY = window.innerHeight - menuRect.height - 8
+    const maxY = window.innerHeight - dockReserve - menuRect.height - 8
 
     menu.style.left = `${Math.max(8, Math.min(x, maxX))}px`
     menu.style.top = `${Math.max(8, Math.min(y, maxY))}px`
