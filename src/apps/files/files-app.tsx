@@ -550,6 +550,11 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+/** 一个文件夹一份滚动位置：钥匙 = 卷 + 文件夹 id（根目录为 undefined） */
+function filesScrollKey(locationId: FilesLocationId, folderId: string | undefined): string {
+  return `${locationId}\0${folderId ?? ''}`
+}
+
 export function FilesApp({ windowId }: { windowId?: string }) {
   const { closeWindowsForApp, minimizeWindow, windows, openApp, openGeneratedApp, activeWindowId } = useOs()
   const { showBuiltinAbout } = useAboutApp()
@@ -609,6 +614,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
   const browserRef = useRef<HTMLDivElement>(null)
+  /** 按「卷 + 文件夹」记忆的滚动位置（仅本次打开期间） */
+  const scrollByFolderRef = useRef(new Map<string, number>())
+  /** 当前滚动容器正在展示的文件夹钥匙 */
+  const scrollKeyRef = useRef(filesScrollKey('local', undefined))
+  /** 换目录后待执行的滚动恢复：normal 恢复记忆，skip 留给选中项滚入 */
+  const pendingScrollRestoreRef = useRef<
+    | { key: string; mode: 'normal' | 'skip' }
+    | undefined
+  >(undefined)
+  const applyScrollRestoreRef = useRef(false)
+  /** 外部揭示等需要把目标项滚入视口的导航：不恢复旧记忆 */
+  const skipScrollRestoreRef = useRef(false)
   const prevNarrowLayoutRef = useRef<boolean | undefined>(undefined)
   const suppressItemClickRef = useRef(false)
   const longPressTimerRef = useRef<number | undefined>(undefined)
@@ -639,6 +656,25 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const pendingRevealLayoutRef = useRef(false)
   /** 右键菜单/触屏长按等操作手势触发的选区变化，跳过自动滚入（浮层已定位在鼠标处） */
   const suppressAutoScrollRef = useRef(false)
+
+  // 换目录（含换卷、路径栏、符号链接）时：先拍下当前偏移，再为下一目录挂起恢复。
+  // 此时列表仍是旧目录内容，布局 effect 早于被动 effect（refresh 的 setItems），偏移可信。
+  // 加载中（refreshing）屏幕内容可能已不属于旧钥匙，跳过保存，交由 onScroll 兜底。
+  useLayoutEffect(() => {
+    const key = filesScrollKey(locationId, folderId)
+    if (scrollKeyRef.current === key) {
+      skipScrollRestoreRef.current = false
+      return
+    }
+    const root = browserRef.current
+    if (root && !refreshing) {
+      scrollByFolderRef.current.set(scrollKeyRef.current, root.scrollTop)
+    }
+    scrollKeyRef.current = key
+    const skip = skipScrollRestoreRef.current
+    skipScrollRestoreRef.current = false
+    pendingScrollRestoreRef.current = { key, mode: skip ? 'skip' : 'normal' }
+  }, [locationId, folderId, refreshing])
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set())
@@ -940,9 +976,19 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     const cachedListing = getCachedListDirectory(locationId, folderId)
     const showLoadingUi = !options?.quiet && cachedListing === undefined
 
+    // 换目录后待恢复的滚动位置：等该目录的列表真正落地（setItems）再启用写回，
+    // 避免恢复发生在加载占位或旧目录内容上
+    const armScrollRestore = () => {
+      const pending = pendingScrollRestoreRef.current
+      if (!pending || pending.mode !== 'normal') return
+      if (pending.key !== filesScrollKey(locationId, folderId)) return
+      applyScrollRestoreRef.current = true
+    }
+
     resetViewportMeta()
     if (cachedListing !== undefined) {
       setItems(sortNodeList(cachedListing, sort))
+      armScrollRestore()
     }
     if (!options?.quiet) {
       if (showLoadingUi) {
@@ -968,11 +1014,13 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       ])
       if (gen !== refreshGenRef.current) return
       setItems(sortNodeList(listed, sort))
+      armScrollRestore()
       setPathNodes(path)
     } catch (err) {
       if (gen !== refreshGenRef.current) return
       setError(formatError(err))
       setItems([])
+      armScrollRestore()
       setPathNodes([])
     } finally {
       if (gen === refreshGenRef.current && showLoadingUi) endRefreshingUi(gen)
@@ -1017,6 +1065,19 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     void refresh()
   }, [refresh])
 
+  // 换目录后、新目录列表落地时写回记忆的滚动位置（首次进入为顶部）。
+  // 只在被 refresh 武装（armScrollRestore）后执行一次；同目录内的列表更新不重放。
+  useLayoutEffect(() => {
+    if (!applyScrollRestoreRef.current) return
+    applyScrollRestoreRef.current = false
+    const pending = pendingScrollRestoreRef.current
+    pendingScrollRestoreRef.current = undefined
+    if (!pending) return
+    const root = browserRef.current
+    if (!root) return
+    root.scrollTop = scrollByFolderRef.current.get(pending.key) ?? 0
+  }, [items, refreshing])
+
   const itemIdsKey = useMemo(() => items.map((item) => item.id).join('\0'), [items])
 
   useEffect(() => {
@@ -1046,7 +1107,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   }, [enqueueViewportMeta, itemIdsKey, refreshing, viewMode])
 
   const navigateToDocumentPath = useCallback(async (absolutePath: string) => {
-    const applyBrowse = (nextLocationId: FilesLocationId, nextFolderId: string | undefined) => {
+    const applyBrowse = (
+      nextLocationId: FilesLocationId,
+      nextFolderId: string | undefined,
+      revealItem = false,
+    ) => {
+      // 只有确实要换目录时才挂上「跳过恢复」标记（留给选中项滚入）；
+      // 同目录揭示不产生恢复，避免标记残留到下一次真正的换目录
+      const willChangeKey = filesScrollKey(nextLocationId, nextFolderId) !== scrollKeyRef.current
+      skipScrollRestoreRef.current = willChangeKey && revealItem
       setLocationId(nextLocationId)
       setFolderId(nextFolderId)
       setFolderMotion('push')
@@ -1071,7 +1140,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       if (!parsed) return false
 
       if (parsed.segments.length === 0) {
-        applyBrowse(parsed.locationId, undefined)
+        applyBrowse(parsed.locationId, undefined, selectName != null)
         if (selectName) armSelectByName(selectName)
         else clearSelection()
         return true
@@ -1084,7 +1153,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         if (node) {
           if (selectName) {
             // 递归落到父目录：进入该目录并按文件名待选
-            applyBrowse(node.locationId, node.kind === 'folder' ? node.id : node.parentId)
+            applyBrowse(node.locationId, node.kind === 'folder' ? node.id : node.parentId, true)
             armSelectByName(selectName)
             return true
           }
@@ -1092,7 +1161,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             clearSelection()
             applyBrowse(node.locationId, node.id)
           } else {
-            applyBrowse(node.locationId, node.parentId)
+            // 揭示文件：优先把目标项滚入视口，不恢复该目录的旧记忆
+            applyBrowse(node.locationId, node.parentId, true)
             activateSelection(node.id)
           }
           return true
@@ -1102,7 +1172,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       }
 
       if (parsed.segments.length <= 1) {
-        applyBrowse(parsed.locationId, undefined)
+        applyBrowse(parsed.locationId, undefined, true)
         armSelectByName(selectName ?? leafName)
         return true
       }
@@ -3396,6 +3466,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
             .filter(Boolean)
             .join(' ')}
           tabIndex={0}
+          onScroll={() => {
+            const root = browserRef.current
+            if (root) scrollByFolderRef.current.set(scrollKeyRef.current, root.scrollTop)
+          }}
           onAnimationEnd={(event) => {
             if (event.currentTarget !== event.target) return
             setFolderMotion('idle')
