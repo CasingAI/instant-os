@@ -136,7 +136,8 @@ export function stitchStemOutputs(
   })
 }
 
-export type WaveformPeak = { min: number; max: number }
+/** 每桶波形峰值：min/max 为瞬时峰值（对称渲染），rms 为该桶均方根响度（长窗口显示包络用） */
+export type WaveformPeak = { min: number; max: number; rms?: number }
 
 /**
  * 写 44 字节标准 PCM WAV 头（16-bit 立体声），供导出与分轨打包共用。
@@ -208,6 +209,8 @@ export function computeWaveformPeaks(
   for (let b = 0; b < bucketCount; b++) {
     let min = 0
     let max = 0
+    let sumSq = 0
+    let n = 0
     // 按比例切帧，避免 ceil(frames/buckets) 让末尾若干桶落在窗口外变成假静音
     const start = from + Math.floor((b * windowFrames) / bucketCount)
     const end = from + Math.floor(((b + 1) * windowFrames) / bucketCount)
@@ -218,13 +221,18 @@ export function computeWaveformPeaks(
       const amp = Math.max(Math.abs(l), Math.abs(r))
       if (amp > max) max = amp
       if (-amp < min) min = -amp
+      sumSq += amp * amp
+      n++
     }
-    peaks.push({ min, max })
+    const peak: WaveformPeak = { min, max }
+    if (n > 0) peak.rms = Math.sqrt(sumSq / n)
+    peaks.push(peak)
   }
   return peaks
 }
 
-/** 波形峰值金字塔：基础桶存整轨 min/max（左右声道取大幅值，与 computeWaveformPeaks 语义一致）。 */
+/** 波形峰值金字塔：基础桶存整轨 min/max（左右声道取大幅值，与 computeWaveformPeaks 语义一致）。
+ *  rms 为每基础桶的均方根响度（可选：peaks.bin 旧格式反序列化结果没有，渲染端缺省时回退纯峰值）。 */
 export type WaveformPyramid = {
   /** 每个基础桶的帧数（采样点） */
   bucketSamples: number
@@ -232,6 +240,8 @@ export type WaveformPyramid = {
   bucketCount: number
   min: Float32Array
   max: Float32Array
+  /** 每基础桶的均方根响度（sqrt(mean amp²)），长窗口聚合包络显示用 */
+  rms?: Float32Array
 }
 
 /** 金字塔基准分辨率：~1ms/桶（44.1kHz 下 44 帧）。 */
@@ -264,6 +274,9 @@ export function buildWaveformPyramid(
   const { bucketSamples, bucketCount } = waveformPyramidLayout(totalFrames, sampleRate)
   const min = new Float32Array(bucketCount)
   const max = new Float32Array(bucketCount)
+  // 双精度累加：与 computeWaveformPeaks 的 number 累加逐位一致（金字塔聚合与直接计算可精确对比）
+  const sumSq = new Float64Array(bucketCount)
+  const counts = new Uint32Array(bucketCount)
   for (let f = 0; f < totalFrames; f++) {
     const l = data[f * STEM_CHANNELS]
     const r = data[f * STEM_CHANNELS + 1]
@@ -272,8 +285,14 @@ export function buildWaveformPyramid(
     if (amp > max[b]) max[b] = amp
     const neg = -amp
     if (neg < min[b]) min[b] = neg
+    sumSq[b] += amp * amp
+    counts[b]++
   }
-  return { bucketSamples, bucketCount, min, max }
+  const rms = new Float32Array(bucketCount)
+  for (let b = 0; b < bucketCount; b++) {
+    rms[b] = counts[b] > 0 ? Math.sqrt(sumSq[b] / counts[b]) : 0
+  }
+  return { bucketSamples, bucketCount, min, max, rms }
 }
 
 /**
@@ -296,9 +315,12 @@ export function computeWaveformPeaksFromPyramid(
     return peaks
   }
   const B = pyramid.bucketSamples
+  const rmsArr = pyramid.rms
   for (let b = 0; b < bucketCount; b++) {
     let min = 0
     let max = 0
+    let sumSq = 0
+    let n = 0
     // 与 computeWaveformPeaks 相同的比例切窗，保证末尾桶仍覆盖真实音频
     const start = from + Math.floor((b * windowFrames) / bucketCount)
     const end = from + Math.floor(((b + 1) * windowFrames) / bucketCount)
@@ -308,9 +330,15 @@ export function computeWaveformPeaksFromPyramid(
       for (let p = first; p <= last; p++) {
         if (pyramid.min[p] < min) min = pyramid.min[p]
         if (pyramid.max[p] > max) max = pyramid.max[p]
+        if (rmsArr) {
+          sumSq += rmsArr[p] * rmsArr[p]
+          n++
+        }
       }
     }
-    peaks.push({ min, max })
+    const peak: WaveformPeak = { min, max }
+    if (n > 0) peak.rms = Math.sqrt(sumSq / n)
+    peaks.push(peak)
   }
   return peaks
 }

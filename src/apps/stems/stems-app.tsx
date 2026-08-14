@@ -9,6 +9,7 @@ import { isModelCached, MDX_MODEL_URL } from '../../os/model-cache.ts'
 import { resolveNodeByAbsolutePath, readFileBlob } from '../files/files-vfs.ts'
 import { filesOpenStreamWrite, filesReadBlobRange, filesReadText } from '../files/files-api.ts'
 import {
+  buildWaveformPyramid,
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
   STEM_CHANNELS,
@@ -73,6 +74,14 @@ type StemTrackState = {
 const WAVEFORM_BUCKETS = 200
 /** 波形横向缩放下可见窗口的最短时长（秒） */
 const MIN_VIEW_SEC = 0.5
+
+/** 波形显示：峰值 / RMS 响度包络的缩放自适应混合。
+ * 每可见桶覆盖时间（毫秒）≤ MIN_MS 时纯峰值（放大看细节保留瞬态），
+ * ≥ MAX_MS 时纯 RMS（全轨显示响度包络，避免被密集瞬时峰值顶成实心）；中间线性过渡。 */
+const RMS_BLEND_MIN_MS = 8
+const RMS_BLEND_MAX_MS = 96
+/** RMS 包络显示增益：把典型 0.1~0.4 的响度放大到可读柱高，同时保留主歌/副歌起伏 */
+const RMS_GAIN = 2.5
 
 /** 歌词对齐模型：zipformer（中文）/ sense-voice（五语） */
 type AlignModel = 'zipformer' | 'sense-voice'
@@ -502,10 +511,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             }
           }
           if (buffer) buffers.set(stem.stemId, buffer)
+          // 旧版 peaks.bin 只存 min/max 无 rms：从 PCM 重建一次带 rms 的金字塔，
+          // 保证长窗口的响度包络显示与新建金字塔行为一致
+          const existing = target.get(stem.stemId)
+          if (existing && !existing.rms) {
+            target.set(stem.stemId, buildWaveformPyramid(data, rate))
+          }
         } else {
           // 合并遍历：填 buffer 同时聚合金字塔桶值
           const min = new Float32Array(bucketCount)
           const max = new Float32Array(bucketCount)
+          const sumSq = new Float32Array(bucketCount)
+          const counts = new Uint32Array(bucketCount)
           for (let f = 0; f < frames; f++) {
             const l = data[f * STEM_CHANNELS]
             const r = data[f * STEM_CHANNELS + 1]
@@ -518,9 +535,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             if (amp > max[b]) max[b] = amp
             const neg = -amp
             if (neg < min[b]) min[b] = neg
+            sumSq[b] += amp * amp
+            counts[b]++
+          }
+          const rms = new Float32Array(bucketCount)
+          for (let b = 0; b < bucketCount; b++) {
+            rms[b] = counts[b] > 0 ? Math.sqrt(sumSq[b] / counts[b]) : 0
           }
           if (buffer) buffers.set(stem.stemId, buffer)
-          target.set(stem.stemId, { bucketSamples, bucketCount, min, max })
+          target.set(stem.stemId, { bucketSamples, bucketCount, min, max, rms })
         }
       }
       buffersRef.current = buffers
@@ -2850,11 +2873,22 @@ function StemTrackRow({
       ctx.fillStyle = color
       ctx.globalAlpha = 0.9
       const midY = height / 2
+      // 每可见桶覆盖的音频时长（毫秒）：全轨视图很大、放大细节很小，驱动峰值/RMS 混合
+      const windowFrames = Math.max(1, endFrame - startFrame)
+      const msPerBucket = (windowFrames / peaks.length) * (1000 / sampleRate)
+      const blend =
+        msPerBucket <= RMS_BLEND_MIN_MS
+          ? 0
+          : Math.min(1, (msPerBucket - RMS_BLEND_MIN_MS) / (RMS_BLEND_MAX_MS - RMS_BLEND_MIN_MS))
       for (let i = 0; i < peaks.length; i++) {
         const peak = peaks[i]
         const x0 = Math.floor((i / peaks.length) * width)
         const x1 = Math.floor(((i + 1) / peaks.length) * width)
-        const amp = Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max)))
+        const peakAmp = Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max)))
+        // 长窗口下 RMS 包络主导、峰值退居；短窗口（放大）保持纯峰值瞬态。
+        // rms 缺失（旧数据）时退化为纯峰值，与旧版行为一致。
+        const rmsAmp = peak.rms !== undefined ? Math.min(1, peak.rms * RMS_GAIN) : peakAmp
+        const amp = peakAmp * (1 - blend) + rmsAmp * blend
         const barHeight = Math.max(1, amp * (height - 4))
         ctx.fillRect(x0, midY - barHeight / 2, Math.max(1, x1 - x0 - gap), barHeight)
       }

@@ -188,6 +188,41 @@ function testWaveformPeaksRange(): void {
   console.log('ok: computeWaveformPeaks 窗口范围')
 }
 
+function testWaveformRms(): void {
+  // 恒定幅度：rms 应等于该幅度（均方根）
+  const constData = new Float32Array(100 * STEM_CHANNELS).fill(0.5)
+  const constPeaks = computeWaveformPeaks(constData, 4)
+  assert.ok(
+    constPeaks.every((p) => p.rms !== undefined && Math.abs(p.rms - 0.5) < 1e-6),
+    '恒定幅度桶的 rms 应等于幅度',
+  )
+
+  // 稀疏瞬时峰值：max 高但 rms 低 —— rms 是长窗口包络不顶满的关键
+  const sparse = new Float32Array(100 * STEM_CHANNELS)
+  sparse[0] = 1.0 // 桶 0（帧 0..24）仅首帧大幅
+  const sparsePeaks = computeWaveformPeaks(sparse, 4)
+  assert.ok(Math.abs(sparsePeaks[0].max - 1.0) < 1e-6, '稀疏峰值 max=1')
+  assert.ok(
+    sparsePeaks[0].rms !== undefined && Math.abs(sparsePeaks[0].rms - 0.2) < 1e-6,
+    '稀疏峰值 rms = sqrt(1/25) = 0.2，远低于 max',
+  )
+  // 纯静音桶 rms 为 0
+  assert.equal(sparsePeaks[3].rms, 0)
+
+  // 金字塔带 rms；全曲聚合 rms 与直接计算一致（恒定幅度下无聚合误差）
+  const pyramid = buildWaveformPyramid(constData, 44100)
+  assert.ok(pyramid.rms, '金字塔应带 rms')
+  const fromPyramid = computeWaveformPeaksFromPyramid(pyramid, 4, 0, 50)
+  const exact = computeWaveformPeaks(constData, 4, 0, 50)
+  for (let b = 0; b < 4; b++) {
+    assert.ok(
+      Math.abs((fromPyramid[b].rms ?? 0) - (exact[b].rms ?? 0)) < 0.05,
+      `桶 ${b} 金字塔 rms 聚合应接近精确值`,
+    )
+  }
+  console.log('ok: computeWaveformPeaks RMS')
+}
+
 function testWaveformPyramid(): void {
   const rate = 44100
   const frames = 50000
@@ -241,6 +276,7 @@ testChunkSlicing()
 testOverlapAddEnergy()
 testWaveformPeaks()
 testWaveformPeaksRange()
+testWaveformRms()
 testWaveformPyramid()
 testConstants()
 testResample()
