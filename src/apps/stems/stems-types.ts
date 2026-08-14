@@ -9,8 +9,9 @@ export type StemId = 'drums' | 'bass' | 'other' | 'other2' | 'vocals' | 'guitar'
 export const HTDEMUCS_STEM_IDS: StemId[] = ['drums', 'bass', 'other', 'vocals', 'guitar', 'piano']
 
 /**
- * 分轨产品展示/持久化顺序：7 轨。
- * other2 为 htdemucs 在人声通道里提取的伴奏残余（第二轮分轨不再丢弃任何通道）；
+ * 分轨产品展示/持久化顺序（全集，实际输出 6~7 轨）。
+ * other2 为 htdemucs 在人声通道里提取的伴奏残余：若其近似空轨（静音占比
+ * ≥ STEM_SILENCE_MERGE_RATIO）则并入「其他一」输出 6 轨，否则单列 other2 输出 7 轨；
  * 「其他」两轨排在末尾，主乐器轨优先。
  */
 export const STEM_IDS: StemId[] = ['drums', 'bass', 'vocals', 'guitar', 'piano', 'other', 'other2']
@@ -23,6 +24,12 @@ export const STEM_LABELS: Record<StemId, string> = {
   vocals: '人声',
   guitar: '吉他',
   piano: '钢琴',
+}
+
+/** 轨道显示名：other2 被合并（6 轨）时 other 直接显示「其他」而非「其他一」。 */
+export function stemDisplayLabel(stemId: StemId, hasOther2: boolean): string {
+  if (stemId === 'other' && !hasOther2) return '其他'
+  return STEM_LABELS[stemId]
 }
 
 export const STEM_COLORS: Record<StemId, string> = {

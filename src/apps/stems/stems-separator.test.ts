@@ -8,7 +8,9 @@ import {
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
   encodeWav,
+  mixStems,
   resampleInterleaved,
+  silenceRatio,
   sliceStemChunks,
   STEM_CHANNELS,
   STEM_OVERLAP,
@@ -16,7 +18,7 @@ import {
   stemStep,
   stitchStemOutputs,
 } from './stems-separator.ts'
-import { HTDEMUCS_STEM_IDS } from './stems-types.ts'
+import { HTDEMUCS_STEM_IDS, stemDisplayLabel } from './stems-types.ts'
 
 function testChunkSlicing(): void {
   // 一个窗口以内的音频 → 恰好一块
@@ -167,6 +169,70 @@ function testEncodeWav(): void {
   console.log('ok: encodeWav')
 }
 
+function testSilenceRatio(): void {
+  // 空数据 → 全静音
+  assert.equal(silenceRatio(new Float32Array(0)), 1)
+  // 全零 → 全静音
+  assert.equal(silenceRatio(new Float32Array(1000 * STEM_CHANNELS)), 1)
+  // 恒定满幅 → 无静音
+  assert.equal(silenceRatio(new Float32Array(1000 * STEM_CHANNELS).fill(0.5)), 0)
+  // 微弱信号（约 -60dBFS）低于 -50dB 阈值 → 视为静音
+  assert.equal(silenceRatio(new Float32Array(1000 * STEM_CHANNELS).fill(0.001)), 1)
+
+  // 精确分块：100 块中前 50 块有内容、后 50 块全零 → 0.5
+  const half = new Float32Array(100 * 100 * STEM_CHANNELS)
+  for (let b = 0; b < 50; b++) {
+    for (let i = 0; i < 100; i++) {
+      half[(b * 100 + i) * STEM_CHANNELS] = 0.3
+      half[(b * 100 + i) * STEM_CHANNELS + 1] = 0.3
+    }
+  }
+  assert.equal(silenceRatio(half, 100), 0.5)
+
+  // 模拟 other2 特征：全曲静音 + 每隔 ~5.8s（256000 帧@44.1k）一个短脉冲 → 高静音占比
+  const sparse = new Float32Array(2560000 * STEM_CHANNELS) // ~58 秒
+  for (let f = 1000; f < sparse.length / STEM_CHANNELS; f += 256000) {
+    sparse[f * STEM_CHANNELS] = 0.9
+    sparse[f * STEM_CHANNELS + 1] = 0.9
+  }
+  const sparseRatio = silenceRatio(sparse, 2048)
+  assert.ok(sparseRatio >= 0.9, `稀疏脉冲轨静音占比应 ≥0.9，实际 ${sparseRatio}`)
+  console.log('ok: silenceRatio')
+}
+
+function testMixStems(): void {
+  const a = new Float32Array(8)
+  const b = new Float32Array(8)
+  a.set([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+  b.set([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2])
+  const mixed = mixStems(a, b)
+  for (let i = 0; i < 8; i++) {
+    assert.ok(Math.abs(mixed[i] - 1.0) < 1e-6, `逐样本相加，位置 ${i}`)
+  }
+  // 不修改入参（float32 存储精度，用容差）
+  assert.ok(Math.abs(a[0] - 0.1) < 1e-7, 'a 不应被修改')
+  assert.ok(Math.abs(b[0] - 0.9) < 1e-7, 'b 不应被修改')
+  // 与全零相加 → 原样（float32 容差）
+  const copy = mixStems(a, new Float32Array(a.length))
+  for (let i = 0; i < a.length; i++) {
+    assert.ok(Math.abs(copy[i] - a[i]) < 1e-7, `与零相加应原样，位置 ${i}`)
+  }
+  console.log('ok: mixStems')
+}
+
+function testDisplayLabel(): void {
+  // 7 轨（other2 单列）：other 仍为「其他一」，other2 为「其他二」
+  assert.equal(stemDisplayLabel('other', true), '其他一')
+  assert.equal(stemDisplayLabel('other2', true), '其他二')
+  // 6 轨（other2 已合并）：other 显示「其他」
+  assert.equal(stemDisplayLabel('other', false), '其他')
+  // 其余轨不受影响
+  assert.equal(stemDisplayLabel('vocals', false), '人声')
+  assert.equal(stemDisplayLabel('drums', true), '鼓')
+  assert.equal(stemDisplayLabel('guitar', false), '吉他')
+  console.log('ok: stemDisplayLabel')
+}
+
 function testWaveformPeaksRange(): void {
   const data = new Float32Array(400 * STEM_CHANNELS)
   data[50 * STEM_CHANNELS] = 0.8
@@ -281,3 +347,6 @@ testWaveformPyramid()
 testConstants()
 testResample()
 testEncodeWav()
+testSilenceRatio()
+testMixStems()
+testDisplayLabel()

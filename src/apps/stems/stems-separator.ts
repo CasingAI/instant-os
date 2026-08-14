@@ -189,6 +189,48 @@ export function encodeWav(data: Float32Array, sampleRate: number): ArrayBuffer {
   return buffer
 }
 
+/**
+ * 分轨输出「其他二」的静音块占比阈值：分轨完成后检测 htdemucs 人声残余，
+ * 静音块占比 ≥ 此值视为近似空轨，并入「其他一」而非单列一轨。
+ */
+export const STEM_SILENCE_MERGE_RATIO = 0.9
+/** 静音判定块 RMS 阈值（约 -50 dBFS，与通用 silencedetect 语义一致）。 */
+const STEM_SILENCE_RMS = 10 ** (-50 / 20)
+
+/**
+ * 计算 interleaved stereo PCM 中近似静音块占比（0..1）。
+ * 每块 RMS 低于阈值视为静音；空数据按全静音计。
+ */
+export function silenceRatio(data: Float32Array, blockFrames = 2048): number {
+  const frames = Math.floor(data.length / STEM_CHANNELS)
+  if (frames <= 0) return 1
+  let silent = 0
+  let total = 0
+  for (let f = 0; f < frames; f += blockFrames) {
+    const end = Math.min(frames, f + blockFrames)
+    let sumSq = 0
+    for (let i = f; i < end; i++) {
+      const l = data[i * STEM_CHANNELS]
+      const r = data[i * STEM_CHANNELS + 1]
+      sumSq += l * l + r * r
+    }
+    const rms = Math.sqrt(sumSq / ((end - f) * STEM_CHANNELS))
+    if (rms < STEM_SILENCE_RMS) silent += 1
+    total += 1
+  }
+  return silent / total
+}
+
+/**
+ * 两条同长度 interleaved stereo 轨逐样本相加。
+ * htdemucs 各输出通道是对输入的互补谱分解，直接求和不会覆盖内容。
+ */
+export function mixStems(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(a.length)
+  for (let i = 0; i < a.length; i++) out[i] = a[i] + b[i]
+  return out
+}
+
 /** 计算 interleaved stereo PCM 的每桶峰值（min/max），用于波形渲染。
  *  可指定采样帧区间 [startFrame, endFrame) 只统计窗口内数据（横向缩放查看细节时用）。 */
 export function computeWaveformPeaks(

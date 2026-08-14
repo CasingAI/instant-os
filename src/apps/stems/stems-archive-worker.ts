@@ -2,7 +2,7 @@
 
 /**
  * 分轨压缩包后台解码 Worker：在独立线程完成 zip 定位 + WAV→Float32 解码，
- * 结果用 Transferable 传回主线程，避免长歌 7 轨解码阻塞 UI。
+ * 结果用 Transferable 传回主线程，避免长歌全轨解码阻塞 UI。
  * 由 stems-app 懒创建并复用；与 AI 推理调度服务的「一次一个模型」纪律无冲突
  * （纯 zip 解码，不加载任何模型）。
  */

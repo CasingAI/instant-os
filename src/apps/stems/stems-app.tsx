@@ -12,12 +12,15 @@ import {
   buildWaveformPyramid,
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
+  mixStems,
+  silenceRatio,
   STEM_CHANNELS,
+  STEM_SILENCE_MERGE_RATIO,
   STEM_TARGET_SAMPLE_RATE,
   waveformPyramidLayout,
 } from './stems-separator.ts'
 import type { WaveformPyramid } from './stems-separator.ts'
-import { STEM_COLORS, STEM_IDS, STEM_LABELS } from './stems-types.ts'
+import { STEM_COLORS, STEM_IDS, stemDisplayLabel } from './stems-types.ts'
 import type { StemAudio, StemEngineProvider, StemId, StemProgress } from './stems-types.ts'
 import {
   readStemsArchiveLayoutRanged,
@@ -501,7 +504,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   )
 
   /**
-   * 把 7 轨分轨结果一次性转成 AudioBuffer 缓存（含 L/R 去交错），播放时直接复用。
+   * 把分轨结果一次性转成 AudioBuffer 缓存（含 L/R 去交错），播放时直接复用。
    * 峰值金字塔：传入 `peaks`（v3 包从 peaks.bin 读出）时直接复用，跳过全量扫描；
    * 否则在填 buffer 的同一循环里聚合桶值，避免「先填 buffer 再 buildWaveformPyramid 扫第二遍」。
    */
@@ -643,7 +646,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             type: 'action',
             label:
               saveProgress !== null
-                ? `保存分轨中 ${saveProgress}/${STEM_IDS.length}…`
+                ? `保存分轨中 ${saveProgress}/${tracks?.length ?? STEM_IDS.length}…`
                 : '保存分轨',
             shortcut: '⌘S',
             disabled:
@@ -1078,17 +1081,25 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         )
         if (abort.signal.aborted) return
 
-        // 人声用 MDX 结果；htdemucs 的 vocals 通道（伴奏残余）保留为「其他二」，不丢弃任何频率
+        // 人声用 MDX 结果；htdemucs 的 vocals 通道（伴奏残余）作为「其他二」。
+        // 检测该残余是否近似空轨（静音块占比 ≥ STEM_SILENCE_MERGE_RATIO）：
+        // 近似空轨时并入「其他一」（htdemucs 通道互补，直接求和不丢内容），否则单列 other2 保留独立控制。
         const htdemucsVocals = done.stems.find((s) => s.stemId === 'vocals')
         if (!htdemucsVocals) throw new Error('htdemucs 输出缺少 vocals 轨')
-        const stems: StemAudio[] = done.stems.flatMap((s) =>
-          s.stemId === 'vocals'
-            ? [
-                { stemId: 'vocals', data: mdx.vocals },
-                { stemId: 'other2', data: htdemucsVocals.data },
-              ]
-            : [s],
-        )
+        const mergeResidual =
+          silenceRatio(htdemucsVocals.data) >= STEM_SILENCE_MERGE_RATIO
+        const stems: StemAudio[] = done.stems.flatMap((s) => {
+          if (s.stemId === 'vocals') {
+            return [{ stemId: 'vocals', data: mdx.vocals }]
+          }
+          if (mergeResidual && s.stemId === 'other') {
+            return [{ stemId: 'other', data: mixStems(s.data, htdemucsVocals.data) }]
+          }
+          return [s]
+        })
+        if (!mergeResidual) {
+          stems.push({ stemId: 'other2', data: htdemucsVocals.data })
+        }
         setStemSampleRate(done.sampleRate)
         cacheStemBuffers(stems, done.sampleRate)
         setTracks(
@@ -1173,8 +1184,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         // —— 第一段：先出 UI —— 占位 tracks（空 PCM），波形由 peaksRef 直接绘制
         peaksRef.current = peaks.size > 0 ? peaks : null
         setTracks(
-          STEM_IDS.map((stemId) => ({
-            audio: { stemId, data: new Float32Array(0) },
+          manifest.stems.map(({ id }) => ({
+            audio: { stemId: id, data: new Float32Array(0) },
             mute: false,
             solo: false,
             volume: 1,
@@ -1501,7 +1512,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     handleSeparateRef.current = () => void handleSeparate()
   }, [handleSeparate])
 
-  /** 从 offset 秒开始播放全部 7 轨；mute/solo/音量由各轨 GainNode 即时控制。 */
+  /** 从 offset 秒开始播放全部轨；mute/solo/音量由各轨 GainNode 即时控制。 */
   const startPlayback = useCallback(
     (startOffset: number) => {
       if (!tracks || !audioContextRef.current) return
@@ -2520,11 +2531,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             {STEM_IDS.map((stemId) => {
               const track = tracks.find((t) => t.audio.stemId === stemId)
               if (!track) return null
+              const hasOther2 = tracks.some((t) => t.audio.stemId === 'other2')
               return (
                 <StemTrackRow
                   key={stemId}
                   stemId={stemId}
                   track={track}
+                  label={stemDisplayLabel(stemId, hasOther2)}
                   playheadSec={currentTime}
                   viewStart={view.start}
                   viewLen={viewLen}
@@ -2665,7 +2678,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           </div>
           <p class="stems__empty-title">打开或拖入一个音乐文件，然后点击「开始分轨」。</p>
           <p class="stems__empty-hint">
-            分轨会把人声、鼓、贝斯、其他一、其他二、吉他、钢琴分离为 7 条独立音轨，可逐轨试听与调节。
+            分轨会把人声、鼓、贝斯、吉他、钢琴、其他声部分离为独立音轨，可逐轨试听与调节。
           </p>
           {loadingArchive && (
             <p class="stems__empty-hint">检测到已保存的分轨结果，正在载入…</p>
@@ -2863,6 +2876,8 @@ function toggleTrack(
 
 type StemTrackRowProps = {
   stemId: StemId
+  /** 轨道显示名（other2 合并后 other 显示「其他」） */
+  label: string
   track: StemTrackState
   /** 播放进度（秒），用于播放头位置 */
   playheadSec: number
@@ -2887,6 +2902,7 @@ type StemTrackRowProps = {
 
 function StemTrackRow({
   stemId,
+  label,
   track,
   playheadSec,
   viewStart,
@@ -2990,7 +3006,7 @@ function StemTrackRow({
     >
       <div class="stems__track-name">
         <span class="stems__track-dot" style={{ background: STEM_COLORS[stemId] }} />
-        {STEM_LABELS[stemId]}
+        {label}
       </div>
       <div
         ref={waveWrapRef}

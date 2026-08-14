@@ -176,6 +176,53 @@ async function testRoundTrip(): Promise<void> {
   console.log('ok: save → load round-trip（含 16-bit 量化与跨块边界）')
 }
 
+/** 6 轨包（other2 近似静音被并入 other）：round-trip + peaks.bin 顺序正确性。 */
+async function testSixStemRoundTrip(): Promise<void> {
+  const stems = makeFakeStems(1000).filter((s) => s.stemId !== 'other2')
+  assert.equal(stems.length, 6)
+  const chunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 1,
+    sampleRate: 44100,
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let o = 0
+  for (const c of chunks) {
+    zipBytes.set(c, o)
+    o += c.length
+  }
+
+  const loaded = await loadStemsArchive(new Blob([zipBytes]))
+  assert.equal(loaded.manifest.stems.length, 6)
+  assert.equal(loaded.stems.length, 6)
+  assert.equal(loaded.peaks.size, 6, '6 轨包峰值表应含 6 条')
+
+  const layout = readStemsArchiveLayout(zipBytes)
+  assert.equal(layout.manifest.stems.length, 6)
+  assert.equal(layout.peaks.size, 6)
+  // 关键：peaks.bin 按 manifest 轨序反序列化，id 映射必须正确（防止按固定 STEM_IDS 顺序读导致错位）
+  for (const stem of stems) {
+    const exact = buildWaveformPyramid(stem.data, 44100)
+    const peak = layout.peaks.get(stem.stemId)
+    assert.ok(peak, `${stem.stemId} 应有峰值表`)
+    assert.equal(peak.bucketCount, exact.bucketCount, `${stem.stemId} 桶数一致`)
+    for (let b = 0; b < peak.bucketCount; b++) {
+      assert.ok(Math.abs(peak.max[b] - exact.max[b]) < 1e-6, `${stem.stemId} 桶 ${b} max 应一致`)
+    }
+  }
+  assert.equal(layout.peaks.has('other2'), false, '6 轨包不应有 other2 峰值表')
+  console.log('ok: 6 轨包 round-trip（含 peaks 顺序正确性）')
+}
+
 /** v2 旧包（全 deflate、无 peaks.bin、version 2）应仍可加载，peaks 为空 Map。 */
 async function testLegacyV2Archive(): Promise<void> {
   const stems = makeFakeStems(1000)
@@ -368,6 +415,25 @@ function testManifestValidation(): void {
   assert.equal(parseStemsManifest(JSON.stringify({ ...good, version: 4 })), null, '版本不符')
   assert.ok(parseStemsManifest(JSON.stringify({ ...good, version: 2 })), 'v2 旧包应兼容')
   assert.equal(parseStemsManifest(JSON.stringify({ ...good, stems: good.stems.slice(0, 5) })), null, '缺轨')
+  // 6 轨（other2 近似静音并入 other）应通过；重复 id 拒绝
+  const sixStems = STEM_IDS.filter((id) => id !== 'other2').map((id) => ({
+    id,
+    file: stemWavEntryName(id),
+  }))
+  assert.ok(
+    parseStemsManifest(JSON.stringify({ ...good, stems: sixStems })),
+    '6 轨 manifest（other2 已合并）应通过',
+  )
+  assert.equal(
+    parseStemsManifest(JSON.stringify({ ...good, stems: [...sixStems, sixStems[0]] })),
+    null,
+    '重复轨 id 应拒绝',
+  )
+  assert.equal(
+    parseStemsManifest(JSON.stringify({ ...good, stems: [] })),
+    null,
+    '空轨列表应拒绝',
+  )
   assert.equal(
     parseStemsManifest(JSON.stringify({ ...good, stems: [{ id: 'bogus', file: 'bogus.wav' }] })),
     null,
@@ -600,6 +666,7 @@ function testArchiveEntryNames(): void {
 }
 
 await testRoundTrip()
+await testSixStemRoundTrip()
 await testLegacyV2Archive()
 await testLayoutFastPath()
 await testLayoutFastPathRanged()

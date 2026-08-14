@@ -1,5 +1,5 @@
 /**
- * 分轨结果持久化：把 7 条分轨打包成单个压缩包（`<源文件名>.stems.zip`），
+ * 分轨结果持久化：把分轨结果（6~7 条）打包成单个压缩包（`<源文件名>.stems.zip`），
  * 放在源文件同目录（侧车文件，同歌词 `.lrc` 的模式），下次打开同一首歌时自动载入。
  *
  * 打包用 fflate 的流式 Zip：Float32 → 16-bit PCM 按块转换，压缩输出分块写
@@ -12,13 +12,13 @@
 import { Unzip, UnzipInflate, Zip, ZipDeflate, ZipPassThrough, inflateSync } from 'fflate'
 import { buildWaveformPyramid, STEM_CHANNELS, encodeWavHeader } from './stems-separator.ts'
 import type { WaveformPyramid } from './stems-separator.ts'
-import { STEM_IDS } from './stems-types.ts'
+import { HTDEMUCS_STEM_IDS, STEM_IDS } from './stems-types.ts'
 import type { StemAudio, StemId } from './stems-types.ts'
 import type { TempoInfo } from './stems-tempo.ts'
 
 export const STEMS_ARCHIVE_EXTENSION = '.stems.zip'
 export const STEMS_MANIFEST_ENTRY = 'stems.json'
-/** 压缩包内波形峰值表条目（7 轨金字塔的二进制拼接；v3 引入）。 */
+/** 压缩包内波形峰值表条目（各轨金字塔的二进制拼接；v3 引入）。 */
 export const STEMS_PEAKS_ENTRY = 'peaks.bin'
 /** v2：分轨产物从 6 轨扩展为 7 轨（新增 other2「其他二」）。
  * v3：WAV 改 STORE 不压缩，新增 peaks.bin 波形峰值表（加载跳过全量扫描）。
@@ -31,12 +31,12 @@ export function stemWavEntryName(stemId: StemId): string {
   return `${stemId}.wav`
 }
 
-/** 压缩包内全部条目的文件名（manifest + 7 条 WAV + 峰值表）。 */
+/** 压缩包内全部条目的文件名（manifest + 全部 WAV + 峰值表；按全集枚举，加载端按 manifest 实际轨序校验）。 */
 export function stemsArchiveEntryNames(): string[] {
   return [STEMS_MANIFEST_ENTRY, STEMS_PEAKS_ENTRY, ...STEM_IDS.map((id) => stemWavEntryName(id))]
 }
 
-/** 必需条目（manifest + 7 条 WAV）；peaks.bin 可选（v2 旧包无）。 */
+/** 必需条目（manifest + 全部 WAV）；peaks.bin 可选（v2 旧包无）。 */
 export function stemsArchiveRequiredEntryNames(): string[] {
   return [STEMS_MANIFEST_ENTRY, ...STEM_IDS.map((id) => stemWavEntryName(id))]
 }
@@ -142,6 +142,8 @@ export function buildStemsManifest(meta: {
   durationSec: number
   sampleRate: number
   createdAt?: number
+  /** 实际分轨清单（默认全集 7 轨；other2 合并后为 6 轨），决定 manifest.stems 与峰值表轨序 */
+  stemIds?: StemId[]
   tempo?: TempoInfo
   lyrics?: string
   lyricsSourceName?: string
@@ -156,7 +158,7 @@ export function buildStemsManifest(meta: {
     durationSec: meta.durationSec,
     sampleRate: meta.sampleRate,
     createdAt: meta.createdAt ?? Date.now(),
-    stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
+    stems: (meta.stemIds ?? STEM_IDS).map((id) => ({ id, file: stemWavEntryName(id) })),
   }
   if (meta.tempo) manifest.tempo = meta.tempo
   if (meta.lyrics?.trim()) {
@@ -178,9 +180,20 @@ export function parseStemsManifest(json: string): StemsManifest | null {
     }
     if (typeof raw.sourcePath !== 'string') return null
     if (typeof raw.sampleRate !== 'number' || typeof raw.durationSec !== 'number') return null
-    if (!Array.isArray(raw.stems) || raw.stems.length !== STEM_IDS.length) return null
+    // 轨数动态：v3 为 7 轨；分轨后 other2 近似静音并入「其他一」时为 6 轨。
+    // 最少为 htdemucs 基础 6 通道（不含 other2），最多为全集。
+    if (
+      !Array.isArray(raw.stems) ||
+      raw.stems.length < HTDEMUCS_STEM_IDS.length ||
+      raw.stems.length > STEM_IDS.length
+    ) {
+      return null
+    }
+    const seenStemIds = new Set<StemId>()
     for (const item of raw.stems) {
       if (!STEM_IDS.includes(item.id)) return null
+      if (seenStemIds.has(item.id)) return null
+      seenStemIds.add(item.id)
       if (item.file !== stemWavEntryName(item.id)) return null
     }
     const manifest = raw as StemsManifest
@@ -282,7 +295,7 @@ export function decodeStemWavBytes(bytes: Uint8Array): Float32Array {
 }
 
 /**
- * 把 7 轨波形峰值金字塔序列化为 `peaks.bin` 字节（按 STEM_IDS 顺序）：
+ * 把各轨波形峰值金字塔序列化为 `peaks.bin` 字节（按 stems 传入顺序）：
  * 每轨 = uint32 bucketSamples + uint32 bucketCount + float32[bucketCount] min + float32[bucketCount] max。
  * 峰值表相对 PCM 极小（~1ms/桶，4 分钟歌每轨约 1MB），STORE 写入无需压缩。
  */
@@ -309,12 +322,18 @@ export function serializeWaveformPeaks(
   return out
 }
 
-/** 反序列化 `peaks.bin` → 各轨金字塔（零拷贝视图）。损坏/不完整时返回空 Map。 */
-export function deserializeWaveformPeaks(bytes: Uint8Array): Map<StemId, WaveformPyramid> {
+/**
+ * 反序列化 `peaks.bin` → 各轨金字塔（零拷贝视图）。损坏/不完整时返回空 Map。
+ * 按 `stemIds` 顺序读取（须与写入时一致的轨序，一般为 manifest.stems 顺序）。
+ */
+export function deserializeWaveformPeaks(
+  bytes: Uint8Array,
+  stemIds: StemId[] = STEM_IDS,
+): Map<StemId, WaveformPyramid> {
   const peaks = new Map<StemId, WaveformPyramid>()
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let offset = 0
-  for (const stemId of STEM_IDS) {
+  for (const stemId of stemIds) {
     if (offset + 8 > bytes.byteLength) break
     const bucketSamples = view.getUint32(offset, true)
     offset += 4
@@ -363,7 +382,7 @@ export type SaveStemsOptions = {
 const EMPTY_CHUNK = new Uint8Array(0)
 
 /**
- * 流式打包 manifest + 峰值表 + 7 条 WAV 为 zip，写入 sink。
+ * 流式打包 manifest + 峰值表 + 各轨 WAV 为 zip，写入 sink。
  * 每 push 一块输入后立即排空压缩输出（串行 await 写入），峰值内存 ≈ 单块大小。
  */
 export async function saveStemsArchive(options: SaveStemsOptions): Promise<void> {
@@ -387,6 +406,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     sourceName,
     durationSec,
     sampleRate,
+    stemIds: stems.map((s) => s.stemId),
     tempo,
     lyrics,
     lyricsSourceName,
@@ -474,9 +494,9 @@ export type LoadedStems = {
 const READ_CHUNK_BYTES = 4 << 20
 
 /**
- * 流式解包：逐条目解压（单条暂存内存），返回 manifest + 7 轨 Float32 + 峰值表。
+ * 流式解包：逐条目解压（单条暂存内存），返回 manifest + 各轨 Float32 + 峰值表。
  * manifest 缺失/损坏、缺轨或条目与 manifest 不一致时抛错。
- * 进度只统计必需条目（manifest + 7 WAV），peaks.bin 不计入（v2 旧包无此条目）。
+ * 进度只统计必需条目（manifest + 各 WAV），peaks.bin 不计入（v2 旧包无此条目）。
  */
 export async function loadStemsArchive(
   blob: Blob,
@@ -535,7 +555,12 @@ export async function loadStemsArchive(
     stems.push({ stemId: item.id, data: decodeStemWavBytes(bytes) })
   }
   const peaksBytes = entries.get(STEMS_PEAKS_ENTRY)
-  const peaks = peaksBytes ? deserializeWaveformPeaks(peaksBytes) : new Map<StemId, WaveformPyramid>()
+  const peaks = peaksBytes
+    ? deserializeWaveformPeaks(
+        peaksBytes,
+        manifest.stems.map((item) => item.id),
+      )
+    : new Map<StemId, WaveformPyramid>()
   return { manifest, stems, peaks }
 }
 
@@ -625,6 +650,7 @@ export function readStemsArchiveLayout(bytes: Uint8Array): StemsArchiveLayout {
         bytes
           .subarray(peaksLayout.dataOffset, peaksLayout.dataOffset + peaksLayout.compressedSize)
           .slice(),
+        manifest.stems.map((item) => item.id),
       )
     : new Map<StemId, WaveformPyramid>()
   return { manifest, peaks, entries }
@@ -697,7 +723,10 @@ export async function readStemsArchiveLayoutRanged(
   const peaksLayout = entries.get(STEMS_PEAKS_ENTRY)
   const peaks = peaksLayout
     ? // 复制对齐（readRange 来源的视图 byteOffset 可能非 4 字节，Float32Array 视图要求对齐）
-      deserializeWaveformPeaks((await readRange(peaksLayout.dataOffset, peaksLayout.compressedSize)).slice())
+      deserializeWaveformPeaks(
+        (await readRange(peaksLayout.dataOffset, peaksLayout.compressedSize)).slice(),
+        manifest.stems.map((item) => item.id),
+      )
     : new Map<StemId, WaveformPyramid>()
 
   const readStemBytes = async (stemId: StemId): Promise<Float32Array> => {
