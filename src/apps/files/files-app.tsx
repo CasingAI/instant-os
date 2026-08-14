@@ -8,12 +8,17 @@ import {
   listRegisteredFileOpenApps,
   setPreferredFileOpenApp,
 } from '../../os/file-open-registry.ts'
+import {
+  listFilesContextMenuContributions,
+  type FilesContextMenuOps,
+} from '../../os/file-context-menu-registry.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import type { BuiltinAppId, GeneratedAppId } from '../../os/types.ts'
 import {
   AdaptiveActionMenu,
+  type AdaptiveActionMenuLeafItem,
   type AdaptiveActionMenuItem,
 } from '../../ui/adaptive-action-menu.tsx'
 import { IosCheckToggle } from '../../ui/ios-check-toggle.tsx'
@@ -61,11 +66,13 @@ import {
   type FilesOpProgressUiState,
 } from './files-run-with-op-progress.ts'
 import {
-  compressNodesToArchive,
-  extractArchiveToDirectory,
   isArchiveFileName,
   type FilesArchiveFormat,
 } from './files-archive.ts'
+import {
+  compressNodesToArchiveOp,
+  extractArchiveToDirectoryOp,
+} from './files-archive-ops.ts'
 import { preloadAppBundleIcons } from './files-app-bundle-icon.tsx'
 import {
   FILES_NAME_DISPLAY_OPTIONS,
@@ -82,7 +89,6 @@ import { resolveAppCatalogEntryByBundlePath } from '../../os/app-catalog.ts'
 import {
   FILES_VFS_CHANGED_EVENT,
   copyNodeTo,
-  createBinaryFile,
   createTextFile,
   emptyTrash,
   enrichFilesNodeMeta,
@@ -306,6 +312,89 @@ function formatError(error: unknown): string {
   if (error instanceof FilesStorageFullError) return error.message
   if (error instanceof Error && error.message) return error.message
   return '操作失败'
+}
+
+function FilesContextSubmenu({
+  item,
+  onClose,
+}: {
+  item: Extract<AdaptiveActionMenuItem, { type: 'submenu' }>
+  onClose: () => void
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [alignLeft, setAlignLeft] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const row = rowRef.current
+    const submenu = submenuRef.current
+    if (!row || !submenu) {
+      return
+    }
+
+    const rowRect = row.getBoundingClientRect()
+    const submenuRect = submenu.getBoundingClientRect()
+    const fitsRight = rowRect.right + submenuRect.width + 8 <= window.innerWidth
+    setAlignLeft(!fitsRight)
+
+    const defaultTop = -5
+    let top = defaultTop
+    const overflowBottom = rowRect.top + defaultTop + submenuRect.height - (window.innerHeight - 8)
+    if (overflowBottom > 0) {
+      top -= overflowBottom
+    }
+    const overflowTop = 8 - (rowRect.top + top)
+    if (overflowTop > 0) {
+      top += overflowTop
+    }
+    submenu.style.top = `${top}px`
+  }, [open, item.items])
+
+  return (
+    <div
+      ref={rowRef}
+      class={`files__context-submenu-row${open ? ' files__context-submenu-row--open' : ''}`}
+      role="none"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span class="files__context-submenu-label">{item.label}</span>
+      <span class="files__context-submenu-chevron" aria-hidden="true">
+        ›
+      </span>
+      {open && (
+        <div
+          ref={submenuRef}
+          class={`files__context files__context-submenu${alignLeft ? ' files__context-submenu--left' : ''}`}
+          role="menu"
+          aria-label={item.label}
+        >
+          {item.items.map((subItem, index) => {
+            if (subItem.type === 'separator') return undefined
+            return (
+              <button
+                key={`${item.label}-${subItem.label}-${index}`}
+                type="button"
+                class="files__context-item"
+                disabled={subItem.disabled}
+                onClick={() => {
+                  subItem.onClick()
+                  onClose()
+                }}
+              >
+                {subItem.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function toTextFileName(baseName: string): string {
@@ -1789,67 +1878,53 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   /** 压缩选中项为 zip / tar.gz，写入当前目录 */
   const handleCompress = useCallback(
     async (nodes: readonly FilesNode[], format: FilesArchiveFormat) => {
-      if (nodes.length === 0 || !canCreateHere) return
       closeTransientMenus()
-      try {
-        let done = 0
-        const result = await runFilesOpWithProgress({
-          kind: 'compress',
-          totalWork: Math.max(1, nodes.length),
-          estimatedTotalMs: estimateFilesOpDurationMs(nodes.length),
-          onUiChange: setOpProgressUi,
-          task: async (report) => {
-            const collected = await compressNodesToArchive(nodes, format, () => {
-              done += 1
-              report({ done: Math.min(done, nodes.length), total: Math.max(1, nodes.length) })
-            })
-            report({ done: nodes.length, total: Math.max(1, nodes.length) })
-            return collected
-          },
-        })
-        const baseName = nodes.length === 1 ? nodes[0]!.name : '归档'
-        const name = format === 'zip' ? `${baseName}.zip` : `${baseName}.tar.gz`
-        await createBinaryFile({
-          locationId,
-          parentId: folderId,
-          name,
-          bytes: result.bytes.buffer.slice(result.bytes.byteOffset, result.bytes.byteOffset + result.bytes.byteLength),
-          mimeType: format === 'zip' ? 'application/zip' : 'application/gzip',
-        })
-        showToast(`已压缩 ${result.entryCount} 个文件`)
-        await refresh()
-      } catch (err) {
-        await modal.alert({ title: '无法压缩', message: formatError(err), themeColor: THEME })
-      }
+      await compressNodesToArchiveOp(nodes, format, {
+        locationId,
+        folderId,
+        destRoot: pathBarAbsolutePath,
+        canCreateHere,
+        setOpProgressUi,
+        refresh,
+        showToast,
+        alertError: async (title, error) => {
+          await modal.alert({ title, message: formatError(error), themeColor: THEME })
+        },
+      })
     },
-    [canCreateHere, closeTransientMenus, folderId, locationId, modal, refresh, showToast],
+    [canCreateHere, closeTransientMenus, folderId, locationId, modal, pathBarAbsolutePath, refresh, showToast],
   )
 
   /** 解压归档到当前目录 */
   const handleExtract = useCallback(
     async (node: FilesNode) => {
-      if (!canCreateHere || !isArchiveFileName(node.name)) return
       closeTransientMenus()
-      try {
-        const result = await runFilesOpWithProgress({
-          kind: 'extract',
-          totalWork: 1,
-          estimatedTotalMs: estimateFilesOpDurationMs(1),
-          onUiChange: setOpProgressUi,
-          task: async (report) =>
-            extractArchiveToDirectory({
-              node,
-              destRoot: pathBarAbsolutePath,
-              onProgress: (done, total) => report({ done, total }),
-            }),
-        })
-        showToast(result.fileCount > 0 ? `已解压 ${result.fileCount} 个文件` : '归档为空')
-        await refresh()
-      } catch (err) {
-        await modal.alert({ title: '无法解压', message: formatError(err), themeColor: THEME })
-      }
+      await extractArchiveToDirectoryOp(node, {
+        locationId,
+        folderId,
+        destRoot: pathBarAbsolutePath,
+        canCreateHere,
+        setOpProgressUi,
+        refresh,
+        showToast,
+        alertError: async (title, error) => {
+          await modal.alert({ title, message: formatError(error), themeColor: THEME })
+        },
+      })
     },
-    [canCreateHere, closeTransientMenus, modal, pathBarAbsolutePath, refresh, showToast],
+    [canCreateHere, closeTransientMenus, folderId, locationId, modal, pathBarAbsolutePath, refresh, showToast],
+  )
+
+  /** 暴露给右键菜单贡献方的归档操作能力 */
+  const filesArchiveOps = useMemo(
+    (): FilesContextMenuOps => ({
+      canCreateHere,
+      compressAsZip: (nodes) => void handleCompress(nodes, 'zip'),
+      compressAsTarGz: (nodes) => void handleCompress(nodes, 'gzip-tar'),
+      extractHere: (node) => void handleExtract(node),
+      isArchiveFileName,
+    }),
+    [canCreateHere, handleCompress, handleExtract],
   )
 
   /** 清空废纸篓（永久删除全部内容） */
@@ -2759,25 +2834,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
           onClick: () => void handleTrash(targetNodes, false),
         })
       }
-      if (canCreateHere) {
+      for (const contribution of listFilesContextMenuContributions({ node, canCreateHere })) {
+        const submenuItems = contribution.buildItems({ node, targetNodes, ops: filesArchiveOps })
+        if (submenuItems.length === 0) continue
         items.push({ type: 'separator' })
         items.push({
-          type: 'action',
-          label: countLabel('压缩为 ZIP'),
-          onClick: () => void handleCompress(targetNodes, 'zip'),
+          type: 'submenu',
+          label: contribution.label,
+          items: submenuItems.map((subItem) => ({
+            type: 'action' as const,
+            label: subItem.label,
+            disabled: subItem.disabled,
+            onClick: subItem.onClick,
+          })),
         })
-        items.push({
-          type: 'action',
-          label: countLabel('压缩为 tar.gz'),
-          onClick: () => void handleCompress(targetNodes, 'gzip-tar'),
-        })
-        if (!multi && node.kind === 'file' && isArchiveFileName(node.name)) {
-          items.push({
-            type: 'action',
-            label: '解压到当前文件夹',
-            onClick: () => void handleExtract(node),
-          })
-        }
       }
       items.push({ type: 'separator' })
       items.push({
@@ -2790,10 +2860,9 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     [
       canCreateHere,
       canPasteHere,
-      handleCompress,
+      filesArchiveOps,
       handleCopy,
       handleCut,
-      handleExtract,
       handlePaste,
       handleRename,
       handleRestore,
@@ -2807,8 +2876,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ],
   )
 
-  const backgroundMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
-    const items: AdaptiveActionMenuItem[] = []
+  const backgroundMenuItems = useMemo((): AdaptiveActionMenuLeafItem[] => {
+    const items: AdaptiveActionMenuLeafItem[] = []
     if (isTrashLocationId(locationId)) {
       items.push({
         type: 'action',
@@ -3486,6 +3555,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         >
           {buildItemMenuActions(contextMenu.node).map((item, index) => {
             if (item.type === 'separator') return undefined
+            if (item.type === 'submenu') {
+              return (
+                <FilesContextSubmenu
+                  key={`sub-${item.label}`}
+                  item={item}
+                  onClose={() => setContextMenu(undefined)}
+                />
+              )
+            }
             return (
               <button
                 key={`${item.label}-${index}`}

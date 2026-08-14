@@ -1,13 +1,17 @@
-import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { createPortal } from 'preact/compat'
 import { ActionMenuSheet } from './action-menu-sheet.tsx'
 import { getFloatingOverlayRoot } from './floating-overlay-root.ts'
 import { useOverlayPresence } from './use-overlay-presence.ts'
 import './adaptive-action-menu.css'
 
-export type AdaptiveActionMenuItem =
+export type AdaptiveActionMenuLeafItem =
   | { type: 'action'; label: string; disabled?: boolean; shortcut?: string; onClick: () => void }
   | { type: 'separator' }
+
+export type AdaptiveActionMenuItem =
+  | AdaptiveActionMenuLeafItem
+  | { type: 'submenu'; label: string; items: AdaptiveActionMenuLeafItem[] }
 
 export type AdaptiveActionMenuMount = 'contained' | 'portal'
 
@@ -22,12 +26,101 @@ type AdaptiveActionMenuProps = {
   cancelLabel?: string
 }
 
-function handleAction(item: Extract<AdaptiveActionMenuItem, { type: 'action' }>, onClose: () => void) {
+function handleAction(item: Extract<AdaptiveActionMenuLeafItem, { type: 'action' }>, onClose: () => void) {
   if (item.disabled) {
     return
   }
   item.onClick()
   onClose()
+}
+
+function AdaptiveActionMenuSubmenu({
+  item,
+  onClose,
+}: {
+  item: Extract<AdaptiveActionMenuItem, { type: 'submenu' }>
+  onClose: () => void
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [alignLeft, setAlignLeft] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const row = rowRef.current
+    const submenu = submenuRef.current
+    if (!row || !submenu) {
+      return
+    }
+
+    const rowRect = row.getBoundingClientRect()
+    const submenuRect = submenu.getBoundingClientRect()
+    const fitsRight = rowRect.right + submenuRect.width + 8 <= window.innerWidth
+    setAlignLeft(!fitsRight)
+
+    const defaultTop = -5
+    let top = defaultTop
+    const overflowBottom = rowRect.top + defaultTop + submenuRect.height - (window.innerHeight - 8)
+    if (overflowBottom > 0) {
+      top -= overflowBottom
+    }
+    const overflowTop = 8 - (rowRect.top + top)
+    if (overflowTop > 0) {
+      top += overflowTop
+    }
+    submenu.style.top = `${top}px`
+  }, [open, item.items])
+
+  return (
+    <div
+      ref={rowRef}
+      class={`adaptive-action-menu__submenu-row${open ? ' adaptive-action-menu__submenu-row--open' : ''}`}
+      role="none"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span class="adaptive-action-menu__submenu-label">{item.label}</span>
+      <span class="adaptive-action-menu__submenu-chevron" aria-hidden="true">
+        ›
+      </span>
+      {open && (
+        <div
+          ref={submenuRef}
+          class={`adaptive-action-menu__dropdown adaptive-action-menu__submenu${alignLeft ? ' adaptive-action-menu__submenu--left' : ''}`}
+          role="menu"
+          aria-label={item.label}
+        >
+          {item.items.map((subItem, index) => {
+            if (subItem.type === 'separator') {
+              return (
+                <div
+                  key={`sep-${index}`}
+                  class="adaptive-action-menu__dropdown-separator"
+                  role="separator"
+                />
+              )
+            }
+            return (
+              <button
+                key={`${item.label}-${subItem.label}`}
+                type="button"
+                class="adaptive-action-menu__dropdown-item"
+                role="menuitem"
+                disabled={subItem.disabled}
+                onClick={() => handleAction(subItem, onClose)}
+              >
+                {subItem.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function AdaptiveActionMenuDropdown({
@@ -124,6 +217,10 @@ function AdaptiveActionMenuDropdown({
           )
         }
 
+        if (item.type === 'submenu') {
+          return <AdaptiveActionMenuSubmenu key={`sub-${item.label}`} item={item} onClose={onClose} />
+        }
+
         return (
           <button
             key={item.label}
@@ -186,7 +283,7 @@ function AdaptiveActionMenuModal({
       }
     >
       <div class="action-menu-sheet__list" role="menu">
-        {items.map((item, index) => {
+        {items.flatMap((item) => (item.type === 'submenu' ? item.items : [item])).map((item, index) => {
           if (item.type === 'separator') {
             return (
               <div key={`sep-${index}`} class="action-menu-sheet__separator" role="separator" />

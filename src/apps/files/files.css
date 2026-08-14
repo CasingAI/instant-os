@@ -1116,6 +1116,56 @@ button.files__path-bar-segment:active {
   text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
 }
 
+.files__context-submenu-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--files-ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.files__context-submenu-row:hover,
+.files__context-submenu-row--open {
+  background: linear-gradient(180deg, #d4b888 0%, #a67c42 100%);
+  color: #fffaf0;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.files__context-submenu-label {
+  flex: 1;
+}
+
+.files__context-submenu-chevron {
+  opacity: 0.72;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.files__context-submenu-row:hover .files__context-submenu-chevron,
+.files__context-submenu-row--open .files__context-submenu-chevron {
+  opacity: 0.95;
+}
+
+.files__context-submenu {
+  position: absolute;
+  top: -5px;
+  left: calc(100% - 4px);
+  min-width: 148px;
+}
+
+.files__context-submenu--left {
+  left: auto;
+  right: calc(100% - 4px);
+}
+
 .files__open-with {
   display: flex;
   flex-direction: column;
