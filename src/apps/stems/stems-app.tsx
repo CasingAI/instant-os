@@ -35,7 +35,7 @@ import {
   MIN_LINE_WORD_MS,
 } from '../align/align-line-times.ts'
 import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
-import { buildAlignLrc, looksLikeBrokenLrc } from '../align/align-lrc.ts'
+import { buildAlignLrc, formatLrcTimestamp, looksLikeBrokenLrc } from '../align/align-lrc.ts'
 import { buildLyricsSkeleton } from '../align/align-g2p.ts'
 import type { AlignedUnit } from '../align/align-types.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
@@ -408,22 +408,37 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [lyricTags])
 
   /**
-   * 歌词行色带：按行聚合每个 lineIndex 的时间范围（行内首词起点 → 末词+词宽），
-   * 供歌词轨渲染交替浅色背景带，一眼看出哪几个词属于同一行。
-   * 无逐字的整行词也计入；色带仅视觉，pointer-events:none 不拦截点击/seek。
+   * 歌词行色带：按源头 LRC 行时间戳间隔划分（当前行 timeMs → 下一有 timeMs 行 timeMs），
+   * 供歌词轨渲染交替浅色背景带，一眼看出每行对应的区间。
+   * 无 timeMs 的行不产生色带、也不作终点；末行无下一行时兜底到行内最后词 + 0.8s。
+   * 色带仅视觉辅助（hover 用），不拦截点击/seek。
    */
-  const lyricRowBands = useMemo<{ lineIndex: number; startSec: number; endSec: number }[]>(() => {
-    const bands: { lineIndex: number; startSec: number; endSec: number }[] = []
-    for (const tag of lyricTags) {
-      const last = bands[bands.length - 1]
-      if (last && last.lineIndex === tag.lineIndex) {
-        last.endSec = Math.max(last.endSec, tag.timeSec + 0.6)
-      } else {
-        bands.push({ lineIndex: tag.lineIndex, startSec: tag.timeSec, endSec: tag.timeSec + 0.6 })
+  const lyricRowBands = useMemo<{ lineIndex: number; startSec: number; endSec: number; text: string }[]>(() => {
+    const timed = karaokeLines
+      .map((line, lineIndex) => ({ line, lineIndex }))
+      .filter((x): x is { line: LyricsLine; lineIndex: number } => x.line.timeMs !== undefined)
+    const bands: { lineIndex: number; startSec: number; endSec: number; text: string }[] = []
+    for (let i = 0; i < timed.length; i++) {
+      const { line, lineIndex } = timed[i]
+      const startSec = (line.timeMs as number) / 1000
+      const next = timed[i + 1]
+      let endSec = next !== undefined ? (next.line.timeMs as number) / 1000 : Number.NaN
+      if (!Number.isFinite(endSec) || endSec <= startSec) {
+        // 末行或无下一行：行内最后词 + 0.8s（无逐字则整行 + 1s）
+        const lastWordMs = line.words && line.words.length > 0
+          ? line.words[line.words.length - 1].timeMs
+          : undefined
+        endSec = Math.max(startSec + 1, (lastWordMs ?? startSec * 1000 + 1000) / 1000 + 0.8)
       }
+      bands.push({ lineIndex, startSec, endSec, text: line.text })
     }
     return bands
-  }, [lyricTags])
+  }, [karaokeLines])
+
+  /** 悬停的歌词行（色带 hover 高亮 + 气泡联动 + popover 原文）；null = 无悬停 */
+  const [hoveredLine, setHoveredLine] = useState<number | null>(null)
+  /** 行原文 popover 的 DOM 引用（fixed，坐标在 mousemove 里直写，避免高频重渲染） */
+  const lyricPopoverRef = useRef<HTMLDivElement | null>(null)
 
   const handleSeparateRef = useRef<() => void>(() => {})
   /** 「重新计算节拍」中转 ref：handler 依赖 detectTempoAsync（定义晚于 menuBar），与 handleSeparateRef 同模式 */
@@ -2363,6 +2378,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                     {lyricRowBands.map((band, bandIndex) => {
                       const leftPct = viewLen > 0 ? ((band.startSec - view.start) / viewLen) * 100 : 0
                       const widthPct = viewLen > 0 ? ((band.endSec - band.startSec) / viewLen) * 100 : 0
+                      const hot = hoveredLine === band.lineIndex
                       return (
                         <div
                           key={band.lineIndex}
@@ -2370,8 +2386,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                             bandIndex % 2 === 0
                               ? 'stems__lyrics-row-band--a'
                               : 'stems__lyrics-row-band--b'
-                          }`}
+                          }${hot ? ' stems__lyrics-row-band--hot' : ''}`}
                           style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1.5)}%` }}
+                          onMouseEnter={() => setHoveredLine(band.lineIndex)}
+                          onMouseLeave={() => setHoveredLine(null)}
+                          onMouseMove={(event) => {
+                            // popover 跟随鼠标（fixed，右缘 clamp），直写 DOM 避免高频重渲染
+                            const pop = lyricPopoverRef.current
+                            if (!pop) return
+                            const left = Math.min(event.clientX + 14, window.innerWidth - 280)
+                            const top = event.clientY + 14
+                            pop.style.left = `${left}px`
+                            pop.style.top = `${top}px`
+                          }}
                         />
                       )
                     })}
@@ -2397,7 +2424,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                         <span
                           key={`${tag.lineIndex}:${tag.wordIndex}:${index}`}
                           ref={(el) => registerLyricsTag(tag.lineIndex, tag.wordIndex, el)}
-                          class={`stems__lyrics-tag${tag.failed ? ' stems__lyrics-tag--failed' : ''}`}
+                          class={`stems__lyrics-tag${tag.failed ? ' stems__lyrics-tag--failed' : ''}${
+                            hoveredLine !== null
+                              ? tag.lineIndex === hoveredLine
+                                ? ' stems__lyrics-tag--hl'
+                                : ' stems__lyrics-tag--dimmed'
+                              : ''
+                          }`}
                           style={{ left: `${leftPct}%`, top: `${topPx}px` }}
                           onClick={() => finalizeSeek(tag.timeSec)}
                           title={tag.text}
@@ -2417,6 +2450,25 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                     {lyrics.trim() ? '歌词已就绪，点击「对齐歌词」' : '点击此处导入歌词'}
                   </span>
                 )}
+              </div>
+              {/* 行原文 popover：fixed 容器外渲染（不受 overflow:hidden 裁剪），跟随鼠标 */}
+              <div
+                ref={lyricPopoverRef}
+                class={`stems__lyrics-popover${hoveredLine !== null ? ' stems__lyrics-popover--on' : ''}`}
+              >
+                {hoveredLine !== null &&
+                  karaokeLines[hoveredLine] !== undefined && (
+                    <>
+                      <div class="stems__lyrics-popover-time">
+                        [{karaokeLines[hoveredLine].timeMs !== undefined
+                          ? formatLrcTimestamp((karaokeLines[hoveredLine].timeMs as number) / 1000)
+                          : '--:--.--'}]
+                      </div>
+                      <div class="stems__lyrics-popover-text">
+                        {karaokeLines[hoveredLine].text}
+                      </div>
+                    </>
+                  )}
               </div>
               <div class="stems__lyrics-controls">
                 <SegmentedControl

@@ -1032,24 +1032,66 @@
   cursor: pointer;
 }
 
-/* 歌词行色带：同一行的词落在同一块交替浅色背景带上，一眼看出行分组。
- * 仅视觉（pointer-events:none），不拦截词标签点击与容器 seek。 */
+/* 歌词行原文 popover：fixed 跟随鼠标（容器外渲染不受 overflow 裁剪），显示 LRC 行时间戳 + 原文 */
+.stems__lyrics-popover {
+  position: fixed;
+  left: 0;
+  top: 0;
+  max-width: 260px;
+  padding: 6px 9px;
+  background: rgba(28, 27, 26, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  color: #f5f2eb;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 50;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.stems__lyrics-popover--on {
+  opacity: 1;
+}
+
+.stems__lyrics-popover-time {
+  color: #ffd84d;
+  font-family: var(--app-ui-font-family, inherit);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+}
+
+.stems__lyrics-popover-text {
+  white-space: normal;
+}
+
+/* 歌词行色带：按行时间戳间隔划分的交替背景带，一眼看出行分组与区间。
+ * 支持 hover（行高亮 + 原文 popover）；pointer-events 已开启，点击交给上层容器 seek。 */
 .stems__lyrics-row-band {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   height: 60px;
   border-radius: 6px;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   z-index: 1;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
 }
 
 .stems__lyrics-row-band--a {
-  background: rgba(96, 148, 214, 0.22);
+  background: rgba(96, 148, 214, 0.5);
 }
 
 .stems__lyrics-row-band--b {
-  background: rgba(196, 140, 96, 0.18);
+  background: rgba(196, 140, 96, 0.45);
+}
+
+.stems__lyrics-row-band--hot {
+  background: rgba(255, 216, 77, 0.42);
+  box-shadow: inset 0 0 0 1.5px rgba(224, 184, 58, 0.8);
 }
 
 .stems__lyrics-tag {
@@ -1084,6 +1126,18 @@
   background: rgba(255, 59, 48, 0.28);
   border-color: rgba(255, 59, 48, 0.55);
   box-shadow: 0 0 0 1px rgba(255, 59, 48, 0.2);
+}
+
+/* 色带 hover 联动：非当前行的气泡变淡变灰（failed 红底一并退让），当前行高亮 */
+.stems__lyrics-tag--dimmed {
+  opacity: 0.15;
+  filter: grayscale(0.9);
+  transition: opacity 0.12s ease;
+}
+
+.stems__lyrics-tag--hl {
+  box-shadow: 0 0 0 1.5px rgba(47, 127, 214, 0.7);
+  z-index: 25;
 }
 
 /* 悬停置顶：重叠时露出被盖标签，便于点击跳转 */
