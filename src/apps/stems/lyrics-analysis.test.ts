@@ -7,13 +7,22 @@
 import assert from 'node:assert/strict'
 import { parseLrc } from '../music/music-lyrics.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
+import type { AlignedUnit } from '../align/align-types.ts'
 import {
-  computeLineStats,
-  detectGaps,
-  resolveLineTimes,
-  splitLineParens,
+  alignLineByLineTimes,
+  alignLineFree,
+  alignLineWithoutParens,
   alignWithoutParens,
+  buildLineFromUnits,
+  computeLineStats,
+  describeLineIssue,
+  detectGaps,
+  lineWindowSec,
+  patchLineIntoAlignedLrc,
+  resolveLineTimes,
   sliceSegments,
+  spreadLineToWindow,
+  splitLineParens,
   summarizeLines,
 } from './lyrics-analysis.ts'
 
@@ -176,4 +185,163 @@ function lrcLines(raw: string) {
   const karaokeLines = lrcLines('[00:09.00]Edited line')
   const times = resolveLineTimes(lyrics, lyricsLrc, karaokeLines)
   assert.deepEqual(times, [9000])
+}
+
+// —— describeLineIssue：挤压 / 红词 / 括号 / 正常 ——
+{
+  // 6 词压进 0.5s → 挤压
+  const squeezed = lrcLines(
+    '[00:10.00]<00:10.00>a<00:10.01>b<00:10.02>c<00:10.03>d<00:10.04>e<00:10.05>f\n[00:10.50]next',
+  )
+  assert.ok(describeLineIssue(computeLineStats(squeezed)[0]).includes('压进'))
+
+  // 1 红词 → 红词诊断
+  const red = lrcLines('[00:10.00]<00:10.00|f>a<00:10.30>b\n[00:12.00]next')
+  assert.ok(describeLineIssue(computeLineStats(red)[0]).includes('红词'))
+
+  // 括号行（无红词无挤压）→ 括号诊断
+  const paren = lrcLines('[00:10.00]<00:10.00>(Yeah, <00:10.30>okay)\n[00:12.00]next')
+  assert.ok(describeLineIssue(computeLineStats(paren)[0]).includes('括号'))
+
+  // 正常行
+  const ok = lrcLines('[00:10.00]<00:10.00>Hello <00:10.30>world\n[00:12.00]next')
+  assert.ok(describeLineIssue(computeLineStats(ok)[0]).includes('正常'))
+}
+
+// —— spreadLineToWindow：词均匀铺进行区间 ——
+{
+  const line = lrcLines('[00:10.00]<00:10.00>a<00:10.05>b<00:10.10>c\n[00:13.00]next')[0]
+  const spread = spreadLineToWindow(line, 10, 13)
+  assert.equal(spread.words!.length, 3)
+  assert.equal(spread.timeMs, 10000)
+  assert.equal(spread.words![0].timeMs, 10000)
+  assert.equal(spread.words![1].timeMs, 11500)
+  assert.equal(spread.words![2].timeMs, 13000)
+}
+
+// —— spreadLineToWindow：清 failed ——
+{
+  const line = lrcLines('[00:10.00]<00:10.00|f>a<00:10.05|f>b\n[00:13.00]next')[0]
+  const spread = spreadLineToWindow(line, 10, 13)
+  assert.ok(spread.words!.every((w) => w.failed !== true))
+}
+
+// —— spreadLineToWindow：单词取区间中点 ——
+{
+  const line = lrcLines('[00:10.00]<00:10.00>only\n[00:13.00]next')[0]
+  const spread = spreadLineToWindow(line, 10, 13)
+  assert.equal(spread.words!.length, 1)
+  assert.equal(spread.words![0].timeMs, 11500)
+}
+
+// —— lineWindowSec：常规行带 pad ——
+{
+  const w = lineWindowSec([10000, 13000], 0, 0.8)
+  assert.equal(w.startSec, 9.5)
+  assert.equal(w.endSec, 13.5)
+}
+
+// —— lineWindowSec：末行用 fallback ——
+{
+  const w = lineWindowSec([10000, 13000], 1, 0.8)
+  assert.equal(w.startSec, 12.5)
+  assert.ok(w.endSec >= 13.5)
+}
+
+// —— lineWindowSec：开头 clamp 到 0 ——
+{
+  const w = lineWindowSec([0, 2000], 0, 0.8)
+  assert.equal(w.startSec, 0)
+}
+
+// —— patchLineIntoAlignedLrc：只替换聚焦行，其余行原样 ——
+{
+  const lrc =
+    '[00:10.00]<00:10.00>Hello <00:10.30>world\n' +
+    '[00:12.00]<00:12.00>A <00:12.20>B\n' +
+    '[00:14.00]<00:14.00>C <00:14.30>D'
+  const newWords = [
+    { timeMs: 12000, text: 'A ' },
+    { timeMs: 12040, text: 'B' },
+    { timeMs: 12080, text: 'C' },
+  ]
+  const patched = patchLineIntoAlignedLrc(lrc, 1, newWords)
+  const lines = patched.split('\n')
+  assert.equal(lines[0], '[00:10.00]<00:10.00>Hello <00:10.30>world')
+  assert.equal(lines[1], '[00:12.00]<00:12.00>A <00:12.04>B<00:12.08>C')
+  assert.equal(lines[2], '[00:14.00]<00:14.00>C <00:14.30>D')
+}
+
+// —— patchLineIntoAlignedLrc：保留 failed 标记 ——
+{
+  const lrc = '[00:12.00]<00:12.00>A <00:12.20>B'
+  const newWords = [
+    { timeMs: 12000, text: 'A ', failed: true },
+    { timeMs: 12040, text: 'B', failed: true },
+  ]
+  const patched = patchLineIntoAlignedLrc(lrc, 0, newWords)
+  assert.equal(patched, '[00:12.00]<00:12.00|f>A <00:12.04|f>B')
+}
+
+// —— patchLineIntoAlignedLrc：空 words 不修改 ——
+{
+  const lrc = '[00:12.00]<00:12.00>A <00:12.20>B'
+  assert.equal(patchLineIntoAlignedLrc(lrc, 0, []), lrc)
+}
+
+// —— buildLineFromUnits：单元 → 增强行 ——
+{
+  const units: AlignedUnit[] = [
+    { text: 'Hello', phones: [], start: 10, end: 10.2 },
+    { text: 'world', phones: [], start: 10.3, end: 10.6 },
+  ]
+  const line = buildLineFromUnits(units)
+  assert.ok(line)
+  assert.equal(line!.words!.length, 2)
+  assert.equal(line!.words![0].text, 'Hello ')
+  assert.equal(line!.words![0].timeMs, 10000)
+  assert.equal(line!.words![1].timeMs, 10300)
+}
+
+// —— alignLineByLineTimes：行时间戳主导的单行对齐 ——
+{
+  const phonemes: HypSegment[] = [
+    { symbol: 'IN', start: 9.8, end: 10 },
+    { symbol: 'NEW', start: 10.2, end: 10.4 },
+    { symbol: 'YORK', start: 10.5, end: 10.8 },
+  ]
+  const line = alignLineByLineTimes(phonemes, 'In New York', 10000, 13000)
+  assert.ok(line)
+  assert.equal(line!.words!.length, 3)
+  assert.ok(line!.words!.every((w) => w.failed !== true))
+}
+
+// —— alignLineFree：不锁行区间的自由对齐 ——
+{
+  const phonemes: HypSegment[] = [
+    { symbol: 'IN', start: 9.8, end: 10 },
+    { symbol: 'NEW', start: 10.2, end: 10.4 },
+    { symbol: 'YORK', start: 10.5, end: 10.8 },
+  ]
+  const line = alignLineFree(phonemes, 'In New York', 10.3)
+  assert.ok(line)
+  assert.equal(line!.words!.length, 3)
+}
+
+// —— alignLineWithoutParens：行级括号剔除 ——
+{
+  const phonemes: HypSegment[] = [
+    { symbol: 'IN', start: 10, end: 10.2 },
+    { symbol: 'NEW', start: 10.3, end: 10.5 },
+    { symbol: 'YORK', start: 10.6, end: 10.9 },
+  ]
+  const { mainLine, adlibTexts } = alignLineWithoutParens(
+    phonemes,
+    'In New York (Ayy, aha)',
+    9.5,
+    11.5,
+  )
+  assert.deepEqual(adlibTexts, ['Ayy, aha'])
+  assert.ok(mainLine)
+  assert.ok(!mainLine!.text.includes('('))
 }

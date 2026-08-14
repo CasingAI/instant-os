@@ -45,8 +45,9 @@ import type { HypSegment } from '../align/align-text-dtw.ts'
 import type { ZipformerAlignLine, ZipformerProgress } from '../align/zipformer-worker.ts'
 import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
-import type { LyricsLine } from '../music/music-lyrics.ts'
+import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
 import { LyricsAnalysisDrawer } from './lyrics-analysis-drawer.tsx'
+import { patchLineIntoAlignedLrc } from './lyrics-analysis.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
   formatRecentTime,
@@ -286,6 +287,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 歌词分析抽屉开关与双击定位到的行 */
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [analysisFocusLine, setAnalysisFocusLine] = useState<number | null>(null)
+  /** 歌词分析抽屉：词条试听定时器（片段播完自动停） */
+  const analysisPreviewTimerRef = useRef<number | null>(null)
+  /** 歌词分析抽屉：应用撤销栈（存应用前的 alignedLrc） */
+  const analysisUndoRef = useRef<string[]>([])
+  /** 是否有可撤销的抽屉修改（驱动抽屉「撤销」按钮） */
+  const [analysisCanUndo, setAnalysisCanUndo] = useState(false)
   /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
   const [lyricsDraftSource, setLyricsDraftSource] = useState('')
   /** 播放中当前高亮的歌词行/词（避免每帧重复写 DOM） */
@@ -1710,6 +1717,64 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [duration, writePlaybackDom],
   )
 
+  // —— 歌词分析抽屉：词条试听 / 应用写回 / 撤销 ——
+  /** 停止抽屉试听（片段播完 / 关闭抽屉 / 切换试听时） */
+  const stopPreviewSegment = useCallback(() => {
+    if (analysisPreviewTimerRef.current !== null) {
+      window.clearTimeout(analysisPreviewTimerRef.current)
+      analysisPreviewTimerRef.current = null
+    }
+    stopPlayback()
+  }, [stopPlayback])
+
+  /** 试听 [startSec, endSec)：seek 到起点开始播放，到终点自动停 */
+  const previewSegment = useCallback(
+    (startSec: number, endSec: number) => {
+      if (!tracks) return
+      if (analysisPreviewTimerRef.current !== null) {
+        window.clearTimeout(analysisPreviewTimerRef.current)
+        analysisPreviewTimerRef.current = null
+      }
+      handleSeekInput(startSec)
+      startPlayback(startSec)
+      const durMs = Math.max(180, Math.round((endSec - startSec) * 1000))
+      analysisPreviewTimerRef.current = window.setTimeout(() => {
+        analysisPreviewTimerRef.current = null
+        stopPlayback()
+      }, durMs)
+    },
+    [tracks, handleSeekInput, startPlayback, stopPlayback],
+  )
+
+  /** 应用抽屉修复：只替换聚焦行逐字时间戳，写回 alignedLrc 并落盘，保留撤销 */
+  const applyAnalysisLine = useCallback(
+    (focusLine: number, newWords: LyricsWord[]) => {
+      const cur = alignedLrcRef.current
+      if (!cur || newWords.length === 0) return
+      const patched = patchLineIntoAlignedLrc(cur, focusLine, newWords)
+      if (patched === cur) return
+      analysisUndoRef.current.push(cur)
+      setAnalysisCanUndo(true)
+      alignedLrcRef.current = patched
+      setAlignedLrc(patched)
+      setAlignRestoredFrom(false)
+      const tracksNow = tracksRef.current
+      if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
+    },
+    [saveCurrentStems],
+  )
+
+  /** 撤销最近一次抽屉应用，恢复上一份 alignedLrc 并落盘 */
+  const undoAnalysisLine = useCallback(() => {
+    const prev = analysisUndoRef.current.pop()
+    if (prev === undefined) return
+    alignedLrcRef.current = prev
+    setAlignedLrc(prev)
+    setAnalysisCanUndo(analysisUndoRef.current.length > 0)
+    const tracksNow = tracksRef.current
+    if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
+  }, [saveCurrentStems])
+
   const clampViewStart = useCallback(
     (start: number, len: number) => Math.max(0, Math.min(start, Math.max(0, duration - len))),
     [duration],
@@ -2850,7 +2915,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       </WindowModal>
       <LyricsAnalysisDrawer
         open={analysisOpen}
-        onClose={() => setAnalysisOpen(false)}
+        onClose={() => {
+          stopPreviewSegment()
+          setAnalysisOpen(false)
+        }}
         focusLine={analysisFocusLine}
         karaokeLines={karaokeLines}
         lyrics={lyrics}
@@ -2858,7 +2926,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         phonemes={phonemesRef.current}
         vocalsAudio={tracks?.find((t) => t.audio.stemId === 'vocals')?.audio.data ?? null}
         sampleRate={stemSampleRate}
-        hasLineTimes={lyricsLineTimesRef.current !== null && lyricsLineTimesRef.current.some((t) => t !== undefined)}
+        alignModel={alignModel}
+        onPreview={previewSegment}
+        onStopPreview={stopPreviewSegment}
+        onApplyLine={applyAnalysisLine}
+        onUndo={undoAnalysisLine}
+        canUndo={analysisCanUndo}
       />
     </div>
   )

@@ -1,13 +1,16 @@
 /**
- * 歌词分析（纯函数，可单测）：供「歌词分析抽屉」做行级诊断、问题检测与方案对比。
+ * 歌词分析（纯函数，可单测）：供「歌词分析抽屉」做行级诊断、问题检测与修复动作。
  *
  * 输入复用现有数据：karaokeLines（alignedLrc 解析）、phonemes（识别段）、
- * 原始歌词 / LRC、行时间戳。输出全部是派生统计，不写回主流程。
+ * 原始歌词 / LRC、行时间戳。行级修复动作输出该行新的逐字时间戳，
+ * 由抽屉预览后经 patchLineIntoAlignedLrc 写回主界面。
  */
 
-import { parseLrc, type LyricsLine } from '../music/music-lyrics.ts'
+import { parseLrc, type LyricsLine, type LyricsWord } from '../music/music-lyrics.ts'
 import { mapLrcLineTimes, MIN_LINE_WORD_MS } from '../align/align-line-times.ts'
 import { alignSegmentsToLrc } from '../align/align-pipeline.ts'
+import { buildAlignLrc, formatLrcTimestamp } from '../align/align-lrc.ts'
+import type { AlignedUnit } from '../align/align-types.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
 
 /** 行级诊断：一行歌词的统计信息 */
@@ -251,4 +254,148 @@ export function summarizeLines(lines: LyricsLine[]): {
     failedWords,
     failedRatio: totalWords > 0 ? failedWords / totalWords : 0,
   }
+}
+
+// —— 行级修复动作（抽屉「修这一行」） ——
+
+/** 摊开时单个词的最小时长下限（秒） */
+const MIN_WORD_SEC = 0.05
+
+/** 一句话诊断：聚焦行的问题描述 */
+export function describeLineIssue(st: LineStats): string {
+  if (st.squeezed) {
+    const span = st.spanSec !== undefined ? st.spanSec.toFixed(2) : '?'
+    return `这行 ${st.wordCount} 个词被压进 ${span} 秒：识别断层期无锚点词被插值堆叠，词几乎同时出现`
+  }
+  if (st.failedCount > 0) {
+    return `这行 ${st.wordCount} 词中 ${st.failedCount} 词无识别证据（红词），时间是插值兜底、不可靠`
+  }
+  if (st.hasParen) {
+    return '含括号 ad-lib：括号词在模型词表外，通常无法对齐（结构性红词）'
+  }
+  return '这行对齐正常，无异常标记'
+}
+
+/**
+ * 摊开到行区间：行内词均匀铺进 [startSec, endSec]，清 failed（均摊后时间确定）。
+ * 对应副歌堆叠：不重新识别，先把词在时间轴上散开、立刻能听。
+ */
+export function spreadLineToWindow(
+  line: LyricsLine,
+  startSec: number,
+  endSec: number,
+): LyricsLine {
+  const words = line.words
+  if (!words || words.length === 0) return line
+  const n = words.length
+  const span = Math.max(MIN_WORD_SEC, endSec - startSec)
+  const newWords = words.map((w, k) => {
+    const t = startSec + (n === 1 ? span / 2 : (k / (n - 1)) * span)
+    return { ...w, timeMs: Math.round(t * 1000), failed: false }
+  })
+  return { ...line, timeMs: Math.round(startSec * 1000), words: newWords }
+}
+
+/** 行音频切片窗口（秒）：聚焦行 [t_i-0.5s, t_{i+1}+0.5s]；末行用 fallbackSpanSec 兜底 */
+export function lineWindowSec(
+  lineTimes: (number | undefined)[],
+  focusLine: number,
+  fallbackSpanSec: number,
+  padSec = 0.5,
+): { startSec: number; endSec: number } {
+  const t = lineTimes[focusLine]
+  const next = lineTimes[focusLine + 1]
+  const startSec = t !== undefined ? Math.max(0, t / 1000 - padSec) : 0
+  const endSec =
+    next !== undefined
+      ? next / 1000 + padSec
+      : startSec + Math.max(fallbackSpanSec, 0.8) + padSec
+  return { startSec, endSec: Math.max(startSec + 0.2, endSec) }
+}
+
+/**
+ * 行级括号剔除：把行内括号（ad-lib）剥掉，主词文本用窗口内识别段重新对齐。
+ * 返回主词行（词数可能少于原文）与括号段文本。
+ */
+export function alignLineWithoutParens(
+  phonemes: HypSegment[],
+  lineText: string,
+  startSec: number,
+  endSec: number,
+): { mainLine: LyricsLine | null; adlibTexts: string[] } {
+  const split = splitLineParens(lineText)
+  const adlibTexts = split.adlibs.map((a) => a.text)
+  if (!split.mainText) return { mainLine: null, adlibTexts }
+  const windowSegs = phonemes.filter((s) => s.end >= startSec && s.start <= endSec)
+  const lrc = alignSegmentsToLrc(windowSegs, split.mainText)
+  return { mainLine: lrc ? (parseLrc(lrc).lines[0] ?? null) : null, adlibTexts }
+}
+
+/** 按行时间戳重算这一行：窗口内识别段 + [lineStartMs, lineEndMs] 行区间做行内对齐 */
+export function alignLineByLineTimes(
+  phonemes: HypSegment[],
+  lineText: string,
+  lineStartMs: number,
+  lineEndMs: number | undefined,
+): LyricsLine | null {
+  const lo = lineStartMs / 1000 - 5
+  const hi = (lineEndMs ?? lineStartMs) / 1000 + 5
+  const windowSegs = phonemes.filter((s) => s.end >= lo && s.start <= hi)
+  const lrc = alignSegmentsToLrc(windowSegs, lineText, [
+    lineStartMs,
+    lineEndMs ?? lineStartMs + 1000,
+  ])
+  return lrc ? (parseLrc(lrc).lines[0] ?? null) : null
+}
+
+/** 不锁行区间：以 centerSec 为中心取邻近识别段自由 DTW 对齐（LRC 行时间不可靠时用） */
+export function alignLineFree(
+  phonemes: HypSegment[],
+  lineText: string,
+  centerSec: number,
+  radiusSec = 8,
+): LyricsLine | null {
+  const windowSegs = phonemes.filter(
+    (s) => s.end >= centerSec - radiusSec && s.start <= centerSec + radiusSec,
+  )
+  const lrc = alignSegmentsToLrc(windowSegs, lineText)
+  return lrc ? (parseLrc(lrc).lines[0] ?? null) : null
+}
+
+/** 对齐单元 → 增强 LRC 单行 → LyricsLine（供 CTC 强制对齐结果使用） */
+export function buildLineFromUnits(units: AlignedUnit[]): LyricsLine | null {
+  if (units.length === 0) return null
+  const lrc = buildAlignLrc(units)
+  return lrc ? (parseLrc(lrc).lines[0] ?? null) : null
+}
+
+/**
+ * 把聚焦行的逐字时间戳替换成 newWords，其余行原样保留，返回新增强 LRC。
+ * 行号按 alignedLrc 的非空行计数（与 parseLrc 结果对齐）。
+ */
+export function patchLineIntoAlignedLrc(
+  alignedLrc: string,
+  focusLine: number,
+  newWords: LyricsWord[],
+): string {
+  if (newWords.length === 0) return alignedLrc
+  const rawLines = alignedLrc.split(/\r?\n/)
+  const lineStartMs = newWords[0].timeMs
+  const parts = newWords.map((w) => {
+    const marker = w.failed ? '|f' : ''
+    return `<${formatLrcTimestamp(w.timeMs / 1000)}${marker}>${w.text}`
+  })
+  const newLine = `[${formatLrcTimestamp(lineStartMs / 1000)}]${parts.join('')}`
+  let contentIdx = 0
+  let replaced = false
+  for (let i = 0; i < rawLines.length; i++) {
+    if (rawLines[i].trim().length === 0) continue
+    if (contentIdx === focusLine) {
+      rawLines[i] = newLine
+      replaced = true
+      break
+    }
+    contentIdx += 1
+  }
+  return replaced ? rawLines.join('\n') : alignedLrc
 }
