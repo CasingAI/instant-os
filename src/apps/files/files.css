@@ -1257,56 +1257,6 @@ button.files__path-bar-segment:active {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.files__info {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.files__info-row {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-}
-
-.files__info-row dt {
-  margin: 0;
-  padding-top: 1px;
-  color: #7a6348;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.files__info-row dd {
-  margin: 0;
-  min-width: 0;
-  color: #2a241c;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.files__info-row--path dd {
-  padding: 6px 8px;
-  border: 1px solid rgba(90, 67, 40, 0.18);
-  border-radius: 6px;
-  background: linear-gradient(180deg, #fffdf8 0%, #f4efe6 100%);
-}
-
-.files__info-path {
-  display: block;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.45;
-  color: #3f3226;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
 .files__popover {
   position: fixed;
   z-index: 45;

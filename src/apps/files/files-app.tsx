@@ -48,8 +48,6 @@ import {
 import {
   isFilesLocationWritable,
   isFilesNodeWritable,
-  formatFilesNodePermissionLabel,
-  filesVolumeRootAttributes,
   isMountLocationId,
   isMountNodeId,
   isTrashLocationId,
@@ -120,6 +118,7 @@ import {
   parseFilesAbsolutePath,
 } from './files-path.ts'
 import { reconcileGithubRepoAttributes } from '../github-desktop/github-repo-attributes.ts'
+import { encodeInfoDocumentId, encodeVolumeInfoDocumentId } from '../file-info/info-document-id.ts'
 import { FilesPathBar, type FilesPathBarSegment } from './files-path-bar.tsx'
 import { FilesFolderTemplateIcon, FilesNodeIcon, FilesTxtTemplateIcon } from './files-node-icon.tsx'
 import '../../ui/ios-check-toggle.css'
@@ -588,8 +587,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [folderMotion, setFolderMotion] = useState<'idle' | 'push' | 'pop'>('idle')
   const [openWithNode, setOpenWithNode] = useState<FilesNode | undefined>(undefined)
   const [openWithAlways, setOpenWithAlways] = useState(false)
-  const [infoNode, setInfoNode] = useState<FilesNode | undefined>(undefined)
-  const [infoPath, setInfoPath] = useState<string | undefined>(undefined)
   const [viewMode, setViewMode] = useState<FilesViewMode>(() => readFilesViewMode())
   const [sort, setSort] = useState<FilesSort>(() => readFilesSort())
   const [nameDisplayMode, setNameDisplayMode] = useState<FilesNameDisplayMode>(() =>
@@ -2177,24 +2174,22 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   )
 
   const handleShowInfo = useCallback(
-    async (node: FilesNode) => {
+    async (nodes: FilesNode[]) => {
       closeTransientMenus()
       try {
-        if (node.locationId === 'dev' && node.id !== '') {
+        if (nodes.some((node) => node.locationId === 'dev' && node.id !== '')) {
           await reconcileGithubRepoAttributes().catch(() => undefined)
         }
-        const fresh =
-          node.id === ''
-            ? node
-            : await getNodeOrThrow(node.id).catch(() => node)
-        const path = await resolveFilesAbsolutePath(fresh)
-        setInfoNode(fresh)
-        setInfoPath(path)
+        const paths: string[] = []
+        for (const node of nodes) {
+          paths.push(await resolveFilesAbsolutePath(node))
+        }
+        openApp('file-info', { documentId: encodeInfoDocumentId(paths) })
       } catch (err) {
         await modal.alert({ title: '无法显示信息', message: formatError(err), themeColor: THEME })
       }
     },
-    [closeTransientMenus, modal],
+    [closeTransientMenus, modal, openApp],
   )
 
   const toggleViewMode = useCallback(() => {
@@ -2217,38 +2212,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     })
   }, [])
 
-  const closeInfo = useCallback(() => {
-    setInfoNode(undefined)
-    setInfoPath(undefined)
-  }, [])
-
   const handleShowCurrentFolderInfo = useCallback(async () => {
     closeTransientMenus()
     if (currentFolder) {
-      await handleShowInfo(currentFolder)
+      await handleShowInfo([currentFolder])
       return
     }
-    setInfoNode({
-      id: '',
-      locationId,
-      parentId: undefined,
-      name: currentTitle,
-      kind: 'folder',
-      mimeType: undefined,
-      byteSize: 0,
-      createdAt: 0,
-      updatedAt: 0,
-      attributes: filesVolumeRootAttributes(locationId),
-    })
-    setInfoPath(pathBarAbsolutePath)
-  }, [
-    closeTransientMenus,
-    currentFolder,
-    currentTitle,
-    handleShowInfo,
-    locationId,
-    pathBarAbsolutePath,
-  ])
+    openApp('file-info', { documentId: encodeVolumeInfoDocumentId(locationId) })
+  }, [closeTransientMenus, currentFolder, handleShowInfo, locationId, openApp])
 
   // ── 框选（鼠标/触控笔在空白处拖拽）─────────────────────────────────────
   const marqueeRectRef = useRef<FilesMarqueeRect | undefined>(undefined)
@@ -2899,8 +2870,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         items.push({ type: 'separator' })
         items.push({
           type: 'action',
-          label: '显示信息',
-          onClick: () => void handleShowInfo(node),
+          label: multi ? `显示 ${targetNodes.length} 项的信息` : '显示信息',
+          onClick: () => void handleShowInfo(targetNodes),
         })
         return items
       }
@@ -2976,8 +2947,8 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       items.push({ type: 'separator' })
       items.push({
         type: 'action',
-        label: '显示信息',
-        onClick: () => void handleShowInfo(node),
+        label: multi ? `显示 ${targetNodes.length} 项的信息` : '显示信息',
+        onClick: () => void handleShowInfo(targetNodes),
       })
       return items
     },
@@ -3838,70 +3809,6 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         ) : undefined}
       </WindowModal>
 
-      <WindowModal
-        open={!!infoNode}
-        title="信息"
-        themeColor={THEME}
-        wide
-        onClose={closeInfo}
-        actions={[
-          {
-            key: 'ok',
-            label: '完成',
-            tone: 'primary',
-            onClick: () => {
-              closeInfo()
-            },
-          },
-        ]}
-      >
-        {infoNode ? (
-          <dl class="files__info">
-            <div class="files__info-row">
-              <dt>名称</dt>
-              <dd>{infoNode.name}</dd>
-            </div>
-            <div class="files__info-row">
-              <dt>种类</dt>
-              <dd>{infoNode.kind === 'folder' ? '文件夹' : '文件'}</dd>
-            </div>
-            <div class="files__info-row">
-              <dt>位置</dt>
-              <dd>{getFilesLocationLabel(infoNode.locationId)}</dd>
-            </div>
-            <div class="files__info-row files__info-row--path">
-              <dt>路径</dt>
-              <dd>
-                <code class="files__info-path">{infoPath ?? '…'}</code>
-              </dd>
-            </div>
-            {infoNode.kind === 'file' ? (
-              <div class="files__info-row">
-                <dt>大小</dt>
-                <dd>{formatFilesByteSize(infoNode.byteSize)}</dd>
-              </div>
-            ) : undefined}
-            {infoNode.mimeType ? (
-              <div class="files__info-row">
-                <dt>类型</dt>
-                <dd>{infoNode.mimeType}</dd>
-              </div>
-            ) : undefined}
-            <div class="files__info-row">
-              <dt>创建</dt>
-              <dd>{formatFilesTimestamp(infoNode.createdAt)}</dd>
-            </div>
-            <div class="files__info-row">
-              <dt>修改</dt>
-              <dd>{formatFilesTimestamp(infoNode.updatedAt)}</dd>
-            </div>
-            <div class="files__info-row">
-              <dt>权限</dt>
-              <dd>{formatFilesNodePermissionLabel(infoNode)}</dd>
-            </div>
-          </dl>
-        ) : undefined}
-      </WindowModal>
       <FilesOpProgressDialog
         open={opProgressUi !== undefined}
         title={opProgressUi?.title ?? ''}

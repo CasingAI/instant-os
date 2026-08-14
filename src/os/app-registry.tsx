@@ -34,6 +34,8 @@ import { SpaceSnifferApp } from '../apps/space-sniffer/space-sniffer-app.tsx'
 import { KeychainApp } from '../apps/keychain/keychain-app.tsx'
 import { GithubDesktopApp } from '../apps/github-desktop/github-desktop-app.tsx'
 import { FilesApp } from '../apps/files/files-app.tsx'
+import { FileInfoApp } from '../apps/file-info/file-info-app.tsx'
+import { FileInfoIcon } from '../apps/file-info/file-info-icon.tsx'
 import { TextEditApp } from '../apps/textedit/textedit-app.tsx'
 import { PagesApp } from '../apps/pages/pages-app.tsx'
 import { PreviewApp } from '../apps/preview/preview-app.tsx'
@@ -202,6 +204,14 @@ export const APP_REGISTRY: AppDefinition[] = [
     icon: FilesIcon,
     dock: true,
     desktop: true,
+  }),
+  withAbout({
+    id: 'file-info',
+    name: BUILTIN_APP_DISPLAY_NAMES['file-info'],
+    icon: FileInfoIcon,
+    dock: false,
+    dockWhenRunning: true,
+    desktop: false,
   }),
   withAbout({
     id: 'textedit',
@@ -401,6 +411,7 @@ export const APP_COMPONENTS: Record<BuiltinAppId, ComponentType<{ windowId?: str
   speech: SpeechApp,
   photos: PlaceholderApp('photos', '照片'),
   files: FilesApp,
+  'file-info': FileInfoApp,
   textedit: TextEditApp,
   pages: PagesApp,
   preview: PreviewApp,
