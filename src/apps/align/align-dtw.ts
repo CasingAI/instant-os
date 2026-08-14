@@ -196,6 +196,8 @@ export function interpolateUnits(
     const slot = span / Math.max(1, gapUnits)
     result[u].start = leftT + offsetInGap * slot
     result[u].end = result[u].start + slot
+    // 无任何声学证据的时间戳（纯插值兜底）→ 标红
+    result[u].failed = true
   }
 
   // 保证单调：后单元起点不得早于前单元终点

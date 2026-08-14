@@ -289,11 +289,12 @@ export function alignSegmentsByLine(
 
     let mappedRow: AlignedUnit[]
     if (rowKnown.length === 0) {
-      // 无匹配词：行内均匀分摊到 [tStart, tEndFinal]
+      // 无匹配词：行内均匀分摊到 [tStart, tEndFinal]（整行无声学证据 → 全部标红）
       const n = rowUnits.length
       const span = Math.max(0.05, tEndFinal - tStart)
       mappedRow = rowUnits.map((u, k) => ({
         ...u,
+        failed: true,
         start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
         end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
       }))

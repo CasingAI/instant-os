@@ -4,6 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { alignSegmentsToLrc } from './align-pipeline.ts'
+import { looksLikeBrokenLrc } from './align-lrc.ts'
 import { stripLrcMarkup } from './pinyin-g2p.ts'
 import type { HypSegment } from './align-text-dtw.ts'
 
@@ -109,10 +110,10 @@ function testLineAnchorNoMatchNotAnchored(): void {
   assert.ok(lines[1].startsWith('[00:24.10]'), `第二行无匹配也应按行时间分摊：${lines[1]}`)
 }
 
-/** 解析增强 LRC 一行的逐词时间（秒） */
+/** 解析增强 LRC 一行的逐词时间（秒）；兼容 <mm:ss.xx|f> 失败标记 */
 function lineWords(lrcLine: string): { text: string; timeSec: number }[] {
   const out: { text: string; timeSec: number }[] = []
-  const re = /<(\d{1,2}):(\d{1,2})(?:\.(\d{1,2}))?>([^<]*)/g
+  const re = /<(\d{1,2}):(\d{1,2})(?:\.(\d{1,2}))?(?:\|[a-z]+)?>([^<]*)/g
   for (const m of lrcLine.matchAll(re)) {
     const min = Number(m[1])
     const sec = Number(m[2])
@@ -188,6 +189,27 @@ function testNoMatchSpread(): void {
   assert.ok(Math.abs(words[0].timeSec - 10) < 0.05, `首词应在 10s：${words[0].timeSec}`)
   assert.ok(Math.abs(words[1].timeSec - 12) < 0.05, `中词应在 12s：${words[1].timeSec}`)
   assert.ok(Math.abs(words[2].timeSec - 14) < 0.05, `末词应在 14s：${words[2].timeSec}`)
+}
+
+function testFailedMarkInLrc(): void {
+  // 行时间戳路径：行内无匹配 → 均匀分摊词应带 <mm:ss.xx|f> 失败标记（与 zipformer 强制对齐一致）
+  const segments = segs([['something', 5.0, 5.4]])
+  const raw = '[00:10.00]x y z'
+  const lrc = alignSegmentsToLrc(segments, raw, [10000])
+  assert.ok(lrc.includes('|f'), `无匹配行应输出失败标记：${lrc}`)
+  assert.ok(lrc.includes('|f>x '), lrc)
+
+  // 全局 DTW 路径（无行时间戳）：匹配词无标记、未匹配词带标记
+  const partial = segs([
+    ['hello', 10.2, 10.8],
+    ['world', 10.8, 11.4],
+  ])
+  const globalLrc = alignSegmentsToLrc(partial, 'hello world again')
+  assert.ok(globalLrc.includes('<00:10.20>hello '), `匹配词不应带失败标记：${globalLrc}`)
+  assert.ok(globalLrc.includes('|f>again'), `未匹配词应带失败标记：${globalLrc}`)
+
+  // looksLikeBrokenLrc 不把合法失败标记判坏
+  assert.equal(looksLikeBrokenLrc(globalLrc), false, '含 |f 的增强 LRC 不应判坏')
 }
 
 function testOverThresholdNotAnchored(): void {
@@ -287,6 +309,7 @@ async function runAll(): Promise<void> {
   testPerLineIsolation()
   testLineScaleWithin()
   testNoMatchSpread()
+  testFailedMarkInLrc()
   testOverThresholdNotAnchored()
   testNoLineTimesFallback()
   testClusteredLineTimesSpread()
