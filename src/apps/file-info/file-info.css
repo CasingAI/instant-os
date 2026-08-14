@@ -160,3 +160,126 @@
   font-size: 12px;
   color: #7a6348;
 }
+
+/* 单项目面板：顶部大图标 + 可折叠分节（macOS 显示简介风格） */
+.file-info-app__single {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.file-info-app__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.file-info-app__hero .files-node-icon {
+  width: 56px;
+  height: 56px;
+}
+
+.file-info-app__hero-name {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  color: #2a241c;
+}
+
+.file-info-app__section {
+  border: 1px solid rgba(90, 67, 40, 0.14);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fffdf8 0%, #f8f2e8 100%);
+}
+
+.file-info-app__section-summary {
+  margin: 0;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5c4a33;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-info-app__section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.file-info-app__section-summary::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 10px;
+  color: #8a6a3c;
+  transition: transform 120ms ease;
+}
+
+.file-info-app__section[open] .file-info-app__section-summary::before {
+  transform: rotate(90deg);
+}
+
+.file-info-app__section-summary:active {
+  background: rgba(90, 67, 40, 0.06);
+}
+
+.file-info-app__section > .file-info-app__info {
+  padding: 4px 12px 12px;
+}
+
+.file-info-app__info-rev {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f3226;
+}
+
+/* 插件分节内容区通用内边距 */
+.file-info-app__section > :not(summary) {
+  padding: 4px 12px 12px;
+}
+
+.file-info-app__section-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7a6348;
+}
+
+/* 图片信息分节 */
+.file-info-app__image {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.file-info-app__image-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 160px;
+  border: 1px solid rgba(90, 67, 40, 0.14);
+  border-radius: 8px;
+  background:
+    repeating-conic-gradient(rgba(90, 67, 40, 0.06) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+}
+
+.file-info-app__image-thumb img {
+  border-radius: 4px;
+}
+
+.file-info-app__image-meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

@@ -5,18 +5,33 @@ import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
 import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { DocumentTabBar } from '../../ui/document-tab-bar.tsx'
-import { getFilesLocationLabel, resolveNodeByAbsolutePath } from '../files/files-vfs.ts'
+import { FilesNodeIcon } from '../files/files-node-icon.tsx'
+import { getNode } from '../files/files-storage.ts'
 import {
   filesLocationPathRoot,
   formatFilesByteSize,
   formatFilesTimestamp,
 } from '../files/files-path.ts'
+import { readFileBlob } from '../files/files-vfs.ts'
+import {
+  listFileInfoSections,
+  type FileInfoSectionContribution,
+} from '../../os/file-info-registry.ts'
+// 副作用导入：注册图片信息分节
+import './sections/image-section.tsx'
 import {
   filesVolumeRootAttributes,
   formatFilesNodePermissionLabel,
+  isMountNodeId,
   type FilesLocationId,
   type FilesNode,
 } from '../files/files-types.ts'
+import {
+  enrichFilesNodeMeta,
+  getFilesLocationLabel,
+  listSubtreeFiles,
+  resolveNodeByAbsolutePath,
+} from '../files/files-vfs.ts'
 import { decodeInfoDocumentId, type InfoDocumentKind } from './info-document-id.ts'
 import './file-info.css'
 
@@ -334,6 +349,12 @@ export function FileInfoApp({ windowId }: FileInfoAppProps) {
   )
 }
 
+type FolderStats = {
+  fileCount: number
+  folderCount: number
+  totalBytes: number
+}
+
 function SingleInfoPanel({ tab }: { tab: InfoTab }) {
   const node = tab.nodes[0]
   if (!node) {
@@ -344,55 +365,242 @@ function SingleInfoPanel({ tab }: { tab: InfoTab }) {
       </div>
     )
   }
+  return <SingleInfoContent tab={tab} node={node} />
+}
+
+function SingleInfoContent({ tab, node }: { tab: InfoTab; node: FilesNode }) {
+  const [folderStats, setFolderStats] = useState<FolderStats | undefined>(undefined)
+  const [folderStatsState, setFolderStatsState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle',
+  )
+  const [mountNode, setMountNode] = useState<FilesNode | undefined>(undefined)
+  const [trashParentName, setTrashParentName] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    if (node.kind !== 'file' || !isMountNodeId(node.id)) {
+      setMountNode(undefined)
+      return
+    }
+    enrichFilesNodeMeta(node.id).then((enriched) => {
+      if (!cancelled && enriched) setMountNode(enriched)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [node.id, node.kind])
+
+  useEffect(() => {
+    let cancelled = false
+    if (node.kind !== 'folder') {
+      setFolderStatsState('idle')
+      setFolderStats(undefined)
+      return
+    }
+    setFolderStatsState('loading')
+    setFolderStats(undefined)
+    const rootPath =
+      tab.kind === 'volume' && tab.volumeLocationId
+        ? filesLocationPathRoot(tab.volumeLocationId)
+        : tab.documentId
+    listSubtreeFiles(rootPath)
+      .then((entries) => {
+        if (cancelled) return
+        const folderNames = new Set<string>()
+        let fileCount = 0
+        let totalBytes = 0
+        for (const entry of entries) {
+          fileCount += 1
+          totalBytes += entry.byteSize
+          const slash = entry.path.lastIndexOf('/')
+          if (slash > 0) {
+            let dir = entry.path.slice(0, slash)
+            while (dir) {
+              folderNames.add(dir)
+              const nextSlash = dir.lastIndexOf('/')
+              if (nextSlash < 0) break
+              dir = dir.slice(0, nextSlash)
+            }
+          }
+        }
+        setFolderStats({ fileCount, folderCount: folderNames.size, totalBytes })
+        setFolderStatsState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setFolderStatsState('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [node.id, node.kind, tab.documentId, tab.kind, tab.volumeLocationId])
+
+  useEffect(() => {
+    let cancelled = false
+    const origin = node.trashOrigin
+    if (!origin || origin.parentId === undefined) {
+      setTrashParentName(undefined)
+      return
+    }
+    getNode(origin.parentId)
+      .then((parent) => {
+        if (cancelled) return
+        if (parent && parent.kind === 'folder' && parent.locationId === origin.locationId) {
+          setTrashParentName(parent.name)
+        } else {
+          setTrashParentName(undefined)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTrashParentName(undefined)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [node.id, node.trashOrigin])
+
+  const displayNode = mountNode ?? node
+
   const path =
     tab.kind === 'volume' && tab.volumeLocationId
       ? filesLocationPathRoot(tab.volumeLocationId)
       : tab.documentId
+
+  const parentPath =
+    tab.kind === 'volume' && tab.volumeLocationId
+      ? filesLocationPathRoot(tab.volumeLocationId)
+      : (() => {
+          const lastSlash = tab.documentId.lastIndexOf('/')
+          return lastSlash > 0 ? tab.documentId.slice(0, lastSlash) : tab.documentId
+        })()
+
+  const kindLabel = node.kind === 'folder' ? '文件夹' : node.kind === 'symlink' ? '符号链接' : '文件'
+
+  const sizeLabel = (() => {
+    if (node.kind === 'folder') {
+      if (folderStatsState === 'loading') return '计算中…'
+      if (folderStatsState === 'error' || !folderStats) return '—'
+      return `${folderStats.folderCount} 个文件夹、${folderStats.fileCount} 个文件，共 ${formatFilesByteSize(folderStats.totalBytes)}`
+    }
+    if (node.kind === 'file') return formatFilesByteSize(displayNode.byteSize)
+    return '—'
+  })()
+
   return (
-    <dl class="file-info-app__info">
-      <div class="file-info-app__info-row">
-        <dt>名称</dt>
-        <dd>{node.name}</dd>
+    <div class="file-info-app__single">
+      <div class="file-info-app__hero">
+        <FilesNodeIcon node={node} />
+        <h2 class="file-info-app__hero-name">{node.name}</h2>
       </div>
-      <div class="file-info-app__info-row">
-        <dt>种类</dt>
-        <dd>{node.kind === 'folder' ? '文件夹' : node.kind === 'symlink' ? '符号链接' : '文件'}</dd>
-      </div>
-      <div class="file-info-app__info-row">
-        <dt>位置</dt>
-        <dd>{getFilesLocationLabel(node.locationId)}</dd>
-      </div>
-      <div class="file-info-app__info-row file-info-app__info-row--path">
-        <dt>路径</dt>
-        <dd>
-          <code class="file-info-app__info-path">{path}</code>
-        </dd>
-      </div>
-      {node.kind === 'file' ? (
-        <div class="file-info-app__info-row">
-          <dt>大小</dt>
-          <dd>{formatFilesByteSize(node.byteSize)}</dd>
-        </div>
-      ) : undefined}
-      {node.mimeType ? (
-        <div class="file-info-app__info-row">
-          <dt>类型</dt>
-          <dd>{node.mimeType}</dd>
-        </div>
-      ) : undefined}
-      <div class="file-info-app__info-row">
-        <dt>创建</dt>
-        <dd>{formatFilesTimestamp(node.createdAt)}</dd>
-      </div>
-      <div class="file-info-app__info-row">
-        <dt>修改</dt>
-        <dd>{formatFilesTimestamp(node.updatedAt)}</dd>
-      </div>
-      <div class="file-info-app__info-row">
-        <dt>权限</dt>
-        <dd>{formatFilesNodePermissionLabel(node)}</dd>
-      </div>
-    </dl>
+
+      <details class="file-info-app__section" open>
+        <summary class="file-info-app__section-summary">通用</summary>
+        <dl class="file-info-app__info">
+          <div class="file-info-app__info-row">
+            <dt>种类</dt>
+            <dd>{kindLabel}</dd>
+          </div>
+          <div class="file-info-app__info-row">
+            <dt>大小</dt>
+            <dd>{sizeLabel}</dd>
+          </div>
+          <div class="file-info-app__info-row file-info-app__info-row--path">
+            <dt>位置</dt>
+            <dd>
+              <code class="file-info-app__info-path">{parentPath}</code>
+            </dd>
+          </div>
+          <div class="file-info-app__info-row">
+            <dt>创建</dt>
+            <dd>{formatFilesTimestamp(displayNode.createdAt)}</dd>
+          </div>
+          <div class="file-info-app__info-row">
+            <dt>修改</dt>
+            <dd>{formatFilesTimestamp(displayNode.updatedAt)}</dd>
+          </div>
+        </dl>
+      </details>
+
+      <details class="file-info-app__section">
+        <summary class="file-info-app__section-summary">更多信息</summary>
+        <dl class="file-info-app__info">
+          <div class="file-info-app__info-row file-info-app__info-row--path">
+            <dt>路径</dt>
+            <dd>
+              <code class="file-info-app__info-path">{path}</code>
+            </dd>
+          </div>
+          {node.mimeType ? (
+            <div class="file-info-app__info-row">
+              <dt>类型</dt>
+              <dd>{node.mimeType}</dd>
+            </div>
+          ) : undefined}
+          {node.kind === 'symlink' && node.target ? (
+            <div class="file-info-app__info-row file-info-app__info-row--path">
+              <dt>链接目标</dt>
+              <dd>
+                <code class="file-info-app__info-path">{node.target}</code>
+              </dd>
+            </div>
+          ) : undefined}
+          {node.trashOrigin ? (
+            <div class="file-info-app__info-row">
+              <dt>原位置</dt>
+              <dd>
+                {getFilesLocationLabel(node.trashOrigin.locationId)}
+                {trashParentName ? ` / ${trashParentName}` : ''}
+                {node.trashOrigin.name ? ` / ${node.trashOrigin.name}` : ''}
+              </dd>
+            </div>
+          ) : undefined}
+          {node.kind === 'file' && node.contentRevisionId ? (
+            <div class="file-info-app__info-row">
+              <dt>内容版本</dt>
+              <dd>
+                <code class="file-info-app__info-rev" title={node.contentRevisionId}>
+                  {node.contentRevisionId.slice(0, 8)}
+                </code>
+              </dd>
+            </div>
+          ) : undefined}
+          <div class="file-info-app__info-row">
+            <dt>权限</dt>
+            <dd>{formatFilesNodePermissionLabel(node)}</dd>
+          </div>
+        </dl>
+      </details>
+
+      {listFileInfoSections(node).map((contribution) => (
+        <InfoSectionCard
+          key={`${contribution.id}-${node.id}`}
+          contribution={contribution}
+          node={node}
+          path={path}
+        />
+      ))}
+    </div>
+  )
+}
+
+function InfoSectionCard({
+  contribution,
+  node,
+  path,
+}: {
+  contribution: FileInfoSectionContribution
+  node: FilesNode
+  path: string
+}) {
+  const SectionComponent = contribution.component
+  return (
+    <details class="file-info-app__section">
+      <summary class="file-info-app__section-summary">{contribution.title}</summary>
+      <SectionComponent
+        node={node}
+        path={path}
+        readBlob={() => readFileBlob(node.id).then((result) => result.blob)}
+      />
+    </details>
   )
 }
 

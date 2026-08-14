@@ -104,7 +104,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   settings: { title: '系统设置', width: 780, height: 540 },
   photos: { title: '照片', width: 720, height: 620 },
   files: { title: '文件', width: 900, height: 620 },
-  'file-info': { title: '文件信息', width: 340, height: 420 },
+  'file-info': { title: '文件信息', width: 340, height: 520 },
   textedit: { title: '文本编辑', width: 720, height: 560 },
   pages: { title: '文稿', width: 840, height: 720 },
   preview: { title: '预览', width: 780, height: 640 },
