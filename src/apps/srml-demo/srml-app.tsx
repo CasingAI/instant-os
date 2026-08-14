@@ -57,6 +57,28 @@ function SegmentCard({ segment }: { segment: SrmlSegment }) {
       </div>
     )
   }
+  if (segment.kind === 'tool-call') {
+    return (
+      <div class="srml-segment srml-segment--tool">
+        <div class="srml-segment__label">
+          <span class="srml-segment__tag srml-segment__tag--tool">&lt;|begin_of_tool_call|&gt;</span>
+          <span class="srml-segment__name">工具调用</span>
+        </div>
+        <div class="srml-segment__tool-body">
+          <div class="srml-segment__tool-row">
+            <span class="srml-segment__tool-key">名称</span>
+            <span class="srml-segment__tool-value">{segment.name || '(未解析出名称)'}</span>
+          </div>
+          {segment.arguments ? (
+            <div class="srml-segment__tool-row">
+              <span class="srml-segment__tool-key">参数</span>
+              <pre class="srml-segment__tool-value">{segment.arguments}</pre>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
   return (
     <div class="srml-segment srml-segment--response">
       <div class="srml-segment__label">
@@ -141,16 +163,19 @@ function PartialTaskCard({ partial }: { partial: Extract<SrmlPartialState, { ope
           <div class={`srml-segment srml-segment--pending srml-segment--${partial.segment.kind}`}>
             <div class="srml-segment__label">
               {partial.segment.kind === 'thought' ? (
-                <>
-                  <span class="srml-segment__tag srml-segment__tag--thought">&lt;begin_of_thought&gt;</span>
-                  <span class="srml-segment__name">思考</span>
-                </>
+                <span class="srml-segment__tag srml-segment__tag--thought">&lt;begin_of_thought&gt;</span>
+              ) : partial.segment.kind === 'tool-call' ? (
+                <span class="srml-segment__tag srml-segment__tag--tool">&lt;|begin_of_tool_call|&gt;</span>
               ) : (
-                <>
-                  <span class="srml-segment__tag srml-segment__tag--response">&lt;begin_of_response&gt;</span>
-                  <span class="srml-segment__name">回复</span>
-                </>
+                <span class="srml-segment__tag srml-segment__tag--response">&lt;begin_of_response&gt;</span>
               )}
+              <span class="srml-segment__name">
+                {partial.segment.kind === 'thought'
+                  ? '思考'
+                  : partial.segment.kind === 'tool-call'
+                    ? '工具调用'
+                    : '回复'}
+              </span>
               <span class="srml-task__live">接收中</span>
             </div>
             <div class="srml-segment__content">{partial.segment.content || '…'}</div>
@@ -250,7 +275,8 @@ function TimelineItem({ event, branches, onContinueBranch, onDiscardBranch }: Ti
           <div class="srml-node__body">
             <div class="srml-node__title">
               <span class="srml-tag srml-tag--model">模型输出</span>
-              第 {event.attempt} 轮 · 解析出 {tasksFrom(event.blocks).length} 个任务
+              第 {event.step} 步 · 解析出 {tasksFrom(event.blocks).length} 个任务
+              {event.attempt > 1 && <span class="srml-node__count">（重试第 {event.attempt} 次）</span>}
               {event.branchId !== undefined && <span class="srml-node__count">（分支 {event.branchId}）</span>}
             </div>
             {event.warnings.length > 0 && (
@@ -284,6 +310,61 @@ function TimelineItem({ event, branches, onContinueBranch, onDiscardBranch }: Ti
                 />
               </div>
             </div>
+          </div>
+        </div>
+      )
+    case 'tool-executing':
+      return (
+        <div class="srml-node srml-node--tool">
+          <span class="srml-node__dot srml-node__dot--tool" />
+          <div class="srml-node__body">
+            <div class="srml-node__title">
+              <span class="srml-tag srml-tag--tool">工具执行中</span>
+              任务 {event.taskId} · {event.name}
+              <span class="srml-node__count">参数: {event.arguments}</span>
+            </div>
+          </div>
+        </div>
+      )
+    case 'tool-result':
+      return (
+        <div class="srml-node srml-node--tool">
+          <span class="srml-node__dot srml-node__dot--tool-done" />
+          <div class="srml-node__body">
+            <div class="srml-node__title">
+              <span class="srml-tag srml-tag--tool-done">工具结果</span>
+              任务 {event.taskId} · {event.name}
+              <span class="srml-node__count">耗时 {event.ms}ms</span>
+            </div>
+            <pre class="srml-node__tool-result">{event.result}</pre>
+          </div>
+        </div>
+      )
+    case 'prediction-checked':
+      return (
+        <div class="srml-node srml-node--prediction">
+          <span
+            class={`srml-node__dot ${event.ok ? 'srml-node__dot--tool-done' : 'srml-node__dot--fail'}`}
+          />
+          <div class="srml-node__body">
+            <div class="srml-node__title">
+              <span class={`srml-tag ${event.ok ? 'srml-tag--tool-done' : 'srml-tag--retry'}`}>
+                {event.ok ? '预判成立' : '预判不符'}
+              </span>
+              任务 {event.taskId} · {event.name}
+            </div>
+            {event.ok ? (
+              <div class="srml-node__sub">
+                expect 预判与真实返回相符（乐观成立），结果未回填，整轮仅消耗一次请求。
+              </div>
+            ) : (
+              <>
+                <div class="srml-node__sub">
+                  expect 预判与真实返回不符，该 tool_call 之后的假设内容已作废，真实结果已回填并要求修正。
+                </div>
+                <pre class="srml-node__tool-result">{event.error}</pre>
+              </>
+            )}
           </div>
         </div>
       )
@@ -650,7 +731,8 @@ export function SrmlDemoApp() {
                 <div>1. 在底部输入内容（可设置思考强度），点「添加到暂存区」</div>
                 <div>2. 重复添加，堆出多个任务（Fork）</div>
                 <div>3. 提交后，每个任务成为一个分支</div>
-                <div>4. 分支卡片上可「继续」（只带该分支历史再聊）或「丢弃」</div>
+                <div>4. 模型需要外部信息时会输出工具调用，引擎执行后回填结果再继续</div>
+                <div>5. 分支卡片上可「继续」（只带该分支历史再聊）或「丢弃」</div>
               </div>
             </div>
           ) : (

@@ -23,6 +23,7 @@ export type SrmlPromptBlock = {
 export type SrmlSegment =
   | { kind: 'thought'; content: string }
   | { kind: 'response'; id: number; content: string }
+  | { kind: 'tool-call'; name: string; arguments: string; content?: string; expected?: unknown }
 
 export type SrmlTaskBlock = {
   kind: 'task'
@@ -33,6 +34,15 @@ export type SrmlTaskBlock = {
 
 export type SrmlBlock = SrmlPromptBlock | SrmlTaskBlock
 
+/** 引擎回填的工具执行结果块（user 侧文本，按任务分组序列化） */
+export type SrmlToolResultBlock = {
+  kind: 'tool-result'
+  taskId: number
+  name: string
+  /** 执行结果文本（JSON 字符串；失败时为错误描述） */
+  result: string
+}
+
 export type SrmlParseWarningCode =
   | 'unexpected-close'
   | 'id-mismatch'
@@ -42,6 +52,7 @@ export type SrmlParseWarningCode =
   | 'nested-open'
   | 'loose-text'
   | 'orphan-tag'
+  | 'tool-call-unparseable'
 
 export type SrmlParseWarning = {
   code: SrmlParseWarningCode
@@ -118,6 +129,20 @@ export function serializeTaskBlock(block: SrmlTaskBlock): string {
     if (segment.kind === 'thought') {
       return `<begin_of_thought>\n${segment.content.trim()}\n<end_of_thought>`
     }
+    if (segment.kind === 'tool-call') {
+      let args: unknown = segment.arguments
+      try {
+        args = JSON.parse(segment.arguments)
+      } catch {
+        // 非合法 JSON 时保持字符串兜底
+      }
+      const block = JSON.stringify({ name: segment.name, arguments: args })
+      const expectLine =
+        segment.expected !== undefined
+          ? `\n<|begin_of_expect|>${JSON.stringify(segment.expected)}<|end_of_expect|>`
+          : ''
+      return `<|begin_of_tool_call|>\n${block}${expectLine}\n<|end_of_tool_call|>`
+    }
     return `<begin_of_response_${segment.id}>\n${segment.content.trim()}\n<end_of_response_${segment.id}>`
   })
   return [
@@ -125,6 +150,33 @@ export function serializeTaskBlock(block: SrmlTaskBlock): string {
     ...segments,
     `<|end_of_task_${block.id}|>`,
   ].join('\n')
+}
+
+/** 把工具结果块按任务分组序列化为 user 侧回填文本（每任务一个 <|begin_of_task_N|> 包裹） */
+export function serializeToolResults(results: SrmlToolResultBlock[]): string {
+  const groups = new Map<number, SrmlToolResultBlock[]>()
+  for (const result of results) {
+    const group = groups.get(result.taskId) ?? []
+    group.push(result)
+    groups.set(result.taskId, group)
+  }
+  return [...groups.entries()]
+    .map(([taskId, items]) => {
+      const body = items
+        .map((item) => {
+          let resultJson: unknown = item.result
+          try {
+            resultJson = JSON.parse(item.result)
+          } catch {
+            // 非合法 JSON 时保持字符串兜底
+          }
+          const block = JSON.stringify({ name: item.name, result: resultJson })
+          return `<|begin_of_tool_result|>\n${block}\n<|end_of_tool_result|>`
+        })
+        .join('\n')
+      return `<|begin_of_task_${taskId}|>\n${body}\n<|end_of_task|>`
+    })
+    .join('\n\n')
 }
 
 export function serializeBlocks(blocks: SrmlBlock[]): string {

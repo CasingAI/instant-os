@@ -7,12 +7,14 @@
  *   <|begin_of_task_N|> / <|end_of_task_N|>                     模型任务块
  *   <begin_of_thought> / <end_of_thought>                       推理段
  *   <begin_of_response_N> / <end_of_response_N>                 回复段
+ *   <|begin_of_tool_call|> / <|end_of_tool_call|>               工具调用段（模型输出）
  *
  * 容错（对应已知失败模式）：
  * - 标签不区分大小写，容忍 `<| / < / </`、标签内多余空格
  * - 缺 <|begin_of_task|> 包裹但直接出现 thought/response → 自动开启任务
  * - 段标签未闭合就切换/闭合 → 自动补闭合，记 warning
  * - 闭合标签（end_of_*）一律忽略编号，按栈语义闭合；begin_of_response 编号可选（省略=当前任务）
+ * - tool_call 内容解析不出 名称/参数 → 整块保留原文展示，记 warning，引擎不执行
  * - 标签外文本 → 记 warning，不中断解析
  * - 解析到底仍有未闭合块 → partial（流式中间态），最终解析时容错收尾
  */
@@ -30,7 +32,44 @@ import {
 
 // 顺序：长的标签名在前（thought_effort 先于 thought），避免前缀误吞
 const TAG_PATTERN =
-  /<\|?\/?\s*(begin_of_prompt|end_of_prompt|begin_of_task|end_of_task|begin_of_thought_effort|end_of_thought_effort|begin_of_thought|end_of_thought|begin_of_response|end_of_response)(?:_(\d+))?\s*\|?>/gi
+  /<\|?\/?\s*(begin_of_prompt|end_of_prompt|begin_of_task|end_of_task|begin_of_thought_effort|end_of_thought_effort|begin_of_thought|end_of_thought|begin_of_response|end_of_response|begin_of_tool_call|end_of_tool_call|begin_of_expect|end_of_expect)(?:_(\d+))?\s*\|?>/gi
+
+/**
+ * 从 tool_call 段原始文本解析 名称 / 参数（整块 JSON，OpenAI function calling 风格）。
+ * arguments 支持两种形态：嵌套对象（模型友好）或字符串（OpenAI 兼容），统一存为 JSON 文本。
+ * 解析不出返回 null（整块作废保留原文）。
+ */
+function parseToolCallText(text: string): { name: string; arguments: string } | null {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{')) return null
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (parsed === null || typeof parsed !== 'object') return null
+    const name = (parsed as { name?: unknown }).name
+    if (typeof name !== 'string' || !name.trim()) return null
+    const argsRaw = (parsed as { arguments?: unknown }).arguments
+    const argsText =
+      typeof argsRaw === 'string'
+        ? argsRaw
+        : argsRaw === undefined
+          ? '{}'
+          : JSON.stringify(argsRaw)
+    return { name: name.trim(), arguments: argsText }
+  } catch {
+    return null
+  }
+}
+
+/** 解析 expect 标签内容：合法 JSON 返回解析值（数字/对象等），否则原样返回字符串 */
+function parseExpectValue(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    return trimmed
+  }
+}
 
 type OpenPrompt = {
   id: number
@@ -39,7 +78,11 @@ type OpenPrompt = {
   inEffort: boolean
 }
 
-type OpenSegment = SrmlSegment & { content: string }
+type OpenSegment = SrmlSegment & {
+  content: string
+  /** expect 子段内容累积中（undefined = 不在 expect 子段内，仅 tool-call 段使用） */
+  expectContent?: string
+}
 
 type OpenTask = {
   id: number
@@ -82,11 +125,33 @@ export function parseSrmlStreamChunk(rawText: string): SrmlStreamParseResult {
   const pushSegment = (): void => {
     if (!task?.current) return
     const current = task.current
-    const content = current.content.trim()
     if (current.kind === 'thought') {
-      task.segments.push({ kind: 'thought', content })
+      task.segments.push({ kind: 'thought', content: current.content.trim() })
+    } else if (current.kind === 'response') {
+      task.segments.push({ kind: 'response', id: current.id, content: current.content.trim() })
     } else {
-      task.segments.push({ kind: 'response', id: current.id, content })
+      const parsed = parseToolCallText(current.content)
+      if (!parsed) {
+        warn(
+          'tool-call-unparseable',
+          `任务 ${task.id} 的 <|begin_of_tool_call|> 解析不出名称/参数，整块作为文本保留，不执行`,
+        )
+        task.segments.push({ kind: 'tool-call', name: '', arguments: current.content.trim() })
+      } else {
+        // expected 来自 expect 子标签：已闭合取 current.expected；未闭合（容错收尾）取累积文本
+        const expected =
+          current.expected !== undefined
+            ? current.expected
+            : current.expectContent !== undefined
+              ? parseExpectValue(current.expectContent)
+              : undefined
+        task.segments.push({
+          kind: 'tool-call',
+          name: parsed.name,
+          arguments: parsed.arguments,
+          ...(expected !== undefined ? { expected } : {}),
+        })
+      }
     }
     task.current = null
   }
@@ -121,7 +186,12 @@ export function parseSrmlStreamChunk(rawText: string): SrmlStreamParseResult {
 
   const emit = (text: string): void => {
     if (task?.current) {
-      task.current.content += text
+      // tool-call 段内：expect 子段累积到 expectContent，其余进 content
+      if (task.current.kind === 'tool-call' && task.current.expectContent !== undefined) {
+        task.current.expectContent += text
+      } else {
+        task.current.content += text
+      }
     } else if (task) {
       task.loose += text
     } else if (prompt && prompt.inEffort) {
@@ -244,6 +314,53 @@ export function parseSrmlStreamChunk(rawText: string): SrmlStreamParseResult {
         }
         // 闭合标签忽略编号，按栈语义直接闭合
         pushSegment()
+        break
+      }
+      case 'begin_of_tool_call': {
+        if (!task) {
+          warn('auto-open-task', '出现 <|begin_of_tool_call|> 但没有任务包裹，已自动开启任务')
+          task = { id: nextId(), segments: [], current: null, loose: '' }
+        }
+        if (task.current) {
+          warn('unclosed-segment', '上一个段标签未闭合，已自动闭合')
+          pushSegment()
+        }
+        task.current = { kind: 'tool-call', name: '', arguments: '', content: '' }
+        break
+      }
+      case 'end_of_tool_call': {
+        if (!task?.current || task.current.kind !== 'tool-call') {
+          warn('unexpected-close', '多余的 <|end_of_tool_call|>，已忽略')
+          break
+        }
+        // expect 子段未闭合直接收尾 → 容错：解析累积文本 + 记 warning
+        if (task.current.expectContent !== undefined) {
+          warn('unclosed-segment', '<|begin_of_expect|> 未闭合，已自动补闭合')
+          task.current.expected = parseExpectValue(task.current.expectContent)
+          task.current.expectContent = undefined
+        }
+        pushSegment()
+        break
+      }
+      case 'begin_of_expect': {
+        if (!task?.current || task.current.kind !== 'tool-call') {
+          warn('orphan-tag', '<|begin_of_expect|> 必须出现在 <|begin_of_tool_call|> 段内，已忽略')
+          break
+        }
+        if (task.current.expectContent !== undefined) {
+          warn('nested-open', '<|begin_of_expect|> 重复开启，已忽略')
+          break
+        }
+        task.current.expectContent = ''
+        break
+      }
+      case 'end_of_expect': {
+        if (!task?.current || task.current.kind !== 'tool-call' || task.current.expectContent === undefined) {
+          warn('unexpected-close', '多余的 <|end_of_expect|>，已忽略')
+          break
+        }
+        task.current.expected = parseExpectValue(task.current.expectContent)
+        task.current.expectContent = undefined
         break
       }
     }
