@@ -7,6 +7,8 @@
 export type LyricsWord = {
   timeMs: number
   text: string
+  /** 对齐失败标记：true 表示该词时间戳为插值兜底（增强 LRC <mm:ss.xx|f>） */
+  failed?: boolean
 }
 
 export type LyricsLine = {
@@ -25,8 +27,8 @@ export type LrcParseResult = {
 
 const TIME_RE = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/
 const TAG_RE = /^\[(ti|ar|al|by|offset|re|ve|length|au):(.*)\]$/
-// 增强 LRC 逐字：<mm:ss.xx>词（词到下一个 < 为止，无收尾 >）
-const WORD_RE = /<(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))>([^<]*)/g
+// 增强 LRC 逐字：<mm:ss.xx>词（词到下一个 < 为止，无收尾 >）；时间戳后可带 |f 失败标记
+const WORD_RE = /<(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))(?:\|([a-z]+))?>([^<]*)/g
 
 function parseTimeMs(minutes: string, seconds: string, fraction: string | undefined): number {
   const min = Number(minutes)
@@ -69,12 +71,16 @@ function parseWords(text: string): LyricsWord[] | undefined {
   let found = false
   while ((match = WORD_RE.exec(text))) {
     found = true
-    const wordText = match[4]
+    const wordText = match[5]
     if (wordText) {
-      words.push({
+      const word: LyricsWord = {
         timeMs: parseTimeMs(match[1], match[2], match[3]),
         text: wordText,
-      })
+      }
+      if (match[4]) {
+        word.failed = true
+      }
+      words.push(word)
     }
   }
   return found && words.length > 0 ? words : undefined
@@ -146,4 +152,53 @@ export function looksLikeLrc(text: string): boolean {
     }
   }
   return false
+}
+
+/**
+ * 卡拉OK逐词渲染时，相邻两词之间需补的空格（'' 或 ' '）。
+ * 英文等拉丁词在增强 LRC 词间可能无分隔（旧版生成无空格 / 已被解析吞并），
+ * 渲染时按拉丁语境补空格；中文连续词不需要。
+ */
+export function interWordSpace(prevText: string | undefined, nextText: string): string {
+  if (!prevText || prevText.endsWith(' ')) return ''
+  return /[A-Za-z0-9]$/.test(prevText) || /^[A-Za-z0-9]/.test(nextText) ? ' ' : ''
+}
+
+/** 按词列表拼出显示文本（词间经 interWordSpace 补空格；与逐词渲染一致） */
+export function wordsToText(words: readonly LyricsWord[]): string {
+  let out = ''
+  for (let i = 0; i < words.length; i += 1) {
+    out += interWordSpace(i > 0 ? words[i - 1].text : undefined, words[i].text)
+    out += words[i].text
+  }
+  return out
+}
+
+/** 所有行均无时间戳（纯文本歌词）时为真 */
+export function hasTimedLines(lines: readonly LyricsLine[]): boolean {
+  return lines.some((line) => line.timeMs !== undefined)
+}
+
+/**
+ * 纯文本歌词（无任何行时间戳）时，按播放进度估算当前行索引。
+ * 播放进度 = timeMs / durationMs；无时长或非正时长返回 -1。
+ */
+export function estimateLineIndexForTime(
+  lines: readonly LyricsLine[],
+  timeMs: number,
+  durationMs: number | undefined,
+): number {
+  if (lines.length === 0 || !durationMs || durationMs <= 0) return -1
+  const progress = Math.min(1, Math.max(0, timeMs / durationMs))
+  return Math.min(lines.length - 1, Math.floor(progress * lines.length))
+}
+
+/** 纯文本歌词点击某行时，估算其对应的播放秒数（无时长返回 0） */
+export function estimateLineSeekSec(
+  lines: readonly LyricsLine[],
+  index: number,
+  durationSec: number | undefined,
+): number {
+  if (lines.length === 0 || !durationSec || durationSec <= 0) return 0
+  return Math.min(durationSec, (index / lines.length) * durationSec)
 }

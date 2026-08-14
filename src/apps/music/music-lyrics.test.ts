@@ -61,6 +61,25 @@ function testEnhancedWords(): void {
   console.log('ok: enhanced words')
 }
 
+function testFailedWords(): void {
+  // 增强 LRC <mm:ss.xx|f> 内嵌失败标记解析出 failed: true
+  const result = parseLrc('[00:01.00]<00:01.00|f>你<00:01.30>好')
+  assert.equal(result.lines.length, 1)
+  assert.equal(result.lines[0].text, '你好')
+  assert.deepEqual(result.lines[0].words, [
+    { timeMs: 1000, text: '你', failed: true },
+    { timeMs: 1300, text: '好' },
+  ])
+
+  // 全行失败词混合英文词间空格也保留
+  const enResult = parseLrc('[00:00.00]<00:00.00|f>Love <00:00.30>is')
+  assert.deepEqual(enResult.lines[0].words, [
+    { timeMs: 0, text: 'Love ', failed: true },
+    { timeMs: 300, text: 'is' },
+  ])
+  console.log('ok: failed words')
+}
+
 function testFractionFormats(): void {
   // 2 位小数（厘秒）与 3 位小数（毫秒）
   const a = parseLrc('[00:12.34]a')
@@ -102,6 +121,7 @@ testNegativeOffset()
 testMultiTimestamps()
 testSorting()
 testEnhancedWords()
+testFailedWords()
 testFractionFormats()
 testUntimedLines()
 testEmptyAndGarbage()

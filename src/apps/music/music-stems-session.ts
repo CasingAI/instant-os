@@ -127,11 +127,18 @@ export function sampleCachedStemFeatures(
 
 // —— 歌词（实验室对齐结果）读取 ——
 
-/** 按 trackId 缓存的分轨包内歌词（优先 alignedLrc，缺失回退 lyrics） */
-const lyricsCache = new Map<string, string | undefined>()
+/** 分轨包内歌词：aligned 为实验室对齐结果（逐字时间戳），raw 为原始清洗文本，lrc 为原始 .lrc 文本（含行时间戳）。 */
+export type StemLyrics = {
+  aligned?: string
+  raw?: string
+  lrc?: string
+}
+
+/** 按 trackId 缓存的分轨包内歌词（aligned 与 raw 分开存，供调用方切换展示） */
+const lyricsCache = new Map<string, StemLyrics | undefined>()
 
 /** 命中缓存的歌词；未加载 / 无歌词返回 undefined。 */
-export function getCachedStemLyrics(trackId: string | undefined): string | undefined {
+export function getCachedStemLyrics(trackId: string | undefined): StemLyrics | undefined {
   if (!trackId) return undefined
   return lyricsCache.get(trackId)
 }
@@ -147,19 +154,30 @@ export function clearStemLyricsCache(trackId?: string): void {
 
 /**
  * 确保指定曲目的分轨包内歌词已就绪（轻量读 manifest，不解 PCM）。
- * 优先实验室对齐结果 alignedLrc（逐字时间戳），缺失时回退原始 lyrics。
+ * aligned 来自对齐结果 alignedLrc（逐字时间戳），raw 来自原始 lyrics（清洗后纯文本），
+ * lrc 来自 lyricsLrc（导入时的原始 .lrc 文本，含行时间戳），三者相互独立、分别可缺失。
  * 无侧车 / 包内无歌词 → undefined（调用方可回退 .lrc 等其它来源）。
  * 结果按 trackId 缓存。
  */
 export async function ensureStemLyrics(input: {
   trackId: string
   vfsRef: string | undefined
-}): Promise<string | undefined> {
+}): Promise<StemLyrics | undefined> {
   const cached = lyricsCache.get(input.trackId)
   if (cached !== undefined) return cached
 
   const manifest = await readStemsSidecarManifest(input.vfsRef)
-  const lyrics = manifest?.alignedLrc ?? manifest?.lyrics
+  const lyrics: StemLyrics | undefined =
+    manifest &&
+    (manifest.alignedLrc !== undefined ||
+      manifest.lyrics !== undefined ||
+      manifest.lyricsLrc !== undefined)
+      ? {
+          aligned: manifest.alignedLrc,
+          raw: manifest.lyrics,
+          lrc: manifest.lyricsLrc,
+        }
+      : undefined
   lyricsCache.set(input.trackId, lyrics)
   return lyrics
 }

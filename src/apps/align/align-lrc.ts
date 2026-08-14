@@ -23,7 +23,8 @@ export function isPunctuationOnly(text: string): boolean {
 }
 
 const BROKEN_LINE_TS_RE = /^(\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+/
-const BROKEN_WORD_RE = /<\d{1,2}:\d{1,2}(?:[.:]\d{1,3})>/g
+// 兼容增强 LRC 的失败标记 <mm:ss.xx|f>（时间戳后可带 |f）
+const BROKEN_WORD_RE = /<\d{1,2}:\d{1,2}(?:[.:]\d{1,3})(?:\|[a-z]+)?>/g
 const BROKEN_META_RE = /^\[[a-z]{1,8}:[^\]]*\]/i
 
 /**
@@ -85,7 +86,7 @@ function formatAlignedLine(units: AlignedUnit[]): string {
   if (units.length === 0) return ''
 
   // 合并：标点附前；无音素的纯标点也附前
-  type Word = { text: string; start: number }
+  type Word = { text: string; start: number; failed?: boolean }
   const words: Word[] = []
   for (const unit of units) {
     if (isPunctuationOnly(unit.text)) {
@@ -93,15 +94,30 @@ function formatAlignedLine(units: AlignedUnit[]): string {
         words[words.length - 1].text += unit.text
       } else {
         // 行首标点：单独成词，时间取自身
-        words.push({ text: unit.text, start: unit.start })
+        words.push({ text: unit.text, start: unit.start, failed: unit.failed })
       }
       continue
     }
-    words.push({ text: unit.text, start: unit.start })
+    words.push({ text: unit.text, start: unit.start, failed: unit.failed })
   }
   if (words.length === 0) return ''
 
   const lineStart = formatLrcTimestamp(words[0].start)
-  const parts = words.map((w) => `<${formatLrcTimestamp(w.start)}>${w.text}`)
+  const parts: string[] = []
+  for (const word of words) {
+    // 拉丁语境词间补空格（中文连续无需分隔）：落在前一词末尾，
+    // 增强 LRC 解析会把空格并进前一词文本，渲染端无需再特殊处理
+    if (parts.length > 0 && needsInterWordSpace(words[parts.length - 1].text, word.text)) {
+      parts[parts.length - 1] += ' '
+    }
+    const marker = word.failed ? '|f' : ''
+    parts.push(`<${formatLrcTimestamp(word.start)}${marker}>${word.text}`)
+  }
   return `[${lineStart}]${parts.join('')}`
+}
+
+/** 相邻两词之间是否需要空格分隔（任一侧含拉丁/数字字符即需要；前词已带尾随空格则不补） */
+function needsInterWordSpace(prevText: string, nextText: string): boolean {
+  if (prevText.endsWith(' ')) return false
+  return /[A-Za-z0-9]$/.test(prevText) || /^[A-Za-z0-9]/.test(nextText)
 }

@@ -9,7 +9,7 @@
  */
 
 /** byte → 字符（sherpa-onnx bbpe.cc 固定表，自动生成） */
-const BYTE_TO_CHAR: string[] = [
+export const BYTE_TO_CHAR: string[] = [
   '\u{100}', '\u{101}', '\u{102}', '\u{103}', '\u{104}', '\u{105}', '\u{106}', '\u{107}',
   '\u{108}', '\u{109}', '\u{10A}', '\u{10B}', '\u{10C}', '\u{10D}', '\u{10E}', '\u{10F}',
   '\u{110}', '\u{111}', '\u{112}', '\u{113}', '\u{114}', '\u{115}', '\u{116}', '\u{117}',
@@ -77,4 +77,22 @@ export function decodeByteBpe(text: string): string {
 export function decodeTokenToUnits(token: string): string[] {
   const text = decodeByteBpe(token)
   return Array.from(text.replace(/^\s+|\s+$/g, ''))
+}
+
+/**
+ * 文本 → 字节字符序列（编码方向，与 decodeByteBpe 互逆）。
+ * 空白（含空格）→ `▁`（模型词边界标记）；其余字符按 UTF-8 逐字节映射到
+ * BYTE_TO_CHAR 表。供歌词强制对齐把歌词编码成模型 token 侧序列。
+ */
+export function encodeTextToBpeChars(text: string): string[] {
+  const out: string[] = []
+  for (const ch of text) {
+    if (/\s/u.test(ch)) {
+      out.push('▁')
+      continue
+    }
+    const bytes = new TextEncoder().encode(ch)
+    for (const b of bytes) out.push(BYTE_TO_CHAR[b])
+  }
+  return out
 }

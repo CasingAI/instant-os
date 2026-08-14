@@ -46,6 +46,11 @@ function isLatinPiece(piece: string): boolean {
   return /^[A-Za-z0-9'\u00C0-\u024F.\-]+$/.test(piece)
 }
 
+/** 拉丁续写允许的最大空隙（秒）：超过则视为新词，避免把中间空白的唱段拼成超长垃圾 token。 */
+export const LATIN_MERGE_GAP_SEC = 0.15
+/** 单个拉丁段最长时长（秒）：连续无 ▁ 的子词也截断，避免 2 秒以上的巨型英文 token。 */
+export const LATIN_MAX_SEG_SEC = 0.8
+
 /**
  * 把带时间的 token 单元拼成词段：
  *  - `▁` 前缀 → 新段（剥离 ▁）
@@ -73,7 +78,14 @@ export function groupSenseVoiceUnits(
     if (!piece) continue
     const latin = isLatinPiece(piece)
 
-    if (wordStart || !cur || !(cur.latin && latin)) {
+    const canMergeLatin =
+      cur !== null &&
+      cur.latin &&
+      latin &&
+      !wordStart &&
+      u.start - cur.end <= LATIN_MERGE_GAP_SEC &&
+      u.end - cur.start <= LATIN_MAX_SEG_SEC
+    if (wordStart || !cur || !canMergeLatin) {
       if (cur) close(cur)
       cur = { pieces: [piece], latin, start: u.start, end: u.end }
     } else {

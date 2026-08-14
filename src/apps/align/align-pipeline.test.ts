@@ -141,7 +141,8 @@ function testPerLineIsolation(): void {
   assert.equal(lines.length, 2)
 
   const row0 = lineWords(lines[0])
-  assert.equal(row0[0].text, 'hello')
+  // 词间空格并入前词文本（增强 LRC 空格落在前一词末尾）
+  assert.equal(row0[0].text, 'hello ')
   assert.equal(row0[2].text, 'friend')
   // "my" 应落在行 0 区间 [10, 16]，而非跳到行 1
   assert.ok(row0[1].timeSec >= 10 && row0[1].timeSec <= 16, `my 应在行0区间：${row0[1].timeSec}`)
@@ -213,6 +214,68 @@ function testNoLineTimesFallback(): void {
   assert.ok(lrc.startsWith('[00:10.20]'), lrc)
 }
 
+function testClusteredLineTimesSpread(): void {
+  // 英文行时间挤在 50ms 内（常见劣质 .lrc），识别在后续数秒仍有唱段。
+  // 撑开后整行词不应再堆在 150ms 内。
+  const segments = segs([
+    ['why', 118.5, 118.8],
+    ['you', 118.8, 119.1],
+    ['give', 124.0, 124.3],
+    ['think', 127.4, 127.8],
+  ])
+  const raw =
+    '[01:58.50]Why you talking\n' +
+    '[02:03.86]Give it to me now momma\n' +
+    '[02:03.91]You must be dreamin if you think\n' +
+    '[02:07.76]Love is a game'
+  const lineTimes = [118500, 123860, 123910, 127760]
+  const lrc = alignSegmentsToLrc(segments, raw, lineTimes)
+  const lines = lrc.split('\n')
+  assert.equal(lines.length, 4)
+  const row1 = lineWords(lines[1])
+  assert.ok(row1.length >= 5, `Give 行应有多个词：${lines[1]}`)
+  const span = row1[row1.length - 1].timeSec - row1[0].timeSec
+  assert.ok(
+    span >= 0.7,
+    `Give 行不应挤在一瞬间（跨度 ${span.toFixed(3)}s）：${lines[1]}`,
+  )
+  const row2 = lineWords(lines[2])
+  const span2 = row2[row2.length - 1].timeSec - row2[0].timeSec
+  assert.ok(
+    span2 >= 0.5,
+    `dreamin 行不应挤在一瞬间（跨度 ${span2.toFixed(3)}s）：${lines[2]}`,
+  )
+}
+
+function testVoicedEndExtendsLine(): void {
+  // 行时间挤在 10ms 内，但音素显示实际演唱一直持续到 132s。
+  // 声学行尾应把行尾从 10ms 撑到音素所示的演唱结束处。
+  const segments = segs([
+    ['stop', 129.6, 129.8],
+    ['dream', 129.8, 130.0],
+    ['dreaming', 130.0, 131.0],
+    ['hello', 131.5, 132.3],
+  ])
+  const raw =
+    '[02:07.76]Love is so perfect\n' +
+    '[02:07.77]So you best stop dreaming\n' +
+    '[02:07.83]Love is a game'
+  const lineTimes = [127760, 127770, 127830]
+  const lrc = alignSegmentsToLrc(segments, raw, lineTimes)
+  const lines = lrc.split('\n')
+  assert.equal(lines.length, 3)
+  // 「Love is a game」行：识别段落在其行区间，声学末尾应扩展该行
+  const row2 = lineWords(lines[2])
+  assert.ok(row2.length >= 4, `Love is a game 行应有词：${lines[2]}`)
+  const lastWord = row2[row2.length - 1]
+  assert.ok(
+    lastWord.timeSec >= 131,
+    `行尾应扩展到声学末尾（实际 ${lastWord.timeSec.toFixed(2)}s）：${lines[2]}`,
+  )
+  const span = lastWord.timeSec - row2[0].timeSec
+  assert.ok(span >= 1.5, `Love is a game 行应铺开（跨度 ${span.toFixed(2)}s）：${lines[2]}`)
+}
+
 async function runAll(): Promise<void> {
   testCleanLyrics()
   testStripTimestampLyrics()
@@ -226,6 +289,8 @@ async function runAll(): Promise<void> {
   testNoMatchSpread()
   testOverThresholdNotAnchored()
   testNoLineTimesFallback()
+  testClusteredLineTimesSpread()
+  testVoicedEndExtendsLine()
   console.log('align-pipeline: 全部通过')
 }
 

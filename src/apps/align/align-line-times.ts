@@ -111,3 +111,35 @@ export function estimateLineTimes(
   }
   return out
 }
+
+/**
+ * 每词最少占用的行时长（毫秒）。
+ * 英文唱段再快也难低于此；用于撑开挤在同一瞬间的 .lrc 行时间，
+ * 避免整行歌词被压进几十毫秒、中间实际在唱的区间却完全空白。
+ */
+export const MIN_LINE_WORD_MS = 180
+
+/**
+ * 行时间过密时撑开：若第 i 行到下一行的间隔不够容纳该行词数，
+ * 把后续行起点推迟到「本行起点 + 词数 × 每词最少时长」。
+ * 只推迟、不提前；因此叠上的后续行会在后面的迭代继续让开。
+ * 末行相对 fallbackEndMs 不够时无法再推迟下一行，保持原样（调用方用 fallback 作行尾）。
+ */
+export function expandStarvedLineTimes(
+  times: number[],
+  wordCounts: number[],
+  fallbackEndMs: number,
+): number[] {
+  const n = times.length
+  if (n === 0) return times
+  const out = times.slice()
+  for (let i = 0; i < n; i++) {
+    const count = Math.max(1, wordCounts[i] ?? 1)
+    const need = count * MIN_LINE_WORD_MS
+    const next = i + 1 < n ? out[i + 1] : fallbackEndMs
+    if (next - out[i] < need && i + 1 < n) {
+      out[i + 1] = out[i] + need
+    }
+  }
+  return out
+}

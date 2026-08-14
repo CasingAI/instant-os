@@ -8,6 +8,7 @@ import type { MenuDefinition } from '../../os/menu-bar-types.ts'
 import { useOs } from '../../os/os-context.tsx'
 import { IosButton } from '../../ui/ios-button.tsx'
 import { IosNavBackButton } from '../../ui/ios-nav-back-button.tsx'
+import { SegmentedControl } from '../../ui/segmented-control.tsx'
 import { useAppNarrowLayout } from '../../ui/use-app-narrow-layout.ts'
 import { FixedRowVirtualList } from '../../ui/fixed-row-virtual-list.tsx'
 import { useWindowModal } from '../../window/window-modal-context.tsx'
@@ -31,7 +32,7 @@ import { loadLyricOffsetMs, saveLyricOffsetMs } from './music-lyric-offsets.ts'
 import { MusicLyricsOffsetBar } from './music-lyrics-offset-bar.tsx'
 import { MusicLyricsView } from './music-lyrics-view.tsx'
 import { MusicVisualizationView } from './music-visualization-view.tsx'
-import { ensureStemLyrics } from './music-stems-session.ts'
+import { ensureStemLyrics, type StemLyrics } from './music-stems-session.ts'
 import {
   getMusicPlayerState,
   playDocument,
@@ -140,8 +141,10 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const [visualizerOpen, setVisualizerOpen] = useState(false)
   const [transientLyrics, setTransientLyrics] = useState<string | undefined>()
   const [lyricOffsetMs, setLyricOffsetMs] = useState(0)
-  /** 当前曲目的分轨包内歌词（实验室对齐结果，优先于同名 .lrc） */
-  const [stemLyricsText, setStemLyricsText] = useState<string | undefined>()
+  /** 当前曲目的分轨包内歌词（aligned 与 raw 分开，供高精度/普通切换） */
+  const [stemLyrics, setStemLyrics] = useState<StemLyrics | undefined>()
+  /** 歌词展示来源：'aligned' 高精度（实验室逐字对齐），'standard' 普通（原始歌词或同名 .lrc） */
+  const [lyricsSource, setLyricsSource] = useState<'aligned' | 'standard'>('aligned')
 
   const handledDocumentRef = useRef<string | undefined>(undefined)
   const refreshTimerRef = useRef<number | undefined>(undefined)
@@ -347,14 +350,15 @@ export function MusicApp({ windowId }: { windowId?: string }) {
   const stemLyricsVfsRef = playerState.current?.vfsRef
   useEffect(() => {
     let cancelled = false
-    setStemLyricsText(undefined)
+    setStemLyrics(undefined)
+    setLyricsSource('aligned')
     if (!stemLyricsTrackId || !stemLyricsVfsRef) {
       return () => {
         cancelled = true
       }
     }
     void ensureStemLyrics({ trackId: stemLyricsTrackId, vfsRef: stemLyricsVfsRef }).then((lyrics) => {
-      if (!cancelled) setStemLyricsText(lyrics)
+      if (!cancelled) setStemLyrics(lyrics)
     })
     return () => {
       cancelled = true
@@ -551,9 +555,16 @@ export function MusicApp({ windowId }: { windowId?: string }) {
 
   const currentIndex = tracks.findIndex((track) => track.id === currentId)
 
-  // 歌词：分轨包内实验室对齐结果优先（stems-first），其次同名 .lrc，
-  // 最后是从「文件」打开的临时歌词
-  const lyricsText = stemLyricsText ?? currentLibraryTrack?.lyricsLrc ?? transientLyrics
+  // 歌词：分轨包内高精度对齐结果（aligned）与普通歌词按 lyricsSource 切换；
+  // 普通优先选有行时间戳的来源：包内原始 .lrc → 同名 .lrc → 包内清洗纯文本；
+  // 单一来源缺失时回退另一来源，最后兜底「文件」打开的临时歌词
+  const alignedLyrics = stemLyrics?.aligned
+  const standardLyrics =
+    stemLyrics?.lrc ?? currentLibraryTrack?.lyricsLrc ?? stemLyrics?.raw
+  const lyricsText =
+    lyricsSource === 'aligned'
+      ? alignedLyrics ?? standardLyrics ?? transientLyrics
+      : standardLyrics ?? alignedLyrics ?? transientLyrics
   const parsedLyrics = useMemo(() => (lyricsText ? parseLrc(lyricsText) : undefined), [lyricsText])
   const showLyricsScreen =
     lyricsOpen && (currentLibraryTrack !== undefined || transientLyrics !== undefined)
@@ -625,6 +636,19 @@ export function MusicApp({ windowId }: { windowId?: string }) {
             )}
           </header>
 
+          {alignedLyrics && standardLyrics ? (
+            <SegmentedControl
+              value={lyricsSource}
+              onChange={(id) => setLyricsSource(id)}
+              ariaLabel="歌词来源"
+              items={[
+                { id: 'aligned', label: '高精度' },
+                { id: 'standard', label: '普通' },
+              ]}
+              className="music__lyrics-source-picker"
+            />
+          ) : null}
+
           {parsedLyrics && parsedLyrics.lines.length > 0 ? (
             <MusicLyricsOffsetBar offsetMs={lyricOffsetMs} onChange={handleLyricOffsetChange} />
           ) : null}
@@ -637,6 +661,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
                 onSeek={seekTo}
                 karaoke
                 offsetMs={lyricOffsetMs}
+                durationMs={playerState.duration * 1000}
               />
             ) : (
               <div class="music__empty">
@@ -667,6 +692,7 @@ export function MusicApp({ windowId }: { windowId?: string }) {
               currentTimeMs={playerState.currentTime * 1000}
               onSeek={seekTo}
               offsetMs={lyricOffsetMs}
+              durationMs={playerState.duration * 1000}
               onLyricOffsetChange={handleLyricOffsetChange}
               trackId={playerState.current?.id}
               vfsRef={playerState.current?.vfsRef}

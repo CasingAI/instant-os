@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mapLrcLineTimes, estimateLineTimes } from './align-line-times.ts'
+import { mapLrcLineTimes, estimateLineTimes, expandStarvedLineTimes, MIN_LINE_WORD_MS } from './align-line-times.ts'
 
 // —— 1. 基本映射 ——
 {
@@ -85,4 +85,47 @@ import { mapLrcLineTimes, estimateLineTimes } from './align-line-times.ts'
   assert.deepEqual(estimateLineTimes([undefined, undefined]), [undefined, undefined])
   assert.deepEqual(estimateLineTimes([10000, 20000]), [10000, 20000])
   assert.deepEqual(estimateLineTimes([]), [])
+}
+
+// —— 11. expandStarvedLineTimes：挤在一起的行被撑开 ——
+{
+  // 6 词行只有 50ms 间隔 → 下一行推迟到 180ms×6
+  const times = [123860, 123910, 127760]
+  const out = expandStarvedLineTimes(times, [6, 4, 4], 140000)
+  assert.equal(out[0], 123860)
+  assert.equal(out[1], 123860 + 6 * MIN_LINE_WORD_MS)
+  assert.ok(out[1] - out[0] >= 6 * MIN_LINE_WORD_MS)
+  // 第二行到第三行原有约 3.8s，够用，第三行保持
+  assert.equal(out[2], 127760)
+}
+
+// —— 12. expandStarvedLineTimes：连续挤在一起的多行级联推迟 ——
+{
+  const t0 = 127760
+  const times = [t0, t0 + 10, t0 + 70, t0 + 210, 134240]
+  const counts = [5, 7, 4, 8, 3]
+  const out = expandStarvedLineTimes(times, counts, 150000)
+  assert.equal(out[0], t0)
+  assert.equal(out[1], t0 + 5 * MIN_LINE_WORD_MS)
+  assert.equal(out[2], out[1] + 7 * MIN_LINE_WORD_MS)
+  assert.equal(out[3], out[2] + 4 * MIN_LINE_WORD_MS)
+  // 最后一行原时间仍晚于撑开后的前一行，保持
+  assert.equal(out[4], 134240)
+  for (let i = 0; i < counts.length - 1; i++) {
+    assert.ok(
+      out[i + 1] - out[i] >= counts[i] * MIN_LINE_WORD_MS,
+      `行 ${i} 间隔应 >= ${counts[i] * MIN_LINE_WORD_MS}，实际 ${out[i + 1] - out[i]}`,
+    )
+  }
+}
+
+// —— 13. expandStarvedLineTimes：间隔充足时不改 ——
+{
+  const times = [10000, 14000, 18000]
+  assert.deepEqual(expandStarvedLineTimes(times, [3, 3, 3], 22000), times)
+}
+
+// —— 14. expandStarvedLineTimes：空输入 ——
+{
+  assert.deepEqual(expandStarvedLineTimes([], [], 0), [])
 }

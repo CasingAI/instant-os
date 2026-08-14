@@ -64,6 +64,8 @@ export type StemsManifest = {
   lyrics?: string
   /** 歌词来源名（可选；自动载入/手动粘贴来源，仅供展示） */
   lyricsSourceName?: string
+  /** 导入时的原始歌词文本（含 .lrc 行时间戳，可选；供「普通歌词」展示真实行定位） */
+  lyricsLrc?: string
   /** 歌词对齐结果（增强 LRC，可选；老归档无此字段） */
   alignedLrc?: string
   /** 人声轨音素识别结果（可选；供换歌词时复用，跳过重新识别） */
@@ -143,6 +145,7 @@ export function buildStemsManifest(meta: {
   tempo?: TempoInfo
   lyrics?: string
   lyricsSourceName?: string
+  lyricsLrc?: string
   alignedLrc?: string
   phonemes?: PhonemeSegment[]
 }): StemsManifest {
@@ -160,6 +163,7 @@ export function buildStemsManifest(meta: {
     manifest.lyrics = meta.lyrics
     if (meta.lyricsSourceName) manifest.lyricsSourceName = meta.lyricsSourceName
   }
+  if (meta.lyricsLrc?.trim()) manifest.lyricsLrc = meta.lyricsLrc
   if (meta.alignedLrc) manifest.alignedLrc = meta.alignedLrc
   if (meta.phonemes?.length) manifest.phonemes = meta.phonemes
   return manifest
@@ -191,6 +195,10 @@ export function parseStemsManifest(json: string): StemsManifest | null {
     }
     if (raw.lyricsSourceName !== undefined && typeof raw.lyricsSourceName !== 'string') {
       delete manifest.lyricsSourceName
+    }
+    // lyricsLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
+    if (raw.lyricsLrc !== undefined && typeof raw.lyricsLrc !== 'string') {
+      delete manifest.lyricsLrc
     }
     // alignedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.alignedLrc !== undefined && typeof raw.alignedLrc !== 'string') {
@@ -342,6 +350,8 @@ export type SaveStemsOptions = {
   lyrics?: string
   /** 歌词来源名（可选，仅供展示） */
   lyricsSourceName?: string
+  /** 原始 .lrc 歌词文本（含行时间戳，可选；供「普通歌词」展示真实行定位） */
+  lyricsLrc?: string
   /** 歌词对齐结果（增强 LRC，可选） */
   alignedLrc?: string
   /** 人声轨音素识别结果（可选；供换歌词复用，跳过重新识别） */
@@ -367,6 +377,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     tempo,
     lyrics,
     lyricsSourceName,
+    lyricsLrc,
     alignedLrc,
     phonemes,
     onProgress,
@@ -379,6 +390,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     tempo,
     lyrics,
     lyricsSourceName,
+    lyricsLrc,
     alignedLrc,
     phonemes,
   })

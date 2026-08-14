@@ -53,11 +53,45 @@ function testEnglishWords(): void {
     { text: 'world', phones: ['w', 'ɝ', 'l', 'd'], start: 1.0, end: 1.4 },
   ]
   const lrc = buildAlignLrc(units)
-  assert.equal(lrc, '[00:00.50]<00:00.50>Hello<00:01.00>world')
+  // 拉丁词之间补空格：空格落在前一词文本末尾
+  assert.equal(lrc, '[00:00.50]<00:00.50>Hello <00:01.00>world')
+}
+
+function testMixedLine(): void {
+  const units: AlignedUnit[] = [
+    { text: 'Love', phones: [], start: 0.0, end: 0.2 },
+    { text: 'is', phones: [], start: 0.3, end: 0.5 },
+    { text: 'so', phones: [], start: 0.6, end: 0.8 },
+    { text: '完', phones: [], start: 0.9, end: 1.0 },
+    { text: '美', phones: [], start: 1.1, end: 1.2 },
+  ]
+  const lrc = buildAlignLrc(units)
+  // 英文词间有空格；so 与中文「完」之间也补空格（前词拉丁结尾）；中文之间不加
+  assert.equal(lrc, '[00:00.00]<00:00.00>Love <00:00.30>is <00:00.60>so <00:00.90>完<00:01.10>美')
 }
 
 function testEmpty(): void {
   assert.equal(buildAlignLrc([]), '')
+}
+
+function testFailedMark(): void {
+  // 对齐失败词输出 <mm:ss.xx|f> 内嵌标记；正常词不带
+  const units: AlignedUnit[] = [
+    { text: '你', phones: [], start: 1.0, end: 1.2, failed: true },
+    { text: '好', phones: [], start: 1.3, end: 1.5 },
+    { text: '，', phones: [], start: 1.5, end: 1.5 },
+  ]
+  assert.equal(buildAlignLrc(units), '[00:01.00]<00:01.00|f>你<00:01.30>好，')
+
+  // 混合英文行：失败词带 |f 且词间空格仍落在前词末尾
+  const enUnits: AlignedUnit[] = [
+    { text: 'Love', phones: [], start: 0.0, end: 0.2, failed: true },
+    { text: 'is', phones: [], start: 0.3, end: 0.5 },
+  ]
+  assert.equal(buildAlignLrc(enUnits), '[00:00.00]<00:00.00|f>Love <00:00.30>is')
+
+  // looksLikeBrokenLrc 需兼容 |f：合法失败标记不判坏
+  assert.equal(looksLikeBrokenLrc('[00:01.00]<00:01.00|f>你<00:01.30>好'), false)
 }
 
 function testLooksLikeBrokenLrc(): void {
@@ -87,7 +121,9 @@ async function runAll(): Promise<void> {
   testPunctuation()
   testChineseLine()
   testEnglishWords()
+  testMixedLine()
   testEmpty()
+  testFailedMark()
   testLooksLikeBrokenLrc()
   console.log('align-lrc: 全部通过')
 }

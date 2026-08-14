@@ -19,6 +19,8 @@ export type G2pUnit = {
 export type AlignedUnit = G2pUnit & {
   start: number
   end: number
+  /** 对齐失败标记：true 表示该词时间戳为插值兜底（无真实声学证据） */
+  failed?: boolean
 }
 
 /** 一行歌词对应的 G2P 单元序列（按行切分，便于生成增强 LRC） */

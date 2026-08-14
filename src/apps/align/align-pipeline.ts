@@ -18,7 +18,7 @@ import {
   type HypSegment,
 } from './align-text-dtw.ts'
 import { interpolateUnits } from './align-dtw.ts'
-import { estimateLineTimes } from './align-line-times.ts'
+import { estimateLineTimes, expandStarvedLineTimes, MIN_LINE_WORD_MS } from './align-line-times.ts'
 import { buildAlignLrc } from './align-lrc.ts'
 import type { AlignedPhone, AlignedUnit, G2pLine } from './align-types.ts'
 
@@ -147,6 +147,43 @@ function scaleLineToAnchor(
   return out
 }
 
+const MIN_WORD_SEC = MIN_LINE_WORD_MS / 1000
+
+/**
+ * 把一行词装回它分到的时间窗：过密（整行挤在一瞬间）或溢出到邻行时，
+ * 按原相对位置线性拉到 [tStart, tEnd]；已经铺得开且未越界则不动。
+ */
+function fitRowToWindow(
+  row: AlignedUnit[],
+  tStart: number,
+  tEnd: number,
+): AlignedUnit[] {
+  if (row.length === 0) return row
+  const out = row.map((u) => ({ ...u }))
+  const n = out.length
+  const span = Math.max(MIN_WORD_SEC, tEnd - tStart)
+  const first = out[0].start
+  const lastStart = out[n - 1].start
+  const srcSpan = lastStart - first
+  const squashed = n >= 2 && (!Number.isFinite(srcSpan) || srcSpan < n * MIN_WORD_SEC * 0.5)
+  const overflows =
+    !Number.isFinite(first) || first < tStart - 0.05 || lastStart > tEnd + 0.05
+  if (!squashed && !overflows) return out
+
+  if (!Number.isFinite(first) || srcSpan <= 1e-6) {
+    return out.map((u, k) => ({
+      ...u,
+      start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
+      end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
+    }))
+  }
+  for (const u of out) {
+    u.start = tStart + ((u.start - first) / srcSpan) * span
+    u.end = tStart + ((u.end - first) / srcSpan) * span
+  }
+  return out
+}
+
 /**
  * 按行隔离对齐：每行用 .lrc 行时间窗口裁剪识别段，行内独立 DTW，
  * 再把行内所有单元线性映射到 [本行时间, 下一行时间]。
@@ -162,19 +199,55 @@ export function alignSegmentsByLine(
     // 仍有无时间戳行 → 无法主导，回退调用方处理
     return []
   }
-  const times = estimated as number[]
+  const estimatedTimes = estimated as number[]
+  const lastSegEndMs =
+    segments.length > 0 ? segments[segments.length - 1].end * 1000 : estimatedTimes[estimatedTimes.length - 1]
+  const lastLineWords = Math.max(1, refLines[refLines.length - 1]?.units.length ?? 1)
+  const fallbackEndMs = Math.max(
+    estimatedTimes[estimatedTimes.length - 1] + lastLineWords * MIN_LINE_WORD_MS,
+    lastSegEndMs,
+  )
+  const times = expandStarvedLineTimes(
+    estimatedTimes,
+    refLines.map((line) => line.units.length),
+    fallbackEndMs,
+  )
+
+  // 声学行尾：每行区间内（识别段起点落入 [times[i], times[i+1])）音素段的实际演唱末尾。
+  // 劣质 .lrc 行时间被压扁时，用它把行尾扩展到音素时间戳所示的演唱结束处，
+  // 让「有人唱但行时间戳没给时长」的区间被歌词词覆盖。
+  const voicedEnds = new Array<number>(times.length).fill(-Infinity)
+  for (const s of segments) {
+    const startMs = s.start * 1000
+    let lo = 0
+    let hi = times.length - 1
+    let idx = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (times[mid] <= startMs) {
+        idx = mid
+        lo = mid + 1
+      } else {
+        hi = mid - 1
+      }
+    }
+    if (idx >= 0) voicedEnds[idx] = Math.max(voicedEnds[idx], s.end)
+  }
 
   const allUnits: AlignedUnit[] = []
   for (let i = 0; i < refLines.length; i++) {
     const line = refLines[i]
     const tStart = times[i] / 1000
-    // 末行无下一行时间：用上一行距估算行尾
-    const tEndFinal =
+    // 行尾：正常取下一行时间（末行用 fallback），取较大者覆盖到声学演唱末尾
+    const tEndFinal = Math.max(
       i + 1 < times.length
         ? times[i + 1] / 1000
-        : i > 0
-          ? tStart + (tStart - times[i - 1] / 1000)
-          : tStart + 0.5
+        : Math.max(
+            fallbackEndMs / 1000,
+            i > 0 ? tStart + (tStart - times[i - 1] / 1000) : tStart + 0.5,
+          ),
+      Number.isFinite(voicedEnds[i]) && voicedEnds[i] > tStart ? voicedEnds[i] : -Infinity,
+    )
 
     // 窗口裁剪：该行时间 ± 0.8s 内的识别段
     const lo = tStart - LINE_WINDOW_HALF_SEC
@@ -234,6 +307,7 @@ export function alignSegmentsByLine(
         rowKnown,
       )
     }
+    mappedRow = fitRowToWindow(mappedRow, tStart, tEndFinal)
 
     for (const u of mappedRow) allUnits.push(u)
   }

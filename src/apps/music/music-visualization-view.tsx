@@ -30,6 +30,8 @@ type MusicVisualizationViewProps = {
   onSeek: (seconds: number) => void
   /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示 */
   offsetMs?: number
+  /** 播放总时长（毫秒）；纯文本歌词（无行时间戳）按进度估算当前行时使用 */
+  durationMs?: number
   /** 歌词偏移变化（由「歌词可视化」内的调节条触发） */
   onLyricOffsetChange?: (ms: number) => void
   /** 当前曲目 id（分轨特征缓存键） */
@@ -90,6 +92,7 @@ export function MusicVisualizationView({
   currentTimeMs,
   onSeek,
   offsetMs = 0,
+  durationMs,
   onLyricOffsetChange,
   trackId,
   vfsRef,
@@ -311,6 +314,7 @@ export function MusicVisualizationView({
             currentTimeMs={currentTimeMs}
             onSeek={onSeek}
             offsetMs={offsetMs}
+            durationMs={durationMs}
           />
         ) : (
           <>
@@ -319,6 +323,7 @@ export function MusicVisualizationView({
               lines={lines}
               onSeek={onSeek}
               offsetMs={offsetMs}
+              durationMs={durationMs}
               variant={lyricsEffect === 'motion' ? 'motion' : 'karaoke'}
             />
           </>

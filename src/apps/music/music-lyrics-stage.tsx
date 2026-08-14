@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { getMusicCurrentTimeMs } from './music-player.ts'
 import { computeActiveWordIndex, wordFill } from './music-visualizer-math.ts'
-import type { LyricsLine } from './music-lyrics.ts'
+import {
+  estimateLineIndexForTime,
+  estimateLineSeekSec,
+  hasTimedLines,
+  interWordSpace,
+  wordsToText,
+  type LyricsLine,
+} from './music-lyrics.ts'
 
 export type MusicLyricsStageVariant = 'karaoke' | 'motion'
 
@@ -10,6 +17,8 @@ type MusicLyricsStageProps = {
   onSeek: (seconds: number) => void
   /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示；显示时间 = 播放时间 - offsetMs */
   offsetMs?: number
+  /** 播放总时长（毫秒）；纯文本歌词（无行时间戳）按进度估算当前行时使用 */
+  durationMs?: number
   /** karaoke：纯净逐字渐变；motion：额外带词弹跳与行入场动画 */
   variant?: MusicLyricsStageVariant
 }
@@ -59,6 +68,7 @@ export function MusicLyricsStage({
   lines,
   onSeek,
   offsetMs = 0,
+  durationMs,
   variant = 'karaoke',
 }: MusicLyricsStageProps) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -74,7 +84,9 @@ export function MusicLyricsStage({
     const tick = () => {
       rafId = requestAnimationFrame(tick)
       const timeMs = getMusicCurrentTimeMs() - offsetMs
-      const lineIndex = lineIndexForTime(lines, timeMs)
+      const lineIndex = hasTimedLines(lines)
+        ? lineIndexForTime(lines, timeMs)
+        : estimateLineIndexForTime(lines, timeMs, durationMs)
       if (lineIndex !== activeIndexRef.current) {
         activeIndexRef.current = lineIndex
         setActiveIndex(lineIndex)
@@ -109,7 +121,7 @@ export function MusicLyricsStage({
     }
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
-  }, [lines, offsetMs])
+  }, [lines, offsetMs, durationMs])
 
   // 行切换后重建词缓存（等渲染完成后查询 DOM）
   useEffect(() => {
@@ -178,21 +190,32 @@ export function MusicLyricsStage({
               onClick={() => {
                 if (line.timeMs !== undefined) {
                   onSeek(line.timeMs / 1000)
+                } else if (!hasTimedLines(lines) && durationMs) {
+                  onSeek(estimateLineSeekSec(lines, index, durationMs / 1000))
                 }
               }}
             >
               {words ? (
-                words.map((word, wordIndex) => (
-                  <span key={wordIndex} data-word class="music__stage-word">
-                    {word.text}
-                  </span>
-                ))
+                words.map((word, wordIndex) => {
+                  const wordClasses = [
+                    'music__stage-word',
+                    word.failed ? 'music__stage-word--failed' : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')
+                  return (
+                    <span key={wordIndex} data-word class={wordClasses}>
+                      {interWordSpace(wordIndex > 0 ? words[wordIndex - 1].text : undefined, word.text)}
+                      {word.text}
+                    </span>
+                  )
+                })
               ) : isActive ? (
                 <span data-word class="music__stage-word music__stage-word--line">
                   {line.text || ' '}
                 </span>
               ) : (
-                line.text || ' '
+                line.words && line.words.length > 0 ? wordsToText(line.words) : (line.text || ' ')
               )}
             </div>
           )

@@ -99,6 +99,38 @@ import {
   ])
 }
 
+// —— 6b. 拉丁续写遇大空隙时切断（中间空白的唱段不应拼成一词）——
+{
+  const segments = groupSenseVoiceUnits([
+    { text: '▁STOP', start: 129.68, end: 129.74 },
+    { text: 'RN', start: 131.20, end: 131.26 },
+    { text: 'AE', start: 131.26, end: 131.32 },
+  ])
+  assert.equal(segments.length, 2)
+  assert.equal(segments[0].symbol, 'STOP')
+  assert.equal(segments[1].symbol, 'RNAE')
+  assert.ok(segments[0].end <= 129.8)
+  assert.ok(segments[1].start >= 131.1)
+}
+
+// —— 6c. 连续无 ▁ 的拉丁子词超过最长时长时截断 ——
+{
+  const units: { text: string; start: number; end: number }[] = []
+  // 0.06s × 20 = 1.2s，超过 LATIN_MAX_SEG_SEC=0.8，应拆成两段以上
+  for (let i = 0; i < 20; i++) {
+    units.push({
+      text: i === 0 ? '▁ab' : 'cd',
+      start: i * 0.06,
+      end: (i + 1) * 0.06,
+    })
+  }
+  const segments = groupSenseVoiceUnits(units)
+  assert.ok(segments.length >= 2, `超长拉丁段应截断，实际 ${segments.length} 段`)
+  for (const s of segments) {
+    assert.ok(s.end - s.start <= 0.8 + 1e-6, `单段过长 ${s.end - s.start}s：${s.symbol}`)
+  }
+}
+
 // —— 7. decodeSenseVoiceBpe 完整链路（词表 + 时间戳换算）——
 {
   const vocab = ['<unk>', '<s>', '</s>', '▁the', 's', '▁to', '▁I', '▁love']

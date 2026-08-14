@@ -27,13 +27,20 @@ import {
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { alignSegmentsToLrc } from '../align/align-pipeline.ts'
-import { mapLrcLineTimes } from '../align/align-line-times.ts'
+import {
+  estimateLineTimes,
+  expandStarvedLineTimes,
+  mapLrcLineTimes,
+  MIN_LINE_WORD_MS,
+} from '../align/align-line-times.ts'
 import { stripLrcMarkup } from '../align/pinyin-g2p.ts'
-import { looksLikeBrokenLrc } from '../align/align-lrc.ts'
+import { buildAlignLrc, looksLikeBrokenLrc } from '../align/align-lrc.ts'
+import { buildLyricsSkeleton } from '../align/align-g2p.ts'
+import type { AlignedUnit } from '../align/align-types.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
-import type { ZipformerProgress } from '../align/zipformer-worker.ts'
+import type { ZipformerAlignLine, ZipformerProgress } from '../align/zipformer-worker.ts'
 import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
-import { parseLrc } from '../music/music-lyrics.ts'
+import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine } from '../music/music-lyrics.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
@@ -79,6 +86,8 @@ type LyricTag = {
   wordCount: number
   text: string
   timeSec: number
+  /** 对齐失败标记（<mm:ss.xx|f> 内嵌标记解析出） */
+  failed?: boolean
 }
 
 /** 歌词轨垂直布局：轨道高度、词标签高度、上下边距（阶梯整体居中不溢出） */
@@ -231,6 +240,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const lyricsLineTimesRef = useRef<(number | undefined)[] | null>(null)
   /** 最后一次导入歌词的原始文本（含时间戳，未清洗）；编辑器保存时用于重算行时间戳 */
   const lyricsRawRef = useRef<string | null>(null)
+  /** 有效的原始 .lrc 歌词文本（含行时间戳，供「普通歌词」展示真实行定位）；纯文本/手动编辑时为 null */
+  const lyricsLrcRef = useRef<string | null>(null)
   /** 歌词对齐是否进行中 */
   const [alignBusy, setAlignBusy] = useState(false)
   /** 歌词识别模型选择：zipformer（中文）/ sense-voice（五语），localStorage 记忆 */
@@ -374,6 +385,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             wordCount: words.length,
             text: word.text,
             timeSec: word.timeMs / 1000,
+            failed: word.failed,
           })
         }
       } else {
@@ -546,6 +558,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           tempo: tempoRef.current ?? undefined,
           lyrics: lyricsRef.current.trim() ? lyricsRef.current : undefined,
           lyricsSourceName: lyricsRef.current.trim() ? lyricsSourceName || undefined : undefined,
+          lyricsLrc: lyricsLrcRef.current ?? undefined,
           alignedLrc: alignedLrcRef.current || undefined,
           phonemes: phonemesRef.current ?? undefined,
           sink: {
@@ -736,6 +749,101 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setLyricsHint(null)
       try {
         const modelId = alignModel === 'sense-voice' ? 'align-sense-voice' : 'align-zipformer'
+
+        // zipformer + 有行时间戳 → CTC 强制对齐（绕开识别文本，英文行用 zipformer-ctc-en）
+        if (modelId === 'align-zipformer') {
+          const lineTimesRef = lyricsLineTimesRef.current
+          const hasLineTimes = lineTimesRef !== null && lineTimesRef.some((t) => t !== undefined)
+          if (hasLineTimes) {
+            const cleanedLines = lyricsText.split('\n')
+            const skeleton = buildLyricsSkeleton(lyricsText)
+            // lineTimesRef 与 cleanedLines 一一对应；skeleton 过滤了空行，需对齐行序
+            const timesForSkeleton: (number | undefined)[] = []
+            let src = 0
+            for (const rawLine of cleanedLines) {
+              const t = src < lineTimesRef.length ? lineTimesRef[src] : undefined
+              src += 1
+              if (rawLine.trim()) timesForSkeleton.push(t)
+            }
+            const estimated = estimateLineTimes(timesForSkeleton)
+            if (estimated.every((t) => t !== undefined)) {
+              const est = estimated as number[]
+              const fallbackEndMs = (audio.length / sampleRate) * 1000
+              const times = expandStarvedLineTimes(
+                est,
+                skeleton.map((l) => l.units.length),
+                fallbackEndMs,
+              )
+              const lastWords = Math.max(1, skeleton[skeleton.length - 1].units.length)
+              const lineTimesMs = [
+                ...times,
+                times[times.length - 1] + lastWords * MIN_LINE_WORD_MS,
+              ]
+              const { lines: alignedLines } = await enqueueAiTask<
+                ZipformerProgress,
+                { lines: ZipformerAlignLine[] }
+              >(
+                modelId,
+                {
+                  type: 'align',
+                  audio,
+                  sampleRate,
+                  lyricsLines: skeleton.map((l) => l.text),
+                  lineTimesMs,
+                },
+                {
+                  route: (msg) => {
+                    if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                      return { action: 'continue' }
+                    }
+                    if (msg.kind === 'progress') {
+                      setAlignProgress({ chunk: msg.chunk, total: msg.total })
+                      return { action: 'continue' }
+                    }
+                    if (msg.kind === 'align-done') {
+                      return { action: 'resolve', value: { lines: msg.lines } }
+                    }
+                    if (msg.kind === 'error') {
+                      return { action: 'reject', error: new Error(msg.message) }
+                    }
+                    return { action: 'reject', error: new Error('对齐服务返回未知消息') }
+                  },
+                },
+              )
+              if (alignReqSeqRef.current !== reqId) return false
+              // 拍平成行级 AlignedUnit，交给 buildAlignLrc 生成增强 LRC
+              const units: AlignedUnit[] = []
+              for (const lineUnits of alignedLines) {
+                for (const u of lineUnits.units) {
+                  units.push({
+                    text: u.text,
+                    phones: [],
+                    start: u.start,
+                    end: u.end,
+                    failed: u.confident === false,
+                  })
+                }
+              }
+              const lrc = buildAlignLrc(units, skeleton)
+              if (alignReqSeqRef.current !== reqId) return false
+              if (!lrc) {
+                setAlignError('对齐结果为空，请重试')
+                return false
+              }
+              // 存单元段（symbol = 歌词原文，换歌词快速重对齐的文本匹配必然命中）
+              phonemesRef.current = units.map((u) => ({
+                symbol: u.text,
+                start: u.start,
+                end: u.end,
+              }))
+              alignedLrcRef.current = lrc
+              setAlignedLrc(lrc)
+              setAlignRestoredFrom(false)
+              return true
+            }
+          }
+        }
+
         const { segments } = await enqueueAiTask<
           ZipformerProgress | SenseVoiceProgress,
           { segments: HypSegment[]; text: string }
@@ -754,7 +862,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               if (msg.kind === 'done') {
                 return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
               }
-              return { action: 'reject', error: new Error(msg.message) }
+              if (msg.kind === 'error') {
+                return { action: 'reject', error: new Error(msg.message) }
+              }
+              return { action: 'reject', error: new Error('识别服务返回未知消息') }
             },
           },
         )
@@ -1089,6 +1200,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               setLyrics(manifest.lyrics)
               setLyricsSourceName(manifest.lyricsSourceName || '来自分轨包')
             }
+            // 普通歌词的原始 .lrc 文本（含行时间戳）随包恢复
+            if (manifest.lyricsLrc) lyricsLrcRef.current = manifest.lyricsLrc
             // 音素段（人声轨识别结果）随包恢复：换歌词时复用，跳过重新识别
             if (manifest.phonemes) phonemesRef.current = manifest.phonemes
             // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
@@ -1149,6 +1262,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setLyricsSourceName('')
       lyricsLineTimesRef.current = null
       lyricsRawRef.current = null
+      lyricsLrcRef.current = null
       clearAlignedResult(null)
       phonemesRef.current = null
       alignReqSeqRef.current += 1
@@ -1166,6 +1280,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             setLyrics(cleaned)
             lyricsLineTimesRef.current = mapLrcLineTimes(text, cleaned.split('\n'))
             lyricsRawRef.current = text
+            lyricsLrcRef.current = text
             const lrcName = lrcPath.slice(lrcPath.lastIndexOf('/') + 1)
             setLyricsSourceName(`自动载入：${lrcName}`)
           }
@@ -1226,11 +1341,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
 
   /** 把清洗后的歌词写入 state/ref（剪贴板与文件导入共用收尾）；lineTimes 为 .lrc 行时间戳 */
   const applyLyrics = useCallback(
-    (cleaned: string, sourceName: string, lineTimes?: (number | undefined)[]) => {
+    (cleaned: string, sourceName: string, lineTimes?: (number | undefined)[], lrcRaw?: string) => {
       lyricsRef.current = cleaned
       setLyrics(cleaned)
       setLyricsSourceName(sourceName)
       lyricsLineTimesRef.current = lineTimes ?? null
+      // 仅在提供有效 .lrc 原始文本时更新普通歌词来源（手动编辑/纯文本不清旧值以免丢失）
+      if (lrcRaw) lyricsLrcRef.current = lrcRaw
       // 已有音素段（识别结果）时直接复用快速重对齐，无需重跑 Zipformer
       if (realignFromPhonemes(cleaned)) return
       if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
@@ -1301,7 +1418,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     // 从草稿原始文本（含时间戳）重算行时间戳；无原始文本（手动编辑）则清空
     const rawForTimes = lyricsRawRef.current ?? lyricsDraft
     const lineTimes = mapLrcLineTimes(rawForTimes, cleaned.split('\n'))
-    applyLyrics(cleaned, lyricsDraftSource || '手动编辑', lineTimes)
+    applyLyrics(
+      cleaned,
+      lyricsDraftSource || '手动编辑',
+      lineTimes,
+      looksLikeLrc(rawForTimes) ? rawForTimes : undefined,
+    )
     const tracksNow = tracksRef.current
     if (!tracksNow) return
     if (alignedLrcRef.current) {
@@ -2252,7 +2374,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                         <span
                           key={`${tag.lineIndex}:${tag.wordIndex}:${index}`}
                           ref={(el) => registerLyricsTag(tag.lineIndex, tag.wordIndex, el)}
-                          class="stems__lyrics-tag"
+                          class={`stems__lyrics-tag${tag.failed ? ' stems__lyrics-tag--failed' : ''}`}
                           style={{ left: `${leftPct}%`, top: `${topPx}px` }}
                           onClick={() => finalizeSeek(tag.timeSec)}
                           title={tag.text}

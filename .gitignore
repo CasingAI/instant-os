@@ -42,6 +42,9 @@ public/assets/mdx/models/
 # Fetch via: bash scripts/vendor-zipformer-ctc.sh
 public/assets/zipformer-ctc/models/
 
+# Zipformer-CTC English ASR weights (ONNX, ~70 MB) — not committed to git.
+public/assets/zipformer-ctc-en/models/*.onnx
+
 # SenseVoice multilingual ASR weights (ONNX, ~237 MB) — not committed to git.
 # Fetch via: bash scripts/vendor-sense-voice.sh
 public/assets/sense-voice/models/

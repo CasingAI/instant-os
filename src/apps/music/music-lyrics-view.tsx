@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { getMusicCurrentTimeMs } from './music-player.ts'
 import { computeActiveWordIndex } from './music-visualizer-math.ts'
-import type { LyricsLine } from './music-lyrics.ts'
+import {
+  estimateLineIndexForTime,
+  estimateLineSeekSec,
+  hasTimedLines,
+  interWordSpace,
+  wordsToText,
+  type LyricsLine,
+} from './music-lyrics.ts'
 
 const ROW_HEIGHT = 30
 /** 上下留白钳制上限：宿主尺寸异常（如父级无确定高度）时防止无限增长 */
@@ -14,6 +21,8 @@ type MusicLyricsViewProps = {
   onSeek: (seconds: number) => void
   /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示；显示时间 = 播放时间 - offsetMs */
   offsetMs?: number
+  /** 播放总时长（毫秒）；纯文本歌词（无行时间戳）按进度估算当前行时使用 */
+  durationMs?: number
   /** 逐字卡拉OK高亮：当前行按 words 时间戳逐字变色；无 words 的行退化为整行高亮 */
   karaoke?: boolean
 }
@@ -50,6 +59,7 @@ export function MusicLyricsView({
   currentTimeMs,
   onSeek,
   offsetMs = 0,
+  durationMs,
   karaoke = false,
 }: MusicLyricsViewProps) {
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -70,8 +80,11 @@ export function MusicLyricsView({
   }, [])
 
   const propCurrentIndex = useMemo(
-    () => lineIndexForTime(lines, currentTimeMs - offsetMs),
-    [lines, currentTimeMs, offsetMs],
+    () =>
+      hasTimedLines(lines)
+        ? lineIndexForTime(lines, currentTimeMs - offsetMs)
+        : estimateLineIndexForTime(lines, currentTimeMs - offsetMs, durationMs),
+    [lines, currentTimeMs, offsetMs, durationMs],
   )
   const currentIndex = karaoke ? (karaokeState?.lineIndex ?? propCurrentIndex) : propCurrentIndex
   const activeWordIndex = karaoke ? (karaokeState?.wordIndex ?? -1) : -1
@@ -88,7 +101,9 @@ export function MusicLyricsView({
     const tick = () => {
       rafId = requestAnimationFrame(tick)
       const timeMs = getMusicCurrentTimeMs() - offsetMs
-      const lineIndex = lineIndexForTime(lines, timeMs)
+      const lineIndex = hasTimedLines(lines)
+        ? lineIndexForTime(lines, timeMs)
+        : estimateLineIndexForTime(lines, timeMs, durationMs)
       const words = lineIndex >= 0 ? lines[lineIndex]?.words : undefined
       const wordIndex = words && words.length > 0 ? computeActiveWordIndex(words, timeMs) : -1
       if (lineIndex !== lastLine || wordIndex !== lastWord) {
@@ -99,7 +114,7 @@ export function MusicLyricsView({
     }
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
-  }, [karaoke, lines, offsetMs])
+  }, [karaoke, lines, offsetMs, durationMs])
 
   const padY =
     viewportHeight > 0
@@ -135,24 +150,29 @@ export function MusicLyricsView({
             onClick={() => {
               if (line.timeMs !== undefined) {
                 onSeek(line.timeMs / 1000)
+              } else if (!hasTimedLines(lines) && durationMs) {
+                onSeek(estimateLineSeekSec(lines, index, durationMs / 1000))
               }
             }}
           >
             {words ? (
-              words.map((word, wordIndex) => (
-                <span
-                  key={wordIndex}
-                  class={
-                    wordIndex <= activeWordIndex
-                      ? 'music__lyrics-word music__lyrics-word--on'
-                      : 'music__lyrics-word'
-                  }
-                >
-                  {word.text}
-                </span>
-              ))
+              words.map((word, wordIndex) => {
+                const wordClasses = [
+                  'music__lyrics-word',
+                  wordIndex <= activeWordIndex ? 'music__lyrics-word--on' : undefined,
+                  word.failed ? 'music__lyrics-word--failed' : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                return (
+                  <span key={wordIndex} class={wordClasses}>
+                    {interWordSpace(wordIndex > 0 ? words[wordIndex - 1].text : undefined, word.text)}
+                    {word.text}
+                  </span>
+                )
+              })
             ) : (
-              (line.text || ' ')
+              line.words && line.words.length > 0 ? wordsToText(line.words) : (line.text || ' ')
             )}
           </div>
         )

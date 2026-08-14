@@ -20,6 +20,12 @@ export const ZIPFORMER_MODEL_URL = '/assets/zipformer-ctc/models/model.int8.onnx
 export const ZIPFORMER_MODEL_LABEL = 'Zipformer-CTC 中文识别（歌词对齐）'
 export const ZIPFORMER_MODEL_BYTES = 367_074_356
 
+/** Zipformer-CTC 英文识别模型（sherpa-onnx zipformer-ctc-en，LibriSpeech，用于歌词英文段强制对齐）。 */
+export const ZIPFORMER_EN_MODEL_URL = '/assets/zipformer-ctc-en/models/model.int8.onnx'
+export const ZIPFORMER_EN_MODEL_LABEL = 'Zipformer-CTC 英文识别（歌词对齐英文段）'
+export const ZIPFORMER_EN_MODEL_BYTES = 70_239_299
+export const ZIPFORMER_EN_TOKENS_URL = '/assets/zipformer-ctc-en/models/tokens.txt'
+
 /** SenseVoice 五语识别模型（sherpa-onnx，中英日韩粤，逐 token 时间戳，用于歌词对齐）。 */
 export const SENSE_VOICE_MODEL_URL = '/assets/sense-voice/models/model.int8.onnx'
 export const SENSE_VOICE_MODEL_LABEL = 'SenseVoice 五语识别（歌词对齐）'

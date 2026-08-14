@@ -8,6 +8,8 @@ type MusicLyricsAmbientProps = {
   onSeek: (seconds: number) => void
   /** 歌词偏移（毫秒）：>0 歌词延后显示，<0 提前显示 */
   offsetMs?: number
+  /** 播放总时长（毫秒）；纯文本歌词（无行时间戳）按进度估算当前行时使用 */
+  durationMs?: number
 }
 
 /**
@@ -19,11 +21,19 @@ export function MusicLyricsAmbient({
   currentTimeMs,
   onSeek,
   offsetMs = 0,
+  durationMs,
 }: MusicLyricsAmbientProps) {
   return (
     <div class="music__lyrics-ambient">
       <MusicAmbientBackdrop />
-      <MusicLyricsView lines={lines} currentTimeMs={currentTimeMs} onSeek={onSeek} karaoke offsetMs={offsetMs} />
+      <MusicLyricsView
+        lines={lines}
+        currentTimeMs={currentTimeMs}
+        onSeek={onSeek}
+        karaoke
+        offsetMs={offsetMs}
+        durationMs={durationMs}
+      />
     </div>
   )
 }
