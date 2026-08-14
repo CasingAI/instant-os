@@ -22,7 +22,7 @@ import {
   type FilesLocationId,
   type FilesNode,
 } from './files-types.ts'
-import { estimateNodeMetaBytes, newFilesNodeId } from './files-storage.ts'
+import { estimateNodeMetaBytes, FilesPathExistsError, newFilesNodeId, type FilesNodeNameMode } from './files-storage.ts'
 import {
   copyNodeTo,
   createBinaryFile,
@@ -298,7 +298,7 @@ export async function filesSymlink(target: string, linkPath: string): Promise<Fi
   const absolutePath = assertAbsolutePath(linkPath)
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
-    throw new Error('路径已存在')
+    throw new FilesPathExistsError('路径已存在', existing)
   }
   const parent = await resolveParentForCreate(absolutePath)
   const node = await createSymlink({
@@ -382,7 +382,7 @@ export async function filesMkdir(path: string): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
-    throw new Error('路径已存在')
+    throw new FilesPathExistsError('路径已存在', existing)
   }
   const target = await resolveParentForCreate(absolutePath)
   const node = await mkdir({
@@ -399,7 +399,7 @@ export async function filesCreateText(path: string, text = ''): Promise<FilesApi
   const absolutePath = assertAbsolutePath(path)
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
-    throw new Error('路径已存在')
+    throw new FilesPathExistsError('路径已存在', existing)
   }
   const target = await resolveParentForCreate(absolutePath)
   const node = await createTextFile({
@@ -421,7 +421,7 @@ export async function filesCreateBinary(
   const absolutePath = assertAbsolutePath(path)
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
   if (existing) {
-    throw new Error('路径已存在')
+    throw new FilesPathExistsError('路径已存在', existing)
   }
   const target = await resolveParentForCreate(absolutePath)
   const node = await createBinaryFile({
@@ -443,7 +443,7 @@ export async function filesCreateBinary(
  */
 export async function filesOpenStreamWrite(
   path: string,
-  options?: { chunkSize?: number },
+  options?: { chunkSize?: number; nameMode?: FilesNodeNameMode },
 ): Promise<FilesStreamWriter> {
   const absolutePath = assertAbsolutePath(path)
   if (isFilesNamespaceRoot(absolutePath)) {
@@ -452,6 +452,34 @@ export async function filesOpenStreamWrite(
   const parsed = parseFilesAbsolutePath(absolutePath)
   if (!parsed || parsed.segments.length === 0) {
     throw new Error('不能写入卷根')
+  }
+
+  // unique-suffix：总是新建一个不冲突的文件（目标已存在也不覆盖），
+  // 由存储层在写入事务内按「 2」「 3」取名。供外部导入等场景使用。
+  const nameMode = options?.nameMode
+  if (nameMode === 'unique-suffix') {
+    const target = await resolveParentForCreate(absolutePath)
+    const now = osNowMs()
+    const node: FilesNode = {
+      id: newFilesNodeId(),
+      locationId: target.locationId,
+      parentId: target.parentId,
+      name: target.name,
+      kind: 'file',
+      mimeType: undefined,
+      byteSize: 0,
+      createdAt: now,
+      updatedAt: now,
+      attributes: defaultFilesNodeAttributes(target.locationId),
+    }
+    return openStreamWrite({
+      node,
+      isNew: true,
+      metaBytes: estimateNodeMetaBytes(node),
+      previousByteSize: 0,
+      chunkSize: options?.chunkSize,
+      nameMode,
+    })
   }
 
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: true })

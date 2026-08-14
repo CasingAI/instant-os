@@ -448,6 +448,7 @@ export async function openMountStreamWrite(params: {
   const path = joinPath(parentPath, name)
 
   return {
+    node: makeFileNode(locationId, path),
     async write(chunk) {
       // FSA write 要求 ArrayBuffer 背板；拷贝后写入（写路径本就拷贝）
       const copy = new Uint8Array(chunk.byteLength)

@@ -119,12 +119,16 @@ export async function ensureDevSystemFolder(
     updatedAt: now,
     attributes,
   }
-  await createFolderNode({
+  const created = await createFolderNode({
     node,
     metaBytes: estimateNodeMetaBytes(node),
-    // 并发 ensure 撞上同名同类文件夹时视为已存在，直接复用
+    // 并发 ensure 撞上同名同类文件夹时视为已存在，直接复用库中已有节点
     nameMode: 'folder-return',
   })
-  emitSystemVfsChange(absolutePath, 'created')
-  return node
+  if (created.id === node.id) {
+    emitSystemVfsChange(absolutePath, 'created')
+    return created
+  }
+  // 并发窗口内撞上已有同名文件夹：复用已有节点（补属性）
+  return patchFolderAttributes(created, attributes, absolutePath)
 }

@@ -58,7 +58,12 @@ async function testStaleCacheDoesNotDuplicate(): Promise<void> {
     updatedAt: now,
     attributes: { readable: true, writable: false },
   }
-  await createFolderNode({ node: silentNode, metaBytes: estimateNodeMetaBytes(silentNode) })
+  await createFolderNode({
+    node: silentNode,
+    metaBytes: estimateNodeMetaBytes(silentNode),
+    // 模拟旧 ensure：撞名当已存在
+    nameMode: 'folder-return',
+  })
 
   await ensureDevSystemFolder(GITHUB_ROOT)
   assert.equal(await countDevRootNamed('github'), 1)

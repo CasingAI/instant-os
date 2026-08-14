@@ -9,9 +9,16 @@
 import 'fake-indexeddb/auto'
 import './files-mount-test-window.ts'
 import assert from 'node:assert/strict'
-import { filesCreateText, filesMkdir, filesReadText } from './files-api.ts'
+import { filesCreateText, filesMkdir, filesOpenStreamWrite, filesReadText, filesUpsertBatch } from './files-api.ts'
 import { importExternalNodes } from './files-import-external.ts'
-import { resetFilesDbForTests } from './files-storage.ts'
+import {
+  createFolderNode,
+  estimateNodeMetaBytes,
+  FilesPathExistsError,
+  newFilesNodeId,
+  resetFilesDbForTests,
+  type FilesNode,
+} from './files-storage.ts'
 import {
   copyNodeTo,
   createTextFile,
@@ -21,6 +28,22 @@ import {
   renameNode,
   resolveNodeByAbsolutePath,
 } from './files-vfs.ts'
+
+function makeFolderNode(name: string): FilesNode {
+  const now = Date.now()
+  return {
+    id: newFilesNodeId(),
+    locationId: 'local',
+    parentId: undefined,
+    name,
+    kind: 'folder',
+    mimeType: undefined,
+    byteSize: 0,
+    createdAt: now,
+    updatedAt: now,
+    attributes: { readable: true, writable: true },
+  }
+}
 
 async function resetState(): Promise<void> {
   await resetFilesDbForTests()
@@ -130,6 +153,89 @@ async function testImportDedupAgainstCurrentDir(): Promise<void> {
   console.log('ok: import dedup checks current dir and writes real folder name')
 }
 
+/** 并发 folder-return 撞车：双方都拿到库中已存在的同一条节点（模拟跨 tab） */
+async function testFolderReturnCollisionIdentity(): Promise<void> {
+  await resetState()
+  const nodeA = makeFolderNode('ensure-collide')
+  const nodeB = makeFolderNode('ensure-collide')
+  const [r1, r2] = await Promise.all([
+    createFolderNode({
+      node: nodeA,
+      metaBytes: estimateNodeMetaBytes(nodeA),
+      nameMode: 'folder-return',
+    }),
+    createFolderNode({
+      node: nodeB,
+      metaBytes: estimateNodeMetaBytes(nodeB),
+      nameMode: 'folder-return',
+    }),
+  ])
+  // 败方不能把「自己构造但从未写入」的节点当结果返回
+  assert.equal(r1.id, r2.id)
+  assert.ok(r1.id === nodeA.id || r1.id === nodeB.id, '返回的是已落库的节点之一')
+  const listed = await listDirectory('local', undefined)
+  assert.equal(listed.filter((node) => node.name === 'ensure-collide').length, 1)
+  console.log('ok: folder-return collision returns stored identity')
+}
+
+/** 并发精确批量 upsert 同一路径：一条成功，另一条整批失败且为 FilesPathExistsError */
+async function testUpsertBatchConcurrentCollision(): Promise<void> {
+  await resetState()
+  const results = await Promise.allSettled([
+    filesUpsertBatch([{ path: '/user/batch.txt', text: 'one' }]),
+    filesUpsertBatch([{ path: '/user/batch.txt', text: 'two' }]),
+  ])
+  const fulfilled = results.filter((result) => result.status === 'fulfilled')
+  const rejected = results.filter((result) => result.status === 'rejected')
+  assert.equal(fulfilled.length, 1)
+  assert.equal(rejected.length, 1)
+  const reason = (rejected[0] as { reason: unknown }).reason
+  assert.ok(reason instanceof FilesPathExistsError, '批量撞名应抛 FilesPathExistsError')
+  const text = await filesReadText('/user/batch.txt')
+  assert.ok(text === 'one' || text === 'two')
+  console.log('ok: concurrent exact batch leaves at most one winner')
+}
+
+/** unique-suffix 流式打开：writer.node 为实际占位名，路径缓存按实际名 */
+async function testStreamWriteUniqueSuffixPlaceholder(): Promise<void> {
+  await resetState()
+  await filesCreateText('/user/stream.txt', 'existing')
+  const writer = await filesOpenStreamWrite('/user/stream.txt', { nameMode: 'unique-suffix' })
+  assert.equal(writer.node.name, 'stream 2.txt')
+  await writer.write(new Uint8Array([1, 2]))
+  const closed = await writer.close()
+  assert.equal(closed.name, 'stream 2.txt')
+  assert.ok(await resolveNodeByAbsolutePath('/user/stream 2.txt'))
+  // 原文件未被覆盖
+  assert.equal(await filesReadText('/user/stream.txt'), 'existing')
+  console.log('ok: stream write unique-suffix uses real placeholder name')
+}
+
+/** 并发导入同名文件：各得原名与后缀，互不覆盖 */
+async function testImportConcurrentSameName(): Promise<void> {
+  await resetState()
+  const fileA = new File([new Uint8Array([0x61])], 'same.txt')
+  const fileB = new File([new Uint8Array([0x62])], 'same.txt')
+  await Promise.all([
+    importExternalNodes({
+      nodes: [{ name: 'same.txt', kind: 'file', file: fileA }],
+      dest: { destLocationId: 'local', destParentId: undefined },
+      onUiChange: () => {},
+    }),
+    importExternalNodes({
+      nodes: [{ name: 'same.txt', kind: 'file', file: fileB }],
+      dest: { destLocationId: 'local', destParentId: undefined },
+      onUiChange: () => {},
+    }),
+  ])
+  const names = (await listDirectory('local', undefined))
+    .filter((node) => node.name.startsWith('same'))
+    .map((node) => node.name)
+    .sort()
+  assert.deepEqual(names, ['same 2.txt', 'same.txt'])
+  console.log('ok: concurrent import same name dedups without overwrite')
+}
+
 async function main(): Promise<void> {
   await testConcurrentAutoSuffix()
   await testMkdirAutoSuffix()
@@ -138,6 +244,10 @@ async function main(): Promise<void> {
   await testExactCreateRejectsExisting()
   await testConcurrentExactCreate()
   await testImportDedupAgainstCurrentDir()
+  await testFolderReturnCollisionIdentity()
+  await testUpsertBatchConcurrentCollision()
+  await testStreamWriteUniqueSuffixPlaceholder()
+  await testImportConcurrentSameName()
   console.log('files-vfs-unique-names tests passed')
 }
 

@@ -170,6 +170,7 @@ async function testOverwriteChunkedCleansOldChunks(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   await writer.write(utf8('first'))
   const closed = await writer.close()
@@ -198,6 +199,7 @@ async function testStreamOverwriteChunkedCleansOldChunks(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   await w1.write(utf8('aaaa'))
   const first = await w1.close()
@@ -210,6 +212,7 @@ async function testStreamOverwriteChunkedCleansOldChunks(): Promise<void> {
     isNew: false,
     metaBytes: 0,
     previousByteSize: 'aaaa'.length,
+    nameMode: 'exact',
   })
   const before = await getFilesTotalBytes()
   await w2.write(utf8('bbbb'))
@@ -230,6 +233,7 @@ async function testCloneAndDeleteChunked(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(srcNode),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   await writer.write(utf8('keep-me'))
   const src = await writer.close()
@@ -239,6 +243,7 @@ async function testCloneAndDeleteChunked(): Promise<void> {
     sourceNodeId: src.id,
     node: dstNode,
     metaBytes: estimateNodeMetaBytes(dstNode),
+    nameMode: 'exact',
   })
   const srcRef = await getFileBlobRefForTests(src.id)
   const dstRef = await getFileBlobRefForTests(cloned.id)
@@ -270,6 +275,7 @@ async function testStreamOverwriteSharedForks(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(srcNode),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   await w1.write(utf8('shared-original'))
   const src = await w1.close()
@@ -279,6 +285,7 @@ async function testStreamOverwriteSharedForks(): Promise<void> {
     sourceNodeId: src.id,
     node: dstNode,
     metaBytes: estimateNodeMetaBytes(dstNode),
+    nameMode: 'exact',
   })
 
   // 流式覆盖 src（shared）→ fork 新 blob，dst 仍读旧内容
@@ -287,6 +294,7 @@ async function testStreamOverwriteSharedForks(): Promise<void> {
     isNew: false,
     metaBytes: 0,
     previousByteSize: 'shared-original'.length,
+    nameMode: 'exact',
   })
   await w2.write(utf8('forked'))
   const forked = await w2.close()
@@ -309,6 +317,7 @@ async function testEmptyStream(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   const closed = await writer.close()
   assert.equal(closed.byteSize, 0)
@@ -326,6 +335,7 @@ async function testSweepOrphanChunks(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   await writer.write(utf8('keep'))
   const closed = await writer.close()
@@ -430,6 +440,7 @@ async function testChunkedWriteSplitsAndOffsets(): Promise<void> {
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
     chunkSize,
+    nameMode: 'exact',
   })
   // 数据 = 1MiB + 128KiB（第一次 write） + 32KiB（第二次 write）
   const firstSize = (1 << 20) + (128 << 10)
@@ -467,6 +478,7 @@ async function testRangeReadMatchesFullRead(): Promise<void> {
     metaBytes: estimateNodeMetaBytes(node),
     previousByteSize: 0,
     chunkSize,
+    nameMode: 'exact',
   })
   const total = (1 << 20) + (128 << 10) + (32 << 10)
   const data = patternedBytes(total)
@@ -720,6 +732,7 @@ async function testWholeWriteSharedCowForksChunked(): Promise<void> {
     isNew: true,
     metaBytes: estimateNodeMetaBytes(srcNode),
     previousByteSize: 0,
+    nameMode: 'exact',
   })
   await w1.write(origData)
   const src = await w1.close()
@@ -732,6 +745,7 @@ async function testWholeWriteSharedCowForksChunked(): Promise<void> {
     sourceNodeId: src.id,
     node: dstNode,
     metaBytes: estimateNodeMetaBytes(dstNode),
+    nameMode: 'exact',
   })
   const clonedRef = await getFileBlobRefForTests(cloned.id)
   assert.ok(clonedRef)

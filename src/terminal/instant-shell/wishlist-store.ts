@@ -238,6 +238,7 @@ async function writeWishlistRecords(records: WishlistRecord[]): Promise<void> {
     node,
     bytes,
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: 'exact',
   })
   emitSystemVfsChange(WISHLIST_PATH, 'created')
 }

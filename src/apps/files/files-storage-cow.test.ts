@@ -106,6 +106,7 @@ async function seedLegacyV2Database(): Promise<void> {
     node: sourceNode,
     text: payload,
     metaBytes: estimateNodeMetaBytes(sourceNode),
+    nameMode: 'exact',
   })
   const afterCreate = await getFilesTotalBytes()
   const sourceRef = await getFileBlobRefForTests(created.id)
@@ -118,6 +119,7 @@ async function seedLegacyV2Database(): Promise<void> {
     sourceNodeId: created.id,
     node: destNode,
     metaBytes: destMeta,
+    nameMode: 'exact',
   })
   const afterClone = await getFilesTotalBytes()
   const sharedSource = await getFileBlobRefForTests(created.id)
@@ -141,12 +143,14 @@ async function seedLegacyV2Database(): Promise<void> {
     node: sourceNode,
     text: original,
     metaBytes: estimateNodeMetaBytes(sourceNode),
+    nameMode: 'exact',
   })
   const destNode = makeFileNode('b-copy.txt')
   const cloned = await cloneFileNodeWithSharedBlob({
     sourceNodeId: created.id,
     node: destNode,
     metaBytes: estimateNodeMetaBytes(destNode),
+    nameMode: 'exact',
   })
   const beforeWrite = await getFilesTotalBytes()
   const forked = await writeBlobText({
@@ -175,12 +179,14 @@ async function seedLegacyV2Database(): Promise<void> {
     node: sourceNode,
     text: 'keep-me',
     metaBytes: estimateNodeMetaBytes(sourceNode),
+    nameMode: 'exact',
   })
   const destNode = makeFileNode('c-copy.txt')
   const cloned = await cloneFileNodeWithSharedBlob({
     sourceNodeId: created.id,
     node: destNode,
     metaBytes: estimateNodeMetaBytes(destNode),
+    nameMode: 'exact',
   })
   const subtree = await collectSubtreeIds(created.id)
   await deleteSubtree(subtree)
@@ -198,6 +204,7 @@ async function seedLegacyV2Database(): Promise<void> {
     node: sourceNode,
     text: 'solo',
     metaBytes: estimateNodeMetaBytes(sourceNode),
+    nameMode: 'exact',
   })
   const before = await getFileBlobRefForTests(created.id)
   assert.ok(before)
@@ -218,8 +225,8 @@ async function seedLegacyV2Database(): Promise<void> {
 
 {
   await seedLegacyV2Database()
-  assert.equal(FILES_DB_VERSION, 5)
-  // 首次业务打开触发 v2→v3 / v4→v5 迁移
+  assert.equal(FILES_DB_VERSION, 6)
+  // 首次业务打开触发 v2→v3 / v4→v5 / v5→v6 迁移
   const text = await readBlobText('file:legacy-cow')
   assert.equal(text, 'legacy-body')
   const ref = await getFileBlobRefForTests('file:legacy-cow')
@@ -335,7 +342,7 @@ async function seedLegacyV4DatabaseWithDuplicates(): Promise<void> {
 
 {
   await seedLegacyV4DatabaseWithDuplicates()
-  // 首次业务打开触发 v5 迁移：先消重再建 by-parent-name 唯一索引
+  // 首次业务打开触发 v5（同目录同名消重）+ v6（大小写/Unicode 正规化消重）迁移
   const rootNames = (await listChildNodes('local', undefined)).map((node) => node.name).sort()
   assert.deepEqual(rootNames, ['foo 2.txt', 'foo 3.txt', 'foo.txt'])
   const dir1 = await listChildNodes('local', 'dir1')
@@ -351,10 +358,106 @@ async function seedLegacyV4DatabaseWithDuplicates(): Promise<void> {
         node,
         text: 'dup',
         metaBytes: estimateNodeMetaBytes(node),
+        nameMode: 'exact',
       }),
     /路径已存在/,
   )
   console.log('ok: v4 duplicates migrate and unique index enforced')
+}
+
+/** v4 库：同目录仅有大小写 / Unicode（NFC vs NFD）差异的重名 */
+async function seedLegacyV4CaseDuplicateDatabase(): Promise<void> {
+  await resetFilesDbForTests()
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open(FILES_DB_NAME, 4)
+    request.onerror = () => reject(request.error ?? new Error('open v4 failed'))
+    request.onupgradeneeded = () => {
+      const db = request.result
+      const nodes = db.createObjectStore(FILES_NODES_STORE, { keyPath: 'id' })
+      nodes.createIndex('by-parent', ['locationId', 'parentId'], { unique: false })
+      nodes.createIndex('by-location', 'locationId', { unique: false })
+      db.createObjectStore(FILES_BLOBS_STORE, { keyPath: 'id' })
+      db.createObjectStore(FILES_CHUNKS_STORE, { keyPath: ['blobId', 'chunkIndex'] })
+      db.createObjectStore(FILES_META_STORE, { keyPath: 'key' })
+    }
+    request.onsuccess = () => {
+      const db = request.result
+      const tx = db.transaction([FILES_NODES_STORE], 'readwrite')
+      const nodes = tx.objectStore(FILES_NODES_STORE)
+      nodes.put({
+        id: 'file:case-a',
+        locationId: 'local',
+        parentId: '',
+        name: 'readme.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 1,
+        createdAt: 10,
+        updatedAt: 10,
+      })
+      nodes.put({
+        id: 'file:case-b',
+        locationId: 'local',
+        parentId: '',
+        name: 'README.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 2,
+        createdAt: 20,
+        updatedAt: 20,
+      })
+      // NFC（é 预组合）与 NFD（e + 组合重音）变体视为同名
+      nodes.put({
+        id: 'file:nfc-a',
+        locationId: 'local',
+        parentId: '',
+        name: 'caf\u00e9.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 3,
+        createdAt: 30,
+        updatedAt: 30,
+      })
+      nodes.put({
+        id: 'file:nfd-b',
+        locationId: 'local',
+        parentId: '',
+        name: 'cafe\u0301.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 4,
+        createdAt: 40,
+        updatedAt: 40,
+      })
+      tx.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+      tx.onerror = () => reject(tx.error ?? new Error('seed v4 case failed'))
+    }
+  })
+}
+
+{
+  await seedLegacyV4CaseDuplicateDatabase()
+  // v6 迁移：大小写 / Unicode 变体重名合并为一条原名，其余加后缀
+  const rootNames = (await listChildNodes('local', undefined)).map((node) => node.name).sort()
+  assert.deepEqual(rootNames, [
+    'README 2.txt',
+    'cafe\u0301 2.txt',
+    'caf\u00e9.txt',
+    'readme.txt',
+  ])
+  // 大小写敏感精确创建：同名（大小写不同）抛「路径已存在」
+  await assert.rejects(
+    () => createFileWithBlob({ node: makeFileNode('readme.txt'), text: 'x', metaBytes: 10, nameMode: 'exact' }),
+    /路径已存在/,
+  )
+  await assert.rejects(
+    () => createFileWithBlob({ node: makeFileNode('README.txt'), text: 'x', metaBytes: 10, nameMode: 'exact' }),
+    /路径已存在/,
+  )
+  console.log('ok: v6 case/unicode duplicates migrate and index enforced')
 }
 
 console.log('files-storage-cow: all passed')

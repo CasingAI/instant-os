@@ -165,14 +165,16 @@ async function ensureTmpFolderInner(absolutePath: string): Promise<FilesNode> {
     updatedAt: now,
     attributes: TMP_FOLDER_ATTRIBUTES,
   }
-  await createFolderNode({
+  const created = await createFolderNode({
     node,
     metaBytes: estimateNodeMetaBytes(node),
-    // 并发 ensure 撞上同名同类文件夹时视为已存在，直接复用
+    // 并发 ensure 撞上同名同类文件夹时视为已存在，直接复用库中已有节点
     nameMode: 'folder-return',
   })
-  emitSystemVfsChange(absolutePath, 'created')
-  return node
+  if (created.id === node.id) {
+    emitSystemVfsChange(absolutePath, 'created')
+  }
+  return created
 }
 
 /** 确保终端 / npm session 的 tmpdir 目录存在。 */

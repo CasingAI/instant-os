@@ -43,7 +43,7 @@ async function seedLocalRootFolder(name: string): Promise<FilesNode> {
     updatedAt: now,
     attributes: { readable: true, writable: true },
   }
-  await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node) })
+  await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node), nameMode: 'exact' })
   return node
 }
 

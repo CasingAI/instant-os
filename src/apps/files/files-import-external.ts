@@ -199,10 +199,19 @@ export async function importExternalNodes(params: {
           dirStack.push({ path: actualPath, id: created.id })
           continue
         }
-        // 查重针对当前栈顶目录，而不是导入根
-        const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
-        const filePath = joinFilesAbsolutePath(current.path, name)
-        const writer = await filesOpenStreamWrite(filePath)
+        // 内部卷：直接按计划名打开，写入事务内查重加后缀（不依赖会过期的目录缓存）；
+        // 挂载卷无唯一索引与事务内取名，仍预先算不冲突名（FSA 自身保证无同名）
+        let filePath: string
+        if (isMountLocationId(dest.destLocationId)) {
+          const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
+          filePath = joinFilesAbsolutePath(current.path, name)
+        } else {
+          filePath = joinFilesAbsolutePath(current.path, step.name)
+        }
+        const writer = await filesOpenStreamWrite(
+          filePath,
+          isMountLocationId(dest.destLocationId) ? undefined : { nameMode: 'unique-suffix' },
+        )
         const reader = step.file.stream().getReader()
         try {
           while (true) {

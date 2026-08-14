@@ -111,6 +111,7 @@ export async function writeGithubObjectBlob(
     node,
     bytes,
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: 'exact',
   })
   emitSystemVfsChange(path, 'created')
 }

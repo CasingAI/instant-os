@@ -21,7 +21,7 @@ import {
 } from './files-types.ts'
 
 export const FILES_DB_NAME = 'instant-os-files'
-export const FILES_DB_VERSION = 5
+export const FILES_DB_VERSION = 6
 export const FILES_NODES_STORE = 'nodes'
 export const FILES_BLOBS_STORE = 'blobs'
 export const FILES_CHUNKS_STORE = 'chunks'
@@ -35,6 +35,11 @@ type FilesNodeRecord = {
   locationId: FilesLocationId
   parentId: string
   name: string
+  /**
+   * 名字的大小写与 Unicode（NFC）正规化键；唯一索引 by-parent-name-key 用它。
+   * 旧数据 / 写入时缺省由 nodeToRecord 计算；迁移 v6 补全。
+   */
+  nameKey?: string
   kind: FilesNodeKind
   mimeType?: string
   byteSize: number
@@ -120,6 +125,21 @@ export class FilesStorageFullError extends Error {
   }
 }
 
+/**
+ * 目标路径已被同目录同名节点占用（同卷、同父目录、名字经大小写与 Unicode
+ * 正规化后相等）。精确路径 API / ensure 撞上非文件夹 / 唯一索引兜底触发。
+ * 携带库中已有的节点快照，便于调用方定位失败原因。
+ */
+export class FilesPathExistsError extends Error {
+  /** 已存在的节点快照 */
+  readonly node?: FilesNode
+  constructor(message = '路径已存在', node?: FilesNode) {
+    super(message)
+    this.name = 'FilesPathExistsError'
+    this.node = node
+  }
+}
+
 let dbPromise: Promise<IDBDatabase> | undefined
 
 function openFilesDb(): Promise<IDBDatabase> {
@@ -137,7 +157,7 @@ function openFilesDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(FILES_NODES_STORE, { keyPath: 'id' })
         store.createIndex('by-parent', ['locationId', 'parentId'], { unique: false })
         store.createIndex('by-location', 'locationId', { unique: false })
-        store.createIndex('by-parent-name', ['locationId', 'parentId', 'name'], {
+        store.createIndex('by-parent-name-key', ['locationId', 'parentId', 'nameKey'], {
           unique: true,
         })
       }
@@ -152,62 +172,30 @@ function openFilesDb(): Promise<IDBDatabase> {
       }
 
       const oldVersion = event.oldVersion
-      if (oldVersion > 0 && oldVersion < 2 && tx) {
-        const nodeStore = tx.objectStore(FILES_NODES_STORE)
-        const cursorReq = nodeStore.openCursor()
-        cursorReq.onsuccess = () => {
-          const cursor = cursorReq.result
-          if (!cursor) return
-          const record = cursor.value as FilesNodeRecord
-          if ((record.locationId as string) === 'repo') {
-            const updateReq = cursor.update({ ...record, locationId: 'dev' })
-            updateReq.onsuccess = () => cursor.continue()
-            return
-          }
-          cursor.continue()
-        }
-      }
 
-      // v3：为文件节点补 blobId，为 blob 补 refCount（写时复制 / clone 共享）
-      if (oldVersion > 0 && oldVersion < 3 && tx) {
-        const nodeStore = tx.objectStore(FILES_NODES_STORE)
-        const blobStore = tx.objectStore(FILES_BLOBS_STORE)
-        const nodeCursorReq = nodeStore.openCursor()
-        nodeCursorReq.onsuccess = () => {
-          const cursor = nodeCursorReq.result
-          if (!cursor) return
-          const record = cursor.value as FilesNodeRecord
-          if (record.kind === 'file' && record.blobId === undefined) {
-            const updateReq = cursor.update({ ...record, blobId: record.id })
-            updateReq.onsuccess = () => cursor.continue()
-            return
-          }
-          cursor.continue()
+      // v2/v3 游标迁移与 v5/v6 消重串行执行：跨多版本升级时若并行，
+      // 消重的 getAll 可能读到尚未迁移完的旧 locationId / 旧 blob 快照。
+      const run = async () => {
+        const upgradeTx = tx
+        if (!upgradeTx) return
+        if (oldVersion > 0 && oldVersion < 2) {
+          await migrateV2RepoToDev(upgradeTx)
         }
-        const blobCursorReq = blobStore.openCursor()
-        blobCursorReq.onsuccess = () => {
-          const cursor = blobCursorReq.result
-          if (!cursor) return
-          const record = cursor.value as FilesBlobRecord
-          if (record.refCount === undefined) {
-            const updateReq = cursor.update({ ...record, refCount: 1 })
-            updateReq.onsuccess = () => cursor.continue()
-            return
-          }
-          cursor.continue()
+        if (oldVersion > 0 && oldVersion < 3) {
+          await migrateV3BlobRef(upgradeTx)
+        }
+        if (oldVersion > 0 && oldVersion < 5) {
+          await migrateV5UniqueChildNames(upgradeTx)
+        }
+        if (oldVersion > 0 && oldVersion < 6) {
+          await migrateV6UniqueNameKey(upgradeTx)
         }
       }
-
-      // v5：同目录同名唯一。先按「卷 + 父目录 + 名字」分组消重（保留最早创建者原名，
-      // 其余按「 2」「 3」后缀改名，已占用的后缀一并计入），再建 by-parent-name 唯一索引。
-      // 已有重复时直接建 unique 索引会让整次升级失败，故必须先消重后建索引。
-      if (oldVersion > 0 && oldVersion < 5 && tx) {
-        migrateV5UniqueChildNames(tx).catch((error) => {
-          console.error('files: v5 迁移失败', error)
-          migrationError = error
-          tx.abort()
-        })
-      }
+      void run().catch((error) => {
+        console.error('files: 数据库升级迁移失败', error)
+        migrationError = error
+        tx?.abort()
+      })
     }
 
     request.onsuccess = () => {
@@ -217,7 +205,7 @@ function openFilesDb(): Promise<IDBDatabase> {
         reject(
           migrationError instanceof Error
             ? migrationError
-            : new Error('文件库 v5 迁移失败'),
+            : new Error('文件库升级迁移失败'),
         )
         return
       }
@@ -227,11 +215,86 @@ function openFilesDb(): Promise<IDBDatabase> {
     }
     request.onerror = () => {
       dbPromise = undefined
-      reject(request.error ?? new Error('无法打开文件 IndexedDB'))
+      // 优先透传迁移的真实原因；升级中止后 request.error 只剩 AbortError
+      reject(
+        migrationError instanceof Error
+          ? migrationError
+          : request.error ?? new Error('无法打开文件 IndexedDB'),
+      )
     }
   })
 
   return dbPromise
+}
+
+/** v2：repo 卷改名为 dev（游标迁移，Promise 化以便与后续消重串行） */
+function migrateV2RepoToDev(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const nodeStore = tx.objectStore(FILES_NODES_STORE)
+    const cursorReq = nodeStore.openCursor()
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result
+      if (!cursor) {
+        resolve()
+        return
+      }
+      const record = cursor.value as FilesNodeRecord
+      if ((record.locationId as string) === 'repo') {
+        const updateReq = cursor.update({ ...record, locationId: 'dev' })
+        updateReq.onsuccess = () => cursor.continue()
+        updateReq.onerror = () => reject(updateReq.error ?? new Error('v2 迁移更新失败'))
+        return
+      }
+      cursor.continue()
+    }
+    cursorReq.onerror = () => reject(cursorReq.error ?? new Error('v2 迁移游标失败'))
+  })
+}
+
+/** v3：为文件节点补 blobId、为 blob 补 refCount（游标迁移，Promise 化） */
+function migrateV3BlobRef(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const nodeStore = tx.objectStore(FILES_NODES_STORE)
+    const blobStore = tx.objectStore(FILES_BLOBS_STORE)
+
+    const nodeCursorReq = nodeStore.openCursor()
+    nodeCursorReq.onsuccess = () => {
+      const cursor = nodeCursorReq.result
+      if (!cursor) {
+        runBlobCursor()
+        return
+      }
+      const record = cursor.value as FilesNodeRecord
+      if (record.kind === 'file' && record.blobId === undefined) {
+        const updateReq = cursor.update({ ...record, blobId: record.id })
+        updateReq.onsuccess = () => cursor.continue()
+        updateReq.onerror = () => reject(updateReq.error ?? new Error('v3 节点迁移失败'))
+        return
+      }
+      cursor.continue()
+    }
+    nodeCursorReq.onerror = () => reject(nodeCursorReq.error ?? new Error('v3 节点游标失败'))
+
+    const runBlobCursor = () => {
+      const blobCursorReq = blobStore.openCursor()
+      blobCursorReq.onsuccess = () => {
+        const cursor = blobCursorReq.result
+        if (!cursor) {
+          resolve()
+          return
+        }
+        const record = cursor.value as FilesBlobRecord
+        if (record.refCount === undefined) {
+          const updateReq = cursor.update({ ...record, refCount: 1 })
+          updateReq.onsuccess = () => cursor.continue()
+          updateReq.onerror = () => reject(updateReq.error ?? new Error('v3 blob 迁移失败'))
+          return
+        }
+        cursor.continue()
+      }
+      blobCursorReq.onerror = () => reject(blobCursorReq.error ?? new Error('v3 blob 游标失败'))
+    }
+  })
 }
 
 /**
@@ -386,6 +449,14 @@ function parentKey(parentId: string | undefined): string {
 }
 
 /**
+ * 名字唯一性比较键：大小写折叠 + Unicode NFC 正规化。
+ * 同目录下按此键判重（「Foo.txt」与「foo.txt」、组合音标与预组合字符视为同名）。
+ */
+export function normalizeFilesNameKey(name: string): string {
+  return name.normalize('NFC').toLowerCase()
+}
+
+/**
  * 写入时对同目录重名节点的处理模式：
  * - unique-suffix：事务内按「 2」「 3」规则自动改名（面向用户的创建 / 复制 / 移动）
  * - exact：同名抛「路径已存在」（精确路径 API / 系统确定性路径）
@@ -394,11 +465,16 @@ function parentKey(parentId: string | undefined): string {
 export type FilesNodeNameMode = 'unique-suffix' | 'exact' | 'folder-return'
 
 /**
- * 在名字集合里为 desired 计算不冲突名（与 VFS 的 uniqueName 规则一致）。
- * 集合须包含该目录全部现存名字，保证跳过「foo 2.txt」这类合法文件。
+ * 在名字集合里为 desired 计算不冲突名（「 2」「 3」后缀规则）。
+ * 集合可为原始名或 nameKey；无论哪种，占用判断都按大小写 / Unicode 正规化后的
+ * nameKey 进行（保证能跳过「Foo 2.txt」「foo 2.txt」这类占用）。
  */
 export function uniqueNameAmong(existingNames: ReadonlySet<string>, desired: string): string {
-  if (!existingNames.has(desired)) return desired
+  const keys = new Set<string>()
+  for (const name of existingNames) {
+    keys.add(normalizeFilesNameKey(name))
+  }
+  if (!keys.has(normalizeFilesNameKey(desired))) return desired
 
   const lastDot = desired.lastIndexOf('.')
   const hasExt = lastDot > 0 && lastDot < desired.length - 1 && !desired.slice(lastDot + 1).includes(' ')
@@ -406,7 +482,7 @@ export function uniqueNameAmong(existingNames: ReadonlySet<string>, desired: str
   const ext = hasExt ? desired.slice(lastDot) : ''
 
   let n = 2
-  while (existingNames.has(`${stem} ${n}${ext}`)) {
+  while (keys.has(normalizeFilesNameKey(`${stem} ${n}${ext}`))) {
     n += 1
   }
   return `${stem} ${n}${ext}`
@@ -446,10 +522,12 @@ async function resolveNameInTx(
   const existing = await requestToPromise(
     tx
       .objectStore(FILES_NODES_STORE)
-      .index('by-parent-name')
-      .get([identity.locationId, parentKey(identity.parentId), identity.name]) as IDBRequest<
-      FilesNodeRecord | undefined
-    >,
+      .index('by-parent-name-key')
+      .get([
+        identity.locationId,
+        parentKey(identity.parentId),
+        normalizeFilesNameKey(identity.name),
+      ]) as IDBRequest<FilesNodeRecord | undefined>,
   )
   if (!existing || existing.id === excludeId) return { name: identity.name }
   if (nameMode === 'unique-suffix') {
@@ -459,7 +537,7 @@ async function resolveNameInTx(
   if (nameMode === 'folder-return' && existing.kind === 'folder') {
     return { name: identity.name, existing }
   }
-  throw new Error('路径已存在')
+  throw new FilesPathExistsError('路径已存在', recordToNode(existing))
 }
 
 /**
@@ -513,11 +591,89 @@ async function migrateV5UniqueChildNames(tx: IDBTransaction): Promise<void> {
   for (const record of updates) {
     await requestToPromise(nodeStore.put(record) as IDBRequest<unknown>)
   }
+  if (updates.length > 0) {
+    console.log(
+      `files: v5 迁移消重 ${updates.length} 条同目录重名`,
+      updates.slice(0, 3).map((record) => record.name),
+    )
+  }
 
   // 消重完成后建唯一索引：必须在同一升级事务内、先消重后建，否则已有重复会让升级失败
   nodeStore.createIndex('by-parent-name', ['locationId', 'parentId', 'name'], {
     unique: true,
   })
+}
+
+/**
+ * v6 升级迁移：名字唯一性升级到大小写 / Unicode（NFC）正规化。
+ * 为全部节点补 nameKey；按「卷 + 父目录 + nameKey」分组消重（保留最早创建者原名，
+ * 其余加后缀，后缀占用同样按 nameKey 判定）；删除 v5 的 by-parent-name 索引，
+ * 新建 by-parent-name-key 唯一索引（键为 nameKey）。
+ */
+async function migrateV6UniqueNameKey(tx: IDBTransaction): Promise<void> {
+  const nodeStore = tx.objectStore(FILES_NODES_STORE)
+  const all = await requestToPromise(nodeStore.getAll() as IDBRequest<FilesNodeRecord[]>)
+  const records = all ?? []
+
+  const byKey = new Map<string, FilesNodeRecord[]>()
+  const nameKeysByParent = new Map<string, Set<string>>()
+  for (const record of records) {
+    const parentKeyOfRecord = `${record.locationId}\0${record.parentId}`
+    const recordKey = normalizeFilesNameKey(record.name)
+    let keys = nameKeysByParent.get(parentKeyOfRecord)
+    if (!keys) {
+      keys = new Set()
+      nameKeysByParent.set(parentKeyOfRecord, keys)
+    }
+    keys.add(recordKey)
+    const groupKey = `${parentKeyOfRecord}\0${recordKey}`
+    let group = byKey.get(groupKey)
+    if (!group) {
+      group = []
+      byKey.set(groupKey, group)
+    }
+    group.push(record)
+  }
+
+  const renamedById = new Map<string, FilesNodeRecord>()
+  for (const group of byKey.values()) {
+    if (group.length <= 1) continue
+    group.sort(
+      (a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
+    const keys = nameKeysByParent.get(`${group[0]!.locationId}\0${group[0]!.parentId}`)!
+    for (const record of group.slice(1)) {
+      const next = uniqueNameAmong(keys, record.name)
+      keys.add(normalizeFilesNameKey(next))
+      renamedById.set(record.id, { ...record, name: next, updatedAt: osNowMs() })
+    }
+  }
+
+  const toWrite: FilesNodeRecord[] = []
+  for (const record of records) {
+    const renamed = renamedById.get(record.id)
+    const finalRecord = renamed ?? record
+    const key = normalizeFilesNameKey(finalRecord.name)
+    if (renamed || finalRecord.nameKey !== key) {
+      toWrite.push({ ...finalRecord, nameKey: key })
+    }
+  }
+  for (const record of toWrite) {
+    await requestToPromise(nodeStore.put(record) as IDBRequest<unknown>)
+  }
+
+  if (nodeStore.indexNames.contains('by-parent-name')) {
+    nodeStore.deleteIndex('by-parent-name')
+  }
+  nodeStore.createIndex('by-parent-name-key', ['locationId', 'parentId', 'nameKey'], {
+    unique: true,
+  })
+  if (renamedById.size > 0) {
+    console.log(
+      `files: v6 迁移消重 ${renamedById.size} 条大小写/Unicode 重名`,
+      [...renamedById.values()].slice(0, 3).map((record) => record.name),
+    )
+  }
 }
 
 export function recordToNode(record: FilesNodeRecord): FilesNode {
@@ -557,6 +713,7 @@ function nodeToRecord(node: FilesNode, blobId?: string): FilesNodeRecord {
     locationId: node.locationId,
     parentId: parentKey(node.parentId),
     name: node.name,
+    nameKey: normalizeFilesNameKey(node.name),
     kind: node.kind,
     byteSize: node.byteSize,
     createdAt: node.createdAt,
@@ -965,7 +1122,7 @@ export async function createFileWithBlob(params: {
   node: FilesNode
   text: string
   metaBytes: number
-  nameMode?: FilesNodeNameMode
+  nameMode: FilesNodeNameMode
 }): Promise<FilesNode> {
   const textBytes = estimateTextBytes(params.text)
   const needed = params.metaBytes + textBytes
@@ -979,7 +1136,7 @@ export async function createFileWithBlob(params: {
 
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
-  const resolved = await resolveNameInTx(tx, node, params.nameMode ?? 'exact')
+  const resolved = await resolveNameInTx(tx, node, params.nameMode)
   if (resolved.existing) {
     await waitForTransaction(tx)
     return recordToNode(resolved.existing)
@@ -1002,7 +1159,7 @@ export async function createFileWithBytes(params: {
   node: FilesNode
   bytes: ArrayBuffer
   metaBytes: number
-  nameMode?: FilesNodeNameMode
+  nameMode: FilesNodeNameMode
 }): Promise<FilesNode> {
   const contentBytes = params.bytes.byteLength
   const needed = params.metaBytes + contentBytes
@@ -1016,7 +1173,7 @@ export async function createFileWithBytes(params: {
 
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
-  const resolved = await resolveNameInTx(tx, node, params.nameMode ?? 'exact')
+  const resolved = await resolveNameInTx(tx, node, params.nameMode)
   if (resolved.existing) {
     await waitForTransaction(tx)
     return recordToNode(resolved.existing)
@@ -1043,7 +1200,7 @@ export async function cloneFileNodeWithSharedBlob(params: {
   sourceNodeId: string
   node: FilesNode
   metaBytes: number
-  nameMode?: FilesNodeNameMode
+  nameMode: FilesNodeNameMode
 }): Promise<FilesNode> {
   const total = await assertCapacity(params.metaBytes)
 
@@ -1079,7 +1236,7 @@ export async function cloneFileNodeWithSharedBlob(params: {
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
     'readwrite',
   )
-  const resolved = await resolveNameInTx(writeTx, node, params.nameMode ?? 'exact')
+  const resolved = await resolveNameInTx(writeTx, node, params.nameMode)
   if (resolved.existing) {
     await waitForTransaction(writeTx)
     return recordToNode(resolved.existing)
@@ -1105,12 +1262,12 @@ export async function cloneFileNodeWithSharedBlob(params: {
 export async function createFolderNode(params: {
   node: FilesNode
   metaBytes: number
-  nameMode?: FilesNodeNameMode
+  nameMode: FilesNodeNameMode
 }): Promise<FilesNode> {
   const total = await assertCapacity(params.metaBytes)
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
-  const resolved = await resolveNameInTx(tx, params.node, params.nameMode ?? 'exact')
+  const resolved = await resolveNameInTx(tx, params.node, params.nameMode)
   if (resolved.existing) {
     await waitForTransaction(tx)
     return recordToNode(resolved.existing)
@@ -1133,7 +1290,7 @@ export async function createFolderNode(params: {
 export async function createSymlinkNode(params: {
   node: FilesNode
   metaBytes: number
-  nameMode?: FilesNodeNameMode
+  nameMode: FilesNodeNameMode
 }): Promise<FilesNode> {
   if (params.node.kind !== 'symlink' || params.node.target === undefined) {
     throw new Error('createSymlinkNode 需要 kind=symlink 且带 target')
@@ -1261,6 +1418,11 @@ async function writeFileContentCow(params: {
 // ---------------------------------------------------------------------------
 
 export type FilesStreamWriter = {
+  /**
+   * open 时确定的实际节点：新建时为事务内定名的占位节点（unique-suffix 撞名后
+   * 是最终名；精确模式即请求名），覆盖时为既有节点快照。
+   */
+  node: FilesNode
   write(chunk: Uint8Array): Promise<void>
   close(): Promise<FilesNode>
   abort(): Promise<void>
@@ -1333,7 +1495,7 @@ export async function openStreamWriteBlob(params: {
   metaBytes: number
   previousByteSize: number
   chunkSize?: number
-  nameMode?: FilesNodeNameMode
+  nameMode: FilesNodeNameMode
 }): Promise<FilesStreamWriter> {
   const { node, isNew, metaBytes, previousByteSize } = params
   const chunkSize = params.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
@@ -1358,11 +1520,11 @@ export async function openStreamWriteBlob(params: {
       [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
       'readwrite',
     )
-    // 新建占位节点也走事务内精确查重，避免并发新建同名时插入重复记录
-    const resolved = await resolveNameInTx(tx, baseNode, params.nameMode ?? 'exact')
+    // 新建占位节点也走事务内查重，避免并发新建同名时插入重复记录
+    const resolved = await resolveNameInTx(tx, baseNode, params.nameMode)
     if (resolved.existing) {
       await waitForTransaction(tx)
-      throw new Error('路径已存在')
+      throw new FilesPathExistsError('路径已存在', recordToNode(resolved.existing))
     }
     const finalNode = resolved.name === baseNode.name ? baseNode : { ...baseNode, name: resolved.name }
     const finalMeta =
@@ -1421,6 +1583,7 @@ export async function openStreamWriteBlob(params: {
   streamWrites.set(id, state)
 
   return {
+    node: recordToNode(state.nodeRecord),
     write: (chunk) => enqueueStreamOp(state, () => writeStreamChunk(state, chunk)),
     close: () => enqueueStreamOp(state, () => closeStreamWrite(state)),
     abort: () => enqueueStreamOp(state, () => abortStreamWrite(state)),
@@ -1581,16 +1744,17 @@ export async function renameNodeRecord(params: {
   const total = await assertCapacity(params.metaDelta)
 
   const db = await openFilesDb()
-  const readTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
+  const writeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
+  const store = writeTx.objectStore(FILES_NODES_STORE)
+  // 读写同处一笔写入事务：避免「先读后写」窗口内节点被删除 / 移动导致把过期快照写回
   const existing = await requestToPromise(
-    readTx.objectStore(FILES_NODES_STORE).get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
+    store.get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
   )
-  await waitForTransaction(readTx)
   if (!existing) {
+    await waitForTransaction(writeTx)
     throw new Error('项目不存在')
   }
 
-  const writeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
   // 目标名在写入事务内查重并自动加后缀（排除自身），避免并发改名撞名
   const resolved = await resolveNameInTx(
     writeTx,
@@ -1602,6 +1766,7 @@ export async function renameNodeRecord(params: {
   const updated: FilesNodeRecord = {
     ...existing,
     name: finalName,
+    nameKey: normalizeFilesNameKey(finalName),
     updatedAt: osNowMs(),
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
@@ -1665,11 +1830,13 @@ export async function moveNodeRecord(params: {
     const updated: FilesNodeRecord = {
       ...existing,
       locationId: params.locationId,
+      nameKey: normalizeFilesNameKey(existing.name),
       attributes: normalizeFilesNodeAttributes(params.locationId, existing.attributes),
     }
     if (nodeId === params.id) {
       updated.parentId = parentKey(params.parentId)
       updated.name = finalName
+      updated.nameKey = normalizeFilesNameKey(finalName)
       updated.updatedAt = osNowMs()
       if (params.trashOrigin !== undefined) {
         updated.trashOrigin = {

@@ -29,6 +29,7 @@ import {
   renameNodeRecord,
   moveNodeRecord,
   FilesStorageFullError,
+  uniqueNameAmong,
   writeBlobBytes,
   writeBlobText,
   type FilesNodeNameMode,
@@ -331,21 +332,6 @@ async function assertCanCreateIn(
   assertNodeWritable(parent)
 }
 
-function uniqueName(existingNames: ReadonlySet<string>, desired: string): string {
-  if (!existingNames.has(desired)) return desired
-
-  const lastDot = desired.lastIndexOf('.')
-  const hasExt = lastDot > 0 && lastDot < desired.length - 1 && !desired.slice(lastDot + 1).includes(' ')
-  const stem = hasExt ? desired.slice(0, lastDot) : desired
-  const ext = hasExt ? desired.slice(lastDot) : ''
-
-  let n = 2
-  while (existingNames.has(`${stem} ${n}${ext}`)) {
-    n += 1
-  }
-  return `${stem} ${n}${ext}`
-}
-
 async function siblingNames(
   locationId: FilesLocationId,
   parentId: string | undefined,
@@ -368,7 +354,7 @@ export async function uniqueNodeName(
   excludeId?: string,
 ): Promise<string> {
   const names = await siblingNames(locationId, parentId, excludeId)
-  return uniqueName(names, desired)
+  return uniqueNameAmong(names, desired)
 }
 
 export async function listDirectory(
@@ -447,7 +433,7 @@ export async function mkdir(params: {
   if (isMountLocationId(params.locationId)) {
     // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
     const names = await siblingNames(params.locationId, params.parentId)
-    const name = uniqueName(names, trimmed)
+    const name = uniqueNameAmong(names, trimmed)
     const created = await mkdirMount({
       locationId: params.locationId,
       parentId: params.parentId,
@@ -495,7 +481,7 @@ export async function createTextFile(params: {
   if (isMountLocationId(params.locationId)) {
     // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
     const names = await siblingNames(params.locationId, params.parentId)
-    const name = uniqueName(names, desired)
+    const name = uniqueNameAmong(names, desired)
     const created = await createMountTextFile({
       locationId: params.locationId,
       parentId: params.parentId,
@@ -557,7 +543,7 @@ export async function createBinaryFile(params: {
   if (isMountLocationId(params.locationId)) {
     // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
     const names = await siblingNames(params.locationId, params.parentId)
-    const name = uniqueName(names, desired)
+    const name = uniqueNameAmong(names, desired)
     const created = await createMountBinaryFile({
       locationId: params.locationId,
       parentId: params.parentId,
@@ -1167,8 +1153,10 @@ export async function openStreamWrite(params: {
   metaBytes: number
   previousByteSize: number
   chunkSize?: number
+  /** 新建时的冲突处理：内部卷透传给 openStreamWriteBlob；挂载卷忽略（FSA 无同名） */
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesStreamWriter> {
-  const { node, isNew, metaBytes, previousByteSize, chunkSize } = params
+  const { node, isNew, metaBytes, previousByteSize, chunkSize, nameMode } = params
   let writer: FilesStreamWriter
   // 按卷类型分发（新建占位节点 id 非 mount 前缀，须看 locationId）
   if (isMountLocationId(node.locationId)) {
@@ -1179,14 +1167,24 @@ export async function openStreamWrite(params: {
       isNew,
     })
   } else {
-    writer = await openStreamWriteBlob({ node, isNew, metaBytes, previousByteSize, chunkSize })
+    writer = await openStreamWriteBlob({
+      node,
+      isNew,
+      metaBytes,
+      previousByteSize,
+      chunkSize,
+      // 存储层必选；VFS 层缺省精确失败（files-api 新建默认路径）
+      nameMode: nameMode ?? 'exact',
+    })
   }
   if (isNew) {
     // 新建文件立刻可见（byteSize 0），随 chunk 逐步长大；同时失效路径缓存，
-    // 避免 open 前的「不存在」缓存残留导致流中/流后解析失败
-    await emitNodeCreated(node)
+    // 避免 open 前的「不存在」缓存残留导致流中/流后解析失败。
+    // 用 writer.node（实际占位节点）：unique-suffix 撞名后名称已变，须按最终名通知
+    await emitNodeCreated(writer.node)
   }
   return {
+    node: writer.node,
     write: (chunk) => writer.write(chunk),
     close: async () => {
       const startedAt = performance.now()
@@ -1203,8 +1201,8 @@ export async function openStreamWrite(params: {
     abort: async () => {
       await writer.abort()
       if (isNew) {
-        // 新建文件回滚删除：通知 watch / 清路径缓存
-        const path = await resolveFilesAbsolutePath(node)
+        // 新建文件回滚删除：通知 watch / 清路径缓存（按实际占位节点路径）
+        const path = await resolveFilesAbsolutePath(writer.node)
         emitFilesVfsChanged({ kind: 'deleted', path })
       }
     },
@@ -1223,7 +1221,7 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
   if (isMountNodeId(id)) {
     // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
     const names = await siblingNames(node.locationId, node.parentId, node.id)
-    const name = uniqueName(names, trimmed)
+    const name = uniqueNameAmong(names, trimmed)
     const renamed = await renameMountNode(id, name)
     const path = await resolveFilesAbsolutePath(renamed)
     emitFilesVfsChanged({ kind: 'renamed', path, previousPath })

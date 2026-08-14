@@ -99,6 +99,7 @@ export async function putBeforeBlobFromPath(
       sourceNodeId: source.id,
       node: destNode,
       metaBytes: estimateNodeMetaBytes(destNode),
+      nameMode: 'exact',
     })
     emitSystemVfsChange(path, 'created')
     return { blobId, byteSize: source.byteSize }
@@ -111,6 +112,7 @@ export async function putBeforeBlobFromPath(
     node: destNode,
     bytes,
     metaBytes: estimateNodeMetaBytes(destNode),
+    nameMode: 'exact',
   })
   emitSystemVfsChange(path, 'created')
   return { blobId, byteSize: bytes.byteLength }
@@ -174,6 +176,7 @@ export async function saveTerminalChangeSession(changeSet: TerminalChangeSet): P
     node,
     bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: 'exact',
   })
   emitSystemVfsChange(path, 'created')
 }
