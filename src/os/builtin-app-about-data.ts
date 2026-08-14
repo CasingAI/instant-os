@@ -302,4 +302,12 @@ export const BUILTIN_APP_ABOUT: Record<string, BuiltinAppAbout> = {
       '每个组件提供实时可交互的 Demo、使用代码示例（可一键复制）和详细的 Props 说明，方便开发者了解和使用系统组件。',
     ],
   },
+  'srml-demo': {
+    version: '标签 DSL · Fork 演示',
+    paragraphs: [
+      'SRML 演示用自定义标签语言取代 Provider 原生 tool call / 结构化输出。一次请求携带多个 <|begin_of_prompt_N|> 块（Fork：同时做多个任务），模型在一次回复里为每个 prompt 输出一个 <|begin_of_task_N|> 块。',
+      '思考直接打包在 DSL 里：<begin_of_thought> 内是推理，<begin_of_response_N> 内是最终回复，全部随流式输出一起可见。侧栏可查看完整系统提示词与 DSL 规范，时间线提供「模型输出原文 vs UI 实时解析」左右对照。',
+      '当前是最简版（不含 tool call），重点验证标签 DSL 的格式遵循率与流式实时解析。',
+    ],
+  },
 }

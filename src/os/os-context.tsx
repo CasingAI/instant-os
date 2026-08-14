@@ -140,6 +140,7 @@ const DEFAULT_WINDOWS: Record<BuiltinAppId, Pick<WindowState, 'title' | 'width' 
   packages: { title: '包管理', width: 720, height: 520 },
   'virtual-js': { title: 'Virtual JS', width: 860, height: 640 },
   'ui-kit': { title: 'UI 组件库', width: 980, height: 700 },
+  'srml-demo': { title: 'SRML 演示', width: 1040, height: 700 },
 }
 
 const LEGACY_BUILTIN_WINDOW_TITLES: Partial<Record<BuiltinAppId, readonly string[]>> = {

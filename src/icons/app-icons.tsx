@@ -1625,3 +1625,37 @@ export function StemsIcon({ size = 64 }: IconProps) {
     </AppIconTile>
   )
 }
+
+export function SrmlDemoIcon({ size = 64 }: IconProps) {
+  return (
+    <AppIconTile color="#c07f1e" size={size}>
+      <svg
+        viewBox="0 0 64 64"
+        width={size}
+        height={size}
+        fill="none"
+        aria-hidden="true"
+      >
+        {/* 指令序列块：提示符 + 缩进键值行 */}
+        <g transform="translate(6 12)">
+          <path d="M4 4 h12 l4 6 -4 6 h-12 z" fill="#2a2410" />
+          <text x="10" y="14" text-anchor="middle" font-size="11" fill="#f5b54e" font-family="Menlo, monospace" font-weight="bold">
+            &gt;
+          </text>
+          <rect x="24" y="3" width="34" height="4" rx="2" fill="#4a3a12" />
+          <rect x="28" y="12" width="26" height="4" rx="2" fill="#4a3a12" />
+          <rect x="24" y="21" width="14" height="4" rx="2" fill="#4a3a12" />
+        </g>
+        {/* 回滚箭头：预测失败时倒退 */}
+        <path
+          d="M30 50 C 24 50 21 45 23 41 M23 41 l 4 4 M23 41 l 4 -4"
+          stroke="#e9e3d3"
+          stroke-width="3.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="40" cy="47" r="3" fill="#e9e3d3" />
+      </svg>
+    </AppIconTile>
+  )
+}

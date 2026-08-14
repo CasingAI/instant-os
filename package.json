@@ -31,6 +31,7 @@
     "test:terminal-controlled": "node --experimental-strip-types src/terminal/terminal-controlled.smoke-test.ts",
     "test:terminal-program-eval": "node --experimental-strip-types src/apps/terminal/terminal-repl-program-eval.smoke-test.ts",
     "test:stems": "node --experimental-strip-types src/apps/stems/stems-separator.test.ts",
+    "test:srml": "node --experimental-strip-types src/apps/srml-demo/srml-demo.test.ts",
     "test:align": "node --experimental-strip-types src/apps/align/pinyin-g2p.test.ts && node --experimental-strip-types src/apps/align/kaldi-fbank.test.ts && node --experimental-strip-types src/apps/align/align-text-dtw.test.ts && node --experimental-strip-types src/apps/align/bbpe-decode.test.ts && node --experimental-strip-types src/apps/align/align-lrc.test.ts && node --experimental-strip-types src/apps/align/align-chunking.test.ts && node --experimental-strip-types src/apps/align/align-pipeline.test.ts && node --experimental-strip-types src/apps/align/align-greedy.test.ts && node --experimental-strip-types src/apps/align/align-line-times.test.ts && node --experimental-strip-types src/apps/align/sense-voice-feats.test.ts && node --experimental-strip-types src/apps/align/sense-voice-bpe.test.ts",
     "vendor:quickjs-guest": "node scripts/vendor-quickjs-guest-builtins.mjs"
   },
