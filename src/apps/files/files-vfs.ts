@@ -31,6 +31,7 @@ import {
   FilesStorageFullError,
   writeBlobBytes,
   writeBlobText,
+  type FilesNodeNameMode,
   type FilesStorageBatchOp,
   type FilesStreamWriter,
 } from './files-storage.ts'
@@ -437,14 +438,16 @@ export async function mkdir(params: {
   locationId: FilesLocationId
   parentId: string | undefined
   name: string
+  /** 冲突处理：默认自动加后缀；files-api 精确创建时传 'exact' */
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   await assertCanCreateIn(params.locationId, params.parentId)
   const trimmed = normalizeFilesNodeName(params.name)
 
-  const names = await siblingNames(params.locationId, params.parentId)
-  const name = uniqueName(names, trimmed)
-
   if (isMountLocationId(params.locationId)) {
+    // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
+    const names = await siblingNames(params.locationId, params.parentId)
+    const name = uniqueName(names, trimmed)
     const created = await mkdirMount({
       locationId: params.locationId,
       parentId: params.parentId,
@@ -459,7 +462,7 @@ export async function mkdir(params: {
     id: newFilesNodeId(),
     locationId: params.locationId,
     parentId: params.parentId,
-    name,
+    name: trimmed,
     kind: 'folder',
     mimeType: undefined,
     byteSize: 0,
@@ -470,6 +473,7 @@ export async function mkdir(params: {
   const created = await createFolderNode({
     node,
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: params.nameMode ?? 'unique-suffix',
   })
   await emitNodeCreated(created)
   return created
@@ -480,15 +484,18 @@ export async function createTextFile(params: {
   parentId: string | undefined
   name?: string
   text?: string
+  /** 冲突处理：默认自动加后缀；files-api 精确创建时传 'exact' */
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   await assertCanCreateIn(params.locationId, params.parentId)
   const desired = normalizeFilesNodeName((params.name ?? '未命名.txt').trim() || '未命名.txt')
-  const names = await siblingNames(params.locationId, params.parentId)
-  const name = uniqueName(names, desired)
   const text = params.text ?? ''
   const startedAt = performance.now()
 
   if (isMountLocationId(params.locationId)) {
+    // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
+    const names = await siblingNames(params.locationId, params.parentId)
+    const name = uniqueName(names, desired)
     const created = await createMountTextFile({
       locationId: params.locationId,
       parentId: params.parentId,
@@ -510,7 +517,7 @@ export async function createTextFile(params: {
     id: newFilesNodeId(),
     locationId: params.locationId,
     parentId: params.parentId,
-    name,
+    name: desired,
     kind: 'file',
     mimeType: FILES_TEXT_MIME,
     byteSize: 0,
@@ -522,6 +529,7 @@ export async function createTextFile(params: {
     node,
     text,
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: params.nameMode ?? 'unique-suffix',
   })
   await emitNodeCreated(created)
   recordFilesIoWrite(
@@ -539,14 +547,17 @@ export async function createBinaryFile(params: {
   name: string
   bytes: ArrayBuffer
   mimeType?: string
+  /** 冲突处理：默认自动加后缀；files-api 精确创建时传 'exact' */
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   await assertCanCreateIn(params.locationId, params.parentId)
   const desired = normalizeFilesNodeName(params.name.trim() || '未命名.bin')
-  const names = await siblingNames(params.locationId, params.parentId)
-  const name = uniqueName(names, desired)
   const startedAt = performance.now()
 
   if (isMountLocationId(params.locationId)) {
+    // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
+    const names = await siblingNames(params.locationId, params.parentId)
+    const name = uniqueName(names, desired)
     const created = await createMountBinaryFile({
       locationId: params.locationId,
       parentId: params.parentId,
@@ -568,7 +579,7 @@ export async function createBinaryFile(params: {
     id: newFilesNodeId(),
     locationId: params.locationId,
     parentId: params.parentId,
-    name,
+    name: desired,
     kind: 'file',
     mimeType: params.mimeType ?? 'application/octet-stream',
     byteSize: 0,
@@ -580,6 +591,7 @@ export async function createBinaryFile(params: {
     node,
     bytes: params.bytes,
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: params.nameMode ?? 'unique-suffix',
   })
   await emitNodeCreated(created)
   recordFilesIoWrite(
@@ -748,6 +760,8 @@ export async function createSymlink(params: {
   parentId: string | undefined
   name: string
   target: string
+  /** 冲突处理：默认精确失败；复制路径传 'unique-suffix' */
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   if (!canCreateSymlinkOnLocation(params.locationId)) {
     throw new Error('当前卷不支持创建符号链接')
@@ -757,11 +771,6 @@ export async function createSymlink(params: {
   const target = params.target.trim()
   if (!target) {
     throw new Error('符号链接目标不能为空')
-  }
-
-  const names = await siblingNames(params.locationId, params.parentId)
-  if (names.has(trimmedName)) {
-    throw new Error('路径已存在')
   }
 
   const now = osNowMs()
@@ -781,6 +790,7 @@ export async function createSymlink(params: {
   const created = await createSymlinkNode({
     node,
     metaBytes: estimateNodeMetaBytes(node) + estimateTextBytes(target),
+    nameMode: params.nameMode ?? 'exact',
   })
   await emitNodeCreated(created)
   return created
@@ -1209,10 +1219,11 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
   }
   assertNodeWritable(node)
   const previousPath = await resolveFilesAbsolutePath(node)
-  const names = await siblingNames(node.locationId, node.parentId, node.id)
-  const name = uniqueName(names, trimmed)
 
   if (isMountNodeId(id)) {
+    // 挂载卷无唯一索引与事务内取名；沿用读列表后加后缀
+    const names = await siblingNames(node.locationId, node.parentId, node.id)
+    const name = uniqueName(names, trimmed)
     const renamed = await renameMountNode(id, name)
     const path = await resolveFilesAbsolutePath(renamed)
     emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
@@ -1220,10 +1231,10 @@ export async function renameNode(id: string, nextName: string): Promise<FilesNod
   }
 
   const before = estimateNodeMetaBytes(node)
-  const after = estimateNodeMetaBytes({ ...node, name })
+  const after = estimateNodeMetaBytes({ ...node, name: trimmed })
   const renamed = await renameNodeRecord({
     id,
-    name,
+    name: trimmed,
     metaDelta: after - before,
   })
   const path = await resolveFilesAbsolutePath(renamed)
@@ -1403,13 +1414,11 @@ export async function moveNodeTo(
 
   if (canMoveNodeMetadataOnly(source, destLocationId)) {
     const previousPath = await resolveFilesAbsolutePath(source)
-    const names = await siblingNames(destLocationId, destParentId, source.id)
-    const name = uniqueName(names, source.name)
     const moved = await moveNodeRecord({
       id: source.id,
       locationId: destLocationId,
       parentId: destParentId,
-      name,
+      name: source.name,
     })
     const path = await resolveFilesAbsolutePath(moved)
     emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
@@ -1488,13 +1497,11 @@ export async function trashNode(
   }
 
   const previousPath = await resolveFilesAbsolutePath(node)
-  const names = await siblingNames('trash', undefined)
-  const name = uniqueName(names, node.name)
   const moved = await moveNodeRecord({
     id,
     locationId: 'trash',
     parentId: undefined,
-    name,
+    name: node.name,
     trashOrigin,
   })
   const path = await resolveFilesAbsolutePath(moved)
@@ -1528,9 +1535,6 @@ export async function restoreNode(id: string): Promise<FilesNode> {
     }
   }
 
-  const names = await siblingNames(origin.locationId, destParentId, id)
-  const name = uniqueName(names, origin.name)
-
   if (isMountLocationId(origin.locationId)) {
     // 目标为挂载卷：复制到挂载卷后删除废纸篓原件
     const copied = await copyNodeTree(node, origin.locationId, destParentId, () => undefined)
@@ -1547,7 +1551,7 @@ export async function restoreNode(id: string): Promise<FilesNode> {
     id,
     locationId: origin.locationId,
     parentId: destParentId,
-    name,
+    name: origin.name,
   })
   const path = await resolveFilesAbsolutePath(restored)
   emitFilesVfsChanged({ kind: 'renamed', path, previousPath })
@@ -1821,14 +1825,12 @@ async function cloneSharedLocalFile(
 ): Promise<FilesNode> {
   await assertCanCreateIn(destLocationId, destParentId)
   const desired = normalizeFilesNodeName(source.name.trim() || '未命名')
-  const names = await siblingNames(destLocationId, destParentId)
-  const name = uniqueName(names, desired)
   const now = osNowMs()
   const node: FilesNode = {
     id: newFilesNodeId(),
     locationId: destLocationId,
     parentId: destParentId,
-    name,
+    name: desired,
     kind: 'file',
     mimeType: source.mimeType ?? FILES_TEXT_MIME,
     byteSize: source.byteSize,
@@ -1840,6 +1842,7 @@ async function cloneSharedLocalFile(
     sourceNodeId: source.id,
     node,
     metaBytes: estimateNodeMetaBytes(node),
+    nameMode: 'unique-suffix',
   })
   await emitNodeCreated(created)
   return created
@@ -1893,6 +1896,7 @@ async function copyNodeTree(
       parentId: destParentId,
       name: source.name,
       target: source.target ?? '',
+      nameMode: 'unique-suffix',
     })
     reportNodeDone(source)
     return created

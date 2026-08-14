@@ -21,7 +21,7 @@ import {
 } from './files-types.ts'
 
 export const FILES_DB_NAME = 'instant-os-files'
-export const FILES_DB_VERSION = 4
+export const FILES_DB_VERSION = 5
 export const FILES_NODES_STORE = 'nodes'
 export const FILES_BLOBS_STORE = 'blobs'
 export const FILES_CHUNKS_STORE = 'chunks'
@@ -127,6 +127,8 @@ function openFilesDb(): Promise<IDBDatabase> {
 
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(FILES_DB_NAME, FILES_DB_VERSION)
+    /** v5 迁移异步执行，失败时记录并中止升级事务 */
+    let migrationError: unknown
 
     request.onupgradeneeded = (event) => {
       const db = request.result
@@ -135,6 +137,9 @@ function openFilesDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(FILES_NODES_STORE, { keyPath: 'id' })
         store.createIndex('by-parent', ['locationId', 'parentId'], { unique: false })
         store.createIndex('by-location', 'locationId', { unique: false })
+        store.createIndex('by-parent-name', ['locationId', 'parentId', 'name'], {
+          unique: true,
+        })
       }
       if (!db.objectStoreNames.contains(FILES_BLOBS_STORE)) {
         db.createObjectStore(FILES_BLOBS_STORE, { keyPath: 'id' })
@@ -192,9 +197,30 @@ function openFilesDb(): Promise<IDBDatabase> {
           cursor.continue()
         }
       }
+
+      // v5：同目录同名唯一。先按「卷 + 父目录 + 名字」分组消重（保留最早创建者原名，
+      // 其余按「 2」「 3」后缀改名，已占用的后缀一并计入），再建 by-parent-name 唯一索引。
+      // 已有重复时直接建 unique 索引会让整次升级失败，故必须先消重后建索引。
+      if (oldVersion > 0 && oldVersion < 5 && tx) {
+        migrateV5UniqueChildNames(tx).catch((error) => {
+          console.error('files: v5 迁移失败', error)
+          migrationError = error
+          tx.abort()
+        })
+      }
     }
 
     request.onsuccess = () => {
+      if (migrationError !== undefined) {
+        dbPromise = undefined
+        request.result.close()
+        reject(
+          migrationError instanceof Error
+            ? migrationError
+            : new Error('文件库 v5 迁移失败'),
+        )
+        return
+      }
       // 首次打开后异步清理孤儿 chunk（崩溃 / 流式中断残留；不影响业务，失败静默）
       void sweepOrphanChunksOnce(request.result)
       resolve(request.result)
@@ -357,6 +383,141 @@ function waitForTransaction(tx: IDBTransaction): Promise<void> {
 
 function parentKey(parentId: string | undefined): string {
   return parentId ?? FILES_ROOT_PARENT_KEY
+}
+
+/**
+ * 写入时对同目录重名节点的处理模式：
+ * - unique-suffix：事务内按「 2」「 3」规则自动改名（面向用户的创建 / 复制 / 移动）
+ * - exact：同名抛「路径已存在」（精确路径 API / 系统确定性路径）
+ * - folder-return：同名且是文件夹则返回已有节点（ensure 幂等），否则抛错
+ */
+export type FilesNodeNameMode = 'unique-suffix' | 'exact' | 'folder-return'
+
+/**
+ * 在名字集合里为 desired 计算不冲突名（与 VFS 的 uniqueName 规则一致）。
+ * 集合须包含该目录全部现存名字，保证跳过「foo 2.txt」这类合法文件。
+ */
+export function uniqueNameAmong(existingNames: ReadonlySet<string>, desired: string): string {
+  if (!existingNames.has(desired)) return desired
+
+  const lastDot = desired.lastIndexOf('.')
+  const hasExt = lastDot > 0 && lastDot < desired.length - 1 && !desired.slice(lastDot + 1).includes(' ')
+  const stem = hasExt ? desired.slice(0, lastDot) : desired
+  const ext = hasExt ? desired.slice(lastDot) : ''
+
+  let n = 2
+  while (existingNames.has(`${stem} ${n}${ext}`)) {
+    n += 1
+  }
+  return `${stem} ${n}${ext}`
+}
+
+/** 事务内读取同级节点名集合（excludeId 排除自身；同一读写事务内能看到并发已提交的名字） */
+async function siblingNamesInTx(
+  tx: IDBTransaction,
+  locationId: FilesLocationId,
+  parentId: string | undefined,
+  excludeId?: string,
+): Promise<Set<string>> {
+  const records = await requestToPromise(
+    tx
+      .objectStore(FILES_NODES_STORE)
+      .index('by-parent')
+      .getAll([locationId, parentKey(parentId)]) as IDBRequest<FilesNodeRecord[]>,
+  )
+  const names = new Set<string>()
+  for (const record of records ?? []) {
+    if (excludeId !== undefined && record.id === excludeId) continue
+    names.add(record.name)
+  }
+  return names
+}
+
+/**
+ * 在写入事务内为节点解析最终名称：查重 / 取名与落库同处一个事务，
+ * 消除「先读列表 → 再写」的 check-then-act 竞态（唯一索引只做兜底）。
+ */
+async function resolveNameInTx(
+  tx: IDBTransaction,
+  identity: { locationId: FilesLocationId; parentId: string | undefined; name: string },
+  nameMode: FilesNodeNameMode,
+  excludeId?: string,
+): Promise<{ name: string; existing?: FilesNodeRecord }> {
+  const existing = await requestToPromise(
+    tx
+      .objectStore(FILES_NODES_STORE)
+      .index('by-parent-name')
+      .get([identity.locationId, parentKey(identity.parentId), identity.name]) as IDBRequest<
+      FilesNodeRecord | undefined
+    >,
+  )
+  if (!existing || existing.id === excludeId) return { name: identity.name }
+  if (nameMode === 'unique-suffix') {
+    const names = await siblingNamesInTx(tx, identity.locationId, identity.parentId, excludeId)
+    return { name: uniqueNameAmong(names, identity.name) }
+  }
+  if (nameMode === 'folder-return' && existing.kind === 'folder') {
+    return { name: identity.name, existing }
+  }
+  throw new Error('路径已存在')
+}
+
+/**
+ * v5 升级迁移：消掉同目录同名重复（保留最早创建的记录原名，其余加后缀），
+ * 再建 by-parent-name 唯一索引。失败时由升级事务整体回滚。
+ */
+async function migrateV5UniqueChildNames(tx: IDBTransaction): Promise<void> {
+  const nodeStore = tx.objectStore(FILES_NODES_STORE)
+  const all = await requestToPromise(nodeStore.getAll() as IDBRequest<FilesNodeRecord[]>)
+  if (!all || all.length === 0) {
+    nodeStore.createIndex('by-parent-name', ['locationId', 'parentId', 'name'], {
+      unique: true,
+    })
+    return
+  }
+
+  const byNameKey = new Map<string, FilesNodeRecord[]>()
+  const namesByParent = new Map<string, Set<string>>()
+  for (const record of all) {
+    const parentKeyOfRecord = `${record.locationId}\0${record.parentId}`
+    let names = namesByParent.get(parentKeyOfRecord)
+    if (!names) {
+      names = new Set()
+      namesByParent.set(parentKeyOfRecord, names)
+    }
+    names.add(record.name)
+
+    const nameKey = `${parentKeyOfRecord}\0${record.name}`
+    let group = byNameKey.get(nameKey)
+    if (!group) {
+      group = []
+      byNameKey.set(nameKey, group)
+    }
+    group.push(record)
+  }
+
+  const updates: FilesNodeRecord[] = []
+  for (const group of byNameKey.values()) {
+    if (group.length <= 1) continue
+    group.sort(
+      (a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
+    const names = namesByParent.get(`${group[0]!.locationId}\0${group[0]!.parentId}`)!
+    for (const record of group.slice(1)) {
+      const next = uniqueNameAmong(names, record.name)
+      names.add(next)
+      updates.push({ ...record, name: next, updatedAt: osNowMs() })
+    }
+  }
+
+  for (const record of updates) {
+    await requestToPromise(nodeStore.put(record) as IDBRequest<unknown>)
+  }
+
+  // 消重完成后建唯一索引：必须在同一升级事务内、先消重后建，否则已有重复会让升级失败
+  nodeStore.createIndex('by-parent-name', ['locationId', 'parentId', 'name'], {
+    unique: true,
+  })
 }
 
 export function recordToNode(record: FilesNodeRecord): FilesNode {
@@ -804,6 +965,7 @@ export async function createFileWithBlob(params: {
   node: FilesNode
   text: string
   metaBytes: number
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   const textBytes = estimateTextBytes(params.text)
   const needed = params.metaBytes + textBytes
@@ -817,21 +979,30 @@ export async function createFileWithBlob(params: {
 
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
+  const resolved = await resolveNameInTx(tx, node, params.nameMode ?? 'exact')
+  if (resolved.existing) {
+    await waitForTransaction(tx)
+    return recordToNode(resolved.existing)
+  }
+  const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
+  const finalMeta =
+    params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
+  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
   putBlobContentInTx(tx, blobId, encodeTextToArrayBuffer(params.text))
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
-    totalBytes: total + needed,
+    totalBytes: total + finalMeta + textBytes,
   } satisfies FilesMetaRecord)
   await waitForTransaction(tx)
   emitFilesDataStorageChanged()
-  return node
+  return finalNode
 }
 
 export async function createFileWithBytes(params: {
   node: FilesNode
   bytes: ArrayBuffer
   metaBytes: number
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   const contentBytes = params.bytes.byteLength
   const needed = params.metaBytes + contentBytes
@@ -845,15 +1016,23 @@ export async function createFileWithBytes(params: {
 
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_CHUNKS_STORE, FILES_META_STORE], 'readwrite')
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
+  const resolved = await resolveNameInTx(tx, node, params.nameMode ?? 'exact')
+  if (resolved.existing) {
+    await waitForTransaction(tx)
+    return recordToNode(resolved.existing)
+  }
+  const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
+  const finalMeta =
+    params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
+  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
   putBlobContentInTx(tx, blobId, params.bytes)
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
-    totalBytes: total + needed,
+    totalBytes: total + finalMeta + contentBytes,
   } satisfies FilesMetaRecord)
   await waitForTransaction(tx)
   emitFilesDataStorageChanged()
-  return node
+  return finalNode
 }
 
 /**
@@ -864,6 +1043,7 @@ export async function cloneFileNodeWithSharedBlob(params: {
   sourceNodeId: string
   node: FilesNode
   metaBytes: number
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   const total = await assertCapacity(params.metaBytes)
 
@@ -899,42 +1079,61 @@ export async function cloneFileNodeWithSharedBlob(params: {
     [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
     'readwrite',
   )
+  const resolved = await resolveNameInTx(writeTx, node, params.nameMode ?? 'exact')
+  if (resolved.existing) {
+    await waitForTransaction(writeTx)
+    return recordToNode(resolved.existing)
+  }
+  const finalNode = resolved.name === node.name ? node : { ...node, name: resolved.name }
+  const finalMeta =
+    params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(node))
   const nextRef = resolveBlobRefCount(blob) + 1
   writeTx.objectStore(FILES_BLOBS_STORE).put({
     ...blob,
     refCount: nextRef,
   } satisfies FilesBlobRecord)
-  writeTx.objectStore(FILES_NODES_STORE).put(nodeToRecord(node, blobId))
+  writeTx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode, blobId))
   writeTx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
-    totalBytes: total + params.metaBytes,
+    totalBytes: total + finalMeta,
   } satisfies FilesMetaRecord)
   await waitForTransaction(writeTx)
   emitFilesDataStorageChanged()
-  return node
+  return finalNode
 }
 
 export async function createFolderNode(params: {
   node: FilesNode
   metaBytes: number
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   const total = await assertCapacity(params.metaBytes)
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
-  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(params.node))
+  const resolved = await resolveNameInTx(tx, params.node, params.nameMode ?? 'exact')
+  if (resolved.existing) {
+    await waitForTransaction(tx)
+    return recordToNode(resolved.existing)
+  }
+  const finalNode =
+    resolved.name === params.node.name ? params.node : { ...params.node, name: resolved.name }
+  const finalMeta =
+    params.metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(params.node))
+  tx.objectStore(FILES_NODES_STORE).put(nodeToRecord(finalNode))
   tx.objectStore(FILES_META_STORE).put({
     key: 'byte-total',
-    totalBytes: total + params.metaBytes,
+    totalBytes: total + finalMeta,
   } satisfies FilesMetaRecord)
   await waitForTransaction(tx)
   emitFilesDataStorageChanged()
-  return params.node
+  return finalNode
 }
 
 /** 创建符号链接节点（无 blob；target 存在节点元数据） */
 export async function createSymlinkNode(params: {
   node: FilesNode
   metaBytes: number
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesNode> {
   if (params.node.kind !== 'symlink' || params.node.target === undefined) {
     throw new Error('createSymlinkNode 需要 kind=symlink 且带 target')
@@ -1134,6 +1333,7 @@ export async function openStreamWriteBlob(params: {
   metaBytes: number
   previousByteSize: number
   chunkSize?: number
+  nameMode?: FilesNodeNameMode
 }): Promise<FilesStreamWriter> {
   const { node, isNew, metaBytes, previousByteSize } = params
   const chunkSize = params.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
@@ -1148,27 +1348,34 @@ export async function openStreamWriteBlob(params: {
 
   if (isNew) {
     const total = await assertCapacity(metaBytes)
-    nodeRecord = nodeToRecord(
-      {
-        ...node,
-        byteSize: 0,
-        contentRevisionId: newContentRevisionId(),
-      },
-      blobId,
-    )
+    const baseNode: FilesNode = {
+      ...node,
+      byteSize: 0,
+      contentRevisionId: newContentRevisionId(),
+    }
     const tx = beginIdbTransaction(
       db,
       [FILES_NODES_STORE, FILES_BLOBS_STORE, FILES_META_STORE],
       'readwrite',
     )
+    // 新建占位节点也走事务内精确查重，避免并发新建同名时插入重复记录
+    const resolved = await resolveNameInTx(tx, baseNode, params.nameMode ?? 'exact')
+    if (resolved.existing) {
+      await waitForTransaction(tx)
+      throw new Error('路径已存在')
+    }
+    const finalNode = resolved.name === baseNode.name ? baseNode : { ...baseNode, name: resolved.name }
+    const finalMeta =
+      metaBytes + (estimateNodeMetaBytes(finalNode) - estimateNodeMetaBytes(baseNode))
+    nodeRecord = nodeToRecord(finalNode, blobId)
     tx.objectStore(FILES_NODES_STORE).put(nodeRecord)
     tx.objectStore(FILES_BLOBS_STORE).put(emptyChunkedBlobRecord(blobId))
     tx.objectStore(FILES_META_STORE).put({
       key: 'byte-total',
-      totalBytes: total + metaBytes,
+      totalBytes: total + finalMeta,
     } satisfies FilesMetaRecord)
     await waitForTransaction(tx)
-    quotaCommitted = metaBytes
+    quotaCommitted = finalMeta
   } else {
     const readTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_BLOBS_STORE], 'readonly')
     const existing = await requestToPromise(
@@ -1383,19 +1590,31 @@ export async function renameNodeRecord(params: {
     throw new Error('项目不存在')
   }
 
+  const writeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
+  // 目标名在写入事务内查重并自动加后缀（排除自身），避免并发改名撞名
+  const resolved = await resolveNameInTx(
+    writeTx,
+    { locationId: existing.locationId, parentId: existing.parentId, name: params.name },
+    'unique-suffix',
+    existing.id,
+  )
+  const finalName = resolved.name
   const updated: FilesNodeRecord = {
     ...existing,
-    name: params.name,
+    name: finalName,
     updatedAt: osNowMs(),
     attributes: normalizeFilesNodeAttributes(existing.locationId, existing.attributes),
   }
-
-  const writeTx = beginIdbTransaction(db, [FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
   writeTx.objectStore(FILES_NODES_STORE).put(updated)
   if (params.metaDelta !== 0) {
+    // metaDelta 按目标名（params.name）计算；实际名可能因冲突加后缀，需按其校正
+    const finalDelta =
+      params.metaDelta +
+      (estimateNodeMetaBytes(recordToNode({ ...existing, name: finalName })) -
+        estimateNodeMetaBytes(recordToNode({ ...existing, name: params.name })))
     writeTx.objectStore(FILES_META_STORE).put({
       key: 'byte-total',
-      totalBytes: Math.max(0, total + params.metaDelta),
+      totalBytes: Math.max(0, total + finalDelta),
     } satisfies FilesMetaRecord)
   }
   await waitForTransaction(writeTx)
@@ -1407,6 +1626,7 @@ export async function renameNodeRecord(params: {
  * 元数据级移动节点（改所在卷 / 父目录 / 名），不复制 blob、不消耗内容容量。
  * 递归更新整棵子树的所在卷（by-parent 索引按卷查，子树必须一致）。
  * 供同卷移动、移入 / 恢复废纸篓使用；仅限 IndexedDB 本地卷节点。
+ * 目标名在写入事务内查重并自动加后缀（排除自身）。
  */
 export async function moveNodeRecord(params: {
   id: string
@@ -1421,6 +1641,21 @@ export async function moveNodeRecord(params: {
   const writeTx = beginIdbTransaction(db, FILES_NODES_STORE, 'readwrite')
   const store = writeTx.objectStore(FILES_NODES_STORE)
 
+  const rootExisting = await requestToPromise(
+    store.get(params.id) as IDBRequest<FilesNodeRecord | undefined>,
+  )
+  if (!rootExisting) {
+    await waitForTransaction(writeTx)
+    throw new Error('项目不存在')
+  }
+  const resolved = await resolveNameInTx(
+    writeTx,
+    { locationId: params.locationId, parentId: params.parentId, name: params.name },
+    'unique-suffix',
+    params.id,
+  )
+  const finalName = resolved.name
+
   let rootNode: FilesNode | undefined
   for (const nodeId of subtree.nodeIds) {
     const existing = await requestToPromise(
@@ -1434,7 +1669,7 @@ export async function moveNodeRecord(params: {
     }
     if (nodeId === params.id) {
       updated.parentId = parentKey(params.parentId)
-      updated.name = params.name
+      updated.name = finalName
       updated.updatedAt = osNowMs()
       if (params.trashOrigin !== undefined) {
         updated.trashOrigin = {
@@ -1841,11 +2076,14 @@ export async function commitFilesBatch(
 
   for (const op of ops) {
     if (op.kind === 'create-folder') {
+      // 事务内精确查重：同名冲突直接失败，避免整批被唯一索引打掉
+      await resolveNameInTx(tx, op.node, 'exact')
       nodes.put(nodeToRecord(op.node))
       results.push(op.node)
       continue
     }
     if (op.kind === 'create-text') {
+      await resolveNameInTx(tx, op.node, 'exact')
       const textBytes = estimateTextBytes(op.text)
       const node: FilesNode = {
         ...op.node,
@@ -1859,6 +2097,7 @@ export async function commitFilesBatch(
       continue
     }
     if (op.kind === 'create-bytes') {
+      await resolveNameInTx(tx, op.node, 'exact')
       const contentBytes = op.bytes.byteLength
       const node: FilesNode = {
         ...op.node,
@@ -1872,6 +2111,7 @@ export async function commitFilesBatch(
       continue
     }
     if (op.kind === 'clone-shared') {
+      await resolveNameInTx(tx, op.node, 'exact')
       const source = sourceRecordById.get(op.sourceNodeId)
       if (!source || source.kind !== 'file') {
         throw new Error('源文件不存在')

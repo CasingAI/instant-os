@@ -78,7 +78,12 @@ async function ensureUserSpecialFolder(name: UserSpecialFolderName): Promise<Fil
     updatedAt: now,
     attributes: USER_SPECIAL_FOLDER_ATTRIBUTES,
   }
-  await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node) })
+  await createFolderNode({
+    node,
+    metaBytes: estimateNodeMetaBytes(node),
+    // 并发 ensure 撞上同名同类文件夹时视为已存在，直接返回已有节点
+    nameMode: 'folder-return',
+  })
   return node
 }
 

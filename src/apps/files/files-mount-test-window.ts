@@ -25,6 +25,23 @@ class FakeWindowEventTarget {
     }
     return true
   }
+
+  // 进度包装器（runFilesOpWithProgress）依赖 window 计时器；Node 下委托给全局
+  setTimeout(handler: () => void, timeout?: number): number {
+    return setTimeout(handler, timeout) as unknown as number
+  }
+
+  clearTimeout(handle?: number): void {
+    clearTimeout(handle as unknown as ReturnType<typeof setTimeout>)
+  }
+
+  setInterval(handler: () => void, timeout?: number): number {
+    return setInterval(handler, timeout) as unknown as number
+  }
+
+  clearInterval(handle?: number): void {
+    clearInterval(handle as unknown as ReturnType<typeof setInterval>)
+  }
 }
 
 if (typeof globalThis.window === 'undefined') {

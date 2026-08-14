@@ -377,7 +377,7 @@ export async function filesWriteText(path: string, text: string): Promise<FilesA
   return toEntry(node)
 }
 
-/** 创建文件夹（父目录须已存在；路径为新文件夹的完整路径） */
+/** 创建文件夹（父目录须已存在；路径为新文件夹的完整路径；同名精确失败） */
 export async function filesMkdir(path: string): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
@@ -389,11 +389,12 @@ export async function filesMkdir(path: string): Promise<FilesApiEntry> {
     locationId: target.locationId,
     parentId: target.parentId,
     name: target.name,
+    nameMode: 'exact',
   })
   return toEntry(node)
 }
 
-/** 创建新文本文件（不可覆盖已有路径） */
+/** 创建新文本文件（不可覆盖已有路径；同名精确失败） */
 export async function filesCreateText(path: string, text = ''): Promise<FilesApiEntry> {
   const absolutePath = assertAbsolutePath(path)
   const existing = await resolveNodeByAbsolutePath(absolutePath, { follow: false })
@@ -406,11 +407,12 @@ export async function filesCreateText(path: string, text = ''): Promise<FilesApi
     parentId: target.parentId,
     name: target.name,
     text,
+    nameMode: 'exact',
   })
   return toEntry(node)
 }
 
-/** 创建新二进制文件（不可覆盖已有路径） */
+/** 创建新二进制文件（不可覆盖已有路径；同名精确失败） */
 export async function filesCreateBinary(
   path: string,
   bytes: ArrayBuffer,
@@ -428,6 +430,7 @@ export async function filesCreateBinary(
     name: target.name,
     bytes,
     mimeType,
+    nameMode: 'exact',
   })
   return toEntry(node)
 }

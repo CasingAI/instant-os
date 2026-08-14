@@ -12,10 +12,12 @@ import {
   FILES_DB_NAME,
   FILES_DB_VERSION,
   FILES_BLOBS_STORE,
+  FILES_CHUNKS_STORE,
   FILES_META_STORE,
   FILES_NODES_STORE,
   getFileBlobRefForTests,
   getFilesTotalBytes,
+  listChildNodes,
   newFilesNodeId,
   readBlobText,
   resetFilesDbForTests,
@@ -216,8 +218,8 @@ async function seedLegacyV2Database(): Promise<void> {
 
 {
   await seedLegacyV2Database()
-  assert.equal(FILES_DB_VERSION, 4)
-  // 首次业务打开触发 v2→v3 迁移
+  assert.equal(FILES_DB_VERSION, 5)
+  // 首次业务打开触发 v2→v3 / v4→v5 迁移
   const text = await readBlobText('file:legacy-cow')
   assert.equal(text, 'legacy-body')
   const ref = await getFileBlobRefForTests('file:legacy-cow')
@@ -232,6 +234,127 @@ async function seedLegacyV2Database(): Promise<void> {
   })
   assert.equal(await readBlobText('file:legacy-cow'), 'legacy-migrated')
   console.log('ok: v2 data migrates and remains writable')
+}
+
+async function seedLegacyV4DatabaseWithDuplicates(): Promise<void> {
+  await resetFilesDbForTests()
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open(FILES_DB_NAME, 4)
+    request.onerror = () => reject(request.error ?? new Error('open v4 failed'))
+    request.onupgradeneeded = () => {
+      const db = request.result
+      const nodes = db.createObjectStore(FILES_NODES_STORE, { keyPath: 'id' })
+      nodes.createIndex('by-parent', ['locationId', 'parentId'], { unique: false })
+      nodes.createIndex('by-location', 'locationId', { unique: false })
+      db.createObjectStore(FILES_BLOBS_STORE, { keyPath: 'id' })
+      db.createObjectStore(FILES_CHUNKS_STORE, { keyPath: ['blobId', 'chunkIndex'] })
+      db.createObjectStore(FILES_META_STORE, { keyPath: 'key' })
+    }
+    request.onsuccess = () => {
+      const db = request.result
+      const tx = db.transaction([FILES_NODES_STORE, FILES_META_STORE], 'readwrite')
+      const nodes = tx.objectStore(FILES_NODES_STORE)
+      // 同目录两个同名文件 + 一个已合法存在的「foo 2.txt」
+      nodes.put({
+        id: 'file:dup-a',
+        locationId: 'local',
+        parentId: '',
+        name: 'foo.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 1,
+        createdAt: 10,
+        updatedAt: 10,
+      })
+      nodes.put({
+        id: 'file:dup-b',
+        locationId: 'local',
+        parentId: '',
+        name: 'foo.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 2,
+        createdAt: 20,
+        updatedAt: 20,
+      })
+      nodes.put({
+        id: 'file:dup-c',
+        locationId: 'local',
+        parentId: '',
+        name: 'foo 2.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 3,
+        createdAt: 30,
+        updatedAt: 30,
+      })
+      // 不同目录同名不消重
+      nodes.put({
+        id: 'file:other',
+        locationId: 'local',
+        parentId: 'dir1',
+        name: 'foo.txt',
+        kind: 'file',
+        mimeType: 'text/plain',
+        byteSize: 4,
+        createdAt: 40,
+        updatedAt: 40,
+      })
+      // 同名文件夹也消重
+      nodes.put({
+        id: 'folder:a',
+        locationId: 'local',
+        parentId: 'dir1',
+        name: 'bar',
+        kind: 'folder',
+        mimeType: undefined,
+        byteSize: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      nodes.put({
+        id: 'folder:b',
+        locationId: 'local',
+        parentId: 'dir1',
+        name: 'bar',
+        kind: 'folder',
+        mimeType: undefined,
+        byteSize: 0,
+        createdAt: 2,
+        updatedAt: 2,
+      })
+      tx.objectStore(FILES_META_STORE).put({ key: 'byte-total', totalBytes: 100 })
+      tx.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+      tx.onerror = () => reject(tx.error ?? new Error('seed v4 duplicates failed'))
+    }
+  })
+}
+
+{
+  await seedLegacyV4DatabaseWithDuplicates()
+  // 首次业务打开触发 v5 迁移：先消重再建 by-parent-name 唯一索引
+  const rootNames = (await listChildNodes('local', undefined)).map((node) => node.name).sort()
+  assert.deepEqual(rootNames, ['foo 2.txt', 'foo 3.txt', 'foo.txt'])
+  const dir1 = await listChildNodes('local', 'dir1')
+  assert.deepEqual(
+    dir1.map((node) => node.name).sort(),
+    ['bar', 'bar 2', 'foo.txt'].sort(),
+  )
+  // 唯一索引已生效：同目录再建同名抛「路径已存在」
+  const node = makeFileNode('foo.txt')
+  await assert.rejects(
+    () =>
+      createFileWithBlob({
+        node,
+        text: 'dup',
+        metaBytes: estimateNodeMetaBytes(node),
+      }),
+    /路径已存在/,
+  )
+  console.log('ok: v4 duplicates migrate and unique index enforced')
 }
 
 console.log('files-storage-cow: all passed')

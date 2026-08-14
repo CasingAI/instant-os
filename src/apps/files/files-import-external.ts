@@ -23,7 +23,6 @@ import {
   getNodeOrThrow,
   mkdir,
   resolveFilesAbsolutePath,
-  resolveNodeByAbsolutePath,
   uniqueNodeName,
 } from './files-vfs.ts'
 
@@ -183,27 +182,26 @@ export async function importExternalNodes(params: {
         const parentNode = await getNodeOrThrow(dest.destParentId)
         dirPath = await resolveFilesAbsolutePath(parentNode)
       }
-      // plan 已按深度优先拍平；用路径栈跟踪当前目录
-      const dirStack: string[] = [dirPath]
+      // plan 已按深度优先拍平；用路径栈跟踪当前目录（含实际创建出的 id 与路径，
+      // mkdir 因冲突改名后以实际名为准，避免后续文件写进旧目录或再造同名结构）
+      const dirStack: { path: string; id: string | undefined }[] = [
+        { path: dirPath, id: dest.destParentId },
+      ]
       for (const step of steps) {
-        const parentPath = dirStack[dirStack.length - 1]!
+        const current = dirStack[dirStack.length - 1]!
         if (step.op === 'mkdir') {
-          const folderPath = joinFilesAbsolutePath(parentPath, step.name)
-          let parentId = dest.destParentId
-          if (dirStack.length > 1) {
-            const parentNode = await resolveNodeByAbsolutePath(parentPath)
-            parentId = parentNode?.id ?? dest.destParentId
-          }
-          await mkdir({
+          const created = await mkdir({
             locationId: dest.destLocationId,
-            parentId,
+            parentId: current.id,
             name: step.name,
           })
-          dirStack.push(folderPath)
+          const actualPath = await resolveFilesAbsolutePath(created)
+          dirStack.push({ path: actualPath, id: created.id })
           continue
         }
-        const name = await uniqueNodeName(dest.destLocationId, dest.destParentId, step.name)
-        const filePath = joinFilesAbsolutePath(parentPath, name)
+        // 查重针对当前栈顶目录，而不是导入根
+        const name = await uniqueNodeName(dest.destLocationId, current.id, step.name)
+        const filePath = joinFilesAbsolutePath(current.path, name)
         const writer = await filesOpenStreamWrite(filePath)
         const reader = step.file.stream().getReader()
         try {

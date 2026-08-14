@@ -119,7 +119,12 @@ export async function ensureDevSystemFolder(
     updatedAt: now,
     attributes,
   }
-  await createFolderNode({ node, metaBytes: estimateNodeMetaBytes(node) })
+  await createFolderNode({
+    node,
+    metaBytes: estimateNodeMetaBytes(node),
+    // 并发 ensure 撞上同名同类文件夹时视为已存在，直接复用
+    nameMode: 'folder-return',
+  })
   emitSystemVfsChange(absolutePath, 'created')
   return node
 }
