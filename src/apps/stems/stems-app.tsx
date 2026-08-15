@@ -47,7 +47,13 @@ import type { SenseVoiceProgress } from '../align/sense-voice-worker.ts'
 import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
 import { LyricsAnalysisDrawer } from './lyrics-analysis-drawer.tsx'
-import { patchLineIntoAlignedLrc } from './lyrics-analysis.ts'
+import {
+  alignLineByLineTimes,
+  computeLineStats,
+  lineWindowSec,
+  patchLineIntoAlignedLrc,
+} from './lyrics-analysis.ts'
+import { rescueLine, shouldRescueLine } from './lyrics-line-rescue.ts'
 import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
@@ -807,6 +813,142 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [])
 
   /**
+   * 失败行补救：默认模型（SenseVoice）整首对齐后，对红词多/被挤压的行，
+   * 按行切窗依次尝试 Zipformer 识别 → Zipformer CTC 强制对齐两个备选方案，
+   * 取匹配度最高的替换进整首 LRC（Rap 等 SenseVoice 弱段用 Zipformer 兜底）。
+   * 返回新 LRC；无失败行或全部补救失败时返回原 LRC。
+   * 每行只传该行窗口音频；失败行多时串行全部处理。
+   */
+  const rescueAlignedLrc = useCallback(
+    async (
+      baseLrc: string,
+      audio: Float32Array,
+      sampleRate: number,
+      reqId: number,
+    ): Promise<string> => {
+      const lines = parseLrc(baseLrc).lines
+      if (lines.length === 0) return baseLrc
+      const stats = computeLineStats(lines)
+      // 行时间基准：优先源 LRC 映射的真实行时间戳，回退对齐结果自带 timeMs
+      const lineTimesRef = lyricsLineTimesRef.current
+      const times: (number | undefined)[] =
+        lineTimesRef && lineTimesRef.length === lines.length
+          ? lineTimesRef
+          : lines.map((l) => l.timeMs)
+      const rescueIndexes: number[] = []
+      for (let i = 0; i < lines.length; i++) {
+        if (shouldRescueLine(stats[i], lines[i])) rescueIndexes.push(i)
+      }
+      if (rescueIndexes.length === 0) return baseLrc
+
+      let current = baseLrc
+      let done = 0
+      for (const lineIndex of rescueIndexes) {
+        if (alignReqSeqRef.current !== reqId) return current
+        const line = lines[lineIndex]
+        if (!line) continue
+        const startMs = times[lineIndex]
+        // 无行时间戳：行窗与 CTC 都无从定位，跳过该行
+        if (startMs === undefined || startMs < 0) continue
+        const fallbackSpan = stats[lineIndex]?.spanSec ?? 0.8
+        const win = lineWindowSec(times, lineIndex, fallbackSpan)
+        const a = Math.floor(win.startSec * sampleRate) * STEM_CHANNELS
+        const b = Math.min(audio.length, Math.ceil(win.endSec * sampleRate) * STEM_CHANNELS)
+        if (a >= b) continue
+        const slice = audio.slice(a, b)
+        done += 1
+        setAlignProgress({ chunk: done, total: rescueIndexes.length })
+        const windowLenMs = Math.max(200, Math.round((win.endSec - win.startSec) * 1000))
+        try {
+          const best = await rescueLine({
+            lineText: line.text,
+            slice,
+            startSec: win.startSec,
+            hasLineTime: true,
+            callbacks: {
+              recognize: async (audioSlice) => {
+                const { segments } = await enqueueAiTask<
+                  ZipformerProgress | SenseVoiceProgress,
+                  { segments: HypSegment[]; text: string }
+                >(
+                  'align-zipformer',
+                  { type: 'recognize', audio: audioSlice, sampleRate },
+                  {
+                    route: (msg) => {
+                      if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                        return { action: 'continue' }
+                      }
+                      if (msg.kind === 'progress') {
+                        setAlignProgress({ chunk: done, total: rescueIndexes.length })
+                        return { action: 'continue' }
+                      }
+                      if (msg.kind === 'done') {
+                        return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                      }
+                      if (msg.kind === 'error') {
+                        return { action: 'reject', error: new Error(msg.message) }
+                      }
+                      return { action: 'reject', error: new Error('识别服务返回未知消息') }
+                    },
+                  },
+                )
+                return segments.length > 0 ? { segments } : null
+              },
+              forcedAlign: async (audioSlice) => {
+                const { lines: alignedLines } = await enqueueAiTask<
+                  ZipformerProgress,
+                  { lines: ZipformerAlignLine[] }
+                >(
+                  'align-zipformer',
+                  {
+                    type: 'align',
+                    audio: audioSlice,
+                    sampleRate,
+                    lyricsLines: [line.text],
+                    lineTimesMs: [0, windowLenMs],
+                  },
+                  {
+                    route: (msg) => {
+                      if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                        return { action: 'continue' }
+                      }
+                      if (msg.kind === 'progress') {
+                        setAlignProgress({ chunk: done, total: rescueIndexes.length })
+                        return { action: 'continue' }
+                      }
+                      if (msg.kind === 'align-done') {
+                        return { action: 'resolve', value: { lines: msg.lines } }
+                      }
+                      if (msg.kind === 'error') {
+                        return { action: 'reject', error: new Error(msg.message) }
+                      }
+                      return { action: 'reject', error: new Error('对齐服务返回未知消息') }
+                    },
+                  },
+                )
+                const units = alignedLines[0]?.units ?? []
+                return units.length > 0 ? units : null
+              },
+              alignBySegments: (shiftedSegments, lineText) =>
+                alignLineByLineTimes(shiftedSegments, lineText, startMs, times[lineIndex + 1]),
+            },
+          })
+          if (alignReqSeqRef.current !== reqId) return current
+          if (best && best.words && best.words.length > 0) {
+            const next = patchLineIntoAlignedLrc(current, lineIndex, best.words)
+            if (next !== current) current = next
+          }
+        } catch {
+          // 单行补救失败（模型错误/无结果）：保持原行，不阻断后续行
+        }
+      }
+      setAlignProgress(null)
+      return current
+    },
+    [],
+  )
+
+  /**
    * 歌词对齐：对人声轨跑 CTC 识别（zipformer 中文 / SenseVoice 五语，耗时）→
    * 纯函数文本对齐（快速）生成增强 LRC，写入 alignedLrcRef/state（随 .stems.zip 持久化）。
    * 陈旧响应（重新分轨/换歌）不覆盖新结果；失败提示、不影响主流程。
@@ -970,6 +1112,16 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         alignedLrcRef.current = lrc
         setAlignedLrc(lrc)
         setAlignRestoredFrom(false)
+        // SenseVoice 默认整首对齐后：对失败行（红词多/被挤压）按行切窗依次尝试
+        // Zipformer 识别 → CTC 强制对齐，取匹配度最高的替换进整首 LRC
+        if (alignModel === 'sense-voice') {
+          const rescued = await rescueAlignedLrc(lrc, audio, sampleRate, reqId)
+          if (alignReqSeqRef.current !== reqId) return false
+          if (rescued !== lrc) {
+            alignedLrcRef.current = rescued
+            setAlignedLrc(rescued)
+          }
+        }
         return true
       } catch (cause) {
         if (alignReqSeqRef.current !== reqId) return false
@@ -983,7 +1135,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }
       }
     },
-    [alignModel, ensureLyricsCleaned],
+    [alignModel, ensureLyricsCleaned, rescueAlignedLrc],
   )
 
   /**
