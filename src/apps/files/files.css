@@ -505,20 +505,6 @@
   padding: 0;
 }
 
-/* 工具栏「排序方式」按钮：展示当前排序摘要，窄屏下压缩内边距避免挤压标题 */
-.files__toolbar-btn--sort {
-  min-width: 64px;
-  text-align: center;
-  font-size: 11px;
-  padding: 5px 8px;
-}
-
-.files--narrow .files__toolbar-btn--sort {
-  font-size: 11px;
-  padding: 5px 7px;
-  min-width: 56px;
-}
-
 .files__toolbar-btn--icon .files-node-icon--list {
   width: 20px;
   height: 20px;
@@ -1404,25 +1390,6 @@ button.files__path-bar-segment:active {
   font-size: 11px;
   font-weight: 600;
   color: #7a6348;
-}
-
-/* 排序菜单项：左置 ✓ 勾选位，右侧字段名 + 方向箭头 */
-.files__sort-item {
-  gap: 6px;
-  padding: 7px 10px;
-}
-
-.files__sort-item-check {
-  flex: 0 0 auto;
-  width: 14px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--files-accent-dark);
-}
-
-.files__popover-item:hover .files__sort-item-check {
-  color: #fffaf0;
 }
 
 .files__context-item--danger:hover {
