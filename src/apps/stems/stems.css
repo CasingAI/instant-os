@@ -790,14 +790,18 @@
 /* 空态 */
 .stems__empty {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-content: safe center;
   gap: 8px;
   color: var(--stems-ink-muted);
   padding: 32px;
   text-align: center;
+  /* 空态内容（标题/提示/最近打开列表）超出可视区时可纵向滚动，避免被根容器 overflow:hidden 裁掉 */
+  overflow-y: auto;
 }
 
 .stems__empty-badge {
