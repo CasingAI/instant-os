@@ -569,6 +569,9 @@
 }
 
 .music__lyrics-word {
+  /* flex item 会被块级化，行尾空格被 CSS 折叠规则删除；
+     增强 LRC 的英文词间空格写在词文本末尾，须 pre 保留（pre 不换行，兼容父级 nowrap/省略号截断） */
+  white-space: pre;
   transition: color 0.15s ease, text-shadow 0.15s ease;
 }
 
