@@ -291,6 +291,27 @@ function lrcLines(raw: string) {
   assert.equal(w.startSec, 0)
 }
 
+// —— lineWindowSec：无时间戳行用前锚行首 + pad 推算，不再回退 0 ——
+{
+  const w = lineWindowSec([60000, undefined, 180000], 1, 0.8)
+  assert.equal(w.startSec, 60.5, '前锚行首 60s + pad 0.5s')
+  assert.equal(w.endSec, 180.5, '下一有值行 180s + pad 0.5s')
+}
+
+// —— lineWindowSec：无时间戳且前面无锚 → 从 0 开始 ——
+{
+  const w = lineWindowSec([undefined, undefined, 5000], 0, 0.8)
+  assert.equal(w.startSec, 0)
+  assert.equal(w.endSec, 5.5)
+}
+
+// —— lineWindowSec：末行无时间戳，前锚行首 + pad，end 用 fallback ——
+{
+  const w = lineWindowSec([10000, undefined, undefined], 1, 0.8)
+  assert.equal(w.startSec, 10.5)
+  assert.ok(w.endSec >= 10.5 + 0.8 + 0.5)
+}
+
 // —— patchLineIntoAlignedLrc：只替换聚焦行，其余行原样 ——
 {
   const lrc =
@@ -694,6 +715,7 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.equal(parseLineSource('rescue-recognize'), 'rescue-recognize')
   assert.equal(parseLineSource('rescue-ctc'), 'rescue-ctc')
   assert.equal(parseLineSource('restored'), 'restored')
+  assert.equal(parseLineSource('rescue-failed'), 'rescue-failed', '补救失败标记可解析')
   assert.equal(parseLineSource('manual-ctc-align'), 'manual-ctc-align', '合法 manual 动作可解析')
   // 新格式：带模型后缀
   assert.equal(parseLineSource('whole-recognize:sense-voice'), 'whole-recognize:sense-voice')
@@ -713,6 +735,7 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.equal(lineSourceLabel('rescue-recognize'), 'Zipformer 识别补救（方案1）')
   assert.equal(lineSourceLabel('rescue-ctc'), 'Zipformer CTC 补救（方案2）')
   assert.equal(lineSourceLabel('restored'), '载入恢复')
+  assert.equal(lineSourceLabel('rescue-failed'), '补救失败（保持原行）')
   assert.equal(lineSourceLabel('manual-spread'), '手动·摊开到行区间')
   assert.equal(lineSourceLabel('manual-ctc-align'), '手动·Zipformer CTC 强制对齐')
   // 新格式（带模型）标签：明确来源模型

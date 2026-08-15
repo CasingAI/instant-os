@@ -53,8 +53,12 @@ export type RescueCandidate = {
   source: RescueSource
 }
 
-/** 候选行中选匹配度最高者（同分取先出现的，即方案 1 优先）。 */
-export function pickBestLine(candidates: RescueCandidate[]): RescueCandidate | null {
+/**
+ * 候选行中选匹配度最高者（同分取先出现的，即方案 1 优先）。
+ * baselineScore = 原行匹配度：候选必须严格优于原行才胜出，否则返回 null（保持原行）。
+ * 避免「补救」把还不错的行换成全红候选（原实现 bestScore 初始 -1，任何有词候选都会被选中）。
+ */
+export function pickBestLine(candidates: RescueCandidate[], baselineScore = 0): RescueCandidate | null {
   let best: RescueCandidate | null = null
   let bestScore = -1
   for (const candidate of candidates) {
@@ -65,7 +69,7 @@ export function pickBestLine(candidates: RescueCandidate[]): RescueCandidate | n
       best = candidate
     }
   }
-  return best
+  return best && bestScore > baselineScore ? best : null
 }
 
 export type RescueLineCallbacks = {
@@ -85,6 +89,8 @@ export type RescueLineParams = {
   startSec: number
   /** 是否可跑 CTC 强制对齐方案（该行有行时间戳） */
   hasLineTime: boolean
+  /** 原行（当前对齐结果）：作为选优基线，候选不优于原行时保持原行 */
+  currentLine?: LyricsLine | null
   callbacks: RescueLineCallbacks
 }
 
@@ -99,8 +105,11 @@ export type RescueLineResult = {
  * 两方案结果按匹配度选优；全部失败返回 { line: null, source: null }（调用方保持原行）。
  */
 export async function rescueLine(params: RescueLineParams): Promise<RescueLineResult> {
-  const { lineText, slice, startSec, hasLineTime, callbacks } = params
+  const { lineText, slice, startSec, hasLineTime, currentLine, callbacks } = params
   const candidates: RescueCandidate[] = []
+  // 原行匹配度作为选优基线：候选必须严格优于原行，否则保持原行（避免越救越差）
+  const baselineScore = currentLine ? scoreLineUnits(currentLine) : 0
+  if (baselineScore >= 1) return { line: null, source: null }
 
   // 方案 1：识别该行窗口 → 段偏移回全局轴 → 行内对齐
   const recognized = await callbacks.recognize(slice)
@@ -134,5 +143,5 @@ export async function rescueLine(params: RescueLineParams): Promise<RescueLineRe
     }
   }
 
-  return pickBestLine(candidates) ?? { line: null, source: null }
+  return pickBestLine(candidates, baselineScore) ?? { line: null, source: null }
 }

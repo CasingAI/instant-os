@@ -52,6 +52,7 @@ import {
   computeLineStats,
   lineWindowSec,
   patchLineIntoAlignedLrc,
+  resolveLineTimes,
   type LineSource,
 } from './lyrics-analysis.ts'
 import { rescueLine, shouldRescueLine } from './lyrics-line-rescue.ts'
@@ -270,8 +271,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const lyricsLrcRef = useRef<string | null>(null)
   /** 歌词对齐是否进行中 */
   const [alignBusy, setAlignBusy] = useState(false)
-  /** 对齐进行中的阶段：清洗歌词（LLM）/ 识别 vocals */
-  const [alignPhase, setAlignPhase] = useState<'clean' | 'recognize' | null>(null)
+  /** 对齐进行中的阶段：清洗歌词（LLM）/ 识别 vocals / 自动补救收尾（rescue） */
+  const [alignPhase, setAlignPhase] = useState<'clean' | 'recognize' | 'rescue' | null>(null)
   /** 清洗阶段流式进度：模型已输出/已思考的字数（AI 正在干活的感知） */
   const [alignCleanProgress, setAlignCleanProgress] = useState<CleanProgress | null>(null)
   /** 歌词识别模型选择：zipformer（中文）/ sense-voice（五语），localStorage 记忆 */
@@ -818,76 +819,55 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [])
 
   /**
-   * 复用已缓存的音素段把歌词快速对齐（纯函数文本对齐，秒级）：
-   * 换歌词后不必重跑 Zipformer 识别，直接用旧识别段对齐新歌词。
-   * 无音素段或对齐不出结果时返回 false（调用方回退到重新识别）。
-   */
-  const realignFromPhonemes = useCallback((lyricsText: string): boolean => {
-    const phonemes = phonemesRef.current
-    if (!phonemes || phonemes.length === 0) return false
-    const lrc = alignSegmentsToLrc(phonemes, lyricsText, lyricsLineTimesRef.current ?? undefined)
-    if (!lrc) return false
-    alignedLrcRef.current = lrc
-    setAlignedLrc(lrc)
-    // 复用音素段快速重对齐 = 整首识别 + 文本对齐路径（模型按当前选中标记）
-    const sources: LineSource[] = parseLrc(lrc).lines.map(
-      (): LineSource => `whole-recognize:${alignModel}`,
-    )
-    lineSourcesRef.current = sources
-    setLineSources(sources)
-    setAlignRestoredFrom(false)
-    setLyricsHint(null)
-    return true
-  }, [alignModel])
-
-  /**
-   * 失败行补救：默认模型（SenseVoice）整首对齐后，对红词多/被挤压的行，
-   * 按行切窗依次尝试 Zipformer 识别 → Zipformer CTC 强制对齐两个备选方案，
-   * 取匹配度最高的替换进整首 LRC（Rap 等 SenseVoice 弱段用 Zipformer 兜底）。
-   * 返回新 LRC；无失败行或全部补救失败时返回原 LRC。
+   * 失败行自动补救收尾 pass：对整首对齐结果里红词多/被挤压的行，按行切窗依次尝试
+   * Zipformer 识别 → Zipformer CTC 强制对齐两个备选方案，取匹配度最高且优于原行的
+   * 替换进整首 LRC（Rap 等 SenseVoice 弱段用 Zipformer 兜底）。
+   * 不依赖触发入口：现场对齐（SenseVoice/Zipformer 识别路径）、复用音素段快速重对齐、
+   * 载入恢复都调用本 pass，红行不再漏救。
+   * 返回新 LRC 与失败行数；失败行标 rescue-failed（保持原行），来源徽章可看出「补救过但失败」。
    * 每行只传该行窗口音频；失败行多时串行全部处理。
    */
-  const rescueAlignedLrc = useCallback(
+  const runRescuePass = useCallback(
     async (
       baseLrc: string,
       audio: Float32Array,
       sampleRate: number,
       reqId: number,
-    ): Promise<string> => {
+    ): Promise<{ lrc: string; failedCount: number }> => {
       const lines = parseLrc(baseLrc).lines
-      if (lines.length === 0) return baseLrc
+      if (lines.length === 0) return { lrc: baseLrc, failedCount: 0 }
       const stats = computeLineStats(lines)
       // 行来源副本：补救替换某行时同步更新该行来源；长度不匹配（如载入恢复）时按整首识别重建
       const sources: LineSource[] =
         lineSourcesRef.current.length === lines.length
           ? [...lineSourcesRef.current]
           : lines.map((): LineSource => `whole-recognize:${alignModel}`)
-      // 行时间基准：优先源 LRC 映射的真实行时间戳，回退对齐结果自带 timeMs
-      const lineTimesRef = lyricsLineTimesRef.current
-      const times: (number | undefined)[] =
-        lineTimesRef && lineTimesRef.length === lines.length
-          ? lineTimesRef
-          : lines.map((l) => l.timeMs)
+      // 行时间基准：源 LRC 映射优先（全局对齐结果的时间戳可能被挤坏），回退对齐结果自带 timeMs
+      const times = resolveLineTimes(lyricsRef.current, lyricsLrcRef.current, lines)
       const rescueIndexes: number[] = []
       for (let i = 0; i < lines.length; i++) {
         if (shouldRescueLine(stats[i], lines[i])) rescueIndexes.push(i)
       }
-      if (rescueIndexes.length === 0) return baseLrc
+      if (rescueIndexes.length === 0) return { lrc: baseLrc, failedCount: 0 }
 
       let current = baseLrc
       let done = 0
+      let failedCount = 0
       for (const lineIndex of rescueIndexes) {
-        if (alignReqSeqRef.current !== reqId) return current
+        if (alignReqSeqRef.current !== reqId) return { lrc: current, failedCount }
         const line = lines[lineIndex]
         if (!line) continue
         const startMs = times[lineIndex]
-        // 无行时间戳：行窗与 CTC 都无从定位，跳过该行
-        if (startMs === undefined || startMs < 0) continue
         const fallbackSpan = stats[lineIndex]?.spanSec ?? 0.8
+        // 无行时间戳时 lineWindowSec 用邻行推算窗口，不再跳过该行（手动「重识别这一行」同样不依赖行时间戳）
         const win = lineWindowSec(times, lineIndex, fallbackSpan)
         const a = Math.floor(win.startSec * sampleRate) * STEM_CHANNELS
         const b = Math.min(audio.length, Math.ceil(win.endSec * sampleRate) * STEM_CHANNELS)
-        if (a >= b) continue
+        if (a >= b) {
+          sources[lineIndex] = 'rescue-failed'
+          failedCount += 1
+          continue
+        }
         const slice = audio.slice(a, b)
         done += 1
         setAlignProgress({ chunk: done, total: rescueIndexes.length })
@@ -897,7 +877,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             lineText: line.text,
             slice,
             startSec: win.startSec,
-            hasLineTime: true,
+            hasLineTime: startMs !== undefined && startMs >= 0,
+            // 原行作为选优基线：候选不优于原行时保持原行（rescueLine 返回 null）
+            currentLine: line,
             callbacks: {
               recognize: async (audioSlice) => {
                 const { segments } = await enqueueAiTask<
@@ -963,27 +945,95 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 return units.length > 0 ? units : null
               },
               alignBySegments: (shiftedSegments, lineText) =>
-                alignLineByLineTimes(shiftedSegments, lineText, startMs, times[lineIndex + 1]),
+                alignLineByLineTimes(
+                  shiftedSegments,
+                  lineText,
+                  startMs !== undefined && startMs >= 0
+                    ? startMs
+                    : Math.round(win.startSec * 1000),
+                  times[lineIndex + 1],
+                ),
             },
           })
-          if (alignReqSeqRef.current !== reqId) return current
-          if (best && best.line && best.line.words && best.line.words.length > 0) {
+          if (alignReqSeqRef.current !== reqId) return { lrc: current, failedCount }
+          if (best && best.source && best.line && best.line.words && best.line.words.length > 0) {
             const next = patchLineIntoAlignedLrc(current, lineIndex, best.line.words)
             if (next !== current) {
               current = next
-              if (best.source) sources[lineIndex] = best.source
+              sources[lineIndex] = best.source
             }
+            // next === current：候选与原行逐字一致，保留原来源（结果无变化，不算失败）
+          } else {
+            // 补救失败：无候选、候选不优于原行或模型无结果，保持原行并标记可见
+            sources[lineIndex] = 'rescue-failed'
+            failedCount += 1
           }
         } catch {
-          // 单行补救失败（模型错误/无结果）：保持原行，不阻断后续行
+          // 单行补救失败（模型错误/无结果）：保持原行并标记，不阻断后续行
+          sources[lineIndex] = 'rescue-failed'
+          failedCount += 1
         }
       }
       setAlignProgress(null)
       lineSourcesRef.current = sources
       setLineSources(sources)
-      return current
+      return { lrc: current, failedCount }
     },
     [alignModel],
+  )
+
+  /**
+   * 复用已缓存的音素段把歌词快速对齐（纯函数文本对齐，秒级）：
+   * 换歌词后不必重跑 Zipformer 识别，直接用旧识别段对齐新歌词。
+   * 无音素段或对齐不出结果时返回 false（调用方回退到重新识别）。
+   */
+  const realignFromPhonemes = useCallback(
+    async (lyricsText: string): Promise<boolean> => {
+      const phonemes = phonemesRef.current
+      if (!phonemes || phonemes.length === 0) return false
+      const lrc = alignSegmentsToLrc(phonemes, lyricsText, lyricsLineTimesRef.current ?? undefined)
+      if (!lrc) return false
+      alignedLrcRef.current = lrc
+      setAlignedLrc(lrc)
+      // 复用音素段快速重对齐 = 整首识别 + 文本对齐路径（模型按当前选中标记）
+      const sources: LineSource[] = parseLrc(lrc).lines.map(
+        (): LineSource => `whole-recognize:${alignModel}`,
+      )
+      lineSourcesRef.current = sources
+      setLineSources(sources)
+      setAlignRestoredFrom(false)
+      setLyricsHint(null)
+      // 复用音素段同样走补救收尾 pass：红词多/被挤压的行切窗用 Zipformer 识别/CTC 兜底
+      const vocals = tracksRef.current?.find((t) => t.audio.stemId === 'vocals')?.audio.data
+      if (vocals && vocals.length > 0) {
+        const reqId = (alignReqSeqRef.current += 1)
+        setAlignBusy(true)
+        setAlignPhase('rescue')
+        setAlignProgress(null)
+        setAlignError(null)
+        try {
+          const rescued = await runRescuePass(lrc, vocals, stemSampleRate, reqId)
+          if (alignReqSeqRef.current !== reqId) return true
+          if (rescued.lrc !== lrc) {
+            alignedLrcRef.current = rescued.lrc
+            setAlignedLrc(rescued.lrc)
+          }
+          if (rescued.failedCount > 0) {
+            setLyricsHint(`${rescued.failedCount} 行自动补救失败，可双击该行手动修复`)
+          }
+          const tracksNow = tracksRef.current
+          if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
+        } finally {
+          if (alignReqSeqRef.current === reqId) {
+            setAlignBusy(false)
+            setAlignPhase(null)
+            setAlignProgress(null)
+          }
+        }
+      }
+      return true
+    },
+    [alignModel, runRescuePass, saveCurrentStems, stemSampleRate],
   )
 
   /**
@@ -1163,15 +1213,17 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         lineSourcesRef.current = recogSources
         setLineSources(recogSources)
         setAlignRestoredFrom(false)
-        // SenseVoice 默认整首对齐后：对失败行（红词多/被挤压）按行切窗依次尝试
-        // Zipformer 识别 → CTC 强制对齐，取匹配度最高的替换进整首 LRC
-        if (alignModel === 'sense-voice') {
-          const rescued = await rescueAlignedLrc(lrc, audio, sampleRate, reqId)
-          if (alignReqSeqRef.current !== reqId) return false
-          if (rescued !== lrc) {
-            alignedLrcRef.current = rescued
-            setAlignedLrc(rescued)
-          }
+        // 失败行自动补救收尾：SenseVoice 与 Zipformer 识别路径共用（Zipformer 整首 CTC 路径
+        // 已提前 return，走到这里必然是识别路径）。行窗备选（识别 / CTC）与整首主路径不同，
+        // 对红词多/被挤压的行可再救一次；失败行标 rescue-failed 并提示可手动修复
+        const rescued = await runRescuePass(lrc, audio, sampleRate, reqId)
+        if (alignReqSeqRef.current !== reqId) return false
+        if (rescued.lrc !== lrc) {
+          alignedLrcRef.current = rescued.lrc
+          setAlignedLrc(rescued.lrc)
+        }
+        if (rescued.failedCount > 0) {
+          setAlignError(`${rescued.failedCount} 行自动补救失败，可双击该行手动修复`)
         }
         return true
       } catch (cause) {
@@ -1186,7 +1238,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }
       }
     },
-    [alignModel, ensureLyricsCleaned, rescueAlignedLrc],
+    [alignModel, ensureLyricsCleaned, runRescuePass],
   )
 
   /**
@@ -1517,10 +1569,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             if (manifest.phonemes) phonemesRef.current = manifest.phonemes
             // 歌词对齐结果随包恢复；旧坏结果（歌词时间戳未剥离）跳过并提示重新对齐
             if (manifest.alignedLrc && !looksLikeBrokenLrc(manifest.alignedLrc)) {
-              alignedLrcRef.current = manifest.alignedLrc
-              setAlignedLrc(manifest.alignedLrc)
+              const restoredLrc = manifest.alignedLrc
+              alignedLrcRef.current = restoredLrc
+              setAlignedLrc(restoredLrc)
               // 行来源：新包有记录则恢复；旧包无记录时全部标「载入恢复」
-              const lineCount = parseLrc(manifest.alignedLrc).lines.length
+              const lineCount = parseLrc(restoredLrc).lines.length
               const restoredSources: LineSource[] =
                 manifest.lineSources && manifest.lineSources.length === lineCount
                   ? manifest.lineSources
@@ -1529,12 +1582,49 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               setLineSources(restoredSources)
               setAlignRestoredFrom(true)
               setLyricsHint(null)
+              // 载入恢复后对红行做自动补救收尾（vocals 已解码）：旧包红行自动救回，
+              // 失败行标 rescue-failed；新结果随包落盘，来源徽章可看出每行采用方案
+              const vocals = stems.find((s) => s.stemId === 'vocals')
+              if (vocals && vocals.data.length > 0) {
+                void (async () => {
+                  const reqId = (alignReqSeqRef.current += 1)
+                  setAlignBusy(true)
+                  setAlignPhase('rescue')
+                  setAlignProgress(null)
+                  setAlignError(null)
+                  try {
+                    const rescued = await runRescuePass(
+                      restoredLrc,
+                      vocals.data,
+                      manifest.sampleRate,
+                      reqId,
+                    )
+                    if (alignReqSeqRef.current !== reqId) return
+                    if (rescued.lrc !== restoredLrc || rescued.failedCount > 0) {
+                      alignedLrcRef.current = rescued.lrc
+                      setAlignedLrc(rescued.lrc)
+                      void saveCurrentStems(stems)
+                    }
+                    if (rescued.failedCount > 0) {
+                      setLyricsHint(`${rescued.failedCount} 行自动补救失败，可双击该行手动修复`)
+                    } else {
+                      setLyricsHint(null)
+                    }
+                  } finally {
+                    if (alignReqSeqRef.current === reqId) {
+                      setAlignBusy(false)
+                      setAlignPhase(null)
+                      setAlignProgress(null)
+                    }
+                  }
+                })()
+              }
             } else if (manifest.alignedLrc) {
               clearAlignedResult('检测到旧版损坏的对齐结果，已跳过恢复；可点击「对齐歌词」重新对齐')
             } else if (lyricsRef.current.trim()) {
               // 包内无有效歌词结果但歌词已就绪：优先复用音素段快速重对齐（秒级），
               // 无音素段时退回重跑识别（vocals 已解码）
-              if (!realignFromPhonemes(lyricsRef.current)) {
+              if (!(await realignFromPhonemes(lyricsRef.current))) {
                 const vocals = stems.find((s) => s.stemId === 'vocals')
                 if (vocals) void alignVocals(vocals.data, manifest.sampleRate)
               } else {
@@ -1555,7 +1645,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         return false
       }
     },
-    [cacheStemBuffers, clearAlignedResult, detectTempoAsync, alignVocals, realignFromPhonemes, stopPlayback],
+    [cacheStemBuffers, clearAlignedResult, detectTempoAsync, alignVocals, realignFromPhonemes, runRescuePass, saveCurrentStems, stopPlayback],
   )
 
   /**
@@ -1670,7 +1760,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       // 后台 LLM 清洗（剥「徐/刘：」等规则洗不掉的内容），行数不变故行时间戳仍有效；
       // 清洗中给出反馈；清洗后如有音素段直接快速重对齐，否则提示重新对齐
       if (!alignedLrcRef.current) setLyricsHint('清洗歌词中…')
-      void ensureLyricsCleaned(cleaned).then((llmCleaned) => {
+      void ensureLyricsCleaned(cleaned).then(async (llmCleaned) => {
         if (lyricsRef.current !== cleaned) return // 已被更新的歌词覆盖
         if (llmCleaned !== cleaned) {
           lyricsRef.current = llmCleaned
@@ -1678,7 +1768,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           // 清洗结果文本同样视为「已按最新版本清洗」，避免对齐入口对 llmCleaned 二次调用
           lyricsCleanRef.current = { text: llmCleaned, version: CLEAN_VERSION }
         }
-        if (realignFromPhonemes(llmCleaned)) return
+        if (await realignFromPhonemes(llmCleaned)) return
         if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
         else setLyricsHint(null) // 无对齐结果且清洗完成：清掉「清洗歌词中…」，避免残留
       })

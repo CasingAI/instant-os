@@ -54,13 +54,14 @@ export type LineSource =
   | `rescue-ctc${ModelSuffix}` // 失败行补救·方案2：Zipformer CTC 行窗
   | `manual-${ManualActionKey}${ModelSuffix}` // 手动修复动作
   | 'restored' // 载入恢复（旧包无来源记录）
+  | 'rescue-failed' // 自动补救失败：候选不优于原行或模型无结果，保持原行
 
 /** 模型后缀：可缺省（旧格式/未记录） */
 type ModelSuffix = '' | `:${AlignModel}`
 
 /** 拆解 LineSource → 方案名 + 模型（可能缺省）；非法输入返回 undefined */
 function splitLineSource(src: LineSource): { scheme: string; model: AlignModel | undefined } | undefined {
-  if (src === 'restored') return { scheme: 'restored', model: undefined }
+  if (src === 'restored' || src === 'rescue-failed') return { scheme: src, model: undefined }
   const colon = src.indexOf(':')
   const scheme = colon < 0 ? src : src.slice(0, colon)
   const model = colon < 0 ? undefined : src.slice(colon + 1)
@@ -92,6 +93,8 @@ export function lineSourceLabel(src: LineSource | undefined): string {
   switch (scheme) {
     case 'restored':
       return '载入恢复'
+    case 'rescue-failed':
+      return '补救失败（保持原行）'
     case 'whole-recognize':
       return modelName ? `${modelName} 整首识别对齐` : '整首识别对齐'
     case 'whole-ctc':
@@ -418,7 +421,11 @@ export function spreadLineToWindow(
   return { ...line, timeMs: Math.round(startSec * 1000), words: newWords }
 }
 
-/** 行音频切片窗口（秒）：聚焦行 [t_i-0.5s, t_{i+1}+0.5s]；末行用 fallbackSpanSec 兜底 */
+/**
+ * 行音频切片窗口（秒）：聚焦行 [t_i-0.5s, t_{i+1}+0.5s]；末行用 fallbackSpanSec 兜底。
+ * 当前行无时间戳时不再回退 startSec=0：向前找最近有值行的行首 + padSec 作窗口起点、
+ * 向后找最近有值行作终点（自动补救与抽屉共用，无时间戳行也能切窗识别）。
+ */
 export function lineWindowSec(
   lineTimes: (number | undefined)[],
   focusLine: number,
@@ -427,11 +434,39 @@ export function lineWindowSec(
 ): { startSec: number; endSec: number } {
   const t = lineTimes[focusLine]
   const next = lineTimes[focusLine + 1]
-  const startSec = t !== undefined ? Math.max(0, t / 1000 - padSec) : 0
-  const endSec =
-    next !== undefined
-      ? next / 1000 + padSec
-      : startSec + Math.max(fallbackSpanSec, 0.8) + padSec
+
+  let startSec: number
+  let endSec: number
+  if (t !== undefined) {
+    // 有行时间戳：以本行为中心，终点用相邻行（原行为）
+    startSec = Math.max(0, t / 1000 - padSec)
+    endSec =
+      next !== undefined
+        ? next / 1000 + padSec
+        : startSec + Math.max(fallbackSpanSec, 0.8) + padSec
+  } else {
+    // 无时间戳：向前找最近有值行的行首 + pad 为窗口起点；
+    // 向后找最近有值行作终点（宁多勿缺，避免切不够歌词）；全段无值则 fallback
+    let anchorStartSec: number | undefined
+    for (let k = focusLine - 1; k >= 0; k--) {
+      if (lineTimes[k] !== undefined) {
+        anchorStartSec = (lineTimes[k] as number) / 1000
+        break
+      }
+    }
+    startSec = anchorStartSec !== undefined ? anchorStartSec + padSec : 0
+    let anchorEndSec: number | undefined
+    for (let k = focusLine + 1; k < lineTimes.length; k++) {
+      if (lineTimes[k] !== undefined) {
+        anchorEndSec = (lineTimes[k] as number) / 1000
+        break
+      }
+    }
+    endSec =
+      anchorEndSec !== undefined
+        ? anchorEndSec + padSec
+        : startSec + Math.max(fallbackSpanSec, 0.8) + padSec
+  }
   return { startSec, endSec: Math.max(startSec + 0.2, endSec) }
 }
 

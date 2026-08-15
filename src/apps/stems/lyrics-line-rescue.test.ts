@@ -101,6 +101,32 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
   )
 }
 
+// —— pickBestLine：原行基线比较，候选不优于原行 → null ——
+{
+  const worse = mkLine([{ text: '大' }, { text: '家', failed: true }]) // 0.5 分
+  const bad = mkLine([{ text: '大' }, { text: '家', failed: true }, { text: '好', failed: true }]) // 0.33 分
+  assert.equal(
+    pickBestLine([{ line: bad, source: 'rescue-recognize' }], 0.5),
+    null,
+    '候选 0.33 分不优于原行 0.5 分 → 不替换',
+  )
+  assert.equal(
+    pickBestLine([{ line: worse, source: 'rescue-recognize' }], 0.5),
+    null,
+    '候选与基线同分 → 不替换（严格大于）',
+  )
+  assert.equal(
+    pickBestLine([{ line: worse, source: 'rescue-recognize' }], 0.4)?.line,
+    worse,
+    '候选 0.5 分优于基线 0.4 分 → 替换',
+  )
+  assert.equal(
+    pickBestLine([{ line: worse, source: 'rescue-recognize' }], 1)?.line,
+    undefined,
+    '基线已满分 → 不替换',
+  )
+}
+
 // —— rescueLine：方案 1 全对上直接返回，跳过方案 2 ——
 {
   let forcedCalled = false
@@ -231,4 +257,64 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
   })
   assert.equal(result.line, null, '全部失败返回 null（调用方保持原行）')
   assert.equal(result.source, null, '全部失败来源为 null')
+}
+
+// —— rescueLine：currentLine 基线——候选不优于原行 → null（保持原行） ——
+{
+  // 原行 0.5 分；方案 1 候选 0.33 分 → 不替换
+  const result = await rescueLine({
+    lineText: '大家好',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }]),
+    callbacks: {
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      forcedAlign: async () => null,
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家', failed: true }, { text: '好', failed: true }]),
+    },
+  })
+  assert.equal(result.line, null, '候选不优于原行 → 保持原行')
+  assert.equal(result.source, null, '来源为 null')
+}
+
+// —— rescueLine：currentLine 基线——原行全红 0 分，候选 0.5 分 → 替换 ——
+{
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大', failed: true }, { text: '家', failed: true }]),
+    callbacks: {
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      forcedAlign: async () => null,
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家', failed: true }]),
+    },
+  })
+  assert.ok(result.line)
+  assert.equal(scoreLineUnits(result.line!), 0.5, '候选 0.5 分')
+  assert.equal(result.source, 'rescue-recognize', '优于原行 0 分 → 方案 1 胜出')
+}
+
+// —— rescueLine：currentLine 已满分 → 直接保持原行，不跑任何方案 ——
+{
+  let recognizeCalled = false
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家' }]),
+    callbacks: {
+      recognize: async () => {
+        recognizeCalled = true
+        return { segments: [{ symbol: '大', start: 0, end: 0.2 }] }
+      },
+      forcedAlign: async () => null,
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家' }]),
+    },
+  })
+  assert.equal(result.line, null, '原行已满分 → 保持原行')
+  assert.equal(recognizeCalled, false, '不再跑任何备选方案')
 }
