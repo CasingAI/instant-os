@@ -219,6 +219,34 @@ function sortNodeList(nodes: readonly FilesNode[], sort: FilesSort): FilesNode[]
   return [...applyDirection(folders), ...applyDirection(rest)]
 }
 
+const SORT_KEY_LABELS: Record<FilesSortKey, string> = {
+  name: '名称',
+  date: '修改日期',
+  size: '大小',
+}
+
+function formatSortLabel(sort: FilesSort): string {
+  return `${SORT_KEY_LABELS[sort.key]}${sort.direction === 'asc' ? ' ↑' : ' ↓'}`
+}
+
+/** 排序菜单单项目文案：当前项带 ✓ 与方向箭头，非当前项仅显示字段名 */
+function formatSortOptionLabel(sort: FilesSort, key: FilesSortKey): string {
+  if (sort.key !== key) return SORT_KEY_LABELS[key]
+  return `${SORT_KEY_LABELS[key]}${sort.direction === 'asc' ? ' ↑' : ' ↓'}`
+}
+
+/** 排序子菜单项：按名称 / 修改日期 / 大小，当前字段前加 ✓ */
+function buildSortMenuItems(
+  sort: FilesSort,
+  onChange: (key: FilesSortKey) => void,
+): AdaptiveActionMenuLeafItem[] {
+  return (['name', 'date', 'size'] as const).map((key) => ({
+    type: 'action',
+    label: `${sort.key === key ? '✓ ' : ''}${formatSortOptionLabel(sort, key)}`,
+    onClick: () => onChange(key),
+  }))
+}
+
 function formatListByteSize(node: FilesNode, metaResolved: ReadonlySet<string>): string {
   if (node.kind === 'folder' || node.locationId === 'models3d' || node.locationId === 'applications') {
     return '—'
@@ -585,6 +613,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   >(undefined)
   const [actionSheet, setActionSheet] = useState<ActionSheetState | undefined>(undefined)
   const [newFileMenu, setNewFileMenu] = useState<NewFileMenuState | undefined>(undefined)
+  const [sortMenu, setSortMenu] = useState<NewFileMenuState | undefined>(undefined)
   const [clipboardRevision, setClipboardRevision] = useState(0)
   const [stackedBrowserOpen, setStackedBrowserOpen] = useState(false)
   const [folderMotion, setFolderMotion] = useState<'idle' | 'push' | 'pop'>('idle')
@@ -613,6 +642,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
   const [dropTarget, setDropTarget] = useState<{ kind: 'node'; id: string } | { kind: 'location'; id: FilesLocationId } | { kind: 'pathbar'; key: string } | undefined>(undefined)
   const [opProgressUi, setOpProgressUi] = useState<FilesOpProgressUiState | undefined>(undefined)
   const newFileButtonRef = useRef<HTMLButtonElement>(null)
+  const sortButtonRef = useRef<HTMLButtonElement>(null)
   const browserRef = useRef<HTMLDivElement>(null)
   /** 按「卷 + 文件夹」记忆的滚动位置（仅本次打开期间） */
   const scrollByFolderRef = useRef(new Map<string, number>())
@@ -1428,6 +1458,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     setBackgroundContextMenu(undefined)
     setLocationContextMenu(undefined)
     setNewFileMenu(undefined)
+    setSortMenu(undefined)
     setActionSheet(undefined)
   }, [])
 
@@ -1491,6 +1522,25 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [newFileMenu])
+
+  useEffect(() => {
+    if (!sortMenu) return
+    const close = () => setSortMenu(undefined)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    const timer = window.setTimeout(() => {
+      window.addEventListener('click', close)
+      window.addEventListener('scroll', close, true)
+      window.addEventListener('keydown', onKeyDown)
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [sortMenu])
 
   const selectLocation = useCallback(
     (next: FilesLocationId) => {
@@ -2147,6 +2197,28 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       arrowX,
     })
   }, [canCreateHere, newFileMenu])
+
+  const openSortMenu = useCallback(() => {
+    setContextMenu(undefined)
+    setBackgroundContextMenu(undefined)
+    setLocationContextMenu(undefined)
+    setActionSheet(undefined)
+    const button = sortButtonRef.current
+    if (!button) return
+    if (sortMenu) {
+      setSortMenu(undefined)
+      return
+    }
+    const rect = button.getBoundingClientRect()
+    const popoverWidth = 176
+    const x = Math.max(8, Math.min(rect.right - popoverWidth, window.innerWidth - popoverWidth - 8))
+    const arrowX = Math.min(popoverWidth - 16, Math.max(16, rect.left + rect.width / 2 - x))
+    setSortMenu({
+      x,
+      y: rect.bottom + 10,
+      arrowX,
+    })
+  }, [sortMenu])
 
   const createTextFileNamed = useCallback(async () => {
     if (!canCreateHere) return
@@ -2997,8 +3069,14 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     ],
   )
 
-  const backgroundMenuItems = useMemo((): AdaptiveActionMenuLeafItem[] => {
-    const items: AdaptiveActionMenuLeafItem[] = []
+  const backgroundMenuItems = useMemo((): AdaptiveActionMenuItem[] => {
+    const items: AdaptiveActionMenuItem[] = []
+    items.push({
+      type: 'submenu',
+      label: '排序方式',
+      items: buildSortMenuItems(sort, (key) => handleSortColumn(key)),
+    })
+    items.push({ type: 'separator' })
     if (isTrashLocationId(locationId)) {
       items.push({
         type: 'action',
@@ -3056,8 +3134,10 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     handlePaste,
     handleRefresh,
     handleShowCurrentFolderInfo,
+    handleSortColumn,
     locationId,
     openSystemFilePicker,
+    sort,
   ])
 
   const actionSheetItems = useMemo((): AdaptiveActionMenuItem[] => {
@@ -3375,6 +3455,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
                 {selectionMode ? '完成' : '选择'}
               </button>
             ) : undefined}
+            <button
+              ref={sortButtonRef}
+              type="button"
+              class="files__toolbar-btn files__toolbar-btn--sort"
+              title="排序方式"
+              aria-haspopup="menu"
+              aria-expanded={!!sortMenu}
+              onClick={(event) => {
+                event.stopPropagation()
+                openSortMenu()
+              }}
+            >
+              {formatSortLabel(sort)}
+            </button>
             <button
               type="button"
               class="files__toolbar-btn files__toolbar-btn--icon"
@@ -3717,6 +3811,15 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         <FilesContextMenu x={backgroundContextMenu.x} y={backgroundContextMenu.y}>
           {backgroundMenuItems.map((item, index) => {
             if (item.type === 'separator') return undefined
+            if (item.type === 'submenu') {
+              return (
+                <FilesContextSubmenu
+                  key={`sub-${item.label}`}
+                  item={item}
+                  onClose={() => setBackgroundContextMenu(undefined)}
+                />
+              )
+            }
             return (
               <button
                 key={`${item.label}-${index}`}
@@ -3784,6 +3887,38 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               <span class="files__popover-item-meta">.txt</span>
             </span>
           </button>
+        </FilesContextMenu>
+      ) : undefined}
+
+      {sortMenu ? (
+        <FilesContextMenu
+          x={sortMenu.x}
+          y={sortMenu.y}
+          className="files__popover"
+          role="menu"
+          style={{ ['--files-popover-arrow-x' as string]: `${sortMenu.arrowX}px` }}
+        >
+          <div class="files__popover-label">排序方式</div>
+          {(['name', 'date', 'size'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              class="files__popover-item files__sort-item"
+              role="menuitem"
+              aria-checked={sort.key === key}
+              onClick={() => {
+                handleSortColumn(key)
+                setSortMenu(undefined)
+              }}
+            >
+              <span class="files__sort-item-check" aria-hidden="true">
+                {sort.key === key ? '✓' : ''}
+              </span>
+              <span class="files__popover-item-copy">
+                <span class="files__popover-item-title">{formatSortOptionLabel(sort, key)}</span>
+              </span>
+            </button>
+          ))}
         </FilesContextMenu>
       ) : undefined}
 
