@@ -258,3 +258,71 @@ const ref = (text: string): G2pUnit[] =>
   const r = alignTextToUnits(segments, [{ text: 'welcome', phones: [] }])
   assert.ok(Number.isNaN(r[0].start), '间隔过大的两段不应合并成 welcome')
 }
+
+// —— 18. 合并块行区间约束：第二段起始于行尾之后不拼接 ——
+// 真实数据暴露：行尾词 + 下一行行首词间隙常在 0.3s 内（more+TON、died+WE），
+// 若不约束第二段行区间会跨行吞并，把下行首词的识别段拼进本行末词。
+{
+  const segments: HypSegment[] = [
+    { symbol: 'wel', start: 22.0, end: 22.3 },
+    { symbol: 'come', start: 22.5, end: 23.0 },
+  ]
+  // 第二段 come 起始于行尾 22.4 之后 → 拒绝合并；wel 单独也不匹配 welcome → NaN
+  const r = alignTextToUnits(segments, [{ text: 'welcome', phones: [] }], {
+    startSec: 21.5,
+    endSec: 22.4,
+  })
+  assert.ok(Number.isNaN(r[0].start), '第二段超出本行演唱末尾不应合并成 welcome')
+  // 对照：第二段仍在行区间内 → 合并生效，区间 = 两段拼接
+  const r2 = alignTextToUnits(segments, [{ text: 'welcome', phones: [] }], {
+    startSec: 21.5,
+    endSec: 23.2,
+  })
+  assert.ok(Number.isFinite(r2[0].start), '第二段落在行区间内应正常合并')
+  assert.ok(Math.abs(r2[0].start - 22.0) < 1e-9, '合并块起点 = 第一段起点')
+  assert.ok(Math.abs(r2[0].end - 23.0) < 1e-9, '合并块终点 = 第二段终点')
+}
+
+// —— 19. 融合段块分裂放宽：段独立匹配前词且拼接也匹配时，允许分裂覆盖两个词 ——
+// 真实数据：LIKET→like+it（行20）、CHILDRENELL→children+tell（行22）、
+// YOUROM→your+mom（行25）。段本身能被前一个词的前缀规则独立匹配（liket↔like），
+// 旧逻辑因此拦截块分裂，导致第二个词无识别段。拼接后也能匹配 → 应允许分裂。
+{
+  const likeIt: HypSegment[] = [{ symbol: 'LIKET', start: 72.3, end: 72.66 }]
+  const r = alignTextToUnits(likeIt, [
+    { text: 'like', phones: [] },
+    { text: 'it', phones: [] },
+  ])
+  assert.ok(Number.isFinite(r[0].start), 'like 应从 LIKET 分到前半段时间')
+  assert.ok(Number.isFinite(r[1].start), 'it 应从 LIKET 分到后半段时间（放宽后命中）')
+  assert.ok(r[0].start < r[1].start, 'like 早于 it')
+
+  const yourMom: HypSegment[] = [{ symbol: 'YOUROM', start: 87.4, end: 87.76 }]
+  const r2 = alignTextToUnits(yourMom, [
+    { text: 'your', phones: [] },
+    { text: 'mom', phones: [] },
+  ])
+  assert.ok(Number.isFinite(r2[0].start), 'your 应从 YOUROM 分到前半段时间')
+  assert.ok(Number.isFinite(r2[1].start), 'mom 应从 YOUROM 分到后半段时间（放宽后命中）')
+
+  const childrenTell: HypSegment[] = [{ symbol: 'CHILDRENELL', start: 77.16, end: 77.94 }]
+  const r3 = alignTextToUnits(childrenTell, [
+    { text: 'children', phones: [] },
+    { text: 'tell', phones: [] },
+  ])
+  assert.ok(Number.isFinite(r3[0].start), 'children 应从 CHILDRENELL 分到前半段时间')
+  assert.ok(Number.isFinite(r3[1].start), 'tell 应从 CHILDRENELL 分到后半段时间（放宽后命中）')
+}
+
+// —— 20. 融合段块分裂护栏：段独立匹配前词但拼接不匹配时仍拦截 ——
+// talking↔talki 后跟 that：talki+that 拼接与 TALKING 距离超阈值 → 仍独立匹配 talki，
+// 不得分裂给 that（align-pipeline 的 testSparseAnchorsKeepRecogTime 依赖此行为）。
+{
+  const talking: HypSegment[] = [{ symbol: 'TALKING', start: 0.0, end: 0.4 }]
+  const r = alignTextToUnits(talking, [
+    { text: 'talki', phones: [] },
+    { text: 'that', phones: [] },
+  ])
+  assert.ok(Number.isFinite(r[0].start), 'talki 应独立匹配 TALKING')
+  assert.ok(Number.isNaN(r[1].start), 'that 不应被 TALKING 分裂覆盖（拼接不匹配）')
+}

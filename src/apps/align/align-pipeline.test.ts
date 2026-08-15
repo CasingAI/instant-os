@@ -421,6 +421,201 @@ function testFallbackAcousticTime(): void {
   assert.ok(lrc.includes('|f>'), '内容没对上仍标红')
 }
 
+// —— 真实歌曲片段回归（Welcome to the Internet，SenseVoice 识别段） ——
+// 每个用例抽真实窗口段 + 歌词行 + 行时间戳，走完整 alignSegmentsToLrc 管线。
+
+/** 解析增强 LRC 单行，返回逐词（文本 + 失败标红 + 时间秒） */
+function lineWordFlags(lrcLine: string): { text: string; failed: boolean; timeSec: number }[] {
+  const out: { text: string; failed: boolean; timeSec: number }[] = []
+  const re = /<(\d{1,2}):(\d{1,2})(?:\.(\d{1,2}))?(\|[a-z]+)?>([^<]*)/g
+  for (const m of lrcLine.matchAll(re)) {
+    const min = Number(m[1])
+    const sec = Number(m[2])
+    const frac = m[3] ? Number(m[3]) : 0
+    out.push({ text: m[5], failed: m[4]?.includes('f') ?? false, timeSec: min * 60 + sec + frac / 100 })
+  }
+  return out
+}
+
+function assertWordAligned(lrcLine: string, word: string, label: string): number {
+  const flags = lineWordFlags(lrcLine)
+  const clean = (s: string) => s.trim().replace(/[^\p{L}\p{N}]+$/u, '')
+  const hit = flags.find((f) => clean(f.text) === word)
+  assert.ok(hit !== undefined, `${label}：${word} 应出现在对齐结果里：${lrcLine}`)
+  assert.ok(!hit!.failed, `${label}：${word} 不应标红：${lrcLine}`)
+  return 0
+}
+
+function testRealWelcomeMerge(): void {
+  // 识别拆词合并：WEL+COME → welcome；且西里尔伪字符 thе/prefеr 归一化后全绿
+  const segments = segs([
+    ['REST', 29.9, 30.26],
+    ['WEL', 30.8, 30.98],
+    ['COME', 31.16, 31.4],
+    ['TO', 31.46, 31.58],
+    ['THE', 31.64, 31.88],
+    ['INTERNET', 31.88, 32.6],
+    ['WHAT', 32.66, 32.9],
+    ['WOULD', 32.9, 33.32],
+    ['YOU', 33.32, 33.56],
+    ['PREFER', 33.56, 33.98],
+    ['WOULD', 34.1, 34.52],
+    ['YOU', 34.52, 34.7],
+  ])
+  const lyrics = 'Welcome to thе internet! What would you prefеr?'
+  const lrc = alignSegmentsToLrc(segments, lyrics, [30700, 34100])
+  const line = lrc.split('\n').find((l) => l.startsWith('['))
+  assert.ok(line !== undefined, `应有对齐行：${lrc}`)
+  assert.ok(line.startsWith('[00:30.80]'), `welcome 起点 = WEL 段起点：${line}`)
+  const flags = lineWordFlags(line)
+  const clean = (s: string) => s.trim().replace(/[^\p{L}\p{N}]+$/u, '')
+  const welcome = flags.find((f) => clean(f.text) === 'Welcome')
+  assert.ok(welcome && !welcome.failed, `Welcome 应合并命中不标红：${line}`)
+  assert.ok(!lrc.includes('thе') && !lrc.includes('prefеr'), `西里尔伪字符应归一化：${line}`)
+  const the = flags.find((f) => clean(f.text) === 'the')
+  assert.ok(the && !the.failed, `thе 归一化后 the 应命中：${line}`)
+  const prefer = flags.find((f) => clean(f.text) === 'prefer')
+  assert.ok(prefer && !prefer.failed, `prefеr 归一化后 prefer 应命中：${line}`)
+}
+
+function testRealPuttingMergeAndCrossLineGuard(): void {
+  // 词形/拆词：PUT+TING → putting；且 more 不得跨行吞下一行行首 TON
+  const segments = segs([
+    ['THEY', 67.02, 67.32],
+    ['ARE', 67.32, 67.5],
+    ['GRANY', 67.5, 67.8],
+    ['AND', 67.86, 68.04],
+    ['OUF', 68.1, 68.34],
+    ['PUT', 68.34, 68.52],
+    ['TING', 68.7, 68.94],
+    ['HE', 68.94, 69.06],
+    ['JUST', 69.12, 69.36],
+    ['SENTD', 69.36, 69.72],
+    ['YOU', 69.72, 69.96],
+    ['MORE', 70.02, 70.32],
+    ['TON', 70.56, 70.74],
+  ])
+  const lyrics = "They are grainy and off-putting; he just sent you more"
+  const lrc = alignSegmentsToLrc(segments, lyrics, [66900, 70150])
+  const line = lrc.split('\n').find((l) => l.startsWith('['))
+  assert.ok(line !== undefined, `应有对齐行：${lrc}`)
+  const flags = lineWordFlags(line)
+  const putting = flags.find((f) => f.text.trim() === 'putting;')
+  assert.ok(putting && !putting.failed, `PUT+TING 合并成 putting 应命中不标红：${line}`)
+  const more = flags.find((f) => f.text.trim() === 'more')
+  assert.ok(more && !more.failed, `more 应命中：${line}`)
+  // more 时间应贴近 MORE 段 [70.02,70.32]，不得吞 TON(70.56 起) —— 跨行合并被拒
+  const moreMs = more.timeSec
+  assert.ok(moreMs < 70.5, `more 不应吞掉下一行行首 TON：${moreMs}`)
+}
+
+function testRealWevePrefix(): void {
+  // 缩写多音节前缀：WE → We've
+  const segments = segs([
+    ['WE', 42.5, 42.62],
+    ['GOT', 42.8, 43.04],
+    ['A', 43.04, 43.1],
+    ['MILLION', 43.16, 43.76],
+    ['DIFFERENT', 43.76, 44.54],
+    ['WAYS', 44.54, 44.84],
+    ['TO', 44.84, 44.96],
+    ['INGAGE', 45.08, 45.68],
+  ])
+  const lyrics = "We've got a million different ways to engage"
+  const lrc = alignSegmentsToLrc(segments, lyrics, [42500, 46100])
+  const line = lrc.split('\n').find((l) => l.startsWith('['))
+  assert.ok(line !== undefined, `应有对齐行：${lrc}`)
+  assert.ok(line.startsWith('[00:42.50]'), `We've 起点 = WE 段起点：${line}`)
+  assertWordAligned(line, "We've", 'weve-prefix')
+}
+
+function testRealFusedSplits(): void {
+  // 融合段块分裂：like+it、children+tell、your+mom、never+fuck
+  const cases: { segments: HypSegment[]; lyrics: string; lineTimes: number[]; targets: [string, string][] }[] = [
+    {
+      segments: segs([
+        ['SURPRISE', 71.1, 71.58],
+        ['YOU', 71.64, 71.82],
+        ['KNOW', 71.82, 72.12],
+        ['YOU', 72.12, 72.3],
+        ['LIKET', 72.3, 72.66],
+        ['YOU', 72.72, 72.9],
+        ['HORE', 73.02, 73.26],
+      ]),
+      lyrics: 'you like it, you whore',
+      lineTimes: [70150, 73400],
+      targets: [
+        ['like', 'LIKET→like'],
+        ['it', 'LIKET→it'],
+      ],
+    },
+    {
+      segments: segs([
+        ['SHOW', 75.96, 76.26],
+        ['A', 76.26, 76.32],
+        ['PICTURES', 76.32, 76.8],
+        ['OF', 76.8, 76.92],
+        ['YOUR', 76.92, 77.16],
+        ['CHILDRENELL', 77.16, 77.94],
+        ['US', 77.94, 78.0],
+        ['EVERYHOUGH', 78.0, 78.6],
+        ['YOU', 78.6, 78.78],
+        ['THINK', 78.78, 79.08],
+      ]),
+      lyrics: 'Show us pictures of your children, tell us every thought you think',
+      lineTimes: [75900, 78780],
+      targets: [
+        ['children', 'CHILDRENELL→children'],
+        ['tell', 'CHILDRENELL→tell'],
+      ],
+    },
+    {
+      segments: segs([
+        ["HERE'S", 85.18, 85.6],
+        ['HEALTY', 85.6, 85.96],
+        ['BRAKASTIO', 85.96, 86.62],
+        ['YO', 86.68, 86.8],
+        ['SHOULD', 86.8, 87.16],
+        ['KIL', 87.16, 87.4],
+        ['YOUROM', 87.4, 87.76],
+        ["HE'S", 87.76, 88.12],
+      ]),
+      lyrics: 'Here\'s a healthy breakfast option, you should kill your mom',
+      lineTimes: [85000, 87760],
+      targets: [
+        ['your', 'YOUROM→your'],
+        ['mom', 'YOUROM→mom'],
+      ],
+    },
+    {
+      segments: segs([
+        ['WHE', 88.12, 88.3],
+        ['N', 88.54, 88.6],
+        ['NEVROUK', 88.6, 89.14],
+        ['YOU', 89.14, 89.32],
+        ['HERESO', 89.32, 89.74],
+        ['YOU', 89.8, 89.98],
+        ['CAN', 89.98, 90.1],
+        ['BUILD', 90.1, 90.46],
+        ['A', 90.46, 90.52],
+        ['BOM', 90.58, 90.82],
+      ]),
+      lyrics: "Here's why women never fuck you; here's how you can build a bomb",
+      lineTimes: [87750, 90520],
+      targets: [
+        ['never', 'NEVROUK→never'],
+        ['fuck', 'NEVROUK→fuck'],
+      ],
+    },
+  ]
+  for (const { segments, lyrics, lineTimes, targets } of cases) {
+    const lrc = alignSegmentsToLrc(segments, lyrics, lineTimes)
+    const line = lrc.split('\n').find((l) => l.startsWith('['))
+    assert.ok(line !== undefined, `应有对齐行：${lrc}`)
+    for (const [word, label] of targets) assertWordAligned(line, word, label)
+  }
+}
+
 async function runAll(): Promise<void> {
   testCleanLyrics()
   testStripTimestampLyrics()
@@ -444,6 +639,10 @@ async function runAll(): Promise<void> {
   testBokMatchesPot()
   testWerlBlockSplit()
   testFallbackAcousticTime()
+  testRealWelcomeMerge()
+  testRealPuttingMergeAndCrossLineGuard()
+  testRealWevePrefix()
+  testRealFusedSplits()
   console.log('align-pipeline: 全部通过')
 }
 

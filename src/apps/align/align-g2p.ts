@@ -5,6 +5,19 @@
 
 import type { G2pLine, G2pUnit } from './align-types.ts'
 
+/**
+ * 西里尔视觉同形字符 → 拉丁（网上英文歌词常见混入，如 `thе internet` 里的 е 是 U+0435）。
+ * 不映射 `ё`（发音 yo，非视觉同形）、`й` 等非同形字符。作用于目标字符，不碰中文/数字/标点。
+ */
+const CYRILLIC_CONFUSABLES: Record<string, string> = {
+  а: 'a', е: 'e', о: 'o', с: 'c', р: 'p', у: 'y',
+  х: 'x', к: 'k', м: 'm', т: 't', в: 'b', н: 'h', і: 'i',
+}
+
+export function normalizeConfusables(text: string): string {
+  return Array.from(text).map((c) => CYRILLIC_CONFUSABLES[c] ?? c).join('')
+}
+
 /** 分词：CJK 一字一单元；拉丁字母串成词；其余标点/符号各一单元 */
 export function tokenizeLyricsLine(line: string): string[] {
   const units: string[] = []
@@ -34,16 +47,21 @@ export function tokenizeLyricsLine(line: string): string[] {
   return units
 }
 
-/** 歌词全文 → 按行分词后的期望单元骨架（phones 为空，待 LLM 填充） */
+/** 歌词全文 → 按行分词后的期望单元骨架（phones 为空，待 LLM 填充）。
+ * 入口做西里尔视觉同形字符归一化：`thе`→`the`、`prefеr`→`prefer`，
+ * 让混入伪字符的歌词在分词后是正确拼写（显示与匹配同步修正）。 */
 export function buildLyricsSkeleton(lyrics: string): G2pLine[] {
   return lyrics
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((text) => ({
-      text,
-      units: tokenizeLyricsLine(text).map((t) => ({ text: t, phones: [] as string[] })),
-    }))
+    .map((text) => {
+      const clean = normalizeConfusables(text)
+      return {
+        text: clean,
+        units: tokenizeLyricsLine(clean).map((t) => ({ text: t, phones: [] as string[] })),
+      }
+    })
 }
 
 /** 从 vocab 里抽一批常用 IPA 符号作提示（跳过 CTC 特殊标记） */

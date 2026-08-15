@@ -257,20 +257,29 @@ function blockMatchCost(
   const nb = normalizeForMatch(b.text)
   // 块只对拉丁词成立（中文逐字不会压成一段）
   if (!/^[a-z0-9]+$/u.test(na) || !/^[a-z0-9]+$/u.test(nb)) return SUBSTITUTE_COST
-  // 段能独立匹配某个单词 → 单块路径足够，不吞第二个词。
-  // 段比单词长一倍以上（WERL 4 字 vs we 2 字）更像连读融合而非该词的模糊识别，
-  // 不能因宽松前缀规则（werl↔we）被当成独立匹配而吞掉块分裂；
-  // 长度接近的截断词尾（talking↔talki）不受影响，仍独立匹配。
-  const fusionShape = (hypLen: number, wordLen: number) => wordLen > 0 && hypLen >= 2 * wordLen
-  if (latinPhoneticMatch(hypNorm, na) && !fusionShape(hypNorm.length, na.length)) return SUBSTITUTE_COST
-  if (latinPhoneticMatch(hypNorm, nb) && !fusionShape(hypNorm.length, nb.length)) return SUBSTITUTE_COST
   const joined = na + nb
   const totalLen = Math.max(joined.length, hypNorm.length)
   const lenDiff = Math.abs(joined.length - hypNorm.length)
   // 连读吞音最多压缩 40% 字符（WERL 4 字 vs wherewe 7 字 → 差 3 在阈值内）
-  if (lenDiff > Math.max(2, Math.round(totalLen * 0.4))) return SUBSTITUTE_COST
+  const lenOk = lenDiff <= Math.max(2, Math.round(totalLen * 0.4))
+  const dist = weightedEditDistance(hypNorm, joined)
   // 块匹配距离阈值比单词匹配宽：段是两词的压缩，补字符较多（werl↔wherewe 距离 4）
-  return weightedEditDistance(hypNorm, joined) <= Math.ceil(totalLen * 0.55) ? 0 : SUBSTITUTE_COST
+  const distThr = Math.ceil(totalLen * 0.55)
+  // 高保真融合：距离极小且段比两个词都长（段唱了 a+b 两个词，like 4 字→liket 5 字）
+  const tight =
+    dist <= Math.max(1, Math.round(totalLen * 0.25)) &&
+    hypNorm.length > na.length &&
+    hypNorm.length > nb.length
+  // 段能独立匹配 a 或 b（段可能是该词的变体/完整拼写，如 talking↔talki'、obama↔obama）：
+  //   段只唱了一个词，拼接匹配多为巧合 → 必须高保真（tight）才允许分裂，否则拦截，
+  //   避免把邻词误吞（talking 段配 talki' 后跟 that，that 保持无段）。
+  // 段不独立匹配 a/b（段是两词的真融合，如 nevrouk↔never+fuck、werl↔where+we）：
+  //   按宽阈值判定。fusionShape（段≥2 倍词长，WERL 4 vs we 2）视为融合形态不算独立匹配。
+  const fusionShape = (hypLen: number, wordLen: number) => wordLen > 0 && hypLen >= 2 * wordLen
+  const aInd = latinPhoneticMatch(hypNorm, na) && !fusionShape(hypNorm.length, na.length)
+  const bInd = latinPhoneticMatch(hypNorm, nb) && !fusionShape(hypNorm.length, nb.length)
+  if ((aInd || bInd) && !tight) return SUBSTITUTE_COST
+  return lenOk && dist <= distThr ? 0 : SUBSTITUTE_COST
 }
 
 /**
@@ -296,6 +305,9 @@ function mergedMatchCost(
     if (t < lineRange.startSec - LINE_MATCH_PAD_SEC || t > lineRange.endSec + LINE_MATCH_PAD_SEC) {
       return SUBSTITUTE_COST
     }
+    // 合并块第二段不得起始于本行演唱末尾之后：本行末词吞并下一行行首词
+    // 的识别段（worse+IF、more+TON、died+WE）在此被拒，跨行合并块整体作废。
+    if (hypB.start >= lineRange.endSec) return SUBSTITUTE_COST
   }
   if (hypB.start - hypA.end > BLOCK_MAX_GAP_SEC) return SUBSTITUTE_COST
   const joined = normalizeForMatch(hypA.text) + normalizeForMatch(hypB.text)
