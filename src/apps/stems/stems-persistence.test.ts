@@ -922,6 +922,93 @@ async function testFlacArchiveRoundTrip(): Promise<void> {
   console.log('ok: FLAC 压缩包 save → load round-trip')
 }
 
+/**
+ * FLAC 保存不破坏主线程 PCM：encodeTrack 被调用后（worker 侧拿到的是 slice 副本）
+ * 原始 stems 数据仍完好、可二次保存 / 回退 WAV。回归保护：
+ * 若 encodeTrack 直接 transfer 了 data.buffer（旧 bug），保存后数据被 detach。
+ */
+async function testFlacSaveKeepsPcmIntact(): Promise<void> {
+  const stems = makeFakeStems(60_000)
+  const before = stems.map((s) => ({
+    length: s.data.length,
+    byteLength: s.data.buffer.byteLength,
+    sample: s.data[12345],
+  }))
+  const chunks: Uint8Array[] = []
+  // mock worker 侧 FLAC 编码：与真实 worker 一致——只读入参、不 detach 调用方数据
+  let encodeCallCount = 0
+  const fakeFlac = new Uint8Array([0x66, 0x4c, 0x61, 0x43, 0x80, 0, 0, 0x22])
+  const encodeTrack = async (data: Float32Array): Promise<Uint8Array> => {
+    encodeCallCount += 1
+    assert.ok(data.length > 0, 'encodeTrack 入参 PCM 不应为空')
+    return fakeFlac
+  }
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.flac',
+    sourceName: 'song.flac',
+    durationSec: 12,
+    sampleRate: 44100,
+    codec: 'flac',
+    encodeTrack,
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  assert.equal(encodeCallCount, stems.length, '每轨应调用一次 encodeTrack')
+  // 保存后主线程 PCM 未被 detach：长度、底层 buffer、采样值均保持不变
+  stems.forEach((s, i) => {
+    assert.equal(s.data.length, before[i]!.length, `${s.stemId} 长度不变`)
+    assert.equal(s.data.buffer.byteLength, before[i]!.byteLength, `${s.stemId} buffer 未被 detach`)
+    assert.equal(s.data[12345], before[i]!.sample, `${s.stemId} 采样值不变`)
+  })
+  // 包内条目为 *.flac 且 STORE
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let offset = 0
+  for (const c of chunks) {
+    zipBytes.set(c, offset)
+    offset += c.length
+  }
+  const methods = zipEntryMethods(zipBytes)
+  for (const stem of stems) {
+    const name = stemAudioEntryName(stem.stemId, 'flac')
+    assert.equal(methods.get(name), 0, `${name} 应 STORE（FLAC 已压缩）`)
+  }
+  // 数据完好 → 可立即以 WAV 回退保存（模拟 FLAC 编码失败后的 fallback 路径）
+  const wavChunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.flac',
+    sourceName: 'song.flac',
+    durationSec: 12,
+    sampleRate: 44100,
+    codec: 'wav',
+    sink: {
+      write: (c) => {
+        wavChunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const wavZip = new Uint8Array(wavChunks.reduce((n, c) => n + c.length, 0))
+  offset = 0
+  for (const c of wavChunks) {
+    wavZip.set(c, offset)
+    offset += c.length
+  }
+  const unzipped = unzipSync(wavZip)
+  const wav = unzipped[stemWavEntryName(stems[0].stemId)]!
+  // WAV 数据区非全零（detach 后读到的会是全 0/损坏），证明回退路径写入了真实 PCM
+  assert.ok(
+    new Uint8Array(wav.subarray(44, 44 + 2048)).some((b) => b !== 0),
+    '回退 WAV 应含真实 PCM（非空/非静音）',
+  )
+  console.log('ok: FLAC 保存后主线程 PCM 完好（可二次保存 / 回退 WAV）')
+}
+
 /** manifest 校验：codec 字段、条目格式一致性、旧版缺省 wav。 */
 function testManifestFlacValidation(): void {
   const base = {
@@ -976,4 +1063,5 @@ testArchivePath()
 testArchiveEntryNames()
 await testFlacRoundTrip()
 await testFlacArchiveRoundTrip()
+await testFlacSaveKeepsPcmIntact()
 testManifestFlacValidation()
