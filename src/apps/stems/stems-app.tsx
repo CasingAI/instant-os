@@ -2846,6 +2846,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               value={metronomeVolume}
               disabled={!tempo}
               onChange={(event) => setMetronomeVolume(Number(event.currentTarget.value))}
+              style={{ '--stems-vol-fill': `${metronomeVolume * 100}%` } as Record<string, string>}
               aria-label="节拍器音量"
             />
           </div>
@@ -3808,6 +3809,7 @@ function StemTrackRow({
           step={0.01}
           value={track.volume}
           onChange={(event) => onVolume(Number(event.currentTarget.value))}
+          style={{ '--stems-vol-fill': `${track.volume * 100}%` } as Record<string, string>}
           title="音量"
           aria-label="音量"
         />

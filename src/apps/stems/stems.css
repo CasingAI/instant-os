@@ -317,7 +317,16 @@
 .stems__volume::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 3px;
-  background: linear-gradient(180deg, #6a655c 0%, #8e887e 100%);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0.05) 45%, rgba(255, 255, 255, 0.18) 100%),
+    linear-gradient(
+      90deg,
+      #4a9af0 0%,
+      var(--stems-accent) calc(var(--stems-vol-fill, 0%) - 4px),
+      var(--stems-accent) var(--stems-vol-fill, 0%),
+      #6a655c var(--stems-vol-fill, 0%),
+      #8e887e 100%
+    );
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
@@ -335,6 +344,31 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     0 1px 2px rgba(0, 0, 0, 0.3);
   cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+
+.stems__volume::-webkit-slider-thumb:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 3px rgba(0, 0, 0, 0.38);
+}
+
+.stems__volume::-webkit-slider-thumb:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.96);
+  filter: brightness(0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.stems__volume::-webkit-slider-thumb:focus-visible {
+  outline: 2px solid var(--stems-accent);
+  outline-offset: 2px;
+  border-radius: 50%;
 }
 
 /* 底部缩放工具栏：缩放 + 迷你图同条，尽量矮 */
@@ -724,7 +758,13 @@
   gap: 4px;
   flex: none;
   min-width: 0;
-  overflow: hidden;
+  /* 不裁剪：thumb 的 box-shadow（含 hover 加深）会向上下各溢出约 3px，
+     overflow:hidden 会沿 padding box 把阴影切掉；容器内无其他需裁剪的内容，
+     阴影自然溢入轨道卡片 8px 内边距，同时不抬高第三列 */
+  overflow: visible;
+  /* 两端各 8px 留白收在容器 padding 上：滑块可撑满列宽（max-width:none），
+     16px 圆形 thumb 恰好落在留白内，不与相邻列/卡片边框相碰 */
+  padding: 0 8px;
 }
 
 .stems__track-chips {
@@ -735,12 +775,12 @@
   flex: none;
 }
 
-/* 轨控音量条：独占一行撑满第三列（节拍器音量条不受影响，仍为 56px）；
-   左右各收 8px，让两端处 16px 圆形 thumb 不溢出容器边界 */
+/* 轨控音量条：独占一行撑满第三列（节拍器音量条不受影响，仍为 56px） */
 .stems__track-controls .stems__volume {
-  width: auto;
+  width: 100%;
   min-width: 0;
-  margin: 0 8px;
+  max-width: none;
+  margin: 0;
   flex: none;
 }
 
