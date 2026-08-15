@@ -216,3 +216,45 @@ const ref = (text: string): G2pUnit[] =>
   assert.ok(Number.isNaN(r[1].start), '逗号不参与匹配（-1）')
   assert.ok(Number.isNaN(r[2].start), 'that 未匹配')
 }
+
+// —— 14. 词形变化后缀（ASR 弱读把词形读成原形） ——
+{
+  assert.equal(phoneticMatch('put', 'putting'), true, 'putting = put + t(双写) + ing')
+  assert.equal(phoneticMatch('run', 'running'), true, 'running = run + n + ing')
+  assert.equal(phoneticMatch('stop', 'stopped'), true, 'stopped = stop + p + ed')
+  assert.equal(phoneticMatch('talk', 'talking'), true, 'talking = talk + ing')
+  assert.equal(phoneticMatch('big', 'bigger'), true, 'bigger = big + g + er')
+  assert.equal(phoneticMatch('boy', 'boys'), true, 'boys = boy + s')
+  // 防误配：welcome 不以已知词形后缀结尾，单独对 wel/come 仍应拒绝（靠合并块才能对上）
+  assert.equal(phoneticMatch('wel', 'welcome'), false, 'wel 不是 welcome 的词形')
+  assert.equal(phoneticMatch('come', 'welcome'), false, 'come 不是 welcome 的词形')
+}
+
+// —— 15. 前缀规则优先于 2 字母分支（缩写多音节 we↔we've） ——
+{
+  assert.equal(phoneticMatch('we', "we've"), true, 'weve 以 we 为前缀，差 2 在前缀阈值内')
+  assert.equal(phoneticMatch('love', 'live'), false, 'love/live 元音差异仍拒绝')
+  assert.equal(phoneticMatch('HY', 'why'), true, '2 字母词距离分支保持')
+}
+
+// —— 16. 合并块：两个识别单元拼一个歌词词（wel+come→welcome） ——
+{
+  const segments: HypSegment[] = [
+    { symbol: 'wel', start: 22.0, end: 22.3 },
+    { symbol: 'come', start: 22.35, end: 22.9 },
+  ]
+  const r = alignTextToUnits(segments, [{ text: 'welcome', phones: [] }])
+  assert.ok(Number.isFinite(r[0].start), 'wel+come 合并应命中 welcome')
+  assert.ok(Math.abs(r[0].start - 22.0) < 1e-9, 'welcome 起点 = 第一段起点')
+  assert.ok(Math.abs(r[0].end - 22.9) < 1e-9, 'welcome 终点 = 第二段终点')
+}
+
+// —— 17. 合并间隙约束：两段间隔过大不拼接 ——
+{
+  const segments: HypSegment[] = [
+    { symbol: 'wel', start: 22.0, end: 22.3 },
+    { symbol: 'come', start: 23.0, end: 23.5 }, // 间隔 0.7s > BLOCK_MAX_GAP_SEC
+  ]
+  const r = alignTextToUnits(segments, [{ text: 'welcome', phones: [] }])
+  assert.ok(Number.isNaN(r[0].start), '间隔过大的两段不应合并成 welcome')
+}

@@ -15,6 +15,7 @@ import {
   alignTextBacktrace,
   alignTextToUnits,
   anchorSpanForUnit,
+  buildHypToRef,
   collectFallbackAnchors,
   collectPositionAnchors,
   expandHypSegments,
@@ -175,26 +176,26 @@ export function alignSegmentsByLine(
 
     // 行内独立 DTW：只有「听起来像同一个词」且时间贴近本行的识别段才拿得到时间戳，
     // 对不上的（含跨行中文、后面英文）代价高于跳过 → 在代价层直接跳过，不留假锚点
-    const { refToHyp } = alignTextBacktrace(windowSegs, line.units, {
+    const { refToHyp, mergedSecond } = alignTextBacktrace(windowSegs, line.units, {
       startSec: tStart,
       endSec: tEndFinal,
     })
     const hyp = expandHypSegments(windowSegs)
     const rowKnown: KnownAnchor[] = []
     for (let u = 0; u < line.units.length; u++) {
-      const span = anchorSpanForUnit(u, refToHyp, hyp, line.units)
+      const span = anchorSpanForUnit(u, refToHyp, hyp, line.units, mergedSecond)
       if (span) {
         rowKnown.push({ unitIndex: u, start: span.start, end: span.end })
       }
     }
     // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红——
     // 「没对上歌词」不等于「没有声学证据」，那块声学证据应归属该位置
-    rowKnown.push(...collectPositionAnchors(refToHyp, hyp, line.units))
+    rowKnown.push(...collectPositionAnchors(refToHyp, hyp, line.units, mergedSecond))
     rowKnown.sort((a, b) => a.unitIndex - b.unitIndex)
 
     // 行内单元初值：匹配词用识别时间，未匹配为 NaN
     const rowUnits: AlignedUnit[] = line.units.map((u, k) => {
-      const span = anchorSpanForUnit(k, refToHyp, hyp, line.units)
+      const span = anchorSpanForUnit(k, refToHyp, hyp, line.units, mergedSecond)
       return {
         text: u.text,
         phones: u.phones,
@@ -307,7 +308,7 @@ export function traceAlignRow(
   const windowSegs = segments.filter((s) => s.end >= lo && s.start <= hi)
 
   // 编辑距离回溯：只有「听起来像同一个词」且时间贴近本行的识别段才匹配（假匹配在代价层被跳过）
-  const { refToHyp } = alignTextBacktrace(windowSegs, refLine.units, {
+  const { refToHyp, mergedSecond } = alignTextBacktrace(windowSegs, refLine.units, {
     startSec: tStart,
     endSec: tEndFinal,
   })
@@ -317,7 +318,7 @@ export function traceAlignRow(
   const recogEnd = new Float64Array(refLine.units.length).fill(Number.NaN)
   const known: KnownAnchor[] = []
   for (let u = 0; u < refLine.units.length; u++) {
-    const span = anchorSpanForUnit(u, refToHyp, hyp, refLine.units)
+    const span = anchorSpanForUnit(u, refToHyp, hyp, refLine.units, mergedSecond)
     if (span) {
       recogStart[u] = span.start
       recogEnd[u] = span.end
@@ -325,16 +326,12 @@ export function traceAlignRow(
     }
   }
   // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红
-  const posAnchors = collectPositionAnchors(refToHyp, hyp, refLine.units)
+  const posAnchors = collectPositionAnchors(refToHyp, hyp, refLine.units, mergedSecond)
   known.push(...posAnchors)
   known.sort((a, b) => a.unitIndex - b.unitIndex)
 
-  // 识别块 → 归属歌词单元（真锚点 refIndex；位置锚点 positionRefIndex）
-  const hypToRef = new Map<number, number>()
-  for (const k of known) {
-    const h = refToHyp[k.unitIndex]
-    if (h >= 0) hypToRef.set(h, k.unitIndex)
-  }
+  // 识别块 → 归属歌词单元（真锚点 refIndex；合并块内两段同属一个 ref；位置锚点 positionRefIndex）
+  const hypToRef = buildHypToRef(refToHyp, hyp.length, mergedSecond)
   const hypToPosRef = new Map<number, number>()
   for (const pa of posAnchors) hypToPosRef.set(pa.hypIndex, pa.unitIndex)
   const hypBlocks: TraceHypBlock[] = hyp.map((b, i) => ({

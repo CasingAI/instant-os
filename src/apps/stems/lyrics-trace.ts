@@ -7,6 +7,7 @@
 import {
   alignTextBacktrace,
   anchorSpanForUnit,
+  buildHypToRef,
   collectPositionAnchors,
   expandHypSegments,
   normalizeForMatch,
@@ -125,14 +126,14 @@ export function traceAlignGlobal(
   lineText: string,
 ): LineTraceRow {
   const refLine = buildLyricsSkeleton(lineText)[0]
-  const { refToHyp } = alignTextBacktrace(segments, refLine.units)
+  const { refToHyp, mergedSecond } = alignTextBacktrace(segments, refLine.units)
   const hyp = expandHypSegments(segments)
 
   const recogStart = new Float64Array(refLine.units.length).fill(Number.NaN)
   const recogEnd = new Float64Array(refLine.units.length).fill(Number.NaN)
   const known: KnownAnchor[] = []
   for (let u = 0; u < refLine.units.length; u++) {
-    const span = anchorSpanForUnit(u, refToHyp, hyp, refLine.units)
+    const span = anchorSpanForUnit(u, refToHyp, hyp, refLine.units, mergedSecond)
     if (span) {
       recogStart[u] = span.start
       recogEnd[u] = span.end
@@ -140,15 +141,12 @@ export function traceAlignGlobal(
     }
   }
   // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红
-  const posAnchors = collectPositionAnchors(refToHyp, hyp, refLine.units)
+  const posAnchors = collectPositionAnchors(refToHyp, hyp, refLine.units, mergedSecond)
   known.push(...posAnchors)
   known.sort((a, b) => a.unitIndex - b.unitIndex)
 
-  const hypToRef = new Map<number, number>()
-  for (const k of known) {
-    const h = refToHyp[k.unitIndex]
-    if (h >= 0) hypToRef.set(h, k.unitIndex)
-  }
+  // 合并块内两个识别段同属一个 ref（wel+come→welcome 都显示「对上」）
+  const hypToRef = buildHypToRef(refToHyp, hyp.length, mergedSecond)
   const hypToPosRef = new Map<number, number>()
   for (const pa of posAnchors) hypToPosRef.set(pa.hypIndex, pa.unitIndex)
   const hypBlocks: TraceHypBlock[] = hyp.map((b, i) => ({
