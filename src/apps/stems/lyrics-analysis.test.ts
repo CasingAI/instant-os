@@ -245,6 +245,39 @@ function lrcLines(raw: string) {
   assert.ok(describeLineIssue(stPunct, { matched: 4, total: 4 }).includes('正常'), '标点不应计入红词')
 }
 
+// —— describeLineIssue：补救来源文案与徽章对齐（A3 / C6） ——
+{
+  // 1 红词行（补救识别仍有红词）
+  const red = lrcLines('[00:10.00]<00:10.00|f>a<00:10.30>b\n[00:12.00]next')
+  const stRed = computeLineStats(red)[0]
+  assert.ok(
+    describeLineIssue(stRed, undefined, 'rescue-recognize:zipformer').includes('经补救识别'),
+    'rescue-recognize 文案说明补救来源',
+  )
+  assert.ok(
+    describeLineIssue(stRed, undefined, 'rescue-recognize:zipformer').includes('1 词插值兜底'),
+    '补救后仍插值的词数计入文案',
+  )
+  // 补救失败
+  assert.ok(
+    describeLineIssue(stRed, undefined, 'rescue-failed').includes('补救失败'),
+    'rescue-failed 文案明确失败且保持原行',
+  )
+  // 补救部分成功
+  assert.ok(
+    describeLineIssue(stRed, undefined, 'rescue-partial:zipformer').includes('部分成功'),
+    'rescue-partial 文案说明部分成功',
+  )
+  // 补救全对上：不报红词
+  const full = lrcLines('[00:10.00]<00:10.00>a<00:10.30>b\n[00:12.00]next')
+  assert.ok(
+    describeLineIssue(computeLineStats(full)[0], undefined, 'rescue-recognize:zipformer').includes(
+      '均对上补救段',
+    ),
+    '补救全对上时文案不报红词',
+  )
+}
+
 // —— spreadLineToWindow：词均匀铺进行区间 ——
 {
   const line = lrcLines('[00:10.00]<00:10.00>a<00:10.05>b<00:10.10>c\n[00:13.00]next')[0]
@@ -592,6 +625,42 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.ok(!chart.layers.some((l) => l.key === 'current'))
 }
 
+// 4b. buildFocusTrace：补救候选段优先展示（A1：消除「有证据但图上看不到」矛盾）
+{
+  const wholeSegs: HypSegment[] = [
+    { symbol: 'SAY', start: 56, end: 56.2 },
+    { symbol: 'X', start: 57, end: 57.2 },
+  ]
+  const rescueSegs: HypSegment[] = [
+    { symbol: 'In', start: 54.22, end: 54.54 },
+    { symbol: 'New', start: 54.54, end: 54.58 },
+  ]
+  const chart = buildFocusTrace(
+    wholeSegs,
+    'In New York',
+    54.24,
+    56.16,
+    { startSec: 53.74, endSec: 56.66 },
+    undefined,
+    rescueSegs,
+  )
+  assert.equal(chart.hypLabel, '补救识别（行窗）', '补救段时识别层标注来源')
+  assert.ok(chart.hypBlocks.some((h) => h.text === 'In'), '补救段进入识别层')
+  assert.ok(!chart.hypBlocks.some((h) => h.text === 'SAY'), '整首段不混入（补救段优先）')
+  assert.equal(chart.layers[0].words.length, 3, '歌词层仍按行原文')
+  // 不传补救段时保持原行为（默认标签 + 整首段）
+  const plain = buildFocusTrace(
+    wholeSegs,
+    'In New York',
+    54.24,
+    56.16,
+    { startSec: 53.74, endSec: 56.66 },
+    undefined,
+  )
+  assert.equal(plain.hypLabel, undefined, '无补救段时识别层保持默认标签')
+  assert.ok(plain.hypBlocks.some((h) => h.text === 'SAY'), '无补救段时用整首段')
+}
+
 // 6. CTC / 摊开 的图结构
 {
   const chart = buildCtcTrace([{ symbol: 'In', start: 10, end: 10.2 }], { startSec: 9.5, endSec: 11 }, [
@@ -714,6 +783,8 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.equal(parseLineSource('whole-ctc'), 'whole-ctc')
   assert.equal(parseLineSource('rescue-recognize'), 'rescue-recognize')
   assert.equal(parseLineSource('rescue-ctc'), 'rescue-ctc')
+  assert.equal(parseLineSource('rescue-partial'), 'rescue-partial', '部分补救可解析')
+  assert.equal(parseLineSource('rescue-partial:zipformer'), 'rescue-partial:zipformer', '部分补救带模型可解析')
   assert.equal(parseLineSource('restored'), 'restored')
   assert.equal(parseLineSource('rescue-failed'), 'rescue-failed', '补救失败标记可解析')
   assert.equal(parseLineSource('manual-ctc-align'), 'manual-ctc-align', '合法 manual 动作可解析')
@@ -734,6 +805,8 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.equal(lineSourceLabel('whole-ctc'), '整首 CTC 对齐')
   assert.equal(lineSourceLabel('rescue-recognize'), 'Zipformer 识别补救（方案1）')
   assert.equal(lineSourceLabel('rescue-ctc'), 'Zipformer CTC 补救（方案2）')
+  assert.equal(lineSourceLabel('rescue-partial'), '补救部分成功（仍有红词）')
+  assert.equal(lineSourceLabel('rescue-partial:zipformer'), '补救部分成功（仍有红词）')
   assert.equal(lineSourceLabel('restored'), '载入恢复')
   assert.equal(lineSourceLabel('rescue-failed'), '补救失败（保持原行）')
   assert.equal(lineSourceLabel('manual-spread'), '手动·摊开到行区间')

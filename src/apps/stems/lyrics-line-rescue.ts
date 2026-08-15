@@ -51,6 +51,10 @@ export type RescueSource = 'rescue-recognize' | 'rescue-ctc'
 export type RescueCandidate = {
   line: LyricsLine
   source: RescueSource
+  /** 方案1（识别）产出的全局轴识别段：供追踪图展示候选的真实识别证据 */
+  segments?: HypSegment[]
+  /** 候选匹配度（0-1，pickBestLine 选优时回填）：供复盘留痕 */
+  score?: number
 }
 
 /**
@@ -64,6 +68,8 @@ export function pickBestLine(candidates: RescueCandidate[], baselineScore = 0): 
   for (const candidate of candidates) {
     if (!candidate.line || !candidate.line.words || candidate.line.words.length === 0) continue
     const score = scoreLineUnits(candidate.line)
+    // 顺手回填候选分：供调用方复盘留痕（未选中的候选也带分）
+    candidate.score = score
     if (score > bestScore) {
       bestScore = score
       best = candidate
@@ -98,6 +104,12 @@ export type RescueLineParams = {
 export type RescueLineResult = {
   line: LyricsLine | null
   source: RescueSource | null
+  /** 采用方案的识别段（方案1 全局轴；方案2/失败为 undefined），供追踪图展示 */
+  segments?: HypSegment[]
+  /** 采用候选的匹配度（0-1）；未采用为 undefined */
+  score?: number
+  /** 原行基线匹配度（选优基准；候选必须严格优于它才替换） */
+  baselineScore?: number
 }
 
 /**
@@ -122,8 +134,16 @@ export async function rescueLine(params: RescueLineParams): Promise<RescueLineRe
     const line = callbacks.alignBySegments(shifted, lineText)
     if (line && line.words && line.words.length > 0) {
       // 非标点词全部对上识别：无需再试其他方案
-      if (scoreLineUnits(line) >= 1) return { line, source: 'rescue-recognize' }
-      candidates.push({ line, source: 'rescue-recognize' })
+      if (scoreLineUnits(line) >= 1) {
+        return {
+          line,
+          source: 'rescue-recognize',
+          segments: shifted,
+          score: 1,
+          baselineScore,
+        }
+      }
+      candidates.push({ line, source: 'rescue-recognize', segments: shifted })
     }
   }
 
@@ -143,5 +163,14 @@ export async function rescueLine(params: RescueLineParams): Promise<RescueLineRe
     }
   }
 
-  return pickBestLine(candidates, baselineScore) ?? { line: null, source: null }
+  const best = pickBestLine(candidates, baselineScore)
+  return best
+    ? {
+        line: best.line,
+        source: best.source,
+        segments: best.segments,
+        score: best.score,
+        baselineScore,
+      }
+    : { line: null, source: null, baselineScore }
 }

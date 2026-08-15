@@ -105,7 +105,7 @@ export function LyricsTraceChart({
   let cursorY = 0
   rows.push({
     key: 'hyp',
-    label: '模型听到的',
+    label: chart.hypLabel ?? '模型听到的',
     kind: 'hyp',
     top: cursorY,
     height: hypLaid.laneCount * LANE_H,
@@ -122,6 +122,7 @@ export function LyricsTraceChart({
       refIndex: w.refIndex,
       interpolated: w.interpolated,
       failed: w.failed,
+      endFallback: w.endFallback,
     }))
     const laid = layoutTraceItems(items, view.startSec, pxPerSec, plotW)
     rows.push({
@@ -264,7 +265,9 @@ export function LyricsTraceChart({
                             : '（没对上任何词）'
                           : b.failed
                             ? '（无识别证据，插值兜底）'
-                            : ''
+                            : b.endFallback
+                              ? '（end 为显示兜底，非识别边界）'
+                              : ''
                       }`}
                     >
                       <span

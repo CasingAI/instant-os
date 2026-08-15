@@ -318,3 +318,61 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
   assert.equal(result.line, null, '原行已满分 → 保持原行')
   assert.equal(recognizeCalled, false, '不再跑任何备选方案')
 }
+
+// —— pickBestLine：候选回填 score（复盘留痕；未选中的候选也带分） ——
+{
+  const worse = mkLine([{ text: '大' }, { text: '家', failed: true }]) // 0.5
+  const better = mkLine([{ text: '大' }, { text: '家' }]) // 1.0
+  const c1: Parameters<typeof pickBestLine>[0][number] = {
+    line: worse,
+    source: 'rescue-recognize',
+  }
+  const c2 = { line: better, source: 'rescue-ctc' }
+  const picked = pickBestLine([c1, c2])
+  assert.equal(picked?.line, better, '选评分最高')
+  assert.equal(c1.score, 0.5, '未选中的候选也回填 score')
+  assert.equal(c2.score, 1, '胜出候选 score 回填')
+}
+
+// —— rescueLine：结果带 segments / score / baselineScore（追踪图证据 + 复盘留痕） ——
+{
+  const result = await rescueLine({
+    lineText: '大家',
+    slice: new Float32Array(100),
+    startSec: 10,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }], 0), // 原行 0.5 分
+    callbacks: {
+      // 方案 1 全对上 → 提前返回，带识别段
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      forcedAlign: async () => null,
+      alignBySegments: () => mkLine([{ text: '大' }, { text: '家' }]),
+    },
+  })
+  assert.ok(result.line, '候选胜出')
+  assert.equal(result.source, 'rescue-recognize')
+  assert.ok(result.segments && result.segments.length === 1, '结果带方案 1 识别段')
+  assert.equal(result.segments![0].start, 10, '识别段已偏移回全局轴')
+  assert.equal(result.score, 1, '采用候选的匹配度')
+  assert.equal(result.baselineScore, 0.5, '原行基线匹配度')
+}
+
+// —— rescueLine：候选不优于原行 → line null 但 baselineScore 保留 ——
+{
+  const result = await rescueLine({
+    lineText: '大家好',
+    slice: new Float32Array(100),
+    startSec: 0,
+    hasLineTime: true,
+    currentLine: mkLine([{ text: '大' }, { text: '家', failed: true }]), // 原行 0.5 分
+    callbacks: {
+      recognize: async () => ({ segments: [{ symbol: '大', start: 0, end: 0.2 }] }),
+      forcedAlign: async () => null,
+      alignBySegments: () =>
+        mkLine([{ text: '大' }, { text: '家', failed: true }, { text: '好', failed: true }]), // 0.33 分
+    },
+  })
+  assert.equal(result.line, null, '候选不优于原行 → 保持原行')
+  assert.equal(result.baselineScore, 0.5, '失败也保留原行基线分供复盘')
+  assert.equal(result.score, undefined, '未采用时无候选分')
+}

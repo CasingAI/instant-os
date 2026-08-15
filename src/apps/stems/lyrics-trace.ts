@@ -28,6 +28,8 @@ export type TraceChartWord = {
   failed?: boolean
   /** 插值兜底（无识别证据） */
   interpolated?: boolean
+  /** 末词无真实 end 时的显示兜底（+0.4s 或行尾钳制；不是识别边界） */
+  endFallback?: boolean
   /** 位置锚点钉的时间（内容未对上，仅按位置钉；undefined = 非位置锚点） */
   posAnchorSec?: number
   /** 对应识别块的 refIndex（仅首层词有；-1 = 无匹配识别块） */
@@ -48,18 +50,33 @@ export type TraceChart = {
   windowSec: { startSec: number; endSec: number }
   hypBlocks: TraceHypBlock[]
   layers: TraceChartLayer[]
+  /** 识别段层标签（默认「模型听到的」；补救候选段时标注来源） */
+  hypLabel?: string
 }
 
-/** LyricsWord[] → 图词块（无 end 的用下一词或 +0.4s 兜底） */
-export function wordsToTraceWords(words: LyricsWord[]): TraceChartWord[] {
+/** LyricsWord[] → 图词块（无 end 的用下一词或 +0.4s 兜底；lineEndSec 钳制末词 end） */
+export function wordsToTraceWords(
+  words: LyricsWord[],
+  lineEndSec?: number,
+): TraceChartWord[] {
   return words.map((w, i) => {
     const next = words[i + 1]
-    const endSec = next ? next.timeMs / 1000 : w.timeMs / 1000 + 0.4
+    let endSec: number
+    let endFallback = false
+    if (next) {
+      endSec = next.timeMs / 1000
+    } else {
+      // 末词无真实 end：显示兜底（+0.4s，可能被行尾钳制），标注为非识别边界
+      endSec = w.timeMs / 1000 + 0.4
+      endFallback = true
+      if (lineEndSec !== undefined) endSec = Math.min(endSec, lineEndSec)
+    }
     return {
       text: w.text.trim(),
       startSec: w.timeMs / 1000,
       endSec,
       failed: w.failed,
+      endFallback,
       refIndex: -1,
     }
   })
@@ -188,17 +205,23 @@ export function buildFocusTrace(
   lineEndSec: number,
   windowSec: { startSec: number; endSec: number },
   currentWords: LyricsWord[] | undefined,
+  rescueSegments?: HypSegment[] | null,
 ): TraceChart {
   const refLine = buildLyricsSkeleton(lineText)[0]
-  const row = traceAlignRow(phonemes ?? [], refLine, lineStartSec, lineEndSec)
+  // 补救候选段优先：该行被补救采用时，展示候选的真实识别证据（否则「模型听到的」看不到补救段，
+  // 与当前保存行「有证据但图上看不到」矛盾）；无补救段才回退整首识别段重跑。
+  const evidence =
+    rescueSegments && rescueSegments.length > 0 ? rescueSegments : (phonemes ?? [])
+  const row = traceAlignRow(evidence, refLine, lineStartSec, lineEndSec)
   const chart = traceRowToChart(row, windowSec)
+  if (rescueSegments && rescueSegments.length > 0) chart.hypLabel = '补救识别（行窗）'
 
   if (currentWords && currentWords.length > 0) {
     const same =
       currentWords.length === row.words.length &&
       currentWords.every((w, i) => Math.abs(w.timeMs / 1000 - row.words[i].finalStartSec) < 0.02)
     if (!same) {
-      const words = wordsToTraceWords(currentWords)
+      const words = wordsToTraceWords(currentWords, lineEndSec)
       const prev = chart.layers[chart.layers.length - 1]
       chart.layers.push({
         key: 'current',
@@ -325,7 +348,7 @@ export function formatChartDump(chart: TraceChart): string {
   const lines = [
     `图窗口 ${stamp(chart.windowSec.startSec)}–${stamp(chart.windowSec.endSec)}`,
     '',
-    `模型听到的（${chart.hypBlocks.length} 块）`,
+    `${chart.hypLabel ?? '模型听到的'}（${chart.hypBlocks.length} 块）`,
   ]
   if (chart.hypBlocks.length === 0) lines.push('  （没有识别段）')
   else for (const h of chart.hypBlocks) lines.push(formatHypLine(h, firstLyric))
@@ -344,6 +367,7 @@ export function formatLineTraceDump(info: {
   lineText: string
   nextLineText?: string
   diagnosis?: string
+  rescueNote?: string
   lineStartSec?: number
   lineEndSec?: number
   currentWords?: LyricsWord[]
@@ -358,6 +382,7 @@ export function formatLineTraceDump(info: {
   lines.push(`行 #${info.lineIndex + 1}  [${start}]–[${end}]  ${info.lineText}`)
   if (info.nextLineText) lines.push(`下一行  ${info.nextLineText}`)
   if (info.diagnosis) lines.push(`诊断  ${info.diagnosis}`)
+  if (info.rescueNote) lines.push(`补救复盘  ${info.rescueNote}`)
   if (info.currentWords && info.currentWords.length > 0) {
     lines.push('')
     lines.push('主界面当前词')
@@ -394,6 +419,8 @@ export type TraceLayoutItem = {
   positionRefIndex?: number
   interpolated?: boolean
   failed?: boolean
+  /** 末词无真实 end 的显示兜底（+0.4s 或行尾钳制；不是识别边界） */
+  endFallback?: boolean
   /** 识别块是否对上了词 */
   matched?: boolean
 }

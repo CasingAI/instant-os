@@ -56,7 +56,7 @@ import {
   resolveLineTimes,
   type LineSource,
 } from './lyrics-analysis.ts'
-import { rescueLine, shouldRescueLine } from './lyrics-line-rescue.ts'
+import { rescueLine, scoreLineUnits, shouldRescueLine } from './lyrics-line-rescue.ts'
 import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
@@ -331,6 +331,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 当前对齐结果每行的方案来源（与 karaokeLines 行一一对应；随 .stems.zip 持久化） */
   const [lineSources, setLineSources] = useState<LineSource[]>([])
   const lineSourcesRef = useRef<LineSource[]>([])
+  /** 每行补救采用方案的识别段（与 karaokeLines 行一一对应；供追踪图展示候选真实证据） */
+  const rescueSegmentsRef = useRef<(HypSegment[] | null)[] | null>(null)
+  /** 每行补救的分数留痕（score=候选分、baselineScore=原行分；复盘 dump 用） */
+  const rescueStatsRef = useRef<({ score?: number; baselineScore?: number } | null)[] | null>(
+    null,
+  )
   /** 歌词抽屉试听：开 = 只播 vocals 轨（模型实际听到的）；关 = 全轨混音 */
   const [analysisPreviewVocalsOnly, setAnalysisPreviewVocalsOnly] = useState(false)
   /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
@@ -568,6 +574,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       for (const stem of stems) {
         const data = stem.data
         const frames = Math.floor(data.length / STEM_CHANNELS)
+        if (frames <= 0) {
+          // 空/已损坏 PCM：不建播放缓冲与峰值表，避免 createBuffer(0) 抛异常
+          continue
+        }
         const { bucketSamples, bucketCount } = waveformPyramidLayout(frames, rate)
         const buffer = ctx ? ctx.createBuffer(2, frames, rate) : null
         const left = buffer?.getChannelData(0)
@@ -844,6 +854,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     setAlignedLrc('')
     lineSourcesRef.current = []
     setLineSources([])
+    // 补救候选段随对齐结果一起失效（歌词/音频已变，旧证据不适用）
+    rescueSegmentsRef.current = null
+    rescueStatsRef.current = null
     setAlignRestoredFrom(false)
     setLyricsHint(hint)
   }, [])
@@ -889,9 +902,23 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       audio: Float32Array,
       sampleRate: number,
       reqId: number,
-    ): Promise<{ lrc: string; failedCount: number }> => {
+    ): Promise<{
+      lrc: string
+      failedCount: number
+      improvedCount: number
+      rescueSegments: (HypSegment[] | null)[]
+      rescueStats: ({ score?: number; baselineScore?: number } | null)[]
+    }> => {
       const lines = parseLrc(baseLrc).lines
-      if (lines.length === 0) return { lrc: baseLrc, failedCount: 0 }
+      if (lines.length === 0) {
+        return {
+          lrc: baseLrc,
+          failedCount: 0,
+          improvedCount: 0,
+          rescueSegments: [],
+          rescueStats: [],
+        }
+      }
       const stats = computeLineStats(lines)
       // 行来源副本：补救替换某行时同步更新该行来源；长度不匹配（如载入恢复）时按整首识别重建
       const sources: LineSource[] =
@@ -904,13 +931,32 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       for (let i = 0; i < lines.length; i++) {
         if (shouldRescueLine(stats[i], lines[i])) rescueIndexes.push(i)
       }
-      if (rescueIndexes.length === 0) return { lrc: baseLrc, failedCount: 0 }
+      if (rescueIndexes.length === 0) {
+        return {
+          lrc: baseLrc,
+          failedCount: 0,
+          improvedCount: 0,
+          rescueSegments: lines.map(() => null),
+          rescueStats: lines.map(() => null),
+        }
+      }
 
       let current = baseLrc
       let done = 0
       let failedCount = 0
+      let improvedCount = 0
+      const rescuedSegs: (HypSegment[] | null)[] = lines.map(() => null)
+      const rescuedStats: ({ score?: number; baselineScore?: number } | null)[] = lines.map(() => null)
       for (const lineIndex of rescueIndexes) {
-        if (alignReqSeqRef.current !== reqId) return { lrc: current, failedCount }
+        if (alignReqSeqRef.current !== reqId) {
+          return {
+            lrc: current,
+            failedCount,
+            improvedCount,
+            rescueSegments: rescuedSegs,
+            rescueStats: rescuedStats,
+          }
+        }
         const line = lines[lineIndex]
         if (!line) continue
         const startMs = times[lineIndex]
@@ -1011,17 +1057,34 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 ),
             },
           })
-          if (alignReqSeqRef.current !== reqId) return { lrc: current, failedCount }
+          if (alignReqSeqRef.current !== reqId) {
+            return {
+              lrc: current,
+              failedCount,
+              improvedCount,
+              rescueSegments: rescuedSegs,
+              rescueStats: rescuedStats,
+            }
+          }
           if (best && best.source && best.line && best.line.words && best.line.words.length > 0) {
             const next = patchLineIntoAlignedLrc(current, lineIndex, best.line.words)
             if (next !== current) {
               current = next
-              sources[lineIndex] = best.source
+              // 候选仍有红词 = 部分补救：来源标注「部分成功」，避免把救回大部分的行误读为失败
+              sources[lineIndex] =
+                best.source === 'rescue-recognize' && scoreLineUnits(best.line) < 1
+                  ? 'rescue-partial:zipformer'
+                  : best.source
+              // 补救候选段的识别证据随行记录：追踪图据此展示该行真实识别段
+              rescuedSegs[lineIndex] = best.segments ?? null
+              rescuedStats[lineIndex] = { score: best.score, baselineScore: best.baselineScore }
+              improvedCount += 1
             }
             // next === current：候选与原行逐字一致，保留原来源（结果无变化，不算失败）
           } else {
             // 补救失败：无候选、候选不优于原行或模型无结果，保持原行并标记可见
             sources[lineIndex] = 'rescue-failed'
+            rescuedStats[lineIndex] = { baselineScore: best?.baselineScore }
             failedCount += 1
           }
         } catch {
@@ -1033,7 +1096,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setAlignProgress(null)
       lineSourcesRef.current = sources
       setLineSources(sources)
-      return { lrc: current, failedCount }
+      rescueSegmentsRef.current = rescuedSegs
+      rescueStatsRef.current = rescuedStats
+      return {
+        lrc: current,
+        failedCount,
+        improvedCount,
+        rescueSegments: rescuedSegs,
+        rescueStats: rescuedStats,
+      }
     },
     [alignModel],
   )
@@ -1074,9 +1145,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             alignedLrcRef.current = rescued.lrc
             setAlignedLrc(rescued.lrc)
           }
-          if (rescued.failedCount > 0) {
-            setLyricsHint(`${rescued.failedCount} 行自动补救失败，可双击该行手动修复`)
-          }
+          setLyricsHint(formatRescueSummary(rescued.improvedCount, rescued.failedCount))
           const tracksNow = tracksRef.current
           if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
         } finally {
@@ -1278,9 +1347,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           alignedLrcRef.current = rescued.lrc
           setAlignedLrc(rescued.lrc)
         }
-        if (rescued.failedCount > 0) {
-          setAlignError(`${rescued.failedCount} 行自动补救失败，可双击该行手动修复`)
-        }
+        setAlignError(formatRescueSummary(rescued.improvedCount, rescued.failedCount))
         return true
       } catch (cause) {
         if (alignReqSeqRef.current !== reqId) return false
@@ -1642,6 +1709,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                   : new Array<LineSource>(lineCount).fill('restored')
               lineSourcesRef.current = restoredSources
               setLineSources(restoredSources)
+              // 包内无补救候选段记录：清空后由下面补救收尾 pass 重跑填充
+              rescueSegmentsRef.current = null
+              rescueStatsRef.current = null
               setAlignRestoredFrom(true)
               setLyricsHint(null)
               // 载入恢复后对红行做自动补救收尾（vocals 已解码）：旧包红行自动救回，
@@ -1667,11 +1737,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                       setAlignedLrc(rescued.lrc)
                       void saveCurrentStems(stems)
                     }
-                    if (rescued.failedCount > 0) {
-                      setLyricsHint(`${rescued.failedCount} 行自动补救失败，可双击该行手动修复`)
-                    } else {
-                      setLyricsHint(null)
-                    }
+                    setLyricsHint(formatRescueSummary(rescued.improvedCount, rescued.failedCount))
                   } finally {
                     if (alignReqSeqRef.current === reqId) {
                       setAlignBusy(false)
@@ -3404,6 +3470,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         lyrics={lyrics}
         lyricsLrc={lyricsLrcRef.current}
         phonemes={phonemesRef.current}
+        rescueSegments={rescueSegmentsRef.current}
+        rescueStats={rescueStatsRef.current}
         vocalsAudio={tracks?.find((t) => t.audio.stemId === 'vocals')?.audio.data ?? null}
         sampleRate={stemSampleRate}
         alignModel={alignModel}
@@ -3474,10 +3542,12 @@ function encodeTrackInWorker(
       }
     }
     worker.addEventListener('message', onMessage)
-    const buffer = data.buffer as ArrayBuffer
+    // 按视图范围复制切片再 transfer，避免 detach 主线程 PCM（否则二次保存报 already detached、
+    // 命中 decodeCache 后 createBuffer 0 帧崩溃）；同时规避 byteOffset ≠ 0 时 Worker 从 0 解析错位。
+    const bytes = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     worker.postMessage(
-      { type: 'encode-flac', stemId: 'track', data: buffer, sampleRate } satisfies StemsArchiveWorkerRequest,
-      [buffer],
+      { type: 'encode-flac', stemId: 'track', data: bytes, sampleRate } satisfies StemsArchiveWorkerRequest,
+      [bytes],
     )
   })
 }
@@ -3863,5 +3933,15 @@ function tempoSegGradient(bpm: number): string {
   const top = `hsl(${hue} 62% 62%)`
   const bottom = `hsl(${Math.max(0, hue - 18)} 60% 45%)`
   return `linear-gradient(180deg, ${top} 0%, ${bottom} 100%)`
+}
+
+/** 补救收尾摘要：改善/失败行数；无任何补救动作时返回 null（调用方清除旧提示）。 */
+function formatRescueSummary(improvedCount: number, failedCount: number): string | null {
+  if (improvedCount <= 0 && failedCount <= 0) return null
+  const bits: string[] = []
+  if (improvedCount > 0) bits.push(`改善 ${improvedCount} 行`)
+  if (failedCount > 0) bits.push(`失败 ${failedCount} 行`)
+  const manualHint = failedCount > 0 ? '，红行可双击该行手动修复' : ''
+  return `自动补救完成：${bits.join('、')}${manualHint}`
 }
 

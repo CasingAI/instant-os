@@ -86,6 +86,10 @@ export type LyricsAnalysisDrawerProps = {
   lyrics: string
   lyricsLrc: string | null
   phonemes: HypSegment[] | null
+  /** 每行补救采用方案的识别段（与 karaokeLines 行一一对应；null 表示该行未被补救采用） */
+  rescueSegments: (HypSegment[] | null)[] | null
+  /** 每行补救的分数留痕（score=候选分、baselineScore=原行分；复盘 dump 用） */
+  rescueStats: ({ score?: number; baselineScore?: number } | null)[] | null
   vocalsAudio: Float32Array | null
   sampleRate: number
   /** 主界面当前歌词识别模型（重识别动作跟随它） */
@@ -128,6 +132,8 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     lyrics,
     lyricsLrc,
     phonemes,
+    rescueSegments,
+    rescueStats,
     vocalsAudio,
     sampleRate,
     alignModel,
@@ -186,8 +192,9 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       focusRowSpan.endSec,
       focusWindow,
       focusLineObj.words,
+      rescueSegments?.[focusLine] ?? null,
     )
-  }, [focusLine, focusLineObj, focusRowSpan, focusWindow, phonemes])
+  }, [focusLine, focusLineObj, focusRowSpan, focusWindow, phonemes, rescueSegments])
 
   // 聚焦行真锚点比例（来自追踪首层：标点不算词；refIndex>=0 = 真匹配到识别）
   const focusAnchors = useMemo(() => {
@@ -331,9 +338,12 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       if (!vocalsAudio || sampleRate <= 0 || focusLine === null || focusWindow === null) return
       const lineText = karaokeLines[focusLine]?.text
       if (!lineText) return
+      // 手动「Zipformer 识别这一行」命中补救缓存段时直接复用（跳过模型调用）；
+      // 缓存段在 runRescuePass 已偏移回全局轴，可直接对齐
+      const cached = key === 'zip-rerun' ? (rescueSegments?.[focusLine] ?? null) : null
       const a = Math.floor(focusWindow.startSec * sampleRate) * STEM_CHANNELS
       const b = Math.min(vocalsAudio.length, Math.ceil(focusWindow.endSec * sampleRate) * STEM_CHANNELS)
-      if (a >= b) {
+      if (a >= b && !(cached && cached.length > 0)) {
         setAsyncError('行窗口切片为空，无法识别')
         return
       }
@@ -346,37 +356,43 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       setAppliedKey(null)
       setPreview(null)
       try {
-        const modelId = model === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
-        const { segments, text } = await enqueueAiTask<
-          ZipformerProgress | SenseVoiceProgress,
-          { segments: HypSegment[]; text: string }
-        >(
-          modelId,
-          { type: 'recognize', audio: slice, sampleRate },
-          {
-            route: (msg) => {
-              if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
-                return { action: 'continue' }
-              }
-              if (msg.kind === 'progress') {
-                setAsyncProgress({ chunk: msg.chunk, total: msg.total })
-                return { action: 'continue' }
-              }
-              if (msg.kind === 'done') {
-                return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
-              }
-              if (msg.kind === 'error') {
-                return { action: 'reject', error: new Error(msg.message) }
-              }
-              return { action: 'reject', error: new Error('识别服务返回未知消息') }
+        let shifted: HypSegment[]
+        if (cached && cached.length > 0) {
+          shifted = cached
+          setAsyncText('（复用补救识别段，跳过模型调用）')
+        } else {
+          const modelId = model === 'zipformer' ? 'align-zipformer' : 'align-sense-voice'
+          const { segments, text } = await enqueueAiTask<
+            ZipformerProgress | SenseVoiceProgress,
+            { segments: HypSegment[]; text: string }
+          >(
+            modelId,
+            { type: 'recognize', audio: slice, sampleRate },
+            {
+              route: (msg) => {
+                if (msg.kind === 'model-loading' || msg.kind === 'model-loaded') {
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'progress') {
+                  setAsyncProgress({ chunk: msg.chunk, total: msg.total })
+                  return { action: 'continue' }
+                }
+                if (msg.kind === 'done') {
+                  return { action: 'resolve', value: { segments: msg.segments, text: msg.text } }
+                }
+                if (msg.kind === 'error') {
+                  return { action: 'reject', error: new Error(msg.message) }
+                }
+                return { action: 'reject', error: new Error('识别服务返回未知消息') }
+              },
             },
-          },
-        )
-        if (seq !== asyncSeqRef.current) return
-        setAsyncText(text)
-        // worker 返回的段时间是相对切片起点的，需偏移回全局时间轴
-        const offset = focusWindow.startSec
-        const shifted = segments.map((s) => ({ ...s, start: s.start + offset, end: s.end + offset }))
+          )
+          if (seq !== asyncSeqRef.current) return
+          setAsyncText(text)
+          // worker 返回的段时间是相对切片起点的，需偏移回全局时间轴
+          const offset = focusWindow.startSec
+          shifted = segments.map((s) => ({ ...s, start: s.start + offset, end: s.end + offset }))
+        }
         const startMs = lineTimes[focusLine] ?? Math.round(focusWindow.startSec * 1000)
         const line = alignLineByLineTimes(shifted, lineText, startMs, lineTimes[focusLine + 1])
         const trace = buildLineMappedTrace(
@@ -389,7 +405,10 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
         setPreview({
           key,
           line,
-          note: `${model === 'zipformer' ? 'Zipformer' : 'SenseVoice'} 识别行窗口 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)}：锚点保持识别时间，未匹配字在锚点间插值；没对上内容的识别块按其位置钉时间（标红）`,
+          note:
+            cached && cached.length > 0
+              ? `复用补救识别段（跳过模型调用）：用候选段重新对齐行窗 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)}`
+              : `${model === 'zipformer' ? 'Zipformer' : 'SenseVoice'} 识别行窗口 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)}：锚点保持识别时间，未匹配字在锚点间插值；没对上内容的识别块按其位置钉时间（标红）`,
           trace,
         })
       } catch (cause) {
@@ -399,7 +418,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
         if (seq === asyncSeqRef.current) setAsyncBusy(null)
       }
     },
-    [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes],
+    [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes, rescueSegments],
   )
 
   const handleRerunLine = useCallback(
@@ -478,7 +497,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       const trace = buildCtcTrace(
         phonemes ?? [],
         focusWindow,
-        wordsToTraceWords(line?.words ?? []),
+        wordsToTraceWords(line?.words ?? [], focusWindow.endSec),
       )
       setPreview({
         key: 'ctc-align',
@@ -505,6 +524,29 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     }
   }, [focusLineObj, focusTimeSec, onPreview])
 
+/** 复盘行文案：原行分 → 补救分（来源徽章已展示方案，这里只补分数与结论） */
+function rescueReviewNote(
+  source: LineSource | undefined,
+  stats: { score?: number; baselineScore?: number } | null,
+): string | undefined {
+  if (!stats) return undefined
+  const fmt = (v: number | undefined): string => (v === undefined ? '--' : v.toFixed(2))
+  const scheme = source?.split(':')[0]
+  if (scheme === 'rescue-failed') {
+    return `原行分 ${fmt(stats.baselineScore)}，候选未优于原行或模型无结果 → 保持原行`
+  }
+  if (scheme === 'rescue-recognize' || scheme === 'rescue-ctc' || scheme === 'rescue-partial') {
+    const conclusion =
+      scheme === 'rescue-partial'
+        ? '（部分成功，仍有红词）'
+        : scheme === 'rescue-recognize'
+          ? '（方案1 识别）'
+          : '（方案2 CTC）'
+    return `原行分 ${fmt(stats.baselineScore)} → 补救分 ${fmt(stats.score)}${conclusion}`
+  }
+  return undefined
+}
+
   const copyLineDump = useCallback(() => {
     if (focusLine === null || !focusLineObj || !focusTrace || !focusStats) return
     const nextLine = karaokeLines[focusLine + 1]
@@ -512,7 +554,15 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       lineIndex: focusLine,
       lineText: focusLineObj.text,
       nextLineText: nextLine?.text,
-      diagnosis: describeLineIssue(focusStats, focusAnchors),
+      diagnosis: describeLineIssue(
+        focusStats,
+        focusAnchors,
+        focusLine !== null ? lineSources[focusLine] : undefined,
+      ),
+      rescueNote: rescueReviewNote(
+        lineSources[focusLine],
+        rescueStats?.[focusLine] ?? null,
+      ),
       lineStartSec: focusRowSpan?.startSec,
       lineEndSec: focusRowSpan?.endSec,
       currentWords: focusLineObj.words,
@@ -525,7 +575,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       setCopyState(ok ? 'copied' : 'failed')
       window.setTimeout(() => setCopyState('idle'), 1600)
     })
-  }, [focusLine, focusLineObj, focusTrace, focusAnchors, focusStats, karaokeLines, focusRowSpan, preview])
+  }, [focusLine, focusLineObj, focusTrace, focusAnchors, focusStats, karaokeLines, focusRowSpan, preview, lineSources, rescueStats])
 
   /** 复制当前修复预览的追踪数据（动作名 + note + 预览图 dump） */
   const copyPreviewDump = useCallback(() => {
@@ -631,7 +681,13 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
                   label="试听只播人声"
                 />
               </label>
-              <p class="stems__analysis-diagnosis">{describeLineIssue(focusStats, focusAnchors)}</p>
+              <p class="stems__analysis-diagnosis">
+                {describeLineIssue(
+                  focusStats,
+                  focusAnchors,
+                  focusLine !== null ? lineSources[focusLine] : undefined,
+                )}
+              </p>
               {focusTrace && <LyricsTraceChart chart={focusTrace} onPreview={onPreview} />}
             </div>
           ) : (

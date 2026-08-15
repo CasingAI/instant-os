@@ -52,6 +52,7 @@ export type LineSource =
   | `whole-ctc${ModelSuffix}` // 整首 Zipformer CTC 强制对齐
   | `rescue-recognize${ModelSuffix}` // 失败行补救·方案1：Zipformer 识别行窗
   | `rescue-ctc${ModelSuffix}` // 失败行补救·方案2：Zipformer CTC 行窗
+  | `rescue-partial${ModelSuffix}` // 补救部分成功：候选被采用但仍有红词（内容没全对上）
   | `manual-${ManualActionKey}${ModelSuffix}` // 手动修复动作
   | 'restored' // 载入恢复（旧包无来源记录）
   | 'rescue-failed' // 自动补救失败：候选不优于原行或模型无结果，保持原行
@@ -71,6 +72,7 @@ function splitLineSource(src: LineSource): { scheme: string; model: AlignModel |
     scheme === 'whole-ctc' ||
     scheme === 'rescue-recognize' ||
     scheme === 'rescue-ctc' ||
+    scheme === 'rescue-partial' ||
     (scheme.startsWith('manual-') &&
       (scheme.slice('manual-'.length) as ManualActionKey) in MANUAL_ACTION_LABELS)
   if (!okScheme) return undefined
@@ -105,6 +107,9 @@ export function lineSourceLabel(src: LineSource | undefined): string {
     case 'rescue-ctc':
       // 补救方案 2 恒为 Zipformer CTC 行窗
       return 'Zipformer CTC 补救（方案2）'
+    case 'rescue-partial':
+      // 补救部分成功：候选被采用但仍有红词（内容没全对上）
+      return '补救部分成功（仍有红词）'
     default:
       if (scheme.startsWith('manual-')) {
         const key = scheme.slice('manual-'.length) as ManualActionKey
@@ -374,8 +379,26 @@ export type LineAnchors = {
 /**
  * 一句话诊断：聚焦行的问题描述。
  * anchors 由追踪图提供（真锚点比例）；没传时退回到只看主界面标记。
+ * source 为行来源（补救采用方案时文案与徽章对齐，避免「补救过但还说插值兜底」的误导）。
  */
-export function describeLineIssue(st: LineStats, anchors?: LineAnchors): string {
+export function describeLineIssue(
+  st: LineStats,
+  anchors?: LineAnchors,
+  source?: LineSource,
+): string {
+  if (source === 'rescue-failed') {
+    return '自动补救失败（候选不优于原行或模型无结果），保持原行'
+  }
+  if (source?.startsWith('rescue-partial')) {
+    const ok = Math.max(0, st.wordCount - st.failedCount)
+    return `补救部分成功：${ok} 词对上补救段、${st.failedCount} 词插值兜底`
+  }
+  if (source?.startsWith('rescue-recognize') || source?.startsWith('rescue-ctc')) {
+    const ok = Math.max(0, st.wordCount - st.failedCount)
+    return st.failedCount > 0
+      ? `该行经补救识别，${ok} 词对上补救段、${st.failedCount} 词插值兜底`
+      : `该行经补救识别，${ok} 词均对上补救段`
+  }
   if (st.squeezed) {
     const span = st.spanSec !== undefined ? st.spanSec.toFixed(2) : '?'
     return `这行 ${st.wordCount} 个词被压进 ${span} 秒：识别断层期无锚点词被插值堆叠，词几乎同时出现`
