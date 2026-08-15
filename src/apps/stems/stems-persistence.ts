@@ -15,6 +15,7 @@ import type { WaveformPyramid } from './stems-separator.ts'
 import { HTDEMUCS_STEM_IDS, STEM_IDS } from './stems-types.ts'
 import type { StemAudio, StemId } from './stems-types.ts'
 import type { TempoInfo } from './stems-tempo.ts'
+import { parseLineSource, type LineSource } from './lyrics-analysis.ts'
 
 export const STEMS_ARCHIVE_EXTENSION = '.stems.zip'
 export const STEMS_MANIFEST_ENTRY = 'stems.json'
@@ -68,6 +69,8 @@ export type StemsManifest = {
   lyricsLrc?: string
   /** 歌词对齐结果（增强 LRC，可选；老归档无此字段） */
   alignedLrc?: string
+  /** 对齐结果每行的方案来源（可选；与 alignedLrc 行一一对应；老归档无此字段） */
+  lineSources?: LineSource[]
   /** 人声轨音素识别结果（可选；供换歌词时复用，跳过重新识别） */
   phonemes?: PhonemeSegment[]
 }
@@ -149,6 +152,7 @@ export function buildStemsManifest(meta: {
   lyricsSourceName?: string
   lyricsLrc?: string
   alignedLrc?: string
+  lineSources?: LineSource[]
   phonemes?: PhonemeSegment[]
 }): StemsManifest {
   const manifest: StemsManifest = {
@@ -167,6 +171,7 @@ export function buildStemsManifest(meta: {
   }
   if (meta.lyricsLrc?.trim()) manifest.lyricsLrc = meta.lyricsLrc
   if (meta.alignedLrc) manifest.alignedLrc = meta.alignedLrc
+  if (meta.lineSources?.length) manifest.lineSources = meta.lineSources
   if (meta.phonemes?.length) manifest.phonemes = meta.phonemes
   return manifest
 }
@@ -216,6 +221,21 @@ export function parseStemsManifest(json: string): StemsManifest | null {
     // alignedLrc 非字符串（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.alignedLrc !== undefined && typeof raw.alignedLrc !== 'string') {
       delete manifest.alignedLrc
+    }
+    // lineSources 非字符串数组 / 含非法值（老包无此字段）时按缺失处理，不整体拒绝
+    if (raw.lineSources !== undefined) {
+      if (!Array.isArray(raw.lineSources)) {
+        delete manifest.lineSources
+      } else {
+        const parsed = raw.lineSources
+          .map((item) => parseLineSource(item))
+          .filter((s): s is LineSource => s !== undefined)
+        if (parsed.length === raw.lineSources.length) {
+          manifest.lineSources = parsed
+        } else {
+          delete manifest.lineSources
+        }
+      }
     }
     // phonemes 非合法数组（老包无此字段）时按缺失处理，不整体拒绝
     if (raw.phonemes !== undefined) {
@@ -373,6 +393,8 @@ export type SaveStemsOptions = {
   lyricsLrc?: string
   /** 歌词对齐结果（增强 LRC，可选） */
   alignedLrc?: string
+  /** 对齐结果每行的方案来源（可选；与 alignedLrc 行一一对应） */
+  lineSources?: LineSource[]
   /** 人声轨音素识别结果（可选；供换歌词复用，跳过重新识别） */
   phonemes?: PhonemeSegment[]
   /** 完成进度（已存轨数 / 总轨数） */
@@ -398,6 +420,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     lyricsSourceName,
     lyricsLrc,
     alignedLrc,
+    lineSources,
     phonemes,
     onProgress,
   } = options
@@ -412,6 +435,7 @@ export async function saveStemsArchive(options: SaveStemsOptions): Promise<void>
     lyricsSourceName,
     lyricsLrc,
     alignedLrc,
+    lineSources,
     phonemes,
   })
 

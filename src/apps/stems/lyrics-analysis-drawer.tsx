@@ -27,10 +27,14 @@ import {
   buildLineFromUnits,
   computeLineStats,
   describeLineIssue,
+  lineSourceLabel,
   lineWindowSec,
+  MANUAL_ACTION_LABELS,
   resolveLineTimes,
   splitLineParens,
   spreadLineToWindow,
+  type LineSource,
+  type ManualActionKey,
 } from './lyrics-analysis.ts'
 import {
   buildCtcTrace,
@@ -76,6 +80,8 @@ export type LyricsAnalysisDrawerProps = {
   onClose: () => void
   focusLine: number | null
   karaokeLines: LyricsLine[]
+  /** 每行对齐结果的方案来源（与 karaokeLines 行一一对应；展示当前行用了哪个方案） */
+  lineSources: LineSource[]
   lyrics: string
   lyricsLrc: string | null
   phonemes: HypSegment[] | null
@@ -90,25 +96,18 @@ export type LyricsAnalysisDrawerProps = {
   /** 试听只播 vocals 轨（模型实际听到的）；关 = 全轨混音 */
   previewVocalsOnly: boolean
   onPreviewVocalsOnlyChange: (checked: boolean) => void
-  /** 把某行的新逐字时间戳写回主界面并落盘 */
-  onApplyLine: (focusLine: number, newWords: LyricsWord[]) => void
+  /** 把某行的新逐字时间戳写回主界面并落盘；source 为该修复动作的方案来源 */
+  onApplyLine: (focusLine: number, newWords: LyricsWord[], source: LineSource) => void
   /** 撤销上一次应用 */
   onUndo: () => void
   canUndo: boolean
 }
 
-/** 修复动作标识 */
-type ActionKey = 'spread' | 'line-times' | 'paren' | 'free' | 'rerun-line' | 'zip-rerun' | 'ctc-align'
+/** 修复动作标识（与 lyrics-analysis 的 ManualActionKey 单一来源一致） */
+type ActionKey = ManualActionKey
 
-const ACTION_LABELS: Record<ActionKey, string> = {
-  spread: '摊开到行区间',
-  'line-times': '按行时间戳重算',
-  paren: '括号不参与',
-  free: '不锁行窗口',
-  'rerun-line': '重识别这一行',
-  'zip-rerun': 'Zipformer 识别这一行',
-  'ctc-align': 'Zipformer CTC 强制对齐',
-}
+/** 修复动作中文名（来自 lyrics-analysis 的 MANUAL_ACTION_LABELS，单一来源） */
+const ACTION_LABELS: Record<ActionKey, string> = MANUAL_ACTION_LABELS
 
 /** 预览结果：某动作产出的新词条 + 对应的时间连线图 */
 type PreviewState = {
@@ -124,6 +123,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     onClose,
     focusLine,
     karaokeLines,
+    lineSources,
     lyrics,
     lyricsLrc,
     phonemes,
@@ -571,7 +571,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
 
   const applyPreview = useCallback(() => {
     if (preview?.line?.words && preview.line.words.length > 0 && focusLine !== null) {
-      onApplyLine(focusLine, preview.line.words)
+      onApplyLine(focusLine, preview.line.words, `manual-${preview.key}`)
       setAppliedKey(preview.key)
     }
   }, [preview, focusLine, onApplyLine])
@@ -606,6 +606,11 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
                 <span class="stems__analysis-focus-time">
                   {focusTimeSec !== undefined ? `[${formatLrcTimestamp(focusTimeSec)}]` : '[--:--.--]'}
                 </span>
+                {focusLine !== null && (
+                  <span class="stems__analysis-badge stems__analysis-badge--source">
+                    {lineSourceLabel(lineSources[focusLine])}
+                  </span>
+                )}
                 <span class="stems__analysis-focus-text">{focusLineObj.text}</span>
                 <IosButton size="compact" onClick={playWholeLine} disabled={!focusLineObj}>
                   播整行

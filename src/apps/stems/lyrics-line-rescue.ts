@@ -44,13 +44,22 @@ export function shouldRescueLine(st: LineStats, line: LyricsLine): boolean {
   return redRatio >= RESCUE_RED_RATIO
 }
 
+/** 补救采用方案：方案1 = Zipformer 识别行窗；方案2 = Zipformer CTC 强制对齐 */
+export type RescueSource = 'rescue-recognize' | 'rescue-ctc'
+
+/** 补救候选：一行结果 + 其产出方案（供选优后记录行来源） */
+export type RescueCandidate = {
+  line: LyricsLine
+  source: RescueSource
+}
+
 /** 候选行中选匹配度最高者（同分取先出现的，即方案 1 优先）。 */
-export function pickBestLine(candidates: LyricsLine[]): LyricsLine | null {
-  let best: LyricsLine | null = null
+export function pickBestLine(candidates: RescueCandidate[]): RescueCandidate | null {
+  let best: RescueCandidate | null = null
   let bestScore = -1
   for (const candidate of candidates) {
-    if (!candidate || !candidate.words || candidate.words.length === 0) continue
-    const score = scoreLineUnits(candidate)
+    if (!candidate.line || !candidate.line.words || candidate.line.words.length === 0) continue
+    const score = scoreLineUnits(candidate.line)
     if (score > bestScore) {
       bestScore = score
       best = candidate
@@ -79,13 +88,19 @@ export type RescueLineParams = {
   callbacks: RescueLineCallbacks
 }
 
+/** 单行补救结果：采用的歌词行 + 产出该行的方案；全失败时 line 为 null。 */
+export type RescueLineResult = {
+  line: LyricsLine | null
+  source: RescueSource | null
+}
+
 /**
  * 单行补救编排：方案 1（识别）→ 方案 2（CTC 强制对齐），
- * 两方案结果按匹配度选优；全部失败返回 null（调用方保持原行）。
+ * 两方案结果按匹配度选优；全部失败返回 { line: null, source: null }（调用方保持原行）。
  */
-export async function rescueLine(params: RescueLineParams): Promise<LyricsLine | null> {
+export async function rescueLine(params: RescueLineParams): Promise<RescueLineResult> {
   const { lineText, slice, startSec, hasLineTime, callbacks } = params
-  const candidates: LyricsLine[] = []
+  const candidates: RescueCandidate[] = []
 
   // 方案 1：识别该行窗口 → 段偏移回全局轴 → 行内对齐
   const recognized = await callbacks.recognize(slice)
@@ -98,8 +113,8 @@ export async function rescueLine(params: RescueLineParams): Promise<LyricsLine |
     const line = callbacks.alignBySegments(shifted, lineText)
     if (line && line.words && line.words.length > 0) {
       // 非标点词全部对上识别：无需再试其他方案
-      if (scoreLineUnits(line) >= 1) return line
-      candidates.push(line)
+      if (scoreLineUnits(line) >= 1) return { line, source: 'rescue-recognize' }
+      candidates.push({ line, source: 'rescue-recognize' })
     }
   }
 
@@ -115,9 +130,9 @@ export async function rescueLine(params: RescueLineParams): Promise<LyricsLine |
         failed: u.confident === false,
       }))
       const line = buildLineFromUnits(offsetUnits)
-      if (line) candidates.push(line)
+      if (line) candidates.push({ line, source: 'rescue-ctc' })
     }
   }
 
-  return pickBestLine(candidates)
+  return pickBestLine(candidates) ?? { line: null, source: null }
 }

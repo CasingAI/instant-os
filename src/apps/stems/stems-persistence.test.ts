@@ -521,6 +521,71 @@ async function testAlignedLrcRoundTrip(): Promise<void> {
   console.log('ok: alignedLrc 随 .stems.zip 持久化 round-trip')
 }
 
+/** 行级方案来源持久化 round-trip：保存时带上，载入时还原（完整解包与快路径均可见）。 */
+async function testLineSourcesRoundTrip(): Promise<void> {
+  const stems = makeFakeStems(1000)
+  const lineSources = ['whole-recognize', 'rescue-ctc', 'manual-spread', 'restored']
+  const chunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    alignedLrc: '[00:00.00]<00:00.00>你<00:00.30>好',
+    lineSources,
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let o = 0
+  for (const c of chunks) {
+    zipBytes.set(c, o)
+    o += c.length
+  }
+  const loaded = await loadStemsArchive(new Blob([zipBytes]))
+  assert.deepEqual(loaded.manifest.lineSources, lineSources, 'lineSources 应随包还原')
+  const layout = readStemsArchiveLayout(zipBytes)
+  assert.deepEqual(layout.manifest.lineSources, lineSources, '快路径 manifest 也应含 lineSources')
+  // 非法 lineSources（含未知值）按缺失处理，不拒绝整个 manifest
+  const withBad = parseStemsManifest(
+    JSON.stringify({
+      ...layout.manifest,
+      lineSources: ['whole-recognize', 'not-a-real-source'],
+    }),
+  )
+  assert.ok(withBad, 'lineSources 含非法值不应拒绝整个 manifest')
+  assert.equal(withBad!.lineSources, undefined, '非法 lineSources 按缺失处理')
+  // 不带 lineSources 保存时，载入后字段应为 undefined（不污染旧包语义）
+  const chunks2: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.mp3',
+    sourceName: 'song.mp3',
+    durationSec: 2,
+    sampleRate: 44100,
+    sink: {
+      write: (c) => {
+        chunks2.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes2 = new Uint8Array(chunks2.reduce((n, c) => n + c.length, 0))
+  let o2 = 0
+  for (const c of chunks2) {
+    zipBytes2.set(c, o2)
+    o2 += c.length
+  }
+  const loaded2 = await loadStemsArchive(new Blob([zipBytes2]))
+  assert.equal(loaded2.manifest.lineSources, undefined, '未提供 lineSources 时不应写入该字段')
+  console.log('ok: 行级方案来源随 .stems.zip 持久化 round-trip')
+}
+
 /** phonemes 持久化 round-trip：保存时带上，载入时还原（完整解包与快路径均可见）。 */
 async function testPhonemesRoundTrip(): Promise<void> {
   const stems = makeFakeStems(1000)
@@ -672,6 +737,7 @@ await testLayoutFastPath()
 await testLayoutFastPathRanged()
 await testLayoutFastPathRangedLegacyV2()
 await testAlignedLrcRoundTrip()
+await testLineSourcesRoundTrip()
 await testPhonemesRoundTrip()
 await testLyricsRoundTrip()
 testPcm16Chunking()

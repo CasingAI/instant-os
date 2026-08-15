@@ -13,6 +13,78 @@ import { buildAlignLrc, formatLrcTimestamp } from '../align/align-lrc.ts'
 import type { AlignedUnit } from '../align/align-types.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
 
+/** 手动修复动作标识（与抽屉「修复动作」一一对应；定义在 analysis 避免 drawer 循环依赖） */
+export type ManualActionKey =
+  | 'spread'
+  | 'line-times'
+  | 'paren'
+  | 'free'
+  | 'rerun-line'
+  | 'zip-rerun'
+  | 'ctc-align'
+
+/** 手动修复动作中文名（抽屉 ACTION_LABELS 的单一来源，drawer 引用此处） */
+export const MANUAL_ACTION_LABELS: Record<ManualActionKey, string> = {
+  spread: '摊开到行区间',
+  'line-times': '按行时间戳重算',
+  paren: '括号不参与',
+  free: '不锁行窗口',
+  'rerun-line': '重识别这一行',
+  'zip-rerun': 'Zipformer 识别这一行',
+  'ctc-align': 'Zipformer CTC 强制对齐',
+}
+
+/** 一行歌词对齐结果的方案来源（与 karaokeLines / lineSources 行一一对应） */
+export type LineSource =
+  | 'whole-recognize' // 整首识别 + 文本对齐
+  | 'whole-ctc' // 整首 Zipformer CTC 强制对齐
+  | 'rescue-recognize' // 失败行补救·方案1：Zipformer 识别行窗
+  | 'rescue-ctc' // 失败行补救·方案2：Zipformer CTC 行窗
+  | `manual-${ManualActionKey}` // 手动修复动作
+  | 'restored' // 载入恢复（旧包无来源记录）
+
+/** 校验任意值是否为合法 LineSource；非法返回 undefined（持久化解析用，兼容旧包） */
+export function parseLineSource(raw: unknown): LineSource | undefined {
+  if (typeof raw !== 'string') return undefined
+  if (
+    raw === 'whole-recognize' ||
+    raw === 'whole-ctc' ||
+    raw === 'rescue-recognize' ||
+    raw === 'rescue-ctc' ||
+    raw === 'restored'
+  ) {
+    return raw
+  }
+  if (raw.startsWith('manual-')) {
+    const key = raw.slice('manual-'.length) as ManualActionKey
+    if (key in MANUAL_ACTION_LABELS) return `manual-${key}`
+  }
+  return undefined
+}
+
+/** 方案来源中文标签（undefined = 无记录/未知，兜底显示） */
+export function lineSourceLabel(src: LineSource | undefined): string {
+  switch (src) {
+    case 'whole-recognize':
+      return '整首识别对齐'
+    case 'whole-ctc':
+      return '整首 CTC 强制对齐'
+    case 'rescue-recognize':
+      return '补救·方案1（识别行窗）'
+    case 'rescue-ctc':
+      return '补救·方案2（CTC 行窗）'
+    case 'restored':
+      return '载入恢复'
+    case undefined:
+      return '未知'
+    default:
+      if (src.startsWith('manual-')) {
+        return `手动·${MANUAL_ACTION_LABELS[src.slice('manual-'.length) as ManualActionKey]}`
+      }
+      return src
+  }
+}
+
 /** 行级诊断：一行歌词的统计信息 */
 export type LineStats = {
   lineIndex: number

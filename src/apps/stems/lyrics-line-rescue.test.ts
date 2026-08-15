@@ -66,16 +66,45 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
 {
   const worse = mkLine([{ text: '大' }, { text: '家', failed: true }])
   const better = mkLine([{ text: '大' }, { text: '家' }])
-  assert.equal(pickBestLine([worse, better]), better, '选评分最高')
-  assert.equal(pickBestLine([better, worse]), better, '同分取先出现（方案 1 优先）')
+  assert.equal(
+    pickBestLine([
+      { line: worse, source: 'rescue-recognize' },
+      { line: better, source: 'rescue-ctc' },
+    ])?.line,
+    better,
+    '选评分最高',
+  )
+  assert.equal(
+    pickBestLine([
+      { line: better, source: 'rescue-recognize' },
+      { line: worse, source: 'rescue-ctc' },
+    ])?.line,
+    better,
+    '同分取先出现（方案 1 优先）',
+  )
   assert.equal(pickBestLine([]), null, '空候选 → null')
-  assert.equal(pickBestLine([mkLine([]), worse]), worse, '无词候选被跳过')
+  assert.equal(
+    pickBestLine([
+      { line: mkLine([]), source: 'rescue-recognize' },
+      { line: worse, source: 'rescue-ctc' },
+    ])?.line,
+    worse,
+    '无词候选被跳过',
+  )
+  assert.equal(
+    pickBestLine([
+      { line: worse, source: 'rescue-recognize' },
+      { line: better, source: 'rescue-ctc' },
+    ])?.source,
+    'rescue-ctc',
+    '来源随胜出候选带回',
+  )
 }
 
 // —— rescueLine：方案 1 全对上直接返回，跳过方案 2 ——
 {
   let forcedCalled = false
-  const line = await rescueLine({
+  const result = await rescueLine({
     lineText: '大家',
     slice: new Float32Array(100),
     startSec: 10,
@@ -89,15 +118,16 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
       alignBySegments: () => mkLine([{ text: '大' }, { text: '家' }]),
     },
   })
-  assert.ok(line)
-  assert.equal(scoreLineUnits(line!), 1, '方案 1 全对上')
+  assert.ok(result.line)
+  assert.equal(scoreLineUnits(result.line!), 1, '方案 1 全对上')
+  assert.equal(result.source, 'rescue-recognize', '满分时标记方案 1')
   assert.equal(forcedCalled, false, '方案 1 已满分则不再试方案 2')
 }
 
 // —— rescueLine：识别段偏移回全局时间轴 ——
 {
   let seen: HypSegment[] | null = null
-  const line = await rescueLine({
+  const result = await rescueLine({
     lineText: '大',
     slice: new Float32Array(100),
     startSec: 30,
@@ -113,7 +143,8 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
       },
     },
   })
-  assert.ok(line)
+  assert.ok(result.line)
+  assert.equal(result.source, 'rescue-recognize', '识别路径标记方案 1')
   assert.equal(seen?.[0].start, 31, '识别段起点偏移回全局轴')
   assert.equal(seen?.[0].end, 31.5, '识别段终点偏移回全局轴')
 }
@@ -135,10 +166,11 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
       alignBySegments: () => mkLine([{ text: '大' }, { text: '家', failed: true }]),
     },
   })
-  assert.ok(best)
-  assert.equal(scoreLineUnits(best!), 1, 'CTC 全对上胜出')
-  assert.equal(best!.words?.[0].timeMs, 10100, 'CTC 单元偏移回全局轴（10 + 0.1s）')
-  assert.equal(best!.words?.[1].failed, undefined, 'confident=true → 非红词')
+  assert.ok(best.line)
+  assert.equal(scoreLineUnits(best.line!), 1, 'CTC 全对上胜出')
+  assert.equal(best.source, 'rescue-ctc', 'CTC 更高分时标记方案 2')
+  assert.equal(best.line!.words?.[0].timeMs, 10100, 'CTC 单元偏移回全局轴（10 + 0.1s）')
+  assert.equal(best.line!.words?.[1].failed, undefined, 'confident=true → 非红词')
 }
 
 // —— rescueLine：CTC 单元 confident=false → 红词标记 ——
@@ -157,8 +189,9 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
       alignBySegments: () => null,
     },
   })
-  assert.ok(red)
-  assert.equal(red!.words?.[1].failed, true, 'confident=false → 红词')
+  assert.ok(red.line)
+  assert.equal(red.line!.words?.[1].failed, true, 'confident=false → 红词')
+  assert.equal(red.source, 'rescue-ctc', '仅 CTC 成功时标记方案 2')
 }
 
 // —— rescueLine：hasLineTime=false 不跑 CTC ——
@@ -178,7 +211,8 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
       alignBySegments: () => null,
     },
   })
-  assert.equal(result, null, '识别失败且无 CTC 时整体失败')
+  assert.equal(result.line, null, '识别失败且无 CTC 时整体失败')
+  assert.equal(result.source, null, '全部失败来源为 null')
   assert.equal(forced, 0, '无行时间戳不调用 CTC 方案')
 }
 
@@ -195,5 +229,6 @@ function mkStats(overrides: Partial<LineStats>): LineStats {
       alignBySegments: () => null,
     },
   })
-  assert.equal(result, null, '全部失败返回 null（调用方保持原行）')
+  assert.equal(result.line, null, '全部失败返回 null（调用方保持原行）')
+  assert.equal(result.source, null, '全部失败来源为 null')
 }

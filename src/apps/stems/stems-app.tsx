@@ -52,6 +52,7 @@ import {
   computeLineStats,
   lineWindowSec,
   patchLineIntoAlignedLrc,
+  type LineSource,
 } from './lyrics-analysis.ts'
 import { rescueLine, shouldRescueLine } from './lyrics-line-rescue.ts'
 import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
@@ -306,10 +307,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [analysisFocusLine, setAnalysisFocusLine] = useState<number | null>(null)
   /** 歌词分析抽屉：词条试听定时器（片段播完自动停） */
   const analysisPreviewTimerRef = useRef<number | null>(null)
-  /** 歌词分析抽屉：应用撤销栈（存应用前的 alignedLrc） */
-  const analysisUndoRef = useRef<string[]>([])
+  /** 歌词分析抽屉：应用撤销栈（存应用前的 alignedLrc 与行来源） */
+  const analysisUndoRef = useRef<{ lrc: string; sources: LineSource[] }[]>([])
   /** 是否有可撤销的抽屉修改（驱动抽屉「撤销」按钮） */
   const [analysisCanUndo, setAnalysisCanUndo] = useState(false)
+  /** 当前对齐结果每行的方案来源（与 karaokeLines 行一一对应；随 .stems.zip 持久化） */
+  const [lineSources, setLineSources] = useState<LineSource[]>([])
+  const lineSourcesRef = useRef<LineSource[]>([])
   /** 歌词抽屉试听：开 = 只播 vocals 轨（模型实际听到的）；关 = 全轨混音 */
   const [analysisPreviewVocalsOnly, setAnalysisPreviewVocalsOnly] = useState(false)
   /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
@@ -631,6 +635,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           lyricsSourceName: lyricsRef.current.trim() ? lyricsSourceName || undefined : undefined,
           lyricsLrc: lyricsLrcRef.current ?? undefined,
           alignedLrc: alignedLrcRef.current || undefined,
+          lineSources: lineSourcesRef.current.length > 0 ? lineSourcesRef.current : undefined,
           phonemes: phonemesRef.current ?? undefined,
           sink: {
             write: (chunk) => writer.write(chunk),
@@ -779,6 +784,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const clearAlignedResult = useCallback((hint: string | null) => {
     alignedLrcRef.current = ''
     setAlignedLrc('')
+    lineSourcesRef.current = []
+    setLineSources([])
     setAlignRestoredFrom(false)
     setLyricsHint(hint)
   }, [])
@@ -821,6 +828,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     if (!lrc) return false
     alignedLrcRef.current = lrc
     setAlignedLrc(lrc)
+    // 复用音素段快速重对齐 = 整首识别 + 文本对齐路径
+    const sources: LineSource[] = parseLrc(lrc).lines.map(() => 'whole-recognize')
+    lineSourcesRef.current = sources
+    setLineSources(sources)
     setAlignRestoredFrom(false)
     setLyricsHint(null)
     return true
@@ -843,6 +854,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const lines = parseLrc(baseLrc).lines
       if (lines.length === 0) return baseLrc
       const stats = computeLineStats(lines)
+      // 行来源副本：补救替换某行时同步更新该行来源；长度不匹配（如载入恢复）时按整首识别重建
+      const sources: LineSource[] =
+        lineSourcesRef.current.length === lines.length
+          ? [...lineSourcesRef.current]
+          : lines.map(() => 'whole-recognize')
       // 行时间基准：优先源 LRC 映射的真实行时间戳，回退对齐结果自带 timeMs
       const lineTimesRef = lyricsLineTimesRef.current
       const times: (number | undefined)[] =
@@ -948,15 +964,20 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             },
           })
           if (alignReqSeqRef.current !== reqId) return current
-          if (best && best.words && best.words.length > 0) {
-            const next = patchLineIntoAlignedLrc(current, lineIndex, best.words)
-            if (next !== current) current = next
+          if (best && best.line && best.line.words && best.line.words.length > 0) {
+            const next = patchLineIntoAlignedLrc(current, lineIndex, best.line.words)
+            if (next !== current) {
+              current = next
+              if (best.source) sources[lineIndex] = best.source
+            }
           }
         } catch {
           // 单行补救失败（模型错误/无结果）：保持原行，不阻断后续行
         }
       }
       setAlignProgress(null)
+      lineSourcesRef.current = sources
+      setLineSources(sources)
       return current
     },
     [],
@@ -1089,6 +1110,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               }))
               alignedLrcRef.current = lrc
               setAlignedLrc(lrc)
+              const ctcSources: LineSource[] = skeleton.map(() => 'whole-ctc')
+              lineSourcesRef.current = ctcSources
+              setLineSources(ctcSources)
               setAlignRestoredFrom(false)
               return true
             }
@@ -1130,6 +1154,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }
         alignedLrcRef.current = lrc
         setAlignedLrc(lrc)
+        const recogSources: LineSource[] = parseLrc(lrc).lines.map(() => 'whole-recognize')
+        lineSourcesRef.current = recogSources
+        setLineSources(recogSources)
         setAlignRestoredFrom(false)
         // SenseVoice 默认整首对齐后：对失败行（红词多/被挤压）按行切窗依次尝试
         // Zipformer 识别 → CTC 强制对齐，取匹配度最高的替换进整首 LRC
@@ -1487,6 +1514,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             if (manifest.alignedLrc && !looksLikeBrokenLrc(manifest.alignedLrc)) {
               alignedLrcRef.current = manifest.alignedLrc
               setAlignedLrc(manifest.alignedLrc)
+              // 行来源：新包有记录则恢复；旧包无记录时全部标「载入恢复」
+              const lineCount = parseLrc(manifest.alignedLrc).lines.length
+              const restoredSources: LineSource[] =
+                manifest.lineSources && manifest.lineSources.length === lineCount
+                  ? manifest.lineSources
+                  : new Array<LineSource>(lineCount).fill('restored')
+              lineSourcesRef.current = restoredSources
+              setLineSources(restoredSources)
               setAlignRestoredFrom(true)
               setLyricsHint(null)
             } else if (manifest.alignedLrc) {
@@ -1992,17 +2027,28 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [tracks, handleSeekInput, startPlayback, stopPlayback, analysisPreviewVocalsOnly],
   )
 
-  /** 应用抽屉修复：只替换聚焦行逐字时间戳，写回 alignedLrc 并落盘，保留撤销 */
+  /** 应用抽屉修复：只替换聚焦行逐字时间戳，写回 alignedLrc 并落盘，保留撤销。
+   *  source 为该修复动作的方案来源（manual-*），替换行来源供抽屉展示。 */
   const applyAnalysisLine = useCallback(
-    (focusLine: number, newWords: LyricsWord[]) => {
+    (focusLine: number, newWords: LyricsWord[], source: LineSource) => {
       const cur = alignedLrcRef.current
       if (!cur || newWords.length === 0) return
       const patched = patchLineIntoAlignedLrc(cur, focusLine, newWords)
       if (patched === cur) return
-      analysisUndoRef.current.push(cur)
+      analysisUndoRef.current.push({ lrc: cur, sources: [...lineSourcesRef.current] })
       setAnalysisCanUndo(true)
       alignedLrcRef.current = patched
       setAlignedLrc(patched)
+      const sources = [...lineSourcesRef.current]
+      if (focusLine < sources.length) {
+        sources[focusLine] = source
+      } else {
+        // 行数不匹配（旧包无来源记录）时补齐后写入
+        while (sources.length <= focusLine) sources.push('restored')
+        sources[focusLine] = source
+      }
+      lineSourcesRef.current = sources
+      setLineSources(sources)
       setAlignRestoredFrom(false)
       const tracksNow = tracksRef.current
       if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
@@ -2010,12 +2056,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     [saveCurrentStems],
   )
 
-  /** 撤销最近一次抽屉应用，恢复上一份 alignedLrc 并落盘 */
+  /** 撤销最近一次抽屉应用，恢复上一份 alignedLrc 与行来源并落盘 */
   const undoAnalysisLine = useCallback(() => {
     const prev = analysisUndoRef.current.pop()
     if (prev === undefined) return
-    alignedLrcRef.current = prev
-    setAlignedLrc(prev)
+    alignedLrcRef.current = prev.lrc
+    setAlignedLrc(prev.lrc)
+    lineSourcesRef.current = prev.sources
+    setLineSources(prev.sources)
     setAnalysisCanUndo(analysisUndoRef.current.length > 0)
     const tracksNow = tracksRef.current
     if (tracksNow) void saveCurrentStems(tracksNow.map((t) => t.audio))
@@ -3189,6 +3237,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }}
         focusLine={analysisFocusLine}
         karaokeLines={karaokeLines}
+        lineSources={lineSources}
         lyrics={lyrics}
         lyricsLrc={lyricsLrcRef.current}
         phonemes={phonemesRef.current}

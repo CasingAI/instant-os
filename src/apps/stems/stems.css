@@ -1707,6 +1707,13 @@
   border: 1px solid rgba(228, 66, 88, 0.45);
 }
 
+/* 当前行方案来源徽章：中性蓝，突出「当前行用了哪个方案」 */
+.stems__analysis-badge--source {
+  color: #1f4e8a;
+  background: rgba(58, 120, 215, 0.14);
+  border: 1px solid rgba(58, 120, 215, 0.4);
+}
+
 /* 修复动作列表 */
 .stems__analysis-actions-list {
   display: flex;
