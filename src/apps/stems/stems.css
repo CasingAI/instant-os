@@ -1112,17 +1112,18 @@
   text-shadow: none;
 }
 
-/* 对齐失败词：不透明红底标记（<mm:ss.xx|f> 内嵌标记解析出），替代插值假装正常 */
+/* 对齐失败词：红底标记（<mm:ss.xx|f> 内嵌标记解析出），替代插值假装正常 */
 .stems__lyrics-tag--failed {
-  background: #ff3b30;
-  border-color: #d32f23;
   color: #fff;
+  background: #e13b30;
+  border-color: #b32a22;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  font-weight: 700;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
-  box-shadow: 0 0 0 1px rgba(255, 59, 48, 0.4);
 }
 
-/* 色带 hover 联动：非当前行的气泡变淡变灰（failed 红底一并退让），当前行高亮 */
-.stems__lyrics-tag--dimmed {
+/* 色带 hover 联动：非当前行的气泡变淡变灰（failed 红词除外，始终醒目不透明），当前行高亮 */
+.stems__lyrics-tag--dimmed:not(.stems__lyrics-tag--failed) {
   opacity: 0.15;
   filter: grayscale(0.9);
   transition: opacity 0.12s ease;
