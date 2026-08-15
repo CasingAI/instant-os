@@ -57,8 +57,10 @@ function testNoSegments(): void {
   assert.equal(alignSegmentsToLrc([], '新的千禧年'), '')
 }
 
-function testLineAnchorSmallOffset(): void {
-  // 两行都有匹配锚点且各自行时间偏差在阈值内 → 每行独立归位到 .lrc 行时间
+function testAnchorsPinnedToRecogTime(): void {
+  // 识别 hello@22.0 / world@22.6，行时间 21.70 / 24.10：
+  // hello 是行 1 真锚点 → 保留识别时间 22.00（不再归位到 .lrc 行时间 21.70）；
+  // world 距行 2 起点 24.10 超 ±0.5s 时间窗 → 行 2 无锚点，整行均摊到行区间
   const segments = segs([
     ['hello', 22.0, 22.6],
     ['world', 22.6, 23.2],
@@ -70,8 +72,8 @@ function testLineAnchorSmallOffset(): void {
   const lrc = alignSegmentsToLrc(segments, raw, lineTimes)
   const lines = lrc.split('\n')
   assert.equal(lines.length, 2)
-  assert.ok(lines[0].startsWith('[00:21.70]'), `第一行应锚到 21.70：${lines[0]}`)
-  assert.ok(lines[1].startsWith('[00:24.10]'), `第二行应锚到 24.10：${lines[1]}`)
+  assert.ok(lines[0].startsWith('[00:22.00]'), `锚点保留识别时间：${lines[0]}`)
+  assert.ok(lines[1].startsWith('[00:24.10]'), `无锚点行按行时间均摊：${lines[1]}`)
 }
 
 function testLineAnchorHugeOffsetIgnored(): void {
@@ -93,7 +95,8 @@ function testLineAnchorHugeOffsetIgnored(): void {
 }
 
 function testLineAnchorNoMatchNotAnchored(): void {
-  // 第二行歌词（a long extra phrase）在识别中完全没有对应 → 行内无匹配锚点，
+  // 行 1 hello 有真锚点 → 保留识别时间 22.00；
+  // 行 2 歌词（a long extra phrase）在识别中完全没有对应 → 行内无匹配锚点，
   // 行时间主导：整行均匀分摊到行区间（不再保留识别时间）
   const segments = segs([
     ['hello', 22.0, 22.6],
@@ -106,8 +109,8 @@ function testLineAnchorNoMatchNotAnchored(): void {
   const lrc = alignSegmentsToLrc(segments, raw, lineTimes)
   const lines = lrc.split('\n')
   assert.equal(lines.length, 2)
-  assert.ok(lines[0].startsWith('[00:21.70]'), `第一行匹配应锚定：${lines[0]}`)
-  assert.ok(lines[1].startsWith('[00:24.10]'), `第二行无匹配也应按行时间分摊：${lines[1]}`)
+  assert.ok(lines[0].startsWith('[00:22.00]'), `行 1 锚点保留识别时间：${lines[0]}`)
+  assert.ok(lines[1].startsWith('[00:24.10]'), `行 2 无匹配也应按行时间分摊：${lines[1]}`)
 }
 
 /** 解析增强 LRC 一行的逐词时间（秒）；兼容 <mm:ss.xx|f> 失败标记 */
@@ -152,9 +155,9 @@ function testPerLineIsolation(): void {
   assert.ok(row1.every((w) => w.timeSec >= 15.5), '行1词应在 16s 附近')
 }
 
-function testLineScaleWithin(): void {
-  // 行 0 "a b" 行时间 [10, 14]（行 1 起点 14），识别 a@10.5 b@13.0
-  // → 行内线性映射：[a 起点 → 10, b 终点 → 14]，保持相对比例
+function testAnchorsPinnedWithinLine(): void {
+  // 行 0 "a b" 行时间 [10, 14]，识别 a@10.5 / b@13.0：
+  // 锚点保留识别时间，不再按比例线性映射进行区间
   const segments = segs([
     ['a', 10.5, 10.9],
     ['b', 13.0, 13.4],
@@ -167,13 +170,10 @@ function testLineScaleWithin(): void {
   const lines = lrc.split('\n')
   const row0 = lineWords(lines[0])
   assert.equal(row0.length, 2)
-  // a → 行首 10s
-  assert.ok(Math.abs(row0[0].timeSec - 10) < 0.05, `a 应映射到行首：${row0[0].timeSec}`)
-  // b 起点按比例 ≈ 10 + (13.0-10.5)/(13.4-10.5)*4 ≈ 13.45，落在 [13.3, 13.6]
-  assert.ok(
-    row0[1].timeSec >= 13.3 && row0[1].timeSec <= 13.6,
-    `b 应按比例映射进行区间：${row0[1].timeSec}`,
-  )
+  // 锚点钉死：a 保留 10.5（不再映射到行首 10.00）
+  assert.ok(Math.abs(row0[0].timeSec - 10.5) < 0.05, `a 应保留识别时间：${row0[0].timeSec}`)
+  // b 同样保留 13.0（不再按比例拉长）
+  assert.ok(Math.abs(row0[1].timeSec - 13.0) < 0.05, `b 应保留识别时间：${row0[1].timeSec}`)
 }
 
 function testNoMatchSpread(): void {
@@ -213,15 +213,15 @@ function testFailedMarkInLrc(): void {
 }
 
 function testOverThresholdNotAnchored(): void {
-  // 识别 hello@15，行时间 10s（偏差 5s > 阈值 4s，但在搜索窗口 5s 内）
-  // → 找到识别段但不缩放，保留识别时间
+  // 识别 hello@15，行时间 10s（偏差 5s，超 ±0.5s 锚点窗但行尾被声学证据扩展到 15.4，
+  // hello 落在扩展后行区间内）→ 仍是真锚点 → 保留识别时间 15（不归位到 10.00）
   const segments = segs([['hello', 15.0, 15.4]])
   const raw = '[00:10.00]hello'
   const lineTimes = [10000]
   const lrc = alignSegmentsToLrc(segments, raw, lineTimes)
   const words = lineWords(lrc)
   assert.equal(words.length, 1)
-  assert.ok(Math.abs(words[0].timeSec - 15) < 0.05, `超阈值不应锚定：${words[0].timeSec}`)
+  assert.ok(Math.abs(words[0].timeSec - 15) < 0.05, `锚点保留识别时间：${words[0].timeSec}`)
 }
 
 function testNoLineTimesFallback(): void {
@@ -298,22 +298,86 @@ function testVoicedEndExtendsLine(): void {
   assert.ok(span >= 1.5, `Love is a game 行应铺开（跨度 ${span.toFixed(2)}s）：${lines[2]}`)
 }
 
+function testSparseAnchorsWholeLineFailed(): void {
+  // 「大家来恋爱」5 字只对上 1 个（大），窗口里的 JUST/SAY 中英硬连被拒 →
+  // 锚点不足一半 → 整行均摊并全标红，不再围着一个锚点拉出假时长
+  const segments = segs([
+    ['大', 111.46, 111.52],
+    ['SAY', 118.4, 118.58],
+    ['JUST', 123.26, 123.44],
+  ])
+  const lrc = alignSegmentsToLrc(segments, '大家来恋爱', [111500, 118740])
+  const failedMarks = (lrc.match(/\|f>/g) ?? []).length
+  assert.equal(failedMarks, 5, `锚点不足一半应整行标红：${lrc}`)
+  assert.ok(!lrc.includes('JUST') && !lrc.includes('SAY'), '英文不应被塞进歌词')
+}
+
+function testAnchorsPinnedNotStretched(): void {
+  // 用户场景回归：「大家来恋爱」识别段全挤在 111.46–112.64（1.16s），
+  // 行时间 111.50–118.74（7.24s）。锚点必须保留识别时间——
+  // 「爱」不能从 112.60 被拉到 118.49；乱码块 � 夹在来/爱之间，
+  // 位置锚点把它钉给「恋」（112.28）但内容标红；� 不进歌词
+  const segments = segs([
+    ['大', 111.46, 111.5],
+    ['家', 111.64, 111.68],
+    ['来', 111.96, 112.0],
+    ['\ufffd', 112.28, 112.32],
+    ['爱', 112.6, 112.64],
+  ])
+  const lrc = alignSegmentsToLrc(segments, '大家来恋爱', [111500, 118740])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 5, `应输出 5 个字：${lrc}`)
+  assert.ok(Math.abs(words[0].timeSec - 111.46) < 0.05, `「大」保留识别时间：${words[0].timeSec}`)
+  assert.ok(
+    Math.abs(words[3].timeSec - 112.28) < 0.05,
+    `「恋」钉乱码块识别时间而非插值拉长：${words[3].timeSec}`,
+  )
+  assert.ok(Math.abs(words[4].timeSec - 112.6) < 0.05, `「爱」不能被拉到 118.49：${words[4].timeSec}`)
+  assert.ok(lrc.includes('|f>恋'), '「恋」应带失败标记')
+  assert.ok(!lrc.includes('\ufffd'), '乱码块不应进歌词')
+}
+
+function testPositionAnchorsExtraUnkIgnored(): void {
+  // 区间内 2 个乱码块夹 1 个未匹配字：只配第一个钉时间，多余的块忽略；
+  // 恋仍标红，乱码不进歌词
+  const segments = segs([
+    ['大', 111.46, 111.5],
+    ['家', 111.64, 111.68],
+    ['来', 111.96, 112.0],
+    ['\ufffd', 112.28, 112.32],
+    ['\ufffd', 112.36, 112.4],
+    ['爱', 112.6, 112.64],
+  ])
+  const lrc = alignSegmentsToLrc(segments, '大家来恋爱', [111500, 118740])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 5, `应输出 5 个字：${lrc}`)
+  assert.ok(
+    Math.abs(words[3].timeSec - 112.28) < 0.05,
+    `「恋」钉第一个乱码块时间：${words[3].timeSec}`,
+  )
+  assert.ok(lrc.includes('|f>恋'), '「恋」仍应标红')
+  assert.ok(!lrc.includes('\ufffd'), '乱码不应进歌词')
+}
+
 async function runAll(): Promise<void> {
   testCleanLyrics()
   testStripTimestampLyrics()
   testEmptyLyrics()
   testNoSegments()
-  testLineAnchorSmallOffset()
+  testAnchorsPinnedToRecogTime()
   testLineAnchorHugeOffsetIgnored()
   testLineAnchorNoMatchNotAnchored()
   testPerLineIsolation()
-  testLineScaleWithin()
+  testAnchorsPinnedWithinLine()
   testNoMatchSpread()
   testFailedMarkInLrc()
   testOverThresholdNotAnchored()
   testNoLineTimesFallback()
   testClusteredLineTimesSpread()
   testVoicedEndExtendsLine()
+  testSparseAnchorsWholeLineFailed()
+  testAnchorsPinnedNotStretched()
+  testPositionAnchorsExtraUnkIgnored()
   console.log('align-pipeline: 全部通过')
 }
 

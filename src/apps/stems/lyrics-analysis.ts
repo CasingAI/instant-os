@@ -261,8 +261,17 @@ export function summarizeLines(lines: LyricsLine[]): {
 /** 摊开时单个词的最小时长下限（秒） */
 const MIN_WORD_SEC = 0.05
 
-/** 一句话诊断：聚焦行的问题描述 */
-export function describeLineIssue(st: LineStats): string {
+/** 一行歌词的真锚点统计（来自追踪图：真匹配到识别的字数） */
+export type LineAnchors = {
+  matched: number
+  total: number
+}
+
+/**
+ * 一句话诊断：聚焦行的问题描述。
+ * anchors 由追踪图提供（真锚点比例）；没传时退回到只看主界面标记。
+ */
+export function describeLineIssue(st: LineStats, anchors?: LineAnchors): string {
   if (st.squeezed) {
     const span = st.spanSec !== undefined ? st.spanSec.toFixed(2) : '?'
     return `这行 ${st.wordCount} 个词被压进 ${span} 秒：识别断层期无锚点词被插值堆叠，词几乎同时出现`
@@ -273,12 +282,24 @@ export function describeLineIssue(st: LineStats): string {
   if (st.hasParen) {
     return '含括号 ad-lib：括号词在模型词表外，通常无法对齐（结构性红词）'
   }
+  if (anchors && anchors.total > 0) {
+    if (anchors.matched < Math.ceil(anchors.total / 2)) {
+      return anchors.matched === 0
+        ? `这行 ${anchors.total} 词一个都没对上识别，时间是均摊兜底、不可靠`
+        : `这行 ${anchors.total} 词只对上 ${anchors.matched} 个识别，其余是插值兜底、时间不可靠`
+    }
+    const red = anchors.total - anchors.matched
+    if (red > 0) {
+      return `这行 ${anchors.total} 词中 ${red} 词无识别证据（红词），时间是插值兜底、不可靠`
+    }
+  }
   return '这行对齐正常，无异常标记'
 }
 
 /**
- * 摊开到行区间：行内词均匀铺进 [startSec, endSec]，清 failed（均摊后时间确定）。
+ * 摊开到行区间：行内词均匀铺进 [startSec, endSec]，保留各词 failed 标记。
  * 对应副歌堆叠：不重新识别，先把词在时间轴上散开、立刻能听。
+ * 摊开不产生识别证据，插值词维持红词，避免把没有声学支撑的时间洗白。
  */
 export function spreadLineToWindow(
   line: LyricsLine,
@@ -291,7 +312,7 @@ export function spreadLineToWindow(
   const span = Math.max(MIN_WORD_SEC, endSec - startSec)
   const newWords = words.map((w, k) => {
     const t = startSec + (n === 1 ? span / 2 : (k / (n - 1)) * span)
-    return { ...w, timeMs: Math.round(t * 1000), failed: false }
+    return { ...w, timeMs: Math.round(t * 1000) }
   })
   return { ...line, timeMs: Math.round(startSec * 1000), words: newWords }
 }

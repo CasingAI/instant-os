@@ -74,6 +74,12 @@ export function normalizePinyin(py: string): string {
   return out
 }
 
+/** 单个汉字 → 无调拼音（供「识别文本 ↔ 歌词」的发音匹配；非汉字/查不到返回空串） */
+export function hanziToPinyin(char: string): string {
+  const py = String(pinyin(char, { toneType: 'symbol', type: 'string' }))
+  return py && py !== char ? normalizePinyin(py) : ''
+}
+
 /**
  * 构建 拼音(规范化) → vocab 符号等价类 索引。
  * 遍历 vocab 符号，经 ipaToPinyin 映射为拼音后归一化入组；

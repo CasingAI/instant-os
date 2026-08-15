@@ -12,7 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { IosButton } from '../../ui/ios-button.tsx'
-import { formatLrcTimestamp } from '../align/align-lrc.ts'
+import { IosSwitch } from '../../ui/ios-switch.tsx'
+import { formatLrcTimestamp, isPunctuationOnly } from '../align/align-lrc.ts'
 import type { HypSegment } from '../align/align-text-dtw.ts'
 import type { AlignedUnit } from '../align/align-types.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
@@ -28,10 +29,44 @@ import {
   describeLineIssue,
   lineWindowSec,
   resolveLineTimes,
+  splitLineParens,
   spreadLineToWindow,
 } from './lyrics-analysis.ts'
+import {
+  buildCtcTrace,
+  buildFocusTrace,
+  buildGlobalTrace,
+  buildLineMappedTrace,
+  buildSpreadTrace,
+  formatChartDump,
+  formatLineTraceDump,
+  wordsToTraceWords,
+  type TraceChart,
+} from './lyrics-trace.ts'
+import { LyricsTraceChart } from './lyrics-trace-chart.tsx'
 
 const STEM_CHANNELS = 2
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const el = document.createElement('textarea')
+      el.value = text
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(el)
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
 
 /** 歌词识别模型（与主界面一致） */
 export type AlignModel = 'zipformer' | 'sense-voice'
@@ -52,6 +87,9 @@ export type LyricsAnalysisDrawerProps = {
   onPreview: (startSec: number, endSec: number) => void
   /** 停止试听（关闭抽屉/切换试听时） */
   onStopPreview: () => void
+  /** 试听只播 vocals 轨（模型实际听到的）；关 = 全轨混音 */
+  previewVocalsOnly: boolean
+  onPreviewVocalsOnlyChange: (checked: boolean) => void
   /** 把某行的新逐字时间戳写回主界面并落盘 */
   onApplyLine: (focusLine: number, newWords: LyricsWord[]) => void
   /** 撤销上一次应用 */
@@ -72,44 +110,12 @@ const ACTION_LABELS: Record<ActionKey, string> = {
   'ctc-align': 'Zipformer CTC 强制对齐',
 }
 
-/** 预览结果：某动作产出的新词条 */
+/** 预览结果：某动作产出的新词条 + 对应的时间连线图 */
 type PreviewState = {
   key: ActionKey
   line: LyricsLine | null
   note: string
-}
-
-/** 可点听词条：每个词一个 chip，点击播人声到下一词（或词尾+0.5s） */
-function WordChips({
-  line,
-  onPreview,
-}: {
-  line: LyricsLine
-  onPreview: (startSec: number, endSec: number) => void
-}) {
-  const words = line.words ?? []
-  if (words.length === 0) {
-    return <p class="stems__analysis-empty">该行无逐字时间戳，无法逐词试听</p>
-  }
-  return (
-    <div class="stems__analysis-words">
-      {words.map((w, i) => {
-        const next = words[i + 1]
-        const endSec = next ? next.timeMs / 1000 : w.timeMs / 1000 + 0.5
-        return (
-          <button
-            type="button"
-            key={i}
-            class={`stems__analysis-word${w.failed ? ' stems__analysis-word--failed' : ''}`}
-            onClick={() => onPreview(w.timeMs / 1000, endSec)}
-            title={`试听 ${formatLrcTimestamp(w.timeMs / 1000)}–${formatLrcTimestamp(endSec)}`}
-          >
-            {w.text.trim()}
-          </button>
-        )
-      })}
-    </div>
-  )
+  trace: TraceChart | null
 }
 
 export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
@@ -126,6 +132,8 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     alignModel,
     onPreview,
     onStopPreview,
+    previewVocalsOnly,
+    onPreviewVocalsOnlyChange,
     onApplyLine,
     onUndo,
     canUndo,
@@ -152,6 +160,46 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     [lineTimes, focusLine, focusStats],
   )
 
+  // 聚焦行的行区间起止（秒）：与按行时间戳动作一致（末行 +1s 兜底）
+  const focusRowSpan = useMemo(() => {
+    if (focusLine === null) return null
+    const start = lineTimes[focusLine] ?? focusLineObj?.timeMs
+    if (start === undefined) return null
+    const startSec = start / 1000
+    const endSec =
+      lineTimes[focusLine + 1] !== undefined
+        ? (lineTimes[focusLine + 1] as number) / 1000
+        : startSec + 1
+    return { startSec, endSec }
+  }, [focusLine, lineTimes, focusLineObj])
+
+  // 聚焦行的时间连线图：管线重跑（引擎当时怎么做）+（若被改过）当前结果层
+  const focusTrace = useMemo(() => {
+    if (focusLine === null || !focusLineObj || focusRowSpan === null || focusWindow === null) {
+      return null
+    }
+    return buildFocusTrace(
+      phonemes,
+      focusLineObj.text,
+      focusRowSpan.startSec,
+      focusRowSpan.endSec,
+      focusWindow,
+      focusLineObj.words,
+    )
+  }, [focusLine, focusLineObj, focusRowSpan, focusWindow, phonemes])
+
+  // 聚焦行真锚点比例（来自追踪首层：标点不算词；refIndex>=0 = 真匹配到识别）
+  const focusAnchors = useMemo(() => {
+    const layer = focusTrace?.layers[0]
+    if (!layer) return undefined
+    const words = layer.words.filter((w) => !isPunctuationOnly(w.text))
+    if (words.length === 0) return undefined
+    return {
+      matched: words.filter((w) => w.refIndex >= 0).length,
+      total: words.length,
+    }
+  }, [focusTrace])
+
   // 预览 / 异步状态
   const [preview, setPreview] = useState<PreviewState | null>(null)
   const [appliedKey, setAppliedKey] = useState<string | null>(null)
@@ -159,6 +207,10 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
   const [asyncError, setAsyncError] = useState<string | null>(null)
   const [asyncProgress, setAsyncProgress] = useState<{ chunk: number; total: number } | null>(null)
   const [asyncText, setAsyncText] = useState<string | null>(null)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [previewCopyState, setPreviewCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [recognizedCopyState, setRecognizedCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [allLinesCopyState, setAllLinesCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const asyncSeqRef = useRef(0)
 
   // 切换聚焦行/关闭时清空预览与在途任务状态
@@ -169,6 +221,10 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     setAsyncError(null)
     setAsyncProgress(null)
     setAsyncText(null)
+    setCopyState('idle')
+    setPreviewCopyState('idle')
+    setRecognizedCopyState('idle')
+    setAllLinesCopyState('idle')
     asyncSeqRef.current += 1
   }, [focusLine, open])
 
@@ -181,12 +237,19 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     if (!focusLineObj || focusWindow === null) return
     setAppliedKey(null)
     const line = spreadLineToWindow(focusLineObj, focusWindow.startSec, focusWindow.endSec)
+    const trace = buildSpreadTrace(
+      phonemes ?? [],
+      focusWindow,
+      focusLineObj.words ?? [],
+      line.words ?? [],
+    )
     setPreview({
       key: 'spread',
       line,
-      note: `按行区间 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)} 均匀摊开，清红`,
+      note: `按行区间 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)} 均匀摊开（插值词保持红词）`,
+      trace,
     })
-  }, [focusLineObj, focusWindow])
+  }, [focusLineObj, focusWindow, phonemes])
 
   const handleLineTimes = useCallback(() => {
     if (!focusLineObj || focusWindow === null || focusLine === null) return
@@ -203,12 +266,20 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       startMs,
       lineTimes[focusLine + 1],
     )
+    const trace = buildLineMappedTrace(
+      phonemes ?? [],
+      focusLineObj.text,
+      startMs / 1000,
+      (lineTimes[focusLine + 1] ?? startMs) / 1000,
+      focusWindow,
+    )
     setPreview({
       key: 'line-times',
       line,
       note: '用窗口内识别段 + 该行行区间重新对齐',
+      trace,
     })
-  }, [focusLine, focusLineObj, lineTimes, phonemes])
+  }, [focusLine, focusLineObj, lineTimes, phonemes, focusWindow])
 
   const handleParen = useCallback(() => {
     if (!focusLineObj || focusWindow === null) return
@@ -220,6 +291,10 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       focusWindow.startSec,
       focusWindow.endSec,
     )
+    const windowSegs = (phonemes ?? []).filter(
+      (s) => s.end >= focusWindow.startSec && s.start <= focusWindow.endSec,
+    )
+    const trace = buildGlobalTrace(windowSegs, splitLineParens(focusLineObj.text).mainText, focusWindow)
     setPreview({
       key: 'paren',
       line: mainLine,
@@ -227,6 +302,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
         adlibTexts.length > 0
           ? `括号 ad-lib 不参与对齐：${adlibTexts.join(' / ')}`
           : '此行无括号，主词直接对齐',
+      trace,
     })
   }, [focusLineObj, focusWindow, phonemes])
 
@@ -236,10 +312,15 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     setAsyncError(null)
     const center = focusTimeSec + (focusWindow.endSec - focusWindow.startSec) / 2
     const line = alignLineFree(phonemes ?? [], focusLineObj.text, center)
+    const windowSegs = (phonemes ?? []).filter(
+      (s) => s.end >= center - 8 && s.start <= center + 8,
+    )
+    const trace = buildGlobalTrace(windowSegs, focusLineObj.text, focusWindow)
     setPreview({
       key: 'free',
       line,
       note: '不锁行区间，用邻近识别段自由匹配（行时间戳不可靠时用）',
+      trace,
     })
   }, [focusLineObj, focusWindow, focusTimeSec, phonemes])
 
@@ -297,10 +378,18 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
         const shifted = segments.map((s) => ({ ...s, start: s.start + offset, end: s.end + offset }))
         const startMs = lineTimes[focusLine] ?? Math.round(focusWindow.startSec * 1000)
         const line = alignLineByLineTimes(shifted, lineText, startMs, lineTimes[focusLine + 1])
+        const trace = buildLineMappedTrace(
+          shifted,
+          lineText,
+          startMs / 1000,
+          (lineTimes[focusLine + 1] ?? startMs) / 1000,
+          focusWindow,
+        )
         setPreview({
           key,
           line,
-          note: `${model === 'zipformer' ? 'Zipformer' : 'SenseVoice'} 识别行窗口 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)} 后按行时间戳对齐`,
+          note: `${model === 'zipformer' ? 'Zipformer' : 'SenseVoice'} 识别行窗口 ${formatLrcTimestamp(focusWindow.startSec)}–${formatLrcTimestamp(focusWindow.endSec)}：锚点保持识别时间，未匹配字在锚点间插值；没对上内容的识别块按其位置钉时间（标红）`,
+          trace,
         })
       } catch (cause) {
         if (seq !== asyncSeqRef.current) return
@@ -385,10 +474,16 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       }))
       const line = buildLineFromUnits(units)
       const mode = /[A-Za-z0-9]/.test(lineText) ? '英文' : '中文'
+      const trace = buildCtcTrace(
+        phonemes ?? [],
+        focusWindow,
+        wordsToTraceWords(line?.words ?? []),
+      )
       setPreview({
         key: 'ctc-align',
         line,
         note: `Zipformer CTC 强制对齐（${mode}模型），绕开识别文本直接 Viterbi`,
+        trace,
       })
     } catch (cause) {
       if (seq !== asyncSeqRef.current) return
@@ -396,7 +491,7 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
     } finally {
       if (seq === asyncSeqRef.current) setAsyncBusy(null)
     }
-  }, [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes])
+  }, [vocalsAudio, sampleRate, focusLine, focusWindow, karaokeLines, lineTimes, phonemes])
 
   // 试听整行（当前行）
   const playWholeLine = useCallback(() => {
@@ -408,6 +503,71 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
       onPreview(focusTimeSec, focusTimeSec + 1)
     }
   }, [focusLineObj, focusTimeSec, onPreview])
+
+  const copyLineDump = useCallback(() => {
+    if (focusLine === null || !focusLineObj || !focusTrace || !focusStats) return
+    const nextLine = karaokeLines[focusLine + 1]
+    const text = formatLineTraceDump({
+      lineIndex: focusLine,
+      lineText: focusLineObj.text,
+      nextLineText: nextLine?.text,
+      diagnosis: describeLineIssue(focusStats, focusAnchors),
+      lineStartSec: focusRowSpan?.startSec,
+      lineEndSec: focusRowSpan?.endSec,
+      currentWords: focusLineObj.words,
+      chart: focusTrace,
+      previewTitle: preview ? ACTION_LABELS[preview.key] : undefined,
+      previewNote: preview?.note,
+      previewChart: preview?.trace ?? undefined,
+    })
+    void copyText(text).then((ok) => {
+      setCopyState(ok ? 'copied' : 'failed')
+      window.setTimeout(() => setCopyState('idle'), 1600)
+    })
+  }, [focusLine, focusLineObj, focusTrace, focusAnchors, focusStats, karaokeLines, focusRowSpan, preview])
+
+  /** 复制当前修复预览的追踪数据（动作名 + note + 预览图 dump） */
+  const copyPreviewDump = useCallback(() => {
+    if (!preview?.trace) return
+    const lines = [`修复预览（${ACTION_LABELS[preview.key]}）`]
+    if (preview.note) lines.push(preview.note)
+    lines.push('')
+    lines.push(formatChartDump(preview.trace))
+    const text = `${lines.join('\n')}\n`
+    void copyText(text).then((ok) => {
+      setPreviewCopyState(ok ? 'copied' : 'failed')
+      window.setTimeout(() => setPreviewCopyState('idle'), 1600)
+    })
+  }, [preview])
+
+  /** 复制异步重识别的「模型识别到」文本 */
+  const copyRecognizedDump = useCallback(() => {
+    if (!asyncText) return
+    const text = `模型识别到：${asyncText}\n`
+    void copyText(text).then((ok) => {
+      setRecognizedCopyState(ok ? 'copied' : 'failed')
+      window.setTimeout(() => setRecognizedCopyState('idle'), 1600)
+    })
+  }, [asyncText])
+
+  /** 复制全部行诊断摘要（时间 + 文本 + 徽章） */
+  const copyAllLinesDump = useCallback(() => {
+    if (lineStats.length === 0) return
+    const rows = lineStats.map((st) => {
+      const badges: string[] = []
+      if (st.hasParen) badges.push('括号')
+      if (st.squeezed) badges.push('挤压')
+      if (st.failedCount > 0) badges.push(`红词 ${st.failedCount}`)
+      const time = st.timeSec !== undefined ? `[${formatLrcTimestamp(st.timeSec)}]` : '[--:--.--]'
+      const badgeStr = badges.length > 0 ? `  ${badges.join('，')}` : ''
+      return `#${st.lineIndex + 1}  ${time}  ${st.text}${badgeStr}`
+    })
+    const text = `全部行诊断（${lineStats.length} 行）\n${rows.join('\n')}\n`
+    void copyText(text).then((ok) => {
+      setAllLinesCopyState(ok ? 'copied' : 'failed')
+      window.setTimeout(() => setAllLinesCopyState('idle'), 1600)
+    })
+  }, [lineStats])
 
   const applyPreview = useCallback(() => {
     if (preview?.line?.words && preview.line.words.length > 0 && focusLine !== null) {
@@ -450,9 +610,20 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
                 <IosButton size="compact" onClick={playWholeLine} disabled={!focusLineObj}>
                   播整行
                 </IosButton>
+                <IosButton size="compact" onClick={copyLineDump} disabled={!focusTrace}>
+                  {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制这一行'}
+                </IosButton>
               </div>
-              <p class="stems__analysis-diagnosis">{describeLineIssue(focusStats)}</p>
-              <WordChips line={focusLineObj} onPreview={onPreview} />
+              <label class="stems__analysis-vocals-only">
+                <span>试听只播人声（模型听到的）</span>
+                <IosSwitch
+                  checked={previewVocalsOnly}
+                  onChange={onPreviewVocalsOnlyChange}
+                  label="试听只播人声"
+                />
+              </label>
+              <p class="stems__analysis-diagnosis">{describeLineIssue(focusStats, focusAnchors)}</p>
+              {focusTrace && <LyricsTraceChart chart={focusTrace} onPreview={onPreview} />}
             </div>
           ) : (
             <p class="stems__analysis-empty">双击歌词轨的某一行以修复其对齐</p>
@@ -522,8 +693,13 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
           {/* 识别文本（异步动作完成时展示模型听到了什么） */}
           {asyncText && (
             <div class="stems__analysis-recognized">
-              <span class="stems__analysis-recognized-label">模型识别到：</span>
-              {asyncText}
+              <div class="stems__analysis-recognized-head">
+                <span class="stems__analysis-recognized-label">模型识别到：</span>
+                <IosButton size="compact" onClick={copyRecognizedDump}>
+                  {recognizedCopyState === 'copied' ? '已复制' : recognizedCopyState === 'failed' ? '复制失败' : '复制识别'}
+                </IosButton>
+              </div>
+              <div class="stems__analysis-recognized-text">{asyncText}</div>
             </div>
           )}
           {asyncError && <p class="stems__analysis-error">{asyncError}</p>}
@@ -537,13 +713,18 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
                   <span class="stems__analysis-preview-title">
                     {ACTION_LABELS[preview.key]}
                   </span>
-                  {preview.line && (
-                    <BadgeFromLine line={preview.line} />
-                  )}
+                  <div class="stems__analysis-preview-actions">
+                    {preview.line && (
+                      <BadgeFromLine line={preview.line} />
+                    )}
+                    <IosButton size="compact" onClick={copyPreviewDump} disabled={!preview.trace}>
+                      {previewCopyState === 'copied' ? '已复制' : previewCopyState === 'failed' ? '复制失败' : '复制预览'}
+                    </IosButton>
+                  </div>
                 </div>
                 {preview.line ? (
                   <>
-                    <WordChips line={preview.line} onPreview={onPreview} />
+                    {preview.trace && <LyricsTraceChart chart={preview.trace} onPreview={onPreview} />}
                     <p class="stems__analysis-preview-note">{preview.note}</p>
                     <div class="stems__analysis-actions">
                       <IosButton
@@ -577,7 +758,17 @@ export function LyricsAnalysisDrawer(props: LyricsAnalysisDrawerProps) {
           {/* 全部行诊断：次要信息，折叠展示 */}
           <details class="stems__analysis-alllines">
             <summary class="stems__analysis-alllines-summary">
-              全部行诊断（{lineStats.length} 行）
+              <span>全部行诊断（{lineStats.length} 行）</span>
+              <IosButton
+                size="compact"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  copyAllLinesDump()
+                }}
+              >
+                {allLinesCopyState === 'copied' ? '已复制' : allLinesCopyState === 'failed' ? '复制失败' : '复制诊断'}
+              </IosButton>
             </summary>
             <div class="stems__analysis-lines">
               {lineStats.map((st) => {

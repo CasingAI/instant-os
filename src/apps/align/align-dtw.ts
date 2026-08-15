@@ -145,13 +145,22 @@ function isCtcSpecial(symbol: string): boolean {
   return symbol === '<pad>' || symbol === '<s>' || symbol === '</s>' || symbol === '<unk>'
 }
 
+/** 已知时间戳锚点：真锚点（对上识别）或位置锚点（没对上内容，failed 标记红） */
+export type KnownAnchor = {
+  unitIndex: number
+  start: number
+  end: number
+  /** 位置锚点：内容没对上识别，仅钉时间 → 写失败标记标红 */
+  failed?: boolean
+}
+
 /**
  * 把已知时间戳填回单元，未覆盖的按前后邻居线性插值。
  * known 按 unitIndex 升序；obs 用于兜底总时长。
  */
 export function interpolateUnits(
   units: G2pUnit[],
-  known: { unitIndex: number; start: number; end: number }[],
+  known: KnownAnchor[],
   obs: AlignedPhone[],
 ): AlignedUnit[] {
   const result: AlignedUnit[] = units.map((u) => ({
@@ -164,6 +173,7 @@ export function interpolateUnits(
   for (const k of known) {
     result[k.unitIndex].start = k.start
     result[k.unitIndex].end = k.end
+    if (k.failed === true) result[k.unitIndex].failed = true
   }
 
   const totalEnd = obs.length > 0 ? obs[obs.length - 1].end : Math.max(1, units.length * 0.3)

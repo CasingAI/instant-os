@@ -10,14 +10,15 @@
  */
 
 import { stripLrcMarkup } from './pinyin-g2p.ts'
-import { buildLyricsSkeleton, tokenizeLyricsLine } from './align-g2p.ts'
+import { buildLyricsSkeleton } from './align-g2p.ts'
 import {
+  alignTextBacktrace,
   alignTextToUnits,
+  collectPositionAnchors,
   expandHypSegments,
-  normalizeForMatch,
   type HypSegment,
 } from './align-text-dtw.ts'
-import { interpolateUnits } from './align-dtw.ts'
+import { interpolateUnits, type KnownAnchor } from './align-dtw.ts'
 import { estimateLineTimes, expandStarvedLineTimes, MIN_LINE_WORD_MS } from './align-line-times.ts'
 import { buildAlignLrc } from './align-lrc.ts'
 import type { AlignedPhone, AlignedUnit, G2pLine } from './align-types.ts'
@@ -97,97 +98,13 @@ export function applyLineAnchors(
   return out
 }
 
-/** 行时间窗口半宽（秒）：识别段落在该行时间 ± 窗口内才参与行内对齐。
- * 须大于 LINE_SCALE_THRESHOLD_SEC，保证「偏差未超阈值」的识别段一定在窗口内。 */
+/** 行时间窗口半宽（秒）：识别段落在该行时间 ± 窗口内才参与行内对齐。 */
 const LINE_WINDOW_HALF_SEC = 5
-/** 行内缩放阈值（秒）：行首匹配与 .lrc 行时间偏差在该值内才做行内线性映射 */
-const LINE_SCALE_THRESHOLD_SEC = 4
-
-/**
- * 行内时间映射：把行内所有单元从「识别时间域」映射到「.lrc 行时间域」。
- * 以行内首/末匹配词为锚，线性拉伸/压缩整个 [firstStart, lastEnd] → [t_i, t_{i+1}]；
- * 仅单个锚点或末行无 t_{i+1} 时退化为纯平移。
- * 返回新数组（行内单元顺序不变，start/end 更新）。
- */
-function scaleLineToAnchor(
-  rowUnits: AlignedUnit[],
-  lineStartMs: number,
-  lineEndMs: number | undefined,
-  rowKnown: { unitIndex: number; start: number; end: number }[],
-): AlignedUnit[] {
-  const out = rowUnits.map((u) => ({ ...u }))
-  if (rowKnown.length === 0) return out
-  const first = rowKnown[0]
-  const last = rowKnown[rowKnown.length - 1]
-  const anchorStart = first.start
-  const anchorEnd = last.end
-  const tStart = lineStartMs / 1000
-  const tEnd = lineEndMs !== undefined ? lineEndMs / 1000 : undefined
-
-  // 行首偏差超阈值不锚（识别可能更准/数据版本不对）
-  if (Math.abs(tStart - anchorStart) > LINE_SCALE_THRESHOLD_SEC) return out
-
-  if (tEnd === undefined || anchorEnd - anchorStart <= 1e-6 || rowKnown.length === 1) {
-    // 退化：纯平移
-    const off = tStart - anchorStart
-    for (const u of out) {
-      u.start += off
-      u.end += off
-    }
-    return out
-  }
-
-  // 线性映射 [anchorStart, anchorEnd] → [tStart, tEnd]
-  const span = tEnd - tStart
-  const srcSpan = anchorEnd - anchorStart
-  for (const u of out) {
-    u.start = tStart + ((u.start - anchorStart) / srcSpan) * span
-    u.end = tStart + ((u.end - anchorStart) / srcSpan) * span
-  }
-  return out
-}
-
-const MIN_WORD_SEC = MIN_LINE_WORD_MS / 1000
-
-/**
- * 把一行词装回它分到的时间窗：过密（整行挤在一瞬间）或溢出到邻行时，
- * 按原相对位置线性拉到 [tStart, tEnd]；已经铺得开且未越界则不动。
- */
-function fitRowToWindow(
-  row: AlignedUnit[],
-  tStart: number,
-  tEnd: number,
-): AlignedUnit[] {
-  if (row.length === 0) return row
-  const out = row.map((u) => ({ ...u }))
-  const n = out.length
-  const span = Math.max(MIN_WORD_SEC, tEnd - tStart)
-  const first = out[0].start
-  const lastStart = out[n - 1].start
-  const srcSpan = lastStart - first
-  const squashed = n >= 2 && (!Number.isFinite(srcSpan) || srcSpan < n * MIN_WORD_SEC * 0.5)
-  const overflows =
-    !Number.isFinite(first) || first < tStart - 0.05 || lastStart > tEnd + 0.05
-  if (!squashed && !overflows) return out
-
-  if (!Number.isFinite(first) || srcSpan <= 1e-6) {
-    return out.map((u, k) => ({
-      ...u,
-      start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
-      end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
-    }))
-  }
-  for (const u of out) {
-    u.start = tStart + ((u.start - first) / srcSpan) * span
-    u.end = tStart + ((u.end - first) / srcSpan) * span
-  }
-  return out
-}
 
 /**
  * 按行隔离对齐：每行用 .lrc 行时间窗口裁剪识别段，行内独立 DTW，
- * 再把行内所有单元线性映射到 [本行时间, 下一行时间]。
- * 词不再跨行匹配；行内分布贴合 .lrc 行时间戳。
+ * 锚点（对上的词）保持识别时间，未匹配词在锚点间插值填空。
+ * 词不再跨行匹配；对上的词不再被行时间戳拉走。
  */
 export function alignSegmentsByLine(
   segments: HypSegment[],
@@ -249,47 +166,53 @@ export function alignSegmentsByLine(
       Number.isFinite(voicedEnds[i]) && voicedEnds[i] > tStart ? voicedEnds[i] : -Infinity,
     )
 
-    // 窗口裁剪：该行时间 ± 0.8s 内的识别段
+    // 窗口裁剪：该行时间 ± 5s 内的识别段
     const lo = tStart - LINE_WINDOW_HALF_SEC
     const hi = tEndFinal + LINE_WINDOW_HALF_SEC
     const windowSegs = segments.filter((s) => s.end >= lo && s.start <= hi)
 
-    // 窗口内识别段的归一化文本集合：用于过滤 DTW 的「代价 1 假匹配」
-    //（替换与跳过代价相同，DTW 会把无文本对应但时间近的段也算匹配）
-    const windowNorm = new Set<string>()
-    for (const s of windowSegs) {
-      for (const t of tokenizeLyricsLine(s.symbol)) windowNorm.add(normalizeForMatch(t))
-    }
-
-    // 行内独立 DTW
-    const spans = alignTextToUnits(windowSegs, line.units)
-    const rowKnown: { unitIndex: number; start: number; end: number }[] = []
-    spans.forEach((span, u) => {
-      if (span.start >= 0 && windowNorm.has(normalizeForMatch(line.units[u].text))) {
-        rowKnown.push({ unitIndex: u, start: span.start, end: span.end })
-      }
+    // 行内独立 DTW：只有「听起来像同一个词」且时间贴近本行的识别段才拿得到时间戳，
+    // 对不上的（含跨行中文、后面英文）代价高于跳过 → 在代价层直接跳过，不留假锚点
+    const { refToHyp } = alignTextBacktrace(windowSegs, line.units, {
+      startSec: tStart,
+      endSec: tEndFinal,
     })
+    const hyp = expandHypSegments(windowSegs)
+    const rowKnown: KnownAnchor[] = []
+    for (let u = 0; u < line.units.length; u++) {
+      const h = refToHyp[u]
+      if (h >= 0 && h < hyp.length) {
+        rowKnown.push({ unitIndex: u, start: hyp[h].start, end: hyp[h].end })
+      }
+    }
+    // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红——
+    // 「没对上歌词」不等于「没有声学证据」，那块声学证据应归属该位置
+    rowKnown.push(...collectPositionAnchors(refToHyp, hyp, line.units))
+    rowKnown.sort((a, b) => a.unitIndex - b.unitIndex)
 
     // 行内单元初值：匹配词用识别时间，未匹配为 NaN
     const rowUnits: AlignedUnit[] = line.units.map((u, k) => {
-      const kSpan = spans[k]
+      const h = refToHyp[k]
       return {
         text: u.text,
         phones: u.phones,
-        start: kSpan && kSpan.start >= 0 ? kSpan.start : Number.NaN,
-        end: kSpan && kSpan.end >= 0 ? kSpan.end : Number.NaN,
+        start: h >= 0 && h < hyp.length ? hyp[h].start : Number.NaN,
+        end: h >= 0 && h < hyp.length ? hyp[h].end : Number.NaN,
       }
     })
 
-    const obsForRow = expandHypSegments(windowSegs).map((u) => ({
+    const obsForRow = hyp.map((u) => ({
       symbol: u.text,
       start: u.start,
       end: u.end,
     }))
 
     let mappedRow: AlignedUnit[]
-    if (rowKnown.length === 0) {
-      // 无匹配词：行内均匀分摊到 [tStart, tEndFinal]（整行无声学证据 → 全部标红）
+    // 真锚点不足一半时不围绕零星匹配插值：一个锚点撑不起整行时间结构，
+    // 与「零锚点」同样整行均摊并标红，避免假锚点把词拉出离谱时长再压回行里
+    const anchorNeed = Math.ceil(rowUnits.length / 2)
+    if (rowKnown.length < anchorNeed) {
+      // 行内均匀分摊到 [tStart, tEndFinal]（整行声学证据不足 → 全部标红）
       const n = rowUnits.length
       const span = Math.max(0.05, tEndFinal - tStart)
       mappedRow = rowUnits.map((u, k) => ({
@@ -299,20 +222,153 @@ export function alignSegmentsByLine(
         end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
       }))
     } else {
-      // 先在识别域用 interpolateUnits 填 NaN（未匹配词），再整行线性映射到行时间域
-      const filled = interpolateUnits(line.units, rowKnown, obsForRow)
-      mappedRow = scaleLineToAnchor(
-        filled,
-        times[i],
-        i + 1 < times.length ? times[i + 1] : tEndFinal * 1000,
-        rowKnown,
-      )
+      // 锚点钉死：interpolateUnits 已把未匹配词在锚点间线性铺开，
+      // 锚点保持识别时间，不做行窗映射，避免把对上的词从演唱处拉走
+      mappedRow = interpolateUnits(line.units, rowKnown, obsForRow)
     }
-    mappedRow = fitRowToWindow(mappedRow, tStart, tEndFinal)
 
     for (const u of mappedRow) allUnits.push(u)
   }
   return allUnits
+}
+
+/** 识别块追踪：字级展开的识别块（含归属歌词单元） */
+export type TraceHypBlock = {
+  /** 展开后下标（在 expandHypSegments 结果中） */
+  hypIndex: number
+  text: string
+  startSec: number
+  endSec: number
+  /** 匹配到的歌词单元下标（-1 = 未匹配到任何词） */
+  refIndex: number
+  /** 位置锚点归属的歌词单元下标（内容未对上，仅按位置钉时间；undefined = 无） */
+  positionRefIndex?: number
+}
+
+/** 歌词单元追踪：识别域 → 插值（锚点钉死，未匹配词在锚点间铺开） */
+export type TraceUnitWord = {
+  text: string
+  /** 识别域时间（匹配到真实识别段）；未匹配为 NaN */
+  recogStartSec: number
+  recogEndSec: number
+  /** 插值后时间（未匹配词从左右锚点线性填）；known 词与识别域一致 */
+  interpStartSec: number
+  interpEndSec: number
+  /** 该词是否为插值兜底（无识别证据） */
+  interpFailed: boolean
+  /** 位置锚点钉的时间（未匹配识别块按位置钉，内容仍标红；undefined = 非位置锚点） */
+  posAnchorSec?: number
+  /** 最终时间（= 插值结果，锚点保持识别时间） */
+  finalStartSec: number
+  finalEndSec: number
+  /** 最终失败标记（红词） */
+  finalFailed: boolean
+}
+
+/** 一行歌词的对齐追踪：与 alignSegmentsByLine 同一套步骤，但保留中间态 */
+export type LineTraceRow = {
+  hypBlocks: TraceHypBlock[]
+  words: TraceUnitWord[]
+  /** 是否做过行窗映射（锚点钉死后恒为 false，仅保留字段供追踪层判断） */
+  hasMapping: boolean
+}
+
+/**
+ * 行级对齐追踪：窗口裁剪 → 假匹配剔除 → 编辑距离回溯 → 插值（锚点钉死），
+ * 每一步都留下中间态，供「修这一行」抽屉画时间连线图。
+ * 与 alignSegmentsByLine 的单行步骤完全一致（同一批私有工具函数），
+ * 只额外输出追踪数据，不改动正式对齐结果。
+ */
+export function traceAlignRow(
+  segments: HypSegment[],
+  refLine: G2pLine,
+  tStart: number,
+  tEndFinal: number,
+): LineTraceRow {
+  const lo = tStart - LINE_WINDOW_HALF_SEC
+  const hi = tEndFinal + LINE_WINDOW_HALF_SEC
+  const windowSegs = segments.filter((s) => s.end >= lo && s.start <= hi)
+
+  // 编辑距离回溯：只有「听起来像同一个词」且时间贴近本行的识别段才匹配（假匹配在代价层被跳过）
+  const { refToHyp } = alignTextBacktrace(windowSegs, refLine.units, {
+    startSec: tStart,
+    endSec: tEndFinal,
+  })
+  const hyp = expandHypSegments(windowSegs)
+
+  const recogStart = new Float64Array(refLine.units.length).fill(Number.NaN)
+  const recogEnd = new Float64Array(refLine.units.length).fill(Number.NaN)
+  const known: KnownAnchor[] = []
+  for (let u = 0; u < refLine.units.length; u++) {
+    const h = refToHyp[u]
+    if (h >= 0 && h < hyp.length) {
+      recogStart[u] = hyp[h].start
+      recogEnd[u] = hyp[h].end
+      known.push({ unitIndex: u, start: hyp[h].start, end: hyp[h].end })
+    }
+  }
+  // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红
+  const posAnchors = collectPositionAnchors(refToHyp, hyp, refLine.units)
+  known.push(...posAnchors)
+  known.sort((a, b) => a.unitIndex - b.unitIndex)
+
+  // 识别块 → 归属歌词单元（真锚点 refIndex；位置锚点 positionRefIndex）
+  const hypToRef = new Map<number, number>()
+  for (const k of known) {
+    const h = refToHyp[k.unitIndex]
+    if (h >= 0) hypToRef.set(h, k.unitIndex)
+  }
+  const hypToPosRef = new Map<number, number>()
+  for (const pa of posAnchors) hypToPosRef.set(pa.hypIndex, pa.unitIndex)
+  const hypBlocks: TraceHypBlock[] = hyp.map((b, i) => ({
+    hypIndex: i,
+    text: b.text,
+    startSec: b.start,
+    endSec: b.end,
+    refIndex: hypToRef.get(i) ?? -1,
+    positionRefIndex: hypToPosRef.get(i),
+  }))
+
+  const obsForRow: AlignedPhone[] = hyp.map((u) => ({ symbol: u.text, start: u.start, end: u.end }))
+
+  let interpUnits: AlignedUnit[]
+  // 真锚点不足一半：与 alignSegmentsByLine 一致，整行均匀分摊到行区间并标红
+  //（零星匹配不足以为整行提供时间结构，避免围绕它们插值再压回行里）
+  const anchorNeed = Math.ceil(refLine.units.length / 2)
+  if (known.length < anchorNeed) {
+    const n = refLine.units.length
+    const span = Math.max(0.05, tEndFinal - tStart)
+    interpUnits = refLine.units.map((u, k) => ({
+      text: u.text,
+      phones: u.phones,
+      failed: true,
+      start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
+      end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
+    }))
+  } else {
+    interpUnits = interpolateUnits(refLine.units, known, obsForRow)
+  }
+
+  // 锚点钉死：不做行窗映射，最终时间 = 识别域插值结果（锚点保持识别时间）
+  const finalUnits: AlignedUnit[] = interpUnits
+
+  const posAnchorSec = new Array<number | undefined>(refLine.units.length).fill(undefined)
+  for (const pa of posAnchors) posAnchorSec[pa.unitIndex] = pa.start
+
+  const words: TraceUnitWord[] = refLine.units.map((u, i) => ({
+    text: u.text,
+    recogStartSec: recogStart[i],
+    recogEndSec: recogEnd[i],
+    interpStartSec: interpUnits[i].start,
+    interpEndSec: interpUnits[i].end,
+    interpFailed: interpUnits[i].failed === true,
+    posAnchorSec: posAnchorSec[i],
+    finalStartSec: finalUnits[i].start,
+    finalEndSec: finalUnits[i].end,
+    finalFailed: finalUnits[i].failed === true,
+  }))
+
+  return { hypBlocks, words, hasMapping: false }
 }
 
 /**

@@ -48,6 +48,7 @@ import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
 import { LyricsAnalysisDrawer } from './lyrics-analysis-drawer.tsx'
 import { patchLineIntoAlignedLrc } from './lyrics-analysis.ts'
+import { CLEAN_VERSION, cleanLyricsWithLlm } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
   formatRecentTime,
@@ -243,6 +244,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 歌词原文（用户粘贴/载入；随对齐流程被 stripLrcMarkup 清洗后使用） */
   const [lyrics, setLyrics] = useState('')
   const lyricsRef = useRef('')
+  /** LLM 清洗缓存：{ 输入文本, 清洗版本 }；文本未变且版本最新时跳过重复清洗 */
+  const lyricsCleanRef = useRef<{ text: string; version: number } | null>(null)
   /** 歌词来源名（自动载入 / 手动载入的文件名，非空时展示） */
   const [lyricsSourceName, setLyricsSourceName] = useState('')
   /** 歌词对齐结果（增强 LRC；随 .stems.zip 持久化，重开恢复） */
@@ -293,6 +296,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const analysisUndoRef = useRef<string[]>([])
   /** 是否有可撤销的抽屉修改（驱动抽屉「撤销」按钮） */
   const [analysisCanUndo, setAnalysisCanUndo] = useState(false)
+  /** 歌词抽屉试听：开 = 只播 vocals 轨（模型实际听到的）；关 = 全轨混音 */
+  const [analysisPreviewVocalsOnly, setAnalysisPreviewVocalsOnly] = useState(false)
   /** 编辑草稿的来源名（文件/剪贴板导入时设置；保存时随歌词应用） */
   const [lyricsDraftSource, setLyricsDraftSource] = useState('')
   /** 播放中当前高亮的歌词行/词（避免每帧重复写 DOM） */
@@ -764,6 +769,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     setLyricsHint(hint)
   }, [])
 
+  /** 确保歌词经过最新版本清洗：缓存命中（文本相同 + 版本最新）直接返回；否则 LLM 清洗并写缓存 */
+  const ensureLyricsCleaned = useCallback(async (lyricsText: string): Promise<string> => {
+    if (!lyricsText) return lyricsText
+    const cached = lyricsCleanRef.current
+    if (cached && cached.text === lyricsText && cached.version === CLEAN_VERSION) {
+      return cached.text
+    }
+    const cleaned = await cleanLyricsWithLlm(lyricsText)
+    lyricsCleanRef.current = { text: lyricsText, version: CLEAN_VERSION }
+    return cleaned
+  }, [])
+
   /**
    * 复用已缓存的音素段把歌词快速对齐（纯函数文本对齐，秒级）：
    * 换歌词后不必重跑 Zipformer 识别，直接用旧识别段对齐新歌词。
@@ -790,7 +807,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const alignVocals = useCallback(
     async (audio: Float32Array, sampleRate: number): Promise<boolean> => {
       const reqId = (alignReqSeqRef.current += 1)
-      const lyricsText = lyricsRef.current
+      // 对齐前确保歌词经过最新版本 LLM 清洗（文本未变但 CLEAN_VERSION 升级时自动重洗）
+      const lyricsText = await ensureLyricsCleaned(lyricsRef.current)
       if (!lyricsText.trim()) {
         setLyricsHint('请先提供歌词（粘贴或载入 .lrc 歌词文件）再对齐')
         return false
@@ -941,7 +959,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         if (alignReqSeqRef.current === reqId) setAlignBusy(false)
       }
     },
-    [alignModel],
+    [alignModel, ensureLyricsCleaned],
   )
 
   /**
@@ -1414,11 +1432,21 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       lyricsLineTimesRef.current = lineTimes ?? null
       // 仅在提供有效 .lrc 原始文本时更新普通歌词来源（手动编辑/纯文本不清旧值以免丢失）
       if (lrcRaw) lyricsLrcRef.current = lrcRaw
-      // 已有音素段（识别结果）时直接复用快速重对齐，无需重跑 Zipformer
-      if (realignFromPhonemes(cleaned)) return
-      if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
+      // 后台 LLM 清洗（剥「徐/刘：」等规则洗不掉的内容），行数不变故行时间戳仍有效；
+      // 清洗后如有音素段直接快速重对齐，否则提示重新对齐
+      void ensureLyricsCleaned(cleaned).then((llmCleaned) => {
+        if (lyricsRef.current !== cleaned) return // 已被更新的歌词覆盖
+        if (llmCleaned !== cleaned) {
+          lyricsRef.current = llmCleaned
+          setLyrics(llmCleaned)
+          // 清洗结果文本同样视为「已按最新版本清洗」，避免对齐入口对 llmCleaned 二次调用
+          lyricsCleanRef.current = { text: llmCleaned, version: CLEAN_VERSION }
+        }
+        if (realignFromPhonemes(llmCleaned)) return
+        if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
+      })
     },
-    [clearAlignedResult, realignFromPhonemes],
+    [clearAlignedResult, realignFromPhonemes, ensureLyricsCleaned],
   )
 
   /** 载入歌词文件（.lrc/.txt）到编辑草稿：剥离 LRC 时间戳后填入 textarea（保存时才应用） */
@@ -1523,9 +1551,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     handleSeparateRef.current = () => void handleSeparate()
   }, [handleSeparate])
 
-  /** 从 offset 秒开始播放全部轨；mute/solo/音量由各轨 GainNode 即时控制。 */
+  /** 从 offset 秒开始播放全部轨；mute/solo/音量由各轨 GainNode 即时控制。
+   * opts.onlyStemId：只播指定轨（歌词抽屉试听只用 vocals），此时强制该轨出声、
+   * 用该轨音量、忽略 mute/solo——试听要能听到模型实际「听到」的声音。 */
   const startPlayback = useCallback(
-    (startOffset: number) => {
+    (startOffset: number, opts?: { onlyStemId?: StemId }) => {
       if (!tracks || !audioContextRef.current) return
       const ctx = audioContextRef.current
       const buffers = buffersRef.current
@@ -1535,7 +1565,9 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const offset = Math.min(Math.max(0, startOffset), Math.max(0, duration - 0.01))
       startOffsetRef.current = offset
       startedAtRef.current = ctx.currentTime
+      const only = opts?.onlyStemId
       for (const track of tracks) {
+        if (only !== undefined && track.audio.stemId !== only) continue
         const buffer = buffers.get(track.audio.stemId)
         if (!buffer) continue
         const source = ctx.createBufferSource()
@@ -1547,7 +1579,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         bufferSourcesRef.current.push(source)
         gainNodesRef.current.set(track.audio.stemId, gain)
       }
-      applyGains(gainNodesRef.current, tracks)
+      if (only !== undefined) {
+        const gain = gainNodesRef.current.get(only)
+        if (gain) {
+          const track = tracks.find((t) => t.audio.stemId === only)
+          gain.gain.value = track ? track.volume : 1
+        }
+      } else {
+        applyGains(gainNodesRef.current, tracks)
+      }
       setPlaying(true)
     },
     [tracks, duration, stopPlayback],
@@ -1727,7 +1767,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     stopPlayback()
   }, [stopPlayback])
 
-  /** 试听 [startSec, endSec)：seek 到起点开始播放，到终点自动停 */
+  /** 试听 [startSec, endSec)：seek 到起点开始播放，到终点自动停。
+   * analysisPreviewVocalsOnly 开启时只播 vocals 轨（与识别链路同源）。 */
   const previewSegment = useCallback(
     (startSec: number, endSec: number) => {
       if (!tracks) return
@@ -1736,14 +1777,17 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         analysisPreviewTimerRef.current = null
       }
       handleSeekInput(startSec)
-      startPlayback(startSec)
+      startPlayback(
+        startSec,
+        analysisPreviewVocalsOnly ? { onlyStemId: 'vocals' } : undefined,
+      )
       const durMs = Math.max(180, Math.round((endSec - startSec) * 1000))
       analysisPreviewTimerRef.current = window.setTimeout(() => {
         analysisPreviewTimerRef.current = null
         stopPlayback()
       }, durMs)
     },
-    [tracks, handleSeekInput, startPlayback, stopPlayback],
+    [tracks, handleSeekInput, startPlayback, stopPlayback, analysisPreviewVocalsOnly],
   )
 
   /** 应用抽屉修复：只替换聚焦行逐字时间戳，写回 alignedLrc 并落盘，保留撤销 */
@@ -2239,7 +2283,6 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               {mdxProvider === 'webgpu' ? 'WebGPU · MDX' : 'WASM · MDX'}
             </span>
           )}
-          {sourceName && <span class="stems__source">{sourceName}</span>}
           {error && <span class="stems__error">{error}</span>}
         </div>
       </header>
@@ -2929,6 +2972,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         alignModel={alignModel}
         onPreview={previewSegment}
         onStopPreview={stopPreviewSegment}
+        previewVocalsOnly={analysisPreviewVocalsOnly}
+        onPreviewVocalsOnlyChange={setAnalysisPreviewVocalsOnly}
         onApplyLine={applyAnalysisLine}
         onUndo={undoAnalysisLine}
         canUndo={analysisCanUndo}
