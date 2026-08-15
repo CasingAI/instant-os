@@ -252,6 +252,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const lyricsRef = useRef('')
   /** LLM 清洗缓存：{ 输入文本, 清洗版本 }；文本未变且版本最新时跳过重复清洗 */
   const lyricsCleanRef = useRef<{ text: string; version: number } | null>(null)
+  /** 在途清洗 Promise：同一文本并发请求复用，避免保存时重复清洗烧 token */
+  const cleanInFlightRef = useRef<Promise<string> | null>(null)
   /** 歌词来源名（自动载入 / 手动载入的文件名，非空时展示） */
   const [lyricsSourceName, setLyricsSourceName] = useState('')
   /** 歌词对齐结果（增强 LRC；随 .stems.zip 持久化，重开恢复） */
@@ -297,6 +299,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   /** 编辑歌词模态窗口开关与草稿（保存时应用） */
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false)
   const [lyricsDraft, setLyricsDraft] = useState('')
+  /** 编辑草稿每行对应的 .lrc 行时间戳（毫秒；无对应为 undefined），供模态展示时间线 */
+  const [lyricsDraftTimes, setLyricsDraftTimes] = useState<(number | undefined)[]>([])
   /** 歌词分析抽屉开关与双击定位到的行 */
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [analysisFocusLine, setAnalysisFocusLine] = useState<number | null>(null)
@@ -779,7 +783,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     setLyricsHint(hint)
   }, [])
 
-  /** 确保歌词经过最新版本清洗：缓存命中（文本相同 + 版本最新）直接返回；否则 LLM 清洗并写缓存 */
+  /** 确保歌词经过最新版本清洗：缓存命中（文本相同 + 版本最新）直接返回；否则 LLM 清洗并写缓存。
+   * 只缓存成功结果（失败回退不缓存 → 下次重试）；同一文本并发请求复用同一在途 Promise。 */
   const ensureLyricsCleaned = useCallback(
     async (
       lyricsText: string,
@@ -790,9 +795,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       if (cached && cached.text === lyricsText && cached.version === CLEAN_VERSION) {
         return cached.text
       }
-      const cleaned = await cleanLyricsWithLlm(lyricsText, onProgress)
-      lyricsCleanRef.current = { text: lyricsText, version: CLEAN_VERSION }
-      return cleaned
+      if (cleanInFlightRef.current) return cleanInFlightRef.current
+      const promise = (async () => {
+        const result = await cleanLyricsWithLlm(lyricsText, onProgress)
+        if (result.ok) lyricsCleanRef.current = { text: lyricsText, version: CLEAN_VERSION }
+        return result.text
+      })()
+      cleanInFlightRef.current = promise
+      try {
+        return await promise
+      } finally {
+        cleanInFlightRef.current = null
+      }
   }, [])
 
   /**
@@ -976,6 +990,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setAlignCleanProgress(null)
         setLyricsHint('请先提供歌词（粘贴或载入 .lrc 歌词文件）再对齐')
         return false
+      }
+      // 清洗结果写回主界面：用户点对齐后立即看到干净歌词，而非旧版本残留
+      if (lyricsText !== lyricsRef.current) {
+        lyricsRef.current = lyricsText
+        setLyrics(lyricsText)
       }
       setAlignPhase('recognize')
       setAlignCleanProgress(null)
@@ -1609,7 +1628,8 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       // 仅在提供有效 .lrc 原始文本时更新普通歌词来源（手动编辑/纯文本不清旧值以免丢失）
       if (lrcRaw) lyricsLrcRef.current = lrcRaw
       // 后台 LLM 清洗（剥「徐/刘：」等规则洗不掉的内容），行数不变故行时间戳仍有效；
-      // 清洗后如有音素段直接快速重对齐，否则提示重新对齐
+      // 清洗中给出反馈；清洗后如有音素段直接快速重对齐，否则提示重新对齐
+      if (!alignedLrcRef.current) setLyricsHint('清洗歌词中…')
       void ensureLyricsCleaned(cleaned).then((llmCleaned) => {
         if (lyricsRef.current !== cleaned) return // 已被更新的歌词覆盖
         if (llmCleaned !== cleaned) {
@@ -1620,6 +1640,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         }
         if (realignFromPhonemes(llmCleaned)) return
         if (alignedLrcRef.current) clearAlignedResult('歌词已更新，点击「对齐歌词」重新对齐')
+        else setLyricsHint(null) // 无对齐结果且清洗完成：清掉「清洗歌词中…」，避免残留
       })
     },
     [clearAlignedResult, realignFromPhonemes, ensureLyricsCleaned],
@@ -1643,15 +1664,18 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       setLyricsDraft(cleaned)
       setLyricsDraftSource(`载入：${name}`)
       lyricsRawRef.current = text
+      setLyricsDraftTimes(mapLrcLineTimes(text, cleaned.split('\n')))
     } catch (cause) {
       setAlignError(cause instanceof Error ? cause.message : String(cause))
     }
   }, [showSystemOpenDialog])
 
-  /** 打开编辑歌词模态：草稿取当前歌词，来源名继承（新导入会覆盖） */
+  /** 打开编辑歌词模态：草稿取当前歌词，来源名继承（新导入会覆盖）；展示行时间戳时间线 */
   const openLyricsEditor = useCallback(() => {
-    setLyricsDraft(lyricsRef.current)
+    const draft = lyricsRef.current
+    setLyricsDraft(draft)
     setLyricsDraftSource(lyricsSourceName)
+    setLyricsDraftTimes(mapLrcLineTimes(lyricsRawRef.current ?? draft, draft.split('\n')))
     setLyricsEditorOpen(true)
   }, [lyricsSourceName])
 
@@ -1661,9 +1685,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       try {
         const text = await navigator.clipboard.readText()
         if (text) {
-          setLyricsDraft(text)
+          const draft = text.trim()
+          setLyricsDraft(draft)
           setLyricsDraftSource('从剪贴板导入')
           lyricsRawRef.current = text
+          setLyricsDraftTimes(mapLrcLineTimes(text, stripLrcMarkup(draft).trim().split('\n')))
           return
         }
       } catch {
@@ -3118,6 +3144,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 onClick={() => {
                   setLyricsDraft('')
                   setLyricsDraftSource('')
+                  setLyricsDraftTimes([])
                 }}
               >
                 清空
@@ -3127,6 +3154,22 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           <label for="stems-lyrics-editor-textarea">
             粘贴或编辑歌词文本（保存时自动剥离 LRC 时间戳）
           </label>
+          {lyricsDraftTimes.length > 0 && (
+            <div class="stems__lyrics-editor-times">
+              <div class="stems__lyrics-editor-times-head">行时间戳（来自原 .lrc）</div>
+              {lyricsDraft.split('\n').map((line, i) => {
+                const t = lyricsDraftTimes[i]
+                return (
+                  <div class="stems__lyrics-editor-times-row" key={i}>
+                    <span class="stems__lyrics-editor-times-stamp">
+                      {t !== undefined ? formatLrcTimestamp(t / 1000) : '--:--.--'}
+                    </span>
+                    <span class="stems__lyrics-editor-times-text">{line.trim() || '\u00A0'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           <textarea
             id="stems-lyrics-editor-textarea"
             class="stems__clipboard-textarea"

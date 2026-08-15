@@ -79,18 +79,25 @@ export type CleanProgress = {
   reasoning: number
 }
 
+/** 清洗结果：ok = LLM 成功且行数一致；text = 实际应用的歌词文本（失败时为规则清洗兜底） */
+export type CleanResult = {
+  ok: boolean
+  text: string
+}
+
 /**
- * LLM 清洗歌词：成功且行数一致 → 返回清洗结果；任何失败（网络/解析/行数不符）→
- * 回退规则清洗 stripLrcMarkup，不打断流程。usageContext 计入 AI 用量。
+ * LLM 清洗歌词：成功且行数一致 → { ok: true, text }；任何失败（网络/解析/行数不符）→
+ * { ok: false, text: stripLrcMarkup(lyrics).trim() }（仍给规则兜底，但不声称为成功，
+ * 调用方可据此决定不缓存，下次重试）。usageContext 计入 AI 用量。
  * onProgress 在 stream 期间持续回调（written/reasoning 为累计字数），
  * 供 UI 展示「AI 正在干活」的进度感知。
  */
 export async function cleanLyricsWithLlm(
   lyrics: string,
   onProgress?: (progress: CleanProgress) => void,
-): Promise<string> {
+): Promise<CleanResult> {
   const fallback = stripLrcMarkup(lyrics).trim()
-  if (!lyrics.trim()) return fallback
+  if (!lyrics.trim()) return { ok: false, text: fallback }
   try {
     // 动态 import：streamChatCompletion 依赖链含 .tsx（app-registry），
     // 顶层静态 import 会让纯函数单测在 node 下加载失败
@@ -111,11 +118,11 @@ export async function cleanLyricsWithLlm(
     const parsed = parseCleanResult(text, lyrics.split(/\r?\n/))
     if (parsed === null) {
       console.warn('[lyrics-clean] LLM 清洗结果行数不符，回退规则清洗')
-      return fallback
+      return { ok: false, text: fallback }
     }
-    return parsed.trim() || fallback
+    return { ok: true, text: parsed.trim() || fallback }
   } catch (cause) {
     console.warn('[lyrics-clean] LLM 清洗失败，回退规则清洗', cause)
-    return fallback
+    return { ok: false, text: fallback }
   }
 }
