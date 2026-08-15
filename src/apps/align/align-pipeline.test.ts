@@ -299,17 +299,44 @@ function testVoicedEndExtendsLine(): void {
 }
 
 function testSparseAnchorsWholeLineFailed(): void {
-  // 「大家来恋爱」5 字只对上 1 个（大），窗口里的 JUST/SAY 中英硬连被拒 →
-  // 锚点不足一半 → 整行均摊并全标红，不再围着一个锚点拉出假时长
+  // 「大家来恋爱」5 字只对上 1 个（大）→ 有锚点一律锚点钉死：
+  // 大保留识别时间不标红，家/来/恋/爱在锚点后插值标红；
+  // 窗口里的 JUST/SAY 中英硬连被拒，不进歌词
   const segments = segs([
     ['大', 111.46, 111.52],
     ['SAY', 118.4, 118.58],
     ['JUST', 123.26, 123.44],
   ])
   const lrc = alignSegmentsToLrc(segments, '大家来恋爱', [111500, 118740])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 5, `应输出 5 个字：${lrc}`)
+  assert.ok(Math.abs(words[0].timeSec - 111.46) < 0.05, `「大」保留识别时间：${words[0].timeSec}`)
   const failedMarks = (lrc.match(/\|f>/g) ?? []).length
-  assert.equal(failedMarks, 5, `锚点不足一半应整行标红：${lrc}`)
+  assert.equal(failedMarks, 4, `大不标红，其余 4 字插值标红：${lrc}`)
   assert.ok(!lrc.includes('JUST') && !lrc.includes('SAY'), '英文不应被塞进歌词')
+}
+
+function testSparseAnchorsKeepRecogTime(): void {
+  // 用户 dump 回归：8 个单元只对上 Why/you/talki' 3 个（不到一半）——
+  // 之前整行均摊把 Why 从 58.58 拉到 59.18；现在锚点钉死，
+  // Why/you/talki' 保留识别时间，孔/：/that/mess/huh 插值标红
+  const segments = segs([
+    ['SAY', 58.4, 58.58],
+    ['WHY', 58.58, 58.76],
+    ['YOUE', 58.82, 59.12],
+    ['TALKING', 59.12, 59.54],
+  ])
+  const lrc = alignSegmentsToLrc(segments, "孔： Why you talki' that mess huh", [58740, 60290])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 7, `应输出 7 个词（孔：合并）：${lrc}`)
+  assert.ok(Math.abs(words[1].timeSec - 58.58) < 0.05, `Why 保留识别时间不被拉到 59.18：${words[1].timeSec}`)
+  assert.ok(Math.abs(words[2].timeSec - 58.82) < 0.05, `you 保留识别时间：${words[2].timeSec}`)
+  assert.ok(Math.abs(words[3].timeSec - 59.12) < 0.05, `talki' 保留识别时间：${words[3].timeSec}`)
+  assert.ok(lrc.includes('|f>孔'), '孔应标红')
+  assert.ok(lrc.includes('|f>that '), 'that 应标红')
+  assert.ok(lrc.includes('|f>mess '), 'mess 应标红')
+  assert.ok(lrc.includes('|f>huh'), 'huh 应标红')
+  assert.ok(!lrc.includes('|f>Why') && !lrc.includes('|f>you') && !lrc.includes('|f>talki'), '锚点不应标红')
 }
 
 function testAnchorsPinnedNotStretched(): void {
@@ -376,6 +403,7 @@ async function runAll(): Promise<void> {
   testClusteredLineTimesSpread()
   testVoicedEndExtendsLine()
   testSparseAnchorsWholeLineFailed()
+  testSparseAnchorsKeepRecogTime()
   testAnchorsPinnedNotStretched()
   testPositionAnchorsExtraUnkIgnored()
   console.log('align-pipeline: 全部通过')

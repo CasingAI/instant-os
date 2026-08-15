@@ -208,10 +208,9 @@ export function alignSegmentsByLine(
     }))
 
     let mappedRow: AlignedUnit[]
-    // 真锚点不足一半时不围绕零星匹配插值：一个锚点撑不起整行时间结构，
-    // 与「零锚点」同样整行均摊并标红，避免假锚点把词拉出离谱时长再压回行里
-    const anchorNeed = Math.ceil(rowUnits.length / 2)
-    if (rowKnown.length < anchorNeed) {
+    // 完全没有声学证据才整行均摊并标红；只要行内有 ≥1 个锚点（含位置锚点），
+    // 一律锚点钉死：interpolateUnits 保持锚点识别时间、未匹配词在锚点间插值
+    if (rowKnown.length === 0) {
       // 行内均匀分摊到 [tStart, tEndFinal]（整行声学证据不足 → 全部标红）
       const n = rowUnits.length
       const span = Math.max(0.05, tEndFinal - tStart)
@@ -222,9 +221,12 @@ export function alignSegmentsByLine(
         end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
       }))
     } else {
-      // 锚点钉死：interpolateUnits 已把未匹配词在锚点间线性铺开，
-      // 锚点保持识别时间，不做行窗映射，避免把对上的词从演唱处拉走
-      mappedRow = interpolateUnits(line.units, rowKnown, obsForRow)
+      // 锚点钉死：行首/行尾未匹配词铺到行区间边界，锚点保持识别时间，
+      // 不做行窗映射，避免把对上的词从演唱处拉走
+      mappedRow = interpolateUnits(line.units, rowKnown, obsForRow, {
+        leftSec: tStart,
+        rightSec: tEndFinal,
+      })
     }
 
     for (const u of mappedRow) allUnits.push(u)
@@ -332,10 +334,9 @@ export function traceAlignRow(
   const obsForRow: AlignedPhone[] = hyp.map((u) => ({ symbol: u.text, start: u.start, end: u.end }))
 
   let interpUnits: AlignedUnit[]
-  // 真锚点不足一半：与 alignSegmentsByLine 一致，整行均匀分摊到行区间并标红
-  //（零星匹配不足以为整行提供时间结构，避免围绕它们插值再压回行里）
-  const anchorNeed = Math.ceil(refLine.units.length / 2)
-  if (known.length < anchorNeed) {
+  // 完全没有声学证据才整行均摊并标红；只要行内有 ≥1 个锚点（含位置锚点），
+  // 一律锚点钉死：interpolateUnits 保持锚点识别时间、未匹配词在锚点间插值
+  if (known.length === 0) {
     const n = refLine.units.length
     const span = Math.max(0.05, tEndFinal - tStart)
     interpUnits = refLine.units.map((u, k) => ({
@@ -346,7 +347,11 @@ export function traceAlignRow(
       end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
     }))
   } else {
-    interpUnits = interpolateUnits(refLine.units, known, obsForRow)
+    // 锚点钉死：行首/行尾未匹配词铺到行区间边界，锚点保持识别时间
+    interpUnits = interpolateUnits(refLine.units, known, obsForRow, {
+      leftSec: tStart,
+      rightSec: tEndFinal,
+    })
   }
 
   // 锚点钉死：不做行窗映射，最终时间 = 识别域插值结果（锚点保持识别时间）

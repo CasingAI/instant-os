@@ -415,7 +415,8 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
 }
 
 // 2b. 发音锚点回归：上一句「来/爱」+ 后面英文 JUST/SAY 混进窗口，
-// 只有真听到的「大」是锚点；5 字只对上 1 个 → 整行均摊标失败
+// 只有真听到的「大」是锚点；5 字只对上 1 个 → 锚点钉死：
+// 大保持识别时间不红，其余 4 字插值标红
 {
   const segs: HypSegment[] = [
     { symbol: '爱', start: 108.04, end: 108.1 }, // 上一句「特别可爱」（在「大」之前）
@@ -430,8 +431,12 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.equal(row.hypBlocks.find((h) => h.text === 'SAY')?.refIndex, -1, 'SAY 不是「爱」，不应连上')
   const matched = row.words.filter((w) => Number.isFinite(w.recogStartSec)).length
   assert.equal(matched, 1, '只有「大」是真锚点')
-  assert.ok(row.words.every((w) => w.finalFailed), '锚点不足一半时整行标失败')
-  // 复制文本口径：JUST/SAY 不写「对上」；大对上了但整行兜底
+  assert.equal(row.words.filter((w) => w.finalFailed).length, 4, '大不红，其余 4 字插值标红')
+  assert.ok(
+    Math.abs(row.words[0].interpStartSec - 111.46) < 0.05,
+    '「大」保持识别时间不被整行均摊',
+  )
+  // 复制文本口径：JUST/SAY 不写「对上」；大对上不兜底，其余插值标红
   const chart = traceRowToChart(row, { startSec: 106.5, endSec: 123.74 })
   const dump = formatLineTraceDump({
     lineIndex: 21,
@@ -441,7 +446,6 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   assert.ok(dump.includes('「JUST」  没对上这行'))
   assert.ok(dump.includes('「SAY」  没对上这行'))
   assert.ok(dump.includes('「大」  对上这行第 1 字「大」'))
-  assert.ok(dump.includes('对上识别但整行兜底'))
   assert.ok(dump.includes('插值（没对上识别）'))
 }
 
@@ -512,6 +516,27 @@ const refLineOf = (text: string) => buildLyricsSkeleton(text)[0]
   const dump = formatChartDump(chart)
   assert.ok(dump.includes('位置钉时间（内容未对上识别）'), '恋标注为位置钉时间')
   assert.ok(dump.includes('位置对上这行第 4 字'), '乱码块 dump 标注位置对上')
+}
+
+// 3c. 稀疏锚点不再整行均摊：Why/you/talki' 保持识别时间，垃圾前缀标红
+{
+  const segs: HypSegment[] = [
+    { symbol: 'SAY', start: 58.4, end: 58.58 },
+    { symbol: 'WHY', start: 58.58, end: 58.76 },
+    { symbol: 'YOUE', start: 58.82, end: 59.12 },
+    { symbol: 'TALKING', start: 59.12, end: 59.54 },
+  ]
+  const row = traceAlignRow(segs, refLineOf("孔： Why you talki' that mess huh"), 58.74, 60.29)
+  assert.equal(row.words.length, 8, "孔/：/Why/you/talki'/that/mess/huh")
+  assert.ok(Math.abs(row.words[2].interpStartSec - 58.58) < 0.05, 'Why 保持识别时间')
+  assert.equal(row.words[2].interpFailed, false, 'Why 不标红')
+  assert.ok(Math.abs(row.words[3].interpStartSec - 58.82) < 0.05, 'you 保持识别时间')
+  assert.equal(row.words[3].interpFailed, false, 'you 不标红')
+  assert.ok(Math.abs(row.words[4].interpStartSec - 59.12) < 0.05, "talki' 保持识别时间")
+  assert.equal(row.words[4].interpFailed, false, "talki' 不标红")
+  for (const idx of [0, 1, 5, 6, 7]) {
+    assert.equal(row.words[idx].interpFailed, true, `词 ${idx} 应插值标红`)
+  }
 }
 
 // 4. buildFocusTrace：当前结果与管线不一致时追加「当前结果」层

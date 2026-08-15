@@ -154,14 +154,24 @@ export type KnownAnchor = {
   failed?: boolean
 }
 
+/** 插值用行区间边界：无前/后锚点时铺到该时间（而非被 ±窗口的跨行块拉远） */
+export type InterpEdge = {
+  /** 行首时间（秒）：最前未匹配词的左界 */
+  leftSec?: number
+  /** 行尾时间（秒）：最后未匹配词的右界 */
+  rightSec?: number
+}
+
 /**
  * 把已知时间戳填回单元，未覆盖的按前后邻居线性插值。
  * known 按 unitIndex 升序；obs 用于兜底总时长。
+ * edge 提供行区间边界：行首/行尾的未匹配词铺到边界，且不越过最近锚点。
  */
 export function interpolateUnits(
   units: G2pUnit[],
   known: KnownAnchor[],
   obs: AlignedPhone[],
+  edge?: InterpEdge,
 ): AlignedUnit[] {
   const result: AlignedUnit[] = units.map((u) => ({
     text: u.text,
@@ -175,6 +185,10 @@ export function interpolateUnits(
     result[k.unitIndex].end = k.end
     if (k.failed === true) result[k.unitIndex].failed = true
   }
+
+  // 锚点数组：单调修正不推动真锚点（位置锚点同样钉死）
+  const anchored = new Uint8Array(units.length)
+  for (const k of known) anchored[k.unitIndex] = 1
 
   const totalEnd = obs.length > 0 ? obs[obs.length - 1].end : Math.max(1, units.length * 0.3)
   const totalStart = obs.length > 0 ? obs[0].start : 0
@@ -198,20 +212,27 @@ export function interpolateUnits(
       }
     }
 
-    const leftT = prevIdx >= 0 ? result[prevIdx].end : totalStart
-    const rightT = nextIdx >= 0 ? result[nextIdx].start : totalEnd
+    // 行首/行尾无锚点时铺到行区间边界（不传 edge 则用 obs 全窗兜底）；
+    // 边界收敛到最近锚点，插值永不越过锚点
+    let leftT = prevIdx >= 0 ? result[prevIdx].end : (edge?.leftSec ?? totalStart)
+    let rightT = nextIdx >= 0 ? result[nextIdx].start : (edge?.rightSec ?? totalEnd)
+    if (prevIdx < 0 && nextIdx >= 0) leftT = Math.min(leftT, rightT - 0.05)
+    if (prevIdx >= 0 && nextIdx < 0) rightT = Math.max(rightT, leftT + 0.05)
     const gapUnits = (nextIdx >= 0 ? nextIdx : result.length) - (prevIdx >= 0 ? prevIdx : -1) - 1
     const offsetInGap = u - (prevIdx >= 0 ? prevIdx : -1) - 1
     const span = Math.max(0.05, rightT - leftT)
     const slot = span / Math.max(1, gapUnits)
     result[u].start = leftT + offsetInGap * slot
     result[u].end = result[u].start + slot
+    // 插值词 end 不越过右锚点（相邻插值词的 0.05s 下限可能把区间撑过锚点）
+    if (nextIdx >= 0) result[u].end = Math.min(result[u].end, rightT)
     // 无任何声学证据的时间戳（纯插值兜底）→ 标红
     result[u].failed = true
   }
 
-  // 保证单调：后单元起点不得早于前单元终点
+  // 保证单调：后单元起点不得早于前单元终点；锚点钉死，不被前面的插值词推动
   for (let u = 1; u < result.length; u++) {
+    if (anchored[u] === 1) continue
     if (result[u].start < result[u - 1].end) {
       result[u].start = result[u - 1].end
     }
