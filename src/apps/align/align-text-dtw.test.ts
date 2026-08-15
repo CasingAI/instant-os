@@ -9,7 +9,13 @@
  */
 
 import assert from 'node:assert/strict'
-import { alignTextToUnits, expandHypSegments, normalizeForMatch, phoneticMatch } from './align-text-dtw.ts'
+import {
+  alignTextToUnits,
+  expandHypSegments,
+  normalizeForMatch,
+  phoneticMatch,
+  weightedEditDistance,
+} from './align-text-dtw.ts'
 import type { G2pUnit, HypSegment } from './align-text-dtw.ts'
 
 const ref = (text: string): G2pUnit[] =>
@@ -160,4 +166,53 @@ const ref = (text: string): G2pUnit[] =>
   )
   assert.ok(Number.isNaN(hard[0].start), 'JUST 不应连到「来」')
   assert.ok(Number.isNaN(hard[1].start), 'SAY 不应连到「爱」')
+}
+
+// —— 10. 加权编辑距离：清浊/塞音近似（pot→BOK），元音保守 ——
+{
+  // 浊清 + 塞音互串（p→b、t→k 各 0.5）：加权距离 1
+  assert.equal(weightedEditDistance('bok', 'pot'), 1)
+  assert.ok(phoneticMatch('BOK', 'pot'), 'BOK 应发音匹配 pot（清浊/塞音近似）')
+  // 元音替换重罚：love/live 仍拒绝（保守）
+  assert.equal(weightedEditDistance('love', 'live'), 2, '元音替换代价 2')
+  assert.equal(phoneticMatch('love', 'live'), false, 'love/live 元音差异拒绝')
+  // 2 字母词允许 1 处差异（HY↔why 保持）
+  assert.equal(phoneticMatch('HY', 'why'), true)
+  // 单字母无法近似长词
+  assert.equal(phoneticMatch('BOK', 'x'), false)
+}
+
+// —— 11. 一对多段分裂：一个识别段覆盖连续两个歌词词 ——
+{
+  const segments: HypSegment[] = [{ symbol: 'WERL', start: 22.0, end: 22.6 }]
+  const refWords = ['where', 'we'].map((text) => ({ text, phones: [] as string[] }))
+  const r = alignTextToUnits(segments, refWords)
+  assert.ok(Number.isFinite(r[0].start), 'where 应命中识别段')
+  assert.ok(Number.isFinite(r[1].start), 'we 应命中（块分裂）')
+  assert.ok(Math.abs(r[0].start - 22.0) < 1e-9, 'where 起点 = 段起点')
+  assert.ok(Math.abs(r[1].end - 22.6) < 1e-9, 'we 终点 = 段终点')
+  assert.ok(r[0].end <= r[1].start + 1e-9, '块内时间单调不重叠')
+  // 段时长按字符比例切分：where(5)/we(2) → where 占 5/7
+  const split = 22.0 + (0.6 * 5) / 7
+  assert.ok(Math.abs(r[0].end - split) < 1e-9, 'where 结束按字符比例切分')
+}
+
+// —— 12. 识别段标点展开剔除（pot, → pot） ——
+{
+  const segments: HypSegment[] = [{ symbol: 'pot,', start: 22.0, end: 22.4 }]
+  const hyp = expandHypSegments(segments)
+  assert.deepEqual(hyp.map((h) => h.text), ['pot'], '段内逗号不展开为匹配单元')
+  const r = alignTextToUnits(segments, [{ text: 'pot', phones: [] }])
+  assert.ok(Math.abs(r[0].start - 22.0) < 1e-9, 'pot 命中（标点不干扰）')
+}
+
+// —— 13. 歌词侧标点剔出匹配序列（标点不占 DP 位、不消耗识别块） ——
+{
+  const segments: HypSegment[] = [{ symbol: 'BOK', start: 22.0, end: 22.3 }]
+  // 歌词 "pot, that" 拆成 pot / , / that：逗号不参与 DP，BOK 仍命中 pot
+  const refUnits: G2pUnit[] = ['pot', ',', 'that'].map((text) => ({ text, phones: [] }))
+  const r = alignTextToUnits(segments, refUnits)
+  assert.ok(Math.abs(r[0].start - 22.0) < 1e-9, 'pot 命中')
+  assert.ok(Number.isNaN(r[1].start), '逗号不参与匹配（-1）')
+  assert.ok(Number.isNaN(r[2].start), 'that 未匹配')
 }

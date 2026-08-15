@@ -14,6 +14,8 @@ import { buildLyricsSkeleton } from './align-g2p.ts'
 import {
   alignTextBacktrace,
   alignTextToUnits,
+  anchorSpanForUnit,
+  collectFallbackAnchors,
   collectPositionAnchors,
   expandHypSegments,
   type HypSegment,
@@ -180,9 +182,9 @@ export function alignSegmentsByLine(
     const hyp = expandHypSegments(windowSegs)
     const rowKnown: KnownAnchor[] = []
     for (let u = 0; u < line.units.length; u++) {
-      const h = refToHyp[u]
-      if (h >= 0 && h < hyp.length) {
-        rowKnown.push({ unitIndex: u, start: hyp[h].start, end: hyp[h].end })
+      const span = anchorSpanForUnit(u, refToHyp, hyp, line.units)
+      if (span) {
+        rowKnown.push({ unitIndex: u, start: span.start, end: span.end })
       }
     }
     // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红——
@@ -192,12 +194,12 @@ export function alignSegmentsByLine(
 
     // 行内单元初值：匹配词用识别时间，未匹配为 NaN
     const rowUnits: AlignedUnit[] = line.units.map((u, k) => {
-      const h = refToHyp[k]
+      const span = anchorSpanForUnit(k, refToHyp, hyp, line.units)
       return {
         text: u.text,
         phones: u.phones,
-        start: h >= 0 && h < hyp.length ? hyp[h].start : Number.NaN,
-        end: h >= 0 && h < hyp.length ? hyp[h].end : Number.NaN,
+        start: span ? span.start : Number.NaN,
+        end: span ? span.end : Number.NaN,
       }
     })
 
@@ -211,15 +213,28 @@ export function alignSegmentsByLine(
     // 完全没有声学证据才整行均摊并标红；只要行内有 ≥1 个锚点（含位置锚点），
     // 一律锚点钉死：interpolateUnits 保持锚点识别时间、未匹配词在锚点间插值
     if (rowKnown.length === 0) {
-      // 行内均匀分摊到 [tStart, tEndFinal]（整行声学证据不足 → 全部标红）
-      const n = rowUnits.length
-      const span = Math.max(0.05, tEndFinal - tStart)
-      mappedRow = rowUnits.map((u, k) => ({
-        ...u,
-        failed: true,
-        start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
-        end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
-      }))
+      // 无真锚点但行区间内有识别段（如 pot→BOK、where we→WERL 内容没对上）：
+      // 声学证据仍应归属该行，按位置兜底钉时间并标红——比行时间均摊更贴真实演唱
+      const fallback = collectFallbackAnchors(hyp, line.units, {
+        startSec: tStart,
+        endSec: tEndFinal,
+      })
+      if (fallback.length > 0) {
+        mappedRow = interpolateUnits(line.units, fallback, obsForRow, {
+          leftSec: tStart,
+          rightSec: tEndFinal,
+        })
+      } else {
+        // 行内均匀分摊到 [tStart, tEndFinal]（整行声学证据不足 → 全部标红）
+        const n = rowUnits.length
+        const span = Math.max(0.05, tEndFinal - tStart)
+        mappedRow = rowUnits.map((u, k) => ({
+          ...u,
+          failed: true,
+          start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
+          end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
+        }))
+      }
     } else {
       // 锚点钉死：行首/行尾未匹配词铺到行区间边界，锚点保持识别时间，
       // 不做行窗映射，避免把对上的词从演唱处拉走
@@ -302,11 +317,11 @@ export function traceAlignRow(
   const recogEnd = new Float64Array(refLine.units.length).fill(Number.NaN)
   const known: KnownAnchor[] = []
   for (let u = 0; u < refLine.units.length; u++) {
-    const h = refToHyp[u]
-    if (h >= 0 && h < hyp.length) {
-      recogStart[u] = hyp[h].start
-      recogEnd[u] = hyp[h].end
-      known.push({ unitIndex: u, start: hyp[h].start, end: hyp[h].end })
+    const span = anchorSpanForUnit(u, refToHyp, hyp, refLine.units)
+    if (span) {
+      recogStart[u] = span.start
+      recogEnd[u] = span.end
+      known.push({ unitIndex: u, start: span.start, end: span.end })
     }
   }
   // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红
@@ -337,15 +352,27 @@ export function traceAlignRow(
   // 完全没有声学证据才整行均摊并标红；只要行内有 ≥1 个锚点（含位置锚点），
   // 一律锚点钉死：interpolateUnits 保持锚点识别时间、未匹配词在锚点间插值
   if (known.length === 0) {
-    const n = refLine.units.length
-    const span = Math.max(0.05, tEndFinal - tStart)
-    interpUnits = refLine.units.map((u, k) => ({
-      text: u.text,
-      phones: u.phones,
-      failed: true,
-      start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
-      end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
-    }))
+    // 无真锚点但行区间内有识别段：按位置兜底钉时间并标红（与 alignSegmentsByLine 同步骤）
+    const fallback = collectFallbackAnchors(hyp, refLine.units, {
+      startSec: tStart,
+      endSec: tEndFinal,
+    })
+    if (fallback.length > 0) {
+      interpUnits = interpolateUnits(refLine.units, fallback, obsForRow, {
+        leftSec: tStart,
+        rightSec: tEndFinal,
+      })
+    } else {
+      const n = refLine.units.length
+      const span = Math.max(0.05, tEndFinal - tStart)
+      interpUnits = refLine.units.map((u, k) => ({
+        text: u.text,
+        phones: u.phones,
+        failed: true,
+        start: tStart + (n === 1 ? 0 : (k / (n - 1)) * span),
+        end: tStart + (n === 1 ? span : ((k + 1) / (n - 1)) * span),
+      }))
+    }
   } else {
     // 锚点钉死：行首/行尾未匹配词铺到行区间边界，锚点保持识别时间
     interpUnits = interpolateUnits(refLine.units, known, obsForRow, {

@@ -386,6 +386,41 @@ function testPositionAnchorsExtraUnkIgnored(): void {
   assert.ok(!lrc.includes('\ufffd'), '乱码不应进歌词')
 }
 
+function testBokMatchesPot(): void {
+  // 识别输出 BOK（实际是 pot）：清浊/塞音近似加权距离命中 pot → 真锚点不标红
+  const segments = segs([['BOK', 22.0, 22.3]])
+  const lrc = alignSegmentsToLrc(segments, 'pot,', [22000])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 1)
+  assert.ok(Math.abs(words[0].timeSec - 22.0) < 0.05, `pot 钉识别时间：${words[0].timeSec}`)
+  assert.ok(!lrc.includes('|f>'), '发音近似应视为真锚点不标红')
+}
+
+function testWerlBlockSplit(): void {
+  // 识别输出 WERL（where we 连读融合）：块分裂成两个词，按字符比例切分段时间
+  const segments = segs([['WERL', 22.0, 22.6]])
+  const lrc = alignSegmentsToLrc(segments, 'where we', [22000])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 2)
+  assert.ok(Math.abs(words[0].timeSec - 22.0) < 0.05, `where 起点=段起点：${words[0].timeSec}`)
+  assert.ok(words[1].timeSec > words[0].timeSec, 'we 在 where 之后')
+  assert.ok(!lrc.includes('|f>where') && !lrc.includes('|f>we'), '块分裂两词都应有声学证据不标红')
+  assert.ok(
+    Math.abs(words[1].timeSec - (22.0 + 0.6 * (5 / 7))) < 0.05,
+    `we 按字符比例切分：${words[1].timeSec}`,
+  )
+}
+
+function testFallbackAcousticTime(): void {
+  // 无真锚点行：行区间内有识别段（内容对不上）→ 复用声学时间标红，而非纯行时间均摊
+  const segments = segs([['WERL', 22.0, 22.6]])
+  const lrc = alignSegmentsToLrc(segments, 'x y', [22000])
+  const words = lineWords(lrc)
+  assert.equal(words.length, 2)
+  assert.ok(words[0].timeSec < 22.3, `首词贴近识别声学时间而非行尾均摊：${words[0].timeSec}`)
+  assert.ok(lrc.includes('|f>'), '内容没对上仍标红')
+}
+
 async function runAll(): Promise<void> {
   testCleanLyrics()
   testStripTimestampLyrics()
@@ -406,6 +441,9 @@ async function runAll(): Promise<void> {
   testSparseAnchorsKeepRecogTime()
   testAnchorsPinnedNotStretched()
   testPositionAnchorsExtraUnkIgnored()
+  testBokMatchesPot()
+  testWerlBlockSplit()
+  testFallbackAcousticTime()
   console.log('align-pipeline: 全部通过')
 }
 

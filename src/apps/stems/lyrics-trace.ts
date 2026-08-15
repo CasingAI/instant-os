@@ -6,6 +6,7 @@
 
 import {
   alignTextBacktrace,
+  anchorSpanForUnit,
   collectPositionAnchors,
   expandHypSegments,
   normalizeForMatch,
@@ -131,11 +132,11 @@ export function traceAlignGlobal(
   const recogEnd = new Float64Array(refLine.units.length).fill(Number.NaN)
   const known: KnownAnchor[] = []
   for (let u = 0; u < refLine.units.length; u++) {
-    const h = refToHyp[u]
-    if (h >= 0 && h < hyp.length) {
-      recogStart[u] = hyp[h].start
-      recogEnd[u] = hyp[h].end
-      known.push({ unitIndex: u, start: hyp[h].start, end: hyp[h].end })
+    const span = anchorSpanForUnit(u, refToHyp, hyp, refLine.units)
+    if (span) {
+      recogStart[u] = span.start
+      recogEnd[u] = span.end
+      known.push({ unitIndex: u, start: span.start, end: span.end })
     }
   }
   // 位置锚点：夹在真锚点间的未匹配识别块（如乱码 �）钉其识别时间但标红
