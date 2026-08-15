@@ -790,22 +790,33 @@ export async function getFilesTotalBytes(): Promise<number> {
 /** 计入数据空间配额的文件卷（IndexedDB 本地卷） */
 export const DATA_SPACE_FILE_LOCATIONS: readonly FilesLocationId[] = ['local', 'dev', 'tmp']
 
+/** 文件应用侧边栏展示占用统计的卷：数据卷 + 废纸篓 */
+export const FILE_SIDEBAR_METRIC_LOCATIONS: readonly FilesLocationId[] = [
+  'local',
+  'dev',
+  'tmp',
+  'trash',
+]
+
 export type FilesLocationBytes = {
   locationId: FilesLocationId
   bytes: number
 }
 
 /**
- * 按卷汇总文件节点 byteSize（仅 local / dev / tmp）。
- * 用于设置「文件」次级页展示；总占用仍以 getFilesTotalBytes() 为准。
+ * 按卷汇总文件节点 byteSize。
+ * 默认统计 local / dev / tmp（设置「文件」次级页展示）；也可传入指定卷列表。
+ * 总占用仍以 getFilesTotalBytes() 为准。
  */
-export async function getFilesBytesByLocation(): Promise<FilesLocationBytes[]> {
+export async function getFilesBytesByLocation(
+  locations: readonly FilesLocationId[] = DATA_SPACE_FILE_LOCATIONS,
+): Promise<FilesLocationBytes[]> {
   const db = await openFilesDb()
   const tx = beginIdbTransaction(db, FILES_NODES_STORE, 'readonly')
   const index = tx.objectStore(FILES_NODES_STORE).index('by-location')
 
   const results: FilesLocationBytes[] = []
-  for (const locationId of DATA_SPACE_FILE_LOCATIONS) {
+  for (const locationId of locations) {
     const records = await requestToPromise(
       index.getAll(locationId) as IDBRequest<FilesNodeRecord[]>,
     )

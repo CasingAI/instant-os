@@ -28,7 +28,9 @@ import { useWindowModal } from '../../window/window-modal-context.tsx'
 import { WindowModal } from '../../window/window-modal.tsx'
 import { getFilesClipboard, setFilesClipboard } from './files-clipboard.ts'
 import { readAppliedDockReservePx } from '../../dock/dock-css-vars.ts'
-import { FilesStorageFullError } from './files-storage.ts'
+import { formatStorageSize } from '../../os/format-storage-size.ts'
+import { DATA_STORAGE_CHANGED_EVENT } from '../../os/device-data-storage.ts'
+import { FilesStorageFullError, FILE_SIDEBAR_METRIC_LOCATIONS, getFilesBytesByLocation } from './files-storage.ts'
 import {
   collectDataTransferEntries,
   importExternalNodes,
@@ -567,6 +569,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
 
   const [locationId, setLocationId] = useState<FilesLocationId>('local')
   const [locations, setLocations] = useState<readonly FilesLocation[]>([])
+  const [locationBytes, setLocationBytes] = useState<Partial<Record<FilesLocationId, number>>>({})
   const [folderId, setFolderId] = useState<string | undefined>(undefined)
   const [pathNodes, setPathNodes] = useState<FilesNode[]>([])
   const [items, setItems] = useState<FilesNode[]>([])
@@ -1034,9 +1037,26 @@ export function FilesApp({ windowId }: { windowId?: string }) {
     }
   }, [])
 
+  const refreshLocationBytes = useCallback(async () => {
+    try {
+      const entries = await getFilesBytesByLocation(FILE_SIDEBAR_METRIC_LOCATIONS)
+      const map: Partial<Record<FilesLocationId, number>> = {}
+      for (const entry of entries) {
+        map[entry.locationId] = entry.bytes
+      }
+      setLocationBytes(map)
+    } catch {
+      setLocationBytes({})
+    }
+  }, [])
+
   useEffect(() => {
     void refreshLocations()
   }, [refreshLocations])
+
+  useEffect(() => {
+    void refreshLocationBytes()
+  }, [refreshLocationBytes])
 
   useEffect(() => {
     setItems((prev) => sortNodeList(prev, sort))
@@ -1292,6 +1312,7 @@ export function FilesApp({ windowId }: { windowId?: string }) {
       trailingTimer = undefined
       maxTimer = undefined
       void refresh({ quiet: true })
+      void refreshLocationBytes()
     }
     const onVfsChanged = () => {
       // 尾随 debounce：安静 80ms 后刷；连续风暴时至少每 300ms 刷一次
@@ -1301,13 +1322,18 @@ export function FilesApp({ windowId }: { windowId?: string }) {
         maxTimer = window.setTimeout(flush, 300)
       }
     }
+    const onDataStorageChanged = () => {
+      void refreshLocationBytes()
+    }
     window.addEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+    window.addEventListener(DATA_STORAGE_CHANGED_EVENT, onDataStorageChanged)
     return () => {
       window.clearTimeout(trailingTimer)
       window.clearTimeout(maxTimer)
       window.removeEventListener(FILES_VFS_CHANGED_EVENT, onVfsChanged)
+      window.removeEventListener(DATA_STORAGE_CHANGED_EVENT, onDataStorageChanged)
     }
-  }, [refresh])
+  }, [refresh, refreshLocationBytes])
 
   useEffect(() => {
     if (!isMountLocationId(locationId)) return
@@ -3236,12 +3262,20 @@ export function FilesApp({ windowId }: { windowId?: string }) {
               const mountId = isMountLocationId(location.id) ? location.id : undefined
               const isDropTarget = dropTarget?.kind === 'location' && dropTarget.id === location.id
               const itemClass = `files__sidebar-item${active ? ' files__sidebar-item--active' : ''}${mountId ? ' files__sidebar-item--mount' : ''}${isDropTarget ? ' files__sidebar-item--drop-target' : ''}`
+              const locationBytesForId = locationBytes[location.id]
               const locationContent = (
                 <>
                   <span class="files__sidebar-icon">
                     <LocationGlyph id={location.id} />
                   </span>
-                  <span class="files__sidebar-label">{location.label}</span>
+                  <span class="files__sidebar-copy">
+                    <span class="files__sidebar-label">{location.label}</span>
+                    {locationBytesForId !== undefined ? (
+                      <span class="files__sidebar-size">
+                        已用 {formatStorageSize(locationBytesForId)}
+                      </span>
+                    ) : undefined}
+                  </span>
                 </>
               )
               const locationDragHandlers = {

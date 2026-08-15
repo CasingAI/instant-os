@@ -321,6 +321,30 @@
   font-weight: 600;
 }
 
+.files__sidebar-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
+
+.files__sidebar-size {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(243, 231, 210, 0.55);
+  text-shadow: none;
+}
+
+.files__sidebar-item--active .files__sidebar-size {
+  color: rgba(255, 250, 240, 0.8);
+}
+
 .files__main {
   position: absolute;
   top: 0;
@@ -1433,6 +1457,10 @@ button.files__path-bar-segment:active {
 .files--narrow .files__sidebar-label {
   font-size: 15px;
   font-weight: 700;
+}
+
+.files--narrow .files__sidebar-size {
+  font-size: 12px;
 }
 
 /* 窄屏：位置列表 */
