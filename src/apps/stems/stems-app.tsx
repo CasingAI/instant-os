@@ -524,13 +524,14 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       const audioContext = new AudioContext()
       audioContextRef.current = audioContext
       const decoded = await audioContext.decodeAudioData(arrayBuffer)
-      const channelData = decoded.getChannelData(0)
-      // 转 interleaved stereo（单声道复制到双声道）
+      // 保留源音频立体声：按实际声道数取 L/R，真单声道源才复制到双声道。
+      // 之前只取第 0 声道复制，等于在入口把整首歌下混成单声道，声像信息全丢。
+      const left = decoded.getChannelData(0)
+      const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left
       const interleaved = new Float32Array(decoded.length * 2)
       for (let i = 0; i < decoded.length; i++) {
-        const v = channelData[i]
-        interleaved[i * 2] = v
-        interleaved[i * 2 + 1] = v
+        interleaved[i * 2] = left[i]
+        interleaved[i * 2 + 1] = right[i]
       }
       return { interleaved, sampleRate: decoded.sampleRate, duration: decoded.duration }
     },

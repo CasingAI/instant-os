@@ -3,6 +3,7 @@
 import * as ort from 'onnxruntime-web'
 import { fetchModelWithCache, DEMUCS_MODEL_URL } from '../../os/model-cache.ts'
 import {
+  deinterleaveStereo,
   resampleInterleaved,
   sliceStemChunks,
   stitchStemOutputs,
@@ -72,8 +73,8 @@ async function separate(request: StemRequest): Promise<void> {
 
   for (let i = 0; i < chunks.length; i++) {
     const { startFrame, input } = chunks[i]
-    // 模型输入 [1, 2, W]
-    const inputTensor = new ort.Tensor('float32', input, [1, 2, STEM_WINDOW])
+    // 模型输入 [1, 2, W] 是 ch-major：先 de-interleave（L 全段 / R 全段）再构造张量
+    const inputTensor = new ort.Tensor('float32', deinterleaveStereo(input), [1, 2, STEM_WINDOW])
     const feeds: Record<string, ort.Tensor> = { mix: inputTensor }
     const results = await sessionInstance.run(feeds)
     // 输出名通常是 stems，shape [1, 6, 2, W]

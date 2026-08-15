@@ -47,6 +47,21 @@ export function resampleInterleaved(
   return out
 }
 
+/**
+ * interleaved stereo → 模型输入 NCHW 布局 [L 全段, R 全段]（长度不变）。
+ * htdemucs 的 `mix [1,2,W]` 是 ch-major：ch0 = 左声道全部样本、ch1 = 右声道全部样本，
+ * 不能直接拿 interleaved 数组构造张量（那会把每帧交错样本错分到两个声道）。
+ */
+export function deinterleaveStereo(input: Float32Array): Float32Array {
+  const frames = Math.floor(input.length / STEM_CHANNELS)
+  const out = new Float32Array(input.length)
+  for (let i = 0; i < frames; i++) {
+    out[i] = input[i * STEM_CHANNELS]
+    out[frames + i] = input[i * STEM_CHANNELS + 1]
+  }
+  return out
+}
+
 export type StemChunk = {
   /** 该块在整首歌中的起始帧（采样点，单声道） */
   startFrame: number
@@ -83,9 +98,10 @@ function windowValue(i: number): number {
 }
 
 /**
- * 把每块输出（stems，shape [6, 2, STEM_WINDOW]）用重叠相加拼回整首。
+ * 把每块输出（stems，shape [6, 2, W]）用重叠相加拼回整首。
  * 归一化权重为「每帧的窗函数值和」，任意重叠比例下常数输入都能精确还原。
- * 返回 6 轨 interleaved stereo PCM（与 htdemucs 输出通道顺序一一对应）。
+ * 模型输出为 ch-major（L 全段在前、R 全段在后），这里按 ch-major 读并
+ * 转成 interleaved stereo 返回（与 htdemucs 输出通道顺序一一对应）。
  */
 export function stitchStemOutputs(
   chunkOutputs: Float32Array[],
@@ -100,20 +116,13 @@ export function stitchStemOutputs(
     for (let stem = 0; stem < HTDEMUCS_STEM_IDS.length; stem++) {
       const stemBase = stem * STEM_WINDOW * STEM_CHANNELS
       const target = accum[stem]
-      // 单块：模型输出 [2, STEM_WINDOW] interleaved 化
-      const frame = new Float32Array(STEM_WINDOW * STEM_CHANNELS)
-      for (let i = 0; i < STEM_WINDOW; i++) {
-        const l = output[stemBase + i * 2]
-        const r = output[stemBase + i * 2 + 1]
-        frame[i * STEM_CHANNELS] = l
-        frame[i * STEM_CHANNELS + 1] = r
-      }
+      // 单块：模型输出 [2, STEM_WINDOW] ch-major，L 全段在前、R 全段在后
       for (let i = 0; i < STEM_WINDOW; i++) {
         const w = windowValue(i)
         const dest = (start + i) * STEM_CHANNELS
         if (start + i >= totalFrames) break
-        target[dest] += frame[i * STEM_CHANNELS] * w
-        target[dest + 1] += frame[i * STEM_CHANNELS + 1] * w
+        target[dest] += output[stemBase + i] * w
+        target[dest + 1] += output[stemBase + STEM_WINDOW + i] * w
       }
     }
     for (let i = 0; i < STEM_WINDOW; i++) {

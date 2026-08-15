@@ -7,6 +7,7 @@ import {
   buildWaveformPyramid,
   computeWaveformPeaks,
   computeWaveformPeaksFromPyramid,
+  deinterleaveStereo,
   encodeWav,
   mixStems,
   resampleInterleaved,
@@ -56,11 +57,13 @@ function testOverlapAddEnergy(): void {
   const totalFrames = STEM_WINDOW + step // 两块恰好覆盖
   const chunkStartFrames = [0, step]
 
+  // 模型输出 ch-major [6, 2, W]：L 全段在前、R 全段在后
   const chunkOutputs = chunkStartFrames.map(() => {
     const out = new Float32Array(HTDEMUCS_STEM_IDS.length * STEM_WINDOW * STEM_CHANNELS)
-    // 仅 vocals（index 3）有内容，全部为 1
-    for (let i = 0; i < STEM_WINDOW * STEM_CHANNELS; i++) {
-      out[3 * STEM_WINDOW * STEM_CHANNELS + i] = 1
+    const base = 3 * STEM_WINDOW * STEM_CHANNELS // vocals 轨（index 3）
+    for (let i = 0; i < STEM_WINDOW; i++) {
+      out[base + i] = 1 // L 全段
+      out[base + STEM_WINDOW + i] = 1 // R 全段
     }
     return out
   })
@@ -85,6 +88,26 @@ function testOverlapAddEnergy(): void {
     assert.ok(vocals.data[i * 2] <= 1 + 1e-3, `不应放大，位置 ${i}`)
   }
   console.log('ok: stitchStemOutputs 重叠相加还原')
+}
+
+function testDeinterleave(): void {
+  // interleaved [L0,R0,L1,R1,...] → ch-major [L0,L1,...,R0,R1,...]
+  const frames = 4
+  const interleaved = new Float32Array(frames * STEM_CHANNELS)
+  for (let i = 0; i < frames; i++) {
+    interleaved[i * 2] = 100 + i // L
+    interleaved[i * 2 + 1] = 200 + i // R
+  }
+  const out = deinterleaveStereo(interleaved)
+  assert.equal(out.length, interleaved.length, '长度不变')
+  assert.deepEqual(Array.from(out), [100, 101, 102, 103, 200, 201, 202, 203], 'L 全段在前、R 全段在后')
+  // 输入不应被原地修改
+  assert.deepEqual(
+    Array.from(interleaved),
+    [100, 200, 101, 201, 102, 202, 103, 203],
+    '输入 interleaved 保持原样',
+  )
+  console.log('ok: deinterleaveStereo')
 }
 
 function testWaveformPeaks(): void {
@@ -340,6 +363,7 @@ function testWaveformPyramid(): void {
 
 testChunkSlicing()
 testOverlapAddEnergy()
+testDeinterleave()
 testWaveformPeaks()
 testWaveformPeaksRange()
 testWaveformRms()
