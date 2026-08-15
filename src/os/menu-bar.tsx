@@ -81,6 +81,13 @@ function MenuDropdownAction({
         onClose()
       }}
     >
+      {item.checked ? (
+        <span class="menu-bar__dropdown-check" aria-hidden="true">
+          ✓
+        </span>
+      ) : (
+        <span class="menu-bar__dropdown-check menu-bar__dropdown-check--empty" aria-hidden="true" />
+      )}
       <span class="menu-bar__dropdown-label">{item.label}</span>
       {item.shortcut ? <span class="menu-bar__shortcut">{item.shortcut}</span> : undefined}
     </button>

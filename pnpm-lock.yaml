@@ -92,6 +92,9 @@ importers:
       katex:
         specifier: ^0.16.22
         version: 0.16.22
+      libflacjs:
+        specifier: ^5.6.0
+        version: 5.6.0
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
@@ -1108,6 +1111,10 @@ packages:
 
   kolorist@1.8.0:
     resolution: {integrity: sha512-Y+60/zizpJ3HRH8DCss+q95yr6145JXZo46OTpFvDZWLfRCE4qChOyk1b26nMaNpfHHgxagk9dXT5OP0Tfe+dQ==}
+
+  libflacjs@5.6.0:
+    resolution: {integrity: sha512-ev9pJxcPEkUdQDBd5ywPHEtYe9mGlzLaNwj+sS32IpiOTPnCYQsCPZLR95dAYXix24UICJJwld4D/tZrR0RFbw==}
+    hasBin: true
 
   lie@3.3.0:
     resolution: {integrity: sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==}
@@ -2397,6 +2404,8 @@ snapshots:
       commander: 8.3.0
 
   kolorist@1.8.0: {}
+
+  libflacjs@5.6.0: {}
 
   lie@3.3.0:
     dependencies:

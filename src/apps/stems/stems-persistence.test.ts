@@ -3,6 +3,7 @@
  * 运行：node --experimental-strip-types src/apps/stems/stems-persistence.test.ts
  */
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { unzipSync, zipSync } from 'fflate'
 import {
   STEM_CHANNELS,
@@ -11,20 +12,25 @@ import {
 } from './stems-separator.ts'
 import { STEM_IDS } from './stems-types.ts'
 import type { StemAudio } from './stems-types.ts'
+import { decodeFlacWasm, encodeFlacWasm } from './stems-flac.ts'
+import type { FlacLib } from './stems-flac.ts'
 import {
   convertToPcm16,
   decodeStemFromLayout,
   decodeStemWavBytes,
+  deserializeWaveformPeaks,
   encodeStemWavBytes,
   loadStemsArchive,
   parseStemsManifest,
   readStemsArchiveLayout,
   readStemsArchiveLayoutRanged,
   saveStemsArchive,
+  serializeWaveformPeaks,
   STEMS_ARCHIVE_EXTENSION,
   STEMS_MANIFEST_ENTRY,
   STEMS_MANIFEST_VERSION,
   STEMS_PEAKS_ENTRY,
+  stemAudioEntryName,
   stemsArchiveEntryNames,
   stemsArchivePathFor,
   stemsArchiveRequiredEntryNames,
@@ -45,6 +51,22 @@ function makeFakeStems(frames: number = 600_000): StemAudio[] {
     }
     return { stemId, data }
   })
+}
+
+// —— FLAC 编解码（测试用 libflacjs asm.js 变体，纯 JS 无需 wasm 文件） ——
+
+const nodeRequire = createRequire(import.meta.url)
+let asmFlacLib: FlacLib | undefined
+
+async function loadFlacAsmJs(): Promise<FlacLib> {
+  if (!asmFlacLib) {
+    const factory = nodeRequire('libflacjs') as (variant: string) => FlacLib
+    asmFlacLib = factory('asmjs')
+  }
+  if (!asmFlacLib.isReady()) {
+    await new Promise<void>((resolve) => asmFlacLib!.on('ready', () => resolve()))
+  }
+  return asmFlacLib
 }
 
 /**
@@ -157,7 +179,7 @@ async function roundTrip(stems: StemAudio[], sourcePath: string): Promise<void> 
   }
 
   // 峰值表 round-trip：每轨金字塔存在、桶数与长度自洽、与直接重算一致
-  assert.equal(loaded.peaks.size, STEM_IDS.length, 'v3 包应含全部轨的峰值表')
+  assert.equal(loaded.peaks.size, STEM_IDS.length, 'v4 包应含全部轨的峰值表')
   for (const stem of stems) {
     const p = loaded.peaks.get(stem.stemId)
     assert.ok(p, `缺少 ${stem.stemId} 的峰值表`)
@@ -166,6 +188,11 @@ async function roundTrip(stems: StemAudio[], sourcePath: string): Promise<void> 
     assert.equal(p.bucketCount, expected.bucketCount)
     assert.ok(p.min.every((v, i) => v === expected.min[i]), `min 应一致（${stem.stemId}）`)
     assert.ok(p.max.every((v, i) => v === expected.max[i]), `max 应一致（${stem.stemId}）`)
+    // v4：左右声道峰值/RMS 一并还原（双色叠加波形依赖）
+    assert.ok(p.ampL && p.ampL.every((v, i) => v === expected.ampL![i]), `ampL 应一致（${stem.stemId}）`)
+    assert.ok(p.ampR && p.ampR.every((v, i) => v === expected.ampR![i]), `ampR 应一致（${stem.stemId}）`)
+    assert.ok(p.rmsL && p.rmsL.every((v, i) => v === expected.rmsL![i]), `rmsL 应一致（${stem.stemId}）`)
+    assert.ok(p.rmsR && p.rmsR.every((v, i) => v === expected.rmsR![i]), `rmsR 应一致（${stem.stemId}）`)
   }
 }
 
@@ -412,7 +439,8 @@ function testManifestValidation(): void {
     stems: STEM_IDS.map((id) => ({ id, file: stemWavEntryName(id) })),
   }
   assert.ok(parseStemsManifest(JSON.stringify(good)), '合法 manifest 应通过')
-  assert.equal(parseStemsManifest(JSON.stringify({ ...good, version: 4 })), null, '版本不符')
+  assert.equal(parseStemsManifest(JSON.stringify({ ...good, version: 99 })), null, '未知版本应拒绝')
+  assert.ok(parseStemsManifest(JSON.stringify({ ...good, version: 3 })), 'v3 旧包应兼容')
   assert.ok(parseStemsManifest(JSON.stringify({ ...good, version: 2 })), 'v2 旧包应兼容')
   assert.equal(parseStemsManifest(JSON.stringify({ ...good, stems: good.stems.slice(0, 5) })), null, '缺轨')
   // 6 轨（other2 近似静音并入 other）应通过；重复 id 拒绝
@@ -487,6 +515,66 @@ function testManifestValidation(): void {
   assert.ok(partialBad, 'phonemes 坏形状不应拒绝整个 manifest')
   assert.equal(partialBad.phonemes, undefined, 'phonemes 坏形状按缺失处理')
   console.log('ok: parseStemsManifest 校验')
+}
+
+/** 构造 v3 布局的 peaks.bin 字节（每轨仅 bucketSamples + bucketCount + min + max，无 L/R）。 */
+function buildV3PeaksBytes(stems: StemAudio[], sampleRate: number): Uint8Array {
+  let totalBytes = 0
+  const pyramids = stems.map((s) => buildWaveformPyramid(s.data, sampleRate))
+  for (const p of pyramids) totalBytes += 8 + p.bucketCount * 4 * 2
+  const out = new Uint8Array(totalBytes)
+  const view = new DataView(out.buffer)
+  let offset = 0
+  for (const p of pyramids) {
+    view.setUint32(offset, p.bucketSamples, true)
+    offset += 4
+    view.setUint32(offset, p.bucketCount, true)
+    offset += 4
+    new Float32Array(out.buffer, out.byteOffset + offset, p.bucketCount).set(p.min)
+    offset += p.bucketCount * 4
+    new Float32Array(out.buffer, out.byteOffset + offset, p.bucketCount).set(p.max)
+    offset += p.bucketCount * 4
+  }
+  return out
+}
+
+/** peaks.bin 布局：v4 round-trip（L/R 还原）与 v3 旧布局（L/R 缺省）兼容。 */
+function testPeaksFormatCompatibility(): void {
+  const stems = makeFakeStems(2000)
+  const rate = 44100
+  const stemIds = stems.map((s) => s.stemId)
+
+  // v4：序列化 → 反序列化应还原全部 L/R 数组
+  const v4Bytes = serializeWaveformPeaks(stems, rate)
+  const v4 = deserializeWaveformPeaks(v4Bytes, stemIds, STEMS_MANIFEST_VERSION)
+  assert.equal(v4.size, stemIds.length)
+  for (const stem of stems) {
+    const expected = buildWaveformPyramid(stem.data, rate)
+    const p = v4.get(stem.stemId)
+    assert.ok(p, `缺少 ${stem.stemId} 的 v4 峰值表`)
+    assert.ok(p.ampL && p.ampL.every((v, i) => v === expected.ampL![i]), 'v4 ampL 应还原')
+    assert.ok(p.ampR && p.ampR.every((v, i) => v === expected.ampR![i]), 'v4 ampR 应还原')
+    assert.ok(p.rmsL && p.rmsL.every((v, i) => v === expected.rmsL![i]), 'v4 rmsL 应还原')
+    assert.ok(p.rmsR && p.rmsR.every((v, i) => v === expected.rmsR![i]), 'v4 rmsR 应还原')
+  }
+
+  // v3：只有 min/max，L/R 缺省（渲染端降级单色）
+  const v3Bytes = buildV3PeaksBytes(stems, rate)
+  const v3 = deserializeWaveformPeaks(v3Bytes, stemIds, 3)
+  assert.equal(v3.size, stemIds.length)
+  for (const stem of stems) {
+    const p = v3.get(stem.stemId)
+    assert.ok(p, `缺少 ${stem.stemId} 的 v3 峰值表`)
+    assert.ok(p.min.length > 0 && p.max.length > 0, 'v3 应有 min/max')
+    assert.equal(p.ampL, undefined, 'v3 无 ampL')
+    assert.equal(p.ampR, undefined, 'v3 无 ampR')
+    assert.equal(p.rmsL, undefined, 'v3 无 rmsL')
+    assert.equal(p.rmsR, undefined, 'v3 无 rmsR')
+  }
+
+  // 损坏字节（长度不足）→ 空 Map，不崩
+  assert.equal(deserializeWaveformPeaks(new Uint8Array([1, 2, 3]), stemIds, STEMS_MANIFEST_VERSION).size, 0)
+  console.log('ok: peaks.bin v4 / v3 布局兼容')
 }
 
 /** alignedLrc 持久化 round-trip：保存时带上，载入时还原。 */
@@ -727,7 +815,146 @@ function testArchiveEntryNames(): void {
     [STEMS_MANIFEST_ENTRY, ...STEM_IDS.map(stemWavEntryName)].sort(),
     '必需条目 = manifest + 7 WAV',
   )
+  assert.deepEqual(
+    stemsArchiveRequiredEntryNames('flac').sort(),
+    [STEMS_MANIFEST_ENTRY, ...STEM_IDS.map((id) => stemAudioEntryName(id, 'flac'))].sort(),
+    'FLAC 必需条目 = manifest + 7 .flac',
+  )
   console.log('ok: stemsArchiveEntryNames')
+}
+
+/** FLAC WASM 编解码 round-trip：16-bit 量化误差应与 encodeWav 一致。 */
+async function testFlacRoundTrip(): Promise<void> {
+  const frames = 600_000
+  const data = new Float32Array(frames * STEM_CHANNELS)
+  for (let i = 0; i < frames; i++) {
+    const v = Math.sin((2 * Math.PI * 440 * i) / 44100) * 0.5 + ((i % 997) / 997) * 0.3 - 0.15
+    data[i * STEM_CHANNELS] = v
+    data[i * STEM_CHANNELS + 1] = -v * 0.5
+  }
+  const flac = await encodeFlacWasm(data, 44100, loadFlacAsmJs)
+  assert.equal(String.fromCharCode(flac[0], flac[1], flac[2], flac[3]), 'fLaC', 'FLAC magic 头')
+  const decoded = await decodeFlacWasm(flac, loadFlacAsmJs)
+  assert.equal(decoded.length, data.length, '样本数一致')
+  let maxErr = 0
+  for (let i = 0; i < data.length; i++) {
+    maxErr = Math.max(maxErr, Math.abs(decoded[i] - data[i]))
+  }
+  assert.ok(maxErr <= 1 / 32768 + 1e-9, `16-bit 量化误差应 ≤ 1/32768（实际 ${maxErr}）`)
+  console.log('ok: FLAC WASM round-trip（16-bit 量化一致）')
+}
+
+/** FLAC 压缩包 save → load round-trip：manifest.codec、条目名、STORE 方式、恢复一致性。 */
+async function testFlacArchiveRoundTrip(): Promise<void> {
+  // 分块边界覆盖见 testFlacRoundTrip；这里用小数据验证整个 save/load 流程
+  const stems = makeFakeStems(60_000)
+  const chunks: Uint8Array[] = []
+  await saveStemsArchive({
+    stems,
+    sourcePath: '/user/Musics/song.flac',
+    sourceName: 'song.flac',
+    durationSec: 12,
+    sampleRate: 44100,
+    codec: 'flac',
+    encodeTrack: (data, rate) => encodeFlacWasm(data, rate, loadFlacAsmJs),
+    sink: {
+      write: (c) => {
+        chunks.push(c)
+      },
+      close: () => undefined,
+    },
+  })
+  const zipBytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let offset = 0
+  for (const c of chunks) {
+    zipBytes.set(c, offset)
+    offset += c.length
+  }
+
+  // manifest：v5、codec=flac、条目 .flac
+  const layout = readStemsArchiveLayout(zipBytes)
+  assert.equal(layout.manifest.version, STEMS_MANIFEST_VERSION)
+  assert.equal(layout.manifest.codec, 'flac')
+  for (const item of layout.manifest.stems) {
+    assert.ok(item.file.endsWith('.flac'), `${item.file} 应为 .flac`)
+  }
+
+  // 条目 STORE + 内容可被标准工具解析（unzip 出 FLAC 字节）
+  const methods = zipEntryMethods(zipBytes)
+  const unzipped = unzipSync(zipBytes)
+  for (const stem of stems) {
+    const name = stemAudioEntryName(stem.stemId, 'flac')
+    assert.equal(methods.get(name), 0, `${name} 应 STORE（FLAC 已压缩）`)
+    const bytes = unzipped[name]
+    assert.ok(bytes instanceof Uint8Array)
+    assert.equal(
+      String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]),
+      'fLaC',
+      `${name} 内容应为 FLAC`,
+    )
+  }
+
+  // 完整解包恢复：与原始 PCM 16-bit 量化一致
+  const loaded = await loadStemsArchive(new Blob([zipBytes]), undefined, {
+    decodeFlacTrack: (b) => decodeFlacWasm(b, loadFlacAsmJs),
+  })
+  assert.equal(loaded.manifest.codec, 'flac')
+  assert.equal(loaded.stems.length, stems.length)
+  for (let s = 0; s < stems.length; s++) {
+    assert.equal(loaded.stems[s].stemId, stems[s].stemId)
+    assert.equal(loaded.stems[s].data.length, stems[s].data.length)
+    let maxErr = 0
+    for (let i = 0; i < stems[s].data.length; i++) {
+      maxErr = Math.max(maxErr, Math.abs(loaded.stems[s].data[i] - stems[s].data[i]))
+    }
+    assert.ok(maxErr <= 1 / 32768 + 1e-9, `轨 ${stems[s].stemId} 16-bit 量化一致（${maxErr}）`)
+  }
+
+  // 范围读快路径 readStemBytes 支持 FLAC
+  const ranged = await readStemsArchiveLayoutRanged(
+    async (rOffset, length) => zipBytes.slice(rOffset, rOffset + length),
+    zipBytes.length,
+    { decodeFlacTrack: (b) => decodeFlacWasm(b, loadFlacAsmJs) },
+  )
+  assert.equal(ranged.manifest.codec, 'flac')
+  const first = await ranged.readStemBytes(stems[0].stemId)
+  assert.equal(first.length, stems[0].data.length, 'readStemBytes FLAC 解码样本数一致')
+  console.log('ok: FLAC 压缩包 save → load round-trip')
+}
+
+/** manifest 校验：codec 字段、条目格式一致性、旧版缺省 wav。 */
+function testManifestFlacValidation(): void {
+  const base = {
+    sourcePath: '/a.mp3',
+    sourceName: 'a.mp3',
+    sampleRate: 44100,
+    durationSec: 1,
+    createdAt: 0,
+  }
+  // codec=flac 但条目为 .wav → 不合法
+  const bad = parseStemsManifest(
+    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'flac', stems: [{ id: 'drums', file: 'drums.wav' }] }),
+  )
+  assert.equal(bad, null, 'flac 包条目应为 .flac')
+  // 合法 flac 包
+  const good = parseStemsManifest(
+    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'flac', stems: [{ id: 'drums', file: 'drums.flac' }] }),
+  )
+  assert.ok(good, '合法 flac 包应通过')
+  assert.equal(good?.codec, 'flac')
+  // 非法 codec 值 → 按缺失处理为 wav（不整体拒绝）
+  const unknownCodec = parseStemsManifest(
+    JSON.stringify({ ...base, version: STEMS_MANIFEST_VERSION, codec: 'opus', stems: [{ id: 'drums', file: 'drums.wav' }] }),
+  )
+  assert.ok(unknownCodec, '未知 codec 按缺失处理')
+  assert.equal(unknownCodec?.codec, 'wav')
+  // 旧版无 codec → 缺省 wav
+  const legacy = parseStemsManifest(
+    JSON.stringify({ ...base, version: 4, stems: [{ id: 'drums', file: 'drums.wav' }] }),
+  )
+  assert.ok(legacy)
+  assert.equal(legacy?.codec, 'wav', '旧包缺省 wav')
+  console.log('ok: FLAC manifest 校验')
 }
 
 await testRoundTrip()
@@ -742,5 +969,9 @@ await testPhonemesRoundTrip()
 await testLyricsRoundTrip()
 testPcm16Chunking()
 testManifestValidation()
+testPeaksFormatCompatibility()
 testArchivePath()
 testArchiveEntryNames()
+await testFlacRoundTrip()
+await testFlacArchiveRoundTrip()
+testManifestFlacValidation()

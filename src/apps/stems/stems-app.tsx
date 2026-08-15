@@ -27,6 +27,7 @@ import {
   saveStemsArchive,
   stemsArchivePathFor,
   type PhonemeSegment,
+  type StemAudioCodec,
 } from './stems-persistence.ts'
 import { enqueueAiTask } from '../../ai/ai-inference-service.ts'
 import { WindowModal } from '../../window/window-modal.tsx'
@@ -100,6 +101,8 @@ const RMS_GAIN = 2.5
 /** 歌词对齐模型：zipformer（中文）/ sense-voice（五语） */
 import type { AlignModel } from './lyrics-analysis.ts'
 const ALIGN_MODEL_STORAGE_KEY = 'stems-align-model'
+/** 分轨压缩包音频格式选择（wav / flac；菜单勾选，localStorage 记忆） */
+const ARCHIVE_CODEC_STORAGE_KEY = 'stems-archive-codec'
 
 /** 歌词时间轴标签：由对齐结果逐字拍平（无逐字时整行一个标签） */
 type LyricTag = {
@@ -198,6 +201,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const [saveProgress, setSaveProgress] = useState<number | null>(null)
   /** 正在载入分轨压缩包 */
   const [loadingArchive, setLoadingArchive] = useState(false)
+  /** 分轨压缩包音频格式：wav（16-bit PCM）/ flac（FLAC 无损压缩），localStorage 记忆 */
+  const [archiveCodec, setArchiveCodec] = useState<StemAudioCodec>(() => {
+    const raw = localStorage.getItem(ARCHIVE_CODEC_STORAGE_KEY)
+    return raw === 'flac' ? 'flac' : 'wav'
+  })
+  const changeArchiveCodec = useCallback((codec: StemAudioCodec) => {
+    setArchiveCodec(codec)
+    try {
+      localStorage.setItem(ARCHIVE_CODEC_STORAGE_KEY, codec)
+    } catch {
+      // localStorage 不可用时仅会话内生效
+    }
+  }, [])
   const [dragOver, setDragOver] = useState(false)
   /** 波形横向缩放：level=0 显示全曲，每 +1 可见窗口减半；start 为窗口起点（秒） */
   const [view, setView] = useState({ start: 0, level: 0 })
@@ -575,7 +591,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           // 合并遍历：填 buffer 同时聚合金字塔桶值
           const min = new Float32Array(bucketCount)
           const max = new Float32Array(bucketCount)
+          const ampL = new Float32Array(bucketCount)
+          const ampR = new Float32Array(bucketCount)
           const sumSq = new Float32Array(bucketCount)
+          const sumSqL = new Float32Array(bucketCount)
+          const sumSqR = new Float32Array(bucketCount)
           const counts = new Uint32Array(bucketCount)
           for (let f = 0; f < frames; f++) {
             const l = data[f * STEM_CHANNELS]
@@ -584,20 +604,30 @@ export function StemsApp({ windowId }: { windowId?: string }) {
               left[f] = l
               right[f] = r
             }
-            const amp = Math.max(Math.abs(l), Math.abs(r))
+            const al = Math.abs(l)
+            const ar = Math.abs(r)
+            const amp = Math.max(al, ar)
             const b = Math.floor(f / bucketSamples)
             if (amp > max[b]) max[b] = amp
             const neg = -amp
             if (neg < min[b]) min[b] = neg
+            if (al > ampL[b]) ampL[b] = al
+            if (ar > ampR[b]) ampR[b] = ar
             sumSq[b] += amp * amp
+            sumSqL[b] += al * al
+            sumSqR[b] += ar * ar
             counts[b]++
           }
           const rms = new Float32Array(bucketCount)
+          const rmsL = new Float32Array(bucketCount)
+          const rmsR = new Float32Array(bucketCount)
           for (let b = 0; b < bucketCount; b++) {
             rms[b] = counts[b] > 0 ? Math.sqrt(sumSq[b] / counts[b]) : 0
+            rmsL[b] = counts[b] > 0 ? Math.sqrt(sumSqL[b] / counts[b]) : 0
+            rmsR[b] = counts[b] > 0 ? Math.sqrt(sumSqR[b] / counts[b]) : 0
           }
           if (buffer) buffers.set(stem.stemId, buffer)
-          target.set(stem.stemId, { bucketSamples, bucketCount, min, max, rms })
+          target.set(stem.stemId, { bucketSamples, bucketCount, min, max, rms, ampL, ampR, rmsL, rmsR })
         }
       }
       buffersRef.current = buffers
@@ -625,26 +655,45 @@ export function StemsApp({ windowId }: { windowId?: string }) {
           if (sec > derivedDurationSec) derivedDurationSec = sec
         }
         const durationSec = derivedDurationSec > 0 ? derivedDurationSec : duration
-        const writer = await filesOpenStreamWrite(stemsArchivePathFor(sourcePath))
-        await saveStemsArchive({
-          stems,
-          sourcePath,
-          sourceName,
-          durationSec,
-          sampleRate: stemSampleRate,
-          tempo: tempoRef.current ?? undefined,
-          lyrics: lyricsRef.current.trim() ? lyricsRef.current : undefined,
-          lyricsSourceName: lyricsRef.current.trim() ? lyricsSourceName || undefined : undefined,
-          lyricsLrc: lyricsLrcRef.current ?? undefined,
-          alignedLrc: alignedLrcRef.current || undefined,
-          lineSources: lineSourcesRef.current.length > 0 ? lineSourcesRef.current : undefined,
-          phonemes: phonemesRef.current ?? undefined,
-          sink: {
-            write: (chunk) => writer.write(chunk),
-            close: () => writer.close(),
-          },
-          onProgress: (saved) => setSaveProgress(saved),
-        })
+        const writeArchive = async (codec: StemAudioCodec): Promise<void> => {
+          const writer = await filesOpenStreamWrite(stemsArchivePathFor(sourcePath))
+          await saveStemsArchive({
+            stems,
+            sourcePath,
+            sourceName,
+            durationSec,
+            sampleRate: stemSampleRate,
+            codec,
+            ...(codec === 'flac'
+              ? { encodeTrack: (data, rate) => encodeTrackInWorker(data, rate, archiveWorkerRef) }
+              : {}),
+            tempo: tempoRef.current ?? undefined,
+            lyrics: lyricsRef.current.trim() ? lyricsRef.current : undefined,
+            lyricsSourceName: lyricsRef.current.trim() ? lyricsSourceName || undefined : undefined,
+            lyricsLrc: lyricsLrcRef.current ?? undefined,
+            alignedLrc: alignedLrcRef.current || undefined,
+            lineSources: lineSourcesRef.current.length > 0 ? lineSourcesRef.current : undefined,
+            phonemes: phonemesRef.current ?? undefined,
+            sink: {
+              write: (chunk) => writer.write(chunk),
+              close: () => writer.close(),
+            },
+            onProgress: (saved) => setSaveProgress(saved),
+          })
+        }
+        if (archiveCodec === 'flac') {
+          try {
+            await writeArchive('flac')
+          } catch (cause) {
+            // FLAC 编码不可用/失败 → 回退 WAV 保存并提示，避免数据丢失
+            await writeArchive('wav')
+            setError(
+              `FLAC 无损压缩保存失败，已回退为 WAV 保存：${cause instanceof Error ? cause.message : String(cause)}`,
+            )
+          }
+        } else {
+          await writeArchive('wav')
+        }
         return true
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
@@ -653,7 +702,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setSaveProgress(null)
       }
     },
-    [sourceName, lyricsSourceName, duration, stemSampleRate],
+    [sourceName, lyricsSourceName, duration, stemSampleRate, archiveCodec],
   )
 
   /** 手动保存分轨结果（菜单 / ⌘S）。 */
@@ -677,6 +726,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
             label: '重新分轨',
             disabled: !sourceName,
             onClick: () => void handleSeparateRef.current(),
+          },
+          { type: 'separator' },
+          {
+            type: 'action',
+            label: '无损压缩（FLAC）',
+            checked: archiveCodec === 'flac',
+            onClick: () => changeArchiveCodec(archiveCodec === 'flac' ? 'wav' : 'flac'),
           },
           { type: 'separator' },
           {
@@ -709,7 +765,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceName, tracks, saveProgress, loadingArchive, tempoDetecting, handleSaveArchive])
+  }, [sourceName, tracks, saveProgress, loadingArchive, tempoDetecting, handleSaveArchive, archiveCodec, changeArchiveCodec])
   useAppMenuBar('stems', menuBar)
 
   // ⌘S 保存分轨：菜单 shortcut 仅展示，实际监听与 pages/textedit 一致
@@ -1520,7 +1576,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 if (!entry) throw new Error(`压缩包缺少 ${item.file}，无法载入`)
                 const blob = await filesReadBlobRange(archivePath, entry.dataOffset, entry.compressedSize)
                 const data = new Uint8Array(await blob.arrayBuffer())
-                const audio = await decodeTrackInWorker(item.id, data, entry.method, archiveWorkerRef)
+                const audio = await decodeTrackInWorker(
+                  item.id,
+                  data,
+                  entry.method,
+                  archiveWorkerRef,
+                  item.file.endsWith('.flac') ? 'flac' : 'wav',
+                )
                 decoded.push({ stemId: item.id, data: audio })
               }
               stems = decoded
@@ -3351,12 +3413,13 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   )
 }
 
-/** 在 Worker 里解码单条 WAV 压缩段 → Float32（Transferable 传回，不阻塞主线程）。 */
+/** 在 Worker 里解码单条音频压缩段（WAV/FLAC）→ Float32（Transferable 传回，不阻塞主线程）。 */
 function decodeTrackInWorker(
   stemId: StemId,
   data: Uint8Array,
   method: number,
   workerRef: { current: Worker | null },
+  format: 'wav' | 'flac' = 'wav',
 ): Promise<Float32Array> {
   const worker = workerRef.current ?? new StemsArchiveWorker()
   workerRef.current = worker
@@ -3376,8 +3439,39 @@ function decodeTrackInWorker(
     }
     worker.addEventListener('message', onMessage)
     worker.postMessage(
-      { type: 'decode-track', stemId, data: data.buffer as ArrayBuffer, method } satisfies StemsArchiveWorkerRequest,
+      { type: 'decode-track', stemId, data: data.buffer as ArrayBuffer, method, format } satisfies StemsArchiveWorkerRequest,
       [data.buffer],
+    )
+  })
+}
+
+/** 在 Worker 里把 interleaved stereo Float32 编码为 FLAC 字节（WebCodecs 优先 + WASM 回退，Transferable 传回）。 */
+function encodeTrackInWorker(
+  data: Float32Array,
+  sampleRate: number,
+  workerRef: { current: Worker | null },
+): Promise<Uint8Array> {
+  const worker = workerRef.current ?? new StemsArchiveWorker()
+  workerRef.current = worker
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<StemsArchiveWorkerResponse>): void => {
+      const msg = event.data
+      if (msg.type === 'flac-encoded') {
+        worker.removeEventListener('message', onMessage)
+        resolve(new Uint8Array(msg.data))
+        return
+      }
+      if (msg.type === 'error') {
+        worker.removeEventListener('message', onMessage)
+        reject(new Error(msg.message))
+        return
+      }
+    }
+    worker.addEventListener('message', onMessage)
+    const buffer = data.buffer as ArrayBuffer
+    worker.postMessage(
+      { type: 'encode-flac', stemId: 'track', data: buffer, sampleRate } satisfies StemsArchiveWorkerRequest,
+      [buffer],
     )
   })
 }
@@ -3398,6 +3492,36 @@ function toggleTrack(
     return next
   })
 }
+
+/**
+ * 右声道显示色：左声道色相旋转 degrees 得到，保持饱和度/亮度与轨道色协调。
+ * 双色叠加时左用轨道色、右用旋转色，左右切换一眼可辨。
+ */
+function channelPartnerColor(hex: string, degrees: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return hex
+  const r = parseInt(m[1]!.slice(0, 2), 16) / 255
+  const g = parseInt(m[1]!.slice(2, 4), 16) / 255
+  const b = parseInt(m[1]!.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  const d = max - min
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1))
+  let h = 0
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+    if (h < 0) h += 360
+  }
+  h = (h + degrees) % 360
+  return `hsl(${h.toFixed(1)} ${(s * 100).toFixed(1)}% ${(l * 100).toFixed(1)}%)`
+}
+
+/** 双声道波形渲染：左声道轨道色、右声道色相旋转 +120°（互补，叠加可辨）。 */
+const RIGHT_CHANNEL_HUE_SHIFT = 120
 
 type StemTrackRowProps = {
   stemId: StemId
@@ -3467,10 +3591,10 @@ function StemTrackRow({
         ? computeWaveformPeaksFromPyramid(peakPyramid, buckets, startFrame, endFrame)
         : computeWaveformPeaks(track.audio.data, buckets, startFrame, endFrame)
       const color = STEM_COLORS[stemId]
+      // 右声道叠加色：色相旋转，与轨道色协调且可辨
+      const rightColor = channelPartnerColor(color, RIGHT_CHANNEL_HUE_SHIFT)
       // 按比例映射到画布，避免 floor(width/n)*n 小于 width 时右侧大片留空
       const gap = Math.max(1, Math.round(dpr))
-      ctx.fillStyle = color
-      ctx.globalAlpha = 0.9
       const midY = height / 2
       // 每可见桶覆盖的音频时长（毫秒）：全轨视图很大、放大细节很小，驱动峰值/RMS 混合
       const windowFrames = Math.max(1, endFrame - startFrame)
@@ -3482,14 +3606,31 @@ function StemTrackRow({
       for (let i = 0; i < peaks.length; i++) {
         const peak = peaks[i]
         const x0 = Math.floor((i / peaks.length) * width)
-        const x1 = Math.floor(((i + 1) / peaks.length) * width)
+        const barWidth = Math.max(1, Math.floor(((i + 1) / peaks.length) * width) - x0 - gap)
         const peakAmp = Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max)))
         // 长窗口下 RMS 包络主导、峰值退居；短窗口（放大）保持纯峰值瞬态。
         // rms 缺失（旧数据）时退化为纯峰值，与旧版行为一致。
         const rmsAmp = peak.rms !== undefined ? Math.min(1, peak.rms * RMS_GAIN) : peakAmp
         const amp = peakAmp * (1 - blend) + rmsAmp * blend
-        const barHeight = Math.max(1, amp * (height - 4))
-        ctx.fillRect(x0, midY - barHeight / 2, Math.max(1, x1 - x0 - gap), barHeight)
+        if (peak.ampL !== undefined && peak.ampR !== undefined) {
+          // 双声道叠加：L/R 各自 peak/RMS 混合，同对称柱位叠画，左右切换时颜色随之变化
+          const ampL = Math.min(1, peak.ampL) * (1 - blend) + Math.min(1, (peak.rmsL ?? peak.ampL) * RMS_GAIN) * blend
+          const ampR = Math.min(1, peak.ampR) * (1 - blend) + Math.min(1, (peak.rmsR ?? peak.ampR) * RMS_GAIN) * blend
+          const barL = Math.max(1, ampL * (height - 4))
+          const barR = Math.max(1, ampR * (height - 4))
+          ctx.fillStyle = color
+          ctx.globalAlpha = 0.8
+          ctx.fillRect(x0, midY - barL / 2, barWidth, barL)
+          ctx.fillStyle = rightColor
+          ctx.globalAlpha = 0.8
+          ctx.fillRect(x0, midY - barR / 2, barWidth, barR)
+        } else {
+          // 旧数据（无 L/R 峰值）：降级为合并单色画法
+          ctx.fillStyle = color
+          ctx.globalAlpha = 0.9
+          const barHeight = Math.max(1, amp * (height - 4))
+          ctx.fillRect(x0, midY - barHeight / 2, barWidth, barHeight)
+        }
       }
       ctx.globalAlpha = 1
     }
@@ -3532,6 +3673,17 @@ function StemTrackRow({
       <div class="stems__track-name">
         <span class="stems__track-dot" style={{ background: STEM_COLORS[stemId] }} />
         {label}
+        <span
+          class="stems__track-channels"
+          title="波形双色：左声道 / 右声道"
+          aria-label="波形双色：左声道 / 右声道"
+        >
+          <span class="stems__track-channel" style={{ background: STEM_COLORS[stemId] }} />
+          <span
+            class="stems__track-channel"
+            style={{ background: channelPartnerColor(STEM_COLORS[stemId], RIGHT_CHANNEL_HUE_SHIFT) }}
+          />
+        </span>
       </div>
       <div
         ref={waveWrapRef}

@@ -12,11 +12,11 @@ type MenuBarContextValue = {
 
 const MenuBarContext = createContext<MenuBarContextValue | undefined>(undefined)
 
-function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, string] {
+function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, string, boolean] {
   if (item.type === 'separator') {
     return '|'
   }
-  return [item.label, item.disabled ?? false, item.shortcut ?? '']
+  return [item.label, item.disabled ?? false, item.shortcut ?? '', item.checked ?? false]
 }
 
 function menuItemSignature(item: MenuItem): string | [string, boolean, string] | [string, 'submenu', unknown[]] {

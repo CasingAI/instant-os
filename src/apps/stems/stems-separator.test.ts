@@ -124,6 +124,12 @@ function testWaveformPeaks(): void {
   const peaks = computeWaveformPeaks(data, 10)
   assert.ok(Math.abs(peaks[2].max - 0.8) < 1e-6, '桶 2 应捕捉到左声道峰值')
   assert.ok(Math.abs(peaks[2].min + 0.8) < 1e-6, '桶 2 的 min 应取两声道最大幅度')
+  assert.ok(Math.abs(peaks[2].ampL! - 0.8) < 1e-6, '桶 2 左声道峰值应 0.8')
+  assert.ok(Math.abs(peaks[2].ampR! - 0.6) < 1e-6, '桶 2 右声道峰值应 0.6')
+  // 桶 2 共 20 帧仅一帧非零：rms = 幅度 / sqrt(20)
+  const rmsExpected = 1 / Math.sqrt(20)
+  assert.ok(Math.abs(peaks[2].rmsL! - 0.8 * rmsExpected) < 1e-6, '桶 2 左声道 RMS')
+  assert.ok(Math.abs(peaks[2].rmsR! - 0.6 * rmsExpected) < 1e-6, '桶 2 右声道 RMS')
 
   // 桶数多于帧数 → 不崩
   assert.equal(computeWaveformPeaks(new Float32Array(4 * STEM_CHANNELS), 100).length, 100)
@@ -336,6 +342,11 @@ function testWaveformPyramid(): void {
     assert.ok(approx[b].max >= exact[b].max - 1e-6, `桶 ${b} max 不应小于精确值`)
     assert.ok(approx[b].min <= exact[b].min + 1e-6, `桶 ${b} min 不应大于精确值`)
     assert.ok(Math.abs(approx[b].max - exact[b].max) < 0.1, `桶 ${b} max 误差应在 1 桶覆盖内`)
+    // L/R 声道峰值同样为保守覆盖聚合
+    assert.ok(approx[b].ampL! >= exact[b].ampL! - 1e-6, `桶 ${b} ampL 不应小于精确值`)
+    assert.ok(approx[b].ampR! >= exact[b].ampR! - 1e-6, `桶 ${b} ampR 不应小于精确值`)
+    assert.ok(Math.abs(approx[b].ampL! - exact[b].ampL!) < 0.1, `桶 ${b} ampL 误差应在 1 桶覆盖内`)
+    assert.ok(Math.abs(approx[b].ampR! - exact[b].ampR!) < 0.1, `桶 ${b} ampR 误差应在 1 桶覆盖内`)
   }
 
   // 子窗口（放大视图）同样只有 1 桶级误差

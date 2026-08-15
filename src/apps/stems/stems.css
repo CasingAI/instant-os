@@ -660,6 +660,25 @@
     0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
+/* 双声道波形图例：左/右声道小色块（与波形叠加色一致） */
+.stems__track-channels {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  margin-left: auto;
+  opacity: 0.95;
+}
+
+.stems__track-channel {
+  width: 5px;
+  height: 9px;
+  border-radius: 1px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
 .stems__track-wave-wrap {
   position: relative;
   min-width: 0;
