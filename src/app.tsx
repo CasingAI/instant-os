@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { useOpenAiReady } from './ai/use-openai-ready.ts'
 import {
   claimBootSplash,
@@ -10,7 +10,11 @@ import {
   applyProcessIsolationCapability,
   shouldShowProcessIsolationFallbackNotification,
 } from './os/apply-process-isolation-capability.ts'
+import { DebugModeWarningDialog } from './os/debug-mode-warning-dialog.tsx'
+import { requestDebugModeConfirm } from './os/debug-mode-confirm-store.ts'
+import { parseDebugLaunchParams, stripDebugLaunchParams } from './os/debug-launch.ts'
 import { EXPERIMENTAL_SETTINGS_CHANGED_EVENT } from './os/experimental-settings-storage.ts'
+import { osOpenApp } from './os/os-open-app-bridge.ts'
 import { showProcessIsolationFallbackNotification } from './os/process-isolation-fallback.ts'
 import { OsShell } from './os/os-shell.tsx'
 import { SetupAssistant } from './os/setup-assistant.tsx'
@@ -21,6 +25,9 @@ const DOCUMENT_TITLE = 'Instant OS'
 const SPLASH_EXIT_MS = 1000
 const SETUP_ENTER_MS = 1050
 const PROCESS_ISOLATION_FALLBACK_NOTIFY_DELAY_MS = 1000
+const DEBUG_BOOT_COMMAND_DELAY_MS = 200
+const DEBUG_BOOT_COMMAND_RETRY_MS = 300
+const DEBUG_BOOT_COMMAND_RETRY_LIMIT = 5
 
 type BootPhase =
   | 'booting'
@@ -33,12 +40,37 @@ type BootPhase =
 export function App() {
   const apiReady = useOpenAiReady()
   const [bootPhase, setBootPhase] = useState<BootPhase>('booting')
+  const debugLaunch = useMemo(() => parseDebugLaunchParams(location.search), [])
+  const [debugConfirmed, setDebugConfirmed] = useState(false)
 
   useEffect(() => {
     document.title = DOCUMENT_TITLE
     claimBootSplash()
     void applyProcessIsolationCapability()
   }, [])
+
+  // Debug 模式：进入桌面前必须经过一次全局安全警告；取消则清除参数回退正常启动流程
+  useEffect(() => {
+    if (!debugLaunch.enabled || debugConfirmed) {
+      return
+    }
+
+    let cancelled = false
+    void requestDebugModeConfirm({ command: debugLaunch.command }).then((confirmed) => {
+      if (cancelled) {
+        return
+      }
+      if (confirmed) {
+        setDebugConfirmed(true)
+      } else {
+        location.replace(stripDebugLaunchParams(location.href))
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [debugLaunch.enabled, debugLaunch.command, debugConfirmed])
 
   useEffect(() => {
     if (bootPhase !== 'booting') {
@@ -48,7 +80,12 @@ export function App() {
     const frame = window.requestAnimationFrame(() => {
       startBootSplashColdExit()
 
-      if (apiReady) {
+      if (debugLaunch.enabled && !debugConfirmed) {
+        // 等待 Debug 模式确认；保持 booting，警告框覆盖在 splash 之上
+        return
+      }
+
+      if (apiReady || debugLaunch.enabled) {
         setBootPhase('cold-entering')
         return
       }
@@ -57,7 +94,37 @@ export function App() {
     })
 
     return () => window.cancelAnimationFrame(frame)
-  }, [apiReady, bootPhase])
+  }, [apiReady, bootPhase, debugLaunch.enabled, debugConfirmed])
+
+  // Debug 模式确认并进入桌面后，在系统终端中执行启动命令
+  useEffect(() => {
+    if (bootPhase !== 'desktop' || !debugLaunch.enabled || !debugConfirmed || !debugLaunch.command) {
+      return
+    }
+
+    let cancelled = false
+    let attempt = 0
+
+    const tryOpenTerminal = () => {
+      if (cancelled) {
+        return
+      }
+      try {
+        osOpenApp('terminal', { bootCommand: debugLaunch.command })
+      } catch {
+        attempt += 1
+        if (attempt < DEBUG_BOOT_COMMAND_RETRY_LIMIT) {
+          window.setTimeout(tryOpenTerminal, DEBUG_BOOT_COMMAND_RETRY_MS)
+        }
+      }
+    }
+
+    const timer = window.setTimeout(tryOpenTerminal, DEBUG_BOOT_COMMAND_DELAY_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [bootPhase, debugLaunch.command, debugLaunch.enabled, debugConfirmed])
 
   useEffect(() => {
     if (bootPhase === 'cold-entering' || bootPhase === 'setup-boot-entering') {
@@ -78,11 +145,13 @@ export function App() {
 
   useEffect(() => {
     const applyBootCursorVisibility = () => {
+      const waitingForDebugConfirm = debugLaunch.enabled && !debugConfirmed
       const hideCursor =
-        bootPhase === 'booting' ||
-        bootPhase === 'cold-entering' ||
-        bootPhase === 'setup-boot-entering' ||
-        bootPhase === 'setup-entering'
+        !waitingForDebugConfirm &&
+        (bootPhase === 'booting' ||
+          bootPhase === 'cold-entering' ||
+          bootPhase === 'setup-boot-entering' ||
+          bootPhase === 'setup-entering')
       setBootCursorHidden(hideCursor)
     }
 
@@ -91,7 +160,7 @@ export function App() {
     return () => {
       window.removeEventListener(EXPERIMENTAL_SETTINGS_CHANGED_EVENT, applyBootCursorVisibility)
     }
-  }, [bootPhase])
+  }, [bootPhase, debugConfirmed, debugLaunch.enabled])
 
   useEffect(() => {
     if (bootPhase !== 'desktop') {
@@ -154,6 +223,8 @@ export function App() {
           />
         </div>
       )}
+
+      {debugLaunch.enabled && <DebugModeWarningDialog />}
     </div>
   )
 }

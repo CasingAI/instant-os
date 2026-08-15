@@ -12,6 +12,8 @@ export type OpenAppOptions = {
    * 与 documentId 互斥；`browser`、`chromo` 等支持 URL 打开的应用消费。
    */
   url?: string
+  /** 打开/聚焦系统终端时注入的启动命令（Debug 模式 bootCommand）。 */
+  bootCommand?: string
   /** 打开/聚焦终端时注入的待确认特权操作。
    * @deprecated 此字段仅服务于已弃用的模拟终端（simulated-terminal）。
    * 模拟终端移除后此字段应一并移除或迁移到真终端的特权路径。 */
@@ -66,6 +68,8 @@ export type WindowState = {
   documentId?: string
   /** 浏览器等应用的待导航 / 当前 URL（与 documentId 互斥） */
   url?: string
+  /** Debug 模式注入系统终端的启动命令（与 documentId/url 并列传递） */
+  bootCommand?: string
   /** 文档有未保存更改时，标题栏右侧显示「已编辑」 */
   documentEdited?: boolean
   /** 文档只读时，标题前显示淡色「只读 - 」前缀 */

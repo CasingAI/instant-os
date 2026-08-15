@@ -198,6 +198,7 @@ function createWindow(
     enterAnimation?: WindowState['enterAnimation']
     documentId?: string
     url?: string
+    bootCommand?: string
   },
 ): WindowState {
   windowCounter += 1
@@ -233,6 +234,7 @@ function createWindow(
       title: defaults.title,
       documentId: options?.documentId,
       url: options?.url,
+      bootCommand: options?.bootCommand,
       minimized: false,
       maximized: false,
       fullscreen: false,
@@ -250,6 +252,7 @@ function createWindow(
       title: defaults.title,
       documentId: options?.documentId,
       url: options?.url,
+      bootCommand: options?.bootCommand,
       minimized: false,
       maximized: true,
       fullscreen: false,
@@ -268,6 +271,7 @@ function createWindow(
     title: defaults.title,
     documentId: options?.documentId,
     url: options?.url,
+    bootCommand: options?.bootCommand,
     minimized: false,
     maximized: false,
     fullscreen: false,
@@ -359,19 +363,22 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
     let resolvedActiveId: string | undefined
     const documentId = options?.documentId
     const url = options?.url
+    const bootCommand = options?.bootCommand
     if (documentId !== undefined && url !== undefined) {
       throw new Error('documentId 与 url 不能同时指定')
     }
     const multiWindow = isMultiWindowApp(appId)
 
     const applyOpenPayload = <T extends WindowState>(window: T): T => {
+      const withBootCommand =
+        bootCommand !== undefined ? { ...window, bootCommand } : window
       if (documentId !== undefined) {
-        return { ...window, documentId, url: undefined }
+        return { ...withBootCommand, documentId, url: undefined }
       }
       if (url !== undefined) {
-        return { ...window, url, documentId: undefined }
+        return { ...withBootCommand, url, documentId: undefined }
       }
-      return window
+      return withBootCommand
     }
 
     setWindows((current) => {
@@ -397,6 +404,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
           enterAnimation: isWindowlessApp(appId) ? undefined : 'scale-in',
           documentId,
           url,
+          bootCommand,
         })
         resolvedActiveId = nextWindow.id
         const next = [...current, nextWindow]
@@ -446,6 +454,7 @@ export function OsProvider({ children }: { children: ComponentChildren }) {
         enterAnimation: 'scale-in',
         documentId,
         url,
+        bootCommand,
       })
       resolvedActiveId = nextWindow.id
       const next = [...current, nextWindow]

@@ -1,0 +1,158 @@
+/* Debug 模式进入确认：启动期覆盖在 boot splash 之上，全屏压暗 */
+
+.debug-mode-warning-host {
+  position: fixed;
+  inset: 0;
+  /* 高于 index.html 中 boot splash 的 z-index（2147483000） */
+  z-index: 2147483100;
+  pointer-events: none;
+}
+
+.debug-mode-warning-host .window-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background:
+    radial-gradient(ellipse at center, rgba(40, 28, 24, 0.4) 0%, rgba(0, 0, 0, 0.78) 72%),
+    rgba(0, 0, 0, 0.6);
+  backdrop-filter: none;
+  padding: 28px 20px;
+}
+
+.debug-mode-warning-modal {
+  width: min(100%, 480px);
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  background: linear-gradient(180deg, #fbfbfb 0%, #e8e8e8 55%, #dedede 100%);
+  box-shadow:
+    0 22px 56px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.35) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.debug-mode-warning-modal .window-modal__header {
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--window-modal-theme, #c45a4a) 22%, #f7f0ee) 0%,
+    #e6d8d5 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+}
+
+.debug-mode-warning-modal .window-modal__title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #1a1a1a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.debug-mode-warning-modal .window-modal__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 20px 8px;
+  text-align: center;
+}
+
+.debug-mode-warning-modal__badge {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 0 14px;
+  border-radius: 14px;
+  border-color: #8a2a22;
+  background: linear-gradient(180deg, #ff8f7a 0%, #e04838 48%, #a5281c 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -2px 3px rgba(80, 10, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.28);
+}
+
+.debug-mode-warning-modal__badge-mark {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  font-family: ui-rounded, 'SF Pro Display', system-ui, sans-serif;
+}
+
+.debug-mode-warning-modal__intent {
+  max-width: 36em;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #1a1a1a;
+  text-align: left;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.debug-mode-warning-modal__note {
+  max-width: 36em;
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #444;
+  text-align: left;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.debug-mode-warning-modal__command {
+  width: 100%;
+  max-width: 36em;
+  max-height: 140px;
+  overflow: auto;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.82);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.debug-mode-warning-modal__command code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #ffd9c4;
+}
+
+.debug-mode-warning-modal__hint {
+  margin: 0 0 6px;
+  max-width: 36em;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8a2a22;
+  text-align: left;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.debug-mode-warning-modal .window-modal__actions {
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  background: linear-gradient(180deg, #ececec 0%, #e0e0e0 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.debug-mode-warning-modal .window-modal__actions--pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.debug-mode-warning-modal .window-modal__btn {
+  min-height: 30px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}

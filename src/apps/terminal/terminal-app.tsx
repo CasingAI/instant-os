@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useAboutApp } from '../../os/about-app-context.tsx'
 import { aboutAppMenuPrefix } from '../../os/about-app-menu.ts'
 import { useAppMenuBar } from '../../os/menu-bar-context.tsx'
@@ -19,13 +19,59 @@ function menuCheckPrefix(active: boolean): string {
 }
 
 /** 系统终端：原生 QuickJS / Node 兼容运行时，可操作虚拟文件系统与宿主能力。 */
-export function TerminalApp() {
+export function TerminalApp({ windowId }: { windowId?: string }) {
   const { closeWindowsForApp, minimizeWindow, windows } = useOs()
   const { showBuiltinAbout } = useAboutApp()
   const handleRef = useRef<TerminalReplHandle | null>(null)
   const busyRef = useRef(false)
+  const bootCommandExecutedRef = useRef(false)
+  const mountedRef = useRef(true)
   const [fsMode, setFsMode] = useState<TerminalFsMode>('normal')
   const [canRevert, setCanRevert] = useState(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // Debug 模式注入的启动命令：等待 REPL 就绪后在实例上执行（仅一次）
+  const terminalWindow = useMemo(
+    () =>
+      windows.find((window) => window.id === windowId) ??
+      windows.find((window) => window.appId === APP_ID && !window.minimized),
+    [windowId, windows],
+  )
+  const bootCommand = terminalWindow?.bootCommand
+
+  useEffect(() => {
+    if (bootCommand === undefined || bootCommandExecutedRef.current) {
+      return
+    }
+
+    let timer: number | undefined
+
+    const tryRun = () => {
+      if (!mountedRef.current) {
+        return
+      }
+      const handle = handleRef.current
+      if (!handle) {
+        timer = window.setTimeout(tryRun, 50)
+        return
+      }
+      bootCommandExecutedRef.current = true
+      void handle.runCode(bootCommand, { source: 'program' }).catch(() => undefined)
+    }
+
+    timer = window.setTimeout(tryRun, 50)
+    return () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [bootCommand])
 
   const welcomeLines = useMemo(
     () => [

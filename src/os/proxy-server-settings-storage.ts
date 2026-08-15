@@ -1,5 +1,6 @@
 import { DEVICE_STORAGE_KEYS, writeLocalStorageItem } from './device-storage.ts'
 import { osOpenApp } from './os-open-app-bridge.ts'
+import { isDebugMode } from './debug-launch.ts'
 
 /**
  * 与 virtual-chromo 宿主 CORS relay 约定一致：`{base}/-----{absoluteTargetUrl}`。
@@ -58,7 +59,7 @@ export function normalizeProxyBaseUrl(raw: string): string {
 }
 
 /** 由 preset 解析当前 Worker origin；关闭或自定义无效时返回 undefined */
-export function resolveProxyBaseUrl(settings: ProxyServerSettings = loadProxyServerSettings()): string | undefined {
+function resolveStoredProxyBaseUrl(settings: ProxyServerSettings): string | undefined {
   if (settings.preset === 'off') {
     return undefined
   }
@@ -66,6 +67,35 @@ export function resolveProxyBaseUrl(settings: ProxyServerSettings = loadProxySer
     return PROXY_SERVER_SHARED_ORIGIN
   }
   return normalizeProxyBaseUrl(settings.customProxyBaseUrl) || undefined
+}
+
+/**
+ * Debug 模式下的代理解析：优先看 env `VITE_DEBUG_OPENAI_PROXY`（不写 localStorage）。
+ * - `off` / `0` / `false`：显式关闭，返回 undefined
+ * - `shared` / `on` / `1` / `true`：使用「Instant 共享」
+ * - 其他值：视为自定义 Worker URL（无效时兜底「Instant 共享」）
+ * - env 未设置：沿用已保存设置；未开启/无效时兜底「Instant 共享」
+ *   （Debug 默认走 OpenCode Go，强制经代理，需保证有可用的 Worker origin）
+ */
+function resolveDebugProxyBaseUrl(settings: ProxyServerSettings): string | undefined {
+  const raw = import.meta.env.VITE_DEBUG_OPENAI_PROXY?.trim()
+  if (raw !== undefined && raw !== '') {
+    if (raw === 'off' || raw === '0' || raw === 'false') {
+      return undefined
+    }
+    if (raw === 'shared' || raw === 'on' || raw === '1' || raw === 'true') {
+      return PROXY_SERVER_SHARED_ORIGIN
+    }
+    return normalizeProxyBaseUrl(raw) || PROXY_SERVER_SHARED_ORIGIN
+  }
+  return resolveStoredProxyBaseUrl(settings) ?? PROXY_SERVER_SHARED_ORIGIN
+}
+
+export function resolveProxyBaseUrl(settings: ProxyServerSettings = loadProxyServerSettings()): string | undefined {
+  if (isDebugMode()) {
+    return resolveDebugProxyBaseUrl(settings)
+  }
+  return resolveStoredProxyBaseUrl(settings)
 }
 
 function migrateV1(record: Record<string, unknown>): ProxyServerSettings {
