@@ -48,7 +48,7 @@ import { looksLikeLrc, parseLrc } from '../music/music-lyrics.ts'
 import type { LyricsLine, LyricsWord } from '../music/music-lyrics.ts'
 import { LyricsAnalysisDrawer } from './lyrics-analysis-drawer.tsx'
 import { patchLineIntoAlignedLrc } from './lyrics-analysis.ts'
-import { CLEAN_VERSION, cleanLyricsWithLlm } from './lyrics-llm-clean.ts'
+import { CLEAN_VERSION, cleanLyricsWithLlm, type CleanProgress } from './lyrics-llm-clean.ts'
 import { computeActiveWordIndex } from '../music/music-visualizer-math.ts'
 import {
   formatRecentTime,
@@ -261,6 +261,10 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const lyricsLrcRef = useRef<string | null>(null)
   /** 歌词对齐是否进行中 */
   const [alignBusy, setAlignBusy] = useState(false)
+  /** 对齐进行中的阶段：清洗歌词（LLM）/ 识别 vocals */
+  const [alignPhase, setAlignPhase] = useState<'clean' | 'recognize' | null>(null)
+  /** 清洗阶段流式进度：模型已输出/已思考的字数（AI 正在干活的感知） */
+  const [alignCleanProgress, setAlignCleanProgress] = useState<CleanProgress | null>(null)
   /** 歌词识别模型选择：zipformer（中文）/ sense-voice（五语），localStorage 记忆 */
   const [alignModel, setAlignModel] = useState<AlignModel>(() => {
     const raw = localStorage.getItem(ALIGN_MODEL_STORAGE_KEY)
@@ -770,15 +774,19 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   }, [])
 
   /** 确保歌词经过最新版本清洗：缓存命中（文本相同 + 版本最新）直接返回；否则 LLM 清洗并写缓存 */
-  const ensureLyricsCleaned = useCallback(async (lyricsText: string): Promise<string> => {
-    if (!lyricsText) return lyricsText
-    const cached = lyricsCleanRef.current
-    if (cached && cached.text === lyricsText && cached.version === CLEAN_VERSION) {
-      return cached.text
-    }
-    const cleaned = await cleanLyricsWithLlm(lyricsText)
-    lyricsCleanRef.current = { text: lyricsText, version: CLEAN_VERSION }
-    return cleaned
+  const ensureLyricsCleaned = useCallback(
+    async (
+      lyricsText: string,
+      onProgress?: (progress: CleanProgress) => void,
+    ): Promise<string> => {
+      if (!lyricsText) return lyricsText
+      const cached = lyricsCleanRef.current
+      if (cached && cached.text === lyricsText && cached.version === CLEAN_VERSION) {
+        return cached.text
+      }
+      const cleaned = await cleanLyricsWithLlm(lyricsText, onProgress)
+      lyricsCleanRef.current = { text: lyricsText, version: CLEAN_VERSION }
+      return cleaned
   }, [])
 
   /**
@@ -807,16 +815,28 @@ export function StemsApp({ windowId }: { windowId?: string }) {
   const alignVocals = useCallback(
     async (audio: Float32Array, sampleRate: number): Promise<boolean> => {
       const reqId = (alignReqSeqRef.current += 1)
-      // 对齐前确保歌词经过最新版本 LLM 清洗（文本未变但 CLEAN_VERSION 升级时自动重洗）
-      const lyricsText = await ensureLyricsCleaned(lyricsRef.current)
-      if (!lyricsText.trim()) {
-        setLyricsHint('请先提供歌词（粘贴或载入 .lrc 歌词文件）再对齐')
-        return false
-      }
+      // 立即进入 busy：先 LLM 清洗（可能是旧版本歌词），再识别 vocals，
+      // 避免点击对齐后 UI 无任何反馈的静默期
       setAlignBusy(true)
+      setAlignPhase('clean')
+      setAlignCleanProgress(null)
       setAlignProgress(null)
       setAlignError(null)
       setLyricsHint(null)
+      // 对齐前确保歌词经过最新版本 LLM 清洗（文本未变但 CLEAN_VERSION 升级时自动重洗）；
+      // 流式进度回传 UI，让用户看到 AI 正在输出
+      const lyricsText = await ensureLyricsCleaned(lyricsRef.current, (progress) => {
+        setAlignCleanProgress(progress)
+      })
+      if (!lyricsText.trim()) {
+        setAlignBusy(false)
+        setAlignPhase(null)
+        setAlignCleanProgress(null)
+        setLyricsHint('请先提供歌词（粘贴或载入 .lrc 歌词文件）再对齐')
+        return false
+      }
+      setAlignPhase('recognize')
+      setAlignCleanProgress(null)
       try {
         const modelId = alignModel === 'sense-voice' ? 'align-sense-voice' : 'align-zipformer'
 
@@ -956,7 +976,11 @@ export function StemsApp({ windowId }: { windowId?: string }) {
         setAlignError(cause instanceof Error ? cause.message : String(cause))
         return false
       } finally {
-        if (alignReqSeqRef.current === reqId) setAlignBusy(false)
+        if (alignReqSeqRef.current === reqId) {
+          setAlignBusy(false)
+          setAlignPhase(null)
+          setAlignCleanProgress(null)
+        }
       }
     },
     [alignModel, ensureLyricsCleaned],
@@ -2645,9 +2669,15 @@ export function StemsApp({ windowId }: { windowId?: string }) {
                 </IosButton>
                 <span class={`stems__lyrics-status${alignError ? ' stems__lyrics-status--error' : ''}`}>
                   {alignBusy
-                    ? alignProgress
-                      ? `识别 ${alignProgress.chunk}/${alignProgress.total}`
-                      : '加载模型…'
+                    ? alignPhase === 'clean'
+                      ? alignCleanProgress && alignCleanProgress.written > 0
+                        ? `清洗歌词… 已输出 ${alignCleanProgress.written} 字`
+                        : alignCleanProgress && alignCleanProgress.reasoning > 0
+                          ? `清洗歌词… 思考中 ${alignCleanProgress.reasoning} 字`
+                          : '清洗歌词…'
+                      : alignProgress
+                        ? `识别 ${alignProgress.chunk}/${alignProgress.total}`
+                        : '加载模型…'
                     : alignError
                       ? alignError
                       : lyricsHint

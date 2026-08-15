@@ -73,22 +73,40 @@ export function parseCleanResult(raw: string, originalLines: string[]): string |
   return out.join('\n')
 }
 
+/** 清洗进度：模型已输出的字数 / 已思考的字数（思考为可选中模型特性） */
+export type CleanProgress = {
+  written: number
+  reasoning: number
+}
+
 /**
  * LLM 清洗歌词：成功且行数一致 → 返回清洗结果；任何失败（网络/解析/行数不符）→
  * 回退规则清洗 stripLrcMarkup，不打断流程。usageContext 计入 AI 用量。
+ * onProgress 在 stream 期间持续回调（written/reasoning 为累计字数），
+ * 供 UI 展示「AI 正在干活」的进度感知。
  */
-export async function cleanLyricsWithLlm(lyrics: string): Promise<string> {
+export async function cleanLyricsWithLlm(
+  lyrics: string,
+  onProgress?: (progress: CleanProgress) => void,
+): Promise<string> {
   const fallback = stripLrcMarkup(lyrics).trim()
   if (!lyrics.trim()) return fallback
   try {
     // 动态 import：streamChatCompletion 依赖链含 .tsx（app-registry），
     // 顶层静态 import 会让纯函数单测在 node 下加载失败
     const { streamChatCompletion } = await import('../../ai/stream-chat.ts')
+    let reasoning = 0
     const text = await streamChatCompletion({
       system: buildCleanSystemPrompt(),
       user: buildCleanUserMessage(lyrics),
       usageContext: { actor: 'stems', behavior: 'clean-lyrics', behaviorLabel: '清洗歌词' },
-      onChunk: () => {},
+      onChunk: (_delta, accumulated) => {
+        onProgress?.({ written: accumulated.length, reasoning })
+      },
+      onReasoningChunk: (_delta, accumulated) => {
+        reasoning = accumulated.length
+        onProgress?.({ written: 0, reasoning })
+      },
     })
     const parsed = parseCleanResult(text, lyrics.split(/\r?\n/))
     if (parsed === null) {
