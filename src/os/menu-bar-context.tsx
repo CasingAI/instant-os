@@ -19,7 +19,9 @@ function leafItemSignature(item: MenuItemLeaf): string | [string, boolean, strin
   return [item.label, item.disabled ?? false, item.shortcut ?? '', item.checked ?? false]
 }
 
-function menuItemSignature(item: MenuItem): string | [string, boolean, string] | [string, 'submenu', unknown[]] {
+function menuItemSignature(
+  item: MenuItem,
+): string | [string, boolean, string, boolean] | [string, 'submenu', unknown[]] {
   if (item.type === 'submenu') {
     return [item.label, 'submenu', item.items.map(leafItemSignature)]
   }
