@@ -2301,6 +2301,12 @@ export function StemsApp({ windowId }: { windowId?: string }) {
    * 指针漂移到行间间隙 / 轨道名 / 控制按钮等任意区域时捏合依然生效。
    * ratio 以波形列（第一个 waveWrap）为横向基准，所有轨行网格列宽一致，
    * 指针 x 落在波形列范围内时锚点精确，落在列外时 clamp 到两端。
+   *
+   * 依赖必须同时含 tracks：容器随 tracks 从无到有挂载（分轨完成 / 存档载入 /
+   * 换歌），而 handleWheelZoom 只随 view/duration 变化——两者不同步时监听器
+   * 会漏绑（全新分轨后 effect 已跑过但 node 为 null 跳过，后续 view 不变则
+   * 不再重跑），导致捏合被 document 级 ctrl+wheel 拦截、缩放完全失灵，
+   * 直到缩放条改变 view 触发重绑才恢复。
    */
   useEffect(() => {
     const node = tracksBoxRef.current
@@ -2316,7 +2322,7 @@ export function StemsApp({ windowId }: { windowId?: string }) {
     }
     node.addEventListener('wheel', handler, { passive: false })
     return () => node.removeEventListener('wheel', handler)
-  }, [handleWheelZoom])
+  }, [handleWheelZoom, tracks])
 
   /** 松手/键盘确认：播放中从目标位置重新播，暂停中仅保留位置。 */
   const finalizeSeek = useCallback(
